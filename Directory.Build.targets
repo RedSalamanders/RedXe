@@ -5,7 +5,8 @@
     <RedXeVcpkgRuntimeDir Condition="'$(Configuration)'!='Debug'">$(VcpkgInstalledDir)$(RedXeVcpkgTriplet)\bin\</RedXeVcpkgRuntimeDir>
   </PropertyGroup>
 
-  <Target Name="CopyRedXeRuntimeDependencies" AfterTargets="Link" Condition="'$(MSBuildProjectExtension)'=='.vcxproj'">
+  <Target Name="CopyRedXeRuntimeDependencies" AfterTargets="Link"
+          Condition="'$(MSBuildProjectExtension)'=='.vcxproj' and '$(MSBuildProjectName)'=='RedXe'">
     <ItemGroup>
       <RedXeRuntimeDependency Include="$(RedXeVcpkgRuntimeDir)yyjson.dll" />
     </ItemGroup>

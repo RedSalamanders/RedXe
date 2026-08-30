@@ -240,24 +240,38 @@ int Application::Run(int showCommand, bool selfTest) noexcept
         }
     }
 
-    result = _renderer.Initialize(_window.get(), _forceWarp, settings.rotationRadiansPerSecond);
+    result = _pluginManager.Initialize(settings.rotatingTriangleInstances, selfTest);
+    if (FAILED(result))
+    {
+        OutputDebugStringW(L"Bundled rotating-triangle plugin initialization failed.\n");
+        return 3;
+    }
+
+    result = _renderer.Initialize(_window.get(), _forceWarp, _pluginManager);
     if (FAILED(result))
     {
         OutputDebugStringW(L"Renderer initialization failed.\n");
-        return 3;
+        return 4;
     }
     _rendererReady = true;
 
     if (selfTest)
     {
-        result = _renderer.Render(0.0f);
-        return SUCCEEDED(result) ? 0 : 4;
+        result = _renderer.Render(0.0f, 0.0f);
+        if (FAILED(result) || _renderer.LastFrameWidgetCount() != settings.rotatingTriangleInstances ||
+            _renderer.LastFrameSuccessfulWidgetCount() != settings.rotatingTriangleInstances)
+        {
+            OutputDebugStringW(L"The plugin widget smoke frame did not render every configured instance.\n");
+            return 5;
+        }
+        return 0;
     }
 
     ShowWindow(_window.get(), showCommand);
     UpdateWindow(_window.get());
 
     const auto startTime = std::chrono::steady_clock::now();
+    float previousElapsedSeconds = 0.0f;
     MSG message{};
     while (_window)
     {
@@ -277,7 +291,10 @@ int Application::Run(int showCommand, bool selfTest) noexcept
         }
 
         const std::chrono::duration<float> elapsed = std::chrono::steady_clock::now() - startTime;
-        result = _renderer.Render(elapsed.count());
+        const float elapsedSeconds = elapsed.count();
+        const float deltaSeconds = elapsedSeconds - previousElapsedSeconds;
+        previousElapsedSeconds = elapsedSeconds;
+        result = _renderer.Render(elapsedSeconds, deltaSeconds);
         if (FAILED(result))
         {
             _runtimeFailure = result;

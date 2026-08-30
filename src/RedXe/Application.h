@@ -1,5 +1,6 @@
 #pragma once
 
+#include "PluginManager.h"
 #include "Renderer.h"
 
 #include <windows.h>
@@ -34,6 +35,7 @@ class Application final
 
     HINSTANCE _instance = nullptr;
     wil::unique_hwnd _window;
+    PluginManager _pluginManager;
     Renderer _renderer;
     bool _forceWarp = false;
     bool _classRegistered = false;

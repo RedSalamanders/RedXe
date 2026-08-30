@@ -1,8 +1,8 @@
 # RFC: Plugin-driven XENEON dashboard architecture
 
-Status: `DECISION` — non-normative proposal  
-Created: 2026-08-30  
-Owner: RedXe plugin, settings, dashboard, and rendering architecture  
+Status: `IMPLEMENTING` — non-normative proposal
+Created: 2026-08-30
+Owner: RedXe plugin, settings, dashboard, and rendering architecture
 Reference: RedSalamander native factory, COM interface, schema, and host-service model
 
 ## Purpose
@@ -18,6 +18,19 @@ This RFC is an active decision record, not shipped behavior. Approved requiremen
 - `Specs/UI/UI_Dashboard.md`;
 - the corresponding validation contracts.
 
+## Implementation checkpoint
+
+The first executable slice is now frozen normatively in `Specs/Plugins/Plugins_API.md`:
+
+- direct factory creation and metadata enumeration;
+- the initial provider, widget, sink, and standard frame-builder IIDs;
+- one validated normalized triangle command;
+- the bundled `builtin.rotating-triangle` DLL;
+- multiple independent instances hosted through per-widget D3D11 viewports.
+
+The broader data, configuration, advanced GPU, native-window, settings UI, and dashboard model remain proposals in
+this RFC until implemented and moved into their owning normative contracts.
+
 ## Decisions
 
 The first implementation uses these decisions:
@@ -26,11 +39,14 @@ The first implementation uses these decisions:
 2. `RedXeCreate` directly returns the requested COM interface. There is no generic `IRedXePlugin` root.
 3. The host asks for the newest IID it supports and falls back to an older IID only after `E_NOINTERFACE`.
 4. Data providers and widget providers are separate interfaces. One logical plugin may expose either or both.
-5. RedXe owns the window, pages, settings, Direct3D resources, and final rendering.
+5. RedXe owns the window, pages, settings, swap chain, immediate D3D context, D3D composition, and presentation.
 6. Plugin DLL additions, removals, updates, and enable-state changes require restart in v1. RedXe does not hot-unload
    modules.
-7. Widget rendering is display-only in the first milestone. Input interfaces are added only when a concrete widget
-   needs them.
+7. Standard and advanced GPU widgets are display-only in the first milestone. A native-window widget may receive
+   ordinary child-window focus and input inside its bounds while RedXe retains application and page commands.
+8. Ordinary widgets use host-owned drawing commands. An optional advanced interface records D3D11 work on a dedicated
+   deferred context into a host-provided per-widget target.
+9. A third optional interface hosts a native child-window surface for GDI, native controls, media hosts, or WebView2.
 
 ## Scope
 
@@ -48,9 +64,9 @@ The first implementation must support:
 The first implementation does not provide:
 
 - iCUE binary compatibility;
-- an HTML or scripting runtime;
+- a RedXe-owned HTML or scripting runtime; a plugin may host an existing runtime such as WebView2;
 - process isolation for untrusted plugins;
-- direct plugin access to the swap chain or mutable D3D context;
+- plugin access to the swap chain or immediate D3D context;
 - runtime DLL replacement or hot unload;
 - inline storage of passwords, tokens, or other secrets.
 
@@ -59,12 +75,14 @@ The first implementation does not provide:
 | Concern | Owner |
 | --- | --- |
 | XENEON discovery, window mode, DPI, and HWND | `Application` |
-| Direct3D device, swap chain, targets, and presentation | `Renderer` |
+| Direct3D device, swap chain, immediate context, D3D composition, and presentation | `Renderer` |
 | DLL discovery, catalog, creation, and diagnostics | `PluginManager` |
 | Channel catalog, latest values, and coalescing | `DataBroker` |
 | Pages, layout, style inheritance, and placeholders | `DashboardHost` |
+| Native widget container geometry, visibility, DPI, and z-layer | `DashboardHost` |
 | Data acquisition and channel meaning | Data-provider plugin |
-| Widget types, options, and drawing commands | Widget-provider plugin |
+| Widget types, options, drawing commands, or deferred GPU recording | Widget-provider plugin |
+| GDI, native-control, media, or WebView2 child content | Native-window widget plugin |
 | Settings persistence and configuration UI | RedXe host |
 
 Plugins never own the top-level window, message loop, display policy, settings window, or D3D device lifecycle.
@@ -208,11 +226,13 @@ begin and every in-flight callback has completed.
 1. enumerates widget type descriptors into a host sink;
 2. creates an isolated widget instance from a type ID and instance ID.
 
-A widget descriptor contains its stable type ID, localized labels, default/minimum size, binding schema, and
-configuration schema. A widget instance accepts configuration and builds one frame through a host-owned frame builder.
+A widget descriptor contains its stable type ID, localized labels, default/minimum size, binding schema,
+configuration schema, rendering path, and whether it needs continuous animation. A widget instance accepts
+configuration and renders through the standard frame builder, advanced GPU interface, or native-window interface.
 
-The widget receives resolved bound values and dimensions for its own local canvas. It never receives the swap chain,
-render target, mutable D3D context, or an HWND.
+Every widget receives resolved bound values, frame timing, and dimensions for its own local canvas. Standard and GPU
+widgets never receive an HWND. A native-window widget receives only its host-owned child container, never the RedXe
+top-level HWND.
 
 ### Host services
 
@@ -227,15 +247,92 @@ belong in the normative API spec, not this architecture RFC.
 
 ## Rendering boundary
 
-Widgets emit a small set of normalized commands into `IRedXeFrameBuilder`: rectangles, text, icons/images, progress
-bars, simple gauges, and clip push/pop. Command request records use `sizeBytes`, widget-local coordinates, and borrowed
-strings valid only for the call.
+RedXe provides three rendering paths. They share widget bounds, bound values, elapsed/delta time, page visibility, and
+failure handling. Standard and advanced GPU widgets also share D3D clipping, opacity, and composition order.
 
-The frame builder is valid only during `BuildFrame` and must not be retained. The renderer validates and executes the
-commands, owns all GPU resources, and handles resize and device loss.
+### Standard frame builder
 
-The exact command record layouts are frozen in `Specs/Plugins/Plugins_API.md` before implementation. They are not
-speculated in this RFC.
+The default path emits normalized commands into `IRedXeFrameBuilder`: rectangles, text, icons/images, progress bars,
+simple gauges, and clip push/pop. Command records use `sizeBytes`, widget-local coordinates, and borrowed strings valid
+only for the call.
+
+This path is valuable because most dashboard widgets do not need custom shaders. It gives them shared text, theme,
+DPI, clipping, asset, validation, device-loss, and WARP behavior without duplicating renderer code in every DLL. It is
+also straightforward to inspect and test deterministically.
+
+Standard widgets can still animate. The host supplies elapsed and delta time on every requested frame, and a widget
+descriptor may request continuous frames while its page is active. The widget changes its emitted commands each frame.
+
+### Advanced D3D11 widget
+
+A widget that needs custom shaders, particles, meshes, video textures, compute work, or multipass effects may expose
+`IRedXeGpuWidget` through `QueryInterface`.
+
+Each widget type descriptor selects one rendering path. An advanced type must expose `IRedXeGpuWidget`, a native type
+must expose `IRedXeWindowWidget`, and a standard type uses `IRedXeFrameBuilder`. The host does not switch paths
+implicitly from frame to frame.
+
+For each advanced frame, the host supplies borrowed access to:
+
+- the host-owned `ID3D11Device`;
+- a dedicated `ID3D11DeviceContext` created as a deferred context;
+- a widget-sized offscreen render target and viewport;
+- frame timing, DPI, bound values, and target format information.
+
+The plugin may create and own its shaders, buffers, textures, and pipeline state. It records commands on the deferred
+context only. After the callback returns, the host closes the command list, executes it on the immediate context with
+host state restoration, and composites the widget target into the dashboard.
+
+The plugin never receives the swap chain, back buffer, or immediate context. It must not retain the deferred context,
+offscreen target, or frame data after the callback. Explicit device-created and device-lost notifications let it
+release and rebuild its own device-dependent resources. An advanced widget declares its minimum feature requirements;
+unsupported devices produce a host-owned diagnostic placeholder.
+
+This boundary protects host composition and state from accidental interference while preserving essentially full
+D3D11 shader and animation capability. It is a correctness boundary for trusted in-process plugins, not a security
+boundary.
+
+### Native-window widget
+
+A widget that needs GDI painting, native child controls, an existing HWND-based media host, or WebView2 may expose
+`IRedXeWindowWidget` through `QueryInterface` and declare the native-window rendering path.
+
+The host creates and owns a `WS_CHILD` container HWND for the widget. On the RedXe UI thread it attaches the plugin to
+that borrowed container and reports size, DPI, visibility, and bound-value changes. The plugin may paint with GDI or
+create child HWNDs and a WebView2 controller inside the container.
+
+Ownership and lifetime are strict:
+
+- `DashboardHost` owns the container with `wil::unique_hwnd`.
+- The plugin owns every child HWND, controller, COM object, and graphics resource it creates.
+- Attach, resize/DPI notification, visibility notification, and detach occur on the RedXe UI thread.
+- Before detach returns, the plugin stops callbacks, releases WebView2/media controllers, and resets every owned child
+  HWND. The host resets its container only after detach completes.
+- The plugin does not subclass, retain, or send private messages to the RedXe top-level window.
+
+The host converts the widget's 2560×720 design-canvas bounds to destination-monitor physical pixels and positions the
+container. Page changes hide or show the container. Per-Monitor-V2 DPI changes reposition the container and notify the
+plugin after the top-level client size is corrected.
+
+Native child windows are composed by Windows above the parent's D3D client surface. They can be ordered relative to
+other native-window widgets, but they cannot be arbitrarily interleaved or alpha-composited with standard or GPU
+widgets. A widget needing transparent composition, rotation, shader effects, or D3D-layer z-order uses the standard
+or advanced GPU path instead.
+
+Native-window widgets receive ordinary mouse, keyboard, focus, accessibility, and IME behavior through their child
+windows. RedXe retains global application commands, page switching, container placement, and editor selection. Exact
+focus traversal and shortcut precedence are frozen in the dashboard UI contract before implementation.
+
+WebView2 is plugin-owned and optional. A missing runtime, blocked navigation, or controller failure produces a
+host-owned diagnostic placeholder. Navigation, script, download, permission, and network policy require a separate
+WebView security contract before a bundled web widget ships.
+
+The standard frame builder is valid only during `BuildFrame` and must not be retained. For D3D paths, the host always
+owns resize, device-loss recovery, final composition, and presentation. For the native-window path, the host owns
+container placement and visibility while Windows composes the child-window layer.
+
+The exact standard command records, advanced-frame interface, and native-window lifecycle interface are frozen in
+`Specs/Plugins/Plugins_API.md` before implementation. They are not speculated further in this RFC.
 
 ## Settings model
 
@@ -340,11 +437,13 @@ Custom DLLs run with the user's authority. The settings UI states this clearly.
 ## Threading and failure
 
 - Factory, enumeration, configuration, widget creation, and `BuildFrame` run on host-defined non-reentrant threads.
+- Native-window attach, resize, DPI, visibility, focus, and detach calls run on the RedXe UI thread.
 - Data publication is the only v1 callback allowed from plugin worker threads.
 - The host copies callback data and coalesces it before touching dashboard or renderer state.
 - `BuildFrame` consumes cached state and does not perform hardware, network, disk, process, or long-lock work.
 - Exceptions never cross an exported function, COM method, callback, or Win32 boundary.
 - A failed widget renders a host-owned error placeholder without stopping other widgets.
+- A failed native-window widget is detached and its container is replaced by the same host-owned placeholder.
 - A failed provider marks its channels unavailable and may retry with bounded backoff.
 - An in-process access violation cannot be isolated; untrusted plugins require a future process boundary.
 
@@ -354,18 +453,56 @@ RedXe does not unload plugin modules at runtime in v1. On process shutdown it:
 
 1. stops accepting new dashboard work;
 2. calls `StopPublishing` and waits for callback quiescence;
-3. releases widget, provider, configuration, sink, and host-service references;
-4. calls optional `RedXePluginShutdown` once per loaded module;
-5. leaves DLL unloading to process teardown.
+3. detaches native-window widgets and destroys their plugin-owned children before resetting host containers;
+4. releases widget, provider, configuration, sink, and host-service references;
+5. calls optional `RedXePluginShutdown` once per loaded module;
+6. leaves DLL unloading to process teardown.
 
-No plugin callback may occur after its stop operation completes.
+No plugin callback may occur after its provider stop or native-window detach operation completes.
+
+## Repository layout
+
+Public plugin contracts live under `Common/PlugInterfaces/`, matching RedSalamander. They do not live under
+`src/RedXe/` because the host, bundled plugins, third-party plugin projects, tests, and reusable helpers are equal
+consumers of the ABI.
+
+```text
+Common/
+  PlugInterfaces/
+    Factory.h
+    FactoryImpl.h
+    Host.h
+    Configuration.h
+    DataProvider.h
+    Widget.h
+    GpuWidget.h
+    WindowWidget.h
+  PluginSupport/
+    reusable non-ABI helpers added when concrete plugin implementations share them
+src/RedXe/
+  PluginManager.*
+  DataBroker.*
+  DashboardModel.*
+  DashboardHost.*
+  Renderer.*
+Plugins/
+  bundled plugin projects
+```
+
+`Common/PlugInterfaces/` contains dependency-light ABI declarations and the shared factory implementation only. Its
+public boundary does not expose STL containers, exceptions, allocators, WIL owners, or yyjson document pointers.
+
+`Common/PluginSupport/` may use WIL, yyjson, and ordinary C++ to reduce repeated implementation work. Those helpers are
+source-level conveniences, not part of the binary contract, and are added only when a concrete implementation is
+shared by more than one plugin.
 
 ## Implementation sequence
 
 ### 1. Public contract and dummy plugin
 
-- Freeze factory signatures, metadata, record prefixes, IIDs, HRESULT behavior, ownership, and threading.
-- Add a shared factory helper and a dummy DLL exposing data and widget logical plugins.
+- Create `Common/PlugInterfaces/` and freeze factory signatures, metadata, record prefixes, IIDs, HRESULT behavior,
+  ownership, and threading.
+- Add `FactoryImpl.h` plus a dummy DLL exposing data and widget logical plugins.
 - Add x64 and ARM64 ABI tests.
 
 ### 2. Settings and data broker
@@ -375,8 +512,11 @@ No plugin callback may occur after its stop operation completes.
 
 ### 3. Widget host and renderer bridge
 
-- Implement page layout, binding resolution, widget instances, and the validated frame builder.
-- Extend the WARP smoke test with a deterministic multi-widget page.
+- Implement page layout, binding resolution, widget instances, and the validated standard frame builder.
+- Implement the optional deferred-context GPU path with per-widget targets and device-loss callbacks.
+- Implement the native-window container path with UI-thread attach/detach, DPI, focus, and page visibility.
+- Extend the WARP smoke test with deterministic standard and advanced widgets; validate native-window widgets in a
+  separate HWND smoke test.
 
 ### 4. Settings UI and bundled plugins
 
@@ -393,16 +533,22 @@ No plugin callback may occur after its stop operation completes.
 - Settings parsing, migration, atomic save, unknown plugin member preservation, and unresolved-widget round trip.
 - Schema field rendering and Apply/Cancel behavior.
 - Provider flood/coalescing, stale/unavailable/error values, and bounded memory.
-- Widget clipping, invalid commands, missing assets, frame failure, resize, and device loss.
+- Standard-widget animation, clipping, invalid commands, missing assets, and frame failure.
+- Advanced-widget command-list isolation, feature-level rejection, resize, target recreation, and device loss.
+- Native-window attach/detach ordering, child-HWND destruction, page visibility, z-layer limits, focus, resize, and
+  Per-Monitor-V2 DPI transitions.
+- GDI painting and WebView2 missing-runtime/controller-failure placeholders.
 - WARP rendering without a hardware GPU and live 2560×720 XENEON validation.
 - Representative 60 Hz dashboard frame timing and startup/module-load measurements.
 
 ## Remaining details before implementation
 
-1. Assign the initial IIDs and freeze exact method/record layouts.
-2. Choose the settings file location, portable mode, command-line override, and recovery policy.
-3. Freeze the first frame-builder command set and asset-handle rules.
+1. Choose the settings file location, portable mode, command-line override, and recovery policy.
+2. Expand the standard frame builder beyond its initial triangle command as concrete widgets require primitives.
+3. Freeze the advanced D3D11 and native-window interfaces plus their resource/lifetime rules.
 4. Define the bounded channel-history policy needed by graph widgets.
+5. Define native-window focus/shortcut precedence and WebView2 security policy before shipping an interactive web
+   widget.
 
 These details do not change the direct-factory architecture.
 
@@ -412,7 +558,8 @@ This RFC moves to `Specs/Plans/Done/` only after:
 
 - the remaining details are resolved in normative contracts;
 - public headers and shared factory tests match those contracts;
-- one multi-plugin DLL, one data provider, and multiple widget types use the interface;
+- one multi-plugin DLL, one data provider, standard widgets, one advanced GPU widget, and one native-window fixture use
+  the interface;
 - settings recreate a multi-page dashboard including unresolved-plugin placeholders;
 - x64/ARM64 ABI, WARP, live XENEON, teardown, and performance validation pass;
 - durable requirements are merged into the owning domain specs and the WIP index is updated.

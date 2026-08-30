@@ -54,6 +54,7 @@ durable.
 | Domain | Start with |
 | --- | --- |
 | UI, display, windowing, and DPI | [`UI/UI_XeneonDisplayWindowing.md`](UI/UI_XeneonDisplayWindowing.md) |
+| Native plugins and standard widgets | [`Plugins/Plugins_API.md`](Plugins/Plugins_API.md) |
 
 ## Specification validation
 

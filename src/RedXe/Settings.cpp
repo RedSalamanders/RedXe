@@ -1,7 +1,6 @@
 #include "Settings.h"
 
 #include <array>
-#include <cmath>
 #include <cstring>
 
 #pragma warning(push)
@@ -16,7 +15,7 @@ namespace
 using unique_yyjson_doc = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
 
 constexpr char kDefaultSettings[] = R"json({
-  "rotationRadiansPerSecond": 0.72
+  "rotatingTriangleInstances": 4
 })json";
 } // namespace
 
@@ -33,18 +32,18 @@ HRESULT LoadDefaultSettings(AppSettings& settings) noexcept
     }
 
     yyjson_val* root = yyjson_doc_get_root(document.get());
-    yyjson_val* rotation = yyjson_obj_get(root, "rotationRadiansPerSecond");
-    if (!yyjson_is_num(rotation))
+    yyjson_val* instanceCount = yyjson_obj_get(root, "rotatingTriangleInstances");
+    if (!yyjson_is_uint(instanceCount))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    const double value = yyjson_get_num(rotation);
-    if (!std::isfinite(value) || value <= 0.0 || value > 100.0)
+    const std::uint64_t value = yyjson_get_uint(instanceCount);
+    if (value < 2 || value > 8)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    settings.rotationRadiansPerSecond = static_cast<float>(value);
+    settings.rotatingTriangleInstances = static_cast<std::uint32_t>(value);
     return S_OK;
 }

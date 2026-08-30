@@ -33,6 +33,7 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 | [spec-workflow](.agents/skills/spec-workflow/SKILL.md) | Normative specs, reconciliation, active plans, and closeout |
 | [build-redxe](.agents/skills/build-redxe/SKILL.md) | Building, cleaning, running, and smoke-testing |
 | [direct3d11-rendering](.agents/skills/direct3d11-rendering/SKILL.md) | Device, swap-chain, pipeline, rendering, resize, and device loss |
+| [plugin-development](.agents/skills/plugin-development/SKILL.md) | Native plugin ABI, factories, loading, widget instances, and bundled DLLs |
 | [win32-windowing](.agents/skills/win32-windowing/SKILL.md) | Window creation, message routing, DPI, and lifetime |
 | [modern-cpp-windows](.agents/skills/modern-cpp-windows/SKILL.md) | C++ ownership, HRESULT handling, warnings, and source style |
 | [wil-raii](.agents/skills/wil-raii/SKILL.md) | Windows handles, COM interfaces, and unconditional cleanup |
@@ -43,6 +44,8 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 - Start with [`Specs/README.md`](Specs/README.md), then read the owning domain spec. XENEON display, window, fallback,
   fullscreen, and DPI behavior is owned by
   [`Specs/UI/UI_XeneonDisplayWindowing.md`](Specs/UI/UI_XeneonDisplayWindowing.md).
+- Native factory, standard widget, bundled plugin, and plugin-lifetime behavior is owned by
+  [`Specs/Plugins/Plugins_API.md`](Specs/Plugins/Plugins_API.md).
 - Domain specs describe current behavior. `Specs/Plans/WIP/` is non-normative active work and
   `Specs/Plans/Done/` is historical context.
 - Small settled changes may update the spec, implementation, and validation directly. Multi-step, risky, or undecided
@@ -55,14 +58,22 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 ## Architecture
 
 ```text
+Common/PlugInterfaces/
+  Factory.*        Stable factory ABI and shared factory implementation
+  Host.h           Host-service COM root
+  Widget.h         Standard widget ABI and frame commands
+Plugins/
+  RotatingTriangle/ First bundled widget-provider DLL
 src/RedXe/
   Main.cpp          Process setup and command-line modes
   Application.*     Win32 window and message-loop lifetime
+  PluginManager.*   Plugin loading, providers, instances, and placements
   Renderer.*        Direct3D 11 device, swap chain, pipeline, and frames
   Settings.*        yyjson-backed application settings
   app.manifest      Per-monitor-v2 DPI and Windows compatibility metadata
 Specs/
   README.md         Specification authority and plan workflow
+  Plugins/          Normative native plugin and widget behavior
   UI/               Normative display and windowing behavior
   Plans/WIP/        Non-normative active plans
   Plans/Done/       Historical completed plans
@@ -71,7 +82,9 @@ Specs/
 Keep the boundary explicit:
 
 - `Application` owns the HWND and translates messages into narrow operations.
+- `PluginManager` owns plugin modules, provider/widget COM references, and design-canvas placements.
 - `Renderer` owns all COM graphics resources and has no message-dispatch logic.
+- Standard plugins emit validated commands and never receive the HWND, D3D device/context, swap chain, or back buffer.
 - Device-independent state survives swap-chain recreation; device resources are rebuilt together after device loss.
 
 ## Build and validation

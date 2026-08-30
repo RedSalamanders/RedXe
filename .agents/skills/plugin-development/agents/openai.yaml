@@ -1,0 +1,3 @@
+interface:
+  display_name: "Plugin Development"
+  short_description: "Build RedXe plugin interfaces and widget DLLs"

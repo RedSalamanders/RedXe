@@ -1,7 +1,10 @@
 #include "Renderer.h"
 
+#include "PluginManager.h"
+
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <d3dcompiler.h>
 #include <string_view>
@@ -9,11 +12,6 @@
 namespace
 {
 constexpr std::string_view kShaderSource = R"(
-cbuffer FrameConstants : register(b0)
-{
-    float4 transform;
-};
-
 struct VertexInput
 {
     float2 position : POSITION;
@@ -29,10 +27,7 @@ struct PixelInput
 PixelInput VertexMain(VertexInput input)
 {
     PixelInput output;
-    const float2 rotated = float2(
-        input.position.x * transform.x - input.position.y * transform.y,
-        input.position.x * transform.y + input.position.y * transform.x);
-    output.position = float4(rotated.x * transform.z, rotated.y * transform.w, 0.0f, 1.0f);
+    output.position = float4(input.position, 0.0f, 1.0f);
     output.color = input.color;
     return output;
 }
@@ -65,16 +60,59 @@ HRESULT CompileShader(std::string_view entryPoint, std::string_view profile,
 }
 } // namespace
 
-HRESULT Renderer::Initialize(HWND window, bool forceWarp, float rotationRadiansPerSecond) noexcept
+Renderer::Renderer() noexcept : _frameBuilder(*this) {}
+
+Renderer::FrameBuilder::FrameBuilder(Renderer& renderer) noexcept : _renderer(renderer) {}
+
+HRESULT Renderer::FrameBuilder::QueryInterface(REFIID interfaceId, void** result) noexcept
 {
-    if (!window || !std::isfinite(rotationRadiansPerSecond) || rotationRadiansPerSecond <= 0.0f)
+    if (!result)
+    {
+        return E_POINTER;
+    }
+    *result = nullptr;
+    if (interfaceId == __uuidof(IUnknown) || interfaceId == __uuidof(IRedXeFrameBuilder))
+    {
+        *result = static_cast<IRedXeFrameBuilder*>(this);
+        AddRef();
+        return S_OK;
+    }
+    return E_NOINTERFACE;
+}
+
+ULONG Renderer::FrameBuilder::AddRef() noexcept
+{
+    return 2;
+}
+
+ULONG Renderer::FrameBuilder::Release() noexcept
+{
+    return 1;
+}
+
+HRESULT Renderer::FrameBuilder::DrawTriangle(const RedXeTriangleCommand* command) noexcept
+{
+    if (!command)
+    {
+        return E_POINTER;
+    }
+    if (command->sizeBytes < offsetof(RedXeTriangleCommand, reserved))
+    {
+        return E_INVALIDARG;
+    }
+    return _renderer.DrawTriangle(*command);
+}
+
+HRESULT Renderer::Initialize(HWND window, bool forceWarp, PluginManager& pluginManager) noexcept
+{
+    if (!window || pluginManager.WidgetCount() == 0)
     {
         return E_INVALIDARG;
     }
 
     _window = window;
     _forceWarp = forceWarp;
-    _rotationRadiansPerSecond = rotationRadiansPerSecond;
+    _pluginManager = &pluginManager;
     return CreateDeviceResources();
 }
 
@@ -237,30 +275,12 @@ HRESULT Renderer::CreatePipeline() noexcept
         return result;
     }
 
-    constexpr std::array vertices{
-        Vertex{{0.0f, 0.72f}, {1.0f, 0.2f, 0.16f, 1.0f}},
-        Vertex{{0.68f, -0.52f}, {0.15f, 0.9f, 0.35f, 1.0f}},
-        Vertex{{-0.68f, -0.52f}, {0.18f, 0.45f, 1.0f, 1.0f}},
-    };
-
     D3D11_BUFFER_DESC vertexDescription{};
-    vertexDescription.ByteWidth = static_cast<UINT>(sizeof(vertices));
-    vertexDescription.Usage = D3D11_USAGE_IMMUTABLE;
+    vertexDescription.ByteWidth = sizeof(RedXeColorVertex) * 3;
+    vertexDescription.Usage = D3D11_USAGE_DYNAMIC;
     vertexDescription.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    D3D11_SUBRESOURCE_DATA vertexData{};
-    vertexData.pSysMem = vertices.data();
-    result = _device->CreateBuffer(&vertexDescription, &vertexData, _vertexBuffer.put());
-    if (FAILED(result))
-    {
-        return result;
-    }
-
-    D3D11_BUFFER_DESC constantDescription{};
-    constantDescription.ByteWidth = sizeof(FrameConstants);
-    constantDescription.Usage = D3D11_USAGE_DYNAMIC;
-    constantDescription.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    constantDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    return _device->CreateBuffer(&constantDescription, nullptr, _frameConstants.put());
+    vertexDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    return _device->CreateBuffer(&vertexDescription, nullptr, _vertexBuffer.put());
 }
 
 HRESULT Renderer::CreateRenderTarget(UINT width, UINT height) noexcept
@@ -327,68 +347,134 @@ HRESULT Renderer::Resize(UINT width, UINT height) noexcept
     return CreateRenderTarget(width, height);
 }
 
-HRESULT Renderer::Render(float elapsedSeconds) noexcept
+HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
 {
+    _lastFrameWidgetCount = 0;
+    _lastFrameSuccessfulWidgetCount = 0;
     if (_suspended)
     {
         return S_OK;
     }
-    if (!_context || !_swapChain || !_renderTarget)
+    if (!_context || !_swapChain || !_renderTarget || !_pluginManager || !std::isfinite(elapsedSeconds) ||
+        !std::isfinite(deltaSeconds) || elapsedSeconds < 0.0f || deltaSeconds < 0.0f)
     {
         return E_UNEXPECTED;
     }
-
-    FrameConstants constants{};
-    const float angle = elapsedSeconds * _rotationRadiansPerSecond;
-    constants.cosine = std::cos(angle);
-    constants.sine = std::sin(angle);
-    constants.scaleX = 1.0f;
-    constants.scaleY = 1.0f;
-    if (_width > _height)
-    {
-        constants.scaleX = static_cast<float>(_height) / static_cast<float>(_width);
-    }
-    else if (_height > _width)
-    {
-        constants.scaleY = static_cast<float>(_width) / static_cast<float>(_height);
-    }
-
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    HRESULT result = _context->Map(_frameConstants.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-    if (IsDeviceLost(result))
-    {
-        return RecoverDevice();
-    }
-    if (FAILED(result))
-    {
-        return result;
-    }
-    std::memcpy(mapped.pData, &constants, sizeof(constants));
-    _context->Unmap(_frameConstants.get(), 0);
 
     constexpr std::array clearColor{0.025f, 0.035f, 0.075f, 1.0f};
     ID3D11RenderTargetView* renderTargets[] = {_renderTarget.get()};
     _context->OMSetRenderTargets(1, renderTargets, nullptr);
     _context->ClearRenderTargetView(_renderTarget.get(), clearColor.data());
 
-    constexpr UINT stride = sizeof(Vertex);
+    constexpr UINT stride = sizeof(RedXeColorVertex);
     constexpr UINT offset = 0;
     ID3D11Buffer* vertexBuffers[] = {_vertexBuffer.get()};
-    ID3D11Buffer* constantBuffers[] = {_frameConstants.get()};
     _context->IASetInputLayout(_inputLayout.get());
     _context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     _context->IASetVertexBuffers(0, 1, vertexBuffers, &stride, &offset);
     _context->VSSetShader(_vertexShader.get(), nullptr, 0);
-    _context->VSSetConstantBuffers(0, 1, constantBuffers);
     _context->PSSetShader(_pixelShader.get(), nullptr, 0);
-    _context->Draw(3, 0);
 
-    result = _swapChain->Present(1, 0);
+    const UINT dpi = GetDpiForWindow(_window);
+    constexpr float designWidth = 2560.0f;
+    constexpr float designHeight = 720.0f;
+    for (std::size_t index = 0; index < _pluginManager->WidgetCount(); ++index)
+    {
+        IRedXeWidget* widget = _pluginManager->WidgetAt(index);
+        const WidgetPlacement placement = _pluginManager->PlacementAt(index);
+        if (!widget || placement.width <= 0.0f || placement.height <= 0.0f)
+        {
+            continue;
+        }
+
+        D3D11_VIEWPORT viewport{};
+        viewport.TopLeftX = placement.x * static_cast<float>(_width) / designWidth;
+        viewport.TopLeftY = placement.y * static_cast<float>(_height) / designHeight;
+        viewport.Width = placement.width * static_cast<float>(_width) / designWidth;
+        viewport.Height = placement.height * static_cast<float>(_height) / designHeight;
+        viewport.MinDepth = 0.0f;
+        viewport.MaxDepth = 1.0f;
+        _context->RSSetViewports(1, &viewport);
+
+        RedXeWidgetFrameContext frame{};
+        frame.sizeBytes = sizeof(frame);
+        frame.widthPixels = static_cast<UINT>(viewport.Width + 0.5f);
+        frame.heightPixels = static_cast<UINT>(viewport.Height + 0.5f);
+        frame.dpi = dpi;
+        frame.elapsedSeconds = elapsedSeconds;
+        frame.deltaSeconds = deltaSeconds;
+
+        _buildingWidget = true;
+        ++_lastFrameWidgetCount;
+        const HRESULT widgetResult = widget->BuildFrame(&frame, &_frameBuilder);
+        _buildingWidget = false;
+        if (IsDeviceLost(widgetResult))
+        {
+            return RecoverDevice();
+        }
+        if (FAILED(widgetResult))
+        {
+            OutputDebugStringW(L"A plugin widget failed to build its frame; continuing with remaining widgets.\n");
+        }
+        else
+        {
+            ++_lastFrameSuccessfulWidgetCount;
+        }
+    }
+
+    const HRESULT result = _swapChain->Present(1, 0);
     if (IsDeviceLost(result))
     {
         return RecoverDevice();
     }
     return result == DXGI_STATUS_OCCLUDED ? S_OK : result;
+}
+
+std::size_t Renderer::LastFrameWidgetCount() const noexcept
+{
+    return _lastFrameWidgetCount;
+}
+
+std::size_t Renderer::LastFrameSuccessfulWidgetCount() const noexcept
+{
+    return _lastFrameSuccessfulWidgetCount;
+}
+
+HRESULT Renderer::DrawTriangle(const RedXeTriangleCommand& command) noexcept
+{
+    if (!_buildingWidget || !_context || !_vertexBuffer)
+    {
+        return E_UNEXPECTED;
+    }
+
+    for (const RedXeColorVertex& vertex : command.vertices)
+    {
+        for (float coordinate : vertex.position)
+        {
+            if (!std::isfinite(coordinate) || coordinate < -1.0f || coordinate > 1.0f)
+            {
+                return E_INVALIDARG;
+            }
+        }
+        for (float channel : vertex.color)
+        {
+            if (!std::isfinite(channel) || channel < 0.0f || channel > 1.0f)
+            {
+                return E_INVALIDARG;
+            }
+        }
+    }
+
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    const HRESULT result = _context->Map(_vertexBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    std::memcpy(mapped.pData, command.vertices, sizeof(command.vertices));
+    _context->Unmap(_vertexBuffer.get(), 0);
+    _context->Draw(3, 0);
+    return S_OK;
 }
 
 HRESULT Renderer::RecoverDevice() noexcept
@@ -405,7 +491,6 @@ void Renderer::ReleaseDeviceResources() noexcept
         _context->Flush();
     }
 
-    _frameConstants.reset();
     _vertexBuffer.reset();
     _inputLayout.reset();
     _pixelShader.reset();
