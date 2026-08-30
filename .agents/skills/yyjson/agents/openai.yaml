@@ -1,0 +1,4 @@
+interface:
+  display_name: "yyjson"
+  short_description: "Parse and write JSON safely with yyjson in RedXe."
+  default_prompt: "Apply RedXe yyjson lifetime and ownership conventions."

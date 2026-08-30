@@ -1,0 +1,4 @@
+interface:
+  display_name: "WIL RAII"
+  short_description: "Use WIL for Windows and COM resource ownership in RedXe."
+  default_prompt: "Apply RedXe WIL RAII ownership and cleanup conventions."

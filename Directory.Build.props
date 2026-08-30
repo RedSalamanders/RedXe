@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <PropertyGroup>
+    <SolutionDir Condition="'$(SolutionDir)'==''">$(MSBuildThisFileDirectory)</SolutionDir>
+    <RedXeBuildRoot>$(MSBuildThisFileDirectory).build\</RedXeBuildRoot>
+    <OutDir>$(RedXeBuildRoot)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(RedXeBuildRoot)Intermediate\$(Platform)\$(Configuration)\$(MSBuildProjectName)\</IntDir>
+    <TargetName>$(MSBuildProjectName)</TargetName>
+
+    <!-- Keep each platform's vcpkg metadata private, matching RedSalamander's manifest layout. -->
+    <RedXeVcpkgPlatformScope Condition="'$(Platform)'=='ARM64'">arm64</RedXeVcpkgPlatformScope>
+    <RedXeVcpkgPlatformScope Condition="'$(RedXeVcpkgPlatformScope)'==''">x64</RedXeVcpkgPlatformScope>
+    <RedXeVcpkgTriplet Condition="'$(Platform)'=='ARM64'">arm64-windows</RedXeVcpkgTriplet>
+    <RedXeVcpkgTriplet Condition="'$(RedXeVcpkgTriplet)'==''">x64-windows</RedXeVcpkgTriplet>
+    <VcpkgManifestRoot>$(MSBuildThisFileDirectory)</VcpkgManifestRoot>
+    <VcpkgInstalledDir>$(RedXeBuildRoot)vcpkg_installed\$(RedXeVcpkgPlatformScope)\</VcpkgInstalledDir>
+    <VcpkgEnabled>false</VcpkgEnabled>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup Condition="'$(MSBuildProjectExtension)'=='.vcxproj'">
+    <ClCompile>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalOptions>/utf-8 /permissive- /Zc:preprocessor %(AdditionalOptions)</AdditionalOptions>
+      <PreprocessorDefinitions>UNICODE;_UNICODE;WIN32_LEAN_AND_MEAN;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(VcpkgInstalledDir)$(RedXeVcpkgTriplet)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemDefinitionGroup Condition="'$(MSBuildProjectExtension)'=='.vcxproj' and '$(Configuration)'=='Debug'">
+    <Link>
+      <AdditionalLibraryDirectories>$(VcpkgInstalledDir)$(RedXeVcpkgTriplet)\debug\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemDefinitionGroup Condition="'$(MSBuildProjectExtension)'=='.vcxproj' and '$(Configuration)'!='Debug'">
+    <Link>
+      <AdditionalLibraryDirectories>$(VcpkgInstalledDir)$(RedXeVcpkgTriplet)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+</Project>

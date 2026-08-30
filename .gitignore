@@ -1,0 +1,23 @@
+# Visual Studio state
+.vs/
+*.user
+*.suo
+*.VC.db
+*.VC.VC.opendb
+
+# Build products
+.build/
+Debug/
+Release/
+x64/
+ARM64/
+*.obj
+*.pdb
+*.ilk
+*.tlog
+*.lastbuildstate
+
+# Codex projectless scratch/deliverables
+work/
+outputs/
+

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "redxe",
+  "version-string": "0.1.0",
+  "builtin-baseline": "f941c7e94d289cf53903405bed7f41c5b197ca6c",
+  "dependencies": [
+    {
+      "name": "wil",
+      "version>=": "1.0.260126.7"
+    },
+    {
+      "name": "yyjson",
+      "version>=": "0.12.0"
+    }
+  ]
+}

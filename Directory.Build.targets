@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <PropertyGroup>
+    <RedXeVcpkgRuntimeDir Condition="'$(Configuration)'=='Debug'">$(VcpkgInstalledDir)$(RedXeVcpkgTriplet)\debug\bin\</RedXeVcpkgRuntimeDir>
+    <RedXeVcpkgRuntimeDir Condition="'$(Configuration)'!='Debug'">$(VcpkgInstalledDir)$(RedXeVcpkgTriplet)\bin\</RedXeVcpkgRuntimeDir>
+  </PropertyGroup>
+
+  <Target Name="CopyRedXeRuntimeDependencies" AfterTargets="Link" Condition="'$(MSBuildProjectExtension)'=='.vcxproj'">
+    <ItemGroup>
+      <RedXeRuntimeDependency Include="$(RedXeVcpkgRuntimeDir)yyjson.dll" />
+    </ItemGroup>
+    <Error Condition="!Exists('%(RedXeRuntimeDependency.Identity)')"
+           Text="Missing vcpkg runtime dependency: %(RedXeRuntimeDependency.Identity). Run .\vcpkg-install.ps1 -Platform $(Platform)." />
+    <Copy SourceFiles="@(RedXeRuntimeDependency)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>
