@@ -3,128 +3,93 @@
 Status: `DECISION` — non-normative proposal  
 Created: 2026-08-30  
 Owner: RedXe plugin, settings, dashboard, and rendering architecture  
-Reference implementation studied: RedSalamander native plugin factory and host-service model
+Reference: RedSalamander native factory, COM interface, schema, and host-service model
 
 ## Purpose
 
-Define a plugin architecture that can build an iCUE-style XENEON EDGE dashboard from application settings. The host
-loads a set of normalized native plugins, discovers their data channels and widget types, and composes configured
-widgets into one or more 2560×720 pages.
+Define the smallest native plugin model needed to build an iCUE-style XENEON EDGE dashboard from application
+settings. RedXe discovers data providers and widget providers, connects configured channels to widget instances, and
+renders one or more 2560×720 pages.
 
-This RFC is an active decision record. It does not define shipped RedXe behavior. Once approved and implemented, its
-durable requirements are expected to move into future normative contracts:
+This RFC is an active decision record, not shipped behavior. Approved requirements will move into:
 
-- `Specs/Plugins/Plugins_API.md`
-- `Specs/Core/Core_Settings.md`
-- `Specs/UI/UI_Dashboard.md`
-- relevant testing and performance contracts
+- `Specs/Plugins/Plugins_API.md`;
+- `Specs/Core/Core_Settings.md`;
+- `Specs/UI/UI_Dashboard.md`;
+- the corresponding validation contracts.
 
-## Reference scenario
+## Decisions
 
-The supplied design reference shows the intended composition model:
+The first implementation uses these decisions:
 
-- multiple dashboard pages with an active-page selector;
-- several independently placed widgets on one 32:9 canvas;
-- sensor-list widgets binding fan, temperature, load, memory, and bus values;
-- clock, animated visual, and weather widgets;
-- widget size presets and per-widget toggles;
-- one or more sensor/channel bindings with individual accent colors;
-- page-level styling inherited by widgets unless custom widget styling is enabled;
-- brightness, blur, typography, background, icons, bars, decimals, and row-background controls.
+1. Plugins are trusted native DLLs loaded in-process.
+2. `RedXeCreate` directly returns the requested COM interface. There is no generic `IRedXePlugin` root.
+3. The host asks for the newest IID it supports and falls back to an older IID only after `E_NOINTERFACE`.
+4. Data providers and widget providers are separate interfaces. One logical plugin may expose either or both.
+5. RedXe owns the window, pages, settings, Direct3D resources, and final rendering.
+6. Plugin DLL additions, removals, updates, and enable-state changes require restart in v1. RedXe does not hot-unload
+   modules.
+7. Widget rendering is display-only in the first milestone. Input interfaces are added only when a concrete widget
+   needs them.
 
-The proposal treats these as host-owned page and widget-instance settings. Plugins provide normalized capabilities and
-rendering content; they do not own the dashboard window or settings application.
+## Scope
 
-## Goals
+The first implementation must support:
 
-- Compose a complete dashboard from JSON settings without recompiling the host.
-- Support multiple logical plugins per DLL and multiple widget instances per plugin.
-- Separate data acquisition from widget presentation so a widget can bind channels from any compatible provider.
-- Keep page navigation, layout, theme inheritance, settings persistence, Direct3D ownership, and error presentation in
-  the RedXe host.
-- Use a native, HRESULT-based, COM-style ABI that works on x64 and ARM64.
-- Make ownership, threading, callback shutdown, module unload, and ABI evolution explicit from the first version.
-- Preserve configurations and widget instances when a plugin is temporarily missing or disabled.
-- Permit bundled and explicitly configured third-party modules to use the same interface.
+- multiple logical plugins in one DLL;
+- normalized numeric, integer, Boolean, and text channels;
+- sensor-list, gauge, clock, graph, and animated visual widgets, with weather using the same interface after its
+  separate network policy is approved;
+- multiple dashboard pages and widget instances;
+- host-generated plugin and widget configuration UI;
+- missing or disabled plugin placeholders that preserve settings;
+- x64 and ARM64 builds.
 
-## Non-goals for the first implementation
+The first implementation does not provide:
 
-- Binary compatibility with iCUE plugins or use of undocumented iCUE interfaces.
-- Letting a plugin replace the RedXe top-level HWND, message loop, display policy, or swap chain.
-- Giving plugins unrestricted access to the host's `ID3D11DeviceContext` or mutable renderer state.
-- Running untrusted plugins safely in-process. Process isolation is a possible later generation.
-- A general web, HTML, or scripting runtime.
-- Persisting passwords, API tokens, or other secrets in ordinary JSON settings.
+- iCUE binary compatibility;
+- an HTML or scripting runtime;
+- process isolation for untrusted plugins;
+- direct plugin access to the swap chain or mutable D3D context;
+- runtime DLL replacement or hot unload;
+- inline storage of passwords, tokens, or other secrets.
 
-## Proposed architecture
+## Ownership
 
-```text
-RedXe application
-├── SettingsStore
-│   ├── plugin module/configuration settings
-│   └── dashboard pages, widget instances, bindings, and styles
-├── PluginManager
-│   ├── module discovery and interface compatibility
-│   ├── logical plugin catalog
-│   └── lifecycle, diagnostics, and unload coordination
-├── DataBroker
-│   ├── provider/channel catalog
-│   ├── subscriptions and latest-value cache
-│   └── worker-to-render-thread coalescing
-├── DashboardHost
-│   ├── pages and active-page selection
-│   ├── widget layout and settings editor
-│   └── unresolved-plugin placeholders
-└── Renderer
-    ├── host-owned Direct3D/DXGI resources
-    └── normalized widget drawing-command execution
-
-Plugin modules
-├── data providers       hardware sensors, weather, external services
-├── widget providers     sensor list, gauge, clock, matrix, graph
-└── combined plugins     a provider and one or more matching widget types
-```
-
-### Ownership boundary
-
-| Concern | Proposed owner |
+| Concern | Owner |
 | --- | --- |
-| XENEON discovery, fullscreen/windowed mode, DPI, HWND | RedXe `Application` |
-| Direct3D device, swap chain, render targets, presentation | RedXe `Renderer` |
-| Module loading, interface discovery, enable/disable, unload | `PluginManager` |
-| Polling/subscription normalization and latest values | `DataBroker` |
-| Pages, widget placement, z-order, selection, page switching | `DashboardHost` |
-| Page style and widget style inheritance | `DashboardHost` |
+| XENEON discovery, window mode, DPI, and HWND | `Application` |
+| Direct3D device, swap chain, targets, and presentation | `Renderer` |
+| DLL discovery, catalog, creation, and diagnostics | `PluginManager` |
+| Channel catalog, latest values, and coalescing | `DataBroker` |
+| Pages, layout, style inheritance, and placeholders | `DashboardHost` |
 | Data acquisition and channel meaning | Data-provider plugin |
-| Widget-specific options and drawing commands | Widget plugin |
-| Host-generated configuration controls | RedXe settings UI |
+| Widget types, options, and drawing commands | Widget-provider plugin |
+| Settings persistence and configuration UI | RedXe host |
 
-## RedSalamander concepts retained
+Plugins never own the top-level window, message loop, display policy, settings window, or D3D device lifecycle.
 
-The proposal carries forward these proven patterns:
+## Factory contract
 
-- DLL discovery plus one DLL exposing multiple logical plugin IDs;
-- one exported factory surface and COM `IUnknown` objects;
-- a minimal `IRedXeHost` root extended through `QueryInterface`;
-- stable long plugin IDs used in settings;
-- plugin metadata plus JSON configuration schemas;
-- HRESULT/noexcept ABI boundaries and WIL `com_ptr` ownership in the host;
-- bounded enumeration, duplicate-ID rejection, and explicit string ownership;
-- module quiet-point exports for global workers and driver-backed resources;
-- fixed same-IID vtables, leading `sizeBytes` in extensible records, and new IIDs for breaking evolution.
-
-The loader intentionally stays simple: a permanently stable C factory creates the COM root, and normal
-`QueryInterface` calls provide capability discovery and interface-version fallback.
-
-## Module entry points and interface negotiation
-
-Each module exports one permanently stable factory and may export the catalog, schema, and module quiet-point helpers:
+The public header follows the RedSalamander factory shape:
 
 ```cpp
 struct RedXeFactoryOptions
 {
     uint32_t sizeBytes;
     uint32_t debugLevel;
+    uint32_t reserved[8];
+};
+
+struct RedXePluginMetadata
+{
+    uint32_t sizeBytes;
+    const wchar_t* id;
+    const wchar_t* displayName;
+    const wchar_t* description;
+    const wchar_t* author;
+    const wchar_t* version;
+    uint32_t capabilities;
     uint32_t reserved[8];
 };
 
@@ -148,351 +113,143 @@ extern "C"
         const wchar_t* pluginId,
         const char** schemaJsonUtf8) noexcept;
 
-    __declspec(dllexport) void __stdcall RedXePluginShutdown() noexcept;
-    __declspec(dllexport) BOOL __stdcall RedXePluginCanUnloadNow() noexcept;
+    __declspec(dllexport)
+    void __stdcall RedXePluginShutdown() noexcept;
 }
 ```
 
-Proposed compatibility rules:
+Only `RedXeCreate` is required. The other exports are optional:
 
-- `RedXeCreate` is the only required export, and its signature never changes.
-- `RedXeEnumeratePlugins` is optional. If it is absent, the DLL represents one logical plugin and `pluginId` is null or
-  empty when the factory is called.
-- The static schema and module quiet-point exports are optional. A created object may expose `IRedXeConfigurable` for
-  instance configuration, while quiet-point exports are required only for modules with global workers or resources.
-- The host asks for the newest IID it supports. On `E_NOINTERFACE`, it asks for the immediately supported older IID and
-  uses a host-side adapter. It does not fallback for any other failure.
-- A vtable never changes for an existing IID. A breaking method-set change creates a new interface and IID, such as
-  `IRedXeWidgetProvider2`; optional capabilities use their own IIDs.
-- `sizeBytes` supports append-only growth of plain data records such as options and metadata. It does not version COM
-  interfaces or replace IID negotiation.
-- The host bounds one module to at most 256 logical plugin entries.
-- A missing required factory, invalid metadata, duplicate ID, unsupported architecture, or unsupported IID produces a
-  disabled catalog entry with diagnostics; it does not terminate RedXe.
-- If the factory boundary itself ever needs to change, add a new explicitly versioned export then. Do not add a generic
-  ABI-generation protocol without a concrete incompatible factory requirement.
+- `RedXeEnumeratePlugins` advertises multiple logical plugins. Without it, the DLL is treated as one plugin and the
+  factory receives a null or empty `pluginId`.
+- `RedXeGetConfigurationSchema` returns logical-plugin configuration without creating an instance.
+- `RedXePluginShutdown` is needed only for DLL-global workers or resources. It is called after all plugin objects are
+  stopped and released, and must be idempotent.
 
-## Metadata and identifiers
+Enumeration and schema lookup intentionally do not take an IID. Metadata describes all capabilities of one logical
+plugin in one pass, and plugin-level configuration is shared by those capabilities. Widget-type configuration remains
+part of each widget descriptor.
 
-```cpp
-enum RedXePluginCapability : uint32_t
-{
-    REDXE_PLUGIN_CAPABILITY_DATA_PROVIDER   = 0x00000001,
-    REDXE_PLUGIN_CAPABILITY_WIDGET_PROVIDER = 0x00000002,
-};
+### Factory behavior
 
-struct RedXePluginMetadata
-{
-    uint32_t sizeBytes;
-    const wchar_t* id;
-    const wchar_t* displayName;
-    const wchar_t* description;
-    const wchar_t* author;
-    const wchar_t* version;
-    uint32_t capabilities;
-    uint32_t reserved[8];
-};
-```
+- A null output parameter returns `E_POINTER`.
+- Every output is cleared before other validation.
+- An unsupported IID returns `E_NOINTERFACE`.
+- A null or empty ID is valid only for a single-plugin DLL; it returns `E_INVALIDARG` when ambiguous.
+- An unknown non-empty ID returns `HRESULT_FROM_WIN32(ERROR_NOT_FOUND)`.
+- Successful creation returns one caller-owned COM reference.
+- Enumeration returns between 1 and 256 contiguous metadata records owned by the module.
+- Metadata and borrowed schema strings remain valid until process shutdown.
+- Invalid metadata or duplicate IDs disable the affected catalog entry without terminating RedXe.
 
-Identifier proposal:
+A shared factory helper will implement these rules so every bundled plugin has the same error behavior.
 
-- Plugin IDs are stable, non-localized, ASCII identifiers such as `builtin.hardware-sensors` or
-  `com.example.weather`.
-- Widget type IDs and provider channel IDs are stable within their owning plugin.
-- Settings store plugin ID and local ID separately instead of constructing an ambiguous path string.
-- IDs are 1–128 characters, use `[A-Za-z0-9_.-]`, begin with an alphanumeric character, and are unique under ordinal
-  case-insensitive comparison. The host persists the canonical spelling returned by the plugin.
-- Display names and descriptions are already localized by the plugin; IDs never change with locale.
-- Metadata strings are module-owned and remain valid until module unload.
+## Interface compatibility
 
-Actual IIDs are generated only when the interface header is approved and committed. Placeholder or reused GUIDs are
-not acceptable.
+- A published IID has an immutable vtable and method semantics.
+- A breaking change receives a new interface name and IID, for example `IRedXeWidgetProvider2`.
+- The host requests the newest IID first and retries an explicitly supported older IID only on `E_NOINTERFACE`.
+- The host contains an adapter for every older IID it claims to support.
+- Version strings and structure sizes never select a COM interface.
+- Extensible records use one leading `sizeBytes`. Consumers reject an undersized required prefix, accept larger
+  records, and ignore unknown tail bytes.
+- The factory signature remains stable. A new export is introduced only if that signature itself must change.
+- No separate ABI-generation negotiation table is used.
 
-## Root plugin and configuration interfaces
+Compatibility begins with the first published interface set. The v1 implementation does not invent an unused legacy
+IID or adapter.
 
-The factory normally creates the stable `IRedXePlugin` root; optional capabilities are discovered with
-`QueryInterface`. If the root itself eventually needs a breaking revision, the host requests `IRedXePlugin2` from
-`RedXeCreate` first and retries with `IRedXePlugin` only when the first call returns `E_NOINTERFACE`. The same
-newest-IID-first rule applies when querying versioned capability interfaces on an existing root object.
+## Identifiers and metadata
 
-The host supports only IIDs and adapters that it explicitly implements and tests. It does not infer compatibility from
-plugin versions, metadata strings, or structure sizes.
+- Plugin IDs are stable, non-localized ASCII identifiers such as `builtin.hardware-sensors`.
+- Widget type IDs and channel IDs are stable within their owning plugin.
+- IDs are 1–128 characters, start with an alphanumeric character, and otherwise use `[A-Za-z0-9_.-]`.
+- IDs are compared case-insensitively with ordinal Windows semantics; the host persists the plugin's canonical case.
+- Display names and descriptions are localized by the plugin.
+- Capability flags state whether a logical plugin provides data, widgets, or both.
 
-```cpp
-// IID assigned when the ABI is approved.
-interface __declspec(novtable) IRedXePlugin : public IUnknown
-{
-    virtual HRESULT STDMETHODCALLTYPE Start() noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE Stop() noexcept = 0;
-};
+Real IIDs are generated when the public headers are approved. Placeholder or reused GUIDs are not allowed.
 
-interface __declspec(novtable) IRedXeConfigurable : public IUnknown
-{
-    // Static UTF-8 schema; plugin-owned until module unload.
-    virtual HRESULT STDMETHODCALLTYPE GetConfigurationSchema(
-        const char** schemaJsonUtf8) noexcept = 0;
+## Plugin interfaces
 
-    // Complete UTF-8 JSON object. Application is transactional.
-    virtual HRESULT STDMETHODCALLTYPE SetConfiguration(
-        const char* configurationJsonUtf8) noexcept = 0;
+The factory returns `IRedXeDataProvider` or `IRedXeWidgetProvider` directly. The created object may expose
+`IRedXeConfigurable` through `QueryInterface`.
 
-    // CoTaskMemAlloc UTF-8 JSON object; host frees with CoTaskMemFree.
-    virtual HRESULT STDMETHODCALLTYPE GetConfiguration(
-        char** configurationJsonUtf8) noexcept = 0;
-};
-```
+### Configuration
 
-Configuration proposal:
+`IRedXeConfigurable` provides three operations:
 
-- `SetConfiguration` parses and validates the full candidate before changing live state.
-- Failure leaves the previous configuration and derived resources unchanged.
-- `GetConfiguration` returns the canonical normalized object that should be persisted.
-- Unknown object members are preserved when practical so a newer configuration can survive an older UI.
-- Secrets never appear in schemas or returned configuration. A future host credential service receives a separate IID.
-- The host renders common field types: boolean, integer, number, text, enum, multi-select, color, font, slider, file
-  path, and data-channel picker.
-- A plugin-specific custom HWND settings page is deferred. This keeps theme, DPI, accessibility, transaction, and
-  persistence behavior host-owned in the initial release.
+- get the static UTF-8 configuration schema;
+- transactionally apply one complete UTF-8 JSON object;
+- return a canonical UTF-8 JSON object allocated with `CoTaskMemAlloc`.
 
-## Data-provider interface
+Failed configuration leaves the previous live state unchanged. Unknown plugin-owned members are preserved when
+possible. A plugin-specific settings HWND is not part of v1.
 
-Data providers publish normalized channels into the host `DataBroker`.
+### Data provider
 
-```cpp
-enum RedXeValueKind : uint32_t
-{
-    REDXE_VALUE_NUMBER  = 1,
-    REDXE_VALUE_INTEGER = 2,
-    REDXE_VALUE_BOOLEAN = 3,
-    REDXE_VALUE_TEXT    = 4,
-};
+`IRedXeDataProvider`:
 
-enum RedXeValueQuality : uint32_t
-{
-    REDXE_QUALITY_GOOD        = 1,
-    REDXE_QUALITY_STALE       = 2,
-    REDXE_QUALITY_UNAVAILABLE = 3,
-    REDXE_QUALITY_ERROR       = 4,
-};
+1. enumerates channel descriptors into a host sink;
+2. starts publishing samples to a host sink;
+3. stops publishing.
 
-struct RedXeChannelDescriptor
-{
-    uint32_t sizeBytes;
-    const wchar_t* channelId;
-    const wchar_t* displayName;
-    const wchar_t* groupName;
-    const wchar_t* semantic; // temperature, fan-speed, utilization, clock, weather, ...
-    const wchar_t* unit;     // Cel, rpm, %, byte, bit/s, or plugin-defined display unit
-    RedXeValueKind valueKind;
-    double suggestedMinimum;
-    double suggestedMaximum;
-    uint32_t suggestedDecimals;
-    uint32_t recommendedUpdateMilliseconds;
-    uint32_t reserved[8];
-};
+A channel descriptor contains a stable ID, localized name, value kind, semantic, unit, useful range, decimals, and
+recommended update interval. A sample contains the channel ID, timestamp, quality, and one typed value.
 
-struct RedXeDataSample
-{
-    uint32_t sizeBytes;
-    const wchar_t* channelId;
-    int64_t timestampUnixMilliseconds;
-    RedXeValueKind valueKind;
-    RedXeValueQuality quality;
-    double numberValue;
-    int64_t integerValue;
-    BOOL booleanValue;
-    const wchar_t* textValue;
-    uint32_t reserved[8];
-};
+Descriptor and sample strings are borrowed only during the synchronous callback. The host copies retained data.
+Publishing may occur on plugin workers. `StopPublishing` is idempotent and returns only after no new callback can
+begin and every in-flight callback has completed.
 
-interface __declspec(novtable) IRedXeChannelSink : public IUnknown
-{
-    virtual HRESULT STDMETHODCALLTYPE AddChannel(
-        const RedXeChannelDescriptor* descriptor) noexcept = 0;
-};
+### Widget provider
 
-interface __declspec(novtable) IRedXeDataSink : public IUnknown
-{
-    virtual HRESULT STDMETHODCALLTYPE Publish(
-        const RedXeDataSample* samples,
-        uint32_t count) noexcept = 0;
-};
+`IRedXeWidgetProvider`:
 
-interface __declspec(novtable) IRedXeDataProvider : public IUnknown
-{
-    virtual HRESULT STDMETHODCALLTYPE EnumerateChannels(
-        IRedXeChannelSink* sink) noexcept = 0;
+1. enumerates widget type descriptors into a host sink;
+2. creates an isolated widget instance from a type ID and instance ID.
 
-    virtual HRESULT STDMETHODCALLTYPE StartPublishing(
-        IRedXeDataSink* sink) noexcept = 0;
+A widget descriptor contains its stable type ID, localized labels, default/minimum size, binding schema, and
+configuration schema. A widget instance accepts configuration and builds one frame through a host-owned frame builder.
 
-    virtual HRESULT STDMETHODCALLTYPE StopPublishing() noexcept = 0;
-};
-```
+The widget receives resolved bound values and dimensions for its own local canvas. It never receives the swap chain,
+render target, mutable D3D context, or an HWND.
 
-Data rules under consideration:
+### Host services
 
-- Channel descriptors and sample strings are borrowed only for the duration of the synchronous call; the host copies
-  what it retains.
-- `Publish` may be called from plugin worker threads. The host callback is thread-safe and coalesces values for the
-  render thread.
-- A plugin retains the sink only between successful `StartPublishing` and completed `StopPublishing`.
-- `StopPublishing` is idempotent and returns only after no new callback can begin. Any in-flight callback must finish
-  before the provider is released.
-- The host keeps the latest sample, timestamp, quality, and optional bounded history per subscribed channel.
-- Widget instances bind a `(providerPluginId, channelId)` pair. Missing channels remain configured and render an
-  unavailable state rather than being deleted.
+`IRedXeHost` is an empty `IUnknown` root. Optional services are queried by IID:
 
-## Widget-provider interface
+- logging with plugin identity and severity;
+- widget invalidation, coalesced by the host;
+- immutable image/icon asset registration when the first asset-using widget requires it.
 
-A widget provider describes reusable widget types and creates isolated widget instances.
+Host services copy caller strings before returning and marshal any UI work internally. Exact service methods and IIDs
+belong in the normative API spec, not this architecture RFC.
 
-```cpp
-struct RedXeWidgetTypeDescriptor
-{
-    uint32_t sizeBytes;
-    const wchar_t* typeId;
-    const wchar_t* displayName;
-    const wchar_t* description;
-    uint32_t defaultWidthDip;
-    uint32_t defaultHeightDip;
-    uint32_t minimumWidthDip;
-    uint32_t minimumHeightDip;
-    const char* bindingSchemaJsonUtf8;
-    const char* configurationSchemaJsonUtf8;
-    uint32_t reserved[8];
-};
+## Rendering boundary
 
-interface __declspec(novtable) IRedXeWidgetTypeSink : public IUnknown
-{
-    virtual HRESULT STDMETHODCALLTYPE AddWidgetType(
-        const RedXeWidgetTypeDescriptor* descriptor) noexcept = 0;
-};
+Widgets emit a small set of normalized commands into `IRedXeFrameBuilder`: rectangles, text, icons/images, progress
+bars, simple gauges, and clip push/pop. Command request records use `sizeBytes`, widget-local coordinates, and borrowed
+strings valid only for the call.
 
-interface __declspec(novtable) IRedXeWidgetProvider : public IUnknown
-{
-    virtual HRESULT STDMETHODCALLTYPE EnumerateWidgetTypes(
-        IRedXeWidgetTypeSink* sink) noexcept = 0;
+The frame builder is valid only during `BuildFrame` and must not be retained. The renderer validates and executes the
+commands, owns all GPU resources, and handles resize and device loss.
 
-    virtual HRESULT STDMETHODCALLTYPE CreateWidget(
-        const wchar_t* typeId,
-        const wchar_t* instanceId,
-        IRedXeWidget** widget) noexcept = 0;
-};
-```
+The exact command record layouts are frozen in `Specs/Plugins/Plugins_API.md` before implementation. They are not
+speculated in this RFC.
 
-The binding schema lets the host generate selectors such as Sensor 1 and Sensor 2 without the widget knowing how the
-settings application implements a combo box. A proposed schema fragment is:
+## Settings model
 
-```json
-{
-  "version": 1,
-  "slots": [
-    {
-      "key": "sensors",
-      "label": "Sensors",
-      "cardinality": "many",
-      "acceptedValueKinds": ["number", "integer"],
-      "acceptedSemantics": ["temperature", "fan-speed", "utilization", "memory"]
-    }
-  ]
-}
-```
-
-## Widget instance and host-owned rendering
-
-Plugins do not receive the swap chain or mutable D3D device context. A widget emits normalized commands into a
-host-owned frame builder.
-
-```cpp
-struct RedXeBoundValue
-{
-    uint32_t sizeBytes;
-    const wchar_t* bindingKey;
-    const wchar_t* providerPluginId;
-    RedXeDataSample sample;
-};
-
-struct RedXeWidgetFrameContext
-{
-    uint32_t sizeBytes;
-    uint32_t widthPixels;
-    uint32_t heightPixels;
-    uint32_t dpi;
-    double elapsedSeconds;
-    double deltaSeconds;
-    const RedXeBoundValue* values;
-    uint32_t valueCount;
-    uint32_t reserved[8];
-};
-
-interface __declspec(novtable) IRedXeFrameBuilder : public IUnknown
-{
-    virtual HRESULT STDMETHODCALLTYPE FillRectangle(/* sized request */) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE DrawText(/* sized request */) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE DrawIcon(/* sized request */) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE DrawProgressBar(/* sized request */) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE DrawGauge(/* sized request */) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE PushClip(/* sized request */) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE PopClip() noexcept = 0;
-};
-
-interface __declspec(novtable) IRedXeWidget : public IUnknown
-{
-    virtual HRESULT STDMETHODCALLTYPE SetConfiguration(
-        const char* configurationJsonUtf8) noexcept = 0;
-
-    virtual HRESULT STDMETHODCALLTYPE GetConfiguration(
-        char** configurationJsonUtf8) noexcept = 0;
-
-    virtual HRESULT STDMETHODCALLTYPE BuildFrame(
-        const RedXeWidgetFrameContext* context,
-        IRedXeFrameBuilder* builder) noexcept = 0;
-};
-```
-
-The exact drawing request structures remain an approval item. Each will use a leading `sizeBytes`, design-space
-coordinates local to the widget, host-resolved theme colors/fonts, borrowed input strings for the duration of the
-call, and no retained builder pointer.
-
-This boundary allows native clock, sensor list, bar, gauge, graph, weather, and animated matrix widgets while keeping
-device-loss recovery and D3D state inside `Renderer`. A later high-performance interface may accept immutable host
-resource handles or command batches; direct device-context access is not the default.
-
-## Minimal host services
-
-`IRedXeHost` is an empty `IUnknown` root. Plugins query optional service IIDs:
-
-- `IRedXeHostLog`: thread-safe structured diagnostics with plugin ID and severity.
-- `IRedXeHostInvalidation`: request that a widget instance be redrawn; the host coalesces requests.
-- `IRedXeHostAssets`: register or resolve immutable image/icon assets without exposing D3D ownership.
-- a future `IRedXeHostCredentials`: retrieve protected secrets by opaque setting/profile ID without exposing them in
-  plugin configuration JSON.
-
-Host-service methods copy caller-provided strings before returning. UI work is marshalled internally. Plugins do not
-send private Win32 messages to the RedXe window and do not store raw HWNDs unless a later interface explicitly grants
-one.
-
-## Proposed application settings
-
-The current single-value embedded sample setting is expected to evolve into a versioned settings document. This
-example is strict JSON compatible with yyjson:
+The settings document remains strict JSON and yyjson-compatible. Its essential shape is:
 
 ```json
 {
   "formatVersion": 1,
   "plugins": {
-    "customModulePaths": [
-      "C:\\Program Files\\RedXe Plugins\\WeatherPlugin.dll"
-    ],
+    "customModulePaths": [],
     "disabledPluginIds": [],
     "configurationByPluginId": {
       "builtin.hardware-sensors": {
         "pollIntervalMilliseconds": 500
-      },
-      "com.example.weather": {
-        "location": "Paris",
-        "units": "metric"
       }
     }
   },
@@ -504,8 +261,6 @@ example is strict JSON compatible with yyjson:
         "name": "Performance",
         "style": {
           "backgroundColor": "#FF000000",
-          "backgroundBrightness": 0.2,
-          "glassBlurDip": 0,
           "fontFamily": "Consolas"
         },
         "widgets": [
@@ -519,47 +274,18 @@ example is strict JSON compatible with yyjson:
               "width": 800,
               "height": 288
             },
-            "zIndex": 0,
             "configuration": {
-              "showDecimals": false,
               "showIcons": true,
-              "showBar": true,
-              "showRowBackground": false
+              "showBar": true
             },
             "bindings": {
               "sensors": [
                 {
                   "providerPluginId": "builtin.hardware-sensors",
-                  "channelId": "fan.gigabyte.1",
-                  "accentColor": "#FFFF922E"
-                },
-                {
-                  "providerPluginId": "builtin.hardware-sensors",
-                  "channelId": "fan.gigabyte.2",
-                  "accentColor": "#FFFF922E"
+                  "channelId": "fan.gigabyte.1"
                 }
               ]
             },
-            "style": {
-              "inheritPage": true
-            }
-          },
-          {
-            "id": "widget.clock",
-            "pluginId": "builtin.clock",
-            "typeId": "digital-clock",
-            "boundsDip": {
-              "x": 80,
-              "y": 352,
-              "width": 560,
-              "height": 288
-            },
-            "zIndex": 0,
-            "configuration": {
-              "showSeconds": true,
-              "showDate": true
-            },
-            "bindings": {},
             "style": {
               "inheritPage": true
             }
@@ -571,296 +297,122 @@ example is strict JSON compatible with yyjson:
 }
 ```
 
-### Settings ownership
+The host owns document format, plugin paths, enable state, pages, layout, bindings, and style inheritance. Plugins own
+their configuration objects and binding-specific extension members.
 
-Host-owned fields:
+Settings are parsed and validated as a complete candidate, then published atomically. Saving uses an atomic sibling
+replacement. Unknown plugin-owned members and unresolved widget/plugin references round-trip unchanged. Unknown
+host-owned fields require a recognized migration or fail closed.
 
-- `formatVersion` and migrations;
-- plugin paths, disabled IDs, and the per-plugin configuration map;
-- active page, page order, page names, page style, widget instance identity, bounds, z-order, plugin/type references,
-  channel bindings, and style inheritance.
+Page and widget bounds use the 2560×720 design canvas. Page style supplies defaults; widget style overrides apply only
+when inheritance is disabled.
 
-Plugin-owned fields:
+## Settings UI
 
-- each object under `plugins.configurationByPluginId[pluginId]`;
-- each widget instance's `configuration` object;
-- plugin-defined binding-slot option extensions beneath host-validated binding records.
+RedXe owns one settings experience with:
 
-### Proposed C++ settings model
+- a live page preview and page selector;
+- add, move, resize, order, duplicate, and remove widget operations;
+- a plugin catalog with path, version, capabilities, state, and diagnostics;
+- schema-generated plugin and widget controls;
+- Apply/Cancel draft semantics.
 
-```cpp
-struct PluginSettings final
-{
-    std::vector<std::filesystem::path> customModulePaths;
-    std::vector<std::wstring> disabledPluginIds;
-    std::unordered_map<std::wstring, OwnedJsonValue> configurationByPluginId;
-};
+The schema renderer initially supports text, number, Boolean, enum, multi-select, color, font, slider, and channel
+picker fields. It also supports `x-ui-section`, `x-ui-order`, and `x-ui-hidden`. Unsupported metadata must not delete
+persisted values.
 
-struct ChannelBinding final
-{
-    std::wstring providerPluginId;
-    std::wstring channelId;
-    OwnedJsonValue options;
-};
+Configuration and page edits may apply live. Module path, binary, and enable-state changes are saved but marked
+"restart required."
 
-struct WidgetInstanceSettings final
-{
-    std::wstring id;
-    std::wstring pluginId;
-    std::wstring typeId;
-    RectF boundsDip;
-    int32_t zIndex = 0;
-    OwnedJsonValue configuration;
-    OwnedJsonValue bindings;
-    OwnedJsonValue style;
-};
+## Discovery and startup
 
-struct DashboardPageSettings final
-{
-    std::wstring id;
-    std::wstring name;
-    OwnedJsonValue style;
-    std::vector<WidgetInstanceSettings> widgets;
-};
+1. Discover bundled DLLs under `Plugins\` beside the executable.
+2. Add absolute paths from `plugins.customModulePaths`.
+3. Normalize and deduplicate paths case-insensitively; never search the current working directory.
+4. Load with safe `LoadLibraryExW` search flags restricted to the module directory and Windows system directories.
+5. Read optional metadata and build the logical plugin catalog.
+6. Reject malformed, duplicate, disabled, or unsupported entries with diagnostics.
+7. Call `RedXeCreate` directly for the required provider IID, using newest-IID-first fallback.
+8. Apply configuration, enumerate channels/widget types, create configured widgets, then start data publication.
 
-struct AppSettings final
-{
-    uint32_t formatVersion = 1;
-    PluginSettings plugins;
-    std::wstring activePageId;
-    std::vector<DashboardPageSettings> pages;
-};
-```
+Custom DLLs run with the user's authority. The settings UI states this clearly.
 
-`OwnedJsonValue` is a placeholder for an owning settings representation. It must not retain `yyjson_val*` or borrowed
-strings after the source document is freed. An owning tree or canonical serialized UTF-8 object are both candidates.
+## Threading and failure
 
-### Settings validation and persistence
-
-- Parse into a complete candidate, validate cross-references, then publish atomically.
-- Save through a temporary sibling and atomic replacement; interrupted writes must not destroy the last valid file.
-- Validate unique page and widget IDs, finite bounds, canvas limits, z-order range, plugin IDs, widget type IDs, binding
-  shape, and configuration object types.
-- Page/widget bounds use the 2560×720 logical design canvas from the windowing contract. The editor may snap to a
-  grid, but persisted `boundsDip` is authoritative.
-- Per-page style provides defaults. `style.inheritPage == false` enables validated widget overrides such as
-  background brightness, blur, font, foreground, and accent colors.
-- Missing or disabled plugin references remain as unresolved placeholder widgets. Their configuration and bindings
-  round-trip unchanged so re-enabling the plugin restores the page.
-- Plugin configuration and widget configuration are applied transactionally and replaced with canonical values
-  returned by the plugin.
-- Unknown plugin-owned members are preserved. Unknown host-owned fields require a recognized migration or fail closed.
-- A generated aggregate schema may insert discovered plugin schemas beneath the configuration maps for settings UI
-  and diagnostics, following the RedSalamander model.
-- Secrets are referenced by opaque IDs and stored through a future protected credential service, never inline.
-
-## Settings editor workflow
-
-The host settings experience is proposed to provide:
-
-1. A live 2560×720 page preview.
-2. Page chips and an Add Page action.
-3. A widget catalog populated from `IRedXeWidgetProvider` descriptors.
-4. Drag, resize, z-order, duplicate, remove, and page assignment operations owned by the host.
-5. A Widget Setup panel generated from the widget configuration and binding schemas.
-6. A Widget Personalization panel that defaults to page inheritance and enables widget-specific overrides.
-7. A Plugins page showing logical ID, module path, version, capabilities, enable state, load error, and schema-driven
-   plugin configuration.
-8. Transactional draft settings: preview may update from a draft, Apply validates every affected plugin and commits
-   atomically, and Cancel restores the last committed model.
-
-Plugins provide localized labels, descriptions, field metadata, widget thumbnails/icons, and schemas. They do not
-create the settings window or control page navigation.
-
-## Discovery and loading proposal
-
-1. Enumerate bundled modules from `Plugins\*.dll` next to the executable.
-2. Add absolute user-configured paths from `plugins.customModulePaths`.
-3. Normalize paths, deduplicate them case-insensitively, and never search the current working directory.
-4. Load with safe `LoadLibraryExW` search flags scoped to the module directory and Windows system directories.
-5. Resolve the required `RedXeCreate` export and any optional catalog, schema, or quiet-point exports.
-6. Enumerate a bounded metadata list and reject malformed or duplicate logical IDs.
-7. Preserve disabled entries in the catalog without creating plugin objects.
-8. Create enabled root objects by requesting the newest supported IID and falling back only on `E_NOINTERFACE`; apply
-   configuration, query optional capabilities, enumerate channels/widget types, and
-   start providers only after the settings candidate is valid.
-
-Custom DLLs run in-process with the user's authority. The settings UI should say this clearly. Signature display and an
-optional allowlist are useful, but code signing alone is not process isolation.
-
-## Threading, frame, and failure contract
-
-- Factory, metadata, configuration, widget creation, and `BuildFrame` calls occur on a host-defined thread and are not
-  reentrant unless a specific interface says otherwise.
-- Data providers may publish from workers only through the thread-safe sink.
-- The host copies callback data and marshals/coalesces it before touching dashboard or renderer state.
-- Plugins do not call Win32 or D3D methods on host-owned objects from worker threads.
-- `BuildFrame` must not block on hardware, network, disk, process launch, or long locks. It consumes cached state only.
-- A failed widget frame renders a host-owned error placeholder and does not stop other widgets.
+- Factory, enumeration, configuration, widget creation, and `BuildFrame` run on host-defined non-reentrant threads.
+- Data publication is the only v1 callback allowed from plugin worker threads.
+- The host copies callback data and coalesces it before touching dashboard or renderer state.
+- `BuildFrame` consumes cached state and does not perform hardware, network, disk, process, or long-lock work.
+- Exceptions never cross an exported function, COM method, callback, or Win32 boundary.
+- A failed widget renders a host-owned error placeholder without stopping other widgets.
 - A failed provider marks its channels unavailable and may retry with bounded backoff.
-- C++ exceptions never cross an exported function or COM method boundary. Expected failures use `HRESULT`.
-- An access violation inside a trusted in-process plugin cannot be safely isolated. A later out-of-process generation
-  is required for untrusted marketplace plugins.
+- An in-process access violation cannot be isolated; untrusted plugins require a future process boundary.
 
-Initial performance targets to validate, not yet normative:
+## Shutdown
 
-- 60 Hz host presentation on the 2560×720 XENEON.
-- No plugin work on the render thread except bounded `BuildFrame` command generation.
-- Aggregate widget command generation below 4 ms at the 95th percentile for a representative 12-widget page.
-- Sensor publication coalesced so a fast provider cannot grow an unbounded UI queue.
-- Bounded history and asset caches with explicit memory measurements.
+RedXe does not unload plugin modules at runtime in v1. On process shutdown it:
 
-## Shutdown, disable, and reload ordering
+1. stops accepting new dashboard work;
+2. calls `StopPublishing` and waits for callback quiescence;
+3. releases widget, provider, configuration, sink, and host-service references;
+4. calls optional `RedXePluginShutdown` once per loaded module;
+5. leaves DLL unloading to process teardown.
 
-Proposed quiet point:
+No plugin callback may occur after its stop operation completes.
 
-1. Stop accepting new widget/page work for the affected plugin.
-2. Stop provider subscriptions and wait for callback quiescence.
-3. Release widget instances and provider/configuration interfaces.
-4. Release plugin-held host service references.
-5. Call root `Stop()` and release root objects.
-6. Call optional module `shutdownModule()` idempotently.
-7. Query optional `canUnloadNow()` without blocking.
-8. If unload is allowed, release module-owned assets and call `FreeLibrary`.
-9. If unload is deferred, keep the DLL mapped, skip same-path reload, surface the state, and retry with bounded
-   scheduling until the module becomes unloadable or the process exits.
+## Implementation sequence
 
-The host never kills plugin-created independent processes and never unloads a module while callbacks, widget objects,
-or driver-backed work may still execute in it.
+### 1. Public contract and dummy plugin
 
-## Proposed repository shape
+- Freeze factory signatures, metadata, record prefixes, IIDs, HRESULT behavior, ownership, and threading.
+- Add a shared factory helper and a dummy DLL exposing data and widget logical plugins.
+- Add x64 and ARM64 ABI tests.
 
-```text
-src/RedXe/
-  PluginInterfaces/
-    Factory.h
-    Host.h
-    Plugin.h
-    DataProvider.h
-    Widget.h
-  PluginManager.*
-  DataBroker.*
-  DashboardModel.*
-  DashboardHost.*
-  Settings.*
-Plugins/
-  HardwareSensors/
-  SensorWidgets/
-  Clock/
-  Matrix/
-  Weather/
-Specs/
-  Plugins/Plugins_API.md
-  Core/Core_Settings.md
-  UI/UI_Dashboard.md
-```
+### 2. Settings and data broker
 
-The public ABI headers should be dependency-light, Unicode, C-compatible where practical, and shared by x64 and
-ARM64 builds. Implementation helpers remain private and do not leak STL types, exceptions, allocators, or C++ runtime
-ownership across the DLL boundary.
+- Implement versioned settings, atomic persistence, migrations, and unresolved-reference round trips.
+- Implement channel discovery, latest-value caching, publication coalescing, and provider shutdown.
 
-## Implementation phases
+### 3. Widget host and renderer bridge
 
-### Phase 0 — approve architecture
+- Implement page layout, binding resolution, widget instances, and the validated frame builder.
+- Extend the WARP smoke test with a deterministic multi-widget page.
 
-- Resolve the open decisions below.
-- Freeze the permanent factory signature plus initial ownership, threading, and string/allocation rules.
-- Generate real IIDs only after method sets are reviewed.
-- Split approved requirements into normative plugin, settings, dashboard, and test specs.
+### 4. Settings UI and bundled plugins
 
-### Phase 1 — ABI and dummy plugin
+- Implement the page editor and schema-generated controls.
+- Add hardware sensor, sensor widget, clock, and one animated visual plugin through the public interface.
+- Add weather only after network and credential requirements are separately approved.
 
-- Add dependency-light public headers and a shared factory helper.
-- Implement `PluginManager` discovery, IID fallback, catalog, duplicate rejection, and diagnostics.
-- Add a dummy module exposing multiple logical plugins.
-- Add x64/ARM64 ABI boundary tests for current, undersized, oversized, missing, duplicate, newest-IID, and fallback-IID
-  inputs.
+## Required validation
 
-### Phase 2 — settings foundation
+- Factory null-output, unknown-ID, ambiguous-ID, unsupported-IID, and newest-IID fallback behavior.
+- Metadata count bounds, record prefixes, borrowed string lifetime, duplicate IDs, and malformed entries.
+- Current and oversized records accepted; undersized records rejected without corrupting output.
+- COM references and callbacks fully quiescent after provider stop.
+- Settings parsing, migration, atomic save, unknown plugin member preservation, and unresolved-widget round trip.
+- Schema field rendering and Apply/Cancel behavior.
+- Provider flood/coalescing, stale/unavailable/error values, and bounded memory.
+- Widget clipping, invalid commands, missing assets, frame failure, resize, and device loss.
+- WARP rendering without a hardware GPU and live 2560×720 XENEON validation.
+- Representative 60 Hz dashboard frame timing and startup/module-load measurements.
 
-- Replace embedded sample-only settings with a versioned load/save model and schema.
-- Implement opaque plugin/widget JSON ownership with yyjson-safe lifetimes.
-- Add atomic persistence, migrations, missing-plugin round trips, and transactional Apply/Cancel tests.
+## Remaining details before implementation
 
-### Phase 3 — data broker
+1. Assign the initial IIDs and freeze exact method/record layouts.
+2. Choose the settings file location, portable mode, command-line override, and recovery policy.
+3. Freeze the first frame-builder command set and asset-handle rules.
+4. Define the bounded channel-history policy needed by graph widgets.
 
-- Implement provider discovery, channel catalog, sink lifetime, coalescing, quality, and bounded history.
-- Add fake providers for deterministic timing, shutdown, callback, and queue-pressure tests.
-
-### Phase 4 — widget host and renderer bridge
-
-- Implement page model, layout, binding resolution, missing-widget placeholder, and frame builder.
-- Keep D3D resources and device-loss recovery host-owned.
-- Extend the WARP smoke test to compose and render a deterministic multi-widget page.
-
-### Phase 5 — settings UI and bundled plugins
-
-- Add the page editor, plugin manager, generated Widget Setup, and Widget Personalization panels.
-- Build initial sensor, sensor-list/gauge, clock, matrix, and weather examples through the public interface.
-- Validate keyboard access, DPI, localization, theme inheritance, and 2560×720 layout.
-
-## Required test plan before closeout
-
-- Permanent factory signature, newest-IID selection, `E_NOINTERFACE` fallback, and `sizeBytes` prefix behavior on x64
-  and ARM64.
-- Multiple logical plugins per module and duplicate ID rejection.
-- Missing export, invalid metadata, wrong architecture, disabled plugin, missing plugin, and bad configuration behavior.
-- COM reference ownership and no callbacks after stop/unsubscribe.
-- Module unload success, unload deferral, retry, and process-shutdown retention policy.
-- Settings parse, validation, canonical save, migration, atomic replacement, unknown plugin member preservation, and
-  unresolved widget round trip.
-- Schema-generated controls for booleans, numbers, colors, fonts, enums, channel pickers, and repeated bindings.
-- Provider flood/coalescing, stale/unavailable/error quality, bounded history, and teardown under load.
-- Widget frame failures, clipping, invalid commands, missing assets, and device loss.
-- WARP rendering of a representative multi-page dashboard without a hardware GPU.
-- Live XENEON rendering, page switching, widget editing, and per-monitor DPI transitions.
-- Frame-time, publication queue, startup, module-load, and memory-retention measurements.
-
-## Open decisions
-
-1. **Compatibility promise:** decide whether v1 documents support for third-party modules or only bundled lockstep
-   modules. In either case, publish the permanent factory and immutable IID rules; claim compatibility with an older IID
-   only after its adapter and fixture are tested.
-2. **Rendering surface:** approve the normalized frame-builder command interface, or define another host-owned retained
-   scene representation. Direct mutable D3D context access is not recommended.
-3. **Settings location and precedence:** choose the user settings path, portable mode behavior, command-line override,
-   and recovery/backup policy.
-4. **Built-in packaging:** ship initial plugins as real DLLs, or compile them into the executable behind an adapter
-   while keeping identical logical interfaces. Real DLLs provide stronger end-to-end coverage.
-5. **Hot reload:** support Apply-time unload/reload in v1, or require restart for module path and enable-state changes
-   while still applying ordinary configuration live.
-6. **Network policy:** decide whether weather/network plugins use direct WinHTTP or a future host network service with
-   proxy, TLS, caching, and rate-limit policy.
-7. **Credential service:** define Windows Credential Manager/DPAPI/Windows Hello requirements before any plugin needs
-   a secret.
-8. **Interaction:** decide whether initial widgets are display-only or need normalized pointer/keyboard actions.
-9. **History:** decide which channel types may retain samples, per-channel limits, and whether history persists.
-10. **Marketplace trust:** decide whether unsigned custom modules receive only a warning, require an allowlist, or are
-    disabled by policy.
-
-## Recommended initial decisions
-
-- Keep `RedXeCreate` permanent and use newest-IID-first `QueryInterface`/factory requests, with explicit fallback
-  adapters only for older IIDs the host actually supports.
-- Treat v1 custom plugins as trusted, in-process native code and state that clearly.
-- Keep Direct3D/DXGI ownership entirely in the host and use a normalized frame builder.
-- Separate data providers from widget providers; allow one logical plugin to implement both.
-- Ship at least one bundled provider and several bundled widget plugins as DLLs to exercise the real loader.
-- Require restart for module add/remove/update in the first UI iteration; allow validated configuration and page edits
-  to apply live.
-- Keep widgets display-only in the first rendering milestone, then add a sized input-event interface if a concrete
-  widget requires interaction.
-- Store only bounded latest/history data in memory and do not persist sensor history in format version 1.
+These details do not change the direct-factory architecture.
 
 ## Closeout criteria
 
-This RFC can move to `Specs/Plans/Done/` only when:
+This RFC moves to `Specs/Plans/Done/` only after:
 
-- the open decisions required for the first implementation are resolved;
-- approved behavior is split into authoritative plugin, settings, dashboard, and validation specs;
-- public headers and ownership rules match those specs;
-- at least one multi-plugin DLL, one data provider, and multiple widget types use the normalized interface;
-- settings can recreate a multi-page XENEON dashboard including unresolved-plugin round trips;
-- x64 and ARM64 build/ABI tests, WARP composition tests, live XENEON checks, teardown tests, and performance evidence
-  are green;
-- the active-plan index is updated and this file is moved rather than copied.
+- the remaining details are resolved in normative contracts;
+- public headers and shared factory tests match those contracts;
+- one multi-plugin DLL, one data provider, and multiple widget types use the interface;
+- settings recreate a multi-page dashboard including unresolved-plugin placeholders;
+- x64/ARM64 ABI, WARP, live XENEON, teardown, and performance validation pass;
+- durable requirements are merged into the owning domain specs and the WIP index is updated.
