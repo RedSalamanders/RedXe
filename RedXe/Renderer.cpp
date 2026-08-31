@@ -13,8 +13,7 @@ Renderer::~Renderer()
 
 HRESULT Renderer::Initialize(HWND window, bool forceWarp, DashboardHost& dashboardHost) noexcept
 {
-    if (_window || _dashboardHost || !window || dashboardHost.WidgetCount() == 0 ||
-        dashboardHost.WidgetCount() > kMaximumWidgetViewports)
+    if (_window || _dashboardHost || !window || dashboardHost.WidgetCount() > kMaximumWidgetViewports)
     {
         return E_INVALIDARG;
     }
@@ -37,10 +36,57 @@ void Renderer::Shutdown() noexcept
     ReleaseDeviceResources();
     _window = nullptr;
     _dashboardHost = nullptr;
+    _transitionDashboardHost = nullptr;
     _forceWarp = false;
     _dpi = USER_DEFAULT_SCREEN_DPI;
     _lastFrameWidgetCount = 0;
     _lastFrameSuccessfulWidgetCount = 0;
+}
+
+HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
+{
+    if (dashboardHost && dashboardHost->WidgetCount() > _transitionWidgetViewports.size())
+    {
+        return E_INVALIDARG;
+    }
+    if (_transitionWidgetsDeviceReady && _transitionDashboardHost)
+    {
+        for (std::size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
+        {
+            if (IRedXeGpuWidget* widget = _transitionDashboardHost->GpuWidgetAt(index))
+                widget->OnDeviceLost();
+        }
+    }
+    _transitionWidgetsDeviceReady = false;
+    _transitionDashboardHost = dashboardHost;
+    if (!dashboardHost)
+    {
+        return S_OK;
+    }
+    if (!_device || !_gpuWidgetsDeviceReady)
+    {
+        return S_OK;
+    }
+    const RedXeGpuDeviceContext context{sizeof(RedXeGpuDeviceContext), _device.get(), kTargetFormat, _featureLevel};
+    for (std::size_t index = 0; index < dashboardHost->WidgetCount(); ++index)
+    {
+        if (IRedXeGpuWidget* widget = dashboardHost->GpuWidgetAt(index))
+        {
+            const HRESULT result = widget->OnDeviceCreated(&context);
+            if (FAILED(result))
+            {
+                for (std::size_t previous = 0; previous < index; ++previous)
+                {
+                    if (IRedXeGpuWidget* initialized = dashboardHost->GpuWidgetAt(previous))
+                        initialized->OnDeviceLost();
+                }
+                _transitionDashboardHost = nullptr;
+                return result;
+            }
+        }
+    }
+    _transitionWidgetsDeviceReady = true;
+    return UpdateCachedViewports();
 }
 
 HRESULT Renderer::SetDpi(UINT dpi) noexcept
@@ -225,7 +271,7 @@ HRESULT Renderer::UpdateCachedViewports() noexcept
     for (std::size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
     {
         const RECT bounds = _dashboardHost->PixelBoundsAt(index, _width, _height);
-        if (bounds.left < 0 || bounds.top < 0 || bounds.right <= bounds.left || bounds.bottom <= bounds.top)
+        if (bounds.right <= bounds.left || bounds.bottom <= bounds.top)
         {
             return E_INVALIDARG;
         }
@@ -237,6 +283,22 @@ HRESULT Renderer::UpdateCachedViewports() noexcept
         viewport.Height = static_cast<float>(bounds.bottom - bounds.top);
         viewport.MinDepth = 0.0f;
         viewport.MaxDepth = 1.0f;
+    }
+    if (_transitionDashboardHost)
+    {
+        for (std::size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
+        {
+            const RECT bounds = _transitionDashboardHost->PixelBoundsAt(index, _width, _height);
+            if (bounds.right <= bounds.left || bounds.bottom <= bounds.top)
+                return E_INVALIDARG;
+            D3D11_VIEWPORT& viewport = _transitionWidgetViewports[index];
+            viewport.TopLeftX = static_cast<float>(bounds.left);
+            viewport.TopLeftY = static_cast<float>(bounds.top);
+            viewport.Width = static_cast<float>(bounds.right - bounds.left);
+            viewport.Height = static_cast<float>(bounds.bottom - bounds.top);
+            viewport.MinDepth = 0.0f;
+            viewport.MaxDepth = 1.0f;
+        }
     }
     return S_OK;
 }
@@ -280,6 +342,11 @@ HRESULT Renderer::NotifyDeviceCreated() noexcept
     }
 
     _gpuWidgetsDeviceReady = true;
+    if (_transitionDashboardHost)
+    {
+        _transitionWidgetsDeviceReady = false;
+        return SetTransitionDashboard(_transitionDashboardHost);
+    }
     return S_OK;
 }
 
@@ -297,6 +364,15 @@ void Renderer::NotifyDeviceLost() noexcept
         {
             widget->OnDeviceLost();
         }
+    }
+    if (_transitionWidgetsDeviceReady && _transitionDashboardHost)
+    {
+        for (std::size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
+        {
+            if (IRedXeGpuWidget* widget = _transitionDashboardHost->GpuWidgetAt(index))
+                widget->OnDeviceLost();
+        }
+        _transitionWidgetsDeviceReady = false;
     }
     _gpuWidgetsDeviceReady = false;
 }
@@ -337,6 +413,11 @@ HRESULT Renderer::Resize(UINT width, UINT height) noexcept
     }
 
     return CreateRenderTarget(width, height);
+}
+
+HRESULT Renderer::RefreshLayout() noexcept
+{
+    return !_suspended && _renderTarget ? UpdateCachedViewports() : S_OK;
 }
 
 HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
@@ -397,6 +478,35 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
             continue;
         }
         ++_lastFrameSuccessfulWidgetCount;
+    }
+
+    if (_transitionDashboardHost && _transitionWidgetsDeviceReady)
+    {
+        for (std::size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
+        {
+            IRedXeGpuWidget* widget = _transitionDashboardHost->GpuWidgetAt(index);
+            const D3D11_VIEWPORT& viewport = _transitionWidgetViewports[index];
+            if (!widget || viewport.Width < 1.0f || viewport.Height < 1.0f)
+                continue;
+            const RedXeWidgetFrameContext widgetFrame{sizeof(RedXeWidgetFrameContext),
+                                                      static_cast<UINT>(viewport.Width + 0.5f),
+                                                      static_cast<UINT>(viewport.Height + 0.5f),
+                                                      _dpi,
+                                                      elapsedSeconds,
+                                                      deltaSeconds};
+            const RedXeGpuFrameContext gpuFrame{sizeof(RedXeGpuFrameContext), &widgetFrame, _context.get(), viewport};
+            ++_lastFrameWidgetCount;
+            _context->OMSetRenderTargets(1, renderTargets, nullptr);
+            _context->RSSetViewports(1, &viewport);
+            const HRESULT widgetResult = widget->Render(&gpuFrame);
+            if (IsDeviceLost(widgetResult))
+            {
+                const HRESULT recoveryResult = RecoverDevice();
+                return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
+            }
+            if (SUCCEEDED(widgetResult))
+                ++_lastFrameSuccessfulWidgetCount;
+        }
     }
 
     const HRESULT result = _swapChain->Present(1, 0);

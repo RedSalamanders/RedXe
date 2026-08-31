@@ -29,6 +29,14 @@ namespace
 {
 constexpr char kPluginId[] = "builtin.matrix-rain";
 constexpr char kWidgetTypeId[] = "matrix-rain";
+constexpr char kSettingsSchema[] =
+    R"json({"type":"object","additionalProperties":false,"properties":{"seed":{"type":"integer","minimum":0,"maximum":4294967295},"glyphHeightDips":{"type":"integer","minimum":12,"maximum":48},"densityPercent":{"type":"integer","minimum":10,"maximum":100},"speedPercent":{"type":"integer","minimum":25,"maximum":300},"trailLengthGlyphs":{"type":"integer","minimum":6,"maximum":48},"mutationPerSecond":{"type":"integer","minimum":0,"maximum":30},"headColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"trailColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"backgroundColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"glowPercent":{"type":"integer","minimum":0,"maximum":100}}})json";
+constexpr char kSettingsDefaults[] =
+    R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35})json";
+constexpr RedXePluginSettingsContract kSettingsContract{
+    sizeof(RedXePluginSettingsContract), 1, 0, kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
+    sizeof(kSettingsDefaults) - 1,
+};
 constexpr std::uint32_t kMaximumGlyphInstances = 65'536;
 
 constexpr std::array kMetadata{
@@ -1163,6 +1171,12 @@ extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** m
 {
     return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<std::uint32_t>(kMetadata.size()), metadata,
                                          count);
+}
+
+extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId,
+                                                            const RedXePluginSettingsContract** contract) noexcept
+{
+    return RedXeGetStaticPluginSettingsContract(kPluginId, pluginId, &kSettingsContract, contract);
 }
 
 extern "C" void __stdcall RedXePluginShutdown() noexcept {}

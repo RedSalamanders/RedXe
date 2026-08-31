@@ -59,7 +59,7 @@ durable.
 | Performance and resource consumption | [`Core/Core_PerformanceAndResources.md`](Core/Core_PerformanceAndResources.md) |
 | Fatal-process capture and previous-crash diagnostics | [`Core/Core_CrashHandling.md`](Core/Core_CrashHandling.md) |
 | User settings, schema, recovery, and live reload | [`Core/Core_Settings.md`](Core/Core_Settings.md) |
-| Dashboard pages, grid placement, and active composition | [`UI/UI_Dashboard.md`](UI/UI_Dashboard.md) |
+| Dashboard pages, adaptive layout, orientation reflow, and touch navigation | [`UI/UI_Dashboard.md`](UI/UI_Dashboard.md) |
 | UI, display, windowing, and DPI | [`UI/UI_XeneonDisplayWindowing.md`](UI/UI_XeneonDisplayWindowing.md) |
 | Native plugins and generic widgets | [`Plugins/Plugins_API.md`](Plugins/Plugins_API.md) |
 

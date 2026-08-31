@@ -7,19 +7,25 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 #include <windows.h>
 
-inline constexpr std::uint32_t kRedXeSettingsSchemaVersion = 3;
+inline constexpr std::uint32_t kRedXeSettingsVersionMajor = 4;
+inline constexpr std::uint32_t kRedXeSettingsVersionMinor = 0;
+// Removed with the v3 parser; retained temporarily so the transition remains buildable between slices.
 inline constexpr wchar_t kRedXeDebugSettingsFileName[] = L"RedXe-debug.settings.json";
-inline constexpr wchar_t kRedXeReleaseSettingsFileName[] = L"RedXe-1.0.settings.json";
+inline constexpr wchar_t kRedXeReleaseSettingsFileName[] = L"RedXe.settings.json";
 inline constexpr wchar_t kRedXeSettingsSchemaFileName[] = L"RedXe.settings.schema.json";
 
-inline constexpr std::size_t kMaximumSettingsPlugins = 16;
-inline constexpr std::size_t kMaximumDashboardPages = 8;
-inline constexpr std::size_t kMaximumWidgetsPerPage = 16;
-inline constexpr std::size_t kMaximumSettingsTextBytes = 128;
-inline constexpr std::size_t kPrivateConfigurationCapacity = 1024;
-inline constexpr std::size_t kFactoryConfigurationCapacity = 4096;
+inline constexpr std::size_t kMaximumSettingsPlugins = 64;
+inline constexpr std::size_t kMaximumDashboardPages = 16;
+inline constexpr std::size_t kMaximumWidgetsPerPage = 32;
+inline constexpr std::size_t kMaximumSettingsDeclarations = 128;
+inline constexpr std::size_t kMaximumLayoutDepth = 8;
+inline constexpr std::size_t kMaximumLayoutAreasPerPage = 127;
+inline constexpr std::size_t kMaximumSettingsTextBytes = 512;
+inline constexpr std::size_t kPrivateConfigurationCapacity = 4096;
+inline constexpr std::size_t kFactoryConfigurationCapacity = 8192;
 inline constexpr std::uint32_t kMaximumDashboardGridDimension = 64;
 
 struct SettingsText final
@@ -67,12 +73,38 @@ struct WidgetGridPlacement final
     bool operator==(const WidgetGridPlacement&) const noexcept = default;
 };
 
+enum class LayoutAxis : std::uint8_t
+{
+    LongSide,
+    ShortSide,
+};
+
+struct LayoutSplitStep final
+{
+    LayoutAxis axis = LayoutAxis::LongSide;
+    std::uint32_t precedingRatio = 0;
+    std::uint32_t sizeRatio = 1;
+    std::uint32_t totalRatio = 1;
+
+    bool operator==(const LayoutSplitStep&) const noexcept = default;
+};
+
+struct AdaptiveWidgetPlacement final
+{
+    std::array<LayoutSplitStep, kMaximumLayoutDepth> steps{};
+    std::uint32_t depth = 0;
+
+    bool operator==(const AdaptiveWidgetPlacement&) const noexcept = default;
+};
+
 struct WidgetInstanceSettings final
 {
     SettingsText id;
     SettingsText pluginId;
     SettingsText typeId;
     WidgetGridPlacement placement;
+    AdaptiveWidgetPlacement adaptivePlacement;
+    bool usesAdaptivePlacement = false;
     JsonObjectSettings privateConfiguration;
 
     bool operator==(const WidgetInstanceSettings&) const noexcept = default;
@@ -82,7 +114,7 @@ struct DashboardPageSettings final
 {
     SettingsText id;
     SettingsText name;
-    std::array<WidgetInstanceSettings, kMaximumWidgetsPerPage> widgets{};
+    std::vector<WidgetInstanceSettings> widgets;
     std::uint32_t widgetCount = 0;
 
     bool operator==(const DashboardPageSettings&) const noexcept = default;
@@ -93,22 +125,27 @@ struct DashboardSettings final
     std::uint32_t gridColumns = 32;
     std::uint32_t gridRows = 9;
     SettingsText activePageId;
-    std::array<DashboardPageSettings, kMaximumDashboardPages> pages{};
+    std::vector<DashboardPageSettings> pages;
     std::uint32_t pageCount = 0;
+    std::uint32_t activePageIndex = 0;
+    bool wrapPages = false;
 
     bool operator==(const DashboardSettings&) const noexcept = default;
 };
 
 struct AppSettings final
 {
-    std::array<PluginSettings, kMaximumSettingsPlugins> plugins{};
+    std::uint32_t versionMajor = kRedXeSettingsVersionMajor;
+    std::uint32_t versionMinor = kRedXeSettingsVersionMinor;
+    std::string sourceDocument;
+    std::vector<PluginSettings> plugins;
     std::uint32_t pluginCount = 0;
     DashboardSettings dashboard;
 
     bool operator==(const AppSettings&) const noexcept = default;
 };
 
-inline constexpr std::size_t kMaximumAppSettingsStorageBytes = 256U * 1024U;
+inline constexpr std::size_t kMaximumAppSettingsStorageBytes = 64U * 1024U;
 static_assert(sizeof(AppSettings) <= kMaximumAppSettingsStorageBytes);
 
 struct SettingsFileStamp final
@@ -120,6 +157,15 @@ struct SettingsFileStamp final
     std::uint64_t fileSize = 0;
 
     bool operator==(const SettingsFileStamp&) const noexcept = default;
+};
+
+struct SettingsParseDiagnostic final
+{
+    std::uint64_t byteOffset = 0;
+    std::uint32_t line = 1;
+    std::uint32_t column = 1;
+    std::string path = "$";
+    std::string message;
 };
 
 enum class SettingsReloadStatus : std::uint8_t
@@ -138,10 +184,15 @@ enum class SettingsReloadStatus : std::uint8_t
 [[nodiscard]] DashboardPageSettings* FindDashboardPage(AppSettings& settings, std::string_view pageId) noexcept;
 [[nodiscard]] const DashboardPageSettings* FindActiveDashboardPage(const AppSettings& settings) noexcept;
 [[nodiscard]] DashboardPageSettings* FindActiveDashboardPage(AppSettings& settings) noexcept;
+[[nodiscard]] HRESULT MoveDashboardPage(AppSettings& settings, int direction) noexcept;
 [[nodiscard]] bool ActiveDashboardRuntimeEquals(const AppSettings& left, const AppSettings& right) noexcept;
 [[nodiscard]] HRESULT SetJsonObjectSettings(std::string_view json, JsonObjectSettings& settings) noexcept;
 [[nodiscard]] HRESULT ValidateAppSettings(const AppSettings& settings) noexcept;
 [[nodiscard]] HRESULT ParseAppSettingsJson(std::string_view json, AppSettings& settings) noexcept;
+[[nodiscard]] HRESULT ParseAppSettingsJsonV4(std::string_view json, std::unique_ptr<AppSettings>& settings,
+                                             SettingsParseDiagnostic* diagnostic = nullptr) noexcept;
+[[nodiscard]] HRESULT ParseAppSettingsJsonDetailed(std::string_view json, AppSettings& settings,
+                                                   SettingsParseDiagnostic& diagnostic) noexcept;
 [[nodiscard]] HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexcept;
 [[nodiscard]] HRESULT QuerySettingsFileStamp(std::wstring_view path, SettingsFileStamp& stamp) noexcept;
 [[nodiscard]] HRESULT SerializeFactoryConfigurationJson(const PluginSettings& plugin,
@@ -152,7 +203,9 @@ enum class SettingsReloadStatus : std::uint8_t
 class SettingsStore final
 {
   public:
-    [[nodiscard]] HRESULT Initialize(bool selfTest, std::unique_ptr<AppSettings>& settings) noexcept;
+    [[nodiscard]] HRESULT Initialize(bool selfTest, std::wstring_view selectedPath,
+                                     std::unique_ptr<AppSettings>& settings,
+                                     std::wstring_view localAppDataOverride = {}) noexcept;
     [[nodiscard]] HRESULT TryLoadChanged(std::unique_ptr<AppSettings>& settings, SettingsFileStamp& stamp,
                                          SettingsReloadStatus& status) noexcept;
     void MarkApplied(const SettingsFileStamp& stamp) noexcept;
@@ -161,6 +214,9 @@ class SettingsStore final
     [[nodiscard]] const std::wstring& SettingsPath() const noexcept;
     [[nodiscard]] const std::wstring& SettingsDirectory() const noexcept;
     [[nodiscard]] const std::wstring& SchemaPath() const noexcept;
+    [[nodiscard]] bool UsedInitialFallback() const noexcept;
+    [[nodiscard]] const std::wstring& InitialNotice() const noexcept;
+    [[nodiscard]] const std::wstring& LastDiagnosticText() const noexcept;
 
   private:
     std::wstring _settingsPath;
@@ -169,4 +225,7 @@ class SettingsStore final
     std::optional<SettingsFileStamp> _lastAppliedStamp;
     std::optional<SettingsFileStamp> _lastRejectedStamp;
     bool _missingObserved = false;
+    bool _usedInitialFallback = false;
+    std::wstring _lastDiagnosticText;
+    std::wstring _initialNotice;
 };

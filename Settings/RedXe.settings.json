@@ -1,0 +1,46 @@
+{
+  "$schema": "RedXe.settings.schema.json",
+  "version": { "major": 4 },
+  "wrapPages": false,
+  "declare": {
+    "Matrix": { "plugin": "builtin.matrix-rain" },
+    "Triangle": { "plugin": "builtin.rotating-triangle" },
+    "Orbit": { "plugin": "builtin.gdi-orbit" }
+  },
+  "pages": [
+    {
+      "name": "Matrix Focus",
+      "layout": {
+        "arrangeAlong": "long-side",
+        "areas": [
+          { "sizeRatio": 1, "widget": "Matrix" }
+        ]
+      }
+    },
+    {
+      "name": "Plugin Gallery",
+      "layout": {
+        "arrangeAlong": "long-side",
+        "areas": [
+          { "sizeRatio": 1, "widget": "Triangle" },
+          { "sizeRatio": 1, "widget": "Orbit" },
+          {
+            "sizeRatio": 2,
+            "widget": {
+              "use": "Matrix",
+              "override": {
+                "settings": {
+                  "seed": 4242,
+                  "densityPercent": 55,
+                  "speedPercent": 75,
+                  "headColor": "#B8E8FF",
+                  "trailColor": "#2388D1"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

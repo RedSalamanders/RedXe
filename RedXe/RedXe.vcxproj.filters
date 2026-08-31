@@ -41,6 +41,9 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\Common\PlugInterfaces\DataProvider.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="..\Common\PlugInterfaces\GpuWidget.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -91,7 +94,7 @@
     <None Include="..\Settings\RedXe-debug.settings.json">
       <Filter>Resource Files</Filter>
     </None>
-    <None Include="..\Settings\RedXe-1.0.settings.json">
+    <None Include="..\Settings\RedXe.settings.json">
       <Filter>Resource Files</Filter>
     </None>
     <None Include="..\Specs\Settings.schema.json">

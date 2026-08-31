@@ -32,6 +32,8 @@ class Renderer final
     void Shutdown() noexcept;
     HRESULT SetDpi(UINT dpi) noexcept;
     HRESULT Resize(UINT width, UINT height) noexcept;
+    HRESULT RefreshLayout() noexcept;
+    HRESULT SetTransitionDashboard(DashboardHost* dashboardHost) noexcept;
     HRESULT Render(float elapsedSeconds, float deltaSeconds) noexcept;
     HRESULT ProbeOcclusion() noexcept;
     [[nodiscard]] bool IsSuspended() const noexcept;
@@ -40,7 +42,7 @@ class Renderer final
     [[nodiscard]] std::size_t LastFrameSuccessfulWidgetCount() const noexcept;
 
   private:
-    static constexpr std::size_t kMaximumWidgetViewports = 16;
+    static constexpr std::size_t kMaximumWidgetViewports = 32;
     static constexpr DXGI_FORMAT kTargetFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 
     HRESULT CreateDeviceResources() noexcept;
@@ -57,10 +59,12 @@ class Renderer final
 
     HWND _window = nullptr;
     DashboardHost* _dashboardHost = nullptr;
+    DashboardHost* _transitionDashboardHost = nullptr;
     bool _forceWarp = false;
     bool _suspended = true;
     bool _occluded = false;
     bool _gpuWidgetsDeviceReady = false;
+    bool _transitionWidgetsDeviceReady = false;
     UINT _width = 0;
     UINT _height = 0;
     UINT _dpi = USER_DEFAULT_SCREEN_DPI;
@@ -69,6 +73,7 @@ class Renderer final
     std::size_t _lastFrameSuccessfulWidgetCount = 0;
 
     std::array<D3D11_VIEWPORT, kMaximumWidgetViewports> _widgetViewports{};
+    std::array<D3D11_VIEWPORT, kMaximumWidgetViewports> _transitionWidgetViewports{};
 
     wil::com_ptr_nothrow<ID3D11Device> _device;
     wil::com_ptr_nothrow<ID3D11DeviceContext> _context;

@@ -107,7 +107,7 @@ Tests/
   SettingsTests/       Settings, schema, stamp, and watcher tests
 Settings/
   RedXe-debug.settings.json  Shipped Debug default
-  RedXe-1.0.settings.json    Shipped Release default
+  RedXe.settings.json        Shipped Release default
 Specs/
   README.md         Specification authority and plan workflow
   Core/             Normative cross-cutting performance and resource behavior

@@ -12,7 +12,10 @@ notifications, `win32-windowing` for the posted UI message, and `plugin-developm
 ## Contract
 
 - Normal user files live under `%LocalAppData%\RedXe\Settings`. Debug selects
-  `RedXe-debug.settings.json`; Release selects `RedXe-1.0.settings.json`.
+  `RedXe-debug.settings.json`; Release selects `RedXe.settings.json`. Schema compatibility comes from the document,
+  never the filename.
+- Release performs a one-time unchanged rename from legacy `RedXe-1.0.settings.json` only when the new filename is
+  absent; a present new-name file always wins.
 - Keep `Settings/` templates, `Specs/Settings.schema.json`, the C++ parser, and the normative settings spec aligned in
   the same change. Do not publish a setting the executable cannot apply.
 - The hidden self-test parses the deployed template only. It must never touch `%LocalAppData%`.

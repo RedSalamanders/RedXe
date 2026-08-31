@@ -10,6 +10,7 @@ enum RedXePluginCapabilities : std::uint32_t
 {
     RedXePluginCapabilityNone = 0,
     RedXePluginCapabilityWidgetProvider = 1U << 0U,
+    RedXePluginCapabilityDataProvider = 1U << 1U,
 };
 
 struct RedXeFactoryOptions final
@@ -24,7 +25,7 @@ struct RedXeFactoryOptions final
 inline constexpr std::uint32_t kRedXeFactoryOptionsV1Size = 8;
 inline constexpr std::uint32_t kRedXeFactoryOptionsV2Size = static_cast<std::uint32_t>(
     offsetof(RedXeFactoryOptions, configurationBytes) + sizeof(RedXeFactoryOptions::configurationBytes));
-inline constexpr std::uint32_t kRedXeMaximumFactoryConfigurationBytes = 4096;
+inline constexpr std::uint32_t kRedXeMaximumFactoryConfigurationBytes = 8192;
 static_assert(offsetof(RedXeFactoryOptions, configurationJsonUtf8) == kRedXeFactoryOptionsV1Size);
 static_assert(offsetof(RedXeFactoryOptions, configurationBytes) == 16);
 static_assert(kRedXeFactoryOptionsV2Size == 20);
@@ -41,6 +42,19 @@ struct RedXePluginMetadata final
     std::uint32_t capabilities;
 };
 
+// Static, module-owned settings contract. The returned UTF-8 strings remain valid until the module is unloaded.
+// This is an additive export rather than a COM vtable change so older hosts and plugins remain ABI-compatible.
+struct RedXePluginSettingsContract final
+{
+    std::uint32_t sizeBytes;
+    std::uint32_t versionMajor;
+    std::uint32_t versionMinor;
+    const char* schemaJsonUtf8;
+    std::uint32_t schemaBytes;
+    const char* defaultsJsonUtf8;
+    std::uint32_t defaultsBytes;
+};
+
 #if defined(REDXE_PLUGIN_EXPORTS)
 #define REDXE_PLUGIN_API __declspec(dllexport)
 #else
@@ -53,16 +67,20 @@ extern "C"
                                                    IRedXeHost* host, const char* pluginId, void** result) noexcept;
     REDXE_PLUGIN_API HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata,
                                                              std::uint32_t* count) noexcept;
+    REDXE_PLUGIN_API HRESULT __stdcall RedXeGetPluginSettingsContract(
+        const char* pluginId, const RedXePluginSettingsContract** contract) noexcept;
     REDXE_PLUGIN_API void __stdcall RedXePluginShutdown() noexcept;
 }
 
 using RedXeCreateFn = decltype(&RedXeCreate);
 using RedXeEnumeratePluginsFn = decltype(&RedXeEnumeratePlugins);
 using RedXePluginShutdownFn = decltype(&RedXePluginShutdown);
+using RedXeGetPluginSettingsContractFn = decltype(&RedXeGetPluginSettingsContract);
 
 inline constexpr char kRedXeCreateExport[] = "RedXeCreate";
 inline constexpr char kRedXeEnumeratePluginsExport[] = "RedXeEnumeratePlugins";
 inline constexpr char kRedXePluginShutdownExport[] = "RedXePluginShutdown";
+inline constexpr char kRedXeGetPluginSettingsContractExport[] = "RedXeGetPluginSettingsContract";
 
 [[nodiscard]] constexpr char RedXeAsciiLower(char value) noexcept
 {

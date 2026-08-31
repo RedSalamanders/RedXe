@@ -5,12 +5,14 @@
 #include "Settings.h"
 #include "resource.h"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstring>
 #include <memory>
 #include <new>
 #include <shellapi.h>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -218,6 +220,7 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
             }
         }
         page.widgetCount = widgetWrite;
+        page.widgets.resize(widgetWrite);
         if (page.widgetCount == 0)
         {
             if (SettingsIdEquals(page.id.View(), settings.dashboard.activePageId.View()))
@@ -229,25 +232,10 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
         settings.dashboard.pages[pageWrite++] = page;
     }
     settings.dashboard.pageCount = pageWrite;
+    settings.dashboard.pages.resize(pageWrite);
     return ValidateAppSettings(settings);
 }
 
-[[nodiscard]] HRESULT SelectNextDashboardPage(AppSettings& settings) noexcept
-{
-    if (settings.dashboard.pageCount < 2)
-    {
-        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
-    }
-    for (std::uint32_t index = 0; index < settings.dashboard.pageCount; ++index)
-    {
-        if (SettingsIdEquals(settings.dashboard.pages[index].id.View(), settings.dashboard.activePageId.View()))
-        {
-            settings.dashboard.activePageId = settings.dashboard.pages[(index + 1U) % settings.dashboard.pageCount].id;
-            return ValidateAppSettings(settings);
-        }
-    }
-    return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
-}
 } // namespace
 
 Application::Application(HINSTANCE instance, bool forceWarp) noexcept : _instance(instance), _forceWarp(forceWarp) {}
@@ -255,20 +243,26 @@ Application::Application(HINSTANCE instance, bool forceWarp) noexcept : _instanc
 Application::~Application()
 {
     _displayPowerNotification.reset();
+    CloseSettingsError();
     CloseMainWindow();
     if (_classRegistered)
     {
+        UnregisterClassW(kSettingsDialogClassName, _instance);
         UnregisterClassW(kWindowClassName, _instance);
     }
 }
 
-int Application::Run(int showCommand, bool selfTest) noexcept
+int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsPath) noexcept
 {
-    HRESULT result = _settingsStore.Initialize(selfTest, _settings);
+    HRESULT result = _settingsStore.Initialize(selfTest, settingsPath, _settings);
     if (FAILED(result) || !_settings)
     {
         OutputDebugStringW(L"Settings initialization or validation failed.\n");
         return 1;
+    }
+    if (!selfTest && _settingsStore.UsedInitialFallback())
+    {
+        MessageBoxW(nullptr, _settingsStore.InitialNotice().c_str(), L"RedXe settings", MB_OK | MB_ICONERROR);
     }
     if (selfTest && FAILED(ValidateExecutableShellIcon()))
     {
@@ -394,26 +388,26 @@ int Application::Run(int showCommand, bool selfTest) noexcept
             return 6;
         }
 
-        std::unique_ptr<AppSettings> changed{new (std::nothrow) AppSettings{*_settings}};
-        if (!changed)
+        const std::uint32_t pageCount = _settings->dashboard.pageCount;
+        for (std::uint32_t page = 1; page < pageCount; ++page)
         {
-            return 6;
-        }
-        result = SelectNextDashboardPage(*changed);
-        if (SUCCEEDED(result))
-        {
-            result = ApplySettings(std::move(changed));
-        }
-        if (SUCCEEDED(result))
-        {
-            result = _renderer.Render(0.0f, 0.0f);
-        }
-        const std::size_t changedGpuWidgetCount = CountGpuWidgets(_pluginManager);
-        if (FAILED(result) || _renderer.LastFrameWidgetCount() != changedGpuWidgetCount ||
-            _renderer.LastFrameSuccessfulWidgetCount() != changedGpuWidgetCount)
-        {
-            OutputDebugStringW(L"The dashboard page/private settings reconfiguration smoke test failed.\n");
-            return 6;
+            std::unique_ptr<AppSettings> changed{new (std::nothrow) AppSettings{*_settings}};
+            if (!changed)
+            {
+                return 6;
+            }
+            result = MoveDashboardPage(*changed, 1);
+            if (SUCCEEDED(result))
+                result = ApplySettings(std::move(changed));
+            if (SUCCEEDED(result))
+                result = _renderer.Render(0.0f, 0.0f);
+            const std::size_t changedGpuWidgetCount = CountGpuWidgets(_pluginManager);
+            if (FAILED(result) || _renderer.LastFrameWidgetCount() != changedGpuWidgetCount ||
+                _renderer.LastFrameSuccessfulWidgetCount() != changedGpuWidgetCount)
+            {
+                OutputDebugStringW(L"The dashboard page/private settings reconfiguration smoke test failed.\n");
+                return 6;
+            }
         }
 
         std::unique_ptr<AppSettings> rejected{new (std::nothrow) AppSettings{*_settings}};
@@ -580,6 +574,18 @@ HRESULT Application::RegisterWindowClass() noexcept
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
+    WNDCLASSEXW dialogClass{};
+    dialogClass.cbSize = sizeof(dialogClass);
+    dialogClass.lpfnWndProc = SettingsDialogProcedure;
+    dialogClass.hInstance = _instance;
+    dialogClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    dialogClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    dialogClass.lpszClassName = kSettingsDialogClassName;
+    if (!RegisterClassExW(&dialogClass))
+    {
+        UnregisterClassW(kWindowClassName, _instance);
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
     _classRegistered = true;
     return S_OK;
 }
@@ -718,6 +724,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     {
         return E_POINTER;
     }
+    ClearTransitionPage();
     if (*settings == *_settings)
     {
         return S_FALSE;
@@ -758,6 +765,68 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     return applyResult;
 }
 
+HRESULT Application::StageTransitionPage(int direction) noexcept
+{
+    if (!_settings || !_rendererReady || (direction != -1 && direction != 1))
+    {
+        return E_INVALIDARG;
+    }
+    if (_pageTransitionDirection == direction && _transitionDashboardHost)
+    {
+        return S_OK;
+    }
+    ClearTransitionPage();
+    auto settings = std::make_unique<AppSettings>(*_settings);
+    HRESULT result = MoveDashboardPage(*settings, direction);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    auto plugins = std::make_unique<PluginManager>();
+    result = plugins->Initialize(*settings);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    RECT client{};
+    const UINT dpi = GetDpiForWindow(_window.get());
+    if (dpi == 0 || !GetClientRect(_window.get(), &client) || client.right <= 0 || client.bottom <= 0)
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    auto dashboard = std::make_unique<DashboardHost>();
+    const bool visible = _windowVisible && _displayPoweredOn && !_renderer.IsSuspended() && !_renderer.IsOccluded();
+    result = dashboard->Initialize(*plugins, _window.get(), static_cast<UINT>(client.right),
+                                   static_cast<UINT>(client.bottom), dpi, visible);
+    if (SUCCEEDED(result))
+        result = dashboard->SetHorizontalOffset(direction * client.right);
+    if (SUCCEEDED(result))
+        result = _renderer.SetTransitionDashboard(dashboard.get());
+    if (FAILED(result))
+    {
+        dashboard->Shutdown();
+        return result;
+    }
+    _transitionSettings = std::move(settings);
+    _transitionPluginManager = std::move(plugins);
+    _transitionDashboardHost = std::move(dashboard);
+    _pageTransitionDirection = direction;
+    return S_OK;
+}
+
+void Application::ClearTransitionPage() noexcept
+{
+    (void)_renderer.SetTransitionDashboard(nullptr);
+    if (_transitionDashboardHost)
+    {
+        _transitionDashboardHost->Shutdown();
+    }
+    _transitionDashboardHost.reset();
+    _transitionPluginManager.reset();
+    _transitionSettings.reset();
+    _pageTransitionDirection = 0;
+}
+
 void Application::OnSettingsChanged() noexcept
 {
     _settingsWatcher.AcknowledgeNotification();
@@ -768,7 +837,7 @@ void Application::OnSettingsChanged() noexcept
     const HRESULT loadResult = _settingsStore.TryLoadChanged(candidate, stamp, status);
     if (FAILED(loadResult))
     {
-        OutputDebugStringW(L"Settings reload could not read the changed file; the current settings remain active.\n");
+        ShowSettingsError(L"The settings file could not be read. The current dashboard remains active.");
         return;
     }
 
@@ -777,10 +846,12 @@ void Application::OnSettingsChanged() noexcept
     case SettingsReloadStatus::Unchanged:
         return;
     case SettingsReloadStatus::Missing:
-        OutputDebugStringW(L"The settings file is temporarily missing; the current settings remain active.\n");
+        ShowSettingsError(L"The settings file is missing. The current dashboard remains active.");
         return;
     case SettingsReloadStatus::Invalid:
-        OutputDebugStringW(L"The changed settings file is invalid; the current settings remain active.\n");
+        ShowSettingsError(_settingsStore.LastDiagnosticText().empty()
+                              ? L"The settings file is invalid. The current dashboard remains active."
+                              : _settingsStore.LastDiagnosticText());
         return;
     case SettingsReloadStatus::Loaded:
         break;
@@ -796,16 +867,188 @@ void Application::OnSettingsChanged() noexcept
     if (SUCCEEDED(applyResult))
     {
         _settingsStore.MarkApplied(stamp);
+        CloseSettingsError();
         OutputDebugStringW(L"RedXe settings were reloaded live.\n");
         return;
     }
 
     _settingsStore.MarkRejected(stamp);
-    OutputDebugStringW(L"The changed settings could not be applied; the previous dashboard was restored.\n");
+    ShowSettingsError(L"The changed settings could not be applied. The previous dashboard was restored.");
     if (!_rendererReady)
     {
         _runtimeFailure = applyResult;
         CloseMainWindow();
+    }
+}
+
+void Application::ShowSettingsError(std::wstring_view message) noexcept
+{
+    try
+    {
+        if (_settingsErrorDialog && IsWindow(_settingsErrorDialog))
+        {
+            const HWND text = GetDlgItem(_settingsErrorDialog, 100);
+            if (text)
+                SetWindowTextW(text, std::wstring(message).c_str());
+            return;
+        }
+        RECT owner{};
+        GetWindowRect(_window.get(), &owner);
+        constexpr int width = 560;
+        constexpr int height = 230;
+        const int x = owner.left + ((owner.right - owner.left) - width) / 2;
+        const int y = owner.top + ((owner.bottom - owner.top) - height) / 2;
+        _settingsErrorDialog = CreateWindowExW(WS_EX_DLGMODALFRAME, kSettingsDialogClassName, L"RedXe settings error",
+                                               WS_CAPTION | WS_SYSMENU | WS_VISIBLE, x, y, width, height, _window.get(),
+                                               nullptr, _instance, this);
+        if (!_settingsErrorDialog)
+        {
+            return;
+        }
+        EnableWindow(_window.get(), FALSE);
+        const HWND text =
+            CreateWindowExW(0, L"STATIC", std::wstring(message).c_str(), WS_CHILD | WS_VISIBLE | SS_LEFT, 24, 24,
+                            width - 48, 120, _settingsErrorDialog, reinterpret_cast<HMENU>(100), _instance, nullptr);
+        const HWND button =
+            CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, width - 120, height - 78, 80,
+                            28, _settingsErrorDialog, reinterpret_cast<HMENU>(IDOK), _instance, nullptr);
+        const HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        if (text)
+            SendMessageW(text, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        if (button)
+        {
+            SendMessageW(button, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            SetFocus(button);
+        }
+    }
+    catch (...)
+    {
+        OutputDebugStringW(L"The settings error dialog could not be created.\n");
+    }
+}
+
+void Application::CloseSettingsError() noexcept
+{
+    const HWND dialog = _settingsErrorDialog;
+    _settingsErrorDialog = nullptr;
+    if (dialog && IsWindow(dialog))
+    {
+        DestroyWindow(dialog);
+    }
+    if (_window && IsWindow(_window.get()))
+    {
+        EnableWindow(_window.get(), TRUE);
+    }
+}
+
+void Application::OnPointerDown(HWND window, WPARAM wParam) noexcept
+{
+    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+    POINTER_INFO information{};
+    if (_pagePointerActive || !GetPointerInfo(pointerId, &information) ||
+        (information.pointerType != PT_TOUCH && information.pointerType != PT_PEN))
+    {
+        return;
+    }
+    POINT position = information.ptPixelLocation;
+    if (!ScreenToClient(window, &position) || !SetCapture(window))
+    {
+        return;
+    }
+    _pagePointerId = pointerId;
+    _pagePointerStartX = position.x;
+    _pagePointerX = position.x;
+    _pagePointerActive = true;
+    _pagePanStarted = false;
+}
+
+void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
+{
+    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+    if (!_pagePointerActive || pointerId != _pagePointerId)
+    {
+        return;
+    }
+    POINTER_INFO information{};
+    POINT position{};
+    if (!GetPointerInfo(pointerId, &information))
+    {
+        return;
+    }
+    position = information.ptPixelLocation;
+    if (!ScreenToClient(window, &position))
+    {
+        return;
+    }
+    RECT client{};
+    if (!GetClientRect(window, &client) || client.right <= 0)
+    {
+        return;
+    }
+    LONG offset = std::clamp(position.x - _pagePointerStartX, -client.right, client.right);
+    const UINT dpi = GetDpiForWindow(window);
+    const LONG threshold = dpi == 0 ? 12 : MulDiv(12, static_cast<int>(dpi), USER_DEFAULT_SCREEN_DPI);
+    if (!_pagePanStarted && std::abs(offset) < threshold)
+    {
+        _pagePointerX = position.x;
+        return;
+    }
+    _pagePanStarted = true;
+    const bool atFirst = _settings && _settings->dashboard.activePageIndex == 0;
+    const bool atLast = _settings && _settings->dashboard.activePageIndex + 1U >= _settings->dashboard.pageCount;
+    if (_settings && !_settings->dashboard.wrapPages && ((offset > 0 && atFirst) || (offset < 0 && atLast)))
+    {
+        offset = 0;
+    }
+    const int direction = offset < 0 ? 1 : (offset > 0 ? -1 : 0);
+    if (direction != 0 && direction != _pageTransitionDirection)
+    {
+        if (FAILED(StageTransitionPage(direction)))
+        {
+            offset = 0;
+        }
+    }
+    _pagePointerX = position.x;
+    HRESULT layoutResult = _dashboardHost.SetHorizontalOffset(offset);
+    if (SUCCEEDED(layoutResult) && _transitionDashboardHost)
+    {
+        layoutResult = _transitionDashboardHost->SetHorizontalOffset(offset + _pageTransitionDirection * client.right);
+    }
+    if (SUCCEEDED(layoutResult) && SUCCEEDED(_renderer.RefreshLayout()))
+    {
+        _frameInvalidated = true;
+    }
+}
+
+void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
+{
+    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+    if (!_pagePointerActive || pointerId != _pagePointerId)
+    {
+        return;
+    }
+    ReleaseCapture();
+    _pagePointerActive = false;
+    const bool panStarted = _pagePanStarted;
+    _pagePanStarted = false;
+    _pagePointerId = 0;
+    (void)_dashboardHost.SetHorizontalOffset(0);
+    (void)_renderer.RefreshLayout();
+    RECT client{};
+    const LONG distance = _pagePointerX - _pagePointerStartX;
+    if (!panStarted || !_settings || !GetClientRect(window, &client) || client.right <= 0 ||
+        std::abs(distance) < client.right / 4)
+    {
+        ClearTransitionPage();
+        _frameInvalidated = true;
+        return;
+    }
+    auto changed = std::make_unique<AppSettings>(*_settings);
+    const HRESULT selection = MoveDashboardPage(*changed, distance < 0 ? 1 : -1);
+    ClearTransitionPage();
+    if (SUCCEEDED(selection) && SUCCEEDED(ApplySettings(std::move(changed))))
+    {
+        _frameInvalidated = true;
     }
 }
 
@@ -831,12 +1074,18 @@ HRESULT Application::UpdateDashboardVisibility() noexcept
 
     const bool visible =
         _windowVisible && _displayPoweredOn && _rendererReady && !_renderer.IsSuspended() && !_renderer.IsOccluded();
-    return _dashboardHost.SetWindowWidgetsVisible(visible);
+    HRESULT result = _dashboardHost.SetWindowWidgetsVisible(visible);
+    if (SUCCEEDED(result) && _transitionDashboardHost)
+    {
+        result = _transitionDashboardHost->SetWindowWidgetsVisible(visible);
+    }
+    return result;
 }
 
 void Application::CloseMainWindow() noexcept
 {
     _settingsWatcher.Stop();
+    ClearTransitionPage();
     _renderer.Shutdown();
     _rendererReady = false;
     _dashboardHost.Shutdown();
@@ -857,6 +1106,23 @@ LRESULT CALLBACK Application::WindowProcedure(HWND window, UINT message, WPARAM 
     if (application)
     {
         return application->HandleMessage(window, message, wParam, lParam);
+    }
+    return DefWindowProcW(window, message, wParam, lParam);
+}
+
+LRESULT CALLBACK Application::SettingsDialogProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
+{
+    Application* application = reinterpret_cast<Application*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (message == WM_NCCREATE)
+    {
+        const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lParam);
+        application = static_cast<Application*>(create->lpCreateParams);
+        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(application));
+    }
+    if (application && (message == WM_CLOSE || (message == WM_COMMAND && LOWORD(wParam) == IDOK)))
+    {
+        application->CloseSettingsError();
+        return 0;
     }
     return DefWindowProcW(window, message, wParam, lParam);
 }
@@ -909,6 +1175,27 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case SettingsWatcher::kSettingsChangedMessage:
         OnSettingsChanged();
         return 0;
+    case WM_POINTERDOWN:
+        OnPointerDown(window, wParam);
+        return 0;
+    case WM_POINTERUPDATE:
+        OnPointerUpdate(window, wParam);
+        return 0;
+    case WM_POINTERUP:
+        OnPointerUp(window, wParam);
+        return 0;
+    case WM_POINTERCAPTURECHANGED:
+        if (_pagePointerActive)
+        {
+            _pagePointerActive = false;
+            _pagePanStarted = false;
+            _pagePointerId = 0;
+            (void)_dashboardHost.SetHorizontalOffset(0);
+            (void)_renderer.RefreshLayout();
+            ClearTransitionPage();
+            _frameInvalidated = true;
+        }
+        return 0;
     case WM_GETMINMAXINFO:
     {
         auto* minimums = reinterpret_cast<MINMAXINFO*>(lParam);
@@ -955,6 +1242,15 @@ LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
     if (!_rendererReady)
     {
         return 0;
+    }
+    if (_pagePointerActive)
+    {
+        _pagePointerActive = false;
+        _pagePanStarted = false;
+        _pagePointerId = 0;
+        ReleaseCapture();
+        ClearTransitionPage();
+        (void)_dashboardHost.SetHorizontalOffset(0);
     }
 
     const UINT dpi = GetDpiForWindow(window);

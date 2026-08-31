@@ -19,6 +19,12 @@ namespace
 {
 constexpr char kPluginId[] = "builtin.gdi-orbit";
 constexpr char kWidgetTypeId[] = "gdi-orbit";
+constexpr char kSettingsSchema[] = R"json({"type":"object","additionalProperties":false})json";
+constexpr char kSettingsDefaults[] = R"json({})json";
+constexpr RedXePluginSettingsContract kSettingsContract{
+    sizeof(RedXePluginSettingsContract), 1, 0, kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
+    sizeof(kSettingsDefaults) - 1,
+};
 constexpr wchar_t kWindowClassName[] = L"RedXe.Plugin.GdiOrbit";
 constexpr UINT_PTR kAnimationTimer = 1;
 constexpr UINT kAnimationIntervalMilliseconds = 33;
@@ -690,4 +696,10 @@ extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** m
 {
     return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<std::uint32_t>(kMetadata.size()), metadata,
                                          count);
+}
+
+extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId,
+                                                            const RedXePluginSettingsContract** contract) noexcept
+{
+    return RedXeGetStaticPluginSettingsContract(kPluginId, pluginId, &kSettingsContract, contract);
 }

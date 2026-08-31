@@ -31,6 +31,7 @@ class DashboardHost final
                                      bool visible) noexcept;
     [[nodiscard]] HRESULT Resize(UINT width, UINT height, UINT dpi) noexcept;
     [[nodiscard]] HRESULT SetWindowWidgetsVisible(bool visible) noexcept;
+    [[nodiscard]] HRESULT SetHorizontalOffset(LONG offset) noexcept;
     void Shutdown() noexcept;
     [[nodiscard]] std::size_t WidgetCount() const noexcept;
     [[nodiscard]] IRedXeWidget* WidgetAt(std::size_t index) const noexcept;
@@ -44,10 +45,15 @@ class DashboardHost final
     PluginManager* _pluginManager = nullptr;
     std::array<WidgetPlacement, PluginManager::kMaximumWidgetInstances> _placements{};
     std::array<WidgetGridPlacement, PluginManager::kMaximumWidgetInstances> _gridPlacements{};
+    std::array<AdaptiveWidgetPlacement, PluginManager::kMaximumWidgetInstances> _adaptivePlacements{};
+    std::array<bool, PluginManager::kMaximumWidgetInstances> _usesAdaptivePlacement{};
     std::array<wil::unique_hwnd, PluginManager::kMaximumWidgetInstances> _windowContainers;
     std::size_t _widgetCount = 0;
     std::uint32_t _gridColumns = 0;
     std::uint32_t _gridRows = 0;
     bool _requiresContinuousFrames = false;
     bool _windowWidgetsVisible = false;
+    LONG _horizontalOffset = 0;
+    UINT _clientWidth = 0;
+    UINT _clientHeight = 0;
 };

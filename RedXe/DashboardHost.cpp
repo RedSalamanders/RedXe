@@ -36,6 +36,38 @@ constexpr float kDesignHeight = 720.0f;
         RoundGridEdge(placement.row + placement.rowSpan, height, rows),
     };
 }
+
+[[nodiscard]] RECT ToAdaptivePixelBounds(const AdaptiveWidgetPlacement& placement, UINT width, UINT height) noexcept
+{
+    RECT bounds{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+    const bool landscape = width >= height;
+    for (std::uint32_t index = 0; index < placement.depth; ++index)
+    {
+        const LayoutSplitStep& step = placement.steps[index];
+        if (step.sizeRatio == 0 || step.totalRatio == 0 || step.precedingRatio + step.sizeRatio > step.totalRatio)
+        {
+            return RECT{};
+        }
+        const bool horizontal = (step.axis == LayoutAxis::LongSide) == landscape;
+        const LONG origin = horizontal ? bounds.left : bounds.top;
+        const LONG extent = horizontal ? bounds.right - bounds.left : bounds.bottom - bounds.top;
+        const LONG first =
+            origin + static_cast<LONG>(static_cast<std::uint64_t>(extent) * step.precedingRatio / step.totalRatio);
+        const LONG last = origin + static_cast<LONG>(static_cast<std::uint64_t>(extent) *
+                                                     (step.precedingRatio + step.sizeRatio) / step.totalRatio);
+        if (horizontal)
+        {
+            bounds.left = first;
+            bounds.right = last;
+        }
+        else
+        {
+            bounds.top = first;
+            bounds.bottom = last;
+        }
+    }
+    return bounds;
+}
 } // namespace
 
 DashboardHost::~DashboardHost()
@@ -46,7 +78,7 @@ DashboardHost::~DashboardHost()
 HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UINT width, UINT height, UINT dpi,
                                   bool visible) noexcept
 {
-    if (_pluginManager || !parent || width == 0 || height == 0 || dpi == 0 || pluginManager.WidgetCount() == 0 ||
+    if (_pluginManager || !parent || width == 0 || height == 0 || dpi == 0 ||
         pluginManager.WidgetCount() > PluginManager::kMaximumWidgetInstances)
     {
         return E_INVALIDARG;
@@ -62,6 +94,8 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
 
     std::array<WidgetPlacement, PluginManager::kMaximumWidgetInstances> placements{};
     std::array<WidgetGridPlacement, PluginManager::kMaximumWidgetInstances> gridPlacements{};
+    std::array<AdaptiveWidgetPlacement, PluginManager::kMaximumWidgetInstances> adaptivePlacements{};
+    std::array<bool, PluginManager::kMaximumWidgetInstances> usesAdaptivePlacement{};
     std::array<wil::unique_hwnd, PluginManager::kMaximumWidgetInstances> containers;
     bool continuous = false;
     for (std::uint32_t index = 0; index < widgetCount; ++index)
@@ -74,14 +108,32 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
         }
 
         const WidgetGridPlacement gridPlacement = pluginManager.WidgetGridPlacementAt(index);
-        if (gridPlacement.column >= columns || gridPlacement.row >= rows || gridPlacement.columnSpan == 0 ||
-            gridPlacement.rowSpan == 0 || gridPlacement.columnSpan > columns - gridPlacement.column ||
-            gridPlacement.rowSpan > rows - gridPlacement.row)
+        const bool adaptive = pluginManager.UsesAdaptivePlacementAt(index);
+        const AdaptiveWidgetPlacement adaptivePlacement = pluginManager.AdaptivePlacementAt(index);
+        if ((!adaptive &&
+             (gridPlacement.column >= columns || gridPlacement.row >= rows || gridPlacement.columnSpan == 0 ||
+              gridPlacement.rowSpan == 0 || gridPlacement.columnSpan > columns - gridPlacement.column ||
+              gridPlacement.rowSpan > rows - gridPlacement.row)) ||
+            (adaptive && (adaptivePlacement.depth == 0 || adaptivePlacement.depth > kMaximumLayoutDepth)))
         {
             return E_INVALIDARG;
         }
         gridPlacements[index] = gridPlacement;
-        placements[index] = ToDesignPlacement(gridPlacement, columns, rows);
+        adaptivePlacements[index] = adaptivePlacement;
+        usesAdaptivePlacement[index] = adaptive;
+        if (adaptive)
+        {
+            const RECT designBounds = ToAdaptivePixelBounds(adaptivePlacement, static_cast<UINT>(kDesignWidth),
+                                                            static_cast<UINT>(kDesignHeight));
+            placements[index] =
+                WidgetPlacement{static_cast<float>(designBounds.left), static_cast<float>(designBounds.top),
+                                static_cast<float>(designBounds.right - designBounds.left),
+                                static_cast<float>(designBounds.bottom - designBounds.top)};
+        }
+        else
+        {
+            placements[index] = ToDesignPlacement(gridPlacement, columns, rows);
+        }
         continuous = continuous || (pluginManager.WidgetFlagsAt(index) & RedXeWidgetFlagContinuousAnimation) != 0;
 
         if (!windowWidget)
@@ -89,7 +141,8 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
             continue;
         }
 
-        const RECT bounds = ToPixelBounds(gridPlacement, columns, rows, width, height);
+        const RECT bounds = adaptive ? ToAdaptivePixelBounds(adaptivePlacement, width, height)
+                                     : ToPixelBounds(gridPlacement, columns, rows, width, height);
         const HWND container = CreateWindowExW(
             WS_EX_NOPARENTNOTIFY, L"STATIC", L"", WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, bounds.left, bounds.top,
             bounds.right - bounds.left, bounds.bottom - bounds.top, parent, nullptr, nullptr, nullptr);
@@ -140,12 +193,16 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
     _pluginManager = &pluginManager;
     _placements = placements;
     _gridPlacements = gridPlacements;
+    _adaptivePlacements = adaptivePlacements;
+    _usesAdaptivePlacement = usesAdaptivePlacement;
     _windowContainers = std::move(containers);
     _widgetCount = widgetCount;
     _gridColumns = columns;
     _gridRows = rows;
     _requiresContinuousFrames = continuous;
     _windowWidgetsVisible = visible;
+    _clientWidth = width;
+    _clientHeight = height;
     return S_OK;
 }
 
@@ -159,6 +216,8 @@ HRESULT DashboardHost::Resize(UINT width, UINT height, UINT dpi) noexcept
     {
         return SetWindowWidgetsVisible(false);
     }
+    _clientWidth = width;
+    _clientHeight = height;
 
     for (std::size_t index = 0; index < _widgetCount; ++index)
     {
@@ -185,6 +244,33 @@ HRESULT DashboardHost::Resize(UINT width, UINT height, UINT dpi) noexcept
         if (FAILED(result))
         {
             return result;
+        }
+    }
+    return S_OK;
+}
+
+HRESULT DashboardHost::SetHorizontalOffset(LONG offset) noexcept
+{
+    if (!_pluginManager)
+    {
+        return E_UNEXPECTED;
+    }
+    if (_horizontalOffset == offset)
+    {
+        return S_OK;
+    }
+    _horizontalOffset = offset;
+    for (std::size_t index = 0; index < _widgetCount; ++index)
+    {
+        if (!_windowContainers[index])
+        {
+            continue;
+        }
+        const RECT bounds = PixelBoundsAt(index, _clientWidth, _clientHeight);
+        if (!SetWindowPos(_windowContainers[index].get(), nullptr, bounds.left, bounds.top, bounds.right - bounds.left,
+                          bounds.bottom - bounds.top, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE))
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
         }
     }
     return S_OK;
@@ -262,6 +348,9 @@ void DashboardHost::Shutdown() noexcept
     _gridRows = 0;
     _requiresContinuousFrames = false;
     _windowWidgetsVisible = false;
+    _horizontalOffset = 0;
+    _clientWidth = 0;
+    _clientHeight = 0;
 }
 
 std::size_t DashboardHost::WidgetCount() const noexcept
@@ -291,9 +380,18 @@ WidgetPlacement DashboardHost::PlacementAt(std::size_t index) const noexcept
 
 RECT DashboardHost::PixelBoundsAt(std::size_t index, UINT width, UINT height) const noexcept
 {
-    return index < _widgetCount && width != 0 && height != 0 && _gridColumns != 0 && _gridRows != 0
-               ? ToPixelBounds(_gridPlacements[index], _gridColumns, _gridRows, width, height)
-               : RECT{};
+    if (index >= _widgetCount || width == 0 || height == 0)
+    {
+        return RECT{};
+    }
+    RECT bounds = _usesAdaptivePlacement[index]
+                      ? ToAdaptivePixelBounds(_adaptivePlacements[index], width, height)
+                      : (_gridColumns != 0 && _gridRows != 0
+                             ? ToPixelBounds(_gridPlacements[index], _gridColumns, _gridRows, width, height)
+                             : RECT{});
+    bounds.left += _horizontalOffset;
+    bounds.right += _horizontalOffset;
+    return bounds;
 }
 
 bool DashboardHost::RequiresContinuousFrames() const noexcept

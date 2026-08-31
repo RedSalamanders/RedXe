@@ -10,7 +10,8 @@ This specification owns RedXe startup display selection, Debug and Release windo
 canvas, per-monitor DPI behavior, fallback prompts, and the hidden smoke-test window. Direct3D device and swap-chain
 ownership remains in `Renderer`; see the `direct3d11-rendering` skill for that boundary.
 
-Dashboard pages and grid placement are owned by `Specs/UI/UI_Dashboard.md`.
+Dashboard pages, adaptive placement, runtime orientation reflow, and horizontal touch navigation are owned by
+`Specs/UI/UI_Dashboard.md`.
 
 The product target is the CORSAIR XENEON EDGE in its native landscape mode: **2560×720**, **32:9**. The hardware basis
 is the [CORSAIR XENEON EDGE product specification](https://www.corsair.com/newsroom/press-release/corsair-launches-the-xeneon-edge-14-5%E2%80%B3-lcd-touchscreen-a-dazzling-and-expansive-display-customized-by-you).

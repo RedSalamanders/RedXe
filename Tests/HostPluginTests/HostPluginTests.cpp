@@ -240,15 +240,14 @@ void TestReleaseHostIntegration(bool& success) noexcept
         Check(SUCCEEDED(result), L"Release plugin composition initializes", success);
         Check(plugins.ProviderCount() == 1 && plugins.WidgetCount() == 1,
               L"Release composition contains one active-page provider and widget", success);
-        const WidgetGridPlacement releaseGridPlacement = plugins.WidgetGridPlacementAt(0);
-        Check(plugins.GridColumns() == 32 && plugins.GridRows() == 9 &&
-                  std::string_view(plugins.WidgetInstanceIdAt(0)) == "matrix-rain.1" &&
-                  releaseGridPlacement.column == 0 && releaseGridPlacement.row == 0 &&
-                  releaseGridPlacement.columnSpan == 32 && releaseGridPlacement.rowSpan == 9,
-              L"Release manager stages only the active page and preserves its full-grid instance", success);
-        Check(GetModuleHandleW(L"RotatingTriangle.dll") == nullptr, L"Release composition does not load triangle DLL",
-              success);
-        Check(GetModuleHandleW(L"GdiOrbit.dll") == nullptr, L"Release composition does not load GDI DLL", success);
+        const AdaptiveWidgetPlacement releasePlacement = plugins.AdaptivePlacementAt(0);
+        Check(plugins.UsesAdaptivePlacementAt(0) && releasePlacement.depth == 1 &&
+                  releasePlacement.steps[0] == LayoutSplitStep{LayoutAxis::LongSide, 0, 1, 1},
+              L"Release manager stages only the active page and preserves its full-display adaptive instance", success);
+        Check(GetModuleHandleW(L"RotatingTriangle.dll") != nullptr,
+              L"Release static discovery maps the gallery triangle DLL without creating its page", success);
+        Check(GetModuleHandleW(L"GdiOrbit.dll") != nullptr,
+              L"Release static discovery maps the gallery GDI DLL without creating its page", success);
         if (FAILED(result))
         {
             return;
@@ -330,10 +329,15 @@ void TestReleaseHostIntegration(bool& success) noexcept
               L"host shutdown releases Matrix device resources before plugin objects", success);
 
         AppSettings changed = releaseSettings;
-        changed.dashboard.activePageId = changed.dashboard.pages[1].id;
-        result = plugins.Reconfigure(changed);
-        Check(SUCCEEDED(result) && std::string_view(plugins.WidgetInstanceIdAt(0)) == "matrix-rain.alt",
-              L"host transactionally switches to the configured alternate page", success);
+        constexpr std::string_view changedMatrix =
+            R"json({"seed":2000,"glyphHeightDips":18,"densityPercent":80,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35})json";
+        result = SetJsonObjectSettings(changedMatrix, changed.dashboard.pages[0].widgets[0].privateConfiguration);
+        if (SUCCEEDED(result))
+        {
+            result = plugins.Reconfigure(changed);
+        }
+        Check(SUCCEEDED(result) && plugins.WidgetCount() == 1,
+              L"host transactionally applies changed effective widget settings", success);
         result = ReadMatrixDiagnostics(diagnostics);
         Check(SUCCEEDED(result) && diagnostics.liveProviderCount == 1 && diagnostics.liveWidgetCount == 1 &&
                   diagnostics.liveDeviceResourceSetCount == 0,
@@ -346,8 +350,7 @@ void TestReleaseHostIntegration(bool& success) noexcept
             matrixPlugin->enabled = false;
         }
         const HRESULT invalidResult = plugins.Reconfigure(invalid);
-        Check(FAILED(invalidResult) && plugins.WidgetCount() == 1 &&
-                  std::string_view(plugins.WidgetInstanceIdAt(0)) == "matrix-rain.alt",
+        Check(FAILED(invalidResult) && plugins.WidgetCount() == 1,
               L"invalid plugin references preserve the active page transactionally", success);
 
         result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
@@ -404,19 +407,19 @@ void TestDebugHostComposition(bool& success) noexcept
               dashboard.GpuWidgetAt(1) != nullptr && dashboard.GpuWidgetAt(3) != nullptr,
           L"Debug dashboard exposes two triangles, GDI Orbit, and Matrix mechanisms", success);
     Check(dashboard.PlacementAt(0) == WidgetPlacement{0.0f, 0.0f, 640.0f, 720.0f} &&
-              dashboard.PlacementAt(1) == WidgetPlacement{640.0f, 0.0f, 640.0f, 720.0f} &&
-              dashboard.PlacementAt(2) == WidgetPlacement{1280.0f, 0.0f, 640.0f, 720.0f} &&
-              dashboard.PlacementAt(3) == WidgetPlacement{1920.0f, 0.0f, 640.0f, 720.0f},
-          L"Debug dashboard maps four adjacent 8x9 grid regions onto the design canvas", success);
+              dashboard.PlacementAt(1) == WidgetPlacement{640.0f, 0.0f, 640.0f, 360.0f} &&
+              dashboard.PlacementAt(2) == WidgetPlacement{640.0f, 360.0f, 640.0f, 360.0f} &&
+              dashboard.PlacementAt(3) == WidgetPlacement{1280.0f, 0.0f, 1280.0f, 720.0f},
+          L"Debug dashboard compiles the nested adaptive layout onto the design canvas", success);
     HWND gdiContainer = GetWindow(window.Get(), GW_CHILD);
     RECT gdiBounds{};
     if (gdiContainer && GetWindowRect(gdiContainer, &gdiBounds))
     {
         MapWindowPoints(HWND_DESKTOP, window.Get(), reinterpret_cast<POINT*>(&gdiBounds), 2);
     }
-    Check(gdiContainer && gdiBounds.left == 1280 && gdiBounds.top == 0 && gdiBounds.right == 1920 &&
+    Check(gdiContainer && gdiBounds.left == 640 && gdiBounds.top == 360 && gdiBounds.right == 1280 &&
               gdiBounds.bottom == 720,
-          L"native GDI container uses the same configured grid bounds", success);
+          L"native GDI container uses the same adaptive bounds", success);
     if (FAILED(result))
     {
         return;
@@ -447,7 +450,7 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] non-divisible dashboard grid edges\n";
     constexpr std::string_view settingsJson =
-        R"json({"$schema":"RedXe.settings.schema.json","schemaVersion":3,"plugins":[{"id":"builtin.rotating-triangle","enabled":true,"private":{}}],"dashboard":{"grid":{"columns":7,"rows":3},"activePageId":"page.uneven","pages":[{"id":"page.uneven","name":"Uneven","widgets":[{"id":"triangle.left","pluginId":"builtin.rotating-triangle","typeId":"rotating-triangle","placement":{"column":0,"row":0,"columnSpan":3,"rowSpan":3},"private":{}},{"id":"triangle.right","pluginId":"builtin.rotating-triangle","typeId":"rotating-triangle","placement":{"column":3,"row":0,"columnSpan":4,"rowSpan":3},"private":{}}]}]}})json";
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":2,"widget":{"plugin":"builtin.rotating-triangle"}},{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -466,7 +469,7 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
     {
         result = dashboard.Initialize(plugins, window.Get(), 1001, 333, window.Dpi(), false);
     }
-    Check(SUCCEEDED(result), L"uneven seven-column dashboard initializes", success);
+    Check(SUCCEEDED(result), L"adaptive uneven-ratio dashboard initializes", success);
     if (FAILED(result))
     {
         return;
@@ -476,7 +479,14 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
     const RECT right = dashboard.PixelBoundsAt(1, 1001, 333);
     Check(left.left == 0 && left.right == right.left && right.right == 1001 && left.top == 0 && right.top == 0 &&
               left.bottom == 333 && right.bottom == 333,
-          L"adjacent grid regions share one rounded physical edge without gaps or overlap", success);
+          L"landscape long-side regions share one exact physical edge without gaps or overlap", success);
+
+    const RECT portraitFirst = dashboard.PixelBoundsAt(0, 333, 1001);
+    const RECT portraitSecond = dashboard.PixelBoundsAt(1, 333, 1001);
+    Check(portraitFirst.left == 0 && portraitFirst.right == 333 && portraitSecond.left == 0 &&
+              portraitSecond.right == 333 && portraitFirst.top == 0 && portraitFirst.bottom == portraitSecond.top &&
+              portraitSecond.bottom == 1001,
+          L"portrait reflows the same long-side split vertically without reparsing", success);
 
     Renderer renderer;
     result = renderer.Initialize(window.Get(), true, dashboard);
@@ -485,7 +495,29 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
         result = renderer.Render(0.0f, 0.0f);
     }
     Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 2 && renderer.LastFrameSuccessfulWidgetCount() == 2,
-          L"D3D viewports use the same uneven physical grid edges", success);
+          L"D3D viewports use the same adaptive physical edges", success);
+    PluginManager adjacentPlugins;
+    DashboardHost adjacentDashboard;
+    if (SUCCEEDED(result))
+        result = adjacentPlugins.Initialize(settings);
+    if (SUCCEEDED(result))
+        result = adjacentDashboard.Initialize(adjacentPlugins, window.Get(), 1001, 333, window.Dpi(), false);
+    if (SUCCEEDED(result))
+        result = adjacentDashboard.SetHorizontalOffset(1001 - 137);
+    if (SUCCEEDED(result))
+        result = renderer.SetTransitionDashboard(&adjacentDashboard);
+    if (SUCCEEDED(result))
+        result = dashboard.SetHorizontalOffset(-137);
+    if (SUCCEEDED(result))
+        result = renderer.RefreshLayout();
+    if (SUCCEEDED(result))
+        result = renderer.Render(0.1f, 0.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 4,
+          L"direct manipulation renders only the current and staged adjacent pages", success);
+    (void)renderer.SetTransitionDashboard(nullptr);
+    adjacentDashboard.Shutdown();
+    (void)dashboard.SetHorizontalOffset(0);
+    (void)renderer.RefreshLayout();
     renderer.Shutdown();
     dashboard.Shutdown();
 }

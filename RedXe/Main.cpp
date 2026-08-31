@@ -32,6 +32,25 @@ bool HasArgument(wchar_t* const* arguments, int argumentCount, std::wstring_view
     return false;
 }
 
+[[nodiscard]] bool GetSettingsArgument(wchar_t* const* arguments, int argumentCount,
+                                       std::wstring_view& selectedPath) noexcept
+{
+    selectedPath = {};
+    for (int index = 1; index < argumentCount; ++index)
+    {
+        if (std::wstring_view{arguments[index]} != L"--settings")
+        {
+            continue;
+        }
+        if (!selectedPath.empty() || index + 1 >= argumentCount || arguments[index + 1][0] == L'\0')
+        {
+            return false;
+        }
+        selectedPath = arguments[++index];
+    }
+    return true;
+}
+
 enum class CrashDirectoryOverrideStatus
 {
     NotPresent,
@@ -76,6 +95,13 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
     const bool forceWarp = HasArgument(arguments.get(), argumentCount, L"--warp");
     const bool crashTest = HasArgument(arguments.get(), argumentCount, L"--crash-test");
     const bool stackOverflowCrashTest = HasArgument(arguments.get(), argumentCount, L"--crash-test-stack-overflow");
+    std::wstring_view settingsPath;
+    if (!GetSettingsArgument(arguments.get(), argumentCount, settingsPath))
+    {
+        MessageBoxW(nullptr, L"Use --settings followed by exactly one settings file path.", L"RedXe",
+                    MB_OK | MB_ICONERROR);
+        return 2;
+    }
     if (crashTest || stackOverflowCrashTest)
     {
         if (ConfigureCrashTestDirectoryOverride(arguments.get(), argumentCount) ==
@@ -92,7 +118,7 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
     }
 
     const std::unique_ptr<Application> application{new (std::nothrow) Application(instance, forceWarp)};
-    const int exitCode = application ? application->Run(showCommand, selfTest) : 1;
+    const int exitCode = application ? application->Run(showCommand, selfTest, settingsPath) : 1;
 
     if (exitCode != 0 && !selfTest)
     {

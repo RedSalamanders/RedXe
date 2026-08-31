@@ -9,13 +9,13 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{CE27A40C-03BE-4D36-9D9A-3F9282B9D327}</ProjectGuid>
-    <RootNamespace>SettingsTests</RootNamespace>
+    <ProjectGuid>{B8571A4E-A8C8-4A68-A99C-80F0505F0E5F}</ProjectGuid>
+    <RootNamespace>SystemData</RootNamespace>
     <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
     <UseDebugLibraries Condition="'$(Configuration)'!='Debug'">false</UseDebugLibraries>
     <PlatformToolset>v145</PlatformToolset>
@@ -30,16 +30,16 @@
             Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <OutDir>$(RedXeBuildRoot)$(Platform)\$(Configuration)\Plugins\</OutDir>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
-    <Link>
-      <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>shell32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    </Link>
+    <Link><AdditionalDependencies>psapi.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
     <ClCompile>
@@ -50,38 +50,17 @@
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>shell32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>psapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
+  <ItemGroup><ClCompile Include="SystemData.cpp" /></ItemGroup>
   <ItemGroup>
-    <ClCompile Include="SettingsTests.cpp" />
-    <ClCompile Include="..\..\RedXe\Settings.cpp" />
-    <ClCompile Include="..\..\RedXe\SettingsV4.cpp" />
-    <ClCompile Include="..\..\RedXe\SettingsWatcher.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="..\..\RedXe\Settings.h" />
-    <ClInclude Include="..\..\RedXe\SettingsWatcher.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="..\..\Settings\RedXe-debug.settings.json">
-      <Link>Settings\RedXe-debug.settings.json</Link>
-      <TargetPath>Settings\RedXe-debug.settings.json</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Include="..\..\Settings\RedXe.settings.json">
-      <Link>Settings\RedXe.settings.json</Link>
-      <TargetPath>Settings\RedXe.settings.json</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Include="..\..\Specs\Settings.schema.json">
-      <Link>Settings\RedXe.settings.schema.json</Link>
-      <TargetPath>Settings\RedXe.settings.schema.json</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <ClInclude Include="..\..\Common\PlugInterfaces\DataProvider.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

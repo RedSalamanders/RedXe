@@ -39,6 +39,8 @@ class PluginManager final
     [[nodiscard]] IRedXeWindowWidget* WindowWidgetAt(std::size_t index) const noexcept;
     [[nodiscard]] std::uint32_t WidgetFlagsAt(std::size_t index) const noexcept;
     [[nodiscard]] WidgetGridPlacement WidgetGridPlacementAt(std::size_t index) const noexcept;
+    [[nodiscard]] AdaptiveWidgetPlacement AdaptivePlacementAt(std::size_t index) const noexcept;
+    [[nodiscard]] bool UsesAdaptivePlacementAt(std::size_t index) const noexcept;
     [[nodiscard]] const char* WidgetInstanceIdAt(std::size_t index) const noexcept;
     [[nodiscard]] std::uint32_t GridColumns() const noexcept;
     [[nodiscard]] std::uint32_t GridRows() const noexcept;
@@ -53,6 +55,8 @@ class PluginManager final
         wil::com_ptr_nothrow<IRedXeWindowWidget> windowWidget;
         SettingsText instanceId;
         WidgetGridPlacement placement;
+        AdaptiveWidgetPlacement adaptivePlacement;
+        bool usesAdaptivePlacement = false;
         std::uint32_t flags = RedXeWidgetFlagNone;
     };
 
@@ -65,6 +69,7 @@ class PluginManager final
     {
         wil::unique_hmodule module;
         RedXeCreateFn create = nullptr;
+        RedXeGetPluginSettingsContractFn getSettingsContract = nullptr;
         RedXePluginShutdownFn shutdown = nullptr;
     };
 

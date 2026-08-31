@@ -2,8 +2,9 @@
 
 A clean Win32 + Direct3D 11 foundation for the XENEON EDGE dashboard. The application opens a per-monitor-DPI-aware
 native window and hosts rendering-neutral widget instances through negotiated GPU and native-window interfaces.
-Release fills the dashboard with the deterministic low-resource Matrix Rain GPU plugin; Debug also renders two
-independent Direct3D triangles and a double-buffered GDI Xenon orbit in a host-owned child container. WIL owns
+Release starts with the deterministic low-resource Matrix Rain GPU plugin; both shipped defaults include a second
+gallery page demonstrating every bundled plugin. Debug's first page also renders two independent Direct3D triangles
+and a double-buffered GDI Xenon orbit in a host-owned child container. WIL owns
 Windows/COM resources and yyjson supplies the settings layer; both dependencies are pinned with vcpkg.
 
 The executable and native window use a high-resolution Xenon periodic-table icon. Its 1254×1254 master artwork and
@@ -74,12 +75,13 @@ remains hidden and noninteractive in every configuration and verifies the DPI-ad
 ## Settings and live reload
 
 Normal runs keep editable settings under `%LocalAppData%\RedXe\Settings`. Debug uses
-`RedXe-debug.settings.json`; Release uses the versioned `RedXe-1.0.settings.json`. The user schema is installed beside
-them as `RedXe.settings.schema.json`. Schema version 3 defines a normalized plugin registry, a 32x9 placement grid,
-ordered dashboard pages, a selected active page, globally unique widget-instance IDs, and separate private JSON
-objects for each plugin and widget instance. The host passes plugin and instance private objects to every active
-provider in one normalized factory envelope. Valid changes and page switches recreate the active dashboard
-transactionally; inactive pages own no runtime resources. The directory watcher blocks on Windows events and does no
+`RedXe-debug.settings.json`; Release uses `RedXe.settings.json`. Schema compatibility comes from the document's
+`version` member, not its filename. The user schema is installed beside
+them as `RedXe.settings.schema.json`. Schema version 4 defines reusable declarations, plugin-owned settings, ordered
+swipeable pages, and adaptive ratio layouts that reflow between landscape and portrait without an orientation field.
+The first page is selected on launch. Valid changes and page switches recreate the dashboard transactionally;
+inactive pages own no runtime resources except the adjacent staged page during a swipe. The directory watcher blocks
+on Windows events and does no
 periodic polling. Invalid live edits leave the previous dashboard active. The hidden self-test reads only the template
 deployed under the build output's `Settings` directory and never touches user settings.
 
@@ -109,7 +111,7 @@ are complete, the plan must move to `Specs/Plans/Done/` and must not remain unde
 Common/               Shared native plugin contracts
 Plugins/              Bundled plugin implementations
 RedXe/                 Win32 host and Direct3D orchestration
-Settings/              Debug and versioned Release settings templates
+Settings/              Debug and Release settings templates
 Tests/                 ABI, settings, and production host/plugin tests
 Build/                 Exact-output build-process safety helper
 build.ps1             Build, clean, rebuild, and optionally run

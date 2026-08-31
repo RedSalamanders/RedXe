@@ -3,6 +3,7 @@
 #include "PlugInterfaces/Factory.h"
 
 #include <array>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -12,8 +13,11 @@
 #include <strsafe.h>
 #include <utility>
 
+#include <yyjson.h>
+
 namespace
 {
+using unique_contract_doc = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
 constexpr char kTrianglePluginId[] = "builtin.rotating-triangle";
 constexpr char kTriangleWidgetTypeId[] = "rotating-triangle";
 constexpr char kGdiPluginId[] = "builtin.gdi-orbit";
@@ -48,6 +52,113 @@ static_assert(kBundledPlugins.size() <= kMaximumSettingsPlugins);
         }
     }
     return nullptr;
+}
+
+[[nodiscard]] const BundledPluginSpec* FindBundledPlugin(std::string_view pluginId) noexcept
+{
+    for (const BundledPluginSpec& candidate : kBundledPlugins)
+    {
+        if (SettingsIdEquals(pluginId, candidate.pluginId))
+        {
+            return &candidate;
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] bool IsHexColor(yyjson_val* value) noexcept
+{
+    const char* text = yyjson_is_str(value) ? yyjson_get_str(value) : nullptr;
+    if (!text || yyjson_get_len(value) != 7 || text[0] != '#')
+    {
+        return false;
+    }
+    for (std::size_t index = 1; index < 7; ++index)
+    {
+        if (!std::isxdigit(static_cast<unsigned char>(text[index])))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool ValidateValueAgainstPublishedSchema(yyjson_val* schema, yyjson_val* value) noexcept
+{
+    if (!yyjson_is_obj(schema))
+    {
+        return false;
+    }
+    yyjson_val* type = yyjson_obj_get(schema, "type");
+    if (!yyjson_is_str(type))
+    {
+        return false;
+    }
+    const std::string_view typeName{yyjson_get_str(type), yyjson_get_len(type)};
+    if (typeName == "object")
+    {
+        if (!yyjson_is_obj(value))
+        {
+            return false;
+        }
+        yyjson_val* properties = yyjson_obj_get(schema, "properties");
+        if (properties && !yyjson_is_obj(properties))
+        {
+            return false;
+        }
+        yyjson_val* additional = yyjson_obj_get(schema, "additionalProperties");
+        if (additional && !yyjson_is_bool(additional))
+        {
+            return false;
+        }
+        yyjson_obj_iter iterator = yyjson_obj_iter_with(value);
+        while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
+        {
+            yyjson_val* propertySchema =
+                properties ? yyjson_obj_getn(properties, yyjson_get_str(key), yyjson_get_len(key)) : nullptr;
+            if (!propertySchema)
+            {
+                if (!additional || !yyjson_get_bool(additional))
+                {
+                    return false;
+                }
+                continue;
+            }
+            if (!ValidateValueAgainstPublishedSchema(propertySchema, yyjson_obj_iter_get_val(key)))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (typeName == "integer")
+    {
+        if (!yyjson_is_uint(value))
+        {
+            return false;
+        }
+        const std::uint64_t number = yyjson_get_uint(value);
+        yyjson_val* minimum = yyjson_obj_get(schema, "minimum");
+        yyjson_val* maximum = yyjson_obj_get(schema, "maximum");
+        return (!minimum || (yyjson_is_uint(minimum) && number >= yyjson_get_uint(minimum))) &&
+               (!maximum || (yyjson_is_uint(maximum) && number <= yyjson_get_uint(maximum)));
+    }
+    if (typeName == "string")
+    {
+        if (!yyjson_is_str(value))
+        {
+            return false;
+        }
+        yyjson_val* pattern = yyjson_obj_get(schema, "pattern");
+        if (!pattern)
+        {
+            return true;
+        }
+        return yyjson_is_str(pattern) &&
+               std::string_view{yyjson_get_str(pattern), yyjson_get_len(pattern)} == "^#[0-9A-Fa-f]{6}$" &&
+               IsHexColor(value);
+    }
+    return false;
 }
 
 template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE module, const char* name) noexcept
@@ -193,6 +304,8 @@ PluginManager::~PluginManager()
             slot.shutdown();
         }
         slot.shutdown = nullptr;
+        slot.getSettingsContract = nullptr;
+        slot.create = nullptr;
         if (slot.module)
         {
             (void)slot.module.release();
@@ -205,7 +318,7 @@ HRESULT PluginManager::LoadBundledModule(const wchar_t* moduleName, const char* 
                                          ModuleSlot& moduleSlot) noexcept
 {
     if (!moduleName || !RedXeIsValidMachineId(pluginId) || moduleSlot.module || moduleSlot.create ||
-        moduleSlot.shutdown)
+        moduleSlot.getSettingsContract || moduleSlot.shutdown)
     {
         return E_INVALIDARG;
     }
@@ -244,6 +357,34 @@ HRESULT PluginManager::LoadBundledModule(const wchar_t* moduleName, const char* 
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
 
+    const RedXeGetPluginSettingsContractFn getSettingsContract =
+        ResolveFunction<RedXeGetPluginSettingsContractFn>(module.get(), kRedXeGetPluginSettingsContractExport);
+    if (!getSettingsContract)
+    {
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    }
+    const RedXePluginSettingsContract* settingsContract = nullptr;
+    result = getSettingsContract(pluginId, &settingsContract);
+    if (FAILED(result) || !settingsContract || settingsContract->sizeBytes < sizeof(*settingsContract) ||
+        settingsContract->versionMajor != 1 || !settingsContract->schemaJsonUtf8 ||
+        settingsContract->schemaBytes == 0 || settingsContract->schemaBytes > kPrivateConfigurationCapacity ||
+        !settingsContract->defaultsJsonUtf8 || settingsContract->defaultsBytes == 0 ||
+        settingsContract->defaultsBytes > kPrivateConfigurationCapacity)
+    {
+        return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    unique_contract_doc schemaDocument{
+        yyjson_read(settingsContract->schemaJsonUtf8, settingsContract->schemaBytes, YYJSON_READ_NOFLAG)};
+    unique_contract_doc defaultsDocument{
+        yyjson_read(settingsContract->defaultsJsonUtf8, settingsContract->defaultsBytes, YYJSON_READ_NOFLAG)};
+    if (!schemaDocument || !defaultsDocument || !yyjson_is_obj(yyjson_doc_get_root(schemaDocument.get())) ||
+        !yyjson_is_obj(yyjson_doc_get_root(defaultsDocument.get())) ||
+        !ValidateValueAgainstPublishedSchema(yyjson_doc_get_root(schemaDocument.get()),
+                                             yyjson_doc_get_root(defaultsDocument.get())))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
     const RedXeEnumeratePluginsFn enumerate =
         ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
     if (enumerate)
@@ -262,6 +403,7 @@ HRESULT PluginManager::LoadBundledModule(const wchar_t* moduleName, const char* 
     }
 
     moduleSlot.shutdown = ResolveFunction<RedXePluginShutdownFn>(module.get(), kRedXePluginShutdownExport);
+    moduleSlot.getSettingsContract = getSettingsContract;
     moduleSlot.create = createFunction;
     moduleSlot.module = std::move(module);
     return S_OK;
@@ -347,6 +489,8 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     }
     widgetSlot.instanceId = settings.id;
     widgetSlot.placement = settings.placement;
+    widgetSlot.adaptivePlacement = settings.adaptivePlacement;
+    widgetSlot.usesAdaptivePlacement = settings.usesAdaptivePlacement;
     widgetSlot.flags = widgetType->flags;
     return S_OK;
 }
@@ -362,10 +506,75 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
     providerCount = 0;
     widgetCount = 0;
     HRESULT result = ValidateAppSettings(settings);
+    if (FAILED(result))
+    {
+        return result;
+    }
+
+    // Static discovery covers every effective widget in the document. This maps each referenced module once and
+    // validates its immutable settings contract without creating providers or widget resources.
+    for (std::uint32_t pluginIndex = 0; pluginIndex < settings.pluginCount; ++pluginIndex)
+    {
+        const PluginSettings& plugin = settings.plugins[pluginIndex];
+        if (!plugin.enabled)
+        {
+            continue;
+        }
+        const BundledPluginSpec* spec = FindBundledPlugin(plugin.id.View());
+        if (!spec || spec->moduleIndex >= loadedModules.size())
+        {
+            return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+        }
+        if (!_modules[spec->moduleIndex].module && !loadedModules[spec->moduleIndex].module)
+        {
+            result = LoadBundledModule(spec->moduleName, spec->pluginId, loadedModules[spec->moduleIndex]);
+            if (FAILED(result))
+            {
+                return result;
+            }
+        }
+    }
+
+    for (std::uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
+    {
+        const DashboardPageSettings& candidatePage = settings.dashboard.pages[pageIndex];
+        for (std::uint32_t widgetIndex = 0; widgetIndex < candidatePage.widgetCount; ++widgetIndex)
+        {
+            const WidgetInstanceSettings& widget = candidatePage.widgets[widgetIndex];
+            const BundledPluginSpec* spec = FindBundledPlugin(widget.pluginId.View(), widget.typeId.View());
+            if (!spec)
+            {
+                return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+            }
+            ModuleSlot& module =
+                _modules[spec->moduleIndex].module ? _modules[spec->moduleIndex] : loadedModules[spec->moduleIndex];
+            const RedXePluginSettingsContract* contract = nullptr;
+            if (!module.getSettingsContract || FAILED(module.getSettingsContract(spec->pluginId, &contract)) ||
+                !contract)
+            {
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            unique_contract_doc schemaDocument{
+                yyjson_read(contract->schemaJsonUtf8, contract->schemaBytes, YYJSON_READ_NOFLAG)};
+            unique_contract_doc valueDocument{yyjson_read(widget.privateConfiguration.utf8.data(),
+                                                          widget.privateConfiguration.bytes, YYJSON_READ_NOFLAG)};
+            if (!schemaDocument || !valueDocument ||
+                !ValidateValueAgainstPublishedSchema(yyjson_doc_get_root(schemaDocument.get()),
+                                                     yyjson_doc_get_root(valueDocument.get())))
+            {
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+    }
+
     const DashboardPageSettings* page = SUCCEEDED(result) ? FindActiveDashboardPage(settings) : nullptr;
-    if (FAILED(result) || !page || page->widgetCount == 0 || page->widgetCount > kMaximumWidgetInstances)
+    if (FAILED(result) || !page || page->widgetCount > kMaximumWidgetInstances)
     {
         return FAILED(result) ? result : E_INVALIDARG;
+    }
+    if (page->widgetCount == 0)
+    {
+        return S_OK;
     }
 
     for (std::uint32_t index = 0; index < page->widgetCount; ++index)
@@ -544,6 +753,16 @@ std::uint32_t PluginManager::WidgetFlagsAt(std::size_t index) const noexcept
 WidgetGridPlacement PluginManager::WidgetGridPlacementAt(std::size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].placement : WidgetGridPlacement{};
+}
+
+AdaptiveWidgetPlacement PluginManager::AdaptivePlacementAt(std::size_t index) const noexcept
+{
+    return index < _widgetCount ? _widgets[index].adaptivePlacement : AdaptiveWidgetPlacement{};
+}
+
+bool PluginManager::UsesAdaptivePlacementAt(std::size_t index) const noexcept
+{
+    return index < _widgetCount && _widgets[index].usesAdaptivePlacement;
 }
 
 const char* PluginManager::WidgetInstanceIdAt(std::size_t index) const noexcept

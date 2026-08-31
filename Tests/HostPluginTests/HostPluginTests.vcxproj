@@ -64,6 +64,7 @@
     <ClCompile Include="..\..\RedXe\PluginManager.cpp" />
     <ClCompile Include="..\..\RedXe\Renderer.cpp" />
     <ClCompile Include="..\..\RedXe\Settings.cpp" />
+    <ClCompile Include="..\..\RedXe\SettingsV4.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Plugins\MatrixRain\MatrixRainTestContract.h" />

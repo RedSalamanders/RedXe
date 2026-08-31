@@ -2,12 +2,13 @@
 #include "../../RedXe/SettingsWatcher.h"
 
 #include <array>
-#include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <new>
 #include <string>
 #include <string_view>
+#include <vector>
 #include <windows.h>
 
 #pragma warning(push)
@@ -19,37 +20,56 @@
 
 namespace
 {
-using unique_yyjson_doc = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
+using unique_doc = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
 
-constexpr std::string_view kMatrixPrivate =
-    R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35})json";
+constexpr std::string_view kRepresentative = R"json(
+{
+  "version": { "major": 4, "minor": 0 },
+  "wrapPages": true,
+  "declare": {
+    "Matrix": { "plugin": "builtin.matrix-rain", "settings": { "seed": 7, "densityPercent": 60 } },
+    "Triangle": { "plugin": "builtin.rotating-triangle" },
+  },
+  "pages": [
+    {
+      "id": "main",
+      "layout": {
+        "arrangeAlong": "long-side",
+        "areas": [
+          { "sizeRatio": 2, "widget": "Triangle" },
+          {
+            "sizeRatio": 1,
+            "arrangeAlong": "short-side",
+            "areas": [
+              { "sizeRatio": 1, "widget": "Matrix" },
+              { "sizeRatio": 1, "widget": { "use": "Matrix", "override": { "settings": { "seed": 9, "densityPercent": null } } } }
+            ]
+          }
+        ]
+      }
+    },
+    {},
+  ]
+})json";
 
-constexpr std::string_view kMinimalDocument =
-    R"json({"$schema":"RedXe.settings.schema.json","schemaVersion":3,"plugins":[{"id":"builtin.rotating-triangle","enabled":true,"private":{}},{"id":"builtin.gdi-orbit","enabled":false,"private":{}},{"id":"builtin.matrix-rain","enabled":true,"private":{}}],"dashboard":{"grid":{"columns":4,"rows":2},"activePageId":"page.one","pages":[{"id":"page.one","name":"One","widgets":[{"id":"triangle.one","pluginId":"builtin.rotating-triangle","typeId":"rotating-triangle","placement":{"column":0,"row":0,"columnSpan":2,"rowSpan":2},"private":{}}]},{"id":"page.two","name":"Two","widgets":[{"id":"matrix.two","pluginId":"builtin.matrix-rain","typeId":"matrix-rain","placement":{"column":0,"row":0,"columnSpan":4,"rowSpan":2},"private":{"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35}}]}]}})json";
+[[nodiscard]] HRESULT GetDeployedPath(const wchar_t* name, std::filesystem::path& path) noexcept
+{
+    std::array<wchar_t, 32768> module{};
+    const DWORD length = GetModuleFileNameW(nullptr, module.data(), static_cast<DWORD>(module.size()));
+    if (length == 0 || length >= module.size())
+        return HRESULT_FROM_WIN32(GetLastError());
+    path = std::filesystem::path(module.data()).parent_path() / L"Settings" / name;
+    return S_OK;
+}
 
-constexpr std::string_view kOverlappingDocument =
-    R"json({"$schema":"RedXe.settings.schema.json","schemaVersion":3,"plugins":[{"id":"builtin.rotating-triangle","enabled":true,"private":{}}],"dashboard":{"grid":{"columns":4,"rows":2},"activePageId":"page.one","pages":[{"id":"page.one","name":"One","widgets":[{"id":"triangle.one","pluginId":"builtin.rotating-triangle","typeId":"rotating-triangle","placement":{"column":0,"row":0,"columnSpan":3,"rowSpan":2},"private":{}},{"id":"triangle.two","pluginId":"builtin.rotating-triangle","typeId":"rotating-triangle","placement":{"column":2,"row":0,"columnSpan":2,"rowSpan":2},"private":{}}]}]}})json";
-
-constexpr std::string_view kTwoMatrixDocument =
-    R"json({"$schema":"RedXe.settings.schema.json","schemaVersion":3,"plugins":[{"id":"builtin.matrix-rain","enabled":true,"private":{}}],"dashboard":{"grid":{"columns":4,"rows":2},"activePageId":"page.one","pages":[{"id":"page.one","name":"One","widgets":[{"id":"matrix.one","pluginId":"builtin.matrix-rain","typeId":"matrix-rain","placement":{"column":0,"row":0,"columnSpan":2,"rowSpan":2},"private":{"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35}},{"id":"matrix.two","pluginId":"builtin.matrix-rain","typeId":"matrix-rain","placement":{"column":2,"row":0,"columnSpan":2,"rowSpan":2},"private":{"seed":2000,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35}}]}]}})json";
-
-constexpr std::string_view kEmptyRegistryDocument =
-    R"json({"$schema":"RedXe.settings.schema.json","schemaVersion":3,"plugins":[],"dashboard":{"grid":{"columns":4,"rows":2},"activePageId":"page.one","pages":[]}})json";
-
-constexpr std::string_view kEmptyWidgetsDocument =
-    R"json({"$schema":"RedXe.settings.schema.json","schemaVersion":3,"plugins":[{"id":"builtin.rotating-triangle","enabled":true,"private":{}}],"dashboard":{"grid":{"columns":4,"rows":2},"activePageId":"page.one","pages":[{"id":"page.one","name":"One","widgets":[]}]}})json";
-
-[[nodiscard]] HRESULT GetDeployedSettingsPath(const wchar_t* fileName, std::filesystem::path& path) noexcept
+[[nodiscard]] HRESULT ReadFile(const std::filesystem::path& path, std::string& bytes) noexcept
 {
     try
     {
-        std::array<wchar_t, 32768> executable{};
-        const DWORD length = GetModuleFileNameW(nullptr, executable.data(), static_cast<DWORD>(executable.size()));
-        if (length == 0 || length >= executable.size() - 1)
-        {
-            return length == 0 ? HRESULT_FROM_WIN32(GetLastError()) : HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
-        }
-        path = std::filesystem::path(executable.data()).parent_path() / L"Settings" / fileName;
+        std::ifstream stream(path, std::ios::binary);
+        if (!stream)
+            return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+        bytes.assign(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
         return S_OK;
     }
     catch (...)
@@ -58,447 +78,279 @@ constexpr std::string_view kEmptyWidgetsDocument =
     }
 }
 
-[[nodiscard]] HRESULT ReadBytes(const std::filesystem::path& path, std::string& bytes) noexcept
+[[nodiscard]] HRESULT ExpectRejected(std::string_view json) noexcept
 {
-    try
-    {
-        wil::unique_hfile file{CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
-        if (!file)
-        {
-            return HRESULT_FROM_WIN32(GetLastError());
-        }
-        LARGE_INTEGER size{};
-        if (!GetFileSizeEx(file.get(), &size) || size.QuadPart < 0 || size.QuadPart > 1024 * 1024)
-        {
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        }
-        bytes.resize(static_cast<std::size_t>(size.QuadPart));
-        DWORD read = 0;
-        if (!bytes.empty() && (!ReadFile(file.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &read, nullptr) ||
-                               read != bytes.size()))
-        {
-            return HRESULT_FROM_WIN32(GetLastError());
-        }
-        return S_OK;
-    }
-    catch (...)
-    {
-        return E_FAIL;
-    }
+    AppSettings settings{};
+    return FAILED(ParseAppSettingsJson(json, settings)) ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 }
 
-[[nodiscard]] bool HasArrayBounds(yyjson_val* object, const char* key, std::uint64_t minimum,
-                                  std::uint64_t maximum) noexcept
+[[nodiscard]] bool HasWidgetExample(const AppSettings& settings, std::string_view pluginId) noexcept
 {
-    yyjson_val* array = yyjson_is_obj(object) ? yyjson_obj_get(object, key) : nullptr;
-    yyjson_val* schemaMinimum = yyjson_is_obj(array) ? yyjson_obj_get(array, "minItems") : nullptr;
-    yyjson_val* schemaMaximum = yyjson_is_obj(array) ? yyjson_obj_get(array, "maxItems") : nullptr;
-    return yyjson_is_uint(schemaMinimum) && yyjson_get_uint(schemaMinimum) == minimum &&
-           yyjson_is_uint(schemaMaximum) && yyjson_get_uint(schemaMaximum) == maximum;
+    for (std::uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
+    {
+        const DashboardPageSettings& page = settings.dashboard.pages[pageIndex];
+        for (std::uint32_t widgetIndex = 0; widgetIndex < page.widgetCount; ++widgetIndex)
+        {
+            if (SettingsIdEquals(page.widgets[widgetIndex].pluginId.View(), pluginId))
+                return true;
+        }
+    }
+    return false;
 }
 
 [[nodiscard]] HRESULT ValidateTemplatesAndSchema() noexcept
 {
     std::filesystem::path debugPath;
     std::filesystem::path releasePath;
-    HRESULT result = GetDeployedSettingsPath(kRedXeDebugSettingsFileName, debugPath);
+    std::filesystem::path schemaPath;
+    HRESULT result = GetDeployedPath(kRedXeDebugSettingsFileName, debugPath);
     if (SUCCEEDED(result))
-    {
-        result = GetDeployedSettingsPath(kRedXeReleaseSettingsFileName, releasePath);
-    }
+        result = GetDeployedPath(kRedXeReleaseSettingsFileName, releasePath);
+    if (SUCCEEDED(result))
+        result = GetDeployedPath(kRedXeSettingsSchemaFileName, schemaPath);
     if (FAILED(result))
-    {
         return result;
-    }
 
     AppSettings debug{};
     AppSettings release{};
     result = LoadAppSettingsFile(debugPath.wstring(), debug);
     if (SUCCEEDED(result))
-    {
         result = LoadAppSettingsFile(releasePath.wstring(), release);
-    }
-    const DashboardPageSettings* debugActive = FindActiveDashboardPage(debug);
-    const DashboardPageSettings* releaseActive = FindActiveDashboardPage(release);
-    const PluginSettings* releaseMatrix = FindPluginSettings(release, "BUILTIN.MATRIX-RAIN");
-    if (FAILED(result) || debug.pluginCount != 3 || debug.dashboard.gridColumns != 32 ||
-        debug.dashboard.gridRows != 9 || debug.dashboard.pageCount != 2 || !debugActive ||
-        debugActive->widgetCount != 4 || release.pluginCount != 3 || release.dashboard.pageCount != 2 ||
-        !releaseActive || releaseActive->widgetCount != 1 || !releaseMatrix || !releaseMatrix->enabled ||
-        !SettingsIdEquals(releaseActive->widgets[0].pluginId.View(), "builtin.matrix-rain") ||
-        FAILED(ValidateAppSettings(debug)) || FAILED(ValidateAppSettings(release)))
-    {
+    if (FAILED(result) || debug.pluginCount != 3 || release.pluginCount != 3 ||
+        !FindPluginSettings(debug, "builtin.rotating-triangle") || !FindPluginSettings(debug, "builtin.gdi-orbit") ||
+        !FindPluginSettings(debug, "builtin.matrix-rain") ||
+        !FindPluginSettings(release, "builtin.rotating-triangle") ||
+        !FindPluginSettings(release, "builtin.gdi-orbit") || !FindPluginSettings(release, "builtin.matrix-rain") ||
+        !HasWidgetExample(debug, "builtin.rotating-triangle") || !HasWidgetExample(debug, "builtin.gdi-orbit") ||
+        !HasWidgetExample(debug, "builtin.matrix-rain") || !HasWidgetExample(release, "builtin.rotating-triangle") ||
+        !HasWidgetExample(release, "builtin.gdi-orbit") || !HasWidgetExample(release, "builtin.matrix-rain") ||
+        debug.dashboard.pageCount != 2 || debug.dashboard.pages[0].widgetCount != 4 ||
+        debug.dashboard.pages[1].widgetCount != 3 || release.dashboard.pageCount != 2 ||
+        release.dashboard.pages[0].widgetCount != 1 || release.dashboard.pages[1].widgetCount != 3 ||
+        !debug.dashboard.pages[0].widgets[0].usesAdaptivePlacement || FAILED(ValidateAppSettings(debug)) ||
+        FAILED(ValidateAppSettings(release)))
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
 
-    std::array<char, kFactoryConfigurationCapacity> envelope{};
-    std::uint32_t envelopeBytes = 0;
-    result = SerializeFactoryConfigurationJson(*releaseMatrix, releaseActive->widgets[0], envelope, envelopeBytes);
-    yyjson_read_err envelopeError{};
-    unique_yyjson_doc envelopeDocument{
-        yyjson_read_opts(envelope.data(), envelopeBytes, YYJSON_READ_NOFLAG, nullptr, &envelopeError)};
-    yyjson_val* envelopeRoot = envelopeDocument ? yyjson_doc_get_root(envelopeDocument.get()) : nullptr;
-    yyjson_val* pluginPrivate = yyjson_is_obj(envelopeRoot) ? yyjson_obj_get(envelopeRoot, "plugin") : nullptr;
-    yyjson_val* instancePrivate = yyjson_is_obj(envelopeRoot) ? yyjson_obj_get(envelopeRoot, "instance") : nullptr;
-    if (FAILED(result) || envelopeBytes == 0 || envelope[envelopeBytes] != '\0' || !yyjson_is_obj(pluginPrivate) ||
-        yyjson_obj_size(pluginPrivate) != 0 || !yyjson_is_obj(instancePrivate) ||
-        yyjson_get_uint(yyjson_obj_get(instancePrivate, "seed")) != 1999)
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
-
-    std::filesystem::path schemaPath;
-    result = GetDeployedSettingsPath(kRedXeSettingsSchemaFileName, schemaPath);
     std::string schemaBytes;
-    if (SUCCEEDED(result))
-    {
-        result = ReadBytes(schemaPath, schemaBytes);
-    }
-    yyjson_read_err schemaError{};
-    unique_yyjson_doc schema{SUCCEEDED(result) ? yyjson_read_opts(schemaBytes.data(), schemaBytes.size(),
-                                                                  YYJSON_READ_NOFLAG, nullptr, &schemaError)
-                                               : nullptr};
+    result = ReadFile(schemaPath, schemaBytes);
+    unique_doc schema{SUCCEEDED(result) ? yyjson_read(schemaBytes.data(), schemaBytes.size(), YYJSON_READ_NOFLAG)
+                                        : nullptr};
     yyjson_val* root = schema ? yyjson_doc_get_root(schema.get()) : nullptr;
     yyjson_val* properties = yyjson_is_obj(root) ? yyjson_obj_get(root, "properties") : nullptr;
-    yyjson_val* version = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "schemaVersion") : nullptr;
-    yyjson_val* definitions = yyjson_is_obj(root) ? yyjson_obj_get(root, "$defs") : nullptr;
-    yyjson_val* dashboard = yyjson_is_obj(definitions) ? yyjson_obj_get(definitions, "dashboard") : nullptr;
-    yyjson_val* dashboardProperties = yyjson_is_obj(dashboard) ? yyjson_obj_get(dashboard, "properties") : nullptr;
-    yyjson_val* page = yyjson_is_obj(definitions) ? yyjson_obj_get(definitions, "page") : nullptr;
-    yyjson_val* pageProperties = yyjson_is_obj(page) ? yyjson_obj_get(page, "properties") : nullptr;
-    yyjson_val* grid = yyjson_is_obj(definitions) ? yyjson_obj_get(definitions, "grid") : nullptr;
-    yyjson_val* gridProperties = yyjson_is_obj(grid) ? yyjson_obj_get(grid, "properties") : nullptr;
-    yyjson_val* columns = yyjson_is_obj(gridProperties) ? yyjson_obj_get(gridProperties, "columns") : nullptr;
-    yyjson_val* columnMaximum = yyjson_is_obj(columns) ? yyjson_obj_get(columns, "maximum") : nullptr;
-    yyjson_val* versionConstant = yyjson_is_obj(version) ? yyjson_obj_get(version, "const") : nullptr;
-    if (FAILED(result) || !yyjson_is_uint(versionConstant) || yyjson_get_uint(versionConstant) != 3 ||
-        !HasArrayBounds(properties, "plugins", 1, kMaximumSettingsPlugins) ||
-        !HasArrayBounds(dashboardProperties, "pages", 1, kMaximumDashboardPages) ||
-        !HasArrayBounds(pageProperties, "widgets", 1, kMaximumWidgetsPerPage) || !yyjson_is_uint(columnMaximum) ||
-        yyjson_get_uint(columnMaximum) != kMaximumDashboardGridDimension ||
-        !yyjson_is_obj(yyjson_obj_get(definitions, "plugin")) ||
-        !yyjson_is_obj(yyjson_obj_get(definitions, "widget")) ||
-        !yyjson_is_obj(yyjson_obj_get(definitions, "matrixPrivate")))
-    {
+    yyjson_val* version = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "version") : nullptr;
+    yyjson_val* pages = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "pages") : nullptr;
+    if (!yyjson_is_obj(root) || !yyjson_is_obj(version) || !yyjson_is_uint(yyjson_obj_get(pages, "maxItems")) ||
+        yyjson_get_uint(yyjson_obj_get(pages, "maxItems")) != kMaximumDashboardPages)
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
     return S_OK;
 }
 
-[[nodiscard]] bool ReplaceOnce(std::string& text, std::string_view from, std::string_view to) noexcept
-{
-    try
-    {
-        const std::size_t position = text.find(from);
-        if (position == std::string::npos)
-        {
-            return false;
-        }
-        text.replace(position, from.size(), to);
-        return true;
-    }
-    catch (...)
-    {
-        return false;
-    }
-}
-
-[[nodiscard]] HRESULT ExpectRejected(std::string_view document, const AppSettings& baseline) noexcept
-{
-    AppSettings candidate = baseline;
-    const HRESULT result = ParseAppSettingsJson(document, candidate);
-    return FAILED(result) && candidate == baseline ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-}
-
-[[nodiscard]] HRESULT ExpectRejectedVariant(std::string_view from, std::string_view to,
-                                            const AppSettings& baseline) noexcept
-{
-    try
-    {
-        std::string document(kMinimalDocument);
-        return ReplaceOnce(document, from, to) ? ExpectRejected(document, baseline)
-                                               : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
-    }
-    catch (...)
-    {
-        return E_FAIL;
-    }
-}
-
-[[nodiscard]] HRESULT ValidateParserAndSemantics() noexcept
+[[nodiscard]] HRESULT ValidateParser() noexcept
 {
     AppSettings parsed{};
-    HRESULT result = ParseAppSettingsJson(kMinimalDocument, parsed);
-    const DashboardPageSettings* active = FindActiveDashboardPage(parsed);
-    if (FAILED(result) || parsed.pluginCount != 3 || parsed.dashboard.pageCount != 2 || !active ||
-        active->widgetCount != 1 || !SettingsIdEquals(active->widgets[0].id.View(), "TRIANGLE.ONE"))
-    {
+    HRESULT result = ParseAppSettingsJson(kRepresentative, parsed);
+    if (FAILED(result) || !parsed.dashboard.wrapPages || parsed.dashboard.pageCount != 2 ||
+        parsed.dashboard.pages[0].widgetCount != 3 || parsed.dashboard.pages[1].widgetCount != 0 ||
+        parsed.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"seed\":7") == std::string_view::npos ||
+        parsed.dashboard.pages[0].widgets[2].privateConfiguration.View().find("\"seed\":9") == std::string_view::npos ||
+        parsed.dashboard.pages[0].widgets[2].privateConfiguration.View().find("\"densityPercent\":70") ==
+            std::string_view::npos)
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    if (FAILED(MoveDashboardPage(parsed, -1)) || parsed.dashboard.activePageIndex != 1 ||
+        FAILED(MoveDashboardPage(parsed, 1)) || parsed.dashboard.activePageIndex != 0)
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    parsed.dashboard.wrapPages = false;
+    if (MoveDashboardPage(parsed, -1) != HRESULT_FROM_WIN32(ERROR_NO_MORE_ITEMS) ||
+        parsed.dashboard.activePageIndex != 0)
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+    constexpr std::array invalid{
+        std::string_view{R"json({"pages":[{}]})json"},
+        std::string_view{R"json({"version":{"major":5},"pages":[{}]})json"},
+        std::string_view{R"json({"version":{"major":4,"minor":"0"},"pages":[{}]})json"},
+        std::string_view{R"json({"version":{"major":4},"unknown":1,"pages":[{}]})json"},
+        std::string_view{R"json({"version":{"major":4},"version":{"major":4},"pages":[{}]})json"},
+        std::string_view{R"json({version:{major:4},pages:[{}]})json"},
+        std::string_view{R"json({'version':{'major':4},'pages':[{}]})json"},
+        std::string_view{R"json({"version":{"major":4},"pages":[]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":0,"widget":{"plugin":"builtin.gdi-orbit"}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":"missing"}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"missing.plugin"}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit","settings":{"bad":1}}}]}}]})json"},
+    };
+    for (const std::string_view candidate : invalid)
+    {
+        result = ExpectRejected(candidate);
+        if (FAILED(result))
+            return result;
     }
 
-    const std::array<std::pair<std::string_view, std::string_view>, 26> variants{{
-        {"\"schemaVersion\":3", "\"schemaVersion\":2"},
-        {"\"schemaVersion\":3", "\"schemaVersion\":\"3\""},
-        {"\"plugins\":[", "\"unknown\":1,\"plugins\":["},
-        {"\"id\":\"builtin.gdi-orbit\"", "\"id\":\"BUILTIN.ROTATING-TRIANGLE\""},
-        {"\"enabled\":true,\"private\":{}", "\"enabled\":true,\"private\":[]"},
-        {"\"enabled\":true,\"private\":{}", "\"enabled\":true,\"private\":{\"unexpected\":1}"},
-        {"\"activePageId\":\"page.one\"", "\"activePageId\":\"page.missing\""},
-        {"\"id\":\"page.two\"", "\"id\":\"PAGE.ONE\""},
-        {"\"name\":\"One\",", ""},
-        {"\"id\":\"matrix.two\"", "\"id\":\"TRIANGLE.ONE\""},
-        {"\"id\":\"builtin.rotating-triangle\",\"enabled\":true",
-         "\"id\":\"builtin.rotating-triangle\",\"enabled\":false"},
-        {"\"pluginId\":\"builtin.rotating-triangle\"", "\"pluginId\":\"missing.plugin\""},
-        {"\"typeId\":\"rotating-triangle\"", "\"typeId\":\"matrix-rain\""},
-        {"\"column\":0,\"row\":0,\"columnSpan\":2", "\"column\":3,\"row\":0,\"columnSpan\":2"},
-        {"\"rowSpan\":2", "\"rowSpan\":0"},
-        {"\"private\":{}}]},{\"id\":\"page.two\"", "\"private\":{},\"unknown\":1}]},{\"id\":\"page.two\""},
-        {"\"seed\":1999", "\"seed\":4294967296"},
-        {"\"glyphHeightDips\":18", "\"glyphHeightDips\":11"},
-        {"\"densityPercent\":70", "\"densityPercent\":101"},
-        {"\"speedPercent\":100", "\"speedPercent\":24"},
-        {"\"trailLengthGlyphs\":18", "\"trailLengthGlyphs\":49"},
-        {"\"mutationPerSecond\":8", "\"mutationPerSecond\":31"},
-        {"\"headColor\":\"#D8FFE5\"", "\"headColor\":\"D8FFE5\""},
-        {"\"trailColor\":\"#00E65C\"", "\"trailColor\":\"#00E65G\""},
-        {"\"backgroundColor\":\"#010502\"", "\"backgroundColor\":\"#01050\""},
-        {"\"glowPercent\":35", "\"glowPercent\":101"},
-    }};
-    for (const auto& [from, to] : variants)
-    {
-        result = ExpectRejectedVariant(from, to, parsed);
-        if (FAILED(result))
-        {
-            return result;
-        }
-    }
-    for (const std::string_view document : {std::string_view{"{}"}, kEmptyRegistryDocument, kEmptyWidgetsDocument,
-                                            kOverlappingDocument, kTwoMatrixDocument})
-    {
-        result = ExpectRejected(document, parsed);
-        if (FAILED(result))
-        {
-            return result;
-        }
-    }
+    constexpr std::string_view newerMinor =
+        R"json({"version":{"major":4,"minor":1},"futureRoot":true,"pages":[{"futurePage":1}]})json";
+    if (FAILED(ParseAppSettingsJson(newerMinor, parsed)) || parsed.dashboard.pageCount != 1 ||
+        parsed.versionMinor != 1 || parsed.sourceDocument.find("futureRoot") == std::string::npos)
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
     try
     {
-        std::string duplicateKey(kMinimalDocument);
-        if (!ReplaceOnce(duplicateKey, "\"schemaVersion\":3", "\"schemaVersion\":3,\"schemaVersion\":3") ||
-            FAILED(ExpectRejected(duplicateKey, parsed)))
+        std::string tooMany = R"json({"version":{"major":4},"pages":[)json";
+        for (std::size_t index = 0; index <= kMaximumDashboardPages; ++index)
         {
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            if (index != 0)
+                tooMany += ',';
+            tooMany += "{}";
         }
+        tooMany += "]}";
+        if (FAILED(ExpectRejected(tooMany)))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        const auto widgetDocument = [](std::size_t count)
+        {
+            std::string document =
+                R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[)json";
+            for (std::size_t index = 0; index < count; ++index)
+            {
+                if (index != 0)
+                    document += ',';
+                document += R"json({"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}})json";
+            }
+            document += "]}}]}";
+            return document;
+        };
+        const std::string maximumWidgets = widgetDocument(kMaximumWidgetsPerPage);
+        if (FAILED(ParseAppSettingsJson(maximumWidgets, parsed)) ||
+            parsed.dashboard.pages[0].widgetCount != kMaximumWidgetsPerPage)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        if (FAILED(ExpectRejected(widgetDocument(kMaximumWidgetsPerPage + 1))))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        std::string tooManyDeclarations = R"json({"version":{"major":4},"declare":{)json";
+        for (std::size_t index = 0; index <= kMaximumSettingsDeclarations; ++index)
+        {
+            if (index != 0)
+                tooManyDeclarations += ',';
+            tooManyDeclarations += "\"D" + std::to_string(index) + "\":{\"plugin\":\"builtin.rotating-triangle\"}";
+        }
+        tooManyDeclarations += R"json(},"pages":[{}]})json";
+        if (FAILED(ExpectRejected(tooManyDeclarations)))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        const auto namedPage = [](std::size_t codePoints)
+        {
+            std::string name;
+            name.reserve(codePoints * 2U);
+            for (std::size_t index = 0; index < codePoints; ++index)
+                name += "\xC3\xA9";
+            return std::string{"{\"version\":{\"major\":4},\"pages\":[{\"name\":\""} + name + "\"}]}";
+        };
+        if (FAILED(ParseAppSettingsJson(namedPage(128), parsed)) || FAILED(ExpectRejected(namedPage(129))))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        const auto nestedLayout = [](std::size_t levels)
+        {
+            std::string area = R"json({"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}})json";
+            for (std::size_t level = 1; level < levels; ++level)
+            {
+                area = R"json({"sizeRatio":1,"arrangeAlong":"long-side","areas":[)json" + area + "]}";
+            }
+            return R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[)json" + area +
+                   "]}}]}";
+        };
+        if (FAILED(ParseAppSettingsJson(nestedLayout(kMaximumLayoutDepth), parsed)) ||
+            FAILED(ExpectRejected(nestedLayout(kMaximumLayoutDepth + 1U))))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        std::string oversized(1024U * 1024U + 1U, ' ');
+        if (FAILED(ExpectRejected(oversized)))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     catch (...)
     {
         return E_FAIL;
-    }
-
-    try
-    {
-        std::string oversized(kMinimalDocument);
-        std::string privateObject = "\"private\":{\"pad\":\"";
-        privateObject.append(kPrivateConfigurationCapacity, 'x');
-        privateObject.append("\"}");
-        if (!ReplaceOnce(oversized, "\"private\":{}", privateObject) || FAILED(ExpectRejected(oversized, parsed)))
-        {
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        }
-    }
-    catch (...)
-    {
-        return E_FAIL;
-    }
-
-    std::unique_ptr<AppSettings> variant{new (std::nothrow) AppSettings{parsed}};
-    if (!variant)
-    {
-        return E_OUTOFMEMORY;
-    }
-    variant->dashboard.pages[0].widgets[0].placement.columnSpan = variant->dashboard.gridColumns + 1;
-    if (SUCCEEDED(ValidateAppSettings(*variant)))
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
-
-    JsonObjectSettings privateSettings{};
-    result = SetJsonObjectSettings(kMatrixPrivate, privateSettings);
-    const JsonObjectSettings beforeInvalid = privateSettings;
-    if (FAILED(result) || privateSettings.View().find(' ') != std::string_view::npos ||
-        SUCCEEDED(SetJsonObjectSettings("[]", privateSettings)) || privateSettings != beforeInvalid)
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
-
-    *variant = parsed;
-    variant->dashboard.pages[1].name = variant->dashboard.pages[0].name;
-    if (*variant == parsed || !ActiveDashboardRuntimeEquals(parsed, *variant))
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
-
-    *variant = parsed;
-    ++variant->dashboard.pages[0].widgets[0].placement.column;
-    if (ActiveDashboardRuntimeEquals(parsed, *variant))
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     return S_OK;
 }
 
-struct LowStackParseContext final
+struct LowStackContext final
 {
     HRESULT result = E_FAIL;
 };
 
-DWORD WINAPI ParseSettingsOnLowStack(void* rawContext) noexcept
+DWORD WINAPI ParseOnLowStack(void* context) noexcept
 {
-    auto* context = static_cast<LowStackParseContext*>(rawContext);
-    std::unique_ptr<AppSettings> settings{new (std::nothrow) AppSettings{}};
-    context->result = settings ? ParseAppSettingsJson(kMinimalDocument, *settings) : E_OUTOFMEMORY;
+    auto* state = static_cast<LowStackContext*>(context);
+    auto settings = std::make_unique<AppSettings>();
+    state->result = ParseAppSettingsJson(kRepresentative, *settings);
     return 0;
 }
 
-[[nodiscard]] HRESULT ValidateLowStackParsing() noexcept
+[[nodiscard]] HRESULT ValidateLowStack() noexcept
 {
-    constexpr SIZE_T kStackReserveBytes = 128U * 1024U;
-    std::unique_ptr<LowStackParseContext> context{new (std::nothrow) LowStackParseContext{}};
-    if (!context)
-    {
-        return E_OUTOFMEMORY;
-    }
-    wil::unique_handle thread{CreateThread(nullptr, kStackReserveBytes, &ParseSettingsOnLowStack, context.get(),
-                                           STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr)};
+    LowStackContext context{};
+    wil::unique_handle thread{
+        CreateThread(nullptr, 128U * 1024U, ParseOnLowStack, &context, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr)};
     if (!thread)
-    {
         return HRESULT_FROM_WIN32(GetLastError());
-    }
-
-    const DWORD waitResult = WaitForSingleObject(thread.get(), 5000);
-    if (waitResult == WAIT_OBJECT_0)
-    {
-        return context->result;
-    }
-    // The worker may still reference the context on a timeout/failure path. Preserve it until process exit.
-    (void)context.release();
-    if (waitResult == WAIT_TIMEOUT)
-    {
-        return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
-    }
-    return HRESULT_FROM_WIN32(GetLastError());
+    return WaitForSingleObject(thread.get(), 5000) == WAIT_OBJECT_0 ? context.result
+                                                                    : HRESULT_FROM_WIN32(ERROR_TIMEOUT);
 }
 
-[[nodiscard]] bool WaitForSettingsMessage(HWND window, DWORD timeoutMilliseconds) noexcept
+[[nodiscard]] bool WaitForMessage(HWND window, DWORD timeout) noexcept
 {
-    const ULONGLONG deadline = GetTickCount64() + timeoutMilliseconds;
-    for (;;)
+    const ULONGLONG deadline = GetTickCount64() + timeout;
+    while (GetTickCount64() < deadline)
     {
         MSG message{};
         if (PeekMessageW(&message, window, SettingsWatcher::kSettingsChangedMessage,
                          SettingsWatcher::kSettingsChangedMessage, PM_REMOVE))
-        {
             return true;
-        }
-        const ULONGLONG now = GetTickCount64();
-        if (now >= deadline)
-        {
-            return false;
-        }
-        const DWORD remaining = static_cast<DWORD>(deadline - now);
+        const DWORD remaining = static_cast<DWORD>(deadline - GetTickCount64());
         if (MsgWaitForMultipleObjectsEx(0, nullptr, remaining, QS_POSTMESSAGE, MWMO_INPUTAVAILABLE) == WAIT_TIMEOUT)
-        {
             return false;
-        }
     }
+    return false;
 }
 
-[[nodiscard]] HRESULT WriteTextFile(const std::filesystem::path& path, std::string_view text) noexcept
-{
-    wil::unique_hfile file{CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
-                                       FILE_ATTRIBUTE_NORMAL, nullptr)};
-    if (!file)
-    {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    DWORD written = 0;
-    if (!WriteFile(file.get(), text.data(), static_cast<DWORD>(text.size()), &written, nullptr) ||
-        written != text.size() || !FlushFileBuffers(file.get()))
-    {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    return S_OK;
-}
-
-[[nodiscard]] HRESULT ValidateWatcherAndStamps() noexcept
+[[nodiscard]] HRESULT ValidateWatcher() noexcept
 {
     try
     {
-        std::array<wchar_t, MAX_PATH> temporaryRoot{};
-        const DWORD rootLength = GetTempPathW(static_cast<DWORD>(temporaryRoot.size()), temporaryRoot.data());
-        if (rootLength == 0 || rootLength >= temporaryRoot.size())
-        {
-            return HRESULT_FROM_WIN32(GetLastError());
-        }
-        std::filesystem::path directory = temporaryRoot.data();
-        directory /=
-            L"RedXe.SettingsTests." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64());
-        if (!CreateDirectoryW(directory.c_str(), nullptr))
-        {
-            return HRESULT_FROM_WIN32(GetLastError());
-        }
-        const std::filesystem::path settingsPath = directory / L"watched.json";
-        const std::filesystem::path replacementPath = directory / L"replacement.json";
+        const std::filesystem::path directory = std::filesystem::temp_directory_path() /
+                                                (L"RedXe.SettingsV4Tests." + std::to_wstring(GetCurrentProcessId()) +
+                                                 L"." + std::to_wstring(GetTickCount64()));
+        std::filesystem::create_directory(directory);
         const auto cleanup = wil::scope_exit(
             [&]() noexcept
             {
-                DeleteFileW(settingsPath.c_str());
-                DeleteFileW(replacementPath.c_str());
-                RemoveDirectoryW(directory.c_str());
+                std::error_code error;
+                std::filesystem::remove_all(directory, error);
             });
-
         wil::unique_hwnd window{
             CreateWindowExW(0, L"STATIC", L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, nullptr, nullptr)};
         if (!window)
-        {
             return HRESULT_FROM_WIN32(GetLastError());
-        }
-
         SettingsWatcher watcher;
         HRESULT result = watcher.Start(window.get(), directory.wstring());
-        if (FAILED(result) || !WaitForSettingsMessage(window.get(), 5000))
-        {
+        if (FAILED(result) || !WaitForMessage(window.get(), 5000))
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_TIMEOUT);
-        }
         watcher.AcknowledgeNotification();
-
-        result = WriteTextFile(settingsPath, "one");
-        if (FAILED(result) || !WaitForSettingsMessage(window.get(), 5000))
+        const std::filesystem::path file = directory / L"external.settings.json";
         {
-            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+            std::ofstream stream(file, std::ios::binary);
+            stream << kRepresentative;
+            stream.flush();
         }
-        watcher.AcknowledgeNotification();
-
-        SettingsFileStamp first{};
-        if (QuerySettingsFileStamp(settingsPath.wstring(), first) != S_OK)
-        {
+        if (!WaitForMessage(window.get(), 5000))
+            return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+        SettingsFileStamp stamp{};
+        if (QuerySettingsFileStamp(file.wstring(), stamp) != S_OK || stamp.fileSize == 0)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        }
-        result = WriteTextFile(replacementPath, "two");
-        if (FAILED(result) || !MoveFileExW(replacementPath.c_str(), settingsPath.c_str(),
-                                           MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-        {
-            return FAILED(result) ? result : HRESULT_FROM_WIN32(GetLastError());
-        }
-        SettingsFileStamp second{};
-        if (QuerySettingsFileStamp(settingsPath.wstring(), second) != S_OK || first == second)
-        {
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        }
-
         watcher.Stop();
         return S_OK;
     }
@@ -507,17 +359,166 @@ DWORD WINAPI ParseSettingsOnLowStack(void* rawContext) noexcept
         return E_FAIL;
     }
 }
+
+[[nodiscard]] HRESULT ValidateExternalSelection() noexcept
+{
+    try
+    {
+        const std::filesystem::path directory =
+            std::filesystem::temp_directory_path() /
+            (L"RedXe.ExternalSettingsTests." + std::to_wstring(GetCurrentProcessId()) + L"." +
+             std::to_wstring(GetTickCount64()));
+        std::filesystem::create_directory(directory);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code error;
+                std::filesystem::remove_all(directory, error);
+            });
+        const std::filesystem::path selected = directory / L"portable.json";
+        {
+            std::ofstream stream(selected, std::ios::binary);
+            stream << "invalid";
+        }
+        SettingsStore fallbackStore;
+        std::unique_ptr<AppSettings> fallback;
+        HRESULT result = fallbackStore.Initialize(false, selected.wstring(), fallback);
+        std::string unchanged;
+        if (SUCCEEDED(result))
+            result = ReadFile(selected, unchanged);
+        if (FAILED(result) || !fallback || !fallbackStore.UsedInitialFallback() || unchanged != "invalid" ||
+            fallbackStore.SettingsPath() != std::filesystem::absolute(selected).wstring())
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        {
+            std::ofstream stream(selected, std::ios::binary | std::ios::trunc);
+            stream << kRepresentative;
+        }
+        SettingsStore selectedStore;
+        std::unique_ptr<AppSettings> loaded;
+        result = selectedStore.Initialize(false, selected.wstring(), loaded);
+        if (FAILED(result) || !loaded || selectedStore.UsedInitialFallback() || !loaded->dashboard.wrapPages)
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+[[nodiscard]] HRESULT ValidateDefaultRecovery() noexcept
+{
+    try
+    {
+        const std::filesystem::path localRoot =
+            std::filesystem::temp_directory_path() /
+            (L"RedXe.DefaultRecoveryTests." + std::to_wstring(GetCurrentProcessId()) + L"." +
+             std::to_wstring(GetTickCount64()));
+        const std::filesystem::path settingsDirectory = localRoot / L"RedXe" / L"Settings";
+        std::filesystem::create_directories(settingsDirectory);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code error;
+                std::filesystem::remove_all(localRoot, error);
+            });
+#if defined(_DEBUG)
+        constexpr const wchar_t* selectedName = kRedXeDebugSettingsFileName;
+#else
+        constexpr const wchar_t* selectedName = kRedXeReleaseSettingsFileName;
+#endif
+        constexpr std::string_view invalidBytes = "invalid default bytes\r\n";
+        const std::filesystem::path selected = settingsDirectory / selectedName;
+        {
+            std::ofstream stream(selected, std::ios::binary);
+            stream.write(invalidBytes.data(), static_cast<std::streamsize>(invalidBytes.size()));
+        }
+
+        SettingsStore store;
+        std::unique_ptr<AppSettings> recovered;
+        HRESULT result = store.Initialize(false, {}, recovered, localRoot.wstring());
+        if (FAILED(result) || !recovered || !store.UsedInitialFallback() ||
+            store.InitialNotice().find(L".invalid-") == std::wstring::npos)
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        std::size_t backupCount = 0;
+        for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(settingsDirectory))
+        {
+            const std::wstring name = entry.path().filename().wstring();
+            if (!name.starts_with(std::filesystem::path(selectedName).stem().wstring() + L".invalid-") ||
+                entry.path().extension() != L".json")
+                continue;
+            ++backupCount;
+            std::string preserved;
+            result = ReadFile(entry.path(), preserved);
+            if (FAILED(result) || preserved != invalidBytes)
+                return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        AppSettings installed{};
+        if (backupCount != 1 || FAILED(LoadAppSettingsFile(selected.wstring(), installed)))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+[[nodiscard]] HRESULT ValidateLegacyReleaseFilenameMigration() noexcept
+{
+#if defined(_DEBUG)
+    return S_OK;
+#else
+    try
+    {
+        const std::filesystem::path localRoot =
+            std::filesystem::temp_directory_path() /
+            (L"RedXe.ReleaseFilenameMigrationTests." + std::to_wstring(GetCurrentProcessId()) + L"." +
+             std::to_wstring(GetTickCount64()));
+        const std::filesystem::path settingsDirectory = localRoot / L"RedXe" / L"Settings";
+        std::filesystem::create_directories(settingsDirectory);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code error;
+                std::filesystem::remove_all(localRoot, error);
+            });
+        const std::filesystem::path legacy = settingsDirectory / L"RedXe-1.0.settings.json";
+        const std::filesystem::path selected = settingsDirectory / kRedXeReleaseSettingsFileName;
+        {
+            std::ofstream stream(legacy, std::ios::binary);
+            stream.write(kRepresentative.data(), static_cast<std::streamsize>(kRepresentative.size()));
+        }
+
+        SettingsStore store;
+        std::unique_ptr<AppSettings> migrated;
+        HRESULT result = store.Initialize(false, {}, migrated, localRoot.wstring());
+        std::string selectedBytes;
+        if (SUCCEEDED(result))
+            result = ReadFile(selected, selectedBytes);
+        if (FAILED(result) || !migrated || !migrated->dashboard.wrapPages || std::filesystem::exists(legacy) ||
+            !std::filesystem::exists(selected) || selectedBytes != kRepresentative)
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+#endif
+}
 } // namespace
 
 int wmain()
 {
-    for (const HRESULT result : {ValidateTemplatesAndSchema(), ValidateParserAndSemantics(), ValidateLowStackParsing(),
-                                 ValidateWatcherAndStamps()})
+    for (const HRESULT result :
+         {ValidateTemplatesAndSchema(), ValidateParser(), ValidateLowStack(), ValidateWatcher(),
+          ValidateExternalSelection(), ValidateDefaultRecovery(), ValidateLegacyReleaseFilenameMigration()})
     {
         if (FAILED(result))
-        {
             return static_cast<int>(result & 0xFF);
-        }
     }
     return 0;
 }

@@ -1,99 +1,54 @@
 {
   "$schema": "RedXe.settings.schema.json",
-  "schemaVersion": 3,
-  "plugins": [
+  "version": { "major": 4, "minor": 0 },
+  "wrapPages": false,
+  // Reusable definitions create independent instances wherever they appear.
+  "declare": {
+    "Triangle": { "plugin": "builtin.rotating-triangle" },
+    "Matrix": { "plugin": "builtin.matrix-rain" }
+  },
+  "pages": [
     {
-      "id": "builtin.rotating-triangle",
-      "enabled": true,
-      "private": {}
-    },
-    {
-      "id": "builtin.gdi-orbit",
-      "enabled": true,
-      "private": {}
-    },
-    {
-      "id": "builtin.matrix-rain",
-      "enabled": true,
-      "private": {}
-    }
-  ],
-  "dashboard": {
-    "grid": {
-      "columns": 32,
-      "rows": 9
-    },
-    "activePageId": "page.development",
-    "pages": [
-      {
-        "id": "page.development",
-        "name": "Development",
-        "widgets": [
+      "id": "development",
+      "name": "Development",
+      "layout": {
+        "arrangeAlong": "long-side",
+        "areas": [
+          { "sizeRatio": 1, "widget": "Triangle" },
           {
-            "id": "triangle.1",
-            "pluginId": "builtin.rotating-triangle",
-            "typeId": "rotating-triangle",
-            "placement": { "column": 0, "row": 0, "columnSpan": 8, "rowSpan": 9 },
-            "private": {}
+            "sizeRatio": 1,
+            "arrangeAlong": "short-side",
+            "areas": [
+              { "sizeRatio": 1, "widget": "Triangle" },
+              { "sizeRatio": 1, "widget": { "plugin": "builtin.gdi-orbit" } }
+            ]
           },
-          {
-            "id": "triangle.2",
-            "pluginId": "builtin.rotating-triangle",
-            "typeId": "rotating-triangle",
-            "placement": { "column": 8, "row": 0, "columnSpan": 8, "rowSpan": 9 },
-            "private": {}
-          },
-          {
-            "id": "gdi-orbit.1",
-            "pluginId": "builtin.gdi-orbit",
-            "typeId": "gdi-orbit",
-            "placement": { "column": 16, "row": 0, "columnSpan": 8, "rowSpan": 9 },
-            "private": {}
-          },
-          {
-            "id": "matrix-rain.1",
-            "pluginId": "builtin.matrix-rain",
-            "typeId": "matrix-rain",
-            "placement": { "column": 24, "row": 0, "columnSpan": 8, "rowSpan": 9 },
-            "private": {
-              "seed": 1999,
-              "glyphHeightDips": 18,
-              "densityPercent": 70,
-              "speedPercent": 100,
-              "trailLengthGlyphs": 18,
-              "mutationPerSecond": 8,
-              "headColor": "#D8FFE5",
-              "trailColor": "#00E65C",
-              "backgroundColor": "#010502",
-              "glowPercent": 35
-            }
-          }
+          { "sizeRatio": 2, "widget": "Matrix" }
         ]
-      },
-      {
-        "id": "page.matrix-focus",
-        "name": "Matrix Focus",
-        "widgets": [
+      }
+    },
+    {
+      "name": "Alternate Gallery",
+      "layout": {
+        "arrangeAlong": "long-side",
+        "areas": [
           {
-            "id": "matrix-rain.focus",
-            "pluginId": "builtin.matrix-rain",
-            "typeId": "matrix-rain",
-            "placement": { "column": 0, "row": 0, "columnSpan": 32, "rowSpan": 9 },
-            "private": {
-              "seed": 2000,
-              "glyphHeightDips": 18,
-              "densityPercent": 70,
-              "speedPercent": 100,
-              "trailLengthGlyphs": 18,
-              "mutationPerSecond": 8,
-              "headColor": "#D8FFE5",
-              "trailColor": "#00E65C",
-              "backgroundColor": "#010502",
-              "glowPercent": 35
+            "sizeRatio": 2,
+            "widget": {
+              "use": "Matrix",
+              "override": { "settings": { "seed": 2000, "densityPercent": 80 } }
             }
+          },
+          {
+            "sizeRatio": 1,
+            "arrangeAlong": "short-side",
+            "areas": [
+              { "sizeRatio": 1, "widget": "Triangle" },
+              { "sizeRatio": 1, "widget": { "plugin": "builtin.gdi-orbit" } }
+            ]
           }
         ]
       }
-    ]
-  }
+    }
+  ]
 }

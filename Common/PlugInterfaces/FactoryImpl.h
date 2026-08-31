@@ -15,6 +15,34 @@ struct RedXeFactoryEntry final
     RedXeFactoryCreator create;
 };
 
+[[nodiscard]] inline HRESULT RedXeGetStaticPluginSettingsContract(const char* expectedPluginId,
+                                                                  const char* requestedPluginId,
+                                                                  const RedXePluginSettingsContract* availableContract,
+                                                                  const RedXePluginSettingsContract** contract) noexcept
+{
+    if (contract)
+    {
+        *contract = nullptr;
+    }
+    if (!contract)
+    {
+        return E_POINTER;
+    }
+    if (!expectedPluginId || !requestedPluginId || !RedXeAsciiEqualsIgnoreCase(expectedPluginId, requestedPluginId))
+    {
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
+    if (!availableContract || availableContract->sizeBytes < sizeof(RedXePluginSettingsContract) ||
+        availableContract->versionMajor == 0 || !availableContract->schemaJsonUtf8 ||
+        availableContract->schemaBytes == 0 || !availableContract->defaultsJsonUtf8 ||
+        availableContract->defaultsBytes == 0)
+    {
+        return E_UNEXPECTED;
+    }
+    *contract = availableContract;
+    return S_OK;
+}
+
 [[nodiscard]] inline HRESULT RedXeValidateEmptyNormalizedConfiguration(const RedXeFactoryOptions* options) noexcept
 {
     if (!options || options->sizeBytes < kRedXeFactoryOptionsV2Size ||

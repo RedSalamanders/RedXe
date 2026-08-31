@@ -39,6 +39,7 @@ constexpr char kMatrixTypeId[] = "matrix-rain";
 constexpr const wchar_t* kSelectedSettingsFileName = kRedXeDebugSettingsFileName;
 #else
 constexpr const wchar_t* kSelectedSettingsFileName = kRedXeReleaseSettingsFileName;
+constexpr wchar_t kLegacyReleaseSettingsFileName[] = L"RedXe-1.0.settings.json";
 #endif
 
 template <std::size_t Count>
@@ -276,7 +277,7 @@ template <std::size_t Count>
     return result;
 }
 
-[[nodiscard]] HRESULT ParsePage(yyjson_val* value, DashboardPageSettings& page) noexcept
+[[nodiscard]] HRESULT ParsePage(yyjson_val* value, DashboardPageSettings& page)
 {
     constexpr std::array keys{"id", "name", "widgets"};
     yyjson_val* widgets = yyjson_is_obj(value) ? yyjson_obj_get(value, "widgets") : nullptr;
@@ -290,6 +291,7 @@ template <std::size_t Count>
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
+    page.widgets.resize(count);
     for (std::size_t index = 0; index < count; ++index)
     {
         const HRESULT result = ParseWidget(yyjson_arr_get(widgets, index), page.widgets[index]);
@@ -400,22 +402,61 @@ template <std::size_t Count>
     return CopyFileAtomically(source, target, false);
 }
 
-[[nodiscard]] HRESULT BackupInvalidSettings(const std::filesystem::path& path) noexcept
+#if !defined(_DEBUG)
+[[nodiscard]] HRESULT MigrateLegacyReleaseSettingsName(const std::filesystem::path& directory,
+                                                       const std::filesystem::path& target) noexcept
+{
+    const DWORD targetAttributes = GetFileAttributesW(target.c_str());
+    if (targetAttributes != INVALID_FILE_ATTRIBUTES)
+    {
+        return (targetAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ? S_FALSE : HRESULT_FROM_WIN32(ERROR_DIRECTORY);
+    }
+    const DWORD targetError = GetLastError();
+    if (targetError != ERROR_FILE_NOT_FOUND && targetError != ERROR_PATH_NOT_FOUND)
+    {
+        return HRESULT_FROM_WIN32(targetError);
+    }
+
+    const std::filesystem::path legacy = directory / kLegacyReleaseSettingsFileName;
+    const DWORD legacyAttributes = GetFileAttributesW(legacy.c_str());
+    if (legacyAttributes == INVALID_FILE_ATTRIBUTES)
+    {
+        const DWORD legacyError = GetLastError();
+        return legacyError == ERROR_FILE_NOT_FOUND || legacyError == ERROR_PATH_NOT_FOUND
+                   ? S_FALSE
+                   : HRESULT_FROM_WIN32(legacyError);
+    }
+    if ((legacyAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+    {
+        return HRESULT_FROM_WIN32(ERROR_DIRECTORY);
+    }
+    return MoveFileExW(legacy.c_str(), target.c_str(), MOVEFILE_WRITE_THROUGH) ? S_OK
+                                                                               : HRESULT_FROM_WIN32(GetLastError());
+}
+#endif
+
+[[nodiscard]] HRESULT BackupInvalidSettings(const std::filesystem::path& path,
+                                            std::filesystem::path& backupPath) noexcept
 {
     try
     {
         SYSTEMTIME utc{};
         GetSystemTime(&utc);
         wchar_t suffix[64]{};
-        const int written = swprintf_s(suffix, L".bad.%04u%02u%02u-%02u%02u%02u-%03u", utc.wYear, utc.wMonth, utc.wDay,
-                                       utc.wHour, utc.wMinute, utc.wSecond, utc.wMilliseconds);
+        const int written = swprintf_s(suffix, L".invalid-%04u-%02u-%02u_%02u-%02u-%02uZ", utc.wYear, utc.wMonth,
+                                       utc.wDay, utc.wHour, utc.wMinute, utc.wSecond);
         if (written <= 0)
         {
             return E_FAIL;
         }
-        std::filesystem::path backup = path;
-        backup += suffix;
-        return CopyFileW(path.c_str(), backup.c_str(), TRUE) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+        const std::filesystem::path backup =
+            path.parent_path() / (path.stem().wstring() + suffix + path.extension().wstring());
+        if (!MoveFileExW(path.c_str(), backup.c_str(), MOVEFILE_WRITE_THROUGH))
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+        backupPath = backup;
+        return S_OK;
     }
     catch (const std::bad_alloc&)
     {
@@ -539,6 +580,38 @@ DashboardPageSettings* FindActiveDashboardPage(AppSettings& settings) noexcept
     return FindDashboardPage(settings, settings.dashboard.activePageId.View());
 }
 
+HRESULT MoveDashboardPage(AppSettings& settings, int direction) noexcept
+{
+    if (settings.dashboard.pageCount < 2 || settings.dashboard.pages.size() != settings.dashboard.pageCount ||
+        settings.dashboard.activePageIndex >= settings.dashboard.pageCount || (direction != -1 && direction != 1))
+    {
+        return E_INVALIDARG;
+    }
+    const std::uint32_t current = settings.dashboard.activePageIndex;
+    std::uint32_t selected = current;
+    if (direction > 0)
+    {
+        if (current + 1U < settings.dashboard.pageCount)
+            selected = current + 1U;
+        else if (settings.dashboard.wrapPages)
+            selected = 0;
+        else
+            return HRESULT_FROM_WIN32(ERROR_NO_MORE_ITEMS);
+    }
+    else
+    {
+        if (current > 0)
+            selected = current - 1U;
+        else if (settings.dashboard.wrapPages)
+            selected = settings.dashboard.pageCount - 1U;
+        else
+            return HRESULT_FROM_WIN32(ERROR_NO_MORE_ITEMS);
+    }
+    settings.dashboard.activePageIndex = selected;
+    settings.dashboard.activePageId = settings.dashboard.pages[selected].id;
+    return S_OK;
+}
+
 bool ActiveDashboardRuntimeEquals(const AppSettings& left, const AppSettings& right) noexcept
 {
     if (left.dashboard.gridColumns != right.dashboard.gridColumns ||
@@ -600,7 +673,7 @@ HRESULT SetJsonObjectSettings(std::string_view json, JsonObjectSettings& setting
 
 HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
 {
-    if (settings.pluginCount == 0 || settings.pluginCount > kMaximumSettingsPlugins ||
+    if (settings.pluginCount > kMaximumSettingsPlugins || settings.plugins.size() != settings.pluginCount ||
         settings.dashboard.gridColumns == 0 || settings.dashboard.gridRows == 0 ||
         settings.dashboard.gridColumns > kMaximumDashboardGridDimension ||
         settings.dashboard.gridRows > kMaximumDashboardGridDimension || settings.dashboard.pageCount == 0 ||
@@ -636,8 +709,8 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
     for (std::uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
     {
         const DashboardPageSettings& page = settings.dashboard.pages[pageIndex];
-        if (!IsValidStoredText(page.id, true) || !IsValidStoredText(page.name, false) || page.widgetCount == 0 ||
-            page.widgetCount > kMaximumWidgetsPerPage)
+        if (!IsValidStoredText(page.id, true) || !IsValidStoredText(page.name, false) ||
+            page.widgetCount > kMaximumWidgetsPerPage || page.widgets.size() != page.widgetCount)
         {
             return E_INVALIDARG;
         }
@@ -661,12 +734,29 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
             const WidgetGridPlacement& placement = widget.placement;
             if (!IsValidStoredText(widget.id, true) || !IsValidStoredText(widget.pluginId, true) ||
                 !IsValidStoredText(widget.typeId, true) || !ParseStoredObject(widget.privateConfiguration) ||
-                placement.column >= settings.dashboard.gridColumns || placement.row >= settings.dashboard.gridRows ||
-                placement.columnSpan == 0 || placement.rowSpan == 0 ||
-                placement.columnSpan > settings.dashboard.gridColumns - placement.column ||
-                placement.rowSpan > settings.dashboard.gridRows - placement.row)
+                (!widget.usesAdaptivePlacement &&
+                 (placement.column >= settings.dashboard.gridColumns || placement.row >= settings.dashboard.gridRows ||
+                  placement.columnSpan == 0 || placement.rowSpan == 0 ||
+                  placement.columnSpan > settings.dashboard.gridColumns - placement.column ||
+                  placement.rowSpan > settings.dashboard.gridRows - placement.row)) ||
+                (widget.usesAdaptivePlacement &&
+                 (widget.adaptivePlacement.depth == 0 || widget.adaptivePlacement.depth > kMaximumLayoutDepth)))
             {
                 return E_INVALIDARG;
+            }
+            if (widget.usesAdaptivePlacement)
+            {
+                for (std::uint32_t stepIndex = 0; stepIndex < widget.adaptivePlacement.depth; ++stepIndex)
+                {
+                    const LayoutSplitStep& step = widget.adaptivePlacement.steps[stepIndex];
+                    if ((step.axis != LayoutAxis::LongSide && step.axis != LayoutAxis::ShortSide) ||
+                        step.sizeRatio == 0 || step.sizeRatio > 1000 || step.totalRatio == 0 ||
+                        step.precedingRatio >= step.totalRatio ||
+                        step.sizeRatio > step.totalRatio - step.precedingRatio)
+                    {
+                        return E_INVALIDARG;
+                    }
+                }
             }
 
             for (std::uint32_t previousPage = 0; previousPage <= pageIndex; ++previousPage)
@@ -700,6 +790,10 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
                 return E_INVALIDARG;
             }
 
+            if (widget.usesAdaptivePlacement)
+            {
+                continue;
+            }
             for (std::uint32_t row = placement.row; row < placement.row + placement.rowSpan; ++row)
             {
                 for (std::uint32_t column = placement.column; column < placement.column + placement.columnSpan;
@@ -725,101 +819,25 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
 [[nodiscard]] HRESULT ParseAppSettingsJsonCandidate(std::string_view json,
                                                     std::unique_ptr<AppSettings>& settings) noexcept
 {
-    settings.reset();
-    if (json.empty())
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
-    try
-    {
-        std::vector<char> mutableJson(json.begin(), json.end());
-        yyjson_read_err error{};
-        constexpr yyjson_read_flag flags = YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS;
-        unique_yyjson_doc document{yyjson_read_opts(mutableJson.data(), mutableJson.size(), flags, nullptr, &error)};
-        yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
-        constexpr std::array rootKeys{"$schema", "schemaVersion", "plugins", "dashboard"};
-        yyjson_val* schema = yyjson_is_obj(root) ? yyjson_obj_get(root, "$schema") : nullptr;
-        yyjson_val* version = yyjson_is_obj(root) ? yyjson_obj_get(root, "schemaVersion") : nullptr;
-        yyjson_val* plugins = yyjson_is_obj(root) ? yyjson_obj_get(root, "plugins") : nullptr;
-        yyjson_val* dashboard = yyjson_is_obj(root) ? yyjson_obj_get(root, "dashboard") : nullptr;
-        if (!HasExactKeys(root, rootKeys) || !yyjson_is_str(schema) ||
-            std::strcmp(yyjson_get_str(schema), kSchemaReference) != 0 || !yyjson_is_uint(version) ||
-            yyjson_get_uint(version) != kRedXeSettingsSchemaVersion || !yyjson_is_arr(plugins) ||
-            !yyjson_is_obj(dashboard))
-        {
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        }
-
-        const std::size_t pluginCount = yyjson_arr_size(plugins);
-        if (pluginCount == 0 || pluginCount > kMaximumSettingsPlugins)
-        {
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        }
-        std::unique_ptr<AppSettings> parsed{new (std::nothrow) AppSettings{}};
-        if (!parsed)
-        {
-            return E_OUTOFMEMORY;
-        }
-        for (std::size_t index = 0; index < pluginCount; ++index)
-        {
-            const HRESULT result = ParsePlugin(yyjson_arr_get(plugins, index), parsed->plugins[index]);
-            if (FAILED(result))
-            {
-                return result;
-            }
-        }
-        parsed->pluginCount = static_cast<std::uint32_t>(pluginCount);
-
-        constexpr std::array dashboardKeys{"grid", "activePageId", "pages"};
-        yyjson_val* grid = yyjson_obj_get(dashboard, "grid");
-        yyjson_val* pages = yyjson_obj_get(dashboard, "pages");
-        constexpr std::array gridKeys{"columns", "rows"};
-        if (!HasExactKeys(dashboard, dashboardKeys) || !HasExactKeys(grid, gridKeys) ||
-            !ReadUnsigned(grid, "columns", 1, kMaximumDashboardGridDimension, parsed->dashboard.gridColumns) ||
-            !ReadUnsigned(grid, "rows", 1, kMaximumDashboardGridDimension, parsed->dashboard.gridRows) ||
-            !CopyText(yyjson_obj_get(dashboard, "activePageId"), parsed->dashboard.activePageId, true) ||
-            !yyjson_is_arr(pages))
-        {
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        }
-
-        const std::size_t pageCount = yyjson_arr_size(pages);
-        if (pageCount == 0 || pageCount > kMaximumDashboardPages)
-        {
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        }
-        for (std::size_t index = 0; index < pageCount; ++index)
-        {
-            const HRESULT result = ParsePage(yyjson_arr_get(pages, index), parsed->dashboard.pages[index]);
-            if (FAILED(result))
-            {
-                return result;
-            }
-        }
-        parsed->dashboard.pageCount = static_cast<std::uint32_t>(pageCount);
-
-        const HRESULT validation = ValidateAppSettings(*parsed);
-        if (FAILED(validation))
-        {
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        }
-        settings = std::move(parsed);
-        return S_OK;
-    }
-    catch (const std::bad_alloc&)
-    {
-        return E_OUTOFMEMORY;
-    }
-    catch (...)
-    {
-        return E_FAIL;
-    }
+    return ParseAppSettingsJsonV4(json, settings);
 }
 
 HRESULT ParseAppSettingsJson(std::string_view json, AppSettings& settings) noexcept
 {
     std::unique_ptr<AppSettings> parsed;
     const HRESULT result = ParseAppSettingsJsonCandidate(json, parsed);
+    if (SUCCEEDED(result))
+    {
+        settings = *parsed;
+    }
+    return result;
+}
+
+HRESULT ParseAppSettingsJsonDetailed(std::string_view json, AppSettings& settings,
+                                     SettingsParseDiagnostic& diagnostic) noexcept
+{
+    std::unique_ptr<AppSettings> parsed;
+    const HRESULT result = ParseAppSettingsJsonV4(json, parsed, &diagnostic);
     if (SUCCEEDED(result))
     {
         settings = *parsed;
@@ -860,13 +878,46 @@ HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexc
     return SUCCEEDED(result) ? ParseAppSettingsJson(std::string_view(bytes.data(), bytes.size()), settings) : result;
 }
 
-[[nodiscard]] HRESULT LoadAppSettingsFileCandidate(std::wstring_view path,
-                                                   std::unique_ptr<AppSettings>& settings) noexcept
+[[nodiscard]] HRESULT LoadAppSettingsFileCandidate(std::wstring_view path, std::unique_ptr<AppSettings>& settings,
+                                                   SettingsParseDiagnostic* diagnostic = nullptr) noexcept
 {
     std::vector<char> bytes;
     const HRESULT result = ReadFileBytes(path, bytes);
-    return SUCCEEDED(result) ? ParseAppSettingsJsonCandidate(std::string_view(bytes.data(), bytes.size()), settings)
-                             : result;
+    return SUCCEEDED(result)
+               ? (diagnostic
+                      ? ParseAppSettingsJsonV4(std::string_view(bytes.data(), bytes.size()), settings, diagnostic)
+                      : ParseAppSettingsJsonCandidate(std::string_view(bytes.data(), bytes.size()), settings))
+               : result;
+}
+
+[[nodiscard]] std::wstring FormatDiagnostic(const SettingsParseDiagnostic& diagnostic) noexcept
+{
+    try
+    {
+        std::wstring message = L"Line " + std::to_wstring(diagnostic.line) + L", column " +
+                               std::to_wstring(diagnostic.column) + L", path ";
+        const auto appendUtf8 = [&message](std::string_view text)
+        {
+            if (text.empty())
+                return;
+            const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                                                  static_cast<int>(text.size()), nullptr, 0);
+            if (count <= 0)
+                return;
+            const std::size_t offset = message.size();
+            message.resize(offset + static_cast<std::size_t>(count));
+            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()),
+                                message.data() + offset, count);
+        };
+        appendUtf8(diagnostic.path);
+        message += L": ";
+        appendUtf8(diagnostic.message);
+        return message;
+    }
+    catch (...)
+    {
+        return L"The settings file is invalid.";
+    }
 }
 
 HRESULT QuerySettingsFileStamp(std::wstring_view path, SettingsFileStamp& stamp) noexcept
@@ -909,9 +960,12 @@ HRESULT QuerySettingsFileStamp(std::wstring_view path, SettingsFileStamp& stamp)
     }
 }
 
-HRESULT SettingsStore::Initialize(bool selfTest, std::unique_ptr<AppSettings>& settings) noexcept
+HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath, std::unique_ptr<AppSettings>& settings,
+                                  std::wstring_view localAppDataOverride) noexcept
 {
     settings.reset();
+    _usedInitialFallback = false;
+    _initialNotice.clear();
     try
     {
         std::filesystem::path moduleDirectory;
@@ -942,15 +996,46 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::unique_ptr<AppSettings>& s
             return S_OK;
         }
 
-        wil::unique_cotaskmem_string localAppData;
-        result = SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, localAppData.put());
-        if (FAILED(result))
+        if (!selectedPath.empty())
         {
-            return result;
+            const std::filesystem::path externalPath = std::filesystem::absolute(std::filesystem::path(selectedPath));
+            _settingsPath = externalPath.wstring();
+            _settingsDirectory = externalPath.parent_path().wstring();
+            _schemaPath = deployedSchema.wstring();
+
+            result = LoadAppSettingsFileCandidate(_settingsPath, settings);
+            if (FAILED(result))
+            {
+                _usedInitialFallback = true;
+                _initialNotice = L"The selected settings file could not be loaded. RedXe is running with its "
+                                 L"default configuration; the selected file was not changed.";
+                result = LoadAppSettingsFileCandidate(selectedTemplate.wstring(), settings);
+            }
+            if (FAILED(result))
+            {
+                return result;
+            }
+            SettingsFileStamp stamp{};
+            if (QuerySettingsFileStamp(_settingsPath, stamp) == S_OK && !_usedInitialFallback)
+            {
+                _lastAppliedStamp = stamp;
+            }
+            return S_OK;
+        }
+
+        wil::unique_cotaskmem_string localAppData;
+        if (localAppDataOverride.empty())
+        {
+            result = SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, localAppData.put());
+            if (FAILED(result))
+            {
+                return result;
+            }
         }
 
         const std::filesystem::path settingsDirectory =
-            std::filesystem::path(localAppData.get()) / L"RedXe" / L"Settings";
+            std::filesystem::path(localAppDataOverride.empty() ? localAppData.get() : localAppDataOverride) / L"RedXe" /
+            L"Settings";
         result = EnsureDirectory(settingsDirectory);
         if (FAILED(result))
         {
@@ -970,11 +1055,11 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::unique_ptr<AppSettings>& s
         }
 
         std::filesystem::path initialSource = selectedTemplate;
-#if defined(_DEBUG)
-        const std::filesystem::path releaseSettings = settingsDirectory / kRedXeReleaseSettingsFileName;
-        if (GetFileAttributesW(releaseSettings.c_str()) != INVALID_FILE_ATTRIBUTES)
+#if !defined(_DEBUG)
+        result = MigrateLegacyReleaseSettingsName(settingsDirectory, settingsPath);
+        if (FAILED(result))
         {
-            initialSource = releaseSettings;
+            return result;
         }
 #endif
         result = InstallIfMissing(initialSource, settingsPath);
@@ -986,7 +1071,8 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::unique_ptr<AppSettings>& s
         result = LoadAppSettingsFileCandidate(_settingsPath, settings);
         if (result == HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || result == HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE))
         {
-            const HRESULT backupResult = BackupInvalidSettings(settingsPath);
+            std::filesystem::path backupPath;
+            const HRESULT backupResult = BackupInvalidSettings(settingsPath, backupPath);
             if (FAILED(backupResult))
             {
                 return backupResult;
@@ -995,6 +1081,12 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::unique_ptr<AppSettings>& s
             if (SUCCEEDED(result))
             {
                 result = LoadAppSettingsFileCandidate(_settingsPath, settings);
+            }
+            if (SUCCEEDED(result))
+            {
+                _usedInitialFallback = true;
+                _initialNotice = L"The default settings file was incompatible or invalid. It was preserved as:\n" +
+                                 backupPath.wstring() + L"\n\nA fresh default configuration was installed.";
             }
         }
         if (FAILED(result))
@@ -1052,10 +1144,12 @@ HRESULT SettingsStore::TryLoadChanged(std::unique_ptr<AppSettings>& settings, Se
     }
 
     std::unique_ptr<AppSettings> candidate;
-    const HRESULT loadResult = LoadAppSettingsFileCandidate(_settingsPath, candidate);
+    SettingsParseDiagnostic diagnostic;
+    const HRESULT loadResult = LoadAppSettingsFileCandidate(_settingsPath, candidate, &diagnostic);
     if (loadResult == HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || loadResult == HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE))
     {
         _lastRejectedStamp = currentStamp;
+        _lastDiagnosticText = FormatDiagnostic(diagnostic);
         stamp = currentStamp;
         status = SettingsReloadStatus::Invalid;
         return S_OK;
@@ -1066,6 +1160,7 @@ HRESULT SettingsStore::TryLoadChanged(std::unique_ptr<AppSettings>& settings, Se
     }
 
     settings = std::move(candidate);
+    _lastDiagnosticText.clear();
     stamp = currentStamp;
     status = SettingsReloadStatus::Loaded;
     return S_OK;
@@ -1095,4 +1190,19 @@ const std::wstring& SettingsStore::SettingsDirectory() const noexcept
 const std::wstring& SettingsStore::SchemaPath() const noexcept
 {
     return _schemaPath;
+}
+
+bool SettingsStore::UsedInitialFallback() const noexcept
+{
+    return _usedInitialFallback;
+}
+
+const std::wstring& SettingsStore::InitialNotice() const noexcept
+{
+    return _initialNotice;
+}
+
+const std::wstring& SettingsStore::LastDiagnosticText() const noexcept
+{
+    return _lastDiagnosticText;
 }

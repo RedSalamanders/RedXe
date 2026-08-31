@@ -111,6 +111,38 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     return result == E_INVALIDARG && !object ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 }
 
+[[nodiscard]] HRESULT ValidateSettingsContract(HMODULE module, const char* pluginId, bool expectEmpty) noexcept
+{
+    const RedXeGetPluginSettingsContractFn getContract =
+        ResolveFunction<RedXeGetPluginSettingsContractFn>(module, kRedXeGetPluginSettingsContractExport);
+    if (!getContract)
+    {
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    }
+
+    const RedXePluginSettingsContract* contract = reinterpret_cast<const RedXePluginSettingsContract*>(1);
+    if (getContract(pluginId, nullptr) != E_POINTER ||
+        getContract("missing.plugin", &contract) != HRESULT_FROM_WIN32(ERROR_NOT_FOUND) || contract)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    HRESULT result = getContract(pluginId, &contract);
+    if (FAILED(result) || !contract || contract->sizeBytes < sizeof(*contract) || contract->versionMajor != 1 ||
+        contract->versionMinor != 0 || !contract->schemaJsonUtf8 || contract->schemaBytes == 0 ||
+        !contract->defaultsJsonUtf8 || contract->defaultsBytes == 0)
+    {
+        return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    const std::string_view schema(contract->schemaJsonUtf8, contract->schemaBytes);
+    const std::string_view defaults(contract->defaultsJsonUtf8, contract->defaultsBytes);
+    if (!schema.starts_with('{') || !schema.ends_with('}') || !defaults.starts_with('{') || !defaults.ends_with('}') ||
+        (expectEmpty ? defaults != "{}" : defaults == "{}"))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    return S_OK;
+}
+
 [[nodiscard]] HRESULT BuildPluginPath(const wchar_t* moduleName, std::array<wchar_t, 1024>& path) noexcept
 {
     if (!moduleName)
@@ -167,6 +199,11 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     if (!create || !enumerate)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    }
+    result = ValidateSettingsContract(module.get(), kPluginId, true);
+    if (FAILED(result))
+    {
+        return result;
     }
     result = ValidateEmptyNormalizedFactoryConfiguration(create, kPluginId);
     if (FAILED(result))
@@ -355,6 +392,11 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     if (!create || !enumerate)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    }
+    result = ValidateSettingsContract(module.get(), kGdiPluginId, true);
+    if (FAILED(result))
+    {
+        return result;
     }
     result = ValidateEmptyNormalizedFactoryConfiguration(create, kGdiPluginId);
     if (FAILED(result))
@@ -1088,6 +1130,11 @@ struct MatrixRenderTarget final
     if (!create || !enumerate)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    }
+    result = ValidateSettingsContract(module.get(), kMatrixPluginId, false);
+    if (FAILED(result))
+    {
+        return result;
     }
 
     const RedXePluginMetadata* metadata = nullptr;

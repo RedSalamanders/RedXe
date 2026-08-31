@@ -7,6 +7,7 @@
 #include "SettingsWatcher.h"
 
 #include <memory>
+#include <string_view>
 #include <windows.h>
 
 #pragma warning(push)
@@ -25,26 +26,36 @@ class Application final
     Application(Application&&) = delete;
     Application& operator=(Application&&) = delete;
 
-    int Run(int showCommand, bool selfTest) noexcept;
+    int Run(int showCommand, bool selfTest, std::wstring_view settingsPath = {}) noexcept;
 
   private:
     static constexpr wchar_t kWindowClassName[] = L"RedXe.Window";
+    static constexpr wchar_t kSettingsDialogClassName[] = L"RedXe.SettingsError";
     static LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
+    static LRESULT CALLBACK SettingsDialogProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
 
     HRESULT RegisterWindowClass() noexcept;
     HRESULT CreateMainWindow(bool visible, const RECT* targetBounds, bool fullscreen) noexcept;
     HRESULT InitializeDashboardRuntime() noexcept;
     HRESULT ApplySettings(std::unique_ptr<AppSettings> settings) noexcept;
     void OnSettingsChanged() noexcept;
+    void ShowSettingsError(std::wstring_view message) noexcept;
+    void CloseSettingsError() noexcept;
     HRESULT UpdateDashboardVisibility() noexcept;
     void CloseMainWindow() noexcept;
     bool WaitUntilMessage() noexcept;
     LRESULT HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
     LRESULT OnSize(HWND window, UINT width, UINT height) noexcept;
     LRESULT OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBounds) noexcept;
+    void OnPointerDown(HWND window, WPARAM wParam) noexcept;
+    void OnPointerUpdate(HWND window, WPARAM wParam) noexcept;
+    void OnPointerUp(HWND window, WPARAM wParam) noexcept;
+    HRESULT StageTransitionPage(int direction) noexcept;
+    void ClearTransitionPage() noexcept;
 
     HINSTANCE _instance = nullptr;
     wil::unique_hwnd _window;
+    HWND _settingsErrorDialog = nullptr;
     wil::unique_hpowernotify _displayPowerNotification;
     PluginManager _pluginManager;
     DashboardHost _dashboardHost;
@@ -52,6 +63,9 @@ class Application final
     SettingsStore _settingsStore;
     SettingsWatcher _settingsWatcher;
     std::unique_ptr<AppSettings> _settings;
+    std::unique_ptr<AppSettings> _transitionSettings;
+    std::unique_ptr<PluginManager> _transitionPluginManager;
+    std::unique_ptr<DashboardHost> _transitionDashboardHost;
     bool _forceWarp = false;
     bool _classRegistered = false;
     bool _rendererReady = false;
@@ -60,4 +74,10 @@ class Application final
     bool _occlusionStatusChanged = false;
     bool _frameInvalidated = true;
     HRESULT _runtimeFailure = S_OK;
+    UINT32 _pagePointerId = 0;
+    LONG _pagePointerStartX = 0;
+    LONG _pagePointerX = 0;
+    bool _pagePointerActive = false;
+    bool _pagePanStarted = false;
+    int _pageTransitionDirection = 0;
 };

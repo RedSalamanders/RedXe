@@ -96,6 +96,7 @@
   </ItemDefinitionGroup>
 
   <ItemGroup>
+    <ClInclude Include="..\Common\PlugInterfaces\DataProvider.h" />
     <ClInclude Include="..\Common\PlugInterfaces\GpuWidget.h" />
     <ClInclude Include="..\Common\PlugInterfaces\WindowWidget.h" />
     <ClInclude Include="Application.h" />
@@ -116,6 +117,7 @@
     <ClCompile Include="PluginManager.cpp" />
     <ClCompile Include="Renderer.cpp" />
     <ClCompile Include="Settings.cpp" />
+    <ClCompile Include="SettingsV4.cpp" />
     <ClCompile Include="SettingsWatcher.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -130,9 +132,9 @@
       <TargetPath>Settings\RedXe-debug.settings.json</TargetPath>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="..\Settings\RedXe-1.0.settings.json">
-      <Link>Settings\RedXe-1.0.settings.json</Link>
-      <TargetPath>Settings\RedXe-1.0.settings.json</TargetPath>
+    <None Include="..\Settings\RedXe.settings.json">
+      <Link>Settings\RedXe.settings.json</Link>
+      <TargetPath>Settings\RedXe.settings.json</TargetPath>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Include="..\Specs\Settings.schema.json">
@@ -154,6 +156,11 @@
     </ProjectReference>
     <ProjectReference Include="..\Plugins\RotatingTriangle\RotatingTriangle.vcxproj">
       <Project>{6D7E78E8-B671-423A-9A15-3D1EF6DCA865}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\Plugins\SystemData\SystemData.vcxproj">
+      <Project>{B8571A4E-A8C8-4A68-A99C-80F0505F0E5F}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>

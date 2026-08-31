@@ -63,6 +63,13 @@ if ($contractProcess.ExitCode -ne 0) {
     throw "Plugin contract tests failed with exit code $($contractProcess.ExitCode)."
 }
 
+$systemDataTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SystemDataTests.exe"
+Write-Host 'Running local system-data provider contract tests...' -ForegroundColor Cyan
+$systemDataProcess = Start-Process -FilePath $systemDataTests -Wait -PassThru
+if ($systemDataProcess.ExitCode -ne 0) {
+    throw "System-data provider tests failed with exit code $($systemDataProcess.ExitCode)."
+}
+
 $settingsTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SettingsTests.exe"
 Write-Host 'Running settings, schema, stamp, and watcher contract tests...' -ForegroundColor Cyan
 $settingsProcess = Start-Process -FilePath $settingsTests -Wait -PassThru

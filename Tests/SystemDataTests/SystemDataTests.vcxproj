@@ -9,8 +9,8 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{CE27A40C-03BE-4D36-9D9A-3F9282B9D327}</ProjectGuid>
-    <RootNamespace>SettingsTests</RootNamespace>
+    <ProjectGuid>{D3EE1140-59FB-4A12-83E5-368579689787}</ProjectGuid>
+    <RootNamespace>SystemDataTests</RootNamespace>
     <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -36,10 +36,7 @@
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
-    <Link>
-      <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>shell32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    </Link>
+    <Link><SubSystem>Console</SubSystem></Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
     <ClCompile>
@@ -53,35 +50,20 @@
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>shell32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
+  <ItemGroup><ClCompile Include="SystemDataTests.cpp" /></ItemGroup>
   <ItemGroup>
-    <ClCompile Include="SettingsTests.cpp" />
-    <ClCompile Include="..\..\RedXe\Settings.cpp" />
-    <ClCompile Include="..\..\RedXe\SettingsV4.cpp" />
-    <ClCompile Include="..\..\RedXe\SettingsWatcher.cpp" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\DataProvider.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\RedXe\Settings.h" />
-    <ClInclude Include="..\..\RedXe\SettingsWatcher.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="..\..\Settings\RedXe-debug.settings.json">
-      <Link>Settings\RedXe-debug.settings.json</Link>
-      <TargetPath>Settings\RedXe-debug.settings.json</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Include="..\..\Settings\RedXe.settings.json">
-      <Link>Settings\RedXe.settings.json</Link>
-      <TargetPath>Settings\RedXe.settings.json</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Include="..\..\Specs\Settings.schema.json">
-      <Link>Settings\RedXe.settings.schema.json</Link>
-      <TargetPath>Settings\RedXe.settings.schema.json</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <ProjectReference Include="..\..\Plugins\SystemData\SystemData.vcxproj">
+      <Project>{B8571A4E-A8C8-4A68-A99C-80F0505F0E5F}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
