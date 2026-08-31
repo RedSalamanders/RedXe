@@ -1,7 +1,7 @@
 # XENEON display and windowing contract
 
-Status: current normative product contract  
-Last reviewed: 2026-08-30  
+Status: current normative product contract
+Last reviewed: 2026-08-31
 Owner: `Application` process, display-selection, HWND, and DPI behavior
 
 ## Scope
@@ -9,6 +9,8 @@ Owner: `Application` process, display-selection, HWND, and DPI behavior
 This specification owns RedXe startup display selection, Debug and Release window modes, the XENEON EDGE design
 canvas, per-monitor DPI behavior, fallback prompts, and the hidden smoke-test window. Direct3D device and swap-chain
 ownership remains in `Renderer`; see the `direct3d11-rendering` skill for that boundary.
+
+Dashboard pages and grid placement are owned by `Specs/UI/UI_Dashboard.md`.
 
 The product target is the CORSAIR XENEON EDGE in its native landscape mode: **2560×720**, **32:9**. The hardware basis
 is the [CORSAIR XENEON EDGE product specification](https://www.corsair.com/newsroom/press-release/corsair-launches-the-xeneon-edge-14-5%E2%80%B3-lcd-touchscreen-a-dazzling-and-expansive-display-customized-by-you).
@@ -54,6 +56,14 @@ Debug and Release display discovery MUST inspect active display paths through
 ordinally without case, qualifies. The matching source device MUST be resolved to its `HMONITOR` bounds. Discovery
 failure uses normal shell placement in Debug and follows the missing-display fallback policy in Release.
 
+## Windows shell identity
+
+`RedXe.exe` MUST embed the product icon as its conventional primary icon group and use that same resource for the
+large and small window-class icons. It MUST embed version information identifying `RedXe.exe`, product `RedXe`, and
+file description `RedXe XENEON dashboard`. This gives Task Manager and shell surfaces a stable executable identity in
+addition to the HWND icon. The hidden self-test MUST extract both large and small icons from its own executable, and
+the repository test entrypoint MUST validate the version fields without desktop automation.
+
 ## Window and rendering lifecycle
 
 - `Application` MUST own the top-level HWND with `wil::unique_hwnd` and route messages through the instance bound at
@@ -63,9 +73,15 @@ failure uses normal shell placement in Debug and follows the missing-display fal
 - `WM_PAINT` validates the update region; continuous rendering remains on the idle side of the message loop.
 - The window class MUST NOT request `CS_HREDRAW` or `CS_VREDRAW`; resize rendering is driven by `WM_SIZE` and the
   renderer rather than redundant full-client paint invalidation.
+- The top-level titled and fullscreen window styles MUST include `WS_CLIPCHILDREN`. Direct3D presentation MUST be
+  clipped out of host-owned native-widget child rectangles so GDI, native-control, media, and WebView content remains
+  visible above the swap-chain surface.
 - `Application` MUST subscribe to `GUID_SESSION_DISPLAY_STATUS`. While the session display is powered off, hidden, or
   minimized, it MUST drain pending messages and then block without rendering or presenting. Display-on, show, and
   restore messages resume normal scheduling.
+- Host-owned native-widget child containers MUST use the same physical design-canvas transform as GPU viewports.
+  Resize and `WM_DPICHANGED` MUST reposition them and report the destination DPI. Hidden, minimized, display-off, and
+  DXGI-occluded states MUST hide and quiesce them before the host blocks.
 - `Renderer` MUST register `Application` for DXGI factory occlusion-status window messages. After presentation reports
   full occlusion, RedXe MUST block until that notification and then issue `DXGI_PRESENT_TEST` without building a
   frame. It resumes rendering only after that test succeeds.
@@ -92,15 +108,21 @@ Debug placement changes additionally require a live launch with an active XENEON
 MUST equal the detected XENEON `rcMonitor` origin, and `MonitorFromWindow` MUST resolve the window to that monitor.
 
 The Release missing-display prompt MUST be checked manually when no matching display is active. The hidden self-test
-MUST remain noninteractive in both configurations.
+MUST remain noninteractive in both configurations and MUST verify the top-level `WS_CLIPCHILDREN` style.
 
-Scheduling changes additionally require a live hidden, minimized, fully occluded, and session-display-off check.
-Each inactive state is green only when RedXe consumes no continuously accumulating CPU time, and uncover/display-on
-must resume visible animation without restarting the process.
+Native-window composition changes additionally require a live launch with a native widget enabled. The child content
+MUST remain visible and animated while the surrounding Direct3D widgets continue presenting.
+
+Scheduling-policy changes MUST extend `HostPluginTests` and its pure scheduler decision table. The automated cases
+must prove that hidden, minimized/suspended, session-display-off, and fully occluded states wait for a message, that
+occlusion probes occur only after a DXGI status notification, and that static content sleeps after its clean frame.
+Changes to the operating-system notification registration or message wiring outside that decision seam additionally
+require a live inactive/resume check.
 
 ## Implementation and validation anchors
 
 - Process awareness and command-line modes: `RedXe/Main.cpp`, `RedXe/app.manifest`
 - Display discovery, window creation, and DPI transitions: `RedXe/Application.cpp`, `RedXe/Application.h`
 - Physical render-target resizing: `RedXe/Renderer.cpp`, `RedXe/Renderer.h`
-- Automated build and hidden WARP validation: `build.ps1`, `test.ps1`
+- Automated build, scheduler, production host/plugin, and hidden WARP validation: `build.ps1`, `test.ps1`,
+  `Tests/HostPluginTests/`

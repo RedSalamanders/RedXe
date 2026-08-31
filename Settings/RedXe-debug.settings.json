@@ -1,0 +1,99 @@
+{
+  "$schema": "RedXe.settings.schema.json",
+  "schemaVersion": 3,
+  "plugins": [
+    {
+      "id": "builtin.rotating-triangle",
+      "enabled": true,
+      "private": {}
+    },
+    {
+      "id": "builtin.gdi-orbit",
+      "enabled": true,
+      "private": {}
+    },
+    {
+      "id": "builtin.matrix-rain",
+      "enabled": true,
+      "private": {}
+    }
+  ],
+  "dashboard": {
+    "grid": {
+      "columns": 32,
+      "rows": 9
+    },
+    "activePageId": "page.development",
+    "pages": [
+      {
+        "id": "page.development",
+        "name": "Development",
+        "widgets": [
+          {
+            "id": "triangle.1",
+            "pluginId": "builtin.rotating-triangle",
+            "typeId": "rotating-triangle",
+            "placement": { "column": 0, "row": 0, "columnSpan": 8, "rowSpan": 9 },
+            "private": {}
+          },
+          {
+            "id": "triangle.2",
+            "pluginId": "builtin.rotating-triangle",
+            "typeId": "rotating-triangle",
+            "placement": { "column": 8, "row": 0, "columnSpan": 8, "rowSpan": 9 },
+            "private": {}
+          },
+          {
+            "id": "gdi-orbit.1",
+            "pluginId": "builtin.gdi-orbit",
+            "typeId": "gdi-orbit",
+            "placement": { "column": 16, "row": 0, "columnSpan": 8, "rowSpan": 9 },
+            "private": {}
+          },
+          {
+            "id": "matrix-rain.1",
+            "pluginId": "builtin.matrix-rain",
+            "typeId": "matrix-rain",
+            "placement": { "column": 24, "row": 0, "columnSpan": 8, "rowSpan": 9 },
+            "private": {
+              "seed": 1999,
+              "glyphHeightDips": 18,
+              "densityPercent": 70,
+              "speedPercent": 100,
+              "trailLengthGlyphs": 18,
+              "mutationPerSecond": 8,
+              "headColor": "#D8FFE5",
+              "trailColor": "#00E65C",
+              "backgroundColor": "#010502",
+              "glowPercent": 35
+            }
+          }
+        ]
+      },
+      {
+        "id": "page.matrix-focus",
+        "name": "Matrix Focus",
+        "widgets": [
+          {
+            "id": "matrix-rain.focus",
+            "pluginId": "builtin.matrix-rain",
+            "typeId": "matrix-rain",
+            "placement": { "column": 0, "row": 0, "columnSpan": 32, "rowSpan": 9 },
+            "private": {
+              "seed": 2000,
+              "glyphHeightDips": 18,
+              "densityPercent": 70,
+              "speedPercent": 100,
+              "trailLengthGlyphs": 18,
+              "mutationPerSecond": 8,
+              "headColor": "#D8FFE5",
+              "trailColor": "#00E65C",
+              "backgroundColor": "#010502",
+              "glowPercent": 35
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

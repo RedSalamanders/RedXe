@@ -32,17 +32,33 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   occlusion-status window message, and use `DXGI_PRESENT_TEST` to detect recovery without presenting content.
   Occlusion polling and periodic timers are prohibited.
 - The single host swap chain uses a maximum frame latency of one so the CPU does not queue unnecessary frames.
-- Static pages must render only after invalidation. Future plugin invalidation must be coalesced before waking the UI
-  thread.
+- Static pages must render only after explicit invalidation. Resize, DPI, settings changes that alter the active
+  runtime, `WM_PAINT`, show/display recovery, and occlusion/device recovery invalidate one coalesced frame. Mouse,
+  cursor, keyboard, native-child timer, and other unrelated dispatched messages MUST NOT cause a host `Present`.
+  Future plugin invalidation must be coalesced before waking the UI thread.
 - Plugin `Render` calls use borrowed frame and D3D context records. Render, resize, and visibility callbacks must not
   perform disk, network, device discovery, process creation, blocking waits, or long-held locks.
+- A visible native-window animation MAY use a UI-thread timer at the lowest rate that preserves its required visual
+  quality. It MUST stop the timer while hidden, minimized, display-off, occluded, or detached. GDI paint callbacks
+  MUST reuse resize-owned buffers and GDI objects rather than allocate memory or create handles per paint.
 - Startup-only work may allocate when required, but temporary allocations must be released promptly and persistent
   caches must have a demonstrated reuse benefit.
+- Typed configuration for inactive pages MAY remain in bounded settings storage, but inactive pages MUST create no
+  providers, widgets, child HWNDs, Direct3D resources, timers, or frame work. Subsystems MUST NOT retain redundant
+  complete copies of the settings document when narrow cached active state is sufficient.
+- Live settings reload MUST allocate at most one full-document candidate beside the authoritative document. An edit
+  that leaves the active grid, active widget records, and their referenced plugin records unchanged MUST publish the
+  new typed document without rebuilding active providers, widgets, HWNDs, or D3D resources.
 - DLLs, devices, textures, buffers, workers, and child windows must be created lazily when practical and released or
   quiesced when their owning feature is no longer active, except for the documented v1 no-unload plugin policy.
 - Background acquisition must block on events or timers at the lowest useful rate, coalesce redundant samples, and
   keep bounded history. Busy-waiting is prohibited.
 - Logging and diagnostics must not format or emit per-frame success messages.
+
+The frozen immediate-context GPU interface remains appropriate for Matrix-class work. A new production family of
+cheap host primitives MUST NOT be added as separate immediate-context callbacks without measurement. When such a
+consumer exists, the design review MUST first evaluate a host-owned bounded command/batch mechanism under a new IID;
+the generic widget root and frozen `IRedXeGpuWidget` vtable remain unchanged.
 
 ## ABI and data-layout rules
 
@@ -78,5 +94,10 @@ observable resource benefit are not required.
 - The multi-widget WARP smoke frame must notify the GPU widgets of device creation, render every configured widget,
   and notify them before device release.
 - Review must confirm that steady-state GPU callbacks allocate no heap memory and reuse bounded device resources.
-- Changes affecting idle or presentation scheduling require a live check that hidden, minimized, display-off, and
-  occluded windows do not spin a CPU core, and that an uncovered window resumes rendering.
+- `HostPluginTests` must exercise the production `PluginManager`, `DashboardHost`, and `Renderer` with a hidden
+  off-screen HWND and WARP. It must verify the scheduler decision table for hidden, minimized/suspended, display-off,
+  occluded, clean-static, invalidated-static, and continuous states without automating the desktop. The scheduler
+  input MUST NOT contain an any-message redraw proxy.
+- Changes to the acquisition of operating-system visibility, power, or DXGI occlusion signals that are not represented
+  by the scheduler decision seam additionally require a live check that inactive windows do not spin and recovery
+  resumes rendering.

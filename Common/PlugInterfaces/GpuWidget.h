@@ -23,7 +23,7 @@ struct RedXeGpuFrameContext final
 };
 
 // Direct3D 11 rendering path for widgets that need unrestricted GPU drawing.
-struct __declspec(uuid("DBEED29C-63EB-409E-816B-F4BDC5EF7AA9")) __declspec(novtable) IRedXeGpuWidget : IRedXeWidget
+interface __declspec(uuid("DBEED29C-63EB-409E-816B-F4BDC5EF7AA9")) __declspec(novtable) IRedXeGpuWidget : IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept = 0;
     virtual void STDMETHODCALLTYPE OnDeviceLost() noexcept = 0;

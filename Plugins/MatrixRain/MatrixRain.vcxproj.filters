@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files"><UniqueIdentifier>{EB675767-C247-420B-BF2A-42C1AE3E935B}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files"><UniqueIdentifier>{5D0F4D20-A586-45A5-BF0B-A9AFB0D329D8}</UniqueIdentifier></Filter>
+    <Filter Include="Shader Files"><UniqueIdentifier>{27D98473-E1AA-45AF-8DFD-D2C50B9A4EB8}</UniqueIdentifier></Filter>
+    <Filter Include="Assets"><UniqueIdentifier>{D15BFE83-ED86-40BA-9593-6211313D34E8}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="MatrixRain.cpp"><Filter>Source Files</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="MatrixRainGlyphAtlas.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="MatrixRainTestContract.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\GpuWidget.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Host.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h"><Filter>Header Files</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="MatrixRainBackgroundPixel.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="MatrixRainBackgroundVertex.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="MatrixRainGlyphPixel.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="MatrixRainGlyphVertex.hlsl"><Filter>Shader Files</Filter></FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="GenerateGlyphAtlas.ps1"><Filter>Assets</Filter></None>
+    <None Include="README.md"><Filter>Assets</Filter></None>
+  </ItemGroup>
+</Project>

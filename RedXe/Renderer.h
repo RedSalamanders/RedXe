@@ -29,6 +29,7 @@ class Renderer final
     Renderer& operator=(Renderer&&) = delete;
 
     HRESULT Initialize(HWND window, bool forceWarp, DashboardHost& dashboardHost) noexcept;
+    void Shutdown() noexcept;
     HRESULT SetDpi(UINT dpi) noexcept;
     HRESULT Resize(UINT width, UINT height) noexcept;
     HRESULT Render(float elapsedSeconds, float deltaSeconds) noexcept;
@@ -39,7 +40,7 @@ class Renderer final
     [[nodiscard]] std::size_t LastFrameSuccessfulWidgetCount() const noexcept;
 
   private:
-    static constexpr std::size_t kMaximumWidgetViewports = 8;
+    static constexpr std::size_t kMaximumWidgetViewports = 16;
     static constexpr DXGI_FORMAT kTargetFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 
     HRESULT CreateDeviceResources() noexcept;

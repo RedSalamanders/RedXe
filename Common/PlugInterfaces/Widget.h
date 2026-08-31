@@ -33,11 +33,9 @@ struct RedXeWidgetFrameContext final
 };
 
 // Generic widget identity and lifetime root. Rendering mechanisms are negotiated through QueryInterface.
-struct __declspec(uuid("2C66DE33-08D1-4A0C-890C-38521F142AA0")) __declspec(novtable) IRedXeWidget : IUnknown
-{
-};
+interface __declspec(uuid("2C66DE33-08D1-4A0C-890C-38521F142AA0")) __declspec(novtable) IRedXeWidget : IUnknown{};
 
-struct __declspec(uuid("231AC0E8-1204-4BFF-BCEA-7CACF11F439D")) __declspec(novtable) IRedXeWidgetProvider : IUnknown
+interface __declspec(uuid("231AC0E8-1204-4BFF-BCEA-7CACF11F439D")) __declspec(novtable) IRedXeWidgetProvider : IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
                                                      std::uint32_t* count) noexcept = 0;

@@ -1,11 +1,18 @@
 #include "Application.h"
+
+#include "CrashHandler.h"
+#include "FrameScheduler.h"
 #include "Settings.h"
 #include "resource.h"
 
+#include <array>
 #include <chrono>
 #include <cstring>
+#include <memory>
 #include <new>
+#include <shellapi.h>
 #include <string_view>
+#include <utility>
 #include <vector>
 #include <windowsx.h>
 
@@ -13,6 +20,27 @@ namespace
 {
 constexpr LONG kXeneonEdgeClientWidth = 2560;
 constexpr LONG kXeneonEdgeClientHeight = 720;
+
+[[nodiscard]] HRESULT ValidateExecutableShellIcon() noexcept
+{
+    std::array<wchar_t, 1024> executablePath{};
+    const DWORD length = GetModuleFileNameW(nullptr, executablePath.data(), static_cast<DWORD>(executablePath.size()));
+    if (length == 0)
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    if (length >= executablePath.size())
+    {
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    }
+
+    HICON extractedLarge = nullptr;
+    HICON extractedSmall = nullptr;
+    const UINT count = ExtractIconExW(executablePath.data(), 0, &extractedLarge, &extractedSmall, 1);
+    wil::unique_hicon largeIcon{extractedLarge};
+    wil::unique_hicon smallIcon{extractedSmall};
+    return count != 0 && largeIcon && smallIcon ? S_OK : HRESULT_FROM_WIN32(ERROR_RESOURCE_DATA_NOT_FOUND);
+}
 
 SIZE ScaleXeneonClientSize(UINT dpi) noexcept
 {
@@ -151,6 +179,75 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
 
     return S_OK;
 }
+
+[[nodiscard]] std::size_t CountGpuWidgets(const PluginManager& plugins) noexcept
+{
+    std::size_t count = 0;
+    for (std::size_t index = 0; index < plugins.WidgetCount(); ++index)
+    {
+        count += plugins.GpuWidgetAt(index) ? 1U : 0U;
+    }
+    return count;
+}
+
+[[nodiscard]] bool PluginEnabled(const AppSettings& settings, std::string_view pluginId) noexcept
+{
+    const PluginSettings* plugin = FindPluginSettings(settings, pluginId);
+    return plugin && plugin->enabled;
+}
+
+[[nodiscard]] HRESULT DisablePluginAndRemoveWidgets(AppSettings& settings, std::string_view pluginId) noexcept
+{
+    PluginSettings* plugin = FindPluginSettings(settings, pluginId);
+    if (!plugin)
+    {
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
+    plugin->enabled = false;
+
+    std::uint32_t pageWrite = 0;
+    for (std::uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
+    {
+        DashboardPageSettings page = settings.dashboard.pages[pageIndex];
+        std::uint32_t widgetWrite = 0;
+        for (std::uint32_t widgetIndex = 0; widgetIndex < page.widgetCount; ++widgetIndex)
+        {
+            if (!SettingsIdEquals(page.widgets[widgetIndex].pluginId.View(), pluginId))
+            {
+                page.widgets[widgetWrite++] = page.widgets[widgetIndex];
+            }
+        }
+        page.widgetCount = widgetWrite;
+        if (page.widgetCount == 0)
+        {
+            if (SettingsIdEquals(page.id.View(), settings.dashboard.activePageId.View()))
+            {
+                return E_INVALIDARG;
+            }
+            continue;
+        }
+        settings.dashboard.pages[pageWrite++] = page;
+    }
+    settings.dashboard.pageCount = pageWrite;
+    return ValidateAppSettings(settings);
+}
+
+[[nodiscard]] HRESULT SelectNextDashboardPage(AppSettings& settings) noexcept
+{
+    if (settings.dashboard.pageCount < 2)
+    {
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
+    for (std::uint32_t index = 0; index < settings.dashboard.pageCount; ++index)
+    {
+        if (SettingsIdEquals(settings.dashboard.pages[index].id.View(), settings.dashboard.activePageId.View()))
+        {
+            settings.dashboard.activePageId = settings.dashboard.pages[(index + 1U) % settings.dashboard.pageCount].id;
+            return ValidateAppSettings(settings);
+        }
+    }
+    return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+}
 } // namespace
 
 Application::Application(HINSTANCE instance, bool forceWarp) noexcept : _instance(instance), _forceWarp(forceWarp) {}
@@ -158,7 +255,7 @@ Application::Application(HINSTANCE instance, bool forceWarp) noexcept : _instanc
 Application::~Application()
 {
     _displayPowerNotification.reset();
-    _window.reset();
+    CloseMainWindow();
     if (_classRegistered)
     {
         UnregisterClassW(kWindowClassName, _instance);
@@ -167,11 +264,15 @@ Application::~Application()
 
 int Application::Run(int showCommand, bool selfTest) noexcept
 {
-    AppSettings settings{};
-    HRESULT result = LoadDefaultSettings(settings);
-    if (FAILED(result))
+    HRESULT result = _settingsStore.Initialize(selfTest, _settings);
+    if (FAILED(result) || !_settings)
     {
-        OutputDebugStringW(L"Default JSON settings are invalid.\n");
+        OutputDebugStringW(L"Settings initialization or validation failed.\n");
+        return 1;
+    }
+    if (selfTest && FAILED(ValidateExecutableShellIcon()))
+    {
+        OutputDebugStringW(L"The executable does not expose extractable large and small shell icons.\n");
         return 1;
     }
 
@@ -233,7 +334,8 @@ int Application::Run(int showCommand, bool selfTest) noexcept
         RECT clientBounds{};
         const UINT windowDpi = GetDpiForWindow(_window.get());
         const SIZE expectedClientSize = ScaleXeneonClientSize(windowDpi);
-        if (windowDpi == 0 || !GetClientRect(_window.get(), &clientBounds) ||
+        const DWORD windowStyle = static_cast<DWORD>(GetWindowLongPtrW(_window.get(), GWL_STYLE));
+        if (windowDpi == 0 || (windowStyle & WS_CLIPCHILDREN) == 0 || !GetClientRect(_window.get(), &clientBounds) ||
             clientBounds.right - clientBounds.left != expectedClientSize.cx ||
             clientBounds.bottom - clientBounds.top != expectedClientSize.cy)
         {
@@ -242,35 +344,82 @@ int Application::Run(int showCommand, bool selfTest) noexcept
         }
     }
 
-    result = _pluginManager.Initialize(settings.rotatingTriangleInstances);
+#if defined(_DEBUG)
+    if (selfTest)
+    {
+        std::unique_ptr<AppSettings> matrixDisabled{new (std::nothrow) AppSettings{*_settings}};
+        if (!matrixDisabled)
+        {
+            return 3;
+        }
+        result = DisablePluginAndRemoveWidgets(*matrixDisabled, "builtin.matrix-rain");
+        PluginManager disabledMatrixManager;
+        if (SUCCEEDED(result))
+        {
+            result = disabledMatrixManager.Initialize(*matrixDisabled);
+        }
+        if (FAILED(result) || GetModuleHandleW(L"MatrixRain.dll"))
+        {
+            OutputDebugStringW(L"A disabled Matrix Rain plugin was loaded during the conditional-load test.\n");
+            return 3;
+        }
+    }
+#endif
+
+    result = _pluginManager.Initialize(*_settings);
     if (FAILED(result))
     {
-        OutputDebugStringW(L"Bundled rotating-triangle plugin initialization failed.\n");
+        OutputDebugStringW(L"Bundled plugin initialization failed.\n");
         return 3;
     }
 
-    result = _dashboardHost.Initialize(_pluginManager);
+    result = InitializeDashboardRuntime();
     if (FAILED(result))
     {
-        OutputDebugStringW(L"Dashboard initialization failed.\n");
-        return 4;
-    }
-
-    result = _renderer.Initialize(_window.get(), _forceWarp, _dashboardHost);
-    if (FAILED(result))
-    {
-        OutputDebugStringW(L"Renderer initialization failed.\n");
+        OutputDebugStringW(L"Dashboard or renderer initialization failed.\n");
         return 5;
     }
-    _rendererReady = true;
 
     if (selfTest)
     {
+        const std::size_t expectedGpuWidgetCount = CountGpuWidgets(_pluginManager);
         result = _renderer.Render(0.0f, 0.0f);
-        if (FAILED(result) || _renderer.LastFrameWidgetCount() != settings.rotatingTriangleInstances ||
-            _renderer.LastFrameSuccessfulWidgetCount() != settings.rotatingTriangleInstances)
+        if (FAILED(result) || _renderer.LastFrameWidgetCount() != expectedGpuWidgetCount ||
+            _renderer.LastFrameSuccessfulWidgetCount() != expectedGpuWidgetCount ||
+            (!PluginEnabled(*_settings, "builtin.rotating-triangle") && GetModuleHandleW(L"RotatingTriangle.dll")) ||
+            (!PluginEnabled(*_settings, "builtin.gdi-orbit") && GetModuleHandleW(L"GdiOrbit.dll")) ||
+            (!PluginEnabled(*_settings, "builtin.matrix-rain") && GetModuleHandleW(L"MatrixRain.dll")))
         {
             OutputDebugStringW(L"The plugin smoke frame did not render every GPU-widget instance.\n");
+            return 6;
+        }
+
+        std::unique_ptr<AppSettings> changed{new (std::nothrow) AppSettings{*_settings}};
+        if (!changed)
+        {
+            return 6;
+        }
+        result = SelectNextDashboardPage(*changed);
+        if (SUCCEEDED(result))
+        {
+            result = ApplySettings(std::move(changed));
+        }
+        if (SUCCEEDED(result))
+        {
+            result = _renderer.Render(0.0f, 0.0f);
+        }
+        const std::size_t changedGpuWidgetCount = CountGpuWidgets(_pluginManager);
+        if (FAILED(result) || _renderer.LastFrameWidgetCount() != changedGpuWidgetCount ||
+            _renderer.LastFrameSuccessfulWidgetCount() != changedGpuWidgetCount)
+        {
+            OutputDebugStringW(L"The dashboard page/private settings reconfiguration smoke test failed.\n");
+            return 6;
+        }
+
+        std::unique_ptr<AppSettings> rejected{new (std::nothrow) AppSettings{*_settings}};
+        if (!rejected || SUCCEEDED(ParseAppSettingsJson("{}", *rejected)) || *rejected != *_settings)
+        {
+            OutputDebugStringW(L"Invalid settings changed the active typed configuration.\n");
             return 6;
         }
         return 0;
@@ -279,17 +428,26 @@ int Application::Run(int showCommand, bool selfTest) noexcept
     ShowWindow(_window.get(), showCommand);
     UpdateWindow(_window.get());
     _windowVisible = IsWindowVisible(_window.get()) != FALSE;
+    CrashHandler::ShowPreviousCrashUiIfPresent(_window.get());
+    if (!_window)
+    {
+        return FAILED(_runtimeFailure) ? 5 : 0;
+    }
+
+    result = _settingsWatcher.Start(_window.get(), _settingsStore.SettingsDirectory());
+    if (FAILED(result))
+    {
+        OutputDebugStringW(L"Settings watcher initialization failed.\n");
+        return 7;
+    }
 
     const auto startTime = std::chrono::steady_clock::now();
     float previousElapsedSeconds = 0.0f;
-    bool renderedFrame = false;
     MSG message{};
     while (_window)
     {
-        bool dispatchedMessage = false;
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
         {
-            dispatchedMessage = true;
             if (message.message == WM_QUIT)
             {
                 return FAILED(_runtimeFailure) ? 5 : static_cast<int>(message.wParam);
@@ -303,40 +461,62 @@ int Application::Run(int showCommand, bool selfTest) noexcept
             break;
         }
 
-        if (!_windowVisible || !_displayPoweredOn || _renderer.IsSuspended())
-        {
-            (void)WaitUntilMessage();
-            continue;
-        }
-
         if (!_renderer.IsOccluded())
         {
             _occlusionStatusChanged = false;
         }
-        else
-        {
-            if (_occlusionStatusChanged)
-            {
-                _occlusionStatusChanged = false;
-                result = _renderer.ProbeOcclusion();
-                if (FAILED(result))
-                {
-                    _runtimeFailure = result;
-                    OutputDebugStringW(L"Swap-chain occlusion probe failed.\n");
-                    _window.reset();
-                    continue;
-                }
-            }
 
-            if (_renderer.IsOccluded())
+        HostFrameAction frameAction = SelectHostFrameAction(HostFrameState{
+            _windowVisible,
+            _displayPoweredOn,
+            _renderer.IsSuspended(),
+            _renderer.IsOccluded(),
+            _occlusionStatusChanged,
+            _dashboardHost.RequiresContinuousFrames(),
+            _frameInvalidated,
+        });
+        if (frameAction == HostFrameAction::ProbeOcclusion)
+        {
+            _occlusionStatusChanged = false;
+            result = _renderer.ProbeOcclusion();
+            if (FAILED(result))
             {
-                (void)WaitUntilMessage();
+                _runtimeFailure = result;
+                OutputDebugStringW(L"Swap-chain occlusion probe failed.\n");
+                CloseMainWindow();
                 continue;
             }
+            if (!_renderer.IsOccluded())
+            {
+                _frameInvalidated = true;
+            }
+            result = UpdateDashboardVisibility();
+            if (FAILED(result))
+            {
+                _runtimeFailure = result;
+                CloseMainWindow();
+                continue;
+            }
+            frameAction = SelectHostFrameAction(HostFrameState{
+                _windowVisible,
+                _displayPoweredOn,
+                _renderer.IsSuspended(),
+                _renderer.IsOccluded(),
+                false,
+                _dashboardHost.RequiresContinuousFrames(),
+                _frameInvalidated,
+            });
         }
 
-        if (!_dashboardHost.RequiresContinuousFrames() && renderedFrame && !dispatchedMessage)
+        if (frameAction == HostFrameAction::WaitForMessage)
         {
+            result = UpdateDashboardVisibility();
+            if (FAILED(result))
+            {
+                _runtimeFailure = result;
+                CloseMainWindow();
+                continue;
+            }
             (void)WaitUntilMessage();
             continue;
         }
@@ -346,12 +526,22 @@ int Application::Run(int showCommand, bool selfTest) noexcept
         const float deltaSeconds = elapsedSeconds - previousElapsedSeconds;
         previousElapsedSeconds = elapsedSeconds;
         result = _renderer.Render(elapsedSeconds, deltaSeconds);
-        renderedFrame = true;
         if (FAILED(result))
         {
             _runtimeFailure = result;
             OutputDebugStringW(L"Frame rendering failed.\n");
-            _window.reset();
+            CloseMainWindow();
+            continue;
+        }
+        if (result == S_OK)
+        {
+            _frameInvalidated = false;
+        }
+        result = UpdateDashboardVisibility();
+        if (FAILED(result))
+        {
+            _runtimeFailure = result;
+            CloseMainWindow();
         }
     }
 
@@ -397,7 +587,7 @@ HRESULT Application::RegisterWindowClass() noexcept
 HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bool fullscreen) noexcept
 {
     constexpr DWORD extendedStyle = WS_EX_APPWINDOW;
-    const DWORD windowStyle = fullscreen ? WS_POPUP : WS_OVERLAPPEDWINDOW;
+    const DWORD windowStyle = (fullscreen ? WS_POPUP : WS_OVERLAPPEDWINDOW) | WS_CLIPCHILDREN;
 
     if ((fullscreen && !targetBounds) ||
         (targetBounds && (targetBounds->right <= targetBounds->left || targetBounds->bottom <= targetBounds->top)))
@@ -480,6 +670,145 @@ HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bo
     return S_OK;
 }
 
+HRESULT Application::InitializeDashboardRuntime() noexcept
+{
+    if (!_window || _rendererReady)
+    {
+        return E_UNEXPECTED;
+    }
+
+    RECT clientBounds{};
+    const UINT dpi = GetDpiForWindow(_window.get());
+    if (dpi == 0 || !GetClientRect(_window.get(), &clientBounds))
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    const UINT width = static_cast<UINT>(clientBounds.right - clientBounds.left);
+    const UINT height = static_cast<UINT>(clientBounds.bottom - clientBounds.top);
+    if (width == 0 || height == 0)
+    {
+        return E_UNEXPECTED;
+    }
+
+    HRESULT result = _dashboardHost.Initialize(_pluginManager, _window.get(), width, height, dpi, false);
+    if (FAILED(result))
+    {
+        return result;
+    }
+
+    result = _renderer.Initialize(_window.get(), _forceWarp, _dashboardHost);
+    if (FAILED(result))
+    {
+        _renderer.Shutdown();
+        _dashboardHost.Shutdown();
+        return result;
+    }
+    _rendererReady = true;
+    result = UpdateDashboardVisibility();
+    if (SUCCEEDED(result))
+    {
+        _frameInvalidated = true;
+    }
+    return result;
+}
+
+HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexcept
+{
+    if (!settings || !_settings)
+    {
+        return E_POINTER;
+    }
+    if (*settings == *_settings)
+    {
+        return S_FALSE;
+    }
+    if (ActiveDashboardRuntimeEquals(*settings, *_settings))
+    {
+        _settings = std::move(settings);
+        return S_OK;
+    }
+
+    _renderer.Shutdown();
+    _rendererReady = false;
+    _dashboardHost.Shutdown();
+
+    HRESULT applyResult = _pluginManager.Reconfigure(*settings);
+    if (SUCCEEDED(applyResult))
+    {
+        applyResult = InitializeDashboardRuntime();
+    }
+    if (SUCCEEDED(applyResult))
+    {
+        _settings = std::move(settings);
+        return S_OK;
+    }
+
+    _renderer.Shutdown();
+    _rendererReady = false;
+    _dashboardHost.Shutdown();
+    HRESULT rollbackResult = _pluginManager.Reconfigure(*_settings);
+    if (SUCCEEDED(rollbackResult))
+    {
+        rollbackResult = InitializeDashboardRuntime();
+    }
+    if (FAILED(rollbackResult))
+    {
+        return rollbackResult;
+    }
+    return applyResult;
+}
+
+void Application::OnSettingsChanged() noexcept
+{
+    _settingsWatcher.AcknowledgeNotification();
+
+    std::unique_ptr<AppSettings> candidate;
+    SettingsFileStamp stamp{};
+    SettingsReloadStatus status = SettingsReloadStatus::Unchanged;
+    const HRESULT loadResult = _settingsStore.TryLoadChanged(candidate, stamp, status);
+    if (FAILED(loadResult))
+    {
+        OutputDebugStringW(L"Settings reload could not read the changed file; the current settings remain active.\n");
+        return;
+    }
+
+    switch (status)
+    {
+    case SettingsReloadStatus::Unchanged:
+        return;
+    case SettingsReloadStatus::Missing:
+        OutputDebugStringW(L"The settings file is temporarily missing; the current settings remain active.\n");
+        return;
+    case SettingsReloadStatus::Invalid:
+        OutputDebugStringW(L"The changed settings file is invalid; the current settings remain active.\n");
+        return;
+    case SettingsReloadStatus::Loaded:
+        break;
+    }
+
+    if (!candidate)
+    {
+        OutputDebugStringW(L"Settings reload returned no candidate; the current settings remain active.\n");
+        return;
+    }
+
+    const HRESULT applyResult = ApplySettings(std::move(candidate));
+    if (SUCCEEDED(applyResult))
+    {
+        _settingsStore.MarkApplied(stamp);
+        OutputDebugStringW(L"RedXe settings were reloaded live.\n");
+        return;
+    }
+
+    _settingsStore.MarkRejected(stamp);
+    OutputDebugStringW(L"The changed settings could not be applied; the previous dashboard was restored.\n");
+    if (!_rendererReady)
+    {
+        _runtimeFailure = applyResult;
+        CloseMainWindow();
+    }
+}
+
 bool Application::WaitUntilMessage() noexcept
 {
     if (WaitMessage())
@@ -489,8 +818,29 @@ bool Application::WaitUntilMessage() noexcept
 
     const DWORD error = GetLastError();
     _runtimeFailure = error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
-    _window.reset();
+    CloseMainWindow();
     return false;
+}
+
+HRESULT Application::UpdateDashboardVisibility() noexcept
+{
+    if (_dashboardHost.WidgetCount() == 0)
+    {
+        return S_OK;
+    }
+
+    const bool visible =
+        _windowVisible && _displayPoweredOn && _rendererReady && !_renderer.IsSuspended() && !_renderer.IsOccluded();
+    return _dashboardHost.SetWindowWidgetsVisible(visible);
+}
+
+void Application::CloseMainWindow() noexcept
+{
+    _settingsWatcher.Stop();
+    _renderer.Shutdown();
+    _rendererReady = false;
+    _dashboardHost.Shutdown();
+    _window.reset();
 }
 
 LRESULT CALLBACK Application::WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
@@ -521,6 +871,15 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         return OnDpiChanged(window, LOWORD(wParam), reinterpret_cast<const RECT*>(lParam));
     case WM_SHOWWINDOW:
         _windowVisible = wParam != FALSE;
+        if (_windowVisible)
+        {
+            _frameInvalidated = true;
+        }
+        if (const HRESULT result = UpdateDashboardVisibility(); FAILED(result))
+        {
+            _runtimeFailure = result;
+            PostMessageW(window, WM_CLOSE, 0, 0);
+        }
         return 0;
     case WM_POWERBROADCAST:
         if (wParam == PBT_POWERSETTINGCHANGE && lParam != 0)
@@ -528,14 +887,27 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             const auto* setting = reinterpret_cast<const POWERBROADCAST_SETTING*>(lParam);
             if (IsEqualGUID(setting->PowerSetting, GUID_SESSION_DISPLAY_STATUS) && setting->DataLength >= sizeof(DWORD))
             {
+                const bool wasDisplayPoweredOn = _displayPoweredOn;
                 DWORD displayState = PowerMonitorOn;
                 std::memcpy(&displayState, setting->Data, sizeof(displayState));
                 _displayPoweredOn = displayState != PowerMonitorOff;
+                if (!wasDisplayPoweredOn && _displayPoweredOn)
+                {
+                    _frameInvalidated = true;
+                }
+                if (const HRESULT result = UpdateDashboardVisibility(); FAILED(result))
+                {
+                    _runtimeFailure = result;
+                    PostMessageW(window, WM_CLOSE, 0, 0);
+                }
             }
         }
         return TRUE;
     case Renderer::kOcclusionStatusMessage:
         _occlusionStatusChanged = true;
+        return 0;
+    case SettingsWatcher::kSettingsChangedMessage:
+        OnSettingsChanged();
         return 0;
     case WM_GETMINMAXINFO:
     {
@@ -546,17 +918,18 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case WM_KEYDOWN:
         if (wParam == VK_ESCAPE)
         {
-            _window.reset();
+            CloseMainWindow();
             return 0;
         }
         break;
     case WM_ERASEBKGND:
         return 1;
     case WM_PAINT:
+        _frameInvalidated = true;
         ValidateRect(window, nullptr);
         return 0;
     case WM_CLOSE:
-        _window.reset();
+        CloseMainWindow();
         return 0;
     case WM_DESTROY:
         _displayPowerNotification.reset();
@@ -584,7 +957,20 @@ LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
         return 0;
     }
 
-    const HRESULT result = _renderer.Resize(width, height);
+    const UINT dpi = GetDpiForWindow(window);
+    HRESULT result = dpi != 0 ? _dashboardHost.Resize(width, height, dpi) : HRESULT_FROM_WIN32(GetLastError());
+    if (SUCCEEDED(result))
+    {
+        result = _renderer.Resize(width, height);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = UpdateDashboardVisibility();
+    }
+    if (SUCCEEDED(result) && width != 0 && height != 0)
+    {
+        _frameInvalidated = true;
+    }
     if (FAILED(result))
     {
         _runtimeFailure = result;
@@ -609,6 +995,7 @@ LRESULT Application::OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBo
             PostMessageW(window, WM_CLOSE, 0, 0);
             return 0;
         }
+        _frameInvalidated = true;
     }
 
     int width = suggestedBounds->right - suggestedBounds->left;

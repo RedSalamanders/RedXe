@@ -12,22 +12,42 @@ struct WidgetPlacement final
     float y;
     float width;
     float height;
+
+    bool operator==(const WidgetPlacement&) const noexcept = default;
 };
 
 class DashboardHost final
 {
   public:
-    [[nodiscard]] HRESULT Initialize(PluginManager& pluginManager) noexcept;
+    DashboardHost() = default;
+    ~DashboardHost();
+
+    DashboardHost(const DashboardHost&) = delete;
+    DashboardHost& operator=(const DashboardHost&) = delete;
+    DashboardHost(DashboardHost&&) = delete;
+    DashboardHost& operator=(DashboardHost&&) = delete;
+
+    [[nodiscard]] HRESULT Initialize(PluginManager& pluginManager, HWND parent, UINT width, UINT height, UINT dpi,
+                                     bool visible) noexcept;
+    [[nodiscard]] HRESULT Resize(UINT width, UINT height, UINT dpi) noexcept;
+    [[nodiscard]] HRESULT SetWindowWidgetsVisible(bool visible) noexcept;
+    void Shutdown() noexcept;
     [[nodiscard]] std::size_t WidgetCount() const noexcept;
     [[nodiscard]] IRedXeWidget* WidgetAt(std::size_t index) const noexcept;
     [[nodiscard]] IRedXeGpuWidget* GpuWidgetAt(std::size_t index) const noexcept;
     [[nodiscard]] IRedXeWindowWidget* WindowWidgetAt(std::size_t index) const noexcept;
     [[nodiscard]] WidgetPlacement PlacementAt(std::size_t index) const noexcept;
+    [[nodiscard]] RECT PixelBoundsAt(std::size_t index, UINT width, UINT height) const noexcept;
     [[nodiscard]] bool RequiresContinuousFrames() const noexcept;
 
   private:
     PluginManager* _pluginManager = nullptr;
     std::array<WidgetPlacement, PluginManager::kMaximumWidgetInstances> _placements{};
+    std::array<WidgetGridPlacement, PluginManager::kMaximumWidgetInstances> _gridPlacements{};
+    std::array<wil::unique_hwnd, PluginManager::kMaximumWidgetInstances> _windowContainers;
     std::size_t _widgetCount = 0;
+    std::uint32_t _gridColumns = 0;
+    std::uint32_t _gridRows = 0;
     bool _requiresContinuousFrames = false;
+    bool _windowWidgetsVisible = false;
 };

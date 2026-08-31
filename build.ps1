@@ -3,8 +3,9 @@
 Builds, cleans, rebuilds, or runs the RedXe solution.
 
 .DESCRIPTION
-Locates a Visual Studio MSBuild installation (including prerelease Visual Studio instances), builds the requested
-configuration and platform, and writes all outputs beneath .build.
+Locates a Visual Studio MSBuild installation (including prerelease Visual Studio instances), rejects a running RedXe
+process whose executable is the exact selected target output, builds the requested configuration and platform,
+and writes all outputs beneath .build.
 
 .PARAMETER Configuration
 Build configuration: Debug or Release.
@@ -52,6 +53,10 @@ if ($Clean -and $Run) {
 
 $repoRoot = Split-Path -Parent $PSCommandPath
 $solutionPath = Join-Path $repoRoot 'RedXe.sln'
+$executable = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.exe"
+$buildOutputProcessModule = Join-Path $repoRoot 'Build\BuildOutputProcess.psm1'
+Import-Module $buildOutputProcessModule -Force -ErrorAction Stop
+Assert-BuildOutputProcessNotRunning -ProcessName 'RedXe.exe' -ExpectedExecutablePath $executable
 
 function Find-MSBuild {
     if ($env:MSBUILD_EXE_PATH -and (Test-Path -LiteralPath $env:MSBUILD_EXE_PATH -PathType Leaf)) {
@@ -121,7 +126,6 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if (-not $Clean) {
-    $executable = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.exe"
     if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
         throw "Build succeeded but the expected executable was not found: $executable"
     }

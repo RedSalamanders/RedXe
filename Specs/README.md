@@ -1,7 +1,7 @@
 # RedXe specification authority and workflow
 
-Status: current normative repository policy  
-Last reviewed: 2026-08-30
+Status: current normative repository policy
+Last reviewed: 2026-08-31
 
 ## Purpose
 
@@ -38,7 +38,9 @@ developer document disagrees:
 4. Treat the WIP plan as an execution aid only; it cannot override the current normative contract.
 5. Run the validation required by the owning spec and the relevant repo skill.
 6. Before closeout, merge every durable requirement discovered during implementation into the authoritative spec.
-7. Move a completed WIP plan to `Specs/Plans/Done/` and remove it from the active index.
+7. When code and tests are complete, required validation passes, and every durable requirement is persisted in the
+   normative domain contracts, the plan MUST move to `Specs/Plans/Done/` and its active-index row MUST be removed. A
+   completed plan MUST NOT remain under WIP.
 
 If a behavior has no owning domain spec yet, create that spec as part of the first change that makes the behavior
 durable.
@@ -53,9 +55,16 @@ durable.
 
 | Domain | Start with |
 | --- | --- |
+| Build output and running-target preflight | [`Build/Build_Process.md`](Build/Build_Process.md) |
 | Performance and resource consumption | [`Core/Core_PerformanceAndResources.md`](Core/Core_PerformanceAndResources.md) |
+| Fatal-process capture and previous-crash diagnostics | [`Core/Core_CrashHandling.md`](Core/Core_CrashHandling.md) |
+| User settings, schema, recovery, and live reload | [`Core/Core_Settings.md`](Core/Core_Settings.md) |
+| Dashboard pages, grid placement, and active composition | [`UI/UI_Dashboard.md`](UI/UI_Dashboard.md) |
 | UI, display, windowing, and DPI | [`UI/UI_XeneonDisplayWindowing.md`](UI/UI_XeneonDisplayWindowing.md) |
 | Native plugins and generic widgets | [`Plugins/Plugins_API.md`](Plugins/Plugins_API.md) |
+
+The canonical user JSON schema is [`Settings.schema.json`](Settings.schema.json). The build copies it beside deployed
+and per-user settings files as `RedXe.settings.schema.json`.
 
 ## Specification validation
 

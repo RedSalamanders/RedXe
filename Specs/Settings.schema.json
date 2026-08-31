@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "RedXe.settings.schema.json",
+  "title": "RedXe settings",
+  "description": "Normalized plugin registry and page-based XENEON dashboard settings consumed by RedXe 1.0.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "plugins", "dashboard"],
+  "properties": {
+    "$schema": { "const": "RedXe.settings.schema.json" },
+    "schemaVersion": { "const": 3 },
+    "plugins": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/plugin" }
+    },
+    "dashboard": { "$ref": "#/$defs/dashboard" }
+  },
+  "$defs": {
+    "machineId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+    },
+    "rgbColor": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$"
+    },
+    "emptyPrivate": {
+      "type": "object",
+      "maxProperties": 0
+    },
+    "matrixPrivate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seed",
+        "glyphHeightDips",
+        "densityPercent",
+        "speedPercent",
+        "trailLengthGlyphs",
+        "mutationPerSecond",
+        "headColor",
+        "trailColor",
+        "backgroundColor",
+        "glowPercent"
+      ],
+      "properties": {
+        "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "glyphHeightDips": { "type": "integer", "minimum": 12, "maximum": 48 },
+        "densityPercent": { "type": "integer", "minimum": 10, "maximum": 100 },
+        "speedPercent": { "type": "integer", "minimum": 25, "maximum": 300 },
+        "trailLengthGlyphs": { "type": "integer", "minimum": 6, "maximum": 48 },
+        "mutationPerSecond": { "type": "integer", "minimum": 0, "maximum": 30 },
+        "headColor": { "$ref": "#/$defs/rgbColor" },
+        "trailColor": { "$ref": "#/$defs/rgbColor" },
+        "backgroundColor": { "$ref": "#/$defs/rgbColor" },
+        "glowPercent": { "type": "integer", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "plugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "enabled", "private"],
+      "properties": {
+        "id": { "$ref": "#/$defs/machineId" },
+        "enabled": { "type": "boolean" },
+        "private": { "type": "object" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "enum": ["builtin.rotating-triangle", "builtin.gdi-orbit", "builtin.matrix-rain"]
+              }
+            },
+            "required": ["id"]
+          },
+          "then": { "properties": { "private": { "$ref": "#/$defs/emptyPrivate" } } }
+        }
+      ]
+    },
+    "placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["column", "row", "columnSpan", "rowSpan"],
+      "properties": {
+        "column": { "type": "integer", "minimum": 0, "maximum": 63 },
+        "row": { "type": "integer", "minimum": 0, "maximum": 63 },
+        "columnSpan": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "rowSpan": { "type": "integer", "minimum": 1, "maximum": 64 }
+      }
+    },
+    "widget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "pluginId", "typeId", "placement", "private"],
+      "properties": {
+        "id": { "$ref": "#/$defs/machineId" },
+        "pluginId": { "$ref": "#/$defs/machineId" },
+        "typeId": { "$ref": "#/$defs/machineId" },
+        "placement": { "$ref": "#/$defs/placement" },
+        "private": { "type": "object" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "pluginId": { "const": "builtin.rotating-triangle" } },
+            "required": ["pluginId"]
+          },
+          "then": {
+            "properties": {
+              "typeId": { "const": "rotating-triangle" },
+              "private": { "$ref": "#/$defs/emptyPrivate" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "pluginId": { "const": "builtin.gdi-orbit" } },
+            "required": ["pluginId"]
+          },
+          "then": {
+            "properties": {
+              "typeId": { "const": "gdi-orbit" },
+              "private": { "$ref": "#/$defs/emptyPrivate" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "pluginId": { "const": "builtin.matrix-rain" } },
+            "required": ["pluginId"]
+          },
+          "then": {
+            "properties": {
+              "typeId": { "const": "matrix-rain" },
+              "private": { "$ref": "#/$defs/matrixPrivate" }
+            }
+          }
+        }
+      ]
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "widgets"],
+      "properties": {
+        "id": { "$ref": "#/$defs/machineId" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "widgets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/widget" }
+        }
+      }
+    },
+    "grid": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["columns", "rows"],
+      "properties": {
+        "columns": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "rows": { "type": "integer", "minimum": 1, "maximum": 64 }
+      }
+    },
+    "dashboard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["grid", "activePageId", "pages"],
+      "properties": {
+        "grid": { "$ref": "#/$defs/grid" },
+        "activePageId": { "$ref": "#/$defs/machineId" },
+        "pages": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/page" }
+        }
+      }
+    }
+  }
+}

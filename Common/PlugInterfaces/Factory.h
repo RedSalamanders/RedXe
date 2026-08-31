@@ -2,6 +2,7 @@
 
 #include "Host.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <windows.h>
 
@@ -15,11 +16,19 @@ struct RedXeFactoryOptions final
 {
     std::uint32_t sizeBytes;
     std::uint32_t debugLevel;
+    const char* configurationJsonUtf8;
+    std::uint32_t configurationBytes;
 };
 
 // The minimum accepted prefix is immutable even if later headers append fields.
 inline constexpr std::uint32_t kRedXeFactoryOptionsV1Size = 8;
-static_assert(sizeof(RedXeFactoryOptions) >= kRedXeFactoryOptionsV1Size);
+inline constexpr std::uint32_t kRedXeFactoryOptionsV2Size = static_cast<std::uint32_t>(
+    offsetof(RedXeFactoryOptions, configurationBytes) + sizeof(RedXeFactoryOptions::configurationBytes));
+inline constexpr std::uint32_t kRedXeMaximumFactoryConfigurationBytes = 4096;
+static_assert(offsetof(RedXeFactoryOptions, configurationJsonUtf8) == kRedXeFactoryOptionsV1Size);
+static_assert(offsetof(RedXeFactoryOptions, configurationBytes) == 16);
+static_assert(kRedXeFactoryOptionsV2Size == 20);
+static_assert(sizeof(RedXeFactoryOptions) == 24);
 
 struct RedXePluginMetadata final
 {

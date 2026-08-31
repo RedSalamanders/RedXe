@@ -6,20 +6,15 @@
 #include <cmath>
 #include <utility>
 
-namespace
-{
-constexpr float kDesignWidth = 2560.0f;
-constexpr float kDesignHeight = 720.0f;
-} // namespace
-
 Renderer::~Renderer()
 {
-    ReleaseDeviceResources();
+    Shutdown();
 }
 
 HRESULT Renderer::Initialize(HWND window, bool forceWarp, DashboardHost& dashboardHost) noexcept
 {
-    if (!window || dashboardHost.WidgetCount() == 0 || dashboardHost.WidgetCount() > kMaximumWidgetViewports)
+    if (_window || _dashboardHost || !window || dashboardHost.WidgetCount() == 0 ||
+        dashboardHost.WidgetCount() > kMaximumWidgetViewports)
     {
         return E_INVALIDARG;
     }
@@ -35,6 +30,17 @@ HRESULT Renderer::Initialize(HWND window, bool forceWarp, DashboardHost& dashboa
     _dashboardHost = &dashboardHost;
     _dpi = dpi;
     return CreateDeviceResources();
+}
+
+void Renderer::Shutdown() noexcept
+{
+    ReleaseDeviceResources();
+    _window = nullptr;
+    _dashboardHost = nullptr;
+    _forceWarp = false;
+    _dpi = USER_DEFAULT_SCREEN_DPI;
+    _lastFrameWidgetCount = 0;
+    _lastFrameSuccessfulWidgetCount = 0;
 }
 
 HRESULT Renderer::SetDpi(UINT dpi) noexcept
@@ -218,17 +224,17 @@ HRESULT Renderer::UpdateCachedViewports() noexcept
 
     for (std::size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
     {
-        const WidgetPlacement placement = _dashboardHost->PlacementAt(index);
-        if (placement.x < 0.0f || placement.y < 0.0f || placement.width <= 0.0f || placement.height <= 0.0f)
+        const RECT bounds = _dashboardHost->PixelBoundsAt(index, _width, _height);
+        if (bounds.left < 0 || bounds.top < 0 || bounds.right <= bounds.left || bounds.bottom <= bounds.top)
         {
             return E_INVALIDARG;
         }
 
         D3D11_VIEWPORT& viewport = _widgetViewports[index];
-        viewport.TopLeftX = placement.x * static_cast<float>(_width) / kDesignWidth;
-        viewport.TopLeftY = placement.y * static_cast<float>(_height) / kDesignHeight;
-        viewport.Width = placement.width * static_cast<float>(_width) / kDesignWidth;
-        viewport.Height = placement.height * static_cast<float>(_height) / kDesignHeight;
+        viewport.TopLeftX = static_cast<float>(bounds.left);
+        viewport.TopLeftY = static_cast<float>(bounds.top);
+        viewport.Width = static_cast<float>(bounds.right - bounds.left);
+        viewport.Height = static_cast<float>(bounds.bottom - bounds.top);
         viewport.MinDepth = 0.0f;
         viewport.MaxDepth = 1.0f;
     }
@@ -382,7 +388,8 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
         const HRESULT widgetResult = widget->Render(&gpuFrame);
         if (IsDeviceLost(widgetResult))
         {
-            return RecoverDevice();
+            const HRESULT recoveryResult = RecoverDevice();
+            return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
         }
         if (FAILED(widgetResult))
         {
@@ -395,7 +402,8 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
     const HRESULT result = _swapChain->Present(1, 0);
     if (IsDeviceLost(result))
     {
-        return RecoverDevice();
+        const HRESULT recoveryResult = RecoverDevice();
+        return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
     }
     _occluded = result == DXGI_STATUS_OCCLUDED;
     return _occluded ? S_OK : result;
@@ -411,7 +419,8 @@ HRESULT Renderer::ProbeOcclusion() noexcept
     const HRESULT result = _swapChain->Present(0, DXGI_PRESENT_TEST);
     if (IsDeviceLost(result))
     {
-        return RecoverDevice();
+        const HRESULT recoveryResult = RecoverDevice();
+        return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
     }
     if (result == DXGI_STATUS_OCCLUDED)
     {

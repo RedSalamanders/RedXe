@@ -22,9 +22,8 @@ struct RedXeWindowWidgetSizeContext final
     std::uint32_t dpi;
 };
 
-// Experimental native child-window prototype governed by the active dashboard RFC. Its IID and vtable are not frozen
-// until the host-owned container path is implemented and promoted into the normative plugin contract.
-struct __declspec(uuid("D324CF49-A71A-4AE9-AC25-D2988F302625")) __declspec(novtable) IRedXeWindowWidget : IRedXeWidget
+// Native child-window rendering mechanism. The host owns the container; the plugin owns every child it creates.
+interface __declspec(uuid("D324CF49-A71A-4AE9-AC25-D2988F302625")) __declspec(novtable) IRedXeWindowWidget : IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE Attach(const RedXeWindowWidgetAttachContext* context) noexcept = 0;
     virtual HRESULT STDMETHODCALLTYPE Resize(const RedXeWindowWidgetSizeContext* context) noexcept = 0;

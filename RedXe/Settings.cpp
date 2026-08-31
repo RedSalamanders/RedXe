@@ -1,7 +1,18 @@
 #include "Settings.h"
 
+#include "PlugInterfaces/Factory.h"
+
 #include <array>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <memory>
+#include <new>
+#include <shlobj.h>
+#include <string>
+#include <utility>
+#include <vector>
 
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027 28182)
@@ -13,37 +24,1075 @@
 namespace
 {
 using unique_yyjson_doc = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
+using unique_malloc_string = wil::unique_any<char*, decltype(&free), free>;
 
-constexpr char kDefaultSettings[] = R"json({
-  "rotatingTriangleInstances": 4
-})json";
+constexpr std::size_t kMaximumSettingsBytes = 1024U * 1024U;
+constexpr char kSchemaReference[] = "RedXe.settings.schema.json";
+constexpr char kTrianglePluginId[] = "builtin.rotating-triangle";
+constexpr char kTriangleTypeId[] = "rotating-triangle";
+constexpr char kGdiPluginId[] = "builtin.gdi-orbit";
+constexpr char kGdiTypeId[] = "gdi-orbit";
+constexpr char kMatrixPluginId[] = "builtin.matrix-rain";
+constexpr char kMatrixTypeId[] = "matrix-rain";
+
+#if defined(_DEBUG)
+constexpr const wchar_t* kSelectedSettingsFileName = kRedXeDebugSettingsFileName;
+#else
+constexpr const wchar_t* kSelectedSettingsFileName = kRedXeReleaseSettingsFileName;
+#endif
+
+template <std::size_t Count>
+[[nodiscard]] bool HasExactKeys(yyjson_val* object, const std::array<const char*, Count>& expected) noexcept
+{
+    if (!yyjson_is_obj(object) || yyjson_obj_size(object) != Count)
+    {
+        return false;
+    }
+
+    std::array<bool, Count> seen{};
+    yyjson_obj_iter iterator = yyjson_obj_iter_with(object);
+    while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
+    {
+        const char* text = yyjson_get_str(key);
+        bool matched = false;
+        for (std::size_t index = 0; index < expected.size(); ++index)
+        {
+            if (text && std::strcmp(text, expected[index]) == 0 && !seen[index])
+            {
+                seen[index] = true;
+                matched = true;
+                break;
+            }
+        }
+        if (!matched)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool IsValidStoredText(const SettingsText& text, bool machineId) noexcept
+{
+    if (text.bytes == 0 || text.bytes > kMaximumSettingsTextBytes || text.utf8[text.bytes] != '\0')
+    {
+        return false;
+    }
+    const std::string_view view = text.View();
+    if (view.find('\0') != std::string_view::npos)
+    {
+        return false;
+    }
+    return !machineId || RedXeIsValidMachineId(text.utf8.data());
+}
+
+[[nodiscard]] bool CopyText(yyjson_val* value, SettingsText& destination, bool machineId) noexcept
+{
+    if (!yyjson_is_str(value))
+    {
+        return false;
+    }
+    const std::size_t length = yyjson_get_len(value);
+    const char* text = yyjson_get_str(value);
+    if (!text || length == 0 || length > kMaximumSettingsTextBytes ||
+        std::string_view(text, length).find('\0') != std::string_view::npos)
+    {
+        return false;
+    }
+
+    SettingsText copied{};
+    std::memcpy(copied.utf8.data(), text, length);
+    copied.bytes = static_cast<std::uint32_t>(length);
+    if (machineId && !RedXeIsValidMachineId(copied.utf8.data()))
+    {
+        return false;
+    }
+    destination = copied;
+    return true;
+}
+
+[[nodiscard]] bool ReadUnsigned(yyjson_val* object, const char* key, std::uint32_t minimum, std::uint32_t maximum,
+                                std::uint32_t& value) noexcept
+{
+    yyjson_val* member = yyjson_obj_get(object, key);
+    if (!yyjson_is_uint(member))
+    {
+        return false;
+    }
+    const std::uint64_t parsed = yyjson_get_uint(member);
+    if (parsed < minimum || parsed > maximum)
+    {
+        return false;
+    }
+    value = static_cast<std::uint32_t>(parsed);
+    return true;
+}
+
+[[nodiscard]] bool IsColor(yyjson_val* object, const char* key) noexcept
+{
+    yyjson_val* value = yyjson_obj_get(object, key);
+    if (!yyjson_is_str(value) || yyjson_get_len(value) != 7)
+    {
+        return false;
+    }
+    const char* text = yyjson_get_str(value);
+    if (!text || text[0] != '#')
+    {
+        return false;
+    }
+    for (std::size_t index = 1; index < 7; ++index)
+    {
+        const char character = text[index];
+        if (!((character >= '0' && character <= '9') || (character >= 'A' && character <= 'F') ||
+              (character >= 'a' && character <= 'f')))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool IsValidMatrixPrivate(yyjson_val* object) noexcept
+{
+    constexpr std::array keys{
+        "seed",      "glyphHeightDips", "densityPercent",  "speedPercent", "trailLengthGlyphs", "mutationPerSecond",
+        "headColor", "trailColor",      "backgroundColor", "glowPercent",
+    };
+    std::uint32_t value = 0;
+    return HasExactKeys(object, keys) && ReadUnsigned(object, "seed", 0, UINT32_MAX, value) &&
+           ReadUnsigned(object, "glyphHeightDips", 12, 48, value) &&
+           ReadUnsigned(object, "densityPercent", 10, 100, value) &&
+           ReadUnsigned(object, "speedPercent", 25, 300, value) &&
+           ReadUnsigned(object, "trailLengthGlyphs", 6, 48, value) &&
+           ReadUnsigned(object, "mutationPerSecond", 0, 30, value) && IsColor(object, "headColor") &&
+           IsColor(object, "trailColor") && IsColor(object, "backgroundColor") &&
+           ReadUnsigned(object, "glowPercent", 0, 100, value);
+}
+
+[[nodiscard]] bool IsSupportedPluginType(std::string_view pluginId, std::string_view typeId) noexcept
+{
+    return (SettingsIdEquals(pluginId, kTrianglePluginId) && SettingsIdEquals(typeId, kTriangleTypeId)) ||
+           (SettingsIdEquals(pluginId, kGdiPluginId) && SettingsIdEquals(typeId, kGdiTypeId)) ||
+           (SettingsIdEquals(pluginId, kMatrixPluginId) && SettingsIdEquals(typeId, kMatrixTypeId));
+}
+
+[[nodiscard]] unique_yyjson_doc ParseStoredObject(const JsonObjectSettings& settings) noexcept
+{
+    if (settings.bytes < 2 || settings.bytes > kPrivateConfigurationCapacity || settings.utf8[settings.bytes] != '\0')
+    {
+        return {};
+    }
+    std::array<char, kPrivateConfigurationCapacity + 1> mutableJson = settings.utf8;
+    yyjson_read_err error{};
+    unique_yyjson_doc document{
+        yyjson_read_opts(mutableJson.data(), settings.bytes, YYJSON_READ_NOFLAG, nullptr, &error)};
+    if (!document || !yyjson_is_obj(yyjson_doc_get_root(document.get())))
+    {
+        return {};
+    }
+    return document;
+}
+
+[[nodiscard]] bool IsEmptyPrivate(const JsonObjectSettings& settings) noexcept
+{
+    unique_yyjson_doc document = ParseStoredObject(settings);
+    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    return yyjson_is_obj(root) && yyjson_obj_size(root) == 0;
+}
+
+[[nodiscard]] bool IsMatrixPrivate(const JsonObjectSettings& settings) noexcept
+{
+    unique_yyjson_doc document = ParseStoredObject(settings);
+    return document && IsValidMatrixPrivate(yyjson_doc_get_root(document.get()));
+}
+
+[[nodiscard]] HRESULT CopyObject(yyjson_val* object, JsonObjectSettings& destination) noexcept
+{
+    if (!yyjson_is_obj(object))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    yyjson_write_err error{};
+    std::size_t length = 0;
+    unique_malloc_string serialized{yyjson_val_write_opts(object, YYJSON_WRITE_NOFLAG, nullptr, &length, &error)};
+    if (!serialized)
+    {
+        return E_OUTOFMEMORY;
+    }
+    if (length == 0 || length > kPrivateConfigurationCapacity)
+    {
+        return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
+    }
+
+    JsonObjectSettings copied{};
+    copied.utf8.fill('\0');
+    std::memcpy(copied.utf8.data(), serialized.get(), length);
+    copied.bytes = static_cast<std::uint32_t>(length);
+    destination = copied;
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT ParsePlugin(yyjson_val* value, PluginSettings& plugin) noexcept
+{
+    constexpr std::array keys{"id", "enabled", "private"};
+    yyjson_val* enabled = yyjson_is_obj(value) ? yyjson_obj_get(value, "enabled") : nullptr;
+    if (!HasExactKeys(value, keys) || !CopyText(yyjson_obj_get(value, "id"), plugin.id, true) ||
+        !yyjson_is_bool(enabled))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    plugin.enabled = yyjson_get_bool(enabled);
+    return CopyObject(yyjson_obj_get(value, "private"), plugin.privateConfiguration);
+}
+
+[[nodiscard]] HRESULT ParsePlacement(yyjson_val* value, WidgetGridPlacement& placement) noexcept
+{
+    constexpr std::array keys{"column", "row", "columnSpan", "rowSpan"};
+    if (!HasExactKeys(value, keys) ||
+        !ReadUnsigned(value, "column", 0, kMaximumDashboardGridDimension - 1, placement.column) ||
+        !ReadUnsigned(value, "row", 0, kMaximumDashboardGridDimension - 1, placement.row) ||
+        !ReadUnsigned(value, "columnSpan", 1, kMaximumDashboardGridDimension, placement.columnSpan) ||
+        !ReadUnsigned(value, "rowSpan", 1, kMaximumDashboardGridDimension, placement.rowSpan))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT ParseWidget(yyjson_val* value, WidgetInstanceSettings& widget) noexcept
+{
+    constexpr std::array keys{"id", "pluginId", "typeId", "placement", "private"};
+    if (!HasExactKeys(value, keys) || !CopyText(yyjson_obj_get(value, "id"), widget.id, true) ||
+        !CopyText(yyjson_obj_get(value, "pluginId"), widget.pluginId, true) ||
+        !CopyText(yyjson_obj_get(value, "typeId"), widget.typeId, true))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    HRESULT result = ParsePlacement(yyjson_obj_get(value, "placement"), widget.placement);
+    if (SUCCEEDED(result))
+    {
+        result = CopyObject(yyjson_obj_get(value, "private"), widget.privateConfiguration);
+    }
+    return result;
+}
+
+[[nodiscard]] HRESULT ParsePage(yyjson_val* value, DashboardPageSettings& page) noexcept
+{
+    constexpr std::array keys{"id", "name", "widgets"};
+    yyjson_val* widgets = yyjson_is_obj(value) ? yyjson_obj_get(value, "widgets") : nullptr;
+    if (!HasExactKeys(value, keys) || !CopyText(yyjson_obj_get(value, "id"), page.id, true) ||
+        !CopyText(yyjson_obj_get(value, "name"), page.name, false) || !yyjson_is_arr(widgets))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    const std::size_t count = yyjson_arr_size(widgets);
+    if (count == 0 || count > kMaximumWidgetsPerPage)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const HRESULT result = ParseWidget(yyjson_arr_get(widgets, index), page.widgets[index]);
+        if (FAILED(result))
+        {
+            return result;
+        }
+    }
+    page.widgetCount = static_cast<std::uint32_t>(count);
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT GetModuleDirectory(std::filesystem::path& directory) noexcept
+{
+    try
+    {
+        std::vector<wchar_t> path(512);
+        for (;;)
+        {
+            const DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+            if (length == 0)
+            {
+                return HRESULT_FROM_WIN32(GetLastError());
+            }
+            if (length < path.size() - 1)
+            {
+                directory = std::filesystem::path(path.data()).parent_path();
+                return directory.empty() ? HRESULT_FROM_WIN32(ERROR_BAD_PATHNAME) : S_OK;
+            }
+            if (path.size() >= 32768)
+            {
+                return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+            }
+            path.resize(path.size() * 2);
+        }
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+[[nodiscard]] HRESULT EnsureDirectory(const std::filesystem::path& directory) noexcept
+{
+    const int result = SHCreateDirectoryExW(nullptr, directory.c_str(), nullptr);
+    if (result == ERROR_SUCCESS || result == ERROR_ALREADY_EXISTS || result == ERROR_FILE_EXISTS)
+    {
+        return S_OK;
+    }
+    return HRESULT_FROM_WIN32(static_cast<DWORD>(result));
+}
+
+[[nodiscard]] HRESULT CopyFileAtomically(const std::filesystem::path& source, const std::filesystem::path& target,
+                                         bool replaceExisting) noexcept
+{
+    try
+    {
+        std::wstring temporary = target.wstring();
+        temporary.append(L".tmp.");
+        temporary.append(std::to_wstring(GetCurrentProcessId()));
+        temporary.push_back(L'.');
+        temporary.append(std::to_wstring(GetTickCount64()));
+
+        if (!CopyFileW(source.c_str(), temporary.c_str(), TRUE))
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+        const auto cleanup = wil::scope_exit([&temporary]() noexcept { DeleteFileW(temporary.c_str()); });
+        const DWORD flags = MOVEFILE_WRITE_THROUGH | (replaceExisting ? MOVEFILE_REPLACE_EXISTING : 0U);
+        if (!MoveFileExW(temporary.c_str(), target.c_str(), flags))
+        {
+            const DWORD error = GetLastError();
+            if (!replaceExisting && (error == ERROR_ALREADY_EXISTS || error == ERROR_FILE_EXISTS))
+            {
+                return S_FALSE;
+            }
+            return HRESULT_FROM_WIN32(error);
+        }
+        return S_OK;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+[[nodiscard]] HRESULT InstallIfMissing(const std::filesystem::path& source,
+                                       const std::filesystem::path& target) noexcept
+{
+    const DWORD attributes = GetFileAttributesW(target.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES)
+    {
+        return (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ? S_FALSE : HRESULT_FROM_WIN32(ERROR_DIRECTORY);
+    }
+    const DWORD error = GetLastError();
+    if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
+    {
+        return HRESULT_FROM_WIN32(error);
+    }
+    return CopyFileAtomically(source, target, false);
+}
+
+[[nodiscard]] HRESULT BackupInvalidSettings(const std::filesystem::path& path) noexcept
+{
+    try
+    {
+        SYSTEMTIME utc{};
+        GetSystemTime(&utc);
+        wchar_t suffix[64]{};
+        const int written = swprintf_s(suffix, L".bad.%04u%02u%02u-%02u%02u%02u-%03u", utc.wYear, utc.wMonth, utc.wDay,
+                                       utc.wHour, utc.wMinute, utc.wSecond, utc.wMilliseconds);
+        if (written <= 0)
+        {
+            return E_FAIL;
+        }
+        std::filesystem::path backup = path;
+        backup += suffix;
+        return CopyFileW(path.c_str(), backup.c_str(), TRUE) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+[[nodiscard]] HRESULT ReadFileBytes(std::wstring_view path, std::vector<char>& bytes) noexcept
+{
+    try
+    {
+        const std::wstring pathText(path);
+        wil::unique_hfile file{CreateFileW(pathText.c_str(), GENERIC_READ,
+                                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
+        if (!file)
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+
+        LARGE_INTEGER size{};
+        if (!GetFileSizeEx(file.get(), &size))
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+        if (size.QuadPart < 0 || static_cast<std::uint64_t>(size.QuadPart) > kMaximumSettingsBytes)
+        {
+            return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
+        }
+
+        bytes.resize(static_cast<std::size_t>(size.QuadPart));
+        DWORD totalRead = 0;
+        while (totalRead < bytes.size())
+        {
+            DWORD chunkRead = 0;
+            const DWORD remaining = static_cast<DWORD>(bytes.size() - totalRead);
+            if (!ReadFile(file.get(), bytes.data() + totalRead, remaining, &chunkRead, nullptr))
+            {
+                return HRESULT_FROM_WIN32(GetLastError());
+            }
+            if (chunkRead == 0)
+            {
+                return HRESULT_FROM_WIN32(ERROR_HANDLE_EOF);
+            }
+            totalRead += chunkRead;
+        }
+        return S_OK;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
 } // namespace
 
-HRESULT LoadDefaultSettings(AppSettings& settings) noexcept
+bool SettingsIdEquals(std::string_view left, std::string_view right) noexcept
 {
-    std::array<char, sizeof(kDefaultSettings)> json{};
-    std::memcpy(json.data(), kDefaultSettings, sizeof(kDefaultSettings));
+    if (left.size() != right.size())
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < left.size(); ++index)
+    {
+        if (RedXeAsciiLower(left[index]) != RedXeAsciiLower(right[index]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
 
-    yyjson_read_err error{};
-    unique_yyjson_doc document{yyjson_read_opts(json.data(), json.size() - 1, YYJSON_READ_NOFLAG, nullptr, &error)};
-    if (!document)
+const PluginSettings* FindPluginSettings(const AppSettings& settings, std::string_view pluginId) noexcept
+{
+    for (std::uint32_t index = 0; index < settings.pluginCount; ++index)
+    {
+        if (SettingsIdEquals(settings.plugins[index].id.View(), pluginId))
+        {
+            return &settings.plugins[index];
+        }
+    }
+    return nullptr;
+}
+
+PluginSettings* FindPluginSettings(AppSettings& settings, std::string_view pluginId) noexcept
+{
+    return const_cast<PluginSettings*>(FindPluginSettings(static_cast<const AppSettings&>(settings), pluginId));
+}
+
+const DashboardPageSettings* FindDashboardPage(const AppSettings& settings, std::string_view pageId) noexcept
+{
+    for (std::uint32_t index = 0; index < settings.dashboard.pageCount; ++index)
+    {
+        if (SettingsIdEquals(settings.dashboard.pages[index].id.View(), pageId))
+        {
+            return &settings.dashboard.pages[index];
+        }
+    }
+    return nullptr;
+}
+
+DashboardPageSettings* FindDashboardPage(AppSettings& settings, std::string_view pageId) noexcept
+{
+    return const_cast<DashboardPageSettings*>(FindDashboardPage(static_cast<const AppSettings&>(settings), pageId));
+}
+
+const DashboardPageSettings* FindActiveDashboardPage(const AppSettings& settings) noexcept
+{
+    return FindDashboardPage(settings, settings.dashboard.activePageId.View());
+}
+
+DashboardPageSettings* FindActiveDashboardPage(AppSettings& settings) noexcept
+{
+    return FindDashboardPage(settings, settings.dashboard.activePageId.View());
+}
+
+bool ActiveDashboardRuntimeEquals(const AppSettings& left, const AppSettings& right) noexcept
+{
+    if (left.dashboard.gridColumns != right.dashboard.gridColumns ||
+        left.dashboard.gridRows != right.dashboard.gridRows)
+    {
+        return false;
+    }
+
+    const DashboardPageSettings* leftPage = FindActiveDashboardPage(left);
+    const DashboardPageSettings* rightPage = FindActiveDashboardPage(right);
+    if (!leftPage || !rightPage || leftPage->widgetCount != rightPage->widgetCount)
+    {
+        return false;
+    }
+
+    for (std::uint32_t index = 0; index < leftPage->widgetCount; ++index)
+    {
+        const WidgetInstanceSettings& leftWidget = leftPage->widgets[index];
+        const WidgetInstanceSettings& rightWidget = rightPage->widgets[index];
+        if (leftWidget != rightWidget)
+        {
+            return false;
+        }
+
+        const PluginSettings* leftPlugin = FindPluginSettings(left, leftWidget.pluginId.View());
+        const PluginSettings* rightPlugin = FindPluginSettings(right, rightWidget.pluginId.View());
+        if (!leftPlugin || !rightPlugin || *leftPlugin != *rightPlugin)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+HRESULT SetJsonObjectSettings(std::string_view json, JsonObjectSettings& settings) noexcept
+{
+    if (json.empty() || json.size() > kPrivateConfigurationCapacity)
+    {
+        return E_INVALIDARG;
+    }
+    try
+    {
+        std::vector<char> mutableJson(json.begin(), json.end());
+        yyjson_read_err error{};
+        unique_yyjson_doc document{
+            yyjson_read_opts(mutableJson.data(), mutableJson.size(), YYJSON_READ_NOFLAG, nullptr, &error)};
+        return document ? CopyObject(yyjson_doc_get_root(document.get()), settings)
+                        : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
+{
+    if (settings.pluginCount == 0 || settings.pluginCount > kMaximumSettingsPlugins ||
+        settings.dashboard.gridColumns == 0 || settings.dashboard.gridRows == 0 ||
+        settings.dashboard.gridColumns > kMaximumDashboardGridDimension ||
+        settings.dashboard.gridRows > kMaximumDashboardGridDimension || settings.dashboard.pageCount == 0 ||
+        settings.dashboard.pageCount > kMaximumDashboardPages ||
+        !IsValidStoredText(settings.dashboard.activePageId, true))
+    {
+        return E_INVALIDARG;
+    }
+
+    for (std::uint32_t index = 0; index < settings.pluginCount; ++index)
+    {
+        const PluginSettings& plugin = settings.plugins[index];
+        if (!IsValidStoredText(plugin.id, true) || !ParseStoredObject(plugin.privateConfiguration))
+        {
+            return E_INVALIDARG;
+        }
+        for (std::uint32_t previous = 0; previous < index; ++previous)
+        {
+            if (SettingsIdEquals(settings.plugins[previous].id.View(), plugin.id.View()))
+            {
+                return HRESULT_FROM_WIN32(ERROR_DUP_NAME);
+            }
+        }
+        if ((SettingsIdEquals(plugin.id.View(), kTrianglePluginId) ||
+             SettingsIdEquals(plugin.id.View(), kGdiPluginId) || SettingsIdEquals(plugin.id.View(), kMatrixPluginId)) &&
+            !IsEmptyPrivate(plugin.privateConfiguration))
+        {
+            return E_INVALIDARG;
+        }
+    }
+
+    bool activeFound = false;
+    for (std::uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
+    {
+        const DashboardPageSettings& page = settings.dashboard.pages[pageIndex];
+        if (!IsValidStoredText(page.id, true) || !IsValidStoredText(page.name, false) || page.widgetCount == 0 ||
+            page.widgetCount > kMaximumWidgetsPerPage)
+        {
+            return E_INVALIDARG;
+        }
+        if (SettingsIdEquals(page.id.View(), settings.dashboard.activePageId.View()))
+        {
+            activeFound = true;
+        }
+        for (std::uint32_t previousPage = 0; previousPage < pageIndex; ++previousPage)
+        {
+            if (SettingsIdEquals(settings.dashboard.pages[previousPage].id.View(), page.id.View()))
+            {
+                return HRESULT_FROM_WIN32(ERROR_DUP_NAME);
+            }
+        }
+
+        std::array<bool, kMaximumDashboardGridDimension * kMaximumDashboardGridDimension> occupied{};
+        std::uint32_t matrixCount = 0;
+        for (std::uint32_t widgetIndex = 0; widgetIndex < page.widgetCount; ++widgetIndex)
+        {
+            const WidgetInstanceSettings& widget = page.widgets[widgetIndex];
+            const WidgetGridPlacement& placement = widget.placement;
+            if (!IsValidStoredText(widget.id, true) || !IsValidStoredText(widget.pluginId, true) ||
+                !IsValidStoredText(widget.typeId, true) || !ParseStoredObject(widget.privateConfiguration) ||
+                placement.column >= settings.dashboard.gridColumns || placement.row >= settings.dashboard.gridRows ||
+                placement.columnSpan == 0 || placement.rowSpan == 0 ||
+                placement.columnSpan > settings.dashboard.gridColumns - placement.column ||
+                placement.rowSpan > settings.dashboard.gridRows - placement.row)
+            {
+                return E_INVALIDARG;
+            }
+
+            for (std::uint32_t previousPage = 0; previousPage <= pageIndex; ++previousPage)
+            {
+                const DashboardPageSettings& earlierPage = settings.dashboard.pages[previousPage];
+                const std::uint32_t limit = previousPage == pageIndex ? widgetIndex : earlierPage.widgetCount;
+                for (std::uint32_t previousWidget = 0; previousWidget < limit; ++previousWidget)
+                {
+                    if (SettingsIdEquals(earlierPage.widgets[previousWidget].id.View(), widget.id.View()))
+                    {
+                        return HRESULT_FROM_WIN32(ERROR_DUP_NAME);
+                    }
+                }
+            }
+
+            const PluginSettings* plugin = FindPluginSettings(settings, widget.pluginId.View());
+            if (!plugin || !plugin->enabled || !IsSupportedPluginType(widget.pluginId.View(), widget.typeId.View()))
+            {
+                return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+            }
+            if (SettingsIdEquals(widget.pluginId.View(), kMatrixPluginId))
+            {
+                ++matrixCount;
+                if (!IsMatrixPrivate(widget.privateConfiguration))
+                {
+                    return E_INVALIDARG;
+                }
+            }
+            else if (!IsEmptyPrivate(widget.privateConfiguration))
+            {
+                return E_INVALIDARG;
+            }
+
+            for (std::uint32_t row = placement.row; row < placement.row + placement.rowSpan; ++row)
+            {
+                for (std::uint32_t column = placement.column; column < placement.column + placement.columnSpan;
+                     ++column)
+                {
+                    const std::size_t cell = static_cast<std::size_t>(row) * settings.dashboard.gridColumns + column;
+                    if (occupied[cell])
+                    {
+                        return HRESULT_FROM_WIN32(ERROR_ALREADY_ASSIGNED);
+                    }
+                    occupied[cell] = true;
+                }
+            }
+        }
+        if (matrixCount > 1)
+        {
+            return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
+        }
+    }
+    return activeFound ? S_OK : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+}
+
+[[nodiscard]] HRESULT ParseAppSettingsJsonCandidate(std::string_view json,
+                                                    std::unique_ptr<AppSettings>& settings) noexcept
+{
+    settings.reset();
+    if (json.empty())
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-
-    yyjson_val* root = yyjson_doc_get_root(document.get());
-    yyjson_val* instanceCount = yyjson_obj_get(root, "rotatingTriangleInstances");
-    if (!yyjson_is_uint(instanceCount))
+    try
     {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        std::vector<char> mutableJson(json.begin(), json.end());
+        yyjson_read_err error{};
+        constexpr yyjson_read_flag flags = YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS;
+        unique_yyjson_doc document{yyjson_read_opts(mutableJson.data(), mutableJson.size(), flags, nullptr, &error)};
+        yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+        constexpr std::array rootKeys{"$schema", "schemaVersion", "plugins", "dashboard"};
+        yyjson_val* schema = yyjson_is_obj(root) ? yyjson_obj_get(root, "$schema") : nullptr;
+        yyjson_val* version = yyjson_is_obj(root) ? yyjson_obj_get(root, "schemaVersion") : nullptr;
+        yyjson_val* plugins = yyjson_is_obj(root) ? yyjson_obj_get(root, "plugins") : nullptr;
+        yyjson_val* dashboard = yyjson_is_obj(root) ? yyjson_obj_get(root, "dashboard") : nullptr;
+        if (!HasExactKeys(root, rootKeys) || !yyjson_is_str(schema) ||
+            std::strcmp(yyjson_get_str(schema), kSchemaReference) != 0 || !yyjson_is_uint(version) ||
+            yyjson_get_uint(version) != kRedXeSettingsSchemaVersion || !yyjson_is_arr(plugins) ||
+            !yyjson_is_obj(dashboard))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        const std::size_t pluginCount = yyjson_arr_size(plugins);
+        if (pluginCount == 0 || pluginCount > kMaximumSettingsPlugins)
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        std::unique_ptr<AppSettings> parsed{new (std::nothrow) AppSettings{}};
+        if (!parsed)
+        {
+            return E_OUTOFMEMORY;
+        }
+        for (std::size_t index = 0; index < pluginCount; ++index)
+        {
+            const HRESULT result = ParsePlugin(yyjson_arr_get(plugins, index), parsed->plugins[index]);
+            if (FAILED(result))
+            {
+                return result;
+            }
+        }
+        parsed->pluginCount = static_cast<std::uint32_t>(pluginCount);
+
+        constexpr std::array dashboardKeys{"grid", "activePageId", "pages"};
+        yyjson_val* grid = yyjson_obj_get(dashboard, "grid");
+        yyjson_val* pages = yyjson_obj_get(dashboard, "pages");
+        constexpr std::array gridKeys{"columns", "rows"};
+        if (!HasExactKeys(dashboard, dashboardKeys) || !HasExactKeys(grid, gridKeys) ||
+            !ReadUnsigned(grid, "columns", 1, kMaximumDashboardGridDimension, parsed->dashboard.gridColumns) ||
+            !ReadUnsigned(grid, "rows", 1, kMaximumDashboardGridDimension, parsed->dashboard.gridRows) ||
+            !CopyText(yyjson_obj_get(dashboard, "activePageId"), parsed->dashboard.activePageId, true) ||
+            !yyjson_is_arr(pages))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        const std::size_t pageCount = yyjson_arr_size(pages);
+        if (pageCount == 0 || pageCount > kMaximumDashboardPages)
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        for (std::size_t index = 0; index < pageCount; ++index)
+        {
+            const HRESULT result = ParsePage(yyjson_arr_get(pages, index), parsed->dashboard.pages[index]);
+            if (FAILED(result))
+            {
+                return result;
+            }
+        }
+        parsed->dashboard.pageCount = static_cast<std::uint32_t>(pageCount);
+
+        const HRESULT validation = ValidateAppSettings(*parsed);
+        if (FAILED(validation))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        settings = std::move(parsed);
+        return S_OK;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+HRESULT ParseAppSettingsJson(std::string_view json, AppSettings& settings) noexcept
+{
+    std::unique_ptr<AppSettings> parsed;
+    const HRESULT result = ParseAppSettingsJsonCandidate(json, parsed);
+    if (SUCCEEDED(result))
+    {
+        settings = *parsed;
+    }
+    return result;
+}
+
+HRESULT SerializeFactoryConfigurationJson(const PluginSettings& plugin, const WidgetInstanceSettings& instance,
+                                          std::array<char, kFactoryConfigurationCapacity>& json,
+                                          std::uint32_t& jsonBytes) noexcept
+{
+    json.fill('\0');
+    jsonBytes = 0;
+    if (plugin.privateConfiguration.bytes == 0 || instance.privateConfiguration.bytes == 0 ||
+        plugin.privateConfiguration.bytes > kPrivateConfigurationCapacity ||
+        instance.privateConfiguration.bytes > kPrivateConfigurationCapacity)
+    {
+        return E_INVALIDARG;
     }
 
-    const std::uint64_t value = yyjson_get_uint(instanceCount);
-    if (value < 2 || value > 8)
+    const int written =
+        sprintf_s(json.data(), json.size(), "{\"plugin\":%.*s,\"instance\":%.*s}",
+                  static_cast<int>(plugin.privateConfiguration.bytes), plugin.privateConfiguration.utf8.data(),
+                  static_cast<int>(instance.privateConfiguration.bytes), instance.privateConfiguration.utf8.data());
+    if (written <= 0 || static_cast<std::size_t>(written) >= json.size())
     {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        json.fill('\0');
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
     }
-
-    settings.rotatingTriangleInstances = static_cast<std::uint32_t>(value);
+    jsonBytes = static_cast<std::uint32_t>(written);
     return S_OK;
+}
+
+HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexcept
+{
+    std::vector<char> bytes;
+    const HRESULT result = ReadFileBytes(path, bytes);
+    return SUCCEEDED(result) ? ParseAppSettingsJson(std::string_view(bytes.data(), bytes.size()), settings) : result;
+}
+
+[[nodiscard]] HRESULT LoadAppSettingsFileCandidate(std::wstring_view path,
+                                                   std::unique_ptr<AppSettings>& settings) noexcept
+{
+    std::vector<char> bytes;
+    const HRESULT result = ReadFileBytes(path, bytes);
+    return SUCCEEDED(result) ? ParseAppSettingsJsonCandidate(std::string_view(bytes.data(), bytes.size()), settings)
+                             : result;
+}
+
+HRESULT QuerySettingsFileStamp(std::wstring_view path, SettingsFileStamp& stamp) noexcept
+{
+    try
+    {
+        const std::wstring pathText(path);
+        wil::unique_hfile file{CreateFileW(pathText.c_str(), FILE_READ_ATTRIBUTES,
+                                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+        if (!file)
+        {
+            const DWORD error = GetLastError();
+            return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND ? S_FALSE : HRESULT_FROM_WIN32(error);
+        }
+
+        BY_HANDLE_FILE_INFORMATION information{};
+        if (!GetFileInformationByHandle(file.get(), &information))
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+
+        SettingsFileStamp queried{};
+        queried.volumeSerialNumber = information.dwVolumeSerialNumber;
+        queried.fileIndexHigh = information.nFileIndexHigh;
+        queried.fileIndexLow = information.nFileIndexLow;
+        queried.lastWriteTime = (static_cast<std::uint64_t>(information.ftLastWriteTime.dwHighDateTime) << 32U) |
+                                information.ftLastWriteTime.dwLowDateTime;
+        queried.fileSize = (static_cast<std::uint64_t>(information.nFileSizeHigh) << 32U) | information.nFileSizeLow;
+        stamp = queried;
+        return S_OK;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+HRESULT SettingsStore::Initialize(bool selfTest, std::unique_ptr<AppSettings>& settings) noexcept
+{
+    settings.reset();
+    try
+    {
+        std::filesystem::path moduleDirectory;
+        HRESULT result = GetModuleDirectory(moduleDirectory);
+        if (FAILED(result))
+        {
+            return result;
+        }
+
+        const std::filesystem::path deployedSettings = moduleDirectory / L"Settings";
+        const std::filesystem::path selectedTemplate = deployedSettings / kSelectedSettingsFileName;
+        const std::filesystem::path deployedSchema = deployedSettings / kRedXeSettingsSchemaFileName;
+        if (selfTest)
+        {
+            _settingsPath = selectedTemplate.wstring();
+            _settingsDirectory = deployedSettings.wstring();
+            _schemaPath = deployedSchema.wstring();
+            result = LoadAppSettingsFileCandidate(_settingsPath, settings);
+            if (FAILED(result))
+            {
+                return result;
+            }
+            SettingsFileStamp stamp{};
+            if (QuerySettingsFileStamp(_settingsPath, stamp) == S_OK)
+            {
+                _lastAppliedStamp = stamp;
+            }
+            return S_OK;
+        }
+
+        wil::unique_cotaskmem_string localAppData;
+        result = SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, localAppData.put());
+        if (FAILED(result))
+        {
+            return result;
+        }
+
+        const std::filesystem::path settingsDirectory =
+            std::filesystem::path(localAppData.get()) / L"RedXe" / L"Settings";
+        result = EnsureDirectory(settingsDirectory);
+        if (FAILED(result))
+        {
+            return result;
+        }
+
+        const std::filesystem::path settingsPath = settingsDirectory / kSelectedSettingsFileName;
+        const std::filesystem::path schemaPath = settingsDirectory / kRedXeSettingsSchemaFileName;
+        _settingsPath = settingsPath.wstring();
+        _settingsDirectory = settingsDirectory.wstring();
+        _schemaPath = schemaPath.wstring();
+
+        result = CopyFileAtomically(deployedSchema, schemaPath, true);
+        if (FAILED(result))
+        {
+            return result;
+        }
+
+        std::filesystem::path initialSource = selectedTemplate;
+#if defined(_DEBUG)
+        const std::filesystem::path releaseSettings = settingsDirectory / kRedXeReleaseSettingsFileName;
+        if (GetFileAttributesW(releaseSettings.c_str()) != INVALID_FILE_ATTRIBUTES)
+        {
+            initialSource = releaseSettings;
+        }
+#endif
+        result = InstallIfMissing(initialSource, settingsPath);
+        if (FAILED(result))
+        {
+            return result;
+        }
+
+        result = LoadAppSettingsFileCandidate(_settingsPath, settings);
+        if (result == HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || result == HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE))
+        {
+            const HRESULT backupResult = BackupInvalidSettings(settingsPath);
+            if (FAILED(backupResult))
+            {
+                return backupResult;
+            }
+            result = CopyFileAtomically(selectedTemplate, settingsPath, true);
+            if (SUCCEEDED(result))
+            {
+                result = LoadAppSettingsFileCandidate(_settingsPath, settings);
+            }
+        }
+        if (FAILED(result))
+        {
+            return result;
+        }
+
+        SettingsFileStamp stamp{};
+        result = QuerySettingsFileStamp(_settingsPath, stamp);
+        if (result != S_OK)
+        {
+            return result == S_FALSE ? HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) : result;
+        }
+        _lastAppliedStamp = stamp;
+        _lastRejectedStamp.reset();
+        _missingObserved = false;
+        return S_OK;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+HRESULT SettingsStore::TryLoadChanged(std::unique_ptr<AppSettings>& settings, SettingsFileStamp& stamp,
+                                      SettingsReloadStatus& status) noexcept
+{
+    settings.reset();
+    status = SettingsReloadStatus::Unchanged;
+    SettingsFileStamp currentStamp{};
+    const HRESULT stampResult = QuerySettingsFileStamp(_settingsPath, currentStamp);
+    if (stampResult == S_FALSE)
+    {
+        if (!_missingObserved)
+        {
+            _missingObserved = true;
+            status = SettingsReloadStatus::Missing;
+        }
+        return S_OK;
+    }
+    if (FAILED(stampResult))
+    {
+        return stampResult;
+    }
+    _missingObserved = false;
+
+    if ((_lastAppliedStamp && *_lastAppliedStamp == currentStamp) ||
+        (_lastRejectedStamp && *_lastRejectedStamp == currentStamp))
+    {
+        return S_OK;
+    }
+
+    std::unique_ptr<AppSettings> candidate;
+    const HRESULT loadResult = LoadAppSettingsFileCandidate(_settingsPath, candidate);
+    if (loadResult == HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || loadResult == HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE))
+    {
+        _lastRejectedStamp = currentStamp;
+        stamp = currentStamp;
+        status = SettingsReloadStatus::Invalid;
+        return S_OK;
+    }
+    if (FAILED(loadResult))
+    {
+        return loadResult;
+    }
+
+    settings = std::move(candidate);
+    stamp = currentStamp;
+    status = SettingsReloadStatus::Loaded;
+    return S_OK;
+}
+
+void SettingsStore::MarkApplied(const SettingsFileStamp& stamp) noexcept
+{
+    _lastAppliedStamp = stamp;
+    _lastRejectedStamp.reset();
+}
+
+void SettingsStore::MarkRejected(const SettingsFileStamp& stamp) noexcept
+{
+    _lastRejectedStamp = stamp;
+}
+
+const std::wstring& SettingsStore::SettingsPath() const noexcept
+{
+    return _settingsPath;
+}
+
+const std::wstring& SettingsStore::SettingsDirectory() const noexcept
+{
+    return _settingsDirectory;
+}
+
+const std::wstring& SettingsStore::SchemaPath() const noexcept
+{
+    return _schemaPath;
 }

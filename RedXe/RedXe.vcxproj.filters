@@ -18,6 +18,9 @@
     <ClCompile Include="Application.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="CrashHandler.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="DashboardHost.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -33,6 +36,9 @@
     <ClCompile Include="Settings.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="SettingsWatcher.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\Common\PlugInterfaces\GpuWidget.h">
@@ -44,7 +50,13 @@
     <ClInclude Include="Application.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="CrashHandler.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="DashboardHost.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FrameScheduler.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PluginManager.h">
@@ -59,6 +71,9 @@
     <ClInclude Include="Settings.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="SettingsWatcher.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Manifest Include="app.manifest">
@@ -71,6 +86,15 @@
       <Filter>Resource Files</Filter>
     </Image>
     <None Include="assets\redxe-xenon-master.png">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="..\Settings\RedXe-debug.settings.json">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="..\Settings\RedXe-1.0.settings.json">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="..\Specs\Settings.schema.json">
       <Filter>Resource Files</Filter>
     </None>
   </ItemGroup>

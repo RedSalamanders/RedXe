@@ -6,6 +6,7 @@ description: Use yyjson safely in RedXe for parsing, validating, and serializing
 # yyjson
 
 Use yyjson from `vcpkg.json`; do not vendor its source. Apply `wil-raii` to document and write-buffer ownership.
+For RedXe settings documents, also read and apply `Specs/Core/Core_Settings.md` and the `settings-store` skill.
 
 ## Lifetime rules
 
@@ -31,4 +32,6 @@ using unique_malloc_string = wil::unique_any<char*, decltype(&free), free>;
   `yyjson_mut_obj_add()`.
 - Check all allocation and add results when complete output is required; treat failures as out of memory.
 
-Run `.\test.ps1` after JSON changes. The smoke path must parse the default settings before initializing Direct3D.
+Run `.\test.ps1` after JSON changes. `SettingsTests` must cover templates, strict rejection, and schema alignment; the
+hidden smoke path must parse its deployed build-specific template before initializing Direct3D without touching user
+settings.

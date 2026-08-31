@@ -99,19 +99,24 @@
     <ClInclude Include="..\Common\PlugInterfaces\GpuWidget.h" />
     <ClInclude Include="..\Common\PlugInterfaces\WindowWidget.h" />
     <ClInclude Include="Application.h" />
+    <ClInclude Include="CrashHandler.h" />
     <ClInclude Include="DashboardHost.h" />
+    <ClInclude Include="FrameScheduler.h" />
     <ClInclude Include="PluginManager.h" />
     <ClInclude Include="Renderer.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="Settings.h" />
+    <ClInclude Include="SettingsWatcher.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Application.cpp" />
+    <ClCompile Include="CrashHandler.cpp" />
     <ClCompile Include="DashboardHost.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="PluginManager.cpp" />
     <ClCompile Include="Renderer.cpp" />
     <ClCompile Include="Settings.cpp" />
+    <ClCompile Include="SettingsWatcher.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Manifest Include="app.manifest" />
@@ -120,8 +125,33 @@
   <ItemGroup>
     <Image Include="assets\redxe-xenon.ico" />
     <None Include="assets\redxe-xenon-master.png" />
+    <None Include="..\Settings\RedXe-debug.settings.json">
+      <Link>Settings\RedXe-debug.settings.json</Link>
+      <TargetPath>Settings\RedXe-debug.settings.json</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\Settings\RedXe-1.0.settings.json">
+      <Link>Settings\RedXe-1.0.settings.json</Link>
+      <TargetPath>Settings\RedXe-1.0.settings.json</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\Specs\Settings.schema.json">
+      <Link>Settings\RedXe.settings.schema.json</Link>
+      <TargetPath>Settings\RedXe.settings.schema.json</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Plugins\GdiOrbit\GdiOrbit.vcxproj">
+      <Project>{A403C867-9CE6-4DE1-8792-7A628E41C2DF}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\Plugins\MatrixRain\MatrixRain.vcxproj">
+      <Project>{CB7C57F4-4C2F-4BA8-9D83-58E0367B553A}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
     <ProjectReference Include="..\Plugins\RotatingTriangle\RotatingTriangle.vcxproj">
       <Project>{6D7E78E8-B671-423A-9A15-3D1EF6DCA865}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>

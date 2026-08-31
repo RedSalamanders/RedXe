@@ -1,10 +1,10 @@
 # RedXe
 
 A clean Win32 + Direct3D 11 foundation for the XENEON EDGE dashboard. The application opens a per-monitor-DPI-aware
-native window and hosts rendering-neutral widget instances through a negotiated GPU interface. An experimental
-native-window prototype is retained for the active dashboard RFC. The bundled example owns and renders its animated
-triangle through the generic GPU interface. WIL owns Windows/COM
-resources and yyjson supplies the settings layer; both dependencies are pinned with vcpkg.
+native window and hosts rendering-neutral widget instances through negotiated GPU and native-window interfaces.
+Release fills the dashboard with the deterministic low-resource Matrix Rain GPU plugin; Debug also renders two
+independent Direct3D triangles and a double-buffered GDI Xenon orbit in a host-owned child container. WIL owns
+Windows/COM resources and yyjson supplies the settings layer; both dependencies are pinned with vcpkg.
 
 The executable and native window use a high-resolution Xenon periodic-table icon. Its 1254×1254 master artwork and
 multi-resolution Windows icon live under `RedXe/assets/`.
@@ -51,9 +51,16 @@ manifest from `vcpkg.json`. All tool, package, download, and installed state sta
 separate install roots so their manifest metadata cannot purge one another. Run `vcpkg-install.ps1` once before the
 first direct Visual Studio build.
 
+Before mutating an output profile, `build.ps1` identifies running `RedXe.exe` processes by full executable path. An
+instance executing that exact `.build\<Platform>\<Configuration>\RedXe.exe` blocks the build with identifying
+diagnostics and is never terminated. Same-name processes from other checkouts or output profiles do not block it.
+
 Press **Escape** to close the running sample. Pass `--warp` to force the Windows software renderer. The test entrypoint
-uses `--self-test --warp` to create a hidden window, load the build-time-compiled embedded shaders, draw and present
-one frame, then exit.
+runs ABI, settings, and production host/plugin harnesses, then uses `--self-test --warp` to create a hidden window,
+load the build-time-compiled embedded shaders, draw and present one frame, then exit. The host/plugin harness uses a
+hidden off-screen HWND and WARP; it does not automate the desktop. The same entrypoint launches an intentionally
+crashing child into an isolated `.build` directory and verifies its production minidump and marker without touching
+the user's normal crash directory.
 
 Debug builds open as a standard titled window on the XENEON monitor when one is active, otherwise they use normal
 shell-selected placement. Release builds search the active display topology for a CORSAIR XENEON monitor and open
@@ -64,13 +71,36 @@ monitor and recalculates the non-client frame during `WM_DPICHANGED`, preserving
 between monitors with different zoom levels. The title bar and borders sit outside the render area. The self-test
 remains hidden and noninteractive in every configuration and verifies the DPI-adjusted default client dimensions.
 
+## Settings and live reload
+
+Normal runs keep editable settings under `%LocalAppData%\RedXe\Settings`. Debug uses
+`RedXe-debug.settings.json`; Release uses the versioned `RedXe-1.0.settings.json`. The user schema is installed beside
+them as `RedXe.settings.schema.json`. Schema version 3 defines a normalized plugin registry, a 32x9 placement grid,
+ordered dashboard pages, a selected active page, globally unique widget-instance IDs, and separate private JSON
+objects for each plugin and widget instance. The host passes plugin and instance private objects to every active
+provider in one normalized factory envelope. Valid changes and page switches recreate the active dashboard
+transactionally; inactive pages own no runtime resources. The directory watcher blocks on Windows events and does no
+periodic polling. Invalid live edits leave the previous dashboard active. The hidden self-test reads only the template
+deployed under the build output's `Settings` directory and never touches user settings.
+
+## Crash diagnostics
+
+RedXe installs a best-effort fatal-process handler before application startup. A fatal SEH exception, C++ terminate,
+purecall, or invalid-parameter failure writes a bounded local minidump, sibling UTF-16 call-stack report, and one-shot
+marker under `%LocalAppData%\RedXe\Crashes`. On the next normal launch, RedXe offers to open that folder after the
+main window is ready. Dumps are never uploaded and may contain sensitive process-memory fragments. The test harness
+uses `--crash-test` with an isolated directory override; normal users do not need this switch.
+
 ## Specifications and plans
 
 [`Specs/README.md`](Specs/README.md) defines the repository's specification authority and change workflow. Current
 product behavior belongs in normative domain specs such as
+[`Specs/Core/Core_Settings.md`](Specs/Core/Core_Settings.md),
+[`Specs/Core/Core_CrashHandling.md`](Specs/Core/Core_CrashHandling.md),
+[`Specs/UI/UI_Dashboard.md`](Specs/UI/UI_Dashboard.md), and
 [`Specs/UI/UI_XeneonDisplayWindowing.md`](Specs/UI/UI_XeneonDisplayWindowing.md). Multi-step or undecided work may use
-an indexed plan under `Specs/Plans/WIP/`; completed plans move to `Specs/Plans/Done/` only after durable requirements
-have been merged into the owning domain spec.
+an indexed plan under `Specs/Plans/WIP/`. Once its implementation, tests, required validation, and normative contracts
+are complete, the plan must move to `Specs/Plans/Done/` and must not remain under WIP.
 
 ## Layout
 
@@ -79,9 +109,11 @@ have been merged into the owning domain spec.
 Common/               Shared native plugin contracts
 Plugins/              Bundled plugin implementations
 RedXe/                 Win32 host and Direct3D orchestration
-Tests/                 ABI and runtime contract tests
+Settings/              Debug and versioned Release settings templates
+Tests/                 ABI, settings, and production host/plugin tests
+Build/                 Exact-output build-process safety helper
 build.ps1             Build, clean, rebuild, and optionally run
-test.ps1              GPU-independent runtime smoke test
+test.ps1              GPU-independent contract, host/plugin, and runtime tests
 format.ps1            clang-format entrypoint
 validate-skills.ps1   Validate every repository-local skill
 Directory.Build.props Shared MSBuild output and compiler defaults

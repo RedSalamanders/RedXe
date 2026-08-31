@@ -216,7 +216,7 @@ class TriangleDeviceResources final
     return hash;
 }
 
-class RotatingTriangleWidget final : public IRedXeGpuWidget
+class RotatingTriangleWidget final : public IRedXeWidget, public IRedXeGpuWidget
 {
   public:
     RotatingTriangleWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner,
@@ -418,12 +418,18 @@ class RotatingTriangleProvider final : public IRedXeWidgetProvider
     TriangleDeviceResources _resources;
 };
 
-HRESULT CreateRotatingTriangleProvider(REFIID interfaceId, const RedXeFactoryOptions*, IRedXeHost*,
+HRESULT CreateRotatingTriangleProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*,
                                        void** result) noexcept
 {
     if (interfaceId != __uuidof(IRedXeWidgetProvider))
     {
         return E_NOINTERFACE;
+    }
+
+    const HRESULT configurationResult = RedXeValidateEmptyNormalizedConfiguration(options);
+    if (FAILED(configurationResult))
+    {
+        return configurationResult;
     }
 
     auto* provider = new (std::nothrow) RotatingTriangleProvider();

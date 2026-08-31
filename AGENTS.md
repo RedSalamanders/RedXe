@@ -51,6 +51,7 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 | [modern-cpp-windows](.agents/skills/modern-cpp-windows/SKILL.md) | C++ ownership, HRESULT handling, warnings, and source style |
 | [wil-raii](.agents/skills/wil-raii/SKILL.md) | Windows handles, COM interfaces, and unconditional cleanup |
 | [yyjson](.agents/skills/yyjson/SKILL.md) | JSON parsing, writing, document lifetime, and string ownership |
+| [settings-store](.agents/skills/settings-store/SKILL.md) | Settings paths, schema, recovery, stamps, watching, and live apply |
 
 ## Specification workflow
 
@@ -61,14 +62,21 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
   [`Specs/Plugins/Plugins_API.md`](Specs/Plugins/Plugins_API.md).
 - Mandatory performance and resource behavior is owned by
   [`Specs/Core/Core_PerformanceAndResources.md`](Specs/Core/Core_PerformanceAndResources.md).
+- User settings files, schema, cold recovery, and live reload are owned by
+  [`Specs/Core/Core_Settings.md`](Specs/Core/Core_Settings.md).
+- Fatal-process capture, local minidumps, prior-crash UI, and the crash harness are owned by
+  [`Specs/Core/Core_CrashHandling.md`](Specs/Core/Core_CrashHandling.md).
+- Dashboard pages, the placement grid, active-page composition, and widget instance layout are owned by
+  [`Specs/UI/UI_Dashboard.md`](Specs/UI/UI_Dashboard.md).
 - Domain specs describe current behavior. `Specs/Plans/WIP/` is non-normative active work and
   `Specs/Plans/Done/` is historical context.
 - Small settled changes may update the spec, implementation, and validation directly. Multi-step, risky, or undecided
   work requires one indexed WIP plan naming the domain specs it expects to change.
 - A change is not complete while durable requirements exist only in code, tests, commentary, or a plan. Merge them
   into the authoritative domain spec during closeout.
-- When a plan completes, move it from WIP to Done and remove it from the active index only after required validation
-  passes and the normative contract is current.
+- When every plan item is implemented, its tests and required validation pass, and its durable behavior is persisted
+  in the normative contracts, the plan MUST be moved from WIP to Done and removed from the active index. A completed
+  plan MUST NOT remain under `Specs/Plans/WIP/`.
 
 ## Architecture
 
@@ -78,19 +86,28 @@ Common/PlugInterfaces/
   Host.h           Host-service COM root
   Widget.h         Generic widget identity, metadata, and provider ABI
   GpuWidget.h      Direct3D 11 widget rendering mechanism
-  WindowWidget.h   Experimental native HWND/GDI/WebView prototype
+  WindowWidget.h   Native child-HWND rendering mechanism
 Plugins/
   RotatingTriangle/ First bundled widget-provider DLL
+  GdiOrbit/         Double-buffered GDI window-widget DLL
+  MatrixRain/       Production low-resource Direct3D digital-rain DLL
 RedXe/
   Main.cpp          Process setup and command-line modes
   Application.*     Win32 window and message-loop lifetime
+  CrashHandler.*    Fatal-process front door, local minidumps/call stacks, and prior-crash notice
   PluginManager.*   Plugin loading, providers, and instance lifetime
   DashboardHost.*   Widget placement and frame-scheduling policy
   Renderer.*        Direct3D 11 host resources, widget callbacks, and frames
-  Settings.*        yyjson-backed application settings
+  Settings.*        Typed yyjson persistence, paths, recovery, and file stamps
+  SettingsWatcher.* Event-blocked directory notification; posts to the UI thread only
   app.manifest      Per-monitor-v2 DPI and Windows compatibility metadata
 Tests/
   PluginContractTests/ Factory, COM identity, and rendering-IID tests
+  HostPluginTests/     Hidden WARP production host/plugin integration and soak tests
+  SettingsTests/       Settings, schema, stamp, and watcher tests
+Settings/
+  RedXe-debug.settings.json  Shipped Debug default
+  RedXe-1.0.settings.json    Shipped Release default
 Specs/
   README.md         Specification authority and plan workflow
   Core/             Normative cross-cutting performance and resource behavior
@@ -103,15 +120,20 @@ Specs/
 Keep the boundary explicit:
 
 - `Application` owns the HWND and translates messages into narrow operations.
+- `CrashHandler` owns fatal-process registration and best-effort local artifacts; it creates no background work and
+  never uploads dumps.
+- `SettingsStore` owns typed settings validation, user/deployed paths, cold recovery, and stamp deduplication.
+- `SettingsWatcher` owns one event-blocked directory watcher and only posts a coalesced UI message; settings and
+  dashboard mutation remain on `Application`'s UI thread.
 - `PluginManager` owns plugin modules and provider/widget COM references.
-- `DashboardHost` owns design-canvas placements and frame-scheduling policy.
+- `DashboardHost` owns design-canvas placements, native child containers, and frame-scheduling policy.
 - `Renderer` owns host COM graphics resources, cached viewports, device notifications, and presentation; it has no
   message-dispatch or plugin-specific drawing logic.
-- `Widget.h` remains rendering-neutral. Widgets negotiate the frozen GPU or future mechanisms by IID; the native-window
-  header remains experimental until its host container is implemented.
+- `Widget.h` remains rendering-neutral. Widgets negotiate the frozen GPU or native-window mechanism by IID.
 - GPU widgets receive the borrowed D3D11 device during setup and immediate context during rendering, but never the
   HWND, swap chain, or back buffer.
-- A future promoted window widget receives only a host-owned child container, never the top-level HWND.
+- A window widget receives only a host-owned child container, never the top-level HWND, and destroys all plugin-owned
+  children before detach returns.
 - Device-independent state survives swap-chain recreation; device resources are rebuilt together after device loss.
 
 ## Build and validation
@@ -127,9 +149,15 @@ Keep the boundary explicit:
 .\validate-skills.ps1
 ```
 
+`build.ps1` rejects only a running `RedXe.exe` whose normalized executable path exactly matches the selected
+`.build/<Platform>/<Configuration>/RedXe.exe`. It MUST identify that process and MUST NOT terminate it; same-name
+processes from other paths do not block the build.
+
 Before declaring a change complete, build the affected configuration, run `test.ps1`, and satisfy the validation
 contract in the owning domain spec. Rendering changes must keep the WARP smoke test green so CI and GPU-independent
 hosts can validate device creation, embedded shader bytecode, resize, drawing, and presentation.
+`test.ps1` also validates crash capture by launching an isolated child process; it requires no desktop automation and
+must not write to the user's normal crash directory.
 
 ## C++ and Win32 rules
 
@@ -148,3 +176,7 @@ hosts can validate device creation, embedded shader bytecode, resize, drawing, a
 - Prefer targeted local warning suppression only when an SDK or tool header requires it, with a reason beside it.
 - Treat `yyjson_val*` and strings returned by yyjson as borrowed from their document. Use WIL RAII for documents and
   copy dynamic strings into mutable documents.
+- Public COM contracts use `interface __declspec(uuid(...)) __declspec(novtable) Name : IUnknown`. Do not declare
+  them with `struct`, and do not use interface inheritance to couple generic widget identity to a rendering mechanism.
+- Keep `Settings/`, `Specs/Settings.schema.json`, `Settings.*`, `Core_Settings.md`, and `SettingsTests` aligned. A
+  settings change is incomplete if any one of these still describes the old document.

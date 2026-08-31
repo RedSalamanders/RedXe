@@ -1,3 +1,3 @@
 #pragma once
 
-#define IDI_REDXE 101
+#define IDI_REDXE 1

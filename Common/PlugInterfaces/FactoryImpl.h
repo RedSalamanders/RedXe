@@ -3,6 +3,8 @@
 #include "Factory.h"
 
 #include <cstddef>
+#include <cstring>
+#include <string_view>
 
 using RedXeFactoryCreator = HRESULT (*)(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
                                         void** result) noexcept;
@@ -12,6 +14,26 @@ struct RedXeFactoryEntry final
     const RedXePluginMetadata* metadata;
     RedXeFactoryCreator create;
 };
+
+[[nodiscard]] inline HRESULT RedXeValidateEmptyNormalizedConfiguration(const RedXeFactoryOptions* options) noexcept
+{
+    if (!options || options->sizeBytes < kRedXeFactoryOptionsV2Size ||
+        (!options->configurationJsonUtf8 && options->configurationBytes == 0))
+    {
+        return S_OK;
+    }
+    if (!options->configurationJsonUtf8 || options->configurationBytes == 0 ||
+        options->configurationBytes > kRedXeMaximumFactoryConfigurationBytes)
+    {
+        return E_INVALIDARG;
+    }
+
+    constexpr std::string_view expected = R"json({"plugin":{},"instance":{}})json";
+    return options->configurationBytes == expected.size() &&
+                   std::memcmp(options->configurationJsonUtf8, expected.data(), expected.size()) == 0
+               ? S_OK
+               : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+}
 
 [[nodiscard]] inline HRESULT RedXeEnumerateFactoryMetadata(const RedXePluginMetadata* availableMetadata,
                                                            std::uint32_t metadataCount,

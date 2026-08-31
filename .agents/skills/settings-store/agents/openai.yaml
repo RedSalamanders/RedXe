@@ -1,0 +1,4 @@
+interface:
+  display_name: "RedXe settings store"
+  short_description: "Maintain RedXe settings, schema, and live reload."
+  default_prompt: "Apply the RedXe settings storage, validation, recovery, and event-driven live-reload contract."

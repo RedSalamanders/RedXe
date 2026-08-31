@@ -24,6 +24,11 @@ Outputs are always `.build/<Platform>/<Configuration>/`. Intermediate files are 
 `build.ps1` ensures manifest dependencies are installed first. The pinned vcpkg checkout and all package state also
 stay beneath `.build/`; do not substitute a developer-global install path.
 
+Every build, clean, and rebuild preflights the selected executable output. A running `RedXe.exe` whose normalized path
+exactly matches `.build/<Platform>/<Configuration>/RedXe.exe` blocks the build with identifying diagnostics and is
+never terminated; same-name processes from another checkout or profile are ignored. If this preflight changes,
+follow `Specs/Build/Build_Process.md` and keep `Tests/BuildProcessTests/BuildProcessTests.ps1` green.
+
 When diagnosing a failure:
 
 1. For dependency failures, run `vcpkg-install.ps1` for the exact platform and fix the first vcpkg diagnostic.
