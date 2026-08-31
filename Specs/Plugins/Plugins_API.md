@@ -1,121 +1,155 @@
 # RedXe plugin API contract
 
 Status: current normative contract
-Last reviewed: 2026-08-30
+Last reviewed: 2026-08-31
 
-## Purpose and current scope
+## Purpose and scope
 
-This contract owns RedXe native plugin discovery, factory behavior, standard widget instances, and the first bundled
-plugin. The current executable milestone supports one trusted in-process widget-provider DLL and one standard drawing
-command. It deliberately does not freeze the future data-provider, advanced D3D11, native-window, configuration, or
-dashboard-editing interfaces described by the active architecture RFC.
+This contract owns RedXe native plugin discovery, generic widget creation, rendering-interface negotiation, GPU-widget
+lifetime, and the first bundled plugin.
 
-The published ABI lives under `Common/PlugInterfaces/`. Consumers include RedXe, bundled plugins, third-party plugin
-projects, and ABI tests. Published interface IIDs and vtables are immutable; a breaking revision receives a new IID.
+Public ABI headers live under `Common/PlugInterfaces/`. `Widget.h` is deliberately rendering-neutral: it contains no
+shape, shader, drawing command, HWND, or device-specific implementation. A created widget exposes the mechanisms it
+supports through `QueryInterface`. New mechanisms and breaking revisions use new IIDs rather than expanding the
+generic widget root.
+
+The current executable host renders `IRedXeGpuWidget`. `WindowWidget.h` is an experimental prototype for GDI, native
+controls, media hosts, and WebView implementations. Its IID and vtable are not frozen until host-owned child
+containers are implemented and promoted from the active dashboard RFC.
+
+The mandatory requirements in `Specs/Core/Core_PerformanceAndResources.md` apply to every plugin and host path.
+
+## Public interfaces
+
+| Header | Interface | IID | Purpose |
+| --- | --- | --- | --- |
+| `Host.h` | `IRedXeHost` | `053E6CDF-0238-4B69-BC80-F173D9EB93D1` | Empty host-service query root |
+| `Widget.h` | `IRedXeWidget` | `2C66DE33-08D1-4A0C-890C-38521F142AA0` | Generic widget identity and lifetime |
+| `Widget.h` | `IRedXeWidgetProvider` | `231AC0E8-1204-4BFF-BCEA-7CACF11F439D` | Type enumeration and instance creation |
+| `GpuWidget.h` | `IRedXeGpuWidget` | `DBEED29C-63EB-409E-816B-F4BDC5EF7AA9` | Direct3D 11 rendering mechanism |
+
+`WindowWidget.h` is present for the active RFC only. Third-party plugins MUST NOT treat it as a stable ABI, and the
+current executable rejects window-only instances with `HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED)`.
+
+`IRedXeWidget` adds no methods to `IUnknown`. Rendering-mechanism interfaces derive from that root, so a plugin that
+supports one mechanism implements one straightforward COM interface. Its value is one stable identity from which a
+host asks for the newest rendering or service IID it understands. An object implementing several mechanisms must
+return the same controlling `IUnknown` identity from each one.
+
+A published IID has an immutable vtable and semantics. Compatibility negotiation is newest-IID first and falls back
+only after `E_NOINTERFACE`. Structure size does not negotiate a vtable.
+
+## Identifiers and strings
+
+- Plugin IDs, widget type IDs, and widget instance IDs are stable UTF-8 ASCII strings.
+- IDs contain 1–128 characters, start with an ASCII alphanumeric character, and otherwise use only
+  `[A-Za-z0-9_.-]`.
+- IDs compare case-insensitively using ASCII ordinal rules. The host persists canonical plugin spelling.
+- Localized display names and descriptions are borrowed UTF-16 Windows strings.
+- Borrowed module strings and descriptor arrays remain valid while the module is mapped.
 
 ## Binary discovery and lifetime
 
-- RedXe loads the bundled `Plugins/RotatingTriangle.dll` from the executable directory using its absolute path and
-  `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32`.
-- The current host does not scan the working directory or accept custom plugin paths.
-- `RedXeCreate` is required. `RedXeEnumeratePlugins` and `RedXePluginShutdown` are optional in the general ABI; the
-  bundled plugin exports enumeration and has no shutdown work.
-- Factory, enumeration, widget creation, and frame construction run synchronously on the RedXe UI/render thread and
-  are non-reentrant.
-- Widgets and providers are released before shutdown. Loaded plugin modules remain mapped until process teardown.
-- Exceptions must not cross an export, COM method, callback, `wWinMain`, or Win32 callback boundary.
+- RedXe loads DLLs by absolute path using
+  `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32`; it never searches the working directory.
+- `RedXeCreate` is required. `RedXeEnumeratePlugins` and `RedXePluginShutdown` are optional.
+- A module without `RedXeEnumeratePlugins` is treated as one logical plugin and receives a null plugin ID during
+  creation.
+- Factory, enumeration, widget creation, device notification, and GPU rendering are synchronous and non-reentrant in
+  v1.
+- Rendering interfaces and generic widgets are released before providers, optional shutdown, and process teardown.
+- Modules remain mapped until process teardown. Exceptions must not cross ABI or Win32 boundaries.
 
 ## Factory contract
 
-`Factory.h` defines `RedXeFactoryOptions`, `RedXePluginMetadata`, capability flags, export names, and function-pointer
-types. `FactoryImpl.h` is the shared implementation used by bundled plugins.
+`Factory.h` declares export signatures, aliases, metadata, helpers, and names. `FactoryImpl.h` supplies shared bundled
+plugin factory behavior.
 
-The current interface identifiers are:
+- A null output returns `E_POINTER`; a present output is cleared before other validation.
+- Unsupported IIDs return `E_NOINTERFACE`.
+- A null or empty plugin ID is accepted only for a single-plugin module.
+- Unknown non-empty IDs return `HRESULT_FROM_WIN32(ERROR_NOT_FOUND)`.
+- Factory options smaller than the immutable `kRedXeFactoryOptionsV1Size` eight-byte prefix return `E_INVALIDARG`.
+  Exactly that prefix and larger records are accepted without reading their tail.
+- Successful creation returns one caller-owned COM reference.
+- Enumeration returns 1–256 contiguous module-owned metadata records.
+- Malformed metadata, duplicate IDs, or missing required capability fail module discovery safely.
 
-| Interface | IID |
-| --- | --- |
-| `IRedXeHost` | `053E6CDF-0238-4B69-BC80-F173D9EB93D1` |
-| `IRedXeWidgetTypeSink` | `027D19CE-187E-486C-AEA3-B8B4F75D3F80` |
-| `IRedXeFrameBuilder` | `45B1E983-0F49-4F1B-ACC2-90E2FF19C3FE` |
-| `IRedXeWidget` | `6E4C2E10-D546-4A1C-A478-068EAB2B02E5` |
-| `IRedXeWidgetProvider` | `436A7DF3-DB73-442B-99FE-63837F24BA75` |
+The metadata capability surface advertises logical plugin services, currently only
+`RedXePluginCapabilityWidgetProvider`. Rendering mechanisms are discovered on widget instances by IID, not by a
+capability or rendering-path enum.
 
-Factory behavior is normative:
+## Generic widget provider
 
-- a null output pointer returns `E_POINTER`;
-- every output is cleared before other validation;
-- an unsupported IID returns `E_NOINTERFACE`;
-- a null or empty plugin ID is accepted only when the module exposes one logical plugin;
-- an unknown non-empty plugin ID returns `HRESULT_FROM_WIN32(ERROR_NOT_FOUND)`;
-- an undersized options record returns `E_INVALIDARG`, while larger records are accepted;
-- successful creation returns one caller-owned COM reference;
-- enumeration returns 1–256 contiguous module-owned metadata records whose strings remain valid while the module is
-  mapped.
+`IRedXeWidgetProvider::GetWidgetTypes` returns a module-owned immutable descriptor array and count. Both outputs are
+cleared before validation. A descriptor contains stable identity, localized labels, design-canvas size hints, and
+generic scheduling flags only.
 
-RedXe requests only IIDs it implements. A future host requests the newest supported IID and retries a named older IID
-only when the first call returns `E_NOINTERFACE`; versions and structure sizes never negotiate vtables.
+`CreateWidget` takes a type ID and non-empty instance ID and returns `IRedXeWidget`. Every successful call creates a
+distinct stateful instance. The host then queries that object for supported rendering interfaces. A widget may expose
+more than one mechanism; host policy chooses one without changing `Widget.h`.
 
-## Standard widget contract
+## GPU widget contract
 
-`IRedXeWidgetProvider::EnumerateWidgetTypes` synchronously sends borrowed descriptors to the supplied sink.
-`CreateWidget` creates an isolated instance from a stable type ID and non-empty instance ID. Each successful call
-returns a distinct object with independent animation state.
+`GpuWidget.h` is the general Direct3D 11 path. It contains no plugin-specific geometry or commands.
 
-`IRedXeWidget::BuildFrame` receives:
+- `OnDeviceCreated` receives the borrowed host device, target format, and selected feature level. A widget may create
+  and retain its own device resources and may share immutable resources across instances.
+- `OnDeviceLost` is idempotent and releases all plugin-owned device resources before the host releases its device.
+- `Render` receives generic widget dimensions/timing, the borrowed immediate context, and the widget viewport.
+- The host binds its render target and viewport before every callback. A widget binds every pipeline state it depends
+  on and may issue arbitrary D3D11 work within its viewport.
+- A widget must not retain the immediate context or frame records, present, resize the swap chain, or access the
+  top-level HWND. It never receives the swap chain or back buffer.
+- If isolation, deferred command lists, or offscreen composition later require a different contract, that contract
+  receives a new IID. It does not change `IRedXeGpuWidget` or `Widget.h`.
 
-- the widget-local physical width and height;
-- the destination window DPI;
-- process-relative elapsed time and frame delta time;
-- a borrowed `IRedXeFrameBuilder` valid only for the synchronous call.
+Device resources belong to the plugin implementation. The host owns the device, immediate context, swap chain,
+render target, viewport placement, device-loss sequence, and presentation.
 
-The widget must not retain the frame context or builder. `BuildFrame` must not perform disk, network, display,
-hardware-discovery, process-launch, or long-lock work.
+## Experimental native-window prototype
 
-The initial command is `RedXeTriangleCommand`. It contains three widget-local normalized vertices. Each position
-component is finite and in `[-1, 1]`; each RGBA component is finite and in `[0, 1]`. The host validates the complete
-command before updating its dynamic D3D11 vertex buffer. Invalid commands fail that widget frame and do not stop
-remaining widget instances.
+The proposed container ownership, UI-thread callbacks, GDI/native-control/WebView behavior, focus rules, and final
+interface shape remain owned by `Specs/Plans/WIP/RFC_Plugins_XeneonDashboardArchitecture.md`. The prototype is not a
+compatibility promise. Promotion requires an implemented host container, a fixture plugin, HWND lifetime tests, DPI
+tests, and a simultaneous update that freezes the chosen IID and semantics here.
 
-The standard path never gives a plugin an HWND, D3D device, device context, render target, swap chain, or back buffer.
-RedXe owns shaders, buffers, per-widget viewports, resize, device-loss recovery, composition, WARP behavior, and
-presentation.
+## Host rendering and resources
+
+- `PluginManager` owns modules, providers, generic widgets, and queried rendering-interface references.
+- `DashboardHost` owns design-canvas placement and frame-scheduling policy.
+- `Renderer` owns D3D11/DXGI resources, cached viewports, device notifications, rendering callbacks, recovery, and
+  presentation. It contains no bundled-plugin shader, vertex type, or geometry.
+- The host creates one D3D11 device, immediate context, swap chain, and back-buffer render target.
+- DPI and viewport transforms are recomputed only on initialization, resize, or DPI change.
+- Visible continuous animation is paced by `Present(1)` with maximum frame latency one. Hidden, minimized, suspended,
+  and display-off execution blocks on messages. Occluded execution builds no frames, waits for the DXGI factory's
+  occlusion-status notification, and uses `DXGI_PRESENT_TEST` before resuming.
+- One widget failure does not prevent later widgets from rendering.
 
 ## First bundled plugin
 
-`Plugins/RotatingTriangle` exposes logical plugin ID `builtin.rotating-triangle`, widget type ID
-`rotating-triangle`, and the widget-provider capability.
+`Plugins/RotatingTriangle` is an implementation of the generic contracts, not part of them. It exposes plugin ID
+`builtin.rotating-triangle`, type ID `rotating-triangle`, and `IRedXeGpuWidget` on each created widget.
 
-The default embedded settings create four instances. RedXe lays them out in a two-column grid on the 2560×720 design
-canvas and scales their viewports to the current DPI-correct client surface. Every instance:
-
-- computes rotation in the plugin from elapsed time;
-- has a deterministic speed, direction, phase, and RGB ordering derived from its instance ID;
-- compensates for its local canvas aspect ratio so the triangle is not stretched;
-- emits one triangle per requested frame;
-- declares continuous animation.
-
-The host accepts 2–8 instances from its validated settings, with four as the shipped default.
-
-## Ownership and failure
-
-- `Application` owns the window, display selection, DPI behavior, message loop, `PluginManager`, and `Renderer`.
-- `PluginManager` owns module metadata, provider references, widget references, and design-canvas placements.
-- `Renderer` owns all Direct3D and DXGI resources and the concrete standard frame builder.
-- A failed plugin load or required-provider creation fails startup with diagnostics.
-- A failed widget frame is diagnosed and skipped for that frame; other instances and presentation continue.
-- Direct3D device-loss results rebuild all host graphics resources. Standard widget objects survive because they own no
-  device resources.
+The DLL owns its triangle geometry, build-time HLSL source and embedded shader bytecode, immutable vertex buffer,
+shared constant buffer, animation, aspect correction, and color selection. It does not link or load the runtime shader
+compiler. Shared device resources live once per provider rather than once per widget instance. RedXe knows only that
+four independent GPU widgets render successfully.
 
 ## Required validation
 
-Before changing this contract or its implementation:
+1. Run `./format.ps1` and `./validate-skills.ps1`.
+2. Run Debug and Release x64 `test.ps1`; both must pass the plugin contract executable and hidden WARP smoke frame.
+3. Build Release ARM64 and confirm host, plugin, and contract tests compile.
+4. Verify factory null outputs, unsupported IIDs, IDs, the exact V1 options prefix, oversized records, and borrowed
+   array stability.
+5. Verify generic widget/GPU interface negotiation, controlling-IUnknown identity, and rejection of the unsupported
+   window IID by the bundled GPU-only widget.
+6. Verify all configured GPU-widget instances receive device creation, render successfully, receive device loss, and
+   survive WARP rendering without a hardware GPU.
+7. Keep `/W4`, `/permissive-`, SDL checks, and warnings-as-errors green.
 
-1. run `./format.ps1` and `./validate-skills.ps1`;
-2. run the Debug x64 WARP self-test and confirm the plugin DLL is loaded from the output `Plugins` directory;
-3. run the Release x64 WARP self-test;
-4. build Release ARM64 and confirm the host and plugin both compile for ARM64;
-5. confirm the default host creates four widget instances and a frame from each reaches the standard builder;
-6. keep `/W4`, `/permissive-`, SDL checks, and warnings-as-errors green.
-
-Live visual validation on a XENEON EDGE should confirm four independently rotating, aspect-correct triangles within
-the DPI-correct 2560×720 canvas.
+Live XENEON EDGE validation must confirm four independently rotating aspect-correct widgets and no CPU spin while the
+window is hidden, minimized, suspended, display-off, or occluded. Contract tests must confirm that loading the bundled
+plugin does not load `d3dcompiler_47.dll`.

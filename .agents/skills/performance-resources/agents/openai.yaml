@@ -1,0 +1,3 @@
+interface:
+  display_name: "Performance and Resources"
+  short_description: "Minimize RedXe CPU, memory, and runtime work"

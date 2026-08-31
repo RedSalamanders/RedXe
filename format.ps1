@@ -27,7 +27,7 @@ if (-not $clangFormat) {
     throw 'clang-format was not found. Install the Visual Studio C++ Clang tools component or LLVM.'
 }
 
-$sourceRoots = @('Common', 'Plugins', 'src') | ForEach-Object { Join-Path $repoRoot $_ }
+$sourceRoots = @('Common', 'Plugins', 'RedXe', 'Tests') | ForEach-Object { Join-Path $repoRoot $_ }
 $sourceFiles = Get-ChildItem -LiteralPath $sourceRoots -Recurse -File |
     Where-Object { $_.Extension -in @('.cpp', '.h') } |
     Sort-Object FullName

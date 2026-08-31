@@ -61,6 +61,14 @@ failure uses normal shell placement in Debug and follows the missing-display fal
 - Debug and fallback windows MUST retain standard resize, minimize, maximize, move, and title-bar behavior.
 - `WM_SIZE` with a zero client dimension is suspension, not failure.
 - `WM_PAINT` validates the update region; continuous rendering remains on the idle side of the message loop.
+- The window class MUST NOT request `CS_HREDRAW` or `CS_VREDRAW`; resize rendering is driven by `WM_SIZE` and the
+  renderer rather than redundant full-client paint invalidation.
+- `Application` MUST subscribe to `GUID_SESSION_DISPLAY_STATUS`. While the session display is powered off, hidden, or
+  minimized, it MUST drain pending messages and then block without rendering or presenting. Display-on, show, and
+  restore messages resume normal scheduling.
+- `Renderer` MUST register `Application` for DXGI factory occlusion-status window messages. After presentation reports
+  full occlusion, RedXe MUST block until that notification and then issue `DXGI_PRESENT_TEST` without building a
+  frame. It resumes rendering only after that test succeeds.
 - Escape and `WM_CLOSE` close the application through the HWND owner.
 - Fullscreen selection and DPI policy belong to `Application`; swap-chain sizing and presentation belong to
   `Renderer`.
@@ -86,9 +94,13 @@ MUST equal the detected XENEON `rcMonitor` origin, and `MonitorFromWindow` MUST 
 The Release missing-display prompt MUST be checked manually when no matching display is active. The hidden self-test
 MUST remain noninteractive in both configurations.
 
+Scheduling changes additionally require a live hidden, minimized, fully occluded, and session-display-off check.
+Each inactive state is green only when RedXe consumes no continuously accumulating CPU time, and uncover/display-on
+must resume visible animation without restarting the process.
+
 ## Implementation and validation anchors
 
-- Process awareness and command-line modes: `src/RedXe/Main.cpp`, `src/RedXe/app.manifest`
-- Display discovery, window creation, and DPI transitions: `src/RedXe/Application.cpp`, `src/RedXe/Application.h`
-- Physical render-target resizing: `src/RedXe/Renderer.cpp`, `src/RedXe/Renderer.h`
+- Process awareness and command-line modes: `RedXe/Main.cpp`, `RedXe/app.manifest`
+- Display discovery, window creation, and DPI transitions: `RedXe/Application.cpp`, `RedXe/Application.h`
+- Physical render-target resizing: `RedXe/Renderer.cpp`, `RedXe/Renderer.h`
 - Automated build and hidden WARP validation: `build.ps1`, `test.ps1`

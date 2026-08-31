@@ -1,7 +1,8 @@
 #pragma once
 
-#include "PlugInterfaces/Widget.h"
+#include "PlugInterfaces/GpuWidget.h"
 
+#include <array>
 #include <cstddef>
 #include <d3d11.h>
 #include <dxgi1_2.h>
@@ -10,71 +11,69 @@
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027 28182)
 #include <wil/com.h>
-#include <wil/resource.h>
 #pragma warning(pop)
 
-class PluginManager;
+class DashboardHost;
 
 class Renderer final
 {
   public:
-    Renderer() noexcept;
-    ~Renderer() = default;
+    static constexpr UINT kOcclusionStatusMessage = WM_APP + 1;
+
+    Renderer() = default;
+    ~Renderer();
 
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
     Renderer(Renderer&&) = delete;
     Renderer& operator=(Renderer&&) = delete;
 
-    HRESULT Initialize(HWND window, bool forceWarp, PluginManager& pluginManager) noexcept;
+    HRESULT Initialize(HWND window, bool forceWarp, DashboardHost& dashboardHost) noexcept;
+    HRESULT SetDpi(UINT dpi) noexcept;
     HRESULT Resize(UINT width, UINT height) noexcept;
     HRESULT Render(float elapsedSeconds, float deltaSeconds) noexcept;
+    HRESULT ProbeOcclusion() noexcept;
+    [[nodiscard]] bool IsSuspended() const noexcept;
+    [[nodiscard]] bool IsOccluded() const noexcept;
     [[nodiscard]] std::size_t LastFrameWidgetCount() const noexcept;
     [[nodiscard]] std::size_t LastFrameSuccessfulWidgetCount() const noexcept;
 
   private:
-    class FrameBuilder final : public IRedXeFrameBuilder
-    {
-      public:
-        explicit FrameBuilder(Renderer& renderer) noexcept;
-
-        HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override;
-        ULONG STDMETHODCALLTYPE AddRef() noexcept override;
-        ULONG STDMETHODCALLTYPE Release() noexcept override;
-        HRESULT STDMETHODCALLTYPE DrawTriangle(const RedXeTriangleCommand* command) noexcept override;
-
-      private:
-        Renderer& _renderer;
-    };
+    static constexpr std::size_t kMaximumWidgetViewports = 8;
+    static constexpr DXGI_FORMAT kTargetFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 
     HRESULT CreateDeviceResources() noexcept;
     HRESULT CreateDevice(bool useWarp) noexcept;
     HRESULT CreateSwapChain() noexcept;
-    HRESULT CreatePipeline() noexcept;
     HRESULT CreateRenderTarget(UINT width, UINT height) noexcept;
+    HRESULT UpdateCachedViewports() noexcept;
+    HRESULT NotifyDeviceCreated() noexcept;
+    void NotifyDeviceLost() noexcept;
     HRESULT RecoverDevice() noexcept;
-    HRESULT DrawTriangle(const RedXeTriangleCommand& command) noexcept;
     void ReleaseDeviceResources() noexcept;
 
     static bool IsDeviceLost(HRESULT result) noexcept;
 
     HWND _window = nullptr;
-    PluginManager* _pluginManager = nullptr;
+    DashboardHost* _dashboardHost = nullptr;
     bool _forceWarp = false;
     bool _suspended = true;
-    bool _buildingWidget = false;
+    bool _occluded = false;
+    bool _gpuWidgetsDeviceReady = false;
     UINT _width = 0;
     UINT _height = 0;
+    UINT _dpi = USER_DEFAULT_SCREEN_DPI;
+    D3D_FEATURE_LEVEL _featureLevel = D3D_FEATURE_LEVEL_11_0;
     std::size_t _lastFrameWidgetCount = 0;
     std::size_t _lastFrameSuccessfulWidgetCount = 0;
-    FrameBuilder _frameBuilder;
+
+    std::array<D3D11_VIEWPORT, kMaximumWidgetViewports> _widgetViewports{};
 
     wil::com_ptr_nothrow<ID3D11Device> _device;
     wil::com_ptr_nothrow<ID3D11DeviceContext> _context;
+    wil::com_ptr_nothrow<IDXGIFactory2> _factory;
     wil::com_ptr_nothrow<IDXGISwapChain1> _swapChain;
     wil::com_ptr_nothrow<ID3D11RenderTargetView> _renderTarget;
-    wil::com_ptr_nothrow<ID3D11VertexShader> _vertexShader;
-    wil::com_ptr_nothrow<ID3D11PixelShader> _pixelShader;
-    wil::com_ptr_nothrow<ID3D11InputLayout> _inputLayout;
-    wil::com_ptr_nothrow<ID3D11Buffer> _vertexBuffer;
+    DWORD _occlusionStatusCookie = 0;
+    bool _occlusionStatusRegistered = false;
 };

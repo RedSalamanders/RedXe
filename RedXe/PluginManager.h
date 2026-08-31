@@ -1,6 +1,9 @@
 #pragma once
 
+#include "PlugInterfaces/Factory.h"
+#include "PlugInterfaces/GpuWidget.h"
 #include "PlugInterfaces/Widget.h"
+#include "PlugInterfaces/WindowWidget.h"
 
 #include <array>
 #include <cstddef>
@@ -12,14 +15,6 @@
 #include <wil/com.h>
 #include <wil/resource.h>
 #pragma warning(pop)
-
-struct WidgetPlacement final
-{
-    float x;
-    float y;
-    float width;
-    float height;
-};
 
 class PluginManager final
 {
@@ -34,21 +29,25 @@ class PluginManager final
     PluginManager(PluginManager&&) = delete;
     PluginManager& operator=(PluginManager&&) = delete;
 
-    [[nodiscard]] HRESULT Initialize(std::uint32_t widgetInstanceCount, bool validateFactoryContract) noexcept;
+    [[nodiscard]] HRESULT Initialize(std::uint32_t widgetInstanceCount) noexcept;
     [[nodiscard]] std::size_t WidgetCount() const noexcept;
     [[nodiscard]] IRedXeWidget* WidgetAt(std::size_t index) const noexcept;
-    [[nodiscard]] WidgetPlacement PlacementAt(std::size_t index) const noexcept;
+    [[nodiscard]] IRedXeGpuWidget* GpuWidgetAt(std::size_t index) const noexcept;
+    [[nodiscard]] IRedXeWindowWidget* WindowWidgetAt(std::size_t index) const noexcept;
+    [[nodiscard]] std::uint32_t WidgetFlagsAt(std::size_t index) const noexcept;
 
   private:
     struct WidgetSlot final
     {
         wil::com_ptr_nothrow<IRedXeWidget> widget;
-        WidgetPlacement placement{};
+        wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
+        wil::com_ptr_nothrow<IRedXeWindowWidget> windowWidget;
+        std::uint32_t flags = RedXeWidgetFlagNone;
     };
 
     wil::unique_hmodule _module;
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _provider;
     std::array<WidgetSlot, kMaximumWidgetInstances> _widgets;
     std::size_t _widgetCount = 0;
-    void(__stdcall* _shutdown)() noexcept = nullptr;
+    RedXePluginShutdownFn _shutdown = nullptr;
 };

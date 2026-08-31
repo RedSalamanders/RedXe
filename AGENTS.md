@@ -26,6 +26,18 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 - Keep reusable build entrypoints at the repository root.
 - Generated build products belong under `.build/`; never commit them.
 
+## Mandatory performance and resource policy
+
+- [`Specs/Core/Core_PerformanceAndResources.md`](Specs/Core/Core_PerformanceAndResources.md) applies to every design,
+  implementation, review, and validation task.
+- Performance and low resource consumption are primary requirements. Among correct designs, prefer the one with the
+  lowest steady-state CPU, memory, allocation, copy, synchronization, wake-up, and GPU-submission cost.
+- Steady-state hot paths must use bounded reusable storage and avoid heap allocation. Cache derived state and batch
+  compatible work.
+- Idle, hidden, minimized, suspended, and occluded execution must block on events; busy polling is prohibited.
+- Do not trade correctness, security, visual quality, or required behavior for an unmeasured micro-optimization.
+- Any intentional resource regression requires measurement and explicit justification in the owning spec or WIP plan.
+
 ## Skills
 
 | Skill | Use it for |
@@ -34,6 +46,7 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 | [build-redxe](.agents/skills/build-redxe/SKILL.md) | Building, cleaning, running, and smoke-testing |
 | [direct3d11-rendering](.agents/skills/direct3d11-rendering/SKILL.md) | Device, swap-chain, pipeline, rendering, resize, and device loss |
 | [plugin-development](.agents/skills/plugin-development/SKILL.md) | Native plugin ABI, factories, loading, widget instances, and bundled DLLs |
+| [performance-resources](.agents/skills/performance-resources/SKILL.md) | CPU, memory, allocation, batching, idle, and resource-budget decisions |
 | [win32-windowing](.agents/skills/win32-windowing/SKILL.md) | Window creation, message routing, DPI, and lifetime |
 | [modern-cpp-windows](.agents/skills/modern-cpp-windows/SKILL.md) | C++ ownership, HRESULT handling, warnings, and source style |
 | [wil-raii](.agents/skills/wil-raii/SKILL.md) | Windows handles, COM interfaces, and unconditional cleanup |
@@ -44,8 +57,10 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 - Start with [`Specs/README.md`](Specs/README.md), then read the owning domain spec. XENEON display, window, fallback,
   fullscreen, and DPI behavior is owned by
   [`Specs/UI/UI_XeneonDisplayWindowing.md`](Specs/UI/UI_XeneonDisplayWindowing.md).
-- Native factory, standard widget, bundled plugin, and plugin-lifetime behavior is owned by
+- Native factory, generic widget mechanisms, bundled plugin, and plugin-lifetime behavior is owned by
   [`Specs/Plugins/Plugins_API.md`](Specs/Plugins/Plugins_API.md).
+- Mandatory performance and resource behavior is owned by
+  [`Specs/Core/Core_PerformanceAndResources.md`](Specs/Core/Core_PerformanceAndResources.md).
 - Domain specs describe current behavior. `Specs/Plans/WIP/` is non-normative active work and
   `Specs/Plans/Done/` is historical context.
 - Small settled changes may update the spec, implementation, and validation directly. Multi-step, risky, or undecided
@@ -61,18 +76,24 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 Common/PlugInterfaces/
   Factory.*        Stable factory ABI and shared factory implementation
   Host.h           Host-service COM root
-  Widget.h         Standard widget ABI and frame commands
+  Widget.h         Generic widget identity, metadata, and provider ABI
+  GpuWidget.h      Direct3D 11 widget rendering mechanism
+  WindowWidget.h   Experimental native HWND/GDI/WebView prototype
 Plugins/
   RotatingTriangle/ First bundled widget-provider DLL
-src/RedXe/
+RedXe/
   Main.cpp          Process setup and command-line modes
   Application.*     Win32 window and message-loop lifetime
-  PluginManager.*   Plugin loading, providers, instances, and placements
-  Renderer.*        Direct3D 11 device, swap chain, pipeline, and frames
+  PluginManager.*   Plugin loading, providers, and instance lifetime
+  DashboardHost.*   Widget placement and frame-scheduling policy
+  Renderer.*        Direct3D 11 host resources, widget callbacks, and frames
   Settings.*        yyjson-backed application settings
   app.manifest      Per-monitor-v2 DPI and Windows compatibility metadata
+Tests/
+  PluginContractTests/ Factory, COM identity, and rendering-IID tests
 Specs/
   README.md         Specification authority and plan workflow
+  Core/             Normative cross-cutting performance and resource behavior
   Plugins/          Normative native plugin and widget behavior
   UI/               Normative display and windowing behavior
   Plans/WIP/        Non-normative active plans
@@ -82,9 +103,15 @@ Specs/
 Keep the boundary explicit:
 
 - `Application` owns the HWND and translates messages into narrow operations.
-- `PluginManager` owns plugin modules, provider/widget COM references, and design-canvas placements.
-- `Renderer` owns all COM graphics resources and has no message-dispatch logic.
-- Standard plugins emit validated commands and never receive the HWND, D3D device/context, swap chain, or back buffer.
+- `PluginManager` owns plugin modules and provider/widget COM references.
+- `DashboardHost` owns design-canvas placements and frame-scheduling policy.
+- `Renderer` owns host COM graphics resources, cached viewports, device notifications, and presentation; it has no
+  message-dispatch or plugin-specific drawing logic.
+- `Widget.h` remains rendering-neutral. Widgets negotiate the frozen GPU or future mechanisms by IID; the native-window
+  header remains experimental until its host container is implemented.
+- GPU widgets receive the borrowed D3D11 device during setup and immediate context during rendering, but never the
+  HWND, swap chain, or back buffer.
+- A future promoted window widget receives only a host-owned child container, never the top-level HWND.
 - Device-independent state survives swap-chain recreation; device resources are rebuilt together after device loss.
 
 ## Build and validation
@@ -102,7 +129,7 @@ Keep the boundary explicit:
 
 Before declaring a change complete, build the affected configuration, run `test.ps1`, and satisfy the validation
 contract in the owning domain spec. Rendering changes must keep the WARP smoke test green so CI and GPU-independent
-hosts can validate device creation, shader compilation, resize, drawing, and presentation.
+hosts can validate device creation, embedded shader bytecode, resize, drawing, and presentation.
 
 ## C++ and Win32 rules
 

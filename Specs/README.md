@@ -17,7 +17,7 @@ consistent. Location alone does not make a document authoritative.
 | Machine contract | Manifests, project files, schemas, resources, and dependency lock data | Exact data consumed by the build or application. |
 | Active plan | `Specs/Plans/WIP/*.md`, excluding its `README.md` | Non-normative proposal or execution record for unfinished work. |
 | Historical plan | `Specs/Plans/Done/*.md`, excluding its `README.md` | Completed sequencing and rationale; never the authority for current behavior. |
-| Implementation and tests | `src/`, root scripts, and test entrypoints | Executable behavior and evidence that must agree with the owning normative contract. |
+| Implementation and tests | `RedXe/`, `Plugins/`, `Tests/`, root scripts, and test entrypoints | Executable behavior and evidence that must agree with the owning normative contract. |
 
 ## Reconciliation rule
 
@@ -53,8 +53,9 @@ durable.
 
 | Domain | Start with |
 | --- | --- |
+| Performance and resource consumption | [`Core/Core_PerformanceAndResources.md`](Core/Core_PerformanceAndResources.md) |
 | UI, display, windowing, and DPI | [`UI/UI_XeneonDisplayWindowing.md`](UI/UI_XeneonDisplayWindowing.md) |
-| Native plugins and standard widgets | [`Plugins/Plugins_API.md`](Plugins/Plugins_API.md) |
+| Native plugins and generic widgets | [`Plugins/Plugins_API.md`](Plugins/Plugins_API.md) |
 
 ## Specification validation
 

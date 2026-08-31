@@ -3,6 +3,7 @@
 #include "resource.h"
 
 #include <chrono>
+#include <cstring>
 #include <new>
 #include <string_view>
 #include <vector>
@@ -156,6 +157,7 @@ Application::Application(HINSTANCE instance, bool forceWarp) noexcept : _instanc
 
 Application::~Application()
 {
+    _displayPowerNotification.reset();
     _window.reset();
     if (_classRegistered)
     {
@@ -240,18 +242,25 @@ int Application::Run(int showCommand, bool selfTest) noexcept
         }
     }
 
-    result = _pluginManager.Initialize(settings.rotatingTriangleInstances, selfTest);
+    result = _pluginManager.Initialize(settings.rotatingTriangleInstances);
     if (FAILED(result))
     {
         OutputDebugStringW(L"Bundled rotating-triangle plugin initialization failed.\n");
         return 3;
     }
 
-    result = _renderer.Initialize(_window.get(), _forceWarp, _pluginManager);
+    result = _dashboardHost.Initialize(_pluginManager);
+    if (FAILED(result))
+    {
+        OutputDebugStringW(L"Dashboard initialization failed.\n");
+        return 4;
+    }
+
+    result = _renderer.Initialize(_window.get(), _forceWarp, _dashboardHost);
     if (FAILED(result))
     {
         OutputDebugStringW(L"Renderer initialization failed.\n");
-        return 4;
+        return 5;
     }
     _rendererReady = true;
 
@@ -261,22 +270,26 @@ int Application::Run(int showCommand, bool selfTest) noexcept
         if (FAILED(result) || _renderer.LastFrameWidgetCount() != settings.rotatingTriangleInstances ||
             _renderer.LastFrameSuccessfulWidgetCount() != settings.rotatingTriangleInstances)
         {
-            OutputDebugStringW(L"The plugin widget smoke frame did not render every configured instance.\n");
-            return 5;
+            OutputDebugStringW(L"The plugin smoke frame did not render every GPU-widget instance.\n");
+            return 6;
         }
         return 0;
     }
 
     ShowWindow(_window.get(), showCommand);
     UpdateWindow(_window.get());
+    _windowVisible = IsWindowVisible(_window.get()) != FALSE;
 
     const auto startTime = std::chrono::steady_clock::now();
     float previousElapsedSeconds = 0.0f;
+    bool renderedFrame = false;
     MSG message{};
     while (_window)
     {
+        bool dispatchedMessage = false;
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
         {
+            dispatchedMessage = true;
             if (message.message == WM_QUIT)
             {
                 return FAILED(_runtimeFailure) ? 5 : static_cast<int>(message.wParam);
@@ -290,11 +303,50 @@ int Application::Run(int showCommand, bool selfTest) noexcept
             break;
         }
 
+        if (!_windowVisible || !_displayPoweredOn || _renderer.IsSuspended())
+        {
+            (void)WaitUntilMessage();
+            continue;
+        }
+
+        if (!_renderer.IsOccluded())
+        {
+            _occlusionStatusChanged = false;
+        }
+        else
+        {
+            if (_occlusionStatusChanged)
+            {
+                _occlusionStatusChanged = false;
+                result = _renderer.ProbeOcclusion();
+                if (FAILED(result))
+                {
+                    _runtimeFailure = result;
+                    OutputDebugStringW(L"Swap-chain occlusion probe failed.\n");
+                    _window.reset();
+                    continue;
+                }
+            }
+
+            if (_renderer.IsOccluded())
+            {
+                (void)WaitUntilMessage();
+                continue;
+            }
+        }
+
+        if (!_dashboardHost.RequiresContinuousFrames() && renderedFrame && !dispatchedMessage)
+        {
+            (void)WaitUntilMessage();
+            continue;
+        }
+
         const std::chrono::duration<float> elapsed = std::chrono::steady_clock::now() - startTime;
         const float elapsedSeconds = elapsed.count();
         const float deltaSeconds = elapsedSeconds - previousElapsedSeconds;
         previousElapsedSeconds = elapsedSeconds;
         result = _renderer.Render(elapsedSeconds, deltaSeconds);
+        renderedFrame = true;
         if (FAILED(result))
         {
             _runtimeFailure = result;
@@ -326,7 +378,7 @@ HRESULT Application::RegisterWindowClass() noexcept
 
     WNDCLASSEXW windowClass{};
     windowClass.cbSize = sizeof(windowClass);
-    windowClass.style = CS_HREDRAW | CS_VREDRAW;
+    windowClass.style = 0;
     windowClass.lpfnWndProc = WindowProcedure;
     windowClass.hInstance = _instance;
     windowClass.hIcon = largeIcon;
@@ -413,11 +465,32 @@ HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bo
         }
     }
 
+    _displayPowerNotification.reset(
+        RegisterPowerSettingNotification(window, &GUID_SESSION_DISPLAY_STATUS, DEVICE_NOTIFY_WINDOW_HANDLE));
+    if (!_displayPowerNotification)
+    {
+        const DWORD error = GetLastError();
+        return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
+    }
+
     if (!visible)
     {
         ShowWindow(window, SW_HIDE);
     }
     return S_OK;
+}
+
+bool Application::WaitUntilMessage() noexcept
+{
+    if (WaitMessage())
+    {
+        return true;
+    }
+
+    const DWORD error = GetLastError();
+    _runtimeFailure = error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
+    _window.reset();
+    return false;
 }
 
 LRESULT CALLBACK Application::WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
@@ -446,6 +519,24 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         return OnSize(window, LOWORD(lParam), HIWORD(lParam));
     case WM_DPICHANGED:
         return OnDpiChanged(window, LOWORD(wParam), reinterpret_cast<const RECT*>(lParam));
+    case WM_SHOWWINDOW:
+        _windowVisible = wParam != FALSE;
+        return 0;
+    case WM_POWERBROADCAST:
+        if (wParam == PBT_POWERSETTINGCHANGE && lParam != 0)
+        {
+            const auto* setting = reinterpret_cast<const POWERBROADCAST_SETTING*>(lParam);
+            if (IsEqualGUID(setting->PowerSetting, GUID_SESSION_DISPLAY_STATUS) && setting->DataLength >= sizeof(DWORD))
+            {
+                DWORD displayState = PowerMonitorOn;
+                std::memcpy(&displayState, setting->Data, sizeof(displayState));
+                _displayPoweredOn = displayState != PowerMonitorOff;
+            }
+        }
+        return TRUE;
+    case Renderer::kOcclusionStatusMessage:
+        _occlusionStatusChanged = true;
+        return 0;
     case WM_GETMINMAXINFO:
     {
         auto* minimums = reinterpret_cast<MINMAXINFO*>(lParam);
@@ -468,6 +559,7 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         _window.reset();
         return 0;
     case WM_DESTROY:
+        _displayPowerNotification.reset();
         PostQuitMessage(0);
         return 0;
     case WM_NCDESTROY:
@@ -506,6 +598,17 @@ LRESULT Application::OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBo
     if (!suggestedBounds)
     {
         return 0;
+    }
+
+    if (_rendererReady)
+    {
+        const HRESULT result = _renderer.SetDpi(dpi);
+        if (FAILED(result))
+        {
+            _runtimeFailure = result;
+            PostMessageW(window, WM_CLOSE, 0, 0);
+            return 0;
+        }
     }
 
     int width = suggestedBounds->right - suggestedBounds->left;

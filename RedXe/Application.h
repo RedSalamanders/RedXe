@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DashboardHost.h"
 #include "PluginManager.h"
 #include "Renderer.h"
 
@@ -29,16 +30,22 @@ class Application final
 
     HRESULT RegisterWindowClass() noexcept;
     HRESULT CreateMainWindow(bool visible, const RECT* targetBounds, bool fullscreen) noexcept;
+    bool WaitUntilMessage() noexcept;
     LRESULT HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
     LRESULT OnSize(HWND window, UINT width, UINT height) noexcept;
     LRESULT OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBounds) noexcept;
 
     HINSTANCE _instance = nullptr;
     wil::unique_hwnd _window;
+    wil::unique_hpowernotify _displayPowerNotification;
     PluginManager _pluginManager;
+    DashboardHost _dashboardHost;
     Renderer _renderer;
     bool _forceWarp = false;
     bool _classRegistered = false;
     bool _rendererReady = false;
+    bool _windowVisible = false;
+    bool _displayPoweredOn = true;
+    bool _occlusionStatusChanged = false;
     HRESULT _runtimeFailure = S_OK;
 };

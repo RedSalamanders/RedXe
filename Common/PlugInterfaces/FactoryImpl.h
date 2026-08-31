@@ -43,7 +43,7 @@ struct RedXeFactoryEntry final
 
 [[nodiscard]] inline HRESULT RedXeCreateFromFactoryEntries(const RedXeFactoryEntry* entries, std::uint32_t entryCount,
                                                            REFIID interfaceId, const RedXeFactoryOptions* options,
-                                                           IRedXeHost* host, const wchar_t* pluginId,
+                                                           IRedXeHost* host, const char* pluginId,
                                                            void** result) noexcept
 {
     if (!result)
@@ -56,13 +56,13 @@ struct RedXeFactoryEntry final
     {
         return E_INVALIDARG;
     }
-    if (options && options->sizeBytes < offsetof(RedXeFactoryOptions, reserved))
+    if (options && options->sizeBytes < kRedXeFactoryOptionsV1Size)
     {
         return E_INVALIDARG;
     }
 
     const RedXeFactoryEntry* selected = nullptr;
-    if (!pluginId || pluginId[0] == L'\0')
+    if (!pluginId || pluginId[0] == '\0')
     {
         if (entryCount != 1)
         {
@@ -75,7 +75,7 @@ struct RedXeFactoryEntry final
         for (std::uint32_t index = 0; index < entryCount; ++index)
         {
             const RedXePluginMetadata* candidate = entries[index].metadata;
-            if (candidate && candidate->id && CompareStringOrdinal(candidate->id, -1, pluginId, -1, TRUE) == CSTR_EQUAL)
+            if (candidate && candidate->id && RedXeAsciiEqualsIgnoreCase(candidate->id, pluginId))
             {
                 selected = &entries[index];
                 break;

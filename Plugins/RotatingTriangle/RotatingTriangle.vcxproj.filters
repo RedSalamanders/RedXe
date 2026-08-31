@@ -3,14 +3,21 @@
   <ItemGroup>
     <Filter Include="Source Files"><UniqueIdentifier>{3651B710-DFFC-421B-849A-54388980EAC0}</UniqueIdentifier></Filter>
     <Filter Include="Public Interfaces"><UniqueIdentifier>{721248A8-6ED8-4B82-BC5A-4ECB83129849}</UniqueIdentifier></Filter>
+    <Filter Include="Shader Files"><UniqueIdentifier>{9F2DD932-77BE-447C-85D6-B2DA13614702}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="RotatingTriangle.cpp"><Filter>Source Files</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <FxCompile Include="RotatingTrianglePixel.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="RotatingTriangleVertex.hlsl"><Filter>Shader Files</Filter></FxCompile>
+  </ItemGroup>
+  <ItemGroup>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\GpuWidget.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\WindowWidget.h"><Filter>Public Interfaces</Filter></ClInclude>
   </ItemGroup>
 </Project>

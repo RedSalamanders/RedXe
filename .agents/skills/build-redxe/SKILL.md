@@ -29,13 +29,18 @@ When diagnosing a failure:
 1. For dependency failures, run `vcpkg-install.ps1` for the exact platform and fix the first vcpkg diagnostic.
 2. Re-run `build.ps1` with the exact configuration and platform that failed.
 3. Fix the first project-code diagnostic; warnings are errors.
-4. Run `test.ps1` after a successful x64 build. It validates settings parsing, device creation, shader compilation, the pipeline, drawing,
-   and one presentation without requiring a hardware GPU.
+4. Run `test.ps1` after a successful x64 build. It validates the factory ABI, borrowed descriptors, COM identity, and
+   rendering-IID negotiation, then validates settings parsing, device creation, embedded shader-bytecode loading,
+   drawing, and presentation.
+   without requiring a hardware GPU.
 5. Build both Debug and Release when changing project properties, manifests, or compiler behavior. Build x64 and ARM64
    when changing vcpkg, platform mapping, or dependency paths.
 
 `build.ps1` discovers stable and prerelease Visual Studio instances. Do not hardcode a developer's installation path
 in project files or scripts.
+
+Scheduling changes also require the live hidden, minimized, suspended, and occluded idle checks in
+`Specs/Core/Core_PerformanceAndResources.md`.
 
 Before closeout, confirm the authoritative domain spec matches the validated behavior. If the work finishes a WIP
 plan, move it to `Specs/Plans/Done/` only after merging durable requirements into that spec. Apply the `spec-workflow`

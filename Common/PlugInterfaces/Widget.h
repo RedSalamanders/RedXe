@@ -3,13 +3,6 @@
 #include <cstdint>
 #include <unknwn.h>
 
-enum RedXeWidgetRenderPath : std::uint32_t
-{
-    RedXeWidgetRenderPathStandard = 1,
-    RedXeWidgetRenderPathGpu = 2,
-    RedXeWidgetRenderPathWindow = 3,
-};
-
 enum RedXeWidgetFlags : std::uint32_t
 {
     RedXeWidgetFlagNone = 0,
@@ -19,16 +12,14 @@ enum RedXeWidgetFlags : std::uint32_t
 struct RedXeWidgetTypeDescriptor final
 {
     std::uint32_t sizeBytes;
-    const wchar_t* typeId;
+    const char* typeId;
     const wchar_t* displayName;
     const wchar_t* description;
     float defaultWidth;
     float defaultHeight;
     float minimumWidth;
     float minimumHeight;
-    std::uint32_t renderPath;
     std::uint32_t flags;
-    std::uint32_t reserved[8];
 };
 
 struct RedXeWidgetFrameContext final
@@ -39,41 +30,17 @@ struct RedXeWidgetFrameContext final
     std::uint32_t dpi;
     float elapsedSeconds;
     float deltaSeconds;
-    std::uint32_t reserved[8];
 };
 
-struct RedXeColorVertex final
+// Generic widget identity and lifetime root. Rendering mechanisms are negotiated through QueryInterface.
+struct __declspec(uuid("2C66DE33-08D1-4A0C-890C-38521F142AA0")) __declspec(novtable) IRedXeWidget : IUnknown
 {
-    float position[2];
-    float color[4];
 };
 
-struct RedXeTriangleCommand final
+struct __declspec(uuid("231AC0E8-1204-4BFF-BCEA-7CACF11F439D")) __declspec(novtable) IRedXeWidgetProvider : IUnknown
 {
-    std::uint32_t sizeBytes;
-    RedXeColorVertex vertices[3];
-    std::uint32_t reserved[4];
-};
-
-struct __declspec(uuid("027D19CE-187E-486C-AEA3-B8B4F75D3F80")) __declspec(novtable) IRedXeWidgetTypeSink : IUnknown
-{
-    virtual HRESULT STDMETHODCALLTYPE AddWidgetType(const RedXeWidgetTypeDescriptor* descriptor) noexcept = 0;
-};
-
-struct __declspec(uuid("45B1E983-0F49-4F1B-ACC2-90E2FF19C3FE")) __declspec(novtable) IRedXeFrameBuilder : IUnknown
-{
-    virtual HRESULT STDMETHODCALLTYPE DrawTriangle(const RedXeTriangleCommand* command) noexcept = 0;
-};
-
-struct __declspec(uuid("6E4C2E10-D546-4A1C-A478-068EAB2B02E5")) __declspec(novtable) IRedXeWidget : IUnknown
-{
-    virtual HRESULT STDMETHODCALLTYPE BuildFrame(const RedXeWidgetFrameContext* context,
-                                                 IRedXeFrameBuilder* frameBuilder) noexcept = 0;
-};
-
-struct __declspec(uuid("436A7DF3-DB73-442B-99FE-63837F24BA75")) __declspec(novtable) IRedXeWidgetProvider : IUnknown
-{
-    virtual HRESULT STDMETHODCALLTYPE EnumerateWidgetTypes(IRedXeWidgetTypeSink* sink) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE CreateWidget(const wchar_t* typeId, const wchar_t* instanceId,
+    virtual HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
+                                                     std::uint32_t* count) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId,
                                                    IRedXeWidget** widget) noexcept = 0;
 };

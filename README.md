@@ -1,11 +1,13 @@
 # RedXe
 
 A clean Win32 + Direct3D 11 foundation for the XENEON EDGE dashboard. The application opens a per-monitor-DPI-aware
-native window and renders an animated RGB triangle through a flip-model DXGI swap chain. WIL owns Windows/COM
+native window and hosts rendering-neutral widget instances through a negotiated GPU interface. An experimental
+native-window prototype is retained for the active dashboard RFC. The bundled example owns and renders its animated
+triangle through the generic GPU interface. WIL owns Windows/COM
 resources and yyjson supplies the settings layer; both dependencies are pinned with vcpkg.
 
 The executable and native window use a high-resolution Xenon periodic-table icon. Its 1254×1254 master artwork and
-multi-resolution Windows icon live under `src/RedXe/assets/`.
+multi-resolution Windows icon live under `RedXe/assets/`.
 
 ## Start
 
@@ -50,7 +52,8 @@ separate install roots so their manifest metadata cannot purge one another. Run 
 first direct Visual Studio build.
 
 Press **Escape** to close the running sample. Pass `--warp` to force the Windows software renderer. The test entrypoint
-uses `--self-test --warp` to create a hidden window, compile both shaders, draw and present one frame, then exit.
+uses `--self-test --warp` to create a hidden window, load the build-time-compiled embedded shaders, draw and present
+one frame, then exit.
 
 Debug builds open as a standard titled window on the XENEON monitor when one is active, otherwise they use normal
 shell-selected placement. Release builds search the active display topology for a CORSAIR XENEON monitor and open
@@ -73,7 +76,10 @@ have been merged into the owning domain spec.
 
 ```text
 .agents/skills/       Repo-local Codex skills
-src/RedXe/            Win32 and Direct3D source
+Common/               Shared native plugin contracts
+Plugins/              Bundled plugin implementations
+RedXe/                 Win32 host and Direct3D orchestration
+Tests/                 ABI and runtime contract tests
 build.ps1             Build, clean, rebuild, and optionally run
 test.ps1              GPU-independent runtime smoke test
 format.ps1            clang-format entrypoint

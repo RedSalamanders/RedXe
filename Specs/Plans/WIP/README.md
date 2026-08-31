@@ -8,7 +8,7 @@ Add every direct WIP plan to this table exactly once. Use `ACTIVE` for executabl
 
 | Plan | Status | Owning domain spec | Purpose |
 | --- | --- | --- | --- |
-| [`RFC_Plugins_XeneonDashboardArchitecture.md`](RFC_Plugins_XeneonDashboardArchitecture.md) | `DECISION` | Future plugin API, settings, dashboard, and validation contracts | Define a normalized native plugin architecture and settings-driven XENEON dashboard composition model. |
+| [`RFC_Plugins_XeneonDashboardArchitecture.md`](RFC_Plugins_XeneonDashboardArchitecture.md) | `ACTIVE` | Plugin API, performance, settings, dashboard, and validation contracts | Implement a normalized low-resource native plugin architecture and settings-driven XENEON dashboard composition model. |
 
 On completion, merge durable requirements into the owning domain spec, move the plan to `Specs/Plans/Done/`, and remove
 its row here.

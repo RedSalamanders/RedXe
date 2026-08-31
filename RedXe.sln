@@ -2,9 +2,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
 VisualStudioVersion = 18.0.11221.13
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RedXe", "src\RedXe\RedXe.vcxproj", "{1F3635EF-3A59-45E2-A6B4-593D432C2651}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RedXe", "RedXe\RedXe.vcxproj", "{1F3635EF-3A59-45E2-A6B4-593D432C2651}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RotatingTriangle", "Plugins\RotatingTriangle\RotatingTriangle.vcxproj", "{6D7E78E8-B671-423A-9A15-3D1EF6DCA865}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "PluginContractTests", "Tests\PluginContractTests\PluginContractTests.vcxproj", "{50E1772F-7B89-4D31-8C89-83539806902B}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -30,6 +32,14 @@ Global
 		{6D7E78E8-B671-423A-9A15-3D1EF6DCA865}.Release|ARM64.Build.0 = Release|ARM64
 		{6D7E78E8-B671-423A-9A15-3D1EF6DCA865}.Release|x64.ActiveCfg = Release|x64
 		{6D7E78E8-B671-423A-9A15-3D1EF6DCA865}.Release|x64.Build.0 = Release|x64
+		{50E1772F-7B89-4D31-8C89-83539806902B}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{50E1772F-7B89-4D31-8C89-83539806902B}.Debug|ARM64.Build.0 = Debug|ARM64
+		{50E1772F-7B89-4D31-8C89-83539806902B}.Debug|x64.ActiveCfg = Debug|x64
+		{50E1772F-7B89-4D31-8C89-83539806902B}.Debug|x64.Build.0 = Debug|x64
+		{50E1772F-7B89-4D31-8C89-83539806902B}.Release|ARM64.ActiveCfg = Release|ARM64
+		{50E1772F-7B89-4D31-8C89-83539806902B}.Release|ARM64.Build.0 = Release|ARM64
+		{50E1772F-7B89-4D31-8C89-83539806902B}.Release|x64.ActiveCfg = Release|x64
+		{50E1772F-7B89-4D31-8C89-83539806902B}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
