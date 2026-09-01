@@ -5,7 +5,10 @@
   // Reusable definitions create independent instances wherever they appear.
   "declare": {
     "Triangle": { "plugin": "builtin.rotating-triangle" },
-    "Matrix": { "plugin": "builtin.matrix-rain" }
+    "Matrix": { "plugin": "builtin.matrix-rain" },
+    "StudioClock": { "plugin": "builtin.studio-clock", "settings": { "externalDotsAlwaysOn": true } },
+    "DeskClock": { "plugin": "builtin.desk-clock" },
+    "Processes": { "plugin": "builtin.process-viewer", "settings": { "topN": 10 } }
   },
   "pages": [
     {
@@ -46,7 +49,10 @@
               { "sizeRatio": 1, "widget": "Triangle" },
               { "sizeRatio": 1, "widget": { "plugin": "builtin.gdi-orbit" } }
             ]
-          }
+          },
+          { "sizeRatio": 1, "widget": "StudioClock" },
+          { "sizeRatio": 1, "widget": "DeskClock" },
+          { "sizeRatio": 2, "widget": "Processes" }
         ]
       }
     }

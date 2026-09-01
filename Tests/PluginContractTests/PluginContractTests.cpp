@@ -1,7 +1,6 @@
+#include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/Factory.h"
-#include "PlugInterfaces/GpuWidget.h"
 #include "PlugInterfaces/Widget.h"
-#include "PlugInterfaces/WindowWidget.h"
 
 #include <algorithm>
 #include <array>
@@ -36,9 +35,19 @@ static_assert(std::is_base_of_v<IUnknown, IRedXeHost>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeWidget>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeWidgetProvider>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeGpuWidget>);
+static_assert(std::is_base_of_v<IUnknown, IRedXeScheduledWidget>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeWindowWidget>);
+static_assert(std::is_base_of_v<IUnknown, IRedXeDataSource>);
+static_assert(std::is_base_of_v<IUnknown, IRedXeDataProvider>);
+static_assert(std::is_base_of_v<IUnknown, IRedXeDataSink>);
+static_assert(std::is_base_of_v<IUnknown, IRedXeDataSubscription>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeGpuWidget>);
+static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeScheduledWidget>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeWindowWidget>);
+static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataSource>);
+static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataProvider>);
+static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataSink>);
+static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataSubscription>);
 
 constexpr char kPluginId[] = "builtin.rotating-triangle";
 constexpr char kWidgetTypeId[] = "rotating-triangle";
@@ -48,8 +57,6 @@ constexpr char kMatrixPluginId[] = "builtin.matrix-rain";
 constexpr char kMatrixWidgetTypeId[] = "matrix-rain";
 constexpr std::string_view kDefaultMatrixConfiguration =
     R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35})json";
-constexpr std::string_view kNormalizedMatrixConfiguration =
-    R"json({"plugin":{},"instance":{"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35}})json";
 
 #if defined(_DEBUG)
 std::atomic<std::uint64_t> gMatrixRenderAllocationCount{0};
@@ -127,9 +134,8 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     HRESULT result = getContract(pluginId, &contract);
-    if (FAILED(result) || !contract || contract->sizeBytes < sizeof(*contract) || contract->versionMajor != 1 ||
-        contract->versionMinor != 0 || !contract->schemaJsonUtf8 || contract->schemaBytes == 0 ||
-        !contract->defaultsJsonUtf8 || contract->defaultsBytes == 0)
+    if (FAILED(result) || !contract || contract->sizeBytes != sizeof(*contract) || !contract->schemaJsonUtf8 ||
+        contract->schemaBytes == 0 || !contract->defaultsJsonUtf8 || contract->defaultsBytes == 0)
     {
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -212,7 +218,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     }
 
     RedXeFactoryOptions options{};
-    options.sizeBytes = kRedXeFactoryOptionsV1Size;
+    options.sizeBytes = sizeof(options);
     if (create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kPluginId, nullptr) != E_POINTER)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -243,11 +249,23 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
     RedXeFactoryOptions oversized{};
     oversized.sizeBytes = sizeof(oversized) + 32;
-    object = nullptr;
-    result = create(__uuidof(IRedXeWidgetProvider), &oversized, nullptr, nullptr, &object);
-    if (FAILED(result) || !object)
+    object = reinterpret_cast<void*>(1);
+    result = create(__uuidof(IRedXeWidgetProvider), &oversized, nullptr, kPluginId, &object);
+    if (result != E_INVALIDARG || object)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    object = reinterpret_cast<void*>(1);
+    result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, nullptr, &object);
+    if (result != E_INVALIDARG || object)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    object = nullptr;
+    result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kPluginId, &object);
+    if (FAILED(result) || !object)
+    {
+        return FAILED(result) ? result : E_UNEXPECTED;
     }
     wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
     provider.attach(static_cast<IRedXeWidgetProvider*>(object));
@@ -322,9 +340,9 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
     wil::com_ptr_nothrow<IRedXeWidget> widget;
     result = provider->CreateWidget(kWidgetTypeId, "contract.instance", widget.put());
-    if (FAILED(result))
+    if (FAILED(result) || FAILED(widget->SetVisible(TRUE)) || FAILED(widget->SetVisible(FALSE)))
     {
-        return result;
+        return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
     wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
@@ -413,7 +431,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     }
 
     RedXeFactoryOptions options{};
-    options.sizeBytes = kRedXeFactoryOptionsV1Size;
+    options.sizeBytes = sizeof(options);
     wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
     void* providerObject = nullptr;
     result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kGdiPluginId, &providerObject);
@@ -462,7 +480,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     }
 
     if (windowWidget->Attach(nullptr) != E_POINTER || windowWidget->Resize(nullptr) != E_POINTER ||
-        windowWidget->SetVisible(TRUE) != E_UNEXPECTED)
+        widget->SetVisible(FALSE) != S_OK || widget->SetVisible(TRUE) != E_UNEXPECTED)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -509,7 +527,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         144,
     };
     result = windowWidget->Resize(&resized);
-    if (FAILED(result) || FAILED(windowWidget->SetVisible(TRUE)) || FAILED(windowWidget->SetVisible(FALSE)))
+    if (FAILED(result) || FAILED(widget->SetVisible(TRUE)) || FAILED(widget->SetVisible(FALSE)))
     {
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -521,7 +539,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     }
     windowWidget->Detach();
 
-    // The production host keeps v1 modules mapped; preserve that policy for this registered-window-class fixture.
+    // The host keeps modules mapped; preserve that policy for this registered-window-class fixture.
     (void)module.release();
     return S_OK;
 }
@@ -610,22 +628,36 @@ struct MatrixRenderTarget final
     {
         return E_INVALIDARG;
     }
-    RedXeFactoryOptions options{};
-    options.sizeBytes = sizeof(options);
-    options.configurationJsonUtf8 = configuration.data();
-    options.configurationBytes = static_cast<std::uint32_t>(configuration.size());
-    void* object = nullptr;
-    const HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object);
-    if (FAILED(result))
+    try
     {
-        return result;
+        std::string envelope;
+        envelope.reserve(configuration.size() + 32);
+        envelope.append("{\"plugin\":{},\"instance\":").append(configuration).append("}");
+        RedXeFactoryOptions options{};
+        options.sizeBytes = sizeof(options);
+        options.configurationJsonUtf8 = envelope.data();
+        options.configurationBytes = static_cast<std::uint32_t>(envelope.size());
+        void* object = nullptr;
+        const HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        if (!object)
+        {
+            return E_UNEXPECTED;
+        }
+        provider.attach(static_cast<IRedXeWidgetProvider*>(object));
+        return S_OK;
     }
-    if (!object)
+    catch (const std::bad_alloc&)
     {
-        return E_UNEXPECTED;
+        return E_OUTOFMEMORY;
     }
-    provider.attach(static_cast<IRedXeWidgetProvider*>(object));
-    return S_OK;
+    catch (...)
+    {
+        return E_FAIL;
+    }
 }
 
 [[nodiscard]] HRESULT CreateMatrixWidget(IRedXeWidgetProvider& provider, wil::com_ptr_nothrow<IRedXeWidget>& widget,
@@ -786,6 +818,15 @@ struct MatrixRenderTarget final
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
+    options.configurationJsonUtf8 = kDefaultMatrixConfiguration.data();
+    options.configurationBytes = static_cast<std::uint32_t>(kDefaultMatrixConfiguration.size());
+    object = reinterpret_cast<void*>(1);
+    if (create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object) !=
+            HRESULT_FROM_WIN32(ERROR_INVALID_DATA) ||
+        object)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
     options.configurationJsonUtf8 = nullptr;
     options.configurationBytes = 1;
     object = reinterpret_cast<void*>(1);
@@ -831,8 +872,11 @@ struct MatrixRenderTarget final
                 return E_UNEXPECTED;
             }
             invalid.replace(offset, mutation.before.size(), mutation.after);
-            options.configurationJsonUtf8 = invalid.data();
-            options.configurationBytes = static_cast<std::uint32_t>(invalid.size());
+            std::string envelope;
+            envelope.reserve(invalid.size() + 32);
+            envelope.append("{\"plugin\":{},\"instance\":").append(invalid).append("}");
+            options.configurationJsonUtf8 = envelope.data();
+            options.configurationBytes = static_cast<std::uint32_t>(envelope.size());
             object = reinterpret_cast<void*>(1);
             const HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object);
             if (result != HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || object)
@@ -1146,20 +1190,20 @@ struct MatrixRenderTarget final
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    RedXeFactoryOptions v1Options{};
-    v1Options.sizeBytes = kRedXeFactoryOptionsV1Size;
-    void* v1Object = nullptr;
-    result = create(__uuidof(IRedXeWidgetProvider), &v1Options, nullptr, kMatrixPluginId, &v1Object);
-    if (FAILED(result) || !v1Object)
+    RedXeFactoryOptions options{};
+    options.sizeBytes = sizeof(options);
+    void* providerObject = nullptr;
+    result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &providerObject);
+    if (FAILED(result) || !providerObject)
     {
         return FAILED(result) ? result : E_UNEXPECTED;
     }
-    wil::com_ptr_nothrow<IRedXeWidgetProvider> v1Provider;
-    v1Provider.attach(static_cast<IRedXeWidgetProvider*>(v1Object));
+    wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+    provider.attach(static_cast<IRedXeWidgetProvider*>(providerObject));
 
     const RedXeWidgetTypeDescriptor* widgetTypes = nullptr;
     std::uint32_t widgetTypeCount = 0;
-    result = v1Provider->GetWidgetTypes(&widgetTypes, &widgetTypeCount);
+    result = provider->GetWidgetTypes(&widgetTypes, &widgetTypeCount);
     if (FAILED(result) || !widgetTypes || widgetTypeCount != 1 ||
         widgetTypes[0].sizeBytes != sizeof(RedXeWidgetTypeDescriptor) ||
         !RedXeAsciiEqualsIgnoreCase(widgetTypes[0].typeId, kMatrixWidgetTypeId) ||
@@ -1168,24 +1212,16 @@ struct MatrixRenderTarget final
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    RedXeFactoryOptions futureOptions{};
-    futureOptions.sizeBytes = sizeof(futureOptions) + 32;
-    void* futureObject = nullptr;
-    result = create(__uuidof(IRedXeWidgetProvider), &futureOptions, nullptr, kMatrixPluginId, &futureObject);
-    if (FAILED(result) || !futureObject)
+    RedXeFactoryOptions oversizedOptions{};
+    oversizedOptions.sizeBytes = sizeof(oversizedOptions) + 32;
+    void* rejectedObject = reinterpret_cast<void*>(1);
+    result = create(__uuidof(IRedXeWidgetProvider), &oversizedOptions, nullptr, kMatrixPluginId, &rejectedObject);
+    if (result != E_INVALIDARG || rejectedObject)
     {
-        return FAILED(result) ? result : E_UNEXPECTED;
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    wil::com_ptr_nothrow<IRedXeWidgetProvider> futureProvider;
-    futureProvider.attach(static_cast<IRedXeWidgetProvider*>(futureObject));
 
     result = ValidateMatrixConfigurationRejections(create);
-    if (FAILED(result))
-    {
-        return result;
-    }
-    wil::com_ptr_nothrow<IRedXeWidgetProvider> normalizedProvider;
-    result = CreateMatrixProvider(create, kNormalizedMatrixConfiguration, normalizedProvider);
     if (FAILED(result))
     {
         return result;

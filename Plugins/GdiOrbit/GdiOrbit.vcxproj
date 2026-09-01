@@ -65,7 +65,6 @@
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h" />
-    <ClInclude Include="..\..\Common\PlugInterfaces\WindowWidget.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

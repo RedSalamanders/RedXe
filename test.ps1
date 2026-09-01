@@ -69,6 +69,27 @@ $systemDataProcess = Start-Process -FilePath $systemDataTests -Wait -PassThru
 if ($systemDataProcess.ExitCode -ne 0) {
     throw "System-data provider tests failed with exit code $($systemDataProcess.ExitCode)."
 }
+if ($Configuration -eq 'Release' -and $Platform -eq 'x64') {
+    Write-Host 'Running Release system-data row-cap resource measurement...' -ForegroundColor Cyan
+    $systemDataBenchmark = Start-Process -FilePath $systemDataTests -ArgumentList '--benchmark' -Wait -PassThru
+    if ($systemDataBenchmark.ExitCode -ne 0) {
+        throw "System-data row-cap measurement failed with exit code $($systemDataBenchmark.ExitCode)."
+    }
+}
+
+$studioClockTests = Join-Path $repoRoot ".build\$Platform\$Configuration\StudioClockTests.exe"
+Write-Host 'Running Studio Clock contract, scheduling, WARP, and resource tests...' -ForegroundColor Cyan
+$studioClockProcess = Start-Process -FilePath $studioClockTests -Wait -PassThru
+if ($studioClockProcess.ExitCode -ne 0) {
+    throw "Studio Clock tests failed with exit code $($studioClockProcess.ExitCode)."
+}
+
+$deskClockTests = Join-Path $repoRoot ".build\$Platform\$Configuration\DeskClockTests.exe"
+Write-Host 'Running Desk Clock contract, scheduling, WARP, and resource tests...' -ForegroundColor Cyan
+$deskClockProcess = Start-Process -FilePath $deskClockTests -Wait -PassThru
+if ($deskClockProcess.ExitCode -ne 0) {
+    throw "Desk Clock tests failed with exit code $($deskClockProcess.ExitCode)."
+}
 
 $settingsTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SettingsTests.exe"
 Write-Host 'Running settings, schema, stamp, and watcher contract tests...' -ForegroundColor Cyan

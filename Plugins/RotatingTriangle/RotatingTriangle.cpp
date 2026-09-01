@@ -1,6 +1,6 @@
 #define REDXE_PLUGIN_EXPORTS
 #include "PlugInterfaces/FactoryImpl.h"
-#include "PlugInterfaces/GpuWidget.h"
+#include "PlugInterfaces/Widget.h"
 #include "RotatingTrianglePixelShader.h"
 #include "RotatingTriangleVertexShader.h"
 
@@ -25,7 +25,7 @@ constexpr char kWidgetTypeId[] = "rotating-triangle";
 constexpr char kSettingsSchema[] = R"json({"type":"object","additionalProperties":false})json";
 constexpr char kSettingsDefaults[] = R"json({})json";
 constexpr RedXePluginSettingsContract kSettingsContract{
-    sizeof(RedXePluginSettingsContract), 1, 0, kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
+    sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
 };
 
@@ -35,7 +35,7 @@ constexpr std::array kMetadata{
         kPluginId,
         L"Rotating Triangle",
         L"Animated colored triangle widget used to validate the RedXe GPU-widget host.",
-        L"RedSalamanders",
+        L"RedXe",
         L"1.0.0",
         RedXePluginCapabilityWidgetProvider,
     },
@@ -272,13 +272,18 @@ class RotatingTriangleWidget final : public IRedXeWidget, public IRedXeGpuWidget
         return references;
     }
 
+    HRESULT STDMETHODCALLTYPE SetVisible(BOOL) noexcept override
+    {
+        return S_OK;
+    }
+
     HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept override
     {
         if (!context)
         {
             return E_POINTER;
         }
-        if (context->sizeBytes < sizeof(RedXeGpuDeviceContext) || !context->device)
+        if (context->sizeBytes != sizeof(RedXeGpuDeviceContext) || !context->device)
         {
             return E_INVALIDARG;
         }
@@ -297,7 +302,7 @@ class RotatingTriangleWidget final : public IRedXeWidget, public IRedXeGpuWidget
             return E_POINTER;
         }
         const RedXeWidgetFrameContext& widget = *context->widget;
-        if (context->sizeBytes < sizeof(RedXeGpuFrameContext) || widget.sizeBytes < sizeof(RedXeWidgetFrameContext) ||
+        if (context->sizeBytes != sizeof(RedXeGpuFrameContext) || widget.sizeBytes != sizeof(RedXeWidgetFrameContext) ||
             !context->deviceContext || widget.widthPixels == 0 || widget.heightPixels == 0 ||
             !std::isfinite(widget.elapsedSeconds) || !std::isfinite(widget.deltaSeconds) || widget.deltaSeconds < 0.0f)
         {

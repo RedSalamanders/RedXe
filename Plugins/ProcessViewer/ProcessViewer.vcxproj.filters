@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files"><UniqueIdentifier>{DDF3FD4E-70C0-4B73-921D-9234B88AC4C8}</UniqueIdentifier></Filter>
+    <Filter Include="Public Interfaces"><UniqueIdentifier>{9E8D45E6-802B-4F63-9F5D-153433B5C7B1}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup><ClCompile Include="ProcessViewer.cpp"><Filter>Source Files</Filter></ClCompile></ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="ProcessViewerTestContract.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Data.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Host.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h"><Filter>Public Interfaces</Filter></ClInclude>
+  </ItemGroup>
+</Project>

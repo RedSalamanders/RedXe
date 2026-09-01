@@ -1,9 +1,8 @@
 #pragma once
 
 #include "PlugInterfaces/Factory.h"
-#include "PlugInterfaces/GpuWidget.h"
 #include "PlugInterfaces/Widget.h"
-#include "PlugInterfaces/WindowWidget.h"
+#include "PluginHost.h"
 #include "Settings.h"
 
 #include <array>
@@ -36,6 +35,7 @@ class PluginManager final
     [[nodiscard]] std::size_t WidgetCount() const noexcept;
     [[nodiscard]] IRedXeWidget* WidgetAt(std::size_t index) const noexcept;
     [[nodiscard]] IRedXeGpuWidget* GpuWidgetAt(std::size_t index) const noexcept;
+    [[nodiscard]] IRedXeScheduledWidget* ScheduledWidgetAt(std::size_t index) const noexcept;
     [[nodiscard]] IRedXeWindowWidget* WindowWidgetAt(std::size_t index) const noexcept;
     [[nodiscard]] std::uint32_t WidgetFlagsAt(std::size_t index) const noexcept;
     [[nodiscard]] WidgetGridPlacement WidgetGridPlacementAt(std::size_t index) const noexcept;
@@ -46,13 +46,12 @@ class PluginManager final
     [[nodiscard]] std::uint32_t GridRows() const noexcept;
 
   private:
-    static constexpr std::size_t kMaximumModules = kMaximumSettingsPlugins;
-
     struct WidgetSlot final
     {
-        wil::com_ptr_nothrow<IRedXeWidget> widget;
         wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
+        wil::com_ptr_nothrow<IRedXeScheduledWidget> scheduledWidget;
         wil::com_ptr_nothrow<IRedXeWindowWidget> windowWidget;
+        wil::com_ptr_nothrow<IRedXeWidget> widget;
         SettingsText instanceId;
         WidgetGridPlacement placement;
         AdaptiveWidgetPlacement adaptivePlacement;
@@ -65,37 +64,26 @@ class PluginManager final
         wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
     };
 
-    struct ModuleSlot final
-    {
-        wil::unique_hmodule module;
-        RedXeCreateFn create = nullptr;
-        RedXeGetPluginSettingsContractFn getSettingsContract = nullptr;
-        RedXePluginShutdownFn shutdown = nullptr;
-    };
-
     struct ProviderBuildKey final
     {
         std::array<char, kFactoryConfigurationCapacity> configuration{};
         std::uint32_t configurationBytes = 0;
-        std::size_t moduleIndex = 0;
+        const char* pluginId = nullptr;
     };
 
-    [[nodiscard]] HRESULT LoadBundledModule(const wchar_t* moduleName, const char* pluginId,
-                                            ModuleSlot& moduleSlot) noexcept;
-    [[nodiscard]] HRESULT CreateBundledProvider(ModuleSlot& moduleSlot, const char* pluginId,
-                                                const char* configurationJson, std::uint32_t configurationBytes,
+    [[nodiscard]] HRESULT CreateBundledProvider(const char* pluginId, const char* configurationJson,
+                                                std::uint32_t configurationBytes,
                                                 IRedXeWidgetProvider** provider) noexcept;
     [[nodiscard]] HRESULT CreateWidgetInstance(IRedXeWidgetProvider& provider, const WidgetInstanceSettings& settings,
                                                WidgetSlot& widgetSlot) noexcept;
     [[nodiscard]] HRESULT StageActivePage(const AppSettings& settings,
-                                          std::array<ModuleSlot, kMaximumModules>& loadedModules,
                                           std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
                                           std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,
                                           std::size_t& providerCount,
                                           std::array<WidgetSlot, kMaximumWidgetInstances>& widgets,
                                           std::size_t& widgetCount) noexcept;
 
-    std::array<ModuleSlot, kMaximumModules> _modules;
+    PluginHost _pluginHost;
     std::array<ProviderSlot, kMaximumWidgetInstances> _providers;
     std::array<WidgetSlot, kMaximumWidgetInstances> _widgets;
     std::size_t _providerCount = 0;

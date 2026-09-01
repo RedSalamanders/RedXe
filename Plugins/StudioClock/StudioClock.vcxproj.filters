@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files"><UniqueIdentifier>{6EFC3EE0-EF8C-4242-AF63-A226531535B7}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files"><UniqueIdentifier>{41880A50-ECDD-430F-81F8-B3E172DDFEAC}</UniqueIdentifier></Filter>
+    <Filter Include="Shader Files"><UniqueIdentifier>{9C728CE8-AB8A-4C90-BF3A-E999086BE694}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="StudioClock.cpp"><Filter>Source Files</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="StudioClockTestContract.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Host.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h"><Filter>Header Files</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="StudioClockBackgroundPixel.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="StudioClockBackgroundVertex.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="StudioClockDotPixel.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="StudioClockDotVertex.hlsl"><Filter>Shader Files</Filter></FxCompile>
+  </ItemGroup>
+</Project>

@@ -1,6 +1,7 @@
 #define REDXE_PLUGIN_EXPORTS
-#include "PlugInterfaces/DataProvider.h"
+#include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/FactoryImpl.h"
+#include "SystemDataTestContract.h"
 
 #include <algorithm>
 #include <array>
@@ -33,7 +34,7 @@ constexpr std::uint32_t kProcessColumnCount = 7;
 static_assert((kProcessHistoryCapacity & (kProcessHistoryCapacity - 1)) == 0);
 
 constexpr RedXePluginSettingsContract kSettingsContract{
-    sizeof(RedXePluginSettingsContract), 1, 0, kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
+    sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
 };
 
@@ -43,9 +44,9 @@ constexpr std::array kMetadata{
         kPluginId,
         L"System Data",
         L"Bounded local machine and process snapshots for RedXe data consumers.",
-        L"RedSalamanders",
+        L"RedXe",
         L"1.0.0",
-        RedXePluginCapabilityDataProvider,
+        RedXePluginCapabilityDataSource,
     },
 };
 
@@ -133,18 +134,34 @@ constexpr std::array kDataSets{
 
 [[nodiscard]] RedXeDataValue UInt64Value(std::uint64_t value, RedXeDataQuality quality) noexcept
 {
-    return RedXeDataValue{sizeof(RedXeDataValue), RedXeDataValueTypeUInt64, quality, value, 0.0, nullptr, 0};
+    RedXeDataValue result{};
+    result.sizeBytes = sizeof(result);
+    result.valueType = RedXeDataValueTypeUInt64;
+    result.quality = quality;
+    result.uint64Value = value;
+    return result;
 }
 
 [[nodiscard]] RedXeDataValue Float64Value(double value, RedXeDataQuality quality) noexcept
 {
-    return RedXeDataValue{sizeof(RedXeDataValue), RedXeDataValueTypeFloat64, quality, 0, value, nullptr, 0};
+    RedXeDataValue result{};
+    result.sizeBytes = sizeof(result);
+    result.valueType = RedXeDataValueTypeFloat64;
+    result.quality = quality;
+    result.float64Value = value;
+    return result;
 }
 
 [[nodiscard]] RedXeDataValue Utf16Value(const wchar_t* value, std::uint32_t characters,
                                         RedXeDataQuality quality) noexcept
 {
-    return RedXeDataValue{sizeof(RedXeDataValue), RedXeDataValueTypeUtf16, quality, 0, 0.0, value, characters};
+    RedXeDataValue result{};
+    result.sizeBytes = sizeof(result);
+    result.valueType = RedXeDataValueTypeUtf16;
+    result.quality = quality;
+    result.utf16Value = value;
+    result.utf16Characters = characters;
+    return result;
 }
 
 [[nodiscard]] bool PageCountToBytes(SIZE_T pageCount, SIZE_T pageSize, std::uint64_t& bytes) noexcept
@@ -190,7 +207,7 @@ struct ProcessCpuSample final
     std::uint64_t processorTime = 0;
 };
 
-class SystemDataProvider final : public IRedXeDataProvider
+class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataTestSource
 {
   public:
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
@@ -200,11 +217,18 @@ class SystemDataProvider final : public IRedXeDataProvider
             return E_POINTER;
         }
         *result = nullptr;
-        if (interfaceId != __uuidof(IUnknown) && interfaceId != __uuidof(IRedXeDataProvider))
+        if (interfaceId == __uuidof(IUnknown) || interfaceId == __uuidof(IRedXeDataSource))
+        {
+            *result = static_cast<IRedXeDataSource*>(this);
+        }
+        else if (interfaceId == __uuidof(IRedXeSystemDataTestSource))
+        {
+            *result = static_cast<IRedXeSystemDataTestSource*>(this);
+        }
+        else
         {
             return E_NOINTERFACE;
         }
-        *result = static_cast<IRedXeDataProvider*>(this);
         AddRef();
         return S_OK;
     }
@@ -274,6 +298,76 @@ class SystemDataProvider final : public IRedXeDataProvider
             return CollectProcesses(snapshot);
         }
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
+
+    HRESULT STDMETHODCALLTYPE GetTestDiagnostics(SystemDataTestDiagnostics* diagnostics) noexcept override
+    {
+        if (!diagnostics)
+        {
+            return E_POINTER;
+        }
+        if (diagnostics->sizeBytes != sizeof(SystemDataTestDiagnostics))
+        {
+            return E_INVALIDARG;
+        }
+        *diagnostics = SystemDataTestDiagnostics{
+            sizeof(SystemDataTestDiagnostics),
+            sizeof(SystemDataSource),
+            static_cast<std::uint32_t>(kMaximumProcesses),
+            static_cast<std::uint32_t>(kProcessNameCharacters),
+            0,
+            0,
+        };
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE CollectSyntheticProcessSnapshot(std::uint32_t requestedRows,
+                                                              const RedXeDataSnapshot** snapshot) noexcept override
+    {
+        if (snapshot)
+        {
+            *snapshot = nullptr;
+        }
+        if (!snapshot)
+        {
+            return E_POINTER;
+        }
+        if (requestedRows > kMaximumProcesses)
+        {
+            return E_INVALIDARG;
+        }
+        if (_collecting.test_and_set(std::memory_order_acquire))
+        {
+            return HRESULT_FROM_WIN32(ERROR_BUSY);
+        }
+        auto clearCollecting = wil::scope_exit([this] { _collecting.clear(std::memory_order_release); });
+
+        std::uint64_t ignoredIdle = 0;
+        std::uint64_t systemTotal = 0;
+        const bool hasSystemTimes = ReadSystemTimes(ignoredIdle, systemTotal);
+        const std::uint64_t systemDelta = hasSystemTimes && _hasProcessSystemTotal && systemTotal > _processSystemTotal
+                                              ? systemTotal - _processSystemTotal
+                                              : 0;
+
+        PROCESSENTRY32W entry{};
+        entry.dwSize = static_cast<DWORD>(sizeof(entry));
+        entry.th32ProcessID = GetCurrentProcessId();
+        entry.cntThreads = 1;
+        constexpr wchar_t kSyntheticImageName[] = L"synthetic.exe";
+        static_assert(std::size(kSyntheticImageName) <= std::size(entry.szExeFile));
+        std::wmemcpy(entry.szExeFile, kSyntheticImageName, std::size(kSyntheticImageName));
+
+        std::size_t rowCount = 0;
+        std::size_t nameCharacters = 0;
+        while (rowCount < requestedRows)
+        {
+            if (!AppendProcessRow(entry, systemDelta, rowCount, nameCharacters))
+            {
+                return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+            }
+        }
+        FinishProcessCollection(rowCount, false, hasSystemTimes, systemTotal, snapshot);
+        return S_OK;
     }
 
   private:
@@ -398,6 +492,121 @@ class SystemDataProvider final : public IRedXeDataProvider
         }
     }
 
+    [[nodiscard]] bool AppendProcessRow(const PROCESSENTRY32W& entry, std::uint64_t systemDelta, std::size_t& rowCount,
+                                        std::size_t& nameCharacters) noexcept
+    {
+        std::size_t imageCharacters = 0;
+        while (imageCharacters < std::size(entry.szExeFile) && entry.szExeFile[imageCharacters] != L'\0')
+        {
+            ++imageCharacters;
+        }
+        if (rowCount >= kMaximumProcesses || nameCharacters + imageCharacters + 1 > _processNames.size())
+        {
+            return false;
+        }
+
+        wchar_t* imageName = _processNames.data() + nameCharacters;
+        std::wmemcpy(imageName, entry.szExeFile, imageCharacters);
+        imageName[imageCharacters] = L'\0';
+        nameCharacters += imageCharacters + 1;
+
+        const DWORD desiredAccess = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ;
+        wil::unique_handle process{OpenProcess(desiredAccess, FALSE, entry.th32ProcessID)};
+        const bool canReadMemory = static_cast<bool>(process);
+        if (!process)
+        {
+            process.reset(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID));
+        }
+
+        ProcessCpuSample currentCpu{};
+        currentCpu.processId = entry.th32ProcessID;
+        RedXeDataQuality cpuQuality = process ? RedXeDataQualityInitializing : RedXeDataQualityUnavailable;
+        double cpuPercent = 0.0;
+        if (process)
+        {
+            FILETIME creation{};
+            FILETIME exit{};
+            FILETIME kernel{};
+            FILETIME user{};
+            if (GetProcessTimes(process.get(), &creation, &exit, &kernel, &user))
+            {
+                currentCpu.creationTime = FileTimeValue(creation);
+                currentCpu.processorTime = FileTimeValue(kernel) + FileTimeValue(user);
+                const ProcessCpuSample* previous = FindPreviousProcess(currentCpu.processId, currentCpu.creationTime);
+                if (previous && currentCpu.processorTime >= previous->processorTime && systemDelta != 0)
+                {
+                    cpuPercent = BoundedPercent(currentCpu.processorTime - previous->processorTime, systemDelta);
+                    cpuQuality = RedXeDataQualityGood;
+                }
+            }
+            else
+            {
+                cpuQuality = RedXeDataQualityUnavailable;
+            }
+        }
+        _currentCpu[rowCount] = currentCpu;
+
+        std::uint64_t workingSet = 0;
+        std::uint64_t privateBytes = 0;
+        RedXeDataQuality memoryQuality = RedXeDataQualityUnavailable;
+        if (canReadMemory)
+        {
+            PROCESS_MEMORY_COUNTERS_EX memory{};
+            memory.cb = static_cast<DWORD>(sizeof(memory));
+            if (K32GetProcessMemoryInfo(process.get(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory),
+                                        static_cast<DWORD>(sizeof(memory))))
+            {
+                workingSet = memory.WorkingSetSize;
+                privateBytes = memory.PrivateUsage;
+                memoryQuality = RedXeDataQualityGood;
+            }
+        }
+
+        DWORD handleCount = 0;
+        const RedXeDataQuality handleQuality = process && GetProcessHandleCount(process.get(), &handleCount)
+                                                   ? RedXeDataQualityGood
+                                                   : RedXeDataQualityUnavailable;
+
+        RedXeDataValue* values = _processValues.data() + rowCount * kProcessColumnCount;
+        values[0] = UInt64Value(entry.th32ProcessID, RedXeDataQualityGood);
+        values[1] = Utf16Value(imageName, static_cast<std::uint32_t>(imageCharacters), RedXeDataQualityGood);
+        values[2] = Float64Value(cpuPercent, cpuQuality);
+        values[3] = UInt64Value(workingSet, memoryQuality);
+        values[4] = UInt64Value(privateBytes, memoryQuality);
+        values[5] = UInt64Value(entry.cntThreads, RedXeDataQualityGood);
+        values[6] = UInt64Value(handleCount, handleQuality);
+        _processRows[rowCount] = RedXeDataRow{sizeof(RedXeDataRow), values, kProcessColumnCount};
+        ++rowCount;
+        return true;
+    }
+
+    void FinishProcessCollection(std::size_t rowCount, bool truncated, bool hasSystemTimes, std::uint64_t systemTotal,
+                                 const RedXeDataSnapshot** output) noexcept
+    {
+        _processHistory.fill({});
+        for (std::size_t index = 0; index < rowCount; ++index)
+        {
+            InsertProcessHistory(_currentCpu[index]);
+        }
+        if (hasSystemTimes)
+        {
+            _processSystemTotal = systemTotal;
+            _hasProcessSystemTotal = true;
+        }
+
+        _processSnapshot = RedXeDataSnapshot{
+            sizeof(RedXeDataSnapshot),
+            truncated ? RedXeDataSnapshotFlagTruncated : RedXeDataSnapshotFlagNone,
+            kProcessDataSetId,
+            ++_sequence,
+            CurrentTimestamp(),
+            _processRows.data(),
+            static_cast<std::uint32_t>(rowCount),
+            kProcessColumnCount,
+        };
+        *output = &_processSnapshot;
+    }
+
     [[nodiscard]] HRESULT CollectProcesses(const RedXeDataSnapshot** output) noexcept
     {
         HANDLE rawSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -428,90 +637,11 @@ class SystemDataProvider final : public IRedXeDataProvider
 
         while (hasEntry)
         {
-            std::size_t imageCharacters = 0;
-            while (imageCharacters < std::size(entry.szExeFile) && entry.szExeFile[imageCharacters] != L'\0')
-            {
-                ++imageCharacters;
-            }
-            if (rowCount >= kMaximumProcesses || nameCharacters + imageCharacters + 1 > _processNames.size())
+            if (!AppendProcessRow(entry, systemDelta, rowCount, nameCharacters))
             {
                 truncated = true;
                 break;
             }
-
-            wchar_t* imageName = _processNames.data() + nameCharacters;
-            std::wmemcpy(imageName, entry.szExeFile, imageCharacters);
-            imageName[imageCharacters] = L'\0';
-            nameCharacters += imageCharacters + 1;
-
-            const DWORD desiredAccess = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ;
-            wil::unique_handle process{OpenProcess(desiredAccess, FALSE, entry.th32ProcessID)};
-            bool canReadMemory = static_cast<bool>(process);
-            if (!process)
-            {
-                process.reset(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID));
-            }
-
-            ProcessCpuSample currentCpu{};
-            currentCpu.processId = entry.th32ProcessID;
-            RedXeDataQuality cpuQuality = process ? RedXeDataQualityInitializing : RedXeDataQualityUnavailable;
-            double cpuPercent = 0.0;
-            if (process)
-            {
-                FILETIME creation{};
-                FILETIME exit{};
-                FILETIME kernel{};
-                FILETIME user{};
-                if (GetProcessTimes(process.get(), &creation, &exit, &kernel, &user))
-                {
-                    currentCpu.creationTime = FileTimeValue(creation);
-                    currentCpu.processorTime = FileTimeValue(kernel) + FileTimeValue(user);
-                    const ProcessCpuSample* previous =
-                        FindPreviousProcess(currentCpu.processId, currentCpu.creationTime);
-                    if (previous && currentCpu.processorTime >= previous->processorTime && systemDelta != 0)
-                    {
-                        cpuPercent = BoundedPercent(currentCpu.processorTime - previous->processorTime, systemDelta);
-                        cpuQuality = RedXeDataQualityGood;
-                    }
-                }
-                else
-                {
-                    cpuQuality = RedXeDataQualityUnavailable;
-                }
-            }
-            _currentCpu[rowCount] = currentCpu;
-
-            std::uint64_t workingSet = 0;
-            std::uint64_t privateBytes = 0;
-            RedXeDataQuality memoryQuality = RedXeDataQualityUnavailable;
-            if (canReadMemory)
-            {
-                PROCESS_MEMORY_COUNTERS_EX memory{};
-                memory.cb = static_cast<DWORD>(sizeof(memory));
-                if (K32GetProcessMemoryInfo(process.get(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory),
-                                            static_cast<DWORD>(sizeof(memory))))
-                {
-                    workingSet = memory.WorkingSetSize;
-                    privateBytes = memory.PrivateUsage;
-                    memoryQuality = RedXeDataQualityGood;
-                }
-            }
-
-            DWORD handleCount = 0;
-            const RedXeDataQuality handleQuality = process && GetProcessHandleCount(process.get(), &handleCount)
-                                                       ? RedXeDataQualityGood
-                                                       : RedXeDataQualityUnavailable;
-
-            RedXeDataValue* values = _processValues.data() + rowCount * kProcessColumnCount;
-            values[0] = UInt64Value(entry.th32ProcessID, RedXeDataQualityGood);
-            values[1] = Utf16Value(imageName, static_cast<std::uint32_t>(imageCharacters), RedXeDataQualityGood);
-            values[2] = Float64Value(cpuPercent, cpuQuality);
-            values[3] = UInt64Value(workingSet, memoryQuality);
-            values[4] = UInt64Value(privateBytes, memoryQuality);
-            values[5] = UInt64Value(entry.cntThreads, RedXeDataQualityGood);
-            values[6] = UInt64Value(handleCount, handleQuality);
-            _processRows[rowCount] = RedXeDataRow{sizeof(RedXeDataRow), values, kProcessColumnCount};
-            ++rowCount;
 
             hasEntry = Process32NextW(processSnapshot.get(), &entry);
             enumerationError = hasEntry ? ERROR_SUCCESS : GetLastError();
@@ -521,28 +651,7 @@ class SystemDataProvider final : public IRedXeDataProvider
             }
         }
 
-        _processHistory.fill({});
-        for (std::size_t index = 0; index < rowCount; ++index)
-        {
-            InsertProcessHistory(_currentCpu[index]);
-        }
-        if (hasSystemTimes)
-        {
-            _processSystemTotal = systemTotal;
-            _hasProcessSystemTotal = true;
-        }
-
-        _processSnapshot = RedXeDataSnapshot{
-            sizeof(RedXeDataSnapshot),
-            truncated ? RedXeDataSnapshotFlagTruncated : RedXeDataSnapshotFlagNone,
-            kProcessDataSetId,
-            ++_sequence,
-            CurrentTimestamp(),
-            _processRows.data(),
-            static_cast<std::uint32_t>(rowCount),
-            kProcessColumnCount,
-        };
-        *output = &_processSnapshot;
+        FinishProcessCollection(rowCount, truncated, hasSystemTimes, systemTotal, output);
         return S_OK;
     }
 
@@ -565,12 +674,12 @@ class SystemDataProvider final : public IRedXeDataProvider
     RedXeDataSnapshot _processSnapshot{};
 };
 
-static_assert(sizeof(SystemDataProvider) < 1024U * 1024U);
+static_assert(sizeof(SystemDataSource) < 1024U * 1024U);
 
-HRESULT CreateSystemDataProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*,
-                                 void** result) noexcept
+HRESULT CreateSystemDataSource(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*,
+                               void** result) noexcept
 {
-    if (interfaceId != __uuidof(IRedXeDataProvider))
+    if (interfaceId != __uuidof(IRedXeDataSource))
     {
         return E_NOINTERFACE;
     }
@@ -580,17 +689,17 @@ HRESULT CreateSystemDataProvider(REFIID interfaceId, const RedXeFactoryOptions* 
         return configurationResult;
     }
 
-    auto* provider = new (std::nothrow) SystemDataProvider();
-    if (!provider)
+    auto* source = new (std::nothrow) SystemDataSource();
+    if (!source)
     {
         return E_OUTOFMEMORY;
     }
-    *result = static_cast<IRedXeDataProvider*>(provider);
+    *result = static_cast<IRedXeDataSource*>(source);
     return S_OK;
 }
 
 constexpr std::array kFactoryEntries{
-    RedXeFactoryEntry{&kMetadata[0], CreateSystemDataProvider},
+    RedXeFactoryEntry{&kMetadata[0], CreateSystemDataSource},
 };
 } // namespace
 

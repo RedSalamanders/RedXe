@@ -12,6 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\RedXe\Settings.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\RedXe\BundledPlugins.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\RedXe\SettingsWatcher.h"><Filter>Header Files</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>

@@ -5,7 +5,10 @@
   "declare": {
     "Matrix": { "plugin": "builtin.matrix-rain" },
     "Triangle": { "plugin": "builtin.rotating-triangle" },
-    "Orbit": { "plugin": "builtin.gdi-orbit" }
+    "Orbit": { "plugin": "builtin.gdi-orbit" },
+    "StudioClock": { "plugin": "builtin.studio-clock", "settings": { "externalDotsAlwaysOn": true } },
+    "DeskClock": { "plugin": "builtin.desk-clock" },
+    "Processes": { "plugin": "builtin.process-viewer", "settings": { "topN": 10 } }
   },
   "pages": [
     {
@@ -38,7 +41,10 @@
                 }
               }
             }
-          }
+          },
+          { "sizeRatio": 1, "widget": "StudioClock" },
+          { "sizeRatio": 1, "widget": "DeskClock" },
+          { "sizeRatio": 2, "widget": "Processes" }
         ]
       }
     }

@@ -1,7 +1,7 @@
 # RedXe build-process contract
 
 Status: current normative repository contract
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-01
 Owner: root build and test entrypoints
 
 ## Scope
@@ -30,9 +30,17 @@ independently launched or unrelated RedXe process.
 ## Output and validation
 
 Build outputs remain under `.build/<Platform>/<Configuration>/`, with intermediates under `.build/Intermediate/`.
+`build.ps1` MUST begin with the RedXe build banner and identify the selected platform and configuration. In a plain
+interactive console it MUST keep MSBuild attached directly so native color and message ordering are preserved. In
+Codex, Windows Terminal, redirected, or non-interactive hosts it MUST capture and replay both MSBuild streams so
+progress remains visible, coloring errors red, warnings yellow, and completed project outputs green without adding
+terminal control sequences to the captured log. Every MSBuild invocation MUST write a uniquely named UTF-8 plain-text
+log beneath `.build/logs/`, report diagnostic counts, and finish with its elapsed time and success or failure signal.
+
 `Tests/BuildProcessTests/BuildProcessTests.ps1` MUST launch two harmless same-name fixture processes from distinct
 paths, prove that the exact target blocks the build with identifying diagnostics, prove that both processes survive,
-and remove its isolated artifacts.
+and remove its isolated artifacts. It MUST also validate terminal-path selection, output color classification,
+diagnostic counting, banner identity, argument-safe streaming, combined logging, and child exit-code propagation.
 
 Changes to this contract require:
 

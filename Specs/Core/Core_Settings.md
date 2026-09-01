@@ -32,10 +32,12 @@ The build output MUST contain both templates and `RedXe.settings.schema.json`. R
 `Specs/Settings.schema.json`. The hidden `--self-test` path MUST use the deployed template and MUST NOT touch or watch
 the user's settings directory.
 
-Both shipped templates MUST contain one or two pages and demonstrate every settings-visible plugin compiled into the
-product. Their first page SHOULD remain a representative low-resource startup composition; another page MAY provide
-a denser gallery and alternate settings. Adding or removing a bundled plugin requires updating both templates and the
-template validation test in the same change.
+Both shipped templates MUST contain two pages: a representative low-resource startup composition followed by a
+denser gallery. Every settings-visible plugin compiled into the product MUST have at least one effective widget
+instance in each template; a declaration that is never placed does not count. The host-owned compile-time bundled
+plugin catalog is the source of truth for this coverage. Automated template validation MUST iterate that catalog and
+fail when either template or the canonical schema omits an entry. Adding or removing a bundled plugin therefore
+requires updating the catalog, schema support, and both templates in the same change.
 
 ## Version 4 document
 
@@ -83,6 +85,23 @@ no provider, widget, HWND, device resource, timer, or worker.
 RedXe validates host structure, resolves declarations and overrides, discovers every unique referenced plugin at most
 once, and validates every effective widget on every page. Inactive pages create no runtime widget resources. Contract
 or settings failure rejects the complete candidate. ABI details are normative in `Specs/Plugins/Plugins_API.md`.
+
+Process Viewer settings are `{ "topN": <integer> }`. `topN` is required after default resolution, ranges from 1
+through 32, and defaults to 10. Unknown members, non-integers, and values outside the range reject the complete
+candidate.
+
+Studio Clock settings are the closed object `showSecondProgress`, `externalDotsAlwaysOn`, `showSeconds`,
+`secondsColor`, `showDate`, `dateFormat`, `timeColor`, and `backgroundColor`. Defaults are respectively `true`, `true`,
+`true`, `#FF1616`, `false`, `dd-mm-yyyy`, `#FF1616`, and `#111111`. Colors are exact `#RRGGBB`; date format is one of
+`dd-mm-yyyy`, `mm-dd-yyyy`, and `yyyy-mm-dd`. The host merges omitted members from these defaults before static
+validation and provider creation. Unknown members, malformed booleans/colors, or another date format reject the
+complete candidate.
+
+Desk Clock settings are the closed object `flipDurationMilliseconds`, `backgroundColor`, `cardColor`, `digitColor`,
+and `dateColor`. Defaults are respectively `420`, `#000000`, `#FF3B43`, `#FFFFFF`, and `#D8D8D8`. Duration is an
+integer from 250 through 800 and colors are exact `#RRGGBB` strings with case-insensitive hexadecimal digits. The host
+merges omitted members from these defaults before static validation and provider creation. Unknown members,
+non-integer or out-of-range duration, and malformed colors reject the complete candidate.
 
 ## Pages and layout
 
@@ -141,7 +160,9 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 
 - Templates and canonical schema agree with v4 and all syntax, count, size, and depth limits.
 - Tests reject malformed syntax/version, duplicate and exact-version unknown members, unresolved references, invalid
-  merge results, and plugin settings failures.
+  merge results, plugin settings failures, Process Viewer `topN` values outside 1 through 32, and malformed Studio
+  Clock booleans including `externalDotsAlwaysOn`, colors, date formats, and unknown members. They also reject Desk
+  Clock duration and color failures and verify its complete merged defaults and valid partial overrides.
 - Tests cover merge rules, plugin replacement, minor compatibility, and compatible unknown-field preservation.
 - Tests verify exact invalid-default backup bytes/name, fresh installation, external fallback without mutation,
   one-time legacy Release filename migration, stamps, watching, last-valid preservation, modal refresh/close

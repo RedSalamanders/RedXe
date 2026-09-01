@@ -1,9 +1,13 @@
 #include "DashboardHost.h"
+#include "DeskClockTestContract.h"
 #include "FrameScheduler.h"
 #include "MatrixRainTestContract.h"
+#include "PluginHost.h"
 #include "PluginManager.h"
+#include "ProcessViewerTestContract.h"
 #include "Renderer.h"
 #include "Settings.h"
+#include "StudioClockTestContract.h"
 
 #include <array>
 #include <chrono>
@@ -180,6 +184,57 @@ struct ProcessMemorySnapshot final
     return getDiagnostics(&diagnostics);
 }
 
+[[nodiscard]] ProcessViewerGetTestDiagnosticsFn GetProcessViewerDiagnosticsFunction() noexcept
+{
+    return ResolveFunction<ProcessViewerGetTestDiagnosticsFn>(GetModuleHandleW(L"ProcessViewer.dll"),
+                                                              kProcessViewerGetTestDiagnosticsExport);
+}
+
+[[nodiscard]] HRESULT ReadProcessViewerDiagnostics(ProcessViewerTestDiagnostics& diagnostics) noexcept
+{
+    const ProcessViewerGetTestDiagnosticsFn getDiagnostics = GetProcessViewerDiagnosticsFunction();
+    if (!getDiagnostics)
+    {
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    }
+    diagnostics = ProcessViewerTestDiagnostics{sizeof(ProcessViewerTestDiagnostics)};
+    return getDiagnostics(&diagnostics);
+}
+
+[[nodiscard]] StudioClockGetTestDiagnosticsFn GetStudioClockDiagnosticsFunction() noexcept
+{
+    return ResolveFunction<StudioClockGetTestDiagnosticsFn>(GetModuleHandleW(L"StudioClock.dll"),
+                                                            kStudioClockGetTestDiagnosticsExport);
+}
+
+[[nodiscard]] HRESULT ReadStudioClockDiagnostics(StudioClockTestDiagnostics& diagnostics) noexcept
+{
+    const StudioClockGetTestDiagnosticsFn getDiagnostics = GetStudioClockDiagnosticsFunction();
+    if (!getDiagnostics)
+    {
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    }
+    diagnostics = StudioClockTestDiagnostics{sizeof(StudioClockTestDiagnostics)};
+    return getDiagnostics(&diagnostics);
+}
+
+[[nodiscard]] DeskClockGetTestDiagnosticsFn GetDeskClockDiagnosticsFunction() noexcept
+{
+    return ResolveFunction<DeskClockGetTestDiagnosticsFn>(GetModuleHandleW(L"DeskClock.dll"),
+                                                          kDeskClockGetTestDiagnosticsExport);
+}
+
+[[nodiscard]] HRESULT ReadDeskClockDiagnostics(DeskClockTestDiagnostics& diagnostics) noexcept
+{
+    const DeskClockGetTestDiagnosticsFn getDiagnostics = GetDeskClockDiagnosticsFunction();
+    if (!getDiagnostics)
+    {
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    }
+    diagnostics = DeskClockTestDiagnostics{sizeof(DeskClockTestDiagnostics)};
+    return getDiagnostics(&diagnostics);
+}
+
 void TestFrameScheduler(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] host frame scheduler decisions\n";
@@ -248,6 +303,20 @@ void TestReleaseHostIntegration(bool& success) noexcept
               L"Release static discovery maps the gallery triangle DLL without creating its page", success);
         Check(GetModuleHandleW(L"GdiOrbit.dll") != nullptr,
               L"Release static discovery maps the gallery GDI DLL without creating its page", success);
+        Check(GetModuleHandleW(L"ProcessViewer.dll") != nullptr,
+              L"Release static discovery maps the process viewer DLL without creating its page", success);
+        Check(GetModuleHandleW(L"StudioClock.dll") != nullptr,
+              L"Release static discovery maps the Studio Clock DLL without creating its page", success);
+        Check(GetModuleHandleW(L"DeskClock.dll") != nullptr,
+              L"Release static discovery maps the Desk Clock DLL without creating its page", success);
+        StudioClockTestDiagnostics inactiveClock{};
+        Check(SUCCEEDED(ReadStudioClockDiagnostics(inactiveClock)) && inactiveClock.liveProviderCount == 0 &&
+                  inactiveClock.liveWidgetCount == 0 && inactiveClock.liveSharedDeviceResourceSetCount == 0,
+              L"inactive gallery Studio Clock owns no provider, widget, or device resources", success);
+        DeskClockTestDiagnostics inactiveDeskClock{};
+        Check(SUCCEEDED(ReadDeskClockDiagnostics(inactiveDeskClock)) && inactiveDeskClock.liveProviders == 0 &&
+                  inactiveDeskClock.liveWidgets == 0 && inactiveDeskClock.liveDeviceResourceSets == 0,
+              L"inactive gallery Desk Clock owns no provider, widget, or device resources", success);
         if (FAILED(result))
         {
             return;
@@ -276,6 +345,11 @@ void TestReleaseHostIntegration(bool& success) noexcept
         Check(placement.x == 0.0f && placement.y == 0.0f && placement.width == 2560.0f && placement.height == 720.0f,
               L"sole Matrix widget fills the design canvas", success);
         Check(dashboard.RequiresContinuousFrames(), L"Matrix descriptor makes the host continuous", success);
+        std::uint32_t scheduledDelay = 123;
+        Check(dashboard.GetNextFrameDelayMilliseconds(nullptr) == E_POINTER,
+              L"scheduled-frame aggregation rejects a null output", success);
+        Check(dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay) == S_FALSE && scheduledDelay == 0,
+              L"a dashboard without scheduled widgets publishes no deadline", success);
         if (FAILED(result))
         {
             return;
@@ -375,6 +449,481 @@ void TestReleaseHostIntegration(bool& success) noexcept
           L"Release host teardown leaves no Matrix objects or device-resource sets", success);
 }
 
+void TestStudioClockScheduling(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] Studio Clock scheduled production host integration\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"name":"Clock","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock"}}]}}]})json";
+    constexpr std::string_view changedConfiguration =
+        R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#00EE44","showDate":true,"dateFormat":"yyyy-mm-dd","timeColor":"#E0E0FF","backgroundColor":"#050607"})json";
+
+    AttachedHostWindow window;
+    HRESULT result = window.Initialize(kHostWidth, kHostHeight);
+    AppSettings settings{};
+    if (SUCCEEDED(result))
+    {
+        result = ParseAppSettingsJson(settingsJson, settings);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    Check(SUCCEEDED(result) && plugins.ProviderCount() == 1 && plugins.WidgetCount() == 1,
+          L"Studio Clock production composition initializes", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    const StudioClockSetTestTimeFn setTime =
+        ResolveFunction<StudioClockSetTestTimeFn>(GetModuleHandleW(L"StudioClock.dll"), kStudioClockSetTestTimeExport);
+    Check(setTime != nullptr, L"Studio Clock deterministic-time export resolves", success);
+    if (!setTime)
+    {
+        return;
+    }
+    const StudioClockTestTime initialTime{sizeof(StudioClockTestTime), 2024, 12, 31, 23, 59, 46, 0};
+    result = setTime(&initialTime);
+
+    StudioClockTestDiagnostics diagnostics{};
+    if (SUCCEEDED(result))
+    {
+        result = ReadStudioClockDiagnostics(diagnostics);
+    }
+    Check(SUCCEEDED(result) && diagnostics.liveProviderCount == 1 && diagnostics.liveWidgetCount == 1 &&
+              diagnostics.liveSharedDeviceResourceSetCount == 0 && diagnostics.liveConstantBufferCount == 0,
+          L"Studio Clock manager owns CPU objects before renderer initialization", success);
+
+    AppSettings invalid = settings;
+    result = SetJsonObjectSettings(R"json({"showSeconds":true})json",
+                                   invalid.dashboard.pages[0].widgets[0].privateConfiguration);
+    const HRESULT invalidResult = SUCCEEDED(result) ? plugins.Reconfigure(invalid) : result;
+    Check(FAILED(invalidResult) && plugins.WidgetCount() == 1,
+          L"invalid Studio Clock live settings preserve the active widget", success);
+
+    AppSettings changed = settings;
+    result = SetJsonObjectSettings(changedConfiguration, changed.dashboard.pages[0].widgets[0].privateConfiguration);
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Reconfigure(changed);
+    }
+    Check(SUCCEEDED(result) && plugins.ProviderCount() == 1 && plugins.WidgetCount() == 1,
+          L"valid Studio Clock live settings replace the widget transactionally", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    DashboardHost dashboard;
+    result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    Check(SUCCEEDED(result) && !dashboard.RequiresContinuousFrames(),
+          L"Studio Clock remains a scheduled static widget instead of continuous animation", success);
+    std::uint32_t scheduledDelay = 0;
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay);
+    }
+    Check(SUCCEEDED(result) && scheduledDelay == 1001,
+          L"Studio Clock publishes the guarded next-second boundary through DashboardHost", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    Renderer renderer;
+    result = renderer.Initialize(window.Get(), true, dashboard);
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(0.0f, 0.0f);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ReadStudioClockDiagnostics(diagnostics);
+    }
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 1 && diagnostics.lastMapCount == 1 &&
+              diagnostics.lastDrawCount == 2 && diagnostics.lastInstanceCount == 402 &&
+              diagnostics.liveSharedDeviceResourceSetCount == 1 && diagnostics.liveConstantBufferCount == 1,
+          L"Studio Clock renders configured maximum content within its resource budgets", success);
+
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(0.1f, 0.1f);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ReadStudioClockDiagnostics(diagnostics);
+    }
+    Check(SUCCEEDED(result) && diagnostics.lastMapCount == 0, L"an unrelated host frame reuses Studio Clock constants",
+          success);
+
+    const StudioClockTestTime rolledTime{sizeof(StudioClockTestTime), 2024, 12, 31, 23, 59, 47, 0};
+    if (SUCCEEDED(result))
+    {
+        result = setTime(&rolledTime);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay);
+    }
+    Check(SUCCEEDED(result) && scheduledDelay == 1,
+          L"a changed wall-clock bucket requests one immediate corrective frame", success);
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(1.0f, 0.9f);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay);
+    }
+    Check(SUCCEEDED(result) && scheduledDelay == 1001, L"the corrective frame establishes a fresh second deadline",
+          success);
+
+    renderer.Shutdown();
+    dashboard.Shutdown();
+    result = ReadStudioClockDiagnostics(diagnostics);
+    Check(SUCCEEDED(result) && diagnostics.liveProviderCount == 1 && diagnostics.liveWidgetCount == 1 &&
+              diagnostics.liveSharedDeviceResourceSetCount == 0 && diagnostics.liveConstantBufferCount == 0,
+          L"Studio Clock host shutdown releases device resources before plugin CPU objects", success);
+    (void)setTime(nullptr);
+}
+
+void TestDeskClockScheduling(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] Desk Clock scheduled flip production host integration\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"name":"Clock","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock"}}]}}]})json";
+    constexpr std::string_view changedConfiguration =
+        R"json({"flipDurationMilliseconds":300,"backgroundColor":"#050607","cardColor":"#D02030","digitColor":"#F0F0FF","dateColor":"#C0C0D0"})json";
+
+    AttachedHostWindow window;
+    HRESULT result = window.Initialize(kHostWidth, kHostHeight);
+    AppSettings settings{};
+    if (SUCCEEDED(result))
+    {
+        result = ParseAppSettingsJson(settingsJson, settings);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    Check(SUCCEEDED(result) && plugins.ProviderCount() == 1 && plugins.WidgetCount() == 1,
+          L"Desk Clock production composition initializes", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    const HMODULE module = GetModuleHandleW(L"DeskClock.dll");
+    const DeskClockSetTestTimeFn setTime = ResolveFunction<DeskClockSetTestTimeFn>(module, kDeskClockSetTestTimeExport);
+    const DeskClockGetTestDiagnosticsFn getDiagnostics =
+        ResolveFunction<DeskClockGetTestDiagnosticsFn>(module, kDeskClockGetTestDiagnosticsExport);
+    Check(setTime != nullptr && getDiagnostics != nullptr, L"Desk Clock deterministic test exports resolve", success);
+    if (!setTime || !getDiagnostics)
+    {
+        return;
+    }
+    Check(getDiagnostics(nullptr) == E_POINTER, L"Desk Clock diagnostics rejects a null record", success);
+    DeskClockTestDiagnostics shortDiagnostics{sizeof(std::uint32_t)};
+    Check(getDiagnostics(&shortDiagnostics) == E_INVALIDARG, L"Desk Clock diagnostics rejects a short record", success);
+
+    const DeskClockTestTime initialTime{sizeof(DeskClockTestTime), 2024, 8, 6, 31, 19, 59, 59, 500};
+    result = setTime(&initialTime);
+    DeskClockTestDiagnostics diagnostics{};
+    if (SUCCEEDED(result))
+    {
+        result = ReadDeskClockDiagnostics(diagnostics);
+    }
+    Check(SUCCEEDED(result) && diagnostics.liveProviders == 1 && diagnostics.liveWidgets == 1 &&
+              diagnostics.liveDeviceResourceSets == 0,
+          L"Desk Clock manager owns bounded CPU objects before renderer initialization", success);
+
+    AppSettings invalid = settings;
+    result = SetJsonObjectSettings(R"json({"flipDurationMilliseconds":100})json",
+                                   invalid.dashboard.pages[0].widgets[0].privateConfiguration);
+    const HRESULT invalidResult = SUCCEEDED(result) ? plugins.Reconfigure(invalid) : result;
+    Check(FAILED(invalidResult) && plugins.WidgetCount() == 1,
+          L"invalid Desk Clock live settings preserve the active widget", success);
+
+    AppSettings changed = settings;
+    result = SetJsonObjectSettings(changedConfiguration, changed.dashboard.pages[0].widgets[0].privateConfiguration);
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Reconfigure(changed);
+    }
+    Check(SUCCEEDED(result) && plugins.ProviderCount() == 1 && plugins.WidgetCount() == 1,
+          L"valid Desk Clock live settings replace the widget transactionally", success);
+    if (FAILED(result))
+    {
+        (void)setTime(nullptr);
+        return;
+    }
+
+    DashboardHost dashboard;
+    result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    Check(SUCCEEDED(result) && !dashboard.RequiresContinuousFrames(),
+          L"Desk Clock is scheduled and remains idle between displayed seconds", success);
+    std::uint32_t scheduledDelay = 0;
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay);
+    }
+    Check(SUCCEEDED(result) && scheduledDelay == 1,
+          L"an uninitialized Desk Clock requests one immediate bootstrap frame", success);
+    if (FAILED(result))
+    {
+        (void)setTime(nullptr);
+        return;
+    }
+
+    Renderer renderer;
+    result = renderer.Initialize(window.Get(), true, dashboard);
+    DeskClockTestDiagnostics beforeRender{};
+    if (SUCCEEDED(result))
+    {
+        result = ReadDeskClockDiagnostics(beforeRender);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(0.0f, 0.0f);
+    }
+    DeskClockTestDiagnostics afterStatic{};
+    if (SUCCEEDED(result))
+    {
+        result = ReadDeskClockDiagnostics(afterStatic);
+    }
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 1 &&
+              afterStatic.liveDeviceResourceSets == 1 &&
+              afterStatic.constantUploads == beforeRender.constantUploads + 1 &&
+              afterStatic.drawCalls == beforeRender.drawCalls + 3,
+          L"Desk Clock renders one static upload and three batched draws at 2560x720", success);
+
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay);
+    }
+    Check(SUCCEEDED(result) && scheduledDelay == 500,
+          L"Desk Clock publishes the exact remaining delay to the next second", success);
+
+    const DeskClockTestTime rolledTime{sizeof(DeskClockTestTime), 2024, 8, 6, 31, 20, 0, 0, 0};
+    if (SUCCEEDED(result))
+    {
+        result = setTime(&rolledTime);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay);
+    }
+    Check(SUCCEEDED(result) && scheduledDelay == 1,
+          L"a changed Desk Clock sample requests one immediate corrective frame", success);
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(1.0f, 0.001f);
+    }
+    DeskClockTestDiagnostics duringFlip{};
+    if (SUCCEEDED(result))
+    {
+        result = ReadDeskClockDiagnostics(duringFlip);
+    }
+    Check(SUCCEEDED(result) && duringFlip.constantUploads == afterStatic.constantUploads + 1 &&
+              duringFlip.drawCalls == afterStatic.drawCalls + 4,
+          L"an active half-flap uses one upload and four bounded draws", success);
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay);
+    }
+    Check(SUCCEEDED(result) && scheduledDelay == 1, L"Desk Clock requests smooth frames only while its flap moves",
+          success);
+
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(1.351f, 0.350f);
+    }
+    DeskClockTestDiagnostics afterFlip{};
+    if (SUCCEEDED(result))
+    {
+        result = ReadDeskClockDiagnostics(afterFlip);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay);
+    }
+    Check(SUCCEEDED(result) && afterFlip.drawCalls == duringFlip.drawCalls + 3 && scheduledDelay >= 640 &&
+              scheduledDelay <= 650,
+          L"Desk Clock returns to three static draws and a blocked deadline after the flip", success);
+
+    const std::uint64_t hiddenSamples = afterFlip.timeSamples;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    if (SUCCEEDED(result))
+    {
+        result = ReadDeskClockDiagnostics(afterFlip);
+    }
+    Check(SUCCEEDED(result) && afterFlip.timeSamples == hiddenSamples,
+          L"an inactive Desk Clock interval performs no plugin-owned clock work", success);
+
+    renderer.Shutdown();
+    dashboard.Shutdown();
+    result = ReadDeskClockDiagnostics(afterFlip);
+    Check(SUCCEEDED(result) && afterFlip.liveDeviceResourceSets == 0,
+          L"Desk Clock host shutdown releases all device resources", success);
+    (void)setTime(nullptr);
+}
+
+void TestDataProviderLookup(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] Shared host data-provider lookup\n";
+    PluginHost host;
+
+    Check(host.GetDataProvider("builtin.system-data", nullptr) == E_POINTER,
+          L"host data-provider lookup rejects a null output", success);
+
+    IRedXeDataProvider* invalid = reinterpret_cast<IRedXeDataProvider*>(1);
+    HRESULT result = host.GetDataProvider("", &invalid);
+    Check(result == E_INVALIDARG && !invalid, L"host data-provider lookup rejects an invalid ID", success);
+
+    IRedXeDataProvider* uncleared = reinterpret_cast<IRedXeDataProvider*>(1);
+    result = host.GetDataProvider("missing", &uncleared);
+    Check(result == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) && !uncleared,
+          L"unknown host data-provider lookup clears its output", success);
+
+    wil::com_ptr_nothrow<IRedXeDataProvider> first;
+    wil::com_ptr_nothrow<IRedXeDataProvider> second;
+    result = host.GetDataProvider("builtin.system-data", first.put());
+    if (SUCCEEDED(result))
+    {
+        result = host.GetDataProvider("builtin.system-data", second.put());
+    }
+
+    wil::com_ptr_nothrow<IUnknown> firstIdentity;
+    wil::com_ptr_nothrow<IUnknown> secondIdentity;
+    if (SUCCEEDED(result))
+    {
+        result = first.query_to(firstIdentity.put());
+    }
+    if (SUCCEEDED(result))
+    {
+        result = second.query_to(secondIdentity.put());
+    }
+    Check(SUCCEEDED(result) && firstIdentity.get() == secondIdentity.get(),
+          L"repeated host lookup shares one provider runtime", success);
+
+    const RedXeDataSetDescriptor* descriptors = nullptr;
+    std::uint32_t descriptorCount = 0;
+    if (SUCCEEDED(result))
+    {
+        result = first->GetDataSets(&descriptors, &descriptorCount);
+    }
+    Check(SUCCEEDED(result) && descriptors && descriptorCount == 2, L"host data provider exposes its source datasets",
+          success);
+
+    wil::com_ptr_nothrow<IRedXeDataProvider> unsupported;
+    result = host.GetDataProvider("builtin.rotating-triangle", unsupported.put());
+    Check(result == E_NOINTERFACE && !unsupported, L"host data-provider lookup rejects a widget-only plugin", success);
+}
+
+void TestProcessViewerSubscription(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] Process Viewer data subscription\n";
+    AttachedHostWindow window;
+    HRESULT result = window.Initialize(kHostWidth, kHostHeight);
+    AppSettings settings{};
+    if (SUCCEEDED(result))
+    {
+        constexpr std::string_view processViewerComposition =
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer"}},{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer"}}]}}]})json";
+        result = ParseAppSettingsJson(processViewerComposition, settings);
+    }
+    Check(SUCCEEDED(result), L"Process Viewer isolated composition is parsed", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    ProcessViewerGetTestDiagnosticsFn getDiagnostics = nullptr;
+    {
+        PluginManager plugins;
+        result = plugins.Initialize(settings);
+        Check(SUCCEEDED(result) && plugins.ProviderCount() == 1 && plugins.WidgetCount() == 2 &&
+                  plugins.WindowWidgetAt(0) != nullptr && plugins.WindowWidgetAt(1) != nullptr &&
+                  plugins.GpuWidgetAt(0) == nullptr && plugins.GpuWidgetAt(1) == nullptr,
+              L"two Process Viewers share one widget provider", success);
+        if (FAILED(result))
+        {
+            return;
+        }
+
+        getDiagnostics = GetProcessViewerDiagnosticsFunction();
+        Check(getDiagnostics != nullptr, L"Process Viewer diagnostics export resolves", success);
+        if (!getDiagnostics)
+        {
+            return;
+        }
+        Check(getDiagnostics(nullptr) == E_POINTER, L"Process Viewer diagnostics rejects a null record", success);
+        ProcessViewerTestDiagnostics shortDiagnostics{sizeof(std::uint32_t)};
+        Check(getDiagnostics(&shortDiagnostics) == E_INVALIDARG, L"Process Viewer diagnostics rejects a short record",
+              success);
+
+        ProcessViewerTestDiagnostics diagnostics{};
+        result = ReadProcessViewerDiagnostics(diagnostics);
+        Check(SUCCEEDED(result) && diagnostics.liveProviderCount == 1 && diagnostics.liveWidgetCount == 2 &&
+                  diagnostics.liveSubscriptionCount == 2 && diagnostics.configuredTopN == 10 &&
+                  diagnostics.sampleCount == 0,
+              L"both Process Viewer subscriptions are inactive until shown", success);
+
+        DashboardHost dashboard;
+        if (SUCCEEDED(result))
+        {
+            result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+        }
+        Check(SUCCEEDED(result) && !dashboard.RequiresContinuousFrames(),
+              L"hidden Process Viewer attaches without requesting GPU frames", success);
+        if (SUCCEEDED(result))
+        {
+            result = dashboard.SetWidgetsVisible(true);
+        }
+
+        const ULONGLONG deadline = GetTickCount64() + 5000;
+        while (SUCCEEDED(result) && GetTickCount64() < deadline)
+        {
+            window.PumpMessages();
+            result = ReadProcessViewerDiagnostics(diagnostics);
+            if (FAILED(result) || (diagnostics.sampleCount > 0 && diagnostics.lastPublishedRowCount > 0))
+            {
+                break;
+            }
+            (void)MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+        }
+        Check(SUCCEEDED(result) && diagnostics.sampleCount > 0 && diagnostics.lastPublishedRowCount > 0 &&
+                  diagnostics.lastPublishedRowCount <= diagnostics.configuredTopN,
+              L"visible Process Viewers receive and bound a shared live process snapshot", success);
+
+        if (SUCCEEDED(result))
+        {
+            result = dashboard.SetWidgetsVisible(false);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = ReadProcessViewerDiagnostics(diagnostics);
+        }
+        const std::uint32_t quiescedSampleCount = diagnostics.sampleCount;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2200));
+        if (SUCCEEDED(result))
+        {
+            result = ReadProcessViewerDiagnostics(diagnostics);
+        }
+        Check(SUCCEEDED(result) && diagnostics.sampleCount == quiescedSampleCount,
+              L"hiding Process Viewers synchronously quiesces both subscriptions", success);
+        dashboard.Shutdown();
+    }
+
+    ProcessViewerTestDiagnostics finalDiagnostics{};
+    const HRESULT finalResult = getDiagnostics ? ReadProcessViewerDiagnostics(finalDiagnostics) : E_UNEXPECTED;
+    Check(SUCCEEDED(finalResult) && finalDiagnostics.liveProviderCount == 0 && finalDiagnostics.liveWidgetCount == 0 &&
+              finalDiagnostics.liveSubscriptionCount == 0,
+          L"Process Viewer teardown releases provider, widget, and subscription objects", success);
+}
+
 void TestDebugHostComposition(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] Debug multi-plugin production host integration\n";
@@ -425,10 +974,10 @@ void TestDebugHostComposition(bool& success) noexcept
         return;
     }
 
-    result = dashboard.SetWindowWidgetsVisible(true);
+    result = dashboard.SetWidgetsVisible(true);
     if (SUCCEEDED(result))
     {
-        result = dashboard.SetWindowWidgetsVisible(false);
+        result = dashboard.SetWidgetsVisible(false);
     }
     Check(SUCCEEDED(result), L"production host propagates native-widget resume and quiesce transitions", success);
 
@@ -520,6 +1069,272 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
     (void)renderer.RefreshLayout();
     renderer.Shutdown();
     dashboard.Shutdown();
+}
+
+[[nodiscard]] bool RunStudioClockHostSoak(std::chrono::seconds duration) noexcept
+{
+    bool success = true;
+    std::wcout << L"[ RUN      ] scheduled production-host Studio Clock soak\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"name":"Clock","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock"}}]}}]})json";
+    AttachedHostWindow window;
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, settings);
+    if (SUCCEEDED(result))
+    {
+        result = window.Initialize(kHostWidth, kHostHeight);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    DashboardHost dashboard;
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    }
+    Renderer renderer;
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Initialize(window.Get(), true, dashboard);
+    }
+    Check(SUCCEEDED(result) && !dashboard.RequiresContinuousFrames(), L"Studio Clock soak host initializes", success);
+    if (FAILED(result))
+    {
+        return false;
+    }
+
+    const StudioClockSetTestTimeFn setTime =
+        ResolveFunction<StudioClockSetTestTimeFn>(GetModuleHandleW(L"StudioClock.dll"), kStudioClockSetTestTimeExport);
+    if (!setTime || FAILED(setTime(nullptr)))
+    {
+        return false;
+    }
+    result = renderer.Render(0.0f, 0.0f);
+    StudioClockTestDiagnostics diagnosticsBefore{};
+    StudioClockTestDiagnostics diagnosticsAfter{};
+    ProcessMemorySnapshot memoryBefore{};
+    ProcessMemorySnapshot memoryAfter{};
+    if (SUCCEEDED(result))
+    {
+        result = ReadStudioClockDiagnostics(diagnosticsBefore);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = QueryProcessMemorySnapshot(memoryBefore);
+    }
+
+    std::uint64_t frames = 1;
+    std::uint64_t correctiveFrames = 0;
+    const auto started = std::chrono::steady_clock::now();
+    const auto deadline = started + duration;
+    auto previous = started;
+    while (SUCCEEDED(result) && std::chrono::steady_clock::now() < deadline)
+    {
+        std::uint32_t delay = 0;
+        result = dashboard.GetNextFrameDelayMilliseconds(&delay);
+        if (FAILED(result) || delay == 0 || delay > 1001)
+        {
+            std::wcout << L"studio_clock_host_soak unexpected_delay=" << delay << L" hresult=0x" << std::hex
+                       << static_cast<std::uint32_t>(result) << std::dec << L'\n';
+            break;
+        }
+        if (delay == 1)
+        {
+            ++correctiveFrames;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline)
+        {
+            break;
+        }
+        const float elapsed = std::chrono::duration<float>(now - started).count();
+        const float delta = std::chrono::duration<float>(now - previous).count();
+        previous = now;
+        result = renderer.Render(elapsed, delta);
+        ++frames;
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ReadStudioClockDiagnostics(diagnosticsAfter);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = QueryProcessMemorySnapshot(memoryAfter);
+    }
+    Check(SUCCEEDED(result), L"Studio Clock scheduled soak frames render without failure", success);
+    const std::uint64_t expectedSeconds = static_cast<std::uint64_t>(duration.count());
+    Check(correctiveFrames <= 1 && frames >= expectedSeconds && frames <= expectedSeconds + 1 + correctiveFrames,
+          L"Studio Clock soak renders no more than one scheduled frame per displayed second plus one correction",
+          success);
+    Check(diagnosticsAfter.liveProviderCount == diagnosticsBefore.liveProviderCount &&
+              diagnosticsAfter.liveWidgetCount == diagnosticsBefore.liveWidgetCount &&
+              diagnosticsAfter.liveSharedDeviceResourceSetCount == diagnosticsBefore.liveSharedDeviceResourceSetCount &&
+              diagnosticsAfter.liveConstantBufferCount == diagnosticsBefore.liveConstantBufferCount,
+          L"Studio Clock soak retains stable object and resource counts", success);
+
+    const std::uint64_t hiddenSampleCount = diagnosticsAfter.timeSampleCount;
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    result = ReadStudioClockDiagnostics(diagnosticsAfter);
+    Check(SUCCEEDED(result) && diagnosticsAfter.timeSampleCount == hiddenSampleCount,
+          L"a hidden Studio Clock interval performs no plugin-owned clock work", success);
+    std::wcout << L"studio_clock_host_soak seconds=" << duration.count() << L" frames=" << frames
+               << L" corrective_frames=" << correctiveFrames << L" private_bytes_delta="
+               << (static_cast<std::int64_t>(memoryAfter.privateBytes) -
+                   static_cast<std::int64_t>(memoryBefore.privateBytes))
+               << L" working_set_delta="
+               << (static_cast<std::int64_t>(memoryAfter.workingSetBytes) -
+                   static_cast<std::int64_t>(memoryBefore.workingSetBytes))
+               << L" providers=" << diagnosticsAfter.liveProviderCount << L" widgets="
+               << diagnosticsAfter.liveWidgetCount << L" device_resource_sets="
+               << diagnosticsAfter.liveSharedDeviceResourceSetCount << L" constant_buffers="
+               << diagnosticsAfter.liveConstantBufferCount << L'\n';
+
+    renderer.Shutdown();
+    dashboard.Shutdown();
+    result = ReadStudioClockDiagnostics(diagnosticsAfter);
+    Check(SUCCEEDED(result) && diagnosticsAfter.liveSharedDeviceResourceSetCount == 0 &&
+              diagnosticsAfter.liveConstantBufferCount == 0,
+          L"Studio Clock soak shutdown releases all device resources", success);
+    return success;
+}
+
+[[nodiscard]] bool RunDeskClockHostSoak(std::chrono::seconds duration) noexcept
+{
+    bool success = true;
+    std::wcout << L"[ RUN      ] scheduled production-host Desk Clock flip soak\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"name":"Clock","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock"}}]}}]})json";
+    AttachedHostWindow window;
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, settings);
+    if (SUCCEEDED(result))
+    {
+        result = window.Initialize(kHostWidth, kHostHeight);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    DashboardHost dashboard;
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    }
+    Renderer renderer;
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Initialize(window.Get(), true, dashboard);
+    }
+    Check(SUCCEEDED(result) && !dashboard.RequiresContinuousFrames(), L"Desk Clock soak host initializes", success);
+    if (FAILED(result))
+    {
+        return false;
+    }
+
+    const DeskClockSetTestTimeFn setTime =
+        ResolveFunction<DeskClockSetTestTimeFn>(GetModuleHandleW(L"DeskClock.dll"), kDeskClockSetTestTimeExport);
+    if (!setTime || FAILED(setTime(nullptr)))
+    {
+        return false;
+    }
+    result = renderer.Render(0.0f, 0.0f);
+    DeskClockTestDiagnostics diagnosticsBefore{};
+    DeskClockTestDiagnostics diagnosticsAfter{};
+    ProcessMemorySnapshot memoryBefore{};
+    ProcessMemorySnapshot memoryAfter{};
+    if (SUCCEEDED(result))
+    {
+        result = ReadDeskClockDiagnostics(diagnosticsBefore);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = QueryProcessMemorySnapshot(memoryBefore);
+    }
+
+    std::uint64_t frames = 0;
+    std::uint64_t activeDelayCount = 0;
+    std::uint64_t idleDelayCount = 0;
+    const auto started = std::chrono::steady_clock::now();
+    const auto deadline = started + duration;
+    auto previous = started;
+    while (SUCCEEDED(result) && std::chrono::steady_clock::now() < deadline)
+    {
+        std::uint32_t delay = 0;
+        result = dashboard.GetNextFrameDelayMilliseconds(&delay);
+        if (FAILED(result) || delay == 0 || delay > 1000)
+        {
+            std::wcout << L"desk_clock_host_soak unexpected_delay=" << delay << L" hresult=0x" << std::hex
+                       << static_cast<std::uint32_t>(result) << std::dec << L'\n';
+            break;
+        }
+        if (delay == 1)
+        {
+            ++activeDelayCount;
+        }
+        else
+        {
+            ++idleDelayCount;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline)
+        {
+            break;
+        }
+        const float elapsed = std::chrono::duration<float>(now - started).count();
+        const float delta = std::chrono::duration<float>(now - previous).count();
+        previous = now;
+        result = renderer.Render(elapsed, delta);
+        ++frames;
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ReadDeskClockDiagnostics(diagnosticsAfter);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = QueryProcessMemorySnapshot(memoryAfter);
+    }
+    Check(SUCCEEDED(result), L"Desk Clock scheduled soak frames render without failure", success);
+    const std::uint64_t expectedSeconds = static_cast<std::uint64_t>(duration.count());
+    Check(frames >= expectedSeconds && frames <= expectedSeconds * 1002 + 1,
+          L"Desk Clock soak stays bounded to its second boundary and flip bursts", success);
+    Check(activeDelayCount != 0 && idleDelayCount != 0,
+          L"Desk Clock soak observes both active-flip and blocked-idle scheduling", success);
+    Check(diagnosticsAfter.liveProviders == diagnosticsBefore.liveProviders &&
+              diagnosticsAfter.liveWidgets == diagnosticsBefore.liveWidgets &&
+              diagnosticsAfter.liveDeviceResourceSets == diagnosticsBefore.liveDeviceResourceSets,
+          L"Desk Clock soak retains stable object and resource counts", success);
+    const std::uint64_t soakDraws = diagnosticsAfter.drawCalls - diagnosticsBefore.drawCalls;
+    Check(soakDraws >= frames * 3 && soakDraws <= frames * 4,
+          L"Desk Clock soak remains within three static or four animated draws per frame", success);
+
+    const std::uint64_t hiddenSampleCount = diagnosticsAfter.timeSamples;
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    result = ReadDeskClockDiagnostics(diagnosticsAfter);
+    Check(SUCCEEDED(result) && diagnosticsAfter.timeSamples == hiddenSampleCount,
+          L"a hidden Desk Clock interval performs no plugin-owned clock work", success);
+    std::wcout << L"desk_clock_host_soak seconds=" << duration.count() << L" frames=" << frames << L" active_delays="
+               << activeDelayCount << L" idle_delays=" << idleDelayCount << L" private_bytes_delta="
+               << (static_cast<std::int64_t>(memoryAfter.privateBytes) -
+                   static_cast<std::int64_t>(memoryBefore.privateBytes))
+               << L" working_set_delta="
+               << (static_cast<std::int64_t>(memoryAfter.workingSetBytes) -
+                   static_cast<std::int64_t>(memoryBefore.workingSetBytes))
+               << L" providers=" << diagnosticsAfter.liveProviders << L" widgets=" << diagnosticsAfter.liveWidgets
+               << L" device_resource_sets=" << diagnosticsAfter.liveDeviceResourceSets << L" draws=" << soakDraws
+               << L'\n';
+
+    renderer.Shutdown();
+    dashboard.Shutdown();
+    result = ReadDeskClockDiagnostics(diagnosticsAfter);
+    Check(SUCCEEDED(result) && diagnosticsAfter.liveDeviceResourceSets == 0,
+          L"Desk Clock soak shutdown releases all device resources", success);
+    return success;
 }
 
 [[nodiscard]] bool RunMatrixHostSoak(std::chrono::seconds duration) noexcept
@@ -672,6 +1487,26 @@ int wmain(int argumentCount, wchar_t** arguments)
         }
         return RunMatrixHostSoak(duration) ? 0 : 1;
     }
+    if (argumentCount >= 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--studio-clock-soak")
+    {
+        std::chrono::seconds duration{};
+        if (!TryParseDuration(argumentCount, arguments, duration))
+        {
+            std::wcerr << L"Usage: HostPluginTests.exe --studio-clock-soak [--seconds=1..3600]\n";
+            return 2;
+        }
+        return RunStudioClockHostSoak(duration) ? 0 : 1;
+    }
+    if (argumentCount >= 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--desk-clock-soak")
+    {
+        std::chrono::seconds duration{};
+        if (!TryParseDuration(argumentCount, arguments, duration))
+        {
+            std::wcerr << L"Usage: HostPluginTests.exe --desk-clock-soak [--seconds=1..3600]\n";
+            return 2;
+        }
+        return RunDeskClockHostSoak(duration) ? 0 : 1;
+    }
     if (argumentCount != 1)
     {
         std::wcerr << L"Unknown HostPluginTests argument.\n";
@@ -681,7 +1516,11 @@ int wmain(int argumentCount, wchar_t** arguments)
     bool success = true;
     TestFrameScheduler(success);
     TestReleaseHostIntegration(success);
+    TestStudioClockScheduling(success);
+    TestDeskClockScheduling(success);
     TestDebugHostComposition(success);
+    TestDataProviderLookup(success);
+    TestProcessViewerSubscription(success);
     TestNonDivisibleGridEdges(success);
     std::wcout << (success ? L"HostPluginTests passed.\n" : L"HostPluginTests failed.\n");
     return success ? 0 : 1;

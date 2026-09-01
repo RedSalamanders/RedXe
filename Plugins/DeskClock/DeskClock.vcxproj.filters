@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files"><UniqueIdentifier>{3BDF827A-D7B9-4EA8-A506-084BF22C17B7}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files"><UniqueIdentifier>{8D448989-CE27-4D15-8976-F48E70BE9560}</UniqueIdentifier></Filter>
+    <Filter Include="Shader Files"><UniqueIdentifier>{52CA17C7-BEC0-4731-A24F-F37D8E97D13E}</UniqueIdentifier></Filter>
+    <Filter Include="Assets"><UniqueIdentifier>{1A537BC6-3EE3-4DA9-9BAC-D68C44B9BB17}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup><ClCompile Include="DeskClock.cpp"><Filter>Source Files</Filter></ClCompile></ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="DeskClockTestContract.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h"><Filter>Header Files</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="DeskClockBackgroundPixel.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="DeskClockBackgroundVertex.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="DeskClockPixel.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="DeskClockVertex.hlsl"><Filter>Shader Files</Filter></FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md"><Filter>Assets</Filter></None>
+  </ItemGroup>
+</Project>

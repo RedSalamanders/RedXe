@@ -1,7 +1,8 @@
-# WIP: Studio Clock Direct3D plugin
+# Done: Studio Clock Direct3D plugin
 
-Status: `ACTIVE`
+Status: `COMPLETE`
 Created: 2026-08-31
+Completed: 2026-08-31
 Owner: RedXe plugin, settings, frame scheduling, and Direct3D rendering
 
 ## Purpose
@@ -12,7 +13,7 @@ hours and minutes, smaller numeric seconds, and a circular 60-step seconds-progr
 The reference photograph is visual inspiration only. RedXe will create original procedural geometry and must not copy
 the pictured product's logo, enclosure, exact industrial design, or other branding.
 
-This WIP is a non-normative implementation plan. Before closeout, durable behavior MUST move into:
+This completed plan is a non-normative historical implementation record. Durable behavior is normative in:
 
 - `Specs/Plugins/Plugins_API.md` for the plugin and scheduled-widget ABI;
 - `Specs/Core/Core_Settings.md` and the Studio Clock static plugin schema for settings behavior;
@@ -158,8 +159,10 @@ Contract proposal:
 - When no visible scheduled widget has a deadline, the existing indefinite message wait remains in use.
 - Hidden, minimized, suspended, display-off, and occluded states discard scheduled waits and block on existing
   visibility/occlusion signals. Visibility recovery invalidates once and establishes a fresh deadline.
-- Clock instances request the next local second boundary when either seconds display is enabled. When both are
-  disabled, they request the next local minute boundary because `HH:MM` is then the next changing field.
+- Clock instances request one millisecond after the next local second boundary when either seconds display is
+  enabled. When both are disabled, they request one millisecond after the next local minute boundary because `HH:MM`
+  is then the next changing field. The post-boundary guard prevents a coarse or early host wait from rendering the
+  prior wall-clock bucket twice.
 - If another visible widget already requires continuous frames, the clock adds no wake-up. It reuses cached time and
   constants until the wall-clock bucket changes but still redraws its content because the host target is rebuilt.
 - A failed schedule query does not busy-loop. The host isolates the failure and waits for an unrelated invalidation.
@@ -196,9 +199,10 @@ host-owned primitive-batching IID; the frozen immediate-context GPU interface re
 
 ### Device lifecycle
 
-- Provider-owned reusable resources are the embedded shaders, one dynamic constant buffer, and immutable blend,
-  rasterizer, and depth states. Compatible instances share them.
-- Widget-owned state is bounded validated settings, cached time digits, layout values, and next-boundary state.
+- Provider-owned reusable resources are the embedded shaders and immutable blend, rasterizer, and depth states.
+  Compatible instances share one immutable device-resource set.
+- Widget-owned state is one 160-byte dynamic constant buffer, bounded validated settings, cached time digits, layout
+  values, and next-boundary state. A buffer is not shared because each widget can have independent time/layout state.
 - `OnDeviceCreated` creates the complete device-resource set transactionally.
 - `OnDeviceLost` releases device resources idempotently before the host releases its device.
 - Partial creation failure leaves the provider device-lost and releases every temporary resource.
@@ -264,8 +268,9 @@ directory, and is referenced by RedXe for build ordering only, without static im
 
 ### Scheduling and host behavior
 
-- Use deterministic time inputs in tests to prove second-boundary and minute-boundary delay calculations, including
-  midnight, month/year rollover, leap day, daylight-saving/time-zone notification, resume, and clock rollback.
+- Use deterministic time inputs in tests to prove guarded second-boundary and minute-boundary delay calculations,
+  including midnight, month/year rollover, leap day, daylight-saving/time-zone notification, resume, and clock
+  rollback.
 - Prove that clock-only pages do not select continuous rendering; due deadlines coalesce exactly one invalidation.
 - Prove that queued messages wake the deadline wait, unrelated messages do not create a frame, and a continuous
   sibling adds no extra clock wake.
@@ -298,15 +303,49 @@ directory, and is referenced by RedXe for build ordering only, without static im
 ## Implementation sequence
 
 1. [x] Review and freeze the visual behavior, settings defaults, and `IRedXeScheduledWidget` semantics.
-2. [ ] Add the sibling scheduling IID, host deadline aggregation, message-aware wait, and focused scheduler/ABI tests.
-3. [ ] Add the Studio Clock project, metadata, factory/static settings contract, and all solution configurations.
-4. [ ] Implement strict effective-settings parsing and transactional host integration.
-5. [ ] Implement procedural dot shaders, embedded bytecode, resource lifecycle, and cached time/layout state.
-6. [ ] Add the clock to both shipped gallery templates without changing the Release startup composition.
-7. [ ] Add deterministic settings, schedule, WARP pixel, device-loss, import, rollback, and teardown coverage.
-8. [ ] Measure the resource budget, run the full validation matrix, reconcile the active architecture RFC, and update
+2. [x] Add the sibling scheduling IID, host deadline aggregation, message-aware wait, and focused scheduler/ABI tests.
+3. [x] Add the Studio Clock project, metadata, factory/static settings contract, and all solution configurations.
+4. [x] Implement strict effective-settings parsing and transactional host integration.
+5. [x] Implement procedural dot shaders, embedded bytecode, resource lifecycle, and cached time/layout state.
+6. [x] Add the clock to both shipped gallery templates without changing the Release startup composition.
+7. [x] Add deterministic settings, schedule, WARP pixel, device-loss, import, rollback, and teardown coverage.
+8. [x] Measure the resource budget, run the full validation matrix, reconcile the active architecture RFC, and update
    every owning normative contract.
-9. [ ] Record completion evidence, move this plan to `Specs/Plans/Done/`, and remove its WIP index row.
+9. [x] Record completion evidence, move this plan to `Specs/Plans/Done/`, and remove its WIP index row.
+
+## Completion evidence
+
+All validation was performed on 2026-08-31 without desktop automation.
+
+- `./format.ps1` formatted the complete source set successfully.
+- `./test.ps1 -Configuration Debug -Platform x64 -Rebuild` and
+  `./test.ps1 -Configuration Release -Platform x64 -Rebuild` passed the complete build, plugin ABI, System Data,
+  Studio Clock, settings/schema/watcher, production host/plugin, hidden WARP, and isolated crash-test matrix.
+- `./build.ps1 -Configuration Release -Platform ARM64 -Rebuild` compiled the host, Studio Clock, focused tests, and
+  production host harness for ARM64. An earlier run reported one transient file-delete warning on a generated
+  settings output; the final ARM64 rebuild completed cleanly.
+- `./validate-skills.ps1` and `git diff --check` passed. JSON and MSBuild XML inputs parsed successfully, and Release
+  import inspection found no runtime HLSL compiler, DirectWrite, or WIC dependency in `StudioClock.dll`.
+- Focused tests cover every settings visibility combination, all date orders, accepted/rejected colors and members,
+  V1/V2 factory behavior, controlling-IUnknown identity, guarded second/minute scheduling, transaction rollback,
+  active ring counts at 00/01/30/59, all configured colors, square fit at 900x500, 500x900, and 160x160, DPI cache
+  refresh, device recreation, shared immutable resources, per-widget buffers, zero steady render allocations, and
+  complete teardown.
+- The final 2560x720 reference capture shows the intended hierarchy and proportions: dominant `HH:MM`, smaller
+  numeric seconds, optional date, a clockwise 60-position ring beginning at twelve o'clock, configured red active
+  dots, dim future dots, and no copied branding or enclosure.
+- Release `StudioClockTests.exe --benchmark` at 2560x720 measured 0.159 microseconds/frame for the disabled baseline
+  and 244.319 microseconds/frame with Studio Clock, a 244.160 microsecond CPU submission delta including an explicit
+  immediate-context flush per measured WARP frame. D3D timestamp time was 0.0858 ms/frame. Private bytes changed by
+  +110,592 and working set by +176,128 bytes. The unchanged final frame used zero maps, two draws, and 272 submitted
+  instances; the maximum-content path is bounded at 558 instances and one 160-byte map.
+- Release `HostPluginTests.exe --studio-clock-soak --seconds=300` ran the production scheduled host for five minutes:
+  300 total initial-plus-scheduled frames, stable provider/widget/shared-device-set/constant-buffer counts of 1/1/1/1,
+  private-byte delta +2,273,280, working-set delta +16,728,064, zero plugin-owned time sampling during the two-second
+  hidden interval, and device-resource counts returned to zero on shutdown.
+- The measured two-draw low-cadence clock does not justify a host primitive-batching IID. The active architecture RFC
+  now limits that open decision to a materially larger widget family, while the scheduled sibling IID and Studio
+  Clock behavior are normative in the owning plugin, settings, resource, and dashboard contracts.
 
 ## Closeout condition
 

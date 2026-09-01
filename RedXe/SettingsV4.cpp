@@ -1,5 +1,6 @@
 #include "Settings.h"
 
+#include "BundledPlugins.h"
 #include "PlugInterfaces/Factory.h"
 
 #include <array>
@@ -28,8 +29,16 @@ using unique_json = wil::unique_any<char*, decltype(&free), free>;
 constexpr char kTrianglePlugin[] = "builtin.rotating-triangle";
 constexpr char kGdiPlugin[] = "builtin.gdi-orbit";
 constexpr char kMatrixPlugin[] = "builtin.matrix-rain";
+constexpr char kProcessViewerPlugin[] = "builtin.process-viewer";
+constexpr char kStudioClockPlugin[] = "builtin.studio-clock";
+constexpr char kDeskClockPlugin[] = "builtin.desk-clock";
 constexpr char kMatrixDefaults[] =
     R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35})json";
+constexpr char kProcessViewerDefaults[] = R"json({"topN":10})json";
+constexpr char kStudioClockDefaults[] =
+    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","backgroundColor":"#111111"})json";
+constexpr char kDeskClockDefaults[] =
+    R"json({"flipDurationMilliseconds":420,"backgroundColor":"#000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json";
 
 struct Declaration final
 {
@@ -50,20 +59,13 @@ struct Declaration final
 
 [[nodiscard]] bool IsKnownPlugin(std::string_view plugin, const char*& typeId) noexcept
 {
-    if (plugin == kTrianglePlugin)
+    for (const RedXeBundledWidgetSpec& candidate : kRedXeBundledWidgets)
     {
-        typeId = "rotating-triangle";
-        return true;
-    }
-    if (plugin == kGdiPlugin)
-    {
-        typeId = "gdi-orbit";
-        return true;
-    }
-    if (plugin == kMatrixPlugin)
-    {
-        typeId = "matrix-rain";
-        return true;
+        if (plugin == candidate.pluginId)
+        {
+            typeId = candidate.typeId;
+            return true;
+        }
     }
     return false;
 }
@@ -251,6 +253,85 @@ struct Declaration final
            inRange("glowPercent", 0, 100) && color("headColor") && color("trailColor") && color("backgroundColor");
 }
 
+[[nodiscard]] bool ValidateProcessViewerSettings(yyjson_val* settings) noexcept
+{
+    if (!ObjectHasOnly(settings, {"topN"}, false) || yyjson_obj_size(settings) != 1)
+    {
+        return false;
+    }
+    yyjson_val* topN = yyjson_obj_get(settings, "topN");
+    return yyjson_is_uint(topN) && yyjson_get_uint(topN) >= 1 && yyjson_get_uint(topN) <= 32;
+}
+
+[[nodiscard]] bool ValidateStudioClockSettings(yyjson_val* settings) noexcept
+{
+    if (!ObjectHasOnly(settings,
+                       {"showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor", "showDate",
+                        "dateFormat", "timeColor", "backgroundColor"},
+                       false) ||
+        yyjson_obj_size(settings) != 8)
+    {
+        return false;
+    }
+    auto color = [settings](const char* key) noexcept
+    {
+        yyjson_val* value = yyjson_obj_get(settings, key);
+        const char* text = yyjson_is_str(value) ? yyjson_get_str(value) : nullptr;
+        if (!text || yyjson_get_len(value) != 7 || text[0] != '#')
+        {
+            return false;
+        }
+        for (std::size_t index = 1; index < 7; ++index)
+        {
+            if (!std::isxdigit(static_cast<unsigned char>(text[index])))
+            {
+                return false;
+            }
+        }
+        return true;
+    };
+    yyjson_val* dateFormatValue = yyjson_obj_get(settings, "dateFormat");
+    const char* dateFormat = yyjson_is_str(dateFormatValue) ? yyjson_get_str(dateFormatValue) : nullptr;
+    const bool validDateFormat =
+        dateFormat && (std::strcmp(dateFormat, "dd-mm-yyyy") == 0 || std::strcmp(dateFormat, "mm-dd-yyyy") == 0 ||
+                       std::strcmp(dateFormat, "yyyy-mm-dd") == 0);
+    return yyjson_is_bool(yyjson_obj_get(settings, "showSecondProgress")) &&
+           yyjson_is_bool(yyjson_obj_get(settings, "externalDotsAlwaysOn")) &&
+           yyjson_is_bool(yyjson_obj_get(settings, "showSeconds")) &&
+           yyjson_is_bool(yyjson_obj_get(settings, "showDate")) && validDateFormat && color("secondsColor") &&
+           color("timeColor") && color("backgroundColor");
+}
+
+[[nodiscard]] bool ValidateDeskClockSettings(yyjson_val* settings) noexcept
+{
+    if (!ObjectHasOnly(
+            settings, {"flipDurationMilliseconds", "backgroundColor", "cardColor", "digitColor", "dateColor"}, false) ||
+        yyjson_obj_size(settings) != 5)
+    {
+        return false;
+    }
+    yyjson_val* duration = yyjson_obj_get(settings, "flipDurationMilliseconds");
+    auto color = [settings](const char* key) noexcept
+    {
+        yyjson_val* value = yyjson_obj_get(settings, key);
+        const char* text = yyjson_is_str(value) ? yyjson_get_str(value) : nullptr;
+        if (!text || yyjson_get_len(value) != 7 || text[0] != '#')
+        {
+            return false;
+        }
+        for (std::size_t index = 1; index < 7; ++index)
+        {
+            if (!std::isxdigit(static_cast<unsigned char>(text[index])))
+            {
+                return false;
+            }
+        }
+        return true;
+    };
+    return yyjson_is_uint(duration) && yyjson_get_uint(duration) >= 250 && yyjson_get_uint(duration) <= 800 &&
+           color("backgroundColor") && color("cardColor") && color("digitColor") && color("dateColor");
+}
+
 [[nodiscard]] yyjson_val* FindDeclaration(const std::vector<Declaration>& declarations, std::string_view name) noexcept
 {
     for (const Declaration& declaration : declarations)
@@ -302,13 +383,18 @@ struct Declaration final
     unique_mut_doc effectiveDocument;
     unique_json effectiveJson;
     unique_doc effectiveImmutable;
-    const char* defaultsText = plugin == kMatrixPlugin ? kMatrixDefaults : "{}";
+    const char* defaultsText = plugin == kMatrixPlugin          ? kMatrixDefaults
+                               : plugin == kProcessViewerPlugin ? kProcessViewerDefaults
+                               : plugin == kStudioClockPlugin   ? kStudioClockDefaults
+                               : plugin == kDeskClockPlugin     ? kDeskClockDefaults
+                                                                : "{}";
     defaults.reset(yyjson_read(defaultsText, std::strlen(defaultsText), YYJSON_READ_NOFLAG));
     if (!settingsValue)
     {
         settingsValue = defaults ? yyjson_doc_get_root(defaults.get()) : nullptr;
     }
-    else if (plugin == kMatrixPlugin)
+    else if (plugin == kMatrixPlugin || plugin == kProcessViewerPlugin || plugin == kStudioClockPlugin ||
+             plugin == kDeskClockPlugin)
     {
         effectiveDocument.reset(yyjson_mut_doc_new(nullptr));
         yyjson_mut_val* merged =
@@ -325,7 +411,12 @@ struct Declaration final
     }
     if (!yyjson_is_obj(settingsValue))
         return false;
-    if (plugin == kMatrixPlugin ? !ValidateMatrixSettings(settingsValue) : yyjson_obj_size(settingsValue) != 0)
+    const bool validSettings = plugin == kMatrixPlugin          ? ValidateMatrixSettings(settingsValue)
+                               : plugin == kProcessViewerPlugin ? ValidateProcessViewerSettings(settingsValue)
+                               : plugin == kStudioClockPlugin   ? ValidateStudioClockSettings(settingsValue)
+                               : plugin == kDeskClockPlugin     ? ValidateDeskClockSettings(settingsValue)
+                                                                : yyjson_obj_size(settingsValue) == 0;
+    if (!validSettings)
         return false;
     return CompactObject(settingsValue, widget.privateConfiguration);
 }

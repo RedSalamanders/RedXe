@@ -1,5 +1,7 @@
 #include "PluginManager.h"
 
+#include "BundledPlugins.h"
+
 #include "PlugInterfaces/Factory.h"
 
 #include <array>
@@ -7,10 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <cwchar>
-#include <memory>
 #include <new>
-#include <strsafe.h>
 #include <utility>
 
 #include <yyjson.h>
@@ -18,33 +17,25 @@
 namespace
 {
 using unique_contract_doc = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
-constexpr char kTrianglePluginId[] = "builtin.rotating-triangle";
-constexpr char kTriangleWidgetTypeId[] = "rotating-triangle";
-constexpr char kGdiPluginId[] = "builtin.gdi-orbit";
-constexpr char kGdiWidgetTypeId[] = "gdi-orbit";
-constexpr char kMatrixPluginId[] = "builtin.matrix-rain";
-constexpr char kMatrixWidgetTypeId[] = "matrix-rain";
-constexpr std::size_t kInitialPathCapacity = 512;
-constexpr std::size_t kMaximumPathCapacity = 32768;
 
-struct BundledPluginSpec final
+static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
+
+[[nodiscard]] const RedXeBundledPluginSpec* FindBundledPlugin(std::string_view pluginId) noexcept
 {
-    const char* pluginId;
-    const char* typeId;
-    const wchar_t* moduleName;
-    std::size_t moduleIndex;
-};
+    for (const RedXeBundledPluginSpec& candidate : kRedXeBundledPlugins)
+    {
+        if (SettingsIdEquals(pluginId, candidate.pluginId))
+        {
+            return &candidate;
+        }
+    }
+    return nullptr;
+}
 
-constexpr std::array kBundledPlugins{
-    BundledPluginSpec{kTrianglePluginId, kTriangleWidgetTypeId, L"RotatingTriangle.dll", 0},
-    BundledPluginSpec{kGdiPluginId, kGdiWidgetTypeId, L"GdiOrbit.dll", 1},
-    BundledPluginSpec{kMatrixPluginId, kMatrixWidgetTypeId, L"MatrixRain.dll", 2},
-};
-static_assert(kBundledPlugins.size() <= kMaximumSettingsPlugins);
-
-[[nodiscard]] const BundledPluginSpec* FindBundledPlugin(std::string_view pluginId, std::string_view typeId) noexcept
+[[nodiscard]] const RedXeBundledWidgetSpec* FindBundledWidget(std::string_view pluginId,
+                                                              std::string_view typeId) noexcept
 {
-    for (const BundledPluginSpec& candidate : kBundledPlugins)
+    for (const RedXeBundledWidgetSpec& candidate : kRedXeBundledWidgets)
     {
         if (SettingsIdEquals(pluginId, candidate.pluginId) && SettingsIdEquals(typeId, candidate.typeId))
         {
@@ -54,9 +45,9 @@ static_assert(kBundledPlugins.size() <= kMaximumSettingsPlugins);
     return nullptr;
 }
 
-[[nodiscard]] const BundledPluginSpec* FindBundledPlugin(std::string_view pluginId) noexcept
+[[nodiscard]] const RedXeBundledWidgetSpec* FindBundledWidget(std::string_view pluginId) noexcept
 {
-    for (const BundledPluginSpec& candidate : kBundledPlugins)
+    for (const RedXeBundledWidgetSpec& candidate : kRedXeBundledWidgets)
     {
         if (SettingsIdEquals(pluginId, candidate.pluginId))
         {
@@ -149,6 +140,27 @@ static_assert(kBundledPlugins.size() <= kMaximumSettingsPlugins);
         {
             return false;
         }
+        yyjson_val* allowedValues = yyjson_obj_get(schema, "enum");
+        if (allowedValues)
+        {
+            if (!yyjson_is_arr(allowedValues))
+            {
+                return false;
+            }
+            bool matched = false;
+            const std::string_view text{yyjson_get_str(value), yyjson_get_len(value)};
+            const std::size_t count = yyjson_arr_size(allowedValues);
+            for (std::size_t index = 0; index < count; ++index)
+            {
+                yyjson_val* candidate = yyjson_arr_get(allowedValues, index);
+                matched = matched || (yyjson_is_str(candidate) &&
+                                      text == std::string_view{yyjson_get_str(candidate), yyjson_get_len(candidate)});
+            }
+            if (!matched)
+            {
+                return false;
+            }
+        }
         yyjson_val* pattern = yyjson_obj_get(schema, "pattern");
         if (!pattern)
         {
@@ -158,85 +170,48 @@ static_assert(kBundledPlugins.size() <= kMaximumSettingsPlugins);
                std::string_view{yyjson_get_str(pattern), yyjson_get_len(pattern)} == "^#[0-9A-Fa-f]{6}$" &&
                IsHexColor(value);
     }
+    if (typeName == "boolean")
+    {
+        return yyjson_is_bool(value);
+    }
     return false;
 }
 
-template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE module, const char* name) noexcept
+[[nodiscard]] HRESULT GetAndValidateSettingsContract(const PluginHost::ModuleView& module, const char* pluginId,
+                                                     const RedXePluginSettingsContract** contract) noexcept
 {
-    const FARPROC procedure = GetProcAddress(module, name);
-    Function function = nullptr;
-    static_assert(sizeof(function) == sizeof(procedure));
-    std::memcpy(&function, &procedure, sizeof(function));
-    return function;
-}
-
-[[nodiscard]] HRESULT BuildBundledPluginPath(const wchar_t* moduleName, wchar_t* path, std::size_t capacity) noexcept
-{
-    if (!moduleName || moduleName[0] == L'\0' || !path || capacity == 0 ||
-        capacity > static_cast<std::size_t>(MAXDWORD))
+    if (contract)
+    {
+        *contract = nullptr;
+    }
+    if (!contract || !module.getSettingsContract || !RedXeIsValidMachineId(pluginId))
     {
         return E_INVALIDARG;
     }
 
-    const DWORD length = GetModuleFileNameW(nullptr, path, static_cast<DWORD>(capacity));
-    if (length == 0)
+    const RedXePluginSettingsContract* selected = nullptr;
+    HRESULT result = module.getSettingsContract(pluginId, &selected);
+    if (FAILED(result) || !selected || selected->sizeBytes != sizeof(*selected) || !selected->schemaJsonUtf8 ||
+        selected->schemaBytes == 0 || selected->schemaBytes > kPrivateConfigurationCapacity ||
+        !selected->defaultsJsonUtf8 || selected->defaultsBytes == 0 ||
+        selected->defaultsBytes > kPrivateConfigurationCapacity)
     {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    if (length >= capacity - 1)
-    {
-        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
-    }
-
-    wchar_t* separator = std::wcsrchr(path, L'\\');
-    if (!separator)
-    {
-        return HRESULT_FROM_WIN32(ERROR_BAD_PATHNAME);
+        return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    const std::size_t prefixLength = static_cast<std::size_t>(separator - path) + 1;
-    HRESULT result = StringCchCopyW(separator + 1, capacity - prefixLength, L"Plugins\\");
-    if (FAILED(result))
-    {
-        return result;
-    }
-    return StringCchCatW(separator + 1, capacity - prefixLength, moduleName);
-}
-
-[[nodiscard]] HRESULT ValidateMetadata(const RedXePluginMetadata* metadata, std::uint32_t count,
-                                       const char* expectedPluginId) noexcept
-{
-    if (!metadata || count == 0 || count > 256 || !RedXeIsValidMachineId(expectedPluginId))
+    unique_contract_doc schemaDocument{
+        yyjson_read(selected->schemaJsonUtf8, selected->schemaBytes, YYJSON_READ_NOFLAG)};
+    unique_contract_doc defaultsDocument{
+        yyjson_read(selected->defaultsJsonUtf8, selected->defaultsBytes, YYJSON_READ_NOFLAG)};
+    if (!schemaDocument || !defaultsDocument || !yyjson_is_obj(yyjson_doc_get_root(schemaDocument.get())) ||
+        !yyjson_is_obj(yyjson_doc_get_root(defaultsDocument.get())) ||
+        !ValidateValueAgainstPublishedSchema(yyjson_doc_get_root(schemaDocument.get()),
+                                             yyjson_doc_get_root(defaultsDocument.get())))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-
-    bool selected = false;
-    for (std::uint32_t index = 0; index < count; ++index)
-    {
-        const RedXePluginMetadata& candidate = metadata[index];
-        if (candidate.sizeBytes < sizeof(RedXePluginMetadata) || !RedXeIsValidMachineId(candidate.id) ||
-            !candidate.displayName || !candidate.description || !candidate.author || !candidate.version)
-        {
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        }
-        for (std::uint32_t previous = 0; previous < index; ++previous)
-        {
-            if (RedXeAsciiEqualsIgnoreCase(metadata[previous].id, candidate.id))
-            {
-                return HRESULT_FROM_WIN32(ERROR_DUP_NAME);
-            }
-        }
-        if (RedXeAsciiEqualsIgnoreCase(candidate.id, expectedPluginId))
-        {
-            if ((candidate.capabilities & RedXePluginCapabilityWidgetProvider) == 0)
-            {
-                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-            }
-            selected = true;
-        }
-    }
-    return selected ? S_OK : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    *contract = selected;
+    return S_OK;
 }
 
 [[nodiscard]] HRESULT FindWidgetType(IRedXeWidgetProvider& provider, const char* expectedTypeId,
@@ -258,7 +233,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     for (std::uint32_t index = 0; index < count; ++index)
     {
         const RedXeWidgetTypeDescriptor& candidate = types[index];
-        if (candidate.sizeBytes < sizeof(RedXeWidgetTypeDescriptor) || !RedXeIsValidMachineId(candidate.typeId) ||
+        if (candidate.sizeBytes != sizeof(RedXeWidgetTypeDescriptor) || !RedXeIsValidMachineId(candidate.typeId) ||
             !candidate.displayName || !candidate.description || candidate.minimumWidth <= 0.0f ||
             candidate.minimumHeight <= 0.0f)
         {
@@ -285,6 +260,7 @@ PluginManager::~PluginManager()
     for (std::size_t index = 0; index < _widgetCount; ++index)
     {
         _widgets[index].windowWidget.reset();
+        _widgets[index].scheduledWidget.reset();
         _widgets[index].gpuWidget.reset();
         _widgets[index].widget.reset();
     }
@@ -296,132 +272,28 @@ PluginManager::~PluginManager()
     }
     _providerCount = 0;
 
-    for (std::size_t index = _modules.size(); index > 0; --index)
-    {
-        ModuleSlot& slot = _modules[index - 1];
-        if (slot.shutdown)
-        {
-            slot.shutdown();
-        }
-        slot.shutdown = nullptr;
-        slot.getSettingsContract = nullptr;
-        slot.create = nullptr;
-        if (slot.module)
-        {
-            (void)slot.module.release();
-        }
-    }
     _initialized = false;
 }
 
-HRESULT PluginManager::LoadBundledModule(const wchar_t* moduleName, const char* pluginId,
-                                         ModuleSlot& moduleSlot) noexcept
-{
-    if (!moduleName || !RedXeIsValidMachineId(pluginId) || moduleSlot.module || moduleSlot.create ||
-        moduleSlot.getSettingsContract || moduleSlot.shutdown)
-    {
-        return E_INVALIDARG;
-    }
-
-    std::array<wchar_t, kInitialPathCapacity> shortPath{};
-    std::unique_ptr<wchar_t[]> longPath;
-    wchar_t* pluginPath = shortPath.data();
-    std::size_t pathCapacity = shortPath.size();
-    HRESULT result = BuildBundledPluginPath(moduleName, pluginPath, pathCapacity);
-    if (result == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER))
-    {
-        longPath.reset(new (std::nothrow) wchar_t[kMaximumPathCapacity]);
-        if (!longPath)
-        {
-            return E_OUTOFMEMORY;
-        }
-        pluginPath = longPath.get();
-        pathCapacity = kMaximumPathCapacity;
-        result = BuildBundledPluginPath(moduleName, pluginPath, pathCapacity);
-    }
-    if (FAILED(result))
-    {
-        return result;
-    }
-
-    wil::unique_hmodule module{
-        LoadLibraryExW(pluginPath, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
-    if (!module)
-    {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-
-    const RedXeCreateFn createFunction = ResolveFunction<RedXeCreateFn>(module.get(), kRedXeCreateExport);
-    if (!createFunction)
-    {
-        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
-    }
-
-    const RedXeGetPluginSettingsContractFn getSettingsContract =
-        ResolveFunction<RedXeGetPluginSettingsContractFn>(module.get(), kRedXeGetPluginSettingsContractExport);
-    if (!getSettingsContract)
-    {
-        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
-    }
-    const RedXePluginSettingsContract* settingsContract = nullptr;
-    result = getSettingsContract(pluginId, &settingsContract);
-    if (FAILED(result) || !settingsContract || settingsContract->sizeBytes < sizeof(*settingsContract) ||
-        settingsContract->versionMajor != 1 || !settingsContract->schemaJsonUtf8 ||
-        settingsContract->schemaBytes == 0 || settingsContract->schemaBytes > kPrivateConfigurationCapacity ||
-        !settingsContract->defaultsJsonUtf8 || settingsContract->defaultsBytes == 0 ||
-        settingsContract->defaultsBytes > kPrivateConfigurationCapacity)
-    {
-        return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
-    unique_contract_doc schemaDocument{
-        yyjson_read(settingsContract->schemaJsonUtf8, settingsContract->schemaBytes, YYJSON_READ_NOFLAG)};
-    unique_contract_doc defaultsDocument{
-        yyjson_read(settingsContract->defaultsJsonUtf8, settingsContract->defaultsBytes, YYJSON_READ_NOFLAG)};
-    if (!schemaDocument || !defaultsDocument || !yyjson_is_obj(yyjson_doc_get_root(schemaDocument.get())) ||
-        !yyjson_is_obj(yyjson_doc_get_root(defaultsDocument.get())) ||
-        !ValidateValueAgainstPublishedSchema(yyjson_doc_get_root(schemaDocument.get()),
-                                             yyjson_doc_get_root(defaultsDocument.get())))
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
-
-    const RedXeEnumeratePluginsFn enumerate =
-        ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
-    if (enumerate)
-    {
-        const RedXePluginMetadata* metadata = nullptr;
-        std::uint32_t metadataCount = 0;
-        result = enumerate(&metadata, &metadataCount);
-        if (SUCCEEDED(result))
-        {
-            result = ValidateMetadata(metadata, metadataCount, pluginId);
-        }
-        if (FAILED(result))
-        {
-            return result;
-        }
-    }
-
-    moduleSlot.shutdown = ResolveFunction<RedXePluginShutdownFn>(module.get(), kRedXePluginShutdownExport);
-    moduleSlot.getSettingsContract = getSettingsContract;
-    moduleSlot.create = createFunction;
-    moduleSlot.module = std::move(module);
-    return S_OK;
-}
-
-HRESULT PluginManager::CreateBundledProvider(ModuleSlot& moduleSlot, const char* pluginId,
-                                             const char* configurationJson, std::uint32_t configurationBytes,
-                                             IRedXeWidgetProvider** provider) noexcept
+HRESULT PluginManager::CreateBundledProvider(const char* pluginId, const char* configurationJson,
+                                             std::uint32_t configurationBytes, IRedXeWidgetProvider** provider) noexcept
 {
     if (!provider)
     {
         return E_POINTER;
     }
     *provider = nullptr;
-    if (!moduleSlot.module || !moduleSlot.create || !RedXeIsValidMachineId(pluginId) || !configurationJson ||
-        configurationBytes == 0 || configurationBytes > kRedXeMaximumFactoryConfigurationBytes)
+    if (!RedXeIsValidMachineId(pluginId) || !configurationJson || configurationBytes == 0 ||
+        configurationBytes > kRedXeMaximumFactoryConfigurationBytes)
     {
         return E_INVALIDARG;
+    }
+
+    PluginHost::ModuleView module{};
+    HRESULT result = _pluginHost.GetPluginModule(pluginId, RedXePluginCapabilityWidgetProvider, &module);
+    if (FAILED(result))
+    {
+        return result;
     }
 
     RedXeFactoryOptions options{};
@@ -433,8 +305,8 @@ HRESULT PluginManager::CreateBundledProvider(ModuleSlot& moduleSlot, const char*
     options.configurationBytes = configurationBytes;
 
     void* providerObject = nullptr;
-    const HRESULT result =
-        moduleSlot.create(__uuidof(IRedXeWidgetProvider), &options, nullptr, pluginId, &providerObject);
+    result =
+        module.create(__uuidof(IRedXeWidgetProvider), &options, _pluginHost.Interface(), pluginId, &providerObject);
     if (FAILED(result))
     {
         return result;
@@ -451,7 +323,7 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
                                             WidgetSlot& widgetSlot) noexcept
 {
     if (!RedXeIsValidMachineId(settings.typeId.utf8.data()) || !RedXeIsValidMachineId(settings.id.utf8.data()) ||
-        widgetSlot.widget || widgetSlot.gpuWidget || widgetSlot.windowWidget)
+        widgetSlot.widget || widgetSlot.gpuWidget || widgetSlot.scheduledWidget || widgetSlot.windowWidget)
     {
         return E_INVALIDARG;
     }
@@ -470,6 +342,7 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     }
 
     const HRESULT gpuResult = widgetSlot.widget.query_to(widgetSlot.gpuWidget.put());
+    const HRESULT scheduledResult = widgetSlot.widget.query_to(widgetSlot.scheduledWidget.put());
     const HRESULT windowResult = widgetSlot.widget.query_to(widgetSlot.windowWidget.put());
     if (gpuResult != S_OK && gpuResult != E_NOINTERFACE)
     {
@@ -478,6 +351,10 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     if (windowResult != S_OK && windowResult != E_NOINTERFACE)
     {
         return windowResult;
+    }
+    if (scheduledResult != S_OK && scheduledResult != E_NOINTERFACE)
+    {
+        return scheduledResult;
     }
     if (!widgetSlot.gpuWidget && !widgetSlot.windowWidget)
     {
@@ -496,7 +373,6 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
 }
 
 HRESULT PluginManager::StageActivePage(const AppSettings& settings,
-                                       std::array<ModuleSlot, kMaximumModules>& loadedModules,
                                        std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
                                        std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,
                                        std::size_t& providerCount,
@@ -520,18 +396,23 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
         {
             continue;
         }
-        const BundledPluginSpec* spec = FindBundledPlugin(plugin.id.View());
-        if (!spec || spec->moduleIndex >= loadedModules.size())
+        const RedXeBundledWidgetSpec* widgetSpec = FindBundledWidget(plugin.id.View());
+        const RedXeBundledPluginSpec* pluginSpec = FindBundledPlugin(plugin.id.View());
+        if (!widgetSpec || !pluginSpec)
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
         }
-        if (!_modules[spec->moduleIndex].module && !loadedModules[spec->moduleIndex].module)
+        PluginHost::ModuleView module{};
+        result = _pluginHost.GetPluginModule(pluginSpec->pluginId, RedXePluginCapabilityWidgetProvider, &module);
+        if (FAILED(result))
         {
-            result = LoadBundledModule(spec->moduleName, spec->pluginId, loadedModules[spec->moduleIndex]);
-            if (FAILED(result))
-            {
-                return result;
-            }
+            return result;
+        }
+        const RedXePluginSettingsContract* contract = nullptr;
+        result = GetAndValidateSettingsContract(module, pluginSpec->pluginId, &contract);
+        if (FAILED(result))
+        {
+            return result;
         }
     }
 
@@ -541,16 +422,20 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
         for (std::uint32_t widgetIndex = 0; widgetIndex < candidatePage.widgetCount; ++widgetIndex)
         {
             const WidgetInstanceSettings& widget = candidatePage.widgets[widgetIndex];
-            const BundledPluginSpec* spec = FindBundledPlugin(widget.pluginId.View(), widget.typeId.View());
-            if (!spec)
+            const RedXeBundledWidgetSpec* widgetSpec = FindBundledWidget(widget.pluginId.View(), widget.typeId.View());
+            const RedXeBundledPluginSpec* pluginSpec = FindBundledPlugin(widget.pluginId.View());
+            if (!widgetSpec || !pluginSpec)
             {
                 return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
             }
-            ModuleSlot& module =
-                _modules[spec->moduleIndex].module ? _modules[spec->moduleIndex] : loadedModules[spec->moduleIndex];
+            PluginHost::ModuleView module{};
+            result = _pluginHost.GetPluginModule(pluginSpec->pluginId, RedXePluginCapabilityWidgetProvider, &module);
+            if (FAILED(result))
+            {
+                return result;
+            }
             const RedXePluginSettingsContract* contract = nullptr;
-            if (!module.getSettingsContract || FAILED(module.getSettingsContract(spec->pluginId, &contract)) ||
-                !contract)
+            if (FAILED(GetAndValidateSettingsContract(module, pluginSpec->pluginId, &contract)) || !contract)
             {
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
@@ -581,8 +466,9 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
     {
         const WidgetInstanceSettings& instance = page->widgets[index];
         const PluginSettings* plugin = FindPluginSettings(settings, instance.pluginId.View());
-        const BundledPluginSpec* spec = FindBundledPlugin(instance.pluginId.View(), instance.typeId.View());
-        if (!plugin || !plugin->enabled || !spec || spec->moduleIndex >= _modules.size())
+        const RedXeBundledWidgetSpec* widgetSpec = FindBundledWidget(instance.pluginId.View(), instance.typeId.View());
+        const RedXeBundledPluginSpec* pluginSpec = FindBundledPlugin(instance.pluginId.View());
+        if (!plugin || !plugin->enabled || !widgetSpec || !pluginSpec)
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
         }
@@ -599,7 +485,7 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
         for (std::size_t candidate = 0; candidate < providerCount; ++candidate)
         {
             const ProviderBuildKey& key = providerKeys[candidate];
-            if (key.moduleIndex == spec->moduleIndex && key.configurationBytes == configurationBytes &&
+            if (key.pluginId == pluginSpec->pluginId && key.configurationBytes == configurationBytes &&
                 std::memcmp(key.configuration.data(), configuration.data(), configurationBytes) == 0)
             {
                 providerIndex = candidate;
@@ -613,25 +499,7 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
             {
                 return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
             }
-            ModuleSlot* module = nullptr;
-            if (_modules[spec->moduleIndex].module)
-            {
-                module = &_modules[spec->moduleIndex];
-            }
-            else
-            {
-                module = &loadedModules[spec->moduleIndex];
-                if (!module->module)
-                {
-                    result = LoadBundledModule(spec->moduleName, spec->pluginId, *module);
-                    if (FAILED(result))
-                    {
-                        return result;
-                    }
-                }
-            }
-
-            result = CreateBundledProvider(*module, spec->pluginId, configuration.data(), configurationBytes,
+            result = CreateBundledProvider(pluginSpec->pluginId, configuration.data(), configurationBytes,
                                            providers[providerCount].provider.put());
             if (FAILED(result))
             {
@@ -640,7 +508,7 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
             ProviderBuildKey& key = providerKeys[providerCount];
             key.configuration = configuration;
             key.configurationBytes = configurationBytes;
-            key.moduleIndex = spec->moduleIndex;
+            key.pluginId = pluginSpec->pluginId;
             ++providerCount;
         }
 
@@ -661,20 +529,17 @@ HRESULT PluginManager::Initialize(const AppSettings& settings) noexcept
         return E_INVALIDARG;
     }
 
-    std::array<ModuleSlot, kMaximumModules> loadedModules;
     std::array<ProviderSlot, kMaximumWidgetInstances> providers;
     std::array<ProviderBuildKey, kMaximumWidgetInstances> providerKeys;
     std::array<WidgetSlot, kMaximumWidgetInstances> widgets;
     std::size_t providerCount = 0;
     std::size_t widgetCount = 0;
-    const HRESULT result =
-        StageActivePage(settings, loadedModules, providers, providerKeys, providerCount, widgets, widgetCount);
+    const HRESULT result = StageActivePage(settings, providers, providerKeys, providerCount, widgets, widgetCount);
     if (FAILED(result))
     {
         return result;
     }
 
-    _modules = std::move(loadedModules);
     _providers = std::move(providers);
     _widgets = std::move(widgets);
     _providerCount = providerCount;
@@ -691,26 +556,17 @@ HRESULT PluginManager::Reconfigure(const AppSettings& settings) noexcept
     {
         return E_INVALIDARG;
     }
-    std::array<ModuleSlot, kMaximumModules> loadedModules;
     std::array<ProviderSlot, kMaximumWidgetInstances> providers;
     std::array<ProviderBuildKey, kMaximumWidgetInstances> providerKeys;
     std::array<WidgetSlot, kMaximumWidgetInstances> widgets;
     std::size_t providerCount = 0;
     std::size_t widgetCount = 0;
-    const HRESULT result =
-        StageActivePage(settings, loadedModules, providers, providerKeys, providerCount, widgets, widgetCount);
+    const HRESULT result = StageActivePage(settings, providers, providerKeys, providerCount, widgets, widgetCount);
     if (FAILED(result))
     {
         return result;
     }
 
-    for (std::size_t index = 0; index < _modules.size(); ++index)
-    {
-        if (loadedModules[index].module)
-        {
-            _modules[index] = std::move(loadedModules[index]);
-        }
-    }
     _widgets = std::move(widgets);
     _widgetCount = widgetCount;
     _providers = std::move(providers);
@@ -738,6 +594,11 @@ IRedXeWidget* PluginManager::WidgetAt(std::size_t index) const noexcept
 IRedXeGpuWidget* PluginManager::GpuWidgetAt(std::size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].gpuWidget.get() : nullptr;
+}
+
+IRedXeScheduledWidget* PluginManager::ScheduledWidgetAt(std::size_t index) const noexcept
+{
+    return index < _widgetCount ? _widgets[index].scheduledWidget.get() : nullptr;
 }
 
 IRedXeWindowWidget* PluginManager::WindowWidgetAt(std::size_t index) const noexcept

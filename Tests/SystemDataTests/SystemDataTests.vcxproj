@@ -54,9 +54,10 @@
   </ItemDefinitionGroup>
   <ItemGroup><ClCompile Include="SystemDataTests.cpp" /></ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Common\PlugInterfaces\DataProvider.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\Data.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h" />
+    <ClInclude Include="..\..\Plugins\SystemData\SystemDataTestContract.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Plugins\SystemData\SystemData.vcxproj">

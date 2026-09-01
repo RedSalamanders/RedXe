@@ -30,7 +30,7 @@ class DashboardHost final
     [[nodiscard]] HRESULT Initialize(PluginManager& pluginManager, HWND parent, UINT width, UINT height, UINT dpi,
                                      bool visible) noexcept;
     [[nodiscard]] HRESULT Resize(UINT width, UINT height, UINT dpi) noexcept;
-    [[nodiscard]] HRESULT SetWindowWidgetsVisible(bool visible) noexcept;
+    [[nodiscard]] HRESULT SetWidgetsVisible(bool visible) noexcept;
     [[nodiscard]] HRESULT SetHorizontalOffset(LONG offset) noexcept;
     void Shutdown() noexcept;
     [[nodiscard]] std::size_t WidgetCount() const noexcept;
@@ -40,6 +40,7 @@ class DashboardHost final
     [[nodiscard]] WidgetPlacement PlacementAt(std::size_t index) const noexcept;
     [[nodiscard]] RECT PixelBoundsAt(std::size_t index, UINT width, UINT height) const noexcept;
     [[nodiscard]] bool RequiresContinuousFrames() const noexcept;
+    [[nodiscard]] HRESULT GetNextFrameDelayMilliseconds(std::uint32_t* delayMilliseconds) const noexcept;
 
   private:
     PluginManager* _pluginManager = nullptr;
@@ -52,7 +53,7 @@ class DashboardHost final
     std::uint32_t _gridColumns = 0;
     std::uint32_t _gridRows = 0;
     bool _requiresContinuousFrames = false;
-    bool _windowWidgetsVisible = false;
+    bool _widgetsVisible = false;
     LONG _horizontalOffset = 0;
     UINT _clientWidth = 0;
     UINT _clientHeight = 0;

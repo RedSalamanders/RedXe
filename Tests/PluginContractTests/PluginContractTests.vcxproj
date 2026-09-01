@@ -60,10 +60,9 @@
     <ClCompile Include="PluginContractTests.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Data.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
-    <ClInclude Include="..\..\Common\PlugInterfaces\GpuWidget.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h" />
-    <ClInclude Include="..\..\Common\PlugInterfaces\WindowWidget.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Plugins\GdiOrbit\GdiOrbit.vcxproj">

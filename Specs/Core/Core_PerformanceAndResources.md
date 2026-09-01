@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-01
 
 ## Mandate
 
@@ -36,7 +36,13 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   runtime, `WM_PAINT`, show/display recovery, and occlusion/device recovery invalidate one coalesced frame. Mouse,
   cursor, keyboard, native-child timer, and other unrelated dispatched messages MUST NOT cause a host `Present`.
   Future plugin invalidation must be coalesced before waking the UI thread.
-- Plugin `Render` calls use borrowed frame and D3D context records. Render, resize, and visibility callbacks must not
+- A visible low-cadence widget MAY expose `IRedXeScheduledWidget` instead of owning a timer or requesting continuous
+  frames. After a successful static frame the host caches the earliest valid current-or-staged-adjacent delay and
+  blocks in one message-aware wait. Expiry coalesces one frame. Continuous animation supersedes the wait; hidden,
+  minimized, suspended, display-off, occluded, inactive-page, and shutdown states retain no deadline. Invalid or
+  failed delay queries are isolated and must not create a retry loop.
+- Plugin `Render` calls use borrowed frame and D3D context records. Render, resize, and
+  `IRedXeWidget::SetVisible` callbacks must not
   perform disk, network, device discovery, process creation, blocking waits, or long-held locks.
 - A visible native-window animation MAY use a UI-thread timer at the lowest rate that preserves its required visual
   quality. It MUST stop the timer while hidden, minimized, display-off, occluded, or detached. GDI paint callbacks
@@ -50,21 +56,59 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   that leaves the active grid, active widget records, and their referenced plugin records unchanged MUST publish the
   new typed document without rebuilding active providers, widgets, HWNDs, or D3D resources.
 - DLLs, devices, textures, buffers, workers, and child windows must be created lazily when practical and released or
-  quiesced when their owning feature is no longer active, except for the documented v1 no-unload plugin policy.
-- Background acquisition must block on events or timers at the lowest useful rate, coalesce redundant samples, and
-  keep bounded history. Busy-waiting is prohibited.
+  quiesced when their owning feature is no longer active, except for the documented current no-unload plugin policy.
+- Local data sources share one host acquisition worker. Background acquisition must block on events or timers at the
+  lowest useful rate, coalesce subscriptions for the same provider and dataset into one sample, and keep bounded
+  history. Multiple providers must not create one worker per provider. Busy-waiting is prohibited.
 - Logging and diagnostics must not format or emit per-frame success messages.
 
-The frozen immediate-context GPU interface remains appropriate for Matrix-class work. A new production family of
+The measured baseline System Data source is an accepted bounded local pull source. Its fixed x64 source object is
+786,936 bytes and owns no worker or timer. Three Release row-cap runs of the production per-process row path, using
+2,048 accessible synthetic entries and two steady collections per run, produced 3.806, 3.823, and 3.921 ms average
+wall time per collection; the corresponding 64-collection CPU probe medians were 3.906 ms per collection. Every run
+reported zero busy-heap block/byte growth, zero handle growth, zero private-byte growth, and a 4 KiB working-set delta.
+This evidence accepts the current Toolhelp/per-process-query baseline; future metric expansion must remeasure before
+raising storage, cadence, worker, or per-row work.
+
+The current immediate-context GPU interface remains appropriate for Matrix-class work. A new production family of
 cheap host primitives MUST NOT be added as separate immediate-context callbacks without measurement. When such a
-consumer exists, the design review MUST first evaluate a host-owned bounded command/batch mechanism under a new IID;
-the generic widget root and frozen `IRedXeGpuWidget` vtable remain unchanged.
+consumer exists, the design review MUST first evaluate a host-owned bounded command/batch mechanism; the generic
+widget root must not absorb plugin-specific drawing records.
+
+The measured Studio Clock is an accepted low-cadence `IRedXeGpuWidget`: one instance uses two draws, no more than 402
+dot instances, one 160-byte map only when cached visual state changes, one shared immutable device-resource set, and
+one per-widget constant buffer. It owns no texture, font, HWND, timer, or worker. This bounded consumer does not by
+itself justify a host primitive-batching IID; a materially larger family must be measured again before that decision.
+At 2560×720, three Release WARP runs of the overlay-aligned 228-instance default produced a representative median CPU
+submission delta of 267.403 microseconds/frame and GPU timestamp time of 0.0829 ms/frame. This is lower than the prior
+404-instance reference-aligned medians of 287.055 microseconds/frame and 0.0842 ms/frame while preserving its visual
+contract; draw, upload, allocation, scheduling, and device-resource budgets do not regress.
+After adding the selectable outward-dot state, six Release WARP runs produced representative medians of 280.825
+microseconds/frame and 0.0993 ms/frame. The bounded 13.422-microsecond CPU and 0.0164-ms WARP timestamp increases are
+accepted for the dynamic per-companion setting at the clock's one-Hz cadence; instance count, constant-buffer size,
+maps, draws, allocations, resources, and wake frequency remain unchanged.
+
+The measured Desk Clock is also an accepted bounded low-cadence `IRedXeGpuWidget`. One static instance uses three
+draws and 40 submitted instances; its configured 250–800 ms split-flap burst uses four draws and 46 submitted
+instances. It maps one 400-byte provider-shared constant buffer only when cached visual state changes, uses one
+1024×1024 single-channel atlas and three immutable 16-byte instance-offset buffers, and owns no timer, worker, HWND,
+off-screen target, or shader compiler. It wakes at one second boundaries and requests presentation-paced frames only
+while the flap moves. This second measured clock remains within the immediate-context mechanism and does not justify a
+host primitive-batching IID; a materially larger family still requires aggregate measurement and review.
+
+The Desk Clock atlas is 1 MiB and shared once per provider/device. The system32 DirectWrite module and an isolated
+factory rasterize its bounded glyph set from an in-box Windows font only during transactional device-resource
+initialization; the module handle, factory, font faces, analysis objects, temporary CPU coverage, and system-font
+collection references do not survive initialization. The larger atlas preserves native contours at the target display
+while keeping inactive discovery and the steady path free of font work, frame uploads, additional draws, allocations,
+state changes, and wake-ups.
 
 ## ABI and data-layout rules
 
 - Hot ABI records contain only fields consumed on the hot path. They do not carry speculative reserved arrays.
-- Widget rendering mechanisms and breaking object-interface changes use new COM IIDs. Generic roots must not absorb
-  plugin-specific drawing records or implementation concepts.
+- Before the production ABI freeze, host and source-coordinated plugins use one current interface set and reject any
+  public record whose `sizeBytes` differs from the current `sizeof` value. There is no prefix, tail, or old-IID fallback.
+- Generic roots must not absorb plugin-specific drawing records or implementation concepts.
 - Machine identifiers use stable UTF-8 ASCII strings. Localized user-facing text uses UTF-16 Windows strings.
 - Synchronous enumeration returns borrowed immutable arrays when the module can provide stable storage; it must not
   allocate one callback object per enumeration.
@@ -101,3 +145,18 @@ observable resource benefit are not required.
 - Changes to the acquisition of operating-system visibility, power, or DXGI occlusion signals that are not represented
   by the scheduler decision seam additionally require a live check that inactive windows do not spin and recovery
   resumes rendering.
+- System-data validation must exercise two 2,048-row steady collections through the production row-population path,
+  report CPU/wall time, private bytes, working set, heap, handles, and fixed source storage, and fail on heap or handle
+  growth or source storage of 1 MiB or more. The host integration test must leave Process Viewer hidden for longer
+  than the dataset interval and observe no additional delivered sample.
+- Low-cadence scheduling changes must test second/minute boundary aggregation, continuous-animation supersession,
+  unrelated-message behavior, inactive visibility/power states, and a scheduled production-host soak. Studio Clock
+  validation additionally proves two draws, the 402-instance bound, 60 ordinary second positions, 12 outward
+  five-second companion positions, default-always-lit and progress-linked companion modes, date-dependent immutable
+  descriptors, the square clock plus lower date band, zero steady render allocations, unchanged-frame zero maps,
+  shared immutable resources, and complete device-loss teardown.
+- Desk Clock validation additionally proves deterministic rollover phases, changed-tile-only animation with every
+  unchanged tile visible and pixel-stable, 40/46 static/active instance bounds, three/four draw bounds, one 400-byte
+  upload only on visual change, zero steady render allocations, one shared 1 MiB DirectWrite-rasterized atlas, no
+  persistent DirectWrite or runtime shader/image dependencies, a five-minute scheduled flip soak with stable resources
+  and hidden zero work, and complete device-loss teardown.

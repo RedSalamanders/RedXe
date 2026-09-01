@@ -14,7 +14,6 @@
     <ClInclude Include="MatrixRainTestContract.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Header Files</Filter></ClInclude>
-    <ClInclude Include="..\..\Common\PlugInterfaces\GpuWidget.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h"><Filter>Header Files</Filter></ClInclude>
   </ItemGroup>

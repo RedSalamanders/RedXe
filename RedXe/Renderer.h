@@ -1,6 +1,6 @@
 #pragma once
 
-#include "PlugInterfaces/GpuWidget.h"
+#include "PlugInterfaces/Widget.h"
 
 #include <array>
 #include <cstddef>

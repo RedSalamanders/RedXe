@@ -6,7 +6,9 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $modulePath = Join-Path $repoRoot 'Build\BuildOutputProcess.psm1'
+$presentationModulePath = Join-Path $repoRoot 'Build\BuildPresentation.psm1'
 Import-Module $modulePath -Force -ErrorAction Stop
+Import-Module $presentationModulePath -Force -ErrorAction Stop
 
 $buildRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot '.build'))
 $testParent = [IO.Path]::GetFullPath((Join-Path $buildRoot 'BuildProcessTests'))
@@ -95,9 +97,159 @@ finally {
     if (-not $resolvedCleanupTarget.StartsWith($expectedPrefix, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing to remove a build-process test directory outside '$testParent': $resolvedCleanupTarget"
     }
-    if (Test-Path -LiteralPath $resolvedCleanupTarget) {
-        Remove-Item -LiteralPath $resolvedCleanupTarget -Recurse -Force
+    for ($attempt = 0; $attempt -lt 20 -and (Test-Path -LiteralPath $resolvedCleanupTarget); ++$attempt) {
+        try {
+            Remove-Item -LiteralPath $resolvedCleanupTarget -Recurse -Force -ErrorAction Stop
+        }
+        catch {
+            if ($attempt -eq 19) {
+                throw
+            }
+            Start-Sleep -Milliseconds 100
+        }
     }
 }
 
 Write-Host 'Build-output process preflight tests passed.' -ForegroundColor Green
+
+$presentationTestRoot = [IO.Path]::GetFullPath((Join-Path $testParent ([guid]::NewGuid().ToString('N'))))
+if (-not $presentationTestRoot.StartsWith($expectedPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to create a build-presentation test directory outside '$testParent': $presentationTestRoot"
+}
+
+try {
+    [void](New-Item -ItemType Directory -Path $presentationTestRoot -Force)
+
+    $bannerText = @(& { Write-RedXeBuildBanner -UseColor $false } 6>&1 | ForEach-Object { $_.ToString() }) -join "`n"
+    if ($bannerText -notmatch 'RRRR\s+EEEEE\s+DDDD' -or
+        $bannerText -notmatch 'XENEON EDGE // BUILD SIGNAL LOCKED') {
+        throw "The RedXe banner lost its product identity or build-signal signature: $bannerText"
+    }
+
+    $redirectedInteractive = Test-RedXeInteractiveTerminal `
+        -IsOutputRedirected $true `
+        -IsErrorRedirected $true `
+        -HasRawUi $true `
+        -CanReadWindowTitle $true `
+        -Environment @{ CI = 'true' }
+    if ($redirectedInteractive) {
+        throw 'A CI-style redirected host was incorrectly treated as an interactive terminal.'
+    }
+
+    $planLogPath = Join-Path $presentationTestRoot 'direct-msbuild.log'
+    $codexPlan = Get-RedXeBuildInvocationPlan `
+        -UseInteractiveTerminal $true `
+        -LogPath $planLogPath `
+        -Environment @{ CODEX_SHELL = '1' }
+    if ($codexPlan.UseDirectConsole -or @($codexPlan.AdditionalArguments).Count -ne 0) {
+        throw 'Codex must use replay streaming without adding the MSBuild file logger.'
+    }
+
+    $windowsTerminalPlan = Get-RedXeBuildInvocationPlan `
+        -UseInteractiveTerminal $true `
+        -LogPath $planLogPath `
+        -Environment @{ WT_SESSION = '1' }
+    if ($windowsTerminalPlan.UseDirectConsole) {
+        throw 'Windows Terminal must use replay streaming so captured progress remains visible.'
+    }
+
+    $plainConsolePlan = Get-RedXeBuildInvocationPlan `
+        -UseInteractiveTerminal $true `
+        -LogPath $planLogPath `
+        -Environment @{ PLAIN_CONSOLE = '1' }
+    $expectedLoggerArgument = "/flp:Verbosity=minimal;LogFile=$([IO.Path]::GetFullPath($planLogPath));Encoding=UTF-8"
+    if (-not $plainConsolePlan.UseDirectConsole -or
+        @($plainConsolePlan.AdditionalArguments).Count -ne 2 -or
+        $plainConsolePlan.AdditionalArguments[0] -ne '/fl' -or
+        $plainConsolePlan.AdditionalArguments[1] -ne $expectedLoggerArgument) {
+        throw 'A plain interactive console must retain direct MSBuild output plus the UTF-8 file logger.'
+    }
+
+    $colorCases = @(
+        @{ Line = 'MSBUILD : error MSB1009: Project file does not exist.'; IsError = $false; Expected = 'Red' },
+        @{ Line = 'file.cpp(10,5): warning C4100: unreferenced parameter'; IsError = $false; Expected = 'Yellow' },
+        @{ Line = 'tool wrote to stderr'; IsError = $true; Expected = 'Red' },
+        @{ Line = '  RedXe.vcxproj -> Z:\src\RedXe\.build\x64\Debug\RedXe.exe'; IsError = $false; Expected = 'Green' },
+        @{ Line = 'Build succeeded.'; IsError = $false; Expected = 'Green' },
+        @{ Line = '  Renderer.cpp'; IsError = $false; Expected = $null }
+    )
+    foreach ($case in $colorCases) {
+        $actual = Get-RedXeBuildLineForegroundColor -Line $case.Line -IsError $case.IsError
+        if ($actual -ne $case.Expected) {
+            throw "Unexpected color '$actual' for '$($case.Line)'; expected '$($case.Expected)'."
+        }
+    }
+
+    $diagnosticLogPath = Join-Path $presentationTestRoot 'diagnostics.log'
+    @'
+Z:\src\RedXe\Renderer.cpp(10,5): warning C4100: unreferenced parameter [Z:\src\RedXe\RedXe\RedXe.vcxproj]
+MSBUILD : error MSB1009: Project file does not exist.
+link : fatal error LNK1120: 1 unresolved externals
+  0 Warning(s)
+  0 Error(s)
+'@ | Set-Content -LiteralPath $diagnosticLogPath -Encoding UTF8
+    $diagnosticSummary = Get-RedXeBuildDiagnosticSummary -LogPath $diagnosticLogPath
+    if ($diagnosticSummary.WarningCount -ne 1 -or $diagnosticSummary.ErrorCount -ne 2) {
+        throw ("Diagnostic summary mismatch: expected 1 warning and 2 errors; got {0} and {1}." -f `
+            $diagnosticSummary.WarningCount, $diagnosticSummary.ErrorCount)
+    }
+
+    $emitterPath = Join-Path $presentationTestRoot 'Emit Build Output.ps1'
+    @'
+param([string] $Message)
+Write-Output "stdout:$Message"
+[Console]::Error.WriteLine("stderr:$Message")
+exit 17
+'@ | Set-Content -LiteralPath $emitterPath -Encoding UTF8
+    $streamLogPath = Join-Path $presentationTestRoot 'streamed.log'
+    $receivedLines = [Collections.Generic.List[psobject]]::new()
+    $powershellPath = (Get-Process -Id $PID -ErrorAction Stop).Path
+    $streamExitCode = Invoke-RedXeStreamingProcess `
+        -FilePath $powershellPath `
+        -Arguments @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $emitterPath, 'argument with spaces') `
+        -WorkingDirectory $presentationTestRoot `
+        -LogPath $streamLogPath `
+        -OutputLineCallback {
+        param([string] $Line, [bool] $IsError)
+        [void] $receivedLines.Add([pscustomobject]@{ Line = $Line; IsError = $IsError })
+    }
+
+    if ($streamExitCode -ne 17) {
+        throw "Streaming did not propagate the child exit code; expected 17, got $streamExitCode."
+    }
+    $stdoutRecord = $receivedLines | Where-Object { $_.Line -eq 'stdout:argument with spaces' -and -not $_.IsError }
+    $stderrRecord = $receivedLines | Where-Object { $_.Line -eq 'stderr:argument with spaces' -and $_.IsError }
+    if (-not $stdoutRecord -or -not $stderrRecord) {
+        throw "Streaming did not preserve argument quoting and stream identity: $($receivedLines | Out-String)"
+    }
+    $streamLogText = Get-Content -LiteralPath $streamLogPath -Raw
+    if ($streamLogText -notmatch 'stdout:argument with spaces' -or
+        $streamLogText -notmatch 'stderr:argument with spaces' -or
+        $streamLogText.Contains([char] 0x1b)) {
+        throw 'The captured streaming log omitted output or contained terminal control sequences.'
+    }
+
+    $formattedDuration = Format-RedXeBuildDuration -Duration ([TimeSpan]::FromMilliseconds(3723004))
+    if ($formattedDuration -ne '01:02:03.004') {
+        throw "Unexpected elapsed-time format: $formattedDuration"
+    }
+}
+finally {
+    $resolvedPresentationCleanupTarget = [IO.Path]::GetFullPath($presentationTestRoot)
+    if (-not $resolvedPresentationCleanupTarget.StartsWith($expectedPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove a build-presentation test directory outside '$testParent': $resolvedPresentationCleanupTarget"
+    }
+    for ($attempt = 0; $attempt -lt 20 -and (Test-Path -LiteralPath $resolvedPresentationCleanupTarget); ++$attempt) {
+        try {
+            Remove-Item -LiteralPath $resolvedPresentationCleanupTarget -Recurse -Force -ErrorAction Stop
+        }
+        catch {
+            if ($attempt -eq 19) {
+                throw
+            }
+            Start-Sleep -Milliseconds 100
+        }
+    }
+}
+
+Write-Host 'Build presentation and streaming tests passed.' -ForegroundColor Green

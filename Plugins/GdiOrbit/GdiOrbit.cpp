@@ -1,6 +1,6 @@
 #define REDXE_PLUGIN_EXPORTS
 #include "PlugInterfaces/FactoryImpl.h"
-#include "PlugInterfaces/WindowWidget.h"
+#include "PlugInterfaces/Widget.h"
 
 #include <array>
 #include <atomic>
@@ -22,7 +22,7 @@ constexpr char kWidgetTypeId[] = "gdi-orbit";
 constexpr char kSettingsSchema[] = R"json({"type":"object","additionalProperties":false})json";
 constexpr char kSettingsDefaults[] = R"json({})json";
 constexpr RedXePluginSettingsContract kSettingsContract{
-    sizeof(RedXePluginSettingsContract), 1, 0, kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
+    sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
 };
 constexpr wchar_t kWindowClassName[] = L"RedXe.Plugin.GdiOrbit";
@@ -38,7 +38,7 @@ constexpr std::array kMetadata{
         kPluginId,
         L"GDI Orbit",
         L"Low-resource native-window demo with a double-buffered GDI animation.",
-        L"RedSalamanders",
+        L"RedXe",
         L"1.0.0",
         RedXePluginCapabilityWidgetProvider,
     },
@@ -128,7 +128,7 @@ class GdiOrbitWidget final : public IRedXeWidget, public IRedXeWindowWidget
         {
             return E_POINTER;
         }
-        if (context->sizeBytes < sizeof(RedXeWindowWidgetAttachContext) || !context->container ||
+        if (context->sizeBytes != sizeof(RedXeWindowWidgetAttachContext) || !context->container ||
             context->widthPixels == 0 || context->heightPixels == 0 || context->dpi == 0 ||
             !IsWindow(context->container))
         {
@@ -178,7 +178,7 @@ class GdiOrbitWidget final : public IRedXeWidget, public IRedXeWindowWidget
         {
             return E_POINTER;
         }
-        if (context->sizeBytes < sizeof(RedXeWindowWidgetSizeContext) || context->widthPixels == 0 ||
+        if (context->sizeBytes != sizeof(RedXeWindowWidgetSizeContext) || context->widthPixels == 0 ||
             context->heightPixels == 0 || context->dpi == 0)
         {
             return E_INVALIDARG;
@@ -198,15 +198,14 @@ class GdiOrbitWidget final : public IRedXeWidget, public IRedXeWindowWidget
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL visible) noexcept override
     {
-        if (!_window)
-        {
-            return E_UNEXPECTED;
-        }
-
         const bool shouldShow = visible != FALSE;
         if (_visible == shouldShow)
         {
             return S_OK;
+        }
+        if (!_window)
+        {
+            return E_UNEXPECTED;
         }
 
         if (shouldShow)

@@ -64,6 +64,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\RedXe\Settings.h" />
+    <ClInclude Include="..\..\RedXe\BundledPlugins.h" />
     <ClInclude Include="..\..\RedXe\SettingsWatcher.h" />
   </ItemGroup>
   <ItemGroup>

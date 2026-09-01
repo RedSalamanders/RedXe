@@ -15,9 +15,7 @@
   <ItemGroup>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Public Interfaces</Filter></ClInclude>
-    <ClInclude Include="..\..\Common\PlugInterfaces\GpuWidget.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h"><Filter>Public Interfaces</Filter></ClInclude>
-    <ClInclude Include="..\..\Common\PlugInterfaces\WindowWidget.h"><Filter>Public Interfaces</Filter></ClInclude>
   </ItemGroup>
 </Project>

@@ -1,3 +1,4 @@
+#include "../../RedXe/BundledPlugins.h"
 #include "../../RedXe/Settings.h"
 #include "../../RedXe/SettingsWatcher.h"
 
@@ -98,6 +99,46 @@ constexpr std::string_view kRepresentative = R"json(
     return false;
 }
 
+[[nodiscard]] bool CoversBundledPluginCatalog(const AppSettings& settings) noexcept
+{
+    if (settings.pluginCount != kRedXeBundledWidgets.size())
+        return false;
+    for (const RedXeBundledWidgetSpec& plugin : kRedXeBundledWidgets)
+    {
+        if (!FindPluginSettings(settings, plugin.pluginId) || !HasWidgetExample(settings, plugin.pluginId))
+            return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool SchemaAcceptsPlugin(yyjson_val* root, std::string_view pluginId) noexcept
+{
+    yyjson_val* definitions = yyjson_is_obj(root) ? yyjson_obj_get(root, "$defs") : nullptr;
+    yyjson_val* widgetDefinition =
+        yyjson_is_obj(definitions) ? yyjson_obj_get(definitions, "widgetDefinition") : nullptr;
+    yyjson_val* alternatives = yyjson_is_obj(widgetDefinition) ? yyjson_obj_get(widgetDefinition, "oneOf") : nullptr;
+    const std::size_t count = yyjson_is_arr(alternatives) ? yyjson_arr_size(alternatives) : 0;
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        yyjson_val* alternative = yyjson_arr_get(alternatives, index);
+        yyjson_val* properties = yyjson_is_obj(alternative) ? yyjson_obj_get(alternative, "properties") : nullptr;
+        yyjson_val* plugin = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "plugin") : nullptr;
+        yyjson_val* constant = yyjson_is_obj(plugin) ? yyjson_obj_get(plugin, "const") : nullptr;
+        if (yyjson_is_str(constant) && pluginId == std::string_view{yyjson_get_str(constant), yyjson_get_len(constant)})
+            return true;
+
+        yyjson_val* values = yyjson_is_obj(plugin) ? yyjson_obj_get(plugin, "enum") : nullptr;
+        const std::size_t valueCount = yyjson_is_arr(values) ? yyjson_arr_size(values) : 0;
+        for (std::size_t valueIndex = 0; valueIndex < valueCount; ++valueIndex)
+        {
+            yyjson_val* value = yyjson_arr_get(values, valueIndex);
+            if (yyjson_is_str(value) && pluginId == std::string_view{yyjson_get_str(value), yyjson_get_len(value)})
+                return true;
+        }
+    }
+    return false;
+}
+
 [[nodiscard]] HRESULT ValidateTemplatesAndSchema() noexcept
 {
     std::filesystem::path debugPath;
@@ -116,17 +157,10 @@ constexpr std::string_view kRepresentative = R"json(
     result = LoadAppSettingsFile(debugPath.wstring(), debug);
     if (SUCCEEDED(result))
         result = LoadAppSettingsFile(releasePath.wstring(), release);
-    if (FAILED(result) || debug.pluginCount != 3 || release.pluginCount != 3 ||
-        !FindPluginSettings(debug, "builtin.rotating-triangle") || !FindPluginSettings(debug, "builtin.gdi-orbit") ||
-        !FindPluginSettings(debug, "builtin.matrix-rain") ||
-        !FindPluginSettings(release, "builtin.rotating-triangle") ||
-        !FindPluginSettings(release, "builtin.gdi-orbit") || !FindPluginSettings(release, "builtin.matrix-rain") ||
-        !HasWidgetExample(debug, "builtin.rotating-triangle") || !HasWidgetExample(debug, "builtin.gdi-orbit") ||
-        !HasWidgetExample(debug, "builtin.matrix-rain") || !HasWidgetExample(release, "builtin.rotating-triangle") ||
-        !HasWidgetExample(release, "builtin.gdi-orbit") || !HasWidgetExample(release, "builtin.matrix-rain") ||
+    if (FAILED(result) || !CoversBundledPluginCatalog(debug) || !CoversBundledPluginCatalog(release) ||
         debug.dashboard.pageCount != 2 || debug.dashboard.pages[0].widgetCount != 4 ||
-        debug.dashboard.pages[1].widgetCount != 3 || release.dashboard.pageCount != 2 ||
-        release.dashboard.pages[0].widgetCount != 1 || release.dashboard.pages[1].widgetCount != 3 ||
+        debug.dashboard.pages[1].widgetCount != 6 || release.dashboard.pageCount != 2 ||
+        release.dashboard.pages[0].widgetCount != 1 || release.dashboard.pages[1].widgetCount != 6 ||
         !debug.dashboard.pages[0].widgets[0].usesAdaptivePlacement || FAILED(ValidateAppSettings(debug)) ||
         FAILED(ValidateAppSettings(release)))
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -142,6 +176,11 @@ constexpr std::string_view kRepresentative = R"json(
     if (!yyjson_is_obj(root) || !yyjson_is_obj(version) || !yyjson_is_uint(yyjson_obj_get(pages, "maxItems")) ||
         yyjson_get_uint(yyjson_obj_get(pages, "maxItems")) != kMaximumDashboardPages)
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    for (const RedXeBundledWidgetSpec& plugin : kRedXeBundledWidgets)
+    {
+        if (!SchemaAcceptsPlugin(root, plugin.pluginId))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
     return S_OK;
 }
 
@@ -164,6 +203,38 @@ constexpr std::string_view kRepresentative = R"json(
         parsed.dashboard.activePageIndex != 0)
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
+    constexpr std::string_view processViewerSettings =
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer"}},{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer","settings":{"topN":7}}}]}}]})json";
+    AppSettings processViewer{};
+    if (FAILED(ParseAppSettingsJson(processViewerSettings, processViewer)) ||
+        processViewer.dashboard.pages[0].widgets[0].privateConfiguration.View() != R"json({"topN":10})json" ||
+        processViewer.dashboard.pages[0].widgets[1].privateConfiguration.View() != R"json({"topN":7})json")
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+    constexpr std::string_view studioClockSettings =
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock"}},{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock","settings":{"showDate":true,"backgroundColor":"#010203"}}}]}}]})json";
+    AppSettings studioClock{};
+    if (FAILED(ParseAppSettingsJson(studioClockSettings, studioClock)) ||
+        studioClock.dashboard.pages[0].widgets[0].privateConfiguration.View() !=
+            R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","backgroundColor":"#111111"})json" ||
+        studioClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"showDate\":true") ==
+            std::string_view::npos ||
+        studioClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"backgroundColor\":\"#010203\"") ==
+            std::string_view::npos)
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+    constexpr std::string_view deskClockSettings =
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock"}},{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock","settings":{"flipDurationMilliseconds":250,"backgroundColor":"#010203"}}}]}}]})json";
+    AppSettings deskClock{};
+    if (FAILED(ParseAppSettingsJson(deskClockSettings, deskClock)) ||
+        deskClock.dashboard.pages[0].widgets[0].privateConfiguration.View() !=
+            R"json({"flipDurationMilliseconds":420,"backgroundColor":"#000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json" ||
+        deskClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"flipDurationMilliseconds\":250") ==
+            std::string_view::npos ||
+        deskClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"backgroundColor\":\"#010203\"") ==
+            std::string_view::npos)
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
     constexpr std::array invalid{
         std::string_view{R"json({"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":5},"pages":[{}]})json"},
@@ -183,6 +254,30 @@ constexpr std::string_view kRepresentative = R"json(
             R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"missing.plugin"}}]}}]})json"},
         std::string_view{
             R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit","settings":{"bad":1}}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer","settings":{"topN":0}}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer","settings":{"topN":33}}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer","settings":{"topN":10,"bad":1}}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock","settings":{"showSeconds":1}}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock","settings":{"externalDotsAlwaysOn":1}}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock","settings":{"dateFormat":"locale"}}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock","settings":{"secondsColor":"#GG0000"}}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock","settings":{"unknown":true}}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock","settings":{"flipDurationMilliseconds":249}}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock","settings":{"flipDurationMilliseconds":801}}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock","settings":{"cardColor":"#GG0000"}}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock","settings":{"unknown":true}}}]}}]})json"},
     };
     for (const std::string_view candidate : invalid)
     {

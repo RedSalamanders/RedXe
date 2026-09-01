@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files"><UniqueIdentifier>{89A9F386-42BF-4AF2-A8C9-5E297A4E0840}</UniqueIdentifier></Filter>
+    <Filter Include="Public Interfaces"><UniqueIdentifier>{489A5DC6-59E2-4B96-8D0D-43A19BEDFBAD}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup><ClCompile Include="StudioClockTests.cpp"><Filter>Source Files</Filter></ClCompile></ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="..\..\Plugins\StudioClock\StudioClockTestContract.h"><Filter>Public Interfaces</Filter></ClInclude>
+  </ItemGroup>
+</Project>

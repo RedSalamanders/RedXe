@@ -1,8 +1,12 @@
-# WIP: Desk Clock Direct3D split-flap plugin
+# Done: Desk Clock Direct3D split-flap plugin
 
-Status: `ACTIVE`
+Status: `COMPLETE`
 Created: 2026-08-31
+Completed: 2026-09-01
 Owner: RedXe plugin, settings, scheduled frame delivery, and Direct3D rendering
+
+> Typography and glyph-resource details in this historical plan were superseded by
+> `DeskClock_DirectWriteTypography_2026-09-01.md`. The owning normative contracts describe current behavior.
 
 ## Purpose
 
@@ -21,16 +25,16 @@ This WIP is a non-normative implementation plan. Before closeout, durable behavi
 - `Specs/UI/UI_Dashboard.md` only if generic active-page scheduling behavior changes; and
 - `Specs/Settings.schema.json` plus both shipped templates under `Settings/`.
 
-## Relationship to the Studio Clock WIP
+## Relationship to the Studio Clock plan
 
-[`StudioClock_Direct3DPlugin_2026-08-31.md`](StudioClock_Direct3DPlugin_2026-08-31.md) remains a separate dot-matrix
-clock proposal. Desk Clock uses different plugin IDs, settings, visuals, assets, and tests.
+[`StudioClock_Direct3DPlugin_2026-08-31.md`](StudioClock_Direct3DPlugin_2026-08-31.md) is the completed separate
+dot-matrix clock plan. Desk Clock uses different plugin IDs, settings, visuals, assets, and tests.
 
 Both clocks need a low-cadence widget to wake at a wall-clock boundary without a plugin timer or permanent continuous
-rendering. The plans MUST implement one shared `IRedXeScheduledWidget` sibling interface and one host deadline path,
-not competing IIDs or duplicate schedulers. Before implementation begins, one WIP MUST be selected as the owner of
-that shared prerequisite; the other records it as a dependency. Desk Clock additionally uses the same mechanism for
-its short smooth-animation frame burst.
+rendering. The Studio Clock WIP owns the shared prerequisite. The aligned ABI is
+`IRedXeScheduledWidget` (`1B6B4F9E-5421-4B4E-BC2D-190EE6CE86CB`) in
+`Common/PlugInterfaces/ScheduledWidget.h`; both clocks use that one sibling interface and the one host deadline path.
+Desk Clock additionally uses the same mechanism for its short smooth-animation frame burst.
 
 ## Proposed outcome
 
@@ -121,7 +125,7 @@ configured.
 | Widget type ID | `desk-clock` |
 | Capability | `RedXePluginCapabilityWidgetProvider` |
 | Rendering interface | `IRedXeGpuWidget` |
-| Scheduling interface | shared proposed `IRedXeScheduledWidget` sibling IID |
+| Scheduling interface | `IRedXeScheduledWidget`, IID `1B6B4F9E-5421-4B4E-BC2D-190EE6CE86CB` |
 
 Desk Clock exposes the generic widget, GPU rendering, and scheduled-frame interfaces as siblings on one controlling
 `IUnknown`. It adds no clock-specific public ABI and does not grow `IRedXeWidget` or `IRedXeGpuWidget`.
@@ -212,15 +216,16 @@ Each non-zero rendered frame performs at most:
 2. one opaque background draw;
 3. one static card-face draw;
 4. one static glyph/separator/date draw; and
-5. up to two ordered moving-flap draws while a transition is active.
+5. one ordered moving-flap draw while a transition is active.
 
 Every callback explicitly binds the D3D state it depends on. Host render-target and viewport rebinding between widgets
 remains unchanged.
 
 ### Device lifecycle
 
-- Provider-owned reusable resources are the embedded shaders and atlas, one dynamic constant buffer, sampler, and
-  immutable blend, rasterizer, and depth states. Compatible instances share them.
+- Provider-owned reusable resources are the embedded shaders and atlas, one dynamic visual constant buffer, three
+  16-byte immutable instance-range constant buffers, a sampler, and immutable blend, rasterizer, and depth states.
+  Compatible instances share them.
 - Widget-owned state is bounded validated settings, current/target time, transition state, cached date codes, and
   layout values.
 - `OnDeviceCreated` creates the complete device-resource set transactionally.
@@ -240,7 +245,7 @@ remains unchanged.
 | Frame-path heap work | Zero allocations and zero frees |
 | Frame-path synchronization and I/O | None |
 | Constant upload | At most one map/unmap and 512 bytes per changed frame |
-| Draw submissions | At most five draws per instance; at most three while static |
+| Draw submissions | At most four draws per instance; at most three while static |
 | Submitted instances | At most 64 |
 | Texture uploads | None after device creation |
 | Runtime shader/font work | None |
@@ -274,7 +279,8 @@ justification.
 - Message-aware deadline wait and time-change invalidation: `RedXe/Application.*`, `RedXe/FrameScheduler.h`
 - Static plugin schema integration: `Specs/Settings.schema.json`, `RedXe/Settings.*`
 - Shipped examples: both files under `Settings/`
-- Contract, settings, and deterministic WARP tests: `Tests/PluginContractTests/`, `Tests/SettingsTests/`
+- Contract and deterministic WARP tests: `Tests/DeskClockTests/`
+- Settings and shipped-template tests: `Tests/SettingsTests/`
 - Production scheduling, reload, recovery, and soak tests: `Tests/HostPluginTests/`
 
 The plugin project is added to all four solution configurations, copies its DLL under the host output `Plugins`
@@ -284,7 +290,7 @@ directory, and is referenced by RedXe for build ordering only, without static im
 
 ### Contract and settings
 
-- Verify factory null outputs, unknown IDs, unsupported IIDs, V1 defaults, V2 effective settings, the 4096-byte
+- Verify factory null outputs, unknown IDs, unsupported IIDs, V1 defaults, V2 effective settings, the 8192-byte
   configuration bound, synchronous copying, and static schema/default validity.
 - Verify controlling-`IUnknown` identity and reference counting across `IRedXeWidget`, `IRedXeGpuWidget`, and the
   shared scheduled-widget interface. Existing plugin IIDs and vtables remain unchanged.
@@ -315,7 +321,7 @@ directory, and is referenced by RedXe for build ordering only, without static im
   change.
 - Test landscape and portrait viewports, non-reference aspect ratios, DPI changes, minimum supported geometry, and
   zero-size suspension.
-- Verify device loss/recreation, the 64-instance bound, one-upload/five-draw maximum, steady-state zero allocations,
+- Verify device loss/recreation, the 46-instance bound, one-upload/four-draw maximum, steady-state zero allocations,
   and absence of runtime shader compiler, DirectWrite, WIC, font, timer, worker, HWND, and off-screen-target use.
 - Run a five-minute Release host soak and confirm stable provider/widget/device-resource counts, bounded memory,
   expected boundary/animation frame counts, hidden zero-wake behavior, and complete device-resource release.
@@ -332,20 +338,62 @@ directory, and is referenced by RedXe for build ordering only, without static im
 
 ## Implementation sequence
 
-1. [ ] Freeze the visual defaults, exact two-phase transition, time/date semantics, and ownership of the shared
+1. [x] Freeze the visual defaults, exact two-phase transition, time/date semantics, and ownership of the shared
        scheduled-widget prerequisite.
-2. [ ] Add or reuse the one scheduled-widget sibling IID, host deadline aggregation, message-aware wait, and focused
+2. [x] Add or reuse the one scheduled-widget sibling IID, host deadline aggregation, message-aware wait, and focused
        ABI/scheduler tests without changing published interfaces.
-3. [ ] Add the Desk Clock project, metadata, factory/static settings contract, and all solution configurations.
-4. [ ] Implement strict effective-settings parsing and transactional host integration.
-5. [ ] Create the original bounded atlas and build-time shaders; implement cached layout, time state, and the
+3. [x] Add the Desk Clock project, metadata, factory/static settings contract, and all solution configurations.
+4. [x] Implement strict effective-settings parsing and transactional host integration.
+5. [x] Create the original bounded atlas and build-time shaders; implement cached layout, time state, and the
        perspective split-flap renderer.
-6. [ ] Add Desk Clock to both shipped gallery templates without changing the Release startup composition.
-7. [ ] Add deterministic settings, schedule, WARP phase/pixel, rollover, device-loss, import, rollback, and teardown
+6. [x] Add Desk Clock to both shipped gallery templates without changing the Release startup composition.
+7. [x] Add deterministic settings, schedule, WARP phase/pixel, rollover, device-loss, import, rollback, and teardown
        coverage.
-8. [ ] Measure the resource budget, run the full validation matrix, update every owning normative contract, and
+8. [x] Measure the resource budget, run the full validation matrix, update every owning normative contract, and
        reconcile the scheduling work with the Studio Clock WIP and active architecture RFC.
-9. [ ] Record completion evidence, move this plan to `Specs/Plans/Done/`, and remove its WIP index row.
+9. [x] Record completion evidence, move this plan to `Specs/Plans/Done/`, and remove its WIP index row.
+
+## Completion evidence
+
+Validation completed on 2026-09-01 without desktop automation.
+
+- `./format.ps1` formatted the complete C++ source set. `./test.ps1 -Configuration Debug -Platform x64 -Rebuild`
+  and `./test.ps1 -Configuration Release -Platform x64 -Rebuild` passed the complete build, plugin ABI, System Data,
+  both clocks, settings/schema/watcher, production host/plugin, hidden WARP, and isolated crash-test matrix. The final
+  Release rerun also passed the build-process fixture after its bounded cleanup retry removed a transient executable-
+  lock race.
+- `./build.ps1 -Configuration Release -Platform ARM64 -Rebuild` compiled the host, Desk Clock, focused tests, and
+  production host harness. `./validate-skills.ps1` and `git diff --check` passed; the changed JSON and MSBuild XML files
+  parsed successfully.
+- Desk Clock focused tests cover V1 defaults and V2 direct/normalized settings, the 8192-byte factory bound, copied
+  source JSON, duration endpoints, every color, mixed-case hexadecimal digits, malformed/duplicate/unknown members,
+  controlling-`IUnknown` identity, initial/static/active scheduling, and transactional valid/invalid host reload.
+- Deterministic WARP tests cover ordinary `19` to `20`, `09` to `10`, `59` to `00`, midnight/date, year, leap-day,
+  rollback, and long-gap snap behavior. Phase snapshots at 0/25/50/75/100 percent, midnight cross-fade snapshots, and
+  unchanged-left-region comparisons prove synchronized changed-tile animation without spill into static tiles.
+- WARP readback verifies configured background/card/digit/date colors, six rounded cards, colon dots, hinge seams, and
+  date placement. Landscape, portrait, 320×120 minimum, non-reference aspect, 96/144/192 DPI, zero viewport,
+  invalid-prefix, device-loss/recreation, multi-device, and complete COM/resource teardown paths pass.
+- The original 128×128 atlas contains 16,384 bytes and regenerated to the same 16,384-value sequence. Compile-time
+  assertions keep the atlas within 32 KiB, the provider below 32 KiB, and each widget below 4 KiB. Release import
+  inspection found only kernel and C++ runtime dependencies—no runtime HLSL compiler, DirectWrite, WIC, font, timer,
+  worker, HWND, or off-screen-target dependency. Debug CRT hooks measured zero steady render allocations.
+- Release 2560×720 measurement recorded disabled/static/animation CPU submission at 0.0006/0.0411/0.0481 ms/frame,
+  active WARP timestamp time at 0.6175 ms/frame, WARP-inclusive activation private/working-set deltas of 53.00/30.89
+  MiB, warmed steady private/working-set deltas of 7.20/10.83 MiB, and exact static/animation draw counts of 3.00/4.00
+  per frame. Structural submission remains one 304-byte upload on visual change, 40/46 submitted instances, and
+  three/four draws.
+- Release `HostPluginTests.exe --desk-clock-soak --seconds=300` exercised the production scheduled host for five
+  minutes: 8,010 rendered frames, 7,710 active-flip delays, 301 idle-boundary delays, and 31,740 draws. Provider,
+  widget, and device-resource counts stayed at 1/1/1; the two-second hidden interval performed zero plugin-owned time
+  sampling; shutdown returned device-resource count to zero. Process-level private/working-set deltas were
+  +8,253,440/+20,676,608 bytes with stable plugin object counts.
+- The reviewed `DeskClock2560x720.bmp` capture preserves the requested hierarchy: six dominant warm-red split cards
+  centered on black, high-contrast white `HH:MM:SS`, two colon separators, aligned hinge seams, and a subordinate gray
+  `ddd DD MMM` line. The five phase captures show a smooth monotonic hinge transition and a seam-free final target.
+- Desk Clock and Studio Clock use only the frozen `IRedXeScheduledWidget` IID and one host monotonic deadline path.
+  Their bounded measurements remain within the immediate-context GPU mechanism, so the active architecture RFC now
+  reserves host primitive batching for a materially larger measured widget family.
 
 ## Closeout condition
 

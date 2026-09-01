@@ -5,7 +5,8 @@ Builds, cleans, rebuilds, or runs the RedXe solution.
 .DESCRIPTION
 Locates a Visual Studio MSBuild installation (including prerelease Visual Studio instances), rejects a running RedXe
 process whose executable is the exact selected target output, builds the requested configuration and platform,
-and writes all outputs beneath .build.
+and writes all outputs beneath .build. Interactive builds preserve native MSBuild color when possible and otherwise
+replay colored output while capturing a plain-text log beneath .build/logs.
 
 .PARAMETER Configuration
 Build configuration: Debug or Release.
@@ -55,7 +56,15 @@ $repoRoot = Split-Path -Parent $PSCommandPath
 $solutionPath = Join-Path $repoRoot 'RedXe.sln'
 $executable = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.exe"
 $buildOutputProcessModule = Join-Path $repoRoot 'Build\BuildOutputProcess.psm1'
+$buildPresentationModule = Join-Path $repoRoot 'Build\BuildPresentation.psm1'
 Import-Module $buildOutputProcessModule -Force -ErrorAction Stop
+Import-Module $buildPresentationModule -Force -ErrorAction Stop
+
+$useInteractiveTerminal = Test-RedXeInteractiveTerminal
+Write-RedXeBuildBanner -UseColor $useInteractiveTerminal
+Write-Host ("Target: {0} | {1}" -f $Platform, $Configuration) -ForegroundColor Magenta
+Write-Host ''
+
 Assert-BuildOutputProcessNotRunning -ProcessName 'RedXe.exe' -ExpectedExecutablePath $executable
 
 function Find-MSBuild {
@@ -103,8 +112,11 @@ function Find-MSBuild {
 $msbuild = Find-MSBuild
 $target = if ($Clean) { 'Clean' } elseif ($Rebuild) { 'Rebuild' } else { 'Build' }
 $dependencyInstaller = Join-Path $repoRoot 'vcpkg-install.ps1'
+$operationStopwatch = [Diagnostics.Stopwatch]::StartNew()
 if (-not $Clean) {
+    Write-Host '[1/2] Dependencies' -ForegroundColor Cyan
     & $dependencyInstaller -Platform $Platform
+    Write-Host ''
 }
 
 $workerArgument = if ($MaxCpuCount -gt 0) { "/m:$MaxCpuCount" } else { '/m' }
@@ -118,17 +130,51 @@ $arguments = @(
     '/verbosity:minimal'
 )
 
+$logPath = New-RedXeBuildLogPath -RepoRoot $repoRoot -Target $target
+$invocationPlan = Get-RedXeBuildInvocationPlan `
+    -UseInteractiveTerminal $useInteractiveTerminal `
+    -LogPath $logPath
+
+$stageLabel = if ($Clean) { '[1/1]' } else { '[2/2]' }
+Write-Host "$stageLabel $target" -ForegroundColor Cyan
 Write-Host "MSBuild: $msbuild" -ForegroundColor DarkGray
-Write-Host "$target RedXe ($Platform|$Configuration)" -ForegroundColor Cyan
-& $msbuild @arguments
-if ($LASTEXITCODE -ne 0) {
-    throw "MSBuild failed with exit code $LASTEXITCODE."
+
+if ($invocationPlan.UseDirectConsole) {
+    $directArguments = @($arguments + @($invocationPlan.AdditionalArguments))
+    & $msbuild @directArguments
+    $exitCode = $LASTEXITCODE
+}
+else {
+    $exitCode = Invoke-RedXeStreamingProcess `
+        -FilePath $msbuild `
+        -Arguments $arguments `
+        -WorkingDirectory $repoRoot `
+        -LogPath $logPath `
+        -OutputLineCallback {
+        param(
+            [string] $Line,
+            [bool] $IsError
+        )
+
+        Write-RedXeBuildStreamingLine -Line $Line -IsError $IsError
+    }
+}
+
+$operationStopwatch.Stop()
+Write-Host ''
+Write-Host "Captured log: $logPath" -ForegroundColor DarkGray
+Write-RedXeBuildDiagnosticSummary -LogPath $logPath
+$duration = Format-RedXeBuildDuration -Duration $operationStopwatch.Elapsed
+if ($exitCode -ne 0) {
+    Write-Host "BUILD SIGNAL LOST after $duration" -ForegroundColor Red
+    throw "MSBuild failed with exit code $exitCode."
 }
 
 if (-not $Clean) {
     if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
         throw "Build succeeded but the expected executable was not found: $executable"
     }
+    Write-Host "BUILD SIGNAL LOCKED in $duration" -ForegroundColor Green
     Write-Host "Ready: $executable" -ForegroundColor Green
 
     if ($Run) {
@@ -137,4 +183,7 @@ if (-not $Clean) {
         }
         Start-Process -FilePath $executable
     }
+}
+else {
+    Write-Host "CLEAN SIGNAL LOCKED in $duration" -ForegroundColor Green
 }

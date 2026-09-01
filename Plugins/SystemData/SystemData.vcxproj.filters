@@ -6,9 +6,10 @@
   </ItemGroup>
   <ItemGroup><ClCompile Include="SystemData.cpp"><Filter>Source Files</Filter></ClCompile></ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Common\PlugInterfaces\DataProvider.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Data.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="SystemDataTestContract.h"><Filter>Public Interfaces</Filter></ClInclude>
   </ItemGroup>
 </Project>

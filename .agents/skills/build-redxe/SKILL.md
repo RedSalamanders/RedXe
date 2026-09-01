@@ -24,6 +24,11 @@ Outputs are always `.build/<Platform>/<Configuration>/`. Intermediate files are 
 `build.ps1` ensures manifest dependencies are installed first. The pinned vcpkg checkout and all package state also
 stay beneath `.build/`; do not substitute a developer-global install path.
 
+Every build starts with the RedXe build-signal banner. Plain interactive consoles retain MSBuild's native color;
+Codex, Windows Terminal, redirected, and non-interactive hosts use colored line replay. Each invocation captures a
+plain-text log beneath `.build/logs/` and reports diagnostic counts plus elapsed time. Use the captured log when a
+diagnostic is truncated in the terminal.
+
 Every build, clean, and rebuild preflights the selected executable output. A running `RedXe.exe` whose normalized path
 exactly matches `.build/<Platform>/<Configuration>/RedXe.exe` blocks the build with identifying diagnostics and is
 never terminated; same-name processes from another checkout or profile are ignored. If this preflight changes,

@@ -2,7 +2,7 @@
 
 Status: `DECISION` — non-normative unresolved work
 Created: 2026-08-30
-Last narrowed: 2026-08-31
+Last narrowed: 2026-09-01
 Owner: future RedXe plugin services and interactive content
 
 ## Purpose
@@ -19,28 +19,31 @@ This RFC is not an alternate contract for those shipped systems.
 
 ## Settled and removed from this RFC
 
-The current implementation already has a direct native factory, frozen generic/GPU/window widget IIDs, three bundled
-DLLs, human-first version 4 settings, adaptive ratio layouts, ordered swipeable pages, current-page-only runtime
+The current implementation already has a direct native factory, one pre-production generic/GPU/window/scheduled
+widget interface set,
+bundled DLLs, human-first version 4 settings, adaptive ratio layouts, ordered swipeable pages, current-page-only runtime
 resources outside transitions, transactional reload, child-HWND hosting, Matrix Rain, explicit frame invalidation,
 and hidden WARP/plugin harnesses.
 Changes to those behaviors start in their domain contracts, not here.
 
 ## Unresolved decisions
 
-### 1. Data providers and broker
+### 1. Data services beyond local pull sources
 
-The local system-data slice is now executing in
-[`SystemDataPlugin_2026-08-31.md`](SystemDataPlugin_2026-08-31.md). That plan selects a host-worker pull model,
-immutable typed table descriptors, borrowed bounded snapshots, timestamps and per-value quality, stop/drain,
-coalescing, cadence, privacy, and failure isolation. Keep this RFC section open until the broker and widget-consumer
-contract are implemented and the plan closes; network and push-provider policy remain future decisions.
+The baseline local system-data slice is complete in
+[`SystemDataPlugin_2026-08-31.md`](../Done/SystemDataPlugin_2026-08-31.md). Plugin-side pull sources, host provider
+lookup, the shared widget/data module loader, one event-blocked local acquisition worker, borrowed sink/subscription
+delivery, multiple-viewer support, row-cap resource measurements, and closeout validation are implemented. Broader
+local metrics, host batching, provider isolation, and future push/network-provider policy remain unresolved.
 
 ### 2. Host-owned primitive batching
 
-`IRedXeGpuWidget` remains the Matrix-class immediate-context mechanism. Before shipping a family of cheap gauges,
-clocks, text, or graphs, measure the expected callback/map/state/draw cost and decide whether a new IID should submit
-bounded host-owned primitives for one batched render pass. Do not change the existing IID or add plugin-specific
-commands to `Widget.h`.
+`IRedXeGpuWidget` remains the immediate-context mechanism. The bounded Studio Clock and Desk Clock measurements
+accepted one two-draw dot clock and one three/four-draw split-flap clock without a host-owned primitive IID; that
+decision is normative in the plugin and resource contracts. Before shipping a materially larger family of cheap
+gauges, clocks, text, or graphs, measure aggregate callback/map/state/draw cost and decide whether the current
+pre-production interface set should add a bounded host-owned primitive mechanism. Do not add plugin-specific commands
+to the generic widget root.
 
 ### 3. Missing plugins and migration beyond version 4 reset
 

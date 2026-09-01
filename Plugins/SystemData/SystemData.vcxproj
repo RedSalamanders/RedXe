@@ -57,10 +57,11 @@
   </ItemDefinitionGroup>
   <ItemGroup><ClCompile Include="SystemData.cpp" /></ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Common\PlugInterfaces\DataProvider.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\Data.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />
+    <ClInclude Include="SystemDataTestContract.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

@@ -2,17 +2,20 @@
 
 #include "Host.h"
 
-#include <cstddef>
 #include <cstdint>
 #include <windows.h>
 
+// Every sizeBytes field must equal the current record's sizeof value.
+
+// Services exposed by a logical plugin.
 enum RedXePluginCapabilities : std::uint32_t
 {
     RedXePluginCapabilityNone = 0,
     RedXePluginCapabilityWidgetProvider = 1U << 0U,
-    RedXePluginCapabilityDataProvider = 1U << 1U,
+    RedXePluginCapabilityDataSource = 1U << 1U,
 };
 
+// Current factory input; sizeBytes must equal sizeof(RedXeFactoryOptions).
 struct RedXeFactoryOptions final
 {
     std::uint32_t sizeBytes;
@@ -21,16 +24,10 @@ struct RedXeFactoryOptions final
     std::uint32_t configurationBytes;
 };
 
-// The minimum accepted prefix is immutable even if later headers append fields.
-inline constexpr std::uint32_t kRedXeFactoryOptionsV1Size = 8;
-inline constexpr std::uint32_t kRedXeFactoryOptionsV2Size = static_cast<std::uint32_t>(
-    offsetof(RedXeFactoryOptions, configurationBytes) + sizeof(RedXeFactoryOptions::configurationBytes));
 inline constexpr std::uint32_t kRedXeMaximumFactoryConfigurationBytes = 8192;
-static_assert(offsetof(RedXeFactoryOptions, configurationJsonUtf8) == kRedXeFactoryOptionsV1Size);
-static_assert(offsetof(RedXeFactoryOptions, configurationBytes) == 16);
-static_assert(kRedXeFactoryOptionsV2Size == 20);
 static_assert(sizeof(RedXeFactoryOptions) == 24);
 
+// Module-owned metadata for one logical plugin.
 struct RedXePluginMetadata final
 {
     std::uint32_t sizeBytes;
@@ -42,13 +39,10 @@ struct RedXePluginMetadata final
     std::uint32_t capabilities;
 };
 
-// Static, module-owned settings contract. The returned UTF-8 strings remain valid until the module is unloaded.
-// This is an additive export rather than a COM vtable change so older hosts and plugins remain ABI-compatible.
+// Module-owned settings schema and defaults for one logical plugin.
 struct RedXePluginSettingsContract final
 {
     std::uint32_t sizeBytes;
-    std::uint32_t versionMajor;
-    std::uint32_t versionMinor;
     const char* schemaJsonUtf8;
     std::uint32_t schemaBytes;
     const char* defaultsJsonUtf8;

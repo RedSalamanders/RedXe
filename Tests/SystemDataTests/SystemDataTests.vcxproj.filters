@@ -6,8 +6,9 @@
   </ItemGroup>
   <ItemGroup><ClCompile Include="SystemDataTests.cpp"><Filter>Source Files</Filter></ClCompile></ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Common\PlugInterfaces\DataProvider.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Data.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="..\..\Plugins\SystemData\SystemDataTestContract.h"><Filter>Public Interfaces</Filter></ClInclude>
   </ItemGroup>
 </Project>

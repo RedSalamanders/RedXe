@@ -21,7 +21,8 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
   without modifying the document.
 - A page with no `layout` is blank. A page contains at most 32 widget appearances.
 - Only the current page owns runtime resources, except while swiping when the adjacent transition page may also own
-  resources. All other pages own no provider, widget, child HWND, D3D resource, timer, or frame work.
+  resources. All other pages own no provider, widget, data subscription, child HWND, D3D resource, timer, acquisition,
+  or frame work.
 
 ## Adaptive layout tree
 
@@ -67,6 +68,20 @@ Orientation is runtime state and MUST NOT appear in settings.
   tears down the staged neighbor. Commit makes it current and tears down the prior page.
 - Resize, close, reload, and capture loss cancel an active transition safely.
 
+## Low-cadence scheduled frames
+
+- An active widget may expose `IRedXeScheduledWidget` to request a relative deadline without making its page
+  continuous. `DashboardHost` queries only widgets instantiated for the current page and, during a swipe, the one
+  staged adjacent page; it caches no deadline for any other page.
+- After a successful frame, the application selects the earliest valid delay from the current and staged dashboards,
+  converts it immediately to a monotonic deadline, and blocks in one message-aware wait. Deadline expiry coalesces one
+  ordinary frame invalidation.
+- A continuous widget on either participating dashboard supersedes scheduled waits. Unrelated messages do not render
+  a clean static dashboard.
+- Hidden, minimized, suspended, display-off, occluded, inactive-page, transition-cancel, and shutdown paths discard
+  scheduled deadlines. Recovery invalidates once and establishes a fresh deadline after the recovery frame; missed
+  deadlines are never replayed.
+
 ## Required validation
 
 - Parser/schema tests reject empty/mixed areas, malformed widgets, invalid ratios, and excessive pages, widgets,
@@ -75,6 +90,13 @@ Orientation is runtime state and MUST NOT appear in settings.
   native/GPU edges.
 - Host tests prove first-page startup, blank pages, dynamic reflow, active-page-only creation, transactional switching,
   and WARP rendering.
+- Host tests prove that the full-canvas Process Viewer page activates data collection only while visible and releases
+  its native-window and subscription resources when the page is no longer active.
+- Host tests prove that Studio Clock pages remain non-continuous, aggregate guarded next-boundary delays, coalesce a
+  wall-clock correction, add no resources or deadline while inactive, and stop scheduled work in every blocked state.
+- Host tests prove that Desk Clock pages remain non-continuous, request the next-second boundary while static, request
+  smooth presentation-paced frames only during a split-flap burst, return to a blocked wait at completion, add no
+  resources or deadline while inactive, and stop scheduled work in every blocked state.
 - Navigation tests cover direction, direct manipulation, cancel/commit, end stops, wrap, capture loss, vertical
   rejection, and current-plus-adjacent-only resource lifetime.
 - Interactive validation on a touch-capable XENEON SHOULD verify finger tracking and both orientations before release.

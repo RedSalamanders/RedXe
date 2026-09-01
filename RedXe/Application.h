@@ -43,6 +43,9 @@ class Application final
     void CloseSettingsError() noexcept;
     HRESULT UpdateDashboardVisibility() noexcept;
     void CloseMainWindow() noexcept;
+    [[nodiscard]] bool DashboardRequiresContinuousFrames() const noexcept;
+    void RefreshScheduledFrameDeadline() noexcept;
+    void ClearScheduledFrameDeadline() noexcept;
     bool WaitUntilMessage() noexcept;
     LRESULT HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
     LRESULT OnSize(HWND window, UINT width, UINT height) noexcept;
@@ -73,6 +76,7 @@ class Application final
     bool _displayPoweredOn = true;
     bool _occlusionStatusChanged = false;
     bool _frameInvalidated = true;
+    ULONGLONG _scheduledFrameDeadlineTick = 0;
     HRESULT _runtimeFailure = S_OK;
     UINT32 _pagePointerId = 0;
     LONG _pagePointerStartX = 0;

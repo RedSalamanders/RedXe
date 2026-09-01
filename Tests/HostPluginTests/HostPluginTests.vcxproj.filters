@@ -9,14 +9,17 @@
     <ClCompile Include="HostPluginTests.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\RedXe\DashboardHost.cpp"><Filter>Host Sources</Filter></ClCompile>
     <ClCompile Include="..\..\RedXe\PluginManager.cpp"><Filter>Host Sources</Filter></ClCompile>
+    <ClCompile Include="..\..\RedXe\PluginHost.cpp"><Filter>Host Sources</Filter></ClCompile>
     <ClCompile Include="..\..\RedXe\Renderer.cpp"><Filter>Host Sources</Filter></ClCompile>
     <ClCompile Include="..\..\RedXe\Settings.cpp"><Filter>Host Sources</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\Plugins\DeskClock\DeskClockTestContract.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Plugins\MatrixRain\MatrixRainTestContract.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\RedXe\DashboardHost.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\RedXe\FrameScheduler.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\RedXe\PluginManager.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\RedXe\PluginHost.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\RedXe\Renderer.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\RedXe\Settings.h"><Filter>Header Files</Filter></ClInclude>
   </ItemGroup>

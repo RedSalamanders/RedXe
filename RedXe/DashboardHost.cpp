@@ -168,10 +168,6 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
             dpi,
         };
         HRESULT result = windowWidget->Attach(&context);
-        if (SUCCEEDED(result))
-        {
-            result = windowWidget->SetVisible(visible ? TRUE : FALSE);
-        }
         if (FAILED(result))
         {
             windowWidget->Detach();
@@ -184,9 +180,37 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
             }
             return result;
         }
-        if (visible)
+    }
+
+    for (std::uint32_t index = 0; index < widgetCount; ++index)
+    {
+        IRedXeWidget* widget = pluginManager.WidgetAt(index);
+        const HRESULT result = widget ? widget->SetVisible(visible ? TRUE : FALSE) : E_UNEXPECTED;
+        if (FAILED(result))
         {
-            ShowWindow(container, SW_SHOWNA);
+            for (std::uint32_t previous = 0; previous < index; ++previous)
+            {
+                (void)pluginManager.WidgetAt(previous)->SetVisible(FALSE);
+            }
+            for (std::uint32_t previous = widgetCount; previous > 0; --previous)
+            {
+                const std::uint32_t widgetIndex = previous - 1;
+                if (containers[widgetIndex])
+                {
+                    pluginManager.WindowWidgetAt(widgetIndex)->Detach();
+                }
+            }
+            return result;
+        }
+    }
+    if (visible)
+    {
+        for (wil::unique_hwnd& container : containers)
+        {
+            if (container)
+            {
+                ShowWindow(container.get(), SW_SHOWNA);
+            }
         }
     }
 
@@ -200,7 +224,7 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
     _gridColumns = columns;
     _gridRows = rows;
     _requiresContinuousFrames = continuous;
-    _windowWidgetsVisible = visible;
+    _widgetsVisible = visible;
     _clientWidth = width;
     _clientHeight = height;
     return S_OK;
@@ -214,7 +238,7 @@ HRESULT DashboardHost::Resize(UINT width, UINT height, UINT dpi) noexcept
     }
     if (width == 0 || height == 0)
     {
-        return SetWindowWidgetsVisible(false);
+        return SetWidgetsVisible(false);
     }
     _clientWidth = width;
     _clientHeight = height;
@@ -276,13 +300,13 @@ HRESULT DashboardHost::SetHorizontalOffset(LONG offset) noexcept
     return S_OK;
 }
 
-HRESULT DashboardHost::SetWindowWidgetsVisible(bool visible) noexcept
+HRESULT DashboardHost::SetWidgetsVisible(bool visible) noexcept
 {
     if (!_pluginManager)
     {
         return E_UNEXPECTED;
     }
-    if (_windowWidgetsVisible == visible)
+    if (_widgetsVisible == visible)
     {
         return S_OK;
     }
@@ -290,22 +314,14 @@ HRESULT DashboardHost::SetWindowWidgetsVisible(bool visible) noexcept
     std::size_t changedCount = 0;
     for (std::size_t index = 0; index < _widgetCount; ++index)
     {
-        IRedXeWindowWidget* widget = _pluginManager->WindowWidgetAt(index);
-        if (!widget)
-        {
-            continue;
-        }
-
+        IRedXeWidget* widget = _pluginManager->WidgetAt(index);
         const HRESULT result = widget->SetVisible(visible ? TRUE : FALSE);
         if (FAILED(result))
         {
             for (std::size_t previous = 0; previous < changedCount; ++previous)
             {
-                IRedXeWindowWidget* previousWidget = _pluginManager->WindowWidgetAt(previous);
-                if (previousWidget)
-                {
-                    (void)previousWidget->SetVisible(_windowWidgetsVisible ? TRUE : FALSE);
-                }
+                IRedXeWidget* previousWidget = _pluginManager->WidgetAt(previous);
+                (void)previousWidget->SetVisible(_widgetsVisible ? TRUE : FALSE);
             }
             return result;
         }
@@ -319,7 +335,7 @@ HRESULT DashboardHost::SetWindowWidgetsVisible(bool visible) noexcept
             ShowWindow(_windowContainers[index].get(), visible ? SW_SHOWNA : SW_HIDE);
         }
     }
-    _windowWidgetsVisible = visible;
+    _widgetsVisible = visible;
     return S_OK;
 }
 
@@ -330,7 +346,7 @@ void DashboardHost::Shutdown() noexcept
         return;
     }
 
-    (void)SetWindowWidgetsVisible(false);
+    (void)SetWidgetsVisible(false);
     for (std::size_t index = _widgetCount; index > 0; --index)
     {
         const std::size_t widgetIndex = index - 1;
@@ -347,7 +363,7 @@ void DashboardHost::Shutdown() noexcept
     _gridColumns = 0;
     _gridRows = 0;
     _requiresContinuousFrames = false;
-    _windowWidgetsVisible = false;
+    _widgetsVisible = false;
     _horizontalOffset = 0;
     _clientWidth = 0;
     _clientHeight = 0;
@@ -397,4 +413,44 @@ RECT DashboardHost::PixelBoundsAt(std::size_t index, UINT width, UINT height) co
 bool DashboardHost::RequiresContinuousFrames() const noexcept
 {
     return _requiresContinuousFrames;
+}
+
+HRESULT DashboardHost::GetNextFrameDelayMilliseconds(std::uint32_t* delayMilliseconds) const noexcept
+{
+    if (!delayMilliseconds)
+    {
+        return E_POINTER;
+    }
+    *delayMilliseconds = 0;
+    if (!_pluginManager)
+    {
+        return S_FALSE;
+    }
+
+    std::uint32_t earliest = kRedXeMaximumScheduledFrameDelayMilliseconds;
+    bool found = false;
+    for (std::size_t index = 0; index < _widgetCount; ++index)
+    {
+        IRedXeScheduledWidget* scheduledWidget = _pluginManager->ScheduledWidgetAt(index);
+        if (!scheduledWidget)
+        {
+            continue;
+        }
+
+        std::uint32_t candidate = 0;
+        const HRESULT result = scheduledWidget->GetNextFrameDelayMilliseconds(&candidate);
+        if (result != S_OK || candidate == 0 || candidate > kRedXeMaximumScheduledFrameDelayMilliseconds)
+        {
+            continue;
+        }
+        earliest = candidate < earliest ? candidate : earliest;
+        found = true;
+    }
+
+    if (!found)
+    {
+        return S_FALSE;
+    }
+    *delayMilliseconds = earliest;
+    return S_OK;
 }

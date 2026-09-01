@@ -60,6 +60,8 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
   [`Specs/UI/UI_XeneonDisplayWindowing.md`](Specs/UI/UI_XeneonDisplayWindowing.md).
 - Native factory, generic widget mechanisms, bundled plugin, and plugin-lifetime behavior is owned by
   [`Specs/Plugins/Plugins_API.md`](Specs/Plugins/Plugins_API.md).
+- Adding or removing a settings-visible bundled widget requires one aligned change to `RedXe/BundledPlugins.h`, the
+  schema/parser, its plugin contract, and real placed examples in both Debug and Release settings templates.
 - Mandatory performance and resource behavior is owned by
   [`Specs/Core/Core_PerformanceAndResources.md`](Specs/Core/Core_PerformanceAndResources.md).
 - User settings files, schema, cold recovery, and live reload are owned by
@@ -82,11 +84,10 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 
 ```text
 Common/PlugInterfaces/
-  Factory.*        Stable factory ABI and shared factory implementation
+  Factory.*        Current factory ABI and shared factory implementation
   Host.h           Host-service COM root
-  Widget.h         Generic widget identity, metadata, and provider ABI
-  GpuWidget.h      Direct3D 11 widget rendering mechanism
-  WindowWidget.h   Native child-HWND rendering mechanism
+  Widget.h         Complete generic, GPU, scheduled, and child-window widget ABI
+  Data.h           Complete source, provider, snapshot, sink, and subscription ABI
 Plugins/
   RotatingTriangle/ First bundled widget-provider DLL
   GdiOrbit/         Double-buffered GDI window-widget DLL
@@ -95,7 +96,8 @@ RedXe/
   Main.cpp          Process setup and command-line modes
   Application.*     Win32 window and message-loop lifetime
   CrashHandler.*    Fatal-process front door, local minidumps/call stacks, and prior-crash notice
-  PluginManager.*   Plugin loading, providers, and instance lifetime
+  PluginHost.*      Shared module loading and host-managed data providers
+  PluginManager.*   Widget providers and instance lifetime
   DashboardHost.*   Widget placement and frame-scheduling policy
   Renderer.*        Direct3D 11 host resources, widget callbacks, and frames
   Settings.*        Typed yyjson persistence, paths, recovery, and file stamps
@@ -129,7 +131,8 @@ Keep the boundary explicit:
 - `DashboardHost` owns design-canvas placements, native child containers, and frame-scheduling policy.
 - `Renderer` owns host COM graphics resources, cached viewports, device notifications, and presentation; it has no
   message-dispatch or plugin-specific drawing logic.
-- `Widget.h` remains rendering-neutral. Widgets negotiate the frozen GPU or native-window mechanism by IID.
+- `Widget.h` owns every widget declaration. Widgets expose supported GPU, scheduled, or native-window mechanisms as
+  sibling COM interfaces queried by IID.
 - GPU widgets receive the borrowed D3D11 device during setup and immediate context during rendering, but never the
   HWND, swap chain, or back buffer.
 - A window widget receives only a host-owned child container, never the top-level HWND, and destroys all plugin-owned

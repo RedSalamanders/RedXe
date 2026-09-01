@@ -34,6 +34,12 @@ constexpr char kGdiPluginId[] = "builtin.gdi-orbit";
 constexpr char kGdiTypeId[] = "gdi-orbit";
 constexpr char kMatrixPluginId[] = "builtin.matrix-rain";
 constexpr char kMatrixTypeId[] = "matrix-rain";
+constexpr char kProcessViewerPluginId[] = "builtin.process-viewer";
+constexpr char kProcessViewerTypeId[] = "process-viewer";
+constexpr char kStudioClockPluginId[] = "builtin.studio-clock";
+constexpr char kStudioClockTypeId[] = "studio-clock";
+constexpr char kDeskClockPluginId[] = "builtin.desk-clock";
+constexpr char kDeskClockTypeId[] = "desk-clock";
 
 #if defined(_DEBUG)
 constexpr const wchar_t* kSelectedSettingsFileName = kRedXeDebugSettingsFileName;
@@ -170,11 +176,43 @@ template <std::size_t Count>
            ReadUnsigned(object, "glowPercent", 0, 100, value);
 }
 
+[[nodiscard]] bool IsValidStudioClockPrivate(yyjson_val* object) noexcept
+{
+    constexpr std::array keys{
+        "showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor",
+        "showDate",           "dateFormat",           "timeColor",   "backgroundColor",
+    };
+    yyjson_val* dateFormatValue = yyjson_obj_get(object, "dateFormat");
+    const char* dateFormat = yyjson_is_str(dateFormatValue) ? yyjson_get_str(dateFormatValue) : nullptr;
+    const bool validDateFormat =
+        dateFormat && (std::strcmp(dateFormat, "dd-mm-yyyy") == 0 || std::strcmp(dateFormat, "mm-dd-yyyy") == 0 ||
+                       std::strcmp(dateFormat, "yyyy-mm-dd") == 0);
+    return HasExactKeys(object, keys) && yyjson_is_bool(yyjson_obj_get(object, "showSecondProgress")) &&
+           yyjson_is_bool(yyjson_obj_get(object, "externalDotsAlwaysOn")) &&
+           yyjson_is_bool(yyjson_obj_get(object, "showSeconds")) &&
+           yyjson_is_bool(yyjson_obj_get(object, "showDate")) && validDateFormat && IsColor(object, "secondsColor") &&
+           IsColor(object, "timeColor") && IsColor(object, "backgroundColor");
+}
+
+[[nodiscard]] bool IsValidDeskClockPrivate(yyjson_val* object) noexcept
+{
+    constexpr std::array keys{
+        "flipDurationMilliseconds", "backgroundColor", "cardColor", "digitColor", "dateColor",
+    };
+    std::uint32_t duration = 0;
+    return HasExactKeys(object, keys) && ReadUnsigned(object, "flipDurationMilliseconds", 250, 800, duration) &&
+           IsColor(object, "backgroundColor") && IsColor(object, "cardColor") && IsColor(object, "digitColor") &&
+           IsColor(object, "dateColor");
+}
+
 [[nodiscard]] bool IsSupportedPluginType(std::string_view pluginId, std::string_view typeId) noexcept
 {
     return (SettingsIdEquals(pluginId, kTrianglePluginId) && SettingsIdEquals(typeId, kTriangleTypeId)) ||
            (SettingsIdEquals(pluginId, kGdiPluginId) && SettingsIdEquals(typeId, kGdiTypeId)) ||
-           (SettingsIdEquals(pluginId, kMatrixPluginId) && SettingsIdEquals(typeId, kMatrixTypeId));
+           (SettingsIdEquals(pluginId, kMatrixPluginId) && SettingsIdEquals(typeId, kMatrixTypeId)) ||
+           (SettingsIdEquals(pluginId, kProcessViewerPluginId) && SettingsIdEquals(typeId, kProcessViewerTypeId)) ||
+           (SettingsIdEquals(pluginId, kStudioClockPluginId) && SettingsIdEquals(typeId, kStudioClockTypeId)) ||
+           (SettingsIdEquals(pluginId, kDeskClockPluginId) && SettingsIdEquals(typeId, kDeskClockTypeId));
 }
 
 [[nodiscard]] unique_yyjson_doc ParseStoredObject(const JsonObjectSettings& settings) noexcept
@@ -205,6 +243,27 @@ template <std::size_t Count>
 {
     unique_yyjson_doc document = ParseStoredObject(settings);
     return document && IsValidMatrixPrivate(yyjson_doc_get_root(document.get()));
+}
+
+[[nodiscard]] bool IsProcessViewerPrivate(const JsonObjectSettings& settings) noexcept
+{
+    unique_yyjson_doc document = ParseStoredObject(settings);
+    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    constexpr std::array keys{"topN"};
+    std::uint32_t topN = 0;
+    return root && HasExactKeys(root, keys) && ReadUnsigned(root, "topN", 1, 32, topN);
+}
+
+[[nodiscard]] bool IsStudioClockPrivate(const JsonObjectSettings& settings) noexcept
+{
+    unique_yyjson_doc document = ParseStoredObject(settings);
+    return document && IsValidStudioClockPrivate(yyjson_doc_get_root(document.get()));
+}
+
+[[nodiscard]] bool IsDeskClockPrivate(const JsonObjectSettings& settings) noexcept
+{
+    unique_yyjson_doc document = ParseStoredObject(settings);
+    return document && IsValidDeskClockPrivate(yyjson_doc_get_root(document.get()));
 }
 
 [[nodiscard]] HRESULT CopyObject(yyjson_val* object, JsonObjectSettings& destination) noexcept
@@ -698,7 +757,10 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
             }
         }
         if ((SettingsIdEquals(plugin.id.View(), kTrianglePluginId) ||
-             SettingsIdEquals(plugin.id.View(), kGdiPluginId) || SettingsIdEquals(plugin.id.View(), kMatrixPluginId)) &&
+             SettingsIdEquals(plugin.id.View(), kGdiPluginId) || SettingsIdEquals(plugin.id.View(), kMatrixPluginId) ||
+             SettingsIdEquals(plugin.id.View(), kProcessViewerPluginId) ||
+             SettingsIdEquals(plugin.id.View(), kStudioClockPluginId) ||
+             SettingsIdEquals(plugin.id.View(), kDeskClockPluginId)) &&
             !IsEmptyPrivate(plugin.privateConfiguration))
         {
             return E_INVALIDARG;
@@ -781,6 +843,27 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
             {
                 ++matrixCount;
                 if (!IsMatrixPrivate(widget.privateConfiguration))
+                {
+                    return E_INVALIDARG;
+                }
+            }
+            else if (SettingsIdEquals(widget.pluginId.View(), kProcessViewerPluginId))
+            {
+                if (!IsProcessViewerPrivate(widget.privateConfiguration))
+                {
+                    return E_INVALIDARG;
+                }
+            }
+            else if (SettingsIdEquals(widget.pluginId.View(), kStudioClockPluginId))
+            {
+                if (!IsStudioClockPrivate(widget.privateConfiguration))
+                {
+                    return E_INVALIDARG;
+                }
+            }
+            else if (SettingsIdEquals(widget.pluginId.View(), kDeskClockPluginId))
+            {
+                if (!IsDeskClockPrivate(widget.privateConfiguration))
                 {
                     return E_INVALIDARG;
                 }

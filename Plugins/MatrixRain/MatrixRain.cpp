@@ -1,6 +1,6 @@
 #define REDXE_PLUGIN_EXPORTS
 #include "PlugInterfaces/FactoryImpl.h"
-#include "PlugInterfaces/GpuWidget.h"
+#include "PlugInterfaces/Widget.h"
 
 #include "MatrixRainBackgroundPixelShader.h"
 #include "MatrixRainBackgroundVertexShader.h"
@@ -34,7 +34,7 @@ constexpr char kSettingsSchema[] =
 constexpr char kSettingsDefaults[] =
     R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35})json";
 constexpr RedXePluginSettingsContract kSettingsContract{
-    sizeof(RedXePluginSettingsContract), 1, 0, kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
+    sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
 };
 constexpr std::uint32_t kMaximumGlyphInstances = 65'536;
@@ -45,7 +45,7 @@ constexpr std::array kMetadata{
         kPluginId,
         L"Matrix Rain",
         L"Low-resource deterministic digital-glyph rain for the XENEON EDGE dashboard.",
-        L"RedSalamanders",
+        L"RedXe",
         L"1.0.0",
         RedXePluginCapabilityWidgetProvider,
     },
@@ -376,12 +376,6 @@ class JsonCursor final
     return true;
 }
 
-[[nodiscard]] bool ParseDirectConfiguration(std::string_view json, MatrixRainConfiguration& configuration) noexcept
-{
-    JsonCursor cursor(json);
-    return ParseMatrixSettingsObject(cursor, configuration) && cursor.AtEnd();
-}
-
 [[nodiscard]] bool ParseNormalizedConfiguration(std::string_view json, MatrixRainConfiguration& configuration) noexcept
 {
     JsonCursor cursor(json);
@@ -440,24 +434,17 @@ class JsonCursor final
     return true;
 }
 
-[[nodiscard]] bool ParseConfiguration(std::string_view json, MatrixRainConfiguration& configuration) noexcept
-{
-    MatrixRainConfiguration parsed{};
-    if (!ParseNormalizedConfiguration(json, parsed) && !ParseDirectConfiguration(json, parsed))
-    {
-        return false;
-    }
-    configuration = parsed;
-    return true;
-}
-
 [[nodiscard]] HRESULT ReadFactoryConfiguration(const RedXeFactoryOptions* options,
                                                MatrixRainConfiguration& configuration) noexcept
 {
     configuration = MatrixRainConfiguration{};
-    if (!options || options->sizeBytes < kRedXeFactoryOptionsV2Size)
+    if (!options)
     {
         return S_OK;
+    }
+    if (options->sizeBytes != sizeof(RedXeFactoryOptions))
+    {
+        return E_INVALIDARG;
     }
 
     const char* json = options->configurationJsonUtf8;
@@ -472,7 +459,7 @@ class JsonCursor final
     }
 
     MatrixRainConfiguration parsed{};
-    if (!ParseConfiguration(std::string_view(json, bytes), parsed))
+    if (!ParseNormalizedConfiguration(std::string_view(json, bytes), parsed))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -946,13 +933,18 @@ class MatrixRainWidget final : public IRedXeWidget, public IRedXeGpuWidget
         return references;
     }
 
+    HRESULT STDMETHODCALLTYPE SetVisible(BOOL) noexcept override
+    {
+        return S_OK;
+    }
+
     HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept override
     {
         if (!context)
         {
             return E_POINTER;
         }
-        if (context->sizeBytes < sizeof(RedXeGpuDeviceContext))
+        if (context->sizeBytes != sizeof(RedXeGpuDeviceContext))
         {
             return E_INVALIDARG;
         }
@@ -978,7 +970,7 @@ class MatrixRainWidget final : public IRedXeWidget, public IRedXeGpuWidget
         {
             return E_POINTER;
         }
-        if (context->sizeBytes < sizeof(RedXeGpuFrameContext))
+        if (context->sizeBytes != sizeof(RedXeGpuFrameContext))
         {
             return E_INVALIDARG;
         }
@@ -988,7 +980,7 @@ class MatrixRainWidget final : public IRedXeWidget, public IRedXeGpuWidget
         }
 
         const RedXeWidgetFrameContext& widget = *context->widget;
-        if (widget.sizeBytes < sizeof(RedXeWidgetFrameContext) || widget.dpi == 0 ||
+        if (widget.sizeBytes != sizeof(RedXeWidgetFrameContext) || widget.dpi == 0 ||
             !std::isfinite(widget.elapsedSeconds) || !std::isfinite(widget.deltaSeconds) ||
             widget.elapsedSeconds < 0.0f || widget.deltaSeconds < 0.0f || !std::isfinite(context->viewport.TopLeftX) ||
             !std::isfinite(context->viewport.TopLeftY) || !std::isfinite(context->viewport.Width) ||
@@ -1187,7 +1179,7 @@ extern "C" HRESULT __stdcall RedXeMatrixRainGetTestDiagnostics(MatrixRainTestDia
     {
         return E_POINTER;
     }
-    if (diagnostics->sizeBytes < sizeof(MatrixRainTestDiagnostics))
+    if (diagnostics->sizeBytes != sizeof(MatrixRainTestDiagnostics))
     {
         return E_INVALIDARG;
     }

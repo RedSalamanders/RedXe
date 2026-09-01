@@ -466,7 +466,7 @@ int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsP
             _renderer.IsSuspended(),
             _renderer.IsOccluded(),
             _occlusionStatusChanged,
-            _dashboardHost.RequiresContinuousFrames(),
+            DashboardRequiresContinuousFrames(),
             _frameInvalidated,
         });
         if (frameAction == HostFrameAction::ProbeOcclusion)
@@ -497,7 +497,7 @@ int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsP
                 _renderer.IsSuspended(),
                 _renderer.IsOccluded(),
                 false,
-                _dashboardHost.RequiresContinuousFrames(),
+                DashboardRequiresContinuousFrames(),
                 _frameInvalidated,
             });
         }
@@ -530,6 +530,7 @@ int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsP
         if (result == S_OK)
         {
             _frameInvalidated = false;
+            RefreshScheduledFrameDeadline();
         }
         result = UpdateDashboardVisibility();
         if (FAILED(result))
@@ -649,15 +650,12 @@ HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bo
         }
 
         const bool placeOnTarget = targetBounds != nullptr;
-        if (placeOnTarget || windowSize.cx != width || windowSize.cy != height)
+        const UINT flags = SWP_NOACTIVATE | SWP_NOZORDER | (placeOnTarget ? 0U : SWP_NOMOVE);
+        const int targetX = placeOnTarget ? targetBounds->left : 0;
+        const int targetY = placeOnTarget ? targetBounds->top : 0;
+        if (!SetWindowPos(window, nullptr, targetX, targetY, windowSize.cx, windowSize.cy, flags))
         {
-            const UINT flags = SWP_NOACTIVATE | SWP_NOZORDER | (placeOnTarget ? 0U : SWP_NOMOVE);
-            const int targetX = placeOnTarget ? targetBounds->left : 0;
-            const int targetY = placeOnTarget ? targetBounds->top : 0;
-            if (!SetWindowPos(window, nullptr, targetX, targetY, windowSize.cx, windowSize.cy, flags))
-            {
-                return HRESULT_FROM_WIN32(GetLastError());
-            }
+            return HRESULT_FROM_WIN32(GetLastError());
         }
     }
 
@@ -1054,15 +1052,80 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
 
 bool Application::WaitUntilMessage() noexcept
 {
-    if (WaitMessage())
+    if (!_windowVisible || !_displayPoweredOn || !_rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
+        DashboardRequiresContinuousFrames())
+    {
+        ClearScheduledFrameDeadline();
+    }
+
+    DWORD timeoutMilliseconds = INFINITE;
+    if (_scheduledFrameDeadlineTick != 0)
+    {
+        const ULONGLONG now = GetTickCount64();
+        if (now >= _scheduledFrameDeadlineTick)
+        {
+            _scheduledFrameDeadlineTick = 0;
+            _frameInvalidated = true;
+            return true;
+        }
+        const ULONGLONG remaining = _scheduledFrameDeadlineTick - now;
+        timeoutMilliseconds = static_cast<DWORD>(remaining);
+    }
+
+    const DWORD waitResult =
+        MsgWaitForMultipleObjectsEx(0, nullptr, timeoutMilliseconds, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    if (waitResult == WAIT_OBJECT_0)
     {
         return true;
     }
+    if (waitResult == WAIT_TIMEOUT)
+    {
+        _scheduledFrameDeadlineTick = 0;
+        _frameInvalidated = true;
+        return true;
+    }
 
-    const DWORD error = GetLastError();
+    const DWORD error = waitResult == WAIT_FAILED ? GetLastError() : ERROR_INVALID_DATA;
     _runtimeFailure = error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
     CloseMainWindow();
     return false;
+}
+
+bool Application::DashboardRequiresContinuousFrames() const noexcept
+{
+    return _dashboardHost.RequiresContinuousFrames() ||
+           (_transitionDashboardHost && _transitionDashboardHost->RequiresContinuousFrames());
+}
+
+void Application::RefreshScheduledFrameDeadline() noexcept
+{
+    ClearScheduledFrameDeadline();
+    if (!_windowVisible || !_displayPoweredOn || !_rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
+        DashboardRequiresContinuousFrames())
+    {
+        return;
+    }
+
+    std::uint32_t earliest = 0;
+    std::uint32_t candidate = 0;
+    if (_dashboardHost.GetNextFrameDelayMilliseconds(&candidate) == S_OK)
+    {
+        earliest = candidate;
+    }
+    if (_transitionDashboardHost && _transitionDashboardHost->GetNextFrameDelayMilliseconds(&candidate) == S_OK &&
+        (earliest == 0 || candidate < earliest))
+    {
+        earliest = candidate;
+    }
+    if (earliest != 0)
+    {
+        _scheduledFrameDeadlineTick = GetTickCount64() + earliest;
+    }
+}
+
+void Application::ClearScheduledFrameDeadline() noexcept
+{
+    _scheduledFrameDeadlineTick = 0;
 }
 
 HRESULT Application::UpdateDashboardVisibility() noexcept
@@ -1074,10 +1137,10 @@ HRESULT Application::UpdateDashboardVisibility() noexcept
 
     const bool visible =
         _windowVisible && _displayPoweredOn && _rendererReady && !_renderer.IsSuspended() && !_renderer.IsOccluded();
-    HRESULT result = _dashboardHost.SetWindowWidgetsVisible(visible);
+    HRESULT result = _dashboardHost.SetWidgetsVisible(visible);
     if (SUCCEEDED(result) && _transitionDashboardHost)
     {
-        result = _transitionDashboardHost->SetWindowWidgetsVisible(visible);
+        result = _transitionDashboardHost->SetWidgetsVisible(visible);
     }
     return result;
 }
@@ -1137,6 +1200,7 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         return OnDpiChanged(window, LOWORD(wParam), reinterpret_cast<const RECT*>(lParam));
     case WM_SHOWWINDOW:
         _windowVisible = wParam != FALSE;
+        ClearScheduledFrameDeadline();
         if (_windowVisible)
         {
             _frameInvalidated = true;
@@ -1157,6 +1221,7 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
                 DWORD displayState = PowerMonitorOn;
                 std::memcpy(&displayState, setting->Data, sizeof(displayState));
                 _displayPoweredOn = displayState != PowerMonitorOff;
+                ClearScheduledFrameDeadline();
                 if (!wasDisplayPoweredOn && _displayPoweredOn)
                 {
                     _frameInvalidated = true;
@@ -1169,6 +1234,10 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             }
         }
         return TRUE;
+    case WM_TIMECHANGE:
+        ClearScheduledFrameDeadline();
+        _frameInvalidated = true;
+        return 0;
     case Renderer::kOcclusionStatusMessage:
         _occlusionStatusChanged = true;
         return 0;
@@ -1200,6 +1269,15 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     {
         auto* minimums = reinterpret_cast<MINMAXINFO*>(lParam);
         minimums->ptMinTrackSize = POINT{480, 320};
+        const UINT dpi = GetDpiForWindow(window);
+        SIZE defaultWindowSize{};
+        const DWORD windowStyle = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
+        const DWORD extendedStyle = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_EXSTYLE));
+        if (SUCCEEDED(CalculateWindowSizeForDpi(windowStyle, extendedStyle, dpi, defaultWindowSize)))
+        {
+            minimums->ptMaxTrackSize.x = std::max(minimums->ptMaxTrackSize.x, defaultWindowSize.cx);
+            minimums->ptMaxTrackSize.y = std::max(minimums->ptMaxTrackSize.y, defaultWindowSize.cy);
+        }
         return 0;
     }
     case WM_KEYDOWN:
@@ -1252,6 +1330,8 @@ LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
         ClearTransitionPage();
         (void)_dashboardHost.SetHorizontalOffset(0);
     }
+
+    ClearScheduledFrameDeadline();
 
     const UINT dpi = GetDpiForWindow(window);
     HRESULT result = dpi != 0 ? _dashboardHost.Resize(width, height, dpi) : HRESULT_FROM_WIN32(GetLastError());

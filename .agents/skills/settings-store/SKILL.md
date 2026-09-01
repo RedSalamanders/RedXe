@@ -18,6 +18,8 @@ notifications, `win32-windowing` for the posted UI message, and `plugin-developm
   absent; a present new-name file always wins.
 - Keep `Settings/` templates, `Specs/Settings.schema.json`, the C++ parser, and the normative settings spec aligned in
   the same change. Do not publish a setting the executable cannot apply.
+- Both shipped templates must contain a real placed example of every settings-visible entry in
+  `RedXe/BundledPlugins.h`. Template validation must iterate that catalog rather than maintain a second plugin list.
 - The hidden self-test parses the deployed template only. It must never touch `%LocalAppData%`.
 - Validate types, ranges, required members, duplicates, unknown members, schema version, and the 1 MiB limit before
   replacing typed runtime state. yyjson values and strings remain borrowed from their owning document.

@@ -32,10 +32,9 @@ struct RedXeFactoryEntry final
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
-    if (!availableContract || availableContract->sizeBytes < sizeof(RedXePluginSettingsContract) ||
-        availableContract->versionMajor == 0 || !availableContract->schemaJsonUtf8 ||
-        availableContract->schemaBytes == 0 || !availableContract->defaultsJsonUtf8 ||
-        availableContract->defaultsBytes == 0)
+    if (!availableContract || availableContract->sizeBytes != sizeof(RedXePluginSettingsContract) ||
+        !availableContract->schemaJsonUtf8 || availableContract->schemaBytes == 0 ||
+        !availableContract->defaultsJsonUtf8 || availableContract->defaultsBytes == 0)
     {
         return E_UNEXPECTED;
     }
@@ -45,8 +44,15 @@ struct RedXeFactoryEntry final
 
 [[nodiscard]] inline HRESULT RedXeValidateEmptyNormalizedConfiguration(const RedXeFactoryOptions* options) noexcept
 {
-    if (!options || options->sizeBytes < kRedXeFactoryOptionsV2Size ||
-        (!options->configurationJsonUtf8 && options->configurationBytes == 0))
+    if (!options)
+    {
+        return S_OK;
+    }
+    if (options->sizeBytes != sizeof(RedXeFactoryOptions))
+    {
+        return E_INVALIDARG;
+    }
+    if (!options->configurationJsonUtf8 && options->configurationBytes == 0)
     {
         return S_OK;
     }
@@ -106,7 +112,7 @@ struct RedXeFactoryEntry final
     {
         return E_INVALIDARG;
     }
-    if (options && options->sizeBytes < kRedXeFactoryOptionsV1Size)
+    if (options && options->sizeBytes != sizeof(RedXeFactoryOptions))
     {
         return E_INVALIDARG;
     }
@@ -114,22 +120,15 @@ struct RedXeFactoryEntry final
     const RedXeFactoryEntry* selected = nullptr;
     if (!pluginId || pluginId[0] == '\0')
     {
-        if (entryCount != 1)
-        {
-            return E_INVALIDARG;
-        }
-        selected = &entries[0];
+        return E_INVALIDARG;
     }
-    else
+    for (std::uint32_t index = 0; index < entryCount; ++index)
     {
-        for (std::uint32_t index = 0; index < entryCount; ++index)
+        const RedXePluginMetadata* candidate = entries[index].metadata;
+        if (candidate && candidate->id && RedXeAsciiEqualsIgnoreCase(candidate->id, pluginId))
         {
-            const RedXePluginMetadata* candidate = entries[index].metadata;
-            if (candidate && candidate->id && RedXeAsciiEqualsIgnoreCase(candidate->id, pluginId))
-            {
-                selected = &entries[index];
-                break;
-            }
+            selected = &entries[index];
+            break;
         }
     }
 

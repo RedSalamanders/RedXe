@@ -48,6 +48,41 @@
         "glowPercent": { "type": "integer", "minimum": 0, "maximum": 100, "default": 35 }
       }
     },
+    "processViewerSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "topN": { "type": "integer", "minimum": 1, "maximum": 32, "default": 10 }
+      }
+    },
+    "studioClockSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "showSecondProgress": { "type": "boolean", "default": true },
+        "externalDotsAlwaysOn": { "type": "boolean", "default": true },
+        "showSeconds": { "type": "boolean", "default": true },
+        "secondsColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#FF1616" },
+        "showDate": { "type": "boolean", "default": false },
+        "dateFormat": {
+          "enum": ["dd-mm-yyyy", "mm-dd-yyyy", "yyyy-mm-dd"],
+          "default": "dd-mm-yyyy"
+        },
+        "timeColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#FF1616" },
+        "backgroundColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#111111" }
+      }
+    },
+    "deskClockSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "flipDurationMilliseconds": { "type": "integer", "minimum": 250, "maximum": 800, "default": 420 },
+        "backgroundColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#000000" },
+        "cardColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#FF3B43" },
+        "digitColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#FFFFFF" },
+        "dateColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#D8D8D8" }
+      }
+    },
     "widgetDefinition": {
       "oneOf": [
         {
@@ -66,6 +101,33 @@
           "properties": {
             "plugin": { "const": "builtin.matrix-rain" },
             "settings": { "$ref": "#/$defs/matrixSettings" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plugin"],
+          "properties": {
+            "plugin": { "const": "builtin.process-viewer" },
+            "settings": { "$ref": "#/$defs/processViewerSettings" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plugin"],
+          "properties": {
+            "plugin": { "const": "builtin.studio-clock" },
+            "settings": { "$ref": "#/$defs/studioClockSettings" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plugin"],
+          "properties": {
+            "plugin": { "const": "builtin.desk-clock" },
+            "settings": { "$ref": "#/$defs/deskClockSettings" }
           }
         }
       ]

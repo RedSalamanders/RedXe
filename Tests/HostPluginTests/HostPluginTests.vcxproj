@@ -35,7 +35,7 @@
       <Optimization>Disabled</Optimization>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\..\RedXe;..\..\Plugins\MatrixRain;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\RedXe;..\..\Plugins\MatrixRain;..\..\Plugins\ProcessViewer;..\..\Plugins\StudioClock;..\..\Plugins\DeskClock;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -49,7 +49,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\..\RedXe;..\..\Plugins\MatrixRain;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\RedXe;..\..\Plugins\MatrixRain;..\..\Plugins\ProcessViewer;..\..\Plugins\StudioClock;..\..\Plugins\DeskClock;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -60,6 +60,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="HostPluginTests.cpp" />
+    <ClCompile Include="..\..\RedXe\PluginHost.cpp" />
     <ClCompile Include="..\..\RedXe\DashboardHost.cpp" />
     <ClCompile Include="..\..\RedXe\PluginManager.cpp" />
     <ClCompile Include="..\..\RedXe\Renderer.cpp" />
@@ -67,7 +68,10 @@
     <ClCompile Include="..\..\RedXe\SettingsV4.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\Plugins\DeskClock\DeskClockTestContract.h" />
     <ClInclude Include="..\..\Plugins\MatrixRain\MatrixRainTestContract.h" />
+    <ClInclude Include="..\..\Plugins\ProcessViewer\ProcessViewerTestContract.h" />
+    <ClInclude Include="..\..\Plugins\StudioClock\StudioClockTestContract.h" />
     <ClInclude Include="..\..\RedXe\DashboardHost.h" />
     <ClInclude Include="..\..\RedXe\FrameScheduler.h" />
     <ClInclude Include="..\..\RedXe\PluginManager.h" />
@@ -75,6 +79,11 @@
     <ClInclude Include="..\..\RedXe\Settings.h" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\Plugins\DeskClock\DeskClock.vcxproj">
+      <Project>{C1F9CE0E-12D9-4E93-A4AA-370E7F7BC3FC}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
     <ProjectReference Include="..\..\Plugins\GdiOrbit\GdiOrbit.vcxproj">
       <Project>{A403C867-9CE6-4DE1-8792-7A628E41C2DF}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
@@ -87,6 +96,16 @@
     </ProjectReference>
     <ProjectReference Include="..\..\Plugins\RotatingTriangle\RotatingTriangle.vcxproj">
       <Project>{6D7E78E8-B671-423A-9A15-3D1EF6DCA865}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Plugins\ProcessViewer\ProcessViewer.vcxproj">
+      <Project>{D27760F5-D924-46EE-8139-B36726672731}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Plugins\StudioClock\StudioClock.vcxproj">
+      <Project>{478846C6-C669-4194-805C-731D96D0021A}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
