@@ -1,5 +1,6 @@
 #include "DashboardHost.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 
@@ -411,6 +412,112 @@ LONG DashboardHost::HorizontalOffset() const noexcept
     return _horizontalOffset;
 }
 
+HRESULT DashboardHost::ApplyRaisedNativeLayout(size_t widgetIndex, const RECT& content, UINT dpi) noexcept
+{
+    if (!_pluginManager || dpi == 0 || widgetIndex >= _widgetCount || content.right <= content.left ||
+        content.bottom <= content.top)
+    {
+        return E_INVALIDARG;
+    }
+    if (_raisedNativeIndex != SIZE_MAX && _raisedNativeIndex != widgetIndex)
+    {
+        const HRESULT clearResult = ClearRaisedNativeLayout(dpi);
+        if (FAILED(clearResult))
+        {
+            return clearResult;
+        }
+    }
+
+    for (size_t index = 0; index < _widgetCount; ++index)
+    {
+        if (!_windowContainers[index])
+        {
+            continue;
+        }
+        if (index != widgetIndex)
+        {
+            continue;
+        }
+
+        IRedXeWindowWidget* widget = _pluginManager->WindowWidgetAt(index);
+        if (!widget)
+        {
+            continue;
+        }
+        if (!SetWindowPos(_windowContainers[index].get(), HWND_TOP, content.left, content.top,
+                          content.right - content.left, content.bottom - content.top, SWP_NOACTIVATE))
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+        const RedXeWindowWidgetSizeContext context{
+            sizeof(RedXeWindowWidgetSizeContext),
+            static_cast<uint32_t>(content.right - content.left),
+            static_cast<uint32_t>(content.bottom - content.top),
+            dpi,
+        };
+        const HRESULT result = widget->Resize(&context);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        if (_widgetsVisible)
+        {
+            ShowWindow(_windowContainers[index].get(), SW_SHOWNA);
+        }
+    }
+    _raisedNativeIndex = widgetIndex;
+    return S_OK;
+}
+
+HRESULT DashboardHost::ClearRaisedNativeLayout(UINT dpi) noexcept
+{
+    if (!_pluginManager)
+    {
+        return E_UNEXPECTED;
+    }
+    if (_raisedNativeIndex == SIZE_MAX)
+    {
+        return S_OK;
+    }
+    if (dpi == 0)
+    {
+        return E_INVALIDARG;
+    }
+
+    for (size_t index = 0; index < _widgetCount; ++index)
+    {
+        if (!_windowContainers[index])
+        {
+            continue;
+        }
+        IRedXeWindowWidget* widget = _pluginManager->WindowWidgetAt(index);
+        if (!widget)
+        {
+            continue;
+        }
+        const RECT bounds = PixelBoundsAt(index, _clientWidth, _clientHeight);
+        if (!SetWindowPos(_windowContainers[index].get(), nullptr, bounds.left, bounds.top, bounds.right - bounds.left,
+                          bounds.bottom - bounds.top, SWP_NOACTIVATE | SWP_NOZORDER))
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+        const RedXeWindowWidgetSizeContext context{
+            sizeof(RedXeWindowWidgetSizeContext),
+            static_cast<uint32_t>(std::max(1L, bounds.right - bounds.left)),
+            static_cast<uint32_t>(std::max(1L, bounds.bottom - bounds.top)),
+            dpi,
+        };
+        const HRESULT result = widget->Resize(&context);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        ShowWindow(_windowContainers[index].get(), _widgetsVisible ? SW_SHOWNA : SW_HIDE);
+    }
+    _raisedNativeIndex = SIZE_MAX;
+    return S_OK;
+}
+
 HRESULT DashboardHost::SetWidgetsVisible(bool visible) noexcept
 {
     if (!_pluginManager)
@@ -479,6 +586,7 @@ void DashboardHost::Shutdown() noexcept
     _horizontalOffset = 0;
     _clientWidth = 0;
     _clientHeight = 0;
+    _raisedNativeIndex = SIZE_MAX;
 }
 
 size_t DashboardHost::WidgetCount() const noexcept
@@ -499,6 +607,16 @@ IRedXeGpuWidget* DashboardHost::GpuWidgetAt(size_t index) const noexcept
 IRedXeWindowWidget* DashboardHost::WindowWidgetAt(size_t index) const noexcept
 {
     return _pluginManager && index < _widgetCount ? _pluginManager->WindowWidgetAt(index) : nullptr;
+}
+
+IRedXeRaisedWidget* DashboardHost::RaisedWidgetAt(size_t index) const noexcept
+{
+    return _pluginManager && index < _widgetCount ? _pluginManager->RaisedWidgetAt(index) : nullptr;
+}
+
+size_t DashboardHost::RaisedNativeIndex() const noexcept
+{
+    return _raisedNativeIndex;
 }
 
 WidgetPlacement DashboardHost::PlacementAt(size_t index) const noexcept

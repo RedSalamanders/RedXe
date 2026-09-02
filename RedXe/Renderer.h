@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <d3d11.h>
 #include <dxgi1_2.h>
 #include <windows.h>
@@ -35,12 +36,17 @@ class Renderer final
     HRESULT RefreshLayout() noexcept;
     HRESULT SetTransitionDashboard(DashboardHost* dashboardHost) noexcept;
     HRESULT AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept;
+    HRESULT SetRaisedOverlay(size_t widgetIndex, const RECT& content) noexcept;
+    void ClearRaisedOverlay() noexcept;
     HRESULT Render(float elapsedSeconds, float deltaSeconds) noexcept;
     HRESULT ProbeOcclusion() noexcept;
     [[nodiscard]] bool IsSuspended() const noexcept;
     [[nodiscard]] bool IsOccluded() const noexcept;
     [[nodiscard]] size_t LastFrameWidgetCount() const noexcept;
     [[nodiscard]] size_t LastFrameSuccessfulWidgetCount() const noexcept;
+    [[nodiscard]] bool HasRaisedOverlay() const noexcept;
+    [[nodiscard]] size_t RaisedOverlayIndex() const noexcept;
+    [[nodiscard]] RECT RaisedContentRect() const noexcept;
 
   private:
     static constexpr size_t kMaximumWidgetViewports = 32;
@@ -72,6 +78,10 @@ class Renderer final
     D3D_FEATURE_LEVEL _featureLevel = D3D_FEATURE_LEVEL_11_0;
     size_t _lastFrameWidgetCount = 0;
     size_t _lastFrameSuccessfulWidgetCount = 0;
+    bool _raisedOverlayActive = false;
+    size_t _raisedOverlayIndex = SIZE_MAX;
+    RECT _raisedContent{};
+    D3D11_VIEWPORT _raisedViewport{};
 
     std::array<D3D11_VIEWPORT, kMaximumWidgetViewports> _widgetViewports{};
     std::array<D3D11_VIEWPORT, kMaximumWidgetViewports> _transitionWidgetViewports{};

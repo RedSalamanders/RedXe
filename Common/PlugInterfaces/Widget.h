@@ -79,6 +79,15 @@ struct RedXeWindowWidgetSizeContext final
 
 inline constexpr uint32_t kRedXeMaximumScheduledFrameDelayMilliseconds = 86'400'000U;
 
+// Fraction of the client rectangle a widget requests when the host raises it.
+enum RedXeRaisedExtent : uint32_t
+{
+    RedXeRaisedExtentQuarter = 1,
+    RedXeRaisedExtentThird = 2,
+    RedXeRaisedExtentHalf = 3,
+    RedXeRaisedExtentFull = 4,
+};
+
 // Generic widget identity and visibility; rendering mechanisms are sibling interfaces.
 interface __declspec(uuid("62DB9FB4-AF7B-47C0-BBF9-B7D5CA535502")) __declspec(novtable) IRedXeWidget : IUnknown
 {
@@ -115,4 +124,11 @@ interface __declspec(uuid("3219FA78-260B-416A-BB76-6331DBF30593")) __declspec(no
     virtual HRESULT STDMETHODCALLTYPE Attach(const RedXeWindowWidgetAttachContext* context) noexcept = 0;
     virtual HRESULT STDMETHODCALLTYPE Resize(const RedXeWindowWidgetSizeContext* context) noexcept = 0;
     virtual void STDMETHODCALLTYPE Detach() noexcept = 0;
+};
+
+// Optional raised-overlay mechanism; the host queries extent before raising a tile that is not already full-client.
+interface __declspec(uuid("A7E4C19B-2F58-4D13-9C6A-80B1D4E7F203")) __declspec(novtable) IRedXeRaisedWidget : IUnknown
+{
+    virtual HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent * extent) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetRaised(BOOL raised) noexcept = 0;
 };

@@ -5,7 +5,9 @@
 #include "Renderer.h"
 #include "Settings.h"
 #include "SettingsWatcher.h"
+#include "WidgetRaise.h"
 
+#include <cstddef>
 #include <memory>
 #include <string_view>
 #include <windows.h>
@@ -31,8 +33,10 @@ class Application final
   private:
     static constexpr wchar_t kWindowClassName[] = L"RedXe.Window";
     static constexpr wchar_t kSettingsDialogClassName[] = L"RedXe.SettingsError";
+    static constexpr wchar_t kRaiseOverlayClassName[] = L"RedXe.RaiseOverlay";
     static LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
     static LRESULT CALLBACK SettingsDialogProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
+    static LRESULT CALLBACK RaiseOverlayProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
 
     HRESULT RegisterWindowClass() noexcept;
     HRESULT CreateMainWindow(bool visible, const RECT* targetBounds, bool fullscreen) noexcept;
@@ -53,6 +57,12 @@ class Application final
     void OnPointerDown(HWND window, WPARAM wParam) noexcept;
     void OnPointerUpdate(HWND window, WPARAM wParam) noexcept;
     void OnPointerUp(HWND window, WPARAM wParam) noexcept;
+    void OnMouseButtonUp(HWND window, LPARAM lParam) noexcept;
+    void OnClientActivateAttempt(HWND window, POINT position, ULONGLONG tick) noexcept;
+    HRESULT TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept;
+    void DismissWidgetRaise() noexcept;
+    LRESULT HandleRaiseOverlayMessage(HWND overlay, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
+    void PaintRaiseOverlay(HWND overlay) noexcept;
     void CancelPageNavigation() noexcept;
     void ApplyPageOffset(LONG offset, LONG clientWidth) noexcept;
     void FlushPendingTransitionStage() noexcept;
@@ -66,6 +76,7 @@ class Application final
 
     HINSTANCE _instance = nullptr;
     wil::unique_hwnd _window;
+    wil::unique_hwnd _raiseOverlay;
     HWND _settingsErrorDialog = nullptr;
     wil::unique_hpowernotify _displayPowerNotification;
     std::unique_ptr<PluginManager> _pluginManager;
@@ -106,4 +117,10 @@ class Application final
     UINT64 _pageSettleDurationQpc = 0;
     int _pageStagePendingDirection = 0;
     int _pageTransitionDirection = 0;
+    bool _raisedActive = false;
+    size_t _raisedWidgetIndex = SIZE_MAX;
+    RaisedLayout _raisedLayout{};
+    ULONGLONG _activateTick = 0;
+    POINT _activatePoint{};
+    size_t _activateWidgetIndex = SIZE_MAX;
 };

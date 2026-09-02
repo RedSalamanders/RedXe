@@ -747,7 +747,10 @@ class StudioClockSharedResources final
 // object padding even though the record itself has an exact asserted layout.
 #pragma warning(push)
 #pragma warning(disable : 4324)
-class StudioClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, public IRedXeScheduledWidget
+class StudioClockWidget final : public IRedXeWidget,
+                                public IRedXeGpuWidget,
+                                public IRedXeScheduledWidget,
+                                public IRedXeRaisedWidget
 {
   public:
     StudioClockWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner,
@@ -784,6 +787,10 @@ class StudioClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, pub
         {
             *result = static_cast<IRedXeScheduledWidget*>(this);
         }
+        else if (interfaceId == __uuidof(IRedXeRaisedWidget))
+        {
+            *result = static_cast<IRedXeRaisedWidget*>(this);
+        }
         else
         {
             return E_NOINTERFACE;
@@ -808,6 +815,21 @@ class StudioClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, pub
     }
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL) noexcept override
+    {
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
+    {
+        if (!extent)
+        {
+            return E_POINTER;
+        }
+        *extent = RedXeRaisedExtentHalf;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetRaised(BOOL) noexcept override
     {
         return S_OK;
     }

@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <windows.h>
 
 struct WidgetPlacement final
@@ -33,11 +34,15 @@ class DashboardHost final
     [[nodiscard]] HRESULT SetWidgetsVisible(bool visible) noexcept;
     [[nodiscard]] HRESULT SetHorizontalOffset(LONG offset) noexcept;
     [[nodiscard]] LONG HorizontalOffset() const noexcept;
+    [[nodiscard]] HRESULT ApplyRaisedNativeLayout(size_t widgetIndex, const RECT& content, UINT dpi) noexcept;
+    [[nodiscard]] HRESULT ClearRaisedNativeLayout(UINT dpi) noexcept;
     void Shutdown() noexcept;
     [[nodiscard]] size_t WidgetCount() const noexcept;
     [[nodiscard]] IRedXeWidget* WidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeGpuWidget* GpuWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeWindowWidget* WindowWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] IRedXeRaisedWidget* RaisedWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] size_t RaisedNativeIndex() const noexcept;
     [[nodiscard]] WidgetPlacement PlacementAt(size_t index) const noexcept;
     [[nodiscard]] RECT PixelBoundsAt(size_t index, UINT width, UINT height) const noexcept;
     [[nodiscard]] bool RequiresContinuousFrames() const noexcept;
@@ -58,4 +63,5 @@ class DashboardHost final
     LONG _horizontalOffset = 0;
     UINT _clientWidth = 0;
     UINT _clientHeight = 0;
+    size_t _raisedNativeIndex = SIZE_MAX;
 };

@@ -222,7 +222,7 @@ class TriangleDeviceResources final
     return hash;
 }
 
-class RotatingTriangleWidget final : public IRedXeWidget, public IRedXeGpuWidget
+class RotatingTriangleWidget final : public IRedXeWidget, public IRedXeGpuWidget, public IRedXeRaisedWidget
 {
   public:
     RotatingTriangleWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner,
@@ -249,6 +249,10 @@ class RotatingTriangleWidget final : public IRedXeWidget, public IRedXeGpuWidget
         {
             *result = static_cast<IRedXeGpuWidget*>(this);
         }
+        else if (interfaceId == __uuidof(IRedXeRaisedWidget))
+        {
+            *result = static_cast<IRedXeRaisedWidget*>(this);
+        }
         else
         {
             return E_NOINTERFACE;
@@ -273,6 +277,21 @@ class RotatingTriangleWidget final : public IRedXeWidget, public IRedXeGpuWidget
     }
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL) noexcept override
+    {
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
+    {
+        if (!extent)
+        {
+            return E_POINTER;
+        }
+        *extent = RedXeRaisedExtentQuarter;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetRaised(BOOL) noexcept override
     {
         return S_OK;
     }

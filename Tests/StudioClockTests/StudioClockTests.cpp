@@ -34,7 +34,9 @@
 namespace
 {
 static_assert(std::is_base_of_v<IUnknown, IRedXeScheduledWidget>);
+static_assert(std::is_base_of_v<IUnknown, IRedXeRaisedWidget>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeScheduledWidget>);
+static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeRaisedWidget>);
 
 constexpr char kPluginId[] = "builtin.studio-clock";
 constexpr char kWidgetTypeId[] = "studio-clock";
@@ -145,6 +147,13 @@ struct WidgetInterfaces final
            "Studio Clock GPU sibling is unavailable");
     Expect(created.widget.query_to(created.scheduled.put()) == S_OK && created.scheduled,
            "Studio Clock scheduled sibling is unavailable");
+    wil::com_ptr_nothrow<IRedXeRaisedWidget> raised;
+    Expect(created.widget.query_to(raised.put()) == S_OK && raised, "Studio Clock raised sibling is unavailable");
+    Expect(raised->GetRaisedExtent(nullptr) == E_POINTER, "Studio Clock raised extent accepted a null output");
+    RedXeRaisedExtent extent = static_cast<RedXeRaisedExtent>(0);
+    Expect(raised->GetRaisedExtent(&extent) == S_OK && extent == RedXeRaisedExtentHalf,
+           "Studio Clock raised extent is not half");
+    Expect(raised->SetRaised(TRUE) == S_OK && raised->SetRaised(FALSE) == S_OK, "Studio Clock SetRaised failed");
     return created;
 }
 

@@ -64,6 +64,12 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   device-I/O lane is optional and host-owned; it MUST NOT ship until timeout, cancellation, and teardown drain are
   bounded.
 - Logging and diagnostics must not format or emit per-frame success messages.
+- A raised overlay MAY create one host child HWND, one GDI region, and GDI chrome brushes only while a widget is
+  raised. Dismiss MUST destroy that HWND. Settled raised content follows the same scheduled or continuous policy as
+  the widget's tile; raising MUST NOT add a periodic wake. While raised, the host keeps submitting GPU work for every
+  current-page widget so dimmed tiles stay live, then submits one extra draw for a raised GPU widget at the overlay
+  slice. The extra draw is required so the focused plugin can show more information without freezing the rest of the
+  dashboard.
 
 The measured baseline System Data source is an accepted bounded local pull source. Its fixed x64 source object is
 786,936 bytes and owns no worker or timer. Three Release row-cap runs of the production per-process row path, using
@@ -162,8 +168,8 @@ observable resource benefit are not required.
 
 - Debug and Release x64 WARP smoke tests must pass.
 - Release ARM64 must compile.
-- The plugin contract test must validate factory behavior, borrowed metadata, rendering-IID negotiation, and COM
-  identity.
+- The plugin contract test must validate factory behavior, borrowed metadata, rendering-IID negotiation, COM
+  identity, and `IRedXeRaisedWidget` extent queries.
 - The multi-widget WARP smoke frame must notify the GPU widgets of device creation, render every configured widget,
   and notify them before device release.
 - Review must confirm that steady-state GPU callbacks allocate no heap memory and reuse bounded device resources.
@@ -171,6 +177,8 @@ observable resource benefit are not required.
   off-screen HWND and WARP. It must verify the scheduler decision table for hidden, minimized/suspended, display-off,
   occluded, clean-static, invalidated-static, and continuous states without automating the desktop. The scheduler
   input MUST NOT contain an any-message redraw proxy.
+- `HostPluginTests` MUST also prove raised-overlay geometry, Process Viewer half-width raise while sibling tiles still
+  draw, no continuous wake from that raise, and GdiOrbit container move/restore, using the same hidden WARP host.
 - Changes to the acquisition of operating-system visibility, power, or DXGI occlusion signals that are not represented
   by the scheduler decision seam additionally require a live check that inactive windows do not spin and recovery
   resumes rendering.

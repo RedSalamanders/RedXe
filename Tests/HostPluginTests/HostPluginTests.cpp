@@ -9,6 +9,7 @@
 #include "Renderer.h"
 #include "Settings.h"
 #include "StudioClockTestContract.h"
+#include "WidgetRaise.h"
 
 #include <array>
 #include <chrono>
@@ -306,6 +307,248 @@ void TestPageSwipePolicy(bool& success) noexcept
     Check(InterpolatePageOffset(0, 100, 0.5f) == 88, L"settle interpolation uses ease-out cubic", success);
     Check(PageSettleDurationMilliseconds(2000, 0.0f) == 280 && PageSettleDurationMilliseconds(10, 20000.0f) == 140,
           L"settle duration stays within the 140-280 ms window", success);
+}
+
+void TestWidgetRaisePolicy(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] raised overlay geometry, hit-test, and double-activate\n";
+    Check(RedXeRaisedExtentIsValid(RedXeRaisedExtentQuarter) && RedXeRaisedExtentIsValid(RedXeRaisedExtentFull) &&
+              !RedXeRaisedExtentIsValid(static_cast<RedXeRaisedExtent>(0)),
+          L"raised extent enumerators are the four client fractions", success);
+    Check(RedXeRaisedExtentScale(RedXeRaisedExtentQuarter) == 0.25f &&
+              RedXeRaisedExtentScale(RedXeRaisedExtentThird) > 0.33f &&
+              RedXeRaisedExtentScale(RedXeRaisedExtentThird) < 0.34f &&
+              RedXeRaisedExtentScale(RedXeRaisedExtentHalf) == 0.5f &&
+              RedXeRaisedExtentScale(RedXeRaisedExtentFull) == 1.0f,
+          L"raised extents map to 1/4, 1/3, 1/2, and 1/1", success);
+    Check(RaisedDipPixels(28, 96) == 28 && RaisedDipPixels(28, 192) == 56, L"raised chrome scales with DPI", success);
+
+    const RECT full{0, 0, 2560, 720};
+    const RECT tile{100, 40, 700, 400};
+    Check(WidgetFillsClient(full, 2560, 720) && !WidgetFillsClient(tile, 2560, 720), L"a full-client tile cannot raise",
+          success);
+    Check(!CanRaiseWidget(full, 2560, 720, RedXeRaisedExtentHalf) &&
+              CanRaiseWidget(tile, 2560, 720, RedXeRaisedExtentHalf),
+          L"raise requires a valid extent and a tile that is not already full-client", success);
+
+    const RaisedLayout half = MakeRaisedLayout(2560, 720, RedXeRaisedExtentHalf, 96);
+    const LONG halfWidth = half.overlay.right - half.overlay.left;
+    const LONG halfHeight = half.overlay.bottom - half.overlay.top;
+    Check(half.overlay.left == 0 && half.content.top == half.overlay.top && half.content.bottom == 720 &&
+              halfWidth == 1280 && halfHeight == 720 && half.close.right == half.overlay.right - 8 &&
+              half.close.top == half.overlay.top + 8 && half.shadow.left == half.overlay.right,
+          L"half raise is a full-height half-width slice with a corner close control", success);
+
+    const RECT pulseTile{0, 0, 590, 240};
+    const RaisedLayout pulse = MakeRaisedLayout(2560, 720, RedXeRaisedExtentQuarter, 96, &pulseTile);
+    Check(pulse.overlay.left == 0 && pulse.overlay.right - pulse.overlay.left == 640 &&
+              pulse.overlay.bottom - pulse.overlay.top == 720,
+          L"quarter raise is a full-height 1/4-width slice covering the original column", success);
+
+    const RECT clockTile{900, 0, 1300, 360};
+    const RaisedLayout raisedClock = MakeRaisedLayout(2560, 720, RedXeRaisedExtentHalf, 96, &clockTile);
+    Check(raisedClock.overlay.left == 900 && raisedClock.content.right - raisedClock.content.left == 1280 &&
+              raisedClock.content.bottom - raisedClock.content.top == 720,
+          L"raising a stacked clock uses a full-height slice instead of a letterboxed card", success);
+
+    Check(PointInRectInclusive(half.close, POINT{half.close.left, half.close.top}) &&
+              !PointInRectInclusive(half.close, POINT{half.close.right, half.close.top}),
+          L"close hit-test uses a half-open rectangle", success);
+
+    const RaisedLayout fullLayout = MakeRaisedLayout(2560, 720, RedXeRaisedExtentFull, 96);
+    Check(fullLayout.overlay.left == 0 && fullLayout.overlay.right == 2560 &&
+              fullLayout.content.right - fullLayout.content.left == 2560,
+          L"full raise fills the client", success);
+
+    wil::unique_hrgn region{CreateRaisedOverlayRegion(2560, 720, half.content, half.close)};
+    Check(region &&
+              !PtInRegion(region.get(), (half.content.left + half.content.right) / 2,
+                          (half.content.top + half.content.bottom) / 2) &&
+              PtInRegion(region.get(), half.close.left + 1, half.close.top + 1) &&
+              PtInRegion(region.get(), half.shadow.left + 1, half.shadow.top + 1),
+          L"overlay region punches a hole over plugin content", success);
+
+    const RECT tiles[] = {{0, 0, 200, 200}, {150, 50, 400, 300}};
+    Check(HitTestTopmostWidget(POINT{160, 60}, tiles, 2) == 1 && HitTestTopmostWidget(POINT{10, 10}, tiles, 2) == 0 &&
+              HitTestTopmostWidget(POINT{500, 500}, tiles, 2) == SIZE_MAX,
+          L"widget hit-test prefers the later overlapping tile", success);
+
+    Check(IsDoubleActivate(1000, POINT{10, 10}, 1300, POINT{12, 11}, 500, 16) &&
+              !IsDoubleActivate(1000, POINT{10, 10}, 1600, POINT{12, 11}, 500, 16) &&
+              !IsDoubleActivate(1000, POINT{10, 10}, 1100, POINT{40, 10}, 500, 16) &&
+              !IsDoubleActivate(1000, POINT{10, 10}, 1100, POINT{12, 11}, 0, 16),
+          L"double-activate requires the system interval and slop", success);
+}
+
+void TestWidgetRaiseHost(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] raised overlay host composition\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"name":"System","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":3,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.system-pulse"}},{"sizeRatio":1,"widget":{"plugin":"builtin.cpu-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.memory-meter"}}]},{"sizeRatio":4,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer"}},{"sizeRatio":1,"widget":{"plugin":"builtin.gpu-processes"}}]},{"sizeRatio":3,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.network-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.storage-meter"}}]},{"sizeRatio":3,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gpu-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.thermal-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.power-meter"}}]}]}}]})json";
+
+    AttachedHostWindow window;
+    HRESULT result = window.Initialize(kHostWidth, kHostHeight);
+    AppSettings settings{};
+    if (SUCCEEDED(result))
+    {
+        result = ParseAppSettingsJson(settingsJson, settings);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    Check(SUCCEEDED(result) && plugins.WidgetCount() == 10, L"System page creates ten raised-capable viewers", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    constexpr std::array expectedExtents{
+        RedXeRaisedExtentQuarter, RedXeRaisedExtentThird, RedXeRaisedExtentThird, RedXeRaisedExtentHalf,
+        RedXeRaisedExtentHalf,    RedXeRaisedExtentHalf,  RedXeRaisedExtentHalf,  RedXeRaisedExtentThird,
+        RedXeRaisedExtentHalf,    RedXeRaisedExtentThird,
+    };
+    bool extentsMatch = true;
+    for (size_t index = 0; index < plugins.WidgetCount(); ++index)
+    {
+        IRedXeRaisedWidget* raised = plugins.RaisedWidgetAt(index);
+        RedXeRaisedExtent extent = static_cast<RedXeRaisedExtent>(0);
+        extentsMatch = extentsMatch && raised && raised->GetRaisedExtent(&extent) == S_OK &&
+                       extent == expectedExtents[index] && raised->GetRaisedExtent(nullptr) == E_POINTER;
+    }
+    Check(extentsMatch, L"host asks each System viewer for its raised extent", success);
+
+    DashboardHost dashboard;
+    result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    Renderer renderer;
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Initialize(window.Get(), true, dashboard);
+    }
+    Check(SUCCEEDED(result), L"raised-overlay host initializes a hidden WARP swap chain", success);
+    if (FAILED(result))
+    {
+        dashboard.Shutdown();
+        return;
+    }
+
+    result = dashboard.SetWidgetsVisible(true);
+    const RECT processTile = dashboard.PixelBoundsAt(3, kHostWidth, kHostHeight);
+    Check(SUCCEEDED(result) && !WidgetFillsClient(processTile, kHostWidth, kHostHeight),
+          L"Process Viewer is not already full-client on the System page", success);
+
+    IRedXeRaisedWidget* processRaised = dashboard.RaisedWidgetAt(3);
+    const RaisedLayout layout =
+        MakeRaisedLayout(kHostWidth, kHostHeight, RedXeRaisedExtentHalf, window.Dpi(), &processTile);
+    Check(processRaised && SUCCEEDED(processRaised->SetRaised(TRUE)) &&
+              SUCCEEDED(dashboard.ApplyRaisedNativeLayout(3, layout.content, window.Dpi())) &&
+              SUCCEEDED(renderer.SetRaisedOverlay(3, layout.content)),
+          L"host raises Process Viewer to the plugin-requested half overlay", success);
+
+    result = renderer.Render(0.5f, 1.0f / 60.0f);
+    Check(SUCCEEDED(result) && renderer.HasRaisedOverlay() && renderer.RaisedOverlayIndex() == 3 &&
+              renderer.LastFrameWidgetCount() == 11 && renderer.LastFrameSuccessfulWidgetCount() == 11 &&
+              renderer.RaisedContentRect().left == layout.content.left &&
+              renderer.RaisedContentRect().top == layout.content.top,
+          L"raised Process Viewer keeps every tile drawing and draws itself again at overlay content", success);
+    Check(!dashboard.RequiresContinuousFrames(), L"raising Process Viewer does not start continuous frames", success);
+    uint32_t delay = 0;
+    Check(dashboard.GetNextFrameDelayMilliseconds(&delay) == S_OK && delay != 0,
+          L"settled raised Process Viewer still publishes a scheduled delay", success);
+
+    Check(SUCCEEDED(processRaised->SetRaised(FALSE)), L"Process Viewer accepts SetRaised(FALSE)", success);
+    renderer.ClearRaisedOverlay();
+    Check(SUCCEEDED(dashboard.ClearRaisedNativeLayout(window.Dpi())), L"native raise layout restores", success);
+    result = renderer.Render(0.6f, 1.0f / 60.0f);
+    Check(SUCCEEDED(result) && !renderer.HasRaisedOverlay() && renderer.LastFrameWidgetCount() == 10 &&
+              renderer.LastFrameSuccessfulWidgetCount() == 10,
+          L"dismissing the overlay restores every System Data GPU tile", success);
+
+    renderer.Shutdown();
+    dashboard.Shutdown();
+}
+
+void TestWidgetRaiseNative(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] raised native-window overlay\n";
+    AttachedHostWindow window;
+    HRESULT result = window.Initialize(kHostWidth, kHostHeight);
+    Check(SUCCEEDED(result), L"hidden host window initializes for native raise", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    PluginManager plugins;
+    AppSettings settings{};
+    result = LoadDeployedSettings(kRedXeDebugSettingsFileName, settings);
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    DashboardHost dashboard;
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
+    }
+    Renderer renderer;
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Initialize(window.Get(), true, dashboard);
+    }
+    Check(SUCCEEDED(result) && dashboard.WindowWidgetAt(2) != nullptr && dashboard.RaisedWidgetAt(2) != nullptr,
+          L"Debug GDI Orbit exposes the raised sibling", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    const RECT tile = dashboard.PixelBoundsAt(2, kHostWidth, kHostHeight);
+    RedXeRaisedExtent extent = static_cast<RedXeRaisedExtent>(0);
+    Check(CanRaiseWidget(tile, kHostWidth, kHostHeight, RedXeRaisedExtentQuarter) &&
+              dashboard.RaisedWidgetAt(2)->GetRaisedExtent(&extent) == S_OK && extent == RedXeRaisedExtentQuarter,
+          L"GDI Orbit requests a quarter overlay", success);
+
+    const RaisedLayout layout =
+        MakeRaisedLayout(kHostWidth, kHostHeight, RedXeRaisedExtentQuarter, window.Dpi(), &tile);
+    Check(SUCCEEDED(dashboard.RaisedWidgetAt(2)->SetRaised(TRUE)) &&
+              SUCCEEDED(dashboard.ApplyRaisedNativeLayout(2, layout.content, window.Dpi())) &&
+              SUCCEEDED(renderer.SetRaisedOverlay(2, layout.content)),
+          L"host raises the native GDI Orbit container into overlay content", success);
+
+    HWND gdiContainer = GetWindow(window.Get(), GW_CHILD);
+    RECT gdiBounds{};
+    if (gdiContainer && GetWindowRect(gdiContainer, &gdiBounds))
+    {
+        MapWindowPoints(HWND_DESKTOP, window.Get(), reinterpret_cast<POINT*>(&gdiBounds), 2);
+    }
+    Check(gdiContainer && gdiBounds.left == layout.content.left && gdiBounds.top == layout.content.top &&
+              gdiBounds.right == layout.content.right && gdiBounds.bottom == layout.content.bottom &&
+              dashboard.RaisedNativeIndex() == 2,
+          L"raised GDI container matches overlay content", success);
+
+    result = renderer.Render(0.25f, 1.0f / 60.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 3,
+          L"raising a window widget still draws every GPU tile under the dim", success);
+
+    Check(SUCCEEDED(dashboard.RaisedWidgetAt(2)->SetRaised(FALSE)) &&
+              SUCCEEDED(dashboard.ClearRaisedNativeLayout(window.Dpi())),
+          L"dismissing GDI Orbit restores tile layout", success);
+    renderer.ClearRaisedOverlay();
+    if (gdiContainer && GetWindowRect(gdiContainer, &gdiBounds))
+    {
+        MapWindowPoints(HWND_DESKTOP, window.Get(), reinterpret_cast<POINT*>(&gdiBounds), 2);
+    }
+    Check(gdiBounds.left == 640 && gdiBounds.top == 360 && gdiBounds.right == 1280 && gdiBounds.bottom == 720,
+          L"native GDI container returns to its adaptive tile", success);
+
+    result = renderer.Render(0.5f, 1.0f / 60.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 3,
+          L"dismissed Debug page renders every GPU widget again", success);
+
+    renderer.Shutdown();
+    dashboard.Shutdown();
 }
 
 void TestReleaseHostIntegration(bool& success) noexcept
@@ -1781,6 +2024,9 @@ int wmain(int argumentCount, wchar_t** arguments)
     bool success = true;
     TestFrameScheduler(success);
     TestPageSwipePolicy(success);
+    TestWidgetRaisePolicy(success);
+    TestWidgetRaiseHost(success);
+    TestWidgetRaiseNative(success);
     TestReleaseHostIntegration(success);
     TestStudioClockScheduling(success);
     TestDeskClockScheduling(success);

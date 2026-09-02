@@ -2,12 +2,12 @@
 
 Status: current normative product contract
 Last reviewed: 2026-09-02
-Owner: `DashboardHost` layout, active-page composition, and page navigation
+Owner: `DashboardHost` layout, active-page composition, page navigation, and raised overlay chrome
 
 ## Scope
 
 This specification owns ordered pages, responsive layout compilation, runtime orientation reflow, widget geometry,
-and horizontal touch navigation. Settings syntax belongs to `Specs/Core/Core_Settings.md`; plugin identities and
+horizontal touch navigation, and the host raised-overlay chrome. Settings syntax belongs to `Specs/Core/Core_Settings.md`; plugin identities and
 rendering mechanisms belong to `Specs/Plugins/Plugins_API.md`; display/DPI policy belongs to
 `Specs/UI/UI_XeneonDisplayWindowing.md`.
 
@@ -77,6 +77,30 @@ Orientation is runtime state and MUST NOT appear in settings.
   tears down the staged neighbor. Commit makes it current and tears down the prior page.
 - Resize, close, reload, and capture loss cancel an active transition immediately, without a settle animation.
 
+## Widget raise overlay
+
+A widget that does not already fill the client MAY raise into a host-owned overlay after a mouse double-click or a
+touch/pen double-tap on its tile. The host MUST query `IRedXeRaisedWidget::GetRaisedExtent` and MUST NOT invent a
+size. Invalid, missing, or full-client tiles stay in standard layout.
+
+The overlay is a full-height slice whose width is 1/4, 1/3, 1/2, or 1/1 of the client, as returned by
+`GetRaisedExtent`. The host MUST NOT invent that fraction. The slice stays on-screen and keeps covering the original
+tile's column: it grows from the tile's left edge, then shifts left only as needed to remain inside the client. It MUST
+NOT shrink either axis below the tile. Other tiles remain in their standard positions, keep rendering and scheduled
+updates, and appear dimmed. A small DPI-scaled close control sits in the top-right of the slice; the plugin occupies
+the full slice, including under that control. Host GDI paints a layered dim over everything except the slice, a drop
+shadow along the inner vertical edge, and the close mark. The overlay window region punches a hole over plugin content
+so GPU pixels or a native child show through at full brightness, then adds the close rectangle back so the mark stays
+clickable. The host MUST NOT add Direct3D shaders for this chrome.
+
+`SetRaised(TRUE)` runs before the overlay is shown; `SetRaised(FALSE)` runs before standard tiles return. A close
+hit, Escape, resize, DPI change, settings reload, or shutdown dismisses the overlay. A tap on the dim region MUST NOT
+dismiss it. Page swipe MUST NOT start or continue while a widget is raised. The overlay HWND exists only while raised.
+
+GPU composition draws every current-page widget at its tile viewport, then draws a raised GPU widget once more at the
+slice. It MUST NOT compose a transition page while raised. A raised window widget moves its host container to the
+slice and MUST NOT hide sibling native containers. Dismiss restores tile bounds.
+
 ## Low-cadence scheduled frames
 
 - An active widget may expose `IRedXeScheduledWidget` to request a relative deadline without making its page
@@ -111,14 +135,21 @@ Orientation is runtime state and MUST NOT appear in settings.
 - Navigation tests cover direction, axis lock, vertical rejection, rubber-band end stops, wrap, distance and flick
   commit, settle interpolation, capture loss, deferred adjacent staging, in-place commit without device recreation,
   and current-plus-adjacent-only resource lifetime.
+- Geometry tests prove raised overlay width fractions, full-height slices, close hit-testing, shadow placement along
+  the inner edge, overlay region holes that keep the close control, double-activate interval/slop, reverse hit-test,
+  rejection of already-full tiles, a quarter System Pulse column, and a stacked clock growing into a full-height
+  slice. Host tests prove the host asks each System Data viewer for its shipped extent, raises Process Viewer to a
+  half-width slice while every GPU tile still draws, restores every GPU tile on dismiss, and moves a GdiOrbit
+  container into overlay content then back to its tile without skipping sibling GPU draws.
 - Interactive validation on a touch-capable XENEON SHOULD verify finger tracking, settle, and both orientations before
-  release.
+  release. It SHOULD also verify double-tap raise, the close control, and Escape dismiss.
 
 ## Implementation anchors
 
 - Typed pages and split paths: `RedXe/Settings.*`
 - Geometry and native containers: `RedXe/DashboardHost.*`
 - Pointer policy, settle, and commit math: `RedXe/PageNavigation.h`
-- Page orchestration and capture: `RedXe/Application.*`
+- Page orchestration, double-activate, and overlay HWND: `RedXe/Application.*`
 - GPU transition composition: `RedXe/Renderer.*`
+- Raised overlay math: `RedXe/WidgetRaise.h`
 - Tests: `Tests/SettingsTests/`, `Tests/HostPluginTests/`

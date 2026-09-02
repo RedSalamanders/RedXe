@@ -37,6 +37,7 @@ static_assert(std::is_base_of_v<IUnknown, IRedXeWidgetProvider>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeGpuWidget>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeScheduledWidget>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeWindowWidget>);
+static_assert(std::is_base_of_v<IUnknown, IRedXeRaisedWidget>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeDataSource>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeDataProvider>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeDataSink>);
@@ -44,6 +45,7 @@ static_assert(std::is_base_of_v<IUnknown, IRedXeDataSubscription>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeGpuWidget>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeScheduledWidget>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeWindowWidget>);
+static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeRaisedWidget>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataSource>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataProvider>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataSink>);
@@ -81,6 +83,38 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     static_assert(sizeof(function) == sizeof(procedure));
     std::memcpy(&function, &procedure, sizeof(function));
     return function;
+}
+
+[[nodiscard]] HRESULT ValidateRaisedWidget(IRedXeWidget& widget, RedXeRaisedExtent expected) noexcept
+{
+    wil::com_ptr_nothrow<IRedXeRaisedWidget> raised;
+    HRESULT result = widget.QueryInterface(__uuidof(IRedXeRaisedWidget), reinterpret_cast<void**>(raised.put()));
+    if (FAILED(result) || !raised)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    if (raised->GetRaisedExtent(nullptr) != E_POINTER)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    RedXeRaisedExtent extent = static_cast<RedXeRaisedExtent>(0);
+    result = raised->GetRaisedExtent(&extent);
+    if (result != S_OK || extent != expected)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    if (raised->SetRaised(TRUE) != S_OK || raised->SetRaised(FALSE) != S_OK)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    wil::com_ptr_nothrow<IUnknown> widgetIdentity;
+    wil::com_ptr_nothrow<IUnknown> raisedIdentity;
+    if (FAILED(widget.QueryInterface(__uuidof(IUnknown), reinterpret_cast<void**>(widgetIdentity.put()))) ||
+        FAILED(raised.query_to(raisedIdentity.put())) || widgetIdentity.get() != raisedIdentity.get())
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    return S_OK;
 }
 
 [[nodiscard]] HRESULT ValidateEmptyNormalizedFactoryConfiguration(RedXeCreateFn create, const char* pluginId) noexcept
@@ -368,6 +402,12 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
+    result = ValidateRaisedWidget(*widget, RedXeRaisedExtentQuarter);
+    if (FAILED(result))
+    {
+        return result;
+    }
+
     if (gpuWidget->OnDeviceCreated(nullptr) != E_POINTER)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -478,6 +518,11 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         widgetIdentity.get() != windowIdentity.get())
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    result = ValidateRaisedWidget(*widget, RedXeRaisedExtentQuarter);
+    if (FAILED(result))
+    {
+        return result;
     }
 
     if (windowWidget->Attach(nullptr) != E_POINTER || windowWidget->Resize(nullptr) != E_POINTER ||
@@ -950,6 +995,11 @@ struct MatrixRenderTarget final
         widgetIdentity.get() != gpuIdentity.get())
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    result = ValidateRaisedWidget(*widget, RedXeRaisedExtentFull);
+    if (FAILED(result))
+    {
+        return result;
     }
 
     if (gpuWidget->OnDeviceCreated(nullptr) != E_POINTER || gpuWidget->Render(nullptr) != E_POINTER)

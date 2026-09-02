@@ -1140,7 +1140,10 @@ void ReadLocalClock(SYSTEMTIME& time) noexcept
     return clamped * clamped * clamped * (clamped * (clamped * 6.0f - 15.0f) + 10.0f);
 }
 
-class DeskClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, public IRedXeScheduledWidget
+class DeskClockWidget final : public IRedXeWidget,
+                              public IRedXeGpuWidget,
+                              public IRedXeScheduledWidget,
+                              public IRedXeRaisedWidget
 {
   public:
     DeskClockWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, DeskClockDeviceResources& resources,
@@ -1179,6 +1182,10 @@ class DeskClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, publi
         {
             *result = static_cast<IRedXeScheduledWidget*>(this);
         }
+        else if (interfaceId == __uuidof(IRedXeRaisedWidget))
+        {
+            *result = static_cast<IRedXeRaisedWidget*>(this);
+        }
         else
         {
             return E_NOINTERFACE;
@@ -1203,6 +1210,21 @@ class DeskClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, publi
     }
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL) noexcept override
+    {
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
+    {
+        if (!extent)
+        {
+            return E_POINTER;
+        }
+        *extent = RedXeRaisedExtentHalf;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetRaised(BOOL) noexcept override
     {
         return S_OK;
     }

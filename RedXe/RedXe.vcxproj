@@ -109,7 +109,8 @@
     <ClInclude Include="Renderer.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="Settings.h" />
-    <ClInclude Include="SettingsWatcher.h" />
+      <ClInclude Include="SettingsWatcher.h" />
+    <ClInclude Include="WidgetRaise.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Application.cpp" />

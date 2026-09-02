@@ -41,6 +41,10 @@ void Renderer::Shutdown() noexcept
     _dpi = USER_DEFAULT_SCREEN_DPI;
     _lastFrameWidgetCount = 0;
     _lastFrameSuccessfulWidgetCount = 0;
+    _raisedOverlayActive = false;
+    _raisedOverlayIndex = SIZE_MAX;
+    _raisedContent = {};
+    _raisedViewport = {};
 }
 
 HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
@@ -134,6 +138,32 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
         return UpdateCachedViewports();
     }
     return NotifyDeviceCreated();
+}
+
+HRESULT Renderer::SetRaisedOverlay(size_t widgetIndex, const RECT& content) noexcept
+{
+    if (!_dashboardHost || widgetIndex >= _dashboardHost->WidgetCount() || content.right <= content.left ||
+        content.bottom <= content.top)
+    {
+        return E_INVALIDARG;
+    }
+    _raisedOverlayActive = true;
+    _raisedOverlayIndex = widgetIndex;
+    _raisedContent = content;
+    _raisedViewport = {};
+    return (!_suspended && _width != 0 && _height != 0) ? UpdateCachedViewports() : S_OK;
+}
+
+void Renderer::ClearRaisedOverlay() noexcept
+{
+    _raisedOverlayActive = false;
+    _raisedOverlayIndex = SIZE_MAX;
+    _raisedContent = {};
+    _raisedViewport = {};
+    if (!_suspended && _dashboardHost && _width != 0 && _height != 0)
+    {
+        (void)UpdateCachedViewports();
+    }
 }
 
 HRESULT Renderer::SetDpi(UINT dpi) noexcept
@@ -331,6 +361,17 @@ HRESULT Renderer::UpdateCachedViewports() noexcept
         viewport.MinDepth = 0.0f;
         viewport.MaxDepth = 1.0f;
     }
+    _raisedViewport = {};
+    if (_raisedOverlayActive && _raisedOverlayIndex < _dashboardHost->WidgetCount() &&
+        _raisedContent.right > _raisedContent.left && _raisedContent.bottom > _raisedContent.top)
+    {
+        _raisedViewport.TopLeftX = static_cast<float>(_raisedContent.left);
+        _raisedViewport.TopLeftY = static_cast<float>(_raisedContent.top);
+        _raisedViewport.Width = static_cast<float>(_raisedContent.right - _raisedContent.left);
+        _raisedViewport.Height = static_cast<float>(_raisedContent.bottom - _raisedContent.top);
+        _raisedViewport.MinDepth = 0.0f;
+        _raisedViewport.MaxDepth = 1.0f;
+    }
     if (_transitionDashboardHost)
     {
         for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
@@ -486,13 +527,13 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
     _context->OMSetRenderTargets(1, renderTargets, nullptr);
     _context->ClearRenderTargetView(_renderTarget.get(), clearColor.data());
 
-    for (size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
+    const size_t widgetCount = _dashboardHost->WidgetCount();
+    const auto drawWidget = [&](size_t index, const D3D11_VIEWPORT& viewport) noexcept -> HRESULT
     {
         IRedXeGpuWidget* widget = _dashboardHost->GpuWidgetAt(index);
-        const D3D11_VIEWPORT& viewport = _widgetViewports[index];
         if (!widget || viewport.Width < 1.0f || viewport.Height < 1.0f)
         {
-            continue;
+            return S_FALSE;
         }
 
         const RedXeWidgetFrameContext widgetFrame{
@@ -516,18 +557,38 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
         const HRESULT widgetResult = widget->Render(&gpuFrame);
         if (IsDeviceLost(widgetResult))
         {
-            const HRESULT recoveryResult = RecoverDevice();
-            return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
+            return widgetResult;
         }
         if (FAILED(widgetResult))
         {
             OutputDebugStringW(L"A GPU widget failed to render; continuing with remaining widgets.\n");
-            continue;
+            return S_FALSE;
         }
         ++_lastFrameSuccessfulWidgetCount;
+        return S_OK;
+    };
+
+    for (size_t index = 0; index < widgetCount; ++index)
+    {
+        const HRESULT widgetResult = drawWidget(index, _widgetViewports[index]);
+        if (IsDeviceLost(widgetResult))
+        {
+            const HRESULT recoveryResult = RecoverDevice();
+            return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
+        }
+    }
+    if (_raisedOverlayActive && _raisedOverlayIndex < widgetCount && _raisedViewport.Width >= 1.0f &&
+        _raisedViewport.Height >= 1.0f)
+    {
+        const HRESULT raisedResult = drawWidget(_raisedOverlayIndex, _raisedViewport);
+        if (IsDeviceLost(raisedResult))
+        {
+            const HRESULT recoveryResult = RecoverDevice();
+            return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
+        }
     }
 
-    if (_transitionDashboardHost && _transitionWidgetsDeviceReady)
+    if (!_raisedOverlayActive && _transitionDashboardHost && _transitionWidgetsDeviceReady)
     {
         for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
         {
@@ -610,6 +671,21 @@ size_t Renderer::LastFrameWidgetCount() const noexcept
 size_t Renderer::LastFrameSuccessfulWidgetCount() const noexcept
 {
     return _lastFrameSuccessfulWidgetCount;
+}
+
+bool Renderer::HasRaisedOverlay() const noexcept
+{
+    return _raisedOverlayActive;
+}
+
+size_t Renderer::RaisedOverlayIndex() const noexcept
+{
+    return _raisedOverlayIndex;
+}
+
+RECT Renderer::RaisedContentRect() const noexcept
+{
+    return _raisedContent;
 }
 
 HRESULT Renderer::RecoverDevice() noexcept

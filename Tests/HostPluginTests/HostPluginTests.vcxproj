@@ -78,6 +78,7 @@
     <ClInclude Include="..\..\RedXe\PluginManager.h" />
     <ClInclude Include="..\..\RedXe\Renderer.h" />
     <ClInclude Include="..\..\RedXe\Settings.h" />
+    <ClInclude Include="..\..\RedXe\WidgetRaise.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Plugins\DeskClock\DeskClock.vcxproj">

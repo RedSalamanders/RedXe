@@ -38,8 +38,11 @@ Preserve these boundaries:
 - After delivering a snapshot to an active GPU data sink, `PluginHost` coalesces one UI-thread frame invalidation so
   scheduled GPU widgets can start an ease without a child HWND.
 - Keep every widget declaration in `Widget.h` and every data declaration in `Data.h`. Generic widgets expose GPU,
-  scheduled, and native-window mechanisms through sibling IIDs; never add a plugin's geometry, shader, or drawing
-  commands to the generic root.
+  scheduled, native-window, and raised-overlay mechanisms through sibling IIDs; never add a plugin's geometry, shader, or
+  drawing commands to the generic root. The host MUST query `IRedXeRaisedWidget::GetRaisedExtent` before raising a
+  non-full tile; it MUST NOT guess 1/4, 1/3, 1/2, or 1/1. Those fractions are of **client width** as a full-height
+  slice over the original column. Dimmed siblings keep drawing. The content rectangle MUST NOT shrink the tile.
+  `SetRaised` is UI-thread, idempotent, and allocation-free.
 - GPU widgets receive a borrowed D3D11 device during setup and immediate context during rendering. They never receive
   the HWND, swap chain, or back buffer. Share immutable device resources across compatible instances. System Data GPU
   viewers pick a density rung from the widget rectangle, grow type with leftover height among visible rows, split wide
@@ -49,7 +52,9 @@ Preserve these boundaries:
   format byte and rate values as one-decimal 1000-based KB/MB/GB/TB (or `/s`), show process working set rather than
   unlabeled PID, keep storage used/total above a used-percent-sorted capacity track, draw progress troughs near the
   panel with fill matching KPI intent color, sit network and memory bars under their text, keep thermal names above
-  the level track, and join `gpu.process` names from `process.list` without adding a new dataset ID.
+  the level track, and join `gpu.process` names from `process.list` without adding a new dataset ID. While
+  `SetRaised(TRUE)`, System Data viewers use Standard density so overlay content can show every row that `topN` allows.
+  Raised System Pulse also fills leftover height with a physical-memory bar and CPU history.
 - Window widgets receive only a borrowed host-owned child container and own all children, timers, controllers, and GDI
   resources they create. Every widget quiesces visibility-dependent work in `IRedXeWidget::SetVisible(FALSE)`;
   window widgets destroy their children before `Detach` returns.

@@ -116,6 +116,28 @@ enum class ViewerKind : uint32_t
     Count,
 };
 
+[[nodiscard]] RedXeRaisedExtent RaisedExtentForKind(ViewerKind kind) noexcept
+{
+    switch (kind)
+    {
+    case ViewerKind::ProcessViewer:
+    case ViewerKind::GpuProcesses:
+    case ViewerKind::NetworkMeter:
+    case ViewerKind::StorageMeter:
+    case ViewerKind::ThermalMeter:
+        return RedXeRaisedExtentHalf;
+    case ViewerKind::SystemPulse:
+        return RedXeRaisedExtentQuarter;
+    case ViewerKind::CpuMeter:
+    case ViewerKind::MemoryMeter:
+    case ViewerKind::GpuMeter:
+    case ViewerKind::PowerMeter:
+        return RedXeRaisedExtentThird;
+    default:
+        return RedXeRaisedExtentQuarter;
+    }
+}
+
 struct ViewerCatalogEntry final
 {
     ViewerKind kind;
@@ -144,7 +166,7 @@ constexpr std::array kCatalog{
                        "process.list", nullptr, 2000, 0, 32, 10, 1280.0f, 720.0f, 240.0f, 96.0f},
     ViewerCatalogEntry{ViewerKind::SystemPulse, "builtin.system-pulse", "system-pulse", L"System Pulse",
                        L"Machine CPU, memory, and count chips from system.summary.", L"System Pulse",
-                       L"CPU hero beside two-column RAM, process, core, thread, handle, commit, and uptime chips.",
+                       L"CPU hero, summary chips, and raised RAM plus CPU history from system.summary.",
                        "system.summary", nullptr, 1000, 0, 0, 0, 960.0f, 360.0f, 160.0f, 72.0f},
     ViewerCatalogEntry{ViewerKind::CpuMeter, "builtin.cpu-meter", "cpu-meter", L"CPU Meter",
                        L"Total CPU load and a logical-processor heatmap.", L"CPU Meter",
@@ -995,7 +1017,10 @@ class ViewerSink final : public IRedXeDataSink
     uint32_t _dataSetIndex;
 };
 
-class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public IRedXeScheduledWidget
+class ViewerWidget final : public IRedXeWidget,
+                           public IRedXeGpuWidget,
+                           public IRedXeScheduledWidget,
+                           public IRedXeRaisedWidget
 {
   public:
     ViewerWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, ViewerKind kind, uint32_t topN) noexcept
@@ -1096,6 +1121,10 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
         {
             *result = static_cast<IRedXeScheduledWidget*>(this);
         }
+        else if (interfaceId == __uuidof(IRedXeRaisedWidget))
+        {
+            *result = static_cast<IRedXeRaisedWidget*>(this);
+        }
         else
         {
             return E_NOINTERFACE;
@@ -1141,6 +1170,22 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
             _pulse = 0.0f;
             ReleaseSRWLockExclusive(&_lock);
         }
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
+    {
+        if (!extent)
+        {
+            return E_POINTER;
+        }
+        *extent = RaisedExtentForKind(_kind);
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetRaised(BOOL raised) noexcept override
+    {
+        _raised = raised != FALSE;
         return S_OK;
     }
 
@@ -1496,11 +1541,16 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
         _sample.available[6] = TakeU64(values[1], _sample.counts[6]);
         _sample.available[7] = TakeU64(values[8], _sample.counts[7]);
         uint64_t total = 0;
-        if (_sample.available[4] && TakeU64(values[5], total) && total > 0)
+        if (TakeU64(values[5], total) && total > 0)
         {
-            _sample.values[4] = static_cast<float>(
-                std::clamp(100.0 * static_cast<double>(_sample.counts[4]) / static_cast<double>(total), 0.0, 100.0));
+            _sample.counts[0] = total;
+            if (_sample.available[4])
+            {
+                _sample.values[4] = static_cast<float>(std::clamp(
+                    100.0 * static_cast<double>(_sample.counts[4]) / static_cast<double>(total), 0.0, 100.0));
+            }
         }
+        PushSpark(_sample.values[0]);
         return S_OK;
     }
 
@@ -2151,7 +2201,7 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
         metrics.contentTop = metrics.pad + (metrics.showTitle ? metrics.titleH + 6.0f : 0.0f);
         metrics.innerW = std::max(8.0f, width - metrics.pad * 2.0f);
         metrics.innerH = std::max(0.0f, height - metrics.contentTop - metrics.pad);
-        metrics.density = DensityForInner(metrics.innerH);
+        metrics.density = _raised ? ViewerDensity::Standard : DensityForInner(metrics.innerH);
         return metrics;
     }
 
@@ -2584,6 +2634,7 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
         wchar_t handles[16]{};
         wchar_t cores[16]{};
         wchar_t commit[32]{};
+        wchar_t freeRam[32]{};
         FormatBytes(ram, 32, sample.counts[4], sample.available[4]);
         FormatCount(procs, 16, sample.counts[1], sample.available[1]);
         FormatUptime(up, 32, sample.counts[5], sample.available[5]);
@@ -2591,20 +2642,24 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
         FormatCount(handles, 16, sample.counts[3], sample.available[3]);
         FormatCount(cores, 16, sample.counts[6], sample.available[6]);
         FormatBytes(commit, 32, sample.counts[7], sample.available[7]);
-        const wchar_t* labels[] = {L"RAM", L"Procs", L"Threads", L"Handles", L"Cores", L"Up", L"Commit"};
-        const uint32_t labelLens[] = {3, 5, 7, 7, 5, 2, 6};
-        const wchar_t* values[] = {ram, procs, threads, handles, cores, up, commit};
-        const uint32_t chipMax = panel.density == ViewerDensity::Compact ? 4u : 7u;
+        const uint64_t freeBytes = sample.counts[0] > sample.counts[4] ? sample.counts[0] - sample.counts[4] : 0;
+        FormatBytes(freeRam, 32, freeBytes, sample.counts[0] != 0);
+        const wchar_t* labels[] = {L"RAM", L"Procs", L"Threads", L"Handles", L"Cores", L"Up", L"Commit", L"Free"};
+        const uint32_t labelLens[] = {3, 5, 7, 7, 5, 2, 6, 4};
+        const wchar_t* values[] = {ram, procs, threads, handles, cores, up, commit, freeRam};
+        const bool expanded = _raised && remainingAll > 280.0f;
+        const uint32_t chipMax = expanded ? 8u : (panel.density == ViewerDensity::Compact ? 4u : 7u);
         const bool split = panel.innerW >= 300.0f;
+        const float headerH = expanded ? std::min(remainingAll * 0.40f, 260.0f) : remainingAll;
         const float leftW = split ? std::clamp(panel.innerW * 0.32f, 96.0f, 168.0f) : panel.innerW;
-        const float cpuPx = ClampOrdered(split ? remainingAll * 0.42f : remainingAll * 0.32f, 44.0f, panel.heroPx);
-        const float cpuY = split ? y + std::max(0.0f, (remainingAll - cpuPx) * 0.18f) : y;
+        const float cpuPx = ClampOrdered(split ? headerH * 0.42f : headerH * 0.32f, 44.0f, panel.heroPx);
+        const float cpuY = split ? y + std::max(0.0f, (headerH - cpuPx) * 0.12f) : y;
         (void)resources.AppendText(list, panel.pad, cpuY, cpuPx, cpuR, cpuG, cpuB, 1.0f, cpu,
                                    static_cast<uint32_t>(wcsnlen(cpu, 16)));
         float chipX = panel.pad;
         float chipY = y;
         float chipW = panel.innerW;
-        float chipH = remainingAll;
+        float chipH = headerH;
         if (split)
         {
             chipX = panel.pad + leftW + 12.0f;
@@ -2613,7 +2668,7 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
         else
         {
             chipY = cpuY + cpuPx + 8.0f;
-            chipH = std::max(0.0f, height - panel.pad - chipY);
+            chipH = std::max(0.0f, y + headerH - chipY);
         }
         uint32_t columns = 1;
         uint32_t visible = 0;
@@ -2637,6 +2692,26 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
             (void)AppendClippedText(resources, list, cellX + labelCol, cellY, valuePx,
                                     std::max(24.0f, colWidth - labelCol), kTextR, kTextG, kTextB, 1.0f, values[index],
                                     static_cast<uint32_t>(wcsnlen(values[index], 32)));
+        }
+        if (expanded)
+        {
+            float extraY = std::max(cpuY + cpuPx, chipY + static_cast<float>(rows) * rowHeight) + 18.0f;
+            float extraH = std::max(0.0f, height - panel.pad - extraY);
+            if (extraH >= 56.0f && sample.counts[0] != 0)
+            {
+                (void)resources.EnsureGlyphs(L"Physical", 8);
+                const float bandH = std::min(72.0f, extraH * 0.32f);
+                DrawCapacityBar(resources, list, panel.pad, extraY, panel.innerW, L"Physical", sample.display[4],
+                                sample.counts[0] != 0, sample.counts[4], sample.counts[0], panel.labelPx + 2.0f, 12.0f,
+                                bandH);
+                extraY += bandH + 10.0f;
+                extraH = std::max(0.0f, height - panel.pad - extraY);
+            }
+            if (extraH >= 48.0f)
+            {
+                DrawHistoryArea(list, panel.pad, extraY, panel.innerW, extraH, sample, sample.display[0],
+                                sample.available[0], true);
+            }
         }
         (void)width;
         return S_OK;
@@ -3094,6 +3169,7 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
     uint32_t _topN;
     uint32_t _restDelay = 1000;
     std::atomic<bool> _visible{false};
+    bool _raised = false;
     bool _gpuHeld = false;
     mutable SRWLOCK _lock = SRWLOCK_INIT;
     ViewerSample _sample{};

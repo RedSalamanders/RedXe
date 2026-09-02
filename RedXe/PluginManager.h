@@ -39,6 +39,7 @@ class PluginManager final
     [[nodiscard]] IRedXeGpuWidget* GpuWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeScheduledWidget* ScheduledWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeWindowWidget* WindowWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] IRedXeRaisedWidget* RaisedWidgetAt(size_t index) const noexcept;
     [[nodiscard]] uint32_t WidgetFlagsAt(size_t index) const noexcept;
     [[nodiscard]] WidgetGridPlacement WidgetGridPlacementAt(size_t index) const noexcept;
     [[nodiscard]] AdaptiveWidgetPlacement AdaptivePlacementAt(size_t index) const noexcept;
@@ -53,6 +54,7 @@ class PluginManager final
         wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
         wil::com_ptr_nothrow<IRedXeScheduledWidget> scheduledWidget;
         wil::com_ptr_nothrow<IRedXeWindowWidget> windowWidget;
+        wil::com_ptr_nothrow<IRedXeRaisedWidget> raisedWidget;
         wil::com_ptr_nothrow<IRedXeWidget> widget;
         SettingsText instanceId;
         WidgetGridPlacement placement;

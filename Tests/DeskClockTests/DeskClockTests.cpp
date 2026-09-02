@@ -793,6 +793,17 @@ struct PixelBounds final
     {
         return kTestFailure;
     }
+    wil::com_ptr_nothrow<IRedXeRaisedWidget> raised;
+    if (FAILED(widget.query_to(raised.put())) || !raised || raised->GetRaisedExtent(nullptr) != E_POINTER)
+    {
+        return kTestFailure;
+    }
+    RedXeRaisedExtent extent = static_cast<RedXeRaisedExtent>(0);
+    if (raised->GetRaisedExtent(&extent) != S_OK || extent != RedXeRaisedExtentHalf ||
+        raised->SetRaised(TRUE) != S_OK || raised->SetRaised(FALSE) != S_OK)
+    {
+        return kTestFailure;
+    }
     void* unsupported = reinterpret_cast<void*>(1);
     if (widget->QueryInterface(__uuidof(IRedXeWindowWidget), &unsupported) != E_NOINTERFACE || unsupported ||
         scheduled->GetNextFrameDelayMilliseconds(nullptr) != E_POINTER)
@@ -1262,6 +1273,7 @@ struct PixelBounds final
     scheduledIdentity.reset();
     gpuIdentity.reset();
     widgetIdentity.reset();
+    raised.reset();
     scheduled.reset();
     gpu.reset();
     widget.reset();

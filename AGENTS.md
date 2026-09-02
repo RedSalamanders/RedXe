@@ -86,7 +86,7 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 Common/PlugInterfaces/
   Factory.*        Current factory ABI and shared factory implementation
   Host.h           Host-service COM root
-  Widget.h         Complete generic, GPU, scheduled, and child-window widget ABI
+  Widget.h         Complete generic, GPU, scheduled, child-window, and raised-overlay widget ABI
   Data.h           Complete source, provider, snapshot, sink, and subscription ABI
 Plugins/
   RotatingTriangle/ First bundled widget-provider DLL
@@ -132,8 +132,8 @@ Keep the boundary explicit:
 - `DashboardHost` owns design-canvas placements, native child containers, and frame-scheduling policy.
 - `Renderer` owns host COM graphics resources, cached viewports, device notifications, and presentation; it has no
   message-dispatch or plugin-specific drawing logic.
-- `Widget.h` owns every widget declaration. Widgets expose supported GPU, scheduled, or native-window mechanisms as
-  sibling COM interfaces queried by IID.
+- `Widget.h` owns every widget declaration. Widgets expose supported GPU, scheduled, native-window, or raised-overlay
+  mechanisms as sibling COM interfaces queried by IID.
 - GPU widgets receive the borrowed D3D11 device during setup and immediate context during rendering, but never the
   HWND, swap chain, or back buffer.
 - A window widget receives only a host-owned child container, never the top-level HWND, and destroys all plugin-owned

@@ -71,7 +71,7 @@ constexpr std::array kWidgetTypes{
 
 [[nodiscard]] HRESULT EnsureWindowClass() noexcept;
 
-class GdiOrbitWidget final : public IRedXeWidget, public IRedXeWindowWidget
+class GdiOrbitWidget final : public IRedXeWidget, public IRedXeWindowWidget, public IRedXeRaisedWidget
 {
   public:
     explicit GdiOrbitWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner) noexcept
@@ -98,6 +98,10 @@ class GdiOrbitWidget final : public IRedXeWidget, public IRedXeWindowWidget
         else if (interfaceId == __uuidof(IRedXeWindowWidget))
         {
             *result = static_cast<IRedXeWindowWidget*>(this);
+        }
+        else if (interfaceId == __uuidof(IRedXeRaisedWidget))
+        {
+            *result = static_cast<IRedXeRaisedWidget*>(this);
         }
         else
         {
@@ -194,6 +198,21 @@ class GdiOrbitWidget final : public IRedXeWidget, public IRedXeWindowWidget
             return HRESULT_FROM_WIN32(GetLastError());
         }
         return RebuildDrawingResources(context->widthPixels, context->heightPixels, context->dpi);
+    }
+
+    HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
+    {
+        if (!extent)
+        {
+            return E_POINTER;
+        }
+        *extent = RedXeRaisedExtentQuarter;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetRaised(BOOL) noexcept override
+    {
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL visible) noexcept override

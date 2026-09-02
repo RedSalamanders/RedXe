@@ -262,6 +262,7 @@ PluginManager::~PluginManager()
         _widgets[index].windowWidget.reset();
         _widgets[index].scheduledWidget.reset();
         _widgets[index].gpuWidget.reset();
+        _widgets[index].raisedWidget.reset();
         _widgets[index].widget.reset();
     }
     _widgetCount = 0;
@@ -323,7 +324,8 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
                                             WidgetSlot& widgetSlot) noexcept
 {
     if (!RedXeIsValidMachineId(settings.typeId.utf8.data()) || !RedXeIsValidMachineId(settings.id.utf8.data()) ||
-        widgetSlot.widget || widgetSlot.gpuWidget || widgetSlot.scheduledWidget || widgetSlot.windowWidget)
+        widgetSlot.widget || widgetSlot.gpuWidget || widgetSlot.scheduledWidget || widgetSlot.windowWidget ||
+        widgetSlot.raisedWidget)
     {
         return E_INVALIDARG;
     }
@@ -344,6 +346,7 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     const HRESULT gpuResult = widgetSlot.widget.query_to(widgetSlot.gpuWidget.put());
     const HRESULT scheduledResult = widgetSlot.widget.query_to(widgetSlot.scheduledWidget.put());
     const HRESULT windowResult = widgetSlot.widget.query_to(widgetSlot.windowWidget.put());
+    const HRESULT raisedResult = widgetSlot.widget.query_to(widgetSlot.raisedWidget.put());
     if (gpuResult != S_OK && gpuResult != E_NOINTERFACE)
     {
         return gpuResult;
@@ -355,6 +358,10 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     if (scheduledResult != S_OK && scheduledResult != E_NOINTERFACE)
     {
         return scheduledResult;
+    }
+    if (raisedResult != S_OK && raisedResult != E_NOINTERFACE)
+    {
+        return raisedResult;
     }
     if (!widgetSlot.gpuWidget && !widgetSlot.windowWidget)
     {
@@ -613,6 +620,11 @@ IRedXeScheduledWidget* PluginManager::ScheduledWidgetAt(size_t index) const noex
 IRedXeWindowWidget* PluginManager::WindowWidgetAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].windowWidget.get() : nullptr;
+}
+
+IRedXeRaisedWidget* PluginManager::RaisedWidgetAt(size_t index) const noexcept
+{
+    return index < _widgetCount ? _widgets[index].raisedWidget.get() : nullptr;
 }
 
 uint32_t PluginManager::WidgetFlagsAt(size_t index) const noexcept

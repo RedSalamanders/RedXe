@@ -4,6 +4,7 @@
 #include "FrameScheduler.h"
 #include "PageNavigation.h"
 #include "Settings.h"
+#include "WidgetRaise.h"
 #include "resource.h"
 
 #include <algorithm>
@@ -77,6 +78,20 @@ SIZE ScaleXeneonClientSize(UINT dpi) noexcept
 {
     return SIZE{MulDiv(kXeneonEdgeClientWidth, static_cast<int>(dpi), USER_DEFAULT_SCREEN_DPI),
                 MulDiv(kXeneonEdgeClientHeight, static_cast<int>(dpi), USER_DEFAULT_SCREEN_DPI)};
+}
+
+[[nodiscard]] LONG DoubleActivateSlopPixels(UINT dpi) noexcept
+{
+    int systemSlop = 0;
+    if (dpi != 0)
+    {
+        systemSlop = GetSystemMetricsForDpi(SM_CXDOUBLECLK, dpi) / 2;
+    }
+    if (systemSlop <= 0)
+    {
+        systemSlop = GetSystemMetrics(SM_CXDOUBLECLK) / 2;
+    }
+    return std::max(static_cast<LONG>(systemSlop), RaisedDipPixels(16, dpi));
 }
 
 HRESULT CalculateWindowSizeForDpi(DWORD windowStyle, DWORD extendedStyle, UINT dpi, SIZE& windowSize) noexcept
@@ -287,6 +302,7 @@ Application::~Application()
     {
         UnregisterClassW(kSettingsDialogClassName, _instance);
         UnregisterClassW(kWindowClassName, _instance);
+        UnregisterClassW(kRaiseOverlayClassName, _instance);
     }
 }
 
@@ -637,6 +653,18 @@ HRESULT Application::RegisterWindowClass() noexcept
         UnregisterClassW(kWindowClassName, _instance);
         return HRESULT_FROM_WIN32(GetLastError());
     }
+    WNDCLASSEXW overlayClass{};
+    overlayClass.cbSize = sizeof(overlayClass);
+    overlayClass.lpfnWndProc = RaiseOverlayProcedure;
+    overlayClass.hInstance = _instance;
+    overlayClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    overlayClass.lpszClassName = kRaiseOverlayClassName;
+    if (!RegisterClassExW(&overlayClass))
+    {
+        UnregisterClassW(kSettingsDialogClassName, _instance);
+        UnregisterClassW(kWindowClassName, _instance);
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
     _classRegistered = true;
     return S_OK;
 }
@@ -772,6 +800,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     {
         return E_POINTER;
     }
+    DismissWidgetRaise();
     CancelPageNavigation();
     if (*settings == *_settings)
     {
@@ -1107,6 +1136,10 @@ bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT&
 
 void Application::OnPointerDown(HWND window, WPARAM wParam) noexcept
 {
+    if (_raisedActive)
+    {
+        return;
+    }
     const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
     POINT position{};
     UINT64 qpc = 0;
@@ -1143,6 +1176,10 @@ void Application::OnPointerDown(HWND window, WPARAM wParam) noexcept
 
 void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
 {
+    if (_raisedActive)
+    {
+        return;
+    }
     const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
     if (!_pagePointerActive || pointerId != _pagePointerId || _pageGestureIgnored)
     {
@@ -1239,6 +1276,12 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
     if (!panStarted)
     {
         _pageGestureIgnored = false;
+        POINT position{};
+        UINT64 qpc = 0;
+        if (TryPointerClientPosition(window, pointerId, position, qpc))
+        {
+            OnClientActivateAttempt(window, position, GetTickCount64());
+        }
         return;
     }
 
@@ -1257,6 +1300,275 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
                         _transitionDashboardHost;
     const LONG target = commit ? -_pageTransitionDirection * client.right : 0;
     BeginPageSettle(target, commit);
+}
+
+void Application::OnMouseButtonUp(HWND window, LPARAM lParam) noexcept
+{
+    if (_raisedActive || _pagePointerActive || _pagePanStarted)
+    {
+        return;
+    }
+    const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    OnClientActivateAttempt(window, position, GetTickCount64());
+}
+
+void Application::OnClientActivateAttempt(HWND window, POINT position, ULONGLONG tick) noexcept
+{
+    if (_raisedActive || !_dashboardHost || !_rendererReady)
+    {
+        return;
+    }
+    RECT client{};
+    if (!GetClientRect(window, &client) || client.right <= 0 || client.bottom <= 0)
+    {
+        return;
+    }
+
+    std::array<RECT, PluginManager::kMaximumWidgetInstances> bounds{};
+    const size_t widgetCount = _dashboardHost->WidgetCount();
+    for (size_t index = 0; index < widgetCount; ++index)
+    {
+        bounds[index] =
+            _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(client.right), static_cast<UINT>(client.bottom));
+    }
+    const size_t hit = HitTestTopmostWidget(position, bounds.data(), widgetCount);
+    if (hit == SIZE_MAX)
+    {
+        _activateWidgetIndex = SIZE_MAX;
+        return;
+    }
+
+    const UINT dpi = GetDpiForWindow(window);
+    const UINT interval = GetDoubleClickTime();
+    if (_activateWidgetIndex == hit &&
+        IsDoubleActivate(_activateTick, _activatePoint, tick, position, interval, DoubleActivateSlopPixels(dpi)))
+    {
+        _activateWidgetIndex = SIZE_MAX;
+        (void)TryRaiseWidgetAt(window, hit);
+        return;
+    }
+    _activateTick = tick;
+    _activatePoint = position;
+    _activateWidgetIndex = hit;
+}
+
+HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
+{
+    if (_raisedActive || !_dashboardHost || !_rendererReady || widgetIndex >= _dashboardHost->WidgetCount())
+    {
+        return E_UNEXPECTED;
+    }
+    RECT client{};
+    if (!GetClientRect(window, &client) || client.right <= 0 || client.bottom <= 0)
+    {
+        return E_UNEXPECTED;
+    }
+    const UINT clientWidth = static_cast<UINT>(client.right);
+    const UINT clientHeight = static_cast<UINT>(client.bottom);
+    const RECT tile = _dashboardHost->PixelBoundsAt(widgetIndex, clientWidth, clientHeight);
+    IRedXeRaisedWidget* raisedWidget = _dashboardHost->RaisedWidgetAt(widgetIndex);
+    if (!raisedWidget)
+    {
+        return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+    }
+    RedXeRaisedExtent extent{};
+    const HRESULT extentResult = raisedWidget->GetRaisedExtent(&extent);
+    if (FAILED(extentResult) || !CanRaiseWidget(tile, clientWidth, clientHeight, extent))
+    {
+        return FAILED(extentResult) ? extentResult : HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+    }
+
+    const UINT dpi = GetDpiForWindow(window);
+    const RaisedLayout layout = MakeRaisedLayout(clientWidth, clientHeight, extent, dpi, &tile);
+    if (layout.content.right <= layout.content.left || layout.content.bottom <= layout.content.top)
+    {
+        return E_UNEXPECTED;
+    }
+
+    CancelPageNavigation();
+    HRESULT result = raisedWidget->SetRaised(TRUE);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = _dashboardHost->ApplyRaisedNativeLayout(widgetIndex, layout.content, dpi);
+    if (FAILED(result))
+    {
+        (void)raisedWidget->SetRaised(FALSE);
+        return result;
+    }
+    result = _renderer.SetRaisedOverlay(widgetIndex, layout.content);
+    if (FAILED(result))
+    {
+        (void)_dashboardHost->ClearRaisedNativeLayout(dpi);
+        (void)raisedWidget->SetRaised(FALSE);
+        return result;
+    }
+
+    const HWND overlay =
+        CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_NOPARENTNOTIFY | WS_EX_LAYERED, kRaiseOverlayClassName, L"",
+                        WS_CHILD | WS_CLIPSIBLINGS, 0, 0, static_cast<int>(clientWidth), static_cast<int>(clientHeight),
+                        window, nullptr, _instance, this);
+    if (!overlay)
+    {
+        _renderer.ClearRaisedOverlay();
+        (void)_dashboardHost->ClearRaisedNativeLayout(dpi);
+        (void)raisedWidget->SetRaised(FALSE);
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    _raiseOverlay.reset(overlay);
+    if (!SetLayeredWindowAttributes(overlay, 0, 148, LWA_ALPHA))
+    {
+        _raiseOverlay.reset();
+        _renderer.ClearRaisedOverlay();
+        (void)_dashboardHost->ClearRaisedNativeLayout(dpi);
+        (void)raisedWidget->SetRaised(FALSE);
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    const HRGN region = CreateRaisedOverlayRegion(clientWidth, clientHeight, layout.content, layout.close);
+    if (!region || !SetWindowRgn(overlay, region, TRUE))
+    {
+        if (region)
+        {
+            DeleteObject(region);
+        }
+        _raiseOverlay.reset();
+        _renderer.ClearRaisedOverlay();
+        (void)_dashboardHost->ClearRaisedNativeLayout(dpi);
+        (void)raisedWidget->SetRaised(FALSE);
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    SetWindowPos(overlay, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    ShowWindow(overlay, SW_SHOWNA);
+
+    _raisedLayout = layout;
+    _raisedWidgetIndex = widgetIndex;
+    _raisedActive = true;
+    _frameInvalidated = true;
+    return S_OK;
+}
+
+void Application::DismissWidgetRaise() noexcept
+{
+    if (!_raisedActive)
+    {
+        _raiseOverlay.reset();
+        return;
+    }
+
+    IRedXeRaisedWidget* raisedWidget =
+        _dashboardHost && _raisedWidgetIndex != SIZE_MAX ? _dashboardHost->RaisedWidgetAt(_raisedWidgetIndex) : nullptr;
+    if (raisedWidget)
+    {
+        (void)raisedWidget->SetRaised(FALSE);
+    }
+    _renderer.ClearRaisedOverlay();
+    if (_dashboardHost && _window)
+    {
+        const UINT dpi = GetDpiForWindow(_window.get());
+        if (dpi != 0)
+        {
+            (void)_dashboardHost->ClearRaisedNativeLayout(dpi);
+        }
+    }
+    _raiseOverlay.reset();
+    _raisedActive = false;
+    _raisedWidgetIndex = SIZE_MAX;
+    _raisedLayout = {};
+    _frameInvalidated = true;
+}
+
+LRESULT CALLBACK Application::RaiseOverlayProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
+{
+    Application* application = reinterpret_cast<Application*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (message == WM_NCCREATE)
+    {
+        const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lParam);
+        application = static_cast<Application*>(create->lpCreateParams);
+        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(application));
+    }
+    if (application)
+    {
+        return application->HandleRaiseOverlayMessage(window, message, wParam, lParam);
+    }
+    return DefWindowProcW(window, message, wParam, lParam);
+}
+
+LRESULT Application::HandleRaiseOverlayMessage(HWND overlay, UINT message, WPARAM wParam, LPARAM lParam) noexcept
+{
+    switch (message)
+    {
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT:
+        PaintRaiseOverlay(overlay);
+        return 0;
+    case WM_LBUTTONUP:
+    {
+        const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+        if (PointInRectInclusive(_raisedLayout.close, position))
+        {
+            DismissWidgetRaise();
+        }
+        return 0;
+    }
+    case WM_POINTERUP:
+    {
+        POINT position{};
+        UINT64 qpc = 0;
+        if (TryPointerClientPosition(_window.get(), GET_POINTERID_WPARAM(wParam), position, qpc) &&
+            PointInRectInclusive(_raisedLayout.close, position))
+        {
+            DismissWidgetRaise();
+        }
+        return 0;
+    }
+    case WM_NCDESTROY:
+        SetWindowLongPtrW(overlay, GWLP_USERDATA, 0);
+        if (_raiseOverlay.get() == overlay)
+        {
+            (void)_raiseOverlay.release();
+        }
+        break;
+    default:
+        break;
+    }
+    return DefWindowProcW(overlay, message, wParam, lParam);
+}
+
+void Application::PaintRaiseOverlay(HWND overlay) noexcept
+{
+    PAINTSTRUCT paint{};
+    const HDC deviceContext = BeginPaint(overlay, &paint);
+    if (!deviceContext)
+    {
+        return;
+    }
+    RECT client{};
+    GetClientRect(overlay, &client);
+    wil::unique_hbrush dim{CreateSolidBrush(RGB(0, 0, 0))};
+    wil::unique_hbrush shadow{CreateSolidBrush(RGB(0, 0, 0))};
+    if (dim)
+    {
+        FillRect(deviceContext, &client, dim.get());
+    }
+    if (shadow && _raisedLayout.shadow.right > _raisedLayout.shadow.left)
+    {
+        FillRect(deviceContext, &_raisedLayout.shadow, shadow.get());
+    }
+    wil::unique_hpen pen{CreatePen(PS_SOLID, 2, RGB(240, 240, 240))};
+    if (pen)
+    {
+        const HGDIOBJ previous = SelectObject(deviceContext, pen.get());
+        const RECT& close = _raisedLayout.close;
+        const LONG inset = std::max(1L, (close.right - close.left) / 4);
+        MoveToEx(deviceContext, close.left + inset, close.top + inset, nullptr);
+        LineTo(deviceContext, close.right - inset, close.bottom - inset);
+        MoveToEx(deviceContext, close.right - inset, close.top + inset, nullptr);
+        LineTo(deviceContext, close.left + inset, close.bottom - inset);
+        SelectObject(deviceContext, previous);
+    }
+    EndPaint(overlay, &paint);
 }
 
 void Application::OnSettingsChanged() noexcept
@@ -1471,6 +1783,7 @@ HRESULT Application::UpdateDashboardVisibility() noexcept
 void Application::CloseMainWindow() noexcept
 {
     _settingsWatcher.Stop();
+    DismissWidgetRaise();
     CancelPageNavigation();
     _renderer.Shutdown();
     _rendererReady = false;
@@ -1596,6 +1909,9 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             CancelPageNavigation();
         }
         return 0;
+    case WM_LBUTTONUP:
+        OnMouseButtonUp(window, lParam);
+        return 0;
     case WM_GETMINMAXINFO:
     {
         auto* minimums = reinterpret_cast<MINMAXINFO*>(lParam);
@@ -1614,6 +1930,11 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case WM_KEYDOWN:
         if (wParam == VK_ESCAPE)
         {
+            if (_raisedActive)
+            {
+                DismissWidgetRaise();
+                return 0;
+            }
             CloseMainWindow();
             return 0;
         }
@@ -1652,6 +1973,7 @@ LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
     {
         return 0;
     }
+    DismissWidgetRaise();
     if (_pagePointerActive || _pagePanStarted || _pageSettleActive || _pageCurrentOffset != 0)
     {
         CancelPageNavigation();
@@ -1689,6 +2011,7 @@ LRESULT Application::OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBo
         return 0;
     }
 
+    DismissWidgetRaise();
     if (_rendererReady)
     {
         const HRESULT result = _renderer.SetDpi(dpi);

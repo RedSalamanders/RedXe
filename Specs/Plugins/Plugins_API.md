@@ -5,12 +5,12 @@ Last reviewed: 2026-09-02
 
 ## Purpose and scope
 
-This contract owns RedXe native plugin discovery, generic widget creation, rendering-interface negotiation, GPU and
-native-window widget lifetimes, and the bundled demonstration plugins.
+This contract owns RedXe native plugin discovery, generic widget creation, rendering-interface negotiation, GPU,
+native-window, and raised-overlay widget lifetimes, and the bundled demonstration plugins.
 
-Public ABI headers live under `Common/PlugInterfaces/`. `Widget.h` contains the complete generic, GPU, scheduled, and
-native-window widget surface. `Data.h` contains the complete source, provider, snapshot, sink, and subscription
-surface. A created widget exposes the mechanisms it supports through `QueryInterface`.
+Public ABI headers live under `Common/PlugInterfaces/`. `Widget.h` contains the complete generic, GPU, scheduled,
+native-window, and raised-overlay widget surface. `Data.h` contains the complete source, provider, snapshot, sink, and
+subscription surface. A created widget exposes the mechanisms it supports through `QueryInterface`.
 
 RedXe is pre-production and rebuilds the host and every plugin from one source tree. The repository therefore defines
 one current native contract: it does not load older layouts, accept newer record tails, negotiate interface versions,
@@ -33,6 +33,7 @@ The mandatory requirements in `Specs/Core/Core_PerformanceAndResources.md` apply
 | `Widget.h` | `IRedXeGpuWidget` | `DBEED29C-63EB-409E-816B-F4BDC5EF7AA9` | Direct3D 11 rendering mechanism |
 | `Widget.h` | `IRedXeScheduledWidget` | `1B6B4F9E-5421-4B4E-BC2D-190EE6CE86CB` | Optional low-cadence frame deadline |
 | `Widget.h` | `IRedXeWindowWidget` | `3219FA78-260B-416A-BB76-6331DBF30593` | Host-owned child-container mechanism |
+| `Widget.h` | `IRedXeRaisedWidget` | `A7E4C19B-2F58-4D13-9C6A-80B1D4E7F203` | Optional raised-overlay extent and state |
 | `Data.h` | `IRedXeDataSource` | `C3A81F6E-2D47-4B90-A1E5-6F8C9D0B3E21` | Plugin-side typed, bounded pull snapshots |
 | `Data.h` | `IRedXeDataProvider` | `9EAE20F1-36A8-48A8-B451-F60401A898CD` | Host-side dataset discovery and subscription |
 | `Data.h` | `IRedXeDataSink` | `F9834987-EBC6-411E-9F28-A49E4DBB49D9` | Synchronous borrowed-snapshot delivery on the host worker |
@@ -250,6 +251,36 @@ hosts, or a WebView controller inside it.
   Global commands and page policy remain host-owned. Interactive WebView security and navigation policy require a
   separate normative contract before a bundled web widget ships.
 
+## Raised overlay contract
+
+`IRedXeRaisedWidget` is an optional sibling of `IUnknown`. It MUST NOT inherit from `IRedXeWidget` or from a rendering
+mechanism. Every bundled widget MUST expose it on the same controlling `IUnknown` as its generic widget.
+
+The host MUST NOT guess overlay size. Before raising a tile it queries `GetRaisedExtent`. A null output returns
+`E_POINTER`. Success writes exactly one of `RedXeRaisedExtentQuarter` (1/4), `RedXeRaisedExtentThird` (1/3),
+`RedXeRaisedExtentHalf` (1/2), or `RedXeRaisedExtentFull` (1/1) of the **client width**. The host lays a full-height
+slice of that width over the original column and MUST NOT shrink a tile on either axis when the client still has room.
+Dimmed siblings stay in standard layout and keep rendering. Any other value, a failed query, or a missing interface
+MUST leave the tile in standard layout.
+
+`SetRaised` is synchronous, idempotent, and runs on the RedXe UI thread. `TRUE` tells the widget it now occupies a
+larger host overlay content rectangle and MUST use that size to present bigger glyphs or every value that now fits,
+including extra rows, bars, or history that the compact tile omitted. `FALSE` restores standard tile presentation.
+The call MUST NOT allocate, wait, or re-enter the host.
+
+Shipped extents:
+
+- Process Viewer, GPU Processes, Network, Storage, and Thermal: half.
+- System Pulse: quarter.
+- CPU, Memory, GPU, and Power: third.
+- Studio Clock and Desk Clock: half.
+- Matrix Rain: full.
+- Rotating Triangle and GdiOrbit: quarter.
+
+System Data viewers force Standard density while raised so ranked lists and cards can use the overlay. `topN` still
+caps row count. Raised System Pulse adds a physical-memory bar and CPU history under its summary chips. A widget that
+already fills the client MUST NOT raise.
+
 ## Host rendering and resources
 
 - `PluginManager` owns widget providers, generic widgets, and queried rendering-interface references.
@@ -282,7 +313,8 @@ hosts, or a WebView controller inside it.
 ## Bundled plugins
 
 `Plugins/RotatingTriangle` exposes settings-visible plugin ID `builtin.rotating-triangle`, internally maps it to type
-ID `rotating-triangle`, publishes closed `{}` settings and defaults, and exposes `IRedXeGpuWidget` on each widget.
+ID `rotating-triangle`, publishes closed `{}` settings and defaults, and exposes sibling `IRedXeGpuWidget` and
+`IRedXeRaisedWidget` interfaces. Its raised extent is quarter.
 
 The DLL owns its triangle geometry, build-time HLSL source and embedded shader bytecode, immutable vertex buffer,
 shared constant buffer, animation, aspect correction, and color selection. It does not link or load the runtime shader
@@ -291,7 +323,8 @@ uses two independent instances. The Release gallery references the plugin, so st
 but the first-page runtime creates no Triangle provider, widget, or device resource.
 
 `Plugins/GdiOrbit` exposes settings-visible plugin ID `builtin.gdi-orbit`, internally maps it to type ID `gdi-orbit`,
-publishes closed `{}` settings and defaults, and exposes `IRedXeWindowWidget`. The plugin creates one child window,
+publishes closed `{}` settings and defaults, and exposes sibling `IRedXeWindowWidget` and `IRedXeRaisedWidget`
+interfaces. Its raised extent is quarter. The plugin creates one child window,
 caches a resize-owned 32-bit DIB and GDI
 objects, paints a double-buffered Xenon orbit at 30 FPS while visible, and kills its timer while hidden or detached.
 Painting performs no heap allocation and creates no GDI objects.
@@ -307,8 +340,10 @@ placed example in both shipped templates. Template tests iterate the widget proj
 
 `Plugins/MatrixRain` is the production-oriented bundled GPU plugin. It exposes settings-visible plugin ID
 `builtin.matrix-rain`, internally maps it to type ID `matrix-rain`, publishes its complete closed settings schema and
-defaults, and permits one continuous-animation widget per configured provider. The Release first page gives it the
-complete client rectangle; its second page is a varied gallery of every bundled plugin. The Debug second page is the
+defaults, and permits one continuous-animation widget per configured provider. Each widget also exposes
+`IRedXeRaisedWidget` with a full-client extent. The Release first page gives it the
+complete client rectangle, so a double-activate MUST NOT raise that already-full tile; its second page is a varied
+gallery of every bundled plugin. The Debug second page is the
 equivalent complete bundled-plugin gallery.
 
 The host passes every bundled provider its compact effective settings in the normalized ABI envelope. Matrix Rain strictly rejects malformed,
@@ -373,7 +408,8 @@ rejection, and 2,048-row Release resource measurement are validated by `SystemDa
 `Plugins/ProcessViewer` remains `ProcessViewer.dll` and publishes ten settings-visible plugin IDs, each mapped to one
 widget type. Every widget exposes sibling `IRedXeGpuWidget` and `IRedXeScheduledWidget` interfaces on one controlling
 `IUnknown` and does not set `RedXeWidgetFlagContinuousAnimation`. None of these widgets expose `IRedXeWindowWidget`;
-`GdiOrbit` remains the shipped native-window example.
+`GdiOrbit` remains the shipped native-window example. Every viewer also exposes `IRedXeRaisedWidget` so the host can
+ask for 1/4, 1/3, 1/2, or 1/1 before raising a tile that is not already full-client.
 
 | Plugin ID | Type ID | Settings | Datasets |
 | --- | --- | --- | --- |
@@ -447,8 +483,9 @@ ease. Hidden, minimized, display-off, occluded, and detached widgets stop eases,
 replay missed motion.
 
 `Plugins/StudioClock` exposes settings-visible plugin ID `builtin.studio-clock`, internally maps it to type ID
-`studio-clock`, and exposes sibling `IRedXeGpuWidget` and `IRedXeScheduledWidget` interfaces on one controlling
-`IUnknown`. Its provider returns one of two module-static immutable descriptors: without a date the design size is
+`studio-clock`, and exposes sibling `IRedXeGpuWidget`, `IRedXeScheduledWidget`, and `IRedXeRaisedWidget` interfaces on
+one controlling `IUnknown`. Its raised extent is half. Its provider returns one of two module-static immutable
+descriptors: without a date the design size is
 720×720 with a 160×160 minimum; with a date the design size is 720×800 with a 160×178 minimum. Neither descriptor
 requests continuous animation. Both shipped galleries reference it; the Release first page remains the full-canvas
 Matrix composition and therefore creates no Studio Clock provider, widget, deadline, or device resource.
@@ -505,8 +542,9 @@ preserves validated CPU state, releases the constant buffer and shared device se
 transactionally on the replacement device.
 
 `Plugins/DeskClock` exposes settings-visible plugin ID `builtin.desk-clock`, internally maps it to type ID
-`desk-clock`, and exposes sibling `IRedXeGpuWidget` and `IRedXeScheduledWidget` interfaces on one controlling
-`IUnknown`. Its static descriptor has a 1600×600 design size and 320×120 minimum and does not request continuous
+`desk-clock`, and exposes sibling `IRedXeGpuWidget`, `IRedXeScheduledWidget`, and `IRedXeRaisedWidget` interfaces on
+one controlling `IUnknown`. Its raised extent is half. Its static descriptor has a 1600×600 design size and 320×120
+minimum and does not request continuous
 animation. Both shipped galleries reference it. Static Release discovery maps its DLL, while the unchanged first-page
 Matrix composition creates no Desk Clock provider, widget, deadline, device resource, or render work.
 
@@ -574,9 +612,10 @@ sibling policy owns deadline retention, pacing, and suppression. `WM_TIMECHANGE`
    configuration pointer/length mismatch, the 8192-byte cap, synchronous configuration copying, and borrowed array
    stability.
 5. Verify generic widget/rendering-interface negotiation, root visibility, and controlling-IUnknown identity. The
-   GPU-only widget rejects the window IID and the window-only widget rejects the GPU IID.
-   Compile-time contract checks MUST also prove that every public COM interface derives directly from `IUnknown` and
-   that neither rendering interface derives from `IRedXeWidget`.
+   GPU-only widget rejects the window IID and the window-only widget rejects the GPU IID. Every bundled widget exposes
+   `IRedXeRaisedWidget`, returns `E_POINTER` for a null extent, reports its shipped fraction, and accepts idempotent
+   `SetRaised`. Compile-time contract checks MUST also prove that every public COM interface derives directly from
+   `IUnknown` and that neither rendering, scheduled, nor raised interfaces derive from `IRedXeWidget`.
 6. Verify all configured GPU-widget instances receive device creation, render successfully, receive device loss, and
    survive WARP rendering without a hardware GPU. Matrix readback MUST contain configured background and glyph pixels;
    identical inputs MUST reproduce identical pixels, while time and seed changes MUST change the result.
