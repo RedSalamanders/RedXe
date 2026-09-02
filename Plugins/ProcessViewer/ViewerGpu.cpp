@@ -21,6 +21,10 @@ constexpr float kGlyphEmSize = 40.0f;
 constexpr uint32_t kStaticGlyphFirst = 32;
 constexpr uint32_t kStaticGlyphLast = 126;
 constexpr uint32_t kStaticGlyphCount = kStaticGlyphLast - kStaticGlyphFirst + 1;
+constexpr wchar_t kStaticExtraGlyphs[] = {0x00B0};
+constexpr uint32_t kStaticExtraCount =
+    static_cast<uint32_t>(sizeof(kStaticExtraGlyphs) / sizeof(kStaticExtraGlyphs[0]));
+constexpr uint32_t kStaticReservedCount = kStaticGlyphCount + kStaticExtraCount;
 constexpr uint32_t kMissingGlyph = 0xFFFFFFFFu;
 
 SRWLOCK g_gpuLock = SRWLOCK_INIT;
@@ -382,7 +386,7 @@ HRESULT ViewerGpuResources::BuildStaticAtlas() noexcept
     _glyphCharacters.fill(0);
     _glyphAdvances.fill(0.0f);
     _glyphCount = 0;
-    _dynamicCursor = kStaticGlyphCount;
+    _dynamicCursor = kStaticReservedCount;
     DirectWriteSession session;
     HRESULT result = OpenDirectWrite(session);
     if (FAILED(result))
@@ -405,6 +409,23 @@ HRESULT ViewerGpuResources::BuildStaticAtlas() noexcept
         _glyphAdvances[slot] = advance;
         ++_glyphCount;
     }
+    for (uint32_t extra = 0; extra < kStaticExtraCount; ++extra)
+    {
+        const uint32_t slot = _glyphCount;
+        const uint32_t atlasX = (slot % kViewerGlyphColumns) * kViewerGlyphCell;
+        const uint32_t atlasY = (slot / kViewerGlyphColumns) * kViewerGlyphCell;
+        float advance = 0.5f;
+        result = RasterizeIntoAtlas(*session.factory, *session.face, kStaticExtraGlyphs[extra], atlasX, atlasY,
+                                    _atlasPixels.data(), advance);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        _glyphCharacters[slot] = kStaticExtraGlyphs[extra];
+        _glyphAdvances[slot] = advance;
+        ++_glyphCount;
+    }
+    _dynamicCursor = _glyphCount;
     _atlasDirty = true;
     g_typographyCount.fetch_add(1, std::memory_order_relaxed);
     return S_OK;
@@ -474,7 +495,7 @@ HRESULT ViewerGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t character
         }
         if (_dynamicCursor >= kViewerGlyphCapacity)
         {
-            _dynamicCursor = kStaticGlyphCount;
+            _dynamicCursor = kStaticReservedCount;
         }
         const uint32_t slot = _dynamicCursor++;
         const uint32_t atlasX = (slot % kViewerGlyphColumns) * kViewerGlyphCell;

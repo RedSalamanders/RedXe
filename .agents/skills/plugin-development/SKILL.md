@@ -44,7 +44,12 @@ Preserve these boundaries:
   the HWND, swap chain, or back buffer. Share immutable device resources across compatible instances. System Data GPU
   viewers pick a density rung from the widget rectangle, grow type with leftover height among visible rows, split wide
   lists into two columns, omit content that does not fit below type floors of 16 / 18 / 30 / 48 px and a 26 px title
-  floor, and join `gpu.process` names from `process.list` without adding a new dataset ID.
+  floor, inset panel chrome 4 px with at least 12 px interior padding, color utilization and temperature values by
+  healthy/warn/hot intent, hide network interfaces that stay at 0 B/s for eight samples, display Celsius as `°C`,
+  format byte and rate values as one-decimal 1000-based KB/MB/GB/TB (or `/s`), show process working set rather than
+  unlabeled PID, keep storage used/total above a used-percent-sorted capacity track, draw progress troughs near the
+  panel with fill matching KPI intent color, sit network and memory bars under their text, keep thermal names above
+  the level track, and join `gpu.process` names from `process.list` without adding a new dataset ID.
 - Window widgets receive only a borrowed host-owned child container and own all children, timers, controllers, and GDI
   resources they create. Every widget quiesces visibility-dependent work in `IRedXeWidget::SetVisible(FALSE)`;
   window widgets destroy their children before `Detach` returns.

@@ -397,31 +397,45 @@ percentage descending with working-set and PID tie-breakers, and caches at most 
 storage.
 
 The family presents ranked lists, capacity bars, KPI tiles, adapter cards, heatmaps, and sparklines rather than raw
-tables. Visual language is a near-black panel (`#111111`) with a muted hairline. Accent red (`#FF1616`) is a high-band
-signal, not a fill: capacity tracks are charcoal with silver fill, amber from 70%, and red from 85%. Network and disk
-byte-rate bars use a log10 mapping from 1 KB/s to link speed (or 1 GB/s when speed is unknown); they MUST NOT
-normalize to the loudest sibling. When a widget rectangle is wide enough for two packed columns, ranked process, GPU
-process, network, storage, and thermal lists MUST split into a two-column grid instead of stretching a single row
-across empty width. System Pulse places the CPU numeral on the left and packs RAM, process, thread, handle, core,
-uptime, and commit chips into two columns when width allows. Storage volumes and thermal sensors render as cards
-with a vertical mercury fill; temperature
-cards lead with the Celsius numeral. CPU Meter places a recency-faded, right-aligned history beside the core heatmap.
-That history uses stacked translucent bars, a brighter live-edge cap, and sample-driven scrolling as new values shift
-in from the right. Network Meter uses the same history treatment for aggregate throughput. Sparklines and histories
-window-normalize to the history maximum except CPU percent, which stays 0–100. Temperatures use a banded fill
-(25 / 70 / 85 °C) so a cool sensor does not read as an alarm. CPU heatmap cells use squared luminance and drop the
-grid when a cell would be smaller than 6 px. Each widget picks a density rung from its inner height (hero / compact /
-standard), keeps type floors of 16 / 18 / 30 / 48 px and a title floor of 26 px that grow with leftover tile height
-among the rows or cards that fit, and omits columns, rows, heatmaps, and sparks that do not fit instead of shrinking
-below those floors. Lists and adapter cards MUST consume the widget rectangle: row or card height is inner height
-divided by the visible count, not a theoretical maximum budget. An AC-only power tile centers `AC` and `no battery`.
-Ranked-row slide, 320 ms value eases, 60-sample histories, and a brief accent pulse while a utilization or capacity
-KPI remains at or above 85% stay sample-driven. Decorative per-panel glow and idle breathing are not used; history
-recency fade and a live-edge highlight are sample-driven. Empty and `Unavailable` values render as muted em dashes; an
-AC-only desktop renders compact `AC` status, never invented zeros. Widget-local sparkline history is at most 60 samples
-in fixed storage and MUST NOT move into System Data. Eases use a 320 ms ease-out; animation is sample-driven:
-`GetNextFrameDelayMilliseconds` returns 1 while an ease or pulse is in flight, then the dataset interval. A settled
-System page MUST NOT request continuous frames.
+tables. Visual language is a near-black panel (`#111111`) with a muted hairline, inset 4 px from the widget rectangle
+so adjacent tiles and the window edge keep a small gap. Interior padding is at least 12 px. Accent red (`#FF1616`) is
+a high-band signal, not a fill. Progress troughs sit close to the panel so they do not read as a second grey surface;
+the fill uses the same teal / amber / red intent as the KPI text (amber from 70% or 70 °C, accent red from 85% or
+85 °C). Capacity tracks stay linear 0–100. Numeric utilization, capacity, and temperature values use that intent
+color. Battery charge inverts that mapping so a full pack reads healthy and a low pack alarms. Temperature numerals
+include the `°C` unit. Byte and byte-rate labels use 1000-based units with one fractional digit (`38.6 KB`, `3.7 TB`,
+`1.2 MB/s`); whole `B` and `B/s` stay integer. Process Viewer rows show working set with those units, never an
+unlabeled PID, and right-align working set then CPU percent with a measured gap. Process and GPU-process load bars
+share CPU Meter logic: heatmap idle gray, `SignalColor`, squared luminance mixed with square-root fill length, and the
+same 8–14 px bar thickness. Network and disk byte-rate bars use a log10 mapping from 1 KB/s to link speed (or 1 GB/s
+when speed is unknown); they MUST NOT normalize to the loudest sibling. Load and capacity tracks sit immediately under
+their row text; leftover tile height stays empty below that pair instead of pinning the bar to the cell floor. When a
+widget rectangle is wide enough for two packed columns, ranked process, GPU process, network, storage, and thermal
+lists MUST split into a two-column grid instead of stretching a single row across empty width. A process or GPU-process
+grid MUST drop back to one column when name plus right-aligned stats no longer fit at the grown type size. System
+Pulse places the CPU numeral on the left and packs RAM, process, thread, handle, core, uptime, and commit chips into
+two columns when width allows. Storage volumes are ranked by used percent then size, render as cards with used/total
+bytes, an OK/HIGH/FULL band, and a thick horizontal capacity track that MUST sit below that text. Thermal cards lead
+with the `°C` numeral, label COOL / OK / WARM / HOT from the 25 / 70 / 85 °C bands, draw a horizontal level with ticks
+at 70 °C and 85 °C, and keep the sensor name above that level with a gap. CPU Meter places a recency-faded,
+right-aligned history beside the core heatmap. That history uses stacked translucent bars, a brighter live-edge cap,
+and sample-driven scrolling as new values shift in from the right. Network Meter uses the same history treatment for
+aggregate throughput and MUST omit interfaces whose combined byte rate stays below 1 B/s for eight consecutive
+samples, restoring a row on the first non-zero sample and reporting omitted adapters as idle overflow. Sparklines
+and histories window-normalize to the history maximum except CPU percent, which stays 0–100. Temperatures use a
+banded fill (25 / 70 / 85 °C) so a cool sensor does not read as an alarm. CPU heatmap cells use squared luminance
+and drop the grid when a cell would be smaller than 6 px. Each widget picks a density rung from its inner height
+(hero / compact / standard), keeps type floors of 16 / 18 / 30 / 48 px and a title floor of 26 px that grow with
+leftover tile height among the rows or cards that fit, and omits columns, rows, heatmaps, and sparks that do not fit
+instead of shrinking below those floors. Lists and adapter cards MUST consume the widget rectangle: row or card
+height is inner height divided by the visible count, not a theoretical maximum budget. An AC-only power tile centers
+`AC` and `no battery`. Ranked-row slide, 320 ms value eases, 60-sample histories, and a brief accent pulse while a
+utilization or capacity KPI remains at or above 85% stay sample-driven. Decorative per-panel glow and idle breathing
+are not used; history recency fade and a live-edge highlight are sample-driven. Empty and `Unavailable` values
+render as muted em dashes; an AC-only desktop renders compact `AC` status, never invented zeros. Widget-local
+sparkline history is at most 60 samples in fixed storage and MUST NOT move into System Data. Eases use a 320 ms
+ease-out; animation is sample-driven: `GetNextFrameDelayMilliseconds` returns 1 while an ease or pulse is in flight,
+then the dataset interval. A settled System page MUST NOT request continuous frames.
 
 Shared GPU resources live once per Process Viewer device, not once per widget instance: build-time Shader Model 5.0
 blobs, one instanced panel/bar/heatmap/glyph pipeline, one 1024×1024 `R8` atlas, and one dynamic instance buffer.
