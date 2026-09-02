@@ -1,7 +1,7 @@
 # RedXe plugin API contract
 
 Status: current normative contract
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-02
 
 ## Purpose and scope
 
@@ -123,9 +123,11 @@ requested plugin ID. The record and its UTF-8 strings remain valid while the mod
 - The host copies or parses borrowed strings synchronously and never frees them.
 - Rotating Triangle and GDI Orbit publish closed empty-object schemas and `{}` defaults. Matrix Rain publishes its
   complete closed schema, ranges, color syntax, and runtime defaults. Process Viewer publishes a closed object with
-  required integer `topN` from 1 through 32 and default 10. Studio Clock publishes its complete closed boolean,
-  color, and date-format schema and defaults. Desk Clock publishes its complete closed duration and color schema and
-  defaults.
+  required integer `topN` from 1 through 32 and default 10. Network Meter and GPU Processes publish the same closed
+  `topN` object with range 1 through 16 and default 8. System Pulse, CPU Meter, Memory Meter, Storage Meter, GPU Meter,
+  Power Meter, and Thermal Meter publish closed empty-object schemas and `{}` defaults. Studio Clock publishes its
+  complete closed boolean, color, and date-format schema and defaults. Desk Clock publishes its complete closed duration
+  and color schema and defaults.
 
 The metadata capability surface advertises factory-created plugin services through
 `RedXePluginCapabilityWidgetProvider` and `RedXePluginCapabilityDataSource`. Rendering mechanisms are discovered on
@@ -167,7 +169,9 @@ teardown drain are measured. Sources MUST NOT create their own acquisition threa
 The host provider does not retain or duplicate a source snapshot. It synchronously invokes each active sink while the
 source storage is borrowed. A sink copies only bounded values it needs, performs no blocking work or provider/host
 re-entry, and MUST NOT activate, deactivate, or release a subscription from inside `OnDataSnapshot`. A sink failure is
-isolated and does not stop later sinks or acquisition cycles. `SetActive(FALSE)` and subscription release drain an
+isolated and does not stop later sinks or acquisition cycles. After a successful delivery to any active sink,
+`PluginHost` coalesces one UI-thread frame invalidation (`WM_APP + 3`) so GPU data widgets can start a sample-driven
+ease without a child HWND. `SetActive(FALSE)` and subscription release drain an
 in-flight callback before returning when called outside the callback. Shutdown signals and joins the worker before
 releasing providers and sources. Push delivery and schema-based automatic source selection are outside the current
 contract; bindings use explicit provider and dataset IDs.
@@ -252,8 +256,11 @@ hosts, or a WebView controller inside it.
 - Its `PluginHost` owns one shared module store, all lazily created host data providers and plugin data sources, one
   event-blocked acquisition worker, and subscription drain lifetime. Widgets and subscriptions are released before
   `PluginHost`.
-- `PluginHost` has exactly one module slot per bundled module-catalog entry. The widget projection MUST remain within
-  the settings limit of 64 plugin declarations.
+- `PluginHost` has exactly one module slot per bundled module-catalog plugin ID. Catalog plugin IDs and widget type IDs
+  MUST stay unique; module file names MAY repeat. The first slot that maps a given module name owns the `HMODULE`;
+  later catalog rows with the same name share exports after metadata validation for their own plugin ID. Optional
+  `RedXePluginShutdown` runs only on the owning slot. Mapped modules remain loaded until process teardown. The widget
+  projection MUST remain within the settings limit of 64 plugin declarations.
 - Static discovery validates every referenced plugin and effective widget on every page. `PluginManager` creates only
   the current page, plus its adjacent transition page during a swipe, and may share providers only when doing so is
   behaviorally invisible to independent widget instances.
@@ -290,9 +297,9 @@ objects, paints a double-buffered Xenon orbit at 30 FPS while visible, and kills
 Painting performs no heap allocation and creates no GDI objects.
 
 The host has one compile-time bundled module catalog and one widget projection. The module catalog binds every bundled
-plugin ID, including `builtin.system-data`, to its DLL. Array order alone selects its private module slot;
-`PluginHost` is the only module loader;
-widget discovery and `GetDataProvider` both use it, so a DLL cannot be mapped or validated by competing paths. The
+plugin ID, including `builtin.system-data`, to its DLL. Plugin IDs stay unique; several catalog rows MAY share one
+module file name. `PluginHost` is the only module loader and maps that path once; widget discovery and `GetDataProvider`
+both use it, so a DLL cannot be mapped or validated by competing paths. The
 widget projection binds only settings-visible widget plugin IDs to their internal type IDs and drives schema/template
 coverage. This is a bundled allowlist, not automatic filesystem discovery: adding any bundled plugin requires one
 module entry; adding a widget also requires its widget entry, schema/parser support, settings contract, and a real
@@ -363,18 +370,59 @@ per-process row-population path with a requested synthetic row count. It is not 
 host dependency, or production acquisition mode. Its controlling `IUnknown`, exact record size, excessive-row
 rejection, and 2,048-row Release resource measurement are validated by `SystemDataTests`.
 
-`Plugins/ProcessViewer` exposes settings-visible plugin ID `builtin.process-viewer`, internally maps it to type ID
-`process-viewer`, and exposes `IRedXeWindowWidget`. Its closed settings object requires `topN` from 1 through 32 and
-defaults to 10. Its widget provider asks the host for `builtin.system-data`; each widget subscribes to dataset
-`process.list`, ranks available CPU percentage
-descending with working set and PID tie-breakers, and caches at most `topN` rows with bounded process-name storage.
-It consumes the original leading process columns and ignores later append-only fields.
-It displays process name, total-machine CPU share, working-set memory, thread count, and PID.
+`Plugins/ProcessViewer` remains `ProcessViewer.dll` and publishes ten settings-visible plugin IDs, each mapped to one
+widget type. Every widget exposes sibling `IRedXeGpuWidget` and `IRedXeScheduledWidget` interfaces on one controlling
+`IUnknown` and does not set `RedXeWidgetFlagContinuousAnimation`. None of these widgets expose `IRedXeWindowWidget`;
+`GdiOrbit` remains the shipped native-window example.
 
-Process Viewer owns one plugin child HWND, one resize-owned 32-bit DIB, and cached brushes, pens, and fonts. Snapshot
-delivery updates fixed storage and posts only the widget child-window message. Paint creates no GDI object or heap
-allocation. The subscription remains inactive while hidden or detached, the widget requests no continuous GPU frame,
-and detach drains the callback before destroying the child and cached resources.
+| Plugin ID | Type ID | Settings | Datasets |
+| --- | --- | --- | --- |
+| `builtin.process-viewer` | `process-viewer` | `topN` 1–32, default 10 | `process.list` (2 s) |
+| `builtin.system-pulse` | `system-pulse` | `{}` | `system.summary` (1 s) |
+| `builtin.cpu-meter` | `cpu-meter` | `{}` | `cpu.summary` + `cpu.logical` (1 s) |
+| `builtin.memory-meter` | `memory-meter` | `{}` | `memory.summary` (1 s) |
+| `builtin.network-meter` | `network-meter` | `topN` 1–16, default 8 | `network.interface` + `network.protocol` (1 s) |
+| `builtin.storage-meter` | `storage-meter` | `{}` | `storage.volume` (5 s) + `storage.disk` (1 s) |
+| `builtin.gpu-meter` | `gpu-meter` | `{}` | `gpu.adapter` (1 s) |
+| `builtin.gpu-processes` | `gpu-processes` | `topN` 1–16, default 8 | `gpu.process` + `process.list` (2 s) |
+| `builtin.power-meter` | `power-meter` | `{}` | `power.summary` + `battery.list` (5 s) |
+| `builtin.thermal-meter` | `thermal-meter` | `{}` | `thermal.sensor` + `fan.sensor` (10 s) |
+
+Do not ship dashboard viewers for `source.status`, `thread.list`, or `gpu.engine`. Each widget asks the host for
+`builtin.system-data` and subscribes only while visible. Unique datasets on a fully visible System page stay at 15,
+under the host cap of 32. Widgets MAY share one host provider; identical datasets coalesce. GPU Processes also
+subscribes to `process.list` so image names can join on PID; that subscription coalesces with Process Viewer and does
+not raise the unique-dataset count. Process Viewer keeps the leading `process.list` columns, ranks available CPU
+percentage descending with working-set and PID tie-breakers, and caches at most `topN` rows with bounded process-name
+storage.
+
+The family presents ranked lists, capacity bars, KPI tiles, adapter cards, heatmaps, and sparklines rather than raw
+tables. Visual language is a near-black panel (`#111111`) with a muted hairline. Accent red (`#FF1616`) is a high-band
+signal, not a fill: capacity tracks are charcoal with silver fill, amber from 70%, and red from 85%. Network and disk
+byte-rate bars use a log10 mapping from 1 KB/s to link speed (or 1 GB/s when speed is unknown); they MUST NOT
+normalize to the loudest sibling. Sparklines window-normalize to the history maximum. Temperatures use a banded fill
+(25 / 70 / 85 °C) so a cool sensor does not read as an alarm. CPU heatmap cells use squared luminance and drop the
+grid when a cell would be smaller than 6 px. Each widget picks a density rung from its inner height (hero / compact /
+standard), keeps type floors of 15 / 17 / 28 / 44 px that grow with leftover tile height among the rows or cards that
+fit, and omits columns, rows, heatmaps, and sparks that do not fit instead of shrinking below those floors. Lists and
+adapter cards MUST consume the widget rectangle: row or card height is inner height divided by the visible count, not
+a theoretical maximum budget. An AC-only power tile centers `AC` and `no battery`. Ranked-row slide, 320 ms value
+eases, 60-sample sparklines, and a brief accent pulse while a utilization or capacity KPI remains at or above 85% stay
+sample-driven. Decorative per-panel
+glow and idle breathing are not used. Empty and `Unavailable` values render as muted em dashes; an AC-only desktop
+renders compact `AC` status, never invented zeros. Widget-local sparkline history is at most 60 samples in fixed
+storage and MUST NOT move into System Data. Eases use a 320 ms ease-out; animation is sample-driven:
+`GetNextFrameDelayMilliseconds` returns 1 while an ease or pulse is in flight, then the dataset interval. A settled
+System page MUST NOT request continuous frames.
+
+Shared GPU resources live once per Process Viewer device, not once per widget instance: build-time Shader Model 5.0
+blobs, one instanced panel/bar/heatmap/glyph pipeline, one 1024×1024 `R8` atlas, and one dynamic instance buffer.
+DirectWrite and system fonts load only while filling new atlas glyphs, then release. Visible process, adapter, and
+interface names rasterize only when the displayed string set changes. Each visible widget frame maps its instance
+buffer and issues one `DrawInstanced`. The generic widget root MUST NOT grow plugin drawing records. Snapshot delivery
+updates fixed storage on the acquisition worker and MUST NOT render; the host coalesced UI invalidation starts the
+ease. Hidden, minimized, display-off, occluded, and detached widgets stop eases, drain subscriptions, and do not
+replay missed motion.
 
 `Plugins/StudioClock` exposes settings-visible plugin ID `builtin.studio-clock`, internally maps it to type ID
 `studio-clock`, and exposes sibling `IRedXeGpuWidget` and `IRedXeScheduledWidget` interfaces on one controlling
@@ -547,9 +595,11 @@ sibling policy owns deadline retention, pacing, and suppression. `WM_TIMECHANGE`
 16. Verify `IRedXeHost::GetDataProvider` output validation, unknown and non-data plugin rejection, stable provider
     identity, dataset discovery, and shared module loading. Verify two Process Viewer instances share one widget
     provider and host data provider while retaining distinct inactive-until-visible subscriptions, then receive
-    bounded live process delivery, request zero continuous frames, drain on hide, and fully tear down through settings
-    and host integration tests. The hidden interval MUST exceed the two-second dataset cadence without another
-    delivered sample.
+    bounded live process delivery as GPU scheduled widgets, request zero continuous frames, drain on hide, and fully
+    tear down through settings and host integration tests. The hidden interval MUST exceed the two-second dataset
+    cadence without another delivered sample. Verify the ten System Data viewer IDs enumerate from `ProcessViewer.dll`,
+    reject factory creation without a host, and that a ten-widget System page attaches as GPU+scheduled widgets,
+    renders on hidden WARP, rebuilds after device loss, stays non-continuous, and drains every subscription when hidden.
 17. Verify Studio Clock defaults and normalized effective settings, every visibility toggle, all date formats, color
     validation, controlling-IUnknown identity, guarded second/minute delays, non-continuous host scheduling,
     transactional reconfiguration, inactive-gallery absence, ordinary 00/01/30/59 ring states, 12 default-always-lit
@@ -572,7 +622,8 @@ sibling policy owns deadline retention, pacing, and suppression. `WM_TIMECHANGE`
 The automated Debug host composition must contain two GPU fixtures, the GDI fixture, and Matrix Rain. The automated
 Release first-page composition must contain one full-canvas Matrix widget. The second page of each shipped template
 must demonstrate every settings-visible plugin in the compile-time bundled widget projection, including Process Viewer,
-Studio Clock, and Desk Clock.
+Studio Clock, and Desk Clock. The third page of each shipped template is named `System` and MUST place one instance of
+every Process Viewer family widget.
 Scheduler tests must prove
 that hidden, minimized,
 suspended, display-off, and occluded states select an event-blocked action. Contract tests must confirm that loading

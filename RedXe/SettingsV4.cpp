@@ -30,11 +30,14 @@ constexpr char kTrianglePlugin[] = "builtin.rotating-triangle";
 constexpr char kGdiPlugin[] = "builtin.gdi-orbit";
 constexpr char kMatrixPlugin[] = "builtin.matrix-rain";
 constexpr char kProcessViewerPlugin[] = "builtin.process-viewer";
+constexpr char kNetworkMeterPlugin[] = "builtin.network-meter";
+constexpr char kGpuProcessesPlugin[] = "builtin.gpu-processes";
 constexpr char kStudioClockPlugin[] = "builtin.studio-clock";
 constexpr char kDeskClockPlugin[] = "builtin.desk-clock";
 constexpr char kMatrixDefaults[] =
     R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35})json";
 constexpr char kProcessViewerDefaults[] = R"json({"topN":10})json";
+constexpr char kRankedViewerDefaults[] = R"json({"topN":8})json";
 constexpr char kStudioClockDefaults[] =
     R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","backgroundColor":"#111111"})json";
 constexpr char kDeskClockDefaults[] =
@@ -253,14 +256,19 @@ struct Declaration final
            inRange("glowPercent", 0, 100) && color("headColor") && color("trailColor") && color("backgroundColor");
 }
 
-[[nodiscard]] bool ValidateProcessViewerSettings(yyjson_val* settings) noexcept
+[[nodiscard]] bool ValidateTopNSettings(yyjson_val* settings, uint32_t minimum, uint32_t maximum) noexcept
 {
     if (!ObjectHasOnly(settings, {"topN"}, false) || yyjson_obj_size(settings) != 1)
     {
         return false;
     }
     yyjson_val* topN = yyjson_obj_get(settings, "topN");
-    return yyjson_is_uint(topN) && yyjson_get_uint(topN) >= 1 && yyjson_get_uint(topN) <= 32;
+    return yyjson_is_uint(topN) && yyjson_get_uint(topN) >= minimum && yyjson_get_uint(topN) <= maximum;
+}
+
+[[nodiscard]] bool ValidateProcessViewerSettings(yyjson_val* settings) noexcept
+{
+    return ValidateTopNSettings(settings, 1, 32);
 }
 
 [[nodiscard]] bool ValidateStudioClockSettings(yyjson_val* settings) noexcept
@@ -374,8 +382,7 @@ struct Declaration final
 
     std::array<char, 32> instance{};
     const int written = sprintf_s(instance.data(), instance.size(), "widget.%u", instanceIndex + 1);
-    if (written <= 0 ||
-        !CopyText(std::string_view(instance.data(), static_cast<size_t>(written)), widget.id, true))
+    if (written <= 0 || !CopyText(std::string_view(instance.data(), static_cast<size_t>(written)), widget.id, true))
         return false;
 
     yyjson_val* settingsValue = yyjson_obj_get(definition, "settings");
@@ -383,18 +390,19 @@ struct Declaration final
     unique_mut_doc effectiveDocument;
     unique_json effectiveJson;
     unique_doc effectiveImmutable;
-    const char* defaultsText = plugin == kMatrixPlugin          ? kMatrixDefaults
-                               : plugin == kProcessViewerPlugin ? kProcessViewerDefaults
-                               : plugin == kStudioClockPlugin   ? kStudioClockDefaults
-                               : plugin == kDeskClockPlugin     ? kDeskClockDefaults
-                                                                : "{}";
+    const char* defaultsText = plugin == kMatrixPlugin                                          ? kMatrixDefaults
+                               : plugin == kProcessViewerPlugin                                 ? kProcessViewerDefaults
+                               : plugin == kNetworkMeterPlugin || plugin == kGpuProcessesPlugin ? kRankedViewerDefaults
+                               : plugin == kStudioClockPlugin                                   ? kStudioClockDefaults
+                               : plugin == kDeskClockPlugin                                     ? kDeskClockDefaults
+                                                                                                : "{}";
     defaults.reset(yyjson_read(defaultsText, std::strlen(defaultsText), YYJSON_READ_NOFLAG));
     if (!settingsValue)
     {
         settingsValue = defaults ? yyjson_doc_get_root(defaults.get()) : nullptr;
     }
-    else if (plugin == kMatrixPlugin || plugin == kProcessViewerPlugin || plugin == kStudioClockPlugin ||
-             plugin == kDeskClockPlugin)
+    else if (plugin == kMatrixPlugin || plugin == kProcessViewerPlugin || plugin == kNetworkMeterPlugin ||
+             plugin == kGpuProcessesPlugin || plugin == kStudioClockPlugin || plugin == kDeskClockPlugin)
     {
         effectiveDocument.reset(yyjson_mut_doc_new(nullptr));
         yyjson_mut_val* merged =
@@ -413,17 +421,18 @@ struct Declaration final
         return false;
     const bool validSettings = plugin == kMatrixPlugin          ? ValidateMatrixSettings(settingsValue)
                                : plugin == kProcessViewerPlugin ? ValidateProcessViewerSettings(settingsValue)
-                               : plugin == kStudioClockPlugin   ? ValidateStudioClockSettings(settingsValue)
-                               : plugin == kDeskClockPlugin     ? ValidateDeskClockSettings(settingsValue)
-                                                                : yyjson_obj_size(settingsValue) == 0;
+                               : plugin == kNetworkMeterPlugin || plugin == kGpuProcessesPlugin
+                                   ? ValidateTopNSettings(settingsValue, 1, 16)
+                               : plugin == kStudioClockPlugin ? ValidateStudioClockSettings(settingsValue)
+                               : plugin == kDeskClockPlugin   ? ValidateDeskClockSettings(settingsValue)
+                                                              : yyjson_obj_size(settingsValue) == 0;
     if (!validSettings)
         return false;
     return CompactObject(settingsValue, widget.privateConfiguration);
 }
 
 [[nodiscard]] bool ResolveWidget(yyjson_val* authored, const std::vector<Declaration>& declarations,
-                                 AppSettings& settings, WidgetInstanceSettings& widget,
-                                 uint32_t instanceIndex) noexcept
+                                 AppSettings& settings, WidgetInstanceSettings& widget, uint32_t instanceIndex) noexcept
 {
     if (yyjson_is_str(authored))
     {
@@ -632,8 +641,8 @@ HRESULT ParseAppSettingsJsonV4(std::string_view json, std::unique_ptr<AppSetting
             const int generatedLength = sprintf_s(generated.data(), generated.size(), "page.%zu", index + 1);
             if ((id && (!yyjson_is_str(id) ||
                         !CopyText(std::string_view(yyjson_get_str(id), yyjson_get_len(id)), page.id, true))) ||
-                (!id && !CopyText(std::string_view(generated.data(), static_cast<size_t>(generatedLength)),
-                                  page.id, true)) ||
+                (!id &&
+                 !CopyText(std::string_view(generated.data(), static_cast<size_t>(generatedLength)), page.id, true)) ||
                 (name && (!yyjson_is_str(name) ||
                           !CopyText(std::string_view(yyjson_get_str(name), yyjson_get_len(name)), page.name, false))))
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);

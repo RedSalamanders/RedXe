@@ -48,6 +48,13 @@
         "glowPercent": { "type": "integer", "minimum": 0, "maximum": 100, "default": 35 }
       }
     },
+    "rankedViewerSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "topN": { "type": "integer", "minimum": 1, "maximum": 16, "default": 8 }
+      }
+    },
     "processViewerSettings": {
       "type": "object",
       "additionalProperties": false,
@@ -90,7 +97,7 @@
           "additionalProperties": false,
           "required": ["plugin"],
           "properties": {
-            "plugin": { "enum": ["builtin.rotating-triangle", "builtin.gdi-orbit"] },
+            "plugin": { "enum": ["builtin.rotating-triangle", "builtin.gdi-orbit", "builtin.system-pulse", "builtin.cpu-meter", "builtin.memory-meter", "builtin.storage-meter", "builtin.gpu-meter", "builtin.power-meter", "builtin.thermal-meter"] },
             "settings": { "type": "object", "maxProperties": 0 }
           }
         },
@@ -110,6 +117,15 @@
           "properties": {
             "plugin": { "const": "builtin.process-viewer" },
             "settings": { "$ref": "#/$defs/processViewerSettings" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plugin"],
+          "properties": {
+            "plugin": { "enum": ["builtin.network-meter", "builtin.gpu-processes"] },
+            "settings": { "$ref": "#/$defs/rankedViewerSettings" }
           }
         },
         {

@@ -168,8 +168,7 @@ struct RenderTarget final
         for (uint32_t row = 0; row < target.height; ++row)
         {
             std::memcpy(pixels->data() + static_cast<size_t>(row) * rowBytes,
-                        static_cast<const std::uint8_t*>(mapped.pData) +
-                            static_cast<size_t>(row) * mapped.RowPitch,
+                        static_cast<const std::uint8_t*>(mapped.pData) + static_cast<size_t>(row) * mapped.RowPitch,
                         rowBytes);
         }
         return S_OK;
@@ -191,7 +190,7 @@ struct RenderTarget final
 }
 
 [[nodiscard]] size_t CountColor(const std::vector<std::uint8_t>& pixels, std::array<std::uint8_t, 3> color,
-                                     std::uint8_t tolerance) noexcept
+                                std::uint8_t tolerance) noexcept
 {
     size_t count = 0;
     for (size_t offset = 0; offset + 3 < pixels.size(); offset += 4)
@@ -1179,8 +1178,7 @@ struct PixelBounds final
     {
         return result;
     }
-    constexpr std::array<std::array<uint32_t, 3>, 3> geometryCases{
-        {{300, 800, 144}, {320, 120, 192}, {1024, 256, 96}}};
+    constexpr std::array<std::array<uint32_t, 3>, 3> geometryCases{{{300, 800, 144}, {320, 120, 192}, {1024, 256, 96}}};
     for (const auto& geometry : geometryCases)
     {
         RenderTarget geometryTarget;

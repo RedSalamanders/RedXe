@@ -909,8 +909,7 @@ void AppendWide(wchar_t* destination, size_t destinationCount, size_t& length, c
     destination[length] = L'\0';
 }
 
-void AppendDecimal(wchar_t* destination, size_t destinationCount, size_t& length,
-                   uint64_t value) noexcept
+void AppendDecimal(wchar_t* destination, size_t destinationCount, size_t& length, uint64_t value) noexcept
 {
     wchar_t digits[20]{};
     size_t digitCount = 0;
@@ -997,8 +996,7 @@ void AppendHex64(wchar_t* destination, size_t destinationCount, size_t& length, 
     return result;
 }
 
-[[nodiscard]] RedXeDataValue Utf16Value(const wchar_t* value, uint32_t characters,
-                                        RedXeDataQuality quality) noexcept
+[[nodiscard]] RedXeDataValue Utf16Value(const wchar_t* value, uint32_t characters, RedXeDataQuality quality) noexcept
 {
     RedXeDataValue result{};
     result.sizeBytes = sizeof(result);
@@ -1106,8 +1104,7 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         return references;
     }
 
-    HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors,
-                                          uint32_t* count) noexcept override
+    HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors, uint32_t* count) noexcept override
     {
         if (descriptors)
         {
@@ -1181,8 +1178,7 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
             (void)QueryPerformanceCounter(&finish);
             const uint64_t elapsedTicks =
                 finish.QuadPart >= start.QuadPart ? static_cast<uint64_t>(finish.QuadPart - start.QuadPart) : 0;
-            const uint64_t durationUs =
-                elapsedTicks * 1'000'000ULL / static_cast<uint64_t>(frequency.QuadPart);
+            const uint64_t durationUs = elapsedTicks * 1'000'000ULL / static_cast<uint64_t>(frequency.QuadPart);
             if (FAILED(collected) || !snapshot)
             {
                 if (collected != HRESULT_FROM_WIN32(ERROR_NOT_FOUND))
@@ -1250,8 +1246,8 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         uint64_t systemTotal = 0;
         const bool hasSystemTimes = ReadSystemTimes(ignoredIdle, systemTotal);
         const uint64_t systemDelta = hasSystemTimes && _hasProcessSystemTotal && systemTotal > _processSystemTotal
-                                              ? systemTotal - _processSystemTotal
-                                              : 0;
+                                         ? systemTotal - _processSystemTotal
+                                         : 0;
 
         PROCESSENTRY32W entry{};
         entry.dwSize = static_cast<DWORD>(sizeof(entry));
@@ -1573,14 +1569,14 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
 
         const bool hasCounts = (_cheapReady && _cheap.handleCountsValid) || hasPerformance;
         const uint32_t processCount = _cheapReady && _cheap.handleCountsValid
-                                               ? _cheap.processCount
-                                               : (hasPerformance ? performance.ProcessCount : 0);
+                                          ? _cheap.processCount
+                                          : (hasPerformance ? performance.ProcessCount : 0);
         const uint32_t threadCount = _cheapReady && _cheap.handleCountsValid
-                                              ? _cheap.threadCount
-                                              : (hasPerformance ? performance.ThreadCount : 0);
+                                         ? _cheap.threadCount
+                                         : (hasPerformance ? performance.ThreadCount : 0);
         const uint32_t handleCount = _cheapReady && _cheap.handleCountsValid
-                                              ? _cheap.handleCount
-                                              : (hasPerformance ? performance.HandleCount : 0);
+                                         ? _cheap.handleCount
+                                         : (hasPerformance ? performance.HandleCount : 0);
         _summaryValues[0] = Float64Value(cpuPercent, cpuQuality);
         _summaryValues[1] =
             UInt64Value(processorCount, processorCount == 0 ? RedXeDataQualityUnavailable : RedXeDataQualityGood);
@@ -1703,8 +1699,7 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         for (uint32_t index = 0; index < count; ++index)
         {
             const RedXeNativeLogicalCpu& cpu = _cheap.logical[index];
-            RedXeDataValue* values =
-                _cpuLogicalValues.data() + (static_cast<size_t>(index) * kCpuLogicalColumnCount);
+            RedXeDataValue* values = _cpuLogicalValues.data() + (static_cast<size_t>(index) * kCpuLogicalColumnCount);
             RedXeDataQuality rateQuality = RedXeDataQualityUnavailable;
             double totalPercent = 0.0;
             double userPercent = 0.0;
@@ -1961,8 +1956,7 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         for (uint32_t index = 0; index < count; ++index)
         {
             const RedXeStorageDiskRow& row = _netStorage.disks[index];
-            RedXeDataValue* values =
-                _storageDiskValues.data() + (static_cast<size_t>(index) * kStorageDiskColumnCount);
+            RedXeDataValue* values = _storageDiskValues.data() + (static_cast<size_t>(index) * kStorageDiskColumnCount);
             const RedXeDataQuality rateQuality = row.ratesReady       ? RedXeDataQualityGood
                                                  : row.hasPerformance ? RedXeDataQualityInitializing
                                                                       : RedXeDataQualityUnavailable;
@@ -2054,8 +2048,7 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         for (uint32_t index = 0; index < count; ++index)
         {
             const RedXeGpuAdapterRow& row = _gpu.adapters[index];
-            RedXeDataValue* values =
-                _gpuAdapterValues.data() + (static_cast<size_t>(index) * kGpuAdapterColumnCount);
+            RedXeDataValue* values = _gpuAdapterValues.data() + (static_cast<size_t>(index) * kGpuAdapterColumnCount);
             values[0] = UInt64Value(row.adapterLuid, RedXeDataQualityGood);
             values[1] = Utf16Value(row.displayName, Utf16Length(row.displayName), RedXeDataQualityGood);
             values[2] = UInt64Value(row.vendorId, RedXeDataQualityGood);
@@ -2106,8 +2099,7 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         for (uint32_t index = 0; index < count; ++index)
         {
             const RedXeGpuEngineRow& row = _gpu.engines[index];
-            RedXeDataValue* values =
-                _gpuEngineValues.data() + (static_cast<size_t>(index) * kGpuEngineColumnCount);
+            RedXeDataValue* values = _gpuEngineValues.data() + (static_cast<size_t>(index) * kGpuEngineColumnCount);
             values[0] = UInt64Value(row.adapterLuid, RedXeDataQualityGood);
             values[1] = UInt64Value(row.physicalAdapterIndex, RedXeDataQualityGood);
             values[2] = UInt64Value(row.nodeOrdinal, RedXeDataQualityGood);
@@ -2145,8 +2137,7 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         for (uint32_t index = 0; index < count; ++index)
         {
             const RedXeGpuProcessRow& row = _gpu.processes[index];
-            RedXeDataValue* values =
-                _gpuProcessValues.data() + (static_cast<size_t>(index) * kGpuProcessColumnCount);
+            RedXeDataValue* values = _gpuProcessValues.data() + (static_cast<size_t>(index) * kGpuProcessColumnCount);
             values[0] = UInt64Value(row.processId, RedXeDataQualityGood);
             values[1] = UInt64Value(row.adapterLuid, RedXeDataQualityGood);
             values[2] = UInt64Value(row.physicalAdapterIndex, RedXeDataQualityGood);
@@ -2400,8 +2391,7 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         return S_OK;
     }
 
-    [[nodiscard]] HRESULT CollectFans(uint64_t timestamp, uint64_t sequence,
-                                      const RedXeDataSnapshot** output) noexcept
+    [[nodiscard]] HRESULT CollectFans(uint64_t timestamp, uint64_t sequence, const RedXeDataSnapshot** output) noexcept
     {
         if (!_gpuAdaptersReady)
         {
@@ -2457,12 +2447,11 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         return S_OK;
     }
 
-    [[nodiscard]] const ProcessCpuSample* FindPreviousProcess(uint32_t processId,
-                                                              uint64_t creationTime) const noexcept
+    [[nodiscard]] const ProcessCpuSample* FindPreviousProcess(uint32_t processId, uint64_t creationTime) const noexcept
     {
-        size_t index = (static_cast<size_t>(processId) * 2654435761U ^
-                             static_cast<size_t>(creationTime ^ (creationTime >> 32U))) &
-                            (kProcessHistoryCapacity - 1);
+        size_t index =
+            (static_cast<size_t>(processId) * 2654435761U ^ static_cast<size_t>(creationTime ^ (creationTime >> 32U))) &
+            (kProcessHistoryCapacity - 1);
         for (size_t probe = 0; probe < kProcessHistoryCapacity; ++probe)
         {
             const ProcessCpuSample& candidate = _processHistory[index];
@@ -2486,8 +2475,8 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
             return;
         }
         size_t index = (static_cast<size_t>(sample.processId) * 2654435761U ^
-                             static_cast<size_t>(sample.creationTime ^ (sample.creationTime >> 32U))) &
-                            (kProcessHistoryCapacity - 1);
+                        static_cast<size_t>(sample.creationTime ^ (sample.creationTime >> 32U))) &
+                       (kProcessHistoryCapacity - 1);
         for (size_t probe = 0; probe < kProcessHistoryCapacity; ++probe)
         {
             ProcessCpuSample& candidate = _processHistory[index];
@@ -2726,8 +2715,7 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
     }
 
     void FinishProcessCollection(size_t rowCount, bool truncated, bool hasSystemTimes, uint64_t systemTotal,
-                                 uint64_t sequence, uint64_t timestamp,
-                                 const RedXeDataSnapshot** output) noexcept
+                                 uint64_t sequence, uint64_t timestamp, const RedXeDataSnapshot** output) noexcept
     {
         _processHistory.fill({});
         for (size_t index = 0; index < rowCount; ++index)
@@ -2760,8 +2748,8 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         uint64_t systemTotal = 0;
         const bool hasSystemTimes = ReadSystemTimes(ignoredIdle, systemTotal);
         const uint64_t systemDelta = hasSystemTimes && _hasProcessSystemTotal && systemTotal > _processSystemTotal
-                                              ? systemTotal - _processSystemTotal
-                                              : 0;
+                                         ? systemTotal - _processSystemTotal
+                                         : 0;
         size_t rowCount = 0;
         size_t nameCharacters = 0;
         for (uint32_t index = 0; index < _walk.processCount; ++index)
@@ -2854,8 +2842,8 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         uint64_t systemTotal = 0;
         const bool hasSystemTimes = ReadSystemTimes(ignoredIdle, systemTotal);
         const uint64_t systemDelta = hasSystemTimes && _hasProcessSystemTotal && systemTotal > _processSystemTotal
-                                              ? systemTotal - _processSystemTotal
-                                              : 0;
+                                         ? systemTotal - _processSystemTotal
+                                         : 0;
 
         size_t rowCount = 0;
         size_t nameCharacters = 0;
@@ -3021,8 +3009,7 @@ extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryO
 
 extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
 {
-    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata,
-                                         count);
+    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata, count);
 }
 
 extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId,

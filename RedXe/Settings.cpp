@@ -1,5 +1,6 @@
 #include "Settings.h"
 
+#include "BundledPlugins.h"
 #include "PlugInterfaces/Factory.h"
 
 #include <array>
@@ -28,18 +29,10 @@ using unique_malloc_string = wil::unique_any<char*, decltype(&free), free>;
 
 constexpr size_t kMaximumSettingsBytes = 1024U * 1024U;
 constexpr char kSchemaReference[] = "RedXe.settings.schema.json";
-constexpr char kTrianglePluginId[] = "builtin.rotating-triangle";
-constexpr char kTriangleTypeId[] = "rotating-triangle";
-constexpr char kGdiPluginId[] = "builtin.gdi-orbit";
-constexpr char kGdiTypeId[] = "gdi-orbit";
 constexpr char kMatrixPluginId[] = "builtin.matrix-rain";
-constexpr char kMatrixTypeId[] = "matrix-rain";
 constexpr char kProcessViewerPluginId[] = "builtin.process-viewer";
-constexpr char kProcessViewerTypeId[] = "process-viewer";
 constexpr char kStudioClockPluginId[] = "builtin.studio-clock";
-constexpr char kStudioClockTypeId[] = "studio-clock";
 constexpr char kDeskClockPluginId[] = "builtin.desk-clock";
-constexpr char kDeskClockTypeId[] = "desk-clock";
 
 #if defined(_DEBUG)
 constexpr const wchar_t* kSelectedSettingsFileName = kRedXeDebugSettingsFileName;
@@ -207,12 +200,14 @@ template <size_t Count>
 
 [[nodiscard]] bool IsSupportedPluginType(std::string_view pluginId, std::string_view typeId) noexcept
 {
-    return (SettingsIdEquals(pluginId, kTrianglePluginId) && SettingsIdEquals(typeId, kTriangleTypeId)) ||
-           (SettingsIdEquals(pluginId, kGdiPluginId) && SettingsIdEquals(typeId, kGdiTypeId)) ||
-           (SettingsIdEquals(pluginId, kMatrixPluginId) && SettingsIdEquals(typeId, kMatrixTypeId)) ||
-           (SettingsIdEquals(pluginId, kProcessViewerPluginId) && SettingsIdEquals(typeId, kProcessViewerTypeId)) ||
-           (SettingsIdEquals(pluginId, kStudioClockPluginId) && SettingsIdEquals(typeId, kStudioClockTypeId)) ||
-           (SettingsIdEquals(pluginId, kDeskClockPluginId) && SettingsIdEquals(typeId, kDeskClockTypeId));
+    for (const RedXeBundledWidgetSpec& candidate : kRedXeBundledWidgets)
+    {
+        if (SettingsIdEquals(pluginId, candidate.pluginId) && SettingsIdEquals(typeId, candidate.typeId))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 [[nodiscard]] unique_yyjson_doc ParseStoredObject(const JsonObjectSettings& settings) noexcept
@@ -252,6 +247,15 @@ template <size_t Count>
     constexpr std::array keys{"topN"};
     uint32_t topN = 0;
     return root && HasExactKeys(root, keys) && ReadUnsigned(root, "topN", 1, 32, topN);
+}
+
+[[nodiscard]] bool IsRankedViewerPrivate(const JsonObjectSettings& settings) noexcept
+{
+    unique_yyjson_doc document = ParseStoredObject(settings);
+    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    constexpr std::array keys{"topN"};
+    uint32_t topN = 0;
+    return root && HasExactKeys(root, keys) && ReadUnsigned(root, "topN", 1, 16, topN);
 }
 
 [[nodiscard]] bool IsStudioClockPrivate(const JsonObjectSettings& settings) noexcept
@@ -756,12 +760,7 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
                 return HRESULT_FROM_WIN32(ERROR_DUP_NAME);
             }
         }
-        if ((SettingsIdEquals(plugin.id.View(), kTrianglePluginId) ||
-             SettingsIdEquals(plugin.id.View(), kGdiPluginId) || SettingsIdEquals(plugin.id.View(), kMatrixPluginId) ||
-             SettingsIdEquals(plugin.id.View(), kProcessViewerPluginId) ||
-             SettingsIdEquals(plugin.id.View(), kStudioClockPluginId) ||
-             SettingsIdEquals(plugin.id.View(), kDeskClockPluginId)) &&
-            !IsEmptyPrivate(plugin.privateConfiguration))
+        if (!IsEmptyPrivate(plugin.privateConfiguration))
         {
             return E_INVALIDARG;
         }
@@ -854,6 +853,14 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
                     return E_INVALIDARG;
                 }
             }
+            else if (SettingsIdEquals(widget.pluginId.View(), "builtin.network-meter") ||
+                     SettingsIdEquals(widget.pluginId.View(), "builtin.gpu-processes"))
+            {
+                if (!IsRankedViewerPrivate(widget.privateConfiguration))
+                {
+                    return E_INVALIDARG;
+                }
+            }
             else if (SettingsIdEquals(widget.pluginId.View(), kStudioClockPluginId))
             {
                 if (!IsStudioClockPrivate(widget.privateConfiguration))
@@ -879,8 +886,7 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
             }
             for (uint32_t row = placement.row; row < placement.row + placement.rowSpan; ++row)
             {
-                for (uint32_t column = placement.column; column < placement.column + placement.columnSpan;
-                     ++column)
+                for (uint32_t column = placement.column; column < placement.column + placement.columnSpan; ++column)
                 {
                     const size_t cell = static_cast<size_t>(row) * settings.dashboard.gridColumns + column;
                     if (occupied[cell])

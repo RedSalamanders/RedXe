@@ -375,8 +375,7 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
 HRESULT PluginManager::StageActivePage(const AppSettings& settings,
                                        std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
                                        std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,
-                                       size_t& providerCount,
-                                       std::array<WidgetSlot, kMaximumWidgetInstances>& widgets,
+                                       size_t& providerCount, std::array<WidgetSlot, kMaximumWidgetInstances>& widgets,
                                        size_t& widgetCount) noexcept
 {
     providerCount = 0;
@@ -548,6 +547,16 @@ HRESULT PluginManager::Initialize(const AppSettings& settings) noexcept
     _gridRows = settings.dashboard.gridRows;
     _initialized = true;
     return S_OK;
+}
+
+void PluginManager::SetUiInvalidateTarget(HWND window) noexcept
+{
+    _pluginHost.SetUiInvalidateTarget(window);
+}
+
+void PluginManager::AcknowledgeUiInvalidate() noexcept
+{
+    _pluginHost.AcknowledgeUiInvalidate();
 }
 
 HRESULT PluginManager::Reconfigure(const AppSettings& settings) noexcept

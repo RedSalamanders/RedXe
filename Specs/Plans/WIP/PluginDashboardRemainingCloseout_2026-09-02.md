@@ -38,9 +38,9 @@ Historical context:
 - Adopting a 128-subscription cap (host remains 32).
 - Linking DXCore, creating a D3D device for GPU identity, a device-I/O thread, or any WMI/CIM path.
 - Reopening Matrix Rain, Studio Clock, Desk Clock, or version-4 settings as active work.
-- System Data dashboard widgets. Those are
-  [`SystemDataViewers_2026-09-02.md`](SystemDataViewers_2026-09-02.md): Direct3D scheduled widgets with sample-driven
-  motion. Host primitive batching stays a measurement gate of that plan, not a separate RFC decision.
+- System Data dashboard widgets. Those shipped in
+  [`../Done/SystemDataViewers_2026-09-02.md`](../Done/SystemDataViewers_2026-09-02.md): Direct3D scheduled widgets with
+  sample-driven motion. Host primitive batching was not opened after the System-page WARP measurement.
 
 ## Remaining System Data hosts
 
@@ -71,11 +71,10 @@ batching, and `builtin.system-data` are already shipped.
 
 ### 2. Host-owned primitive batching
 
-Keep `IRedXeGpuWidget` as the immediate-context mechanism. Studio Clock and Desk Clock do not justify a host primitive
-IID. The System Data viewer family in
-[`SystemDataViewers_2026-09-02.md`](SystemDataViewers_2026-09-02.md) is the first candidate large enough to reopen
-that measurement. Reopen only if that plan’s System-page WARP gate fails. Do not add plugin-specific commands to the
-generic widget root.
+Keep `IRedXeGpuWidget` as the immediate-context mechanism. Studio Clock, Desk Clock, and the shipped Process Viewer
+System Data family do not justify a host primitive IID. Release x64 WARP of the ten-widget System page at 2560×720
+measured 8.24 ms mean full-frame `Renderer::Render`; WARP Present dominates, so primitive batching was not opened.
+Do not add plugin-specific commands to the generic widget root.
 
 ### 3. Missing plugins and migration beyond version 4 reset
 

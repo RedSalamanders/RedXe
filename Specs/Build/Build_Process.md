@@ -1,7 +1,7 @@
 # RedXe build-process contract
 
 Status: current normative repository contract
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-02
 Owner: root build and test entrypoints
 
 ## Scope
@@ -30,7 +30,8 @@ independently launched or unrelated RedXe process.
 ## Output and validation
 
 Build outputs remain under `.build/<Platform>/<Configuration>/`, with intermediates under `.build/Intermediate/`.
-`build.ps1` MUST begin with the RedXe build banner and identify the selected platform and configuration. In a plain
+`build.ps1` MUST begin with the framed RedXe product banner and identify the selected platform and configuration. The
+banner MUST color-split RED from XE on color hosts and MUST include the XENEON EDGE build-signal tagline. In a plain
 interactive console it MUST keep MSBuild attached directly so native color and message ordering are preserved. In
 Codex, Windows Terminal, redirected, or non-interactive hosts it MUST capture and replay both MSBuild streams so
 progress remains visible, coloring errors red, warnings yellow, and completed project outputs green without adding

@@ -29,18 +29,24 @@
             Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
-  <PropertyGroup><OutDir>$(RedXeBuildRoot)$(Platform)\$(Configuration)\Plugins\</OutDir></PropertyGroup>
+  <PropertyGroup>
+    <OutDir>$(RedXeBuildRoot)$(Platform)\$(Configuration)\Plugins\</OutDir>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
-    <Link><AdditionalDependencies>gdi32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+    <Link>
+      <AdditionalDependencies>d3d11.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
     <ClCompile>
       <Optimization>MaxSpeed</Optimization>
+      <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
@@ -49,12 +55,42 @@
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>gdi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="ProcessViewer.cpp" /></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="ProcessViewer.cpp" />
+    <ClCompile Include="ViewerGpu.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="ViewerPixel.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ViewerPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ViewerPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ViewerPixelShader</VariableName>
+      <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="ViewerVertex.hlsl">
+      <ShaderType>Vertex</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>VertexMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ViewerVertexShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ViewerVertexShader.cso</ObjectFileOutput>
+      <VariableName>g_ViewerVertexShader</VariableName>
+      <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+  </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ProcessViewerTestContract.h" />
+    <ClInclude Include="ViewerGpu.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Data.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h" />

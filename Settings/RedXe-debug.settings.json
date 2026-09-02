@@ -8,7 +8,16 @@
     "Matrix": { "plugin": "builtin.matrix-rain" },
     "StudioClock": { "plugin": "builtin.studio-clock", "settings": { "externalDotsAlwaysOn": true } },
     "DeskClock": { "plugin": "builtin.desk-clock" },
-    "Processes": { "plugin": "builtin.process-viewer", "settings": { "topN": 10 } }
+    "Processes": { "plugin": "builtin.process-viewer", "settings": { "topN": 10 } },
+    "Pulse": { "plugin": "builtin.system-pulse" },
+    "Cpu": { "plugin": "builtin.cpu-meter" },
+    "Memory": { "plugin": "builtin.memory-meter" },
+    "Network": { "plugin": "builtin.network-meter", "settings": { "topN": 8 } },
+    "Storage": { "plugin": "builtin.storage-meter" },
+    "Gpu": { "plugin": "builtin.gpu-meter" },
+    "GpuProcesses": { "plugin": "builtin.gpu-processes", "settings": { "topN": 8 } },
+    "Power": { "plugin": "builtin.power-meter" },
+    "Thermal": { "plugin": "builtin.thermal-meter" }
   },
   "pages": [
     {
@@ -59,6 +68,48 @@
             ]
           },
           { "sizeRatio": 5, "widget": "Processes" }
+        ]
+      }
+    },
+    {
+      "name": "System",
+      "layout": {
+        "arrangeAlong": "long-side",
+        "areas": [
+          {
+            "sizeRatio": 3,
+            "arrangeAlong": "short-side",
+            "areas": [
+              { "sizeRatio": 1, "widget": "Pulse" },
+              { "sizeRatio": 1, "widget": "Cpu" },
+              { "sizeRatio": 1, "widget": "Memory" }
+            ]
+          },
+          {
+            "sizeRatio": 4,
+            "arrangeAlong": "short-side",
+            "areas": [
+              { "sizeRatio": 1, "widget": "Processes" },
+              { "sizeRatio": 1, "widget": "GpuProcesses" }
+            ]
+          },
+          {
+            "sizeRatio": 3,
+            "arrangeAlong": "short-side",
+            "areas": [
+              { "sizeRatio": 1, "widget": "Network" },
+              { "sizeRatio": 1, "widget": "Storage" }
+            ]
+          },
+          {
+            "sizeRatio": 3,
+            "arrangeAlong": "short-side",
+            "areas": [
+              { "sizeRatio": 1, "widget": "Gpu" },
+              { "sizeRatio": 1, "widget": "Thermal" },
+              { "sizeRatio": 1, "widget": "Power" }
+            ]
+          }
         ]
       }
     }

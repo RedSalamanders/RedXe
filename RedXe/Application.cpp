@@ -1241,6 +1241,14 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case Renderer::kOcclusionStatusMessage:
         _occlusionStatusChanged = true;
         return 0;
+    case PluginHost::kDataSnapshotInvalidateMessage:
+        _pluginManager.AcknowledgeUiInvalidate();
+        if (_transitionPluginManager)
+        {
+            _transitionPluginManager->AcknowledgeUiInvalidate();
+        }
+        _frameInvalidated = true;
+        return 0;
     case SettingsWatcher::kSettingsChangedMessage:
         OnSettingsChanged();
         return 0;

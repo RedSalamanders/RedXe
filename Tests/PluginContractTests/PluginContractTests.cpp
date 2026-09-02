@@ -55,6 +55,7 @@ constexpr char kGdiPluginId[] = "builtin.gdi-orbit";
 constexpr char kGdiWidgetTypeId[] = "gdi-orbit";
 constexpr char kMatrixPluginId[] = "builtin.matrix-rain";
 constexpr char kMatrixWidgetTypeId[] = "matrix-rain";
+constexpr char kProcessViewerPluginId[] = "builtin.process-viewer";
 constexpr std::string_view kDefaultMatrixConfiguration =
     R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35})json";
 
@@ -713,8 +714,7 @@ struct MatrixRenderTarget final
         for (uint32_t row = 0; row < target.height; ++row)
         {
             std::memcpy(pixels.data() + static_cast<size_t>(row) * rowBytes,
-                        static_cast<const std::uint8_t*>(mapped.pData) +
-                            static_cast<size_t>(row) * mapped.RowPitch,
+                        static_cast<const std::uint8_t*>(mapped.pData) + static_cast<size_t>(row) * mapped.RowPitch,
                         rowBytes);
         }
         return S_OK;
@@ -1278,8 +1278,8 @@ struct MatrixRenderTarget final
     return result;
 }
 
-[[nodiscard]] HRESULT MeasureCpuSubmission(IRedXeGpuWidget* widget, MatrixRenderTarget& target,
-                                           uint32_t frameCount, double& microsecondsPerFrame) noexcept
+[[nodiscard]] HRESULT MeasureCpuSubmission(IRedXeGpuWidget* widget, MatrixRenderTarget& target, uint32_t frameCount,
+                                           double& microsecondsPerFrame) noexcept
 {
     LARGE_INTEGER frequency{};
     LARGE_INTEGER start{};
@@ -1706,6 +1706,92 @@ struct HeapSnapshot final
     }
     return S_OK;
 }
+
+[[nodiscard]] HRESULT RunProcessViewerContractTests() noexcept
+{
+    std::array<wchar_t, 1024> path{};
+    HRESULT result = BuildPluginPath(L"ProcessViewer.dll", path);
+    if (FAILED(result))
+    {
+        return result;
+    }
+
+    wil::unique_hmodule module{
+        LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+    if (!module)
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    if (GetModuleHandleW(L"d3dcompiler_47.dll"))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    const RedXeCreateFn create = ResolveFunction<RedXeCreateFn>(module.get(), kRedXeCreateExport);
+    const RedXeEnumeratePluginsFn enumerate =
+        ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
+    if (!create || !enumerate)
+    {
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    }
+
+    const RedXePluginMetadata* metadata = nullptr;
+    uint32_t metadataCount = 0;
+    result = enumerate(&metadata, &metadataCount);
+    if (FAILED(result) || !metadata || metadataCount != 10)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    constexpr std::array expectedIds{
+        "builtin.process-viewer", "builtin.system-pulse",  "builtin.cpu-meter", "builtin.memory-meter",
+        "builtin.network-meter",  "builtin.storage-meter", "builtin.gpu-meter", "builtin.gpu-processes",
+        "builtin.power-meter",    "builtin.thermal-meter",
+    };
+    for (uint32_t index = 0; index < metadataCount; ++index)
+    {
+        if (metadata[index].sizeBytes != sizeof(RedXePluginMetadata) || !metadata[index].id ||
+            std::strcmp(metadata[index].id, expectedIds[index]) != 0 ||
+            (metadata[index].capabilities & RedXePluginCapabilityWidgetProvider) == 0)
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        for (uint32_t previous = 0; previous < index; ++previous)
+        {
+            if (RedXeAsciiEqualsIgnoreCase(metadata[index].id, metadata[previous].id))
+            {
+                return HRESULT_FROM_WIN32(ERROR_DUP_NAME);
+            }
+        }
+        const bool expectEmpty = std::strcmp(metadata[index].id, "builtin.process-viewer") != 0 &&
+                                 std::strcmp(metadata[index].id, "builtin.network-meter") != 0 &&
+                                 std::strcmp(metadata[index].id, "builtin.gpu-processes") != 0;
+        result = ValidateSettingsContract(module.get(), metadata[index].id, expectEmpty);
+        if (FAILED(result))
+        {
+            return result;
+        }
+    }
+
+    RedXeFactoryOptions options{};
+    options.sizeBytes = sizeof(options);
+    void* object = reinterpret_cast<void*>(1);
+    result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kProcessViewerPluginId, &object);
+    if (result != E_POINTER || object)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    object = reinterpret_cast<void*>(1);
+    result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, "builtin.missing-viewer", &object);
+    if (result != HRESULT_FROM_WIN32(ERROR_NOT_FOUND) || object)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    if (GetModuleHandleW(L"d3dcompiler_47.dll") || GetModuleHandleW(L"dwrite.dll"))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    return S_OK;
+}
 } // namespace
 
 int wmain(int argumentCount, wchar_t** arguments)
@@ -1732,6 +1818,11 @@ int wmain(int argumentCount, wchar_t** arguments)
     if (FAILED(matrixResult))
     {
         return static_cast<int>(matrixResult & 0xFF);
+    }
+    const HRESULT processViewerResult = RunProcessViewerContractTests();
+    if (FAILED(processViewerResult))
+    {
+        return static_cast<int>(processViewerResult & 0xFF);
     }
     return 0;
 }

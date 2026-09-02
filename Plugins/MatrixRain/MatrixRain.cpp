@@ -828,8 +828,7 @@ class MatrixRainDeviceResources final
 
         const uint64_t desiredActive =
             (static_cast<uint64_t>(grid.columns) * _configuration.densityPercent + 99U) / 100U;
-        const uint32_t maximumActive =
-            grid.rows == 0 ? 0 : static_cast<uint32_t>(kMaximumGlyphInstances / grid.rows);
+        const uint32_t maximumActive = grid.rows == 0 ? 0 : static_cast<uint32_t>(kMaximumGlyphInstances / grid.rows);
         grid.activeColumns = static_cast<uint32_t>(desiredActive > maximumActive ? maximumActive : desiredActive);
         grid.instanceCount = grid.activeColumns * grid.rows;
 
@@ -1161,8 +1160,7 @@ extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryO
 
 extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
 {
-    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata,
-                                         count);
+    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata, count);
 }
 
 extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId,

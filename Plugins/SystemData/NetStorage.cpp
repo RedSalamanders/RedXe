@@ -471,10 +471,10 @@ void RefreshDiskInventory(RedXeNetStorageState& state) noexcept
 }
 
 void FillProtocolRow(RedXeNetworkProtocolRow& row, RedXeNetworkProtocolPrevious& previous, const wchar_t* protocolId,
-                     uint64_t family, bool hasCounts, uint64_t inCount, uint64_t outCount,
-                     uint64_t errorCount, uint64_t discardCount, bool hasRetransmit,
-                     uint64_t retransmitCount, bool hasEstablished, uint64_t established, bool hasReset,
-                     uint64_t resetCount, std::int64_t qpc, std::int64_t frequency) noexcept
+                     uint64_t family, bool hasCounts, uint64_t inCount, uint64_t outCount, uint64_t errorCount,
+                     uint64_t discardCount, bool hasRetransmit, uint64_t retransmitCount, bool hasEstablished,
+                     uint64_t established, bool hasReset, uint64_t resetCount, std::int64_t qpc,
+                     std::int64_t frequency) noexcept
 {
     row = {};
     row.protocolId = protocolId;
@@ -583,8 +583,8 @@ void RedXeNetStorageSampleInterfaces(RedXeNetStorageState& state) noexcept
         }
         const uint32_t available = table->NumEntries;
         const uint32_t copyCount = available > kRedXeMaximumNetworkInterfaces
-                                            ? static_cast<uint32_t>(kRedXeMaximumNetworkInterfaces)
-                                            : available;
+                                       ? static_cast<uint32_t>(kRedXeMaximumNetworkInterfaces)
+                                       : available;
         state.interfacesTruncated = available > kRedXeMaximumNetworkInterfaces;
         for (uint32_t index = 0; index < copyCount; ++index)
         {
@@ -738,12 +738,12 @@ void RedXeNetStorageSampleProtocols(RedXeNetStorageState& state) noexcept
 
     FillProtocolRow(state.protocols[0], state.previousProtocols[0], kProtocolIpv4, 4, hasIp4, ip4In, ip4Out,
                     hasIp4 ? static_cast<uint64_t>(ip4.dwInHdrErrors) + ip4.dwInAddrErrors : 0,
-                    hasIp4 ? static_cast<uint64_t>(ip4.dwInDiscards) + ip4.dwOutDiscards : 0, false, 0, false, 0,
-                    false, 0, qpc.QuadPart, frequency.QuadPart);
+                    hasIp4 ? static_cast<uint64_t>(ip4.dwInDiscards) + ip4.dwOutDiscards : 0, false, 0, false, 0, false,
+                    0, qpc.QuadPart, frequency.QuadPart);
     FillProtocolRow(state.protocols[1], state.previousProtocols[1], kProtocolIpv6, 6, hasIp6, ip6In, ip6Out,
                     hasIp6 ? static_cast<uint64_t>(ip6.dwInHdrErrors) + ip6.dwInAddrErrors : 0,
-                    hasIp6 ? static_cast<uint64_t>(ip6.dwInDiscards) + ip6.dwOutDiscards : 0, false, 0, false, 0,
-                    false, 0, qpc.QuadPart, frequency.QuadPart);
+                    hasIp6 ? static_cast<uint64_t>(ip6.dwInDiscards) + ip6.dwOutDiscards : 0, false, 0, false, 0, false,
+                    0, qpc.QuadPart, frequency.QuadPart);
     FillProtocolRow(state.protocols[2], state.previousProtocols[2], kProtocolTcp4, 4, hasTcp4, tcp4In, tcp4Out,
                     hasTcp4 ? tcp4.dwInErrs : 0, 0, hasTcp4, tcp4.dwRetransSegs, hasTcp4, tcp4.dwCurrEstab, hasTcp4,
                     tcp4.dwEstabResets, qpc.QuadPart, frequency.QuadPart);
@@ -987,8 +987,7 @@ void RedXeNetStorageSampleDiskTemperatures(RedXeNetStorageState& state) noexcept
         {
             continue;
         }
-        const uint32_t infoCount =
-            (std::min)(static_cast<uint32_t>(descriptor->InfoCount), kMaximumSensorsPerDisk);
+        const uint32_t infoCount = (std::min)(static_cast<uint32_t>(descriptor->InfoCount), kMaximumSensorsPerDisk);
         const size_t needed = headerBytes + static_cast<size_t>(infoCount) * sizeof(STORAGE_TEMPERATURE_INFO);
         if (needed > returned || needed > descriptor->Size)
         {

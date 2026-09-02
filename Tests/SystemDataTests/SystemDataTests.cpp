@@ -449,7 +449,7 @@ void RunResourceBenchmark(IRedXeSystemDataTestSource& testSource, const RedXeDat
                FALSE,
            "CPU-probe completion query failed");
     const uint64_t cpuProbe100ns = FileTime100ns(cpuKernelAfter) - FileTime100ns(cpuKernelBefore) +
-                                        FileTime100ns(cpuUserAfter) - FileTime100ns(cpuUserBefore);
+                                   FileTime100ns(cpuUserAfter) - FileTime100ns(cpuUserBefore);
     const double measuredCpuMicrosecondsPerCollection = static_cast<double>(cpuProbe100ns) / 10.0 / cpuCollectionCount;
 
     std::wcout << L"SystemData Release row-cap measurement: rows=" << diagnostics.maximumProcessRows << L" collections="
@@ -558,17 +558,15 @@ void Run(bool benchmark, bool domains)
         for (uint32_t column = 0; column < descriptors[index].columnCount; ++column)
         {
             const char* columnId = descriptors[index].columns[column].columnId;
-            Expect(!ContainsAsciiIgnoreCase(columnId, "macAddress") &&
-                       !ContainsAsciiIgnoreCase(columnId, "ipAddress") &&
-                       !ContainsAsciiIgnoreCase(columnId, "serialNumber") &&
-                       !ContainsAsciiIgnoreCase(columnId, "commandLine") &&
-                       !ContainsAsciiIgnoreCase(columnId, "imagePath") &&
-                       !ContainsAsciiIgnoreCase(columnId, "userName") &&
-                       !ContainsAsciiIgnoreCase(columnId, "physicalAddress") &&
-                       !RedXeAsciiEqualsIgnoreCase(columnId, "serial") &&
-                       !RedXeAsciiEqualsIgnoreCase(columnId, "ssid") && !RedXeAsciiEqualsIgnoreCase(columnId, "mac") &&
-                       !RedXeAsciiEqualsIgnoreCase(columnId, "uniqueId"),
-                   "SystemData catalog published a prohibited identity column");
+            Expect(
+                !ContainsAsciiIgnoreCase(columnId, "macAddress") && !ContainsAsciiIgnoreCase(columnId, "ipAddress") &&
+                    !ContainsAsciiIgnoreCase(columnId, "serialNumber") &&
+                    !ContainsAsciiIgnoreCase(columnId, "commandLine") &&
+                    !ContainsAsciiIgnoreCase(columnId, "imagePath") && !ContainsAsciiIgnoreCase(columnId, "userName") &&
+                    !ContainsAsciiIgnoreCase(columnId, "physicalAddress") &&
+                    !RedXeAsciiEqualsIgnoreCase(columnId, "serial") && !RedXeAsciiEqualsIgnoreCase(columnId, "ssid") &&
+                    !RedXeAsciiEqualsIgnoreCase(columnId, "mac") && !RedXeAsciiEqualsIgnoreCase(columnId, "uniqueId"),
+                "SystemData catalog published a prohibited identity column");
         }
     }
     const RedXeDataSetDescriptor* statusDescriptor = FindDataSet(descriptors, descriptorCount, "source.status");

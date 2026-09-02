@@ -548,10 +548,9 @@ struct GlyphAtlasBuildResult final
 }
 
 [[nodiscard]] HRESULT RasterizeGlyph(IDWriteFactory& factory, IDWriteFontFace& face, wchar_t character,
-                                     float fontEmSize, uint32_t cellWidth, uint32_t cellHeight,
-                                     uint32_t atlasX, uint32_t atlasY, bool fixedDateOrigin,
-                                     std::uint8_t* atlasPixels, std::uint8_t* scratch,
-                                     uint32_t scratchBytes) noexcept
+                                     float fontEmSize, uint32_t cellWidth, uint32_t cellHeight, uint32_t atlasX,
+                                     uint32_t atlasY, bool fixedDateOrigin, std::uint8_t* atlasPixels,
+                                     std::uint8_t* scratch, uint32_t scratchBytes) noexcept
 {
     if (!atlasPixels || !scratch || atlasX + cellWidth > kGlyphAtlasSize || atlasY + cellHeight > kGlyphAtlasSize)
     {
@@ -628,8 +627,8 @@ struct GlyphAtlasBuildResult final
             const uint32_t coverage =
                 static_cast<uint32_t>(scratch[source]) + scratch[source + 1U] + scratch[source + 2U];
             const size_t destination =
-                static_cast<size_t>(atlasY + static_cast<uint32_t>(bounds.top) + y) * kGlyphAtlasSize +
-                atlasX + static_cast<uint32_t>(bounds.left) + x;
+                static_cast<size_t>(atlasY + static_cast<uint32_t>(bounds.top) + y) * kGlyphAtlasSize + atlasX +
+                static_cast<uint32_t>(bounds.left) + x;
             atlasPixels[destination] = static_cast<std::uint8_t>((coverage + 1U) / 3U);
         }
     }
@@ -1047,11 +1046,10 @@ class DeskClockDeviceResources final
 
 [[nodiscard]] uint64_t PackTestTime(const DeskClockTestTime& time) noexcept
 {
-    return (1ULL << 63U) | static_cast<uint64_t>(time.milliseconds) |
-           (static_cast<uint64_t>(time.second) << 10U) | (static_cast<uint64_t>(time.minute) << 16U) |
-           (static_cast<uint64_t>(time.hour) << 22U) | (static_cast<uint64_t>(time.day) << 27U) |
-           (static_cast<uint64_t>(time.dayOfWeek) << 32U) | (static_cast<uint64_t>(time.month) << 35U) |
-           (static_cast<uint64_t>(time.year) << 39U);
+    return (1ULL << 63U) | static_cast<uint64_t>(time.milliseconds) | (static_cast<uint64_t>(time.second) << 10U) |
+           (static_cast<uint64_t>(time.minute) << 16U) | (static_cast<uint64_t>(time.hour) << 22U) |
+           (static_cast<uint64_t>(time.day) << 27U) | (static_cast<uint64_t>(time.dayOfWeek) << 32U) |
+           (static_cast<uint64_t>(time.month) << 35U) | (static_cast<uint64_t>(time.year) << 39U);
 }
 
 void ReadLocalClock(SYSTEMTIME& time) noexcept
@@ -1343,8 +1341,7 @@ class DeskClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, publi
     }
 
   private:
-    void BuildDatePositions(const std::array<uint32_t, 12>& glyphs,
-                            std::array<float, 12>& positions) const noexcept
+    void BuildDatePositions(const std::array<uint32_t, 12>& glyphs, std::array<float, 12>& positions) const noexcept
     {
         positions.fill(0.0f);
         const uint32_t count = std::min(glyphs[11], kDateGlyphCapacity);
@@ -1704,8 +1701,7 @@ extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryO
 
 extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
 {
-    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata,
-                                         count);
+    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata, count);
 }
 
 extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId,

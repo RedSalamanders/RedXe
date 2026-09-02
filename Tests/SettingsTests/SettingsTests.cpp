@@ -158,9 +158,10 @@ constexpr std::string_view kRepresentative = R"json(
     if (SUCCEEDED(result))
         result = LoadAppSettingsFile(releasePath.wstring(), release);
     if (FAILED(result) || !CoversBundledPluginCatalog(debug) || !CoversBundledPluginCatalog(release) ||
-        debug.dashboard.pageCount != 2 || debug.dashboard.pages[0].widgetCount != 4 ||
-        debug.dashboard.pages[1].widgetCount != 6 || release.dashboard.pageCount != 2 ||
-        release.dashboard.pages[0].widgetCount != 1 || release.dashboard.pages[1].widgetCount != 6 ||
+        debug.dashboard.pageCount != 3 || debug.dashboard.pages[0].widgetCount != 4 ||
+        debug.dashboard.pages[1].widgetCount != 6 || debug.dashboard.pages[2].widgetCount != 10 ||
+        release.dashboard.pageCount != 3 || release.dashboard.pages[0].widgetCount != 1 ||
+        release.dashboard.pages[1].widgetCount != 6 || release.dashboard.pages[2].widgetCount != 10 ||
         !debug.dashboard.pages[0].widgets[0].usesAdaptivePlacement || FAILED(ValidateAppSettings(debug)) ||
         FAILED(ValidateAppSettings(release)))
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -209,6 +210,15 @@ constexpr std::string_view kRepresentative = R"json(
     if (FAILED(ParseAppSettingsJson(processViewerSettings, processViewer)) ||
         processViewer.dashboard.pages[0].widgets[0].privateConfiguration.View() != R"json({"topN":10})json" ||
         processViewer.dashboard.pages[0].widgets[1].privateConfiguration.View() != R"json({"topN":7})json")
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+    constexpr std::string_view rankedViewerSettings =
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.network-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.gpu-processes","settings":{"topN":4}}},{"sizeRatio":1,"widget":{"plugin":"builtin.system-pulse"}}]}}]})json";
+    AppSettings rankedViewers{};
+    if (FAILED(ParseAppSettingsJson(rankedViewerSettings, rankedViewers)) ||
+        rankedViewers.dashboard.pages[0].widgets[0].privateConfiguration.View() != R"json({"topN":8})json" ||
+        rankedViewers.dashboard.pages[0].widgets[1].privateConfiguration.View() != R"json({"topN":4})json" ||
+        rankedViewers.dashboard.pages[0].widgets[2].privateConfiguration.View() != R"json({})json")
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
     constexpr std::string_view studioClockSettings =
@@ -260,6 +270,10 @@ constexpr std::string_view kRepresentative = R"json(
             R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer","settings":{"topN":33}}}]}}]})json"},
         std::string_view{
             R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer","settings":{"topN":10,"bad":1}}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.network-meter","settings":{"topN":0}}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gpu-processes","settings":{"topN":17}}}]}}]})json"},
         std::string_view{
             R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock","settings":{"showSeconds":1}}}]}}]})json"},
         std::string_view{

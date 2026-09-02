@@ -211,7 +211,7 @@ void FillProcessorTimes(NtQuerySystemInformationFn query, RedXeNativeCheapSample
         return false;
     }
     const uint32_t characters = (std::min)(static_cast<uint32_t>(image.Length / sizeof(wchar_t)),
-                                                static_cast<uint32_t>(kRedXeNativeImageCharacters - 1));
+                                           static_cast<uint32_t>(kRedXeNativeImageCharacters - 1));
     std::wmemcpy(row.imageName, image.Buffer, characters);
     row.imageName[characters] = L'\0';
     row.imageCharacters = characters;
@@ -325,8 +325,7 @@ bool RedXeNativeQueryWalk(RedXeNativeState& state, RedXeNativeWalkSample& sample
             return false;
         }
         const auto* record = reinterpret_cast<const SYSTEM_PROCESS_INFORMATION*>(state.processBuffer.data() + offset);
-        const size_t threadBytes =
-            static_cast<size_t>(record->NumberOfThreads) * sizeof(SYSTEM_THREAD_INFORMATION);
+        const size_t threadBytes = static_cast<size_t>(record->NumberOfThreads) * sizeof(SYSTEM_THREAD_INFORMATION);
         if (offset + sizeof(SYSTEM_PROCESS_INFORMATION) + threadBytes > returned)
         {
             return false;
@@ -348,8 +347,8 @@ bool RedXeNativeQueryWalk(RedXeNativeState& state, RedXeNativeWalkSample& sample
             row.workingSetBytes = record->WorkingSetSize;
             if (systemInfo.dwPageSize != 0 && record->PrivatePageCount <= (UINT64_MAX / systemInfo.dwPageSize))
             {
-                row.privateBytes = static_cast<uint64_t>(record->PrivatePageCount) *
-                                   static_cast<uint64_t>(systemInfo.dwPageSize);
+                row.privateBytes =
+                    static_cast<uint64_t>(record->PrivatePageCount) * static_cast<uint64_t>(systemInfo.dwPageSize);
             }
             if (!CopyImageName(record->ImageName, state.processBuffer.data(), returned, row))
             {

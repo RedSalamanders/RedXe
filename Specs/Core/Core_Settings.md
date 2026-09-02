@@ -1,7 +1,7 @@
 # RedXe settings contract
 
 Status: current normative product contract
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-02
 Owner: `SettingsStore`, `SettingsWatcher`, and UI-thread application orchestration
 
 ## Scope
@@ -32,12 +32,14 @@ The build output MUST contain both templates and `RedXe.settings.schema.json`. R
 `Specs/Settings.schema.json`. The hidden `--self-test` path MUST use the deployed template and MUST NOT touch or watch
 the user's settings directory.
 
-Both shipped templates MUST contain two pages: a representative low-resource startup composition followed by a
-denser gallery. Every settings-visible plugin compiled into the product MUST have at least one effective widget
+Both shipped templates MUST contain three pages: a representative low-resource startup composition, a denser gallery,
+and a `System` page that places one instance of every Process Viewer family widget. Every settings-visible plugin
+compiled into the product MUST have at least one effective widget
 instance in each template; a declaration that is never placed does not count. The host-owned compile-time bundled
 plugin catalog is the source of truth for this coverage. Automated template validation MUST iterate that catalog and
 fail when either template or the canonical schema omits an entry. Adding or removing a bundled plugin therefore
-requires updating the catalog, schema support, and both templates in the same change.
+requires updating the catalog, schema support, and both templates in the same change. Catalog plugin IDs and type IDs
+stay unique; module file names MAY repeat so several settings-visible widgets can share `ProcessViewer.dll`.
 
 ## Version 4 document
 
@@ -89,6 +91,10 @@ or settings failure rejects the complete candidate. ABI details are normative in
 Process Viewer settings are `{ "topN": <integer> }`. `topN` is required after default resolution, ranges from 1
 through 32, and defaults to 10. Unknown members, non-integers, and values outside the range reject the complete
 candidate.
+
+Network Meter and GPU Processes settings are the same closed `{ "topN": <integer> }` object with range 1 through 16
+and default 8. System Pulse, CPU Meter, Memory Meter, Storage Meter, GPU Meter, Power Meter, and Thermal Meter publish
+closed empty objects `{}`. Unknown members and out-of-range `topN` values reject the complete candidate.
 
 Studio Clock settings are the closed object `showSecondProgress`, `externalDotsAlwaysOn`, `showSeconds`,
 `secondsColor`, `showDate`, `dateFormat`, `timeColor`, and `backgroundColor`. Defaults are respectively `true`, `true`,
@@ -160,7 +166,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 
 - Templates and canonical schema agree with v4 and all syntax, count, size, and depth limits.
 - Tests reject malformed syntax/version, duplicate and exact-version unknown members, unresolved references, invalid
-  merge results, plugin settings failures, Process Viewer `topN` values outside 1 through 32, and malformed Studio
+  merge results, plugin settings failures, Process Viewer `topN` values outside 1 through 32, Network Meter and GPU
+  Processes `topN` values outside 1 through 16, and malformed Studio
   Clock booleans including `externalDotsAlwaysOn`, colors, date formats, and unknown members. They also reject Desk
   Clock duration and color failures and verify its complete merged defaults and valid partial overrides.
 - Tests cover merge rules, plugin replacement, minor compatibility, and compatible unknown-field preservation.

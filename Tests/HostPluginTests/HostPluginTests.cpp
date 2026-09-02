@@ -845,9 +845,10 @@ void TestProcessViewerSubscription(bool& success) noexcept
         PluginManager plugins;
         result = plugins.Initialize(settings);
         Check(SUCCEEDED(result) && plugins.ProviderCount() == 1 && plugins.WidgetCount() == 2 &&
-                  plugins.WindowWidgetAt(0) != nullptr && plugins.WindowWidgetAt(1) != nullptr &&
-                  plugins.GpuWidgetAt(0) == nullptr && plugins.GpuWidgetAt(1) == nullptr,
-              L"two Process Viewers share one widget provider", success);
+                  plugins.GpuWidgetAt(0) != nullptr && plugins.GpuWidgetAt(1) != nullptr &&
+                  plugins.ScheduledWidgetAt(0) != nullptr && plugins.ScheduledWidgetAt(1) != nullptr &&
+                  plugins.WindowWidgetAt(0) == nullptr && plugins.WindowWidgetAt(1) == nullptr,
+              L"two Process Viewers share one widget provider as GPU scheduled widgets", success);
         if (FAILED(result))
         {
             return;
@@ -922,6 +923,142 @@ void TestProcessViewerSubscription(bool& success) noexcept
     Check(SUCCEEDED(finalResult) && finalDiagnostics.liveProviderCount == 0 && finalDiagnostics.liveWidgetCount == 0 &&
               finalDiagnostics.liveSubscriptionCount == 0,
           L"Process Viewer teardown releases provider, widget, and subscription objects", success);
+}
+
+void TestSystemDataViewers(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] System Data GPU viewer family\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"name":"System","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":3,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.system-pulse"}},{"sizeRatio":1,"widget":{"plugin":"builtin.cpu-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.memory-meter"}}]},{"sizeRatio":4,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer"}},{"sizeRatio":1,"widget":{"plugin":"builtin.gpu-processes"}}]},{"sizeRatio":3,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.network-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.storage-meter"}}]},{"sizeRatio":3,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gpu-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.thermal-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.power-meter"}}]}]}}]})json";
+
+    AttachedHostWindow window;
+    HRESULT result = window.Initialize(kHostWidth, kHostHeight);
+    AppSettings settings{};
+    if (SUCCEEDED(result))
+    {
+        result = ParseAppSettingsJson(settingsJson, settings);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    Check(SUCCEEDED(result) && plugins.ProviderCount() == 10 && plugins.WidgetCount() == 10,
+          L"System page creates ten GPU viewer providers", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+    bool allGpu = true;
+    bool anyWindow = false;
+    for (size_t index = 0; index < plugins.WidgetCount(); ++index)
+    {
+        allGpu = allGpu && plugins.GpuWidgetAt(index) != nullptr && plugins.ScheduledWidgetAt(index) != nullptr;
+        anyWindow = anyWindow || plugins.WindowWidgetAt(index) != nullptr;
+    }
+    Check(allGpu && !anyWindow, L"every System Data viewer exposes GPU and scheduled interfaces", success);
+
+    DashboardHost dashboard;
+    result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    Check(SUCCEEDED(result) && !dashboard.RequiresContinuousFrames(),
+          L"System page attaches without continuous animation", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    Renderer renderer;
+    result = renderer.Initialize(window.Get(), true, dashboard);
+    Check(SUCCEEDED(result), L"System page initializes a hidden WARP swap chain", success);
+    if (FAILED(result))
+    {
+        dashboard.Shutdown();
+        return;
+    }
+
+    result = dashboard.SetWidgetsVisible(true);
+    ProcessViewerTestDiagnostics diagnostics{};
+    const ULONGLONG deadline = GetTickCount64() + 5000;
+    while (SUCCEEDED(result) && GetTickCount64() < deadline)
+    {
+        window.PumpMessages();
+        result = ReadProcessViewerDiagnostics(diagnostics);
+        if (FAILED(result) || diagnostics.sampleCount > 0)
+        {
+            break;
+        }
+        (void)MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    }
+    Check(SUCCEEDED(result) && diagnostics.sampleCount > 0 && diagnostics.liveSubscriptionCount >= 10,
+          L"visible System page delivers snapshots on shared ProcessViewer subscriptions", success);
+
+    LARGE_INTEGER frequency{};
+    LARGE_INTEGER start{};
+    LARGE_INTEGER stop{};
+    QueryPerformanceFrequency(&frequency);
+    for (uint32_t frame = 0; frame < 8; ++frame)
+    {
+        result = renderer.Render(static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+        if (FAILED(result))
+        {
+            break;
+        }
+    }
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 10,
+          L"WARP renders every System Data GPU widget", success);
+
+    renderer.Shutdown();
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Initialize(window.Get(), true, dashboard);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(0.25f, 1.0f / 60.0f);
+    }
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 10,
+          L"System Data widgets rebuild after device loss", success);
+
+    QueryPerformanceCounter(&start);
+    constexpr uint32_t kMeasuredFrames = 32;
+    for (uint32_t frame = 0; frame < kMeasuredFrames; ++frame)
+    {
+        result = renderer.Render(0.5f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+        if (FAILED(result))
+        {
+            break;
+        }
+    }
+    QueryPerformanceCounter(&stop);
+    const double meanMs =
+        (static_cast<double>(stop.QuadPart - start.QuadPart) * 1000.0 / static_cast<double>(frequency.QuadPart)) /
+        static_cast<double>(kMeasuredFrames);
+    Check(SUCCEEDED(result) && meanMs < 50.0, L"System-page WARP CPU submit stays interactive", success);
+    std::wcout << L"[       -- ] System page WARP mean frame " << meanMs << L" ms\n";
+
+    uint32_t delay = 0;
+    Check(dashboard.GetNextFrameDelayMilliseconds(&delay) == S_OK && delay >= 1,
+          L"settled System page publishes a scheduled delay", success);
+
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.SetWidgetsVisible(false);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ReadProcessViewerDiagnostics(diagnostics);
+    }
+    const uint32_t quiescedSampleCount = diagnostics.sampleCount;
+    std::this_thread::sleep_for(std::chrono::milliseconds(2200));
+    if (SUCCEEDED(result))
+    {
+        result = ReadProcessViewerDiagnostics(diagnostics);
+    }
+    Check(SUCCEEDED(result) && diagnostics.sampleCount == quiescedSampleCount,
+          L"hiding the System page drains every data subscription", success);
+
+    renderer.Shutdown();
+    dashboard.Shutdown();
 }
 
 void TestDebugHostComposition(bool& success) noexcept
@@ -1521,6 +1658,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestDebugHostComposition(success);
     TestDataProviderLookup(success);
     TestProcessViewerSubscription(success);
+    TestSystemDataViewers(success);
     TestNonDivisibleGridEdges(success);
     std::wcout << (success ? L"HostPluginTests passed.\n" : L"HostPluginTests failed.\n");
     return success ? 0 : 1;

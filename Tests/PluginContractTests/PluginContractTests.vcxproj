@@ -80,6 +80,11 @@
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
+    <ProjectReference Include="..\..\Plugins\ProcessViewer\ProcessViewer.vcxproj">
+      <Project>{D27760F5-D924-46EE-8139-B36726672731}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

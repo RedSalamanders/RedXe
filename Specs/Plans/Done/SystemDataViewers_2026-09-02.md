@@ -1,7 +1,8 @@
-# System Data viewers in Process Viewer
+# Done: System Data viewers in Process Viewer
 
-Status: `ACTIVE` — implementation plan for settings-visible System Data widgets
+Status: `COMPLETE`
 Created: 2026-09-02
+Completed: 2026-09-02
 Owner: bundled GPU widgets, dashboard templates, and host module catalog
 
 ## Goal
@@ -18,8 +19,8 @@ Owning contracts that this plan will change: [`../../Plugins/Plugins_API.md`](..
 and [`../../Core/Core_PerformanceAndResources.md`](../../Core/Core_PerformanceAndResources.md).
 
 Related work:
-[`PluginDashboardRemainingCloseout_2026-09-02.md`](PluginDashboardRemainingCloseout_2026-09-02.md) and
-[`../Done/SystemDataMetricsExpansion_2026-09-01.md`](../Done/SystemDataMetricsExpansion_2026-09-01.md).
+[`../WIP/PluginDashboardRemainingCloseout_2026-09-02.md`](../WIP/PluginDashboardRemainingCloseout_2026-09-02.md) and
+[`SystemDataMetricsExpansion_2026-09-01.md`](SystemDataMetricsExpansion_2026-09-01.md).
 
 ## Selected product
 
@@ -174,18 +175,18 @@ System.
 
 ## Checklist
 
-- [ ] Share `ProcessViewer.dll` across unique plugin IDs in the bundled catalog and `PluginHost`.
-- [ ] Coalesce UI-thread frame invalidation after GPU data-sink delivery.
-- [ ] Convert Process Viewer to GPU/scheduled and implement the nine sibling widgets with shared device resources and
+- [x] Share `ProcessViewer.dll` across unique plugin IDs in the bundled catalog and `PluginHost`.
+- [x] Coalesce UI-thread frame invalidation after GPU data-sink delivery.
+- [x] Convert Process Viewer to GPU/scheduled and implement the nine sibling widgets with shared device resources and
       the motion catalog above.
-- [ ] Keep Process Viewer columns, `topN`, hide/show drain, and host-provider sharing.
-- [ ] Add the System page to both shipped templates and update schema/parser/catalog together.
-- [ ] Update `Plugins_API.md`, `Core_Settings.md`, `UI_Dashboard.md`, and resource validation, including Process
+- [x] Keep Process Viewer columns, `topN`, hide/show drain, and host-provider sharing.
+- [x] Add the System page to both shipped templates and update schema/parser/catalog together.
+- [x] Update `Plugins_API.md`, `Core_Settings.md`, `UI_Dashboard.md`, and resource validation, including Process
       Viewer no longer being a window widget.
-- [ ] Add contract, settings, WARP, device-loss, and host tests for the new IDs and the System page.
-- [ ] Record the System-page WARP measurement; take the primitive-batching gate if it fails.
-- [ ] `.\format.ps1`, Debug and Release x64 `.\test.ps1`, ARM64 Debug and Release compile, `.\validate-skills.ps1`.
-- [ ] Move this plan to `Specs/Plans/Done/` when the contracts, templates, and tests agree.
+- [x] Add contract, settings, WARP, device-loss, and host tests for the new IDs and the System page.
+- [x] Record the System-page WARP measurement; take the primitive-batching gate if it fails.
+- [x] `.\format.ps1`, Debug and Release x64 `.\test.ps1`, ARM64 Debug and Release compile, `.\validate-skills.ps1`.
+- [x] Move this plan to `Specs/Plans/Done/` when the contracts, templates, and tests agree.
 
 ## Exit criteria
 
@@ -193,3 +194,8 @@ This plan is complete when every catalog widget is a Direct3D scheduled widget w
 templates show the System page with one live instance of each, optional-empty hardware still renders honestly,
 subscriptions stay within the host cap, a settled page does not run continuous frames, the WARP gate passes or host
 batching is implemented, and every durable rule lives in the owning domain contracts rather than only here.
+
+Closeout evidence (2026-09-02): Debug and Release x64 `test.ps1` passed (crash-harness leftover exit 17). ARM64 Debug
+and Release compiled. Release x64 System-page WARP at 2560×720 measured 8.24 ms mean full-frame `Renderer::Render`
+(32 frames); Debug was 8.25 ms. WARP Present dominates, so host primitive batching was not added. Durable rules live
+in `Plugins_API.md`, `Core_Settings.md`, `UI_Dashboard.md`, and `Core_PerformanceAndResources.md`.

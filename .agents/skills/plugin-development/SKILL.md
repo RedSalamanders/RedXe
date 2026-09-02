@@ -32,12 +32,19 @@ Preserve these boundaries:
   process teardown.
 - When adding or removing a settings-visible bundled widget, update `RedXe/BundledPlugins.h`, schema/parser support,
   and real placed examples in both shipped settings templates in the same change. Template validation iterates this
-  catalog and must fail when either default omits the plugin.
+  catalog and must fail when either default omits the plugin. Catalog plugin IDs and type IDs stay unique; module names
+  MAY repeat. `PluginHost` maps a shared DLL once and copies exports to sibling slots; optional shutdown runs only on
+  the owning slot.
+- After delivering a snapshot to an active GPU data sink, `PluginHost` coalesces one UI-thread frame invalidation so
+  scheduled GPU widgets can start an ease without a child HWND.
 - Keep every widget declaration in `Widget.h` and every data declaration in `Data.h`. Generic widgets expose GPU,
   scheduled, and native-window mechanisms through sibling IIDs; never add a plugin's geometry, shader, or drawing
   commands to the generic root.
 - GPU widgets receive a borrowed D3D11 device during setup and immediate context during rendering. They never receive
-  the HWND, swap chain, or back buffer. Share immutable device resources across compatible instances.
+  the HWND, swap chain, or back buffer. Share immutable device resources across compatible instances. System Data GPU
+  viewers pick a density rung from the widget rectangle, grow type with leftover height among visible rows, omit
+  content that does not fit below type floors of 15 / 17 / 28 / 44 px, and join `gpu.process` names from
+  `process.list` without adding a new dataset ID.
 - Window widgets receive only a borrowed host-owned child container and own all children, timers, controllers, and GDI
   resources they create. Every widget quiesces visibility-dependent work in `IRedXeWidget::SetVisible(FALSE)`;
   window widgets destroy their children before `Detach` returns.

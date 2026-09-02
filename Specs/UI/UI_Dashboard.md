@@ -1,7 +1,7 @@
 # RedXe adaptive dashboard and page-navigation contract
 
 Status: current normative product contract
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-02
 Owner: `DashboardHost` layout, active-page composition, and page navigation
 
 ## Scope
@@ -90,8 +90,10 @@ Orientation is runtime state and MUST NOT appear in settings.
   native/GPU edges.
 - Host tests prove first-page startup, blank pages, dynamic reflow, active-page-only creation, transactional switching,
   and WARP rendering.
-- Host tests prove that the full-canvas Process Viewer page activates data collection only while visible and releases
-  its native-window and subscription resources when the page is no longer active.
+- Host tests prove that Process Viewer and the System Data GPU family activate data collection only while visible,
+  expose GPU and scheduled interfaces rather than native-window widgets, request no continuous frames when settled, and
+  drain subscriptions when the page is no longer active. The shipped `System` page places one instance of each family
+  widget.
 - Host tests prove that Studio Clock pages remain non-continuous, aggregate guarded next-boundary delays, coalesce a
   wall-clock correction, add no resources or deadline while inactive, and stop scheduled work in every blocked state.
 - Host tests prove that Desk Clock pages remain non-continuous, request the next-second boundary while static, request

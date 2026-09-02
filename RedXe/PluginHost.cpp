@@ -42,8 +42,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
 [[nodiscard]] HRESULT BuildPluginPath(const wchar_t* moduleName, wchar_t* path, size_t capacity) noexcept
 {
-    if (!moduleName || moduleName[0] == L'\0' || !path || capacity == 0 ||
-        capacity > static_cast<size_t>(MAXDWORD))
+    if (!moduleName || moduleName[0] == L'\0' || !path || capacity == 0 || capacity > static_cast<size_t>(MAXDWORD))
     {
         return E_INVALIDARG;
     }
@@ -234,8 +233,7 @@ class PluginHost::DataProvider final : public IRedXeDataProvider
         return references;
     }
 
-    HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors,
-                                          uint32_t* count) noexcept override
+    HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors, uint32_t* count) noexcept override
     {
         return _host ? _host->GetDataSets(_providerIndex, descriptors, count) : E_UNEXPECTED;
     }
@@ -255,8 +253,7 @@ class PluginHost::DataProvider final : public IRedXeDataProvider
 class PluginHost::Subscription final : public IRedXeDataSubscription
 {
   public:
-    Subscription(PluginHost& host, size_t index, uint64_t token) noexcept
-        : _host(&host), _index(index), _token(token)
+    Subscription(PluginHost& host, size_t index, uint64_t token) noexcept : _host(&host), _index(index), _token(token)
     {
     }
 
@@ -414,8 +411,88 @@ HRESULT PluginHost::LoadModule(const RedXeBundledPluginSpec& spec, ModuleSlot& s
     return S_OK;
 }
 
-HRESULT PluginHost::GetPluginModule(const char* pluginId, uint32_t requiredCapabilities,
-                                    ModuleView* module) noexcept
+HRESULT PluginHost::AttachSharedModule(const ModuleSlot& owner, const char* pluginId, ModuleSlot& slot) noexcept
+{
+    if (!owner.enumerate || !owner.create || slot.module || slot.create)
+    {
+        return E_UNEXPECTED;
+    }
+
+    const RedXePluginMetadata* metadata = nullptr;
+    uint32_t metadataCount = 0;
+    HRESULT result = owner.enumerate(&metadata, &metadataCount);
+    uint32_t capabilities = RedXePluginCapabilityNone;
+    if (SUCCEEDED(result))
+    {
+        result = ValidateMetadata(metadata, metadataCount, pluginId, capabilities);
+    }
+    if (FAILED(result))
+    {
+        return result;
+    }
+
+    slot.create = owner.create;
+    slot.enumerate = owner.enumerate;
+    slot.getSettingsContract = owner.getSettingsContract;
+    slot.shutdown = owner.shutdown;
+    slot.capabilities = capabilities;
+    return S_OK;
+}
+
+HRESULT PluginHost::BindModule(const RedXeBundledPluginSpec& spec, ModuleSlot& slot) noexcept
+{
+    if (slot.create)
+    {
+        return S_OK;
+    }
+    for (size_t index = 0; index < kRedXeBundledPlugins.size(); ++index)
+    {
+        const ModuleSlot& candidate = _modules[index];
+        if (!candidate.module || !candidate.create || !candidate.enumerate)
+        {
+            continue;
+        }
+        if (std::wcscmp(kRedXeBundledPlugins[index].moduleName, spec.moduleName) != 0)
+        {
+            continue;
+        }
+        return AttachSharedModule(candidate, spec.pluginId, slot);
+    }
+    return LoadModule(spec, slot);
+}
+
+void PluginHost::SetUiInvalidateTarget(HWND window) noexcept
+{
+    _uiWindow.store(window, std::memory_order_release);
+    if (!window)
+    {
+        _pendingInvalidate.store(0, std::memory_order_release);
+    }
+}
+
+void PluginHost::AcknowledgeUiInvalidate() noexcept
+{
+    _pendingInvalidate.store(0, std::memory_order_release);
+}
+
+void PluginHost::RequestUiInvalidate() noexcept
+{
+    const HWND window = _uiWindow.load(std::memory_order_acquire);
+    if (!window)
+    {
+        return;
+    }
+    if (_pendingInvalidate.exchange(1, std::memory_order_acq_rel) != 0)
+    {
+        return;
+    }
+    if (!PostMessageW(window, kDataSnapshotInvalidateMessage, 0, 0))
+    {
+        _pendingInvalidate.store(0, std::memory_order_release);
+    }
+}
+
+HRESULT PluginHost::GetPluginModule(const char* pluginId, uint32_t requiredCapabilities, ModuleView* module) noexcept
 {
     if (module)
     {
@@ -434,9 +511,9 @@ HRESULT PluginHost::GetPluginModule(const char* pluginId, uint32_t requiredCapab
     const RedXeBundledPluginSpec& spec = kRedXeBundledPlugins[pluginIndex];
     ModuleSlot& slot = _modules[pluginIndex];
     HRESULT result = S_OK;
-    if (!slot.module)
+    if (!slot.create)
     {
-        result = LoadModule(spec, slot);
+        result = BindModule(spec, slot);
     }
     if (FAILED(result))
     {
@@ -649,8 +726,8 @@ HRESULT PluginHost::EnsureWorker() noexcept
     return S_OK;
 }
 
-HRESULT PluginHost::Subscribe(size_t providerIndex, const RedXeDataSubscriptionOptions* options,
-                              IRedXeDataSink* sink, IRedXeDataSubscription** subscription) noexcept
+HRESULT PluginHost::Subscribe(size_t providerIndex, const RedXeDataSubscriptionOptions* options, IRedXeDataSink* sink,
+                              IRedXeDataSubscription** subscription) noexcept
 {
     if (subscription)
     {
@@ -770,22 +847,27 @@ void PluginHost::RemoveSubscription(size_t index, uint64_t token) noexcept
     }
 }
 
-void PluginHost::Deliver(size_t providerIndex, size_t dataSetIndex,
-                         const RedXeDataSnapshot* snapshot) noexcept
+void PluginHost::Deliver(size_t providerIndex, size_t dataSetIndex, const RedXeDataSnapshot* snapshot) noexcept
 {
     if (!snapshot)
     {
         return;
     }
+    bool delivered = false;
     AcquireSRWLockShared(&_subscriptionLock);
     for (SubscriptionSlot& slot : _subscriptions)
     {
         if (slot.sink && slot.active && slot.providerIndex == providerIndex && slot.dataSetIndex == dataSetIndex)
         {
             (void)slot.sink->OnDataSnapshot(snapshot);
+            delivered = true;
         }
     }
     ReleaseSRWLockShared(&_subscriptionLock);
+    if (delivered)
+    {
+        RequestUiInvalidate();
+    }
 }
 
 void PluginHost::Worker() noexcept
@@ -942,7 +1024,7 @@ void PluginHost::ShutdownModules() noexcept
     for (size_t index = _modules.size(); index > 0; --index)
     {
         ModuleSlot& slot = _modules[index - 1];
-        if (slot.shutdown)
+        if (slot.module && slot.shutdown)
         {
             slot.shutdown();
         }

@@ -121,9 +121,13 @@ try {
     [void](New-Item -ItemType Directory -Path $presentationTestRoot -Force)
 
     $bannerText = @(& { Write-RedXeBuildBanner -UseColor $false } 6>&1 | ForEach-Object { $_.ToString() }) -join "`n"
-    if ($bannerText -notmatch 'RRRR\s+EEEEE\s+DDDD' -or
+    $fullBlock = [char]0x2588
+    $boxTopLeft = [char]0x2554
+    $blockCount = @($bannerText.ToCharArray() | Where-Object { $_ -eq $fullBlock }).Count
+    if ($blockCount -lt 50 -or
+        $bannerText.IndexOf($boxTopLeft) -lt 0 -or
         $bannerText -notmatch 'XENEON EDGE // BUILD SIGNAL LOCKED') {
-        throw "The RedXe banner lost its product identity or build-signal signature: $bannerText"
+        throw "The RedXe banner lost its framed product mark or build-signal signature: $bannerText"
     }
 
     $redirectedInteractive = Test-RedXeInteractiveTerminal `

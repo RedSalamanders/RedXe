@@ -266,16 +266,16 @@ struct RenderTarget final
     return Readback(target);
 }
 
-[[nodiscard]] std::array<std::uint8_t, 4> PixelAt(const std::vector<std::uint8_t>& pixels, uint32_t width,
-                                                  uint32_t x, uint32_t y)
+[[nodiscard]] std::array<std::uint8_t, 4> PixelAt(const std::vector<std::uint8_t>& pixels, uint32_t width, uint32_t x,
+                                                  uint32_t y)
 {
     const size_t offset = (static_cast<size_t>(y) * width + x) * 4U;
     Expect(offset + 3 < pixels.size(), "pixel coordinate is outside the readback");
     return {pixels[offset], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3]};
 }
 
-[[nodiscard]] std::uint8_t MaximumChannelNear(const std::vector<std::uint8_t>& pixels, uint32_t width,
-                                              uint32_t height, float x, float y, uint32_t channel)
+[[nodiscard]] std::uint8_t MaximumChannelNear(const std::vector<std::uint8_t>& pixels, uint32_t width, uint32_t height,
+                                              float x, float y, uint32_t channel)
 {
     const int centerX = static_cast<int>(std::lround(x));
     const int centerY = static_cast<int>(std::lround(y));
@@ -311,8 +311,8 @@ struct ClockLayout final
     return ClockLayout{square, (viewportWidth - square) * 0.5f, (viewportHeight - compositionHeight) * 0.5f};
 }
 
-[[nodiscard]] uint32_t CountActiveRingDots(const std::vector<std::uint8_t>& pixels, uint32_t width,
-                                                uint32_t height, bool showDate = false)
+[[nodiscard]] uint32_t CountActiveRingDots(const std::vector<std::uint8_t>& pixels, uint32_t width, uint32_t height,
+                                           bool showDate = false)
 {
     const ClockLayout layout = LayoutFor(width, height, showDate);
     const float square = layout.square;
@@ -335,7 +335,7 @@ struct ClockLayout final
 }
 
 [[nodiscard]] uint32_t CountActiveFiveSecondDots(const std::vector<std::uint8_t>& pixels, uint32_t width,
-                                                      uint32_t height, bool showDate = false)
+                                                 uint32_t height, bool showDate = false)
 {
     const ClockLayout layout = LayoutFor(width, height, showDate);
     const float square = layout.square;
@@ -365,8 +365,8 @@ struct ClockLayout final
     return diagnostics;
 }
 
-void SetTime(const Exports& exports, uint16_t year, uint16_t month, uint16_t day, uint16_t hour,
-             uint16_t minute, uint16_t second, uint16_t milliseconds)
+void SetTime(const Exports& exports, uint16_t year, uint16_t month, uint16_t day, uint16_t hour, uint16_t minute,
+             uint16_t second, uint16_t milliseconds)
 {
     const StudioClockTestTime time{sizeof(StudioClockTestTime), year, month, day, hour, minute, second, milliseconds};
     Expect(exports.setTime(&time) == S_OK, "Studio Clock deterministic time was rejected");
@@ -739,19 +739,18 @@ void ValidateRendering(const Exports& exports)
            "Studio Clock active five-second emphasis did not use secondsColor");
     const float colorfulClockBottom = colorfulLayout.originY + colorfulLayout.square;
     const float colorfulDateY = colorfulLayout.originY + 1.062f * colorfulLayout.square;
-    Expect(
-        colorfulDateY > colorfulClockBottom &&
-            MaximumChannelNear(pixels, target.width, target.height,
-                               colorfulLayout.originX + 0.38125f * colorfulLayout.square, colorfulDateY, 2) > 180 &&
-            MaximumChannelNear(pixels, target.width, target.height,
-                               colorfulLayout.originX + 0.51625f * colorfulLayout.square, colorfulDateY, 2) > 180 &&
-            PixelAt(pixels, target.width,
-                    static_cast<uint32_t>(std::lround(colorfulLayout.originX + 0.40025f * colorfulLayout.square)),
-                    static_cast<uint32_t>(std::lround(colorfulDateY)))[2] < 100 &&
-            PixelAt(pixels, target.width,
-                    static_cast<uint32_t>(std::lround(colorfulLayout.originX + 0.53525f * colorfulLayout.square)),
-                    static_cast<uint32_t>(std::lround(colorfulDateY)))[2] < 100,
-        "Studio Clock date was not rendered below the square clock");
+    Expect(colorfulDateY > colorfulClockBottom &&
+               MaximumChannelNear(pixels, target.width, target.height,
+                                  colorfulLayout.originX + 0.38125f * colorfulLayout.square, colorfulDateY, 2) > 180 &&
+               MaximumChannelNear(pixels, target.width, target.height,
+                                  colorfulLayout.originX + 0.51625f * colorfulLayout.square, colorfulDateY, 2) > 180 &&
+               PixelAt(pixels, target.width,
+                       static_cast<uint32_t>(std::lround(colorfulLayout.originX + 0.40025f * colorfulLayout.square)),
+                       static_cast<uint32_t>(std::lround(colorfulDateY)))[2] < 100 &&
+               PixelAt(pixels, target.width,
+                       static_cast<uint32_t>(std::lround(colorfulLayout.originX + 0.53525f * colorfulLayout.square)),
+                       static_cast<uint32_t>(std::lround(colorfulDateY)))[2] < 100,
+           "Studio Clock date was not rendered below the square clock");
     colorfulWidget.gpu->OnDeviceLost();
 
     std::vector<std::uint8_t> priorDate;
@@ -856,8 +855,7 @@ void ValidateSharedResourcesAndToggles(const Exports& exports)
         Expect(widget.gpu->OnDeviceCreated(&deviceContext) == S_OK, "Studio Clock toggle device failed");
         SetTime(exports, 2024, 2, 29, 8, 7, 6, 0);
         Expect(RenderOnly(*widget.gpu, target) == S_OK, "Studio Clock toggle render failed");
-        const uint32_t expectedInstances =
-            114U + (seconds ? 42U : 0U) + (date ? 174U : 0U) + (progress ? 72U : 0U);
+        const uint32_t expectedInstances = 114U + (seconds ? 42U : 0U) + (date ? 174U : 0U) + (progress ? 72U : 0U);
         Expect(Diagnostics(exports).lastInstanceCount == expectedInstances,
                "Studio Clock toggle instance bound is wrong");
         widget.gpu->OnDeviceLost();
@@ -893,8 +891,7 @@ void ValidateSharedResourcesAndToggles(const Exports& exports)
     return counters;
 }
 
-[[nodiscard]] double MeasureGpuMillisecondsPerFrame(IRedXeGpuWidget& widget, RenderTarget& target,
-                                                    uint32_t frameCount)
+[[nodiscard]] double MeasureGpuMillisecondsPerFrame(IRedXeGpuWidget& widget, RenderTarget& target, uint32_t frameCount)
 {
     D3D11_QUERY_DESC description{};
     description.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;

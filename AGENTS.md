@@ -92,6 +92,7 @@ Plugins/
   RotatingTriangle/ First bundled widget-provider DLL
   GdiOrbit/         Double-buffered GDI window-widget DLL
   MatrixRain/       Production low-resource Direct3D digital-rain DLL
+  ProcessViewer/    System Data GPU viewers sharing one Direct3D DLL
 RedXe/
   Main.cpp          Process setup and command-line modes
   Application.*     Win32 window and message-loop lifetime

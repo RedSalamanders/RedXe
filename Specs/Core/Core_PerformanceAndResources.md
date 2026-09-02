@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-02
 
 ## Mandate
 
@@ -118,6 +118,20 @@ collection references do not survive initialization. The larger atlas preserves 
 while keeping inactive discovery and the steady path free of font work, frame uploads, additional draws, allocations,
 state changes, and wake-ups.
 
+The Process Viewer family is a sample-driven `IRedXeGpuWidget` plus `IRedXeScheduledWidget` set in one DLL. Ten
+settings-visible widgets share one device resource hub: build-time Shader Model 5.0 blobs, one instanced pipeline, one
+1024×1024 `R8` atlas, and one dynamic instance buffer. Each visible widget frame maps that buffer and issues one
+`DrawInstanced`. DirectWrite loads only while filling new atlas glyphs, then releases. Ranked lists copy at most
+`topN` rows; the CPU heatmap stores at most 64 display cells. Sparkline history is 60 samples of widget-local fixed
+storage. Eases last 320 ms; `GetNextFrameDelayMilliseconds` returns 1 while an ease or pulse is in flight, then the
+dataset interval. A settled System page MUST NOT set continuous animation. Hidden, minimized, suspended, occluded, and
+display-off states stop eases and drain subscriptions; recovery draws current values and does not replay missed
+motion. Snapshot copy stays on the acquisition worker. After delivery, the host coalesces one UI-thread invalidation.
+This family remains on the immediate-context GPU path. Release x64 `HostPluginTests` at 2560×720 measured an 8.24 ms
+mean production `Renderer::Render` over 32 frames after warmup and device-loss rebuild (Debug was 8.25 ms). The
+near-identical Debug and Release times show WARP Present of the full swap chain dominates; each visible widget issues
+one instance-buffer map and one `DrawInstanced`. That measurement does not justify a host primitive-batching IID.
+
 ## ABI and data-layout rules
 
 - Hot ABI records contain only fields consumed on the hot path. They do not carry speculative reserved arrays.
@@ -165,7 +179,9 @@ observable resource benefit are not required.
   growth or source storage of 16 MiB or more. Release x64 must also time each catalog dataset and one full-catalog batch
   (`SystemDataTests --domains`) and fail only on collect failure or a hang exceeding five seconds per collection.
   Collecting every dataset MUST NOT load `wbemprox.dll`, `fastprox.dll`, or `wbemcomn.dll`. The host integration test
-  must leave Process Viewer hidden for longer than the dataset interval and observe no additional delivered sample. The
+  must leave Process Viewer and the System page hidden for longer than the dataset interval and observe no additional
+  delivered sample. `HostPluginTests` must also prove the ten System Data viewers are GPU scheduled widgets, render on
+  hidden WARP at 2560×720, rebuild after device loss, and stay non-continuous when settled. The
   host subscription cap remains 32; a 128-subscription source cap was not adopted.
 - Low-cadence scheduling changes must test second/minute boundary aggregation, continuous-animation supersession,
   unrelated-message behavior, inactive visibility/power states, and a scheduled production-host soak. Studio Clock

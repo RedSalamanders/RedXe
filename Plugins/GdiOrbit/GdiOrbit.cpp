@@ -693,8 +693,7 @@ extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryO
 
 extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
 {
-    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata,
-                                         count);
+    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata, count);
 }
 
 extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId,

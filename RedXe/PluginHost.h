@@ -33,9 +33,13 @@ class PluginHost final : public IRedXeHost
     PluginHost(PluginHost&&) = delete;
     PluginHost& operator=(PluginHost&&) = delete;
 
+    static constexpr UINT kDataSnapshotInvalidateMessage = WM_APP + 3;
+
     [[nodiscard]] IRedXeHost* Interface() noexcept;
     [[nodiscard]] HRESULT GetPluginModule(const char* pluginId, uint32_t requiredCapabilities,
                                           ModuleView* module) noexcept;
+    void SetUiInvalidateTarget(HWND window) noexcept;
+    void AcknowledgeUiInvalidate() noexcept;
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override;
     ULONG STDMETHODCALLTYPE AddRef() noexcept override;
@@ -89,6 +93,9 @@ class PluginHost final : public IRedXeHost
     };
 
     [[nodiscard]] HRESULT LoadModule(const RedXeBundledPluginSpec& spec, ModuleSlot& slot) noexcept;
+    [[nodiscard]] HRESULT BindModule(const RedXeBundledPluginSpec& spec, ModuleSlot& slot) noexcept;
+    [[nodiscard]] HRESULT AttachSharedModule(const ModuleSlot& owner, const char* pluginId, ModuleSlot& slot) noexcept;
+    void RequestUiInvalidate() noexcept;
     [[nodiscard]] HRESULT EnsureProvider(const char* providerId, size_t& providerIndex) noexcept;
     [[nodiscard]] HRESULT ValidateDataSets(ProviderRuntime& runtime) noexcept;
     [[nodiscard]] HRESULT EnsureWorker() noexcept;
@@ -113,4 +120,6 @@ class PluginHost final : public IRedXeHost
     wil::unique_event_nothrow _changeEvent;
     std::jthread _worker;
     uint64_t _nextToken = 1;
+    std::atomic<HWND> _uiWindow{nullptr};
+    std::atomic<uint32_t> _pendingInvalidate{0};
 };

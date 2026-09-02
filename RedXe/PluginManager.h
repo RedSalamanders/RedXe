@@ -31,6 +31,8 @@ class PluginManager final
 
     [[nodiscard]] HRESULT Initialize(const AppSettings& settings) noexcept;
     [[nodiscard]] HRESULT Reconfigure(const AppSettings& settings) noexcept;
+    void SetUiInvalidateTarget(HWND window) noexcept;
+    void AcknowledgeUiInvalidate() noexcept;
     [[nodiscard]] size_t ProviderCount() const noexcept;
     [[nodiscard]] size_t WidgetCount() const noexcept;
     [[nodiscard]] IRedXeWidget* WidgetAt(size_t index) const noexcept;
@@ -72,8 +74,7 @@ class PluginManager final
     };
 
     [[nodiscard]] HRESULT CreateBundledProvider(const char* pluginId, const char* configurationJson,
-                                                uint32_t configurationBytes,
-                                                IRedXeWidgetProvider** provider) noexcept;
+                                                uint32_t configurationBytes, IRedXeWidgetProvider** provider) noexcept;
     [[nodiscard]] HRESULT CreateWidgetInstance(IRedXeWidgetProvider& provider, const WidgetInstanceSettings& settings,
                                                WidgetSlot& widgetSlot) noexcept;
     [[nodiscard]] HRESULT StageActivePage(const AppSettings& settings,

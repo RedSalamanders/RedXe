@@ -101,8 +101,7 @@ template <typename Function> [[nodiscard]] Function ResolveExport(HMODULE module
 
 [[nodiscard]] uint64_t LuidValue(const LUID& luid) noexcept
 {
-    return (static_cast<uint64_t>(static_cast<uint32_t>(luid.HighPart)) << 32) |
-           static_cast<uint64_t>(luid.LowPart);
+    return (static_cast<uint64_t>(static_cast<uint32_t>(luid.HighPart)) << 32) | static_cast<uint64_t>(luid.LowPart);
 }
 
 void CopyWide(wchar_t* destination, size_t destinationCount, const wchar_t* source) noexcept
@@ -285,8 +284,8 @@ void RefreshKmtAdapters(RedXeGpuState& state) noexcept
         return;
     }
     const uint32_t count = enumerate.NumAdapters > kRedXeMaximumGpuAdapters
-                                    ? static_cast<uint32_t>(kRedXeMaximumGpuAdapters)
-                                    : enumerate.NumAdapters;
+                               ? static_cast<uint32_t>(kRedXeMaximumGpuAdapters)
+                               : enumerate.NumAdapters;
     for (uint32_t index = 0; index < count; ++index)
     {
         state.kmtHandles[index] = adapters[index].hAdapter;

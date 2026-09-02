@@ -26,8 +26,8 @@ constexpr float kDesignHeight = 720.0f;
     return static_cast<LONG>((doubled + divisions) / (static_cast<uint64_t>(divisions) * 2U));
 }
 
-[[nodiscard]] RECT ToPixelBounds(const WidgetGridPlacement& placement, uint32_t columns, uint32_t rows,
-                                 UINT width, UINT height) noexcept
+[[nodiscard]] RECT ToPixelBounds(const WidgetGridPlacement& placement, uint32_t columns, uint32_t rows, UINT width,
+                                 UINT height) noexcept
 {
     return RECT{
         RoundGridEdge(placement.column, width, columns),
@@ -215,6 +215,7 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
     }
 
     _pluginManager = &pluginManager;
+    pluginManager.SetUiInvalidateTarget(parent);
     _placements = placements;
     _gridPlacements = gridPlacements;
     _adaptivePlacements = adaptivePlacements;
@@ -347,6 +348,7 @@ void DashboardHost::Shutdown() noexcept
     }
 
     (void)SetWidgetsVisible(false);
+    _pluginManager->SetUiInvalidateTarget(nullptr);
     for (size_t index = _widgetCount; index > 0; --index)
     {
         const size_t widgetIndex = index - 1;

@@ -15,6 +15,47 @@ struct RedXeFactoryEntry final
     RedXeFactoryCreator create;
 };
 
+struct RedXeSettingsContractEntry final
+{
+    const char* pluginId;
+    const RedXePluginSettingsContract* contract;
+};
+
+[[nodiscard]] inline HRESULT RedXeGetPluginSettingsContractFromEntries(
+    const RedXeSettingsContractEntry* entries, uint32_t entryCount, const char* requestedPluginId,
+    const RedXePluginSettingsContract** contract) noexcept
+{
+    if (contract)
+    {
+        *contract = nullptr;
+    }
+    if (!contract)
+    {
+        return E_POINTER;
+    }
+    if (!entries || entryCount == 0 || entryCount > 256 || !requestedPluginId)
+    {
+        return E_INVALIDARG;
+    }
+    for (uint32_t index = 0; index < entryCount; ++index)
+    {
+        const RedXeSettingsContractEntry& candidate = entries[index];
+        if (!candidate.pluginId || !RedXeAsciiEqualsIgnoreCase(candidate.pluginId, requestedPluginId))
+        {
+            continue;
+        }
+        if (!candidate.contract || candidate.contract->sizeBytes != sizeof(RedXePluginSettingsContract) ||
+            !candidate.contract->schemaJsonUtf8 || candidate.contract->schemaBytes == 0 ||
+            !candidate.contract->defaultsJsonUtf8 || candidate.contract->defaultsBytes == 0)
+        {
+            return E_UNEXPECTED;
+        }
+        *contract = candidate.contract;
+        return S_OK;
+    }
+    return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+}
+
 [[nodiscard]] inline HRESULT RedXeGetStaticPluginSettingsContract(const char* expectedPluginId,
                                                                   const char* requestedPluginId,
                                                                   const RedXePluginSettingsContract* availableContract,
@@ -70,8 +111,7 @@ struct RedXeFactoryEntry final
 }
 
 [[nodiscard]] inline HRESULT RedXeEnumerateFactoryMetadata(const RedXePluginMetadata* availableMetadata,
-                                                           uint32_t metadataCount,
-                                                           const RedXePluginMetadata** metadata,
+                                                           uint32_t metadataCount, const RedXePluginMetadata** metadata,
                                                            uint32_t* count) noexcept
 {
     if (metadata)

@@ -117,45 +117,147 @@ function Get-RedXeBuildInvocationPlan {
     }
 }
 
+function Get-RedXeBuildBannerModel {
+    $block = [char]0x2588
+    $topLeft = [char]0x2554
+    $topRight = [char]0x2557
+    $bottomLeft = [char]0x255A
+    $bottomRight = [char]0x255D
+    $bar = [char]0x2550
+    $vertical = [char]0x2551
+    $space = ' '
+
+    $letterR = @(
+        "$block$block$block$block$block$block$topRight$space",
+        "$block$block$topLeft$bar$bar$block$block$topRight",
+        "$block$block$block$block$block$block$topLeft$bottomRight",
+        "$block$block$topLeft$bar$bar$block$block$topRight",
+        "$block$block$vertical$space$space$block$block$vertical",
+        "$bottomLeft$bar$bottomRight$space$space$bottomLeft$bar$bottomRight"
+    )
+    $letterE = @(
+        "$block$block$block$block$block$block$block$topRight",
+        "$block$block$topLeft$bar$bar$bar$bar$bottomRight",
+        "$block$block$block$block$block$topRight$space$space",
+        "$block$block$topLeft$bar$bar$bottomRight$space$space",
+        "$block$block$block$block$block$block$block$topRight",
+        "$bottomLeft$bar$bar$bar$bar$bar$bar$bottomRight"
+    )
+    $letterD = @(
+        "$block$block$block$block$block$block$topRight$space",
+        "$block$block$topLeft$bar$bar$block$block$topRight",
+        "$block$block$vertical$space$space$block$block$vertical",
+        "$block$block$vertical$space$space$block$block$vertical",
+        "$block$block$block$block$block$block$topLeft$bottomRight",
+        "$bottomLeft$bar$bar$bar$bar$bar$bottomRight$space"
+    )
+    $letterX = @(
+        "$block$block$topRight$space$space$block$block$topRight",
+        "$bottomLeft$block$block$topRight$block$block$topLeft$bottomRight",
+        "$space$bottomLeft$block$block$block$topLeft$bottomRight$space",
+        "$space$block$block$topLeft$block$block$topRight$space",
+        "$block$block$topLeft$bottomRight$space$block$block$topRight",
+        "$bottomLeft$bar$bottomRight$space$space$bottomLeft$bar$bottomRight"
+    )
+
+    $redGlyphs = @(for ($index = 0; $index -lt 6; ++$index) {
+        $letterR[$index] + $letterE[$index] + $letterD[$index]
+    })
+    $xeGlyphs = @(for ($index = 0; $index -lt 6; ++$index) {
+        $letterX[$index] + $letterE[$index]
+    })
+
+    $gap = 2
+    $tagline = 'XENEON EDGE // BUILD SIGNAL LOCKED'
+    $taglineLabel = " $tagline "
+    $artWidth = $redGlyphs[0].Length + $gap + $xeGlyphs[0].Length
+    $innerWidth = 58
+    $artLeftPad = [int][Math]::Floor(($innerWidth - $artWidth) / 2)
+    $artRightPad = $innerWidth - $artWidth - $artLeftPad
+    $taglineLeftBar = [int][Math]::Floor(($innerWidth - $taglineLabel.Length) / 2)
+    $taglineRightBar = $innerWidth - $taglineLabel.Length - $taglineLeftBar
+
+    return [pscustomobject]@{
+        RedGlyphs = @($redGlyphs)
+        XeGlyphs = @($xeGlyphs)
+        Gap = $gap
+        Tagline = $tagline
+        TaglineLabel = $taglineLabel
+        InnerWidth = $innerWidth
+        ArtLeftPad = $artLeftPad
+        ArtRightPad = $artRightPad
+        TaglineLeftBar = $taglineLeftBar
+        TaglineRightBar = $taglineRightBar
+        TopLeft = $topLeft
+        TopRight = $topRight
+        BottomLeft = $bottomLeft
+        BottomRight = $bottomRight
+        Bar = $bar
+        Vertical = $vertical
+        Indent = '  '
+    }
+}
+
+function Write-RedXeBannerChrome {
+    param(
+        [Parameter(Mandatory)]
+        [string] $Text,
+
+        [bool] $UseColor,
+
+        [switch] $NoNewline
+    )
+
+    if ($UseColor) {
+        if ($NoNewline) {
+            Write-Host $Text -ForegroundColor DarkGray -NoNewline
+        }
+        else {
+            Write-Host $Text -ForegroundColor DarkGray
+        }
+    }
+    elseif ($NoNewline) {
+        Write-Host $Text -NoNewline
+    }
+    else {
+        Write-Host $Text
+    }
+}
+
 function Write-RedXeBuildBanner {
     [CmdletBinding()]
     param(
         [bool] $UseColor = $true
     )
 
-    $redGlyphs = @(
-        'RRRR   EEEEE  DDDD   ',
-        'R   R  E      D   D  ',
-        'RRRR   EEEE   D   D  ',
-        'R  R   E      D   D  ',
-        'R   R  EEEEE  DDDD   '
-    )
-    $xeGlyphs = @(
-        'X   X  EEEEE',
-        ' X X   E    ',
-        '  X    EEEE ',
-        ' X X   E    ',
-        'X   X  EEEEE'
-    )
+    $model = Get-RedXeBuildBannerModel
+    $bar = $model.Bar.ToString()
 
     Write-Host ''
-    for ($index = 0; $index -lt $redGlyphs.Count; ++$index) {
+    Write-RedXeBannerChrome -UseColor $UseColor -Text (
+        '{0}{1}{2}{3}' -f $model.Indent, $model.TopLeft, ($bar * $model.InnerWidth), $model.TopRight)
+
+    for ($index = 0; $index -lt $model.RedGlyphs.Count; ++$index) {
+        $leftPad = ' ' * $model.ArtLeftPad
+        $gap = ' ' * $model.Gap
+        $rightPad = ' ' * $model.ArtRightPad
         if ($UseColor) {
-            Write-Host '  ' -NoNewline
-            Write-Host $redGlyphs[$index] -ForegroundColor Red -NoNewline
-            Write-Host $xeGlyphs[$index] -ForegroundColor Cyan
+            Write-RedXeBannerChrome -UseColor $true -NoNewline -Text ($model.Indent + $model.Vertical + $leftPad)
+            Write-Host $model.RedGlyphs[$index] -ForegroundColor Red -NoNewline
+            Write-Host $gap -NoNewline
+            Write-Host $model.XeGlyphs[$index] -ForegroundColor Cyan -NoNewline
+            Write-RedXeBannerChrome -UseColor $true -Text ($rightPad + $model.Vertical)
         }
         else {
-            Write-Host ("  {0}{1}" -f $redGlyphs[$index], $xeGlyphs[$index])
+            Write-Host (
+                '{0}{1}{2}{3}{4}{5}{6}{1}' -f $model.Indent, $model.Vertical, $leftPad,
+                $model.RedGlyphs[$index], $gap, $model.XeGlyphs[$index], $rightPad)
         }
     }
 
-    if ($UseColor) {
-        Write-Host '          XENEON EDGE // BUILD SIGNAL LOCKED' -ForegroundColor DarkGray
-    }
-    else {
-        Write-Host '          XENEON EDGE // BUILD SIGNAL LOCKED'
-    }
+    Write-RedXeBannerChrome -UseColor $UseColor -Text (
+        '{0}{1}{2}{3}{4}{5}' -f $model.Indent, $model.BottomLeft, ($bar * $model.TaglineLeftBar),
+        $model.TaglineLabel, ($bar * $model.TaglineRightBar), $model.BottomRight)
     Write-Host ''
 }
 
