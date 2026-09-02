@@ -5,6 +5,70 @@
 
 namespace
 {
+constexpr wchar_t kPointerForwardPrevProc[] = L"RedXe.PtrPrevProc";
+
+LRESULT CALLBACK PointerForwardProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
+{
+    const auto previous = reinterpret_cast<WNDPROC>(GetPropW(window, kPointerForwardPrevProc));
+    if (message == WM_POINTERDOWN || message == WM_POINTERUPDATE || message == WM_POINTERUP ||
+        message == WM_POINTERCAPTURECHANGED)
+    {
+        const HWND root = GetAncestor(window, GA_ROOT);
+        if (root && root != window)
+        {
+            const LRESULT result = SendMessageW(root, message, wParam, lParam);
+            if (result != 0 && message != WM_POINTERDOWN)
+            {
+                return 0;
+            }
+        }
+    }
+
+    if (!previous)
+    {
+        return DefWindowProcW(window, message, wParam, lParam);
+    }
+    if (message == WM_NCDESTROY)
+    {
+        const LRESULT result = CallWindowProcW(previous, window, message, wParam, lParam);
+        RemovePropW(window, kPointerForwardPrevProc);
+        return result;
+    }
+    return CallWindowProcW(previous, window, message, wParam, lParam);
+}
+
+void SubclassPointerForwarder(HWND window) noexcept
+{
+    if (!window || GetPropW(window, kPointerForwardPrevProc))
+    {
+        return;
+    }
+
+    SetLastError(ERROR_SUCCESS);
+    const LONG_PTR previous =
+        SetWindowLongPtrW(window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(PointerForwardProcedure));
+    if (previous == 0 && GetLastError() != ERROR_SUCCESS)
+    {
+        return;
+    }
+    if (!SetPropW(window, kPointerForwardPrevProc, reinterpret_cast<HANDLE>(previous)))
+    {
+        SetWindowLongPtrW(window, GWLP_WNDPROC, previous);
+    }
+}
+
+BOOL CALLBACK EnumPointerForwardSubclass(HWND window, LPARAM) noexcept
+{
+    SubclassPointerForwarder(window);
+    return TRUE;
+}
+
+void InstallPointerForwarding(HWND container) noexcept
+{
+    SubclassPointerForwarder(container);
+    EnumChildWindows(container, EnumPointerForwardSubclass, 0);
+}
+
 constexpr float kDesignWidth = 2560.0f;
 constexpr float kDesignHeight = 720.0f;
 
@@ -180,6 +244,7 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
             }
             return result;
         }
+        InstallPointerForwarding(container);
     }
 
     for (uint32_t index = 0; index < widgetCount; ++index)
@@ -285,6 +350,40 @@ HRESULT DashboardHost::SetHorizontalOffset(LONG offset) noexcept
         return S_OK;
     }
     _horizontalOffset = offset;
+
+    UINT nativeCount = 0;
+    for (size_t index = 0; index < _widgetCount; ++index)
+    {
+        if (_windowContainers[index])
+        {
+            ++nativeCount;
+        }
+    }
+    if (nativeCount == 0)
+    {
+        return S_OK;
+    }
+
+    HDWP defer = BeginDeferWindowPos(static_cast<int>(nativeCount));
+    if (!defer)
+    {
+        for (size_t index = 0; index < _widgetCount; ++index)
+        {
+            if (!_windowContainers[index])
+            {
+                continue;
+            }
+            const RECT bounds = PixelBoundsAt(index, _clientWidth, _clientHeight);
+            if (!SetWindowPos(_windowContainers[index].get(), nullptr, bounds.left, bounds.top,
+                              bounds.right - bounds.left, bounds.bottom - bounds.top,
+                              SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE))
+            {
+                return HRESULT_FROM_WIN32(GetLastError());
+            }
+        }
+        return S_OK;
+    }
+
     for (size_t index = 0; index < _widgetCount; ++index)
     {
         if (!_windowContainers[index])
@@ -292,13 +391,24 @@ HRESULT DashboardHost::SetHorizontalOffset(LONG offset) noexcept
             continue;
         }
         const RECT bounds = PixelBoundsAt(index, _clientWidth, _clientHeight);
-        if (!SetWindowPos(_windowContainers[index].get(), nullptr, bounds.left, bounds.top, bounds.right - bounds.left,
-                          bounds.bottom - bounds.top, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE))
+        defer = DeferWindowPos(defer, _windowContainers[index].get(), nullptr, bounds.left, bounds.top,
+                               bounds.right - bounds.left, bounds.bottom - bounds.top,
+                               SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE);
+        if (!defer)
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
     }
+    if (!EndDeferWindowPos(defer))
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
     return S_OK;
+}
+
+LONG DashboardHost::HorizontalOffset() const noexcept
+{
+    return _horizontalOffset;
 }
 
 HRESULT DashboardHost::SetWidgetsVisible(bool visible) noexcept

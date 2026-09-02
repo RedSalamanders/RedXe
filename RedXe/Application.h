@@ -53,15 +53,23 @@ class Application final
     void OnPointerDown(HWND window, WPARAM wParam) noexcept;
     void OnPointerUpdate(HWND window, WPARAM wParam) noexcept;
     void OnPointerUp(HWND window, WPARAM wParam) noexcept;
+    void CancelPageNavigation() noexcept;
+    void ApplyPageOffset(LONG offset, LONG clientWidth) noexcept;
+    void FlushPendingTransitionStage() noexcept;
+    void BeginPageSettle(LONG targetOffset, bool commit) noexcept;
+    void TickPageSettle() noexcept;
+    HRESULT PromoteTransitionPage() noexcept;
     HRESULT StageTransitionPage(int direction) noexcept;
     void ClearTransitionPage() noexcept;
+    [[nodiscard]] bool TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position,
+                                                UINT64& qpc) const noexcept;
 
     HINSTANCE _instance = nullptr;
     wil::unique_hwnd _window;
     HWND _settingsErrorDialog = nullptr;
     wil::unique_hpowernotify _displayPowerNotification;
-    PluginManager _pluginManager;
-    DashboardHost _dashboardHost;
+    std::unique_ptr<PluginManager> _pluginManager;
+    std::unique_ptr<DashboardHost> _dashboardHost;
     Renderer _renderer;
     SettingsStore _settingsStore;
     SettingsWatcher _settingsWatcher;
@@ -80,8 +88,22 @@ class Application final
     HRESULT _runtimeFailure = S_OK;
     UINT32 _pagePointerId = 0;
     LONG _pagePointerStartX = 0;
+    LONG _pagePointerStartY = 0;
     LONG _pagePointerX = 0;
+    LONG _pageCurrentOffset = 0;
+    UINT64 _pagePointerQpc = 0;
+    UINT64 _qpcFrequency = 0;
+    float _pageVelocityPxPerSec = 0.0f;
     bool _pagePointerActive = false;
+    bool _pagePointerCaptured = false;
     bool _pagePanStarted = false;
+    bool _pageGestureIgnored = false;
+    bool _pageSettleActive = false;
+    bool _pageSettleCommit = false;
+    LONG _pageSettleStart = 0;
+    LONG _pageSettleTarget = 0;
+    UINT64 _pageSettleStartQpc = 0;
+    UINT64 _pageSettleDurationQpc = 0;
+    int _pageStagePendingDirection = 0;
     int _pageTransitionDirection = 0;
 };

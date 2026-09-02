@@ -64,11 +64,12 @@ constexpr float kTextG = 0.92f;
 constexpr float kTextB = 0.94f;
 constexpr float kMuted = 0.62f;
 constexpr float kHairline = 0.22f;
-constexpr float kLabelFloorPx = 15.0f;
-constexpr float kRowFloorPx = 17.0f;
-constexpr float kKpiFloorPx = 28.0f;
-constexpr float kHeroFloorPx = 44.0f;
-constexpr float kRowMinFloorPx = 30.0f;
+constexpr float kLabelFloorPx = 16.0f;
+constexpr float kRowFloorPx = 18.0f;
+constexpr float kKpiFloorPx = 30.0f;
+constexpr float kHeroFloorPx = 48.0f;
+constexpr float kTitleFloorPx = 26.0f;
+constexpr float kRowMinFloorPx = 28.0f;
 constexpr float kHeatMinCellPx = 6.0f;
 constexpr float kHeatIdle = 0.22f;
 constexpr float kLogRateFloorBytes = 1024.0f;
@@ -127,27 +128,27 @@ struct ViewerCatalogEntry final
 constexpr std::array kCatalog{
     ViewerCatalogEntry{ViewerKind::ProcessViewer, "builtin.process-viewer", "process-viewer", L"Process Viewer",
                        L"Ranks local processes by CPU from the RedXe system-data provider.", L"Process Viewer",
-                       L"Top processes with name, PID, CPU, and working set.", "process.list", nullptr, 2000, 0, 32, 10,
-                       1280.0f, 720.0f, 240.0f, 96.0f},
+                       L"Two-column process rows that fill leftover width; name, PID, and CPU stay packed.",
+                       "process.list", nullptr, 2000, 0, 32, 10, 1280.0f, 720.0f, 240.0f, 96.0f},
     ViewerCatalogEntry{ViewerKind::SystemPulse, "builtin.system-pulse", "system-pulse", L"System Pulse",
                        L"Machine CPU, memory, and count chips from system.summary.", L"System Pulse",
-                       L"CPU hero with RAM, process, uptime, thread, and handle chips filling leftover height.",
+                       L"CPU hero beside two-column RAM, process, core, thread, handle, commit, and uptime chips.",
                        "system.summary", nullptr, 1000, 0, 0, 0, 960.0f, 360.0f, 160.0f, 72.0f},
     ViewerCatalogEntry{ViewerKind::CpuMeter, "builtin.cpu-meter", "cpu-meter", L"CPU Meter",
                        L"Total CPU load and a logical-processor heatmap.", L"CPU Meter",
-                       L"CPU percent, user/kernel split, and a heatmap that drops under 6 px cells.", "cpu.summary",
-                       "cpu.logical", 1000, 1000, 0, 0, 960.0f, 540.0f, 160.0f, 72.0f},
+                       L"CPU percent, core heatmap, and a scrolling sample-driven history with recency fade.",
+                       "cpu.summary", "cpu.logical", 1000, 1000, 0, 0, 960.0f, 540.0f, 160.0f, 72.0f},
     ViewerCatalogEntry{ViewerKind::MemoryMeter, "builtin.memory-meter", "memory-meter", L"Memory Meter",
                        L"Physical and commit memory gauges.", L"Memory Meter",
-                       L"Capacity bars with a paging sparkline when height allows.", "memory.summary", nullptr, 1000, 0,
-                       0, 0, 960.0f, 420.0f, 160.0f, 72.0f},
+                       L"Capacity bars with a recency-faded paging history when height allows.", "memory.summary",
+                       nullptr, 1000, 0, 0, 0, 960.0f, 420.0f, 160.0f, 72.0f},
     ViewerCatalogEntry{ViewerKind::NetworkMeter, "builtin.network-meter", "network-meter", L"Network Meter",
                        L"Top interface rates and protocol KPIs.", L"Network Meter",
-                       L"Friendly NICs, log rate bars versus link speed, and a window-normalized spark.",
-                       "network.interface", "network.protocol", 1000, 1000, 16, 8, 960.0f, 540.0f, 160.0f, 72.0f},
+                       L"Friendly NICs with a recency-faded throughput history and log rate bars.", "network.interface",
+                       "network.protocol", 1000, 1000, 16, 8, 960.0f, 540.0f, 160.0f, 72.0f},
     ViewerCatalogEntry{ViewerKind::StorageMeter, "builtin.storage-meter", "storage-meter", L"Storage Meter",
                        L"Volume capacity and disk activity.", L"Storage Meter",
-                       L"Linear used-percent bars plus disk throughput as a rate label.", "storage.volume",
+                       L"Volume tanks in a two-column grid with used percent as a mercury fill.", "storage.volume",
                        "storage.disk", 5000, 1000, 0, 0, 960.0f, 540.0f, 160.0f, 72.0f},
     ViewerCatalogEntry{ViewerKind::GpuMeter, "builtin.gpu-meter", "gpu-meter", L"GPU Meter",
                        L"Adapter cards from DXGI and D3DKMT sensors.", L"GPU Meter",
@@ -155,7 +156,7 @@ constexpr std::array kCatalog{
                        960.0f, 540.0f, 160.0f, 72.0f},
     ViewerCatalogEntry{ViewerKind::GpuProcesses, "builtin.gpu-processes", "gpu-processes", L"GPU Processes",
                        L"Top GPU engine clients.", L"GPU Processes",
-                       L"PID plus engine type with image names joined from process.list.", "gpu.process",
+                       L"Two-column GPU clients with PID and engine; names joined from process.list.", "gpu.process",
                        "process.list", 2000, 2000, 16, 8, 960.0f, 540.0f, 160.0f, 72.0f},
     ViewerCatalogEntry{ViewerKind::PowerMeter, "builtin.power-meter", "power-meter", L"Power Meter",
                        L"AC/DC state, charge, and battery rows.", L"Power Meter",
@@ -163,8 +164,8 @@ constexpr std::array kCatalog{
                        "battery.list", 5000, 5000, 0, 0, 720.0f, 420.0f, 120.0f, 48.0f},
     ViewerCatalogEntry{ViewerKind::ThermalMeter, "builtin.thermal-meter", "thermal-meter", L"Thermal Meter",
                        L"Temperatures and fan RPM.", L"Thermal Meter",
-                       L"Hottest sensors first with a banded cool-to-hot track.", "thermal.sensor", "fan.sensor", 10000,
-                       10000, 0, 0, 720.0f, 540.0f, 160.0f, 72.0f},
+                       L"Hottest sensors as temperature cards with a vertical mercury fill.", "thermal.sensor",
+                       "fan.sensor", 10000, 10000, 0, 0, 720.0f, 540.0f, 160.0f, 72.0f},
 };
 static_assert(kCatalog.size() == static_cast<size_t>(ViewerKind::Count));
 
@@ -487,7 +488,7 @@ void ThermalColor(float celsius, float& red, float& green, float& blue) noexcept
 
 [[nodiscard]] float TypeFromRow(float rowHeight, float floorPx, float ceilingPx) noexcept
 {
-    return std::clamp(rowHeight * 0.58f, floorPx, ceilingPx);
+    return std::clamp(rowHeight * 0.62f, floorPx, ceilingPx);
 }
 
 void FitListLayout(float innerHeight, float rowMin, float overflowReserve, uint32_t available, uint32_t& visible,
@@ -501,6 +502,42 @@ void FitListLayout(float innerHeight, float rowMin, float overflowReserve, uint3
         visible = FitVisibleCount(listHeight, rowMin, available);
     }
     rowHeight = FittedRowHeight(listHeight, visible == 0 ? 1 : visible, rowMin);
+}
+
+[[nodiscard]] uint32_t GridColumns(float innerWidth, float minColWidth) noexcept
+{
+    return innerWidth >= minColWidth * 2.0f + 12.0f ? 2u : 1u;
+}
+
+void FitGridLayout(float innerHeight, float innerWidth, float rowMin, float overflowReserve, float minColWidth,
+                   uint32_t available, uint32_t& columns, uint32_t& visible, uint32_t& rows, float& rowHeight,
+                   float& listHeight, float& colWidth) noexcept
+{
+    columns = GridColumns(innerWidth, minColWidth);
+    const float gap = columns > 1 ? 12.0f : 0.0f;
+    colWidth = (innerWidth - gap * static_cast<float>(columns - 1)) / static_cast<float>(columns);
+    uint32_t rowBudget = FitVisibleCount(innerHeight, rowMin, (available + columns - 1) / columns);
+    listHeight = innerHeight;
+    uint32_t capacity = rowBudget * columns;
+    if (available > capacity && overflowReserve > 0.0f && innerHeight > rowMin + overflowReserve)
+    {
+        listHeight = innerHeight - overflowReserve;
+        rowBudget = FitVisibleCount(listHeight, rowMin, (available + columns - 1) / columns);
+        capacity = rowBudget * columns;
+    }
+    visible = available == 0 ? 0 : std::min(available, std::max(1u, capacity));
+    rows = std::max(1u, visible == 0 ? 1u : (visible + columns - 1) / columns);
+    rowHeight = FittedRowHeight(listHeight, rows, rowMin);
+}
+
+void CellOrigin(float originX, float originY, uint32_t index, uint32_t columns, float colWidth, float rowHeight,
+                float displayY, bool slide, float& x, float& y) noexcept
+{
+    const uint32_t col = columns == 0 ? 0 : index % columns;
+    const float row = (slide && columns == 1) ? displayY : static_cast<float>(index / std::max(1u, columns));
+    const float gap = columns > 1 ? 12.0f : 0.0f;
+    x = originX + static_cast<float>(col) * (colWidth + gap);
+    y = originY + row * rowHeight;
 }
 
 void FormatPercent(wchar_t* buffer, uint32_t capacity, float value, bool available) noexcept
@@ -741,6 +778,70 @@ struct ViewerSample final
     bool charging = false;
     bool batteryPresent = false;
 };
+
+void DrawHistoryArea(ViewerDrawList& list, float x, float y, float width, float height, const ViewerSample& sample,
+                     float latest, bool latestAvailable, bool percentScale) noexcept
+{
+    if (width <= 4.0f || height <= 4.0f)
+    {
+        return;
+    }
+    (void)list.AddFill(x, y, width, height, kTrackR, kTrackG, kTrackB, 0.55f, 6.0f);
+    uint32_t count = sample.sparkCount;
+    if (count == 0 && latestAvailable)
+    {
+        count = 1;
+    }
+    if (count == 0)
+    {
+        return;
+    }
+    float maxValue = percentScale ? 100.0f : 1.0f;
+    for (uint32_t index = 0; index < sample.sparkCount; ++index)
+    {
+        maxValue = std::max(maxValue, sample.spark[index]);
+    }
+    if (latestAvailable)
+    {
+        maxValue = std::max(maxValue, latest);
+    }
+    maxValue = std::max(maxValue, 1.0f);
+    const float colW = width / static_cast<float>(kSparkCapacity);
+    const uint32_t start = kSparkCapacity - count;
+    for (uint32_t index = 0; index < count; ++index)
+    {
+        float value = index < sample.sparkCount ? sample.spark[index] : 0.0f;
+        if (index + 1 == count && latestAvailable)
+        {
+            value = latest;
+        }
+        const float recency = count == 1 ? 1.0f : static_cast<float>(index) / static_cast<float>(count - 1);
+        const float unit =
+            percentScale ? std::clamp(value, 0.0f, 100.0f) / 100.0f : std::clamp(value / maxValue, 0.0f, 1.0f);
+        float red = kFillR;
+        float green = kFillG;
+        float blue = kFillB;
+        if (percentScale)
+        {
+            SignalColor(unit, red, green, blue);
+        }
+        const float barH = std::max(2.0f, height * unit);
+        const float bx = x + static_cast<float>(start + index) * colW + 0.4f;
+        const float by = y + height - barH;
+        const float bw = std::max(1.2f, colW - 0.8f);
+        const float fade = 0.08f + recency * recency * 0.42f;
+        (void)list.AddFill(bx, by, bw, barH, red, green, blue, fade, 1.5f);
+        const float midH = std::max(2.0f, barH * 0.45f);
+        (void)list.AddFill(bx, by, bw, midH, red, green, blue, fade + 0.16f, 1.5f);
+        const float capH = std::max(2.0f, barH * 0.16f);
+        (void)list.AddFill(bx, by, bw, capH, red, green, blue, 0.40f + recency * 0.50f, 1.5f);
+        if (index + 1 == count)
+        {
+            (void)list.AddGlow(bx - 2.0f, by - 2.0f, bw + 4.0f, barH + 4.0f, red, green, blue, 0.18f + recency * 0.20f,
+                               8.0f);
+        }
+    }
+}
 
 class ViewerWidget;
 
@@ -1286,6 +1387,8 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
         _sample.available[3] = TakeU64(values[4], _sample.counts[3]);
         _sample.available[4] = TakeU64(values[7], _sample.counts[4]);
         _sample.available[5] = TakeU64(values[9], _sample.counts[5]);
+        _sample.available[6] = TakeU64(values[1], _sample.counts[6]);
+        _sample.available[7] = TakeU64(values[8], _sample.counts[7]);
         uint64_t total = 0;
         if (_sample.available[4] && TakeU64(values[5], total) && total > 0)
         {
@@ -1318,6 +1421,7 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
         _sample.values[1] = static_cast<float>(std::clamp(user, 0.0, 100.0));
         _sample.values[2] = static_cast<float>(std::clamp(kernel, 0.0, 100.0));
         _sample.values[3] = static_cast<float>(std::clamp(idle, 0.0, 100.0));
+        PushSpark(_sample.values[0]);
         return S_OK;
     }
 
@@ -1520,6 +1624,7 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
                                                    static_cast<double>(total))
                               : 0.0f;
             row.secondary = total;
+            row.pid = total - std::min(freeBytes, total);
             row.identity = rowIndex;
             next.rows[next.rowCount++] = row;
             (void)limit;
@@ -1882,6 +1987,7 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
         float rowPx = kRowFloorPx;
         float kpiPx = kKpiFloorPx;
         float heroPx = kHeroFloorPx;
+        float titlePx = kTitleFloorPx;
         float rowMin = kRowMinFloorPx;
         ViewerDensity density = ViewerDensity::Standard;
         bool showTitle = true;
@@ -1890,15 +1996,17 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
     [[nodiscard]] PanelMetrics MakePanel(float width, float height) const noexcept
     {
         PanelMetrics metrics;
-        metrics.pad = std::clamp(std::min(width, height) * 0.035f, 8.0f, 16.0f);
-        const float scale = std::clamp(std::min(width, height) / 240.0f, 1.0f, 1.75f);
-        metrics.labelPx = std::clamp(kLabelFloorPx * scale, kLabelFloorPx, 24.0f);
-        metrics.rowPx = std::clamp(kRowFloorPx * scale, kRowFloorPx, 26.0f);
-        metrics.kpiPx = std::clamp(kKpiFloorPx * scale, kKpiFloorPx, 52.0f);
-        metrics.heroPx = std::clamp(kHeroFloorPx * scale, kHeroFloorPx, 80.0f);
-        metrics.rowMin = std::max(metrics.rowPx + 12.0f, kRowMinFloorPx);
-        metrics.showTitle = height >= 72.0f;
-        metrics.titleH = metrics.showTitle ? metrics.labelPx : 0.0f;
+        metrics.pad = std::clamp(std::min(width, height) * 0.03f, 8.0f, 14.0f);
+        const float scale = std::clamp(std::min(width, height) / 220.0f, 1.0f, 1.85f);
+        const float titleScale = std::clamp(width / 280.0f, 1.0f, 1.85f);
+        metrics.labelPx = std::clamp(kLabelFloorPx * scale, kLabelFloorPx, 26.0f);
+        metrics.rowPx = std::clamp(kRowFloorPx * scale, kRowFloorPx, 28.0f);
+        metrics.kpiPx = std::clamp(kKpiFloorPx * scale, kKpiFloorPx, 56.0f);
+        metrics.heroPx = std::clamp(kHeroFloorPx * scale, kHeroFloorPx, 88.0f);
+        metrics.titlePx = std::clamp(kTitleFloorPx * titleScale, kTitleFloorPx, 44.0f);
+        metrics.rowMin = std::max(metrics.rowPx + 10.0f, kRowMinFloorPx);
+        metrics.showTitle = height >= 52.0f;
+        metrics.titleH = metrics.showTitle ? metrics.titlePx : 0.0f;
         metrics.contentTop = metrics.pad + (metrics.showTitle ? metrics.titleH + 6.0f : 0.0f);
         metrics.innerW = std::max(8.0f, width - metrics.pad * 2.0f);
         metrics.innerH = std::max(0.0f, height - metrics.contentTop - metrics.pad);
@@ -1925,8 +2033,8 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
         }
         if (panel.showTitle)
         {
-            (void)AppendClippedText(resources, list, panel.pad, panel.pad * 0.45f, panel.labelPx, panel.innerW, kMuted,
-                                    kMuted, kMuted, 1.0f, entry.typeName,
+            (void)AppendClippedText(resources, list, panel.pad, panel.pad * 0.28f, panel.titlePx, panel.innerW, 0.88f,
+                                    0.88f, 0.90f, 1.0f, entry.typeName,
                                     static_cast<uint32_t>(wcsnlen(entry.typeName, 64)));
         }
         switch (_kind)
@@ -2006,6 +2114,31 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
         (void)list.AddFill(x, y, fillWidth, height, red, green, blue, 0.95f, height * 0.5f);
     }
 
+    void DrawMercury(ViewerDrawList& list, float x, float y, float width, float height, float fill01, bool available,
+                     bool thermal, float celsius) noexcept
+    {
+        (void)list.AddFill(x, y, width, height, kTrackR, kTrackG, kTrackB, 1.0f, width * 0.5f);
+        if (!available)
+        {
+            return;
+        }
+        float red = kFillR;
+        float green = kFillG;
+        float blue = kFillB;
+        if (thermal)
+        {
+            ThermalColor(celsius, red, green, blue);
+        }
+        else
+        {
+            SignalColor(fill01, red, green, blue);
+        }
+        const float fillHeight = std::max(3.0f, height * std::clamp(fill01, 0.0f, 1.0f));
+        (void)list.AddFill(x, y + height - fillHeight, width, fillHeight, red, green, blue, 0.95f, width * 0.5f);
+        (void)list.AddGlow(x - 2.0f, y + height - fillHeight - 2.0f, width + 4.0f, std::min(fillHeight + 4.0f, height),
+                           red, green, blue, 0.22f, 6.0f);
+    }
+
     void DrawOverflow(ViewerGpuResources& resources, ViewerDrawList& list, float x, float y, float size,
                       uint32_t hidden) noexcept
     {
@@ -2042,50 +2175,51 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
             (void)width;
             return S_OK;
         }
+        uint32_t columns = 1;
         uint32_t visible = 0;
+        uint32_t rows = 0;
         float rowHeight = 0.0f;
         float listHeight = 0.0f;
-        FitListLayout(panel.innerH, panel.rowMin, panel.labelPx + 4.0f, sample.rowCount, visible, rowHeight,
-                      listHeight);
+        float colWidth = 0.0f;
+        FitGridLayout(panel.innerH, panel.innerW, panel.rowMin, panel.labelPx + 4.0f, 250.0f, sample.rowCount, columns,
+                      visible, rows, rowHeight, listHeight, colWidth);
         const float rowPx = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
-        const float trackH = std::clamp(rowHeight * 0.16f, 4.0f, 8.0f);
-        const bool showPid = panel.innerW >= 280.0f;
-        const bool showWs = panel.density == ViewerDensity::Standard && panel.innerW >= 400.0f;
-        const float cpuCol = std::max(56.0f, resources.MeasureText(L"100%", 4, rowPx) + 8.0f);
-        const float pidCol = showPid ? std::max(64.0f, resources.MeasureText(L"65535", 5, rowPx) + 8.0f) : 0.0f;
-        const float wsCol = showWs ? std::max(80.0f, resources.MeasureText(L"99.9 GB", 7, rowPx) + 8.0f) : 0.0f;
-        const float nameWidth = std::max(32.0f, panel.innerW - cpuCol - pidCol - wsCol - 12.0f);
+        const float trackH = std::clamp(rowHeight * 0.18f, 4.0f, 8.0f);
+        const bool showPid = colWidth >= 210.0f;
+        const bool showWs = columns == 1 && panel.density == ViewerDensity::Standard && colWidth >= 400.0f;
+        const float cpuCol = std::max(52.0f, resources.MeasureText(L"100%", 4, rowPx) + 6.0f);
+        const float pidCol = showPid ? std::max(56.0f, resources.MeasureText(L"65535", 5, rowPx) + 6.0f) : 0.0f;
+        const float wsCol = showWs ? std::max(72.0f, resources.MeasureText(L"99.9 GB", 7, rowPx) + 6.0f) : 0.0f;
+        const float nameWidth = std::max(28.0f, colWidth - cpuCol - pidCol - wsCol - 8.0f);
         for (uint32_t index = 0; index < visible; ++index)
         {
             const RankedRow& row = sample.rows[index];
-            const float rowY = y0 + row.displayY * rowHeight;
-            if (rowY + rowPx > height - panel.pad)
-            {
-                continue;
-            }
+            float cellX = 0.0f;
+            float cellY = 0.0f;
+            CellOrigin(panel.pad, y0, index, columns, colWidth, rowHeight, row.displayY, columns == 1, cellX, cellY);
             const float fill = std::clamp(row.displayPrimary, 0.0f, 100.0f) / 100.0f;
-            DrawTrack(list, panel.pad, rowY + rowHeight - trackH - 2.0f, panel.innerW, trackH, fill,
-                      row.primaryAvailable, false, 0.0f);
-            (void)AppendClippedText(resources, list, panel.pad, rowY + 2.0f, rowPx, nameWidth, kTextR, kTextG, kTextB,
+            DrawTrack(list, cellX, cellY + rowHeight - trackH - 2.0f, colWidth, trackH, fill, row.primaryAvailable,
+                      false, 0.0f);
+            (void)AppendClippedText(resources, list, cellX, cellY + 2.0f, rowPx, nameWidth, kTextR, kTextG, kTextB,
                                     1.0f, row.name.data(), row.nameCharacters);
-            float cursor = panel.pad + nameWidth;
+            float cursor = cellX + nameWidth;
             if (showPid)
             {
                 wchar_t pid[16]{};
                 FormatPid(pid, 16, row.pid);
-                (void)resources.AppendText(list, cursor, rowY + 2.0f, rowPx, kMuted, kMuted, kMuted, 1.0f, pid,
+                (void)resources.AppendText(list, cursor, cellY + 2.0f, rowPx, kMuted, kMuted, kMuted, 1.0f, pid,
                                            static_cast<uint32_t>(wcsnlen(pid, 16)));
                 cursor += pidCol;
             }
             wchar_t cpu[16]{};
             FormatPercent(cpu, 16, row.displayPrimary, row.primaryAvailable);
-            (void)resources.AppendText(list, cursor, rowY + 2.0f, rowPx, kTextR, kTextG, kTextB, 1.0f, cpu,
+            (void)resources.AppendText(list, cursor, cellY + 2.0f, rowPx, kTextR, kTextG, kTextB, 1.0f, cpu,
                                        static_cast<uint32_t>(wcsnlen(cpu, 16)));
             if (showWs)
             {
                 wchar_t ws[16]{};
                 FormatBytes(ws, 16, row.secondary, true);
-                (void)resources.AppendText(list, cursor + cpuCol, rowY + 2.0f, rowPx, kMuted, kMuted, kMuted, 1.0f, ws,
+                (void)resources.AppendText(list, cursor + cpuCol, cellY + 2.0f, rowPx, kMuted, kMuted, kMuted, 1.0f, ws,
                                            static_cast<uint32_t>(wcsnlen(ws, 16)));
             }
         }
@@ -2115,53 +2249,55 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
             (void)width;
             return S_OK;
         }
+        uint32_t columns = 1;
         uint32_t visible = 0;
+        uint32_t rows = 0;
         float rowHeight = 0.0f;
         float listHeight = 0.0f;
-        FitListLayout(panel.innerH, panel.rowMin, panel.labelPx + 4.0f, sample.rowCount, visible, rowHeight,
-                      listHeight);
+        float colWidth = 0.0f;
+        FitGridLayout(panel.innerH, panel.innerW, panel.rowMin, panel.labelPx + 4.0f, 250.0f, sample.rowCount, columns,
+                      visible, rows, rowHeight, listHeight, colWidth);
         const float rowPx = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
-        const float trackH = std::clamp(rowHeight * 0.16f, 4.0f, 8.0f);
-        const bool showPid = panel.innerW >= 280.0f;
-        const bool showEngine = panel.density == ViewerDensity::Standard && panel.innerW >= 360.0f;
-        const float gpuCol = std::max(52.0f, resources.MeasureText(L"100%", 4, rowPx) + 8.0f);
-        const float pidCol = showPid ? std::max(64.0f, resources.MeasureText(L"65535", 5, rowPx) + 8.0f) : 0.0f;
-        const float engineCol = showEngine ? 80.0f : 0.0f;
-        const float nameWidth = std::max(32.0f, panel.innerW - gpuCol - pidCol - engineCol - 8.0f);
+        const float trackH = std::clamp(rowHeight * 0.18f, 4.0f, 8.0f);
+        const bool showPid = colWidth >= 210.0f;
+        const bool showEngine = columns == 1 && panel.density == ViewerDensity::Standard && colWidth >= 360.0f;
+        const float gpuCol = std::max(48.0f, resources.MeasureText(L"100%", 4, rowPx) + 6.0f);
+        const float pidCol = showPid ? std::max(56.0f, resources.MeasureText(L"65535", 5, rowPx) + 6.0f) : 0.0f;
+        const float engineCol = showEngine ? 72.0f : 0.0f;
+        const float nameWidth = std::max(28.0f, colWidth - gpuCol - pidCol - engineCol - 8.0f);
         for (uint32_t index = 0; index < visible; ++index)
         {
             const RankedRow& row = sample.rows[index];
-            const float rowY = y0 + row.displayY * rowHeight;
-            if (rowY + rowPx > height - panel.pad)
-            {
-                continue;
-            }
-            DrawTrack(list, panel.pad, rowY + rowHeight - trackH - 2.0f, panel.innerW, trackH,
+            float cellX = 0.0f;
+            float cellY = 0.0f;
+            CellOrigin(panel.pad, y0, index, columns, colWidth, rowHeight, row.displayY, columns == 1, cellX, cellY);
+            DrawTrack(list, cellX, cellY + rowHeight - trackH - 2.0f, colWidth, trackH,
                       std::clamp(row.displayPrimary, 0.0f, 100.0f) / 100.0f, row.primaryAvailable, false, 0.0f);
-            (void)AppendClippedText(resources, list, panel.pad, rowY + 2.0f, rowPx, nameWidth, kTextR, kTextG, kTextB,
+            (void)AppendClippedText(resources, list, cellX, cellY + 2.0f, rowPx, nameWidth, kTextR, kTextG, kTextB,
                                     1.0f, row.name.data(), row.nameCharacters);
-            float cursor = panel.pad + nameWidth;
+            float cursor = cellX + nameWidth;
             if (showPid)
             {
                 wchar_t pid[16]{};
                 FormatPid(pid, 16, row.pid);
-                (void)resources.AppendText(list, cursor, rowY + 2.0f, rowPx, kMuted, kMuted, kMuted, 1.0f, pid,
+                (void)resources.AppendText(list, cursor, cellY + 2.0f, rowPx, kMuted, kMuted, kMuted, 1.0f, pid,
                                            static_cast<uint32_t>(wcsnlen(pid, 16)));
                 cursor += pidCol;
             }
             if (showEngine && row.detailCharacters > 0)
             {
-                (void)AppendClippedText(resources, list, cursor, rowY + 2.0f, rowPx, engineCol - 4.0f, kMuted, kMuted,
+                (void)AppendClippedText(resources, list, cursor, cellY + 2.0f, rowPx, engineCol - 4.0f, kMuted, kMuted,
                                         kMuted, 1.0f, row.detail.data(), row.detailCharacters);
                 cursor += engineCol;
             }
             wchar_t gpu[16]{};
             FormatPercent(gpu, 16, row.displayPrimary, row.primaryAvailable);
-            (void)resources.AppendText(list, cursor, rowY + 2.0f, rowPx, kTextR, kTextG, kTextB, 1.0f, gpu,
+            (void)resources.AppendText(list, cursor, cellY + 2.0f, rowPx, kTextR, kTextG, kTextB, 1.0f, gpu,
                                        static_cast<uint32_t>(wcsnlen(gpu, 16)));
         }
         DrawOverflow(resources, list, panel.pad, y0 + listHeight, panel.labelPx, sample.rowCount - visible);
         (void)width;
+        (void)height;
         return S_OK;
     }
 
@@ -2170,10 +2306,10 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
     {
         float y = panel.contentTop;
         float remaining = height - panel.pad - y;
-        if (panel.density == ViewerDensity::Standard && sample.sparkCount > 1 && remaining > panel.rowMin * 3.0f)
+        if (panel.density != ViewerDensity::Hero && remaining > panel.rowMin * 2.4f)
         {
-            const float sparkHeight = std::clamp(remaining * 0.28f, 36.0f, remaining * 0.38f);
-            DrawSparkline(list, panel.pad, y, panel.innerW, sparkHeight, sample);
+            const float sparkHeight = std::clamp(remaining * 0.36f, 48.0f, remaining * 0.44f);
+            DrawHistoryArea(list, panel.pad, y, panel.innerW, sparkHeight, sample, 0.0f, false, false);
             y += sparkHeight + 8.0f;
             remaining = height - panel.pad - y;
         }
@@ -2192,29 +2328,36 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
                                     sample.rows[0].nameCharacters);
             return S_OK;
         }
+        uint32_t columns = 1;
         uint32_t visible = 0;
+        uint32_t rows = 0;
         float rowHeight = 0.0f;
         float listHeight = 0.0f;
-        FitListLayout(remaining, panel.rowMin, panel.labelPx + 4.0f, sample.rowCount, visible, rowHeight, listHeight);
+        float colWidth = 0.0f;
+        FitGridLayout(remaining, panel.innerW, panel.rowMin, panel.labelPx + 4.0f, 240.0f, sample.rowCount, columns,
+                      visible, rows, rowHeight, listHeight, colWidth);
         const float rowPx = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
-        const float trackH = std::clamp(rowHeight * 0.16f, 4.0f, 8.0f);
+        const float trackH = std::clamp(rowHeight * 0.18f, 4.0f, 8.0f);
         for (uint32_t index = 0; index < visible; ++index)
         {
             const RankedRow& row = sample.rows[index];
-            const float rowY = y + row.displayY * rowHeight;
+            float cellX = 0.0f;
+            float cellY = 0.0f;
+            CellOrigin(panel.pad, y, index, columns, colWidth, rowHeight, row.displayY, columns == 1, cellX, cellY);
             const float fill = LogRateFill(static_cast<double>(row.displayPrimary), row.secondary);
-            DrawTrack(list, panel.pad, rowY + rowHeight - trackH - 2.0f, panel.innerW, trackH, fill,
-                      row.primaryAvailable, false, fill);
+            DrawTrack(list, cellX, cellY + rowHeight - trackH - 2.0f, colWidth, trackH, fill, row.primaryAvailable,
+                      false, fill);
             wchar_t rate[32]{};
             FormatRate(rate, 32, row.displayPrimary, row.primaryAvailable);
             const float rateWidth = resources.MeasureText(rate, static_cast<uint32_t>(wcsnlen(rate, 32)), rowPx);
-            (void)AppendClippedText(resources, list, panel.pad, rowY + 2.0f, rowPx, panel.innerW - rateWidth - 10.0f,
-                                    kTextR, kTextG, kTextB, 1.0f, row.name.data(), row.nameCharacters);
-            (void)resources.AppendText(list, width - panel.pad - rateWidth, rowY + 2.0f, rowPx, kTextR, kTextG, kTextB,
+            (void)AppendClippedText(resources, list, cellX, cellY + 2.0f, rowPx, colWidth - rateWidth - 8.0f, kTextR,
+                                    kTextG, kTextB, 1.0f, row.name.data(), row.nameCharacters);
+            (void)resources.AppendText(list, cellX + colWidth - rateWidth, cellY + 2.0f, rowPx, kTextR, kTextG, kTextB,
                                        1.0f, rate, static_cast<uint32_t>(wcsnlen(rate, 32)));
         }
         DrawOverflow(resources, list, panel.pad, y + listHeight, panel.labelPx,
                      (sample.rowCount - visible) + sample.hiddenCount);
+        (void)width;
         return S_OK;
     }
 
@@ -2230,41 +2373,66 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
             return resources.AppendText(list, panel.pad, y, panel.heroPx, kTextR, kTextG, kTextB, 1.0f, cpu,
                                         static_cast<uint32_t>(wcsnlen(cpu, 16)));
         }
-        const float hero = std::clamp(remainingAll * 0.38f, 40.0f, std::min(panel.heroPx, remainingAll * 0.48f));
-        (void)resources.AppendText(list, panel.pad, y, hero, kTextR, kTextG, kTextB, 1.0f, cpu,
-                                   static_cast<uint32_t>(wcsnlen(cpu, 16)));
-        y += hero + 8.0f;
-        const float remaining = std::max(0.0f, height - panel.pad - y);
         wchar_t ram[32]{};
         wchar_t procs[16]{};
         wchar_t up[32]{};
         wchar_t threads[16]{};
         wchar_t handles[16]{};
+        wchar_t cores[16]{};
+        wchar_t commit[32]{};
         FormatBytes(ram, 32, sample.counts[4], sample.available[4]);
         FormatCount(procs, 16, sample.counts[1], sample.available[1]);
         FormatUptime(up, 32, sample.counts[5], sample.available[5]);
         FormatCount(threads, 16, sample.counts[2], sample.available[2]);
         FormatCount(handles, 16, sample.counts[3], sample.available[3]);
-        const wchar_t* labels[] = {L"RAM", L"Procs", L"Up", L"Threads", L"Handles"};
-        const uint32_t labelLens[] = {3, 5, 2, 7, 7};
-        const wchar_t* values[] = {ram, procs, up, threads, handles};
-        uint32_t chipCount = std::max(1u, FitVisibleCount(remaining, panel.rowMin * 0.85f, 5));
-        if (panel.density == ViewerDensity::Compact)
+        FormatCount(cores, 16, sample.counts[6], sample.available[6]);
+        FormatBytes(commit, 32, sample.counts[7], sample.available[7]);
+        const wchar_t* labels[] = {L"RAM", L"Procs", L"Threads", L"Handles", L"Cores", L"Up", L"Commit"};
+        const uint32_t labelLens[] = {3, 5, 7, 7, 5, 2, 6};
+        const wchar_t* values[] = {ram, procs, threads, handles, cores, up, commit};
+        const uint32_t chipMax = panel.density == ViewerDensity::Compact ? 4u : 7u;
+        const bool split = panel.innerW >= 300.0f;
+        const float leftW = split ? std::clamp(panel.innerW * 0.32f, 96.0f, 168.0f) : panel.innerW;
+        const float cpuPx = std::clamp(split ? remainingAll * 0.42f : remainingAll * 0.32f, 44.0f, panel.heroPx);
+        const float cpuY = split ? y + std::max(0.0f, (remainingAll - cpuPx) * 0.18f) : y;
+        (void)resources.AppendText(list, panel.pad, cpuY, cpuPx, kTextR, kTextG, kTextB, 1.0f, cpu,
+                                   static_cast<uint32_t>(wcsnlen(cpu, 16)));
+        float chipX = panel.pad;
+        float chipY = y;
+        float chipW = panel.innerW;
+        float chipH = remainingAll;
+        if (split)
         {
-            chipCount = std::min(chipCount, 3u);
+            chipX = panel.pad + leftW + 12.0f;
+            chipW = std::max(80.0f, panel.innerW - leftW - 12.0f);
         }
-        const float chipH = remaining / static_cast<float>(chipCount);
-        const float valuePx = TypeFromRow(chipH, panel.rowPx, 32.0f);
-        const float labelPx = std::min(panel.labelPx + 2.0f, valuePx);
-        const float labelCol = std::max(72.0f, resources.MeasureText(L"Threads", 7, labelPx) + 10.0f);
-        for (uint32_t index = 0; index < chipCount; ++index)
+        else
         {
-            const float rowY = y + chipH * static_cast<float>(index);
-            (void)resources.AppendText(list, panel.pad, rowY, labelPx, kMuted, kMuted, kMuted, 1.0f, labels[index],
+            chipY = cpuY + cpuPx + 8.0f;
+            chipH = std::max(0.0f, height - panel.pad - chipY);
+        }
+        uint32_t columns = 1;
+        uint32_t visible = 0;
+        uint32_t rows = 0;
+        float rowHeight = 0.0f;
+        float listHeight = 0.0f;
+        float colWidth = 0.0f;
+        FitGridLayout(chipH, chipW, panel.rowMin * 0.75f, 0.0f, 130.0f, chipMax, columns, visible, rows, rowHeight,
+                      listHeight, colWidth);
+        visible = std::min(visible, chipMax);
+        const float valuePx = TypeFromRow(rowHeight, panel.rowPx, 30.0f);
+        const float labelPx = std::min(panel.labelPx + 4.0f, valuePx);
+        const float labelCol = std::max(64.0f, resources.MeasureText(L"Threads", 7, labelPx) + 8.0f);
+        for (uint32_t index = 0; index < visible; ++index)
+        {
+            float cellX = 0.0f;
+            float cellY = 0.0f;
+            CellOrigin(chipX, chipY, index, columns, colWidth, rowHeight, 0.0f, false, cellX, cellY);
+            (void)resources.AppendText(list, cellX, cellY, labelPx, kMuted, kMuted, kMuted, 1.0f, labels[index],
                                        labelLens[index]);
-            (void)AppendClippedText(resources, list, panel.pad + labelCol, rowY, valuePx,
-                                    std::max(24.0f, panel.innerW - labelCol), kTextR, kTextG, kTextB, 1.0f,
-                                    values[index], static_cast<uint32_t>(wcsnlen(values[index], 32)));
+            (void)AppendClippedText(resources, list, cellX + labelCol, cellY, valuePx,
+                                    std::max(24.0f, colWidth - labelCol), kTextR, kTextG, kTextB, 1.0f, values[index],
+                                    static_cast<uint32_t>(wcsnlen(values[index], 32)));
         }
         (void)width;
         return S_OK;
@@ -2282,11 +2450,11 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
             return resources.AppendText(list, panel.pad, y, panel.heroPx, kTextR, kTextG, kTextB, 1.0f, value,
                                         static_cast<uint32_t>(wcsnlen(value, 16)));
         }
-        const float hero = std::clamp(remainingAll * 0.22f, 36.0f, std::min(56.0f, remainingAll * 0.32f));
+        const float hero = std::clamp(remainingAll * 0.18f, 32.0f, std::min(52.0f, remainingAll * 0.26f));
         (void)resources.AppendText(list, panel.pad, y, hero, kTextR, kTextG, kTextB, 1.0f, value,
                                    static_cast<uint32_t>(wcsnlen(value, 16)));
-        y += hero + 6.0f;
-        const float barH = std::clamp((height - panel.pad - y) * 0.08f, 10.0f, 16.0f);
+        y += hero + 4.0f;
+        const float barH = std::clamp((height - panel.pad - y) * 0.07f, 8.0f, 14.0f);
         (void)list.AddFill(panel.pad, y, panel.innerW, barH, kTrackR, kTrackG, kTrackB, 1.0f, 4.0f);
         const float user = std::clamp(sample.display[1], 0.0f, 100.0f) / 100.0f;
         const float kernel = std::clamp(sample.display[2], 0.0f, 100.0f) / 100.0f;
@@ -2294,23 +2462,29 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
         (void)list.AddFill(panel.pad + panel.innerW * user, y, panel.innerW * kernel, barH, kWarnR, kWarnG, kWarnB,
                            0.95f, 4.0f);
         y += barH + 8.0f;
+        const float areaH = std::max(0.0f, height - panel.pad - y);
         if (sample.heatCount == 0)
         {
-            return resources.AppendText(list, panel.pad, y, panel.rowPx, kMuted, kMuted, kMuted, 1.0f, L"--", 2);
+            DrawHistoryArea(list, panel.pad, y, panel.innerW, areaH, sample, sample.display[0], sample.available[0],
+                            true);
+            return S_OK;
         }
-        const uint32_t columns = std::max(1U, static_cast<uint32_t>(std::ceil(std::sqrt(sample.heatCount))));
-        const uint32_t rows = (sample.heatCount + columns - 1) / columns;
+        const uint32_t heatCols = std::max(1U, static_cast<uint32_t>(std::ceil(std::sqrt(sample.heatCount))));
+        const uint32_t heatRows = (sample.heatCount + heatCols - 1) / heatCols;
         const float gap = 2.0f;
-        const float cell =
-            std::min((panel.innerW - gap * static_cast<float>(columns - 1)) / static_cast<float>(columns),
-                     (height - y - panel.pad - gap * static_cast<float>(rows - 1)) / static_cast<float>(rows));
+        const float histMin = 80.0f;
+        const float heatBudgetW =
+            areaH >= 48.0f && panel.innerW > histMin + 24.0f ? std::min(panel.innerW * 0.46f, areaH) : panel.innerW;
+        float cell = std::min((heatBudgetW - gap * static_cast<float>(heatCols - 1)) / static_cast<float>(heatCols),
+                              (areaH - gap * static_cast<float>(heatRows - 1)) / static_cast<float>(heatRows));
         if (cell < kHeatMinCellPx)
         {
-            wchar_t cores[32]{};
-            (void)swprintf_s(cores, 32, L"%u logical", sample.heatCount);
-            return resources.AppendText(list, panel.pad, y, panel.rowPx, kMuted, kMuted, kMuted, 1.0f, cores,
-                                        static_cast<uint32_t>(wcsnlen(cores, 32)));
+            DrawHistoryArea(list, panel.pad, y, panel.innerW, areaH, sample, sample.display[0], sample.available[0],
+                            true);
+            return S_OK;
         }
+        const float gridW = static_cast<float>(heatCols) * cell + gap * static_cast<float>(heatCols - 1);
+        const float gridH = static_cast<float>(heatRows) * cell + gap * static_cast<float>(heatRows - 1);
         for (uint32_t index = 0; index < sample.heatCount; ++index)
         {
             const float t = std::clamp(sample.heatDisplay[index] / 100.0f, 0.0f, 1.0f);
@@ -2319,10 +2493,17 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
             float green = kFillG;
             float blue = kFillB;
             SignalColor(t, red, green, blue);
-            const float x = panel.pad + static_cast<float>(index % columns) * (cell + gap);
-            const float cellY = y + static_cast<float>(index / columns) * (cell + gap);
+            const float x = panel.pad + static_cast<float>(index % heatCols) * (cell + gap);
+            const float cellY = y + static_cast<float>(index / heatCols) * (cell + gap);
             (void)list.AddFill(x, cellY, cell, cell, Lerp(kHeatIdle, red, lum), Lerp(kHeatIdle, green, lum),
                                Lerp(kHeatIdle, blue, lum), 1.0f, 2.0f);
+        }
+        const float histX = panel.pad + gridW + 12.0f;
+        const float histW = panel.innerW - gridW - 12.0f;
+        if (histW >= 72.0f)
+        {
+            DrawHistoryArea(list, histX, y, histW, std::max(gridH, areaH), sample, sample.display[0],
+                            sample.available[0], true);
         }
         if (sample.heatOverflow > 0)
         {
@@ -2354,17 +2535,18 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
             bands = 3;
         }
         const float bandH = remaining / static_cast<float>(bands);
-        const float barH = std::clamp(bandH * 0.28f, 8.0f, 18.0f);
+        const float barH = std::clamp(bandH * 0.32f, 10.0f, 22.0f);
+        const float typePx = TypeFromRow(bandH, 20.0f, 36.0f);
         DrawCapacityBar(resources, list, panel.pad, y, panel.innerW, L"Physical", sample.display[0],
-                        sample.available[0], sample.counts[0], sample.counts[1], panel.labelPx, barH, bandH);
+                        sample.available[0], sample.counts[0], sample.counts[1], typePx, barH, bandH);
         if (bands >= 2)
         {
             DrawCapacityBar(resources, list, panel.pad, y + bandH, panel.innerW, L"Commit", sample.display[1],
-                            sample.available[1], sample.counts[2], sample.counts[3], panel.labelPx, barH, bandH);
+                            sample.available[1], sample.counts[2], sample.counts[3], typePx, barH, bandH);
         }
         if (bands >= 3)
         {
-            DrawSparkline(list, panel.pad, y + bandH * 2.0f, panel.innerW, bandH - 4.0f, sample);
+            DrawHistoryArea(list, panel.pad, y + bandH * 2.0f, panel.innerW, bandH - 4.0f, sample, 0.0f, false, false);
         }
         (void)width;
         return S_OK;
@@ -2384,31 +2566,6 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
                                    static_cast<uint32_t>(wcsnlen(value, 40)));
         DrawTrack(list, x, y + bandH - barH - 2.0f, width, barH, std::clamp(percent, 0.0f, 100.0f) / 100.0f, available,
                   false, 0.0f);
-    }
-
-    void DrawSparkline(ViewerDrawList& list, float x, float y, float width, float height,
-                       const ViewerSample& sample) noexcept
-    {
-        if (sample.sparkCount < 2 || width <= 0.0f || height <= 0.0f)
-        {
-            return;
-        }
-        float maxValue = 1.0f;
-        for (uint32_t index = 0; index < sample.sparkCount; ++index)
-        {
-            maxValue = std::max(maxValue, sample.spark[index]);
-        }
-        const float step = width / static_cast<float>(sample.sparkCount - 1);
-        for (uint32_t index = 1; index < sample.sparkCount; ++index)
-        {
-            const float x0 = x + static_cast<float>(index - 1) * step;
-            const float x1 = x + static_cast<float>(index) * step;
-            const float y0 = y + height - height * sample.spark[index - 1] / maxValue;
-            const float y1 = y + height - height * sample.spark[index] / maxValue;
-            const float segY = std::min(y0, y1);
-            const float segH = std::max(2.0f, std::abs(y1 - y0) + 2.0f);
-            (void)list.AddFill(x0, segY, std::max(2.0f, x1 - x0), segH, kFillR, kFillG, kFillB, 0.75f, 1.0f);
-        }
     }
 
     [[nodiscard]] HRESULT DrawStorage(ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample,
@@ -2432,25 +2589,31 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
         }
         const float footer = panel.density == ViewerDensity::Standard ? panel.rowPx + 12.0f : 0.0f;
         const float remaining = std::max(0.0f, height - panel.pad - y - footer);
+        uint32_t columns = 1;
         uint32_t visible = 0;
-        float rowHeight = 0.0f;
+        uint32_t rows = 0;
+        float cardH = 0.0f;
         float listHeight = 0.0f;
-        FitListLayout(remaining, panel.rowMin, panel.labelPx + 4.0f, sample.rowCount, visible, rowHeight, listHeight);
-        const float rowPx = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
-        const float trackH = std::clamp(rowHeight * 0.18f, 5.0f, 10.0f);
+        float cardW = 0.0f;
+        FitGridLayout(remaining, panel.innerW, 52.0f, panel.labelPx + 4.0f, 150.0f, sample.rowCount, columns, visible,
+                      rows, cardH, listHeight, cardW);
         for (uint32_t index = 0; index < visible; ++index)
         {
             const RankedRow& row = sample.rows[index];
-            const float rowY = y + row.displayY * rowHeight;
+            float cellX = 0.0f;
+            float cellY = 0.0f;
+            CellOrigin(panel.pad, y, index, columns, cardW, cardH, row.displayY, columns == 1, cellX, cellY);
+            const float fill = std::clamp(row.displayPrimary, 0.0f, 100.0f) / 100.0f;
+            (void)list.AddFill(cellX, cellY + 2.0f, cardW, cardH - 6.0f, kTrackR, kTrackG, kTrackB, 1.0f, 6.0f);
+            DrawMercury(list, cellX + 4.0f, cellY + 6.0f, 10.0f, cardH - 14.0f, fill, row.primaryAvailable, false,
+                        0.0f);
+            const float typePx = TypeFromRow(cardH, panel.rowPx, 34.0f);
             wchar_t value[16]{};
             FormatPercent(value, 16, row.displayPrimary, row.primaryAvailable);
-            const float valueWidth = resources.MeasureText(value, static_cast<uint32_t>(wcsnlen(value, 16)), rowPx);
-            (void)AppendClippedText(resources, list, panel.pad, rowY + 2.0f, rowPx, panel.innerW - valueWidth - 10.0f,
-                                    kMuted, kMuted, kMuted, 1.0f, row.name.data(), row.nameCharacters);
-            (void)resources.AppendText(list, width - panel.pad - valueWidth, rowY + 2.0f, rowPx, kTextR, kTextG, kTextB,
-                                       1.0f, value, static_cast<uint32_t>(wcsnlen(value, 16)));
-            DrawTrack(list, panel.pad, rowY + rowHeight - trackH - 2.0f, panel.innerW, trackH,
-                      std::clamp(row.displayPrimary, 0.0f, 100.0f) / 100.0f, row.primaryAvailable, false, 0.0f);
+            (void)AppendClippedText(resources, list, cellX + 20.0f, cellY + 6.0f, typePx, cardW - 28.0f, kTextR, kTextG,
+                                    kTextB, 1.0f, row.name.data(), row.nameCharacters);
+            (void)resources.AppendText(list, cellX + 20.0f, cellY + 8.0f + typePx, typePx, kTextR, kTextG, kTextB, 1.0f,
+                                       value, static_cast<uint32_t>(wcsnlen(value, 16)));
         }
         DrawOverflow(resources, list, panel.pad, y + listHeight, panel.labelPx, sample.rowCount - visible);
         if (footer > 0.0f)
@@ -2464,6 +2627,7 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
             (void)resources.AppendText(list, panel.pad, height - panel.pad - panel.rowPx, panel.rowPx, kMuted, kMuted,
                                        kMuted, 1.0f, disk, static_cast<uint32_t>(wcsnlen(disk, 48)));
         }
+        (void)width;
         return S_OK;
     }
 
@@ -2594,28 +2758,34 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
         }
         const float fanReserve = sample.available[7] && panel.density == ViewerDensity::Standard ? panel.rowMin : 0.0f;
         const float remaining = std::max(0.0f, height - panel.pad - y - fanReserve);
-        uint32_t visible = 0;
-        float rowHeight = 0.0f;
-        float listHeight = 0.0f;
         const uint32_t available = panel.density == ViewerDensity::Hero ? 1u : sample.rowCount;
-        FitListLayout(remaining, panel.rowMin, panel.labelPx + 4.0f, available, visible, rowHeight, listHeight);
+        uint32_t columns = 1;
+        uint32_t visible = 0;
+        uint32_t rows = 0;
+        float cardH = 0.0f;
+        float listHeight = 0.0f;
+        float cardW = 0.0f;
+        FitGridLayout(remaining, panel.innerW, 58.0f, panel.labelPx + 4.0f, 160.0f, available, columns, visible, rows,
+                      cardH, listHeight, cardW);
         visible = std::min(visible, sample.rowCount);
-        const float rowPx = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
-        const float trackH = std::clamp(rowHeight * 0.16f, 4.0f, 8.0f);
         for (uint32_t index = 0; index < visible; ++index)
         {
             const RankedRow& row = sample.rows[index];
-            const float rowY = y + row.displayY * rowHeight;
+            float cellX = 0.0f;
+            float cellY = 0.0f;
+            CellOrigin(panel.pad, y, index, columns, cardW, cardH, row.displayY, columns == 1, cellX, cellY);
+            const float fill = row.primaryAvailable ? ThermalFill(row.displayPrimary) : 0.0f;
+            (void)list.AddFill(cellX, cellY + 2.0f, cardW, cardH - 6.0f, kTrackR, kTrackG, kTrackB, 0.9f, 6.0f);
+            DrawMercury(list, cellX + 6.0f, cellY + 8.0f, 12.0f, cardH - 18.0f, fill, row.primaryAvailable, true,
+                        row.displayPrimary);
             wchar_t temp[16]{};
             FormatCelsius(temp, 16, row.displayPrimary, row.primaryAvailable);
-            const float fill = row.primaryAvailable ? ThermalFill(row.displayPrimary) : 0.0f;
-            DrawTrack(list, panel.pad, rowY + rowHeight - trackH - 2.0f, panel.innerW, trackH, fill,
-                      row.primaryAvailable, true, row.displayPrimary);
-            const float tempWidth = resources.MeasureText(temp, static_cast<uint32_t>(wcsnlen(temp, 16)), rowPx);
-            (void)AppendClippedText(resources, list, panel.pad, rowY + 2.0f, rowPx, panel.innerW - tempWidth - 10.0f,
-                                    kTextR, kTextG, kTextB, 1.0f, row.name.data(), row.nameCharacters);
-            (void)resources.AppendText(list, width - panel.pad - tempWidth, rowY + 2.0f, rowPx, kTextR, kTextG, kTextB,
-                                       1.0f, temp, static_cast<uint32_t>(wcsnlen(temp, 16)));
+            const float tempPx = TypeFromRow(cardH * 0.55f, panel.kpiPx, 40.0f);
+            const float namePx = TypeFromRow(cardH * 0.28f, panel.labelPx, 22.0f);
+            (void)resources.AppendText(list, cellX + 24.0f, cellY + 8.0f, tempPx, kTextR, kTextG, kTextB, 1.0f, temp,
+                                       static_cast<uint32_t>(wcsnlen(temp, 16)));
+            (void)AppendClippedText(resources, list, cellX + 24.0f, cellY + 12.0f + tempPx, namePx, cardW - 32.0f,
+                                    kMuted, kMuted, kMuted, 1.0f, row.name.data(), row.nameCharacters);
         }
         DrawOverflow(resources, list, panel.pad, y + listHeight, panel.labelPx, sample.rowCount - visible);
         if (fanReserve > 0.0f)
@@ -2628,6 +2798,7 @@ class ViewerWidget final : public IRedXeWidget, public IRedXeGpuWidget, public I
                       std::clamp(sample.display[7], 0.0f, 100.0f) / 100.0f, sample.available[7], false,
                       sample.display[7] / 100.0f);
         }
+        (void)width;
         return S_OK;
     }
 

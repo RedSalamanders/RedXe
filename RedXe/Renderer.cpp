@@ -89,6 +89,53 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
     return UpdateCachedViewports();
 }
 
+HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
+{
+    if (!_window || !_device || dashboardHost.WidgetCount() > kMaximumWidgetViewports)
+    {
+        return E_INVALIDARG;
+    }
+    if (_dashboardHost == &dashboardHost)
+    {
+        _transitionDashboardHost = nullptr;
+        _transitionWidgetsDeviceReady = false;
+        return UpdateCachedViewports();
+    }
+
+    const bool keepDevice = _transitionDashboardHost == &dashboardHost && _transitionWidgetsDeviceReady;
+    if (_gpuWidgetsDeviceReady && _dashboardHost)
+    {
+        for (size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
+        {
+            if (IRedXeGpuWidget* widget = _dashboardHost->GpuWidgetAt(index))
+            {
+                widget->OnDeviceLost();
+            }
+        }
+        _gpuWidgetsDeviceReady = false;
+    }
+    if (_transitionDashboardHost && _transitionDashboardHost != &dashboardHost && _transitionWidgetsDeviceReady)
+    {
+        for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
+        {
+            if (IRedXeGpuWidget* widget = _transitionDashboardHost->GpuWidgetAt(index))
+            {
+                widget->OnDeviceLost();
+            }
+        }
+    }
+
+    _transitionDashboardHost = nullptr;
+    _transitionWidgetsDeviceReady = false;
+    _dashboardHost = &dashboardHost;
+    if (keepDevice)
+    {
+        _gpuWidgetsDeviceReady = true;
+        return UpdateCachedViewports();
+    }
+    return NotifyDeviceCreated();
+}
+
 HRESULT Renderer::SetDpi(UINT dpi) noexcept
 {
     if (dpi == 0)

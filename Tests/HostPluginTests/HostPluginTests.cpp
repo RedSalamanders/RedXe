@@ -2,6 +2,7 @@
 #include "DeskClockTestContract.h"
 #include "FrameScheduler.h"
 #include "MatrixRainTestContract.h"
+#include "PageNavigation.h"
 #include "PluginHost.h"
 #include "PluginManager.h"
 #include "ProcessViewerTestContract.h"
@@ -270,6 +271,41 @@ void TestFrameScheduler(bool& success) noexcept
           L"an unrelated message leaves a static host waiting", success);
     state.frameInvalidated = true;
     Check(SelectHostFrameAction(state) == HostFrameAction::Render, L"invalidated static host renders", success);
+}
+
+void TestPageSwipePolicy(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] page swipe axis lock, rubber-band, commit, and settle\n";
+    Check(PageSwipeLocksHorizontal(20, 4, 16), L"horizontal delta past the threshold locks page navigation", success);
+    Check(!PageSwipeLocksHorizontal(10, 4, 16), L"sub-threshold contact does not lock page navigation", success);
+    Check(!PageSwipeLocksHorizontal(20, 24, 16), L"a diagonal with larger Y does not lock page navigation", success);
+    Check(PageSwipeRejectsAsVertical(8, 20, 16), L"vertical-dominant movement is rejected for page navigation",
+          success);
+    Check(!PageSwipeRejectsAsVertical(20, 8, 16), L"horizontal-dominant movement is not rejected as vertical", success);
+
+    Check(ApplyPageEdgeResistance(-400, 1000, false) == -400, L"unblocked travel follows the pointer 1:1", success);
+    Check(ApplyPageEdgeResistance(100, 400, true) == 25, L"blocked ends rubber-band at one quarter travel", success);
+    Check(ApplyPageEdgeResistance(400, 400, true) == 50, L"blocked rubber-band is capped at one eighth of the page",
+          success);
+    Check(!PageSwipeBlocksDirection(-10, true, true, false), L"wrap allows travel off the first page", success);
+    Check(PageSwipeBlocksDirection(10, false, true, false), L"no-wrap blocks travel before the first page", success);
+
+    Check(ShouldCommitPageSwipe(-250, 1000, 0.0f, 96, false, false, false),
+          L"travel of one quarter width commits the page", success);
+    Check(!ShouldCommitPageSwipe(-100, 1000, 0.0f, 96, false, false, false),
+          L"a short slow swipe returns to the current page", success);
+    Check(ShouldCommitPageSwipe(-80, 1000, -2400.0f, 96, false, false, false),
+          L"a same-direction flick commits below the distance threshold", success);
+    Check(!ShouldCommitPageSwipe(80, 1000, 2400.0f, 96, false, true, false),
+          L"a flick at a blocked first page does not commit", success);
+
+    Check(EaseOutCubic(0.0f) == 0.0f && EaseOutCubic(1.0f) == 1.0f, L"ease-out cubic starts at 0 and ends at 1",
+          success);
+    Check(InterpolatePageOffset(0, 100, 0.0f) == 0 && InterpolatePageOffset(0, 100, 1.0f) == 100,
+          L"settle interpolation preserves start and end offsets", success);
+    Check(InterpolatePageOffset(0, 100, 0.5f) == 88, L"settle interpolation uses ease-out cubic", success);
+    Check(PageSettleDurationMilliseconds(2000, 0.0f) == 280 && PageSettleDurationMilliseconds(10, 20000.0f) == 140,
+          L"settle duration stays within the 140-280 ms window", success);
 }
 
 void TestReleaseHostIntegration(bool& success) noexcept
@@ -1198,7 +1234,7 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
         result = renderer.RefreshLayout();
     if (SUCCEEDED(result))
         result = renderer.Render(0.1f, 0.0f);
-    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 4,
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 4 && dashboard.HorizontalOffset() == -137,
           L"direct manipulation renders only the current and staged adjacent pages", success);
     (void)renderer.SetTransitionDashboard(nullptr);
     adjacentDashboard.Shutdown();
@@ -1206,6 +1242,98 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
     (void)renderer.RefreshLayout();
     renderer.Shutdown();
     dashboard.Shutdown();
+}
+
+void TestPromoteStagedDashboard(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] in-place swipe commit keeps the Direct3D device\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}},{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}},{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}}]})json";
+
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, settings);
+    AttachedHostWindow window;
+    if (SUCCEEDED(result))
+    {
+        result = window.Initialize(kHostWidth, kHostHeight);
+    }
+    PluginManager currentPlugins;
+    if (SUCCEEDED(result))
+    {
+        result = currentPlugins.Initialize(settings);
+    }
+    DashboardHost currentDashboard;
+    if (SUCCEEDED(result))
+    {
+        result =
+            currentDashboard.Initialize(currentPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    }
+    Renderer renderer;
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Initialize(window.Get(), true, currentDashboard);
+    }
+    Check(SUCCEEDED(result) && currentPlugins.WidgetCount() == 1, L"first-page swipe host initializes one GPU widget",
+          success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    AppSettings nextSettings = settings;
+    PluginManager nextPlugins;
+    DashboardHost nextDashboard;
+    result = MoveDashboardPage(nextSettings, 1);
+    if (SUCCEEDED(result))
+    {
+        result = nextPlugins.Initialize(nextSettings);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = nextDashboard.Initialize(nextPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = nextDashboard.SetHorizontalOffset(static_cast<LONG>(kHostWidth));
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.SetTransitionDashboard(&nextDashboard);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = currentDashboard.SetHorizontalOffset(-static_cast<LONG>(kHostWidth) / 4);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.RefreshLayout();
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(0.2f, 0.0f);
+    }
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 3,
+          L"direct manipulation renders the current page and staged neighbor", success);
+
+    result = renderer.AdoptPrimaryDashboard(nextDashboard);
+    currentDashboard.Shutdown();
+    if (SUCCEEDED(result))
+    {
+        result = nextDashboard.SetHorizontalOffset(0);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.RefreshLayout();
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(0.3f, 0.0f);
+    }
+    Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 2 && renderer.LastFrameSuccessfulWidgetCount() == 2,
+          L"commit promotes the staged neighbor without recreating the device", success);
+
+    renderer.Shutdown();
+    nextDashboard.Shutdown();
 }
 
 [[nodiscard]] bool RunStudioClockHostSoak(std::chrono::seconds duration) noexcept
@@ -1652,6 +1780,7 @@ int wmain(int argumentCount, wchar_t** arguments)
 
     bool success = true;
     TestFrameScheduler(success);
+    TestPageSwipePolicy(success);
     TestReleaseHostIntegration(success);
     TestStudioClockScheduling(success);
     TestDeskClockScheduling(success);
@@ -1660,6 +1789,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestProcessViewerSubscription(success);
     TestSystemDataViewers(success);
     TestNonDivisibleGridEdges(success);
+    TestPromoteStagedDashboard(success);
     std::wcout << (success ? L"HostPluginTests passed.\n" : L"HostPluginTests failed.\n");
     return success ? 0 : 1;
 }

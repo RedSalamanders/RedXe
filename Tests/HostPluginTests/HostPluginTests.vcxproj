@@ -74,6 +74,7 @@
     <ClInclude Include="..\..\Plugins\StudioClock\StudioClockTestContract.h" />
     <ClInclude Include="..\..\RedXe\DashboardHost.h" />
     <ClInclude Include="..\..\RedXe\FrameScheduler.h" />
+    <ClInclude Include="..\..\RedXe\PageNavigation.h" />
     <ClInclude Include="..\..\RedXe\PluginManager.h" />
     <ClInclude Include="..\..\RedXe\Renderer.h" />
     <ClInclude Include="..\..\RedXe\Settings.h" />

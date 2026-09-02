@@ -58,15 +58,24 @@ Orientation is runtime state and MUST NOT appear in settings.
 ## Horizontal touch navigation
 
 - Navigation is horizontal in both orientations. Swipe left advances; swipe right returns.
-- Omitted or false `wrapPages` stops at the first and last page. True wraps either end to the opposite end.
-- A page follows the pointer and on release commits after the threshold or returns to the current page.
-- A widget that already owns an interactive captured pointer sequence retains it; otherwise a horizontal pan crossing
-  the host threshold becomes page navigation.
-- The host captures the navigation pointer until commit, cancellation, or capture loss. Vertical movement alone MUST
-  NOT switch pages.
+- Omitted or false `wrapPages` stops at the first and last page. True wraps either end to the opposite end. A blocked
+  end follows the pointer with rubber-band resistance and MUST NOT instantiate a neighbor or commit.
+- A page follows the pointer 1:1 after a horizontal lock. The host MUST NOT capture on contact. A widget that already
+  owns an interactive captured pointer sequence retains it; otherwise a horizontal pan whose absolute X delta exceeds
+  both the host threshold and the absolute Y delta becomes page navigation. Vertical-dominant movement MUST NOT switch
+  pages and MUST leave the contact with the widget.
+- Host-owned native containers forward uncaptured pointer messages to the top-level window so a pan can start over a
+  window widget. Taking over a pan sends `WM_CANCELMODE` to the original target and captures the pointer until commit,
+  cancellation, or capture loss.
+- Neighbor staging MUST NOT block the first follow-finger frame. The current page may slide immediately; the
+  directionally adjacent page is created on the following idle turn. Reversing through zero tears down the prior
+  neighbor before staging the opposite page.
+- On release the host settles with presentation-paced ease-out frames. It commits when travel reaches one quarter of
+  the client width or a same-direction flick exceeds the DPI-scaled speed threshold; otherwise it returns to the
+  current page. Commit promotes the already-staged neighbor in place and MUST NOT recreate the Direct3D device.
 - During a swipe only the current and directionally adjacent pages may be instantiated and rendered. Cancellation
   tears down the staged neighbor. Commit makes it current and tears down the prior page.
-- Resize, close, reload, and capture loss cancel an active transition safely.
+- Resize, close, reload, and capture loss cancel an active transition immediately, without a settle animation.
 
 ## Low-cadence scheduled frames
 
@@ -99,14 +108,17 @@ Orientation is runtime state and MUST NOT appear in settings.
 - Host tests prove that Desk Clock pages remain non-continuous, request the next-second boundary while static, request
   smooth presentation-paced frames only during a split-flap burst, return to a blocked wait at completion, add no
   resources or deadline while inactive, and stop scheduled work in every blocked state.
-- Navigation tests cover direction, direct manipulation, cancel/commit, end stops, wrap, capture loss, vertical
-  rejection, and current-plus-adjacent-only resource lifetime.
-- Interactive validation on a touch-capable XENEON SHOULD verify finger tracking and both orientations before release.
+- Navigation tests cover direction, axis lock, vertical rejection, rubber-band end stops, wrap, distance and flick
+  commit, settle interpolation, capture loss, deferred adjacent staging, in-place commit without device recreation,
+  and current-plus-adjacent-only resource lifetime.
+- Interactive validation on a touch-capable XENEON SHOULD verify finger tracking, settle, and both orientations before
+  release.
 
 ## Implementation anchors
 
 - Typed pages and split paths: `RedXe/Settings.*`
 - Geometry and native containers: `RedXe/DashboardHost.*`
+- Pointer policy, settle, and commit math: `RedXe/PageNavigation.h`
 - Page orchestration and capture: `RedXe/Application.*`
 - GPU transition composition: `RedXe/Renderer.*`
 - Tests: `Tests/SettingsTests/`, `Tests/HostPluginTests/`

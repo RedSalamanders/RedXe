@@ -34,6 +34,7 @@ class Renderer final
     HRESULT Resize(UINT width, UINT height) noexcept;
     HRESULT RefreshLayout() noexcept;
     HRESULT SetTransitionDashboard(DashboardHost* dashboardHost) noexcept;
+    HRESULT AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept;
     HRESULT Render(float elapsedSeconds, float deltaSeconds) noexcept;
     HRESULT ProbeOcclusion() noexcept;
     [[nodiscard]] bool IsSuspended() const noexcept;

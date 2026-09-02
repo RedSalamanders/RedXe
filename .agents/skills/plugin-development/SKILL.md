@@ -42,9 +42,9 @@ Preserve these boundaries:
   commands to the generic root.
 - GPU widgets receive a borrowed D3D11 device during setup and immediate context during rendering. They never receive
   the HWND, swap chain, or back buffer. Share immutable device resources across compatible instances. System Data GPU
-  viewers pick a density rung from the widget rectangle, grow type with leftover height among visible rows, omit
-  content that does not fit below type floors of 15 / 17 / 28 / 44 px, and join `gpu.process` names from
-  `process.list` without adding a new dataset ID.
+  viewers pick a density rung from the widget rectangle, grow type with leftover height among visible rows, split wide
+  lists into two columns, omit content that does not fit below type floors of 16 / 18 / 30 / 48 px and a 26 px title
+  floor, and join `gpu.process` names from `process.list` without adding a new dataset ID.
 - Window widgets receive only a borrowed host-owned child container and own all children, timers, controllers, and GDI
   resources they create. Every widget quiesces visibility-dependent work in `IRedXeWidget::SetVisible(FALSE)`;
   window widgets destroy their children before `Detach` returns.

@@ -400,18 +400,26 @@ The family presents ranked lists, capacity bars, KPI tiles, adapter cards, heatm
 tables. Visual language is a near-black panel (`#111111`) with a muted hairline. Accent red (`#FF1616`) is a high-band
 signal, not a fill: capacity tracks are charcoal with silver fill, amber from 70%, and red from 85%. Network and disk
 byte-rate bars use a log10 mapping from 1 KB/s to link speed (or 1 GB/s when speed is unknown); they MUST NOT
-normalize to the loudest sibling. Sparklines window-normalize to the history maximum. Temperatures use a banded fill
+normalize to the loudest sibling. When a widget rectangle is wide enough for two packed columns, ranked process, GPU
+process, network, storage, and thermal lists MUST split into a two-column grid instead of stretching a single row
+across empty width. System Pulse places the CPU numeral on the left and packs RAM, process, thread, handle, core,
+uptime, and commit chips into two columns when width allows. Storage volumes and thermal sensors render as cards
+with a vertical mercury fill; temperature
+cards lead with the Celsius numeral. CPU Meter places a recency-faded, right-aligned history beside the core heatmap.
+That history uses stacked translucent bars, a brighter live-edge cap, and sample-driven scrolling as new values shift
+in from the right. Network Meter uses the same history treatment for aggregate throughput. Sparklines and histories
+window-normalize to the history maximum except CPU percent, which stays 0–100. Temperatures use a banded fill
 (25 / 70 / 85 °C) so a cool sensor does not read as an alarm. CPU heatmap cells use squared luminance and drop the
 grid when a cell would be smaller than 6 px. Each widget picks a density rung from its inner height (hero / compact /
-standard), keeps type floors of 15 / 17 / 28 / 44 px that grow with leftover tile height among the rows or cards that
-fit, and omits columns, rows, heatmaps, and sparks that do not fit instead of shrinking below those floors. Lists and
-adapter cards MUST consume the widget rectangle: row or card height is inner height divided by the visible count, not
-a theoretical maximum budget. An AC-only power tile centers `AC` and `no battery`. Ranked-row slide, 320 ms value
-eases, 60-sample sparklines, and a brief accent pulse while a utilization or capacity KPI remains at or above 85% stay
-sample-driven. Decorative per-panel
-glow and idle breathing are not used. Empty and `Unavailable` values render as muted em dashes; an AC-only desktop
-renders compact `AC` status, never invented zeros. Widget-local sparkline history is at most 60 samples in fixed
-storage and MUST NOT move into System Data. Eases use a 320 ms ease-out; animation is sample-driven:
+standard), keeps type floors of 16 / 18 / 30 / 48 px and a title floor of 26 px that grow with leftover tile height
+among the rows or cards that fit, and omits columns, rows, heatmaps, and sparks that do not fit instead of shrinking
+below those floors. Lists and adapter cards MUST consume the widget rectangle: row or card height is inner height
+divided by the visible count, not a theoretical maximum budget. An AC-only power tile centers `AC` and `no battery`.
+Ranked-row slide, 320 ms value eases, 60-sample histories, and a brief accent pulse while a utilization or capacity
+KPI remains at or above 85% stay sample-driven. Decorative per-panel glow and idle breathing are not used; history
+recency fade and a live-edge highlight are sample-driven. Empty and `Unavailable` values render as muted em dashes; an
+AC-only desktop renders compact `AC` status, never invented zeros. Widget-local sparkline history is at most 60 samples
+in fixed storage and MUST NOT move into System Data. Eases use a 320 ms ease-out; animation is sample-driven:
 `GetNextFrameDelayMilliseconds` returns 1 while an ease or pulse is in flight, then the dataset interval. A settled
 System page MUST NOT request continuous frames.
 

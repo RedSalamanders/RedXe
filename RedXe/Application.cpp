@@ -2,6 +2,7 @@
 
 #include "CrashHandler.h"
 #include "FrameScheduler.h"
+#include "PageNavigation.h"
 #include "Settings.h"
 #include "resource.h"
 
@@ -22,6 +23,34 @@ namespace
 {
 constexpr LONG kXeneonEdgeClientWidth = 2560;
 constexpr LONG kXeneonEdgeClientHeight = 720;
+
+[[nodiscard]] BOOL HostSetPointerCapture(HWND window, UINT32 pointerId) noexcept
+{
+    using Function = BOOL(WINAPI*)(HWND, UINT32);
+    static const Function function =
+        reinterpret_cast<Function>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetPointerCapture"));
+    if (function)
+    {
+        return function(window, pointerId);
+    }
+    return SetCapture(window) != nullptr;
+}
+
+void HostReleasePointerCapture(HWND window, UINT32 pointerId) noexcept
+{
+    using Function = BOOL(WINAPI*)(HWND, UINT32);
+    static const Function function =
+        reinterpret_cast<Function>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "ReleasePointerCapture"));
+    if (function)
+    {
+        (void)function(window, pointerId);
+        return;
+    }
+    if (GetCapture() == window)
+    {
+        ReleaseCapture();
+    }
+}
 
 [[nodiscard]] HRESULT ValidateExecutableShellIcon() noexcept
 {
@@ -238,7 +267,16 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
 
 } // namespace
 
-Application::Application(HINSTANCE instance, bool forceWarp) noexcept : _instance(instance), _forceWarp(forceWarp) {}
+Application::Application(HINSTANCE instance, bool forceWarp) noexcept : _instance(instance), _forceWarp(forceWarp)
+{
+    _pluginManager.reset(new (std::nothrow) PluginManager());
+    _dashboardHost.reset(new (std::nothrow) DashboardHost());
+    LARGE_INTEGER frequency{};
+    if (QueryPerformanceFrequency(&frequency) && frequency.QuadPart > 0)
+    {
+        _qpcFrequency = static_cast<UINT64>(frequency.QuadPart);
+    }
+}
 
 Application::~Application()
 {
@@ -254,6 +292,12 @@ Application::~Application()
 
 int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsPath) noexcept
 {
+    if (!_pluginManager || !_dashboardHost)
+    {
+        OutputDebugStringW(L"Dashboard host allocation failed.\n");
+        return 1;
+    }
+
     HRESULT result = _settingsStore.Initialize(selfTest, settingsPath, _settings);
     if (FAILED(result) || !_settings)
     {
@@ -360,7 +404,7 @@ int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsP
     }
 #endif
 
-    result = _pluginManager.Initialize(*_settings);
+    result = _pluginManager->Initialize(*_settings);
     if (FAILED(result))
     {
         OutputDebugStringW(L"Bundled plugin initialization failed.\n");
@@ -376,7 +420,7 @@ int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsP
 
     if (selfTest)
     {
-        const size_t expectedGpuWidgetCount = CountGpuWidgets(_pluginManager);
+        const size_t expectedGpuWidgetCount = CountGpuWidgets(*_pluginManager);
         result = _renderer.Render(0.0f, 0.0f);
         if (FAILED(result) || _renderer.LastFrameWidgetCount() != expectedGpuWidgetCount ||
             _renderer.LastFrameSuccessfulWidgetCount() != expectedGpuWidgetCount ||
@@ -401,7 +445,7 @@ int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsP
                 result = ApplySettings(std::move(changed));
             if (SUCCEEDED(result))
                 result = _renderer.Render(0.0f, 0.0f);
-            const size_t changedGpuWidgetCount = CountGpuWidgets(_pluginManager);
+            const size_t changedGpuWidgetCount = CountGpuWidgets(*_pluginManager);
             if (FAILED(result) || _renderer.LastFrameWidgetCount() != changedGpuWidgetCount ||
                 _renderer.LastFrameSuccessfulWidgetCount() != changedGpuWidgetCount)
             {
@@ -453,6 +497,11 @@ int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsP
         if (!_window)
         {
             break;
+        }
+
+        if (_pageSettleActive)
+        {
+            TickPageSettle();
         }
 
         if (!_renderer.IsOccluded())
@@ -532,6 +581,7 @@ int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsP
             _frameInvalidated = false;
             RefreshScheduledFrameDeadline();
         }
+        FlushPendingTransitionStage();
         result = UpdateDashboardVisibility();
         if (FAILED(result))
         {
@@ -676,7 +726,7 @@ HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bo
 
 HRESULT Application::InitializeDashboardRuntime() noexcept
 {
-    if (!_window || _rendererReady)
+    if (!_window || _rendererReady || !_pluginManager || !_dashboardHost)
     {
         return E_UNEXPECTED;
     }
@@ -694,17 +744,17 @@ HRESULT Application::InitializeDashboardRuntime() noexcept
         return E_UNEXPECTED;
     }
 
-    HRESULT result = _dashboardHost.Initialize(_pluginManager, _window.get(), width, height, dpi, false);
+    HRESULT result = _dashboardHost->Initialize(*_pluginManager, _window.get(), width, height, dpi, false);
     if (FAILED(result))
     {
         return result;
     }
 
-    result = _renderer.Initialize(_window.get(), _forceWarp, _dashboardHost);
+    result = _renderer.Initialize(_window.get(), _forceWarp, *_dashboardHost);
     if (FAILED(result))
     {
         _renderer.Shutdown();
-        _dashboardHost.Shutdown();
+        _dashboardHost->Shutdown();
         return result;
     }
     _rendererReady = true;
@@ -718,11 +768,11 @@ HRESULT Application::InitializeDashboardRuntime() noexcept
 
 HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexcept
 {
-    if (!settings || !_settings)
+    if (!settings || !_settings || !_pluginManager || !_dashboardHost)
     {
         return E_POINTER;
     }
-    ClearTransitionPage();
+    CancelPageNavigation();
     if (*settings == *_settings)
     {
         return S_FALSE;
@@ -735,9 +785,9 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
 
     _renderer.Shutdown();
     _rendererReady = false;
-    _dashboardHost.Shutdown();
+    _dashboardHost->Shutdown();
 
-    HRESULT applyResult = _pluginManager.Reconfigure(*settings);
+    HRESULT applyResult = _pluginManager->Reconfigure(*settings);
     if (SUCCEEDED(applyResult))
     {
         applyResult = InitializeDashboardRuntime();
@@ -750,8 +800,8 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
 
     _renderer.Shutdown();
     _rendererReady = false;
-    _dashboardHost.Shutdown();
-    HRESULT rollbackResult = _pluginManager.Reconfigure(*_settings);
+    _dashboardHost->Shutdown();
+    HRESULT rollbackResult = _pluginManager->Reconfigure(*_settings);
     if (SUCCEEDED(rollbackResult))
     {
         rollbackResult = InitializeDashboardRuntime();
@@ -765,7 +815,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
 
 HRESULT Application::StageTransitionPage(int direction) noexcept
 {
-    if (!_settings || !_rendererReady || (direction != -1 && direction != 1))
+    if (!_settings || !_rendererReady || !_window || (direction != -1 && direction != 1))
     {
         return E_INVALIDARG;
     }
@@ -780,7 +830,11 @@ HRESULT Application::StageTransitionPage(int direction) noexcept
     {
         return result;
     }
-    auto plugins = std::make_unique<PluginManager>();
+    auto plugins = std::unique_ptr<PluginManager>(new (std::nothrow) PluginManager());
+    if (!plugins)
+    {
+        return E_OUTOFMEMORY;
+    }
     result = plugins->Initialize(*settings);
     if (FAILED(result))
     {
@@ -792,12 +846,16 @@ HRESULT Application::StageTransitionPage(int direction) noexcept
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    auto dashboard = std::make_unique<DashboardHost>();
+    auto dashboard = std::unique_ptr<DashboardHost>(new (std::nothrow) DashboardHost());
+    if (!dashboard)
+    {
+        return E_OUTOFMEMORY;
+    }
     const bool visible = _windowVisible && _displayPoweredOn && !_renderer.IsSuspended() && !_renderer.IsOccluded();
     result = dashboard->Initialize(*plugins, _window.get(), static_cast<UINT>(client.right),
                                    static_cast<UINT>(client.bottom), dpi, visible);
     if (SUCCEEDED(result))
-        result = dashboard->SetHorizontalOffset(direction * client.right);
+        result = dashboard->SetHorizontalOffset(_pageCurrentOffset + direction * client.right);
     if (SUCCEEDED(result))
         result = _renderer.SetTransitionDashboard(dashboard.get());
     if (FAILED(result))
@@ -823,6 +881,382 @@ void Application::ClearTransitionPage() noexcept
     _transitionPluginManager.reset();
     _transitionSettings.reset();
     _pageTransitionDirection = 0;
+    _pageStagePendingDirection = 0;
+}
+
+void Application::ApplyPageOffset(LONG offset, LONG clientWidth) noexcept
+{
+    if (!_dashboardHost)
+    {
+        return;
+    }
+    _pageCurrentOffset = offset;
+    HRESULT layoutResult = _dashboardHost->SetHorizontalOffset(offset);
+    if (SUCCEEDED(layoutResult) && _transitionDashboardHost && _pageTransitionDirection != 0)
+    {
+        layoutResult = _transitionDashboardHost->SetHorizontalOffset(offset + _pageTransitionDirection * clientWidth);
+    }
+    if (SUCCEEDED(layoutResult) && SUCCEEDED(_renderer.RefreshLayout()))
+    {
+        _frameInvalidated = true;
+    }
+}
+
+void Application::FlushPendingTransitionStage() noexcept
+{
+    const int direction = _pageStagePendingDirection;
+    if (direction == 0)
+    {
+        return;
+    }
+    _pageStagePendingDirection = 0;
+    if (FAILED(StageTransitionPage(direction)))
+    {
+        return;
+    }
+    RECT client{};
+    if (_window && GetClientRect(_window.get(), &client) && client.right > 0)
+    {
+        ApplyPageOffset(_pageCurrentOffset, client.right);
+    }
+}
+
+HRESULT Application::PromoteTransitionPage() noexcept
+{
+    if (!_transitionDashboardHost || !_transitionPluginManager || !_transitionSettings || !_pluginManager ||
+        !_dashboardHost)
+    {
+        return E_UNEXPECTED;
+    }
+
+    DashboardHost& incoming = *_transitionDashboardHost;
+    HRESULT result = _renderer.AdoptPrimaryDashboard(incoming);
+    if (FAILED(result))
+    {
+        return result;
+    }
+
+    std::unique_ptr<DashboardHost> retiringDashboard = std::move(_dashboardHost);
+    std::unique_ptr<PluginManager> retiringPlugins = std::move(_pluginManager);
+    _dashboardHost = std::move(_transitionDashboardHost);
+    _pluginManager = std::move(_transitionPluginManager);
+    _settings = std::move(_transitionSettings);
+    _pageTransitionDirection = 0;
+    _pageStagePendingDirection = 0;
+    _pageCurrentOffset = 0;
+    if (_dashboardHost)
+    {
+        (void)_dashboardHost->SetHorizontalOffset(0);
+    }
+    result = _renderer.RefreshLayout();
+    if (retiringDashboard)
+    {
+        retiringDashboard->Shutdown();
+    }
+    retiringPlugins.reset();
+    retiringDashboard.reset();
+    if (SUCCEEDED(result))
+    {
+        result = UpdateDashboardVisibility();
+    }
+    _frameInvalidated = true;
+    return result;
+}
+
+void Application::BeginPageSettle(LONG targetOffset, bool commit) noexcept
+{
+    RECT client{};
+    if (!_window || !GetClientRect(_window.get(), &client) || client.right <= 0)
+    {
+        CancelPageNavigation();
+        return;
+    }
+    if (commit && !_transitionDashboardHost)
+    {
+        commit = false;
+        targetOffset = 0;
+    }
+
+    _pageSettleActive = true;
+    _pageSettleCommit = commit;
+    _pageSettleStart = _pageCurrentOffset;
+    _pageSettleTarget = targetOffset;
+    _pagePanStarted = false;
+    LARGE_INTEGER now{};
+    if (!QueryPerformanceCounter(&now) || _qpcFrequency == 0)
+    {
+        ApplyPageOffset(targetOffset, client.right);
+        _pageSettleActive = false;
+        if (commit)
+        {
+            if (FAILED(PromoteTransitionPage()))
+            {
+                ApplyPageOffset(0, client.right);
+                ClearTransitionPage();
+            }
+        }
+        else
+        {
+            ClearTransitionPage();
+            ApplyPageOffset(0, client.right);
+        }
+        return;
+    }
+    _pageSettleStartQpc = static_cast<UINT64>(now.QuadPart);
+    const UINT durationMs = PageSettleDurationMilliseconds(targetOffset - _pageCurrentOffset, _pageVelocityPxPerSec);
+    _pageSettleDurationQpc = static_cast<UINT64>(durationMs) * _qpcFrequency / 1000ULL;
+    if (_pageSettleDurationQpc == 0)
+    {
+        _pageSettleDurationQpc = _qpcFrequency / 10ULL;
+    }
+    _frameInvalidated = true;
+}
+
+void Application::TickPageSettle() noexcept
+{
+    if (!_pageSettleActive || !_window)
+    {
+        return;
+    }
+    RECT client{};
+    if (!GetClientRect(_window.get(), &client) || client.right <= 0)
+    {
+        CancelPageNavigation();
+        return;
+    }
+
+    float t = 1.0f;
+    LARGE_INTEGER now{};
+    if (_pageSettleDurationQpc != 0 && QueryPerformanceCounter(&now))
+    {
+        const UINT64 elapsed = static_cast<UINT64>(now.QuadPart) - _pageSettleStartQpc;
+        t = elapsed >= _pageSettleDurationQpc
+                ? 1.0f
+                : static_cast<float>(elapsed) / static_cast<float>(_pageSettleDurationQpc);
+    }
+    const LONG offset = InterpolatePageOffset(_pageSettleStart, _pageSettleTarget, t);
+    ApplyPageOffset(offset, client.right);
+    if (t < 1.0f)
+    {
+        return;
+    }
+
+    _pageSettleActive = false;
+    if (_pageSettleCommit)
+    {
+        if (FAILED(PromoteTransitionPage()))
+        {
+            ApplyPageOffset(0, client.right);
+            ClearTransitionPage();
+        }
+        return;
+    }
+    ClearTransitionPage();
+    ApplyPageOffset(0, client.right);
+}
+
+void Application::CancelPageNavigation() noexcept
+{
+    if (_pagePointerCaptured && _window && _pagePointerId != 0)
+    {
+        HostReleasePointerCapture(_window.get(), _pagePointerId);
+    }
+    _pagePointerCaptured = false;
+    _pagePointerActive = false;
+    _pagePanStarted = false;
+    _pageGestureIgnored = false;
+    _pageSettleActive = false;
+    _pageSettleCommit = false;
+    _pagePointerId = 0;
+    _pagePointerQpc = 0;
+    _pageVelocityPxPerSec = 0.0f;
+    _pageCurrentOffset = 0;
+    _pageStagePendingDirection = 0;
+    ClearTransitionPage();
+    if (_dashboardHost)
+    {
+        (void)_dashboardHost->SetHorizontalOffset(0);
+    }
+    if (_rendererReady)
+    {
+        (void)_renderer.RefreshLayout();
+    }
+    _frameInvalidated = true;
+}
+
+bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position, UINT64& qpc) const noexcept
+{
+    POINTER_INFO information{};
+    if (!GetPointerInfo(pointerId, &information) ||
+        (information.pointerType != PT_TOUCH && information.pointerType != PT_PEN))
+    {
+        return false;
+    }
+    if ((information.pointerFlags & POINTER_FLAG_CANCELED) != 0)
+    {
+        return false;
+    }
+    position = information.ptPixelLocation;
+    if (!ScreenToClient(window, &position))
+    {
+        return false;
+    }
+    qpc = information.PerformanceCount;
+    return true;
+}
+
+void Application::OnPointerDown(HWND window, WPARAM wParam) noexcept
+{
+    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+    POINT position{};
+    UINT64 qpc = 0;
+    if (_pagePointerActive || !TryPointerClientPosition(window, pointerId, position, qpc))
+    {
+        return;
+    }
+
+    if (_pageSettleActive)
+    {
+        _pageSettleActive = false;
+        _pagePointerStartX = position.x - _pageCurrentOffset;
+        _pagePointerStartY = position.y;
+        _pagePanStarted = _pageCurrentOffset != 0;
+        _pageGestureIgnored = false;
+    }
+    else
+    {
+        _pagePointerStartX = position.x;
+        _pagePointerStartY = position.y;
+        _pagePanStarted = false;
+        _pageGestureIgnored = false;
+        _pageCurrentOffset = 0;
+    }
+
+    _pagePointerId = pointerId;
+    _pagePointerX = position.x;
+    _pagePointerQpc = qpc;
+    _pageVelocityPxPerSec = 0.0f;
+    _pagePointerActive = true;
+    _pagePointerCaptured = false;
+    _frameInvalidated = true;
+}
+
+void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
+{
+    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+    if (!_pagePointerActive || pointerId != _pagePointerId || _pageGestureIgnored)
+    {
+        return;
+    }
+    POINT position{};
+    UINT64 qpc = 0;
+    if (!TryPointerClientPosition(window, pointerId, position, qpc))
+    {
+        CancelPageNavigation();
+        return;
+    }
+    RECT client{};
+    if (!GetClientRect(window, &client) || client.right <= 0)
+    {
+        return;
+    }
+
+    const LONG deltaX = position.x - _pagePointerStartX;
+    const LONG deltaY = position.y - _pagePointerStartY;
+    const UINT dpi = GetDpiForWindow(window);
+    const LONG threshold = PageSwipeThresholdPixels(dpi);
+    if (!_pagePanStarted)
+    {
+        if (PageSwipeRejectsAsVertical(deltaX, deltaY, threshold))
+        {
+            _pageGestureIgnored = true;
+            _pagePointerActive = false;
+            return;
+        }
+        if (!PageSwipeLocksHorizontal(deltaX, deltaY, threshold))
+        {
+            _pagePointerX = position.x;
+            return;
+        }
+        _pagePanStarted = true;
+        _pageSettleActive = false;
+        if (HostSetPointerCapture(window, pointerId))
+        {
+            _pagePointerCaptured = true;
+        }
+        POINTER_INFO information{};
+        if (GetPointerInfo(pointerId, &information) && information.hwndTarget && information.hwndTarget != window)
+        {
+            SendMessageW(information.hwndTarget, WM_CANCELMODE, 0, 0);
+        }
+    }
+
+    if (_pagePointerQpc != 0 && qpc > _pagePointerQpc && _qpcFrequency != 0)
+    {
+        const double dt = static_cast<double>(qpc - _pagePointerQpc) / static_cast<double>(_qpcFrequency);
+        if (dt > 0.0005 && dt < 0.08)
+        {
+            const float instant = static_cast<float>(static_cast<double>(position.x - _pagePointerX) / dt);
+            _pageVelocityPxPerSec = _pageVelocityPxPerSec * 0.55f + instant * 0.45f;
+        }
+    }
+    _pagePointerX = position.x;
+    _pagePointerQpc = qpc;
+
+    const bool atFirst = _settings && _settings->dashboard.activePageIndex == 0;
+    const bool atLast = _settings && _settings->dashboard.activePageIndex + 1U >= _settings->dashboard.pageCount;
+    const bool wrapPages = _settings && _settings->dashboard.wrapPages;
+    const bool blocked = PageSwipeBlocksDirection(deltaX, wrapPages, atFirst, atLast);
+    const LONG offset = ApplyPageEdgeResistance(deltaX, client.right, blocked);
+    const int direction = blocked ? 0 : PageSwipeDirection(offset);
+    if (direction != 0 && direction != _pageTransitionDirection && direction != _pageStagePendingDirection)
+    {
+        if (_pageTransitionDirection != 0)
+        {
+            ClearTransitionPage();
+        }
+        _pageStagePendingDirection = direction;
+    }
+    ApplyPageOffset(offset, client.right);
+}
+
+void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
+{
+    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+    if (!_pagePointerActive || pointerId != _pagePointerId)
+    {
+        return;
+    }
+    if (_pagePointerCaptured)
+    {
+        HostReleasePointerCapture(window, pointerId);
+        _pagePointerCaptured = false;
+    }
+    _pagePointerActive = false;
+    const bool panStarted = _pagePanStarted;
+    _pagePanStarted = false;
+    _pagePointerId = 0;
+    if (!panStarted)
+    {
+        _pageGestureIgnored = false;
+        return;
+    }
+
+    FlushPendingTransitionStage();
+    RECT client{};
+    if (!_settings || !GetClientRect(window, &client) || client.right <= 0)
+    {
+        CancelPageNavigation();
+        return;
+    }
+    const bool atFirst = _settings->dashboard.activePageIndex == 0;
+    const bool atLast = _settings->dashboard.activePageIndex + 1U >= _settings->dashboard.pageCount;
+    const UINT dpi = GetDpiForWindow(window);
+    const bool commit = ShouldCommitPageSwipe(_pageCurrentOffset, client.right, _pageVelocityPxPerSec, dpi,
+                                              _settings->dashboard.wrapPages, atFirst, atLast) &&
+                        _transitionDashboardHost;
+    const LONG target = commit ? -_pageTransitionDirection * client.right : 0;
+    BeginPageSettle(target, commit);
 }
 
 void Application::OnSettingsChanged() noexcept
@@ -939,117 +1373,6 @@ void Application::CloseSettingsError() noexcept
     }
 }
 
-void Application::OnPointerDown(HWND window, WPARAM wParam) noexcept
-{
-    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
-    POINTER_INFO information{};
-    if (_pagePointerActive || !GetPointerInfo(pointerId, &information) ||
-        (information.pointerType != PT_TOUCH && information.pointerType != PT_PEN))
-    {
-        return;
-    }
-    POINT position = information.ptPixelLocation;
-    if (!ScreenToClient(window, &position) || !SetCapture(window))
-    {
-        return;
-    }
-    _pagePointerId = pointerId;
-    _pagePointerStartX = position.x;
-    _pagePointerX = position.x;
-    _pagePointerActive = true;
-    _pagePanStarted = false;
-}
-
-void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
-{
-    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
-    if (!_pagePointerActive || pointerId != _pagePointerId)
-    {
-        return;
-    }
-    POINTER_INFO information{};
-    POINT position{};
-    if (!GetPointerInfo(pointerId, &information))
-    {
-        return;
-    }
-    position = information.ptPixelLocation;
-    if (!ScreenToClient(window, &position))
-    {
-        return;
-    }
-    RECT client{};
-    if (!GetClientRect(window, &client) || client.right <= 0)
-    {
-        return;
-    }
-    LONG offset = std::clamp(position.x - _pagePointerStartX, -client.right, client.right);
-    const UINT dpi = GetDpiForWindow(window);
-    const LONG threshold = dpi == 0 ? 12 : MulDiv(12, static_cast<int>(dpi), USER_DEFAULT_SCREEN_DPI);
-    if (!_pagePanStarted && std::abs(offset) < threshold)
-    {
-        _pagePointerX = position.x;
-        return;
-    }
-    _pagePanStarted = true;
-    const bool atFirst = _settings && _settings->dashboard.activePageIndex == 0;
-    const bool atLast = _settings && _settings->dashboard.activePageIndex + 1U >= _settings->dashboard.pageCount;
-    if (_settings && !_settings->dashboard.wrapPages && ((offset > 0 && atFirst) || (offset < 0 && atLast)))
-    {
-        offset = 0;
-    }
-    const int direction = offset < 0 ? 1 : (offset > 0 ? -1 : 0);
-    if (direction != 0 && direction != _pageTransitionDirection)
-    {
-        if (FAILED(StageTransitionPage(direction)))
-        {
-            offset = 0;
-        }
-    }
-    _pagePointerX = position.x;
-    HRESULT layoutResult = _dashboardHost.SetHorizontalOffset(offset);
-    if (SUCCEEDED(layoutResult) && _transitionDashboardHost)
-    {
-        layoutResult = _transitionDashboardHost->SetHorizontalOffset(offset + _pageTransitionDirection * client.right);
-    }
-    if (SUCCEEDED(layoutResult) && SUCCEEDED(_renderer.RefreshLayout()))
-    {
-        _frameInvalidated = true;
-    }
-}
-
-void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
-{
-    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
-    if (!_pagePointerActive || pointerId != _pagePointerId)
-    {
-        return;
-    }
-    ReleaseCapture();
-    _pagePointerActive = false;
-    const bool panStarted = _pagePanStarted;
-    _pagePanStarted = false;
-    _pagePointerId = 0;
-    (void)_dashboardHost.SetHorizontalOffset(0);
-    (void)_renderer.RefreshLayout();
-    RECT client{};
-    const LONG distance = _pagePointerX - _pagePointerStartX;
-    if (!panStarted || !_settings || !GetClientRect(window, &client) || client.right <= 0 ||
-        std::abs(distance) < client.right / 4)
-    {
-        ClearTransitionPage();
-        _frameInvalidated = true;
-        return;
-    }
-    auto changed = std::make_unique<AppSettings>(*_settings);
-    const HRESULT selection = MoveDashboardPage(*changed, distance < 0 ? 1 : -1);
-    ClearTransitionPage();
-    if (SUCCEEDED(selection) && SUCCEEDED(ApplySettings(std::move(changed))))
-    {
-        _frameInvalidated = true;
-    }
-}
-
 bool Application::WaitUntilMessage() noexcept
 {
     if (!_windowVisible || !_displayPoweredOn || !_rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
@@ -1093,7 +1416,7 @@ bool Application::WaitUntilMessage() noexcept
 
 bool Application::DashboardRequiresContinuousFrames() const noexcept
 {
-    return _dashboardHost.RequiresContinuousFrames() ||
+    return _pageSettleActive || (_dashboardHost && _dashboardHost->RequiresContinuousFrames()) ||
            (_transitionDashboardHost && _transitionDashboardHost->RequiresContinuousFrames());
 }
 
@@ -1108,7 +1431,7 @@ void Application::RefreshScheduledFrameDeadline() noexcept
 
     uint32_t earliest = 0;
     uint32_t candidate = 0;
-    if (_dashboardHost.GetNextFrameDelayMilliseconds(&candidate) == S_OK)
+    if (_dashboardHost && _dashboardHost->GetNextFrameDelayMilliseconds(&candidate) == S_OK)
     {
         earliest = candidate;
     }
@@ -1130,14 +1453,14 @@ void Application::ClearScheduledFrameDeadline() noexcept
 
 HRESULT Application::UpdateDashboardVisibility() noexcept
 {
-    if (_dashboardHost.WidgetCount() == 0)
+    if (!_dashboardHost)
     {
         return S_OK;
     }
 
     const bool visible =
         _windowVisible && _displayPoweredOn && _rendererReady && !_renderer.IsSuspended() && !_renderer.IsOccluded();
-    HRESULT result = _dashboardHost.SetWidgetsVisible(visible);
+    HRESULT result = _dashboardHost->SetWidgetsVisible(visible);
     if (SUCCEEDED(result) && _transitionDashboardHost)
     {
         result = _transitionDashboardHost->SetWidgetsVisible(visible);
@@ -1148,10 +1471,13 @@ HRESULT Application::UpdateDashboardVisibility() noexcept
 void Application::CloseMainWindow() noexcept
 {
     _settingsWatcher.Stop();
-    ClearTransitionPage();
+    CancelPageNavigation();
     _renderer.Shutdown();
     _rendererReady = false;
-    _dashboardHost.Shutdown();
+    if (_dashboardHost)
+    {
+        _dashboardHost->Shutdown();
+    }
     _window.reset();
 }
 
@@ -1242,7 +1568,10 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         _occlusionStatusChanged = true;
         return 0;
     case PluginHost::kDataSnapshotInvalidateMessage:
-        _pluginManager.AcknowledgeUiInvalidate();
+        if (_pluginManager)
+        {
+            _pluginManager->AcknowledgeUiInvalidate();
+        }
         if (_transitionPluginManager)
         {
             _transitionPluginManager->AcknowledgeUiInvalidate();
@@ -1257,20 +1586,14 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         return 0;
     case WM_POINTERUPDATE:
         OnPointerUpdate(window, wParam);
-        return 0;
+        return _pagePanStarted ? 1 : 0;
     case WM_POINTERUP:
         OnPointerUp(window, wParam);
         return 0;
     case WM_POINTERCAPTURECHANGED:
-        if (_pagePointerActive)
+        if (_pagePointerActive || _pagePointerCaptured)
         {
-            _pagePointerActive = false;
-            _pagePanStarted = false;
-            _pagePointerId = 0;
-            (void)_dashboardHost.SetHorizontalOffset(0);
-            (void)_renderer.RefreshLayout();
-            ClearTransitionPage();
-            _frameInvalidated = true;
+            CancelPageNavigation();
         }
         return 0;
     case WM_GETMINMAXINFO:
@@ -1329,20 +1652,16 @@ LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
     {
         return 0;
     }
-    if (_pagePointerActive)
+    if (_pagePointerActive || _pagePanStarted || _pageSettleActive || _pageCurrentOffset != 0)
     {
-        _pagePointerActive = false;
-        _pagePanStarted = false;
-        _pagePointerId = 0;
-        ReleaseCapture();
-        ClearTransitionPage();
-        (void)_dashboardHost.SetHorizontalOffset(0);
+        CancelPageNavigation();
     }
 
     ClearScheduledFrameDeadline();
 
     const UINT dpi = GetDpiForWindow(window);
-    HRESULT result = dpi != 0 ? _dashboardHost.Resize(width, height, dpi) : HRESULT_FROM_WIN32(GetLastError());
+    HRESULT result =
+        dpi != 0 && _dashboardHost ? _dashboardHost->Resize(width, height, dpi) : HRESULT_FROM_WIN32(GetLastError());
     if (SUCCEEDED(result))
     {
         result = _renderer.Resize(width, height);

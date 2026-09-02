@@ -104,6 +104,7 @@
     <ClInclude Include="PluginHost.h" />
     <ClInclude Include="DashboardHost.h" />
     <ClInclude Include="FrameScheduler.h" />
+    <ClInclude Include="PageNavigation.h" />
     <ClInclude Include="PluginManager.h" />
     <ClInclude Include="Renderer.h" />
     <ClInclude Include="resource.h" />

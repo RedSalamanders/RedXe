@@ -32,6 +32,7 @@ class DashboardHost final
     [[nodiscard]] HRESULT Resize(UINT width, UINT height, UINT dpi) noexcept;
     [[nodiscard]] HRESULT SetWidgetsVisible(bool visible) noexcept;
     [[nodiscard]] HRESULT SetHorizontalOffset(LONG offset) noexcept;
+    [[nodiscard]] LONG HorizontalOffset() const noexcept;
     void Shutdown() noexcept;
     [[nodiscard]] size_t WidgetCount() const noexcept;
     [[nodiscard]] IRedXeWidget* WidgetAt(size_t index) const noexcept;
