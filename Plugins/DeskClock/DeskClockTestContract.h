@@ -5,30 +5,30 @@
 
 struct DeskClockTestTime final
 {
-    std::uint32_t sizeBytes;
-    std::uint16_t year;
-    std::uint16_t month;
-    std::uint16_t dayOfWeek;
-    std::uint16_t day;
-    std::uint16_t hour;
-    std::uint16_t minute;
-    std::uint16_t second;
-    std::uint16_t milliseconds;
+    uint32_t sizeBytes;
+    uint16_t year;
+    uint16_t month;
+    uint16_t dayOfWeek;
+    uint16_t day;
+    uint16_t hour;
+    uint16_t minute;
+    uint16_t second;
+    uint16_t milliseconds;
 };
 
 struct DeskClockTestDiagnostics final
 {
-    std::uint32_t sizeBytes;
-    std::uint32_t liveProviders;
-    std::uint32_t liveWidgets;
-    std::uint32_t liveDeviceResourceSets;
-    std::uint64_t timeSamples;
-    std::uint64_t constantUploads;
-    std::uint64_t drawCalls;
-    std::uint64_t scheduleQueries;
-    std::uint64_t typographyBuilds;
-    std::uint32_t atlasBytes;
-    std::uint32_t constantBytes;
+    uint32_t sizeBytes;
+    uint32_t liveProviders;
+    uint32_t liveWidgets;
+    uint32_t liveDeviceResourceSets;
+    uint64_t timeSamples;
+    uint64_t constantUploads;
+    uint64_t drawCalls;
+    uint64_t scheduleQueries;
+    uint64_t typographyBuilds;
+    uint32_t atlasBytes;
+    uint32_t constantBytes;
 };
 
 #if defined(REDXE_PLUGIN_EXPORTS)

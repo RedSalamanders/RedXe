@@ -99,7 +99,7 @@ class AttachedHostWindow final
     void PumpMessages() const noexcept
     {
         MSG message{};
-        std::uint32_t processed = 0;
+        uint32_t processed = 0;
         while (processed < 4096 && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
         {
             TranslateMessage(&message);
@@ -129,8 +129,8 @@ class AttachedHostWindow final
 
 struct ProcessMemorySnapshot final
 {
-    std::uint64_t privateBytes = 0;
-    std::uint64_t workingSetBytes = 0;
+    uint64_t privateBytes = 0;
+    uint64_t workingSetBytes = 0;
 };
 
 [[nodiscard]] HRESULT QueryProcessMemorySnapshot(ProcessMemorySnapshot& snapshot) noexcept
@@ -329,7 +329,7 @@ void TestReleaseHostIntegration(bool& success) noexcept
             return;
         }
         Check(getDiagnostics(nullptr) == E_POINTER, L"Matrix diagnostics rejects a null record", success);
-        MatrixRainTestDiagnostics shortDiagnostics{sizeof(std::uint32_t), 0, 0, 0};
+        MatrixRainTestDiagnostics shortDiagnostics{sizeof(uint32_t), 0, 0, 0};
         Check(getDiagnostics(&shortDiagnostics) == E_INVALIDARG, L"Matrix diagnostics rejects a short record", success);
 
         MatrixRainTestDiagnostics diagnostics{};
@@ -345,7 +345,7 @@ void TestReleaseHostIntegration(bool& success) noexcept
         Check(placement.x == 0.0f && placement.y == 0.0f && placement.width == 2560.0f && placement.height == 720.0f,
               L"sole Matrix widget fills the design canvas", success);
         Check(dashboard.RequiresContinuousFrames(), L"Matrix descriptor makes the host continuous", success);
-        std::uint32_t scheduledDelay = 123;
+        uint32_t scheduledDelay = 123;
         Check(dashboard.GetNextFrameDelayMilliseconds(nullptr) == E_POINTER,
               L"scheduled-frame aggregation rejects a null output", success);
         Check(dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay) == S_FALSE && scheduledDelay == 0,
@@ -519,7 +519,7 @@ void TestStudioClockScheduling(bool& success) noexcept
     result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
     Check(SUCCEEDED(result) && !dashboard.RequiresContinuousFrames(),
           L"Studio Clock remains a scheduled static widget instead of continuous animation", success);
-    std::uint32_t scheduledDelay = 0;
+    uint32_t scheduledDelay = 0;
     if (SUCCEEDED(result))
     {
         result = dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay);
@@ -625,7 +625,7 @@ void TestDeskClockScheduling(bool& success) noexcept
         return;
     }
     Check(getDiagnostics(nullptr) == E_POINTER, L"Desk Clock diagnostics rejects a null record", success);
-    DeskClockTestDiagnostics shortDiagnostics{sizeof(std::uint32_t)};
+    DeskClockTestDiagnostics shortDiagnostics{sizeof(uint32_t)};
     Check(getDiagnostics(&shortDiagnostics) == E_INVALIDARG, L"Desk Clock diagnostics rejects a short record", success);
 
     const DeskClockTestTime initialTime{sizeof(DeskClockTestTime), 2024, 8, 6, 31, 19, 59, 59, 500};
@@ -664,7 +664,7 @@ void TestDeskClockScheduling(bool& success) noexcept
     result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
     Check(SUCCEEDED(result) && !dashboard.RequiresContinuousFrames(),
           L"Desk Clock is scheduled and remains idle between displayed seconds", success);
-    std::uint32_t scheduledDelay = 0;
+    uint32_t scheduledDelay = 0;
     if (SUCCEEDED(result))
     {
         result = dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay);
@@ -753,7 +753,7 @@ void TestDeskClockScheduling(bool& success) noexcept
               scheduledDelay <= 650,
           L"Desk Clock returns to three static draws and a blocked deadline after the flip", success);
 
-    const std::uint64_t hiddenSamples = afterFlip.timeSamples;
+    const uint64_t hiddenSamples = afterFlip.timeSamples;
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     if (SUCCEEDED(result))
     {
@@ -809,12 +809,12 @@ void TestDataProviderLookup(bool& success) noexcept
           L"repeated host lookup shares one provider runtime", success);
 
     const RedXeDataSetDescriptor* descriptors = nullptr;
-    std::uint32_t descriptorCount = 0;
+    uint32_t descriptorCount = 0;
     if (SUCCEEDED(result))
     {
         result = first->GetDataSets(&descriptors, &descriptorCount);
     }
-    Check(SUCCEEDED(result) && descriptors && descriptorCount == 2, L"host data provider exposes its source datasets",
+    Check(SUCCEEDED(result) && descriptors && descriptorCount == 18, L"host data provider exposes its source datasets",
           success);
 
     wil::com_ptr_nothrow<IRedXeDataProvider> unsupported;
@@ -860,7 +860,7 @@ void TestProcessViewerSubscription(bool& success) noexcept
             return;
         }
         Check(getDiagnostics(nullptr) == E_POINTER, L"Process Viewer diagnostics rejects a null record", success);
-        ProcessViewerTestDiagnostics shortDiagnostics{sizeof(std::uint32_t)};
+        ProcessViewerTestDiagnostics shortDiagnostics{sizeof(uint32_t)};
         Check(getDiagnostics(&shortDiagnostics) == E_INVALIDARG, L"Process Viewer diagnostics rejects a short record",
               success);
 
@@ -906,7 +906,7 @@ void TestProcessViewerSubscription(bool& success) noexcept
         {
             result = ReadProcessViewerDiagnostics(diagnostics);
         }
-        const std::uint32_t quiescedSampleCount = diagnostics.sampleCount;
+        const uint32_t quiescedSampleCount = diagnostics.sampleCount;
         std::this_thread::sleep_for(std::chrono::milliseconds(2200));
         if (SUCCEEDED(result))
         {
@@ -1125,19 +1125,19 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
         result = QueryProcessMemorySnapshot(memoryBefore);
     }
 
-    std::uint64_t frames = 1;
-    std::uint64_t correctiveFrames = 0;
+    uint64_t frames = 1;
+    uint64_t correctiveFrames = 0;
     const auto started = std::chrono::steady_clock::now();
     const auto deadline = started + duration;
     auto previous = started;
     while (SUCCEEDED(result) && std::chrono::steady_clock::now() < deadline)
     {
-        std::uint32_t delay = 0;
+        uint32_t delay = 0;
         result = dashboard.GetNextFrameDelayMilliseconds(&delay);
         if (FAILED(result) || delay == 0 || delay > 1001)
         {
             std::wcout << L"studio_clock_host_soak unexpected_delay=" << delay << L" hresult=0x" << std::hex
-                       << static_cast<std::uint32_t>(result) << std::dec << L'\n';
+                       << static_cast<uint32_t>(result) << std::dec << L'\n';
             break;
         }
         if (delay == 1)
@@ -1165,7 +1165,7 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
         result = QueryProcessMemorySnapshot(memoryAfter);
     }
     Check(SUCCEEDED(result), L"Studio Clock scheduled soak frames render without failure", success);
-    const std::uint64_t expectedSeconds = static_cast<std::uint64_t>(duration.count());
+    const uint64_t expectedSeconds = static_cast<uint64_t>(duration.count());
     Check(correctiveFrames <= 1 && frames >= expectedSeconds && frames <= expectedSeconds + 1 + correctiveFrames,
           L"Studio Clock soak renders no more than one scheduled frame per displayed second plus one correction",
           success);
@@ -1175,7 +1175,7 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
               diagnosticsAfter.liveConstantBufferCount == diagnosticsBefore.liveConstantBufferCount,
           L"Studio Clock soak retains stable object and resource counts", success);
 
-    const std::uint64_t hiddenSampleCount = diagnosticsAfter.timeSampleCount;
+    const uint64_t hiddenSampleCount = diagnosticsAfter.timeSampleCount;
     std::this_thread::sleep_for(std::chrono::seconds(2));
     result = ReadStudioClockDiagnostics(diagnosticsAfter);
     Check(SUCCEEDED(result) && diagnosticsAfter.timeSampleCount == hiddenSampleCount,
@@ -1255,20 +1255,20 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
         result = QueryProcessMemorySnapshot(memoryBefore);
     }
 
-    std::uint64_t frames = 0;
-    std::uint64_t activeDelayCount = 0;
-    std::uint64_t idleDelayCount = 0;
+    uint64_t frames = 0;
+    uint64_t activeDelayCount = 0;
+    uint64_t idleDelayCount = 0;
     const auto started = std::chrono::steady_clock::now();
     const auto deadline = started + duration;
     auto previous = started;
     while (SUCCEEDED(result) && std::chrono::steady_clock::now() < deadline)
     {
-        std::uint32_t delay = 0;
+        uint32_t delay = 0;
         result = dashboard.GetNextFrameDelayMilliseconds(&delay);
         if (FAILED(result) || delay == 0 || delay > 1000)
         {
             std::wcout << L"desk_clock_host_soak unexpected_delay=" << delay << L" hresult=0x" << std::hex
-                       << static_cast<std::uint32_t>(result) << std::dec << L'\n';
+                       << static_cast<uint32_t>(result) << std::dec << L'\n';
             break;
         }
         if (delay == 1)
@@ -1300,7 +1300,7 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
         result = QueryProcessMemorySnapshot(memoryAfter);
     }
     Check(SUCCEEDED(result), L"Desk Clock scheduled soak frames render without failure", success);
-    const std::uint64_t expectedSeconds = static_cast<std::uint64_t>(duration.count());
+    const uint64_t expectedSeconds = static_cast<uint64_t>(duration.count());
     Check(frames >= expectedSeconds && frames <= expectedSeconds * 1002 + 1,
           L"Desk Clock soak stays bounded to its second boundary and flip bursts", success);
     Check(activeDelayCount != 0 && idleDelayCount != 0,
@@ -1309,11 +1309,11 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
               diagnosticsAfter.liveWidgets == diagnosticsBefore.liveWidgets &&
               diagnosticsAfter.liveDeviceResourceSets == diagnosticsBefore.liveDeviceResourceSets,
           L"Desk Clock soak retains stable object and resource counts", success);
-    const std::uint64_t soakDraws = diagnosticsAfter.drawCalls - diagnosticsBefore.drawCalls;
+    const uint64_t soakDraws = diagnosticsAfter.drawCalls - diagnosticsBefore.drawCalls;
     Check(soakDraws >= frames * 3 && soakDraws <= frames * 4,
           L"Desk Clock soak remains within three static or four animated draws per frame", success);
 
-    const std::uint64_t hiddenSampleCount = diagnosticsAfter.timeSamples;
+    const uint64_t hiddenSampleCount = diagnosticsAfter.timeSamples;
     std::this_thread::sleep_for(std::chrono::seconds(2));
     result = ReadDeskClockDiagnostics(diagnosticsAfter);
     Check(SUCCEEDED(result) && diagnosticsAfter.timeSamples == hiddenSampleCount,
@@ -1369,7 +1369,7 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
         return false;
     }
 
-    for (std::uint32_t frame = 0; frame < 1024; ++frame)
+    for (uint32_t frame = 0; frame < 1024; ++frame)
     {
         result = renderer.Render(static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
         if (FAILED(result))
@@ -1388,7 +1388,7 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
         result = QueryProcessMemorySnapshot(memoryBefore);
     }
 
-    std::uint64_t frames = 0;
+    uint64_t frames = 0;
     const auto started = std::chrono::steady_clock::now();
     const auto deadline = started + duration;
     auto previous = started;
@@ -1451,14 +1451,14 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
         {
             return false;
         }
-        std::uint64_t parsed = 0;
+        uint64_t parsed = 0;
         for (const wchar_t character : value)
         {
             if (character < L'0' || character > L'9')
             {
                 return false;
             }
-            parsed = parsed * 10 + static_cast<std::uint64_t>(character - L'0');
+            parsed = parsed * 10 + static_cast<uint64_t>(character - L'0');
             if (parsed > 3600)
             {
                 return false;

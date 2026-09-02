@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files"><UniqueIdentifier>{C4E8B91A-2F17-4D3E-9A50-1B7C6E8D4F20}</UniqueIdentifier></Filter>
+    <Filter Include="Public Interfaces"><UniqueIdentifier>{D5F9C02B-3A28-4E4F-8B61-2C8D7F9E5A31}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup><ClCompile Include="SystemDataPhase0.cpp"><Filter>Source Files</Filter></ClCompile></ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Data.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Public Interfaces</Filter></ClInclude>
+  </ItemGroup>
+</Project>

@@ -59,10 +59,10 @@ constexpr std::string_view kDefaultMatrixConfiguration =
     R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35})json";
 
 #if defined(_DEBUG)
-std::atomic<std::uint64_t> gMatrixRenderAllocationCount{0};
+std::atomic<uint64_t> gMatrixRenderAllocationCount{0};
 std::atomic<DWORD> gMatrixRenderThreadId{0};
 
-int __cdecl CountMatrixRenderAllocation(int allocationType, void*, std::size_t, int, long, const unsigned char*,
+int __cdecl CountMatrixRenderAllocation(int allocationType, void*, size_t, int, long, const unsigned char*,
                                         int) noexcept
 {
     if (allocationType == _HOOK_ALLOC && gMatrixRenderThreadId.load(std::memory_order_relaxed) == GetCurrentThreadId())
@@ -92,7 +92,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     RedXeFactoryOptions options{};
     options.sizeBytes = sizeof(options);
     options.configurationJsonUtf8 = normalized.data();
-    options.configurationBytes = static_cast<std::uint32_t>(normalized.size());
+    options.configurationBytes = static_cast<uint32_t>(normalized.size());
     void* object = nullptr;
     HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, pluginId, &object);
     if (FAILED(result) || !object)
@@ -103,7 +103,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
     constexpr std::string_view invalid = R"json({"plugin":{},"instance":{"unexpected":1}})json";
     options.configurationJsonUtf8 = invalid.data();
-    options.configurationBytes = static_cast<std::uint32_t>(invalid.size());
+    options.configurationBytes = static_cast<uint32_t>(invalid.size());
     object = reinterpret_cast<void*>(1);
     result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, pluginId, &object);
     if (result != HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || object)
@@ -170,7 +170,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     {
         return HRESULT_FROM_WIN32(ERROR_BAD_PATHNAME);
     }
-    const std::size_t prefixLength = static_cast<std::size_t>(separator - path.data()) + 1;
+    const size_t prefixLength = static_cast<size_t>(separator - path.data()) + 1;
     HRESULT result = StringCchCopyW(separator + 1, path.size() - prefixLength, L"Plugins\\");
     if (FAILED(result))
     {
@@ -271,7 +271,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     provider.attach(static_cast<IRedXeWidgetProvider*>(object));
 
     const RedXePluginMetadata* metadata = reinterpret_cast<const RedXePluginMetadata*>(1);
-    std::uint32_t metadataCount = 1;
+    uint32_t metadataCount = 1;
     result = enumerate(nullptr, &metadataCount);
     if (result != E_POINTER || metadataCount != 0)
     {
@@ -289,7 +289,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     const RedXePluginMetadata* secondMetadata = nullptr;
-    std::uint32_t secondMetadataCount = 0;
+    uint32_t secondMetadataCount = 0;
     result = enumerate(&secondMetadata, &secondMetadataCount);
     if (FAILED(result) || secondMetadata != metadata || secondMetadataCount != metadataCount)
     {
@@ -297,7 +297,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     }
 
     const RedXeWidgetTypeDescriptor* widgetTypes = nullptr;
-    std::uint32_t widgetTypeCount = 0;
+    uint32_t widgetTypeCount = 0;
     if (provider->GetWidgetTypes(nullptr, &widgetTypeCount) != E_POINTER || widgetTypeCount != 0)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -314,7 +314,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     const RedXeWidgetTypeDescriptor* secondWidgetTypes = nullptr;
-    std::uint32_t secondWidgetTypeCount = 0;
+    uint32_t secondWidgetTypeCount = 0;
     result = provider->GetWidgetTypes(&secondWidgetTypes, &secondWidgetTypeCount);
     if (FAILED(result) || secondWidgetTypes != widgetTypes || secondWidgetTypeCount != widgetTypeCount)
     {
@@ -423,7 +423,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     }
 
     const RedXePluginMetadata* metadata = nullptr;
-    std::uint32_t metadataCount = 0;
+    uint32_t metadataCount = 0;
     result = enumerate(&metadata, &metadataCount);
     if (FAILED(result) || !metadata || metadataCount != 1 || !RedXeAsciiEqualsIgnoreCase(metadata[0].id, kGdiPluginId))
     {
@@ -442,7 +442,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     provider.attach(static_cast<IRedXeWidgetProvider*>(providerObject));
 
     const RedXeWidgetTypeDescriptor* widgetTypes = nullptr;
-    std::uint32_t widgetTypeCount = 0;
+    uint32_t widgetTypeCount = 0;
     result = provider->GetWidgetTypes(&widgetTypes, &widgetTypeCount);
     if (FAILED(result) || !widgetTypes || widgetTypeCount != 1 ||
         !RedXeAsciiEqualsIgnoreCase(widgetTypes[0].typeId, kGdiWidgetTypeId))
@@ -546,8 +546,8 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
 struct MatrixRenderTarget final
 {
-    std::uint32_t width = 0;
-    std::uint32_t height = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
     D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
     wil::com_ptr_nothrow<ID3D11Device> device;
     wil::com_ptr_nothrow<ID3D11DeviceContext> context;
@@ -557,7 +557,7 @@ struct MatrixRenderTarget final
     wil::com_ptr_nothrow<ID3D11Query> completionQuery;
 };
 
-[[nodiscard]] HRESULT CreateMatrixRenderTarget(std::uint32_t width, std::uint32_t height, MatrixRenderTarget& target,
+[[nodiscard]] HRESULT CreateMatrixRenderTarget(uint32_t width, uint32_t height, MatrixRenderTarget& target,
                                                D3D_DRIVER_TYPE driverType = D3D_DRIVER_TYPE_WARP) noexcept
 {
     if (width == 0 || height == 0)
@@ -636,7 +636,7 @@ struct MatrixRenderTarget final
         RedXeFactoryOptions options{};
         options.sizeBytes = sizeof(options);
         options.configurationJsonUtf8 = envelope.data();
-        options.configurationBytes = static_cast<std::uint32_t>(envelope.size());
+        options.configurationBytes = static_cast<uint32_t>(envelope.size());
         void* object = nullptr;
         const HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object);
         if (FAILED(result))
@@ -708,13 +708,13 @@ struct MatrixRenderTarget final
             return result;
         }
         const auto unmap = wil::scope_exit([&]() noexcept { target.context->Unmap(target.staging.get(), 0); });
-        const std::size_t rowBytes = static_cast<std::size_t>(target.width) * 4U;
+        const size_t rowBytes = static_cast<size_t>(target.width) * 4U;
         pixels.resize(rowBytes * target.height);
-        for (std::uint32_t row = 0; row < target.height; ++row)
+        for (uint32_t row = 0; row < target.height; ++row)
         {
-            std::memcpy(pixels.data() + static_cast<std::size_t>(row) * rowBytes,
+            std::memcpy(pixels.data() + static_cast<size_t>(row) * rowBytes,
                         static_cast<const std::uint8_t*>(mapped.pData) +
-                            static_cast<std::size_t>(row) * mapped.RowPitch,
+                            static_cast<size_t>(row) * mapped.RowPitch,
                         rowBytes);
         }
         return S_OK;
@@ -747,7 +747,7 @@ struct MatrixRenderTarget final
         target.context.get(),
         viewport,
     };
-    for (std::uint32_t warmup = 0; warmup < 1024; ++warmup)
+    for (uint32_t warmup = 0; warmup < 1024; ++warmup)
     {
         frame.elapsedSeconds = static_cast<float>(warmup) / 60.0f;
         const HRESULT result = widget.Render(&gpuFrame);
@@ -763,7 +763,7 @@ struct MatrixRenderTarget final
     gMatrixRenderThreadId.store(GetCurrentThreadId(), std::memory_order_relaxed);
     const _CRT_ALLOC_HOOK previousHook = _CrtSetAllocHook(CountMatrixRenderAllocation);
     HRESULT renderResult = S_OK;
-    for (std::uint32_t frameIndex = 0; frameIndex < 240; ++frameIndex)
+    for (uint32_t frameIndex = 0; frameIndex < 240; ++frameIndex)
     {
         frame.elapsedSeconds = static_cast<float>(frameIndex) / 60.0f;
         renderResult = widget.Render(&gpuFrame);
@@ -796,7 +796,7 @@ struct MatrixRenderTarget final
 {
     bool foundBackground = false;
     bool foundGlyph = false;
-    for (std::size_t offset = 0; offset + 3 < pixels.size(); offset += 4)
+    for (size_t offset = 0; offset + 3 < pixels.size(); offset += 4)
     {
         const bool matches = pixels[offset] == background[0] && pixels[offset + 1] == background[1] &&
                              pixels[offset + 2] == background[2] && pixels[offset + 3] == background[3];
@@ -819,7 +819,7 @@ struct MatrixRenderTarget final
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     options.configurationJsonUtf8 = kDefaultMatrixConfiguration.data();
-    options.configurationBytes = static_cast<std::uint32_t>(kDefaultMatrixConfiguration.size());
+    options.configurationBytes = static_cast<uint32_t>(kDefaultMatrixConfiguration.size());
     object = reinterpret_cast<void*>(1);
     if (create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object) !=
             HRESULT_FROM_WIN32(ERROR_INVALID_DATA) ||
@@ -866,7 +866,7 @@ struct MatrixRenderTarget final
         for (const Mutation& mutation : mutations)
         {
             std::string invalid(kDefaultMatrixConfiguration);
-            const std::size_t offset = invalid.find(mutation.before);
+            const size_t offset = invalid.find(mutation.before);
             if (offset == std::string::npos)
             {
                 return E_UNEXPECTED;
@@ -876,7 +876,7 @@ struct MatrixRenderTarget final
             envelope.reserve(invalid.size() + 32);
             envelope.append("{\"plugin\":{},\"instance\":").append(invalid).append("}");
             options.configurationJsonUtf8 = envelope.data();
-            options.configurationBytes = static_cast<std::uint32_t>(envelope.size());
+            options.configurationBytes = static_cast<uint32_t>(envelope.size());
             object = reinterpret_cast<void*>(1);
             const HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object);
             if (result != HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || object)
@@ -903,7 +903,7 @@ struct MatrixRenderTarget final
     for (const std::string_view invalid : invalidNormalizedConfigurations)
     {
         options.configurationJsonUtf8 = invalid.data();
-        options.configurationBytes = static_cast<std::uint32_t>(invalid.size());
+        options.configurationBytes = static_cast<uint32_t>(invalid.size());
         object = reinterpret_cast<void*>(1);
         if (create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object) !=
                 HRESULT_FROM_WIN32(ERROR_INVALID_DATA) ||
@@ -963,7 +963,7 @@ struct MatrixRenderTarget final
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     RedXeGpuFrameContext invalidFrame{};
-    invalidFrame.sizeBytes = sizeof(std::uint32_t);
+    invalidFrame.sizeBytes = sizeof(uint32_t);
     if (gpuWidget->Render(&invalidFrame) != E_INVALIDARG)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -1038,7 +1038,7 @@ struct MatrixRenderTarget final
     {
         std::string borrowed(kDefaultMatrixConfiguration);
         const std::string_view oldColor = "#010502";
-        const std::size_t colorOffset = borrowed.find(oldColor);
+        const size_t colorOffset = borrowed.find(oldColor);
         if (colorOffset == std::string::npos)
         {
             return E_UNEXPECTED;
@@ -1113,7 +1113,7 @@ struct MatrixRenderTarget final
     try
     {
         std::string differentSeed(kDefaultMatrixConfiguration);
-        const std::size_t seedOffset = differentSeed.find("\"seed\":1999");
+        const size_t seedOffset = differentSeed.find("\"seed\":1999");
         differentSeed.replace(seedOffset, std::string_view("\"seed\":1999").size(), "\"seed\":2000");
         result = CreateMatrixProvider(create, differentSeed, differentSeedProvider);
     }
@@ -1182,7 +1182,7 @@ struct MatrixRenderTarget final
     }
 
     const RedXePluginMetadata* metadata = nullptr;
-    std::uint32_t metadataCount = 0;
+    uint32_t metadataCount = 0;
     result = enumerate(&metadata, &metadataCount);
     if (FAILED(result) || !metadata || metadataCount != 1 ||
         !RedXeAsciiEqualsIgnoreCase(metadata[0].id, kMatrixPluginId))
@@ -1202,7 +1202,7 @@ struct MatrixRenderTarget final
     provider.attach(static_cast<IRedXeWidgetProvider*>(providerObject));
 
     const RedXeWidgetTypeDescriptor* widgetTypes = nullptr;
-    std::uint32_t widgetTypeCount = 0;
+    uint32_t widgetTypeCount = 0;
     result = provider->GetWidgetTypes(&widgetTypes, &widgetTypeCount);
     if (FAILED(result) || !widgetTypes || widgetTypeCount != 1 ||
         widgetTypes[0].sizeBytes != sizeof(RedXeWidgetTypeDescriptor) ||
@@ -1279,7 +1279,7 @@ struct MatrixRenderTarget final
 }
 
 [[nodiscard]] HRESULT MeasureCpuSubmission(IRedXeGpuWidget* widget, MatrixRenderTarget& target,
-                                           std::uint32_t frameCount, double& microsecondsPerFrame) noexcept
+                                           uint32_t frameCount, double& microsecondsPerFrame) noexcept
 {
     LARGE_INTEGER frequency{};
     LARGE_INTEGER start{};
@@ -1288,7 +1288,7 @@ struct MatrixRenderTarget final
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    for (std::uint32_t frame = 0; frame < frameCount; ++frame)
+    for (uint32_t frame = 0; frame < frameCount; ++frame)
     {
         const HRESULT result = SubmitBenchmarkFrame(widget, target, static_cast<float>(frame) / 60.0f);
         if (FAILED(result))
@@ -1310,7 +1310,7 @@ struct MatrixRenderTarget final
     return waitResult;
 }
 
-[[nodiscard]] HRESULT MeasureGpuTime(IRedXeGpuWidget* widget, MatrixRenderTarget& target, std::uint32_t frameCount,
+[[nodiscard]] HRESULT MeasureGpuTime(IRedXeGpuWidget* widget, MatrixRenderTarget& target, uint32_t frameCount,
                                      double& millisecondsPerFrame) noexcept
 {
     D3D11_QUERY_DESC description{};
@@ -1336,7 +1336,7 @@ struct MatrixRenderTarget final
 
     target.context->Begin(disjoint.get());
     target.context->End(start.get());
-    for (std::uint32_t frame = 0; frame < frameCount; ++frame)
+    for (uint32_t frame = 0; frame < frameCount; ++frame)
     {
         result = SubmitBenchmarkFrame(widget, target, static_cast<float>(frame) / 60.0f);
         if (FAILED(result))
@@ -1362,8 +1362,8 @@ struct MatrixRenderTarget final
     {
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    std::uint64_t startTicks = 0;
-    std::uint64_t endTicks = 0;
+    uint64_t startTicks = 0;
+    uint64_t endTicks = 0;
     result = target.context->GetData(start.get(), &startTicks, sizeof(startTicks), 0);
     if (SUCCEEDED(result))
     {
@@ -1380,8 +1380,8 @@ struct MatrixRenderTarget final
 
 struct ProcessMemorySnapshot final
 {
-    std::uint64_t privateBytes = 0;
-    std::uint64_t workingSetBytes = 0;
+    uint64_t privateBytes = 0;
+    uint64_t workingSetBytes = 0;
 };
 
 [[nodiscard]] HRESULT QueryProcessMemorySnapshot(ProcessMemorySnapshot& snapshot) noexcept
@@ -1400,8 +1400,8 @@ struct ProcessMemorySnapshot final
 
 struct HeapSnapshot final
 {
-    std::uint64_t busyBlocks = 0;
-    std::uint64_t busyBytes = 0;
+    uint64_t busyBlocks = 0;
+    uint64_t busyBytes = 0;
 };
 
 [[nodiscard]] HRESULT QueryHeapSnapshot(HeapSnapshot& snapshot) noexcept
@@ -1462,10 +1462,10 @@ struct HeapSnapshot final
 
 [[nodiscard]] HRESULT RunMatrixRainBenchmark(bool soak, bool disabledSoak) noexcept
 {
-    constexpr std::uint32_t width = 2560;
-    constexpr std::uint32_t height = 720;
-    constexpr std::uint32_t measurementFrames = 600;
-    constexpr std::uint32_t gpuFrames = 120;
+    constexpr uint32_t width = 2560;
+    constexpr uint32_t height = 720;
+    constexpr uint32_t measurementFrames = 600;
+    constexpr uint32_t gpuFrames = 120;
 
     MatrixRenderTarget target;
     bool hardware = true;
@@ -1480,7 +1480,7 @@ struct HeapSnapshot final
         return result;
     }
 
-    for (std::uint32_t frame = 0; frame < measurementFrames; ++frame)
+    for (uint32_t frame = 0; frame < measurementFrames; ++frame)
     {
         result = SubmitBenchmarkFrame(nullptr, target, static_cast<float>(frame) / 60.0f);
         if (FAILED(result))
@@ -1559,7 +1559,7 @@ struct HeapSnapshot final
         return result;
     }
 
-    for (std::uint32_t frame = 0; frame < measurementFrames; ++frame)
+    for (uint32_t frame = 0; frame < measurementFrames; ++frame)
     {
         result = SubmitBenchmarkFrame(gpuWidget.get(), target, static_cast<float>(frame) / 60.0f);
         if (FAILED(result))
@@ -1612,7 +1612,7 @@ struct HeapSnapshot final
     ProcessMemorySnapshot soakMemoryBefore{};
     ProcessMemorySnapshot soakMemoryPreFence{};
     ProcessMemorySnapshot soakMemoryAfter{};
-    std::uint64_t soakFrames = 0;
+    uint64_t soakFrames = 0;
     if (soak)
     {
         result = QueryHeapSnapshot(soakBefore);

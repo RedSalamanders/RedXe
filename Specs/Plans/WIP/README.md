@@ -8,7 +8,8 @@ Add every direct WIP plan to this table exactly once. Use `ACTIVE` for executabl
 
 | Plan | Status | Owning domain spec | Purpose |
 | --- | --- | --- | --- |
-| [`RFC_Plugins_XeneonDashboardArchitecture.md`](RFC_Plugins_XeneonDashboardArchitecture.md) | `DECISION` | Future plugin service, performance, migration, and interactive-window contracts | Resolve the remaining network/push data, host batching, advanced migration, and interactive-content slices. |
+| [`PluginDashboardRemainingCloseout_2026-09-02.md`](PluginDashboardRemainingCloseout_2026-09-02.md) | `ACTIVE` | `Specs/Plugins/Plugins_API.md`, `Specs/Core/Core_PerformanceAndResources.md`, `Specs/Core/Core_Settings.md`, and `Specs/UI/UI_XeneonDisplayWindowing.md` | Close remaining System Data host validation and leftover plugin-dashboard architecture gates. |
+| [`SystemDataViewers_2026-09-02.md`](SystemDataViewers_2026-09-02.md) | `ACTIVE` | `Specs/Plugins/Plugins_API.md`, `Specs/Core/Core_Settings.md`, `Specs/UI/UI_Dashboard.md`, and `Specs/Core/Core_PerformanceAndResources.md` | Add Direct3D System Data widgets in Process Viewer, with scheduled motion, and a default System page. |
 
 On completion, merge durable requirements into the owning domain spec, move the plan to `Specs/Plans/Done/`, and remove
 its row here.

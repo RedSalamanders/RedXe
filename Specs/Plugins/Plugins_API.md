@@ -33,7 +33,7 @@ The mandatory requirements in `Specs/Core/Core_PerformanceAndResources.md` apply
 | `Widget.h` | `IRedXeGpuWidget` | `DBEED29C-63EB-409E-816B-F4BDC5EF7AA9` | Direct3D 11 rendering mechanism |
 | `Widget.h` | `IRedXeScheduledWidget` | `1B6B4F9E-5421-4B4E-BC2D-190EE6CE86CB` | Optional low-cadence frame deadline |
 | `Widget.h` | `IRedXeWindowWidget` | `3219FA78-260B-416A-BB76-6331DBF30593` | Host-owned child-container mechanism |
-| `Data.h` | `IRedXeDataSource` | `4E52264A-89C4-4DF6-AB47-B4D31B6247D2` | Plugin-side typed, bounded pull snapshots |
+| `Data.h` | `IRedXeDataSource` | `C3A81F6E-2D47-4B90-A1E5-6F8C9D0B3E21` | Plugin-side typed, bounded pull snapshots |
 | `Data.h` | `IRedXeDataProvider` | `9EAE20F1-36A8-48A8-B451-F60401A898CD` | Host-side dataset discovery and subscription |
 | `Data.h` | `IRedXeDataSink` | `F9834987-EBC6-411E-9F28-A49E4DBB49D9` | Synchronous borrowed-snapshot delivery on the host worker |
 | `Data.h` | `IRedXeDataSubscription` | `B8912B7D-89AD-4830-9CFB-73F4E72027FB` | Active/inactive subscription lifetime and callback drain |
@@ -134,9 +134,14 @@ widget instances by IID, not by a capability or rendering-path enum.
 ## Data discovery and delivery
 
 `IRedXeDataSource` is the plugin-side pull interface created by `RedXeCreate`. It enumerates immutable typed-table
-descriptors and performs synchronous, non-reentrant snapshot collection. Descriptors remain valid while the module is
-mapped. A returned snapshot and all referenced rows, values, and UTF-16 strings remain valid until the next collection
-call on that source or source release; consumers copy retained data before then. Widgets never receive a data source.
+descriptors and performs synchronous, non-reentrant batch snapshot collection. `CollectSnapshots` takes one exact-size
+`RedXeDataCollectRequest` (`sizeof` 24) of unique borrowed module-owned dataset IDs, at most
+`RedXeDataCollectMaximumDataSets` (32). A successful `RedXeDataCollectResult` (`sizeof` 32) returns one non-null
+snapshot pointer per request ID, plus one common sequence and `timestampFileTime100ns` for the whole batch. Unknown
+IDs, duplicate IDs, a zero or oversized count, a null ID, or a mismatched `sizeBytes` fail the entire call and clear
+the result. Descriptors remain valid while the module is mapped. Returned snapshots and all referenced rows, values,
+and UTF-16 strings remain valid until the next `CollectSnapshots` call on that source or source release; consumers copy
+retained data before then. Widgets never receive a data source.
 
 `IRedXeHost::GetDataProvider` accepts one provider plugin ID and returns the host-side `IRedXeDataProvider` for that
 source. A null output returns `E_POINTER`; a present output is cleared first. Invalid IDs return `E_INVALIDARG`, an
@@ -150,9 +155,14 @@ retaining the sink.
 lookup lazily maps its catalog module, creates one `IRedXeDataSource`, validates and caches at most 256 datasets, and
 returns a host provider facade. All local sources share one acquisition worker and at most 32 subscriptions in total.
 Active subscriptions for the same provider and dataset share one collection at the shortest requested interval,
-clamped to the source recommendation. Different providers remain distinct and may be used concurrently. Multiple
+clamped to the source recommendation. When multiple datasets on one source are due in the same worker pass, the host
+gathers those unique IDs, orders them deterministically with `source.status` last, and issues one `CollectSnapshots`
+call. It delivers only when the result count, record sizes, and snapshot IDs match the request. Different providers
+remain distinct and may be used concurrently. Multiple
 viewers may hold the same provider and subscribe independently. With no active subscription the worker blocks
-indefinitely on its change and stop events; it owns no polling or periodic wake-up.
+indefinitely on its change and stop events; it owns no polling or periodic wake-up. `RedXeDataSetFlagDeviceLane` marks
+datasets that would use a shared host device-I/O lane; no such lane is created until timeout, `CancelIoEx`, and
+teardown drain are measured. Sources MUST NOT create their own acquisition threads.
 
 The host provider does not retain or duplicate a source snapshot. It synchronously invokes each active sink while the
 source storage is borrowed. A sink copies only bounded values it needs, performs no blocking work or provider/host
@@ -312,13 +322,41 @@ reduces both visible columns and submitted instances. The callback performs no h
 texture upload, or shader/font work. `OnDeviceCreated` builds the complete provider resource set transactionally and
 `OnDeviceLost` releases it idempotently.
 
-`Plugins/SystemData` exposes `builtin.system-data` and only factory-created `IRedXeDataSource`. It provides a one-row
-`system.summary` table and a process table bounded to 2,048 rows. It reads local counters with the caller's token,
-does not elevate or collect command lines or full executable paths, and degrades inaccessible per-process values to
-`Unavailable`. CPU deltas use fixed prior-sample tables; collection allocates no plugin heap storage after source
-creation and creates no worker, timer, file, network request, or persistent process handle. Only `PluginHost` calls
-its collection method. Consumers obtain the corresponding host provider through
-`IRedXeHost::GetDataProvider("builtin.system-data", ...)`.
+`Plugins/SystemData` exposes `builtin.system-data` and only factory-created `IRedXeDataSource`. It currently publishes
+`source.status` (at most 32 rows, 5 s), `system.summary` (1 row, 1 s, not local-sensitive), `cpu.summary` (1 row, 1 s),
+`cpu.logical` (1,024 rows, 1 s), `memory.summary` (1 row, 1 s), `process.list` (2,048 rows, 2 s, local-sensitive),
+`thread.list` (8,192 rows, 2 s, local-sensitive), `network.interface` (256 rows, 1 s, local-sensitive),
+`network.protocol` (16 rows, 1 s), `storage.disk` (128 rows, 1 s, local-sensitive), `storage.volume` (256 rows, 5 s,
+local-sensitive), `gpu.adapter` (32 rows, 1 s), `gpu.engine` (512 rows, 1 s), `gpu.process` (2,048 rows, 2 s,
+local-sensitive), `power.summary` (1 row, 5 s), `battery.list` (32 rows, 5 s, local-sensitive), `thermal.sensor`
+(128 rows, 10 s, local-sensitive), and `fan.sensor` (128 rows, 10 s, local-sensitive). It reads local counters with the
+caller's token, does not elevate or collect command lines, full executable paths, MAC or IP addresses, serial numbers,
+user names, or wireless identities, and degrades inaccessible per-process values to `Unavailable`. Network rows identify
+interfaces by `InterfaceLuid`. Protocol rows are IPv4/IPv6 TCP/UDP aggregates; they do not
+enumerate endpoints. Disk activity uses overlapped `IOCTL_DISK_PERFORMANCE` where the device accepts it and never
+issues `IOCTL_DISK_PERFORMANCE_OFF`; PDH `PhysicalDisk` instance names are not mapped because the mapping is unstable.
+Volume rows publish GUID, mount, filesystem, capacity, and extents and never copy whole-disk activity. GPU adapters
+come from DXGI without creating a D3D device and join D3DKMT sensors by LUID only. GPU engine rows are D3DKMT nodes;
+process GPU rows parse GPU Engine counter instance names with a strict `pid_/luid_/phys_/eng_/engtype_` grammar.
+Machine-wide GPU memory use, node utilization, and DXGI `integrated` stay `Unavailable` (DXCore is not linked; D3DKMT
+statistics records remain reserved). Adapter `software` is the DXGI software flag and does not require a dedicated
+WARP-only host. The source may retain a DXGI factory, D3DKMT adapter handles, and one PDH GPU Engine query, released
+when the source is destroyed. Power uses `GetSystemPowerStatus` and cached `GetPwrCapabilities`; unknown sentinels
+(`255`, `0xFFFFFFFF`) stay unavailable. An AC-only host publishes `batteryPresent` 0 and a zero-row `battery.list`.
+Battery rows use SetupAPI `GUID_DEVICE_BATTERY` plus read-only overlapped IOCTLs and never publish serial numbers. Thermal rows re-project GPU,
+storage, and battery temperatures and publish ACPI zones only when tenths-Kelvin converts to a plausible Celsius
+reading (zero tenths-K is not published). Fan rows are GPU RPM when D3DKMT `MaxFanRpm` is non-zero; generic
+`GUID_DEVICE_FAN` presence does not invent motherboard RPM. Battery, ACPI, and storage-temperature IOCTLs use the same
+overlapped timeout and `CancelIoEx` drain as disks. There is no device-I/O thread. The source MUST NOT include WMI/CIM headers, link WMI libraries, create an `IWbem*`
+service, execute a CIM query, or load `wbemprox.dll`, `fastprox.dll`, or `wbemcomn.dll` when any dataset is collected.
+CPU deltas use fixed prior-sample tables; collection allocates no plugin heap storage after source creation and creates
+no worker, timer, outbound network request, or persistent process handle. The source may retain one IP Helper
+`NotifyIpInterfaceChange` registration (callback sets a dirty flag only) and bounded read-only disk and battery handles,
+both released when the source is destroyed. Only `PluginHost` calls `CollectSnapshots`. Consumers obtain the
+corresponding host provider through `IRedXeHost::GetDataProvider("builtin.system-data", ...)`. A missing NIC, disk, GPU
+adapter, battery, or thermal sensor is a valid empty or `Unavailable` snapshot; live rename/removal remains
+host-specific churn rather than a second catalog shape. ARM64 shares the x64 64-bit native record layouts; a live ARM64
+host is not required for the shipped catalog.
 
 `SystemDataTestContract.h` declares a test-only sibling interface that reports fixed source bounds and drives the same
 per-process row-population path with a requested synthetic row count. It is not a published plugin ABI, dataset,
@@ -330,6 +368,7 @@ rejection, and 2,048-row Release resource measurement are validated by `SystemDa
 defaults to 10. Its widget provider asks the host for `builtin.system-data`; each widget subscribes to dataset
 `process.list`, ranks available CPU percentage
 descending with working set and PID tie-breakers, and caches at most `topN` rows with bounded process-name storage.
+It consumes the original leading process columns and ignores later append-only fields.
 It displays process name, total-machine CPU share, working-set memory, thread count, and PID.
 
 Process Viewer owns one plugin child HWND, one resize-owned 32-bit DIB, and cached brushes, pens, and fonts. Snapshot
@@ -490,11 +529,21 @@ sibling policy owns deadline retention, pacing, and suppression. `WM_TIMECHANGE`
 13. Compile-time checks MUST validate unique bundled plugin IDs and module names, keep every widget projection entry
     backed by one module entry, and keep that projection within the 64-plugin settings limit.
 14. Keep `/W4`, `/permissive-`, SDL checks, and warnings-as-errors green.
-15. Verify the system-data factory and `IRedXeDataSource`, controlling-IUnknown identity, static descriptors,
-    unknown-dataset rejection, sequence advance, summary shape, process-row bounds, current-process visibility, value
-    types and quality, and truncated-snapshot behavior through `SystemDataTests`. The Release benchmark MUST exercise
-    two steady 2,048-row samples plus an amortized CPU probe, report fixed source storage, CPU/wall time, private bytes,
-    working set, heap, and handles, and fail on heap growth, handle growth, or source storage of 1 MiB or more.
+15. Verify the system-data factory and `IRedXeDataSource`, controlling-IUnknown identity, static descriptors including
+    unique IDs and `source.status`, unknown-dataset and malformed-batch rejection, common batch sequence/timestamp,
+    sequence advance, summary shape, process-row bounds, current-process visibility, value types and quality,
+    CPU/memory/thread tables, network interface/protocol, storage disk/volume, GPU adapter/engine/process, power
+    summary, battery list, and thermal/fan sensor tables, and truncated-snapshot behavior through `SystemDataTests`.
+    That suite MUST also scan every column ID for prohibited identity fields, require first-sample network rates to be
+    `Initializing` and a later elapsed sample to be `Good` when counters exist, require GPU `software` to be Good 0/1
+    without requiring a WARP adapter, require adapter utilization and machine-wide GPU memory columns to stay
+    `Unavailable`, collect every catalog ID in one batch, create and destroy extra sources, couple AC-only
+    `batteryPresent` 0 to a zero-row `battery.list`, and prove that collecting every dataset does not load
+    `wbemprox.dll`, `fastprox.dll`, or `wbemcomn.dll`. The Release `--benchmark` MUST exercise two steady 2,048-row
+    samples plus an amortized CPU probe, report fixed source storage, CPU/wall time, private bytes, working set, heap,
+    and handles, and fail on heap growth, handle growth, or source storage of 16 MiB or more. The Release `--domains`
+    measurement MUST time each dataset and one full-catalog batch and fail only on collect failure or a hang exceeding
+    five seconds per collection.
 16. Verify `IRedXeHost::GetDataProvider` output validation, unknown and non-data plugin rejection, stable provider
     identity, dataset discovery, and shared module loading. Verify two Process Viewer instances share one widget
     provider and host data provider while retaining distinct inactive-until-visible subscriptions, then receive

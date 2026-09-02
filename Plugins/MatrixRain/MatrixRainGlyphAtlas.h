@@ -3,8 +3,8 @@
 #include <array>
 #include <cstdint>
 
-inline constexpr std::uint32_t kMatrixRainGlyphAtlasSize = 128;
-inline constexpr std::uint32_t kMatrixRainGlyphCount = 64;
+inline constexpr uint32_t kMatrixRainGlyphAtlasSize = 128;
+inline constexpr uint32_t kMatrixRainGlyphCount = 64;
 // clang-format off
 inline constexpr std::array<std::uint8_t, 16384> kMatrixRainGlyphAtlas{
     0x31, 0x41, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x41, 0x31,

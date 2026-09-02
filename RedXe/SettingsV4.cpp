@@ -46,9 +46,9 @@ struct Declaration final
     yyjson_val* definition = nullptr;
 };
 
-[[nodiscard]] std::size_t Utf8CodePointCount(std::string_view text) noexcept
+[[nodiscard]] size_t Utf8CodePointCount(std::string_view text) noexcept
 {
-    std::size_t count = 0;
+    size_t count = 0;
     for (const unsigned char value : text)
     {
         if ((value & 0xC0U) != 0x80U)
@@ -79,7 +79,7 @@ struct Declaration final
     }
     SettingsText result{};
     std::memcpy(result.utf8.data(), source.data(), source.size());
-    result.bytes = static_cast<std::uint32_t>(source.size());
+    result.bytes = static_cast<uint32_t>(source.size());
     if (machineId && !RedXeIsValidMachineId(result.utf8.data()))
     {
         return false;
@@ -132,8 +132,8 @@ struct Declaration final
     }
     else if (yyjson_is_arr(value))
     {
-        const std::size_t count = yyjson_arr_size(value);
-        for (std::size_t index = 0; index < count; ++index)
+        const size_t count = yyjson_arr_size(value);
+        for (size_t index = 0; index < count; ++index)
         {
             if (HasDuplicateMembers(yyjson_arr_get(value, index)))
             {
@@ -164,7 +164,7 @@ struct Declaration final
     while (yyjson_val* key = yyjson_obj_iter_next(&baseIterator))
     {
         const char* name = yyjson_get_str(key);
-        const std::size_t length = yyjson_get_len(key);
+        const size_t length = yyjson_get_len(key);
         yyjson_val* patchValue = yyjson_obj_getn(patch, name, length);
         if (patchValue)
         {
@@ -206,7 +206,7 @@ struct Declaration final
         return false;
     }
     yyjson_mut_doc_set_root(mutableDocument.get(), yyjson_val_mut_copy(mutableDocument.get(), object));
-    std::size_t bytes = 0;
+    size_t bytes = 0;
     unique_json json{yyjson_mut_write(mutableDocument.get(), YYJSON_WRITE_NOFLAG, &bytes)};
     if (!json || bytes == 0 || bytes > kPrivateConfigurationCapacity)
     {
@@ -215,7 +215,7 @@ struct Declaration final
     JsonObjectSettings copied{};
     std::memcpy(copied.utf8.data(), json.get(), bytes);
     copied.utf8[bytes] = '\0';
-    copied.bytes = static_cast<std::uint32_t>(bytes);
+    copied.bytes = static_cast<uint32_t>(bytes);
     destination = copied;
     return true;
 }
@@ -229,7 +229,7 @@ struct Declaration final
     {
         return false;
     }
-    auto inRange = [settings](const char* key, std::uint64_t minimum, std::uint64_t maximum) noexcept
+    auto inRange = [settings](const char* key, uint64_t minimum, uint64_t maximum) noexcept
     {
         yyjson_val* value = yyjson_obj_get(settings, key);
         return yyjson_is_uint(value) && yyjson_get_uint(value) >= minimum && yyjson_get_uint(value) <= maximum;
@@ -240,7 +240,7 @@ struct Declaration final
         const char* text = yyjson_is_str(value) ? yyjson_get_str(value) : nullptr;
         if (!text || yyjson_get_len(value) != 7 || text[0] != '#')
             return false;
-        for (std::size_t index = 1; index < 7; ++index)
+        for (size_t index = 1; index < 7; ++index)
         {
             if (!std::isxdigit(static_cast<unsigned char>(text[index])))
                 return false;
@@ -281,7 +281,7 @@ struct Declaration final
         {
             return false;
         }
-        for (std::size_t index = 1; index < 7; ++index)
+        for (size_t index = 1; index < 7; ++index)
         {
             if (!std::isxdigit(static_cast<unsigned char>(text[index])))
             {
@@ -319,7 +319,7 @@ struct Declaration final
         {
             return false;
         }
-        for (std::size_t index = 1; index < 7; ++index)
+        for (size_t index = 1; index < 7; ++index)
         {
             if (!std::isxdigit(static_cast<unsigned char>(text[index])))
             {
@@ -344,7 +344,7 @@ struct Declaration final
 
 [[nodiscard]] bool AddUsedPlugin(AppSettings& settings, std::string_view plugin) noexcept
 {
-    for (std::uint32_t index = 0; index < settings.pluginCount; ++index)
+    for (uint32_t index = 0; index < settings.pluginCount; ++index)
     {
         if (settings.plugins[index].id.View() == plugin)
             return true;
@@ -359,7 +359,7 @@ struct Declaration final
 }
 
 [[nodiscard]] bool ParseWidgetDefinition(yyjson_val* definition, AppSettings& settings, WidgetInstanceSettings& widget,
-                                         std::uint32_t instanceIndex) noexcept
+                                         uint32_t instanceIndex) noexcept
 {
     if (!ObjectHasOnly(definition, {"plugin", "settings"}, false))
         return false;
@@ -375,7 +375,7 @@ struct Declaration final
     std::array<char, 32> instance{};
     const int written = sprintf_s(instance.data(), instance.size(), "widget.%u", instanceIndex + 1);
     if (written <= 0 ||
-        !CopyText(std::string_view(instance.data(), static_cast<std::size_t>(written)), widget.id, true))
+        !CopyText(std::string_view(instance.data(), static_cast<size_t>(written)), widget.id, true))
         return false;
 
     yyjson_val* settingsValue = yyjson_obj_get(definition, "settings");
@@ -403,7 +403,7 @@ struct Declaration final
         if (!merged)
             return false;
         yyjson_mut_doc_set_root(effectiveDocument.get(), merged);
-        std::size_t effectiveBytes = 0;
+        size_t effectiveBytes = 0;
         effectiveJson.reset(yyjson_mut_write(effectiveDocument.get(), YYJSON_WRITE_NOFLAG, &effectiveBytes));
         effectiveImmutable.reset(effectiveJson ? yyjson_read(effectiveJson.get(), effectiveBytes, YYJSON_READ_NOFLAG)
                                                : nullptr);
@@ -423,7 +423,7 @@ struct Declaration final
 
 [[nodiscard]] bool ResolveWidget(yyjson_val* authored, const std::vector<Declaration>& declarations,
                                  AppSettings& settings, WidgetInstanceSettings& widget,
-                                 std::uint32_t instanceIndex) noexcept
+                                 uint32_t instanceIndex) noexcept
 {
     if (yyjson_is_str(authored))
     {
@@ -449,15 +449,15 @@ struct Declaration final
     if (!merged)
         return false;
     yyjson_mut_doc_set_root(mergedDocument.get(), merged);
-    std::size_t bytes = 0;
+    size_t bytes = 0;
     unique_json json{yyjson_mut_write(mergedDocument.get(), YYJSON_WRITE_NOFLAG, &bytes)};
     unique_doc immutable{json ? yyjson_read(json.get(), bytes, YYJSON_READ_NOFLAG) : nullptr};
     return immutable && ParseWidgetDefinition(yyjson_doc_get_root(immutable.get()), settings, widget, instanceIndex);
 }
 
 [[nodiscard]] bool ParseLayout(yyjson_val* layout, const std::vector<Declaration>& declarations, AppSettings& settings,
-                               DashboardPageSettings& page, AdaptiveWidgetPlacement path, std::uint32_t depth,
-                               std::uint32_t& areaCount, std::uint32_t& instanceCount, bool nestedArea) noexcept
+                               DashboardPageSettings& page, AdaptiveWidgetPlacement path, uint32_t depth,
+                               uint32_t& areaCount, uint32_t& instanceCount, bool nestedArea) noexcept
 {
     if (depth >= kMaximumLayoutDepth ||
         !(nestedArea ? ObjectHasOnly(layout, {"sizeRatio", "arrangeAlong", "areas"}, false)
@@ -476,22 +476,22 @@ struct Declaration final
     else
         return false;
 
-    std::uint32_t total = 0;
-    for (std::size_t index = 0; index < yyjson_arr_size(areas); ++index)
+    uint32_t total = 0;
+    for (size_t index = 0; index < yyjson_arr_size(areas); ++index)
     {
         yyjson_val* ratio = yyjson_obj_get(yyjson_arr_get(areas, index), "sizeRatio");
         if (!yyjson_is_uint(ratio) || yyjson_get_uint(ratio) == 0 || yyjson_get_uint(ratio) > 1000 ||
-            total > UINT32_MAX - static_cast<std::uint32_t>(yyjson_get_uint(ratio)))
+            total > UINT32_MAX - static_cast<uint32_t>(yyjson_get_uint(ratio)))
             return false;
-        total += static_cast<std::uint32_t>(yyjson_get_uint(ratio));
+        total += static_cast<uint32_t>(yyjson_get_uint(ratio));
     }
-    std::uint32_t preceding = 0;
-    for (std::size_t index = 0; index < yyjson_arr_size(areas); ++index)
+    uint32_t preceding = 0;
+    for (size_t index = 0; index < yyjson_arr_size(areas); ++index)
     {
         yyjson_val* area = yyjson_arr_get(areas, index);
         if (!yyjson_is_obj(area) || ++areaCount > kMaximumLayoutAreasPerPage)
             return false;
-        const std::uint32_t ratio = static_cast<std::uint32_t>(yyjson_get_uint(yyjson_obj_get(area, "sizeRatio")));
+        const uint32_t ratio = static_cast<uint32_t>(yyjson_get_uint(yyjson_obj_get(area, "sizeRatio")));
         AdaptiveWidgetPlacement childPath = path;
         childPath.steps[depth] = LayoutSplitStep{axis, preceding, ratio, total};
         childPath.depth = depth + 1;
@@ -545,7 +545,7 @@ HRESULT ParseAppSettingsJsonV4(std::string_view json, std::unique_ptr<AppSetting
             diagnostic->byteOffset = error.pos;
             diagnostic->line = 1;
             diagnostic->column = 1;
-            for (std::size_t index = 0; index < error.pos && index < json.size(); ++index)
+            for (size_t index = 0; index < error.pos && index < json.size(); ++index)
             {
                 if (json[index] == '\n')
                 {
@@ -568,7 +568,7 @@ HRESULT ParseAppSettingsJsonV4(std::string_view json, std::unique_ptr<AppSetting
         if (!ObjectHasOnly(version, {"major", "minor"}, false) || !yyjson_is_uint(major) ||
             yyjson_get_uint(major) != kRedXeSettingsVersionMajor || (minor && !yyjson_is_uint(minor)))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        const std::uint64_t fileMinor = minor ? yyjson_get_uint(minor) : 0;
+        const uint64_t fileMinor = minor ? yyjson_get_uint(minor) : 0;
         if (fileMinor > UINT32_MAX)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         const bool allowUnknown = fileMinor > kRedXeSettingsVersionMinor;
@@ -581,7 +581,7 @@ HRESULT ParseAppSettingsJsonV4(std::string_view json, std::unique_ptr<AppSetting
 
         auto parsed = std::make_unique<AppSettings>();
         parsed->versionMajor = kRedXeSettingsVersionMajor;
-        parsed->versionMinor = static_cast<std::uint32_t>(fileMinor);
+        parsed->versionMinor = static_cast<uint32_t>(fileMinor);
         parsed->sourceDocument.assign(json);
         parsed->dashboard.gridColumns = 1;
         parsed->dashboard.gridRows = 1;
@@ -605,22 +605,22 @@ HRESULT ParseAppSettingsJsonV4(std::string_view json, std::unique_ptr<AppSetting
                     return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
                 declarations.push_back(Declaration{name, yyjson_obj_iter_get_val(key)});
             }
-            for (std::size_t index = 0; index < declarations.size(); ++index)
+            for (size_t index = 0; index < declarations.size(); ++index)
             {
                 WidgetInstanceSettings validated{};
                 if (!ParseWidgetDefinition(declarations[index].definition, *parsed, validated,
-                                           static_cast<std::uint32_t>(index)))
+                                           static_cast<uint32_t>(index)))
                     return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
         }
 
         yyjson_val* pages = yyjson_obj_get(root, "pages");
-        const std::size_t pageCount = yyjson_is_arr(pages) ? yyjson_arr_size(pages) : 0;
+        const size_t pageCount = yyjson_is_arr(pages) ? yyjson_arr_size(pages) : 0;
         if (pageCount == 0 || pageCount > kMaximumDashboardPages)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         parsed->dashboard.pages.resize(pageCount);
-        std::uint32_t instanceCount = 0;
-        for (std::size_t index = 0; index < pageCount; ++index)
+        uint32_t instanceCount = 0;
+        for (size_t index = 0; index < pageCount; ++index)
         {
             yyjson_val* pageValue = yyjson_arr_get(pages, index);
             if (!ObjectHasOnly(pageValue, {"id", "name", "layout"}, allowUnknown))
@@ -632,7 +632,7 @@ HRESULT ParseAppSettingsJsonV4(std::string_view json, std::unique_ptr<AppSetting
             const int generatedLength = sprintf_s(generated.data(), generated.size(), "page.%zu", index + 1);
             if ((id && (!yyjson_is_str(id) ||
                         !CopyText(std::string_view(yyjson_get_str(id), yyjson_get_len(id)), page.id, true))) ||
-                (!id && !CopyText(std::string_view(generated.data(), static_cast<std::size_t>(generatedLength)),
+                (!id && !CopyText(std::string_view(generated.data(), static_cast<size_t>(generatedLength)),
                                   page.id, true)) ||
                 (name && (!yyjson_is_str(name) ||
                           !CopyText(std::string_view(yyjson_get_str(name), yyjson_get_len(name)), page.name, false))))
@@ -640,16 +640,16 @@ HRESULT ParseAppSettingsJsonV4(std::string_view json, std::unique_ptr<AppSetting
             if (!name)
             {
                 const int length = sprintf_s(generated.data(), generated.size(), "Page %zu", index + 1);
-                if (!CopyText(std::string_view(generated.data(), static_cast<std::size_t>(length)), page.name, false))
+                if (!CopyText(std::string_view(generated.data(), static_cast<size_t>(length)), page.name, false))
                     return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
             yyjson_val* layout = yyjson_obj_get(pageValue, "layout");
-            std::uint32_t areaCount = 0;
+            uint32_t areaCount = 0;
             if (layout && !ParseLayout(layout, declarations, *parsed, page, {}, 0, areaCount, instanceCount, false))
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-            page.widgetCount = static_cast<std::uint32_t>(page.widgets.size());
+            page.widgetCount = static_cast<uint32_t>(page.widgets.size());
         }
-        parsed->dashboard.pageCount = static_cast<std::uint32_t>(pageCount);
+        parsed->dashboard.pageCount = static_cast<uint32_t>(pageCount);
         parsed->dashboard.activePageIndex = 0;
         parsed->dashboard.activePageId = parsed->dashboard.pages[0].id;
         output = std::move(parsed);

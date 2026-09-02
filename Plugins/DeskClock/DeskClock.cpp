@@ -69,14 +69,14 @@ constexpr std::array kWidgetTypes{
 
 struct DeskClockConfiguration final
 {
-    std::uint32_t flipDurationMilliseconds = 420;
-    std::uint32_t backgroundColor = 0x000000;
-    std::uint32_t cardColor = 0xFF3B43;
-    std::uint32_t digitColor = 0xFFFFFF;
-    std::uint32_t dateColor = 0xD8D8D8;
+    uint32_t flipDurationMilliseconds = 420;
+    uint32_t backgroundColor = 0x000000;
+    uint32_t cardColor = 0xFF3B43;
+    uint32_t digitColor = 0xFFFFFF;
+    uint32_t dateColor = 0xD8D8D8;
 };
 
-enum ConfigurationMember : std::uint32_t
+enum ConfigurationMember : uint32_t
 {
     ConfigurationDuration = 1U << 0U,
     ConfigurationBackground = 1U << 1U,
@@ -85,34 +85,34 @@ enum ConfigurationMember : std::uint32_t
     ConfigurationDate = 1U << 4U,
 };
 
-inline constexpr std::uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
-inline constexpr std::uint32_t kDateGlyphCapacity = 10;
-inline constexpr std::uint32_t kNoGlyph = std::numeric_limits<std::uint32_t>::max();
-inline constexpr std::uint32_t kTimeGlyphCount = 10;
-inline constexpr std::uint32_t kDateDigitOffset = kTimeGlyphCount;
-inline constexpr std::uint32_t kDateGlyphCount = 62;
-inline constexpr std::uint32_t kGlyphCount = kDateDigitOffset + kDateGlyphCount;
-inline constexpr std::uint32_t kGlyphAtlasSize = 1024;
-inline constexpr std::uint32_t kGlyphAtlasBytes = kGlyphAtlasSize * kGlyphAtlasSize;
-inline constexpr std::uint32_t kTimeCellWidth = 192;
-inline constexpr std::uint32_t kTimeCellHeight = 288;
-inline constexpr std::uint32_t kTimeCellColumns = 5;
-inline constexpr std::uint32_t kDateCellSize = 64;
-inline constexpr std::uint32_t kDateCellColumns = 16;
-inline constexpr std::uint32_t kDateAtlasTop = 640;
+inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
+inline constexpr uint32_t kDateGlyphCapacity = 10;
+inline constexpr uint32_t kNoGlyph = std::numeric_limits<uint32_t>::max();
+inline constexpr uint32_t kTimeGlyphCount = 10;
+inline constexpr uint32_t kDateDigitOffset = kTimeGlyphCount;
+inline constexpr uint32_t kDateGlyphCount = 62;
+inline constexpr uint32_t kGlyphCount = kDateDigitOffset + kDateGlyphCount;
+inline constexpr uint32_t kGlyphAtlasSize = 1024;
+inline constexpr uint32_t kGlyphAtlasBytes = kGlyphAtlasSize * kGlyphAtlasSize;
+inline constexpr uint32_t kTimeCellWidth = 192;
+inline constexpr uint32_t kTimeCellHeight = 288;
+inline constexpr uint32_t kTimeCellColumns = 5;
+inline constexpr uint32_t kDateCellSize = 64;
+inline constexpr uint32_t kDateCellColumns = 16;
+inline constexpr uint32_t kDateAtlasTop = 640;
 inline constexpr float kTimeFontEmSize = 270.0f;
 inline constexpr float kDateFontEmSize = 64.0f;
 inline constexpr float kDateBaselineX = 4.0f;
 
-std::atomic<std::uint32_t> gLiveProviderCount{0};
-std::atomic<std::uint32_t> gLiveWidgetCount{0};
-std::atomic<std::uint32_t> gLiveDeviceResourceSetCount{0};
-std::atomic<std::uint64_t> gTimeSampleCount{0};
-std::atomic<std::uint64_t> gConstantUploadCount{0};
-std::atomic<std::uint64_t> gDrawCallCount{0};
-std::atomic<std::uint64_t> gScheduleQueryCount{0};
-std::atomic<std::uint64_t> gTypographyBuildCount{0};
-std::atomic<std::uint64_t> gTestTime{0};
+std::atomic<uint32_t> gLiveProviderCount{0};
+std::atomic<uint32_t> gLiveWidgetCount{0};
+std::atomic<uint32_t> gLiveDeviceResourceSetCount{0};
+std::atomic<uint64_t> gTimeSampleCount{0};
+std::atomic<uint64_t> gConstantUploadCount{0};
+std::atomic<uint64_t> gDrawCallCount{0};
+std::atomic<uint64_t> gScheduleQueryCount{0};
+std::atomic<uint64_t> gTypographyBuildCount{0};
+std::atomic<uint64_t> gTestTime{0};
 
 class JsonCursor final
 {
@@ -150,7 +150,7 @@ class JsonCursor final
         {
             return false;
         }
-        const std::size_t start = ++_offset;
+        const size_t start = ++_offset;
         while (_offset < _text.size() && _text[_offset] != '"')
         {
             const unsigned char character = static_cast<unsigned char>(_text[_offset]);
@@ -169,7 +169,7 @@ class JsonCursor final
         return true;
     }
 
-    [[nodiscard]] bool ReadUnsigned(std::uint32_t& value) noexcept
+    [[nodiscard]] bool ReadUnsigned(uint32_t& value) noexcept
     {
         SkipWhitespace();
         if (_offset >= _text.size() || _text[_offset] < '0' || _text[_offset] > '9')
@@ -177,12 +177,12 @@ class JsonCursor final
             return false;
         }
         const bool leadingZero = _text[_offset] == '0';
-        std::uint64_t parsed = 0;
-        std::size_t digits = 0;
+        uint64_t parsed = 0;
+        size_t digits = 0;
         while (_offset < _text.size() && _text[_offset] >= '0' && _text[_offset] <= '9')
         {
-            parsed = parsed * 10U + static_cast<std::uint64_t>(_text[_offset] - '0');
-            if (parsed > std::numeric_limits<std::uint32_t>::max())
+            parsed = parsed * 10U + static_cast<uint64_t>(_text[_offset] - '0');
+            if (parsed > std::numeric_limits<uint32_t>::max())
             {
                 return false;
             }
@@ -193,7 +193,7 @@ class JsonCursor final
         {
             return false;
         }
-        value = static_cast<std::uint32_t>(parsed);
+        value = static_cast<uint32_t>(parsed);
         return true;
     }
 
@@ -205,7 +205,7 @@ class JsonCursor final
 
   private:
     std::string_view _text;
-    std::size_t _offset = 0;
+    size_t _offset = 0;
 };
 
 [[nodiscard]] int HexDigitValue(char value) noexcept
@@ -225,27 +225,27 @@ class JsonCursor final
     return -1;
 }
 
-[[nodiscard]] bool ParseColor(std::string_view text, std::uint32_t& color) noexcept
+[[nodiscard]] bool ParseColor(std::string_view text, uint32_t& color) noexcept
 {
     if (text.size() != 7 || text[0] != '#')
     {
         return false;
     }
-    std::uint32_t parsed = 0;
-    for (std::size_t index = 1; index < text.size(); ++index)
+    uint32_t parsed = 0;
+    for (size_t index = 1; index < text.size(); ++index)
     {
         const int digit = HexDigitValue(text[index]);
         if (digit < 0)
         {
             return false;
         }
-        parsed = (parsed << 4U) | static_cast<std::uint32_t>(digit);
+        parsed = (parsed << 4U) | static_cast<uint32_t>(digit);
     }
     color = parsed;
     return true;
 }
 
-[[nodiscard]] std::uint32_t ConfigurationMemberForKey(std::string_view key) noexcept
+[[nodiscard]] uint32_t ConfigurationMemberForKey(std::string_view key) noexcept
 {
     if (key == "flipDurationMilliseconds")
     {
@@ -277,7 +277,7 @@ class JsonCursor final
         return false;
     }
     DeskClockConfiguration parsed{};
-    std::uint32_t seen = 0;
+    uint32_t seen = 0;
     for (;;)
     {
         std::string_view key;
@@ -285,14 +285,14 @@ class JsonCursor final
         {
             return false;
         }
-        const std::uint32_t member = ConfigurationMemberForKey(key);
+        const uint32_t member = ConfigurationMemberForKey(key);
         if (member == 0 || (seen & member) != 0)
         {
             return false;
         }
         seen |= member;
 
-        std::uint32_t number = 0;
+        uint32_t number = 0;
         std::string_view text;
         switch (member)
         {
@@ -355,9 +355,9 @@ class JsonCursor final
     {
         return false;
     }
-    constexpr std::uint32_t pluginSeen = 1U << 0U;
-    constexpr std::uint32_t instanceSeen = 1U << 1U;
-    std::uint32_t seen = 0;
+    constexpr uint32_t pluginSeen = 1U << 0U;
+    constexpr uint32_t instanceSeen = 1U << 1U;
+    uint32_t seen = 0;
     DeskClockConfiguration parsed{};
     for (;;)
     {
@@ -416,7 +416,7 @@ class JsonCursor final
         return E_INVALIDARG;
     }
     const char* json = options->configurationJsonUtf8;
-    const std::uint32_t bytes = options->configurationBytes;
+    const uint32_t bytes = options->configurationBytes;
     if (!json && bytes == 0)
     {
         return S_OK;
@@ -435,7 +435,7 @@ class JsonCursor final
     return S_OK;
 }
 
-[[nodiscard]] std::array<float, 4> ColorToFloat(std::uint32_t color) noexcept
+[[nodiscard]] std::array<float, 4> ColorToFloat(uint32_t color) noexcept
 {
     constexpr float scale = 1.0f / 255.0f;
     return {
@@ -455,18 +455,18 @@ struct alignas(16) DeskClockConstants final
     float cardColor[4];
     float digitColor[4];
     float dateColor[4];
-    std::uint32_t oldDigits0[4];
-    std::uint32_t oldDigits1[4];
-    std::uint32_t targetDigits0[4];
-    std::uint32_t targetDigits1[4];
-    std::uint32_t state[4];
+    uint32_t oldDigits0[4];
+    uint32_t oldDigits1[4];
+    uint32_t targetDigits0[4];
+    uint32_t targetDigits1[4];
+    uint32_t state[4];
     float animation[4];
-    std::uint32_t oldDate0[4];
-    std::uint32_t oldDate1[4];
-    std::uint32_t oldDate2[4];
-    std::uint32_t targetDate0[4];
-    std::uint32_t targetDate1[4];
-    std::uint32_t targetDate2[4];
+    uint32_t oldDate0[4];
+    uint32_t oldDate1[4];
+    uint32_t oldDate2[4];
+    uint32_t targetDate0[4];
+    uint32_t targetDate1[4];
+    uint32_t targetDate2[4];
     float oldDatePositions0[4];
     float oldDatePositions1[4];
     float oldDatePositions2[4];
@@ -548,10 +548,10 @@ struct GlyphAtlasBuildResult final
 }
 
 [[nodiscard]] HRESULT RasterizeGlyph(IDWriteFactory& factory, IDWriteFontFace& face, wchar_t character,
-                                     float fontEmSize, std::uint32_t cellWidth, std::uint32_t cellHeight,
-                                     std::uint32_t atlasX, std::uint32_t atlasY, bool fixedDateOrigin,
+                                     float fontEmSize, uint32_t cellWidth, uint32_t cellHeight,
+                                     uint32_t atlasX, uint32_t atlasY, bool fixedDateOrigin,
                                      std::uint8_t* atlasPixels, std::uint8_t* scratch,
-                                     std::uint32_t scratchBytes) noexcept
+                                     uint32_t scratchBytes) noexcept
 {
     if (!atlasPixels || !scratch || atlasX + cellWidth > kGlyphAtlasSize || atlasY + cellHeight > kGlyphAtlasSize)
     {
@@ -606,9 +606,9 @@ struct GlyphAtlasBuildResult final
     {
         return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
     }
-    const std::uint32_t width = static_cast<std::uint32_t>(bounds.right - bounds.left);
-    const std::uint32_t height = static_cast<std::uint32_t>(bounds.bottom - bounds.top);
-    const std::uint64_t requiredBytes = static_cast<std::uint64_t>(width) * height * 3U;
+    const uint32_t width = static_cast<uint32_t>(bounds.right - bounds.left);
+    const uint32_t height = static_cast<uint32_t>(bounds.bottom - bounds.top);
+    const uint64_t requiredBytes = static_cast<uint64_t>(width) * height * 3U;
     if (requiredBytes > scratchBytes)
     {
         return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
@@ -620,16 +620,16 @@ struct GlyphAtlasBuildResult final
         return result;
     }
 
-    for (std::uint32_t y = 0; y < height; ++y)
+    for (uint32_t y = 0; y < height; ++y)
     {
-        for (std::uint32_t x = 0; x < width; ++x)
+        for (uint32_t x = 0; x < width; ++x)
         {
-            const std::size_t source = (static_cast<std::size_t>(y) * width + x) * 3U;
-            const std::uint32_t coverage =
-                static_cast<std::uint32_t>(scratch[source]) + scratch[source + 1U] + scratch[source + 2U];
-            const std::size_t destination =
-                static_cast<std::size_t>(atlasY + static_cast<std::uint32_t>(bounds.top) + y) * kGlyphAtlasSize +
-                atlasX + static_cast<std::uint32_t>(bounds.left) + x;
+            const size_t source = (static_cast<size_t>(y) * width + x) * 3U;
+            const uint32_t coverage =
+                static_cast<uint32_t>(scratch[source]) + scratch[source + 1U] + scratch[source + 2U];
+            const size_t destination =
+                static_cast<size_t>(atlasY + static_cast<uint32_t>(bounds.top) + y) * kGlyphAtlasSize +
+                atlasX + static_cast<uint32_t>(bounds.left) + x;
             atlasPixels[destination] = static_cast<std::uint8_t>((coverage + 1U) / 3U);
         }
     }
@@ -640,7 +640,7 @@ struct GlyphAtlasBuildResult final
 {
     GlyphAtlasBuildResult built{};
     built.pixels.reset(new (std::nothrow) std::uint8_t[kGlyphAtlasBytes]{});
-    constexpr std::uint32_t scratchBytes = kTimeCellWidth * kTimeCellHeight * 3U;
+    constexpr uint32_t scratchBytes = kTimeCellWidth * kTimeCellHeight * 3U;
     std::unique_ptr<std::uint8_t[]> scratch(new (std::nothrow) std::uint8_t[scratchBytes]);
     if (!built.pixels || !scratch)
     {
@@ -673,10 +673,10 @@ struct GlyphAtlasBuildResult final
         return result;
     }
 
-    for (std::uint32_t digit = 0; digit < kTimeGlyphCount; ++digit)
+    for (uint32_t digit = 0; digit < kTimeGlyphCount; ++digit)
     {
-        const std::uint32_t atlasX = (digit % kTimeCellColumns) * kTimeCellWidth;
-        const std::uint32_t atlasY = (digit / kTimeCellColumns) * kTimeCellHeight;
+        const uint32_t atlasX = (digit % kTimeCellColumns) * kTimeCellWidth;
+        const uint32_t atlasY = (digit / kTimeCellColumns) * kTimeCellHeight;
         result =
             RasterizeGlyph(*factory, *face, static_cast<wchar_t>(L'0' + digit), kTimeFontEmSize, kTimeCellWidth,
                            kTimeCellHeight, atlasX, atlasY, false, built.pixels.get(), scratch.get(), scratchBytes);
@@ -695,7 +695,7 @@ struct GlyphAtlasBuildResult final
         return E_UNEXPECTED;
     }
     const float inverseEm = 1.0f / static_cast<float>(fontMetrics.designUnitsPerEm);
-    for (std::uint32_t index = 0; index < kDateGlyphCount; ++index)
+    for (uint32_t index = 0; index < kDateGlyphCount; ++index)
     {
         UINT16 glyphIndex = 0;
         DWRITE_GLYPH_METRICS metrics{};
@@ -705,8 +705,8 @@ struct GlyphAtlasBuildResult final
             return result;
         }
         built.dateAdvances[index] = static_cast<float>(metrics.advanceWidth) * inverseEm;
-        const std::uint32_t atlasX = (index % kDateCellColumns) * kDateCellSize;
-        const std::uint32_t atlasY = kDateAtlasTop + (index / kDateCellColumns) * kDateCellSize;
+        const uint32_t atlasX = (index % kDateCellColumns) * kDateCellSize;
+        const uint32_t atlasY = kDateAtlasTop + (index / kDateCellColumns) * kDateCellSize;
         result = RasterizeGlyph(*factory, *face, dateCharacters[index], kDateFontEmSize, kDateCellSize, kDateCellSize,
                                 atlasX, atlasY, true, built.pixels.get(), scratch.get(), scratchBytes);
         if (FAILED(result))
@@ -787,9 +787,9 @@ class DeskClockDeviceResources final
         drawBufferDescription.ByteWidth = 16;
         drawBufferDescription.Usage = D3D11_USAGE_IMMUTABLE;
         drawBufferDescription.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        constexpr std::array<std::array<std::uint32_t, 4>, 3> drawOffsets{{{0, 0, 0, 0}, {16, 0, 0, 0}, {32, 0, 0, 0}}};
+        constexpr std::array<std::array<uint32_t, 4>, 3> drawOffsets{{{0, 0, 0, 0}, {16, 0, 0, 0}, {32, 0, 0, 0}}};
         std::array<wil::com_ptr_nothrow<ID3D11Buffer>, 3> drawBuffers;
-        for (std::size_t index = 0; index < drawBuffers.size(); ++index)
+        for (size_t index = 0; index < drawBuffers.size(); ++index)
         {
             D3D11_SUBRESOURCE_DATA drawData{};
             drawData.pSysMem = drawOffsets[index].data();
@@ -919,7 +919,7 @@ class DeskClockDeviceResources final
         return S_OK;
     }
 
-    [[nodiscard]] float DateAdvance(std::uint32_t glyph) const noexcept
+    [[nodiscard]] float DateAdvance(uint32_t glyph) const noexcept
     {
         if (glyph < kDateDigitOffset || glyph >= kGlyphCount)
         {
@@ -962,7 +962,7 @@ class DeskClockDeviceResources final
         _lastVersion = 0;
     }
 
-    [[nodiscard]] HRESULT Render(ID3D11DeviceContext* context, const void* owner, std::uint64_t version,
+    [[nodiscard]] HRESULT Render(ID3D11DeviceContext* context, const void* owner, uint64_t version,
                                  const DeskClockConstants& constants, bool transitionActive) noexcept
     {
         if (!context || !_constantBuffer)
@@ -1007,7 +1007,7 @@ class DeskClockDeviceResources final
         ID3D11Buffer* drawBuffer = _drawBuffers[0].get();
         context->VSSetConstantBuffers(1, 1, &drawBuffer);
         context->DrawInstanced(6, 12, 0, 0);
-        std::uint64_t draws = 2;
+        uint64_t draws = 2;
         if (transitionActive)
         {
             drawBuffer = _drawBuffers[1].get();
@@ -1027,7 +1027,7 @@ class DeskClockDeviceResources final
   private:
     ID3D11Device* _deviceIdentity = nullptr;
     const void* _lastOwner = nullptr;
-    std::uint64_t _lastVersion = 0;
+    uint64_t _lastVersion = 0;
     wil::com_ptr_nothrow<ID3D11VertexShader> _backgroundVertexShader;
     wil::com_ptr_nothrow<ID3D11PixelShader> _backgroundPixelShader;
     wil::com_ptr_nothrow<ID3D11VertexShader> _clockVertexShader;
@@ -1045,18 +1045,18 @@ class DeskClockDeviceResources final
     float _dateSpaceAdvance = 0.0f;
 };
 
-[[nodiscard]] std::uint64_t PackTestTime(const DeskClockTestTime& time) noexcept
+[[nodiscard]] uint64_t PackTestTime(const DeskClockTestTime& time) noexcept
 {
-    return (1ULL << 63U) | static_cast<std::uint64_t>(time.milliseconds) |
-           (static_cast<std::uint64_t>(time.second) << 10U) | (static_cast<std::uint64_t>(time.minute) << 16U) |
-           (static_cast<std::uint64_t>(time.hour) << 22U) | (static_cast<std::uint64_t>(time.day) << 27U) |
-           (static_cast<std::uint64_t>(time.dayOfWeek) << 32U) | (static_cast<std::uint64_t>(time.month) << 35U) |
-           (static_cast<std::uint64_t>(time.year) << 39U);
+    return (1ULL << 63U) | static_cast<uint64_t>(time.milliseconds) |
+           (static_cast<uint64_t>(time.second) << 10U) | (static_cast<uint64_t>(time.minute) << 16U) |
+           (static_cast<uint64_t>(time.hour) << 22U) | (static_cast<uint64_t>(time.day) << 27U) |
+           (static_cast<uint64_t>(time.dayOfWeek) << 32U) | (static_cast<uint64_t>(time.month) << 35U) |
+           (static_cast<uint64_t>(time.year) << 39U);
 }
 
 void ReadLocalClock(SYSTEMTIME& time) noexcept
 {
-    const std::uint64_t packed = gTestTime.load(std::memory_order_acquire);
+    const uint64_t packed = gTestTime.load(std::memory_order_acquire);
     if ((packed & (1ULL << 63U)) == 0)
     {
         GetLocalTime(&time);
@@ -1076,24 +1076,24 @@ void ReadLocalClock(SYSTEMTIME& time) noexcept
     gTimeSampleCount.fetch_add(1, std::memory_order_relaxed);
 }
 
-[[nodiscard]] std::uint32_t DateGlyphIndex(char character) noexcept
+[[nodiscard]] uint32_t DateGlyphIndex(char character) noexcept
 {
     if (character >= '0' && character <= '9')
     {
-        return kDateDigitOffset + static_cast<std::uint32_t>(character - '0');
+        return kDateDigitOffset + static_cast<uint32_t>(character - '0');
     }
     if (character >= 'A' && character <= 'Z')
     {
-        return kDateDigitOffset + 10U + static_cast<std::uint32_t>(character - 'A');
+        return kDateDigitOffset + 10U + static_cast<uint32_t>(character - 'A');
     }
     if (character >= 'a' && character <= 'z')
     {
-        return kDateDigitOffset + 36U + static_cast<std::uint32_t>(character - 'a');
+        return kDateDigitOffset + 36U + static_cast<uint32_t>(character - 'a');
     }
     return kNoGlyph;
 }
 
-[[nodiscard]] std::array<std::uint32_t, 8> DigitsForTime(const SYSTEMTIME& time) noexcept
+[[nodiscard]] std::array<uint32_t, 8> DigitsForTime(const SYSTEMTIME& time) noexcept
 {
     return {
         time.wHour / 10U,
@@ -1107,17 +1107,17 @@ void ReadLocalClock(SYSTEMTIME& time) noexcept
     };
 }
 
-[[nodiscard]] std::array<std::uint32_t, 12> GlyphsForDate(const SYSTEMTIME& time) noexcept
+[[nodiscard]] std::array<uint32_t, 12> GlyphsForDate(const SYSTEMTIME& time) noexcept
 {
     constexpr std::array<std::string_view, 7> weekdays{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
     constexpr std::array<std::string_view, 12> months{"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-    const std::string_view weekday = weekdays[std::min<std::size_t>(time.wDayOfWeek, weekdays.size() - 1)];
-    const std::size_t monthIndex = time.wMonth > 0 ? static_cast<std::size_t>(time.wMonth - 1) : 0;
+    const std::string_view weekday = weekdays[std::min<size_t>(time.wDayOfWeek, weekdays.size() - 1)];
+    const size_t monthIndex = time.wMonth > 0 ? static_cast<size_t>(time.wMonth - 1) : 0;
     const std::string_view month = months[std::min(monthIndex, months.size() - 1)];
-    std::array<std::uint32_t, 12> glyphs{};
+    std::array<uint32_t, 12> glyphs{};
     glyphs.fill(kNoGlyph);
-    std::uint32_t index = 0;
+    uint32_t index = 0;
     const auto append = [&](char character) noexcept { glyphs[index++] = DateGlyphIndex(character); };
     append(weekday[0]);
     append(weekday[1]);
@@ -1299,7 +1299,7 @@ class DeskClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, publi
         return _resources->Render(context->deviceContext, this, _visualVersion, constants, _transitionActive);
     }
 
-    HRESULT STDMETHODCALLTYPE GetNextFrameDelayMilliseconds(std::uint32_t* delayMilliseconds) noexcept override
+    HRESULT STDMETHODCALLTYPE GetNextFrameDelayMilliseconds(uint32_t* delayMilliseconds) noexcept override
     {
         if (delayMilliseconds)
         {
@@ -1337,25 +1337,25 @@ class DeskClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, publi
             return S_OK;
         }
         const double rounded = std::ceil(_millisecondsUntilSample);
-        *delayMilliseconds = static_cast<std::uint32_t>(
+        *delayMilliseconds = static_cast<uint32_t>(
             std::clamp(rounded, 1.0, static_cast<double>(kRedXeMaximumScheduledFrameDelayMilliseconds)));
         return S_OK;
     }
 
   private:
-    void BuildDatePositions(const std::array<std::uint32_t, 12>& glyphs,
+    void BuildDatePositions(const std::array<uint32_t, 12>& glyphs,
                             std::array<float, 12>& positions) const noexcept
     {
         positions.fill(0.0f);
-        const std::uint32_t count = std::min(glyphs[11], kDateGlyphCapacity);
+        const uint32_t count = std::min(glyphs[11], kDateGlyphCapacity);
         float totalAdvance = 0.0f;
-        for (std::uint32_t index = 0; index < count; ++index)
+        for (uint32_t index = 0; index < count; ++index)
         {
             totalAdvance +=
                 glyphs[index] == kNoGlyph ? _resources->DateSpaceAdvance() : _resources->DateAdvance(glyphs[index]);
         }
         float pen = totalAdvance * -0.5f;
-        for (std::uint32_t index = 0; index < count; ++index)
+        for (uint32_t index = 0; index < count; ++index)
         {
             positions[index] = pen;
             pen += glyphs[index] == kNoGlyph ? _resources->DateSpaceAdvance() : _resources->DateAdvance(glyphs[index]);
@@ -1407,7 +1407,7 @@ class DeskClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, publi
         _targetDate = date;
         BuildDatePositions(_targetDate, _targetDatePositions);
         _changedMask = 0;
-        for (std::uint32_t index = 0; index < 6; ++index)
+        for (uint32_t index = 0; index < 6; ++index)
         {
             if (_oldDigits[index] != _targetDigits[index])
             {
@@ -1488,7 +1488,7 @@ class DeskClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, publi
         std::copy_n(_targetDigits.begin() + 4, 4, constants.targetDigits1);
 
         float overallProgress = 1.0f;
-        std::uint32_t phase = 0;
+        uint32_t phase = 0;
         float phaseProgress = 1.0f;
         if (_transitionActive)
         {
@@ -1535,23 +1535,23 @@ class DeskClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, publi
     std::array<float, 4> _cardColor;
     std::array<float, 4> _digitColor;
     std::array<float, 4> _dateColor;
-    std::array<std::uint32_t, 8> _oldDigits{};
-    std::array<std::uint32_t, 8> _targetDigits{};
-    std::array<std::uint32_t, 12> _oldDate{};
-    std::array<std::uint32_t, 12> _targetDate{};
+    std::array<uint32_t, 8> _oldDigits{};
+    std::array<uint32_t, 8> _targetDigits{};
+    std::array<uint32_t, 12> _oldDate{};
+    std::array<uint32_t, 12> _targetDate{};
     std::array<float, 12> _oldDatePositions{};
     std::array<float, 12> _targetDatePositions{};
     bool _initialized = false;
     bool _transitionActive = false;
     bool _dateChanged = false;
     bool _scheduleUsesCachedSample = false;
-    std::uint32_t _changedMask = 0;
+    uint32_t _changedMask = 0;
     double _millisecondsUntilSample = 1.0;
     double _transitionElapsedMilliseconds = 0.0;
-    std::uint64_t _visualVersion = 1;
-    std::uint32_t _layoutWidth = 0;
-    std::uint32_t _layoutHeight = 0;
-    std::uint32_t _layoutDpi = 0;
+    uint64_t _visualVersion = 1;
+    uint32_t _layoutWidth = 0;
+    uint32_t _layoutHeight = 0;
+    uint32_t _layoutDpi = 0;
     float _scale = 1.0f;
     float _cardWidth = 210.0f;
     float _cardHeight = 360.0f;
@@ -1607,7 +1607,7 @@ class DeskClockProvider final : public IRedXeWidgetProvider
     }
 
     HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             std::uint32_t* count) noexcept override
+                                             uint32_t* count) noexcept override
     {
         if (descriptors)
         {
@@ -1622,7 +1622,7 @@ class DeskClockProvider final : public IRedXeWidgetProvider
             return E_POINTER;
         }
         *descriptors = kWidgetTypes.data();
-        *count = static_cast<std::uint32_t>(kWidgetTypes.size());
+        *count = static_cast<uint32_t>(kWidgetTypes.size());
         return S_OK;
     }
 
@@ -1698,13 +1698,13 @@ constexpr std::array kFactoryEntries{
 extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
                                          const char* pluginId, void** result) noexcept
 {
-    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<std::uint32_t>(kFactoryEntries.size()),
+    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()),
                                          interfaceId, options, host, pluginId, result);
 }
 
-extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, std::uint32_t* count) noexcept
+extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
 {
-    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<std::uint32_t>(kMetadata.size()), metadata,
+    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata,
                                          count);
 }
 

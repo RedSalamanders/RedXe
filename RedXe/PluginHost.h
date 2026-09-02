@@ -34,7 +34,7 @@ class PluginHost final : public IRedXeHost
     PluginHost& operator=(PluginHost&&) = delete;
 
     [[nodiscard]] IRedXeHost* Interface() noexcept;
-    [[nodiscard]] HRESULT GetPluginModule(const char* pluginId, std::uint32_t requiredCapabilities,
+    [[nodiscard]] HRESULT GetPluginModule(const char* pluginId, uint32_t requiredCapabilities,
                                           ModuleView* module) noexcept;
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override;
@@ -43,9 +43,9 @@ class PluginHost final : public IRedXeHost
     HRESULT STDMETHODCALLTYPE GetDataProvider(const char* providerId, IRedXeDataProvider** provider) noexcept override;
 
   private:
-    static constexpr std::size_t kMaximumDataSetsPerProvider = 256;
-    static constexpr std::size_t kMaximumSubscriptions = 32;
-    static constexpr std::uint32_t kMaximumSubscriptionIntervalMilliseconds = 60'000;
+    static constexpr size_t kMaximumDataSetsPerProvider = 256;
+    static constexpr size_t kMaximumSubscriptions = 32;
+    static constexpr uint32_t kMaximumSubscriptionIntervalMilliseconds = 60'000;
 
     class DataProvider;
     class Subscription;
@@ -57,14 +57,14 @@ class PluginHost final : public IRedXeHost
         RedXeEnumeratePluginsFn enumerate = nullptr;
         RedXeGetPluginSettingsContractFn getSettingsContract = nullptr;
         RedXePluginShutdownFn shutdown = nullptr;
-        std::uint32_t capabilities = RedXePluginCapabilityNone;
+        uint32_t capabilities = RedXePluginCapabilityNone;
     };
 
     struct DataSetRuntime final
     {
         const RedXeDataSetDescriptor* descriptor = nullptr;
-        std::uint64_t due = 0;
-        std::uint32_t activeIntervalMilliseconds = kMaximumSubscriptionIntervalMilliseconds;
+        uint64_t due = 0;
+        uint32_t activeIntervalMilliseconds = kMaximumSubscriptionIntervalMilliseconds;
         bool active = false;
     };
 
@@ -74,31 +74,31 @@ class PluginHost final : public IRedXeHost
         wil::com_ptr_nothrow<IRedXeDataSource> source;
         wil::com_ptr_nothrow<IRedXeDataProvider> provider;
         const RedXeDataSetDescriptor* descriptors = nullptr;
-        std::uint32_t descriptorCount = 0;
+        uint32_t descriptorCount = 0;
         std::array<DataSetRuntime, kMaximumDataSetsPerProvider> dataSets{};
     };
 
     struct SubscriptionSlot final
     {
         wil::com_ptr_nothrow<IRedXeDataSink> sink;
-        std::uint64_t token = 0;
-        std::size_t providerIndex = 0;
-        std::size_t dataSetIndex = 0;
-        std::uint32_t intervalMilliseconds = 0;
+        uint64_t token = 0;
+        size_t providerIndex = 0;
+        size_t dataSetIndex = 0;
+        uint32_t intervalMilliseconds = 0;
         bool active = false;
     };
 
     [[nodiscard]] HRESULT LoadModule(const RedXeBundledPluginSpec& spec, ModuleSlot& slot) noexcept;
-    [[nodiscard]] HRESULT EnsureProvider(const char* providerId, std::size_t& providerIndex) noexcept;
+    [[nodiscard]] HRESULT EnsureProvider(const char* providerId, size_t& providerIndex) noexcept;
     [[nodiscard]] HRESULT ValidateDataSets(ProviderRuntime& runtime) noexcept;
     [[nodiscard]] HRESULT EnsureWorker() noexcept;
-    [[nodiscard]] HRESULT GetDataSets(std::size_t providerIndex, const RedXeDataSetDescriptor** descriptors,
-                                      std::uint32_t* count) noexcept;
-    [[nodiscard]] HRESULT Subscribe(std::size_t providerIndex, const RedXeDataSubscriptionOptions* options,
+    [[nodiscard]] HRESULT GetDataSets(size_t providerIndex, const RedXeDataSetDescriptor** descriptors,
+                                      uint32_t* count) noexcept;
+    [[nodiscard]] HRESULT Subscribe(size_t providerIndex, const RedXeDataSubscriptionOptions* options,
                                     IRedXeDataSink* sink, IRedXeDataSubscription** subscription) noexcept;
-    [[nodiscard]] HRESULT SetSubscriptionActive(std::size_t index, std::uint64_t token, bool active) noexcept;
-    void RemoveSubscription(std::size_t index, std::uint64_t token) noexcept;
-    void Deliver(std::size_t providerIndex, std::size_t dataSetIndex, const RedXeDataSnapshot* snapshot) noexcept;
+    [[nodiscard]] HRESULT SetSubscriptionActive(size_t index, uint64_t token, bool active) noexcept;
+    void RemoveSubscription(size_t index, uint64_t token) noexcept;
+    void Deliver(size_t providerIndex, size_t dataSetIndex, const RedXeDataSnapshot* snapshot) noexcept;
     void Worker() noexcept;
     void StopDataService() noexcept;
     void ShutdownModules() noexcept;
@@ -106,11 +106,11 @@ class PluginHost final : public IRedXeHost
     std::atomic<ULONG> _references{1};
     std::array<ModuleSlot, kRedXeBundledPlugins.size()> _modules;
     std::array<ProviderRuntime, kRedXeBundledPlugins.size()> _providers;
-    std::size_t _providerCount = 0;
+    size_t _providerCount = 0;
     std::array<SubscriptionSlot, kMaximumSubscriptions> _subscriptions;
     SRWLOCK _subscriptionLock = SRWLOCK_INIT;
     wil::unique_event_nothrow _stopEvent;
     wil::unique_event_nothrow _changeEvent;
     std::jthread _worker;
-    std::uint64_t _nextToken = 1;
+    uint64_t _nextToken = 1;
 };

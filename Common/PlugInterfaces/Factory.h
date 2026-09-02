@@ -8,7 +8,7 @@
 // Every sizeBytes field must equal the current record's sizeof value.
 
 // Services exposed by a logical plugin.
-enum RedXePluginCapabilities : std::uint32_t
+enum RedXePluginCapabilities : uint32_t
 {
     RedXePluginCapabilityNone = 0,
     RedXePluginCapabilityWidgetProvider = 1U << 0U,
@@ -18,35 +18,35 @@ enum RedXePluginCapabilities : std::uint32_t
 // Current factory input; sizeBytes must equal sizeof(RedXeFactoryOptions).
 struct RedXeFactoryOptions final
 {
-    std::uint32_t sizeBytes;
-    std::uint32_t debugLevel;
+    uint32_t sizeBytes;
+    uint32_t debugLevel;
     const char* configurationJsonUtf8;
-    std::uint32_t configurationBytes;
+    uint32_t configurationBytes;
 };
 
-inline constexpr std::uint32_t kRedXeMaximumFactoryConfigurationBytes = 8192;
+inline constexpr uint32_t kRedXeMaximumFactoryConfigurationBytes = 8192;
 static_assert(sizeof(RedXeFactoryOptions) == 24);
 
 // Module-owned metadata for one logical plugin.
 struct RedXePluginMetadata final
 {
-    std::uint32_t sizeBytes;
+    uint32_t sizeBytes;
     const char* id;
     const wchar_t* displayName;
     const wchar_t* description;
     const wchar_t* author;
     const wchar_t* version;
-    std::uint32_t capabilities;
+    uint32_t capabilities;
 };
 
 // Module-owned settings schema and defaults for one logical plugin.
 struct RedXePluginSettingsContract final
 {
-    std::uint32_t sizeBytes;
+    uint32_t sizeBytes;
     const char* schemaJsonUtf8;
-    std::uint32_t schemaBytes;
+    uint32_t schemaBytes;
     const char* defaultsJsonUtf8;
-    std::uint32_t defaultsBytes;
+    uint32_t defaultsBytes;
 };
 
 #if defined(REDXE_PLUGIN_EXPORTS)
@@ -60,7 +60,7 @@ extern "C"
     REDXE_PLUGIN_API HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options,
                                                    IRedXeHost* host, const char* pluginId, void** result) noexcept;
     REDXE_PLUGIN_API HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata,
-                                                             std::uint32_t* count) noexcept;
+                                                             uint32_t* count) noexcept;
     REDXE_PLUGIN_API HRESULT __stdcall RedXeGetPluginSettingsContract(
         const char* pluginId, const RedXePluginSettingsContract** contract) noexcept;
     REDXE_PLUGIN_API void __stdcall RedXePluginShutdown() noexcept;
@@ -112,7 +112,7 @@ inline constexpr char kRedXeGetPluginSettingsContractExport[] = "RedXeGetPluginS
     {
         return false;
     }
-    std::uint32_t length = 0;
+    uint32_t length = 0;
     while (value[length] != '\0')
     {
         if (length >= 128 || !RedXeIsMachineIdCharacter(value[length], length == 0))

@@ -36,11 +36,11 @@ constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
 };
-constexpr std::uint32_t kTimeDotInstances = 114;
-constexpr std::uint32_t kSecondsDotInstances = 42;
-constexpr std::uint32_t kDateDotInstances = 174;
-constexpr std::uint32_t kProgressDotInstances = 72;
-constexpr std::uint32_t kMaximumDotInstances =
+constexpr uint32_t kTimeDotInstances = 114;
+constexpr uint32_t kSecondsDotInstances = 42;
+constexpr uint32_t kDateDotInstances = 174;
+constexpr uint32_t kProgressDotInstances = 72;
+constexpr uint32_t kMaximumDotInstances =
     kTimeDotInstances + kSecondsDotInstances + kDateDotInstances + kProgressDotInstances;
 constexpr float kDateCompositionHeightScale = 10.0f / 9.0f;
 constexpr ULONGLONG kMaximumClockSampleIntervalMilliseconds = 1000;
@@ -86,7 +86,7 @@ constexpr std::array kDatedWidgetTypes{
     },
 };
 
-enum class DateFormat : std::uint32_t
+enum class DateFormat : uint32_t
 {
     DayMonthYear,
     MonthDayYear,
@@ -98,14 +98,14 @@ struct StudioClockConfiguration final
     bool showSecondProgress = true;
     bool externalDotsAlwaysOn = true;
     bool showSeconds = true;
-    std::uint32_t secondsColor = 0xFF1616;
+    uint32_t secondsColor = 0xFF1616;
     bool showDate = false;
     DateFormat dateFormat = DateFormat::DayMonthYear;
-    std::uint32_t timeColor = 0xFF1616;
-    std::uint32_t backgroundColor = 0x111111;
+    uint32_t timeColor = 0xFF1616;
+    uint32_t backgroundColor = 0x111111;
 };
 
-enum ConfigurationMember : std::uint32_t
+enum ConfigurationMember : uint32_t
 {
     ConfigurationShowSecondProgress = 1U << 0U,
     ConfigurationExternalDotsAlwaysOn = 1U << 1U,
@@ -117,18 +117,18 @@ enum ConfigurationMember : std::uint32_t
     ConfigurationBackgroundColor = 1U << 7U,
 };
 
-inline constexpr std::uint32_t kAllConfigurationMembers = (1U << 8U) - 1U;
+inline constexpr uint32_t kAllConfigurationMembers = (1U << 8U) - 1U;
 
-std::atomic<std::uint32_t> gLiveProviderCount{0};
-std::atomic<std::uint32_t> gLiveWidgetCount{0};
-std::atomic<std::uint32_t> gLiveSharedDeviceResourceSetCount{0};
-std::atomic<std::uint32_t> gLiveConstantBufferCount{0};
-std::atomic<std::uint32_t> gLastMapCount{0};
-std::atomic<std::uint32_t> gLastDrawCount{0};
-std::atomic<std::uint32_t> gLastInstanceCount{0};
-std::atomic<std::uint64_t> gTimeSampleCount{0};
-std::atomic<std::uint64_t> gTestTimePacked{0};
-std::atomic<std::uint64_t> gTestTimeRevision{0};
+std::atomic<uint32_t> gLiveProviderCount{0};
+std::atomic<uint32_t> gLiveWidgetCount{0};
+std::atomic<uint32_t> gLiveSharedDeviceResourceSetCount{0};
+std::atomic<uint32_t> gLiveConstantBufferCount{0};
+std::atomic<uint32_t> gLastMapCount{0};
+std::atomic<uint32_t> gLastDrawCount{0};
+std::atomic<uint32_t> gLastInstanceCount{0};
+std::atomic<uint64_t> gTimeSampleCount{0};
+std::atomic<uint64_t> gTestTimePacked{0};
+std::atomic<uint64_t> gTestTimeRevision{0};
 
 class JsonCursor final
 {
@@ -166,7 +166,7 @@ class JsonCursor final
         {
             return false;
         }
-        const std::size_t start = ++_offset;
+        const size_t start = ++_offset;
         while (_offset < _text.size() && _text[_offset] != '"')
         {
             const unsigned char character = static_cast<unsigned char>(_text[_offset]);
@@ -213,7 +213,7 @@ class JsonCursor final
 
   private:
     std::string_view _text;
-    std::size_t _offset = 0;
+    size_t _offset = 0;
 };
 
 [[nodiscard]] int HexDigitValue(char value) noexcept
@@ -233,37 +233,37 @@ class JsonCursor final
     return -1;
 }
 
-[[nodiscard]] bool ParseColor(std::string_view text, std::uint32_t& color) noexcept
+[[nodiscard]] bool ParseColor(std::string_view text, uint32_t& color) noexcept
 {
     if (text.size() != 7 || text[0] != '#')
     {
         return false;
     }
-    std::uint32_t parsed = 0;
-    for (std::size_t index = 1; index < text.size(); ++index)
+    uint32_t parsed = 0;
+    for (size_t index = 1; index < text.size(); ++index)
     {
         const int digit = HexDigitValue(text[index]);
         if (digit < 0)
         {
             return false;
         }
-        parsed = (parsed << 4U) | static_cast<std::uint32_t>(digit);
+        parsed = (parsed << 4U) | static_cast<uint32_t>(digit);
     }
     color = parsed;
     return true;
 }
 
-[[nodiscard]] std::uint32_t ConfigurationMemberForKey(std::string_view key) noexcept
+[[nodiscard]] uint32_t ConfigurationMemberForKey(std::string_view key) noexcept
 {
     constexpr std::array members{
-        std::pair<std::string_view, std::uint32_t>{"showSecondProgress", ConfigurationShowSecondProgress},
-        std::pair<std::string_view, std::uint32_t>{"externalDotsAlwaysOn", ConfigurationExternalDotsAlwaysOn},
-        std::pair<std::string_view, std::uint32_t>{"showSeconds", ConfigurationShowSeconds},
-        std::pair<std::string_view, std::uint32_t>{"secondsColor", ConfigurationSecondsColor},
-        std::pair<std::string_view, std::uint32_t>{"showDate", ConfigurationShowDate},
-        std::pair<std::string_view, std::uint32_t>{"dateFormat", ConfigurationDateFormat},
-        std::pair<std::string_view, std::uint32_t>{"timeColor", ConfigurationTimeColor},
-        std::pair<std::string_view, std::uint32_t>{"backgroundColor", ConfigurationBackgroundColor},
+        std::pair<std::string_view, uint32_t>{"showSecondProgress", ConfigurationShowSecondProgress},
+        std::pair<std::string_view, uint32_t>{"externalDotsAlwaysOn", ConfigurationExternalDotsAlwaysOn},
+        std::pair<std::string_view, uint32_t>{"showSeconds", ConfigurationShowSeconds},
+        std::pair<std::string_view, uint32_t>{"secondsColor", ConfigurationSecondsColor},
+        std::pair<std::string_view, uint32_t>{"showDate", ConfigurationShowDate},
+        std::pair<std::string_view, uint32_t>{"dateFormat", ConfigurationDateFormat},
+        std::pair<std::string_view, uint32_t>{"timeColor", ConfigurationTimeColor},
+        std::pair<std::string_view, uint32_t>{"backgroundColor", ConfigurationBackgroundColor},
     };
     for (const auto& member : members)
     {
@@ -303,7 +303,7 @@ class JsonCursor final
     }
 
     StudioClockConfiguration parsed{};
-    std::uint32_t seen = 0;
+    uint32_t seen = 0;
     for (;;)
     {
         std::string_view key;
@@ -311,7 +311,7 @@ class JsonCursor final
         {
             return false;
         }
-        const std::uint32_t member = ConfigurationMemberForKey(key);
+        const uint32_t member = ConfigurationMemberForKey(key);
         if (member == 0 || (seen & member) != 0)
         {
             return false;
@@ -388,9 +388,9 @@ class JsonCursor final
         return false;
     }
 
-    constexpr std::uint32_t pluginSeen = 1U << 0U;
-    constexpr std::uint32_t instanceSeen = 1U << 1U;
-    std::uint32_t seen = 0;
+    constexpr uint32_t pluginSeen = 1U << 0U;
+    constexpr uint32_t instanceSeen = 1U << 1U;
+    uint32_t seen = 0;
     StudioClockConfiguration parsed{};
     for (;;)
     {
@@ -450,7 +450,7 @@ class JsonCursor final
         return E_INVALIDARG;
     }
     const char* json = options->configurationJsonUtf8;
-    const std::uint32_t bytes = options->configurationBytes;
+    const uint32_t bytes = options->configurationBytes;
     if (!json && bytes == 0)
     {
         return S_OK;
@@ -470,7 +470,7 @@ class JsonCursor final
     return S_OK;
 }
 
-[[nodiscard]] std::array<float, 4> ConvertColor(std::uint32_t color, float alpha = 1.0f) noexcept
+[[nodiscard]] std::array<float, 4> ConvertColor(uint32_t color, float alpha = 1.0f) noexcept
 {
     return {
         static_cast<float>((color >> 16U) & 0xFFU) / 255.0f,
@@ -480,15 +480,15 @@ class JsonCursor final
     };
 }
 
-[[nodiscard]] std::uint64_t PackTime(const SYSTEMTIME& time) noexcept
+[[nodiscard]] uint64_t PackTime(const SYSTEMTIME& time) noexcept
 {
-    return static_cast<std::uint64_t>(time.wYear) | (static_cast<std::uint64_t>(time.wMonth) << 14U) |
-           (static_cast<std::uint64_t>(time.wDay) << 18U) | (static_cast<std::uint64_t>(time.wHour) << 23U) |
-           (static_cast<std::uint64_t>(time.wMinute) << 28U) | (static_cast<std::uint64_t>(time.wSecond) << 34U) |
-           (static_cast<std::uint64_t>(time.wMilliseconds) << 40U);
+    return static_cast<uint64_t>(time.wYear) | (static_cast<uint64_t>(time.wMonth) << 14U) |
+           (static_cast<uint64_t>(time.wDay) << 18U) | (static_cast<uint64_t>(time.wHour) << 23U) |
+           (static_cast<uint64_t>(time.wMinute) << 28U) | (static_cast<uint64_t>(time.wSecond) << 34U) |
+           (static_cast<uint64_t>(time.wMilliseconds) << 40U);
 }
 
-[[nodiscard]] SYSTEMTIME UnpackTime(std::uint64_t packed) noexcept
+[[nodiscard]] SYSTEMTIME UnpackTime(uint64_t packed) noexcept
 {
     SYSTEMTIME time{};
     time.wYear = static_cast<WORD>(packed & 0x3FFFU);
@@ -504,7 +504,7 @@ class JsonCursor final
 [[nodiscard]] SYSTEMTIME ReadClockTime() noexcept
 {
     gTimeSampleCount.fetch_add(1, std::memory_order_relaxed);
-    const std::uint64_t packed = gTestTimePacked.load(std::memory_order_acquire);
+    const uint64_t packed = gTestTimePacked.load(std::memory_order_acquire);
     if (packed != 0)
     {
         return UnpackTime(packed);
@@ -514,14 +514,14 @@ class JsonCursor final
     return time;
 }
 
-[[nodiscard]] std::uint32_t DelayToNextBoundary(const SYSTEMTIME& time, bool showSecondDetail) noexcept
+[[nodiscard]] uint32_t DelayToNextBoundary(const SYSTEMTIME& time, bool showSecondDetail) noexcept
 {
-    const std::uint32_t milliseconds = time.wMilliseconds < 1000 ? time.wMilliseconds : 999U;
+    const uint32_t milliseconds = time.wMilliseconds < 1000 ? time.wMilliseconds : 999U;
     if (showSecondDetail)
     {
         return 1001U - milliseconds;
     }
-    const std::uint32_t second = time.wSecond < 60 ? time.wSecond : 59U;
+    const uint32_t second = time.wSecond < 60 ? time.wSecond : 59U;
     return (60U - second) * 1000U - milliseconds + 1U;
 }
 
@@ -532,11 +532,11 @@ struct alignas(16) StudioClockConstants final
     float secondsColor[4];
     float viewportAndOrigin[4];
     float geometry[4];
-    std::uint32_t timeDigits[4];
-    std::uint32_t secondsAndFlags[4];
-    std::uint32_t dateDigits0[4];
-    std::uint32_t dateDigits1[4];
-    std::uint32_t segmentCounts[4];
+    uint32_t timeDigits[4];
+    uint32_t secondsAndFlags[4];
+    uint32_t dateDigits0[4];
+    uint32_t dateDigits1[4];
+    uint32_t segmentCounts[4];
 };
 
 static_assert(sizeof(StudioClockConstants) == 160);
@@ -659,14 +659,14 @@ class StudioClockSharedResources final
 
     [[nodiscard]] HRESULT Render(ID3D11DeviceContext* context, ID3D11Buffer* constantBuffer,
                                  const StudioClockConstants& constants, bool uploadConstants,
-                                 std::uint32_t instanceCount) noexcept
+                                 uint32_t instanceCount) noexcept
     {
         if (!context || !constantBuffer || !_deviceIdentity)
         {
             return E_UNEXPECTED;
         }
 
-        std::uint32_t mapCount = 0;
+        uint32_t mapCount = 0;
         if (uploadConstants)
         {
             D3D11_MAPPED_SUBRESOURCE mapped{};
@@ -732,7 +732,7 @@ class StudioClockSharedResources final
     }
 
     ID3D11Device* _deviceIdentity = nullptr;
-    std::uint32_t _users = 0;
+    uint32_t _users = 0;
     wil::com_ptr_nothrow<ID3D11VertexShader> _backgroundVertexShader;
     wil::com_ptr_nothrow<ID3D11PixelShader> _backgroundPixelShader;
     wil::com_ptr_nothrow<ID3D11VertexShader> _dotVertexShader;
@@ -935,7 +935,7 @@ class StudioClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, pub
         return result;
     }
 
-    HRESULT STDMETHODCALLTYPE GetNextFrameDelayMilliseconds(std::uint32_t* delayMilliseconds) noexcept override
+    HRESULT STDMETHODCALLTYPE GetNextFrameDelayMilliseconds(uint32_t* delayMilliseconds) noexcept override
     {
         if (!delayMilliseconds)
         {
@@ -978,7 +978,7 @@ class StudioClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, pub
 
     void SampleTime(ULONGLONG now, bool forceSample) noexcept
     {
-        const std::uint64_t testTimeRevision = gTestTimeRevision.load(std::memory_order_acquire);
+        const uint64_t testTimeRevision = gTestTimeRevision.load(std::memory_order_acquire);
         const bool testTimeChanged = testTimeRevision != _lastTestTimeRevision;
         const bool sampleDue = forceSample || !_hasTime || now >= _nextSampleTick;
         if (!testTimeChanged && !sampleDue)
@@ -994,29 +994,29 @@ class StudioClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, pub
         _time = sampled;
         _hasTime = true;
         _lastTestTimeRevision = testTimeRevision;
-        const std::uint32_t boundary = DelayToNextBoundary(sampled, ShowsSecondDetail());
-        const std::uint32_t sampleInterval = boundary > 1 ? boundary - 1 : 1;
+        const uint32_t boundary = DelayToNextBoundary(sampled, ShowsSecondDetail());
+        const uint32_t sampleInterval = boundary > 1 ? boundary - 1 : 1;
         _nextSampleTick =
-            now + std::min(sampleInterval, static_cast<std::uint32_t>(kMaximumClockSampleIntervalMilliseconds));
+            now + std::min(sampleInterval, static_cast<uint32_t>(kMaximumClockSampleIntervalMilliseconds));
     }
 
-    static void SplitTwoDigits(std::uint32_t value, std::uint32_t& first, std::uint32_t& second) noexcept
+    static void SplitTwoDigits(uint32_t value, uint32_t& first, uint32_t& second) noexcept
     {
         first = value / 10U;
         second = value % 10U;
     }
 
-    void BuildDateDigits(std::array<std::uint32_t, 8>& digits) const noexcept
+    void BuildDateDigits(std::array<uint32_t, 8>& digits) const noexcept
     {
-        std::array<std::uint32_t, 2> day{};
-        std::array<std::uint32_t, 2> month{};
+        std::array<uint32_t, 2> day{};
+        std::array<uint32_t, 2> month{};
         SplitTwoDigits(_time.wDay, day[0], day[1]);
         SplitTwoDigits(_time.wMonth, month[0], month[1]);
         const std::array year{
-            static_cast<std::uint32_t>(_time.wYear / 1000U),
-            static_cast<std::uint32_t>((_time.wYear / 100U) % 10U),
-            static_cast<std::uint32_t>((_time.wYear / 10U) % 10U),
-            static_cast<std::uint32_t>(_time.wYear % 10U),
+            static_cast<uint32_t>(_time.wYear / 1000U),
+            static_cast<uint32_t>((_time.wYear / 100U) % 10U),
+            static_cast<uint32_t>((_time.wYear / 10U) % 10U),
+            static_cast<uint32_t>(_time.wYear % 10U),
         };
         if (_configuration.dateFormat == DateFormat::YearMonthDay)
         {
@@ -1034,12 +1034,12 @@ class StudioClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, pub
 
     void BuildConstants() noexcept
     {
-        std::array<std::uint32_t, 4> timeDigits{};
+        std::array<uint32_t, 4> timeDigits{};
         SplitTwoDigits(_time.wHour, timeDigits[0], timeDigits[1]);
         SplitTwoDigits(_time.wMinute, timeDigits[2], timeDigits[3]);
-        std::array<std::uint32_t, 2> secondsDigits{};
+        std::array<uint32_t, 2> secondsDigits{};
         SplitTwoDigits(_time.wSecond, secondsDigits[0], secondsDigits[1]);
-        std::array<std::uint32_t, 8> dateDigits{};
+        std::array<uint32_t, 8> dateDigits{};
         BuildDateDigits(dateDigits);
 
         const float viewportWidth = static_cast<float>(_width);
@@ -1050,9 +1050,9 @@ class StudioClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, pub
         const float compositionHeight = squareSize * (_configuration.showDate ? kDateCompositionHeightScale : 1.0f);
         const float originX = (static_cast<float>(_width) - squareSize) * 0.5f;
         const float originY = (viewportHeight - compositionHeight) * 0.5f;
-        const std::uint32_t secondsCount = _configuration.showSeconds ? kSecondsDotInstances : 0;
-        const std::uint32_t dateCount = _configuration.showDate ? kDateDotInstances : 0;
-        const std::uint32_t progressCount = _configuration.showSecondProgress ? kProgressDotInstances : 0;
+        const uint32_t secondsCount = _configuration.showSeconds ? kSecondsDotInstances : 0;
+        const uint32_t dateCount = _configuration.showDate ? kDateDotInstances : 0;
+        const uint32_t progressCount = _configuration.showSecondProgress ? kProgressDotInstances : 0;
 
         _constants = StudioClockConstants{
             {_backgroundColor[0], _backgroundColor[1], _backgroundColor[2], _backgroundColor[3]},
@@ -1081,11 +1081,11 @@ class StudioClockWidget final : public IRedXeWidget, public IRedXeGpuWidget, pub
     SYSTEMTIME _time{};
     ULONGLONG _nextSampleTick = 0;
     ULONGLONG _lastRenderTick = 0;
-    std::uint64_t _lastTestTimeRevision = 0;
-    std::uint32_t _width = 0;
-    std::uint32_t _height = 0;
-    std::uint32_t _dpi = 0;
-    std::uint32_t _instanceCount = 0;
+    uint64_t _lastTestTimeRevision = 0;
+    uint32_t _width = 0;
+    uint32_t _height = 0;
+    uint32_t _dpi = 0;
+    uint32_t _instanceCount = 0;
     bool _hasTime = false;
     bool _deviceAttached = false;
     bool _constantsDirty = true;
@@ -1131,7 +1131,7 @@ class StudioClockProvider final : public IRedXeWidgetProvider
     }
 
     HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             std::uint32_t* count) noexcept override
+                                             uint32_t* count) noexcept override
     {
         if (descriptors)
             *descriptors = nullptr;
@@ -1141,7 +1141,7 @@ class StudioClockProvider final : public IRedXeWidgetProvider
             return E_POINTER;
         const auto& widgetTypes = _configuration.showDate ? kDatedWidgetTypes : kSquareWidgetTypes;
         *descriptors = widgetTypes.data();
-        *count = static_cast<std::uint32_t>(widgetTypes.size());
+        *count = static_cast<uint32_t>(widgetTypes.size());
         return S_OK;
     }
 
@@ -1207,13 +1207,13 @@ constexpr std::array kFactoryEntries{
 extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
                                          const char* pluginId, void** result) noexcept
 {
-    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<std::uint32_t>(kFactoryEntries.size()),
+    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()),
                                          interfaceId, options, host, pluginId, result);
 }
 
-extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, std::uint32_t* count) noexcept
+extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
 {
-    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<std::uint32_t>(kMetadata.size()), metadata,
+    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata,
                                          count);
 }
 

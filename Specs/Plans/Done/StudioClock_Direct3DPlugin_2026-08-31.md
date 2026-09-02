@@ -141,7 +141,7 @@ interface __declspec(uuid("1B6B4F9E-5421-4B4E-BC2D-190EE6CE86CB")) __declspec(no
     IRedXeScheduledWidget : IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE GetNextFrameDelayMilliseconds(
-        std::uint32_t* delayMilliseconds) noexcept = 0;
+        uint32_t* delayMilliseconds) noexcept = 0;
 };
 ```
 

@@ -25,8 +25,8 @@ namespace
 constexpr wchar_t kCrashDirectorySuffix[] = L"RedXe\\Crashes";
 constexpr wchar_t kMarkerFileName[] = L"last_crash.txt";
 constexpr DWORD kCrashExceptionCode = 0xE000CAFEU;
-constexpr std::size_t kPathCapacity = 1024;
-constexpr std::size_t kMarkerContentCapacity = 1024;
+constexpr size_t kPathCapacity = 1024;
+constexpr size_t kMarkerContentCapacity = 1024;
 constexpr unsigned int kMaximumCallstackFrames = 64;
 constexpr ULONG kFatalPathStackGuaranteeBytes = 128U * 1024U;
 
@@ -106,7 +106,7 @@ template <typename Function> [[nodiscard]] Function ResolveDbgHelpFunction(HMODU
         return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
     }
 
-    std::size_t trimmedLength = length;
+    size_t trimmedLength = length;
     while (trimmedLength > 3 && (absolutePath[trimmedLength - 1] == L'\\' || absolutePath[trimmedLength - 1] == L'/'))
     {
         absolutePath[--trimmedLength] = L'\0';
@@ -170,7 +170,7 @@ void ConfigureDefaultCrashDirectory() noexcept
     {
         return false;
     }
-    const std::size_t remaining = std::size(path) - static_cast<std::size_t>(extension - path);
+    const size_t remaining = std::size(path) - static_cast<size_t>(extension - path);
     return SUCCEEDED(StringCchCopyW(extension, remaining, extensionValue));
 }
 
@@ -223,7 +223,7 @@ void ConfigureDefaultCrashDirectory() noexcept
 
 [[nodiscard]] bool WriteWideText(HANDLE file, const wchar_t* text) noexcept
 {
-    const std::size_t byteCount = wcslen(text) * sizeof(wchar_t);
+    const size_t byteCount = wcslen(text) * sizeof(wchar_t);
     return byteCount <= MAXDWORD && WriteAll(file, text, static_cast<DWORD>(byteCount));
 }
 
@@ -472,8 +472,8 @@ void WriteMarkerFile(const wchar_t* dumpPath) noexcept
         return;
     }
 
-    const std::size_t dumpPathLength = wcslen(dumpPath);
-    const std::size_t byteCount = dumpPathLength * sizeof(wchar_t);
+    const size_t dumpPathLength = wcslen(dumpPath);
+    const size_t byteCount = dumpPathLength * sizeof(wchar_t);
     if (byteCount > MAXDWORD || !WriteFile(marker.get(), dumpPath, static_cast<DWORD>(byteCount), &written, nullptr) ||
         written != static_cast<DWORD>(byteCount))
     {
@@ -519,7 +519,7 @@ __declspec(noinline) ULONG_PTR ConsumeStackUntilOverflow() noexcept
 {
     volatile unsigned char stackBlock[4096]{};
     const LONG depth = InterlockedIncrement(&g_stackConsumptionDepth);
-    const std::size_t index = static_cast<std::size_t>(depth) % std::size(stackBlock);
+    const size_t index = static_cast<size_t>(depth) % std::size(stackBlock);
     stackBlock[index] = static_cast<unsigned char>(depth);
     const ULONG_PTR child = ConsumeStackUntilOverflow();
     return child + stackBlock[index];
@@ -580,9 +580,9 @@ void __cdecl InvalidParameterHandler(const wchar_t*, const wchar_t*, const wchar
         return false;
     }
 
-    std::size_t characterCount = bytesRead / sizeof(wchar_t);
+    size_t characterCount = bytesRead / sizeof(wchar_t);
     dumpPath[characterCount] = L'\0';
-    std::size_t start = dumpPath[0] == 0xFEFF ? 1U : 0U;
+    size_t start = dumpPath[0] == 0xFEFF ? 1U : 0U;
     while (characterCount > start)
     {
         const wchar_t character = dumpPath[characterCount - 1];
@@ -666,7 +666,7 @@ HRESULT SetCrashDirectoryForTesting(const wchar_t* directory) noexcept
         return E_INVALIDARG;
     }
 
-    const std::size_t prefixLength = wcsnlen_s(directory, 3);
+    const size_t prefixLength = wcsnlen_s(directory, 3);
     const bool driveAbsolute =
         prefixLength >= 3 && directory[1] == L':' && (directory[2] == L'\\' || directory[2] == L'/');
     const bool uncAbsolute = prefixLength >= 2 && (directory[0] == L'\\' || directory[0] == L'/') &&

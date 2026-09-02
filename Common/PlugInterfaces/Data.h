@@ -7,7 +7,7 @@
 // Every sizeBytes field must equal the current record's sizeof value.
 
 // Storage type carried by a data value.
-enum RedXeDataValueType : std::uint32_t
+enum RedXeDataValueType : uint32_t
 {
     RedXeDataValueTypeInvalid = 0,
     RedXeDataValueTypeUInt64 = 1,
@@ -16,7 +16,7 @@ enum RedXeDataValueType : std::uint32_t
 };
 
 // Availability of a collected data value.
-enum RedXeDataQuality : std::uint32_t
+enum RedXeDataQuality : uint32_t
 {
     RedXeDataQualityGood = 0,
     RedXeDataQualityUnavailable = 1,
@@ -24,95 +24,121 @@ enum RedXeDataQuality : std::uint32_t
 };
 
 // Shape and sensitivity declared by a dataset.
-enum RedXeDataSetFlags : std::uint32_t
+enum RedXeDataSetFlags : uint32_t
 {
     RedXeDataSetFlagNone = 0,
     RedXeDataSetFlagTable = 1U << 0U,
     RedXeDataSetFlagLocalSensitive = 1U << 1U,
+    RedXeDataSetFlagDeviceLane = 1U << 2U,
 };
 
 // Conditions affecting a collected snapshot.
-enum RedXeDataSnapshotFlags : std::uint32_t
+enum RedXeDataSnapshotFlags : uint32_t
 {
     RedXeDataSnapshotFlagNone = 0,
     RedXeDataSnapshotFlagTruncated = 1U << 0U,
 };
 
+// Maximum unique dataset IDs in one CollectSnapshots request.
+constexpr uint32_t RedXeDataCollectMaximumDataSets = 32;
+
 // Module-owned metadata for one dataset column.
 struct RedXeDataColumnDescriptor final
 {
-    std::uint32_t sizeBytes;
+    uint32_t sizeBytes;
     const char* columnId;
     const wchar_t* displayName;
     const wchar_t* unit;
-    std::uint32_t valueType;
+    uint32_t valueType;
 };
 
 // Module-owned metadata for one bounded dataset.
 struct RedXeDataSetDescriptor final
 {
-    std::uint32_t sizeBytes;
+    uint32_t sizeBytes;
     const char* dataSetId;
     const wchar_t* displayName;
     const wchar_t* description;
     const RedXeDataColumnDescriptor* columns;
-    std::uint32_t columnCount;
-    std::uint32_t maximumRows;
-    std::uint32_t recommendedIntervalMilliseconds;
-    std::uint32_t flags;
+    uint32_t columnCount;
+    uint32_t maximumRows;
+    uint32_t recommendedIntervalMilliseconds;
+    uint32_t flags;
 };
 
 // Provider-owned value borrowed with its snapshot.
 struct RedXeDataValue final
 {
-    std::uint32_t sizeBytes;
-    std::uint32_t valueType;
-    std::uint32_t quality;
+    uint32_t sizeBytes;
+    uint32_t valueType;
+    uint32_t quality;
     union
     {
-        std::uint64_t uint64Value;
+        uint64_t uint64Value;
         double float64Value;
         const wchar_t* utf16Value;
     };
-    std::uint32_t utf16Characters;
+    uint32_t utf16Characters;
 };
 
 // Provider-owned row borrowed with its snapshot.
 struct RedXeDataRow final
 {
-    std::uint32_t sizeBytes;
+    uint32_t sizeBytes;
     const RedXeDataValue* values;
-    std::uint32_t valueCount;
+    uint32_t valueCount;
 };
 
 // Provider-owned bounded table returned by one collection.
 struct RedXeDataSnapshot final
 {
-    std::uint32_t sizeBytes;
-    std::uint32_t flags;
+    uint32_t sizeBytes;
+    uint32_t flags;
     const char* dataSetId;
-    std::uint64_t sequence;
-    std::uint64_t timestampFileTime100ns;
+    uint64_t sequence;
+    uint64_t timestampFileTime100ns;
     const RedXeDataRow* rows;
-    std::uint32_t rowCount;
-    std::uint32_t columnCount;
+    uint32_t rowCount;
+    uint32_t columnCount;
 };
+
+// Host-owned batch of unique due dataset IDs for one source.
+struct RedXeDataCollectRequest final
+{
+    uint32_t sizeBytes;
+    const char* const* dataSetIds;
+    uint32_t dataSetCount;
+};
+
+// Source-owned batch result. Snapshots and strings are invalid at the next
+// CollectSnapshots call on this source, or when the source is released.
+struct RedXeDataCollectResult final
+{
+    uint32_t sizeBytes;
+    uint32_t snapshotCount;
+    uint64_t sequence;
+    uint64_t timestampFileTime100ns;
+    const RedXeDataSnapshot* const* snapshots;
+};
+
+static_assert(sizeof(RedXeDataCollectRequest) == 24);
+static_assert(sizeof(RedXeDataCollectResult) == 32);
 
 // Dataset and cadence requested from one host data provider.
 struct RedXeDataSubscriptionOptions final
 {
-    std::uint32_t sizeBytes;
+    uint32_t sizeBytes;
     const char* dataSetId;
-    std::uint32_t requestedIntervalMilliseconds;
+    uint32_t requestedIntervalMilliseconds;
 };
 
 // Plugin-side pull source called only by the host data service.
-interface __declspec(uuid("4E52264A-89C4-4DF6-AB47-B4D31B6247D2")) __declspec(novtable) IRedXeDataSource : IUnknown
+interface __declspec(uuid("C3A81F6E-2D47-4B90-A1E5-6F8C9D0B3E21")) __declspec(novtable) IRedXeDataSource : IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors,
-                                                  std::uint32_t* count) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE CollectSnapshot(const char* dataSetId,
-                                                      const RedXeDataSnapshot** snapshot) noexcept = 0;
+                                                  uint32_t* count) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE CollectSnapshots(const RedXeDataCollectRequest* request,
+                                                       const RedXeDataCollectResult** result) noexcept = 0;
 };
 
 // Receives one borrowed snapshot synchronously on the host acquisition worker.
@@ -132,7 +158,7 @@ interface __declspec(uuid("B8912B7D-89AD-4830-9CFB-73F4E72027FB")) __declspec(no
 interface __declspec(uuid("9EAE20F1-36A8-48A8-B451-F60401A898CD")) __declspec(novtable) IRedXeDataProvider : IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors,
-                                                  std::uint32_t* count) noexcept = 0;
+                                                  uint32_t* count) noexcept = 0;
     virtual HRESULT STDMETHODCALLTYPE Subscribe(const RedXeDataSubscriptionOptions* options, IRedXeDataSink* sink,
                                                 IRedXeDataSubscription** subscription) noexcept = 0;
 };

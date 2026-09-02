@@ -58,8 +58,11 @@ or state change is pending. Normal operating-system scheduling noise is outside 
 - DLLs, devices, textures, buffers, workers, and child windows must be created lazily when practical and released or
   quiesced when their owning feature is no longer active, except for the documented current no-unload plugin policy.
 - Local data sources share one host acquisition worker. Background acquisition must block on events or timers at the
-  lowest useful rate, coalesce subscriptions for the same provider and dataset into one sample, and keep bounded
-  history. Multiple providers must not create one worker per provider. Busy-waiting is prohibited.
+  lowest useful rate, coalesce subscriptions for the same provider and dataset into one sample, batch every unique due
+  dataset from one source into a single `CollectSnapshots` call, and keep bounded history. Multiple providers must not
+  create one worker per provider. Busy-waiting is prohibited. Sources MUST NOT create acquisition threads. A dedicated
+  device-I/O lane is optional and host-owned; it MUST NOT ship until timeout, cancellation, and teardown drain are
+  bounded.
 - Logging and diagnostics must not format or emit per-frame success messages.
 
 The measured baseline System Data source is an accepted bounded local pull source. Its fixed x64 source object is
@@ -68,7 +71,19 @@ The measured baseline System Data source is an accepted bounded local pull sourc
 wall time per collection; the corresponding 64-collection CPU probe medians were 3.906 ms per collection. Every run
 reported zero busy-heap block/byte growth, zero handle growth, zero private-byte growth, and a 4 KiB working-set delta.
 This evidence accepts the current Toolhelp/per-process-query baseline; future metric expansion must remeasure before
-raising storage, cadence, worker, or per-row work.
+raising storage, cadence, worker, or per-row work. The expansion fast-lane ceiling is 16 MiB of source-owned storage
+with compact previous samples; the shipped source object MUST remain under 16 MiB. After the CPU/memory/process,
+network/storage, GPU, and power/thermal expansion, x64 `sizeof(SystemDataSource)` is 15,920,696 bytes. Release x64
+`--domains` (2026-09-01, eight samples on a hot source after the contract suite) measured cheap datasets under 0.4 ms,
+live `process.list` (673 rows) at 73.9 ms, truncated `thread.list` (8,192 rows) at 43.8 ms, `thermal.sensor` at 11.3 ms,
+`gpu.engine` at 9.6 ms, and one 18-dataset batch at 127.5 ms; the hang budget is five seconds per collection. Network
+sampling uses cached LUIDs plus
+`GetIfEntry2`, one `NotifyIpInterfaceChange` callback that only stores an atomic dirty flag, and no source-owned
+thread. Storage opens bounded overlapped disk handles, times out and cancels hung IOCTLs on the collect thread, and
+never issues `IOCTL_DISK_PERFORMANCE_OFF`. GPU sampling retains one DXGI factory, D3DKMT adapter handles, and one PDH
+GPU Engine query, all released when the source is destroyed; it never creates a D3D device. Battery, ACPI thermal, and
+storage-temperature queries use the same overlapped timeout and `CancelIoEx` drain. Generic fan-interface presence is
+counted only; it does not create RPM rows. There is no device-I/O thread.
 
 The current immediate-context GPU interface remains appropriate for Matrix-class work. A new production family of
 cheap host primitives MUST NOT be added as separate immediate-context callbacks without measurement. When such a
@@ -147,8 +162,11 @@ observable resource benefit are not required.
   resumes rendering.
 - System-data validation must exercise two 2,048-row steady collections through the production row-population path,
   report CPU/wall time, private bytes, working set, heap, handles, and fixed source storage, and fail on heap or handle
-  growth or source storage of 1 MiB or more. The host integration test must leave Process Viewer hidden for longer
-  than the dataset interval and observe no additional delivered sample.
+  growth or source storage of 16 MiB or more. Release x64 must also time each catalog dataset and one full-catalog batch
+  (`SystemDataTests --domains`) and fail only on collect failure or a hang exceeding five seconds per collection.
+  Collecting every dataset MUST NOT load `wbemprox.dll`, `fastprox.dll`, or `wbemcomn.dll`. The host integration test
+  must leave Process Viewer hidden for longer than the dataset interval and observe no additional delivered sample. The
+  host subscription cap remains 32; a 128-subscription source cap was not adopted.
 - Low-cadence scheduling changes must test second/minute boundary aggregation, continuous-animation supersession,
   unrelated-message behavior, inactive visibility/power states, and a scheduled production-host soak. Studio Clock
   validation additionally proves two draws, the 402-instance bound, 60 ordinary second positions, 12 outward

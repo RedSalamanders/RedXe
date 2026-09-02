@@ -61,7 +61,7 @@ failure uses normal shell placement in Debug and follows the missing-display fal
 
 `RedXe.exe` MUST embed the product icon as its conventional primary icon group and use that same resource for the
 large and small window-class icons. It MUST embed version information identifying `RedXe.exe`, product `RedXe`, and
-file description `RedXe XENEON dashboard`. This gives Task Manager and shell surfaces a stable executable identity in
+file description `RedXe XENEON dashboard`. This gives code and shell surfaces a stable executable identity in
 addition to the HWND icon. The hidden self-test MUST extract both large and small icons from its own executable, and
 the repository test entrypoint MUST validate the version fields without desktop automation.
 

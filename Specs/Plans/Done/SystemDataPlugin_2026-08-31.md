@@ -13,7 +13,7 @@ top-N process table without making acquisition part of a render callback. The ho
 sources and several viewers without duplicating module loading or acquisition.
 
 This plan executes the data-provider decision gate in
-[`RFC_Plugins_XeneonDashboardArchitecture.md`](../WIP/RFC_Plugins_XeneonDashboardArchitecture.md). Current shipped plugin
+[`RFC_Plugins_XeneonDashboardArchitecture.md`](RFC_Plugins_XeneonDashboardArchitecture.md). Current shipped plugin
 behavior remains owned by [`../../Plugins/Plugins_API.md`](../../Plugins/Plugins_API.md), and all acquisition and host
 data-service work is subject to [`../../Core/Core_PerformanceAndResources.md`](../../Core/Core_PerformanceAndResources.md).
 

@@ -10,28 +10,28 @@
 #include <vector>
 #include <windows.h>
 
-inline constexpr std::uint32_t kRedXeSettingsVersionMajor = 4;
-inline constexpr std::uint32_t kRedXeSettingsVersionMinor = 0;
+inline constexpr uint32_t kRedXeSettingsVersionMajor = 4;
+inline constexpr uint32_t kRedXeSettingsVersionMinor = 0;
 // Removed with the v3 parser; retained temporarily so the transition remains buildable between slices.
 inline constexpr wchar_t kRedXeDebugSettingsFileName[] = L"RedXe-debug.settings.json";
 inline constexpr wchar_t kRedXeReleaseSettingsFileName[] = L"RedXe.settings.json";
 inline constexpr wchar_t kRedXeSettingsSchemaFileName[] = L"RedXe.settings.schema.json";
 
-inline constexpr std::size_t kMaximumSettingsPlugins = 64;
-inline constexpr std::size_t kMaximumDashboardPages = 16;
-inline constexpr std::size_t kMaximumWidgetsPerPage = 32;
-inline constexpr std::size_t kMaximumSettingsDeclarations = 128;
-inline constexpr std::size_t kMaximumLayoutDepth = 8;
-inline constexpr std::size_t kMaximumLayoutAreasPerPage = 127;
-inline constexpr std::size_t kMaximumSettingsTextBytes = 512;
-inline constexpr std::size_t kPrivateConfigurationCapacity = 4096;
-inline constexpr std::size_t kFactoryConfigurationCapacity = 8192;
-inline constexpr std::uint32_t kMaximumDashboardGridDimension = 64;
+inline constexpr size_t kMaximumSettingsPlugins = 64;
+inline constexpr size_t kMaximumDashboardPages = 16;
+inline constexpr size_t kMaximumWidgetsPerPage = 32;
+inline constexpr size_t kMaximumSettingsDeclarations = 128;
+inline constexpr size_t kMaximumLayoutDepth = 8;
+inline constexpr size_t kMaximumLayoutAreasPerPage = 127;
+inline constexpr size_t kMaximumSettingsTextBytes = 512;
+inline constexpr size_t kPrivateConfigurationCapacity = 4096;
+inline constexpr size_t kFactoryConfigurationCapacity = 8192;
+inline constexpr uint32_t kMaximumDashboardGridDimension = 64;
 
 struct SettingsText final
 {
     std::array<char, kMaximumSettingsTextBytes + 1> utf8{};
-    std::uint32_t bytes = 0;
+    uint32_t bytes = 0;
 
     [[nodiscard]] std::string_view View() const noexcept
     {
@@ -44,7 +44,7 @@ struct SettingsText final
 struct JsonObjectSettings final
 {
     std::array<char, kPrivateConfigurationCapacity + 1> utf8{'{', '}'};
-    std::uint32_t bytes = 2;
+    uint32_t bytes = 2;
 
     [[nodiscard]] std::string_view View() const noexcept
     {
@@ -65,10 +65,10 @@ struct PluginSettings final
 
 struct WidgetGridPlacement final
 {
-    std::uint32_t column = 0;
-    std::uint32_t row = 0;
-    std::uint32_t columnSpan = 1;
-    std::uint32_t rowSpan = 1;
+    uint32_t column = 0;
+    uint32_t row = 0;
+    uint32_t columnSpan = 1;
+    uint32_t rowSpan = 1;
 
     bool operator==(const WidgetGridPlacement&) const noexcept = default;
 };
@@ -82,9 +82,9 @@ enum class LayoutAxis : std::uint8_t
 struct LayoutSplitStep final
 {
     LayoutAxis axis = LayoutAxis::LongSide;
-    std::uint32_t precedingRatio = 0;
-    std::uint32_t sizeRatio = 1;
-    std::uint32_t totalRatio = 1;
+    uint32_t precedingRatio = 0;
+    uint32_t sizeRatio = 1;
+    uint32_t totalRatio = 1;
 
     bool operator==(const LayoutSplitStep&) const noexcept = default;
 };
@@ -92,7 +92,7 @@ struct LayoutSplitStep final
 struct AdaptiveWidgetPlacement final
 {
     std::array<LayoutSplitStep, kMaximumLayoutDepth> steps{};
-    std::uint32_t depth = 0;
+    uint32_t depth = 0;
 
     bool operator==(const AdaptiveWidgetPlacement&) const noexcept = default;
 };
@@ -115,19 +115,19 @@ struct DashboardPageSettings final
     SettingsText id;
     SettingsText name;
     std::vector<WidgetInstanceSettings> widgets;
-    std::uint32_t widgetCount = 0;
+    uint32_t widgetCount = 0;
 
     bool operator==(const DashboardPageSettings&) const noexcept = default;
 };
 
 struct DashboardSettings final
 {
-    std::uint32_t gridColumns = 32;
-    std::uint32_t gridRows = 9;
+    uint32_t gridColumns = 32;
+    uint32_t gridRows = 9;
     SettingsText activePageId;
     std::vector<DashboardPageSettings> pages;
-    std::uint32_t pageCount = 0;
-    std::uint32_t activePageIndex = 0;
+    uint32_t pageCount = 0;
+    uint32_t activePageIndex = 0;
     bool wrapPages = false;
 
     bool operator==(const DashboardSettings&) const noexcept = default;
@@ -135,35 +135,35 @@ struct DashboardSettings final
 
 struct AppSettings final
 {
-    std::uint32_t versionMajor = kRedXeSettingsVersionMajor;
-    std::uint32_t versionMinor = kRedXeSettingsVersionMinor;
+    uint32_t versionMajor = kRedXeSettingsVersionMajor;
+    uint32_t versionMinor = kRedXeSettingsVersionMinor;
     std::string sourceDocument;
     std::vector<PluginSettings> plugins;
-    std::uint32_t pluginCount = 0;
+    uint32_t pluginCount = 0;
     DashboardSettings dashboard;
 
     bool operator==(const AppSettings&) const noexcept = default;
 };
 
-inline constexpr std::size_t kMaximumAppSettingsStorageBytes = 64U * 1024U;
+inline constexpr size_t kMaximumAppSettingsStorageBytes = 64U * 1024U;
 static_assert(sizeof(AppSettings) <= kMaximumAppSettingsStorageBytes);
 
 struct SettingsFileStamp final
 {
-    std::uint32_t volumeSerialNumber = 0;
-    std::uint32_t fileIndexHigh = 0;
-    std::uint32_t fileIndexLow = 0;
-    std::uint64_t lastWriteTime = 0;
-    std::uint64_t fileSize = 0;
+    uint32_t volumeSerialNumber = 0;
+    uint32_t fileIndexHigh = 0;
+    uint32_t fileIndexLow = 0;
+    uint64_t lastWriteTime = 0;
+    uint64_t fileSize = 0;
 
     bool operator==(const SettingsFileStamp&) const noexcept = default;
 };
 
 struct SettingsParseDiagnostic final
 {
-    std::uint64_t byteOffset = 0;
-    std::uint32_t line = 1;
-    std::uint32_t column = 1;
+    uint64_t byteOffset = 0;
+    uint32_t line = 1;
+    uint32_t column = 1;
     std::string path = "$";
     std::string message;
 };
@@ -198,7 +198,7 @@ enum class SettingsReloadStatus : std::uint8_t
 [[nodiscard]] HRESULT SerializeFactoryConfigurationJson(const PluginSettings& plugin,
                                                         const WidgetInstanceSettings& instance,
                                                         std::array<char, kFactoryConfigurationCapacity>& json,
-                                                        std::uint32_t& jsonBytes) noexcept;
+                                                        uint32_t& jsonBytes) noexcept;
 
 class SettingsStore final
 {

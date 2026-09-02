@@ -5,9 +5,10 @@ description: Implement or revise RedXe native plugin interfaces, factory exports
 
 # RedXe plugin development
 
-Read `Specs/Plugins/Plugins_API.md` before changing shipped plugin behavior. Read the active plugin architecture RFC
-only when work concerns unresolved future services, such as network data providers,
-host-owned primitive batching, settings UI, or interactive WebView policy. Read
+Read `Specs/Plugins/Plugins_API.md` before changing shipped plugin behavior. Read
+[`Specs/Plans/WIP/PluginDashboardRemainingCloseout_2026-09-02.md`](../../Specs/Plans/WIP/PluginDashboardRemainingCloseout_2026-09-02.md)
+only when work concerns remaining closeout: network or push data providers, host-owned primitive batching, settings
+migration beyond version 4 reset, interactive WebView policy, or System Data follow-on hosts. Read
 `Specs/Core/Core_PerformanceAndResources.md` for every plugin ABI or hot path change. Apply `spec-workflow` when
 behavior or ABI changes.
 

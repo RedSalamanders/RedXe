@@ -75,6 +75,18 @@ if ($Configuration -eq 'Release' -and $Platform -eq 'x64') {
     if ($systemDataBenchmark.ExitCode -ne 0) {
         throw "System-data row-cap measurement failed with exit code $($systemDataBenchmark.ExitCode)."
     }
+    Write-Host 'Running Release system-data per-domain measurement...' -ForegroundColor Cyan
+    $systemDataDomains = Start-Process -FilePath $systemDataTests -ArgumentList '--domains' -Wait -PassThru
+    if ($systemDataDomains.ExitCode -ne 0) {
+        throw "System-data per-domain measurement failed with exit code $($systemDataDomains.ExitCode)."
+    }
+}
+
+$systemDataPhase0 = Join-Path $repoRoot ".build\$Platform\$Configuration\SystemDataPhase0.exe"
+Write-Host 'Running system-data Phase 0 acquisition spikes...' -ForegroundColor Cyan
+$systemDataPhase0Process = Start-Process -FilePath $systemDataPhase0 -Wait -PassThru
+if ($systemDataPhase0Process.ExitCode -ne 0) {
+    throw "System-data Phase 0 spikes failed with exit code $($systemDataPhase0Process.ExitCode)."
 }
 
 $studioClockTests = Join-Path $repoRoot ".build\$Platform\$Configuration\StudioClockTests.exe"

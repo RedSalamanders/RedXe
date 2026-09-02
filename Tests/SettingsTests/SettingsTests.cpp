@@ -87,10 +87,10 @@ constexpr std::string_view kRepresentative = R"json(
 
 [[nodiscard]] bool HasWidgetExample(const AppSettings& settings, std::string_view pluginId) noexcept
 {
-    for (std::uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
+    for (uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
     {
         const DashboardPageSettings& page = settings.dashboard.pages[pageIndex];
-        for (std::uint32_t widgetIndex = 0; widgetIndex < page.widgetCount; ++widgetIndex)
+        for (uint32_t widgetIndex = 0; widgetIndex < page.widgetCount; ++widgetIndex)
         {
             if (SettingsIdEquals(page.widgets[widgetIndex].pluginId.View(), pluginId))
                 return true;
@@ -117,8 +117,8 @@ constexpr std::string_view kRepresentative = R"json(
     yyjson_val* widgetDefinition =
         yyjson_is_obj(definitions) ? yyjson_obj_get(definitions, "widgetDefinition") : nullptr;
     yyjson_val* alternatives = yyjson_is_obj(widgetDefinition) ? yyjson_obj_get(widgetDefinition, "oneOf") : nullptr;
-    const std::size_t count = yyjson_is_arr(alternatives) ? yyjson_arr_size(alternatives) : 0;
-    for (std::size_t index = 0; index < count; ++index)
+    const size_t count = yyjson_is_arr(alternatives) ? yyjson_arr_size(alternatives) : 0;
+    for (size_t index = 0; index < count; ++index)
     {
         yyjson_val* alternative = yyjson_arr_get(alternatives, index);
         yyjson_val* properties = yyjson_is_obj(alternative) ? yyjson_obj_get(alternative, "properties") : nullptr;
@@ -128,8 +128,8 @@ constexpr std::string_view kRepresentative = R"json(
             return true;
 
         yyjson_val* values = yyjson_is_obj(plugin) ? yyjson_obj_get(plugin, "enum") : nullptr;
-        const std::size_t valueCount = yyjson_is_arr(values) ? yyjson_arr_size(values) : 0;
-        for (std::size_t valueIndex = 0; valueIndex < valueCount; ++valueIndex)
+        const size_t valueCount = yyjson_is_arr(values) ? yyjson_arr_size(values) : 0;
+        for (size_t valueIndex = 0; valueIndex < valueCount; ++valueIndex)
         {
             yyjson_val* value = yyjson_arr_get(values, valueIndex);
             if (yyjson_is_str(value) && pluginId == std::string_view{yyjson_get_str(value), yyjson_get_len(value)})
@@ -295,7 +295,7 @@ constexpr std::string_view kRepresentative = R"json(
     try
     {
         std::string tooMany = R"json({"version":{"major":4},"pages":[)json";
-        for (std::size_t index = 0; index <= kMaximumDashboardPages; ++index)
+        for (size_t index = 0; index <= kMaximumDashboardPages; ++index)
         {
             if (index != 0)
                 tooMany += ',';
@@ -305,11 +305,11 @@ constexpr std::string_view kRepresentative = R"json(
         if (FAILED(ExpectRejected(tooMany)))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
-        const auto widgetDocument = [](std::size_t count)
+        const auto widgetDocument = [](size_t count)
         {
             std::string document =
                 R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[)json";
-            for (std::size_t index = 0; index < count; ++index)
+            for (size_t index = 0; index < count; ++index)
             {
                 if (index != 0)
                     document += ',';
@@ -326,7 +326,7 @@ constexpr std::string_view kRepresentative = R"json(
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
         std::string tooManyDeclarations = R"json({"version":{"major":4},"declare":{)json";
-        for (std::size_t index = 0; index <= kMaximumSettingsDeclarations; ++index)
+        for (size_t index = 0; index <= kMaximumSettingsDeclarations; ++index)
         {
             if (index != 0)
                 tooManyDeclarations += ',';
@@ -336,21 +336,21 @@ constexpr std::string_view kRepresentative = R"json(
         if (FAILED(ExpectRejected(tooManyDeclarations)))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
-        const auto namedPage = [](std::size_t codePoints)
+        const auto namedPage = [](size_t codePoints)
         {
             std::string name;
             name.reserve(codePoints * 2U);
-            for (std::size_t index = 0; index < codePoints; ++index)
+            for (size_t index = 0; index < codePoints; ++index)
                 name += "\xC3\xA9";
             return std::string{"{\"version\":{\"major\":4},\"pages\":[{\"name\":\""} + name + "\"}]}";
         };
         if (FAILED(ParseAppSettingsJson(namedPage(128), parsed)) || FAILED(ExpectRejected(namedPage(129))))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
-        const auto nestedLayout = [](std::size_t levels)
+        const auto nestedLayout = [](size_t levels)
         {
             std::string area = R"json({"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}})json";
-            for (std::size_t level = 1; level < levels; ++level)
+            for (size_t level = 1; level < levels; ++level)
             {
                 area = R"json({"sizeRatio":1,"arrangeAlong":"long-side","areas":[)json" + area + "]}";
             }
@@ -537,7 +537,7 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             store.InitialNotice().find(L".invalid-") == std::wstring::npos)
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
-        std::size_t backupCount = 0;
+        size_t backupCount = 0;
         for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(settingsDirectory))
         {
             const std::wstring name = entry.path().filename().wstring();

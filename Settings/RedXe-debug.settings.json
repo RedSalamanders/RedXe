@@ -37,22 +37,28 @@
         "areas": [
           {
             "sizeRatio": 2,
-            "widget": {
-              "use": "Matrix",
-              "override": { "settings": { "seed": 2000, "densityPercent": 80 } }
-            }
-          },
-          {
-            "sizeRatio": 1,
             "arrangeAlong": "short-side",
             "areas": [
               { "sizeRatio": 1, "widget": "Triangle" },
               { "sizeRatio": 1, "widget": { "plugin": "builtin.gdi-orbit" } }
             ]
           },
-          { "sizeRatio": 1, "widget": "StudioClock" },
-          { "sizeRatio": 1, "widget": "DeskClock" },
-          { "sizeRatio": 2, "widget": "Processes" }
+          {
+            "sizeRatio": 5,
+            "widget": {
+              "use": "Matrix",
+              "override": { "settings": { "seed": 2000, "densityPercent": 80 } }
+            }
+          },
+          {
+            "sizeRatio": 2,
+            "arrangeAlong": "short-side",
+            "areas": [
+              { "sizeRatio": 1, "widget": "StudioClock" },
+              { "sizeRatio": 1, "widget": "DeskClock" }
+            ]
+          },
+          { "sizeRatio": 5, "widget": "Processes" }
         ]
       }
     }

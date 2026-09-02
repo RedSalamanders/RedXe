@@ -33,11 +33,11 @@ constexpr std::string_view kDefaultConfiguration =
     R"json({"flipDurationMilliseconds":420,"backgroundColor":"#000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json";
 constexpr HRESULT kTestFailure = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
-std::atomic<std::uint64_t> gRenderAllocations{0};
+std::atomic<uint64_t> gRenderAllocations{0};
 std::atomic<DWORD> gRenderThread{0};
 
 #if defined(_DEBUG)
-int __cdecl CountRenderAllocation(int allocationType, void*, std::size_t, int, long, const unsigned char*, int)
+int __cdecl CountRenderAllocation(int allocationType, void*, size_t, int, long, const unsigned char*, int)
 {
     if (allocationType != _HOOK_FREE && GetCurrentThreadId() == gRenderThread.load(std::memory_order_relaxed))
     {
@@ -65,8 +65,8 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
         return E_UNEXPECTED;
     }
     ++separator;
-    const std::size_t prefix = static_cast<std::size_t>(separator - path.data());
-    const std::size_t suffix = std::wcslen(relativePath);
+    const size_t prefix = static_cast<size_t>(separator - path.data());
+    const size_t suffix = std::wcslen(relativePath);
     if (prefix + suffix + 1 > path.size())
     {
         return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
@@ -77,8 +77,8 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
 
 struct RenderTarget final
 {
-    std::uint32_t width = 0;
-    std::uint32_t height = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
     D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
     wil::com_ptr_nothrow<ID3D11Device> device;
     wil::com_ptr_nothrow<ID3D11DeviceContext> context;
@@ -87,7 +87,7 @@ struct RenderTarget final
     wil::com_ptr_nothrow<ID3D11Texture2D> staging;
 };
 
-[[nodiscard]] HRESULT CreateRenderTarget(std::uint32_t width, std::uint32_t height, RenderTarget& target) noexcept
+[[nodiscard]] HRESULT CreateRenderTarget(uint32_t width, uint32_t height, RenderTarget& target) noexcept
 {
     constexpr std::array featureLevels{D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
     RenderTarget created{};
@@ -134,7 +134,7 @@ struct RenderTarget final
 
 [[nodiscard]] HRESULT RenderFrame(IRedXeGpuWidget& widget, RenderTarget& target, float elapsedSeconds,
                                   float deltaSeconds, std::vector<std::uint8_t>* pixels,
-                                  std::uint32_t dpi = USER_DEFAULT_SCREEN_DPI) noexcept
+                                  uint32_t dpi = USER_DEFAULT_SCREEN_DPI) noexcept
 {
     try
     {
@@ -163,13 +163,13 @@ struct RenderTarget final
             return result;
         }
         const auto unmap = wil::scope_exit([&]() noexcept { target.context->Unmap(target.staging.get(), 0); });
-        const std::size_t rowBytes = static_cast<std::size_t>(target.width) * 4U;
+        const size_t rowBytes = static_cast<size_t>(target.width) * 4U;
         pixels->resize(rowBytes * target.height);
-        for (std::uint32_t row = 0; row < target.height; ++row)
+        for (uint32_t row = 0; row < target.height; ++row)
         {
-            std::memcpy(pixels->data() + static_cast<std::size_t>(row) * rowBytes,
+            std::memcpy(pixels->data() + static_cast<size_t>(row) * rowBytes,
                         static_cast<const std::uint8_t*>(mapped.pData) +
-                            static_cast<std::size_t>(row) * mapped.RowPitch,
+                            static_cast<size_t>(row) * mapped.RowPitch,
                         rowBytes);
         }
         return S_OK;
@@ -190,11 +190,11 @@ struct RenderTarget final
            value <= static_cast<std::uint8_t>(target < 255U - tolerance ? target + tolerance : 255U);
 }
 
-[[nodiscard]] std::size_t CountColor(const std::vector<std::uint8_t>& pixels, std::array<std::uint8_t, 3> color,
+[[nodiscard]] size_t CountColor(const std::vector<std::uint8_t>& pixels, std::array<std::uint8_t, 3> color,
                                      std::uint8_t tolerance) noexcept
 {
-    std::size_t count = 0;
-    for (std::size_t offset = 0; offset + 3 < pixels.size(); offset += 4)
+    size_t count = 0;
+    for (size_t offset = 0; offset + 3 < pixels.size(); offset += 4)
     {
         if (Near(pixels[offset], color[0], tolerance) && Near(pixels[offset + 1], color[1], tolerance) &&
             Near(pixels[offset + 2], color[2], tolerance) && pixels[offset + 3] == 255)
@@ -207,29 +207,29 @@ struct RenderTarget final
 
 struct PixelBounds final
 {
-    std::uint32_t minimumX = 0;
-    std::uint32_t minimumY = 0;
-    std::uint32_t maximumX = 0;
-    std::uint32_t maximumY = 0;
-    std::size_t count = 0;
+    uint32_t minimumX = 0;
+    uint32_t minimumY = 0;
+    uint32_t maximumX = 0;
+    uint32_t maximumY = 0;
+    size_t count = 0;
 };
 
-[[nodiscard]] PixelBounds FindColorBounds(const std::vector<std::uint8_t>& pixels, std::uint32_t imageWidth,
+[[nodiscard]] PixelBounds FindColorBounds(const std::vector<std::uint8_t>& pixels, uint32_t imageWidth,
                                           std::array<std::uint8_t, 3> color, std::uint8_t tolerance,
-                                          std::uint32_t minimumY = 0, std::uint32_t maximumY = 0xFFFFFFFFU) noexcept
+                                          uint32_t minimumY = 0, uint32_t maximumY = 0xFFFFFFFFU) noexcept
 {
     PixelBounds bounds{};
-    const std::uint32_t imageHeight =
-        imageWidth == 0 ? 0 : static_cast<std::uint32_t>(pixels.size() / (static_cast<std::size_t>(imageWidth) * 4U));
+    const uint32_t imageHeight =
+        imageWidth == 0 ? 0 : static_cast<uint32_t>(pixels.size() / (static_cast<size_t>(imageWidth) * 4U));
     bounds.minimumX = imageWidth;
     bounds.minimumY = imageHeight;
-    const std::uint32_t firstY = std::min(minimumY, imageHeight);
-    const std::uint32_t lastY = std::min(maximumY, imageHeight);
-    for (std::uint32_t y = firstY; y < lastY; ++y)
+    const uint32_t firstY = std::min(minimumY, imageHeight);
+    const uint32_t lastY = std::min(maximumY, imageHeight);
+    for (uint32_t y = firstY; y < lastY; ++y)
     {
-        for (std::uint32_t x = 0; x < imageWidth; ++x)
+        for (uint32_t x = 0; x < imageWidth; ++x)
         {
-            const std::size_t offset = (static_cast<std::size_t>(y) * imageWidth + x) * 4U;
+            const size_t offset = (static_cast<size_t>(y) * imageWidth + x) * 4U;
             if (!Near(pixels[offset], color[0], tolerance) || !Near(pixels[offset + 1], color[1], tolerance) ||
                 !Near(pixels[offset + 2], color[2], tolerance) || pixels[offset + 3] != 255)
             {
@@ -256,19 +256,19 @@ struct PixelBounds final
 }
 
 [[nodiscard]] bool RectangleEquals(const std::vector<std::uint8_t>& left, const std::vector<std::uint8_t>& right,
-                                   std::uint32_t imageWidth, std::uint32_t x, std::uint32_t y, std::uint32_t width,
-                                   std::uint32_t height) noexcept
+                                   uint32_t imageWidth, uint32_t x, uint32_t y, uint32_t width,
+                                   uint32_t height) noexcept
 {
     if (left.size() != right.size() || x + width > imageWidth)
     {
         return false;
     }
-    const std::size_t rowBytes = static_cast<std::size_t>(imageWidth) * 4U;
-    for (std::uint32_t row = y; row < y + height; ++row)
+    const size_t rowBytes = static_cast<size_t>(imageWidth) * 4U;
+    for (uint32_t row = y; row < y + height; ++row)
     {
-        const std::size_t offset = static_cast<std::size_t>(row) * rowBytes + static_cast<std::size_t>(x) * 4U;
-        if (offset + static_cast<std::size_t>(width) * 4U > left.size() ||
-            std::memcmp(left.data() + offset, right.data() + offset, static_cast<std::size_t>(width) * 4U) != 0)
+        const size_t offset = static_cast<size_t>(row) * rowBytes + static_cast<size_t>(x) * 4U;
+        if (offset + static_cast<size_t>(width) * 4U > left.size() ||
+            std::memcmp(left.data() + offset, right.data() + offset, static_cast<size_t>(width) * 4U) != 0)
         {
             return false;
         }
@@ -278,10 +278,10 @@ struct PixelBounds final
 
 [[nodiscard]] HRESULT ValidateComposition(const std::vector<std::uint8_t>& pixels) noexcept
 {
-    const std::size_t background = CountColor(pixels, {0, 0, 0}, 0);
-    const std::size_t cards = CountColor(pixels, {255, 59, 67}, 2);
-    const std::size_t digits = CountColor(pixels, {255, 255, 255}, 3);
-    const std::size_t date = CountColor(pixels, {216, 216, 216}, 5);
+    const size_t background = CountColor(pixels, {0, 0, 0}, 0);
+    const size_t cards = CountColor(pixels, {255, 59, 67}, 2);
+    const size_t digits = CountColor(pixels, {255, 255, 255}, 3);
+    const size_t date = CountColor(pixels, {216, 216, 216}, 5);
     if (!(background > 10'000 && cards > 20'000 && digits > 1'000 && date > 25))
     {
         std::wprintf(L"Desk Clock pixel counts: background=%zu cards=%zu digits=%zu date=%zu\n", background, cards,
@@ -292,11 +292,11 @@ struct PixelBounds final
 
 [[nodiscard]] HRESULT ValidateReferenceComposition(const std::vector<std::uint8_t>& pixels) noexcept
 {
-    constexpr std::uint32_t width = 450;
+    constexpr uint32_t width = 450;
     const PixelBounds cards = FindColorBounds(pixels, width, {255, 59, 67}, 2);
     const PixelBounds date = FindColorBounds(pixels, width, {216, 216, 216}, 5);
-    const std::uint32_t dateWidth = date.count == 0 ? 0 : date.maximumX - date.minimumX + 1U;
-    const std::uint32_t dateHeight = date.count == 0 ? 0 : date.maximumY - date.minimumY + 1U;
+    const uint32_t dateWidth = date.count == 0 ? 0 : date.maximumX - date.minimumX + 1U;
+    const uint32_t dateHeight = date.count == 0 ? 0 : date.maximumY - date.minimumY + 1U;
     const bool valid = cards.count > 20'000 && cards.minimumX >= 18 && cards.minimumX <= 20 && cards.maximumX >= 429 &&
                        cards.maximumX <= 431 && cards.minimumY >= 28 && cards.minimumY <= 30 && cards.maximumY >= 122 &&
                        cards.maximumY <= 124 && date.count > 50 && dateWidth >= 54 && dateWidth <= 64 &&
@@ -311,7 +311,7 @@ struct PixelBounds final
     return valid ? S_OK : kTestFailure;
 }
 
-[[nodiscard]] HRESULT WriteSnapshot(const std::vector<std::uint8_t>& pixels, std::uint32_t width, std::uint32_t height,
+[[nodiscard]] HRESULT WriteSnapshot(const std::vector<std::uint8_t>& pixels, uint32_t width, uint32_t height,
                                     const wchar_t* fileName) noexcept
 {
     try
@@ -328,7 +328,7 @@ struct PixelBounds final
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
-        const std::uint32_t pixelBytes = width * height * 4U;
+        const uint32_t pixelBytes = width * height * 4U;
         BITMAPFILEHEADER fileHeader{};
         fileHeader.bfType = 0x4D42;
         fileHeader.bfOffBits = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
@@ -349,13 +349,13 @@ struct PixelBounds final
             return HRESULT_FROM_WIN32(GetLastError());
         }
         std::vector<std::uint8_t> bgra(pixelBytes);
-        for (std::uint32_t y = 0; y < height; ++y)
+        for (uint32_t y = 0; y < height; ++y)
         {
-            const std::uint32_t sourceY = height - 1U - y;
-            for (std::uint32_t x = 0; x < width; ++x)
+            const uint32_t sourceY = height - 1U - y;
+            for (uint32_t x = 0; x < width; ++x)
             {
-                const std::size_t source = (static_cast<std::size_t>(sourceY) * width + x) * 4U;
-                const std::size_t destination = (static_cast<std::size_t>(y) * width + x) * 4U;
+                const size_t source = (static_cast<size_t>(sourceY) * width + x) * 4U;
+                const size_t destination = (static_cast<size_t>(y) * width + x) * 4U;
                 bgra[destination] = pixels[source + 2];
                 bgra[destination + 1] = pixels[source + 1];
                 bgra[destination + 2] = pixels[source];
@@ -389,7 +389,7 @@ struct PixelBounds final
         RedXeFactoryOptions options{};
         options.sizeBytes = sizeof(options);
         options.configurationJsonUtf8 = envelope.data();
-        options.configurationBytes = static_cast<std::uint32_t>(envelope.size());
+        options.configurationBytes = static_cast<uint32_t>(envelope.size());
         void* object = nullptr;
         const HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kPluginId, &object);
         if (FAILED(result) || !object)
@@ -417,7 +417,7 @@ struct PixelBounds final
         return kTestFailure;
     }
     const RedXePluginMetadata* metadata = nullptr;
-    std::uint32_t count = 0;
+    uint32_t count = 0;
     HRESULT result = enumerate(&metadata, &count);
     if (FAILED(result) || !metadata || count != 1 || metadata[0].sizeBytes != sizeof(RedXePluginMetadata) ||
         !RedXeAsciiEqualsIgnoreCase(metadata[0].id, kPluginId) ||
@@ -457,7 +457,7 @@ struct PixelBounds final
     static_cast<IRedXeWidgetProvider*>(object)->Release();
 
     options.configurationJsonUtf8 = kDefaultConfiguration.data();
-    options.configurationBytes = static_cast<std::uint32_t>(kDefaultConfiguration.size());
+    options.configurationBytes = static_cast<uint32_t>(kDefaultConfiguration.size());
     object = reinterpret_cast<void*>(1);
     if (create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kPluginId, &object) !=
             HRESULT_FROM_WIN32(ERROR_INVALID_DATA) ||
@@ -487,7 +487,7 @@ struct PixelBounds final
     constexpr std::string_view invalidPluginConfiguration =
         R"json({"plugin":{"bad":1},"instance":{"flipDurationMilliseconds":420,"backgroundColor":"#000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"}})json";
     options.configurationJsonUtf8 = invalidPluginConfiguration.data();
-    options.configurationBytes = static_cast<std::uint32_t>(invalidPluginConfiguration.size());
+    options.configurationBytes = static_cast<uint32_t>(invalidPluginConfiguration.size());
     object = reinterpret_cast<void*>(1);
     if (create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kPluginId, &object) !=
             HRESULT_FROM_WIN32(ERROR_INVALID_DATA) ||
@@ -524,7 +524,7 @@ struct PixelBounds final
 [[nodiscard]] HRESULT ValidateAllocationFreeRender(IRedXeGpuWidget& widget, RenderTarget& target) noexcept
 {
 #if defined(_DEBUG)
-    for (std::uint32_t index = 0; index < 128; ++index)
+    for (uint32_t index = 0; index < 128; ++index)
     {
         const HRESULT result = RenderFrame(widget, target, 1.0f, 0.0f, nullptr);
         if (FAILED(result))
@@ -538,7 +538,7 @@ struct PixelBounds final
     gRenderThread.store(GetCurrentThreadId(), std::memory_order_relaxed);
     const _CRT_ALLOC_HOOK previous = _CrtSetAllocHook(CountRenderAllocation);
     HRESULT result = S_OK;
-    for (std::uint32_t index = 0; index < 120; ++index)
+    for (uint32_t index = 0; index < 120; ++index)
     {
         result = RenderFrame(widget, target, 1.0f, 0.0f, nullptr);
         if (FAILED(result))
@@ -566,9 +566,9 @@ struct PixelBounds final
 }
 
 [[nodiscard]] HRESULT WaitForQuery(ID3D11DeviceContext& context, ID3D11Query& query, void* data,
-                                   std::uint32_t dataBytes) noexcept
+                                   uint32_t dataBytes) noexcept
 {
-    for (std::uint32_t attempt = 0; attempt < 100'000; ++attempt)
+    for (uint32_t attempt = 0; attempt < 100'000; ++attempt)
     {
         const HRESULT result = context.GetData(&query, data, dataBytes, 0);
         if (result == S_OK)
@@ -594,7 +594,7 @@ struct PixelBounds final
                                                const PROCESS_MEMORY_COUNTERS_EX& warmedMemory) noexcept
 {
 #if defined(NDEBUG)
-    constexpr std::uint32_t sampleFrames = 240;
+    constexpr uint32_t sampleFrames = 240;
     DeskClockTestDiagnostics before{sizeof(DeskClockTestDiagnostics)};
     DeskClockTestDiagnostics after{sizeof(DeskClockTestDiagnostics)};
     if (FAILED(getDiagnostics(&before)))
@@ -613,7 +613,7 @@ struct PixelBounds final
     const D3D11_VIEWPORT benchmarkViewport{
         0.0f, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f,
     };
-    for (std::uint32_t index = 0; index < sampleFrames; ++index)
+    for (uint32_t index = 0; index < sampleFrames; ++index)
     {
         target.context->ClearState();
         ID3D11RenderTargetView* views[] = {target.view.get()};
@@ -626,7 +626,7 @@ struct PixelBounds final
         return HRESULT_FROM_WIN32(GetLastError());
     }
     HRESULT result = S_OK;
-    for (std::uint32_t index = 0; index < sampleFrames; ++index)
+    for (uint32_t index = 0; index < sampleFrames; ++index)
     {
         result = RenderFrame(widget, target, 10.0f, 0.0f, nullptr);
         if (FAILED(result))
@@ -645,7 +645,7 @@ struct PixelBounds final
                                         static_cast<double>(frequency.QuadPart);
 
     const DeskClockTestTime animationTime{sizeof(DeskClockTestTime), 2026, 11, 0, 1, 12, 34, 57, 0};
-    std::uint32_t animationDelay = 0;
+    uint32_t animationDelay = 0;
     result = setTime(&animationTime);
     if (SUCCEEDED(result))
     {
@@ -665,8 +665,8 @@ struct PixelBounds final
     {
         return kTestFailure;
     }
-    constexpr std::uint32_t animationFrames = 25;
-    for (std::uint32_t index = 0; index < animationFrames; ++index)
+    constexpr uint32_t animationFrames = 25;
+    for (uint32_t index = 0; index < animationFrames; ++index)
     {
         result = RenderFrame(widget, target, 10.0f + static_cast<float>(index) * 0.016f, 0.016f, nullptr);
         if (FAILED(result))
@@ -708,8 +708,8 @@ struct PixelBounds final
         target.context->Flush();
     }
     D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjointData{};
-    std::uint64_t gpuStartTick = 0;
-    std::uint64_t gpuEndTick = 0;
+    uint64_t gpuStartTick = 0;
+    uint64_t gpuEndTick = 0;
     if (SUCCEEDED(result))
     {
         result = WaitForQuery(*target.context, *disjoint, &disjointData, sizeof(disjointData));
@@ -800,7 +800,7 @@ struct PixelBounds final
     {
         return kTestFailure;
     }
-    std::uint32_t delay = 99;
+    uint32_t delay = 99;
     if (scheduled->GetNextFrameDelayMilliseconds(&delay) != S_OK || delay != 1)
     {
         return kTestFailure;
@@ -835,7 +835,7 @@ struct PixelBounds final
         return kTestFailure;
     }
     RedXeGpuDeviceContext invalidDevice = deviceContext;
-    invalidDevice.sizeBytes = sizeof(std::uint32_t);
+    invalidDevice.sizeBytes = sizeof(uint32_t);
     if (gpu->OnDeviceCreated(&invalidDevice) != E_INVALIDARG)
     {
         return kTestFailure;
@@ -855,7 +855,7 @@ struct PixelBounds final
         return kTestFailure;
     }
     RedXeGpuFrameContext invalidFrame = zeroFrame;
-    invalidFrame.sizeBytes = sizeof(std::uint32_t);
+    invalidFrame.sizeBytes = sizeof(uint32_t);
     if (gpu->Render(&invalidFrame) != E_INVALIDARG)
     {
         return kTestFailure;
@@ -913,7 +913,7 @@ struct PixelBounds final
     std::array<std::vector<std::uint8_t>, 5> transition;
     constexpr std::array<float, 5> deltas{0.0f, 0.105f, 0.105f, 0.105f, 0.106f};
     float elapsed = 1.0f;
-    for (std::size_t index = 0; index < transition.size(); ++index)
+    for (size_t index = 0; index < transition.size(); ++index)
     {
         elapsed += deltas[index];
         result = RenderFrame(*gpu, target, elapsed, deltas[index], &transition[index]);
@@ -940,7 +940,7 @@ struct PixelBounds final
         L"DeskClockTransition000.bmp", L"DeskClockTransition025.bmp", L"DeskClockTransition050.bmp",
         L"DeskClockTransition075.bmp", L"DeskClockTransition100.bmp",
     };
-    for (std::size_t index = 0; index < transition.size(); ++index)
+    for (size_t index = 0; index < transition.size(); ++index)
     {
         result = WriteSnapshot(transition[index], target.width, target.height, transitionNames[index]);
         if (FAILED(result))
@@ -991,10 +991,10 @@ struct PixelBounds final
     }
     const PixelBounds doubleDigitDate = FindColorBounds(first, target.width, {216, 216, 216}, 5, 200, 280);
     const PixelBounds singleDigitDate = FindColorBounds(midnightFinal, target.width, {216, 216, 216}, 5, 200, 280);
-    const std::uint32_t doubleDigitWidth = doubleDigitDate.maximumX - doubleDigitDate.minimumX + 1U;
-    const std::uint32_t singleDigitWidth = singleDigitDate.maximumX - singleDigitDate.minimumX + 1U;
-    const std::uint32_t doubleDigitCenter = doubleDigitDate.minimumX + doubleDigitDate.maximumX;
-    const std::uint32_t singleDigitCenter = singleDigitDate.minimumX + singleDigitDate.maximumX;
+    const uint32_t doubleDigitWidth = doubleDigitDate.maximumX - doubleDigitDate.minimumX + 1U;
+    const uint32_t singleDigitWidth = singleDigitDate.maximumX - singleDigitDate.minimumX + 1U;
+    const uint32_t doubleDigitCenter = doubleDigitDate.minimumX + doubleDigitDate.maximumX;
+    const uint32_t singleDigitCenter = singleDigitDate.minimumX + singleDigitDate.maximumX;
     if (doubleDigitDate.count == 0 || singleDigitDate.count == 0 || doubleDigitWidth < singleDigitWidth + 5U ||
         doubleDigitCenter < 796U || doubleDigitCenter > 802U || singleDigitCenter < 796U || singleDigitCenter > 802U)
     {
@@ -1010,7 +1010,7 @@ struct PixelBounds final
         {
             return animateResult;
         }
-        std::uint32_t nextDelay = 0;
+        uint32_t nextDelay = 0;
         animateResult = scheduled->GetNextFrameDelayMilliseconds(&nextDelay);
         if (SUCCEEDED(animateResult) && nextDelay != 1)
         {
@@ -1108,7 +1108,7 @@ struct PixelBounds final
     {
         result = RenderFrame(*gpu, benchmarkTarget, 9.0f, 3.0f, nullptr);
     }
-    for (std::uint32_t warmup = 0; SUCCEEDED(result) && warmup < 120; ++warmup)
+    for (uint32_t warmup = 0; SUCCEEDED(result) && warmup < 120; ++warmup)
     {
         result = RenderFrame(*gpu, benchmarkTarget, 9.0f, 0.0f, nullptr);
     }
@@ -1117,7 +1117,7 @@ struct PixelBounds final
         return result;
     }
     const DeskClockTestTime benchmarkAnimationTime{sizeof(DeskClockTestTime), 2026, 11, 0, 1, 12, 34, 58, 0};
-    std::uint32_t benchmarkAnimationDelay = 0;
+    uint32_t benchmarkAnimationDelay = 0;
     result = setTime(&benchmarkAnimationTime);
     if (SUCCEEDED(result))
     {
@@ -1131,7 +1131,7 @@ struct PixelBounds final
     {
         result = RenderFrame(*gpu, benchmarkTarget, 9.0f, 0.0f, nullptr);
     }
-    for (std::uint32_t warmup = 0; SUCCEEDED(result) && warmup < 27; ++warmup)
+    for (uint32_t warmup = 0; SUCCEEDED(result) && warmup < 27; ++warmup)
     {
         result = RenderFrame(*gpu, benchmarkTarget, 9.0f + static_cast<float>(warmup) * 0.016f, 0.016f, nullptr);
     }
@@ -1179,7 +1179,7 @@ struct PixelBounds final
     {
         return result;
     }
-    constexpr std::array<std::array<std::uint32_t, 3>, 3> geometryCases{
+    constexpr std::array<std::array<uint32_t, 3>, 3> geometryCases{
         {{300, 800, 144}, {320, 120, 192}, {1024, 256, 96}}};
     for (const auto& geometry : geometryCases)
     {

@@ -113,10 +113,10 @@ The proposed first version appends an optional configuration payload to the exis
 ```cpp
 struct RedXeFactoryOptions final
 {
-    std::uint32_t sizeBytes;
-    std::uint32_t debugLevel;
+    uint32_t sizeBytes;
+    uint32_t debugLevel;
     const char* configurationJsonUtf8;
-    std::uint32_t configurationBytes;
+    uint32_t configurationBytes;
 };
 ```
 

@@ -66,8 +66,8 @@ struct TriangleConstants final
     float sine;
     float scaleX;
     float scaleY;
-    std::uint32_t colorOffset;
-    std::uint32_t padding[3];
+    uint32_t colorOffset;
+    uint32_t padding[3];
 };
 
 static_assert(sizeof(TriangleConstants) == 32);
@@ -211,12 +211,12 @@ class TriangleDeviceResources final
     wil::com_ptr_nothrow<ID3D11Buffer> _constantBuffer;
 };
 
-[[nodiscard]] std::uint32_t HashInstanceId(const char* instanceId) noexcept
+[[nodiscard]] uint32_t HashInstanceId(const char* instanceId) noexcept
 {
-    std::uint32_t hash = 2166136261U;
+    uint32_t hash = 2166136261U;
     for (const char* character = instanceId; *character != '\0'; ++character)
     {
-        hash ^= static_cast<std::uint32_t>(*character);
+        hash ^= static_cast<uint32_t>(*character);
         hash *= 16777619U;
     }
     return hash;
@@ -226,7 +226,7 @@ class RotatingTriangleWidget final : public IRedXeWidget, public IRedXeGpuWidget
 {
   public:
     RotatingTriangleWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner,
-                           TriangleDeviceResources& resources, std::uint32_t instanceHash) noexcept
+                           TriangleDeviceResources& resources, uint32_t instanceHash) noexcept
         : _providerOwner(std::move(providerOwner)), _resources(&resources),
           _speed((instanceHash & 1U) == 0U ? 0.55f + static_cast<float>((instanceHash >> 1U) % 5U) * 0.11f
                                            : -0.55f - static_cast<float>((instanceHash >> 1U) % 5U) * 0.11f),
@@ -333,7 +333,7 @@ class RotatingTriangleWidget final : public IRedXeWidget, public IRedXeGpuWidget
     TriangleDeviceResources* _resources;
     float _speed;
     float _phase;
-    std::uint32_t _colorOffset;
+    uint32_t _colorOffset;
 };
 
 class RotatingTriangleProvider final : public IRedXeWidgetProvider
@@ -371,7 +371,7 @@ class RotatingTriangleProvider final : public IRedXeWidgetProvider
     }
 
     HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             std::uint32_t* count) noexcept override
+                                             uint32_t* count) noexcept override
     {
         if (descriptors)
         {
@@ -386,7 +386,7 @@ class RotatingTriangleProvider final : public IRedXeWidgetProvider
             return E_POINTER;
         }
         *descriptors = kWidgetTypes.data();
-        *count = static_cast<std::uint32_t>(kWidgetTypes.size());
+        *count = static_cast<uint32_t>(kWidgetTypes.size());
         return S_OK;
     }
 
@@ -460,13 +460,13 @@ constexpr std::array kFactoryEntries{
 extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
                                          const char* pluginId, void** result) noexcept
 {
-    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<std::uint32_t>(kFactoryEntries.size()),
+    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()),
                                          interfaceId, options, host, pluginId, result);
 }
 
-extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, std::uint32_t* count) noexcept
+extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
 {
-    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<std::uint32_t>(kMetadata.size()), metadata,
+    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata,
                                          count);
 }
 

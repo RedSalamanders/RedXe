@@ -64,7 +64,7 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
     {
         return false;
     }
-    for (std::size_t index = 1; index < 7; ++index)
+    for (size_t index = 1; index < 7; ++index)
     {
         if (!std::isxdigit(static_cast<unsigned char>(text[index])))
         {
@@ -128,7 +128,7 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
         {
             return false;
         }
-        const std::uint64_t number = yyjson_get_uint(value);
+        const uint64_t number = yyjson_get_uint(value);
         yyjson_val* minimum = yyjson_obj_get(schema, "minimum");
         yyjson_val* maximum = yyjson_obj_get(schema, "maximum");
         return (!minimum || (yyjson_is_uint(minimum) && number >= yyjson_get_uint(minimum))) &&
@@ -149,8 +149,8 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
             }
             bool matched = false;
             const std::string_view text{yyjson_get_str(value), yyjson_get_len(value)};
-            const std::size_t count = yyjson_arr_size(allowedValues);
-            for (std::size_t index = 0; index < count; ++index)
+            const size_t count = yyjson_arr_size(allowedValues);
+            for (size_t index = 0; index < count; ++index)
             {
                 yyjson_val* candidate = yyjson_arr_get(allowedValues, index);
                 matched = matched || (yyjson_is_str(candidate) &&
@@ -219,7 +219,7 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
 {
     selectedType = nullptr;
     const RedXeWidgetTypeDescriptor* types = nullptr;
-    std::uint32_t count = 0;
+    uint32_t count = 0;
     HRESULT result = provider.GetWidgetTypes(&types, &count);
     if (FAILED(result))
     {
@@ -230,7 +230,7 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    for (std::uint32_t index = 0; index < count; ++index)
+    for (uint32_t index = 0; index < count; ++index)
     {
         const RedXeWidgetTypeDescriptor& candidate = types[index];
         if (candidate.sizeBytes != sizeof(RedXeWidgetTypeDescriptor) || !RedXeIsValidMachineId(candidate.typeId) ||
@@ -239,7 +239,7 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        for (std::uint32_t previous = 0; previous < index; ++previous)
+        for (uint32_t previous = 0; previous < index; ++previous)
         {
             if (RedXeAsciiEqualsIgnoreCase(types[previous].typeId, candidate.typeId))
             {
@@ -257,7 +257,7 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
 
 PluginManager::~PluginManager()
 {
-    for (std::size_t index = 0; index < _widgetCount; ++index)
+    for (size_t index = 0; index < _widgetCount; ++index)
     {
         _widgets[index].windowWidget.reset();
         _widgets[index].scheduledWidget.reset();
@@ -266,7 +266,7 @@ PluginManager::~PluginManager()
     }
     _widgetCount = 0;
 
-    for (std::size_t index = 0; index < _providerCount; ++index)
+    for (size_t index = 0; index < _providerCount; ++index)
     {
         _providers[index].provider.reset();
     }
@@ -276,7 +276,7 @@ PluginManager::~PluginManager()
 }
 
 HRESULT PluginManager::CreateBundledProvider(const char* pluginId, const char* configurationJson,
-                                             std::uint32_t configurationBytes, IRedXeWidgetProvider** provider) noexcept
+                                             uint32_t configurationBytes, IRedXeWidgetProvider** provider) noexcept
 {
     if (!provider)
     {
@@ -375,9 +375,9 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
 HRESULT PluginManager::StageActivePage(const AppSettings& settings,
                                        std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
                                        std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,
-                                       std::size_t& providerCount,
+                                       size_t& providerCount,
                                        std::array<WidgetSlot, kMaximumWidgetInstances>& widgets,
-                                       std::size_t& widgetCount) noexcept
+                                       size_t& widgetCount) noexcept
 {
     providerCount = 0;
     widgetCount = 0;
@@ -389,7 +389,7 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
 
     // Static discovery covers every effective widget in the document. This maps each referenced module once and
     // validates its immutable settings contract without creating providers or widget resources.
-    for (std::uint32_t pluginIndex = 0; pluginIndex < settings.pluginCount; ++pluginIndex)
+    for (uint32_t pluginIndex = 0; pluginIndex < settings.pluginCount; ++pluginIndex)
     {
         const PluginSettings& plugin = settings.plugins[pluginIndex];
         if (!plugin.enabled)
@@ -416,10 +416,10 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
         }
     }
 
-    for (std::uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
+    for (uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
     {
         const DashboardPageSettings& candidatePage = settings.dashboard.pages[pageIndex];
-        for (std::uint32_t widgetIndex = 0; widgetIndex < candidatePage.widgetCount; ++widgetIndex)
+        for (uint32_t widgetIndex = 0; widgetIndex < candidatePage.widgetCount; ++widgetIndex)
         {
             const WidgetInstanceSettings& widget = candidatePage.widgets[widgetIndex];
             const RedXeBundledWidgetSpec* widgetSpec = FindBundledWidget(widget.pluginId.View(), widget.typeId.View());
@@ -462,7 +462,7 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
         return S_OK;
     }
 
-    for (std::uint32_t index = 0; index < page->widgetCount; ++index)
+    for (uint32_t index = 0; index < page->widgetCount; ++index)
     {
         const WidgetInstanceSettings& instance = page->widgets[index];
         const PluginSettings* plugin = FindPluginSettings(settings, instance.pluginId.View());
@@ -474,15 +474,15 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
         }
 
         std::array<char, kFactoryConfigurationCapacity> configuration{};
-        std::uint32_t configurationBytes = 0;
+        uint32_t configurationBytes = 0;
         result = SerializeFactoryConfigurationJson(*plugin, instance, configuration, configurationBytes);
         if (FAILED(result) || configurationBytes > kRedXeMaximumFactoryConfigurationBytes)
         {
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
         }
 
-        std::size_t providerIndex = providerCount;
-        for (std::size_t candidate = 0; candidate < providerCount; ++candidate)
+        size_t providerIndex = providerCount;
+        for (size_t candidate = 0; candidate < providerCount; ++candidate)
         {
             const ProviderBuildKey& key = providerKeys[candidate];
             if (key.pluginId == pluginSpec->pluginId && key.configurationBytes == configurationBytes &&
@@ -532,8 +532,8 @@ HRESULT PluginManager::Initialize(const AppSettings& settings) noexcept
     std::array<ProviderSlot, kMaximumWidgetInstances> providers;
     std::array<ProviderBuildKey, kMaximumWidgetInstances> providerKeys;
     std::array<WidgetSlot, kMaximumWidgetInstances> widgets;
-    std::size_t providerCount = 0;
-    std::size_t widgetCount = 0;
+    size_t providerCount = 0;
+    size_t widgetCount = 0;
     const HRESULT result = StageActivePage(settings, providers, providerKeys, providerCount, widgets, widgetCount);
     if (FAILED(result))
     {
@@ -559,8 +559,8 @@ HRESULT PluginManager::Reconfigure(const AppSettings& settings) noexcept
     std::array<ProviderSlot, kMaximumWidgetInstances> providers;
     std::array<ProviderBuildKey, kMaximumWidgetInstances> providerKeys;
     std::array<WidgetSlot, kMaximumWidgetInstances> widgets;
-    std::size_t providerCount = 0;
-    std::size_t widgetCount = 0;
+    size_t providerCount = 0;
+    size_t widgetCount = 0;
     const HRESULT result = StageActivePage(settings, providers, providerKeys, providerCount, widgets, widgetCount);
     if (FAILED(result))
     {
@@ -576,67 +576,67 @@ HRESULT PluginManager::Reconfigure(const AppSettings& settings) noexcept
     return S_OK;
 }
 
-std::size_t PluginManager::ProviderCount() const noexcept
+size_t PluginManager::ProviderCount() const noexcept
 {
     return _providerCount;
 }
 
-std::size_t PluginManager::WidgetCount() const noexcept
+size_t PluginManager::WidgetCount() const noexcept
 {
     return _widgetCount;
 }
 
-IRedXeWidget* PluginManager::WidgetAt(std::size_t index) const noexcept
+IRedXeWidget* PluginManager::WidgetAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].widget.get() : nullptr;
 }
 
-IRedXeGpuWidget* PluginManager::GpuWidgetAt(std::size_t index) const noexcept
+IRedXeGpuWidget* PluginManager::GpuWidgetAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].gpuWidget.get() : nullptr;
 }
 
-IRedXeScheduledWidget* PluginManager::ScheduledWidgetAt(std::size_t index) const noexcept
+IRedXeScheduledWidget* PluginManager::ScheduledWidgetAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].scheduledWidget.get() : nullptr;
 }
 
-IRedXeWindowWidget* PluginManager::WindowWidgetAt(std::size_t index) const noexcept
+IRedXeWindowWidget* PluginManager::WindowWidgetAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].windowWidget.get() : nullptr;
 }
 
-std::uint32_t PluginManager::WidgetFlagsAt(std::size_t index) const noexcept
+uint32_t PluginManager::WidgetFlagsAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].flags : RedXeWidgetFlagNone;
 }
 
-WidgetGridPlacement PluginManager::WidgetGridPlacementAt(std::size_t index) const noexcept
+WidgetGridPlacement PluginManager::WidgetGridPlacementAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].placement : WidgetGridPlacement{};
 }
 
-AdaptiveWidgetPlacement PluginManager::AdaptivePlacementAt(std::size_t index) const noexcept
+AdaptiveWidgetPlacement PluginManager::AdaptivePlacementAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].adaptivePlacement : AdaptiveWidgetPlacement{};
 }
 
-bool PluginManager::UsesAdaptivePlacementAt(std::size_t index) const noexcept
+bool PluginManager::UsesAdaptivePlacementAt(size_t index) const noexcept
 {
     return index < _widgetCount && _widgets[index].usesAdaptivePlacement;
 }
 
-const char* PluginManager::WidgetInstanceIdAt(std::size_t index) const noexcept
+const char* PluginManager::WidgetInstanceIdAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].instanceId.utf8.data() : nullptr;
 }
 
-std::uint32_t PluginManager::GridColumns() const noexcept
+uint32_t PluginManager::GridColumns() const noexcept
 {
     return _initialized ? _gridColumns : 0;
 }
 
-std::uint32_t PluginManager::GridRows() const noexcept
+uint32_t PluginManager::GridRows() const noexcept
 {
     return _initialized ? _gridRows : 0;
 }

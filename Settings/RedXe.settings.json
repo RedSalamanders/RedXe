@@ -25,10 +25,16 @@
       "layout": {
         "arrangeAlong": "long-side",
         "areas": [
-          { "sizeRatio": 1, "widget": "Triangle" },
-          { "sizeRatio": 1, "widget": "Orbit" },
           {
             "sizeRatio": 2,
+            "arrangeAlong": "short-side",
+            "areas": [
+              { "sizeRatio": 1, "widget": "Triangle" },
+              { "sizeRatio": 1, "widget": "Orbit" }
+            ]
+          },
+          {
+            "sizeRatio": 5,
             "widget": {
               "use": "Matrix",
               "override": {
@@ -42,9 +48,15 @@
               }
             }
           },
-          { "sizeRatio": 1, "widget": "StudioClock" },
-          { "sizeRatio": 1, "widget": "DeskClock" },
-          { "sizeRatio": 2, "widget": "Processes" }
+          {
+            "sizeRatio": 2,
+            "arrangeAlong": "short-side",
+            "areas": [
+              { "sizeRatio": 1, "widget": "StudioClock" },
+              { "sizeRatio": 1, "widget": "DeskClock" }
+            ]
+          },
+          { "sizeRatio": 5, "widget": "Processes" }
         ]
       }
     }

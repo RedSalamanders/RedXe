@@ -33,19 +33,19 @@ constexpr char kSettingsSchema[] =
 constexpr char kSettingsDefaults[] = R"json({"topN":10})json";
 constexpr wchar_t kWindowClassName[] = L"RedXe.Plugin.ProcessViewer";
 constexpr UINT kDataChangedMessage = WM_APP + 0x241;
-constexpr std::uint32_t kMaximumRows = 32;
-constexpr std::uint32_t kMaximumNameCharacters = 95;
-constexpr std::uint32_t kDefaultTopN = 10;
-constexpr std::uint32_t kSampleIntervalMilliseconds = 2000;
+constexpr uint32_t kMaximumRows = 32;
+constexpr uint32_t kMaximumNameCharacters = 95;
+constexpr uint32_t kDefaultTopN = 10;
+constexpr uint32_t kSampleIntervalMilliseconds = 2000;
 
 HINSTANCE g_moduleInstance = nullptr;
-std::atomic<std::uint32_t> g_liveProviderCount = 0;
-std::atomic<std::uint32_t> g_liveWidgetCount = 0;
-std::atomic<std::uint32_t> g_liveSubscriptionCount = 0;
-std::atomic<std::uint32_t> g_sampleCount = 0;
-std::atomic<std::uint32_t> g_paintCount = 0;
-std::atomic<std::uint32_t> g_lastPublishedRowCount = 0;
-std::atomic<std::uint32_t> g_configuredTopN = 0;
+std::atomic<uint32_t> g_liveProviderCount = 0;
+std::atomic<uint32_t> g_liveWidgetCount = 0;
+std::atomic<uint32_t> g_liveSubscriptionCount = 0;
+std::atomic<uint32_t> g_sampleCount = 0;
+std::atomic<uint32_t> g_paintCount = 0;
+std::atomic<uint32_t> g_lastPublishedRowCount = 0;
+std::atomic<uint32_t> g_configuredTopN = 0;
 
 constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
@@ -80,7 +80,7 @@ constexpr std::array kWidgetTypes{
 
 struct ProcessViewerConfiguration final
 {
-    std::uint32_t topN = kDefaultTopN;
+    uint32_t topN = kDefaultTopN;
 };
 
 [[nodiscard]] HRESULT ReadConfiguration(const RedXeFactoryOptions* options,
@@ -114,7 +114,7 @@ struct ProcessViewerConfiguration final
     }
 
     const std::string_view number = json.substr(prefix.size(), json.size() - prefix.size() - suffix.size());
-    std::uint32_t parsed = 0;
+    uint32_t parsed = 0;
     const auto result = std::from_chars(number.data(), number.data() + number.size(), parsed);
     if (result.ec != std::errc{} || result.ptr != number.data() + number.size() || parsed == 0 || parsed > kMaximumRows)
     {
@@ -138,11 +138,11 @@ struct ProcessViewerConfiguration final
 struct ProcessDisplayRow final
 {
     std::array<wchar_t, kMaximumNameCharacters + 1> name{};
-    std::uint32_t nameCharacters = 0;
-    std::uint32_t processId = 0;
+    uint32_t nameCharacters = 0;
+    uint32_t processId = 0;
     double cpuPercent = 0.0;
-    std::uint64_t workingSetBytes = 0;
-    std::uint32_t threadCount = 0;
+    uint64_t workingSetBytes = 0;
+    uint32_t threadCount = 0;
     bool cpuAvailable = false;
 };
 
@@ -166,7 +166,7 @@ struct ProcessDisplayRow final
 class ProcessSnapshotCache final
 {
   public:
-    explicit ProcessSnapshotCache(std::uint32_t topN) noexcept : _topN(topN) {}
+    explicit ProcessSnapshotCache(uint32_t topN) noexcept : _topN(topN) {}
 
     void SetWindow(HWND window) noexcept
     {
@@ -180,24 +180,24 @@ class ProcessSnapshotCache final
             return E_POINTER;
         }
         if (snapshot->sizeBytes != sizeof(RedXeDataSnapshot) || !snapshot->dataSetId ||
-            !RedXeAsciiEqualsIgnoreCase(snapshot->dataSetId, kProcessDataSetId) || snapshot->columnCount != 7 ||
+            !RedXeAsciiEqualsIgnoreCase(snapshot->dataSetId, kProcessDataSetId) || snapshot->columnCount < 7 ||
             snapshot->rowCount > 2048 || (snapshot->rowCount != 0 && !snapshot->rows))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
         std::array<ProcessDisplayRow, kMaximumRows> selected{};
-        std::uint32_t selectedCount = 0;
-        for (std::uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
+        uint32_t selectedCount = 0;
+        for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
         {
             const RedXeDataRow& sourceRow = snapshot->rows[rowIndex];
-            if (sourceRow.sizeBytes != sizeof(RedXeDataRow) || !sourceRow.values || sourceRow.valueCount != 7)
+            if (sourceRow.sizeBytes != sizeof(RedXeDataRow) || !sourceRow.values || sourceRow.valueCount < 7)
             {
                 continue;
             }
             const RedXeDataValue* values = sourceRow.values;
             bool valueSizesValid = true;
-            for (std::uint32_t valueIndex = 0; valueIndex < 7; ++valueIndex)
+            for (uint32_t valueIndex = 0; valueIndex < 7; ++valueIndex)
             {
                 valueSizesValid = valueSizesValid && values[valueIndex].sizeBytes == sizeof(RedXeDataValue);
             }
@@ -211,25 +211,25 @@ class ProcessSnapshotCache final
             }
 
             ProcessDisplayRow candidate{};
-            candidate.processId = static_cast<std::uint32_t>(values[0].uint64Value);
+            candidate.processId = static_cast<uint32_t>(values[0].uint64Value);
             candidate.cpuAvailable = values[2].quality == RedXeDataQualityGood;
             candidate.cpuPercent = candidate.cpuAvailable ? std::clamp(values[2].float64Value, 0.0, 100.0) : 0.0;
             candidate.workingSetBytes = values[3].quality == RedXeDataQualityGood ? values[3].uint64Value : 0;
             candidate.threadCount = values[5].quality == RedXeDataQualityGood
-                                        ? static_cast<std::uint32_t>(
-                                              std::min(values[5].uint64Value, static_cast<std::uint64_t>(UINT32_MAX)))
+                                        ? static_cast<uint32_t>(
+                                              std::min(values[5].uint64Value, static_cast<uint64_t>(UINT32_MAX)))
                                         : 0;
             if (values[1].quality == RedXeDataQualityGood && values[1].utf16Value)
             {
                 candidate.nameCharacters =
-                    std::min(values[1].utf16Characters, static_cast<std::uint32_t>(kMaximumNameCharacters));
+                    std::min(values[1].utf16Characters, static_cast<uint32_t>(kMaximumNameCharacters));
                 std::wmemcpy(candidate.name.data(), values[1].utf16Value, candidate.nameCharacters);
                 candidate.name[candidate.nameCharacters] = L'\0';
             }
             if (candidate.nameCharacters == 0)
             {
                 constexpr wchar_t unnamed[] = L"(unnamed)";
-                candidate.nameCharacters = static_cast<std::uint32_t>(std::size(unnamed) - 1);
+                candidate.nameCharacters = static_cast<uint32_t>(std::size(unnamed) - 1);
                 std::wmemcpy(candidate.name.data(), unnamed, std::size(unnamed));
             }
 
@@ -245,7 +245,7 @@ class ProcessSnapshotCache final
             {
                 selected[selectedCount - 1] = candidate;
             }
-            for (std::uint32_t index = selectedCount - 1;
+            for (uint32_t index = selectedCount - 1;
                  index > 0 && RanksBefore(selected[index], selected[index - 1]); --index)
             {
                 std::swap(selected[index], selected[index - 1]);
@@ -269,12 +269,12 @@ class ProcessSnapshotCache final
         return S_OK;
     }
 
-    [[nodiscard]] std::uint32_t Copy(std::array<ProcessDisplayRow, kMaximumRows>& rows, std::uint64_t& sequence,
+    [[nodiscard]] uint32_t Copy(std::array<ProcessDisplayRow, kMaximumRows>& rows, uint64_t& sequence,
                                      bool& truncated) const noexcept
     {
         AcquireSRWLockShared(&_lock);
         rows = _rows;
-        const std::uint32_t count = _rowCount;
+        const uint32_t count = _rowCount;
         sequence = _sequence;
         truncated = _truncated;
         ReleaseSRWLockShared(&_lock);
@@ -285,9 +285,9 @@ class ProcessSnapshotCache final
     mutable SRWLOCK _lock = SRWLOCK_INIT;
     std::array<ProcessDisplayRow, kMaximumRows> _rows{};
     std::atomic<HWND> _window = nullptr;
-    std::uint64_t _sequence = 0;
-    std::uint32_t _rowCount = 0;
-    std::uint32_t _topN;
+    uint64_t _sequence = 0;
+    uint32_t _rowCount = 0;
+    uint32_t _topN;
     bool _truncated = false;
 };
 
@@ -342,7 +342,7 @@ class ProcessDataSink final : public IRedXeDataSink
 class ProcessViewerWidget final : public IRedXeWidget, public IRedXeWindowWidget
 {
   public:
-    ProcessViewerWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, std::uint32_t topN) noexcept
+    ProcessViewerWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, uint32_t topN) noexcept
         : _providerOwner(std::move(providerOwner)), _cache(topN), _topN(topN)
     {
         g_liveWidgetCount.fetch_add(1, std::memory_order_relaxed);
@@ -573,7 +573,7 @@ class ProcessViewerWidget final : public IRedXeWidget, public IRedXeWindowWidget
         }
     }
 
-    [[nodiscard]] HRESULT RebuildDrawingResources(std::uint32_t width, std::uint32_t height, UINT dpi) noexcept
+    [[nodiscard]] HRESULT RebuildDrawingResources(uint32_t width, uint32_t height, UINT dpi) noexcept
     {
         if (!_memoryDc)
         {
@@ -679,16 +679,16 @@ class ProcessViewerWidget final : public IRedXeWidget, public IRedXeWindowWidget
     void DrawScene(HDC dc) noexcept
     {
         std::array<ProcessDisplayRow, kMaximumRows> rows{};
-        std::uint64_t sequence = 0;
+        uint64_t sequence = 0;
         bool truncated = false;
-        const std::uint32_t rowCount = _cache.Copy(rows, sequence, truncated);
+        const uint32_t rowCount = _cache.Copy(rows, sequence, truncated);
         const int padding = ScaleForDpi(16, _dpi);
         const int titleHeight = ScaleForDpi(42, _dpi);
         const int headerHeight = ScaleForDpi(26, _dpi);
         const int minimumRowHeight = ScaleForDpi(21, _dpi);
         const int availableHeight = std::max(0, static_cast<int>(_height) - titleHeight - headerHeight - padding);
-        const std::uint32_t visibleRows = std::min(
-            rowCount, static_cast<std::uint32_t>(minimumRowHeight > 0 ? availableHeight / minimumRowHeight : 0));
+        const uint32_t visibleRows = std::min(
+            rowCount, static_cast<uint32_t>(minimumRowHeight > 0 ? availableHeight / minimumRowHeight : 0));
 
         const RECT bounds{0, 0, static_cast<LONG>(_width), static_cast<LONG>(_height)};
         FillRect(dc, &bounds, _backgroundBrush.get());
@@ -727,7 +727,7 @@ class ProcessViewerWidget final : public IRedXeWidget, public IRedXeWindowWidget
 
         SelectObject(dc, _rowFont.get());
         const int rowHeight = minimumRowHeight;
-        for (std::uint32_t index = 0; index < visibleRows; ++index)
+        for (uint32_t index = 0; index < visibleRows; ++index)
         {
             RECT rowBounds{padding, header.bottom + static_cast<LONG>(index) * rowHeight,
                            static_cast<LONG>(_width) - padding,
@@ -798,10 +798,10 @@ class ProcessViewerWidget final : public IRedXeWidget, public IRedXeWindowWidget
     wil::unique_hfont _titleFont;
     wil::unique_hfont _headerFont;
     wil::unique_hfont _rowFont;
-    std::uint32_t _width = 0;
-    std::uint32_t _height = 0;
+    uint32_t _width = 0;
+    uint32_t _height = 0;
     UINT _dpi = 0;
-    std::uint32_t _topN;
+    uint32_t _topN;
     bool _visible = false;
 
     friend HRESULT EnsureWindowClass() noexcept;
@@ -829,7 +829,7 @@ class ProcessViewerWidget final : public IRedXeWidget, public IRedXeWindowWidget
 class ProcessViewerProvider final : public IRedXeWidgetProvider
 {
   public:
-    ProcessViewerProvider(wil::com_ptr_nothrow<IRedXeDataProvider>&& dataProvider, std::uint32_t topN) noexcept
+    ProcessViewerProvider(wil::com_ptr_nothrow<IRedXeDataProvider>&& dataProvider, uint32_t topN) noexcept
         : _dataProvider(std::move(dataProvider)), _topN(topN)
     {
         g_liveProviderCount.fetch_add(1, std::memory_order_relaxed);
@@ -872,7 +872,7 @@ class ProcessViewerProvider final : public IRedXeWidgetProvider
     }
 
     HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             std::uint32_t* count) noexcept override
+                                             uint32_t* count) noexcept override
     {
         if (descriptors)
         {
@@ -887,7 +887,7 @@ class ProcessViewerProvider final : public IRedXeWidgetProvider
             return E_POINTER;
         }
         *descriptors = kWidgetTypes.data();
-        *count = static_cast<std::uint32_t>(kWidgetTypes.size());
+        *count = static_cast<uint32_t>(kWidgetTypes.size());
         return S_OK;
     }
 
@@ -932,7 +932,7 @@ class ProcessViewerProvider final : public IRedXeWidgetProvider
   private:
     std::atomic<ULONG> _references{1};
     wil::com_ptr_nothrow<IRedXeDataProvider> _dataProvider;
-    std::uint32_t _topN;
+    uint32_t _topN;
 };
 
 HRESULT CreateProcessViewerProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
@@ -985,13 +985,13 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) noexcept
 extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
                                          const char* pluginId, void** result) noexcept
 {
-    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<std::uint32_t>(kFactoryEntries.size()),
+    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()),
                                          interfaceId, options, host, pluginId, result);
 }
 
-extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, std::uint32_t* count) noexcept
+extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
 {
-    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<std::uint32_t>(kMetadata.size()), metadata,
+    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata,
                                          count);
 }
 

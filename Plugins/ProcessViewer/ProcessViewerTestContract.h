@@ -5,14 +5,14 @@
 
 struct ProcessViewerTestDiagnostics final
 {
-    std::uint32_t sizeBytes;
-    std::uint32_t liveProviderCount;
-    std::uint32_t liveWidgetCount;
-    std::uint32_t liveSubscriptionCount;
-    std::uint32_t sampleCount;
-    std::uint32_t paintCount;
-    std::uint32_t lastPublishedRowCount;
-    std::uint32_t configuredTopN;
+    uint32_t sizeBytes;
+    uint32_t liveProviderCount;
+    uint32_t liveWidgetCount;
+    uint32_t liveSubscriptionCount;
+    uint32_t sampleCount;
+    uint32_t paintCount;
+    uint32_t lastPublishedRowCount;
+    uint32_t configuredTopN;
 };
 
 #if defined(REDXE_PLUGIN_EXPORTS)

@@ -110,7 +110,7 @@ struct Exports final
         RedXeFactoryOptions options{};
         options.sizeBytes = sizeof(options);
         options.configurationJsonUtf8 = configuration.data();
-        options.configurationBytes = static_cast<std::uint32_t>(configuration.size());
+        options.configurationBytes = static_cast<uint32_t>(configuration.size());
         void* object = nullptr;
         const HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kPluginId, &object);
         if (SUCCEEDED(result))
@@ -156,11 +156,11 @@ struct RenderTarget final
     wil::com_ptr_nothrow<ID3D11RenderTargetView> view;
     wil::com_ptr_nothrow<ID3D11Texture2D> staging;
     D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
-    std::uint32_t width = 0;
-    std::uint32_t height = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
 };
 
-[[nodiscard]] HRESULT CreateRenderTarget(std::uint32_t width, std::uint32_t height, RenderTarget& target) noexcept
+[[nodiscard]] HRESULT CreateRenderTarget(uint32_t width, uint32_t height, RenderTarget& target) noexcept
 {
     target = {};
     constexpr std::array featureLevels{D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
@@ -221,7 +221,7 @@ struct RenderTarget final
 }
 
 [[nodiscard]] HRESULT RenderOnly(IRedXeGpuWidget& widget, RenderTarget& target, float elapsedSeconds = 0.0f,
-                                 std::uint32_t dpi = USER_DEFAULT_SCREEN_DPI) noexcept
+                                 uint32_t dpi = USER_DEFAULT_SCREEN_DPI) noexcept
 {
     ID3D11RenderTargetView* views[] = {target.view.get()};
     target.context->OMSetRenderTargets(1, views, nullptr);
@@ -248,12 +248,12 @@ struct RenderTarget final
     Expect(target.context->Map(target.staging.get(), 0, D3D11_MAP_READ, 0, &mapped) == S_OK,
            "Studio Clock readback map failed");
     const auto unmap = wil::scope_exit([&]() noexcept { target.context->Unmap(target.staging.get(), 0); });
-    const std::size_t rowBytes = static_cast<std::size_t>(target.width) * 4U;
+    const size_t rowBytes = static_cast<size_t>(target.width) * 4U;
     std::vector<std::uint8_t> pixels(rowBytes * target.height);
-    for (std::uint32_t row = 0; row < target.height; ++row)
+    for (uint32_t row = 0; row < target.height; ++row)
     {
-        std::memcpy(pixels.data() + static_cast<std::size_t>(row) * rowBytes,
-                    static_cast<const std::uint8_t*>(mapped.pData) + static_cast<std::size_t>(row) * mapped.RowPitch,
+        std::memcpy(pixels.data() + static_cast<size_t>(row) * rowBytes,
+                    static_cast<const std::uint8_t*>(mapped.pData) + static_cast<size_t>(row) * mapped.RowPitch,
                     rowBytes);
     }
     return pixels;
@@ -266,16 +266,16 @@ struct RenderTarget final
     return Readback(target);
 }
 
-[[nodiscard]] std::array<std::uint8_t, 4> PixelAt(const std::vector<std::uint8_t>& pixels, std::uint32_t width,
-                                                  std::uint32_t x, std::uint32_t y)
+[[nodiscard]] std::array<std::uint8_t, 4> PixelAt(const std::vector<std::uint8_t>& pixels, uint32_t width,
+                                                  uint32_t x, uint32_t y)
 {
-    const std::size_t offset = (static_cast<std::size_t>(y) * width + x) * 4U;
+    const size_t offset = (static_cast<size_t>(y) * width + x) * 4U;
     Expect(offset + 3 < pixels.size(), "pixel coordinate is outside the readback");
     return {pixels[offset], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3]};
 }
 
-[[nodiscard]] std::uint8_t MaximumChannelNear(const std::vector<std::uint8_t>& pixels, std::uint32_t width,
-                                              std::uint32_t height, float x, float y, std::uint32_t channel)
+[[nodiscard]] std::uint8_t MaximumChannelNear(const std::vector<std::uint8_t>& pixels, uint32_t width,
+                                              uint32_t height, float x, float y, uint32_t channel)
 {
     const int centerX = static_cast<int>(std::lround(x));
     const int centerY = static_cast<int>(std::lround(y));
@@ -286,8 +286,8 @@ struct RenderTarget final
         {
             const int sampleX = std::clamp(centerX + offsetX, 0, static_cast<int>(width) - 1);
             const int sampleY = std::clamp(centerY + offsetY, 0, static_cast<int>(height) - 1);
-            maximum = std::max(maximum, PixelAt(pixels, width, static_cast<std::uint32_t>(sampleX),
-                                                static_cast<std::uint32_t>(sampleY))[channel]);
+            maximum = std::max(maximum, PixelAt(pixels, width, static_cast<uint32_t>(sampleX),
+                                                static_cast<uint32_t>(sampleY))[channel]);
         }
     }
     return maximum;
@@ -300,7 +300,7 @@ struct ClockLayout final
     float originY;
 };
 
-[[nodiscard]] ClockLayout LayoutFor(std::uint32_t width, std::uint32_t height, bool showDate)
+[[nodiscard]] ClockLayout LayoutFor(uint32_t width, uint32_t height, bool showDate)
 {
     constexpr float datedHeightScale = 10.0f / 9.0f;
     const float viewportWidth = static_cast<float>(width);
@@ -311,14 +311,14 @@ struct ClockLayout final
     return ClockLayout{square, (viewportWidth - square) * 0.5f, (viewportHeight - compositionHeight) * 0.5f};
 }
 
-[[nodiscard]] std::uint32_t CountActiveRingDots(const std::vector<std::uint8_t>& pixels, std::uint32_t width,
-                                                std::uint32_t height, bool showDate = false)
+[[nodiscard]] uint32_t CountActiveRingDots(const std::vector<std::uint8_t>& pixels, uint32_t width,
+                                                uint32_t height, bool showDate = false)
 {
     const ClockLayout layout = LayoutFor(width, height, showDate);
     const float square = layout.square;
     const std::uint8_t activeThreshold = square < 200.0f ? 100U : 180U;
-    std::uint32_t active = 0;
-    for (std::uint32_t index = 0; index < 60; ++index)
+    uint32_t active = 0;
+    for (uint32_t index = 0; index < 60; ++index)
     {
         const float angle = static_cast<float>(index) * 0.10471975511965977f - 1.5707963267948966f;
         const float x = layout.originX + (0.5f + std::cos(angle) * 0.418f) * square;
@@ -334,14 +334,14 @@ struct ClockLayout final
     return active;
 }
 
-[[nodiscard]] std::uint32_t CountActiveFiveSecondDots(const std::vector<std::uint8_t>& pixels, std::uint32_t width,
-                                                      std::uint32_t height, bool showDate = false)
+[[nodiscard]] uint32_t CountActiveFiveSecondDots(const std::vector<std::uint8_t>& pixels, uint32_t width,
+                                                      uint32_t height, bool showDate = false)
 {
     const ClockLayout layout = LayoutFor(width, height, showDate);
     const float square = layout.square;
     const std::uint8_t activeThreshold = square < 200.0f ? 100U : 180U;
-    std::uint32_t active = 0;
-    for (std::uint32_t index = 0; index < 12; ++index)
+    uint32_t active = 0;
+    for (uint32_t index = 0; index < 12; ++index)
     {
         const float angle = static_cast<float>(index * 5U) * 0.10471975511965977f - 1.5707963267948966f;
         const float x = layout.originX + (0.5f + std::cos(angle) * 0.447f) * square;
@@ -365,8 +365,8 @@ struct ClockLayout final
     return diagnostics;
 }
 
-void SetTime(const Exports& exports, std::uint16_t year, std::uint16_t month, std::uint16_t day, std::uint16_t hour,
-             std::uint16_t minute, std::uint16_t second, std::uint16_t milliseconds)
+void SetTime(const Exports& exports, uint16_t year, uint16_t month, uint16_t day, uint16_t hour,
+             uint16_t minute, uint16_t second, uint16_t milliseconds)
 {
     const StudioClockTestTime time{sizeof(StudioClockTestTime), year, month, day, hour, minute, second, milliseconds};
     Expect(exports.setTime(&time) == S_OK, "Studio Clock deterministic time was rejected");
@@ -375,7 +375,7 @@ void SetTime(const Exports& exports, std::uint16_t year, std::uint16_t month, st
 void ValidateDescriptor(IRedXeWidgetProvider& provider, bool showDate)
 {
     const RedXeWidgetTypeDescriptor* descriptors = nullptr;
-    std::uint32_t count = 0;
+    uint32_t count = 0;
     Expect(provider.GetWidgetTypes(&descriptors, &count) == S_OK && descriptors && count == 1,
            "Studio Clock descriptor enumeration failed");
     const RedXeWidgetTypeDescriptor& descriptor = descriptors[0];
@@ -390,7 +390,7 @@ void ValidateDescriptor(IRedXeWidgetProvider& provider, bool showDate)
 void ValidateFactoryAndSettings(const Exports& exports)
 {
     const RedXePluginMetadata* metadata = reinterpret_cast<const RedXePluginMetadata*>(1);
-    std::uint32_t count = 99;
+    uint32_t count = 99;
     Expect(exports.enumerate(nullptr, &count) == E_POINTER && count == 0,
            "Studio Clock enumeration did not clear count");
     Expect(exports.enumerate(&metadata, &count) == S_OK && metadata && count == 1,
@@ -450,7 +450,7 @@ void ValidateFactoryAndSettings(const Exports& exports)
     RedXeFactoryOptions directOptions{};
     directOptions.sizeBytes = sizeof(directOptions);
     directOptions.configurationJsonUtf8 = kDefaults.data();
-    directOptions.configurationBytes = static_cast<std::uint32_t>(kDefaults.size());
+    directOptions.configurationBytes = static_cast<uint32_t>(kDefaults.size());
     object = reinterpret_cast<void*>(1);
     Expect(exports.create(__uuidof(IRedXeWidgetProvider), &directOptions, nullptr, kPluginId, &object) ==
                    HRESULT_FROM_WIN32(ERROR_INVALID_DATA) &&
@@ -463,7 +463,7 @@ void ValidateFactoryAndSettings(const Exports& exports)
            "Studio Clock dated provider creation failed");
     ValidateDescriptor(*datedProvider, true);
 
-    for (std::uint32_t bits = 0; bits < 16; ++bits)
+    for (uint32_t bits = 0; bits < 16; ++bits)
     {
         const std::string configuration =
             Configuration((bits & 1U) != 0, (bits & 2U) != 0, (bits & 4U) != 0, (bits & 8U) != 0);
@@ -501,7 +501,7 @@ void ValidateFactoryAndSettings(const Exports& exports)
     for (const Mutation& mutation : mutations)
     {
         std::string invalid(kDefaults);
-        const std::size_t offset = invalid.find(mutation.before);
+        const size_t offset = invalid.find(mutation.before);
         Expect(offset != std::string::npos, "Studio Clock invalid mutation could not be prepared");
         invalid.replace(offset, mutation.before.size(), mutation.after);
         provider.reset();
@@ -549,7 +549,7 @@ void ValidateInterfacesAndScheduling(const Exports& exports)
            "Studio Clock schedule query accepted a null output");
 
     SetTime(exports, 2024, 2, 29, 12, 34, 0, 0);
-    std::uint32_t delay = 99;
+    uint32_t delay = 99;
     Expect(created.scheduled->GetNextFrameDelayMilliseconds(&delay) == S_OK && delay == 1001,
            "Studio Clock second-boundary delay is wrong at second zero");
     SetTime(exports, 2024, 12, 31, 23, 59, 59, 999);
@@ -572,10 +572,10 @@ void ValidateInterfacesAndScheduling(const Exports& exports)
 }
 
 #if defined(_DEBUG)
-std::atomic<std::uint64_t> gRenderAllocationCount{0};
+std::atomic<uint64_t> gRenderAllocationCount{0};
 std::atomic<DWORD> gRenderThreadId{0};
 
-int __cdecl CountRenderAllocation(int allocationType, void*, std::size_t, int, long, const unsigned char*, int)
+int __cdecl CountRenderAllocation(int allocationType, void*, size_t, int, long, const unsigned char*, int)
 {
     if (GetCurrentThreadId() == gRenderThreadId.load(std::memory_order_relaxed) && allocationType != _CRT_BLOCK)
     {
@@ -588,7 +588,7 @@ int __cdecl CountRenderAllocation(int allocationType, void*, std::size_t, int, l
 void ValidateAllocationFreeRender(IRedXeGpuWidget& widget, RenderTarget& target)
 {
 #if defined(_DEBUG)
-    for (std::uint32_t warmup = 0; warmup < 64; ++warmup)
+    for (uint32_t warmup = 0; warmup < 64; ++warmup)
     {
         Expect(RenderOnly(widget, target) == S_OK, "Studio Clock render warmup failed");
     }
@@ -598,7 +598,7 @@ void ValidateAllocationFreeRender(IRedXeGpuWidget& widget, RenderTarget& target)
     gRenderThreadId.store(GetCurrentThreadId(), std::memory_order_relaxed);
     const _CRT_ALLOC_HOOK previousHook = _CrtSetAllocHook(CountRenderAllocation);
     HRESULT result = S_OK;
-    for (std::uint32_t frame = 0; frame < 120 && SUCCEEDED(result); ++frame)
+    for (uint32_t frame = 0; frame < 120 && SUCCEEDED(result); ++frame)
     {
         result = RenderOnly(widget, target);
     }
@@ -654,9 +654,9 @@ void ValidateRendering(const Exports& exports)
     ValidateAllocationFreeRender(*created.gpu, target);
 
     constexpr std::array seconds{0U, 1U, 30U, 59U};
-    for (const std::uint32_t second : seconds)
+    for (const uint32_t second : seconds)
     {
-        SetTime(exports, 2024, 12, 31, 12, 34, static_cast<std::uint16_t>(second), 0);
+        SetTime(exports, 2024, 12, 31, 12, 34, static_cast<uint16_t>(second), 0);
         pixels = RenderAndReadback(*created.gpu, target);
         Expect(CountActiveRingDots(pixels, target.width, target.height) == second + 1,
                "Studio Clock active ring count is wrong");
@@ -670,9 +670,9 @@ void ValidateRendering(const Exports& exports)
            "Studio Clock linked outward-dot provider failed");
     WidgetInterfaces linkedWidget = CreateWidget(*linkedProvider, "studio.linked-dots");
     Expect(linkedWidget.gpu->OnDeviceCreated(&deviceContext) == S_OK, "Studio Clock linked outward-dot device failed");
-    for (const std::uint32_t second : seconds)
+    for (const uint32_t second : seconds)
     {
-        SetTime(exports, 2024, 12, 31, 12, 34, static_cast<std::uint16_t>(second), 0);
+        SetTime(exports, 2024, 12, 31, 12, 34, static_cast<uint16_t>(second), 0);
         const std::vector<std::uint8_t> linkedPixels = RenderAndReadback(*linkedWidget.gpu, target);
         Expect(CountActiveRingDots(linkedPixels, target.width, target.height) == second + 1,
                "Studio Clock linked mode changed ordinary progress");
@@ -712,11 +712,11 @@ void ValidateRendering(const Exports& exports)
     Expect(MaximumChannelNear(pixels, target.width, target.height, primaryDotX, primaryDotY, 2) > 180,
            "Studio Clock primary time did not use timeColor");
     Expect(PixelAt(pixels, target.width,
-                   static_cast<std::uint32_t>(std::lround(primaryDotX + 0.0055f * colorfulLayout.square)),
-                   static_cast<std::uint32_t>(std::lround(primaryDotY)))[2] > 180 &&
+                   static_cast<uint32_t>(std::lround(primaryDotX + 0.0055f * colorfulLayout.square)),
+                   static_cast<uint32_t>(std::lround(primaryDotY)))[2] > 180 &&
                PixelAt(pixels, target.width,
-                       static_cast<std::uint32_t>(std::lround(primaryDotX + 0.0105f * colorfulLayout.square)),
-                       static_cast<std::uint32_t>(std::lround(primaryDotY)))[2] < 100,
+                       static_cast<uint32_t>(std::lround(primaryDotX + 0.0105f * colorfulLayout.square)),
+                       static_cast<uint32_t>(std::lround(primaryDotY)))[2] < 100,
            "Studio Clock primary dot radius does not match the overlay target");
     Expect(MaximumChannelNear(pixels, target.width, target.height,
                               colorfulLayout.originX + 0.4217f * colorfulLayout.square,
@@ -746,11 +746,11 @@ void ValidateRendering(const Exports& exports)
             MaximumChannelNear(pixels, target.width, target.height,
                                colorfulLayout.originX + 0.51625f * colorfulLayout.square, colorfulDateY, 2) > 180 &&
             PixelAt(pixels, target.width,
-                    static_cast<std::uint32_t>(std::lround(colorfulLayout.originX + 0.40025f * colorfulLayout.square)),
-                    static_cast<std::uint32_t>(std::lround(colorfulDateY)))[2] < 100 &&
+                    static_cast<uint32_t>(std::lround(colorfulLayout.originX + 0.40025f * colorfulLayout.square)),
+                    static_cast<uint32_t>(std::lround(colorfulDateY)))[2] < 100 &&
             PixelAt(pixels, target.width,
-                    static_cast<std::uint32_t>(std::lround(colorfulLayout.originX + 0.53525f * colorfulLayout.square)),
-                    static_cast<std::uint32_t>(std::lround(colorfulDateY)))[2] < 100,
+                    static_cast<uint32_t>(std::lround(colorfulLayout.originX + 0.53525f * colorfulLayout.square)),
+                    static_cast<uint32_t>(std::lround(colorfulDateY)))[2] < 100,
         "Studio Clock date was not rendered below the square clock");
     colorfulWidget.gpu->OnDeviceLost();
 
@@ -842,7 +842,7 @@ void ValidateSharedResourcesAndToggles(const Exports& exports)
     RenderTarget target;
     Expect(CreateRenderTarget(320, 320, target) == S_OK, "Studio Clock resource target failed");
     const RedXeGpuDeviceContext deviceContext = DeviceContextFor(target);
-    for (std::uint32_t bits = 0; bits < 16; ++bits)
+    for (uint32_t bits = 0; bits < 16; ++bits)
     {
         const bool progress = (bits & 1U) != 0;
         const bool seconds = (bits & 2U) != 0;
@@ -856,7 +856,7 @@ void ValidateSharedResourcesAndToggles(const Exports& exports)
         Expect(widget.gpu->OnDeviceCreated(&deviceContext) == S_OK, "Studio Clock toggle device failed");
         SetTime(exports, 2024, 2, 29, 8, 7, 6, 0);
         Expect(RenderOnly(*widget.gpu, target) == S_OK, "Studio Clock toggle render failed");
-        const std::uint32_t expectedInstances =
+        const uint32_t expectedInstances =
             114U + (seconds ? 42U : 0U) + (date ? 174U : 0U) + (progress ? 72U : 0U);
         Expect(Diagnostics(exports).lastInstanceCount == expectedInstances,
                "Studio Clock toggle instance bound is wrong");
@@ -894,7 +894,7 @@ void ValidateSharedResourcesAndToggles(const Exports& exports)
 }
 
 [[nodiscard]] double MeasureGpuMillisecondsPerFrame(IRedXeGpuWidget& widget, RenderTarget& target,
-                                                    std::uint32_t frameCount)
+                                                    uint32_t frameCount)
 {
     D3D11_QUERY_DESC description{};
     description.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
@@ -910,7 +910,7 @@ void ValidateSharedResourcesAndToggles(const Exports& exports)
 
     target.context->Begin(disjoint.get());
     target.context->End(start.get());
-    for (std::uint32_t frame = 0; frame < frameCount; ++frame)
+    for (uint32_t frame = 0; frame < frameCount; ++frame)
     {
         Expect(RenderOnly(widget, target) == S_OK, "Studio Clock GPU benchmark render failed");
     }
@@ -918,7 +918,7 @@ void ValidateSharedResourcesAndToggles(const Exports& exports)
     target.context->End(disjoint.get());
     target.context->Flush();
 
-    auto waitForData = [&target](ID3D11Query* query, void* data, std::uint32_t bytes)
+    auto waitForData = [&target](ID3D11Query* query, void* data, uint32_t bytes)
     {
         const ULONGLONG deadline = GetTickCount64() + 5000;
         HRESULT result = S_FALSE;
@@ -934,8 +934,8 @@ void ValidateSharedResourcesAndToggles(const Exports& exports)
     };
 
     D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjointData{};
-    std::uint64_t startTimestamp = 0;
-    std::uint64_t endTimestamp = 0;
+    uint64_t startTimestamp = 0;
+    uint64_t endTimestamp = 0;
     waitForData(disjoint.get(), &disjointData, sizeof(disjointData));
     waitForData(start.get(), &startTimestamp, sizeof(startTimestamp));
     waitForData(end.get(), &endTimestamp, sizeof(endTimestamp));
@@ -955,7 +955,7 @@ void RunBenchmark(const Exports& exports)
     const RedXeGpuDeviceContext deviceContext = DeviceContextFor(target);
     Expect(widget.gpu->OnDeviceCreated(&deviceContext) == S_OK, "Studio Clock benchmark device failed");
     SetTime(exports, 2024, 12, 31, 20, 59, 46, 0);
-    for (std::uint32_t warmup = 0; warmup < 256; ++warmup)
+    for (uint32_t warmup = 0; warmup < 256; ++warmup)
     {
         Expect(RenderOnly(*widget.gpu, target) == S_OK, "Studio Clock benchmark warmup failed");
         target.context->Flush();
@@ -967,9 +967,9 @@ void RunBenchmark(const Exports& exports)
     LARGE_INTEGER start{};
     LARGE_INTEGER end{};
     QueryPerformanceFrequency(&frequency);
-    constexpr std::uint32_t frameCount = 256;
+    constexpr uint32_t frameCount = 256;
     QueryPerformanceCounter(&baselineStart);
-    for (std::uint32_t frame = 0; frame < frameCount; ++frame)
+    for (uint32_t frame = 0; frame < frameCount; ++frame)
     {
         ID3D11RenderTargetView* views[] = {target.view.get()};
         target.context->OMSetRenderTargets(1, views, nullptr);
@@ -978,7 +978,7 @@ void RunBenchmark(const Exports& exports)
     QueryPerformanceCounter(&baselineEnd);
     const PROCESS_MEMORY_COUNTERS_EX beforeMemory = ProcessMemory();
     QueryPerformanceCounter(&start);
-    for (std::uint32_t frame = 0; frame < frameCount; ++frame)
+    for (uint32_t frame = 0; frame < frameCount; ++frame)
     {
         Expect(RenderOnly(*widget.gpu, target) == S_OK, "Studio Clock benchmark render failed");
         target.context->Flush();
@@ -1006,7 +1006,7 @@ void RunBenchmark(const Exports& exports)
     widget.gpu->OnDeviceLost();
 }
 
-void RunSoak(const Exports& exports, std::uint32_t seconds)
+void RunSoak(const Exports& exports, uint32_t seconds)
 {
     RenderTarget target;
     Expect(CreateRenderTarget(2560, 720, target) == S_OK, "Studio Clock soak target failed");
@@ -1019,10 +1019,10 @@ void RunSoak(const Exports& exports, std::uint32_t seconds)
     Expect(RenderOnly(*widget.gpu, target) == S_OK, "Studio Clock soak first render failed");
     const PROCESS_MEMORY_COUNTERS_EX beforeMemory = ProcessMemory();
     const ULONGLONG finish = GetTickCount64() + static_cast<ULONGLONG>(seconds) * 1000ULL;
-    std::uint32_t frames = 1;
+    uint32_t frames = 1;
     while (GetTickCount64() < finish)
     {
-        std::uint32_t delay = 0;
+        uint32_t delay = 0;
         Expect(widget.scheduled->GetNextFrameDelayMilliseconds(&delay) == S_OK && delay >= 2 && delay <= 1001,
                "Studio Clock soak schedule failed");
         Sleep(delay);
@@ -1061,12 +1061,12 @@ void WriteSnapshot(const Exports& exports, const std::filesystem::path& path, bo
     const std::vector<std::uint8_t> source = RenderAndReadback(*widget.gpu, target);
 
     std::vector<std::uint8_t> bitmap(source.size());
-    const std::size_t rowBytes = static_cast<std::size_t>(target.width) * 4U;
-    for (std::uint32_t row = 0; row < target.height; ++row)
+    const size_t rowBytes = static_cast<size_t>(target.width) * 4U;
+    for (uint32_t row = 0; row < target.height; ++row)
     {
-        const std::uint8_t* sourceRow = source.data() + static_cast<std::size_t>(target.height - row - 1U) * rowBytes;
-        std::uint8_t* destinationRow = bitmap.data() + static_cast<std::size_t>(row) * rowBytes;
-        for (std::uint32_t column = 0; column < target.width; ++column)
+        const std::uint8_t* sourceRow = source.data() + static_cast<size_t>(target.height - row - 1U) * rowBytes;
+        std::uint8_t* destinationRow = bitmap.data() + static_cast<size_t>(row) * rowBytes;
+        for (uint32_t column = 0; column < target.width; ++column)
         {
             destinationRow[column * 4U] = sourceRow[column * 4U + 2U];
             destinationRow[column * 4U + 1U] = sourceRow[column * 4U + 1U];
@@ -1097,7 +1097,7 @@ void WriteSnapshot(const Exports& exports, const std::filesystem::path& path, bo
     widget.gpu->OnDeviceLost();
 }
 
-void Run(std::uint32_t soakSeconds, bool benchmark, const std::filesystem::path& snapshotPath,
+void Run(uint32_t soakSeconds, bool benchmark, const std::filesystem::path& snapshotPath,
          const std::filesystem::path& noDateSnapshotPath)
 {
     const std::filesystem::path pluginPath = PluginPath();
@@ -1155,7 +1155,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     try
     {
         bool benchmark = false;
-        std::uint32_t soakSeconds = 0;
+        uint32_t soakSeconds = 0;
         std::filesystem::path snapshotPath;
         std::filesystem::path noDateSnapshotPath;
         for (int index = 1; index < argumentCount; ++index)
@@ -1169,7 +1169,7 @@ int wmain(int argumentCount, wchar_t** arguments)
             {
                 const unsigned long parsed = std::wcstoul(arguments[++index], nullptr, 10);
                 Expect(parsed > 0 && parsed <= 3600, "invalid Studio Clock soak duration");
-                soakSeconds = static_cast<std::uint32_t>(parsed);
+                soakSeconds = static_cast<uint32_t>(parsed);
             }
             else if (argument == L"--snapshot" && index + 1 < argumentCount)
             {

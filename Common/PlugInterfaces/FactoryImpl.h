@@ -70,9 +70,9 @@ struct RedXeFactoryEntry final
 }
 
 [[nodiscard]] inline HRESULT RedXeEnumerateFactoryMetadata(const RedXePluginMetadata* availableMetadata,
-                                                           std::uint32_t metadataCount,
+                                                           uint32_t metadataCount,
                                                            const RedXePluginMetadata** metadata,
-                                                           std::uint32_t* count) noexcept
+                                                           uint32_t* count) noexcept
 {
     if (metadata)
     {
@@ -97,7 +97,7 @@ struct RedXeFactoryEntry final
     return S_OK;
 }
 
-[[nodiscard]] inline HRESULT RedXeCreateFromFactoryEntries(const RedXeFactoryEntry* entries, std::uint32_t entryCount,
+[[nodiscard]] inline HRESULT RedXeCreateFromFactoryEntries(const RedXeFactoryEntry* entries, uint32_t entryCount,
                                                            REFIID interfaceId, const RedXeFactoryOptions* options,
                                                            IRedXeHost* host, const char* pluginId,
                                                            void** result) noexcept
@@ -122,7 +122,7 @@ struct RedXeFactoryEntry final
     {
         return E_INVALIDARG;
     }
-    for (std::uint32_t index = 0; index < entryCount; ++index)
+    for (uint32_t index = 0; index < entryCount; ++index)
     {
         const RedXePluginMetadata* candidate = entries[index].metadata;
         if (candidate && candidate->id && RedXeAsciiEqualsIgnoreCase(candidate->id, pluginId))

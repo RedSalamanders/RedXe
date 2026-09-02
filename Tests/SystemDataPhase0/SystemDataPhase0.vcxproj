@@ -9,13 +9,13 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{B8571A4E-A8C8-4A68-A99C-80F0505F0E5F}</ProjectGuid>
-    <RootNamespace>SystemData</RootNamespace>
+    <ProjectGuid>{7F3A9C2E-1B84-4D5A-A6E0-9C8B2D4F1E70}</ProjectGuid>
+    <RootNamespace>SystemDataPhase0</RootNamespace>
     <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Label="Configuration">
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
     <UseDebugLibraries Condition="'$(Configuration)'!='Debug'">false</UseDebugLibraries>
     <PlatformToolset>v145</PlatformToolset>
@@ -30,16 +30,16 @@
             Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
-  <PropertyGroup>
-    <OutDir>$(RedXeBuildRoot)$(Platform)\$(Configuration)\Plugins\</OutDir>
-  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
-    <Link><AdditionalDependencies>psapi.lib;iphlpapi.lib;setupapi.lib;dxgi.lib;pdh.lib;powrprof.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>psapi.lib;pdh.lib;advapi32.lib;dxgi.lib;setupapi.lib;iphlpapi.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
     <ClCompile>
@@ -50,28 +50,27 @@
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
+      <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>psapi.lib;iphlpapi.lib;setupapi.lib;dxgi.lib;pdh.lib;powrprof.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>psapi.lib;pdh.lib;advapi32.lib;dxgi.lib;setupapi.lib;iphlpapi.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="GpuQuery.cpp" />
-    <ClCompile Include="NativeQuery.cpp" />
-    <ClCompile Include="NetStorage.cpp" />
-    <ClCompile Include="PowerSensors.cpp" />
-    <ClCompile Include="SystemData.cpp" />
+    <ClCompile Include="SystemDataPhase0.cpp" />
+    <ClCompile Include="SystemDataPhase0Surfaces.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="GpuQuery.h" />
-    <ClInclude Include="NativeQuery.h" />
-    <ClInclude Include="NetStorage.h" />
-    <ClInclude Include="PowerSensors.h" />
+    <ClInclude Include="SystemDataPhase0.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Data.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
-    <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h" />
-    <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />
-    <ClInclude Include="SystemDataTestContract.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Plugins\SystemData\SystemData.vcxproj">
+      <Project>{B8571A4E-A8C8-4A68-A99C-80F0505F0E5F}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

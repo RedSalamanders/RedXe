@@ -182,10 +182,10 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
     return S_OK;
 }
 
-[[nodiscard]] std::size_t CountGpuWidgets(const PluginManager& plugins) noexcept
+[[nodiscard]] size_t CountGpuWidgets(const PluginManager& plugins) noexcept
 {
-    std::size_t count = 0;
-    for (std::size_t index = 0; index < plugins.WidgetCount(); ++index)
+    size_t count = 0;
+    for (size_t index = 0; index < plugins.WidgetCount(); ++index)
     {
         count += plugins.GpuWidgetAt(index) ? 1U : 0U;
     }
@@ -207,12 +207,12 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
     }
     plugin->enabled = false;
 
-    std::uint32_t pageWrite = 0;
-    for (std::uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
+    uint32_t pageWrite = 0;
+    for (uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
     {
         DashboardPageSettings page = settings.dashboard.pages[pageIndex];
-        std::uint32_t widgetWrite = 0;
-        for (std::uint32_t widgetIndex = 0; widgetIndex < page.widgetCount; ++widgetIndex)
+        uint32_t widgetWrite = 0;
+        for (uint32_t widgetIndex = 0; widgetIndex < page.widgetCount; ++widgetIndex)
         {
             if (!SettingsIdEquals(page.widgets[widgetIndex].pluginId.View(), pluginId))
             {
@@ -376,7 +376,7 @@ int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsP
 
     if (selfTest)
     {
-        const std::size_t expectedGpuWidgetCount = CountGpuWidgets(_pluginManager);
+        const size_t expectedGpuWidgetCount = CountGpuWidgets(_pluginManager);
         result = _renderer.Render(0.0f, 0.0f);
         if (FAILED(result) || _renderer.LastFrameWidgetCount() != expectedGpuWidgetCount ||
             _renderer.LastFrameSuccessfulWidgetCount() != expectedGpuWidgetCount ||
@@ -388,8 +388,8 @@ int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsP
             return 6;
         }
 
-        const std::uint32_t pageCount = _settings->dashboard.pageCount;
-        for (std::uint32_t page = 1; page < pageCount; ++page)
+        const uint32_t pageCount = _settings->dashboard.pageCount;
+        for (uint32_t page = 1; page < pageCount; ++page)
         {
             std::unique_ptr<AppSettings> changed{new (std::nothrow) AppSettings{*_settings}};
             if (!changed)
@@ -401,7 +401,7 @@ int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsP
                 result = ApplySettings(std::move(changed));
             if (SUCCEEDED(result))
                 result = _renderer.Render(0.0f, 0.0f);
-            const std::size_t changedGpuWidgetCount = CountGpuWidgets(_pluginManager);
+            const size_t changedGpuWidgetCount = CountGpuWidgets(_pluginManager);
             if (FAILED(result) || _renderer.LastFrameWidgetCount() != changedGpuWidgetCount ||
                 _renderer.LastFrameSuccessfulWidgetCount() != changedGpuWidgetCount)
             {
@@ -1106,8 +1106,8 @@ void Application::RefreshScheduledFrameDeadline() noexcept
         return;
     }
 
-    std::uint32_t earliest = 0;
-    std::uint32_t candidate = 0;
+    uint32_t earliest = 0;
+    uint32_t candidate = 0;
     if (_dashboardHost.GetNextFrameDelayMilliseconds(&candidate) == S_OK)
     {
         earliest = candidate;

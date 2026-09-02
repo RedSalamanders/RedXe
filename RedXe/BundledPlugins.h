@@ -39,7 +39,7 @@ inline constexpr std::array kRedXeBundledWidgets{
 template <typename Character>
 consteval bool RedXeBundledTextEquals(const Character* left, const Character* right) noexcept
 {
-    std::size_t index = 0;
+    size_t index = 0;
     while (left[index] != static_cast<Character>(0) && right[index] != static_cast<Character>(0))
     {
         if (left[index] != right[index])
@@ -53,7 +53,7 @@ consteval bool RedXeBundledTextEquals(const Character* left, const Character* ri
 
 consteval bool RedXeBundledPluginCatalogIsValid() noexcept
 {
-    for (std::size_t index = 0; index < kRedXeBundledPlugins.size(); ++index)
+    for (size_t index = 0; index < kRedXeBundledPlugins.size(); ++index)
     {
         const RedXeBundledPluginSpec& candidate = kRedXeBundledPlugins[index];
         if (!candidate.pluginId || candidate.pluginId[0] == '\0' || !candidate.moduleName ||
@@ -61,7 +61,7 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
         {
             return false;
         }
-        for (std::size_t previous = 0; previous < index; ++previous)
+        for (size_t previous = 0; previous < index; ++previous)
         {
             const RedXeBundledPluginSpec& earlier = kRedXeBundledPlugins[previous];
             if (RedXeBundledTextEquals(candidate.pluginId, earlier.pluginId) ||
@@ -72,7 +72,7 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
         }
     }
 
-    for (std::size_t index = 0; index < kRedXeBundledWidgets.size(); ++index)
+    for (size_t index = 0; index < kRedXeBundledWidgets.size(); ++index)
     {
         const RedXeBundledWidgetSpec& candidate = kRedXeBundledWidgets[index];
         if (!candidate.pluginId || candidate.pluginId[0] == '\0' || !candidate.typeId || candidate.typeId[0] == '\0')
@@ -88,7 +88,7 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
         {
             return false;
         }
-        for (std::size_t previous = 0; previous < index; ++previous)
+        for (size_t previous = 0; previous < index; ++previous)
         {
             const RedXeBundledWidgetSpec& earlier = kRedXeBundledWidgets[previous];
             if (RedXeBundledTextEquals(candidate.pluginId, earlier.pluginId) ||

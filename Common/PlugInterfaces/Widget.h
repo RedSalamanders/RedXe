@@ -9,7 +9,7 @@
 // Every sizeBytes field must equal the current record's sizeof value.
 
 // Scheduling behavior advertised by a widget type.
-enum RedXeWidgetFlags : std::uint32_t
+enum RedXeWidgetFlags : uint32_t
 {
     RedXeWidgetFlagNone = 0,
     RedXeWidgetFlagContinuousAnimation = 1U << 0U,
@@ -18,7 +18,7 @@ enum RedXeWidgetFlags : std::uint32_t
 // Module-owned metadata for one creatable widget type.
 struct RedXeWidgetTypeDescriptor final
 {
-    std::uint32_t sizeBytes;
+    uint32_t sizeBytes;
     const char* typeId;
     const wchar_t* displayName;
     const wchar_t* description;
@@ -26,16 +26,16 @@ struct RedXeWidgetTypeDescriptor final
     float defaultHeight;
     float minimumWidth;
     float minimumHeight;
-    std::uint32_t flags;
+    uint32_t flags;
 };
 
 // Borrowed pixel size and timing for one widget render call.
 struct RedXeWidgetFrameContext final
 {
-    std::uint32_t sizeBytes;
-    std::uint32_t widthPixels;
-    std::uint32_t heightPixels;
-    std::uint32_t dpi;
+    uint32_t sizeBytes;
+    uint32_t widthPixels;
+    uint32_t heightPixels;
+    uint32_t dpi;
     float elapsedSeconds;
     float deltaSeconds;
 };
@@ -43,7 +43,7 @@ struct RedXeWidgetFrameContext final
 // Borrowed D3D11 device details supplied during device-resource creation.
 struct RedXeGpuDeviceContext final
 {
-    std::uint32_t sizeBytes;
+    uint32_t sizeBytes;
     ID3D11Device* device;
     DXGI_FORMAT targetFormat;
     D3D_FEATURE_LEVEL featureLevel;
@@ -52,7 +52,7 @@ struct RedXeGpuDeviceContext final
 // Borrowed D3D11 state supplied for one widget render call.
 struct RedXeGpuFrameContext final
 {
-    std::uint32_t sizeBytes;
+    uint32_t sizeBytes;
     const RedXeWidgetFrameContext* widget;
     ID3D11DeviceContext* deviceContext;
     D3D11_VIEWPORT viewport;
@@ -61,23 +61,23 @@ struct RedXeGpuFrameContext final
 // Borrowed host child-window details supplied during attachment.
 struct RedXeWindowWidgetAttachContext final
 {
-    std::uint32_t sizeBytes;
+    uint32_t sizeBytes;
     HWND container;
-    std::uint32_t widthPixels;
-    std::uint32_t heightPixels;
-    std::uint32_t dpi;
+    uint32_t widthPixels;
+    uint32_t heightPixels;
+    uint32_t dpi;
 };
 
 // Borrowed pixel size and DPI supplied after container resize.
 struct RedXeWindowWidgetSizeContext final
 {
-    std::uint32_t sizeBytes;
-    std::uint32_t widthPixels;
-    std::uint32_t heightPixels;
-    std::uint32_t dpi;
+    uint32_t sizeBytes;
+    uint32_t widthPixels;
+    uint32_t heightPixels;
+    uint32_t dpi;
 };
 
-inline constexpr std::uint32_t kRedXeMaximumScheduledFrameDelayMilliseconds = 86'400'000U;
+inline constexpr uint32_t kRedXeMaximumScheduledFrameDelayMilliseconds = 86'400'000U;
 
 // Generic widget identity and visibility; rendering mechanisms are sibling interfaces.
 interface __declspec(uuid("62DB9FB4-AF7B-47C0-BBF9-B7D5CA535502")) __declspec(novtable) IRedXeWidget : IUnknown
@@ -90,7 +90,7 @@ interface __declspec(uuid("62DB9FB4-AF7B-47C0-BBF9-B7D5CA535502")) __declspec(no
 interface __declspec(uuid("231AC0E8-1204-4BFF-BCEA-7CACF11F439D")) __declspec(novtable) IRedXeWidgetProvider : IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                                     std::uint32_t* count) noexcept = 0;
+                                                     uint32_t* count) noexcept = 0;
     virtual HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId,
                                                    IRedXeWidget** widget) noexcept = 0;
 };
@@ -106,7 +106,7 @@ interface __declspec(uuid("DBEED29C-63EB-409E-816B-F4BDC5EF7AA9")) __declspec(no
 // Optional low-cadence frame deadline mechanism.
 interface __declspec(uuid("1B6B4F9E-5421-4B4E-BC2D-190EE6CE86CB")) __declspec(novtable) IRedXeScheduledWidget : IUnknown
 {
-    virtual HRESULT STDMETHODCALLTYPE GetNextFrameDelayMilliseconds(std::uint32_t* delayMilliseconds) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetNextFrameDelayMilliseconds(uint32_t* delayMilliseconds) noexcept = 0;
 };
 
 // Native child-window rendering mechanism; the host owns the container.

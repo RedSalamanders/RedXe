@@ -38,11 +38,11 @@ class Renderer final
     HRESULT ProbeOcclusion() noexcept;
     [[nodiscard]] bool IsSuspended() const noexcept;
     [[nodiscard]] bool IsOccluded() const noexcept;
-    [[nodiscard]] std::size_t LastFrameWidgetCount() const noexcept;
-    [[nodiscard]] std::size_t LastFrameSuccessfulWidgetCount() const noexcept;
+    [[nodiscard]] size_t LastFrameWidgetCount() const noexcept;
+    [[nodiscard]] size_t LastFrameSuccessfulWidgetCount() const noexcept;
 
   private:
-    static constexpr std::size_t kMaximumWidgetViewports = 32;
+    static constexpr size_t kMaximumWidgetViewports = 32;
     static constexpr DXGI_FORMAT kTargetFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 
     HRESULT CreateDeviceResources() noexcept;
@@ -69,8 +69,8 @@ class Renderer final
     UINT _height = 0;
     UINT _dpi = USER_DEFAULT_SCREEN_DPI;
     D3D_FEATURE_LEVEL _featureLevel = D3D_FEATURE_LEVEL_11_0;
-    std::size_t _lastFrameWidgetCount = 0;
-    std::size_t _lastFrameSuccessfulWidgetCount = 0;
+    size_t _lastFrameWidgetCount = 0;
+    size_t _lastFrameSuccessfulWidgetCount = 0;
 
     std::array<D3D11_VIEWPORT, kMaximumWidgetViewports> _widgetViewports{};
     std::array<D3D11_VIEWPORT, kMaximumWidgetViewports> _transitionWidgetViewports{};

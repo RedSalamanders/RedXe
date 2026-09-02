@@ -11,8 +11,8 @@
 
 namespace
 {
-constexpr std::size_t kInitialPathCapacity = 512;
-constexpr std::size_t kMaximumPathCapacity = 32768;
+constexpr size_t kInitialPathCapacity = 512;
+constexpr size_t kMaximumPathCapacity = 32768;
 
 template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE module, const char* name) noexcept
 {
@@ -23,13 +23,13 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     return function;
 }
 
-[[nodiscard]] std::size_t FindBundledPluginIndex(const char* pluginId) noexcept
+[[nodiscard]] size_t FindBundledPluginIndex(const char* pluginId) noexcept
 {
     if (!RedXeIsValidMachineId(pluginId))
     {
         return kRedXeBundledPlugins.size();
     }
-    for (std::size_t index = 0; index < kRedXeBundledPlugins.size(); ++index)
+    for (size_t index = 0; index < kRedXeBundledPlugins.size(); ++index)
     {
         const RedXeBundledPluginSpec& candidate = kRedXeBundledPlugins[index];
         if (RedXeAsciiEqualsIgnoreCase(candidate.pluginId, pluginId))
@@ -40,10 +40,10 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     return kRedXeBundledPlugins.size();
 }
 
-[[nodiscard]] HRESULT BuildPluginPath(const wchar_t* moduleName, wchar_t* path, std::size_t capacity) noexcept
+[[nodiscard]] HRESULT BuildPluginPath(const wchar_t* moduleName, wchar_t* path, size_t capacity) noexcept
 {
     if (!moduleName || moduleName[0] == L'\0' || !path || capacity == 0 ||
-        capacity > static_cast<std::size_t>(MAXDWORD))
+        capacity > static_cast<size_t>(MAXDWORD))
     {
         return E_INVALIDARG;
     }
@@ -63,7 +63,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     {
         return HRESULT_FROM_WIN32(ERROR_BAD_PATHNAME);
     }
-    const std::size_t prefixLength = static_cast<std::size_t>(separator - path) + 1;
+    const size_t prefixLength = static_cast<size_t>(separator - path) + 1;
     HRESULT result = StringCchCopyW(separator + 1, capacity - prefixLength, L"Plugins\\");
     if (FAILED(result))
     {
@@ -72,8 +72,8 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     return StringCchCatW(separator + 1, capacity - prefixLength, moduleName);
 }
 
-[[nodiscard]] HRESULT ValidateMetadata(const RedXePluginMetadata* metadata, std::uint32_t count,
-                                       const char* expectedPluginId, std::uint32_t& capabilities) noexcept
+[[nodiscard]] HRESULT ValidateMetadata(const RedXePluginMetadata* metadata, uint32_t count,
+                                       const char* expectedPluginId, uint32_t& capabilities) noexcept
 {
     capabilities = RedXePluginCapabilityNone;
     if (!metadata || count == 0 || count > 256 || !RedXeIsValidMachineId(expectedPluginId))
@@ -82,7 +82,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     }
 
     bool selected = false;
-    for (std::uint32_t index = 0; index < count; ++index)
+    for (uint32_t index = 0; index < count; ++index)
     {
         const RedXePluginMetadata& candidate = metadata[index];
         if (candidate.sizeBytes != sizeof(RedXePluginMetadata) || !RedXeIsValidMachineId(candidate.id) ||
@@ -91,7 +91,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        for (std::uint32_t previous = 0; previous < index; ++previous)
+        for (uint32_t previous = 0; previous < index; ++previous)
         {
             if (RedXeAsciiEqualsIgnoreCase(metadata[previous].id, candidate.id))
             {
@@ -107,20 +107,101 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     return selected ? S_OK : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
 
-[[nodiscard]] DWORD WaitMilliseconds(std::uint64_t now, std::uint64_t due) noexcept
+[[nodiscard]] int CompareDueDataSetIds(const char* left, const char* right) noexcept
+{
+    const bool leftStatus = left != nullptr && RedXeAsciiEqualsIgnoreCase(left, "source.status");
+    const bool rightStatus = right != nullptr && RedXeAsciiEqualsIgnoreCase(right, "source.status");
+    if (leftStatus != rightStatus)
+    {
+        return leftStatus ? 1 : -1;
+    }
+    if (!left)
+    {
+        return right ? -1 : 0;
+    }
+    if (!right)
+    {
+        return 1;
+    }
+    while (*left != '\0' && *right != '\0')
+    {
+        unsigned char leftValue = static_cast<unsigned char>(*left);
+        unsigned char rightValue = static_cast<unsigned char>(*right);
+        if (leftValue >= 'A' && leftValue <= 'Z')
+        {
+            leftValue = static_cast<unsigned char>(leftValue - 'A' + 'a');
+        }
+        if (rightValue >= 'A' && rightValue <= 'Z')
+        {
+            rightValue = static_cast<unsigned char>(rightValue - 'A' + 'a');
+        }
+        if (leftValue != rightValue)
+        {
+            return leftValue < rightValue ? -1 : 1;
+        }
+        ++left;
+        ++right;
+    }
+    if (*left == *right)
+    {
+        return 0;
+    }
+    return *left == '\0' ? -1 : 1;
+}
+
+void SortDueDataSets(std::array<const char*, RedXeDataCollectMaximumDataSets>& ids,
+                     std::array<uint32_t, RedXeDataCollectMaximumDataSets>& indices, uint32_t count) noexcept
+{
+    for (uint32_t index = 1; index < count; ++index)
+    {
+        const char* id = ids[index];
+        const uint32_t dataSetIndex = indices[index];
+        uint32_t insert = index;
+        while (insert > 0 && CompareDueDataSetIds(ids[insert - 1], id) > 0)
+        {
+            ids[insert] = ids[insert - 1];
+            indices[insert] = indices[insert - 1];
+            --insert;
+        }
+        ids[insert] = id;
+        indices[insert] = dataSetIndex;
+    }
+}
+
+[[nodiscard]] bool CollectResultMatchesRequest(const RedXeDataCollectRequest& request,
+                                               const RedXeDataCollectResult* result) noexcept
+{
+    if (!result || result->sizeBytes != sizeof(RedXeDataCollectResult) ||
+        result->snapshotCount != request.dataSetCount || !result->snapshots)
+    {
+        return false;
+    }
+    for (uint32_t index = 0; index < request.dataSetCount; ++index)
+    {
+        const RedXeDataSnapshot* snapshot = result->snapshots[index];
+        if (!snapshot || snapshot->sizeBytes != sizeof(RedXeDataSnapshot) || !snapshot->dataSetId ||
+            !RedXeAsciiEqualsIgnoreCase(snapshot->dataSetId, request.dataSetIds[index]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] DWORD WaitMilliseconds(uint64_t now, uint64_t due) noexcept
 {
     if (due <= now)
     {
         return 0;
     }
-    return static_cast<DWORD>(std::min<std::uint64_t>(due - now, MAXDWORD - 1ULL));
+    return static_cast<DWORD>(std::min<uint64_t>(due - now, MAXDWORD - 1ULL));
 }
 } // namespace
 
 class PluginHost::DataProvider final : public IRedXeDataProvider
 {
   public:
-    DataProvider(PluginHost& host, std::size_t providerIndex) noexcept : _host(&host), _providerIndex(providerIndex) {}
+    DataProvider(PluginHost& host, size_t providerIndex) noexcept : _host(&host), _providerIndex(providerIndex) {}
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
     {
@@ -154,7 +235,7 @@ class PluginHost::DataProvider final : public IRedXeDataProvider
     }
 
     HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors,
-                                          std::uint32_t* count) noexcept override
+                                          uint32_t* count) noexcept override
     {
         return _host ? _host->GetDataSets(_providerIndex, descriptors, count) : E_UNEXPECTED;
     }
@@ -168,13 +249,13 @@ class PluginHost::DataProvider final : public IRedXeDataProvider
   private:
     std::atomic<ULONG> _references{1};
     PluginHost* _host;
-    std::size_t _providerIndex;
+    size_t _providerIndex;
 };
 
 class PluginHost::Subscription final : public IRedXeDataSubscription
 {
   public:
-    Subscription(PluginHost& host, std::size_t index, std::uint64_t token) noexcept
+    Subscription(PluginHost& host, size_t index, uint64_t token) noexcept
         : _host(&host), _index(index), _token(token)
     {
     }
@@ -226,8 +307,8 @@ class PluginHost::Subscription final : public IRedXeDataSubscription
   private:
     std::atomic<ULONG> _references{1};
     PluginHost* _host;
-    std::size_t _index;
-    std::uint64_t _token;
+    size_t _index;
+    uint64_t _token;
 };
 
 PluginHost::~PluginHost()
@@ -277,7 +358,7 @@ HRESULT PluginHost::LoadModule(const RedXeBundledPluginSpec& spec, ModuleSlot& s
     std::array<wchar_t, kInitialPathCapacity> shortPath{};
     std::unique_ptr<wchar_t[]> longPath;
     wchar_t* pluginPath = shortPath.data();
-    std::size_t pathCapacity = shortPath.size();
+    size_t pathCapacity = shortPath.size();
     HRESULT result = BuildPluginPath(spec.moduleName, pluginPath, pathCapacity);
     if (result == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER))
     {
@@ -311,9 +392,9 @@ HRESULT PluginHost::LoadModule(const RedXeBundledPluginSpec& spec, ModuleSlot& s
     }
 
     const RedXePluginMetadata* metadata = nullptr;
-    std::uint32_t metadataCount = 0;
+    uint32_t metadataCount = 0;
     result = enumerate(&metadata, &metadataCount);
-    std::uint32_t capabilities = RedXePluginCapabilityNone;
+    uint32_t capabilities = RedXePluginCapabilityNone;
     if (SUCCEEDED(result))
     {
         result = ValidateMetadata(metadata, metadataCount, spec.pluginId, capabilities);
@@ -333,7 +414,7 @@ HRESULT PluginHost::LoadModule(const RedXeBundledPluginSpec& spec, ModuleSlot& s
     return S_OK;
 }
 
-HRESULT PluginHost::GetPluginModule(const char* pluginId, std::uint32_t requiredCapabilities,
+HRESULT PluginHost::GetPluginModule(const char* pluginId, uint32_t requiredCapabilities,
                                     ModuleView* module) noexcept
 {
     if (module)
@@ -344,7 +425,7 @@ HRESULT PluginHost::GetPluginModule(const char* pluginId, std::uint32_t required
     {
         return E_POINTER;
     }
-    const std::size_t pluginIndex = FindBundledPluginIndex(pluginId);
+    const size_t pluginIndex = FindBundledPluginIndex(pluginId);
     if (pluginIndex >= kRedXeBundledPlugins.size())
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
@@ -377,7 +458,7 @@ HRESULT PluginHost::ValidateDataSets(ProviderRuntime& runtime) noexcept
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    for (std::uint32_t index = 0; index < runtime.descriptorCount; ++index)
+    for (uint32_t index = 0; index < runtime.descriptorCount; ++index)
     {
         const RedXeDataSetDescriptor& descriptor = runtime.descriptors[index];
         if (descriptor.sizeBytes != sizeof(RedXeDataSetDescriptor) || !RedXeIsValidMachineId(descriptor.dataSetId) ||
@@ -388,14 +469,14 @@ HRESULT PluginHost::ValidateDataSets(ProviderRuntime& runtime) noexcept
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        for (std::uint32_t previous = 0; previous < index; ++previous)
+        for (uint32_t previous = 0; previous < index; ++previous)
         {
             if (RedXeAsciiEqualsIgnoreCase(runtime.descriptors[previous].dataSetId, descriptor.dataSetId))
             {
                 return HRESULT_FROM_WIN32(ERROR_DUP_NAME);
             }
         }
-        for (std::uint32_t columnIndex = 0; columnIndex < descriptor.columnCount; ++columnIndex)
+        for (uint32_t columnIndex = 0; columnIndex < descriptor.columnCount; ++columnIndex)
         {
             const RedXeDataColumnDescriptor& column = descriptor.columns[columnIndex];
             if (column.sizeBytes != sizeof(RedXeDataColumnDescriptor) || !RedXeIsValidMachineId(column.columnId) ||
@@ -404,7 +485,7 @@ HRESULT PluginHost::ValidateDataSets(ProviderRuntime& runtime) noexcept
             {
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
-            for (std::uint32_t previous = 0; previous < columnIndex; ++previous)
+            for (uint32_t previous = 0; previous < columnIndex; ++previous)
             {
                 if (RedXeAsciiEqualsIgnoreCase(descriptor.columns[previous].columnId, column.columnId))
                 {
@@ -417,7 +498,7 @@ HRESULT PluginHost::ValidateDataSets(ProviderRuntime& runtime) noexcept
     return S_OK;
 }
 
-HRESULT PluginHost::EnsureProvider(const char* providerId, std::size_t& providerIndex) noexcept
+HRESULT PluginHost::EnsureProvider(const char* providerId, size_t& providerIndex) noexcept
 {
     providerIndex = _providers.size();
     if (!RedXeIsValidMachineId(providerId))
@@ -426,7 +507,7 @@ HRESULT PluginHost::EnsureProvider(const char* providerId, std::size_t& provider
     }
 
     AcquireSRWLockShared(&_subscriptionLock);
-    for (std::size_t index = 0; index < _providerCount; ++index)
+    for (size_t index = 0; index < _providerCount; ++index)
     {
         if (RedXeAsciiEqualsIgnoreCase(_providers[index].providerId, providerId))
         {
@@ -460,7 +541,7 @@ HRESULT PluginHost::EnsureProvider(const char* providerId, std::size_t& provider
         return FAILED(result) ? result : E_UNEXPECTED;
     }
     runtime.source.attach(static_cast<IRedXeDataSource*>(sourceObject));
-    const std::size_t pluginIndex = FindBundledPluginIndex(providerId);
+    const size_t pluginIndex = FindBundledPluginIndex(providerId);
     runtime.providerId = kRedXeBundledPlugins[pluginIndex].pluginId;
     result = runtime.source->GetDataSets(&runtime.descriptors, &runtime.descriptorCount);
     if (SUCCEEDED(result))
@@ -472,7 +553,7 @@ HRESULT PluginHost::EnsureProvider(const char* providerId, std::size_t& provider
         return result;
     }
 
-    const std::size_t newIndex = _providerCount;
+    const size_t newIndex = _providerCount;
     auto* provider = new (std::nothrow) DataProvider(*this, newIndex);
     if (!provider)
     {
@@ -499,7 +580,7 @@ HRESULT PluginHost::GetDataProvider(const char* providerId, IRedXeDataProvider**
         return E_POINTER;
     }
 
-    std::size_t providerIndex = 0;
+    size_t providerIndex = 0;
     const HRESULT result = EnsureProvider(providerId, providerIndex);
     if (FAILED(result))
     {
@@ -509,8 +590,8 @@ HRESULT PluginHost::GetDataProvider(const char* providerId, IRedXeDataProvider**
                                                               reinterpret_cast<void**>(provider));
 }
 
-HRESULT PluginHost::GetDataSets(std::size_t providerIndex, const RedXeDataSetDescriptor** descriptors,
-                                std::uint32_t* count) noexcept
+HRESULT PluginHost::GetDataSets(size_t providerIndex, const RedXeDataSetDescriptor** descriptors,
+                                uint32_t* count) noexcept
 {
     if (descriptors)
     {
@@ -568,7 +649,7 @@ HRESULT PluginHost::EnsureWorker() noexcept
     return S_OK;
 }
 
-HRESULT PluginHost::Subscribe(std::size_t providerIndex, const RedXeDataSubscriptionOptions* options,
+HRESULT PluginHost::Subscribe(size_t providerIndex, const RedXeDataSubscriptionOptions* options,
                               IRedXeDataSink* sink, IRedXeDataSubscription** subscription) noexcept
 {
     if (subscription)
@@ -588,8 +669,8 @@ HRESULT PluginHost::Subscribe(std::size_t providerIndex, const RedXeDataSubscrip
     }
 
     ProviderRuntime& runtime = _providers[providerIndex];
-    std::size_t dataSetIndex = runtime.descriptorCount;
-    for (std::size_t index = 0; index < runtime.descriptorCount; ++index)
+    size_t dataSetIndex = runtime.descriptorCount;
+    for (size_t index = 0; index < runtime.descriptorCount; ++index)
     {
         if (RedXeAsciiEqualsIgnoreCase(runtime.descriptors[index].dataSetId, options->dataSetId))
         {
@@ -616,8 +697,8 @@ HRESULT PluginHost::Subscribe(std::size_t providerIndex, const RedXeDataSubscrip
     }
 
     AcquireSRWLockExclusive(&_subscriptionLock);
-    std::size_t index = _subscriptions.size();
-    for (std::size_t candidate = 0; candidate < _subscriptions.size(); ++candidate)
+    size_t index = _subscriptions.size();
+    for (size_t candidate = 0; candidate < _subscriptions.size(); ++candidate)
     {
         if (!_subscriptions[candidate].sink)
         {
@@ -631,7 +712,7 @@ HRESULT PluginHost::Subscribe(std::size_t providerIndex, const RedXeDataSubscrip
         return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
     }
 
-    std::uint64_t token = _nextToken++;
+    uint64_t token = _nextToken++;
     if (token == 0)
     {
         token = _nextToken++;
@@ -658,7 +739,7 @@ HRESULT PluginHost::Subscribe(std::size_t providerIndex, const RedXeDataSubscrip
     return S_OK;
 }
 
-HRESULT PluginHost::SetSubscriptionActive(std::size_t index, std::uint64_t token, bool active) noexcept
+HRESULT PluginHost::SetSubscriptionActive(size_t index, uint64_t token, bool active) noexcept
 {
     AcquireSRWLockExclusive(&_subscriptionLock);
     if (index >= _subscriptions.size() || !_subscriptions[index].sink || _subscriptions[index].token != token)
@@ -672,7 +753,7 @@ HRESULT PluginHost::SetSubscriptionActive(std::size_t index, std::uint64_t token
     return S_OK;
 }
 
-void PluginHost::RemoveSubscription(std::size_t index, std::uint64_t token) noexcept
+void PluginHost::RemoveSubscription(size_t index, uint64_t token) noexcept
 {
     wil::com_ptr_nothrow<IRedXeDataSink> sink;
     AcquireSRWLockExclusive(&_subscriptionLock);
@@ -689,7 +770,7 @@ void PluginHost::RemoveSubscription(std::size_t index, std::uint64_t token) noex
     }
 }
 
-void PluginHost::Deliver(std::size_t providerIndex, std::size_t dataSetIndex,
+void PluginHost::Deliver(size_t providerIndex, size_t dataSetIndex,
                          const RedXeDataSnapshot* snapshot) noexcept
 {
     if (!snapshot)
@@ -713,11 +794,11 @@ void PluginHost::Worker() noexcept
     for (;;)
     {
         AcquireSRWLockExclusive(&_subscriptionLock);
-        const std::size_t providerCount = _providerCount;
-        for (std::size_t providerIndex = 0; providerIndex < providerCount; ++providerIndex)
+        const size_t providerCount = _providerCount;
+        for (size_t providerIndex = 0; providerIndex < providerCount; ++providerIndex)
         {
             ProviderRuntime& provider = _providers[providerIndex];
-            for (std::size_t dataSetIndex = 0; dataSetIndex < provider.descriptorCount; ++dataSetIndex)
+            for (size_t dataSetIndex = 0; dataSetIndex < provider.descriptorCount; ++dataSetIndex)
             {
                 provider.dataSets[dataSetIndex].active = false;
                 provider.dataSets[dataSetIndex].activeIntervalMilliseconds = kMaximumSubscriptionIntervalMilliseconds;
@@ -737,11 +818,14 @@ void PluginHost::Worker() noexcept
         }
         ReleaseSRWLockExclusive(&_subscriptionLock);
 
-        const std::uint64_t now = GetTickCount64();
-        for (std::size_t providerIndex = 0; providerIndex < providerCount; ++providerIndex)
+        const uint64_t now = GetTickCount64();
+        for (size_t providerIndex = 0; providerIndex < providerCount; ++providerIndex)
         {
             ProviderRuntime& provider = _providers[providerIndex];
-            for (std::size_t dataSetIndex = 0; dataSetIndex < provider.descriptorCount; ++dataSetIndex)
+            std::array<const char*, RedXeDataCollectMaximumDataSets> dueIds{};
+            std::array<uint32_t, RedXeDataCollectMaximumDataSets> dueIndices{};
+            uint32_t dueCount = 0;
+            for (size_t dataSetIndex = 0; dataSetIndex < provider.descriptorCount; ++dataSetIndex)
             {
                 DataSetRuntime& dataSet = provider.dataSets[dataSetIndex];
                 if (!dataSet.active)
@@ -749,24 +833,47 @@ void PluginHost::Worker() noexcept
                     dataSet.due = 0;
                     continue;
                 }
-                if (dataSet.due == 0 || now >= dataSet.due)
+                if ((dataSet.due == 0 || now >= dataSet.due) && dueCount < RedXeDataCollectMaximumDataSets &&
+                    dataSet.descriptor && dataSet.descriptor->dataSetId)
                 {
-                    const RedXeDataSnapshot* snapshot = nullptr;
-                    if (SUCCEEDED(provider.source->CollectSnapshot(dataSet.descriptor->dataSetId, &snapshot)))
-                    {
-                        Deliver(providerIndex, dataSetIndex, snapshot);
-                    }
-                    dataSet.due = GetTickCount64() + dataSet.activeIntervalMilliseconds;
+                    dueIds[dueCount] = dataSet.descriptor->dataSetId;
+                    dueIndices[dueCount] = static_cast<uint32_t>(dataSetIndex);
+                    ++dueCount;
                 }
+            }
+            if (dueCount == 0)
+            {
+                continue;
+            }
+            SortDueDataSets(dueIds, dueIndices, dueCount);
+            const RedXeDataCollectRequest request{
+                sizeof(RedXeDataCollectRequest),
+                dueIds.data(),
+                dueCount,
+            };
+            const RedXeDataCollectResult* collectResult = nullptr;
+            if (SUCCEEDED(provider.source->CollectSnapshots(&request, &collectResult)) &&
+                CollectResultMatchesRequest(request, collectResult))
+            {
+                for (uint32_t index = 0; index < dueCount; ++index)
+                {
+                    Deliver(providerIndex, dueIndices[index], collectResult->snapshots[index]);
+                }
+            }
+            const uint64_t afterCollection = GetTickCount64();
+            for (uint32_t index = 0; index < dueCount; ++index)
+            {
+                DataSetRuntime& dataSet = provider.dataSets[dueIndices[index]];
+                dataSet.due = afterCollection + dataSet.activeIntervalMilliseconds;
             }
         }
 
         DWORD timeout = INFINITE;
-        const std::uint64_t afterCollection = GetTickCount64();
-        for (std::size_t providerIndex = 0; providerIndex < providerCount; ++providerIndex)
+        const uint64_t afterCollection = GetTickCount64();
+        for (size_t providerIndex = 0; providerIndex < providerCount; ++providerIndex)
         {
             ProviderRuntime& provider = _providers[providerIndex];
-            for (std::size_t dataSetIndex = 0; dataSetIndex < provider.descriptorCount; ++dataSetIndex)
+            for (size_t dataSetIndex = 0; dataSetIndex < provider.descriptorCount; ++dataSetIndex)
             {
                 const DataSetRuntime& dataSet = provider.dataSets[dataSetIndex];
                 if (dataSet.active)
@@ -784,10 +891,10 @@ void PluginHost::Worker() noexcept
         if (waitResult == WAIT_OBJECT_0 + 1)
         {
             AcquireSRWLockExclusive(&_subscriptionLock);
-            for (std::size_t providerIndex = 0; providerIndex < _providerCount; ++providerIndex)
+            for (size_t providerIndex = 0; providerIndex < _providerCount; ++providerIndex)
             {
                 ProviderRuntime& provider = _providers[providerIndex];
-                for (std::size_t dataSetIndex = 0; dataSetIndex < provider.descriptorCount; ++dataSetIndex)
+                for (size_t dataSetIndex = 0; dataSetIndex < provider.descriptorCount; ++dataSetIndex)
                 {
                     provider.dataSets[dataSetIndex].due = 0;
                 }
@@ -818,7 +925,7 @@ void PluginHost::StopDataService() noexcept
     {
         slot = SubscriptionSlot{};
     }
-    for (std::size_t index = _providerCount; index > 0; --index)
+    for (size_t index = _providerCount; index > 0; --index)
     {
         ProviderRuntime& provider = _providers[index - 1];
         provider.provider.reset();
@@ -832,7 +939,7 @@ void PluginHost::StopDataService() noexcept
 
 void PluginHost::ShutdownModules() noexcept
 {
-    for (std::size_t index = _modules.size(); index > 0; --index)
+    for (size_t index = _modules.size(); index > 0; --index)
     {
         ModuleSlot& slot = _modules[index - 1];
         if (slot.shutdown)

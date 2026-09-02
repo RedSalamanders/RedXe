@@ -3,9 +3,12 @@
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <cwchar>
 #include <filesystem>
 #include <iostream>
 #include <new>
@@ -55,10 +58,10 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     return std::filesystem::path(executable).parent_path() / L"Plugins" / L"SystemData.dll";
 }
 
-[[nodiscard]] const RedXeDataSetDescriptor* FindDataSet(const RedXeDataSetDescriptor* descriptors, std::uint32_t count,
+[[nodiscard]] const RedXeDataSetDescriptor* FindDataSet(const RedXeDataSetDescriptor* descriptors, uint32_t count,
                                                         const char* id)
 {
-    for (std::uint32_t index = 0; index < count; ++index)
+    for (uint32_t index = 0; index < count; ++index)
     {
         if (descriptors[index].dataSetId && RedXeAsciiEqualsIgnoreCase(descriptors[index].dataSetId, id))
         {
@@ -68,9 +71,9 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     return nullptr;
 }
 
-[[nodiscard]] std::uint32_t FindColumn(const RedXeDataSetDescriptor& descriptor, const char* id)
+[[nodiscard]] uint32_t FindColumn(const RedXeDataSetDescriptor& descriptor, const char* id)
 {
-    for (std::uint32_t index = 0; index < descriptor.columnCount; ++index)
+    for (uint32_t index = 0; index < descriptor.columnCount; ++index)
     {
         if (descriptor.columns[index].columnId && RedXeAsciiEqualsIgnoreCase(descriptor.columns[index].columnId, id))
         {
@@ -78,6 +81,34 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
         }
     }
     throw std::runtime_error("required data column is missing");
+}
+
+[[nodiscard]] HRESULT CollectOneSnapshot(IRedXeDataSource& source, const char* dataSetId,
+                                         const RedXeDataSnapshot** snapshot)
+{
+    if (snapshot)
+    {
+        *snapshot = nullptr;
+    }
+    if (!snapshot)
+    {
+        return E_POINTER;
+    }
+    const char* ids[] = {dataSetId};
+    const RedXeDataCollectRequest request{sizeof(RedXeDataCollectRequest), ids, 1};
+    const RedXeDataCollectResult* result = nullptr;
+    const HRESULT collected = source.CollectSnapshots(&request, &result);
+    if (FAILED(collected))
+    {
+        return collected;
+    }
+    if (!result || result->sizeBytes != sizeof(RedXeDataCollectResult) || result->snapshotCount != 1 ||
+        !result->snapshots || !result->snapshots[0])
+    {
+        return E_UNEXPECTED;
+    }
+    *snapshot = result->snapshots[0];
+    return S_OK;
 }
 
 void ValidateSnapshot(const RedXeDataSnapshot& snapshot, const RedXeDataSetDescriptor& descriptor)
@@ -90,12 +121,12 @@ void ValidateSnapshot(const RedXeDataSnapshot& snapshot, const RedXeDataSetDescr
     Expect(snapshot.columnCount == descriptor.columnCount, "snapshot column count differs from its descriptor");
     Expect(snapshot.rowCount == 0 || snapshot.rows, "non-empty snapshot has no rows");
 
-    for (std::uint32_t rowIndex = 0; rowIndex < snapshot.rowCount; ++rowIndex)
+    for (uint32_t rowIndex = 0; rowIndex < snapshot.rowCount; ++rowIndex)
     {
         const RedXeDataRow& row = snapshot.rows[rowIndex];
         Expect(row.sizeBytes == sizeof(RedXeDataRow), "row record size is invalid");
         Expect(row.values && row.valueCount == descriptor.columnCount, "row has the wrong value shape");
-        for (std::uint32_t valueIndex = 0; valueIndex < row.valueCount; ++valueIndex)
+        for (uint32_t valueIndex = 0; valueIndex < row.valueCount; ++valueIndex)
         {
             const RedXeDataValue& value = row.values[valueIndex];
             Expect(value.sizeBytes == sizeof(RedXeDataValue), "value record size is invalid");
@@ -104,10 +135,13 @@ void ValidateSnapshot(const RedXeDataSnapshot& snapshot, const RedXeDataSetDescr
             if (value.valueType == RedXeDataValueTypeFloat64)
             {
                 Expect(std::isfinite(value.float64Value), "floating-point value is not finite");
-                if (std::strstr(descriptor.columns[valueIndex].columnId, "Cpu") ||
-                    std::strstr(descriptor.columns[valueIndex].columnId, "cpu"))
+                if (value.quality == RedXeDataQualityGood &&
+                    (std::strstr(descriptor.columns[valueIndex].columnId, "Percent") ||
+                     std::strstr(descriptor.columns[valueIndex].columnId, "percent") ||
+                     std::strstr(descriptor.columns[valueIndex].columnId, "Cpu") ||
+                     std::strstr(descriptor.columns[valueIndex].columnId, "cpu")))
                 {
-                    Expect(value.float64Value >= 0.0 && value.float64Value <= 100.0, "CPU percentage is outside 0-100");
+                    Expect(value.float64Value >= 0.0 && value.float64Value <= 100.0, "percentage is outside 0-100");
                 }
             }
             if (value.valueType == RedXeDataValueTypeUtf16 && value.quality == RedXeDataQualityGood)
@@ -118,10 +152,155 @@ void ValidateSnapshot(const RedXeDataSnapshot& snapshot, const RedXeDataSetDescr
     }
 }
 
+[[nodiscard]] bool ContainsAsciiIgnoreCase(const char* value, const char* needle)
+{
+    if (!value || !needle || needle[0] == '\0')
+    {
+        return false;
+    }
+    const size_t needleLength = std::strlen(needle);
+    const size_t valueLength = std::strlen(value);
+    if (needleLength > valueLength)
+    {
+        return false;
+    }
+    for (size_t start = 0; start + needleLength <= valueLength; ++start)
+    {
+        bool match = true;
+        for (size_t index = 0; index < needleLength; ++index)
+        {
+            const unsigned char left = static_cast<unsigned char>(value[start + index]);
+            const unsigned char right = static_cast<unsigned char>(needle[index]);
+            const unsigned char leftLower =
+                static_cast<unsigned char>(left >= 'A' && left <= 'Z' ? left - 'A' + 'a' : left);
+            const unsigned char rightLower =
+                static_cast<unsigned char>(right >= 'A' && right <= 'Z' ? right - 'A' + 'a' : right);
+            if (leftLower != rightLower)
+            {
+                match = false;
+                break;
+            }
+        }
+        if (match)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ToLowerAscii(std::wstring& value)
+{
+    for (wchar_t& character : value)
+    {
+        if (character >= L'A' && character <= L'Z')
+        {
+            character = static_cast<wchar_t>(character - L'A' + L'a');
+        }
+    }
+}
+
+[[nodiscard]] std::vector<std::wstring> LoadedModuleNames()
+{
+    std::array<HMODULE, 512> modules{};
+    DWORD bytes = 0;
+    Expect(K32EnumProcessModules(GetCurrentProcess(), modules.data(),
+                                 static_cast<DWORD>(modules.size() * sizeof(HMODULE)), &bytes) != FALSE,
+           "module enumeration failed");
+    const uint32_t count = bytes / static_cast<DWORD>(sizeof(HMODULE));
+    Expect(count <= modules.size(), "loaded module count exceeded the bounded snapshot");
+
+    std::vector<std::wstring> names;
+    names.reserve(count);
+    for (uint32_t index = 0; index < count; ++index)
+    {
+        std::wstring name(MAX_PATH, L'\0');
+        const DWORD length = K32GetModuleBaseNameW(GetCurrentProcess(), modules[index], name.data(), MAX_PATH);
+        Expect(length != 0 && length < MAX_PATH, "module base name query failed");
+        name.resize(length);
+        ToLowerAscii(name);
+        names.push_back(std::move(name));
+    }
+    std::sort(names.begin(), names.end());
+    names.erase(std::unique(names.begin(), names.end()), names.end());
+    return names;
+}
+
+void ExpectNoWmiDelta(const std::vector<std::wstring>& before, const std::vector<std::wstring>& after)
+{
+    constexpr std::array<std::wstring_view, 3> forbidden{L"wbemprox.dll", L"fastprox.dll", L"wbemcomn.dll"};
+    for (const std::wstring_view name : forbidden)
+    {
+        const bool presentBefore = std::binary_search(before.begin(), before.end(), std::wstring(name));
+        const bool presentAfter = std::binary_search(after.begin(), after.end(), std::wstring(name));
+        Expect(!presentAfter || presentBefore, "System Data loaded a WMI provider module");
+    }
+}
+
+void RunDomainMeasurement(IRedXeDataSource& source, const RedXeDataSetDescriptor* descriptors, uint32_t count)
+{
+    Expect(descriptors && count != 0 && count <= RedXeDataCollectMaximumDataSets,
+           "domain measurement received an invalid catalog");
+    std::array<const char*, RedXeDataCollectMaximumDataSets> ids{};
+    for (uint32_t index = 0; index < count; ++index)
+    {
+        ids[index] = descriptors[index].dataSetId;
+        const RedXeDataSnapshot* ignored = nullptr;
+        Expect(CollectOneSnapshot(source, ids[index], &ignored) == S_OK && ignored,
+               "domain measurement warm-up collection failed");
+    }
+
+    LARGE_INTEGER frequency{};
+    Expect(QueryPerformanceFrequency(&frequency) != FALSE && frequency.QuadPart != 0,
+           "domain measurement timer is unavailable");
+    constexpr uint32_t sampleCount = 8;
+    for (uint32_t index = 0; index < count; ++index)
+    {
+        LARGE_INTEGER start{};
+        LARGE_INTEGER finish{};
+        Expect(QueryPerformanceCounter(&start) != FALSE, "domain measurement start failed");
+        const RedXeDataSnapshot* snapshot = nullptr;
+        for (uint32_t sample = 0; sample < sampleCount; ++sample)
+        {
+            Expect(CollectOneSnapshot(source, ids[index], &snapshot) == S_OK && snapshot,
+                   "timed domain collection failed");
+        }
+        Expect(QueryPerformanceCounter(&finish) != FALSE, "domain measurement finish failed");
+        const double microseconds = static_cast<double>(finish.QuadPart - start.QuadPart) * 1'000'000.0 /
+                                    static_cast<double>(frequency.QuadPart) / static_cast<double>(sampleCount);
+        Expect(microseconds < 5'000'000.0, "domain collection exceeded the hang budget");
+        std::wcout << L"SystemData domain measurement: id=";
+        if (ids[index])
+        {
+            for (const char* cursor = ids[index]; *cursor != '\0'; ++cursor)
+            {
+                std::wcout << static_cast<wchar_t>(*cursor);
+            }
+        }
+        std::wcout << L" rows=" << (snapshot ? snapshot->rowCount : 0) << L" wall_us_per_collection=" << microseconds
+                   << L'\n';
+    }
+
+    LARGE_INTEGER batchStart{};
+    LARGE_INTEGER batchFinish{};
+    const RedXeDataCollectRequest batchRequest{sizeof(RedXeDataCollectRequest), ids.data(), count};
+    const RedXeDataCollectResult* batchResult = nullptr;
+    Expect(QueryPerformanceCounter(&batchStart) != FALSE, "full-catalog measurement start failed");
+    Expect(source.CollectSnapshots(&batchRequest, &batchResult) == S_OK && batchResult &&
+               batchResult->snapshotCount == count,
+           "full-catalog batch collection failed");
+    Expect(QueryPerformanceCounter(&batchFinish) != FALSE, "full-catalog measurement finish failed");
+    const double batchMicroseconds = static_cast<double>(batchFinish.QuadPart - batchStart.QuadPart) * 1'000'000.0 /
+                                     static_cast<double>(frequency.QuadPart);
+    Expect(batchMicroseconds < 5'000'000.0, "full-catalog batch exceeded the hang budget");
+    std::wcout << L"SystemData domain measurement: id=ALL rows=" << count << L" wall_us_per_collection="
+               << batchMicroseconds << L'\n';
+}
+
 struct ProcessMemorySnapshot final
 {
-    std::uint64_t privateBytes = 0;
-    std::uint64_t workingSetBytes = 0;
+    uint64_t privateBytes = 0;
+    uint64_t workingSetBytes = 0;
 };
 
 [[nodiscard]] ProcessMemorySnapshot QueryProcessMemory()
@@ -136,8 +315,8 @@ struct ProcessMemorySnapshot final
 
 struct HeapSnapshot final
 {
-    std::uint64_t busyBlocks = 0;
-    std::uint64_t busyBytes = 0;
+    uint64_t busyBlocks = 0;
+    uint64_t busyBytes = 0;
 };
 
 [[nodiscard]] HeapSnapshot QueryHeapSnapshot()
@@ -169,7 +348,7 @@ struct HeapSnapshot final
     return result;
 }
 
-[[nodiscard]] std::uint64_t FileTime100ns(const FILETIME& value) noexcept
+[[nodiscard]] uint64_t FileTime100ns(const FILETIME& value) noexcept
 {
     ULARGE_INTEGER combined{};
     combined.LowPart = value.dwLowDateTime;
@@ -180,7 +359,7 @@ struct HeapSnapshot final
 void RunResourceBenchmark(IRedXeSystemDataTestSource& testSource, const RedXeDataSetDescriptor& processDescriptor,
                           const SystemDataTestDiagnostics& diagnostics)
 {
-    Expect(diagnostics.sourceStorageBytes < 1024ULL * 1024ULL, "SystemData source storage exceeds 1 MiB");
+    Expect(diagnostics.sourceStorageBytes < 16ULL * 1024ULL * 1024ULL, "SystemData source storage exceeds 16 MiB");
     Expect(diagnostics.maximumProcessRows == processDescriptor.maximumRows,
            "test diagnostics disagree with the process row bound");
     Expect(diagnostics.sourceOwnedWorkerCount == 0 && diagnostics.sourceOwnedTimerCount == 0,
@@ -212,8 +391,8 @@ void RunResourceBenchmark(IRedXeSystemDataTestSource& testSource, const RedXeDat
     Expect(QueryPerformanceFrequency(&frequency) != FALSE && QueryPerformanceCounter(&start) != FALSE,
            "high-resolution timer initialization failed");
 
-    constexpr std::uint32_t collectionCount = 2;
-    for (std::uint32_t collection = 0; collection < collectionCount; ++collection)
+    constexpr uint32_t collectionCount = 2;
+    for (uint32_t collection = 0; collection < collectionCount; ++collection)
     {
         Expect(testSource.CollectSyntheticProcessSnapshot(diagnostics.maximumProcessRows, &snapshot) == S_OK &&
                    snapshot,
@@ -238,8 +417,8 @@ void RunResourceBenchmark(IRedXeSystemDataTestSource& testSource, const RedXeDat
     Expect(heapAfter.busyBlocks == heapBefore.busyBlocks && heapAfter.busyBytes == heapBefore.busyBytes,
            "row-cap collections changed steady process heap usage");
 
-    const std::uint64_t kernelDelta = FileTime100ns(kernelAfter) - FileTime100ns(kernelBefore);
-    const std::uint64_t userDelta = FileTime100ns(userAfter) - FileTime100ns(userBefore);
+    const uint64_t kernelDelta = FileTime100ns(kernelAfter) - FileTime100ns(kernelBefore);
+    const uint64_t userDelta = FileTime100ns(userAfter) - FileTime100ns(userBefore);
     const double wallMicroseconds =
         static_cast<double>(finish.QuadPart - start.QuadPart) * 1'000'000.0 / static_cast<double>(frequency.QuadPart);
     const double cpuMicroseconds = static_cast<double>(kernelDelta + userDelta) / 10.0;
@@ -248,7 +427,7 @@ void RunResourceBenchmark(IRedXeSystemDataTestSource& testSource, const RedXeDat
     const auto workingSetDelta = static_cast<std::int64_t>(memoryAfter.workingSetBytes) -
                                  static_cast<std::int64_t>(memoryBefore.workingSetBytes);
 
-    constexpr std::uint32_t cpuCollectionCount = 64;
+    constexpr uint32_t cpuCollectionCount = 64;
     FILETIME cpuCreationBefore{};
     FILETIME cpuExitBefore{};
     FILETIME cpuKernelBefore{};
@@ -256,7 +435,7 @@ void RunResourceBenchmark(IRedXeSystemDataTestSource& testSource, const RedXeDat
     Expect(GetProcessTimes(GetCurrentProcess(), &cpuCreationBefore, &cpuExitBefore, &cpuKernelBefore, &cpuUserBefore) !=
                FALSE,
            "CPU-probe start query failed");
-    for (std::uint32_t collection = 0; collection < cpuCollectionCount; ++collection)
+    for (uint32_t collection = 0; collection < cpuCollectionCount; ++collection)
     {
         Expect(testSource.CollectSyntheticProcessSnapshot(diagnostics.maximumProcessRows, &snapshot) == S_OK &&
                    snapshot,
@@ -269,7 +448,7 @@ void RunResourceBenchmark(IRedXeSystemDataTestSource& testSource, const RedXeDat
     Expect(GetProcessTimes(GetCurrentProcess(), &cpuCreationAfter, &cpuExitAfter, &cpuKernelAfter, &cpuUserAfter) !=
                FALSE,
            "CPU-probe completion query failed");
-    const std::uint64_t cpuProbe100ns = FileTime100ns(cpuKernelAfter) - FileTime100ns(cpuKernelBefore) +
+    const uint64_t cpuProbe100ns = FileTime100ns(cpuKernelAfter) - FileTime100ns(cpuKernelBefore) +
                                         FileTime100ns(cpuUserAfter) - FileTime100ns(cpuUserBefore);
     const double measuredCpuMicrosecondsPerCollection = static_cast<double>(cpuProbe100ns) / 10.0 / cpuCollectionCount;
 
@@ -289,12 +468,13 @@ void RunResourceBenchmark(IRedXeSystemDataTestSource& testSource, const RedXeDat
                << L'\n';
 }
 
-void Run(bool benchmark)
+void Run(bool benchmark, bool domains)
 {
     const std::filesystem::path pluginPath = PluginPath();
     wil::unique_hmodule module{
         LoadLibraryExW(pluginPath.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
     Expect(static_cast<bool>(module), "SystemData.dll could not be loaded");
+    const std::vector<std::wstring> modulesBeforeCollect = LoadedModuleNames();
 
     const RedXeCreateFn create = Resolve<RedXeCreateFn>(module.get(), kRedXeCreateExport);
     const RedXeEnumeratePluginsFn enumerate =
@@ -303,7 +483,7 @@ void Run(bool benchmark)
         Resolve<RedXeGetPluginSettingsContractFn>(module.get(), kRedXeGetPluginSettingsContractExport);
 
     const RedXePluginMetadata* metadata = reinterpret_cast<const RedXePluginMetadata*>(1);
-    std::uint32_t metadataCount = 99;
+    uint32_t metadataCount = 99;
     Expect(enumerate(nullptr, &metadataCount) == E_POINTER && metadataCount == 0,
            "enumeration did not clear count for a null metadata output");
     Expect(enumerate(&metadata, &metadataCount) == S_OK && metadata && metadataCount == 1,
@@ -340,7 +520,7 @@ void Run(bool benchmark)
     wil::com_ptr_nothrow<IRedXeSystemDataTestSource> testSource;
     Expect(source.query_to(testSource.put()) == S_OK && testSource, "SystemData test interface is unavailable");
     Expect(testSource->GetTestDiagnostics(nullptr) == E_POINTER, "SystemData test diagnostics accepted a null record");
-    SystemDataTestDiagnostics shortDiagnostics{sizeof(std::uint32_t)};
+    SystemDataTestDiagnostics shortDiagnostics{sizeof(uint32_t)};
     Expect(testSource->GetTestDiagnostics(&shortDiagnostics) == E_INVALIDARG,
            "SystemData test diagnostics accepted a short record");
     SystemDataTestDiagnostics diagnostics{sizeof(SystemDataTestDiagnostics)};
@@ -361,35 +541,157 @@ void Run(bool benchmark)
            "SystemData interfaces do not share one controlling IUnknown");
 
     const RedXeDataSetDescriptor* descriptors = reinterpret_cast<const RedXeDataSetDescriptor*>(1);
-    std::uint32_t descriptorCount = 99;
+    uint32_t descriptorCount = 99;
     Expect(source->GetDataSets(nullptr, &descriptorCount) == E_POINTER && descriptorCount == 0,
            "GetDataSets did not clear count on a null descriptor output");
-    Expect(source->GetDataSets(&descriptors, &descriptorCount) == S_OK && descriptors && descriptorCount == 2,
+    Expect(source->GetDataSets(&descriptors, &descriptorCount) == S_OK && descriptors && descriptorCount == 18,
            "SystemData descriptors are unavailable");
+    for (uint32_t index = 0; index < descriptorCount; ++index)
+    {
+        Expect(descriptors[index].dataSetId && descriptors[index].dataSetId[0] != '\0',
+               "SystemData catalog contains an empty dataset ID");
+        for (uint32_t later = index + 1; later < descriptorCount; ++later)
+        {
+            Expect(std::strcmp(descriptors[index].dataSetId, descriptors[later].dataSetId) != 0,
+                   "SystemData catalog contains a duplicate dataset ID");
+        }
+        for (uint32_t column = 0; column < descriptors[index].columnCount; ++column)
+        {
+            const char* columnId = descriptors[index].columns[column].columnId;
+            Expect(!ContainsAsciiIgnoreCase(columnId, "macAddress") &&
+                       !ContainsAsciiIgnoreCase(columnId, "ipAddress") &&
+                       !ContainsAsciiIgnoreCase(columnId, "serialNumber") &&
+                       !ContainsAsciiIgnoreCase(columnId, "commandLine") &&
+                       !ContainsAsciiIgnoreCase(columnId, "imagePath") &&
+                       !ContainsAsciiIgnoreCase(columnId, "userName") &&
+                       !ContainsAsciiIgnoreCase(columnId, "physicalAddress") &&
+                       !RedXeAsciiEqualsIgnoreCase(columnId, "serial") &&
+                       !RedXeAsciiEqualsIgnoreCase(columnId, "ssid") && !RedXeAsciiEqualsIgnoreCase(columnId, "mac") &&
+                       !RedXeAsciiEqualsIgnoreCase(columnId, "uniqueId"),
+                   "SystemData catalog published a prohibited identity column");
+        }
+    }
+    const RedXeDataSetDescriptor* statusDescriptor = FindDataSet(descriptors, descriptorCount, "source.status");
     const RedXeDataSetDescriptor* summaryDescriptor = FindDataSet(descriptors, descriptorCount, "system.summary");
     const RedXeDataSetDescriptor* processDescriptor = FindDataSet(descriptors, descriptorCount, "process.list");
-    Expect(summaryDescriptor && processDescriptor && summaryDescriptor->maximumRows == 1 &&
-               processDescriptor->maximumRows == 2048,
-           "SystemData descriptor bounds are wrong");
+    const RedXeDataSetDescriptor* cpuSummaryDescriptor = FindDataSet(descriptors, descriptorCount, "cpu.summary");
+    const RedXeDataSetDescriptor* cpuLogicalDescriptor = FindDataSet(descriptors, descriptorCount, "cpu.logical");
+    const RedXeDataSetDescriptor* memoryDescriptor = FindDataSet(descriptors, descriptorCount, "memory.summary");
+    const RedXeDataSetDescriptor* threadDescriptor = FindDataSet(descriptors, descriptorCount, "thread.list");
+    const RedXeDataSetDescriptor* networkInterfaceDescriptor =
+        FindDataSet(descriptors, descriptorCount, "network.interface");
+    const RedXeDataSetDescriptor* networkProtocolDescriptor =
+        FindDataSet(descriptors, descriptorCount, "network.protocol");
+    const RedXeDataSetDescriptor* storageDiskDescriptor = FindDataSet(descriptors, descriptorCount, "storage.disk");
+    const RedXeDataSetDescriptor* storageVolumeDescriptor = FindDataSet(descriptors, descriptorCount, "storage.volume");
+    const RedXeDataSetDescriptor* gpuAdapterDescriptor = FindDataSet(descriptors, descriptorCount, "gpu.adapter");
+    const RedXeDataSetDescriptor* gpuEngineDescriptor = FindDataSet(descriptors, descriptorCount, "gpu.engine");
+    const RedXeDataSetDescriptor* gpuProcessDescriptor = FindDataSet(descriptors, descriptorCount, "gpu.process");
+    const RedXeDataSetDescriptor* powerSummaryDescriptor = FindDataSet(descriptors, descriptorCount, "power.summary");
+    const RedXeDataSetDescriptor* batteryDescriptor = FindDataSet(descriptors, descriptorCount, "battery.list");
+    const RedXeDataSetDescriptor* thermalDescriptor = FindDataSet(descriptors, descriptorCount, "thermal.sensor");
+    const RedXeDataSetDescriptor* fanDescriptor = FindDataSet(descriptors, descriptorCount, "fan.sensor");
+    Expect(
+        statusDescriptor && summaryDescriptor && processDescriptor && cpuSummaryDescriptor && cpuLogicalDescriptor &&
+            memoryDescriptor && threadDescriptor && networkInterfaceDescriptor && networkProtocolDescriptor &&
+            storageDiskDescriptor && storageVolumeDescriptor && gpuAdapterDescriptor && gpuEngineDescriptor &&
+            gpuProcessDescriptor && powerSummaryDescriptor && batteryDescriptor && thermalDescriptor && fanDescriptor &&
+            statusDescriptor->maximumRows == 32 && statusDescriptor->recommendedIntervalMilliseconds == 5000 &&
+            (statusDescriptor->flags & RedXeDataSetFlagLocalSensitive) == 0 && statusDescriptor->columnCount == 12 &&
+            summaryDescriptor->maximumRows == 1 && (summaryDescriptor->flags & RedXeDataSetFlagLocalSensitive) == 0 &&
+            processDescriptor->maximumRows == 2048 && processDescriptor->columnCount == 31 &&
+            cpuLogicalDescriptor->maximumRows == 1024 && threadDescriptor->maximumRows == 8192 &&
+            networkInterfaceDescriptor->maximumRows == 256 &&
+            (networkInterfaceDescriptor->flags & RedXeDataSetFlagLocalSensitive) != 0 &&
+            networkInterfaceDescriptor->columnCount == 22 && networkProtocolDescriptor->maximumRows == 16 &&
+            (networkProtocolDescriptor->flags & RedXeDataSetFlagLocalSensitive) == 0 &&
+            storageDiskDescriptor->maximumRows == 128 && storageVolumeDescriptor->maximumRows == 256 &&
+            storageVolumeDescriptor->recommendedIntervalMilliseconds == 5000 &&
+            gpuAdapterDescriptor->maximumRows == 32 && gpuEngineDescriptor->maximumRows == 512 &&
+            gpuProcessDescriptor->maximumRows == 2048 &&
+            (gpuProcessDescriptor->flags & RedXeDataSetFlagLocalSensitive) != 0 &&
+            powerSummaryDescriptor->maximumRows == 1 &&
+            powerSummaryDescriptor->recommendedIntervalMilliseconds == 5000 && batteryDescriptor->maximumRows == 32 &&
+            (batteryDescriptor->flags & RedXeDataSetFlagLocalSensitive) != 0 && thermalDescriptor->maximumRows == 128 &&
+            thermalDescriptor->recommendedIntervalMilliseconds == 10000 && fanDescriptor->maximumRows == 128,
+        "SystemData descriptor bounds are wrong");
 
     const RedXeDataSnapshot* snapshot = reinterpret_cast<const RedXeDataSnapshot*>(1);
-    Expect(source->CollectSnapshot("missing", &snapshot) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) && !snapshot,
+    const RedXeDataCollectResult* collectResult = reinterpret_cast<const RedXeDataCollectResult*>(1);
+    Expect(source->CollectSnapshots(nullptr, &collectResult) == E_INVALIDARG && !collectResult,
+           "null collect request did not clear its output");
+    RedXeDataCollectRequest emptyRequest{sizeof(RedXeDataCollectRequest), nullptr, 0};
+    collectResult = reinterpret_cast<const RedXeDataCollectResult*>(1);
+    Expect(source->CollectSnapshots(&emptyRequest, &collectResult) == E_INVALIDARG && !collectResult,
+           "empty collect request did not clear its output");
+    const char* duplicateIds[] = {"system.summary", "system.summary"};
+    RedXeDataCollectRequest duplicateRequest{sizeof(RedXeDataCollectRequest), duplicateIds, 2};
+    collectResult = reinterpret_cast<const RedXeDataCollectResult*>(1);
+    Expect(source->CollectSnapshots(&duplicateRequest, &collectResult) == E_INVALIDARG && !collectResult,
+           "duplicate collect request did not clear its output");
+    const char* missingIds[] = {"missing"};
+    RedXeDataCollectRequest missingRequest{sizeof(RedXeDataCollectRequest), missingIds, 1};
+    collectResult = reinterpret_cast<const RedXeDataCollectResult*>(1);
+    Expect(source->CollectSnapshots(&missingRequest, &collectResult) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) &&
+               !collectResult,
            "unknown dataset collection did not clear its output");
-    Expect(source->CollectSnapshot("system.summary", &snapshot) == S_OK && snapshot,
+    Expect(CollectOneSnapshot(*source, "missing", &snapshot) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) && !snapshot,
+           "unknown dataset helper collection did not clear its output");
+    Expect(CollectOneSnapshot(*source, "system.summary", &snapshot) == S_OK && snapshot,
            "system summary collection failed");
     ValidateSnapshot(*snapshot, *summaryDescriptor);
     Expect(snapshot->rowCount == 1, "system summary does not contain exactly one row");
-    const std::uint64_t firstSequence = snapshot->sequence;
-    Expect(source->CollectSnapshot("system.summary", &snapshot) == S_OK && snapshot->sequence > firstSequence,
+    const uint64_t firstSequence = snapshot->sequence;
+    Expect(CollectOneSnapshot(*source, "system.summary", &snapshot) == S_OK && snapshot->sequence > firstSequence,
            "system summary sequence did not advance");
     ValidateSnapshot(*snapshot, *summaryDescriptor);
 
-    Expect(source->CollectSnapshot("process.list", &snapshot) == S_OK && snapshot, "process list collection failed");
+    const char* batchIds[] = {"system.summary", "process.list"};
+    RedXeDataCollectRequest batchRequest{sizeof(RedXeDataCollectRequest), batchIds, 2};
+    Expect(source->CollectSnapshots(&batchRequest, &collectResult) == S_OK && collectResult &&
+               collectResult->sizeBytes == sizeof(RedXeDataCollectResult) && collectResult->snapshotCount == 2 &&
+               collectResult->snapshots && collectResult->snapshots[0] && collectResult->snapshots[1] &&
+               collectResult->snapshots[0]->sequence == collectResult->snapshots[1]->sequence &&
+               collectResult->snapshots[0]->timestampFileTime100ns ==
+                   collectResult->snapshots[1]->timestampFileTime100ns &&
+               collectResult->sequence == collectResult->snapshots[0]->sequence,
+           "batched collection did not share one sequence and timestamp");
+    ValidateSnapshot(*collectResult->snapshots[0], *summaryDescriptor);
+    ValidateSnapshot(*collectResult->snapshots[1], *processDescriptor);
+
+    Expect(CollectOneSnapshot(*source, "source.status", &snapshot) == S_OK && snapshot,
+           "source status collection failed");
+    ValidateSnapshot(*snapshot, *statusDescriptor);
+    Expect(snapshot->rowCount == 18, "source status does not contain one row per dataset");
+    const uint32_t statusIdColumn = FindColumn(*statusDescriptor, "dataSetId");
+    bool foundStatusRow = false;
+    bool foundSummaryRow = false;
+    bool foundProcessRow = false;
+    for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
+    {
+        const RedXeDataValue& idValue = snapshot->rows[rowIndex].values[statusIdColumn];
+        if (idValue.utf16Value && std::wcscmp(idValue.utf16Value, L"source.status") == 0)
+        {
+            foundStatusRow = true;
+        }
+        if (idValue.utf16Value && std::wcscmp(idValue.utf16Value, L"system.summary") == 0)
+        {
+            foundSummaryRow = true;
+        }
+        if (idValue.utf16Value && std::wcscmp(idValue.utf16Value, L"process.list") == 0)
+        {
+            foundProcessRow = true;
+        }
+    }
+    Expect(foundStatusRow && foundSummaryRow && foundProcessRow, "source status is missing a catalog row");
+
+    Expect(CollectOneSnapshot(*source, "process.list", &snapshot) == S_OK && snapshot,
+           "process list collection failed");
     ValidateSnapshot(*snapshot, *processDescriptor);
-    const std::uint32_t processIdColumn = FindColumn(*processDescriptor, "processId");
-    const std::uint32_t imageNameColumn = FindColumn(*processDescriptor, "imageName");
+    const uint32_t processIdColumn = FindColumn(*processDescriptor, "processId");
+    const uint32_t imageNameColumn = FindColumn(*processDescriptor, "imageName");
     bool foundCurrentProcess = false;
-    for (std::uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
+    for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
     {
         const RedXeDataRow& row = snapshot->rows[rowIndex];
         if (row.values[processIdColumn].uint64Value == GetCurrentProcessId())
@@ -400,10 +702,264 @@ void Run(bool benchmark)
         }
     }
     Expect(foundCurrentProcess, "process list does not contain the test process");
-    const std::uint64_t processSequence = snapshot->sequence;
-    Expect(source->CollectSnapshot("process.list", &snapshot) == S_OK && snapshot->sequence > processSequence,
+    const uint64_t processSequence = snapshot->sequence;
+    Expect(CollectOneSnapshot(*source, "process.list", &snapshot) == S_OK && snapshot->sequence > processSequence,
            "process list sequence did not advance");
     ValidateSnapshot(*snapshot, *processDescriptor);
+    (void)FindColumn(*processDescriptor, "parentProcessId");
+    Expect(CollectOneSnapshot(*source, "cpu.summary", &snapshot) == S_OK && snapshot, "cpu summary collection failed");
+    ValidateSnapshot(*snapshot, *cpuSummaryDescriptor);
+    Expect(snapshot->rowCount == 1, "cpu summary does not contain exactly one row");
+    Expect(CollectOneSnapshot(*source, "cpu.logical", &snapshot) == S_OK && snapshot, "cpu logical collection failed");
+    ValidateSnapshot(*snapshot, *cpuLogicalDescriptor);
+    Expect(snapshot->rowCount != 0, "cpu logical table is empty");
+    Expect(CollectOneSnapshot(*source, "memory.summary", &snapshot) == S_OK && snapshot,
+           "memory summary collection failed");
+    ValidateSnapshot(*snapshot, *memoryDescriptor);
+    Expect(snapshot->rowCount == 1, "memory summary does not contain exactly one row");
+    Expect(CollectOneSnapshot(*source, "thread.list", &snapshot) == S_OK && snapshot, "thread list collection failed");
+    ValidateSnapshot(*snapshot, *threadDescriptor);
+    Expect(snapshot->rowCount != 0, "thread list is empty");
+    if (snapshot->rowCount == threadDescriptor->maximumRows)
+    {
+        Expect((snapshot->flags & RedXeDataSnapshotFlagTruncated) != 0,
+               "thread list filled the row cap without Truncated");
+    }
+    else
+    {
+        Expect((snapshot->flags & RedXeDataSnapshotFlagTruncated) == 0,
+               "thread list reported Truncated below the row cap");
+    }
+
+    Expect(CollectOneSnapshot(*source, "network.interface", &snapshot) == S_OK && snapshot,
+           "network interface collection failed");
+    ValidateSnapshot(*snapshot, *networkInterfaceDescriptor);
+    Expect(snapshot->rowCount != 0, "network interface table is empty");
+    const uint32_t luidColumn = FindColumn(*networkInterfaceDescriptor, "interfaceLuid");
+    const uint32_t rateColumn = FindColumn(*networkInterfaceDescriptor, "inOctetRate");
+    for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
+    {
+        Expect(snapshot->rows[rowIndex].values[luidColumn].quality == RedXeDataQualityGood,
+               "network interface LUID is missing");
+        if (rowIndex > 0)
+        {
+            Expect(snapshot->rows[rowIndex].values[luidColumn].uint64Value >
+                       snapshot->rows[rowIndex - 1].values[luidColumn].uint64Value,
+                   "network interfaces are not sorted by LUID");
+        }
+        Expect(snapshot->rows[rowIndex].values[rateColumn].quality == RedXeDataQualityInitializing,
+               "first network rate sample was not Initializing");
+    }
+    for (uint32_t column = 0; column < networkInterfaceDescriptor->columnCount; ++column)
+    {
+        Expect(std::strstr(networkInterfaceDescriptor->columns[column].columnId, "mac") == nullptr &&
+                   std::strstr(networkInterfaceDescriptor->columns[column].columnId, "Mac") == nullptr &&
+                   std::strstr(networkInterfaceDescriptor->columns[column].columnId, "ipAddress") == nullptr,
+               "network interface published a MAC or IP column");
+    }
+    Expect(CollectOneSnapshot(*source, "network.interface", &snapshot) == S_OK && snapshot,
+           "second network interface collection failed");
+    ValidateSnapshot(*snapshot, *networkInterfaceDescriptor);
+    Sleep(16);
+    Expect(CollectOneSnapshot(*source, "network.interface", &snapshot) == S_OK && snapshot,
+           "elapsed network interface collection failed");
+    ValidateSnapshot(*snapshot, *networkInterfaceDescriptor);
+    const uint32_t inOctetsColumn = FindColumn(*networkInterfaceDescriptor, "inOctets");
+    bool foundReadyRate = false;
+    for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
+    {
+        if (snapshot->rows[rowIndex].values[inOctetsColumn].quality == RedXeDataQualityGood)
+        {
+            Expect(snapshot->rows[rowIndex].values[rateColumn].quality == RedXeDataQualityGood,
+                   "network rate stayed Initializing after an elapsed sample");
+            foundReadyRate = true;
+        }
+    }
+    Expect(foundReadyRate, "no network interface with counters produced a second-sample rate");
+
+    Expect(CollectOneSnapshot(*source, "network.protocol", &snapshot) == S_OK && snapshot,
+           "network protocol collection failed");
+    ValidateSnapshot(*snapshot, *networkProtocolDescriptor);
+    Expect(snapshot->rowCount == 6, "network protocol table does not contain the six aggregate rows");
+    const uint32_t protocolIdColumn = FindColumn(*networkProtocolDescriptor, "protocolId");
+    Expect(snapshot->rows[0].values[protocolIdColumn].utf16Value &&
+               std::wcscmp(snapshot->rows[0].values[protocolIdColumn].utf16Value, L"ipv4") == 0 &&
+               snapshot->rows[5].values[protocolIdColumn].utf16Value &&
+               std::wcscmp(snapshot->rows[5].values[protocolIdColumn].utf16Value, L"udp6") == 0,
+           "network protocol row identities are wrong");
+
+    Expect(CollectOneSnapshot(*source, "storage.disk", &snapshot) == S_OK && snapshot,
+           "storage disk collection failed");
+    ValidateSnapshot(*snapshot, *storageDiskDescriptor);
+    (void)FindColumn(*storageDiskDescriptor, "diskNumber");
+    (void)FindColumn(*storageDiskDescriptor, "performanceAvailable");
+
+    Expect(CollectOneSnapshot(*source, "storage.volume", &snapshot) == S_OK && snapshot,
+           "storage volume collection failed");
+    ValidateSnapshot(*snapshot, *storageVolumeDescriptor);
+    Expect(snapshot->rowCount != 0, "storage volume table is empty");
+    const uint32_t volumeGuidColumn = FindColumn(*storageVolumeDescriptor, "volumeGuid");
+    bool foundVolumeGuid = false;
+    for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
+    {
+        const RedXeDataValue& guid = snapshot->rows[rowIndex].values[volumeGuidColumn];
+        if (guid.quality == RedXeDataQualityGood && guid.utf16Value &&
+            std::wcsncmp(guid.utf16Value, L"\\\\?\\Volume", 10) == 0)
+        {
+            foundVolumeGuid = true;
+            break;
+        }
+    }
+    Expect(foundVolumeGuid, "storage volume table has no volume GUID identity");
+
+    Expect(CollectOneSnapshot(*source, "gpu.adapter", &snapshot) == S_OK && snapshot, "gpu adapter collection failed");
+    ValidateSnapshot(*snapshot, *gpuAdapterDescriptor);
+    Expect(snapshot->rowCount != 0, "gpu adapter table is empty");
+    const uint32_t adapterLuidColumn = FindColumn(*gpuAdapterDescriptor, "adapterLuid");
+    const uint32_t softwareColumn = FindColumn(*gpuAdapterDescriptor, "software");
+    const uint32_t integratedColumn = FindColumn(*gpuAdapterDescriptor, "integrated");
+    const uint32_t adapterUtilizationColumn = FindColumn(*gpuAdapterDescriptor, "utilizationPercent");
+    const uint32_t dedicatedUsedColumn = FindColumn(*gpuAdapterDescriptor, "dedicatedUsedBytes");
+    const uint32_t sharedUsedColumn = FindColumn(*gpuAdapterDescriptor, "sharedUsedBytes");
+    for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
+    {
+        const RedXeDataRow& row = snapshot->rows[rowIndex];
+        Expect(row.values[adapterLuidColumn].quality == RedXeDataQualityGood, "gpu adapter LUID is missing");
+        Expect(row.values[softwareColumn].quality == RedXeDataQualityGood &&
+                   (row.values[softwareColumn].uint64Value == 0 || row.values[softwareColumn].uint64Value == 1),
+               "gpu adapter software flag is not a Good 0/1 value");
+        Expect(row.values[integratedColumn].quality == RedXeDataQualityUnavailable,
+               "gpu adapter integrated flag is not Unavailable without DXCore");
+        Expect(row.values[adapterUtilizationColumn].quality == RedXeDataQualityUnavailable,
+               "gpu adapter utilization is not Unavailable");
+        Expect(row.values[dedicatedUsedColumn].quality == RedXeDataQualityUnavailable &&
+                   row.values[sharedUsedColumn].quality == RedXeDataQualityUnavailable,
+               "gpu adapter machine-wide memory use is not Unavailable");
+        if (rowIndex > 0)
+        {
+            Expect(row.values[adapterLuidColumn].uint64Value >
+                       snapshot->rows[rowIndex - 1].values[adapterLuidColumn].uint64Value,
+                   "gpu adapters are not sorted by LUID");
+        }
+    }
+    Expect(CollectOneSnapshot(*source, "gpu.engine", &snapshot) == S_OK && snapshot, "gpu engine collection failed");
+    ValidateSnapshot(*snapshot, *gpuEngineDescriptor);
+    (void)FindColumn(*gpuEngineDescriptor, "nodeOrdinal");
+    const uint32_t engineUtilizationColumn = FindColumn(*gpuEngineDescriptor, "utilizationPercent");
+    for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
+    {
+        Expect(snapshot->rows[rowIndex].values[engineUtilizationColumn].quality == RedXeDataQualityUnavailable,
+               "gpu engine utilization is not Unavailable");
+    }
+    Expect(CollectOneSnapshot(*source, "gpu.process", &snapshot) == S_OK && snapshot, "gpu process collection failed");
+    ValidateSnapshot(*snapshot, *gpuProcessDescriptor);
+    Expect(CollectOneSnapshot(*source, "gpu.process", &snapshot) == S_OK && snapshot,
+           "second gpu process collection failed");
+    ValidateSnapshot(*snapshot, *gpuProcessDescriptor);
+
+    Expect(CollectOneSnapshot(*source, "power.summary", &snapshot) == S_OK && snapshot,
+           "power summary collection failed");
+    ValidateSnapshot(*snapshot, *powerSummaryDescriptor);
+    Expect(snapshot->rowCount == 1, "power summary does not contain exactly one row");
+    const uint32_t acColumn = FindColumn(*powerSummaryDescriptor, "acOnline");
+    const uint32_t batteryPresentColumn = FindColumn(*powerSummaryDescriptor, "batteryPresent");
+    Expect(snapshot->rows[0].values[acColumn].quality == RedXeDataQualityGood ||
+               snapshot->rows[0].values[acColumn].quality == RedXeDataQualityUnavailable,
+           "power summary AC status quality is invalid");
+    const bool batteryPresentGood = snapshot->rows[0].values[batteryPresentColumn].quality == RedXeDataQualityGood;
+    const uint64_t batteryPresentValue = snapshot->rows[0].values[batteryPresentColumn].uint64Value;
+
+    Expect(CollectOneSnapshot(*source, "battery.list", &snapshot) == S_OK && snapshot,
+           "battery list collection failed");
+    ValidateSnapshot(*snapshot, *batteryDescriptor);
+    if (batteryPresentGood && batteryPresentValue == 0)
+    {
+        Expect(snapshot->rowCount == 0, "AC-only host published battery rows");
+    }
+    for (uint32_t column = 0; column < batteryDescriptor->columnCount; ++column)
+    {
+        Expect(std::strstr(batteryDescriptor->columns[column].columnId, "serial") == nullptr &&
+                   std::strstr(batteryDescriptor->columns[column].columnId, "Serial") == nullptr,
+               "battery list published a serial-number column");
+    }
+
+    bool gpuHasTemperature = false;
+    bool gpuHasFan = false;
+    Expect(CollectOneSnapshot(*source, "gpu.adapter", &snapshot) == S_OK && snapshot,
+           "gpu adapter collection for thermal projection failed");
+    const uint32_t gpuTemperatureColumn = FindColumn(*gpuAdapterDescriptor, "temperatureC");
+    const uint32_t gpuMaxFanColumn = FindColumn(*gpuAdapterDescriptor, "maxFanRpm");
+    for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
+    {
+        if (snapshot->rows[rowIndex].values[gpuTemperatureColumn].quality == RedXeDataQualityGood)
+        {
+            gpuHasTemperature = true;
+        }
+        if (snapshot->rows[rowIndex].values[gpuMaxFanColumn].quality == RedXeDataQualityGood &&
+            snapshot->rows[rowIndex].values[gpuMaxFanColumn].uint64Value != 0)
+        {
+            gpuHasFan = true;
+        }
+    }
+
+    Expect(CollectOneSnapshot(*source, "thermal.sensor", &snapshot) == S_OK && snapshot,
+           "thermal sensor collection failed");
+    ValidateSnapshot(*snapshot, *thermalDescriptor);
+    if (gpuHasTemperature)
+    {
+        Expect(snapshot->rowCount != 0, "thermal sensor table omitted a GPU temperature");
+    }
+
+    Expect(CollectOneSnapshot(*source, "fan.sensor", &snapshot) == S_OK && snapshot, "fan sensor collection failed");
+    ValidateSnapshot(*snapshot, *fanDescriptor);
+    if (gpuHasFan)
+    {
+        Expect(snapshot->rowCount != 0, "fan sensor table omitted a GPU fan with a non-zero maximum RPM");
+    }
+
+    const char* netStorageIds[] = {"network.interface", "storage.volume"};
+    RedXeDataCollectRequest netStorageRequest{sizeof(RedXeDataCollectRequest), netStorageIds, 2};
+    collectResult = nullptr;
+    Expect(source->CollectSnapshots(&netStorageRequest, &collectResult) == S_OK && collectResult &&
+               collectResult->snapshotCount == 2 &&
+               collectResult->snapshots[0]->sequence == collectResult->snapshots[1]->sequence,
+           "network and volume batch did not share one sequence");
+
+    std::array<const char*, RedXeDataCollectMaximumDataSets> catalogIds{};
+    for (uint32_t index = 0; index < descriptorCount; ++index)
+    {
+        catalogIds[index] = descriptors[index].dataSetId;
+    }
+    RedXeDataCollectRequest catalogRequest{sizeof(RedXeDataCollectRequest), catalogIds.data(), descriptorCount};
+    collectResult = nullptr;
+    Expect(source->CollectSnapshots(&catalogRequest, &collectResult) == S_OK && collectResult &&
+               collectResult->snapshotCount == descriptorCount && collectResult->snapshots,
+           "full-catalog batch collection failed");
+    const uint64_t catalogSequence = collectResult->snapshots[0]->sequence;
+    const uint64_t catalogTimestamp = collectResult->snapshots[0]->timestampFileTime100ns;
+    for (uint32_t index = 0; index < descriptorCount; ++index)
+    {
+        Expect(collectResult->snapshots[index] && collectResult->snapshots[index]->sequence == catalogSequence &&
+                   collectResult->snapshots[index]->timestampFileTime100ns == catalogTimestamp,
+               "full-catalog batch did not share one sequence and timestamp");
+        ValidateSnapshot(*collectResult->snapshots[index], descriptors[index]);
+    }
+    ExpectNoWmiDelta(modulesBeforeCollect, LoadedModuleNames());
+
+    for (uint32_t cycle = 0; cycle < 3; ++cycle)
+    {
+        void* extraObject = nullptr;
+        Expect(create(__uuidof(IRedXeDataSource), nullptr, nullptr, "builtin.system-data", &extraObject) == S_OK &&
+                   extraObject,
+               "SystemData repeated source creation failed");
+        wil::com_ptr_nothrow<IRedXeDataSource> extraSource;
+        extraSource.attach(static_cast<IRedXeDataSource*>(extraObject));
+        const RedXeDataSnapshot* extraSnapshot = nullptr;
+        Expect(CollectOneSnapshot(*extraSource, "system.summary", &extraSnapshot) == S_OK && extraSnapshot,
+               "repeated SystemData source collection failed");
+        extraSource.reset();
+    }
+
     snapshot = reinterpret_cast<const RedXeDataSnapshot*>(1);
     Expect(testSource->CollectSyntheticProcessSnapshot(processDescriptor->maximumRows + 1, &snapshot) == E_INVALIDARG &&
                !snapshot,
@@ -413,6 +969,10 @@ void Run(bool benchmark)
     {
         RunResourceBenchmark(*testSource, *processDescriptor, diagnostics);
     }
+    if (domains)
+    {
+        RunDomainMeasurement(*source, descriptors, descriptorCount);
+    }
 }
 } // namespace
 
@@ -420,9 +980,11 @@ int wmain(int argumentCount, wchar_t** arguments)
 {
     try
     {
-        const bool benchmark = argumentCount == 2 && std::wstring_view(arguments[1]) == L"--benchmark";
-        Expect(argumentCount == 1 || benchmark, "unsupported SystemDataTests argument");
-        Run(benchmark);
+        const std::wstring_view argument = argumentCount == 2 ? arguments[1] : L"";
+        const bool benchmark = argument == L"--benchmark";
+        const bool domains = argument == L"--domains";
+        Expect(argumentCount == 1 || benchmark || domains, "unsupported SystemDataTests argument");
+        Run(benchmark, domains);
         std::wcout << L"System data tests passed.\n";
         return 0;
     }

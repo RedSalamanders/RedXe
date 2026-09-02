@@ -8,8 +8,8 @@ namespace
 constexpr float kDesignWidth = 2560.0f;
 constexpr float kDesignHeight = 720.0f;
 
-[[nodiscard]] WidgetPlacement ToDesignPlacement(const WidgetGridPlacement& placement, std::uint32_t columns,
-                                                std::uint32_t rows) noexcept
+[[nodiscard]] WidgetPlacement ToDesignPlacement(const WidgetGridPlacement& placement, uint32_t columns,
+                                                uint32_t rows) noexcept
 {
     const float left = kDesignWidth * static_cast<float>(placement.column) / static_cast<float>(columns);
     const float top = kDesignHeight * static_cast<float>(placement.row) / static_cast<float>(rows);
@@ -20,13 +20,13 @@ constexpr float kDesignHeight = 720.0f;
     return WidgetPlacement{left, top, right - left, bottom - top};
 }
 
-[[nodiscard]] LONG RoundGridEdge(std::uint32_t cell, UINT extent, std::uint32_t divisions) noexcept
+[[nodiscard]] LONG RoundGridEdge(uint32_t cell, UINT extent, uint32_t divisions) noexcept
 {
-    const std::uint64_t doubled = static_cast<std::uint64_t>(cell) * extent * 2U;
-    return static_cast<LONG>((doubled + divisions) / (static_cast<std::uint64_t>(divisions) * 2U));
+    const uint64_t doubled = static_cast<uint64_t>(cell) * extent * 2U;
+    return static_cast<LONG>((doubled + divisions) / (static_cast<uint64_t>(divisions) * 2U));
 }
 
-[[nodiscard]] RECT ToPixelBounds(const WidgetGridPlacement& placement, std::uint32_t columns, std::uint32_t rows,
+[[nodiscard]] RECT ToPixelBounds(const WidgetGridPlacement& placement, uint32_t columns, uint32_t rows,
                                  UINT width, UINT height) noexcept
 {
     return RECT{
@@ -41,7 +41,7 @@ constexpr float kDesignHeight = 720.0f;
 {
     RECT bounds{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
     const bool landscape = width >= height;
-    for (std::uint32_t index = 0; index < placement.depth; ++index)
+    for (uint32_t index = 0; index < placement.depth; ++index)
     {
         const LayoutSplitStep& step = placement.steps[index];
         if (step.sizeRatio == 0 || step.totalRatio == 0 || step.precedingRatio + step.sizeRatio > step.totalRatio)
@@ -52,8 +52,8 @@ constexpr float kDesignHeight = 720.0f;
         const LONG origin = horizontal ? bounds.left : bounds.top;
         const LONG extent = horizontal ? bounds.right - bounds.left : bounds.bottom - bounds.top;
         const LONG first =
-            origin + static_cast<LONG>(static_cast<std::uint64_t>(extent) * step.precedingRatio / step.totalRatio);
-        const LONG last = origin + static_cast<LONG>(static_cast<std::uint64_t>(extent) *
+            origin + static_cast<LONG>(static_cast<uint64_t>(extent) * step.precedingRatio / step.totalRatio);
+        const LONG last = origin + static_cast<LONG>(static_cast<uint64_t>(extent) *
                                                      (step.precedingRatio + step.sizeRatio) / step.totalRatio);
         if (horizontal)
         {
@@ -84,9 +84,9 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
         return E_INVALIDARG;
     }
 
-    const auto widgetCount = static_cast<std::uint32_t>(pluginManager.WidgetCount());
-    const std::uint32_t columns = pluginManager.GridColumns();
-    const std::uint32_t rows = pluginManager.GridRows();
+    const auto widgetCount = static_cast<uint32_t>(pluginManager.WidgetCount());
+    const uint32_t columns = pluginManager.GridColumns();
+    const uint32_t rows = pluginManager.GridRows();
     if (columns == 0 || rows == 0 || columns > kMaximumDashboardGridDimension || rows > kMaximumDashboardGridDimension)
     {
         return E_INVALIDARG;
@@ -98,7 +98,7 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
     std::array<bool, PluginManager::kMaximumWidgetInstances> usesAdaptivePlacement{};
     std::array<wil::unique_hwnd, PluginManager::kMaximumWidgetInstances> containers;
     bool continuous = false;
-    for (std::uint32_t index = 0; index < widgetCount; ++index)
+    for (uint32_t index = 0; index < widgetCount; ++index)
     {
         IRedXeGpuWidget* gpuWidget = pluginManager.GpuWidgetAt(index);
         IRedXeWindowWidget* windowWidget = pluginManager.WindowWidgetAt(index);
@@ -149,7 +149,7 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
         if (!container)
         {
             const HRESULT result = HRESULT_FROM_WIN32(GetLastError());
-            for (std::uint32_t previous = 0; previous < index; ++previous)
+            for (uint32_t previous = 0; previous < index; ++previous)
             {
                 if (containers[previous])
                 {
@@ -163,15 +163,15 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
         const RedXeWindowWidgetAttachContext context{
             sizeof(RedXeWindowWidgetAttachContext),
             container,
-            static_cast<std::uint32_t>(bounds.right - bounds.left),
-            static_cast<std::uint32_t>(bounds.bottom - bounds.top),
+            static_cast<uint32_t>(bounds.right - bounds.left),
+            static_cast<uint32_t>(bounds.bottom - bounds.top),
             dpi,
         };
         HRESULT result = windowWidget->Attach(&context);
         if (FAILED(result))
         {
             windowWidget->Detach();
-            for (std::uint32_t previous = 0; previous < index; ++previous)
+            for (uint32_t previous = 0; previous < index; ++previous)
             {
                 if (containers[previous])
                 {
@@ -182,19 +182,19 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
         }
     }
 
-    for (std::uint32_t index = 0; index < widgetCount; ++index)
+    for (uint32_t index = 0; index < widgetCount; ++index)
     {
         IRedXeWidget* widget = pluginManager.WidgetAt(index);
         const HRESULT result = widget ? widget->SetVisible(visible ? TRUE : FALSE) : E_UNEXPECTED;
         if (FAILED(result))
         {
-            for (std::uint32_t previous = 0; previous < index; ++previous)
+            for (uint32_t previous = 0; previous < index; ++previous)
             {
                 (void)pluginManager.WidgetAt(previous)->SetVisible(FALSE);
             }
-            for (std::uint32_t previous = widgetCount; previous > 0; --previous)
+            for (uint32_t previous = widgetCount; previous > 0; --previous)
             {
-                const std::uint32_t widgetIndex = previous - 1;
+                const uint32_t widgetIndex = previous - 1;
                 if (containers[widgetIndex])
                 {
                     pluginManager.WindowWidgetAt(widgetIndex)->Detach();
@@ -243,7 +243,7 @@ HRESULT DashboardHost::Resize(UINT width, UINT height, UINT dpi) noexcept
     _clientWidth = width;
     _clientHeight = height;
 
-    for (std::size_t index = 0; index < _widgetCount; ++index)
+    for (size_t index = 0; index < _widgetCount; ++index)
     {
         IRedXeWindowWidget* widget = _pluginManager->WindowWidgetAt(index);
         if (!widget)
@@ -260,8 +260,8 @@ HRESULT DashboardHost::Resize(UINT width, UINT height, UINT dpi) noexcept
 
         const RedXeWindowWidgetSizeContext context{
             sizeof(RedXeWindowWidgetSizeContext),
-            static_cast<std::uint32_t>(bounds.right - bounds.left),
-            static_cast<std::uint32_t>(bounds.bottom - bounds.top),
+            static_cast<uint32_t>(bounds.right - bounds.left),
+            static_cast<uint32_t>(bounds.bottom - bounds.top),
             dpi,
         };
         const HRESULT result = widget->Resize(&context);
@@ -284,7 +284,7 @@ HRESULT DashboardHost::SetHorizontalOffset(LONG offset) noexcept
         return S_OK;
     }
     _horizontalOffset = offset;
-    for (std::size_t index = 0; index < _widgetCount; ++index)
+    for (size_t index = 0; index < _widgetCount; ++index)
     {
         if (!_windowContainers[index])
         {
@@ -311,14 +311,14 @@ HRESULT DashboardHost::SetWidgetsVisible(bool visible) noexcept
         return S_OK;
     }
 
-    std::size_t changedCount = 0;
-    for (std::size_t index = 0; index < _widgetCount; ++index)
+    size_t changedCount = 0;
+    for (size_t index = 0; index < _widgetCount; ++index)
     {
         IRedXeWidget* widget = _pluginManager->WidgetAt(index);
         const HRESULT result = widget->SetVisible(visible ? TRUE : FALSE);
         if (FAILED(result))
         {
-            for (std::size_t previous = 0; previous < changedCount; ++previous)
+            for (size_t previous = 0; previous < changedCount; ++previous)
             {
                 IRedXeWidget* previousWidget = _pluginManager->WidgetAt(previous);
                 (void)previousWidget->SetVisible(_widgetsVisible ? TRUE : FALSE);
@@ -328,7 +328,7 @@ HRESULT DashboardHost::SetWidgetsVisible(bool visible) noexcept
         changedCount = index + 1;
     }
 
-    for (std::size_t index = 0; index < _widgetCount; ++index)
+    for (size_t index = 0; index < _widgetCount; ++index)
     {
         if (_windowContainers[index])
         {
@@ -347,9 +347,9 @@ void DashboardHost::Shutdown() noexcept
     }
 
     (void)SetWidgetsVisible(false);
-    for (std::size_t index = _widgetCount; index > 0; --index)
+    for (size_t index = _widgetCount; index > 0; --index)
     {
-        const std::size_t widgetIndex = index - 1;
+        const size_t widgetIndex = index - 1;
         IRedXeWindowWidget* widget = _pluginManager->WindowWidgetAt(widgetIndex);
         if (widget)
         {
@@ -369,32 +369,32 @@ void DashboardHost::Shutdown() noexcept
     _clientHeight = 0;
 }
 
-std::size_t DashboardHost::WidgetCount() const noexcept
+size_t DashboardHost::WidgetCount() const noexcept
 {
     return _widgetCount;
 }
 
-IRedXeWidget* DashboardHost::WidgetAt(std::size_t index) const noexcept
+IRedXeWidget* DashboardHost::WidgetAt(size_t index) const noexcept
 {
     return _pluginManager && index < _widgetCount ? _pluginManager->WidgetAt(index) : nullptr;
 }
 
-IRedXeGpuWidget* DashboardHost::GpuWidgetAt(std::size_t index) const noexcept
+IRedXeGpuWidget* DashboardHost::GpuWidgetAt(size_t index) const noexcept
 {
     return _pluginManager && index < _widgetCount ? _pluginManager->GpuWidgetAt(index) : nullptr;
 }
 
-IRedXeWindowWidget* DashboardHost::WindowWidgetAt(std::size_t index) const noexcept
+IRedXeWindowWidget* DashboardHost::WindowWidgetAt(size_t index) const noexcept
 {
     return _pluginManager && index < _widgetCount ? _pluginManager->WindowWidgetAt(index) : nullptr;
 }
 
-WidgetPlacement DashboardHost::PlacementAt(std::size_t index) const noexcept
+WidgetPlacement DashboardHost::PlacementAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _placements[index] : WidgetPlacement{};
 }
 
-RECT DashboardHost::PixelBoundsAt(std::size_t index, UINT width, UINT height) const noexcept
+RECT DashboardHost::PixelBoundsAt(size_t index, UINT width, UINT height) const noexcept
 {
     if (index >= _widgetCount || width == 0 || height == 0)
     {
@@ -415,7 +415,7 @@ bool DashboardHost::RequiresContinuousFrames() const noexcept
     return _requiresContinuousFrames;
 }
 
-HRESULT DashboardHost::GetNextFrameDelayMilliseconds(std::uint32_t* delayMilliseconds) const noexcept
+HRESULT DashboardHost::GetNextFrameDelayMilliseconds(uint32_t* delayMilliseconds) const noexcept
 {
     if (!delayMilliseconds)
     {
@@ -427,9 +427,9 @@ HRESULT DashboardHost::GetNextFrameDelayMilliseconds(std::uint32_t* delayMillise
         return S_FALSE;
     }
 
-    std::uint32_t earliest = kRedXeMaximumScheduledFrameDelayMilliseconds;
+    uint32_t earliest = kRedXeMaximumScheduledFrameDelayMilliseconds;
     bool found = false;
-    for (std::size_t index = 0; index < _widgetCount; ++index)
+    for (size_t index = 0; index < _widgetCount; ++index)
     {
         IRedXeScheduledWidget* scheduledWidget = _pluginManager->ScheduledWidgetAt(index);
         if (!scheduledWidget)
@@ -437,7 +437,7 @@ HRESULT DashboardHost::GetNextFrameDelayMilliseconds(std::uint32_t* delayMillise
             continue;
         }
 
-        std::uint32_t candidate = 0;
+        uint32_t candidate = 0;
         const HRESULT result = scheduledWidget->GetNextFrameDelayMilliseconds(&candidate);
         if (result != S_OK || candidate == 0 || candidate > kRedXeMaximumScheduledFrameDelayMilliseconds)
         {

@@ -37,7 +37,7 @@ constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
 };
-constexpr std::uint32_t kMaximumGlyphInstances = 65'536;
+constexpr uint32_t kMaximumGlyphInstances = 65'536;
 
 constexpr std::array kMetadata{
     RedXePluginMetadata{
@@ -67,19 +67,19 @@ constexpr std::array kWidgetTypes{
 
 struct MatrixRainConfiguration final
 {
-    std::uint32_t seed = 1999;
-    std::uint32_t glyphHeightDips = 18;
-    std::uint32_t densityPercent = 70;
-    std::uint32_t speedPercent = 100;
-    std::uint32_t trailLengthGlyphs = 18;
-    std::uint32_t mutationPerSecond = 8;
-    std::uint32_t headColor = 0xD8FFE5;
-    std::uint32_t trailColor = 0x00E65C;
-    std::uint32_t backgroundColor = 0x010502;
-    std::uint32_t glowPercent = 35;
+    uint32_t seed = 1999;
+    uint32_t glyphHeightDips = 18;
+    uint32_t densityPercent = 70;
+    uint32_t speedPercent = 100;
+    uint32_t trailLengthGlyphs = 18;
+    uint32_t mutationPerSecond = 8;
+    uint32_t headColor = 0xD8FFE5;
+    uint32_t trailColor = 0x00E65C;
+    uint32_t backgroundColor = 0x010502;
+    uint32_t glowPercent = 35;
 };
 
-enum ConfigurationMember : std::uint32_t
+enum ConfigurationMember : uint32_t
 {
     ConfigurationSeed = 1U << 0U,
     ConfigurationGlyphHeight = 1U << 1U,
@@ -93,11 +93,11 @@ enum ConfigurationMember : std::uint32_t
     ConfigurationGlow = 1U << 9U,
 };
 
-inline constexpr std::uint32_t kAllConfigurationMembers = (1U << 10U) - 1U;
+inline constexpr uint32_t kAllConfigurationMembers = (1U << 10U) - 1U;
 
-std::atomic<std::uint32_t> gLiveProviderCount{0};
-std::atomic<std::uint32_t> gLiveWidgetCount{0};
-std::atomic<std::uint32_t> gLiveDeviceResourceSetCount{0};
+std::atomic<uint32_t> gLiveProviderCount{0};
+std::atomic<uint32_t> gLiveWidgetCount{0};
+std::atomic<uint32_t> gLiveDeviceResourceSetCount{0};
 
 class JsonCursor final
 {
@@ -135,7 +135,7 @@ class JsonCursor final
         {
             return false;
         }
-        const std::size_t start = ++_offset;
+        const size_t start = ++_offset;
         while (_offset < _text.size() && _text[_offset] != '"')
         {
             const unsigned char character = static_cast<unsigned char>(_text[_offset]);
@@ -154,7 +154,7 @@ class JsonCursor final
         return true;
     }
 
-    [[nodiscard]] bool ReadUnsigned(std::uint32_t& value) noexcept
+    [[nodiscard]] bool ReadUnsigned(uint32_t& value) noexcept
     {
         SkipWhitespace();
         if (_offset >= _text.size() || _text[_offset] < '0' || _text[_offset] > '9')
@@ -163,12 +163,12 @@ class JsonCursor final
         }
 
         const bool leadingZero = _text[_offset] == '0';
-        std::uint64_t parsed = 0;
-        std::size_t digits = 0;
+        uint64_t parsed = 0;
+        size_t digits = 0;
         while (_offset < _text.size() && _text[_offset] >= '0' && _text[_offset] <= '9')
         {
-            parsed = parsed * 10U + static_cast<std::uint64_t>(_text[_offset] - '0');
-            if (parsed > std::numeric_limits<std::uint32_t>::max())
+            parsed = parsed * 10U + static_cast<uint64_t>(_text[_offset] - '0');
+            if (parsed > std::numeric_limits<uint32_t>::max())
             {
                 return false;
             }
@@ -179,7 +179,7 @@ class JsonCursor final
         {
             return false;
         }
-        value = static_cast<std::uint32_t>(parsed);
+        value = static_cast<uint32_t>(parsed);
         return true;
     }
 
@@ -191,7 +191,7 @@ class JsonCursor final
 
   private:
     std::string_view _text;
-    std::size_t _offset = 0;
+    size_t _offset = 0;
 };
 
 [[nodiscard]] int HexDigitValue(char value) noexcept
@@ -211,39 +211,39 @@ class JsonCursor final
     return -1;
 }
 
-[[nodiscard]] bool ParseColor(std::string_view text, std::uint32_t& color) noexcept
+[[nodiscard]] bool ParseColor(std::string_view text, uint32_t& color) noexcept
 {
     if (text.size() != 7 || text[0] != '#')
     {
         return false;
     }
-    std::uint32_t parsed = 0;
-    for (std::size_t index = 1; index < text.size(); ++index)
+    uint32_t parsed = 0;
+    for (size_t index = 1; index < text.size(); ++index)
     {
         const int digit = HexDigitValue(text[index]);
         if (digit < 0)
         {
             return false;
         }
-        parsed = (parsed << 4U) | static_cast<std::uint32_t>(digit);
+        parsed = (parsed << 4U) | static_cast<uint32_t>(digit);
     }
     color = parsed;
     return true;
 }
 
-[[nodiscard]] std::uint32_t ConfigurationMemberForKey(std::string_view key) noexcept
+[[nodiscard]] uint32_t ConfigurationMemberForKey(std::string_view key) noexcept
 {
     constexpr std::array members{
-        std::pair<std::string_view, std::uint32_t>{"seed", ConfigurationSeed},
-        std::pair<std::string_view, std::uint32_t>{"glyphHeightDips", ConfigurationGlyphHeight},
-        std::pair<std::string_view, std::uint32_t>{"densityPercent", ConfigurationDensity},
-        std::pair<std::string_view, std::uint32_t>{"speedPercent", ConfigurationSpeed},
-        std::pair<std::string_view, std::uint32_t>{"trailLengthGlyphs", ConfigurationTrailLength},
-        std::pair<std::string_view, std::uint32_t>{"mutationPerSecond", ConfigurationMutation},
-        std::pair<std::string_view, std::uint32_t>{"headColor", ConfigurationHeadColor},
-        std::pair<std::string_view, std::uint32_t>{"trailColor", ConfigurationTrailColor},
-        std::pair<std::string_view, std::uint32_t>{"backgroundColor", ConfigurationBackgroundColor},
-        std::pair<std::string_view, std::uint32_t>{"glowPercent", ConfigurationGlow},
+        std::pair<std::string_view, uint32_t>{"seed", ConfigurationSeed},
+        std::pair<std::string_view, uint32_t>{"glyphHeightDips", ConfigurationGlyphHeight},
+        std::pair<std::string_view, uint32_t>{"densityPercent", ConfigurationDensity},
+        std::pair<std::string_view, uint32_t>{"speedPercent", ConfigurationSpeed},
+        std::pair<std::string_view, uint32_t>{"trailLengthGlyphs", ConfigurationTrailLength},
+        std::pair<std::string_view, uint32_t>{"mutationPerSecond", ConfigurationMutation},
+        std::pair<std::string_view, uint32_t>{"headColor", ConfigurationHeadColor},
+        std::pair<std::string_view, uint32_t>{"trailColor", ConfigurationTrailColor},
+        std::pair<std::string_view, uint32_t>{"backgroundColor", ConfigurationBackgroundColor},
+        std::pair<std::string_view, uint32_t>{"glowPercent", ConfigurationGlow},
     };
     for (const auto& member : members)
     {
@@ -255,7 +255,7 @@ class JsonCursor final
     return 0;
 }
 
-[[nodiscard]] bool IsInRange(std::uint32_t value, std::uint32_t minimum, std::uint32_t maximum) noexcept
+[[nodiscard]] bool IsInRange(uint32_t value, uint32_t minimum, uint32_t maximum) noexcept
 {
     return value >= minimum && value <= maximum;
 }
@@ -268,7 +268,7 @@ class JsonCursor final
     }
 
     MatrixRainConfiguration parsed{};
-    std::uint32_t seen = 0;
+    uint32_t seen = 0;
     for (;;)
     {
         std::string_view key;
@@ -276,14 +276,14 @@ class JsonCursor final
         {
             return false;
         }
-        const std::uint32_t member = ConfigurationMemberForKey(key);
+        const uint32_t member = ConfigurationMemberForKey(key);
         if (member == 0 || (seen & member) != 0)
         {
             return false;
         }
         seen |= member;
 
-        std::uint32_t value = 0;
+        uint32_t value = 0;
         std::string_view text;
         switch (member)
         {
@@ -384,9 +384,9 @@ class JsonCursor final
         return false;
     }
 
-    constexpr std::uint32_t pluginSeen = 1U << 0U;
-    constexpr std::uint32_t instanceSeen = 1U << 1U;
-    std::uint32_t seen = 0;
+    constexpr uint32_t pluginSeen = 1U << 0U;
+    constexpr uint32_t instanceSeen = 1U << 1U;
+    uint32_t seen = 0;
     MatrixRainConfiguration parsed{};
     for (;;)
     {
@@ -448,7 +448,7 @@ class JsonCursor final
     }
 
     const char* json = options->configurationJsonUtf8;
-    const std::uint32_t bytes = options->configurationBytes;
+    const uint32_t bytes = options->configurationBytes;
     if (!json && bytes == 0)
     {
         return S_OK;
@@ -469,9 +469,9 @@ class JsonCursor final
 
 struct alignas(16) MatrixRainConstants final
 {
-    std::uint32_t targetAndSeed[4];
-    std::uint32_t grid[4];
-    std::uint32_t stream[4];
+    uint32_t targetAndSeed[4];
+    uint32_t grid[4];
+    uint32_t stream[4];
     float geometryAndTime[4];
     float headColor[4];
     float trailColor[4];
@@ -484,21 +484,21 @@ static_assert(sizeof(MatrixRainConstants) <= 256);
 
 struct GridCache final
 {
-    std::uint32_t width = 0;
-    std::uint32_t height = 0;
-    std::uint32_t dpi = 0;
-    std::uint32_t columns = 0;
-    std::uint32_t rows = 0;
-    std::uint32_t activeColumns = 0;
-    std::uint32_t instanceCount = 0;
-    std::uint32_t permutationMultiplier = 0;
-    std::uint32_t permutationOffset = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t dpi = 0;
+    uint32_t columns = 0;
+    uint32_t rows = 0;
+    uint32_t activeColumns = 0;
+    uint32_t instanceCount = 0;
+    uint32_t permutationMultiplier = 0;
+    uint32_t permutationOffset = 0;
     float cellWidth = 0.0f;
     float cellHeight = 0.0f;
     float horizontalMargin = 0.0f;
 };
 
-[[nodiscard]] std::uint32_t Hash(std::uint32_t value) noexcept
+[[nodiscard]] uint32_t Hash(uint32_t value) noexcept
 {
     value ^= value >> 16U;
     value *= 0x7FEB352DU;
@@ -507,18 +507,18 @@ struct GridCache final
     return value ^ (value >> 16U);
 }
 
-[[nodiscard]] std::uint32_t GreatestCommonDivisor(std::uint32_t left, std::uint32_t right) noexcept
+[[nodiscard]] uint32_t GreatestCommonDivisor(uint32_t left, uint32_t right) noexcept
 {
     while (right != 0)
     {
-        const std::uint32_t remainder = left % right;
+        const uint32_t remainder = left % right;
         left = right;
         right = remainder;
     }
     return left;
 }
 
-[[nodiscard]] std::array<float, 4> ColorToFloat(std::uint32_t color) noexcept
+[[nodiscard]] std::array<float, 4> ColorToFloat(uint32_t color) noexcept
 {
     constexpr float scale = 1.0f / 255.0f;
     return {
@@ -820,22 +820,22 @@ class MatrixRainDeviceResources final
         }
 
         const double columns = std::floor(static_cast<double>(frame.widthPixels) / grid.cellWidth);
-        grid.columns = columns < 1.0 ? 1U : static_cast<std::uint32_t>(columns);
+        grid.columns = columns < 1.0 ? 1U : static_cast<uint32_t>(columns);
         const double rows = std::ceil(static_cast<double>(frame.heightPixels) / grid.cellHeight) + 1.0;
-        grid.rows = rows >= static_cast<double>(std::numeric_limits<std::uint32_t>::max())
-                        ? std::numeric_limits<std::uint32_t>::max()
-                        : static_cast<std::uint32_t>(rows);
+        grid.rows = rows >= static_cast<double>(std::numeric_limits<uint32_t>::max())
+                        ? std::numeric_limits<uint32_t>::max()
+                        : static_cast<uint32_t>(rows);
 
-        const std::uint64_t desiredActive =
-            (static_cast<std::uint64_t>(grid.columns) * _configuration.densityPercent + 99U) / 100U;
-        const std::uint32_t maximumActive =
-            grid.rows == 0 ? 0 : static_cast<std::uint32_t>(kMaximumGlyphInstances / grid.rows);
-        grid.activeColumns = static_cast<std::uint32_t>(desiredActive > maximumActive ? maximumActive : desiredActive);
+        const uint64_t desiredActive =
+            (static_cast<uint64_t>(grid.columns) * _configuration.densityPercent + 99U) / 100U;
+        const uint32_t maximumActive =
+            grid.rows == 0 ? 0 : static_cast<uint32_t>(kMaximumGlyphInstances / grid.rows);
+        grid.activeColumns = static_cast<uint32_t>(desiredActive > maximumActive ? maximumActive : desiredActive);
         grid.instanceCount = grid.activeColumns * grid.rows;
 
         if (grid.columns > 1)
         {
-            std::uint32_t multiplier = (Hash(_configuration.seed ^ grid.columns) | 1U) % grid.columns;
+            uint32_t multiplier = (Hash(_configuration.seed ^ grid.columns) | 1U) % grid.columns;
             if (multiplier == 0)
             {
                 multiplier = 1;
@@ -1052,7 +1052,7 @@ class MatrixRainProvider final : public IRedXeWidgetProvider
     }
 
     HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             std::uint32_t* count) noexcept override
+                                             uint32_t* count) noexcept override
     {
         if (descriptors)
         {
@@ -1067,7 +1067,7 @@ class MatrixRainProvider final : public IRedXeWidgetProvider
             return E_POINTER;
         }
         *descriptors = kWidgetTypes.data();
-        *count = static_cast<std::uint32_t>(kWidgetTypes.size());
+        *count = static_cast<uint32_t>(kWidgetTypes.size());
         return S_OK;
     }
 
@@ -1155,13 +1155,13 @@ constexpr std::array kFactoryEntries{
 extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
                                          const char* pluginId, void** result) noexcept
 {
-    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<std::uint32_t>(kFactoryEntries.size()),
+    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()),
                                          interfaceId, options, host, pluginId, result);
 }
 
-extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, std::uint32_t* count) noexcept
+extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
 {
-    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<std::uint32_t>(kMetadata.size()), metadata,
+    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata,
                                          count);
 }
 

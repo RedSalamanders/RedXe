@@ -296,7 +296,7 @@ class GdiOrbitWidget final : public IRedXeWidget, public IRedXeWindowWidget
         return DefWindowProcW(window, message, wParam, lParam);
     }
 
-    [[nodiscard]] HRESULT RebuildDrawingResources(std::uint32_t width, std::uint32_t height, UINT dpi) noexcept
+    [[nodiscard]] HRESULT RebuildDrawingResources(uint32_t width, uint32_t height, UINT dpi) noexcept
     {
         if (!_memoryDc)
         {
@@ -522,8 +522,8 @@ class GdiOrbitWidget final : public IRedXeWidget, public IRedXeWindowWidget
     wil::unique_hfont _titleFont;
     wil::unique_hfont _symbolFont;
     wil::unique_hfont _detailFont;
-    std::uint32_t _width = 0;
-    std::uint32_t _height = 0;
+    uint32_t _width = 0;
+    uint32_t _height = 0;
     UINT _dpi = 0;
     ULONGLONG _elapsedBeforePause = 0;
     ULONGLONG _resumeTick = 0;
@@ -590,7 +590,7 @@ class GdiOrbitProvider final : public IRedXeWidgetProvider
     }
 
     HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             std::uint32_t* count) noexcept override
+                                             uint32_t* count) noexcept override
     {
         if (descriptors)
         {
@@ -605,7 +605,7 @@ class GdiOrbitProvider final : public IRedXeWidgetProvider
             return E_POINTER;
         }
         *descriptors = kWidgetTypes.data();
-        *count = static_cast<std::uint32_t>(kWidgetTypes.size());
+        *count = static_cast<uint32_t>(kWidgetTypes.size());
         return S_OK;
     }
 
@@ -687,13 +687,13 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) noexcept
 extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
                                          const char* pluginId, void** result) noexcept
 {
-    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<std::uint32_t>(kFactoryEntries.size()),
+    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()),
                                          interfaceId, options, host, pluginId, result);
 }
 
-extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, std::uint32_t* count) noexcept
+extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
 {
-    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<std::uint32_t>(kMetadata.size()), metadata,
+    return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata,
                                          count);
 }
 

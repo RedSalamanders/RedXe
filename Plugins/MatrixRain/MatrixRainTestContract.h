@@ -5,10 +5,10 @@
 
 struct MatrixRainTestDiagnostics final
 {
-    std::uint32_t sizeBytes;
-    std::uint32_t liveProviderCount;
-    std::uint32_t liveWidgetCount;
-    std::uint32_t liveDeviceResourceSetCount;
+    uint32_t sizeBytes;
+    uint32_t liveProviderCount;
+    uint32_t liveWidgetCount;
+    uint32_t liveDeviceResourceSetCount;
 };
 
 #if defined(REDXE_PLUGIN_EXPORTS)

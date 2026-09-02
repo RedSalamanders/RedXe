@@ -51,7 +51,7 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
     }
     if (_transitionWidgetsDeviceReady && _transitionDashboardHost)
     {
-        for (std::size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
+        for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
         {
             if (IRedXeGpuWidget* widget = _transitionDashboardHost->GpuWidgetAt(index))
                 widget->OnDeviceLost();
@@ -68,14 +68,14 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
         return S_OK;
     }
     const RedXeGpuDeviceContext context{sizeof(RedXeGpuDeviceContext), _device.get(), kTargetFormat, _featureLevel};
-    for (std::size_t index = 0; index < dashboardHost->WidgetCount(); ++index)
+    for (size_t index = 0; index < dashboardHost->WidgetCount(); ++index)
     {
         if (IRedXeGpuWidget* widget = dashboardHost->GpuWidgetAt(index))
         {
             const HRESULT result = widget->OnDeviceCreated(&context);
             if (FAILED(result))
             {
-                for (std::size_t previous = 0; previous < index; ++previous)
+                for (size_t previous = 0; previous < index; ++previous)
                 {
                     if (IRedXeGpuWidget* initialized = dashboardHost->GpuWidgetAt(previous))
                         initialized->OnDeviceLost();
@@ -268,7 +268,7 @@ HRESULT Renderer::UpdateCachedViewports() noexcept
         return E_UNEXPECTED;
     }
 
-    for (std::size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
+    for (size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
     {
         const RECT bounds = _dashboardHost->PixelBoundsAt(index, _width, _height);
         if (bounds.right <= bounds.left || bounds.bottom <= bounds.top)
@@ -286,7 +286,7 @@ HRESULT Renderer::UpdateCachedViewports() noexcept
     }
     if (_transitionDashboardHost)
     {
-        for (std::size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
+        for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
         {
             const RECT bounds = _transitionDashboardHost->PixelBoundsAt(index, _width, _height);
             if (bounds.right <= bounds.left || bounds.bottom <= bounds.top)
@@ -317,8 +317,8 @@ HRESULT Renderer::NotifyDeviceCreated() noexcept
         _featureLevel,
     };
 
-    std::size_t initializedCount = 0;
-    for (std::size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
+    size_t initializedCount = 0;
+    for (size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
     {
         IRedXeGpuWidget* widget = _dashboardHost->GpuWidgetAt(index);
         if (!widget)
@@ -328,7 +328,7 @@ HRESULT Renderer::NotifyDeviceCreated() noexcept
         const HRESULT result = widget->OnDeviceCreated(&context);
         if (FAILED(result))
         {
-            for (std::size_t previous = 0; previous < initializedCount; ++previous)
+            for (size_t previous = 0; previous < initializedCount; ++previous)
             {
                 IRedXeGpuWidget* initializedWidget = _dashboardHost->GpuWidgetAt(previous);
                 if (initializedWidget)
@@ -357,7 +357,7 @@ void Renderer::NotifyDeviceLost() noexcept
         return;
     }
 
-    for (std::size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
+    for (size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
     {
         IRedXeGpuWidget* widget = _dashboardHost->GpuWidgetAt(index);
         if (widget)
@@ -367,7 +367,7 @@ void Renderer::NotifyDeviceLost() noexcept
     }
     if (_transitionWidgetsDeviceReady && _transitionDashboardHost)
     {
-        for (std::size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
+        for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
         {
             if (IRedXeGpuWidget* widget = _transitionDashboardHost->GpuWidgetAt(index))
                 widget->OnDeviceLost();
@@ -439,7 +439,7 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
     _context->OMSetRenderTargets(1, renderTargets, nullptr);
     _context->ClearRenderTargetView(_renderTarget.get(), clearColor.data());
 
-    for (std::size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
+    for (size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
     {
         IRedXeGpuWidget* widget = _dashboardHost->GpuWidgetAt(index);
         const D3D11_VIEWPORT& viewport = _widgetViewports[index];
@@ -482,7 +482,7 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
 
     if (_transitionDashboardHost && _transitionWidgetsDeviceReady)
     {
-        for (std::size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
+        for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
         {
             IRedXeGpuWidget* widget = _transitionDashboardHost->GpuWidgetAt(index);
             const D3D11_VIEWPORT& viewport = _transitionWidgetViewports[index];
@@ -555,12 +555,12 @@ bool Renderer::IsOccluded() const noexcept
     return _occluded;
 }
 
-std::size_t Renderer::LastFrameWidgetCount() const noexcept
+size_t Renderer::LastFrameWidgetCount() const noexcept
 {
     return _lastFrameWidgetCount;
 }
 
-std::size_t Renderer::LastFrameSuccessfulWidgetCount() const noexcept
+size_t Renderer::LastFrameSuccessfulWidgetCount() const noexcept
 {
     return _lastFrameSuccessfulWidgetCount;
 }
