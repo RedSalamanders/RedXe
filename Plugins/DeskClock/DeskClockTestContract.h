@@ -28,6 +28,11 @@ struct DeskClockTestDiagnostics final
     uint64_t scheduleQueries;
     uint64_t typographyBuilds;
     uint32_t atlasBytes;
+    // Live glyph atlas resolution tier and edge length, so a test can prove the atlas follows the drawn size.
+    uint32_t atlasScale;
+    uint32_t atlasEdgePixels;
+    // Times the host reported a changed target size. It must not grow per frame.
+    uint64_t targetSizeChanges;
     uint32_t constantBytes;
 };
 

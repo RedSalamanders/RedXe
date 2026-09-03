@@ -170,7 +170,7 @@ function Invoke-RedXeCrashTest {
     }
     $streamCount = [BitConverter]::ToUInt32($dumpBytes, 8)
     $streamDirectoryRva = [BitConverter]::ToUInt32($dumpBytes, 12)
-    $streamDirectoryEnd = [uint64]$streamDirectoryRva + ([uint64]$streamCount * 12u)
+    $streamDirectoryEnd = [uint64]$streamDirectoryRva + ([uint64]$streamCount * 12)
     if ($streamCount -eq 0 -or $streamDirectoryRva -lt 32 -or $streamDirectoryEnd -gt $dumpBytes.LongLength) {
         throw 'Crash harness output has an invalid or empty minidump stream directory.'
     }
@@ -224,9 +224,9 @@ if ($invalidOverrideProcess.ExitCode -ne 2) {
     throw "Invalid crash-directory override returned exit code $($invalidOverrideProcess.ExitCode); expected 2."
 }
 
-Invoke-RedXeCrashTest -CrashArgument '--crash-test' -ExpectedExceptionCode 0xE000CAFEu `
+Invoke-RedXeCrashTest -CrashArgument '--crash-test' -ExpectedExceptionCode 0xE000CAFEl `
     -Label 'fatal-process'
-Invoke-RedXeCrashTest -CrashArgument '--crash-test-stack-overflow' -ExpectedExceptionCode 0xC00000FDu `
+Invoke-RedXeCrashTest -CrashArgument '--crash-test-stack-overflow' -ExpectedExceptionCode 0xC00000FDl `
     -Label 'stack-overflow'
 
 Write-Host 'All tests passed.' -ForegroundColor Green

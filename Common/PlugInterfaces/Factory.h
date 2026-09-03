@@ -2,10 +2,13 @@
 
 #include "Host.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <windows.h>
 
-// Every sizeBytes field must equal the current record's sizeof value.
+// Every sizeBytes field must equal the current record's sizeof value. Each record below is pinned with a size
+// assertion, and every record carrying a pointer is pinned with offset assertions, so a layout change that preserves
+// size cannot pass the runtime sizeBytes guard unnoticed.
 
 // Services exposed by a logical plugin.
 enum RedXePluginCapabilities : uint32_t
@@ -26,6 +29,8 @@ struct RedXeFactoryOptions final
 
 inline constexpr uint32_t kRedXeMaximumFactoryConfigurationBytes = 8192;
 static_assert(sizeof(RedXeFactoryOptions) == 24);
+static_assert(offsetof(RedXeFactoryOptions, configurationJsonUtf8) == 8);
+static_assert(offsetof(RedXeFactoryOptions, configurationBytes) == 16);
 
 // Module-owned metadata for one logical plugin.
 struct RedXePluginMetadata final
@@ -39,6 +44,12 @@ struct RedXePluginMetadata final
     uint32_t capabilities;
 };
 
+static_assert(sizeof(RedXePluginMetadata) == 56);
+static_assert(offsetof(RedXePluginMetadata, id) == 8);
+static_assert(offsetof(RedXePluginMetadata, displayName) == 16);
+static_assert(offsetof(RedXePluginMetadata, version) == 40);
+static_assert(offsetof(RedXePluginMetadata, capabilities) == 48);
+
 // Module-owned settings schema and defaults for one logical plugin.
 struct RedXePluginSettingsContract final
 {
@@ -48,6 +59,12 @@ struct RedXePluginSettingsContract final
     const char* defaultsJsonUtf8;
     uint32_t defaultsBytes;
 };
+
+static_assert(sizeof(RedXePluginSettingsContract) == 40);
+static_assert(offsetof(RedXePluginSettingsContract, schemaJsonUtf8) == 8);
+static_assert(offsetof(RedXePluginSettingsContract, schemaBytes) == 16);
+static_assert(offsetof(RedXePluginSettingsContract, defaultsJsonUtf8) == 24);
+static_assert(offsetof(RedXePluginSettingsContract, defaultsBytes) == 32);
 
 #if defined(REDXE_PLUGIN_EXPORTS)
 #define REDXE_PLUGIN_API __declspec(dllexport)

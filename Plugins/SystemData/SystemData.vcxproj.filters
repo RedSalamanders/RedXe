@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="Source Files"><UniqueIdentifier>{8031D44F-4C7A-402C-B583-D8BBD2E7CC4F}</UniqueIdentifier></Filter>
@@ -10,6 +10,7 @@
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="NtLayout.h"><Filter>Source Files</Filter></ClInclude>
     <ClInclude Include="SystemDataTestContract.h"><Filter>Public Interfaces</Filter></ClInclude>
   </ItemGroup>
 </Project>

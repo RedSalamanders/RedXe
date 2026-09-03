@@ -1,4 +1,5 @@
 #include "SystemDataPhase0.h"
+#include "../../Plugins/SystemData/NtLayout.h"
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/Factory.h"
 
@@ -42,6 +43,17 @@ static_assert(sizeof(SYSTEM_TIMEOFDAY_INFORMATION) == 48);
 static_assert(sizeof(PROCESS_BASIC_INFORMATION) == 48);
 static_assert(sizeof(SYSTEM_PROCESS_INFORMATION) == 256);
 static_assert(sizeof(SYSTEM_THREAD_INFORMATION) == 80);
+// The RedXe overlays that name the SDK reserved blocks. NtLayout.h already anchors every consumed member offset to
+// the matching SDK member; these repeat the sizes here so the Phase 0 record and the plugin cannot drift apart, and
+// so the ARM64 configuration proves the same layouts at compile time before ARM64 hardware is measured.
+static_assert(sizeof(RedXeNtProcessRecord) == sizeof(SYSTEM_PROCESS_INFORMATION));
+static_assert(sizeof(RedXeNtThreadRecord) == sizeof(SYSTEM_THREAD_INFORMATION));
+static_assert(sizeof(RedXeNtProcessorPerformance) == sizeof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION));
+static_assert(sizeof(RedXeNtTimeOfDay) == sizeof(SYSTEM_TIMEOFDAY_INFORMATION));
+static_assert(sizeof(RedXeNtInterruptRecord) == sizeof(SYSTEM_INTERRUPT_INFORMATION));
+static_assert(sizeof(RedXeNtExceptionRecord) == sizeof(SYSTEM_EXCEPTION_INFORMATION));
+static_assert(kRedXeNtPerformanceBaseBytes == sizeof(SYSTEM_PERFORMANCE_INFORMATION));
+static_assert(sizeof(RedXeNtPerformance) == kRedXeNtPerformance24H2Bytes);
 
 using NtQuerySystemInformationFn = NTSTATUS(NTAPI*)(SYSTEM_INFORMATION_CLASS, PVOID, ULONG, PULONG);
 using NtQueryInformationProcessFn = NTSTATUS(NTAPI*)(HANDLE, PROCESSINFOCLASS, PVOID, ULONG, PULONG);
@@ -425,19 +437,88 @@ void Run()
                "SystemBasicInformation.NumberOfProcessors does not match GetActiveProcessorCount");
     }
 
-    SYSTEM_PERFORMANCE_INFORMATION opaquePerformance{};
+    // The earlier record of "SystemPerformanceInformation returns 312 bytes" was an artifact of passing
+    // sizeof(SYSTEM_PERFORMANCE_INFORMATION) as the length: the SDK struct is only the reserved prefix, so the kernel
+    // could never report more. Probing with an oversized buffer is what actually measures the record.
+    std::array<std::byte, 1024> performanceProbe{};
     returned = 0;
-    const NTSTATUS performanceStatus = QuerySystem(querySystem, SystemPerformanceInformation, &opaquePerformance,
-                                                   static_cast<ULONG>(sizeof(opaquePerformance)), &returned);
-    std::wcout << L"SystemPerformanceInformation status=" << performanceStatus << L" returned=" << returned
-               << L" sdk_sizeof=" << sizeof(opaquePerformance) << L" opaque_reserved_bytes=312\n";
+    const NTSTATUS performanceStatus =
+        QuerySystem(querySystem, SystemPerformanceInformation, performanceProbe.data(),
+                    static_cast<ULONG>(performanceProbe.size()), &returned);
+    std::wcout << L"SystemPerformanceInformation status=" << performanceStatus << L" probe_bytes="
+               << performanceProbe.size() << L" measured_return_length=" << returned
+               << L" sdk_sizeof=" << sizeof(SYSTEM_PERFORMANCE_INFORMATION) << L" redxe_overlay_sizeof="
+               << sizeof(RedXeNtPerformance) << L" band=";
+    if (returned >= kRedXeNtPerformance24H2Bytes)
+    {
+        std::wcout << L"24h2\n";
+    }
+    else if (returned >= kRedXeNtPerformanceThresholdBytes)
+    {
+        std::wcout << L"threshold\n";
+    }
+    else if (returned >= kRedXeNtPerformanceBaseBytes)
+    {
+        std::wcout << L"base\n";
+    }
+    else
+    {
+        std::wcout << L"short\n";
+    }
+    Expect(performanceStatus >= 0 && returned >= kRedXeNtPerformanceBaseBytes,
+           "SystemPerformanceInformation did not return at least the base band");
+
+    // Short-buffer fixture: one byte under the SDK reserved block must be rejected, never silently truncated.
+    ULONG shortReturned = 0;
+    const NTSTATUS shortStatus = QuerySystem(querySystem, SystemPerformanceInformation, performanceProbe.data(),
+                                             static_cast<ULONG>(sizeof(SYSTEM_PERFORMANCE_INFORMATION) - 1),
+                                             &shortReturned);
+    std::wcout << L"SystemPerformanceInformation short_buffer_status=" << shortStatus << L" returned="
+               << shortReturned << L'\n';
+    Expect(shortStatus < 0 || shortReturned < sizeof(SYSTEM_PERFORMANCE_INFORMATION),
+           "a short SystemPerformanceInformation buffer reported a full-length result");
 
     SYSTEM_TIMEOFDAY_INFORMATION timeOfDay{};
     returned = 0;
     Expect(QuerySystem(querySystem, SystemTimeOfDayInformation, &timeOfDay, static_cast<ULONG>(sizeof(timeOfDay)),
                        &returned) >= 0,
            "SystemTimeOfDayInformation failed");
-    std::wcout << L"SystemTimeOfDayInformation returned=" << returned << L" opaque_reserved_bytes=48\n";
+    std::wcout << L"SystemTimeOfDayInformation returned=" << returned << L" sdk_sizeof=" << sizeof(timeOfDay)
+               << L" redxe_overlay_sizeof=" << sizeof(RedXeNtTimeOfDay) << L'\n';
+    Expect(returned == sizeof(RedXeNtTimeOfDay),
+           "SystemTimeOfDayInformation return length does not match the RedXe overlay");
+
+    // The remaining fixed-size classes are fully covered by their SDK reserved blocks, so an exact-length return is
+    // a complete version gate for each.
+    std::array<std::byte, 256> interruptProbe{};
+    ULONG interruptReturned = 0;
+    const ULONG interruptLength =
+        static_cast<ULONG>(sizeof(RedXeNtInterruptRecord) * (activeProcessors == 0 ? 1 : activeProcessors));
+    const NTSTATUS interruptStatus =
+        interruptLength <= interruptProbe.size()
+            ? QuerySystem(querySystem, SystemInterruptInformation, interruptProbe.data(), interruptLength,
+                          &interruptReturned)
+            : static_cast<NTSTATUS>(0);
+    std::wcout << L"SystemInterruptInformation status=" << interruptStatus << L" returned=" << interruptReturned
+               << L" record_sizeof=" << sizeof(RedXeNtInterruptRecord) << L" processors=" << activeProcessors << L'\n';
+    Expect(interruptReturned == 0 || interruptReturned % sizeof(RedXeNtInterruptRecord) == 0,
+           "SystemInterruptInformation return length is not a whole number of records");
+
+    RedXeNtExceptionRecord exceptions{};
+    ULONG exceptionReturned = 0;
+    const NTSTATUS exceptionStatus = QuerySystem(querySystem, SystemExceptionInformation, &exceptions,
+                                                 static_cast<ULONG>(sizeof(exceptions)), &exceptionReturned);
+    std::wcout << L"SystemExceptionInformation status=" << exceptionStatus << L" returned=" << exceptionReturned
+               << L" record_sizeof=" << sizeof(RedXeNtExceptionRecord) << L'\n';
+
+    // A length that is not a whole number of per-processor records must be rejected rather than partially filled.
+    // This is the failure that made the first interrupt and processor-time queries silently return nothing.
+    ULONG raggedReturned = 0;
+    const NTSTATUS raggedStatus =
+        QuerySystem(querySystem, SystemProcessorPerformanceInformation, performanceProbe.data(),
+                    static_cast<ULONG>(sizeof(RedXeNtProcessorPerformance) + 1), &raggedReturned);
+    std::wcout << L"SystemProcessorPerformanceInformation ragged_length_status=" << raggedStatus << L" returned="
+               << raggedReturned << L'\n';
 
     std::vector<std::byte> basicProcessBuffer(kProcessBufferStartBytes);
     ULONG basicReturned = 0;

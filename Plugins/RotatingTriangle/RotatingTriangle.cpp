@@ -222,7 +222,7 @@ class TriangleDeviceResources final
     return hash;
 }
 
-class RotatingTriangleWidget final : public IRedXeWidget, public IRedXeGpuWidget, public IRedXeRaisedWidget
+class RotatingTriangleWidget final : public RedXeComObject<RotatingTriangleWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeRaisedWidget>
 {
   public:
     RotatingTriangleWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner,
@@ -232,48 +232,6 @@ class RotatingTriangleWidget final : public IRedXeWidget, public IRedXeGpuWidget
                                            : -0.55f - static_cast<float>((instanceHash >> 1U) % 5U) * 0.11f),
           _phase(static_cast<float>(instanceHash % 6283U) * 0.001f), _colorOffset(instanceHash % 3U)
     {
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-        {
-            return E_POINTER;
-        }
-        *result = nullptr;
-        if (interfaceId == __uuidof(IUnknown) || interfaceId == __uuidof(IRedXeWidget))
-        {
-            *result = static_cast<IRedXeWidget*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeGpuWidget))
-        {
-            *result = static_cast<IRedXeGpuWidget*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeRaisedWidget))
-        {
-            *result = static_cast<IRedXeRaisedWidget*>(this);
-        }
-        else
-        {
-            return E_NOINTERFACE;
-        }
-        AddRef();
-        return S_OK;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-        {
-            delete this;
-        }
-        return references;
     }
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL) noexcept override
@@ -314,6 +272,16 @@ class RotatingTriangleWidget final : public IRedXeWidget, public IRedXeGpuWidget
         _resources->Reset();
     }
 
+    HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
+    {
+        if (!context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
+        {
+            return E_INVALIDARG;
+        }
+        // Geometry only: the triangle is defined in clip space and carries no resolution-dependent resource.
+        return S_OK;
+    }
+
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
     {
         if (!context || !context->widget)
@@ -347,7 +315,6 @@ class RotatingTriangleWidget final : public IRedXeWidget, public IRedXeGpuWidget
     }
 
   private:
-    std::atomic<ULONG> _references{1};
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _providerOwner;
     TriangleDeviceResources* _resources;
     float _speed;
@@ -355,40 +322,9 @@ class RotatingTriangleWidget final : public IRedXeWidget, public IRedXeGpuWidget
     uint32_t _colorOffset;
 };
 
-class RotatingTriangleProvider final : public IRedXeWidgetProvider
+class RotatingTriangleProvider final : public RedXeComObject<RotatingTriangleProvider, IRedXeWidgetProvider>
 {
   public:
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-        {
-            return E_POINTER;
-        }
-        *result = nullptr;
-        if (interfaceId == __uuidof(IUnknown) || interfaceId == __uuidof(IRedXeWidgetProvider))
-        {
-            *result = static_cast<IRedXeWidgetProvider*>(this);
-            AddRef();
-            return S_OK;
-        }
-        return E_NOINTERFACE;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-        {
-            delete this;
-        }
-        return references;
-    }
-
     HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
                                              uint32_t* count) noexcept override
     {
@@ -444,7 +380,6 @@ class RotatingTriangleProvider final : public IRedXeWidgetProvider
     }
 
   private:
-    std::atomic<ULONG> _references{1};
     TriangleDeviceResources _resources;
 };
 

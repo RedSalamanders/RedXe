@@ -5,7 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <d3d11.h>
+#include <d3d11_1.h>
 #include <dxgi1_2.h>
 #include <windows.h>
 
@@ -57,6 +57,18 @@ class Renderer final
     HRESULT CreateSwapChain() noexcept;
     HRESULT CreateRenderTarget(UINT width, UINT height) noexcept;
     HRESULT UpdateCachedViewports() noexcept;
+    // Notifies widgets whose largest drawn viewport changed. Called from UpdateCachedViewports, which already runs
+    // exactly on the events that can change a viewport, so this never fires per frame or for a position-only change.
+    void NotifyTargetSizes() noexcept;
+    void ResetTargetSizes() noexcept;
+    // Fills one tile with the host placeholder wash. Used when a widget instance failed to construct or reported
+    // itself unavailable, so a failed tile reads as failed instead of stale or blank.
+    void DrawPlaceholder(const D3D11_VIEWPORT& viewport) noexcept;
+#if defined(_DEBUG)
+    // Bounded check of the pipeline-state contract Widget.h states: the host binds only render target and viewport,
+    // so a widget that leaves scissor clipping enabled silently breaks whichever sibling draws next.
+    void ValidateWidgetPipelineState(size_t index) noexcept;
+#endif
     HRESULT NotifyDeviceCreated() noexcept;
     void NotifyDeviceLost() noexcept;
     HRESULT RecoverDevice() noexcept;
@@ -85,9 +97,14 @@ class Renderer final
 
     std::array<D3D11_VIEWPORT, kMaximumWidgetViewports> _widgetViewports{};
     std::array<D3D11_VIEWPORT, kMaximumWidgetViewports> _transitionWidgetViewports{};
+    // Last size reported to each widget. A zeroed entry means "not yet reported", so the first notification after
+    // device creation always fires.
+    std::array<SIZE, kMaximumWidgetViewports> _widgetTargetSizes{};
+    std::array<SIZE, kMaximumWidgetViewports> _transitionTargetSizes{};
 
     wil::com_ptr_nothrow<ID3D11Device> _device;
     wil::com_ptr_nothrow<ID3D11DeviceContext> _context;
+    wil::com_ptr_nothrow<ID3D11DeviceContext1> _context1;
     wil::com_ptr_nothrow<IDXGIFactory2> _factory;
     wil::com_ptr_nothrow<IDXGISwapChain1> _swapChain;
     wil::com_ptr_nothrow<ID3D11RenderTargetView> _renderTarget;

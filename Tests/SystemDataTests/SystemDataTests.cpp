@@ -16,7 +16,9 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tlhelp32.h>
 #include <type_traits>
+#include <utility>
 #include <vector>
 #include <windows.h>
 
@@ -30,6 +32,10 @@ namespace
 {
 static_assert(std::is_base_of_v<IUnknown, IRedXeDataSource>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataSource>);
+
+// Mirrors kRedXeDeviceClassNpu in the plugin. Declared here rather than shared so the test asserts against the
+// published contract value, not against whatever the implementation happens to define.
+constexpr uint64_t kTestDeviceClassNpu = 2;
 
 void Expect(bool condition, const char* message)
 {
@@ -468,6 +474,358 @@ void RunResourceBenchmark(IRedXeSystemDataTestSource& testSource, const RedXeDat
                << L'\n';
 }
 
+// Oracles for the SDK `Reserved*` members that SystemData now consumes, and for the information classes it probes by
+// measured ReturnLength. Every value below is cross-checked against an independent documented Win32 API; a field that
+// cannot be corroborated has no business being published, so a mismatch fails the suite rather than degrading quality.
+[[nodiscard]] uint64_t ValueU64(const RedXeDataRow& row, uint32_t column)
+{
+    Expect(row.values && column < row.valueCount, "column index is out of range");
+    Expect(row.values[column].valueType == RedXeDataValueTypeUInt64, "column is not a UInt64");
+    return row.values[column].uint64Value;
+}
+
+[[nodiscard]] double ValueF64(const RedXeDataRow& row, uint32_t column)
+{
+    Expect(row.values && column < row.valueCount, "column index is out of range");
+    Expect(row.values[column].valueType == RedXeDataValueTypeFloat64, "column is not a Float64");
+    return row.values[column].float64Value;
+}
+
+[[nodiscard]] bool IsGood(const RedXeDataRow& row, uint32_t column)
+{
+    Expect(row.values && column < row.valueCount, "column index is out of range");
+    return row.values[column].quality == RedXeDataQualityGood;
+}
+
+// Oracle for SYSTEM_PROCESS_INFORMATION::Reserved2 — the same parent PID, read through Toolhelp's named field.
+[[nodiscard]] std::vector<std::pair<uint32_t, uint32_t>> ToolhelpParents()
+{
+    std::vector<std::pair<uint32_t, uint32_t>> parents;
+    wil::unique_handle snapshot{CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)};
+    if (!snapshot || snapshot.get() == INVALID_HANDLE_VALUE)
+    {
+        snapshot.release();
+        return parents;
+    }
+    PROCESSENTRY32W entry{};
+    entry.dwSize = static_cast<DWORD>(sizeof(entry));
+    for (BOOL more = Process32FirstW(snapshot.get(), &entry); more != FALSE;
+         more = Process32NextW(snapshot.get(), &entry))
+    {
+        parents.emplace_back(entry.th32ProcessID, entry.th32ParentProcessID);
+    }
+    return parents;
+}
+
+void RunNativeLayoutOracles(IRedXeDataSource& source, const RedXeDataSetDescriptor* descriptors, uint32_t count)
+{
+    const RedXeDataSetDescriptor* processDescriptor = FindDataSet(descriptors, count, "process.list");
+    const RedXeDataSetDescriptor* threadDescriptor = FindDataSet(descriptors, count, "thread.list");
+    const RedXeDataSetDescriptor* cpuLogicalDescriptor = FindDataSet(descriptors, count, "cpu.logical");
+    const RedXeDataSetDescriptor* cpuSummaryDescriptor = FindDataSet(descriptors, count, "cpu.summary");
+    const RedXeDataSetDescriptor* memoryDescriptor = FindDataSet(descriptors, count, "memory.summary");
+    const RedXeDataSetDescriptor* summaryDescriptor = FindDataSet(descriptors, count, "system.summary");
+    Expect(processDescriptor && threadDescriptor && cpuLogicalDescriptor && cpuSummaryDescriptor && memoryDescriptor &&
+               summaryDescriptor,
+           "oracle datasets are missing");
+
+    // ---- class 5 process record: Reserved1, Reserved2, Reserved4, Reserved7 ------------------------------------
+    const RedXeDataSnapshot* processes = nullptr;
+    Expect(CollectOneSnapshot(source, "process.list", &processes) == S_OK && processes && processes->rowCount != 0,
+           "process.list oracle collection failed");
+    const uint32_t pidColumn = FindColumn(*processDescriptor, "processId");
+    const uint32_t parentColumn = FindColumn(*processDescriptor, "parentProcessId");
+    const uint32_t createColumn = FindColumn(*processDescriptor, "createTime100ns");
+    const uint32_t userColumn = FindColumn(*processDescriptor, "userTime100ns");
+    const uint32_t kernelColumn = FindColumn(*processDescriptor, "kernelTime100ns");
+    const uint32_t readOpsColumn = FindColumn(*processDescriptor, "ioReadOperations");
+    const uint32_t writeOpsColumn = FindColumn(*processDescriptor, "ioWriteOperations");
+    const uint32_t readBytesColumn = FindColumn(*processDescriptor, "ioReadBytes");
+    const uint32_t faultColumn = FindColumn(*processDescriptor, "pageFaultCount");
+    const uint32_t hardFaultColumn = FindColumn(*processDescriptor, "hardFaultCount");
+    const uint32_t privateWorkingSetColumn = FindColumn(*processDescriptor, "workingSetPrivateBytes");
+
+    const std::vector<std::pair<uint32_t, uint32_t>> toolhelp = ToolhelpParents();
+    Expect(!toolhelp.empty(), "Toolhelp parent oracle produced no rows");
+    uint32_t parentComparisons = 0;
+    uint32_t timeComparisons = 0;
+    uint32_t ioComparisons = 0;
+    for (uint32_t index = 0; index < processes->rowCount; ++index)
+    {
+        const RedXeDataRow& row = processes->rows[index];
+        const uint32_t pid = static_cast<uint32_t>(ValueU64(row, pidColumn));
+
+        // Reserved2 is the parent PID. Toolhelp reports the same value from a named field.
+        if (IsGood(row, parentColumn))
+        {
+            const auto match = std::find_if(toolhelp.begin(), toolhelp.end(),
+                                            [pid](const auto& entry) { return entry.first == pid; });
+            if (match != toolhelp.end())
+            {
+                Expect(static_cast<uint32_t>(ValueU64(row, parentColumn)) == match->second,
+                       "class-5 Reserved2 parent PID disagrees with Toolhelp");
+                ++parentComparisons;
+            }
+        }
+
+        // Every walked row must carry the counters that live in the reserved blocks; coverage is no longer limited
+        // to processes this test can open.
+        Expect(IsGood(row, faultColumn) && IsGood(row, hardFaultColumn) && IsGood(row, privateWorkingSetColumn),
+               "class-5 reserved counters are unavailable on a walked row");
+
+        wil::unique_handle process{OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)};
+        if (!process)
+        {
+            continue;
+        }
+        FILETIME creation{};
+        FILETIME exitTime{};
+        FILETIME kernel{};
+        FILETIME user{};
+        if (GetProcessTimes(process.get(), &creation, &exitTime, &kernel, &user) != FALSE)
+        {
+            // Creation time never advances, so Reserved1's CreateTime must match exactly.
+            Expect(ValueU64(row, createColumn) == FileTime100ns(creation),
+                   "class-5 Reserved1 create time disagrees with GetProcessTimes");
+            // User and kernel time advance between the snapshot and this call, so the snapshot must be no larger.
+            Expect(ValueU64(row, userColumn) <= FileTime100ns(user),
+                   "class-5 Reserved1 user time exceeds GetProcessTimes");
+            Expect(ValueU64(row, kernelColumn) <= FileTime100ns(kernel),
+                   "class-5 Reserved1 kernel time exceeds GetProcessTimes");
+            ++timeComparisons;
+        }
+        IO_COUNTERS io{};
+        if (GetProcessIoCounters(process.get(), &io) != FALSE)
+        {
+            Expect(ValueU64(row, readOpsColumn) <= io.ReadOperationCount &&
+                       ValueU64(row, writeOpsColumn) <= io.WriteOperationCount &&
+                       ValueU64(row, readBytesColumn) <= io.ReadTransferCount,
+                   "class-5 Reserved7 I/O counters exceed GetProcessIoCounters");
+            ++ioComparisons;
+        }
+        PROCESS_MEMORY_COUNTERS memory{};
+        memory.cb = static_cast<DWORD>(sizeof(memory));
+        if (K32GetProcessMemoryInfo(process.get(), &memory, static_cast<DWORD>(sizeof(memory))) != FALSE)
+        {
+            Expect(ValueU64(row, faultColumn) <= memory.PageFaultCount,
+                   "class-5 Reserved4 page-fault count exceeds K32GetProcessMemoryInfo");
+        }
+    }
+    Expect(parentComparisons >= 8 && timeComparisons >= 8 && ioComparisons >= 8,
+           "process oracle did not compare enough rows to be meaningful");
+
+    // ---- class 5 thread records: Reserved1 and Reserved3 --------------------------------------------------------
+    const RedXeDataSnapshot* threads = nullptr;
+    Expect(CollectOneSnapshot(source, "thread.list", &threads) == S_OK && threads && threads->rowCount != 0,
+           "thread.list oracle collection failed");
+    const uint32_t threadPidColumn = FindColumn(*threadDescriptor, "processId");
+    const uint32_t threadCreateColumn = FindColumn(*threadDescriptor, "createTime100ns");
+    const uint32_t threadUserColumn = FindColumn(*threadDescriptor, "userTime100ns");
+    const uint32_t threadKernelColumn = FindColumn(*threadDescriptor, "kernelTime100ns");
+    const uint32_t threadSwitchColumn = FindColumn(*threadDescriptor, "contextSwitchCount");
+    // thread.list truncates at its row cap well before it reaches every process, so the oracle below cannot assume
+    // any particular process appears. It instead checks each thread against the process row it belongs to, which is
+    // available for every thread the snapshot did return.
+    std::vector<std::pair<uint32_t, uint64_t>> processTimes;
+    for (uint32_t index = 0; index < processes->rowCount; ++index)
+    {
+        const RedXeDataRow& row = processes->rows[index];
+        processTimes.emplace_back(static_cast<uint32_t>(ValueU64(row, pidColumn)),
+                                  ValueU64(row, userColumn) + ValueU64(row, kernelColumn));
+    }
+    uint32_t threadComparisons = 0;
+    uint32_t switchingThreads = 0;
+    for (uint32_t index = 0; index < threads->rowCount; ++index)
+    {
+        const RedXeDataRow& row = threads->rows[index];
+        const uint32_t threadPid = static_cast<uint32_t>(ValueU64(row, threadPidColumn));
+        Expect(IsGood(row, threadCreateColumn), "thread Reserved1 create time is unavailable");
+        // The idle process is created before the system clock exists and legitimately reports a zero create time;
+        // every other thread must carry one.
+        Expect(threadPid == 0 || ValueU64(row, threadCreateColumn) != 0,
+               "thread Reserved1 create time is zero for a real process");
+        if (ValueU64(row, threadSwitchColumn) != 0)
+        {
+            ++switchingThreads;
+        }
+        // A thread's CPU time is one component of its process's, so it can never exceed the process total. The two
+        // snapshots are taken moments apart, so allow one second of drift.
+        const auto owner = std::find_if(processTimes.begin(), processTimes.end(),
+                                        [threadPid](const auto& entry) { return entry.first == threadPid; });
+        if (owner != processTimes.end())
+        {
+            const uint64_t threadTime = ValueU64(row, threadUserColumn) + ValueU64(row, threadKernelColumn);
+            Expect(threadTime <= owner->second + 10'000'000ULL,
+                   "thread Reserved1 CPU time exceeds its owning process's CPU time");
+            ++threadComparisons;
+        }
+    }
+    Expect(switchingThreads * 2 >= threads->rowCount,
+           "thread Reserved3 context switches are zero for most threads, which no running system produces");
+    Expect(threadComparisons >= 32, "thread oracle did not compare enough rows to be meaningful");
+
+    // ---- class 8 Reserved1/Reserved2, plus the workstream C frequency and CPU-set columns -----------------------
+    const RedXeDataSnapshot* logical = nullptr;
+    Expect(CollectOneSnapshot(source, "cpu.logical", &logical) == S_OK && logical && logical->rowCount != 0,
+           "cpu.logical oracle collection failed");
+    const uint32_t dpcColumn = FindColumn(*cpuLogicalDescriptor, "dpcPercent");
+    const uint32_t interruptColumn = FindColumn(*cpuLogicalDescriptor, "interruptPercent");
+    const uint32_t interruptCountColumn = FindColumn(*cpuLogicalDescriptor, "interruptCount");
+    const uint32_t coreColumn = FindColumn(*cpuLogicalDescriptor, "coreIndex");
+    const uint32_t packageColumn = FindColumn(*cpuLogicalDescriptor, "packageIndex");
+    const uint32_t efficiencyColumn = FindColumn(*cpuLogicalDescriptor, "efficiencyClass");
+    const uint32_t currentMhzColumn = FindColumn(*cpuLogicalDescriptor, "currentFrequencyMhz");
+    const uint32_t maximumMhzColumn = FindColumn(*cpuLogicalDescriptor, "maximumFrequencyMhz");
+    Expect(logical->rowCount == GetActiveProcessorCount(ALL_PROCESSOR_GROUPS),
+           "cpu.logical row count disagrees with GetActiveProcessorCount");
+    std::vector<uint64_t> firstInterruptCounts;
+    for (uint32_t index = 0; index < logical->rowCount; ++index)
+    {
+        const RedXeDataRow& row = logical->rows[index];
+        Expect(IsGood(row, coreColumn) && IsGood(row, packageColumn),
+               "cpu.logical topology mapping is unavailable");
+        Expect(IsGood(row, efficiencyColumn), "cpu.logical CPU-set identity is unavailable");
+        Expect(IsGood(row, currentMhzColumn) && IsGood(row, maximumMhzColumn) &&
+                   ValueU64(row, maximumMhzColumn) != 0,
+               "cpu.logical frequency is unavailable");
+        Expect(IsGood(row, interruptCountColumn), "class-8 Reserved2 interrupt count is unavailable");
+        if (IsGood(row, dpcColumn))
+        {
+            // DPC and interrupt time are components of kernel time, so together they cannot exceed the whole.
+            Expect(ValueF64(row, dpcColumn) + ValueF64(row, interruptColumn) <= 100.0,
+                   "class-8 Reserved1 DPC and interrupt time exceed 100% of the interval");
+        }
+        firstInterruptCounts.push_back(ValueU64(row, interruptCountColumn));
+    }
+
+    // ---- class 2 and class 3: fields that only exist because the records were probed by ReturnLength ------------
+    const RedXeDataSnapshot* memory = nullptr;
+    Expect(CollectOneSnapshot(source, "memory.summary", &memory) == S_OK && memory && memory->rowCount == 1,
+           "memory.summary oracle collection failed");
+    const uint32_t cacheColumn = FindColumn(*memoryDescriptor, "cacheBytes");
+    const uint32_t totalColumn = FindColumn(*memoryDescriptor, "totalPhysicalBytes");
+    Expect(IsGood(memory->rows[0], cacheColumn), "class-2 system cache size is unavailable");
+    Expect(ValueU64(memory->rows[0], cacheColumn) != 0 &&
+               ValueU64(memory->rows[0], cacheColumn) < ValueU64(memory->rows[0], totalColumn),
+           "class-2 system cache size is not a plausible fraction of physical memory");
+
+    const RedXeDataSnapshot* summary = nullptr;
+    Expect(CollectOneSnapshot(source, "system.summary", &summary) == S_OK && summary && summary->rowCount == 1,
+           "system.summary oracle collection failed");
+    const uint32_t bootColumn = FindColumn(*summaryDescriptor, "bootTime100ns");
+    const uint32_t uptimeColumn = FindColumn(*summaryDescriptor, "uptimeMilliseconds");
+    Expect(IsGood(summary->rows[0], bootColumn), "class-3 boot time is unavailable");
+    FILETIME nowFileTime{};
+    GetSystemTimeAsFileTime(&nowFileTime);
+    const uint64_t now = FileTime100ns(nowFileTime);
+    const uint64_t boot = ValueU64(summary->rows[0], bootColumn);
+    Expect(boot != 0 && boot < now, "class-3 boot time is not before the current system time");
+    const uint64_t wallUptimeMs = (now - boot) / 10'000ULL;
+    const uint64_t tickUptimeMs = ValueU64(summary->rows[0], uptimeColumn);
+    // Wall-clock time since boot includes any time the machine spent asleep, so it can never be the smaller of the
+    // two. One minute of slack absorbs clock adjustment between the snapshot and this comparison.
+    Expect(wallUptimeMs + 60'000ULL >= tickUptimeMs, "class-3 boot time implies an uptime shorter than the tick count");
+
+    // ---- second pass: counters that must advance, and rates that must become Good -------------------------------
+    // Every rate below is derived from a delta over an interval, so each dataset needs two collections separated by
+    // real time. Collecting twice back to back would divide a near-zero counter delta by a near-zero interval and
+    // legitimately produce zero, which says nothing about whether the field works.
+    const RedXeDataSnapshot* cpuSummary = nullptr;
+    const uint32_t switchRateColumn = FindColumn(*cpuSummaryDescriptor, "contextSwitchRate");
+    const uint32_t faultRateColumn = FindColumn(*memoryDescriptor, "pageFaultRate");
+    Expect(CollectOneSnapshot(source, "cpu.summary", &cpuSummary) == S_OK && cpuSummary && cpuSummary->rowCount == 1,
+           "cpu.summary priming collection failed");
+    Expect(CollectOneSnapshot(source, "memory.summary", &memory) == S_OK && memory && memory->rowCount == 1,
+           "memory.summary priming collection failed");
+
+    Sleep(1200);
+
+    Expect(CollectOneSnapshot(source, "cpu.logical", &logical) == S_OK && logical, "cpu.logical resample failed");
+    for (uint32_t index = 0; index < logical->rowCount && index < firstInterruptCounts.size(); ++index)
+    {
+        Expect(ValueU64(logical->rows[index], interruptCountColumn) >= firstInterruptCounts[index],
+               "class-8 Reserved2 interrupt count went backwards");
+    }
+    Expect(CollectOneSnapshot(source, "cpu.summary", &cpuSummary) == S_OK && cpuSummary && cpuSummary->rowCount == 1,
+           "cpu.summary resample failed");
+    Expect(IsGood(cpuSummary->rows[0], switchRateColumn) && ValueF64(cpuSummary->rows[0], switchRateColumn) > 0.0,
+           "class-2 context-switch rate is unavailable or zero, which no running system produces");
+    Expect(CollectOneSnapshot(source, "memory.summary", &memory) == S_OK && memory && memory->rowCount == 1,
+           "memory.summary resample failed");
+    Expect(IsGood(memory->rows[0], faultRateColumn) && ValueF64(memory->rows[0], faultRateColumn) > 0.0,
+           "class-2 page-fault rate is unavailable or zero, which no running system produces");
+}
+
+// The accelerator datasets must be discoverable and collectable on every machine, including one with no NPU, where
+// the honest answer is a valid zero-row snapshot rather than a missing dataset or an invented device.
+void RunAcceleratorChecks(IRedXeDataSource& source, const RedXeDataSetDescriptor* descriptors, uint32_t count)
+{
+    const RedXeDataSetDescriptor* npuAdapterDescriptor = FindDataSet(descriptors, count, "npu.adapter");
+    const RedXeDataSetDescriptor* npuEngineDescriptor = FindDataSet(descriptors, count, "npu.engine");
+    const RedXeDataSetDescriptor* npuProcessDescriptor = FindDataSet(descriptors, count, "npu.process");
+    const RedXeDataSetDescriptor* securityDescriptor = FindDataSet(descriptors, count, "security.posture");
+    const RedXeDataSetDescriptor* powerDescriptor = FindDataSet(descriptors, count, "power.summary");
+    Expect(npuAdapterDescriptor && npuEngineDescriptor && npuProcessDescriptor && securityDescriptor &&
+               powerDescriptor,
+           "accelerator or posture datasets are missing from the catalog");
+    Expect(npuAdapterDescriptor->maximumRows == 16 && npuEngineDescriptor->maximumRows == 128 &&
+               npuProcessDescriptor->maximumRows == 512 && securityDescriptor->maximumRows == 1 &&
+               (npuProcessDescriptor->flags & RedXeDataSetFlagLocalSensitive) != 0 &&
+               securityDescriptor->recommendedIntervalMilliseconds == 60000,
+           "accelerator or posture descriptor bounds are wrong");
+
+    const RedXeDataSnapshot* snapshot = nullptr;
+    Expect(CollectOneSnapshot(source, "npu.adapter", &snapshot) == S_OK && snapshot, "npu.adapter collection failed");
+    ValidateSnapshot(*snapshot, *npuAdapterDescriptor);
+    const uint32_t classColumn = FindColumn(*npuAdapterDescriptor, "deviceClass");
+    const uint32_t npuUtilizationColumn = FindColumn(*npuAdapterDescriptor, "utilizationPercent");
+    for (uint32_t index = 0; index < snapshot->rowCount; ++index)
+    {
+        const RedXeDataRow& row = snapshot->rows[index];
+        // Every row in this dataset was classified as an accelerator; an unclassified adapter stays in gpu.adapter.
+        Expect(row.values[classColumn].quality == RedXeDataQualityGood &&
+                   row.values[classColumn].uint64Value == kTestDeviceClassNpu,
+               "npu.adapter published a row that is not classified as an NPU");
+        Expect(row.values[npuUtilizationColumn].quality == RedXeDataQualityUnavailable ||
+                   (row.values[npuUtilizationColumn].float64Value >= 0.0 &&
+                    row.values[npuUtilizationColumn].float64Value <= 100.0),
+               "npu.adapter utilization is neither Unavailable nor a percentage");
+    }
+
+    Expect(CollectOneSnapshot(source, "npu.engine", &snapshot) == S_OK && snapshot, "npu.engine collection failed");
+    ValidateSnapshot(*snapshot, *npuEngineDescriptor);
+    Expect(CollectOneSnapshot(source, "npu.process", &snapshot) == S_OK && snapshot, "npu.process collection failed");
+    ValidateSnapshot(*snapshot, *npuProcessDescriptor);
+
+    Expect(CollectOneSnapshot(source, "security.posture", &snapshot) == S_OK && snapshot && snapshot->rowCount == 1,
+           "security.posture collection failed");
+    ValidateSnapshot(*snapshot, *securityDescriptor);
+    const uint32_t enabledColumn = FindColumn(*securityDescriptor, "codeIntegrityEnabled");
+    const uint32_t hvciColumn = FindColumn(*securityDescriptor, "memoryIntegrityEnabled");
+    const uint32_t optionsColumn = FindColumn(*securityDescriptor, "codeIntegrityOptions");
+    const RedXeDataRow& posture = snapshot->rows[0];
+    Expect(posture.values[enabledColumn].quality == RedXeDataQualityGood,
+           "security posture code-integrity state is unavailable");
+    Expect(posture.values[enabledColumn].uint64Value <= 1 && posture.values[hvciColumn].uint64Value <= 1,
+           "security posture flags are not 0/1 values");
+    const uint64_t options = posture.values[optionsColumn].uint64Value;
+    // Every bit RedXe names lives in the low sixteen; a value outside that range means the record was misread.
+    Expect(options != 0 && (options >> 16U) == 0, "security posture code-integrity options are not a known bitmask");
+    // These are configuration flags, not counters: a second read must return exactly the same value.
+    const uint64_t firstOptions = options;
+    Expect(CollectOneSnapshot(source, "security.posture", &snapshot) == S_OK && snapshot && snapshot->rowCount == 1,
+           "security.posture resample failed");
+    Expect(snapshot->rows[0].values[optionsColumn].uint64Value == firstOptions,
+           "security posture changed between two reads, which means the record was misread");
+
+    Expect(CollectOneSnapshot(source, "power.summary", &snapshot) == S_OK && snapshot && snapshot->rowCount == 1,
+           "power.summary collection failed");
+    const uint32_t standbyColumn = FindColumn(*powerDescriptor, "modernStandby");
+    Expect(snapshot->rows[0].values[standbyColumn].quality == RedXeDataQualityUnavailable ||
+               snapshot->rows[0].values[standbyColumn].uint64Value <= 1,
+           "modern standby flag is neither Unavailable nor a 0/1 value");
+}
+
 void Run(bool benchmark, bool domains)
 {
     const std::filesystem::path pluginPath = PluginPath();
@@ -544,7 +902,7 @@ void Run(bool benchmark, bool domains)
     uint32_t descriptorCount = 99;
     Expect(source->GetDataSets(nullptr, &descriptorCount) == E_POINTER && descriptorCount == 0,
            "GetDataSets did not clear count on a null descriptor output");
-    Expect(source->GetDataSets(&descriptors, &descriptorCount) == S_OK && descriptors && descriptorCount == 18,
+    Expect(source->GetDataSets(&descriptors, &descriptorCount) == S_OK && descriptors && descriptorCount == 22,
            "SystemData descriptors are unavailable");
     for (uint32_t index = 0; index < descriptorCount; ++index)
     {
@@ -597,7 +955,8 @@ void Run(bool benchmark, bool domains)
             statusDescriptor->maximumRows == 32 && statusDescriptor->recommendedIntervalMilliseconds == 5000 &&
             (statusDescriptor->flags & RedXeDataSetFlagLocalSensitive) == 0 && statusDescriptor->columnCount == 12 &&
             summaryDescriptor->maximumRows == 1 && (summaryDescriptor->flags & RedXeDataSetFlagLocalSensitive) == 0 &&
-            processDescriptor->maximumRows == 2048 && processDescriptor->columnCount == 31 &&
+            processDescriptor->maximumRows == 2048 && processDescriptor->columnCount == 39 &&
+            summaryDescriptor->columnCount == 12 &&
             cpuLogicalDescriptor->maximumRows == 1024 && threadDescriptor->maximumRows == 8192 &&
             networkInterfaceDescriptor->maximumRows == 256 &&
             (networkInterfaceDescriptor->flags & RedXeDataSetFlagLocalSensitive) != 0 &&
@@ -660,7 +1019,7 @@ void Run(bool benchmark, bool domains)
     Expect(CollectOneSnapshot(*source, "source.status", &snapshot) == S_OK && snapshot,
            "source status collection failed");
     ValidateSnapshot(*snapshot, *statusDescriptor);
-    Expect(snapshot->rowCount == 18, "source status does not contain one row per dataset");
+    Expect(snapshot->rowCount == 22, "source status does not contain one row per dataset");
     const uint32_t statusIdColumn = FindColumn(*statusDescriptor, "dataSetId");
     bool foundStatusRow = false;
     bool foundSummaryRow = false;
@@ -819,6 +1178,7 @@ void Run(bool benchmark, bool domains)
     const uint32_t adapterUtilizationColumn = FindColumn(*gpuAdapterDescriptor, "utilizationPercent");
     const uint32_t dedicatedUsedColumn = FindColumn(*gpuAdapterDescriptor, "dedicatedUsedBytes");
     const uint32_t sharedUsedColumn = FindColumn(*gpuAdapterDescriptor, "sharedUsedBytes");
+    const uint32_t deviceClassColumn = FindColumn(*gpuAdapterDescriptor, "deviceClass");
     for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
     {
         const RedXeDataRow& row = snapshot->rows[rowIndex];
@@ -826,13 +1186,21 @@ void Run(bool benchmark, bool domains)
         Expect(row.values[softwareColumn].quality == RedXeDataQualityGood &&
                    (row.values[softwareColumn].uint64Value == 0 || row.values[softwareColumn].uint64Value == 1),
                "gpu adapter software flag is not a Good 0/1 value");
-        Expect(row.values[integratedColumn].quality == RedXeDataQualityUnavailable,
-               "gpu adapter integrated flag is not Unavailable without DXCore");
-        Expect(row.values[adapterUtilizationColumn].quality == RedXeDataQualityUnavailable,
-               "gpu adapter utilization is not Unavailable");
-        Expect(row.values[dedicatedUsedColumn].quality == RedXeDataQualityUnavailable &&
-                   row.values[sharedUsedColumn].quality == RedXeDataQualityUnavailable,
-               "gpu adapter machine-wide memory use is not Unavailable");
+        // These three came from DXCore once the adapter spine was inverted, and are still absent on a host whose
+        // DXCore does not implement the prerelease state items. Either outcome is correct; a Good value that is not
+        // plausible is not.
+        Expect(row.values[integratedColumn].quality == RedXeDataQualityUnavailable ||
+                   row.values[integratedColumn].uint64Value <= 1,
+               "gpu adapter integrated flag is neither Unavailable nor a 0/1 value");
+        Expect(row.values[adapterUtilizationColumn].quality == RedXeDataQualityUnavailable ||
+                   (row.values[adapterUtilizationColumn].float64Value >= 0.0 &&
+                    row.values[adapterUtilizationColumn].float64Value <= 100.0),
+               "gpu adapter utilization is neither Unavailable nor a percentage");
+        Expect(row.values[dedicatedUsedColumn].quality == row.values[sharedUsedColumn].quality,
+               "gpu adapter machine-wide memory use is only half available");
+        Expect(row.values[deviceClassColumn].quality == RedXeDataQualityUnavailable ||
+                   row.values[deviceClassColumn].uint64Value != kTestDeviceClassNpu,
+               "gpu.adapter published a compute-only accelerator that belongs in npu.adapter");
         if (rowIndex > 0)
         {
             Expect(row.values[adapterLuidColumn].uint64Value >
@@ -846,8 +1214,10 @@ void Run(bool benchmark, bool domains)
     const uint32_t engineUtilizationColumn = FindColumn(*gpuEngineDescriptor, "utilizationPercent");
     for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
     {
-        Expect(snapshot->rows[rowIndex].values[engineUtilizationColumn].quality == RedXeDataQualityUnavailable,
-               "gpu engine utilization is not Unavailable");
+        const RedXeDataValue& utilization = snapshot->rows[rowIndex].values[engineUtilizationColumn];
+        Expect(utilization.quality == RedXeDataQualityUnavailable ||
+                   (utilization.float64Value >= 0.0 && utilization.float64Value <= 100.0),
+               "gpu engine utilization is neither Unavailable nor a percentage");
     }
     Expect(CollectOneSnapshot(*source, "gpu.process", &snapshot) == S_OK && snapshot, "gpu process collection failed");
     ValidateSnapshot(*snapshot, *gpuProcessDescriptor);
@@ -962,6 +1332,9 @@ void Run(bool benchmark, bool domains)
     Expect(testSource->CollectSyntheticProcessSnapshot(processDescriptor->maximumRows + 1, &snapshot) == E_INVALIDARG &&
                !snapshot,
            "SystemData row-cap test seam accepted an excessive row count or retained an output");
+
+    RunNativeLayoutOracles(*source, descriptors, descriptorCount);
+    RunAcceleratorChecks(*source, descriptors, descriptorCount);
 
     if (benchmark)
     {

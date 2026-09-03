@@ -31,8 +31,6 @@ class PluginManager final
 
     [[nodiscard]] HRESULT Initialize(const AppSettings& settings) noexcept;
     [[nodiscard]] HRESULT Reconfigure(const AppSettings& settings) noexcept;
-    void SetUiInvalidateTarget(HWND window) noexcept;
-    void AcknowledgeUiInvalidate() noexcept;
     [[nodiscard]] size_t ProviderCount() const noexcept;
     [[nodiscard]] size_t WidgetCount() const noexcept;
     [[nodiscard]] IRedXeWidget* WidgetAt(size_t index) const noexcept;
@@ -41,6 +39,10 @@ class PluginManager final
     [[nodiscard]] IRedXeWindowWidget* WindowWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeRaisedWidget* RaisedWidgetAt(size_t index) const noexcept;
     [[nodiscard]] uint32_t WidgetFlagsAt(size_t index) const noexcept;
+    // True when the instance could not be constructed and the host owns its tile. Its placement is still honoured so
+    // sibling widgets keep their authored geometry.
+    [[nodiscard]] bool IsPlaceholderAt(size_t index) const noexcept;
+    [[nodiscard]] HRESULT PlaceholderFailureAt(size_t index) const noexcept;
     [[nodiscard]] WidgetGridPlacement WidgetGridPlacementAt(size_t index) const noexcept;
     [[nodiscard]] AdaptiveWidgetPlacement AdaptivePlacementAt(size_t index) const noexcept;
     [[nodiscard]] bool UsesAdaptivePlacementAt(size_t index) const noexcept;
@@ -61,6 +63,10 @@ class PluginManager final
         AdaptiveWidgetPlacement adaptivePlacement;
         bool usesAdaptivePlacement = false;
         uint32_t flags = RedXeWidgetFlagNone;
+        // A placeholder slot holds no plugin object. It records why creation failed so the host can draw and report a
+        // failed tile instead of failing the whole page.
+        bool placeholder = false;
+        HRESULT failure = S_OK;
     };
 
     struct ProviderSlot final
@@ -79,6 +85,9 @@ class PluginManager final
                                                 uint32_t configurationBytes, IRedXeWidgetProvider** provider) noexcept;
     [[nodiscard]] HRESULT CreateWidgetInstance(IRedXeWidgetProvider& provider, const WidgetInstanceSettings& settings,
                                                WidgetSlot& widgetSlot) noexcept;
+    static void MakePlaceholder(WidgetSlot& widgetSlot, const WidgetInstanceSettings& settings,
+                                HRESULT failure) noexcept;
+    void ClearWidgetStatuses() noexcept;
     [[nodiscard]] HRESULT StageActivePage(const AppSettings& settings,
                                           std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
                                           std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,
@@ -86,7 +95,8 @@ class PluginManager final
                                           std::array<WidgetSlot, kMaximumWidgetInstances>& widgets,
                                           size_t& widgetCount) noexcept;
 
-    PluginHost _pluginHost;
+    // Borrowed process runtime. Every PluginManager, including the one staged for an adjacent page during a swipe,
+    // shares the same modules, data sources, subscriptions, and acquisition worker.
     std::array<ProviderSlot, kMaximumWidgetInstances> _providers;
     std::array<WidgetSlot, kMaximumWidgetInstances> _widgets;
     size_t _providerCount = 0;

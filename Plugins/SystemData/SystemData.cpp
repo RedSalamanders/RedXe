@@ -2,6 +2,7 @@
 #include "GpuQuery.h"
 #include "NativeQuery.h"
 #include "NetStorage.h"
+#include "NtLayout.h"
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PowerSensors.h"
@@ -45,6 +46,10 @@ constexpr char kPowerSummaryDataSetId[] = "power.summary";
 constexpr char kBatteryListDataSetId[] = "battery.list";
 constexpr char kThermalSensorDataSetId[] = "thermal.sensor";
 constexpr char kFanSensorDataSetId[] = "fan.sensor";
+constexpr char kNpuAdapterDataSetId[] = "npu.adapter";
+constexpr char kNpuEngineDataSetId[] = "npu.engine";
+constexpr char kNpuProcessDataSetId[] = "npu.process";
+constexpr char kSecurityDataSetId[] = "security.posture";
 constexpr char kSettingsSchema[] = R"json({"type":"object","additionalProperties":false})json";
 constexpr char kSettingsDefaults[] = R"json({})json";
 constexpr uint32_t kRecommendedIntervalMilliseconds = 2000;
@@ -57,24 +62,33 @@ constexpr size_t kMaximumProcesses = kRedXeMaximumNativeProcesses;
 constexpr size_t kMaximumThreads = kRedXeMaximumNativeThreads;
 constexpr size_t kProcessNameCharacters = 65536;
 constexpr size_t kProcessHistoryCapacity = 4096;
+constexpr size_t kThreadHistoryCapacity = 16384;
 constexpr uint32_t kStatusColumnCount = 12;
-constexpr uint32_t kSummaryColumnCount = 10;
+constexpr uint32_t kSummaryColumnCount = 12;
 constexpr uint32_t kCpuSummaryColumnCount = 14;
 constexpr uint32_t kCpuLogicalColumnCount = 19;
 constexpr uint32_t kMemoryColumnCount = 12;
-constexpr uint32_t kProcessColumnCount = 31;
+constexpr uint32_t kProcessColumnCount = 39;
 constexpr uint32_t kThreadColumnCount = 12;
 constexpr uint32_t kNetworkInterfaceColumnCount = 22;
 constexpr uint32_t kNetworkProtocolColumnCount = 11;
 constexpr uint32_t kStorageDiskColumnCount = 16;
 constexpr uint32_t kStorageVolumeColumnCount = 7;
-constexpr uint32_t kGpuAdapterColumnCount = 19;
+constexpr uint32_t kGpuAdapterColumnCount = 22;
 constexpr uint32_t kGpuEngineColumnCount = 9;
 constexpr uint32_t kGpuProcessColumnCount = 6;
-constexpr uint32_t kPowerSummaryColumnCount = 11;
+constexpr uint32_t kPowerSummaryColumnCount = 13;
 constexpr uint32_t kBatteryColumnCount = 13;
 constexpr uint32_t kThermalColumnCount = 6;
 constexpr uint32_t kFanColumnCount = 6;
+constexpr uint32_t kNpuAdapterColumnCount = 15;
+constexpr uint32_t kNpuEngineColumnCount = 8;
+constexpr uint32_t kNpuProcessColumnCount = 6;
+constexpr uint32_t kSecurityColumnCount = 11;
+constexpr uint32_t kNpuAdapterMaximumRows = 16;
+constexpr uint32_t kNpuEngineMaximumRows = 128;
+constexpr uint32_t kNpuProcessMaximumRows = 512;
+constexpr uint32_t kSecurityIntervalMilliseconds = 60000;
 constexpr uint32_t kThermalMaximumRows = 128;
 constexpr uint32_t kFanMaximumRows = 128;
 constexpr uint32_t kStatusMaximumRows = 32;
@@ -86,6 +100,8 @@ constexpr uint64_t kLastResultOk = 0;
 constexpr uint64_t kLastResultTruncated = 1;
 constexpr uint64_t kLastResultFailed = 2;
 static_assert((kProcessHistoryCapacity & (kProcessHistoryCapacity - 1)) == 0);
+static_assert((kThreadHistoryCapacity & (kThreadHistoryCapacity - 1)) == 0);
+static_assert(kThreadHistoryCapacity >= kRedXeMaximumNativeThreads * 2, "keep the open-addressed load factor at 0.5");
 
 constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
@@ -153,6 +169,10 @@ constexpr std::array kSummaryColumns{
                               RedXeDataValueTypeUInt64},
     RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "uptimeMilliseconds", L"Uptime", L"milliseconds",
                               RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "bootTime100ns", L"Boot time", L"100ns",
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "sleepMilliseconds", L"Time asleep", L"milliseconds",
+                              RedXeDataValueTypeUInt64},
 };
 static_assert(kSummaryColumns.size() == kSummaryColumnCount);
 
@@ -218,6 +238,22 @@ constexpr std::array kProcessColumns{
                               RedXeDataValueTypeUInt64},
     RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "criticalProcess", L"Critical", nullptr,
                               RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "hardFaultCount", L"Hard faults", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "workingSetPrivateBytes", L"Private working set",
+                              L"bytes", RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "pagefileBytes", L"Pagefile", L"bytes",
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "ioReadOperations", L"I/O reads", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "ioWriteOperations", L"I/O writes", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "ioOtherOperations", L"I/O other", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "efficiencyMode", L"Efficiency mode", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "throttlingControlMask", L"Throttling controls",
+                              nullptr, RedXeDataValueTypeUInt64},
 };
 static_assert(kProcessColumns.size() == kProcessColumnCount);
 
@@ -511,6 +547,12 @@ constexpr std::array kGpuAdapterColumns{
     RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "fanRpm", L"Fan", L"rpm", RedXeDataValueTypeUInt64},
     RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "maxFanRpm", L"Max fan", L"rpm",
                               RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "deviceClass", L"Device class", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "computeOnly", L"Compute only", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "physicalAdapterCount", L"Physical adapters", nullptr,
+                              RedXeDataValueTypeUInt64},
 };
 static_assert(kGpuAdapterColumns.size() == kGpuAdapterColumnCount);
 
@@ -573,6 +615,10 @@ constexpr std::array kPowerSummaryColumns{
                               RedXeDataValueTypeUInt64},
     RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "thermalControl", L"Thermal control", nullptr,
                               RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "modernStandby", L"Modern standby", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "modernStandbyConnected", L"Connected standby",
+                              nullptr, RedXeDataValueTypeUInt64},
 };
 static_assert(kPowerSummaryColumns.size() == kPowerSummaryColumnCount);
 
@@ -636,6 +682,106 @@ constexpr std::array kFanColumns{
                               RedXeDataValueTypeUInt64},
 };
 static_assert(kFanColumns.size() == kFanColumnCount);
+
+// Accelerator datasets. The graphics datasets keep their frozen IDs, columns, and meaning: a viewer that says "GPU"
+// must not silently begin listing an NPU, so compute-only devices get their own family instead.
+constexpr std::array kNpuAdapterColumns{
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "adapterLuid", L"Adapter LUID", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "displayName", L"Name", nullptr,
+                              RedXeDataValueTypeUtf16},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "vendorId", L"Vendor", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "deviceId", L"Device", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "deviceClass", L"Device class", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "computeOnly", L"Compute only", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "integrated", L"Integrated", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "physicalAdapterCount", L"Physical adapters", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "engineCount", L"Engines", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "dedicatedBytes", L"Dedicated memory", L"bytes",
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "sharedBytes", L"Shared memory", L"bytes",
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "usedDedicatedBytes", L"Dedicated in use", L"bytes",
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "usedSharedBytes", L"Shared in use", L"bytes",
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "utilizationPercent", L"Utilization", L"percent",
+                              RedXeDataValueTypeFloat64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "temperatureC", L"Temperature", L"celsius",
+                              RedXeDataValueTypeFloat64},
+};
+static_assert(kNpuAdapterColumns.size() == kNpuAdapterColumnCount);
+
+constexpr std::array kNpuEngineColumns{
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "adapterLuid", L"Adapter LUID", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "physicalAdapterIndex", L"Physical adapter", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "engineIndex", L"Engine", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "engineName", L"Engine name", nullptr,
+                              RedXeDataValueTypeUtf16},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "utilizationPercent", L"Utilization", L"percent",
+                              RedXeDataValueTypeFloat64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "currentFrequencyHz", L"Current frequency", L"hertz",
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "maximumFrequencyHz", L"Maximum frequency", L"hertz",
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "voltageMv", L"Voltage", L"millivolts",
+                              RedXeDataValueTypeUInt64},
+};
+static_assert(kNpuEngineColumns.size() == kNpuEngineColumnCount);
+
+constexpr std::array kNpuProcessColumns{
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "processId", L"Process ID", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "adapterLuid", L"Adapter LUID", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "physicalAdapterIndex", L"Physical adapter", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "engineOrdinal", L"Engine", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "engineType", L"Engine type", nullptr,
+                              RedXeDataValueTypeUtf16},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "utilizationPercent", L"Utilization", L"percent",
+                              RedXeDataValueTypeFloat64},
+};
+static_assert(kNpuProcessColumns.size() == kNpuProcessColumnCount);
+
+// Platform security posture. One row, read once per minute: these are configuration flags, not counters, and a value
+// that changes sample to sample would mean the record was misread rather than that the machine changed.
+constexpr std::array kSecurityColumns{
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "codeIntegrityEnabled", L"Code integrity", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "testSigning", L"Test signing", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "userModeCodeIntegrity", L"User-mode code integrity",
+                              nullptr, RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "memoryIntegrityEnabled", L"Memory integrity",
+                              nullptr, RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "memoryIntegrityStrict", L"Memory integrity strict",
+                              nullptr, RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "isolatedUserMode", L"Isolated user mode", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "whqlEnforcement", L"WHQL enforcement", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "kernelDebugMode", L"Kernel debug mode", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "flightSigning", L"Flight signing", nullptr,
+                              RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "codeIntegrityOptions", L"Code integrity options",
+                              nullptr, RedXeDataValueTypeUInt64},
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "firmwareVirtualization",
+                              L"Virtualization firmware support", nullptr, RedXeDataValueTypeUInt64},
+};
+static_assert(kSecurityColumns.size() == kSecurityColumnCount);
 
 constexpr std::array kDataSets{
     RedXeDataSetDescriptor{
@@ -836,6 +982,51 @@ constexpr std::array kDataSets{
         kSensorIntervalMilliseconds,
         RedXeDataSetFlagTable | RedXeDataSetFlagLocalSensitive,
     },
+    RedXeDataSetDescriptor{
+        sizeof(RedXeDataSetDescriptor),
+        kNpuAdapterDataSetId,
+        L"NPU adapters",
+        L"Compute-only accelerators enumerated through D3DKMT and classified by DXCore. Zero rows on a machine with "
+        L"no NPU; never a fabricated device.",
+        kNpuAdapterColumns.data(),
+        kNpuAdapterColumnCount,
+        kNpuAdapterMaximumRows,
+        kCheapIntervalMilliseconds,
+        RedXeDataSetFlagTable,
+    },
+    RedXeDataSetDescriptor{
+        sizeof(RedXeDataSetDescriptor),
+        kNpuEngineDataSetId,
+        L"NPU engines",
+        L"Per-engine identity, frequency, and DXCore running-time utilization for compute-only accelerators.",
+        kNpuEngineColumns.data(),
+        kNpuEngineColumnCount,
+        kNpuEngineMaximumRows,
+        kCheapIntervalMilliseconds,
+        RedXeDataSetFlagTable,
+    },
+    RedXeDataSetDescriptor{
+        sizeof(RedXeDataSetDescriptor),
+        kNpuProcessDataSetId,
+        L"NPU processes",
+        L"Per-process accelerator utilization for compute-only adapters. Empty when no process is using an NPU.",
+        kNpuProcessColumns.data(),
+        kNpuProcessColumnCount,
+        kNpuProcessMaximumRows,
+        kRecommendedIntervalMilliseconds,
+        RedXeDataSetFlagTable | RedXeDataSetFlagLocalSensitive,
+    },
+    RedXeDataSetDescriptor{
+        sizeof(RedXeDataSetDescriptor),
+        kSecurityDataSetId,
+        L"Security posture",
+        L"Platform code-integrity and virtualization-based security state. Configuration flags, not counters.",
+        kSecurityColumns.data(),
+        kSecurityColumnCount,
+        1,
+        kSecurityIntervalMilliseconds,
+        RedXeDataSetFlagTable,
+    },
 };
 static_assert(kDataSets.size() <= kStatusMaximumRows);
 static_assert(kDataSets.size() <= RedXeDataCollectMaximumDataSets);
@@ -867,6 +1058,10 @@ constexpr std::array kDatasetBackends{
     DatasetBackendInfo{L"battery.list", kBackendWin32, L"ioctl-battery", L"1"},
     DatasetBackendInfo{L"thermal.sensor", kBackendWin32, L"gpu-storage-battery-acpi", L"1"},
     DatasetBackendInfo{L"fan.sensor", kBackendWin32, L"d3dkmt-gpu-fan", L"1"},
+    DatasetBackendInfo{L"npu.adapter", kBackendWin32, L"d3dkmt-dxcore", L"1"},
+    DatasetBackendInfo{L"npu.engine", kBackendWin32, L"dxcore-engine-runtime", L"1"},
+    DatasetBackendInfo{L"npu.process", kBackendCounter, L"pdh-gpu-engine", L"1"},
+    DatasetBackendInfo{L"security.posture", kBackendNative, L"nt-code-integrity", L"1"},
 };
 static_assert(kDatasetBackends.size() == kDataSets.size());
 
@@ -1007,6 +1202,24 @@ void AppendHex64(wchar_t* destination, size_t destinationCount, size_t& length, 
     return result;
 }
 
+// Delta between two samples of a 32-bit kernel counter, tolerating the single wrap the counter can perform between
+// two collections. A counter that moved backwards by more than one wrap is treated as a reset and reported as zero.
+[[nodiscard]] uint64_t Delta32(uint32_t current, uint32_t previous) noexcept
+{
+    return current >= previous ? static_cast<uint64_t>(current - previous)
+                               : (static_cast<uint64_t>(UINT32_MAX) - previous) + current + 1ULL;
+}
+
+// Converts a counter delta and an elapsed span in 100 ns units into a per-second rate.
+[[nodiscard]] double PerSecond(uint64_t delta, uint64_t elapsed100ns) noexcept
+{
+    if (elapsed100ns == 0)
+    {
+        return 0.0;
+    }
+    return (static_cast<double>(delta) * 10'000'000.0) / static_cast<double>(elapsed100ns);
+}
+
 [[nodiscard]] bool PageCountToBytes(SIZE_T pageCount, SIZE_T pageSize, uint64_t& bytes) noexcept
 {
     if (pageSize != 0 && pageCount > (UINT64_MAX / pageSize))
@@ -1048,6 +1261,9 @@ struct LogicalCpuTimes final
     uint64_t idle = 0;
     uint64_t kernel = 0;
     uint64_t user = 0;
+    uint64_t dpc = 0;
+    uint64_t interrupt = 0;
+    uint32_t interruptCount = 0;
 };
 
 struct ProcessCpuSample final
@@ -1063,47 +1279,24 @@ struct ProcessCpuSample final
     uint64_t pageFaults = 0;
 };
 
-class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataTestSource
+struct ThreadCpuSample final
+{
+    uint32_t threadId = 0;
+    uint32_t contextSwitches = 0;
+    uint64_t createTime = 0;
+    uint64_t processorTime = 0;
+};
+
+[[nodiscard]] size_t ThreadSlot(uint32_t threadId, uint64_t createTime) noexcept
+{
+    return (static_cast<size_t>(threadId) * 2654435761U ^
+            static_cast<size_t>(createTime ^ (createTime >> 32U))) &
+           (kThreadHistoryCapacity - 1);
+}
+
+class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDataSource, IRedXeSystemDataTestSource>
 {
   public:
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-        {
-            return E_POINTER;
-        }
-        *result = nullptr;
-        if (interfaceId == __uuidof(IUnknown) || interfaceId == __uuidof(IRedXeDataSource))
-        {
-            *result = static_cast<IRedXeDataSource*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeSystemDataTestSource))
-        {
-            *result = static_cast<IRedXeSystemDataTestSource*>(this);
-        }
-        else
-        {
-            return E_NOINTERFACE;
-        }
-        AddRef();
-        return S_OK;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-        {
-            delete this;
-        }
-        return references;
-    }
-
     HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors, uint32_t* count) noexcept override
     {
         if (descriptors)
@@ -1277,6 +1470,8 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         _cheapReady = false;
         _walkReady = false;
         _gpuAdaptersReady = false;
+        _gpuEnginesReady = false;
+        _gpuProcessesReady = false;
         _disksReady = false;
         _diskTempsReady = false;
         _powerReady = false;
@@ -1286,6 +1481,8 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         bool needCheap = false;
         bool needWalk = false;
         bool needGpuAdapters = false;
+        bool needGpuEngines = false;
+        bool needGpuProcesses = false;
         bool needDisks = false;
         bool needDiskTemps = false;
         bool needPower = false;
@@ -1308,9 +1505,24 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
             }
             if (RedXeAsciiEqualsIgnoreCase(id, kGpuAdapterDataSetId) ||
                 RedXeAsciiEqualsIgnoreCase(id, kThermalSensorDataSetId) ||
-                RedXeAsciiEqualsIgnoreCase(id, kFanSensorDataSetId))
+                RedXeAsciiEqualsIgnoreCase(id, kFanSensorDataSetId) ||
+                RedXeAsciiEqualsIgnoreCase(id, kNpuAdapterDataSetId) ||
+                RedXeAsciiEqualsIgnoreCase(id, kNpuEngineDataSetId) ||
+                RedXeAsciiEqualsIgnoreCase(id, kNpuProcessDataSetId))
             {
                 needGpuAdapters = true;
+            }
+            // The graphics and accelerator datasets read the same D3DKMT node walk and the same counter query, so a
+            // batch that asks for both pays for one sample, not two.
+            if (RedXeAsciiEqualsIgnoreCase(id, kGpuEngineDataSetId) ||
+                RedXeAsciiEqualsIgnoreCase(id, kNpuEngineDataSetId))
+            {
+                needGpuEngines = true;
+            }
+            if (RedXeAsciiEqualsIgnoreCase(id, kGpuProcessDataSetId) ||
+                RedXeAsciiEqualsIgnoreCase(id, kNpuProcessDataSetId))
+            {
+                needGpuProcesses = true;
             }
             if (RedXeAsciiEqualsIgnoreCase(id, kStorageDiskDataSetId) ||
                 RedXeAsciiEqualsIgnoreCase(id, kThermalSensorDataSetId))
@@ -1348,6 +1560,16 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         {
             RedXeGpuSampleAdapters(_gpu);
             _gpuAdaptersReady = true;
+        }
+        if (needGpuEngines)
+        {
+            RedXeGpuSampleEngines(_gpu);
+            _gpuEnginesReady = true;
+        }
+        if (needGpuProcesses)
+        {
+            RedXeGpuSampleProcesses(_gpu);
+            _gpuProcessesReady = true;
         }
         if (needDisks)
         {
@@ -1452,6 +1674,22 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         if (RedXeAsciiEqualsIgnoreCase(dataSetId, kThermalSensorDataSetId))
         {
             return CollectThermals(timestamp, sequence, output);
+        }
+        if (RedXeAsciiEqualsIgnoreCase(dataSetId, kNpuAdapterDataSetId))
+        {
+            return CollectNpuAdapters(timestamp, sequence, output);
+        }
+        if (RedXeAsciiEqualsIgnoreCase(dataSetId, kNpuEngineDataSetId))
+        {
+            return CollectNpuEngines(timestamp, sequence, output);
+        }
+        if (RedXeAsciiEqualsIgnoreCase(dataSetId, kNpuProcessDataSetId))
+        {
+            return CollectNpuProcesses(timestamp, sequence, output);
+        }
+        if (RedXeAsciiEqualsIgnoreCase(dataSetId, kSecurityDataSetId))
+        {
+            return CollectSecurityPosture(timestamp, sequence, output);
         }
         if (RedXeAsciiEqualsIgnoreCase(dataSetId, kFanSensorDataSetId))
         {
@@ -1595,6 +1833,12 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         _summaryValues[8] =
             UInt64Value(committedBytes, committedValid ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
         _summaryValues[9] = UInt64Value(GetTickCount64(), RedXeDataQualityGood);
+        const RedXeNativeTimeOfDay& timeOfDay = _cheap.timeOfDay;
+        const bool hasTimeOfDay = _cheapReady && timeOfDay.valid;
+        _summaryValues[10] =
+            UInt64Value(timeOfDay.bootTime, hasTimeOfDay ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+        _summaryValues[11] = UInt64Value(timeOfDay.sleepTimeBias / 10000ULL,
+                                         hasTimeOfDay ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
         _summaryRow = RedXeDataRow{sizeof(RedXeDataRow), _summaryValues.data(), kSummaryColumnCount};
         _summarySnapshot = RedXeDataSnapshot{
             sizeof(RedXeDataSnapshot),
@@ -1617,17 +1861,32 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         double userPercent = 0.0;
         double kernelPercent = 0.0;
         double idlePercent = 0.0;
+        double dpcPercent = 0.0;
+        double interruptPercent = 0.0;
+        double interruptRate = 0.0;
         RedXeDataQuality rateQuality = RedXeDataQualityUnavailable;
+        RedXeDataQuality dpcQuality = RedXeDataQualityUnavailable;
+        uint64_t elapsed100ns = 0;
+        if (_hasCpuSummaryTimestamp && timestamp > _cpuSummaryTimestamp)
+        {
+            elapsed100ns = timestamp - _cpuSummaryTimestamp;
+        }
         if (_cheapReady && _cheap.processorTimesValid && _cheap.logicalCount != 0)
         {
             uint64_t idle = 0;
             uint64_t kernel = 0;
             uint64_t user = 0;
+            uint64_t dpc = 0;
+            uint64_t interrupt = 0;
+            uint64_t interruptCount = 0;
             for (uint32_t index = 0; index < _cheap.logicalCount; ++index)
             {
                 idle += _cheap.logical[index].idleTime;
                 kernel += _cheap.logical[index].kernelTime;
                 user += _cheap.logical[index].userTime;
+                dpc += _cheap.logical[index].dpcTime;
+                interrupt += _cheap.logical[index].interruptTime;
+                interruptCount += _cheap.logical[index].interruptCount;
             }
             if (_hasCpuSummaryTimes && kernel >= _cpuSummaryKernel && user >= _cpuSummaryUser &&
                 idle >= _cpuSummaryIdle)
@@ -1643,25 +1902,81 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
                     kernelPercent = BoundedPercent(kernelDelta - idleDelta, totalDelta);
                     totalPercent = BoundedPercent(totalDelta - idleDelta, totalDelta);
                     rateQuality = RedXeDataQualityGood;
+                    if (dpc >= _cpuSummaryDpc && interrupt >= _cpuSummaryInterrupt)
+                    {
+                        dpcPercent = BoundedPercent(dpc - _cpuSummaryDpc, totalDelta);
+                        interruptPercent = BoundedPercent(interrupt - _cpuSummaryInterrupt, totalDelta);
+                        dpcQuality = RedXeDataQualityGood;
+                    }
+                }
+                if (elapsed100ns != 0 && interruptCount >= _cpuSummaryInterruptCount)
+                {
+                    interruptRate = PerSecond(interruptCount - _cpuSummaryInterruptCount, elapsed100ns);
                 }
             }
             else
             {
                 rateQuality = RedXeDataQualityInitializing;
+                dpcQuality = RedXeDataQualityInitializing;
             }
             _cpuSummaryIdle = idle;
             _cpuSummaryKernel = kernel;
             _cpuSummaryUser = user;
+            _cpuSummaryDpc = dpc;
+            _cpuSummaryInterrupt = interrupt;
+            _cpuSummaryInterruptCount = interruptCount;
             _hasCpuSummaryTimes = true;
         }
+
+        // Aggregate frequency across logical processors: current is the mean of reporting processors, maximum is the
+        // fastest specified clock so a hybrid part reports its performance-core ceiling rather than an average.
+        uint64_t frequencySum = 0;
+        uint32_t frequencyCount = 0;
+        uint32_t maximumMhz = 0;
+        if (_cheapReady)
+        {
+            for (uint32_t index = 0; index < _cheap.logicalCount; ++index)
+            {
+                const RedXeNativeLogicalCpu& cpu = _cheap.logical[index];
+                if (!cpu.hasFrequency)
+                {
+                    continue;
+                }
+                frequencySum += cpu.currentMhz;
+                ++frequencyCount;
+                maximumMhz = (std::max)(maximumMhz, cpu.maxMhz);
+            }
+        }
+        const RedXeDataQuality frequencyQuality =
+            frequencyCount != 0 ? RedXeDataQualityGood : RedXeDataQualityUnavailable;
+
+        double contextSwitchRate = 0.0;
+        RedXeDataQuality contextSwitchQuality = RedXeDataQualityUnavailable;
+        if (_cheapReady && _cheap.performance.valid)
+        {
+            const uint32_t switches = _cheap.performance.contextSwitches;
+            if (_hasCpuSummaryContextSwitches && elapsed100ns != 0)
+            {
+                contextSwitchRate = PerSecond(Delta32(switches, _cpuSummaryContextSwitches), elapsed100ns);
+                contextSwitchQuality = RedXeDataQualityGood;
+            }
+            else
+            {
+                contextSwitchQuality = RedXeDataQualityInitializing;
+            }
+            _cpuSummaryContextSwitches = switches;
+            _hasCpuSummaryContextSwitches = true;
+        }
+        _cpuSummaryTimestamp = timestamp;
+        _hasCpuSummaryTimestamp = true;
 
         const DWORD logical = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
         _cpuSummaryValues[0] = Float64Value(totalPercent, rateQuality);
         _cpuSummaryValues[1] = Float64Value(userPercent, rateQuality);
         _cpuSummaryValues[2] = Float64Value(kernelPercent, rateQuality);
         _cpuSummaryValues[3] = Float64Value(idlePercent, rateQuality);
-        _cpuSummaryValues[4] = Float64Value(0.0, RedXeDataQualityUnavailable);
-        _cpuSummaryValues[5] = Float64Value(0.0, RedXeDataQualityUnavailable);
+        _cpuSummaryValues[4] = Float64Value(dpcPercent, dpcQuality);
+        _cpuSummaryValues[5] = Float64Value(interruptPercent, dpcQuality);
         _cpuSummaryValues[6] = UInt64Value(logical, logical == 0 ? RedXeDataQualityUnavailable : RedXeDataQualityGood);
         _cpuSummaryValues[7] =
             UInt64Value(_cheap.coreCount,
@@ -1672,10 +1987,11 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         _cpuSummaryValues[9] =
             UInt64Value(_cheap.numaNodeCount,
                         _cheapReady && _cheap.numaNodeCount != 0 ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
-        _cpuSummaryValues[10] = UInt64Value(0, RedXeDataQualityUnavailable);
-        _cpuSummaryValues[11] = UInt64Value(0, RedXeDataQualityUnavailable);
-        _cpuSummaryValues[12] = Float64Value(0.0, RedXeDataQualityUnavailable);
-        _cpuSummaryValues[13] = Float64Value(0.0, RedXeDataQualityUnavailable);
+        _cpuSummaryValues[10] =
+            UInt64Value(frequencyCount != 0 ? frequencySum / frequencyCount : 0, frequencyQuality);
+        _cpuSummaryValues[11] = UInt64Value(maximumMhz, frequencyQuality);
+        _cpuSummaryValues[12] = Float64Value(contextSwitchRate, contextSwitchQuality);
+        _cpuSummaryValues[13] = Float64Value(interruptRate, rateQuality);
         _cpuSummaryRow = RedXeDataRow{sizeof(RedXeDataRow), _cpuSummaryValues.data(), kCpuSummaryColumnCount};
         _cpuSummarySnapshot = RedXeDataSnapshot{
             sizeof(RedXeDataSnapshot),
@@ -1696,16 +2012,26 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
     {
         const uint32_t count = _cheapReady ? _cheap.logicalCount : 0;
         const bool countChanged = count != _previousLogicalCount;
+        uint64_t elapsed100ns = 0;
+        if (_hasCpuLogicalTimestamp && timestamp > _cpuLogicalTimestamp)
+        {
+            elapsed100ns = timestamp - _cpuLogicalTimestamp;
+        }
         for (uint32_t index = 0; index < count; ++index)
         {
             const RedXeNativeLogicalCpu& cpu = _cheap.logical[index];
             RedXeDataValue* values = _cpuLogicalValues.data() + (static_cast<size_t>(index) * kCpuLogicalColumnCount);
             RedXeDataQuality rateQuality = RedXeDataQualityUnavailable;
+            RedXeDataQuality dpcQuality = RedXeDataQualityUnavailable;
             double totalPercent = 0.0;
             double userPercent = 0.0;
             double kernelPercent = 0.0;
             double idlePercent = 0.0;
-            if (cpu.hasTimes && !countChanged && index < _previousLogicalCount && _hasPreviousLogical)
+            double dpcPercent = 0.0;
+            double interruptPercent = 0.0;
+            double interruptRate = 0.0;
+            const bool haveHistory = !countChanged && index < _previousLogicalCount && _hasPreviousLogical;
+            if (cpu.hasTimes && haveHistory)
             {
                 const LogicalCpuTimes& previous = _previousLogical[index];
                 if (cpu.kernelTime >= previous.kernel && cpu.userTime >= previous.user && cpu.idleTime >= previous.idle)
@@ -1721,41 +2047,57 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
                         kernelPercent = BoundedPercent(kernelDelta - idleDelta, totalDelta);
                         totalPercent = BoundedPercent(totalDelta - idleDelta, totalDelta);
                         rateQuality = RedXeDataQualityGood;
+                        if (cpu.dpcTime >= previous.dpc && cpu.interruptTime >= previous.interrupt)
+                        {
+                            dpcPercent = BoundedPercent(cpu.dpcTime - previous.dpc, totalDelta);
+                            interruptPercent = BoundedPercent(cpu.interruptTime - previous.interrupt, totalDelta);
+                            dpcQuality = RedXeDataQualityGood;
+                        }
                     }
+                }
+                if (elapsed100ns != 0)
+                {
+                    interruptRate = PerSecond(Delta32(cpu.interruptCount, previous.interruptCount), elapsed100ns);
                 }
             }
             else if (cpu.hasTimes)
             {
                 rateQuality = RedXeDataQualityInitializing;
+                dpcQuality = RedXeDataQualityInitializing;
             }
+            const RedXeDataQuality topologyQuality =
+                cpu.hasTopology ? RedXeDataQualityGood : RedXeDataQualityUnavailable;
+            const RedXeDataQuality cpuSetQuality = cpu.hasCpuSet ? RedXeDataQualityGood : RedXeDataQualityUnavailable;
+            const RedXeDataQuality frequencyQuality =
+                cpu.hasFrequency ? RedXeDataQualityGood : RedXeDataQualityUnavailable;
             values[0] = UInt64Value(cpu.group, RedXeDataQualityGood);
             values[1] = UInt64Value(cpu.index, RedXeDataQualityGood);
-            values[2] = UInt64Value(cpu.cpuSetId, cpu.hasCpuSet ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
-            values[3] = UInt64Value(0, RedXeDataQualityUnavailable);
-            values[4] = UInt64Value(0, RedXeDataQualityUnavailable);
-            values[5] = UInt64Value(0, RedXeDataQualityUnavailable);
-            values[6] =
-                UInt64Value(cpu.efficiencyClass, cpu.hasCpuSet ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
-            values[7] =
-                UInt64Value(cpu.parked ? 1 : 0, cpu.hasCpuSet ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
-            values[8] =
-                UInt64Value(cpu.allocated ? 1 : 0, cpu.hasCpuSet ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[2] = UInt64Value(cpu.cpuSetId, cpuSetQuality);
+            values[3] = UInt64Value(cpu.coreIndex, topologyQuality);
+            values[4] = UInt64Value(cpu.packageIndex, topologyQuality);
+            values[5] = UInt64Value(cpu.numaNode, topologyQuality);
+            values[6] = UInt64Value(cpu.efficiencyClass, cpuSetQuality);
+            values[7] = UInt64Value(cpu.parked ? 1 : 0, cpuSetQuality);
+            values[8] = UInt64Value(cpu.allocated ? 1 : 0, cpuSetQuality);
             values[9] = Float64Value(totalPercent, rateQuality);
             values[10] = Float64Value(userPercent, rateQuality);
             values[11] = Float64Value(kernelPercent, rateQuality);
             values[12] = Float64Value(idlePercent, rateQuality);
-            values[13] = Float64Value(0.0, RedXeDataQualityUnavailable);
-            values[14] = Float64Value(0.0, RedXeDataQualityUnavailable);
-            values[15] = UInt64Value(0, RedXeDataQualityUnavailable);
-            values[16] = Float64Value(0.0, RedXeDataQualityUnavailable);
-            values[17] =
-                UInt64Value(cpu.currentMhz, cpu.hasFrequency ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
-            values[18] = UInt64Value(cpu.maxMhz, cpu.hasFrequency ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[13] = Float64Value(dpcPercent, dpcQuality);
+            values[14] = Float64Value(interruptPercent, dpcQuality);
+            values[15] = UInt64Value(cpu.interruptCount, cpu.hasTimes ? RedXeDataQualityGood
+                                                                     : RedXeDataQualityUnavailable);
+            values[16] = Float64Value(interruptRate, rateQuality);
+            values[17] = UInt64Value(cpu.currentMhz, frequencyQuality);
+            values[18] = UInt64Value(cpu.maxMhz, frequencyQuality);
             _cpuLogicalRows[index] = RedXeDataRow{sizeof(RedXeDataRow), values, kCpuLogicalColumnCount};
-            _previousLogical[index] = LogicalCpuTimes{cpu.idleTime, cpu.kernelTime, cpu.userTime};
+            _previousLogical[index] = LogicalCpuTimes{cpu.idleTime,      cpu.kernelTime,  cpu.userTime,
+                                                     cpu.dpcTime,       cpu.interruptTime, cpu.interruptCount};
         }
         _previousLogicalCount = count;
         _hasPreviousLogical = count != 0;
+        _cpuLogicalTimestamp = timestamp;
+        _hasCpuLogicalTimestamp = true;
         _cpuLogicalSnapshot = RedXeDataSnapshot{
             sizeof(RedXeDataSnapshot),
             RedXeDataSnapshotFlagNone,
@@ -1807,12 +2149,51 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         _memoryValues[3] = UInt64Value(commit, commitValid ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
         _memoryValues[4] = UInt64Value(commitLimit, limitValid ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
         _memoryValues[5] = UInt64Value(commitPeak, peakValid ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
-        _memoryValues[6] = UInt64Value(0, RedXeDataQualityUnavailable);
+        // Cache size and the fault rates come from the named SystemPerformanceInformation record; the page size is
+        // still taken from K32GetPerformanceInfo, which is the documented oracle for the counts above.
+        const RedXeNativeSystemPerformance& native = _cheap.performance;
+        const bool hasNative = _cheapReady && native.valid;
+        uint64_t cacheBytes = 0;
+        const bool cacheValid = hasNative && hasPerformance &&
+                                PageCountToBytes(native.residentSystemCachePage, performance.PageSize, cacheBytes);
+        double pageFaultRate = 0.0;
+        double pageInRate = 0.0;
+        double pageOutRate = 0.0;
+        RedXeDataQuality faultQuality = RedXeDataQualityUnavailable;
+        if (hasNative)
+        {
+            uint64_t elapsed100ns = 0;
+            if (_hasMemoryTimestamp && timestamp > _memoryTimestamp)
+            {
+                elapsed100ns = timestamp - _memoryTimestamp;
+            }
+            if (_hasMemoryCounters && elapsed100ns != 0)
+            {
+                pageFaultRate = PerSecond(Delta32(native.pageFaultCount, _memoryPageFaults), elapsed100ns);
+                pageInRate = PerSecond(Delta32(native.pageReadCount, _memoryPageReads), elapsed100ns);
+                pageOutRate = PerSecond(Delta32(native.dirtyPagesWriteCount, _memoryDirtyWrites) +
+                                            Delta32(native.mappedPagesWriteCount, _memoryMappedWrites),
+                                        elapsed100ns);
+                faultQuality = RedXeDataQualityGood;
+            }
+            else
+            {
+                faultQuality = RedXeDataQualityInitializing;
+            }
+            _memoryPageFaults = native.pageFaultCount;
+            _memoryPageReads = native.pageReadCount;
+            _memoryDirtyWrites = native.dirtyPagesWriteCount;
+            _memoryMappedWrites = native.mappedPagesWriteCount;
+            _hasMemoryCounters = true;
+            _memoryTimestamp = timestamp;
+            _hasMemoryTimestamp = true;
+        }
+        _memoryValues[6] = UInt64Value(cacheBytes, cacheValid ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
         _memoryValues[7] = UInt64Value(paged, pagedValid ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
         _memoryValues[8] = UInt64Value(nonPaged, nonPagedValid ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
-        _memoryValues[9] = Float64Value(0.0, RedXeDataQualityUnavailable);
-        _memoryValues[10] = Float64Value(0.0, RedXeDataQualityUnavailable);
-        _memoryValues[11] = Float64Value(0.0, RedXeDataQualityUnavailable);
+        _memoryValues[9] = Float64Value(pageFaultRate, faultQuality);
+        _memoryValues[10] = Float64Value(pageInRate, faultQuality);
+        _memoryValues[11] = Float64Value(pageOutRate, faultQuality);
         _memoryRow = RedXeDataRow{sizeof(RedXeDataRow), _memoryValues.data(), kMemoryColumnCount};
         _memorySnapshot = RedXeDataSnapshot{
             sizeof(RedXeDataSnapshot), RedXeDataSnapshotFlagNone, kMemoryDataSetId, sequence, timestamp, &_memoryRow, 1,
@@ -1826,24 +2207,62 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
                                          const RedXeDataSnapshot** output) noexcept
     {
         const uint32_t count = _walkReady && _walk.valid ? _walk.threadCount : 0;
+        uint64_t elapsed100ns = 0;
+        if (_hasThreadTimestamp && timestamp > _threadTimestamp)
+        {
+            elapsed100ns = timestamp - _threadTimestamp;
+        }
+        // One system-wide processor-time delta normalises every thread's CPU percentage, matching how process rows
+        // are derived, so a thread and its process agree on what 100% means.
+        uint64_t systemTotal = 0;
+        uint64_t systemIdle = 0;
+        const bool hasSystemTimes = ReadSystemTimes(systemIdle, systemTotal);
+        uint64_t systemDelta = 0;
+        if (hasSystemTimes && _hasThreadSystemTotal && systemTotal > _threadSystemTotal)
+        {
+            systemDelta = systemTotal - _threadSystemTotal;
+        }
         for (uint32_t index = 0; index < count; ++index)
         {
             const RedXeNativeThreadRow& thread = _walk.threads[index];
             RedXeDataValue* values = _threadValues.data() + (static_cast<size_t>(index) * kThreadColumnCount);
+            const uint64_t processorTime = thread.userTime + thread.kernelTime;
+            double cpuPercent = 0.0;
+            double contextSwitchRate = 0.0;
+            RedXeDataQuality rateQuality = RedXeDataQualityInitializing;
+            const ThreadCpuSample* previous = FindPreviousThread(thread.threadId, thread.createTime);
+            if (previous && systemDelta != 0 && processorTime >= previous->processorTime)
+            {
+                cpuPercent = BoundedPercent(processorTime - previous->processorTime, systemDelta);
+                rateQuality = RedXeDataQualityGood;
+            }
+            if (previous && elapsed100ns != 0)
+            {
+                contextSwitchRate = PerSecond(Delta32(thread.contextSwitches, previous->contextSwitches),
+                                              elapsed100ns);
+            }
             values[0] = UInt64Value(thread.processId, RedXeDataQualityGood);
-            values[1] = UInt64Value(0, RedXeDataQualityUnavailable);
+            values[1] = UInt64Value(thread.createTime, RedXeDataQualityGood);
             values[2] = UInt64Value(thread.threadId, RedXeDataQualityGood);
-            values[3] = UInt64Value(0, RedXeDataQualityUnavailable);
-            values[4] = UInt64Value(0, RedXeDataQualityUnavailable);
-            values[5] = Float64Value(0.0, RedXeDataQualityUnavailable);
+            values[3] = UInt64Value(thread.userTime, RedXeDataQualityGood);
+            values[4] = UInt64Value(thread.kernelTime, RedXeDataQualityGood);
+            values[5] = Float64Value(cpuPercent, rateQuality);
             values[6] = UInt64Value(static_cast<uint64_t>(thread.priority), RedXeDataQualityGood);
             values[7] = UInt64Value(static_cast<uint64_t>(thread.basePriority), RedXeDataQualityGood);
             values[8] = UInt64Value(thread.threadState, RedXeDataQualityGood);
             values[9] = UInt64Value(thread.waitReason, RedXeDataQualityGood);
-            values[10] = UInt64Value(0, RedXeDataQualityUnavailable);
-            values[11] = Float64Value(0.0, RedXeDataQualityUnavailable);
+            values[10] = UInt64Value(thread.contextSwitches, RedXeDataQualityGood);
+            values[11] = Float64Value(contextSwitchRate, rateQuality);
             _threadRows[index] = RedXeDataRow{sizeof(RedXeDataRow), values, kThreadColumnCount};
         }
+        StoreThreadHistory(count);
+        if (hasSystemTimes)
+        {
+            _threadSystemTotal = systemTotal;
+            _hasThreadSystemTotal = true;
+        }
+        _threadTimestamp = timestamp;
+        _hasThreadTimestamp = true;
         _threadSnapshot = RedXeDataSnapshot{
             sizeof(RedXeDataSnapshot),
             (_walkReady && _walk.threadsTruncated) ? RedXeDataSnapshotFlagTruncated : RedXeDataSnapshotFlagNone,
@@ -2044,10 +2463,18 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
             RedXeGpuSampleAdapters(_gpu);
             _gpuAdaptersReady = true;
         }
-        const uint32_t count = _gpu.adapterCount;
-        for (uint32_t index = 0; index < count; ++index)
+        // Graphics rows only. Compute-only accelerators go to npu.adapter so a viewer labelled "GPU" keeps its
+        // meaning; a row whose class could not be established stays here rather than being reclassified on a guess.
+        uint32_t count = 0;
+        for (uint32_t source = 0; source < _gpu.adapterCount; ++source)
         {
-            const RedXeGpuAdapterRow& row = _gpu.adapters[index];
+            const RedXeGpuAdapterRow& row = _gpu.adapters[source];
+            if (row.deviceClass == kRedXeDeviceClassNpu)
+            {
+                continue;
+            }
+            const uint32_t index = count;
+            ++count;
             RedXeDataValue* values = _gpuAdapterValues.data() + (static_cast<size_t>(index) * kGpuAdapterColumnCount);
             values[0] = UInt64Value(row.adapterLuid, RedXeDataQualityGood);
             values[1] = Utf16Value(row.displayName, Utf16Length(row.displayName), RedXeDataQualityGood);
@@ -2058,9 +2485,12 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
                 UInt64Value(row.integrated, row.hasIntegrated ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
             values[6] = UInt64Value(row.dedicatedBytes, RedXeDataQualityGood);
             values[7] = UInt64Value(row.sharedBytes, RedXeDataQualityGood);
-            values[8] = Float64Value(0.0, RedXeDataQualityUnavailable);
-            values[9] = UInt64Value(0, RedXeDataQualityUnavailable);
-            values[10] = UInt64Value(0, RedXeDataQualityUnavailable);
+            values[8] = Float64Value(row.utilizationPercent,
+                                     row.hasUtilization ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[9] = UInt64Value(row.usedDedicatedBytes,
+                                    row.hasMemoryUsage ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[10] = UInt64Value(row.usedSharedBytes,
+                                     row.hasMemoryUsage ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
             values[11] =
                 UInt64Value(row.memoryClockHz, row.hasPerf ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
             values[12] =
@@ -2075,6 +2505,13 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
                                       row.hasTemperature ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
             values[17] = UInt64Value(row.fanRpm, row.hasFan ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
             values[18] = UInt64Value(row.maxFanRpm, row.hasFan ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[19] = UInt64Value(row.deviceClass,
+                                     row.hasDeviceClass ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[20] =
+                UInt64Value(row.computeOnly, row.hasAdapterType ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[21] = UInt64Value(row.physicalAdapterCount, row.physicalAdapterCount != 0
+                                                                   ? RedXeDataQualityGood
+                                                                   : RedXeDataQualityUnavailable);
             _gpuAdapterRows[index] = RedXeDataRow{sizeof(RedXeDataRow), values, kGpuAdapterColumnCount};
         }
         _gpuAdapterSnapshot = RedXeDataSnapshot{
@@ -2094,7 +2531,11 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
     [[nodiscard]] HRESULT CollectGpuEngines(uint64_t timestamp, uint64_t sequence,
                                             const RedXeDataSnapshot** output) noexcept
     {
-        RedXeGpuSampleEngines(_gpu);
+        if (!_gpuEnginesReady)
+        {
+            RedXeGpuSampleEngines(_gpu);
+            _gpuEnginesReady = true;
+        }
         const uint32_t count = _gpu.engineCount;
         for (uint32_t index = 0; index < count; ++index)
         {
@@ -2132,7 +2573,11 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
     [[nodiscard]] HRESULT CollectGpuProcesses(uint64_t timestamp, uint64_t sequence,
                                               const RedXeDataSnapshot** output) noexcept
     {
-        RedXeGpuSampleProcesses(_gpu);
+        if (!_gpuProcessesReady)
+        {
+            RedXeGpuSampleProcesses(_gpu);
+            _gpuProcessesReady = true;
+        }
         const uint32_t count = _gpu.processCount;
         for (uint32_t index = 0; index < count; ++index)
         {
@@ -2193,6 +2638,10 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
             UInt64Value(row.hiberFilePresent, row.hasCapabilities ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
         _powerSummaryValues[10] =
             UInt64Value(row.thermalControl, row.hasCapabilities ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+        _powerSummaryValues[11] =
+            UInt64Value(row.modernStandby, row.hasCapabilities ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+        _powerSummaryValues[12] = UInt64Value(
+            row.modernStandbyConnected, row.hasCapabilities ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
         _powerSummaryRow = RedXeDataRow{sizeof(RedXeDataRow), _powerSummaryValues.data(), kPowerSummaryColumnCount};
         _powerSummarySnapshot = RedXeDataSnapshot{
             sizeof(RedXeDataSnapshot),
@@ -2447,6 +2896,242 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         return S_OK;
     }
 
+    [[nodiscard]] HRESULT CollectNpuAdapters(uint64_t timestamp, uint64_t sequence,
+                                             const RedXeDataSnapshot** output) noexcept
+    {
+        if (!_gpuAdaptersReady)
+        {
+            RedXeGpuSampleAdapters(_gpu);
+            _gpuAdaptersReady = true;
+        }
+        uint32_t count = 0;
+        for (uint32_t source = 0; source < _gpu.adapterCount && count < kNpuAdapterMaximumRows; ++source)
+        {
+            const RedXeGpuAdapterRow& row = _gpu.adapters[source];
+            if (row.deviceClass != kRedXeDeviceClassNpu)
+            {
+                continue;
+            }
+            RedXeDataValue* values = _npuAdapterValues.data() + (static_cast<size_t>(count) * kNpuAdapterColumnCount);
+            const RedXeDataQuality dxgiQuality = row.hasDxgi ? RedXeDataQualityGood : RedXeDataQualityUnavailable;
+            values[0] = UInt64Value(row.adapterLuid, RedXeDataQualityGood);
+            values[1] = Utf16Value(row.displayName, Utf16Length(row.displayName),
+                                   row.displayName[0] != L'\0' ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[2] = UInt64Value(row.vendorId, dxgiQuality);
+            values[3] = UInt64Value(row.deviceId, dxgiQuality);
+            values[4] = UInt64Value(row.deviceClass, RedXeDataQualityGood);
+            values[5] =
+                UInt64Value(row.computeOnly, row.hasAdapterType ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[6] =
+                UInt64Value(row.integrated, row.hasIntegrated ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[7] = UInt64Value(row.physicalAdapterCount, row.physicalAdapterCount != 0
+                                                                  ? RedXeDataQualityGood
+                                                                  : RedXeDataQualityUnavailable);
+            values[8] =
+                UInt64Value(row.engineCount, row.hasEngineCount ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[9] = UInt64Value(row.dedicatedBytes, dxgiQuality);
+            values[10] = UInt64Value(row.sharedBytes, dxgiQuality);
+            values[11] = UInt64Value(row.usedDedicatedBytes,
+                                     row.hasMemoryUsage ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[12] = UInt64Value(row.usedSharedBytes,
+                                     row.hasMemoryUsage ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[13] = Float64Value(row.utilizationPercent,
+                                      row.hasUtilization ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[14] =
+                Float64Value(row.temperatureC, row.hasTemperature ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            _npuAdapterRows[count] = RedXeDataRow{sizeof(RedXeDataRow), values, kNpuAdapterColumnCount};
+            ++count;
+        }
+        _npuAdapterSnapshot = RedXeDataSnapshot{
+            sizeof(RedXeDataSnapshot), RedXeDataSnapshotFlagNone, kNpuAdapterDataSetId, sequence, timestamp,
+            _npuAdapterRows.data(),   count,                      kNpuAdapterColumnCount,
+        };
+        *output = &_npuAdapterSnapshot;
+        return S_OK;
+    }
+
+    [[nodiscard]] HRESULT CollectNpuEngines(uint64_t timestamp, uint64_t sequence,
+                                            const RedXeDataSnapshot** output) noexcept
+    {
+        if (!_gpuEnginesReady)
+        {
+            RedXeGpuSampleEngines(_gpu);
+            _gpuEnginesReady = true;
+        }
+        uint32_t count = 0;
+        bool truncated = false;
+        for (uint32_t source = 0; source < _gpu.engineCount; ++source)
+        {
+            const RedXeGpuEngineRow& row = _gpu.engines[source];
+            if (RedXeGpuDeviceClassForLuid(_gpu, row.adapterLuid) != kRedXeDeviceClassNpu)
+            {
+                continue;
+            }
+            if (count >= kNpuEngineMaximumRows)
+            {
+                truncated = true;
+                break;
+            }
+            RedXeDataValue* values = _npuEngineValues.data() + (static_cast<size_t>(count) * kNpuEngineColumnCount);
+            values[0] = UInt64Value(row.adapterLuid, RedXeDataQualityGood);
+            values[1] = UInt64Value(row.physicalAdapterIndex, RedXeDataQualityGood);
+            values[2] = UInt64Value(row.nodeOrdinal, RedXeDataQualityGood);
+            values[3] = Utf16Value(row.friendlyName, Utf16Length(row.friendlyName),
+                                   row.hasClass ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[4] = Float64Value(row.utilizationPercent,
+                                     row.hasUtilization ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[5] =
+                UInt64Value(row.currentFrequencyHz, row.hasFrequency ? RedXeDataQualityGood
+                                                                     : RedXeDataQualityUnavailable);
+            values[6] = UInt64Value(row.maxFrequencyHz,
+                                    row.hasFrequency ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[7] =
+                UInt64Value(row.voltageMv, row.hasFrequency ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            _npuEngineRows[count] = RedXeDataRow{sizeof(RedXeDataRow), values, kNpuEngineColumnCount};
+            ++count;
+        }
+        _npuEngineSnapshot = RedXeDataSnapshot{
+            sizeof(RedXeDataSnapshot),
+            truncated ? RedXeDataSnapshotFlagTruncated : RedXeDataSnapshotFlagNone,
+            kNpuEngineDataSetId,
+            sequence,
+            timestamp,
+            _npuEngineRows.data(),
+            count,
+            kNpuEngineColumnCount,
+        };
+        *output = &_npuEngineSnapshot;
+        return S_OK;
+    }
+
+    [[nodiscard]] HRESULT CollectNpuProcesses(uint64_t timestamp, uint64_t sequence,
+                                              const RedXeDataSnapshot** output) noexcept
+    {
+        if (!_gpuProcessesReady)
+        {
+            RedXeGpuSampleProcesses(_gpu);
+            _gpuProcessesReady = true;
+        }
+        uint32_t count = 0;
+        bool truncated = false;
+        for (uint32_t source = 0; source < _gpu.processCount; ++source)
+        {
+            const RedXeGpuProcessRow& row = _gpu.processes[source];
+            if (RedXeGpuDeviceClassForLuid(_gpu, row.adapterLuid) != kRedXeDeviceClassNpu)
+            {
+                continue;
+            }
+            if (count >= kNpuProcessMaximumRows)
+            {
+                truncated = true;
+                break;
+            }
+            RedXeDataValue* values = _npuProcessValues.data() + (static_cast<size_t>(count) * kNpuProcessColumnCount);
+            values[0] = UInt64Value(row.processId, RedXeDataQualityGood);
+            values[1] = UInt64Value(row.adapterLuid, RedXeDataQualityGood);
+            values[2] = UInt64Value(row.physicalAdapterIndex, RedXeDataQualityGood);
+            values[3] = UInt64Value(row.engineOrdinal, RedXeDataQualityGood);
+            values[4] = Utf16Value(row.engineType, Utf16Length(row.engineType), RedXeDataQualityGood);
+            values[5] = Float64Value(row.utilizationPercent,
+                                     row.hasUtilization ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            _npuProcessRows[count] = RedXeDataRow{sizeof(RedXeDataRow), values, kNpuProcessColumnCount};
+            ++count;
+        }
+        _npuProcessSnapshot = RedXeDataSnapshot{
+            sizeof(RedXeDataSnapshot),
+            truncated ? RedXeDataSnapshotFlagTruncated : RedXeDataSnapshotFlagNone,
+            kNpuProcessDataSetId,
+            sequence,
+            timestamp,
+            _npuProcessRows.data(),
+            count,
+            kNpuProcessColumnCount,
+        };
+        *output = &_npuProcessSnapshot;
+        return S_OK;
+    }
+
+    [[nodiscard]] HRESULT CollectSecurityPosture(uint64_t timestamp, uint64_t sequence,
+                                                 const RedXeDataSnapshot** output) noexcept
+    {
+        RedXeNativeCodeIntegrity integrity{};
+        const bool hasIntegrity = RedXeNativeQueryCodeIntegrity(integrity);
+        const RedXeDataQuality quality = hasIntegrity ? RedXeDataQualityGood : RedXeDataQualityUnavailable;
+        const auto bit = [&](uint32_t mask) -> uint64_t { return (integrity.options & mask) != 0 ? 1U : 0U; };
+        _securityValues[0] = UInt64Value(bit(kRedXeCodeIntegrityEnabled), quality);
+        _securityValues[1] = UInt64Value(bit(kRedXeCodeIntegrityTestSign), quality);
+        _securityValues[2] = UInt64Value(bit(kRedXeCodeIntegrityUmciEnabled), quality);
+        _securityValues[3] = UInt64Value(bit(kRedXeCodeIntegrityHvciKmciEnabled), quality);
+        _securityValues[4] = UInt64Value(bit(kRedXeCodeIntegrityHvciKmciStrictMode), quality);
+        _securityValues[5] = UInt64Value(bit(kRedXeCodeIntegrityHvciIumEnabled), quality);
+        _securityValues[6] = UInt64Value(bit(kRedXeCodeIntegrityWhqlEnforcement), quality);
+        _securityValues[7] = UInt64Value(bit(kRedXeCodeIntegrityDebugModeEnabled), quality);
+        _securityValues[8] = UInt64Value(bit(kRedXeCodeIntegrityFlightingEnabled), quality);
+        _securityValues[9] = UInt64Value(integrity.options, quality);
+        // Documented processor-feature probe, independent of the native class above.
+        _securityValues[10] = UInt64Value(
+            IsProcessorFeaturePresent(PF_VIRT_FIRMWARE_ENABLED) != FALSE ? 1U : 0U, RedXeDataQualityGood);
+        _securityRow = RedXeDataRow{sizeof(RedXeDataRow), _securityValues.data(), kSecurityColumnCount};
+        _securitySnapshot = RedXeDataSnapshot{
+            sizeof(RedXeDataSnapshot), RedXeDataSnapshotFlagNone, kSecurityDataSetId, sequence, timestamp,
+            &_securityRow,            1,                          kSecurityColumnCount,
+        };
+        *output = &_securitySnapshot;
+        return S_OK;
+    }
+
+    // Thread rate history. Rebuilt wholesale from the current walk on every thread collection, so a departed thread
+    // never leaves a stale entry and the table never needs eviction.
+    [[nodiscard]] const ThreadCpuSample* FindPreviousThread(uint32_t threadId, uint64_t createTime) const noexcept
+    {
+        if (createTime == 0)
+        {
+            return nullptr;
+        }
+        size_t index = ThreadSlot(threadId, createTime);
+        for (size_t probe = 0; probe < kThreadHistoryCapacity; ++probe)
+        {
+            const ThreadCpuSample& candidate = _threadHistory[index];
+            if (candidate.createTime == 0)
+            {
+                return nullptr;
+            }
+            if (candidate.threadId == threadId && candidate.createTime == createTime)
+            {
+                return &candidate;
+            }
+            index = (index + 1) & (kThreadHistoryCapacity - 1);
+        }
+        return nullptr;
+    }
+
+    void StoreThreadHistory(uint32_t count) noexcept
+    {
+        _threadHistory.fill({});
+        for (uint32_t entry = 0; entry < count; ++entry)
+        {
+            const RedXeNativeThreadRow& thread = _walk.threads[entry];
+            if (thread.createTime == 0)
+            {
+                continue;
+            }
+            size_t index = ThreadSlot(thread.threadId, thread.createTime);
+            for (size_t probe = 0; probe < kThreadHistoryCapacity; ++probe)
+            {
+                ThreadCpuSample& candidate = _threadHistory[index];
+                if (candidate.createTime == 0)
+                {
+                    candidate.threadId = thread.threadId;
+                    candidate.createTime = thread.createTime;
+                    candidate.processorTime = thread.userTime + thread.kernelTime;
+                    candidate.contextSwitches = thread.contextSwitches;
+                    break;
+                }
+                index = (index + 1) & (kThreadHistoryCapacity - 1);
+            }
+        }
+    }
+
     [[nodiscard]] const ProcessCpuSample* FindPreviousProcess(uint32_t processId, uint64_t creationTime) const noexcept
     {
         size_t index =
@@ -2489,21 +3174,24 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         }
     }
 
+    // Fills the columns beyond the seven identity/summary values. `native` is the bulk SystemProcessInformation row
+    // when the walk backend produced this process; when it is present the times, faults, I/O, and cycle counters come
+    // straight out of the walked buffer, and the transient handle is only needed for affinity, architecture, critical
+    // state, and efficiency mode. The Toolhelp fallback passes nullptr and keeps the per-handle path.
     void FillProcessExtended(RedXeDataValue* values, HANDLE process, uint32_t parentPid, bool hasParent,
                              uint32_t sessionId, bool hasSession, std::int32_t basePriority, bool hasPriority,
                              uint64_t peakWorkingSet, bool hasPeak, uint64_t virtualBytes, bool hasVirtual,
-                             uint64_t systemDelta, ProcessCpuSample& current) noexcept
+                             uint64_t systemDelta, ProcessCpuSample& current,
+                             const RedXeNativeProcessRow* native) noexcept
     {
         const ProcessCpuSample* previous =
             current.creationTime != 0 ? FindPreviousProcess(current.processId, current.creationTime) : nullptr;
+        const bool hasTimes = native != nullptr || (process && current.creationTime != 0);
+        const double seconds = static_cast<double>(systemDelta) / 10'000'000.0;
         values[7] = UInt64Value(parentPid, hasParent ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
         values[8] = UInt64Value(sessionId, hasSession ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
-        values[9] = UInt64Value(current.userTime, current.userTime != 0 || (process && current.creationTime != 0)
-                                                      ? RedXeDataQualityGood
-                                                      : RedXeDataQualityUnavailable);
-        values[10] = UInt64Value(current.kernelTime, current.kernelTime != 0 || (process && current.creationTime != 0)
-                                                         ? RedXeDataQualityGood
-                                                         : RedXeDataQualityUnavailable);
+        values[9] = UInt64Value(current.userTime, hasTimes ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+        values[10] = UInt64Value(current.kernelTime, hasTimes ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
         RedXeDataQuality splitCpu = RedXeDataQualityUnavailable;
         double userPercent = 0.0;
         double kernelPercent = 0.0;
@@ -2514,7 +3202,7 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
             kernelPercent = BoundedPercent(current.kernelTime - previous->kernelTime, systemDelta);
             splitCpu = RedXeDataQualityGood;
         }
-        else if (process && current.creationTime != 0)
+        else if (hasTimes)
         {
             splitCpu = RedXeDataQualityInitializing;
         }
@@ -2523,19 +3211,33 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         values[13] = UInt64Value(peakWorkingSet, hasPeak ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
         values[14] = UInt64Value(virtualBytes, hasVirtual ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
 
-        IO_COUNTERS io{};
-        if (process && GetProcessIoCounters(process, &io) != FALSE)
+        bool hasIo = false;
+        if (native)
         {
-            current.ioReadBytes = io.ReadTransferCount;
-            current.ioWriteBytes = io.WriteTransferCount;
-            current.ioOtherBytes = io.OtherTransferCount;
+            current.ioReadBytes = native->ioReadBytes;
+            current.ioWriteBytes = native->ioWriteBytes;
+            current.ioOtherBytes = native->ioOtherBytes;
+            hasIo = true;
+        }
+        else
+        {
+            IO_COUNTERS io{};
+            if (process && GetProcessIoCounters(process, &io) != FALSE)
+            {
+                current.ioReadBytes = io.ReadTransferCount;
+                current.ioWriteBytes = io.WriteTransferCount;
+                current.ioOtherBytes = io.OtherTransferCount;
+                hasIo = true;
+            }
+        }
+        if (hasIo)
+        {
             values[15] = UInt64Value(current.ioReadBytes, RedXeDataQualityGood);
             values[16] = UInt64Value(current.ioWriteBytes, RedXeDataQualityGood);
             values[17] = UInt64Value(current.ioOtherBytes, RedXeDataQualityGood);
             if (previous && systemDelta != 0 && current.ioReadBytes >= previous->ioReadBytes &&
                 current.ioWriteBytes >= previous->ioWriteBytes)
             {
-                const double seconds = static_cast<double>(systemDelta) / 10'000'000.0;
                 values[18] = Float64Value(
                     seconds > 0.0 ? static_cast<double>(current.ioReadBytes - previous->ioReadBytes) / seconds : 0.0,
                     RedXeDataQualityGood);
@@ -2558,12 +3260,11 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
             values[19] = Float64Value(0.0, RedXeDataQualityUnavailable);
         }
 
-        if (current.pageFaults != 0 || (process && current.creationTime != 0))
+        if (native || current.pageFaults != 0 || (process && current.creationTime != 0))
         {
             values[20] = UInt64Value(current.pageFaults, RedXeDataQualityGood);
             if (previous && systemDelta != 0 && current.pageFaults >= previous->pageFaults)
             {
-                const double seconds = static_cast<double>(systemDelta) / 10'000'000.0;
                 values[21] = Float64Value(
                     seconds > 0.0 ? static_cast<double>(current.pageFaults - previous->pageFaults) / seconds : 0.0,
                     RedXeDataQualityGood);
@@ -2581,10 +3282,18 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
 
         values[22] = UInt64Value(current.creationTime,
                                  current.creationTime != 0 ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
-        ULONG64 cycles = 0;
-        values[23] = process && QueryProcessCycleTime(process, &cycles) != FALSE
-                         ? UInt64Value(cycles, RedXeDataQualityGood)
-                         : UInt64Value(0, RedXeDataQualityUnavailable);
+        if (native)
+        {
+            values[23] = UInt64Value(native->cycleTime,
+                                     native->cycleTime != 0 ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+        }
+        else
+        {
+            ULONG64 cycles = 0;
+            values[23] = process && QueryProcessCycleTime(process, &cycles) != FALSE
+                             ? UInt64Value(cycles, RedXeDataQualityGood)
+                             : UInt64Value(0, RedXeDataQualityUnavailable);
+        }
         values[24] = UInt64Value(static_cast<uint64_t>(basePriority),
                                  hasPriority ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
 
@@ -2619,6 +3328,31 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         values[30] = process && IsProcessCritical(process, &critical) != FALSE
                          ? UInt64Value(critical ? 1 : 0, RedXeDataQualityGood)
                          : UInt64Value(0, RedXeDataQualityUnavailable);
+
+        const RedXeDataQuality nativeQuality = native ? RedXeDataQualityGood : RedXeDataQualityUnavailable;
+        values[31] = UInt64Value(native ? native->hardFaultCount : 0, nativeQuality);
+        values[32] = UInt64Value(native ? native->workingSetPrivateBytes : 0, nativeQuality);
+        values[33] = UInt64Value(native ? native->pagefileBytes : 0, nativeQuality);
+        values[34] = UInt64Value(native ? native->ioReadOperations : 0, nativeQuality);
+        values[35] = UInt64Value(native ? native->ioWriteOperations : 0, nativeQuality);
+        values[36] = UInt64Value(native ? native->ioOtherOperations : 0, nativeQuality);
+
+        // Efficiency mode (EcoQoS): the documented per-process power-throttling state behind Task Manager's leaf.
+        PROCESS_POWER_THROTTLING_STATE throttling{};
+        throttling.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+        if (process && GetProcessInformation(process, ProcessPowerThrottling, &throttling,
+                                             static_cast<DWORD>(sizeof(throttling))) != FALSE)
+        {
+            const bool efficiency = (throttling.ControlMask & PROCESS_POWER_THROTTLING_EXECUTION_SPEED) != 0 &&
+                                    (throttling.StateMask & PROCESS_POWER_THROTTLING_EXECUTION_SPEED) != 0;
+            values[37] = UInt64Value(efficiency ? 1 : 0, RedXeDataQualityGood);
+            values[38] = UInt64Value(throttling.ControlMask, RedXeDataQualityGood);
+        }
+        else
+        {
+            values[37] = UInt64Value(0, RedXeDataQualityUnavailable);
+            values[38] = UInt64Value(0, RedXeDataQualityUnavailable);
+        }
     }
 
     [[nodiscard]] bool AppendProcessRow(const PROCESSENTRY32W& entry, uint64_t systemDelta, size_t& rowCount,
@@ -2707,7 +3441,7 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         values[5] = UInt64Value(entry.cntThreads, RedXeDataQualityGood);
         values[6] = UInt64Value(handleCount, handleQuality);
         FillProcessExtended(values, process.get(), entry.th32ParentProcessID, true, 0, false, 0, false, 0, false, 0,
-                            false, systemDelta, currentCpu);
+                            false, systemDelta, currentCpu, nullptr);
         _currentCpu[rowCount] = currentCpu;
         _processRows[rowCount] = RedXeDataRow{sizeof(RedXeDataRow), values, kProcessColumnCount};
         ++rowCount;
@@ -2762,45 +3496,32 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
                 return S_OK;
             }
             wchar_t* imageName = _processNames.data() + nameCharacters;
-            std::wmemcpy(imageName, native.imageName, imageCharacters);
+            std::wmemcpy(imageName, _walk.imageArena.data() + native.imageOffset, imageCharacters);
             imageName[imageCharacters] = L'\0';
             nameCharacters += imageCharacters + 1;
 
-            wil::unique_handle process{
-                OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, FALSE, native.processId)};
-            if (!process)
-            {
-                process.reset(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, native.processId));
-            }
+            // Times, faults, I/O, and cycle counters are already in the walked buffer, so no handle is opened for
+            // them and every row carries them — including processes this dashboard could not open. The handle that
+            // remains serves only affinity, architecture, critical state, and efficiency mode, and no longer asks for
+            // PROCESS_VM_READ because memory counters no longer come from K32GetProcessMemoryInfo.
+            wil::unique_handle process{OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, native.processId)};
 
             ProcessCpuSample currentCpu{};
             currentCpu.processId = native.processId;
-            RedXeDataQuality cpuQuality = process ? RedXeDataQualityInitializing : RedXeDataQualityUnavailable;
+            currentCpu.creationTime = native.createTime;
+            currentCpu.userTime = native.userTime;
+            currentCpu.kernelTime = native.kernelTime;
+            currentCpu.processorTime = native.userTime + native.kernelTime;
+            currentCpu.pageFaults = native.pageFaultCount;
+            RedXeDataQuality cpuQuality = RedXeDataQualityInitializing;
             double cpuPercent = 0.0;
-            if (process)
+            const ProcessCpuSample* previousCpu =
+                currentCpu.creationTime != 0 ? FindPreviousProcess(currentCpu.processId, currentCpu.creationTime)
+                                             : nullptr;
+            if (previousCpu && currentCpu.processorTime >= previousCpu->processorTime && systemDelta != 0)
             {
-                FILETIME creation{};
-                FILETIME exit{};
-                FILETIME kernel{};
-                FILETIME user{};
-                if (GetProcessTimes(process.get(), &creation, &exit, &kernel, &user))
-                {
-                    currentCpu.creationTime = FileTimeValue(creation);
-                    currentCpu.userTime = FileTimeValue(user);
-                    currentCpu.kernelTime = FileTimeValue(kernel);
-                    currentCpu.processorTime = currentCpu.userTime + currentCpu.kernelTime;
-                    const ProcessCpuSample* previous =
-                        FindPreviousProcess(currentCpu.processId, currentCpu.creationTime);
-                    if (previous && currentCpu.processorTime >= previous->processorTime && systemDelta != 0)
-                    {
-                        cpuPercent = BoundedPercent(currentCpu.processorTime - previous->processorTime, systemDelta);
-                        cpuQuality = RedXeDataQualityGood;
-                    }
-                }
-                else
-                {
-                    cpuQuality = RedXeDataQualityUnavailable;
-                }
+                cpuPercent = BoundedPercent(currentCpu.processorTime - previousCpu->processorTime, systemDelta);
+                cpuQuality = RedXeDataQualityGood;
             }
 
             RedXeDataValue* values = _processValues.data() + rowCount * kProcessColumnCount;
@@ -2814,7 +3535,7 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
             values[6] = UInt64Value(native.handleCount, RedXeDataQualityGood);
             FillProcessExtended(values, process.get(), native.parentProcessId, native.hasParent, native.sessionId, true,
                                 native.basePriority, true, native.peakWorkingSetBytes, true, native.virtualBytes, true,
-                                systemDelta, currentCpu);
+                                systemDelta, currentCpu, &native);
             _currentCpu[rowCount] = currentCpu;
             _processRows[rowCount] = RedXeDataRow{sizeof(RedXeDataRow), values, kProcessColumnCount};
             ++rowCount;
@@ -2877,7 +3598,6 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
         return S_OK;
     }
 
-    std::atomic<ULONG> _references{1};
     std::atomic_flag _collecting = ATOMIC_FLAG_INIT;
     uint64_t _sequence = 0;
     uint64_t _summaryIdle = 0;
@@ -2897,6 +3617,8 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
     bool _cheapReady = false;
     bool _walkReady = false;
     bool _gpuAdaptersReady = false;
+    bool _gpuEnginesReady = false;
+    bool _gpuProcessesReady = false;
     bool _disksReady = false;
     bool _diskTempsReady = false;
     bool _powerReady = false;
@@ -2906,7 +3628,28 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
     uint64_t _cpuSummaryIdle = 0;
     uint64_t _cpuSummaryKernel = 0;
     uint64_t _cpuSummaryUser = 0;
+    uint64_t _cpuSummaryDpc = 0;
+    uint64_t _cpuSummaryInterrupt = 0;
+    uint64_t _cpuSummaryInterruptCount = 0;
+    uint64_t _cpuSummaryTimestamp = 0;
+    uint32_t _cpuSummaryContextSwitches = 0;
     bool _hasCpuSummaryTimes = false;
+    bool _hasCpuSummaryTimestamp = false;
+    bool _hasCpuSummaryContextSwitches = false;
+    uint64_t _cpuLogicalTimestamp = 0;
+    bool _hasCpuLogicalTimestamp = false;
+    uint64_t _memoryTimestamp = 0;
+    uint32_t _memoryPageFaults = 0;
+    uint32_t _memoryPageReads = 0;
+    uint32_t _memoryDirtyWrites = 0;
+    uint32_t _memoryMappedWrites = 0;
+    bool _hasMemoryTimestamp = false;
+    bool _hasMemoryCounters = false;
+    uint64_t _threadTimestamp = 0;
+    uint64_t _threadSystemTotal = 0;
+    bool _hasThreadTimestamp = false;
+    bool _hasThreadSystemTotal = false;
+    std::array<ThreadCpuSample, kThreadHistoryCapacity> _threadHistory{};
     std::array<LogicalCpuTimes, kRedXeMaximumLogicalProcessors> _previousLogical{};
     uint32_t _previousLogicalCount = 0;
     bool _hasPreviousLogical = false;
@@ -2969,6 +3712,18 @@ class SystemDataSource final : public IRedXeDataSource, public IRedXeSystemDataT
     std::array<RedXeDataValue, kFanMaximumRows * kFanColumnCount> _fanValues{};
     std::array<RedXeDataRow, kFanMaximumRows> _fanRows{};
     RedXeDataSnapshot _fanSnapshot{};
+    std::array<RedXeDataValue, kNpuAdapterMaximumRows * kNpuAdapterColumnCount> _npuAdapterValues{};
+    std::array<RedXeDataRow, kNpuAdapterMaximumRows> _npuAdapterRows{};
+    RedXeDataSnapshot _npuAdapterSnapshot{};
+    std::array<RedXeDataValue, kNpuEngineMaximumRows * kNpuEngineColumnCount> _npuEngineValues{};
+    std::array<RedXeDataRow, kNpuEngineMaximumRows> _npuEngineRows{};
+    RedXeDataSnapshot _npuEngineSnapshot{};
+    std::array<RedXeDataValue, kNpuProcessMaximumRows * kNpuProcessColumnCount> _npuProcessValues{};
+    std::array<RedXeDataRow, kNpuProcessMaximumRows> _npuProcessRows{};
+    RedXeDataSnapshot _npuProcessSnapshot{};
+    std::array<RedXeDataValue, kSecurityColumnCount> _securityValues{};
+    RedXeDataRow _securityRow{};
+    RedXeDataSnapshot _securitySnapshot{};
 };
 
 static_assert(sizeof(SystemDataSource) < 16U * 1024U * 1024U);

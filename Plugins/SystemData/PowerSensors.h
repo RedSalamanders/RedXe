@@ -34,6 +34,8 @@ struct RedXePowerSummaryRow final
     uint64_t systemS4 = 0;
     uint64_t hiberFilePresent = 0;
     uint64_t thermalControl = 0;
+    uint64_t modernStandby = 0;
+    uint64_t modernStandbyConnected = 0;
     bool hasAc = false;
     bool hasBatteryPresent = false;
     bool hasCharging = false;

@@ -878,7 +878,7 @@ class MatrixRainDeviceResources final
     wil::com_ptr_nothrow<ID3D11Buffer> _constantBuffer;
 };
 
-class MatrixRainWidget final : public IRedXeWidget, public IRedXeGpuWidget, public IRedXeRaisedWidget
+class MatrixRainWidget final : public RedXeComObject<MatrixRainWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeRaisedWidget>
 {
   public:
     MatrixRainWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, MatrixRainDeviceResources& resources,
@@ -892,48 +892,6 @@ class MatrixRainWidget final : public IRedXeWidget, public IRedXeGpuWidget, publ
     {
         _widgetClaim->store(false, std::memory_order_release);
         gLiveWidgetCount.fetch_sub(1, std::memory_order_relaxed);
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-        {
-            return E_POINTER;
-        }
-        *result = nullptr;
-        if (interfaceId == __uuidof(IUnknown) || interfaceId == __uuidof(IRedXeWidget))
-        {
-            *result = static_cast<IRedXeWidget*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeGpuWidget))
-        {
-            *result = static_cast<IRedXeGpuWidget*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeRaisedWidget))
-        {
-            *result = static_cast<IRedXeRaisedWidget*>(this);
-        }
-        else
-        {
-            return E_NOINTERFACE;
-        }
-        AddRef();
-        return S_OK;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-        {
-            delete this;
-        }
-        return references;
     }
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL) noexcept override
@@ -982,6 +940,17 @@ class MatrixRainWidget final : public IRedXeWidget, public IRedXeGpuWidget, publ
         _resources->Reset();
     }
 
+    HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
+    {
+        if (!context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
+        {
+            return E_INVALIDARG;
+        }
+        // The glyph atlas is a fixed 128x128 baked table, deliberately low resolution for the rain aesthetic, so it does
+        // not track the target size.
+        return S_OK;
+    }
+
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
     {
         if (!context)
@@ -1019,13 +988,12 @@ class MatrixRainWidget final : public IRedXeWidget, public IRedXeGpuWidget, publ
     }
 
   private:
-    std::atomic<ULONG> _references{1};
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _providerOwner;
     MatrixRainDeviceResources* _resources;
     std::atomic<bool>* _widgetClaim;
 };
 
-class MatrixRainProvider final : public IRedXeWidgetProvider
+class MatrixRainProvider final : public RedXeComObject<MatrixRainProvider, IRedXeWidgetProvider>
 {
   public:
     explicit MatrixRainProvider(const MatrixRainConfiguration& configuration) noexcept : _resources(configuration)
@@ -1036,37 +1004,6 @@ class MatrixRainProvider final : public IRedXeWidgetProvider
     ~MatrixRainProvider()
     {
         gLiveProviderCount.fetch_sub(1, std::memory_order_relaxed);
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-        {
-            return E_POINTER;
-        }
-        *result = nullptr;
-        if (interfaceId == __uuidof(IUnknown) || interfaceId == __uuidof(IRedXeWidgetProvider))
-        {
-            *result = static_cast<IRedXeWidgetProvider*>(this);
-            AddRef();
-            return S_OK;
-        }
-        return E_NOINTERFACE;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-        {
-            delete this;
-        }
-        return references;
     }
 
     HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
@@ -1131,7 +1068,6 @@ class MatrixRainProvider final : public IRedXeWidgetProvider
     }
 
   private:
-    std::atomic<ULONG> _references{1};
     std::atomic<bool> _widgetClaim{false};
     MatrixRainDeviceResources _resources;
 };

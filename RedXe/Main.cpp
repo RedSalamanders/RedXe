@@ -1,5 +1,6 @@
 #include "Application.h"
 #include "CrashHandler.h"
+#include "PluginHost.h"
 
 #include <memory>
 #include <new>
@@ -117,8 +118,22 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         CrashHandler::TriggerCrashTest();
     }
 
-    const std::unique_ptr<Application> application{new (std::nothrow) Application(instance, forceWarp)};
-    const int exitCode = application ? application->Run(showCommand, selfTest, settingsPath) : 1;
+    int exitCode = 1;
+    {
+        const std::unique_ptr<Application> application{new (std::nothrow) Application(instance, forceWarp)};
+        if (!application)
+        {
+            exitCode = 1;
+        }
+        else
+        {
+            exitCode = selfTest ? application->RunSelfTest(settingsPath) : application->Run(showCommand, settingsPath);
+        }
+    }
+
+    // Every widget, provider, and subscription is released with the Application above. Release the process plugin
+    // runtime here so its acquisition worker is joined and optional RedXePluginShutdown runs exactly once per module.
+    PluginHost::ShutdownProcessRuntime();
 
     if (exitCode != 0 && !selfTest)
     {

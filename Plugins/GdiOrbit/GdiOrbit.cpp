@@ -71,7 +71,7 @@ constexpr std::array kWidgetTypes{
 
 [[nodiscard]] HRESULT EnsureWindowClass() noexcept;
 
-class GdiOrbitWidget final : public IRedXeWidget, public IRedXeWindowWidget, public IRedXeRaisedWidget
+class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget, IRedXeWindowWidget, IRedXeRaisedWidget>
 {
   public:
     explicit GdiOrbitWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner) noexcept
@@ -82,48 +82,6 @@ class GdiOrbitWidget final : public IRedXeWidget, public IRedXeWindowWidget, pub
     ~GdiOrbitWidget()
     {
         Detach();
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-        {
-            return E_POINTER;
-        }
-        *result = nullptr;
-        if (interfaceId == __uuidof(IUnknown) || interfaceId == __uuidof(IRedXeWidget))
-        {
-            *result = static_cast<IRedXeWidget*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeWindowWidget))
-        {
-            *result = static_cast<IRedXeWindowWidget*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeRaisedWidget))
-        {
-            *result = static_cast<IRedXeRaisedWidget*>(this);
-        }
-        else
-        {
-            return E_NOINTERFACE;
-        }
-        AddRef();
-        return S_OK;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-        {
-            delete this;
-        }
-        return references;
     }
 
     HRESULT STDMETHODCALLTYPE Attach(const RedXeWindowWidgetAttachContext* context) noexcept override
@@ -523,7 +481,6 @@ class GdiOrbitWidget final : public IRedXeWidget, public IRedXeWindowWidget, pub
         SelectObject(dc, previousPen);
     }
 
-    std::atomic<ULONG> _references{1};
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _providerOwner;
     HWND _container = nullptr;
     wil::unique_hwnd _window;
@@ -574,40 +531,9 @@ class GdiOrbitWidget final : public IRedXeWidget, public IRedXeWindowWidget, pub
     return error == ERROR_CLASS_ALREADY_EXISTS ? S_OK : HRESULT_FROM_WIN32(error);
 }
 
-class GdiOrbitProvider final : public IRedXeWidgetProvider
+class GdiOrbitProvider final : public RedXeComObject<GdiOrbitProvider, IRedXeWidgetProvider>
 {
   public:
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-        {
-            return E_POINTER;
-        }
-        *result = nullptr;
-        if (interfaceId == __uuidof(IUnknown) || interfaceId == __uuidof(IRedXeWidgetProvider))
-        {
-            *result = static_cast<IRedXeWidgetProvider*>(this);
-            AddRef();
-            return S_OK;
-        }
-        return E_NOINTERFACE;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-        {
-            delete this;
-        }
-        return references;
-    }
-
     HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
                                              uint32_t* count) noexcept override
     {
@@ -662,7 +588,6 @@ class GdiOrbitProvider final : public IRedXeWidgetProvider
     }
 
   private:
-    std::atomic<ULONG> _references{1};
 };
 
 HRESULT CreateGdiOrbitProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*,

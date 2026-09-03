@@ -46,6 +46,9 @@ class DashboardHost final
     [[nodiscard]] WidgetPlacement PlacementAt(size_t index) const noexcept;
     [[nodiscard]] RECT PixelBoundsAt(size_t index, UINT width, UINT height) const noexcept;
     [[nodiscard]] bool RequiresContinuousFrames() const noexcept;
+    // True when the host owns this tile's pixels: the instance failed to construct, or it reported itself
+    // unavailable through IRedXeHost::ReportWidgetStatus.
+    [[nodiscard]] bool RequiresPlaceholderAt(size_t index) const noexcept;
     [[nodiscard]] HRESULT GetNextFrameDelayMilliseconds(uint32_t* delayMilliseconds) const noexcept;
 
   private:

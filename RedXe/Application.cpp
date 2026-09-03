@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <new>
@@ -22,6 +23,14 @@
 
 namespace
 {
+// Windows tags mouse messages synthesized from a touch or pen contact. Those belong to the WM_POINTER swipe path, so
+// the mouse edge affordance ignores them.
+[[nodiscard]] bool IsPointerSynthesizedMouseMessage() noexcept
+{
+    constexpr ULONG_PTR kPointerSignatureMask = 0xFFFFFF00;
+    constexpr ULONG_PTR kPointerSignature = 0xFF515700;
+    return (static_cast<ULONG_PTR>(GetMessageExtraInfo()) & kPointerSignatureMask) == kPointerSignature;
+}
 constexpr LONG kXeneonEdgeClientWidth = 2560;
 constexpr LONG kXeneonEdgeClientHeight = 720;
 
@@ -304,9 +313,13 @@ Application::~Application()
         UnregisterClassW(kWindowClassName, _instance);
         UnregisterClassW(kRaiseOverlayClassName, _instance);
     }
+    if (_pageEdgeClassRegistered)
+    {
+        UnregisterClassW(kPageEdgeClassName, _instance);
+    }
 }
 
-int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsPath) noexcept
+int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
 {
     if (!_pluginManager || !_dashboardHost)
     {
@@ -314,60 +327,53 @@ int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsP
         return 1;
     }
 
-    HRESULT result = _settingsStore.Initialize(selfTest, settingsPath, _settings);
+    HRESULT result = _settingsStore.Initialize(false, settingsPath, _settings);
     if (FAILED(result) || !_settings)
     {
         OutputDebugStringW(L"Settings initialization or validation failed.\n");
         return 1;
     }
-    if (!selfTest && _settingsStore.UsedInitialFallback())
+    if (_settingsStore.UsedInitialFallback())
     {
         MessageBoxW(nullptr, _settingsStore.InitialNotice().c_str(), L"RedXe settings", MB_OK | MB_ICONERROR);
-    }
-    if (selfTest && FAILED(ValidateExecutableShellIcon()))
-    {
-        OutputDebugStringW(L"The executable does not expose extractable large and small shell icons.\n");
-        return 1;
     }
 
     RECT xeneonBounds{};
     const RECT* requestedTargetBounds = nullptr;
     bool requestedFullscreen = false;
-    if (!selfTest)
+    bool xeneonFound = false;
+    result = FindXeneonDisplay(xeneonBounds, xeneonFound);
+    if (FAILED(result))
     {
-        bool xeneonFound = false;
-        result = FindXeneonDisplay(xeneonBounds, xeneonFound);
-        if (FAILED(result))
-        {
 #if defined(_DEBUG)
-            OutputDebugStringW(L"XENEON display discovery failed; using default window placement.\n");
+        OutputDebugStringW(L"XENEON display discovery failed; using default window placement.\n");
 #else
-            OutputDebugStringW(L"XENEON display discovery failed; offering windowed fallback.\n");
-#endif
-        }
-
-        if (xeneonFound)
-        {
-            requestedTargetBounds = &xeneonBounds;
-#if !defined(_DEBUG)
-            requestedFullscreen = true;
-#endif
-        }
-#if !defined(_DEBUG)
-        else
-        {
-            const int choice = MessageBoxW(
-                nullptr,
-                L"A CORSAIR XENEON display was not found.\n\nDo you want to display RedXe anyway in a standard "
-                L"window with a title bar?",
-                L"RedXe — XENEON display missing", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND);
-            if (choice != IDYES)
-            {
-                return 0;
-            }
-        }
+        OutputDebugStringW(L"XENEON display discovery failed; offering windowed fallback.\n");
 #endif
     }
+
+    if (xeneonFound)
+    {
+        requestedTargetBounds = &xeneonBounds;
+#if !defined(_DEBUG)
+        requestedFullscreen = true;
+#endif
+    }
+#if !defined(_DEBUG)
+    else
+    {
+        // Owned by UI_XeneonDisplayWindowing.md: Release prompts for a windowed fallback, Debug never does.
+        const int choice =
+            MessageBoxW(nullptr,
+                        L"A CORSAIR XENEON display was not found.\n\nDo you want to display RedXe anyway in a standard "
+                        L"window with a title bar?",
+                        L"RedXe \u2014 XENEON display missing", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND);
+        if (choice != IDYES)
+        {
+            return 0;
+        }
+    }
+#endif
 
     result = RegisterWindowClass();
     if (FAILED(result))
@@ -376,49 +382,12 @@ int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsP
         return 1;
     }
 
-    result = CreateMainWindow(!selfTest, requestedTargetBounds, requestedFullscreen);
+    result = CreateMainWindow(true, requestedTargetBounds, requestedFullscreen);
     if (FAILED(result))
     {
         OutputDebugStringW(L"CreateMainWindow failed.\n");
         return 2;
     }
-
-    if (selfTest)
-    {
-        RECT clientBounds{};
-        const UINT windowDpi = GetDpiForWindow(_window.get());
-        const SIZE expectedClientSize = ScaleXeneonClientSize(windowDpi);
-        const DWORD windowStyle = static_cast<DWORD>(GetWindowLongPtrW(_window.get(), GWL_STYLE));
-        if (windowDpi == 0 || (windowStyle & WS_CLIPCHILDREN) == 0 || !GetClientRect(_window.get(), &clientBounds) ||
-            clientBounds.right - clientBounds.left != expectedClientSize.cx ||
-            clientBounds.bottom - clientBounds.top != expectedClientSize.cy)
-        {
-            OutputDebugStringW(L"The default client area does not match the current monitor DPI.\n");
-            return 2;
-        }
-    }
-
-#if defined(_DEBUG)
-    if (selfTest)
-    {
-        std::unique_ptr<AppSettings> matrixDisabled{new (std::nothrow) AppSettings{*_settings}};
-        if (!matrixDisabled)
-        {
-            return 3;
-        }
-        result = DisablePluginAndRemoveWidgets(*matrixDisabled, "builtin.matrix-rain");
-        PluginManager disabledMatrixManager;
-        if (SUCCEEDED(result))
-        {
-            result = disabledMatrixManager.Initialize(*matrixDisabled);
-        }
-        if (FAILED(result) || GetModuleHandleW(L"MatrixRain.dll"))
-        {
-            OutputDebugStringW(L"A disabled Matrix Rain plugin was loaded during the conditional-load test.\n");
-            return 3;
-        }
-    }
-#endif
 
     result = _pluginManager->Initialize(*_settings);
     if (FAILED(result))
@@ -432,51 +401,6 @@ int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsP
     {
         OutputDebugStringW(L"Dashboard or renderer initialization failed.\n");
         return 5;
-    }
-
-    if (selfTest)
-    {
-        const size_t expectedGpuWidgetCount = CountGpuWidgets(*_pluginManager);
-        result = _renderer.Render(0.0f, 0.0f);
-        if (FAILED(result) || _renderer.LastFrameWidgetCount() != expectedGpuWidgetCount ||
-            _renderer.LastFrameSuccessfulWidgetCount() != expectedGpuWidgetCount ||
-            (!PluginEnabled(*_settings, "builtin.rotating-triangle") && GetModuleHandleW(L"RotatingTriangle.dll")) ||
-            (!PluginEnabled(*_settings, "builtin.gdi-orbit") && GetModuleHandleW(L"GdiOrbit.dll")) ||
-            (!PluginEnabled(*_settings, "builtin.matrix-rain") && GetModuleHandleW(L"MatrixRain.dll")))
-        {
-            OutputDebugStringW(L"The plugin smoke frame did not render every GPU-widget instance.\n");
-            return 6;
-        }
-
-        const uint32_t pageCount = _settings->dashboard.pageCount;
-        for (uint32_t page = 1; page < pageCount; ++page)
-        {
-            std::unique_ptr<AppSettings> changed{new (std::nothrow) AppSettings{*_settings}};
-            if (!changed)
-            {
-                return 6;
-            }
-            result = MoveDashboardPage(*changed, 1);
-            if (SUCCEEDED(result))
-                result = ApplySettings(std::move(changed));
-            if (SUCCEEDED(result))
-                result = _renderer.Render(0.0f, 0.0f);
-            const size_t changedGpuWidgetCount = CountGpuWidgets(*_pluginManager);
-            if (FAILED(result) || _renderer.LastFrameWidgetCount() != changedGpuWidgetCount ||
-                _renderer.LastFrameSuccessfulWidgetCount() != changedGpuWidgetCount)
-            {
-                OutputDebugStringW(L"The dashboard page/private settings reconfiguration smoke test failed.\n");
-                return 6;
-            }
-        }
-
-        std::unique_ptr<AppSettings> rejected{new (std::nothrow) AppSettings{*_settings}};
-        if (!rejected || SUCCEEDED(ParseAppSettingsJson("{}", *rejected)) || *rejected != *_settings)
-        {
-            OutputDebugStringW(L"Invalid settings changed the active typed configuration.\n");
-            return 6;
-        }
-        return 0;
     }
 
     ShowWindow(_window.get(), showCommand);
@@ -609,6 +533,135 @@ int Application::Run(int showCommand, bool selfTest, std::wstring_view settingsP
     return FAILED(_runtimeFailure) ? 5 : 0;
 }
 
+// Hidden startup validation for `--self-test`. It shares Application's startup steps but never shows a window and
+// never enters the frame loop, so the production Run above carries no test branches and no `selfTest` parameter.
+//
+// UI_XeneonDisplayWindowing.md owns this mode: skip display discovery and prompts, create the titled window hidden,
+// validate its DPI-adjusted client dimensions, render one frame, and exit.
+int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
+{
+    if (!_pluginManager || !_dashboardHost)
+    {
+        OutputDebugStringW(L"Dashboard host allocation failed.\n");
+        return 1;
+    }
+
+    HRESULT result = _settingsStore.Initialize(true, settingsPath, _settings);
+    if (FAILED(result) || !_settings)
+    {
+        OutputDebugStringW(L"Settings initialization or validation failed.\n");
+        return 1;
+    }
+    if (FAILED(ValidateExecutableShellIcon()))
+    {
+        OutputDebugStringW(L"The executable does not expose extractable large and small shell icons.\n");
+        return 1;
+    }
+
+    result = RegisterWindowClass();
+    if (FAILED(result))
+    {
+        OutputDebugStringW(L"RegisterWindowClass failed.\n");
+        return 1;
+    }
+
+    result = CreateMainWindow(false, nullptr, false);
+    if (FAILED(result))
+    {
+        OutputDebugStringW(L"CreateMainWindow failed.\n");
+        return 2;
+    }
+
+    RECT clientBounds{};
+    const UINT windowDpi = GetDpiForWindow(_window.get());
+    const SIZE expectedClientSize = ScaleXeneonClientSize(windowDpi);
+    const DWORD windowStyle = static_cast<DWORD>(GetWindowLongPtrW(_window.get(), GWL_STYLE));
+    if (windowDpi == 0 || (windowStyle & WS_CLIPCHILDREN) == 0 || !GetClientRect(_window.get(), &clientBounds) ||
+        clientBounds.right - clientBounds.left != expectedClientSize.cx ||
+        clientBounds.bottom - clientBounds.top != expectedClientSize.cy)
+    {
+        OutputDebugStringW(L"The default client area does not match the current monitor DPI.\n");
+        return 2;
+    }
+
+#if defined(_DEBUG)
+    {
+        std::unique_ptr<AppSettings> matrixDisabled{new (std::nothrow) AppSettings{*_settings}};
+        if (!matrixDisabled)
+        {
+            return 3;
+        }
+        result = DisablePluginAndRemoveWidgets(*matrixDisabled, "builtin.matrix-rain");
+        PluginManager disabledMatrixManager;
+        if (SUCCEEDED(result))
+        {
+            result = disabledMatrixManager.Initialize(*matrixDisabled);
+        }
+        if (FAILED(result) || GetModuleHandleW(L"MatrixRain.dll"))
+        {
+            OutputDebugStringW(L"A disabled Matrix Rain plugin was loaded during the conditional-load test.\n");
+            return 3;
+        }
+    }
+#endif
+
+    result = _pluginManager->Initialize(*_settings);
+    if (FAILED(result))
+    {
+        OutputDebugStringW(L"Bundled plugin initialization failed.\n");
+        return 3;
+    }
+
+    result = InitializeDashboardRuntime();
+    if (FAILED(result))
+    {
+        OutputDebugStringW(L"Dashboard or renderer initialization failed.\n");
+        return 5;
+    }
+
+    const size_t expectedGpuWidgetCount = CountGpuWidgets(*_pluginManager);
+    result = _renderer.Render(0.0f, 0.0f);
+    if (FAILED(result) || _renderer.LastFrameWidgetCount() != expectedGpuWidgetCount ||
+        _renderer.LastFrameSuccessfulWidgetCount() != expectedGpuWidgetCount ||
+        (!PluginEnabled(*_settings, "builtin.rotating-triangle") && GetModuleHandleW(L"RotatingTriangle.dll")) ||
+        (!PluginEnabled(*_settings, "builtin.gdi-orbit") && GetModuleHandleW(L"GdiOrbit.dll")) ||
+        (!PluginEnabled(*_settings, "builtin.matrix-rain") && GetModuleHandleW(L"MatrixRain.dll")))
+    {
+        OutputDebugStringW(L"The plugin smoke frame did not render every GPU-widget instance.\n");
+        return 6;
+    }
+
+    const uint32_t pageCount = _settings->dashboard.pageCount;
+    for (uint32_t page = 1; page < pageCount; ++page)
+    {
+        std::unique_ptr<AppSettings> changed{new (std::nothrow) AppSettings{*_settings}};
+        if (!changed)
+        {
+            return 6;
+        }
+        result = MoveDashboardPage(*changed, 1);
+        if (SUCCEEDED(result))
+            result = ApplySettings(std::move(changed));
+        if (SUCCEEDED(result))
+            result = _renderer.Render(0.0f, 0.0f);
+        const size_t changedGpuWidgetCount = CountGpuWidgets(*_pluginManager);
+        if (FAILED(result) || _renderer.LastFrameWidgetCount() != changedGpuWidgetCount ||
+            _renderer.LastFrameSuccessfulWidgetCount() != changedGpuWidgetCount)
+        {
+            OutputDebugStringW(L"The dashboard page/private settings reconfiguration smoke test failed.\n");
+            return 6;
+        }
+    }
+
+    std::unique_ptr<AppSettings> rejected{new (std::nothrow) AppSettings{*_settings}};
+    if (!rejected || SUCCEEDED(ParseAppSettingsJson("{}", *rejected)) || *rejected != *_settings)
+    {
+        OutputDebugStringW(L"Invalid settings changed the active typed configuration.\n");
+        return 6;
+    }
+    return 0;
+}
+
 HRESULT Application::RegisterWindowClass() noexcept
 {
     const auto largeIcon =
@@ -665,6 +718,20 @@ HRESULT Application::RegisterWindowClass() noexcept
         UnregisterClassW(kWindowClassName, _instance);
         return HRESULT_FROM_WIN32(GetLastError());
     }
+    WNDCLASSEXW pageEdgeClass{};
+    pageEdgeClass.cbSize = sizeof(pageEdgeClass);
+    pageEdgeClass.lpfnWndProc = PageEdgeProcedure;
+    pageEdgeClass.hInstance = _instance;
+    pageEdgeClass.hCursor = LoadCursorW(nullptr, IDC_HAND);
+    pageEdgeClass.lpszClassName = kPageEdgeClassName;
+    if (!RegisterClassExW(&pageEdgeClass))
+    {
+        UnregisterClassW(kRaiseOverlayClassName, _instance);
+        UnregisterClassW(kSettingsDialogClassName, _instance);
+        UnregisterClassW(kWindowClassName, _instance);
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    _pageEdgeClassRegistered = true;
     _classRegistered = true;
     return S_OK;
 }
@@ -786,6 +853,8 @@ HRESULT Application::InitializeDashboardRuntime() noexcept
         return result;
     }
     _rendererReady = true;
+    PluginHost::Instance().SetUiInvalidateTarget(_window.get());
+    RefreshPageEdgeAffordances();
     result = UpdateDashboardVisibility();
     if (SUCCEEDED(result))
     {
@@ -978,6 +1047,7 @@ HRESULT Application::PromoteTransitionPage() noexcept
         (void)_dashboardHost->SetHorizontalOffset(0);
     }
     result = _renderer.RefreshLayout();
+    RefreshPageEdgeAffordances();
     if (retiringDashboard)
     {
         retiringDashboard->Shutdown();
@@ -1084,6 +1154,416 @@ void Application::TickPageSettle() noexcept
     ApplyPageOffset(0, client.right);
 }
 
+PageEdgeState Application::CurrentPageEdgeState() const noexcept
+{
+    PageEdgeState state{};
+    if (!_settings)
+    {
+        return state;
+    }
+    state.rendererReady = _rendererReady;
+    state.windowVisible = _windowVisible;
+    state.displayPoweredOn = _displayPoweredOn;
+    state.rendererSuspended = _renderer.IsSuspended();
+    state.rendererOccluded = _renderer.IsOccluded();
+    state.widgetRaised = _raisedActive;
+    state.pointerNavigationActive = _pagePointerActive || _pagePanStarted;
+    state.settleActive = _pageSettleActive || _pageTransitionDirection != 0;
+    state.wrapPages = _settings->dashboard.wrapPages;
+    state.pageCount = _settings->dashboard.pageCount;
+    state.atFirstPage = _settings->dashboard.activePageIndex == 0;
+    state.atLastPage = state.pageCount == 0 || _settings->dashboard.activePageIndex + 1 >= state.pageCount;
+    return state;
+}
+
+size_t Application::PageEdgeIndex(HWND window) const noexcept
+{
+    for (size_t index = 0; index < _pageEdges.size(); ++index)
+    {
+        if (_pageEdges[index].get() == window)
+        {
+            return index;
+        }
+    }
+    return _pageEdges.size();
+}
+
+void Application::DestroyPageEdgeAffordances() noexcept
+{
+    _pageEdgeIconFont.reset();
+    _pageEdgeIconFontDpi = 0;
+    for (size_t index = 0; index < _pageEdges.size(); ++index)
+    {
+        _pageEdges[index].reset();
+        _pageEdgeRevealed[index] = false;
+        _pageEdgeBands[index] = RECT{};
+    }
+    _pageEdgeApplyValid = false;
+}
+
+void Application::RefreshPageEdgeAffordances() noexcept
+{
+    if (!_window)
+    {
+        DestroyPageEdgeAffordances();
+        return;
+    }
+    RECT client{};
+    if (!GetClientRect(_window.get(), &client) || client.right <= 0 || client.bottom <= 0)
+    {
+        DestroyPageEdgeAffordances();
+        return;
+    }
+
+    const PageEdgeState state = CurrentPageEdgeState();
+    const UINT dpi = GetDpiForWindow(_window.get());
+    const SIZE clientSize{client.right, client.bottom};
+    const RECT reachable = ReachableClientRect();
+    if (_pageEdgeApplyValid && _pageEdgeApplied == state && _pageEdgeAppliedDpi == dpi &&
+        _pageEdgeAppliedClient.cx == clientSize.cx && _pageEdgeAppliedClient.cy == clientSize.cy &&
+        EqualRect(&_pageEdgeAppliedReachable, &reachable))
+    {
+        return;
+    }
+    _pageEdgeApplied = state;
+    _pageEdgeAppliedDpi = dpi;
+    _pageEdgeAppliedClient = clientSize;
+    _pageEdgeAppliedReachable = reachable;
+    _pageEdgeApplyValid = true;
+
+    for (size_t index = 0; index < _pageEdges.size(); ++index)
+    {
+        const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
+        const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
+        const bool allowed = ShouldShowEdgeAffordance(state, direction) && band.right > band.left;
+        _pageEdgeBands[index] = allowed ? band : RECT{};
+        if (!allowed)
+        {
+            _pageEdgeRevealed[index] = false;
+        }
+
+        // The band window exists only while the pointer is inside its zone, the same way the raise overlay HWND
+        // exists only while a widget is raised. It is created opaque: a layered child at zero alpha is transparent to
+        // hit testing, so an always-present invisible band would never receive a mouse message at all.
+        if (!allowed || !_pageEdgeRevealed[index])
+        {
+            _pageEdges[index].reset();
+            continue;
+        }
+
+        if (!_pageEdges[index])
+        {
+            const HWND edge = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_NOPARENTNOTIFY | WS_EX_LAYERED,
+                                              kPageEdgeClassName, L"", WS_CHILD | WS_CLIPSIBLINGS, band.left, band.top,
+                                              band.right - band.left, band.bottom - band.top, _window.get(), nullptr,
+                                              _instance, this);
+            if (!edge)
+            {
+                _pageEdgeRevealed[index] = false;
+                continue;
+            }
+            _pageEdges[index].reset(edge);
+            (void)SetLayeredWindowAttributes(edge, 0, kPageEdgeRevealedAlpha, LWA_ALPHA);
+            ShowWindow(edge, SW_SHOWNA);
+            // Leave tracking is armed from the band's first WM_MOUSEMOVE, not here. TrackMouseEvent posts
+            // WM_MOUSELEAVE immediately when the cursor is not already inside the window, and a child created under
+            // the cursor has not been hit-tested onto yet, so arming here makes the band destroy itself at once.
+        }
+        else if (!EqualRect(&_pageEdgeBands[index], &band))
+        {
+            (void)SetWindowPos(_pageEdges[index].get(), nullptr, band.left, band.top, band.right - band.left,
+                               band.bottom - band.top, SWP_NOACTIVATE | SWP_NOZORDER);
+        }
+        // Bands stay above host-owned native containers so they reveal and accept clicks over a window widget too.
+        (void)SetWindowPos(_pageEdges[index].get(), HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+}
+
+RECT Application::ReachableClientRect() const noexcept
+{
+    RECT client{};
+    if (!_window || !GetClientRect(_window.get(), &client))
+    {
+        return RECT{};
+    }
+    RECT windowBounds{};
+    if (!GetWindowRect(_window.get(), &windowBounds))
+    {
+        return client;
+    }
+
+    // Collect the work area of every display the window touches, converted to client coordinates. The union and
+    // intersection rule itself lives in PageEdgeAffordance.h so it can be tested without a display configuration.
+    struct WorkAreaCollector final
+    {
+        HWND window = nullptr;
+        std::array<RECT, kPageEdgeMaximumWorkAreas> areas{};
+        size_t count = 0;
+    } collector;
+    collector.window = _window.get();
+
+    const auto collect = [](HMONITOR monitor, HDC, LPRECT, LPARAM data) noexcept -> BOOL
+    {
+        auto* target = reinterpret_cast<WorkAreaCollector*>(data);
+        if (target->count >= target->areas.size())
+        {
+            return FALSE;
+        }
+        MONITORINFO monitorInfo{};
+        monitorInfo.cbSize = sizeof(monitorInfo);
+        if (!GetMonitorInfoW(monitor, &monitorInfo))
+        {
+            return TRUE;
+        }
+        POINT topLeft{monitorInfo.rcWork.left, monitorInfo.rcWork.top};
+        POINT bottomRight{monitorInfo.rcWork.right, monitorInfo.rcWork.bottom};
+        if (!ScreenToClient(target->window, &topLeft) || !ScreenToClient(target->window, &bottomRight))
+        {
+            return TRUE;
+        }
+        target->areas[target->count] = RECT{topLeft.x, topLeft.y, bottomRight.x, bottomRight.y};
+        ++target->count;
+        return TRUE;
+    };
+    (void)EnumDisplayMonitors(nullptr, &windowBounds, collect, reinterpret_cast<LPARAM>(&collector));
+    return PageEdgeReachableClient(client, collector.areas.data(), collector.count);
+}
+
+void Application::UpdatePageEdgeHover() noexcept
+{
+    if (!_window)
+    {
+        return;
+    }
+    POINT cursor{};
+    if (!GetCursorPos(&cursor) || !ScreenToClient(_window.get(), &cursor))
+    {
+        ClearPageEdgeHover();
+        return;
+    }
+
+    const PageEdgeState state = CurrentPageEdgeState();
+    const RECT reachable = ReachableClientRect();
+    if (reachable.right <= reachable.left || reachable.bottom <= reachable.top)
+    {
+        ClearPageEdgeHover();
+        return;
+    }
+    const UINT dpi = GetDpiForWindow(_window.get());
+
+    bool changed = false;
+    for (size_t index = 0; index < _pageEdges.size(); ++index)
+    {
+        const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
+        const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
+        const bool reveal =
+            ShouldShowEdgeAffordance(state, direction) && PageEdgeBandContains(band, cursor);
+        if (_pageEdgeRevealed[index] != reveal)
+        {
+            _pageEdgeRevealed[index] = reveal;
+            changed = true;
+        }
+    }
+    if (changed)
+    {
+        // Reveal state is not part of the cached apply key, so force the next refresh to act on it.
+        _pageEdgeApplyValid = false;
+        RefreshPageEdgeAffordances();
+    }
+}
+
+void Application::ClearPageEdgeHover() noexcept
+{
+    bool changed = false;
+    for (bool& revealed : _pageEdgeRevealed)
+    {
+        changed = changed || revealed;
+        revealed = false;
+    }
+    if (changed)
+    {
+        _pageEdgeApplyValid = false;
+        RefreshPageEdgeAffordances();
+    }
+}
+
+void Application::SetPageEdgeRevealed(size_t index, bool revealed) noexcept
+{
+    if (index >= _pageEdgeRevealed.size() || _pageEdgeRevealed[index] == revealed)
+    {
+        return;
+    }
+    // Instant reveal, by creating or destroying the band window. A cross-fade would need a timer, and
+    // Core_PerformanceAndResources.md prohibits wake-ups that visible content does not require.
+    _pageEdgeRevealed[index] = revealed;
+    _pageEdgeApplyValid = false;
+    RefreshPageEdgeAffordances();
+}
+
+HRESULT Application::NavigateToAdjacentPage(int direction) noexcept
+{
+    if (!_window || !_rendererReady || _raisedActive || _pageSettleActive || _pagePointerActive)
+    {
+        return E_UNEXPECTED;
+    }
+    RECT client{};
+    if (!GetClientRect(_window.get(), &client) || client.right <= 0)
+    {
+        return E_UNEXPECTED;
+    }
+    if (!ShouldShowEdgeAffordance(CurrentPageEdgeState(), direction))
+    {
+        return S_FALSE;
+    }
+
+    const HRESULT staged = StageTransitionPage(direction);
+    if (FAILED(staged))
+    {
+        return staged;
+    }
+    ApplyPageOffset(0, client.right);
+    // A click has no follow-finger phase, so the settle runs from rest. Zero velocity puts
+    // PageSettleDurationMilliseconds at its clamped upper bound, giving one ease-out slide.
+    _pageVelocityPxPerSec = 0.0f;
+    // A navigation click must never count as half of a double-activate raise gesture.
+    _activateTick = 0;
+    _activateWidgetIndex = SIZE_MAX;
+    BeginPageSettle(PageEdgeSettleTarget(direction, client.right), true);
+    RefreshPageEdgeAffordances();
+    return S_OK;
+}
+
+LRESULT CALLBACK Application::PageEdgeProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
+{
+    Application* application = reinterpret_cast<Application*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (message == WM_NCCREATE)
+    {
+        const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lParam);
+        application = static_cast<Application*>(create->lpCreateParams);
+        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(application));
+    }
+    if (application)
+    {
+        return application->HandlePageEdgeMessage(window, application->PageEdgeIndex(window), message, wParam, lParam);
+    }
+    return DefWindowProcW(window, message, wParam, lParam);
+}
+
+LRESULT Application::HandlePageEdgeMessage(HWND edge, size_t index, UINT message, WPARAM wParam,
+                                           LPARAM lParam) noexcept
+{
+    const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
+    switch (message)
+    {
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT:
+        PaintPageEdge(edge, index);
+        return 0;
+    case WM_MOUSEMOVE:
+    {
+        if (index >= _pageEdges.size())
+        {
+            break;
+        }
+        // The cursor is genuinely inside the band here, so arming leave tracking now cannot fire spuriously.
+        TRACKMOUSEEVENT track{sizeof(TRACKMOUSEEVENT), TME_LEAVE, edge, 0};
+        (void)TrackMouseEvent(&track);
+        UpdatePageEdgeHover();
+        return 0;
+    }
+    case WM_MOUSELEAVE:
+        UpdatePageEdgeHover();
+        return 0;
+    case WM_LBUTTONUP:
+        if (index < _pageEdges.size() && !IsPointerSynthesizedMouseMessage())
+        {
+            SetPageEdgeRevealed(index, false);
+            (void)NavigateToAdjacentPage(direction);
+        }
+        return 0;
+    case WM_POINTERDOWN:
+    case WM_POINTERUPDATE:
+    case WM_POINTERUP:
+    case WM_POINTERCAPTURECHANGED:
+        // Touch and pen keep the swipe contract. Forward to the top-level window exactly as host-owned native
+        // containers do, so a pan that starts inside a band behaves like one that starts anywhere else.
+        if (_window)
+        {
+            return SendMessageW(_window.get(), message, wParam, lParam);
+        }
+        break;
+    case WM_NCDESTROY:
+        SetWindowLongPtrW(edge, GWLP_USERDATA, 0);
+        for (wil::unique_hwnd& candidate : _pageEdges)
+        {
+            if (candidate.get() == edge)
+            {
+                (void)candidate.release();
+            }
+        }
+        break;
+    default:
+        break;
+    }
+    return DefWindowProcW(edge, message, wParam, lParam);
+}
+
+void Application::EnsurePageEdgeIconFont(UINT dpi) noexcept
+{
+    const UINT effectiveDpi = dpi == 0 ? USER_DEFAULT_SCREEN_DPI : dpi;
+    if (_pageEdgeIconFont && _pageEdgeIconFontDpi == effectiveDpi)
+    {
+        return;
+    }
+    FluentIcons::IconFont kind = FluentIcons::IconFont::TextFallback;
+    wil::unique_hfont font{FluentIcons::CreateIconFont(PageEdgeChevronPixelHeight(effectiveDpi), kind)};
+    if (!font)
+    {
+        return;
+    }
+    _pageEdgeIconFont = std::move(font);
+    _pageEdgeIconFontDpi = effectiveDpi;
+    _pageEdgeIconFontKind = kind;
+}
+
+void Application::PaintPageEdge(HWND edge, size_t index) noexcept
+{
+    PAINTSTRUCT paint{};
+    const HDC deviceContext = BeginPaint(edge, &paint);
+    if (!deviceContext)
+    {
+        return;
+    }
+    RECT client{};
+    GetClientRect(edge, &client);
+    if (index < _pageEdges.size())
+    {
+        const UINT dpi = GetDpiForWindow(edge);
+        wil::unique_hbrush wash{CreateSolidBrush(RGB(10, 14, 26))};
+        if (wash)
+        {
+            FillRect(deviceContext, &client, wash.get());
+        }
+        EnsurePageEdgeIconFont(dpi);
+        const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
+        const wchar_t glyph = PageEdgeChevronGlyph(direction, _pageEdgeIconFontKind);
+        if (_pageEdgeIconFont && glyph != L'\0')
+        {
+            RECT cell = PageEdgeChevronCell(client, dpi);
+            const HGDIOBJ previousFont = SelectObject(deviceContext, _pageEdgeIconFont.get());
+            const int previousMode = SetBkMode(deviceContext, TRANSPARENT);
+            const COLORREF previousColor = SetTextColor(deviceContext, RGB(228, 236, 248));
+            (void)DrawTextW(deviceContext, &glyph, 1, &cell,
+                            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP | DT_NOPREFIX);
+            (void)SetTextColor(deviceContext, previousColor);
+            (void)SetBkMode(deviceContext, previousMode);
+            SelectObject(deviceContext, previousFont);
+        }
+    }
+    EndPaint(edge, &paint);
+}
+
 void Application::CancelPageNavigation() noexcept
 {
     if (_pagePointerCaptured && _window && _pagePointerId != 0)
@@ -1111,6 +1591,7 @@ void Application::CancelPageNavigation() noexcept
         (void)_renderer.RefreshLayout();
     }
     _frameInvalidated = true;
+    RefreshPageEdgeAffordances();
 }
 
 bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position, UINT64& qpc) const noexcept
@@ -1444,12 +1925,14 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
     _raisedLayout = layout;
     _raisedWidgetIndex = widgetIndex;
     _raisedActive = true;
+    RefreshPageEdgeAffordances();
     _frameInvalidated = true;
     return S_OK;
 }
 
 void Application::DismissWidgetRaise() noexcept
 {
+    const auto refreshEdges = wil::scope_exit([this]() noexcept { RefreshPageEdgeAffordances(); });
     if (!_raisedActive)
     {
         _raiseOverlay.reset();
@@ -1765,6 +2248,7 @@ void Application::ClearScheduledFrameDeadline() noexcept
 
 HRESULT Application::UpdateDashboardVisibility() noexcept
 {
+    RefreshPageEdgeAffordances();
     if (!_dashboardHost)
     {
         return S_OK;
@@ -1782,6 +2266,9 @@ HRESULT Application::UpdateDashboardVisibility() noexcept
 
 void Application::CloseMainWindow() noexcept
 {
+    PluginHost::Instance().SetUiInvalidateTarget(nullptr);
+    _pageEdgeMouseTracking = false;
+    DestroyPageEdgeAffordances();
     _settingsWatcher.Stop();
     DismissWidgetRaise();
     CancelPageNavigation();
@@ -1881,14 +2368,7 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         _occlusionStatusChanged = true;
         return 0;
     case PluginHost::kDataSnapshotInvalidateMessage:
-        if (_pluginManager)
-        {
-            _pluginManager->AcknowledgeUiInvalidate();
-        }
-        if (_transitionPluginManager)
-        {
-            _transitionPluginManager->AcknowledgeUiInvalidate();
-        }
+        PluginHost::Instance().AcknowledgeUiInvalidate();
         _frameInvalidated = true;
         return 0;
     case SettingsWatcher::kSettingsChangedMessage:
@@ -1911,6 +2391,26 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         return 0;
     case WM_LBUTTONUP:
         OnMouseButtonUp(window, lParam);
+        return 0;
+    case WM_MOUSEMOVE:
+        // The top-level window owns edge-band hover: a band is created only while the pointer is inside its zone.
+        if (!IsPointerSynthesizedMouseMessage())
+        {
+            if (!_pageEdgeMouseTracking)
+            {
+                TRACKMOUSEEVENT track{sizeof(TRACKMOUSEEVENT), TME_LEAVE, window, 0};
+                _pageEdgeMouseTracking = TrackMouseEvent(&track) != FALSE;
+            }
+            UpdatePageEdgeHover();
+        }
+        return 0;
+    case kPageEdgeHoverMessage:
+        UpdatePageEdgeHover();
+        return 0;
+    case WM_MOUSELEAVE:
+        _pageEdgeMouseTracking = false;
+        // Entering a band is also a leave for the parent, so re-test the cursor instead of hiding unconditionally.
+        UpdatePageEdgeHover();
         return 0;
     case WM_GETMINMAXINFO:
     {
@@ -1969,6 +2469,7 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
 
 LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
 {
+    const auto refreshEdges = wil::scope_exit([this]() noexcept { RefreshPageEdgeAffordances(); });
     if (!_rendererReady)
     {
         return 0;
@@ -2006,6 +2507,7 @@ LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
 
 LRESULT Application::OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBounds) noexcept
 {
+    const auto refreshEdges = wil::scope_exit([this]() noexcept { RefreshPageEdgeAffordances(); });
     if (!suggestedBounds)
     {
         return 0;

@@ -76,7 +76,7 @@ Record the backend, p95, peak working set / private bytes, heap delta, handles, 
 | ID | Surface | Host | p95 / setup | Memory / handles | WMI modules loaded | Gate | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | NT-CPU | `SystemProcessorPerformanceInformation` vs `GetSystemTimes` | primary | included in 0.18–0.68 ms cheap batch | none retained | no | `keep` | 32 logical, one group. Returned length = 48 × 32. Idle/kernel/user matched `GetSystemTimes` exactly on quiet samples. DPC/interrupt reserved fields not consumed. |
-| NT-MEM | `SystemBasicInformation` + `SystemPerformanceInformation` vs `K32GetPerformanceInfo` | primary | cheap batch | none retained | no | `keep` counts; `opaque` performance blob | `SystemHandleCountInformation` matched K32 process/thread/handle exactly on quiet samples. `SystemPerformanceInformation` returns 312 reserved bytes; do not parse. `NumberOfProcessors` is `CCHAR` (32 here). |
+| NT-MEM | `SystemBasicInformation` + `SystemPerformanceInformation` vs `K32GetPerformanceInfo` | primary | cheap batch | none retained | no | `keep` counts; performance record `used` since 2026-09-03 | `SystemHandleCountInformation` matched K32 process/thread/handle exactly on quiet samples. `NumberOfProcessors` is `CCHAR` (32 here). **Corrected 2026-09-03:** the original "returns 312 reserved bytes" was an artifact of passing `sizeof(SYSTEM_PERFORMANCE_INFORMATION)` as the query length — the SDK struct is only the reserved prefix, so the kernel could not report more. Re-probed with a 1,024-byte buffer, the measured `ReturnLength` is **376**. See the 2026-09-03 amendment below. |
 | NT-PROC | `SystemProcessInformation` vs Toolhelp | primary | 17–21 ms quiet; 40 ms under load | 2.05–2.07 MiB buffer; cap 8 MiB | no | `keep` for `process.list` / `thread.list` at 2 s | ~644–656 processes, ~20.3k threads. `thread.list` cap 8,192 will truncate on this host. |
 | NT-QIP | `ProcessBasicInformation` + Wow64 + BreakOnTermination | primary | 4.1–4.3 ms quiet for ~428 accessible of ~650 live; 9.8 ms under load | one transient handle | no | `keep` Wow64/critical; parent PID from class 252 instead of `Reserved3` | ~20 ms estimated if 2,048 accessible. 225+ access-denied is normal. |
 | NT-252 | `SystemBasicProcessInformation` | primary | 51 KiB / 646 processes | none retained | no | `keep` identity/parent only | Named `InheritedFromUniqueProcessId`. Not a 1 s summary dependency and not redundant with class 5 for metrics. |
@@ -220,7 +220,7 @@ Existing columns only in Phase 1. Later appends, if any, go at the end.
 | `numaNodeCount` | UInt64 | | From topology. |
 | `currentFrequencyMhz` | UInt64 | MHz | Aggregate/unavailable if group mapping unproven. |
 | `maximumFrequencyMhz` | UInt64 | MHz | |
-| `contextSwitchRate` | Float64 | per second | Unavailable if `SystemPerformanceInformation` stays opaque. |
+| `contextSwitchRate` | Float64 | per second | Available since 2026-09-03 from the named `SystemPerformanceInformation` record. |
 | `interruptRate` | Float64 | per second | Unavailable until named. |
 
 ### `cpu.logical` (1,024 rows, 1 s, Table, not LocalSensitive)
@@ -563,3 +563,66 @@ collection also produced no WMI module delta.
       `thread.list`, and the sized batch ABI.
 - [x] Parent plan catalog, budgets, and batch records match this file.
 - [x] Phase 1 may now revise `Data.h` and `SystemData.cpp` in the same change as this freeze.
+
+## 2026-09-03 amendment — native layouts and accelerators
+
+Added by [`SystemDataNativeLayoutsAndAccelerators_2026-09-03.md`](SystemDataNativeLayoutsAndAccelerators_2026-09-03.md).
+Primary host, Release x64, 16 logical processors, ~520 processes, 3 dxgkrnl adapters, no NPU present.
+
+### Measured information-class return lengths
+
+`Tests/SystemDataPhase0` now probes with an oversized buffer and records the kernel's `ReturnLength` instead of
+echoing the length it passed in.
+
+| Class | Probe | Measured `ReturnLength` | Reading |
+| --- | --- | ---: | --- |
+| `SystemPerformanceInformation` | 1,024-byte buffer | **376** | 24H2 band. SDK `sizeof` is 312, exactly the reserved prefix through `SystemCalls`. |
+| `SystemPerformanceInformation` | 311-byte buffer | `STATUS_INFO_LENGTH_MISMATCH`, reports 376 | Short buffers are rejected, never partially filled. |
+| `SystemTimeOfDayInformation` | `sizeof` | 48 | Exact match to the SDK reserved block; complete version gate. |
+| `SystemExceptionInformation` | `sizeof` | 16 | Exact match. Probed and proven, deliberately unpublished on x64. |
+| `SystemInterruptInformation` | 24 x 16 processors | 0, status success | The non-`Ex` entry point delivers nothing on this build; nothing is published. |
+| `SystemProcessorPerformanceInformation` | `sizeof(record) + 1` | `STATUS_INFO_LENGTH_MISMATCH`, reports 768 | A per-processor length must be a whole number of records. A generous buffer that is not a multiple silently yields no data; this fixture exists because that defect was introduced and then caught by the runtime oracles. |
+
+### Workstream A cost, measured A/B on one build
+
+`process.list` alone, `--domains`, three runs each. The B leg re-runs exactly the per-process calls workstream A
+removed (a second `PROCESS_VM_READ` open, `GetProcessTimes`, `GetProcessIoCounters`, `QueryProcessCycleTime`,
+`K32GetProcessMemoryInfo`) and discards the results, so the difference is the cost of that removed work alone.
+
+| Leg | Runs (µs per collection) | Median |
+| --- | --- | ---: |
+| A — shipped (values taken from the walked buffer) | 16,824 / 17,247 / 17,719 | **17,247** |
+| B — with the removed per-process work restored | 43,925 / 46,649 / 47,058 | **46,649** |
+
+Workstream A removes ~29.4 ms per `process.list` collection at ~520 processes, a 63% reduction, before counting the
+deleted `SystemBasicProcessInformation` query and its 256 KiB buffer. `process.list` p95 improved; it did not regress.
+
+Sharing the D3DKMT node walk and the GPU Engine counter query between the graphics and accelerator families cut the
+full-catalog batch from 48,227 µs to 37,444 µs.
+
+### Storage envelope
+
+`source_storage_bytes` = **16,396,800** (15.64 MiB), still under the 16 MiB fast-lane ceiling, which remains asserted
+at compile time. The Phase 0 note that the source object stays under 1 MiB described the two-dataset Phase 1 object and
+has not applied since the full catalog shipped. Net changes in this pass: removed the 256 KiB
+`SystemBasicProcessInformation` buffer and 1.04 MiB of per-row fixed image-name slots (replaced by one 128 KiB arena);
+dropped six staging fields that fed no column; narrowed the GPU engine-name bound from 64 to 32 characters; added the
+per-processor staging buffers, the thread rate history, the eight `process.list` appends, and the four new datasets.
+
+### Domain measurement, full catalog (22 datasets)
+
+`source.status` 2.0 µs, `system.summary` 113 µs, `cpu.summary` 48 µs, `cpu.logical` 50 µs, `memory.summary` 79 µs,
+`process.list` 17,500 µs, `thread.list` 15,496 µs, `network.interface` 679 µs, `network.protocol` 24 µs,
+`storage.disk` 5 µs, `storage.volume` 276 µs, `gpu.adapter` 846 µs, `gpu.engine` 12,194 µs, `gpu.process` 517 µs,
+`power.summary` 165 µs, `battery.list` 268 µs, `thermal.sensor` 4,251 µs, `fan.sensor` 873 µs, `npu.adapter` 750 µs,
+`npu.engine` 11,322 µs, `npu.process` 1,397 µs, `security.posture` 5 µs, `ALL` 37,444 µs. The `npu.*` figures are the
+cost of the shared adapter and node sampling when that dataset is collected alone; in a batch they add nothing.
+
+### Not validated in this pass
+
+ARM64 could not be built. `vcpkg-install.ps1 -Platform ARM64` fails while configuring the `wil` port: the spawned
+toolchain links an x64 probe binary and cannot open `MSVCRTD.lib`. This is a dependency-bootstrap problem on the
+primary host, not a RedXe code issue — no `.build/ARM64` output has ever been produced here, and the manifest files are
+unmodified. The ARM64 layout risk is nevertheless bounded: every overlay assertion in `NtLayout.h` is anchored to the
+SDK member it overlays and is architecture-independent for the 64-bit ABI, so an ARM64 build will prove the same
+layouts at compile time as soon as the toolchain bootstrap is repaired. ARM64 `ReturnLength` values remain unmeasured.

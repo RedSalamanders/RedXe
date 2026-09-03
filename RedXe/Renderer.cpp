@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <utility>
 
 Renderer::~Renderer()
@@ -236,6 +237,7 @@ HRESULT Renderer::CreateDevice(bool useWarp) noexcept
     {
         _device.reset();
         _context.reset();
+        _context1.reset();
         return D3D11CreateDevice(nullptr, useWarp ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_HARDWARE, nullptr,
                                  requestedFlags, featureLevels.data(), static_cast<UINT>(featureLevels.size()),
                                  D3D11_SDK_VERSION, _device.put(), &_featureLevel, _context.put());
@@ -338,8 +340,106 @@ HRESULT Renderer::CreateRenderTarget(UINT width, UINT height) noexcept
     return UpdateCachedViewports();
 }
 
+#if defined(_DEBUG)
+void Renderer::ValidateWidgetPipelineState(size_t index) noexcept
+{
+    if (!_context)
+    {
+        return;
+    }
+    wil::com_ptr_nothrow<ID3D11RasterizerState> rasterizer;
+    _context->RSGetState(rasterizer.put());
+    if (!rasterizer)
+    {
+        return;
+    }
+    D3D11_RASTERIZER_DESC description{};
+    rasterizer->GetDesc(&description);
+    if (description.ScissorEnable)
+    {
+        wchar_t message[160]{};
+        (void)swprintf_s(message, L"Widget %zu left ScissorEnable set; the next widget may render clipped.\n", index);
+        OutputDebugStringW(message);
+    }
+}
+#endif
+
+void Renderer::DrawPlaceholder(const D3D11_VIEWPORT& viewport) noexcept
+{
+    if (!_context1 || !_renderTarget || viewport.Width < 1.0f || viewport.Height < 1.0f)
+    {
+        return;
+    }
+    constexpr std::array placeholderColor{0.180f, 0.055f, 0.075f, 1.0f};
+    const D3D11_RECT rect{static_cast<LONG>(viewport.TopLeftX), static_cast<LONG>(viewport.TopLeftY),
+                          static_cast<LONG>(viewport.TopLeftX + viewport.Width),
+                          static_cast<LONG>(viewport.TopLeftY + viewport.Height)};
+    _context1->ClearView(_renderTarget.get(), placeholderColor.data(), &rect, 1);
+}
+
+void Renderer::ResetTargetSizes() noexcept
+{
+    _widgetTargetSizes = {};
+    _transitionTargetSizes = {};
+}
+
+void Renderer::NotifyTargetSizes() noexcept
+{
+    const auto notify = [this](DashboardHost* dashboard,
+                               const std::array<D3D11_VIEWPORT, kMaximumWidgetViewports>& viewports,
+                               std::array<SIZE, kMaximumWidgetViewports>& reported, bool includeRaised) noexcept
+    {
+        if (!dashboard)
+        {
+            return;
+        }
+        const size_t count = std::min(dashboard->WidgetCount(), viewports.size());
+        for (size_t index = 0; index < count; ++index)
+        {
+            const D3D11_VIEWPORT& viewport = viewports[index];
+            SIZE size{static_cast<LONG>(viewport.Width + 0.5f), static_cast<LONG>(viewport.Height + 0.5f)};
+            // A raised widget is drawn at its tile and again at the overlay slice in the same frame, so report the
+            // larger of the two: the smaller draw is a minification the sampler already handles well.
+            if (includeRaised && _raisedOverlayActive && index == _raisedOverlayIndex)
+            {
+                size.cx = std::max(size.cx, static_cast<LONG>(_raisedViewport.Width + 0.5f));
+                size.cy = std::max(size.cy, static_cast<LONG>(_raisedViewport.Height + 0.5f));
+            }
+            if (size.cx <= 0 || size.cy <= 0 || (size.cx == reported[index].cx && size.cy == reported[index].cy))
+            {
+                continue;
+            }
+            IRedXeGpuWidget* widget = dashboard->GpuWidgetAt(index);
+            if (!widget)
+            {
+                reported[index] = size;
+                continue;
+            }
+            const RedXeGpuTargetSizeContext context{
+                sizeof(RedXeGpuTargetSizeContext),
+                static_cast<uint32_t>(size.cx),
+                static_cast<uint32_t>(size.cy),
+                _dpi,
+            };
+            // A failed rebuild is isolated: the widget keeps whatever resources it already had and still renders.
+            if (FAILED(widget->OnTargetSizeChanged(&context)))
+            {
+                OutputDebugStringW(L"A GPU widget failed to resize its resources; keeping the previous ones.\n");
+            }
+            reported[index] = size;
+        }
+    };
+
+    notify(_dashboardHost, _widgetViewports, _widgetTargetSizes, true);
+    notify(_transitionDashboardHost, _transitionWidgetViewports, _transitionTargetSizes, false);
+}
+
 HRESULT Renderer::UpdateCachedViewports() noexcept
 {
+    // Render indexes the cached viewport arrays with a widget count bounded by PluginManager, so the two limits must
+    // not drift apart. Raising kMaximumWidgetsPerPage alone fails here instead of overrunning a frame.
+    static_assert(PluginManager::kMaximumWidgetInstances <= kMaximumWidgetViewports);
+
     if (!_dashboardHost || _dashboardHost->WidgetCount() > _widgetViewports.size() || _width == 0 || _height == 0)
     {
         return E_UNEXPECTED;
@@ -388,6 +488,7 @@ HRESULT Renderer::UpdateCachedViewports() noexcept
             viewport.MaxDepth = 1.0f;
         }
     }
+    NotifyTargetSizes();
     return S_OK;
 }
 
@@ -430,6 +531,7 @@ HRESULT Renderer::NotifyDeviceCreated() noexcept
     }
 
     _gpuWidgetsDeviceReady = true;
+    ResetTargetSizes();
     if (_transitionDashboardHost)
     {
         _transitionWidgetsDeviceReady = false;
@@ -463,6 +565,7 @@ void Renderer::NotifyDeviceLost() noexcept
         _transitionWidgetsDeviceReady = false;
     }
     _gpuWidgetsDeviceReady = false;
+    ResetTargetSizes();
 }
 
 HRESULT Renderer::Resize(UINT width, UINT height) noexcept
@@ -530,8 +633,17 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
     const size_t widgetCount = _dashboardHost->WidgetCount();
     const auto drawWidget = [&](size_t index, const D3D11_VIEWPORT& viewport) noexcept -> HRESULT
     {
+        if (viewport.Width < 1.0f || viewport.Height < 1.0f)
+        {
+            return S_FALSE;
+        }
+        if (_dashboardHost->RequiresPlaceholderAt(index))
+        {
+            DrawPlaceholder(viewport);
+            return S_FALSE;
+        }
         IRedXeGpuWidget* widget = _dashboardHost->GpuWidgetAt(index);
-        if (!widget || viewport.Width < 1.0f || viewport.Height < 1.0f)
+        if (!widget)
         {
             return S_FALSE;
         }
@@ -565,6 +677,9 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
             return S_FALSE;
         }
         ++_lastFrameSuccessfulWidgetCount;
+#if defined(_DEBUG)
+        ValidateWidgetPipelineState(index);
+#endif
         return S_OK;
     };
 
@@ -592,9 +707,16 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
     {
         for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
         {
-            IRedXeGpuWidget* widget = _transitionDashboardHost->GpuWidgetAt(index);
             const D3D11_VIEWPORT& viewport = _transitionWidgetViewports[index];
-            if (!widget || viewport.Width < 1.0f || viewport.Height < 1.0f)
+            if (viewport.Width < 1.0f || viewport.Height < 1.0f)
+                continue;
+            if (_transitionDashboardHost->RequiresPlaceholderAt(index))
+            {
+                DrawPlaceholder(viewport);
+                continue;
+            }
+            IRedXeGpuWidget* widget = _transitionDashboardHost->GpuWidgetAt(index);
+            if (!widget)
                 continue;
             const RedXeWidgetFrameContext widgetFrame{sizeof(RedXeWidgetFrameContext),
                                                       static_cast<UINT>(viewport.Width + 0.5f),
@@ -712,6 +834,7 @@ void Renderer::ReleaseDeviceResources() noexcept
     _renderTarget.reset();
     _swapChain.reset();
     _factory.reset();
+    _context1.reset();
     _context.reset();
     _device.reset();
     _width = 0;

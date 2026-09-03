@@ -6,7 +6,6 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 #include <cwchar>
 #include <new>
@@ -839,7 +838,8 @@ struct PixelBounds final
     }
     DeskClockTestDiagnostics typography{sizeof(DeskClockTestDiagnostics)};
     if (FAILED(getDiagnostics(&typography)) || typography.typographyBuilds == 0 ||
-        typography.atlasBytes != 1024U * 1024U || typography.constantBytes != 400U)
+        typography.atlasBytes != (1024U * 1024U + 512U * 512U + 256U * 256U) ||
+        typography.constantBytes != 400U)
     {
         std::wprintf(L"Desk Clock DirectWrite resource bounds were not established.\n");
         return kTestFailure;

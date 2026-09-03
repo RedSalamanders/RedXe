@@ -973,54 +973,28 @@ void DrawHistoryArea(ViewerDrawList& list, float x, float y, float width, float 
 
 class ViewerWidget;
 
-class ViewerSink final : public IRedXeDataSink
+class ViewerSink final : public RedXeComObject<ViewerSink, IRedXeDataSink>
 {
   public:
     ViewerSink(ViewerWidget& widget, uint32_t dataSetIndex) noexcept : _widget(&widget), _dataSetIndex(dataSetIndex) {}
 
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-        {
-            return E_POINTER;
-        }
-        *result = nullptr;
-        if (interfaceId != __uuidof(IUnknown) && interfaceId != __uuidof(IRedXeDataSink))
-        {
-            return E_NOINTERFACE;
-        }
-        *result = static_cast<IRedXeDataSink*>(this);
-        AddRef();
-        return S_OK;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-        {
-            delete this;
-        }
-        return references;
-    }
-
     HRESULT STDMETHODCALLTYPE OnDataSnapshot(const RedXeDataSnapshot* snapshot) noexcept override;
 
+    // Detaches the sink from its widget. The host drains an in-flight OnDataSnapshot before a subscription release
+    // returns, so calling this after every subscription is released makes the back-pointer unreachable rather than
+    // merely unused.
+    void Detach() noexcept
+    {
+        _widget = nullptr;
+    }
+
   private:
-    std::atomic<ULONG> _references{1};
+    // Borrowed, never owned: the widget owns this sink, so an owning reference would be a cycle.
     ViewerWidget* _widget;
     uint32_t _dataSetIndex;
 };
 
-class ViewerWidget final : public IRedXeWidget,
-                           public IRedXeGpuWidget,
-                           public IRedXeScheduledWidget,
-                           public IRedXeRaisedWidget
+class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
 {
   public:
     ViewerWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, ViewerKind kind, uint32_t topN) noexcept
@@ -1040,10 +1014,20 @@ class ViewerWidget final : public IRedXeWidget,
 
     ~ViewerWidget()
     {
+        // Order matters and is enforced here rather than by member declaration order: release every subscription
+        // first so the host drains any in-flight OnDataSnapshot, then detach the sinks so a sink the host still holds
+        // can never reach this widget, and only then drop the widget's own sink references.
         for (uint32_t index = 0; index < _subscriptionCount; ++index)
         {
             _subscriptions[index].reset();
             g_liveSubscriptionCount.fetch_sub(1, std::memory_order_relaxed);
+        }
+        for (wil::com_ptr_nothrow<IRedXeDataSink>& sink : _sinks)
+        {
+            if (sink)
+            {
+                static_cast<ViewerSink*>(sink.get())->Detach();
+            }
         }
         _sinks[0].reset();
         _sinks[1].reset();
@@ -1100,52 +1084,6 @@ class ViewerWidget final : public IRedXeWidget,
         }
         ReleaseSRWLockExclusive(&_lock);
         return result;
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-        {
-            return E_POINTER;
-        }
-        *result = nullptr;
-        if (interfaceId == __uuidof(IUnknown) || interfaceId == __uuidof(IRedXeWidget))
-        {
-            *result = static_cast<IRedXeWidget*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeGpuWidget))
-        {
-            *result = static_cast<IRedXeGpuWidget*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeScheduledWidget))
-        {
-            *result = static_cast<IRedXeScheduledWidget*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeRaisedWidget))
-        {
-            *result = static_cast<IRedXeRaisedWidget*>(this);
-        }
-        else
-        {
-            return E_NOINTERFACE;
-        }
-        AddRef();
-        return S_OK;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-        {
-            delete this;
-        }
-        return references;
     }
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL visible) noexcept override
@@ -1218,6 +1156,23 @@ class ViewerWidget final : public IRedXeWidget,
         _easing = false;
         _pulse = 0.0f;
         ReleaseSRWLockExclusive(&_lock);
+    }
+
+    HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
+    {
+        if (!context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
+        {
+            return E_INVALIDARG;
+        }
+        // Deliberately no rebuild. Layout already derives every size from the per-frame widget context, so nothing
+        // here depends on being told the size in advance.
+        //
+        // The glyph atlas is the one resolution-dependent resource, and it cannot follow a single widget's size: it
+        // is one shared store acquired by every System Data viewer on the page, each with a different tile, and it is
+        // populated lazily as new characters appear. Growing its 48px cell to raise the rasterization size would also
+        // cut the slot count from 441 to about 100, which the process- and adapter-name character set can exceed.
+        // Making it resolution-adaptive needs a per-size store or a larger atlas, which is its own change.
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
@@ -3160,7 +3115,6 @@ class ViewerWidget final : public IRedXeWidget,
         return S_OK;
     }
 
-    std::atomic<ULONG> _references{1};
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _providerOwner;
     wil::com_ptr_nothrow<IRedXeDataSink> _sinks[2];
     wil::com_ptr_nothrow<IRedXeDataSubscription> _subscriptions[2];
@@ -3184,10 +3138,10 @@ class ViewerWidget final : public IRedXeWidget,
 
 HRESULT ViewerSink::OnDataSnapshot(const RedXeDataSnapshot* snapshot) noexcept
 {
-    return _widget->Publish(_dataSetIndex, snapshot);
+    return _widget ? _widget->Publish(_dataSetIndex, snapshot) : E_UNEXPECTED;
 }
 
-class ViewerProvider final : public IRedXeWidgetProvider
+class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetProvider>
 {
   public:
     ViewerProvider(wil::com_ptr_nothrow<IRedXeDataProvider>&& dataProvider, ViewerKind kind, uint32_t topN) noexcept
@@ -3211,37 +3165,6 @@ class ViewerProvider final : public IRedXeWidgetProvider
     ~ViewerProvider()
     {
         g_liveProviderCount.fetch_sub(1, std::memory_order_relaxed);
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-        {
-            return E_POINTER;
-        }
-        *result = nullptr;
-        if (interfaceId != __uuidof(IUnknown) && interfaceId != __uuidof(IRedXeWidgetProvider))
-        {
-            return E_NOINTERFACE;
-        }
-        *result = static_cast<IRedXeWidgetProvider*>(this);
-        AddRef();
-        return S_OK;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-        {
-            delete this;
-        }
-        return references;
     }
 
     HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
@@ -3305,7 +3228,6 @@ class ViewerProvider final : public IRedXeWidgetProvider
     }
 
   private:
-    std::atomic<ULONG> _references{1};
     wil::com_ptr_nothrow<IRedXeDataProvider> _dataProvider;
     ViewerKind _kind;
     uint32_t _topN;

@@ -1,5 +1,7 @@
 #include "PluginHost.h"
 
+#include "PlugInterfaces/FactoryImpl.h"
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -197,41 +199,10 @@ void SortDueDataSets(std::array<const char*, RedXeDataCollectMaximumDataSets>& i
 }
 } // namespace
 
-class PluginHost::DataProvider final : public IRedXeDataProvider
+class PluginHost::DataProvider final : public RedXeComObject<PluginHost::DataProvider, IRedXeDataProvider>
 {
   public:
     DataProvider(PluginHost& host, size_t providerIndex) noexcept : _host(&host), _providerIndex(providerIndex) {}
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-        {
-            return E_POINTER;
-        }
-        *result = nullptr;
-        if (interfaceId != __uuidof(IUnknown) && interfaceId != __uuidof(IRedXeDataProvider))
-        {
-            return E_NOINTERFACE;
-        }
-        *result = static_cast<IRedXeDataProvider*>(this);
-        AddRef();
-        return S_OK;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-        {
-            delete this;
-        }
-        return references;
-    }
 
     HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors, uint32_t* count) noexcept override
     {
@@ -245,12 +216,11 @@ class PluginHost::DataProvider final : public IRedXeDataProvider
     }
 
   private:
-    std::atomic<ULONG> _references{1};
     PluginHost* _host;
     size_t _providerIndex;
 };
 
-class PluginHost::Subscription final : public IRedXeDataSubscription
+class PluginHost::Subscription final : public RedXeComObject<PluginHost::Subscription, IRedXeDataSubscription>
 {
   public:
     Subscription(PluginHost& host, size_t index, uint64_t token) noexcept : _host(&host), _index(index), _token(token)
@@ -265,44 +235,12 @@ class PluginHost::Subscription final : public IRedXeDataSubscription
         }
     }
 
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-        {
-            return E_POINTER;
-        }
-        *result = nullptr;
-        if (interfaceId != __uuidof(IUnknown) && interfaceId != __uuidof(IRedXeDataSubscription))
-        {
-            return E_NOINTERFACE;
-        }
-        *result = static_cast<IRedXeDataSubscription*>(this);
-        AddRef();
-        return S_OK;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-        {
-            delete this;
-        }
-        return references;
-    }
-
     HRESULT STDMETHODCALLTYPE SetActive(BOOL active) noexcept override
     {
         return _host ? _host->SetSubscriptionActive(_index, _token, active != FALSE) : E_UNEXPECTED;
     }
 
   private:
-    std::atomic<ULONG> _references{1};
     PluginHost* _host;
     size_t _index;
     uint64_t _token;
@@ -310,8 +248,32 @@ class PluginHost::Subscription final : public IRedXeDataSubscription
 
 PluginHost::~PluginHost()
 {
+    Shutdown();
+}
+
+PluginHost& PluginHost::Instance() noexcept
+{
+    static PluginHost instance;
+    return instance;
+}
+
+void PluginHost::ShutdownProcessRuntime() noexcept
+{
+    Instance().Shutdown();
+}
+
+void PluginHost::Shutdown() noexcept
+{
+    SetUiInvalidateTarget(nullptr);
+    AcquireSRWLockExclusive(&_widgetStatusLock);
+    for (WidgetStatusSlot& slot : _widgetStatus)
+    {
+        slot = WidgetStatusSlot{};
+    }
+    ReleaseSRWLockExclusive(&_widgetStatusLock);
     StopDataService();
     ShutdownModules();
+    _shutdown = true;
 }
 
 IRedXeHost* PluginHost::Interface() noexcept
@@ -319,6 +281,9 @@ IRedXeHost* PluginHost::Interface() noexcept
     return static_cast<IRedXeHost*>(this);
 }
 
+// PluginHost is the process runtime, not a heap-owned object, so it does not use RedXeComObject: its reference count
+// is advisory and Release never destroys it. Plugins borrow IRedXeHost for the lifetime of the runtime and must not
+// outlive it.
 HRESULT PluginHost::QueryInterface(REFIID interfaceId, void** result) noexcept
 {
     if (!result)
@@ -502,6 +467,10 @@ HRESULT PluginHost::GetPluginModule(const char* pluginId, uint32_t requiredCapab
     {
         return E_POINTER;
     }
+    if (_shutdown)
+    {
+        return E_UNEXPECTED;
+    }
     const size_t pluginIndex = FindBundledPluginIndex(pluginId);
     if (pluginIndex >= kRedXeBundledPlugins.size())
     {
@@ -665,6 +634,136 @@ HRESULT PluginHost::GetDataProvider(const char* providerId, IRedXeDataProvider**
     }
     return _providers[providerIndex].provider->QueryInterface(__uuidof(IRedXeDataProvider),
                                                               reinterpret_cast<void**>(provider));
+}
+
+HRESULT PluginHost::RequestFrame() noexcept
+{
+    // Thread-safe, allocation-free, and coalescing. It never forces a frame: the UI thread's frame policy still
+    // decides whether a blocked or occluded host renders.
+    RequestUiInvalidate();
+    return S_OK;
+}
+
+HRESULT PluginHost::ReportWidgetStatus(const char* instanceId, const RedXeWidgetStatusReport* report) noexcept
+{
+    if (!RedXeIsValidMachineId(instanceId) || !report || report->sizeBytes != sizeof(RedXeWidgetStatusReport) ||
+        report->status > RedXeWidgetStatusUnavailable)
+    {
+        return E_INVALIDARG;
+    }
+
+    std::array<wchar_t, kMaximumWidgetStatusReasonCharacters> reason{};
+    if (report->reason)
+    {
+        // The reason pointer is borrowed only for this call, so copy it into bounded host storage before returning.
+        (void)StringCchCopyNW(reason.data(), reason.size(), report->reason, reason.size() - 1);
+    }
+
+    bool changed = false;
+    AcquireSRWLockExclusive(&_widgetStatusLock);
+    WidgetStatusSlot* slot = nullptr;
+    WidgetStatusSlot* free = nullptr;
+    for (WidgetStatusSlot& candidate : _widgetStatus)
+    {
+        if (candidate.used && RedXeAsciiEqualsIgnoreCase(candidate.instanceId.data(), instanceId))
+        {
+            slot = &candidate;
+            break;
+        }
+        if (!candidate.used && !free)
+        {
+            free = &candidate;
+        }
+    }
+    if (!slot)
+    {
+        slot = free;
+        if (slot)
+        {
+            slot->used = true;
+            slot->status = RedXeWidgetStatusOk;
+            (void)StringCchCopyNA(slot->instanceId.data(), slot->instanceId.size(), instanceId,
+                                  slot->instanceId.size() - 1);
+        }
+    }
+    if (slot)
+    {
+        changed = slot->status != report->status ||
+                  std::wcsncmp(slot->reason.data(), reason.data(), reason.size()) != 0;
+        slot->status = report->status;
+        slot->reason = reason;
+    }
+    ReleaseSRWLockExclusive(&_widgetStatusLock);
+
+    if (!slot)
+    {
+        return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
+    }
+    if (changed)
+    {
+        RequestUiInvalidate();
+    }
+    return S_OK;
+}
+
+uint32_t PluginHost::WidgetStatus(const char* instanceId) const noexcept
+{
+    if (!instanceId || instanceId[0] == '\0')
+    {
+        return RedXeWidgetStatusOk;
+    }
+    uint32_t status = RedXeWidgetStatusOk;
+    AcquireSRWLockShared(&_widgetStatusLock);
+    for (const WidgetStatusSlot& candidate : _widgetStatus)
+    {
+        if (candidate.used && RedXeAsciiEqualsIgnoreCase(candidate.instanceId.data(), instanceId))
+        {
+            status = candidate.status;
+            break;
+        }
+    }
+    ReleaseSRWLockShared(&_widgetStatusLock);
+    return status;
+}
+
+bool PluginHost::WidgetStatusReason(const char* instanceId, wchar_t* text, size_t capacity) const noexcept
+{
+    if (!instanceId || instanceId[0] == '\0' || !text || capacity == 0)
+    {
+        return false;
+    }
+    text[0] = L'\0';
+    bool found = false;
+    AcquireSRWLockShared(&_widgetStatusLock);
+    for (const WidgetStatusSlot& candidate : _widgetStatus)
+    {
+        if (candidate.used && RedXeAsciiEqualsIgnoreCase(candidate.instanceId.data(), instanceId))
+        {
+            found = candidate.reason[0] != L'\0' &&
+                    SUCCEEDED(StringCchCopyNW(text, capacity, candidate.reason.data(), capacity - 1));
+            break;
+        }
+    }
+    ReleaseSRWLockShared(&_widgetStatusLock);
+    return found;
+}
+
+void PluginHost::ClearWidgetStatus(const char* instanceId) noexcept
+{
+    if (!instanceId || instanceId[0] == '\0')
+    {
+        return;
+    }
+    AcquireSRWLockExclusive(&_widgetStatusLock);
+    for (WidgetStatusSlot& candidate : _widgetStatus)
+    {
+        if (candidate.used && RedXeAsciiEqualsIgnoreCase(candidate.instanceId.data(), instanceId))
+        {
+            candidate = WidgetStatusSlot{};
+            break;
+        }
+    }
+    ReleaseSRWLockExclusive(&_widgetStatusLock);
 }
 
 HRESULT PluginHost::GetDataSets(size_t providerIndex, const RedXeDataSetDescriptor** descriptors,

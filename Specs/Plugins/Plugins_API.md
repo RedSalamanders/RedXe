@@ -1,7 +1,7 @@
 # RedXe plugin API contract
 
 Status: current normative contract
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 ## Purpose and scope
 
@@ -27,10 +27,10 @@ The mandatory requirements in `Specs/Core/Core_PerformanceAndResources.md` apply
 
 | Header | Interface | IID | Purpose |
 | --- | --- | --- | --- |
-| `Host.h` | `IRedXeHost` | `D00BE2C2-10C4-4D8D-8097-4C26DFC29A19` | Host services, beginning with data-provider lookup |
+| `Host.h` | `IRedXeHost` | `052F039E-794D-4221-9CF2-28B9208F446F` | Host services: data-provider lookup, frame requests, and widget status |
 | `Widget.h` | `IRedXeWidget` | `62DB9FB4-AF7B-47C0-BBF9-B7D5CA535502` | Generic widget identity, lifetime, and visibility |
 | `Widget.h` | `IRedXeWidgetProvider` | `231AC0E8-1204-4BFF-BCEA-7CACF11F439D` | Type enumeration and instance creation |
-| `Widget.h` | `IRedXeGpuWidget` | `DBEED29C-63EB-409E-816B-F4BDC5EF7AA9` | Direct3D 11 rendering mechanism |
+| `Widget.h` | `IRedXeGpuWidget` | `355C7084-286B-409F-9FD3-A7695DEF2A33` | Direct3D 11 rendering mechanism |
 | `Widget.h` | `IRedXeScheduledWidget` | `1B6B4F9E-5421-4B4E-BC2D-190EE6CE86CB` | Optional low-cadence frame deadline |
 | `Widget.h` | `IRedXeWindowWidget` | `3219FA78-260B-416A-BB76-6331DBF30593` | Host-owned child-container mechanism |
 | `Widget.h` | `IRedXeRaisedWidget` | `A7E4C19B-2F58-4D13-9C6A-80B1D4E7F203` | Optional raised-overlay extent and state |
@@ -42,6 +42,13 @@ The mandatory requirements in `Specs/Core/Core_PerformanceAndResources.md` apply
 The GPU and native-window interfaces are independent mechanisms. The host selects GPU when an instance exposes both;
 otherwise it uses the one supported mechanism. An instance exposing neither is rejected with
 `HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED)`.
+
+Bundled plugin objects and heap-owned host COM objects MUST derive from the shared `RedXeComObject` mixin in
+`FactoryImpl.h` rather than hand-writing `QueryInterface`, `AddRef`, and `Release`. The mixin takes the concrete type
+followed by every interface the object exposes, supplies atomic reference counting, and returns the first interface as
+the controlling `IUnknown`, which makes the identity rule below structural instead of repeated. It deletes through the
+concrete type, so it adds no virtual destructor and no vtable slot. `PluginHost` itself is the exception: it is the
+process runtime rather than a heap-owned object, its reference count is advisory, and `Release` never destroys it.
 
 Every public COM declaration MUST use the MSVC
 `interface __declspec(uuid("...")) __declspec(novtable) Name : IUnknown` form. Declaring a COM interface with the C++
@@ -63,6 +70,17 @@ Every public record starts with `sizeBytes`. It is retained so a future producti
 safe record evolution. Under the current pre-production contract it is an exact stale-binary and malformed-input
 guard: consumers require `sizeBytes == sizeof(current-record)` and reject both smaller and larger values.
 
+`sizeBytes` stays as it is. It was reviewed against adopting prefix-compatible records or a single module-level ABI
+version export, and neither is adopted while the repository rebuilds host and plugins together; revisiting it belongs
+to the production ABI freeze. Because a size check alone cannot detect a field reorder that preserves size, every
+public record in `Widget.h`, `Data.h`, `Host.h`, and `Factory.h` MUST additionally be pinned by a compile-time
+`sizeof` assertion, and every record carrying a pointer MUST be pinned by `offsetof` assertions. A layout change that
+is not intended therefore fails the build rather than passing the runtime guard.
+
+The ABI headers MUST carry the consumer-facing rules on the declarations themselves: thread affinity, reentrancy
+limits, borrow lifetime, and the pipeline-state guarantee. This contract stays authoritative; the headers state enough
+that a plugin author reading only `Common/PlugInterfaces/` can implement a correct widget, source, and sink.
+
 ## Identifiers and strings
 
 - ABI plugin IDs, widget type IDs, and runtime instance IDs are stable UTF-8 ASCII strings. Version 4 user settings
@@ -80,6 +98,13 @@ guard: consumers require `sizeBytes == sizeof(current-record)` and reject both s
   `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32`; it never searches the working directory.
 - `RedXeCreate` and `RedXeEnumeratePlugins` are required. Every settings-visible plugin MUST also export
   `RedXeGetPluginSettingsContract`. `RedXePluginShutdown` is optional because most modules need no global shutdown.
+- A plugin MAY additionally export a bounded test-support surface. It is present in Release because the required
+  Release validation drives it, so it is part of the shipped export set rather than a debug-only convenience. Each
+  such export MUST be declared in that plugin's `*TestContract.h` behind a single `REDXE_*_TEST_API` macro, never as a
+  raw `__declspec(dllexport)` in the implementation, so the shipped export set is readable from the contract header.
+  The host never calls these exports. The current surface is: `RedXeMatrixRainGetTestDiagnostics`,
+  `RedXeProcessViewerGetTestDiagnostics`, `RedXeStudioClockGetTestDiagnostics`, `RedXeStudioClockSetTestTime`,
+  `RedXeDeskClockGetTestDiagnostics`, and `RedXeDeskClockSetTestTime`.
 - Every factory call names one non-empty plugin ID. Null and empty IDs are invalid, including in single-plugin DLLs.
 - Factory, enumeration, widget creation, device notification, GPU rendering, native-window lifecycle, host-service,
   data-source, provider, and data-sink calls are synchronous and non-reentrant. Widget visibility and native-window
@@ -109,6 +134,26 @@ plugin factory behavior.
 - Enumeration returns 1–256 contiguous module-owned metadata records.
 - Malformed metadata, duplicate IDs, or missing required capability fail module discovery safely.
 
+### Host services
+
+`IRedXeHost` is borrowed for the lifetime of the host runtime. A plugin MUST NOT retain it past the release of the
+object it was supplied to.
+
+- `GetDataProvider` and `ReportWidgetStatus` are synchronous, non-reentrant, and run on the caller's thread.
+- `RequestFrame` coalesces one host frame for a widget whose own state changed. It is safe from any thread, including
+  a data-sink callback on the acquisition worker, performs no allocation, and never blocks. It does not force a
+  frame: hidden, minimized, suspended, display-off, and occluded hosts still block. It is the per-instance mechanism;
+  `RedXeWidgetFlagContinuousAnimation` is a property of the widget *type* and cannot describe an instance whose motion
+  starts and stops. A widget MUST use `RequestFrame` rather than declaring continuous animation for intermittent
+  motion, and rather than returning a short `IRedXeScheduledWidget` delay purely to be polled.
+- `RequestFrame` is the only host service a sink may call from inside `OnDataSnapshot`.
+- `ReportWidgetStatus` records the condition of one widget instance, named by the instance ID the host passed to
+  `CreateWidget`. Status is one of `RedXeWidgetStatusOk`, `Initializing`, `Degraded`, or `Unavailable`, with an
+  optional borrowed UTF-16 reason the host copies into bounded storage and truncates. Repeat reports are idempotent;
+  only a change coalesces a frame. A malformed record, an unknown status value, or an invalid instance ID returns
+  `E_INVALIDARG`. Reporting `Unavailable` makes the host own that tile and draw its placeholder; `Degraded` and
+  `Initializing` are recorded but leave the widget drawing its own content.
+
 ### Static settings contract
 
 `RedXeGetPluginSettingsContract` discovers plugin-owned validation metadata without creating a provider, widget,
@@ -118,8 +163,14 @@ requested plugin ID. The record and its UTF-8 strings remain valid while the mod
 - A null output returns `E_POINTER`; a present output is cleared before validation.
 - An unknown plugin ID returns `HRESULT_FROM_WIN32(ERROR_NOT_FOUND)`.
 - `sizeBytes` must equal `sizeof(RedXePluginSettingsContract)`.
-- Schema and defaults are JSON objects bounded at 4096 bytes each. The schema uses Draft 2020-12 and may contain
-  bounded `x-ui-*` annotations. Defaults MUST validate against the schema.
+- Schema and defaults are JSON objects bounded at 4096 bytes each. The schema is written in Draft 2020-12 syntax and
+  may contain bounded `x-ui-*` annotations. Defaults MUST validate against the schema.
+- The host validates a bounded subset of that syntax, not the whole draft. The supported subset is exactly:
+  `"object"` with `properties`, `additionalProperties`, and `required`; `"integer"` and `"number"` with `minimum` and
+  `maximum`; `"string"` with `enum` and the single `pattern` `^#[0-9A-Fa-f]{6}$`; and `"boolean"`. Arrays, `$ref`,
+  composition keywords, and any other `pattern` are rejected rather than silently accepted, so a plugin cannot publish
+  a constraint the host does not enforce. A plugin schema MUST stay inside this subset.
+- The host parses each referenced plugin's schema once per staging pass, not once per widget appearance.
 - One settings-visible plugin ID selects one widget kind. A DLL may publish several IDs, each with its own contract.
 - The host copies or parses borrowed strings synchronously and never frees them.
 - Rotating Triangle and GDI Orbit publish closed empty-object schemas and `{}` defaults. Matrix Rain publishes its
@@ -154,7 +205,9 @@ provider, discovers datasets through `GetDataSets`, and calls `Subscribe` with o
 from 1 through 60,000 milliseconds, and sink. Each call returns a distinct inactive subscription or fails without
 retaining the sink.
 
-`PluginHost` owns every loaded module and local data-provider runtime for one `PluginManager`. The first provider
+`PluginHost` is the process plugin runtime. Exactly one instance serves the whole application: it owns every mapped
+module and every local data-provider runtime for every `PluginManager`, including the one staged for an adjacent page
+during a swipe. A `PluginManager` borrows it and never owns one. The first provider
 lookup lazily maps its catalog module, creates one `IRedXeDataSource`, validates and caches at most 256 datasets, and
 returns a host provider facade. All local sources share one acquisition worker and at most 32 subscriptions in total.
 Active subscriptions for the same provider and dataset share one collection at the shortest requested interval,
@@ -218,10 +271,29 @@ GPU vtables.
 
 - `OnDeviceCreated` receives the borrowed host device, target format, and selected feature level. A widget may create
   and retain its own device resources and may share immutable resources across instances.
+- `OnTargetSizeChanged` reports the largest viewport the host will draw this widget at in the current composition, and
+  is the only callback where a GPU widget MAY rasterize, create textures, or allocate. The host calls it on the UI
+  thread, synchronously and non-reentrantly, after `OnDeviceCreated` and before the first `Render`, and again whenever
+  that size changes: resize, DPI change, layout change, and raise or dismiss.
+  - It MUST NOT be called for a position-only change such as a page-swipe offset, and MUST NOT be called per frame.
+    The host compares the integer viewport size against the last size it reported for that widget and calls only on a
+    difference.
+  - A raised widget is drawn twice in one frame, at its tile and again at the overlay slice, so the reported size is
+    the larger of the two. The smaller draw is a minification the sampler handles.
+  - A widget with no resolution-dependent resources returns `S_OK` and does nothing.
+  - A failure is isolated: the host keeps the widget's previous resources and continues rendering it.
 - `OnDeviceLost` is idempotent and releases all plugin-owned device resources before the host releases its device.
 - `Render` receives generic widget dimensions/timing, the borrowed immediate context, and the widget viewport.
-- The host binds its render target and viewport before every callback. A widget binds every pipeline state it depends
-  on and may issue arbitrary D3D11 work within its viewport.
+- Before every callback the host binds exactly two things: its render target through `OMSetRenderTargets` and the
+  widget's viewport through `RSSetViewports`. Nothing else is reset between widgets. Blend, depth-stencil, and
+  rasterizer state, the scissor rectangle and `ScissorEnable`, input layout, primitive topology, shaders, shader
+  resource views, samplers, and constant buffers all carry over from whichever widget drew last.
+- A widget MUST therefore bind every state it depends on, including scissor state, and MUST NOT rely on any state it
+  did not set itself. Leaving unusual state behind is legal but hostile, because it surfaces as a defect in a sibling
+  widget and only for a particular tile ordering; prefer restoring anything exotic.
+- The host does not reset state between widgets: that cost is not justified for the shipped widget set, and the
+  requirement above is what keeps widgets independent. Debug builds of the host instead verify a bounded subset of the
+  contract after each successful widget, currently that no widget leaves `ScissorEnable` set.
 - A widget must not retain the immediate context or frame records, present, resize the swap chain, or access the
   top-level HWND. It never receives the swap chain or back buffer.
 - Isolation, deferred command lists, and offscreen composition are outside the current contract.
@@ -289,12 +361,26 @@ already fills the client MUST NOT raise.
   `PluginHost`.
 - `PluginHost` has exactly one module slot per bundled module-catalog plugin ID. Catalog plugin IDs and widget type IDs
   MUST stay unique; module file names MAY repeat. The first slot that maps a given module name owns the `HMODULE`;
-  later catalog rows with the same name share exports after metadata validation for their own plugin ID. Optional
-  `RedXePluginShutdown` runs only on the owning slot. Mapped modules remain loaded until process teardown. The widget
+  later catalog rows with the same name share exports after metadata validation for their own plugin ID. Mapped
+  modules remain loaded until process teardown.
+- Because the runtime is process scoped, staging an adjacent dashboard page reuses the already-mapped modules, the
+  already-created data sources, and the already-running acquisition worker. Staging MUST NOT map a module a second
+  time, create a second `IRedXeDataSource` for a provider ID, or start a second acquisition thread.
+- Optional `RedXePluginShutdown` runs exactly once per module, at process teardown, after every widget, provider,
+  source, and subscription has been released. It MUST NOT run while another dashboard page still uses that module. The widget
   projection MUST remain within the settings limit of 64 plugin declarations.
 - Static discovery validates every referenced plugin and effective widget on every page. `PluginManager` creates only
   the current page, plus its adjacent transition page during a swipe, and may share providers only when doing so is
   behaviorally invisible to independent widget instances.
+- Document-level validation failures stay fatal: a malformed document, an unknown plugin or widget type, a disabled
+  plugin, or private configuration that fails its published schema rejects the document as a whole.
+- A per-instance *runtime* construction failure MUST NOT fail its page or startup. The host keeps the authored
+  placement, marks the slot a placeholder, records the failing `HRESULT`, and draws its own placeholder over that
+  tile. Sibling widgets keep their authored geometry and continue to render. This branch is defensive: current
+  document validation rejects the cases that would make a bundled plugin refuse an instance, so it covers runtime
+  exhaustion such as memory or subscription slots.
+- A widget that reports `RedXeWidgetStatusUnavailable` is drawn with the same host placeholder for as long as it says
+  so, and takes its tile back when it reports any other status.
 - `DashboardHost` owns compiled adaptive split paths, cached responsive placements, host child containers,
   transition offsets, native-window lifecycle, and frame-scheduling policy.
 - `Renderer` owns D3D11/DXGI resources, cached viewports, device notifications, rendering callbacks, recovery, and
@@ -371,26 +457,58 @@ texture upload, or shader/font work. `OnDeviceCreated` builds the complete provi
 `network.protocol` (16 rows, 1 s), `storage.disk` (128 rows, 1 s, local-sensitive), `storage.volume` (256 rows, 5 s,
 local-sensitive), `gpu.adapter` (32 rows, 1 s), `gpu.engine` (512 rows, 1 s), `gpu.process` (2,048 rows, 2 s,
 local-sensitive), `power.summary` (1 row, 5 s), `battery.list` (32 rows, 5 s, local-sensitive), `thermal.sensor`
-(128 rows, 10 s, local-sensitive), and `fan.sensor` (128 rows, 10 s, local-sensitive). It reads local counters with the
+(128 rows, 10 s, local-sensitive), `fan.sensor` (128 rows, 10 s, local-sensitive), `npu.adapter` (16 rows, 1 s),
+`npu.engine` (128 rows, 1 s), `npu.process` (512 rows, 2 s, local-sensitive), and `security.posture` (1 row, 60 s).
+It reads local counters with the
 caller's token, does not elevate or collect command lines, full executable paths, MAC or IP addresses, serial numbers,
 user names, or wireless identities, and degrades inaccessible per-process values to `Unavailable`. Network rows identify
 interfaces by `InterfaceLuid`. Protocol rows are IPv4/IPv6 TCP/UDP aggregates; they do not
 enumerate endpoints. Disk activity uses overlapped `IOCTL_DISK_PERFORMANCE` where the device accepts it and never
 issues `IOCTL_DISK_PERFORMANCE_OFF`; PDH `PhysicalDisk` instance names are not mapped because the mapping is unstable.
-Volume rows publish GUID, mount, filesystem, capacity, and extents and never copy whole-disk activity. GPU adapters
-come from DXGI without creating a D3D device and join D3DKMT sensors by LUID only. GPU engine rows are D3DKMT nodes;
-process GPU rows parse GPU Engine counter instance names with a strict `pid_/luid_/phys_/eng_/engtype_` grammar.
-Machine-wide GPU memory use, node utilization, and DXGI `integrated` stay `Unavailable` (DXCore is not linked; D3DKMT
-statistics records remain reserved). Adapter `software` is the DXGI software flag and does not require a dedicated
-WARP-only host. The source may retain a DXGI factory, D3DKMT adapter handles, and one PDH GPU Engine query, released
-when the source is destroyed. Power uses `GetSystemPowerStatus` and cached `GetPwrCapabilities`; unknown sentinels
+Volume rows publish GUID, mount, filesystem, capacity, and extents and never copy whole-disk activity.
+
+Adapter rows are enumerated from the D3DKMT adapter list, not from DXGI, because DXGI enumerates only adapters with a
+Direct3D user-mode driver and therefore never returns a compute-only MCDM device. DXGI supplies description, vendor and
+device ID, and capacity for rows whose LUID it also reports; no DXGI match is a normal outcome, not an error, and no
+D3D device is created. Every adapter carries a device class established in this precedence: the DXCore runtime-agnostic
+hardware-type attribute, then the `D3DKMT_ADAPTERTYPE` bits, then DXGI presence. An adapter with no evidence stays
+`Unknown` and MUST NOT be assumed to be a GPU. `gpu.*` publishes every class except NPU and `npu.*` publishes only NPU,
+so a graphics viewer never silently lists an accelerator. Engine rows remain D3DKMT nodes for both families; process
+rows parse GPU Engine counter instance names with a strict `pid_/luid_/phys_/eng_/engtype_` grammar. Per-engine and
+per-adapter utilization, machine-wide dedicated and shared memory use, adapter temperature, and `integrated` come from
+`DXCoreAdapterState`, which the accelerator families require because the performance-counter set that NPU engines
+appear in is not published by Microsoft. Those state items are documented but flagged prerelease, so each is
+capability-probed per item per adapter and a failure leaves the column `Unavailable` rather than zero. Adapter
+`software` is the DXGI software flag combined with the `D3DKMT_ADAPTERTYPE` software bit and does not require a
+dedicated WARP-only host. A batch that requests both a `gpu.*` and the matching `npu.*` dataset performs one node walk
+and one counter query, not two. The source may retain a DXGI factory, D3DKMT adapter handles, one `IDXCoreAdapter1` per
+enumerated adapter, and one PDH GPU Engine query, all released when the source is destroyed. Power uses `GetSystemPowerStatus` and cached `GetPwrCapabilities`; unknown sentinels
 (`255`, `0xFFFFFFFF`) stay unavailable. An AC-only host publishes `batteryPresent` 0 and a zero-row `battery.list`.
 Battery rows use SetupAPI `GUID_DEVICE_BATTERY` plus read-only overlapped IOCTLs and never publish serial numbers. Thermal rows re-project GPU,
 storage, and battery temperatures and publish ACPI zones only when tenths-Kelvin converts to a plausible Celsius
 reading (zero tenths-K is not published). Fan rows are GPU RPM when D3DKMT `MaxFanRpm` is non-zero; generic
 `GUID_DEVICE_FAN` presence does not invent motherboard RPM. Battery, ACPI, and storage-temperature IOCTLs use the same
-overlapped timeout and `CancelIoEx` drain as disks. There is no device-I/O thread. The source MUST NOT include WMI/CIM headers, link WMI libraries, create an `IWbem*`
+overlapped timeout and `CancelIoEx` drain as disks. There is no device-I/O thread. `security.posture` publishes
+code-integrity and virtualization-based-security flags from `SystemCodeIntegrityInformation`, whose two members the SDK
+names, plus one documented `IsProcessorFeaturePresent` probe. These are configuration flags rather than counters: a
+value that changes between two reads means the record was misread, and the test suite treats it as a failure.
+`power.summary` publishes modern-standby capability alongside S3/S4, so a host reporting `systemS3` 0 is not mistaken
+for one that cannot sleep. The source MUST NOT include WMI/CIM headers, link WMI libraries, create an `IWbem*`
 service, execute a CIM query, or load `wbemprox.dll`, `fastprox.dll`, or `wbemcomn.dll` when any dataset is collected.
+
+Records that the Windows SDK declares with `Reserved*` members are read through RedXe-owned overlay structs in
+`Plugins/SystemData/NtLayout.h`. No third-party header is vendored, included, or linked: each overlay names the bytes
+itself and pins every consumed member with a `static_assert` on `offsetof` against the matching SDK member, so an SDK
+that renames or resizes a reserved block breaks the build instead of shifting a published column. Each consumed field
+also has an independent documented oracle in `SystemDataTests`; a field with no oracle MUST NOT enter runtime code.
+Records with a build-dependent tail are consumed by the measured `ReturnLength`, never by `sizeof`, and a per-processor
+query length MUST be a whole number of records because the kernel rejects a ragged length outright. On the strength of
+those proofs, `process.list` and `thread.list` take create, user, kernel, and cycle times, page and hard fault counts,
+private working set, pagefile use, parent process ID, and the six I/O counters directly from the single
+`SystemProcessInformation` walk. The second bulk parent-ID query is gone, no process handle is opened for those values,
+and they are therefore published for every walked row rather than only for processes the caller can open. A transient
+`PROCESS_QUERY_LIMITED_INFORMATION` handle remains only for affinity, architecture, critical-process state, and
+efficiency mode.
 CPU deltas use fixed prior-sample tables; collection allocates no plugin heap storage after source creation and creates
 no worker, timer, outbound network request, or persistent process handle. The source may retain one IP Helper
 `NotifyIpInterfaceChange` registration (callback sets a dirty flag only) and bounded read-only disk and battery handles,
@@ -569,13 +687,24 @@ no borrowed JSON.
 The clock renders zero-padded local 24-hour `HH:MM:SS` as six slim warm-red rounded cards on an opaque background,
 with tight within-pair spacing, wider separator gaps, small fixed colon dots, subtle centered hinge seams, and clean
 high-contrast condensed digits. Its compact invariant-English date line is title case in `ddd D MMM` form and does not
-pad a single-digit day. Desk Clock privately uses DirectWrite during transactional device-resource initialization to
-rasterize the required glyphs from the in-box Windows Bahnschrift SemiBold Condensed face, with a deterministic in-box
-fallback, into one bounded grayscale atlas. It preserves the font's contours, proportions, common baseline, and real
-date advances; it does not stretch individual glyphs into synthetic fixed-width shapes. The system32 DirectWrite
-module is loaded through an isolated factory only while building the atlas. Its module handle, factory, font faces,
-analysis objects, and temporary CPU coverage are released before initialization returns. Inactive discovery and the
-steady render path do no font lookup, shaping, rasterization, or allocation. The composition scales uniformly and
+pad a single-digit day. Desk Clock privately uses DirectWrite to rasterize the required glyphs from the in-box Windows
+Bahnschrift SemiBold Condensed face, with a deterministic in-box fallback, into one bounded grayscale atlas with a
+short mip chain. It preserves the font's contours, proportions, common baseline, and real date advances; it does not
+stretch individual glyphs into synthetic fixed-width shapes.
+
+The atlas is rasterized during transactional device-resource initialization and again on `OnTargetSizeChanged`, at a
+resolution tier chosen from the size the host is about to draw. Every cell, offset, and em size scales with the tier,
+so normalized atlas coordinates are identical across tiers and the pixel shader needs only the live edge length. The
+base tier is 1024 square; a second tier of 2048 square covers a widget drawn larger than the base tier can resolve,
+which no amount of filtering can fix because the detail was never rasterized. Mip levels cover the opposite case, a
+widget drawn smaller than the atlas. Date cells are the small ones and a filtered level erases their strokes, so date
+glyphs sample level 0 explicitly while time glyphs take the chain. Total coverage stays under 1.5 MiB at the base tier
+and under 6 MiB at the second, and the higher tier is only built while a widget is actually drawn that large.
+
+The constraint is on the steady path, not on DirectWrite. Each rasterization loads the system32 DirectWrite module
+through an isolated factory and releases its module handle, factory, font faces, analysis objects, and temporary CPU
+coverage before returning. Inactive discovery and `Render` do no font lookup, shaping, rasterization, or allocation. A
+failed tier change leaves the previous atlas intact and the widget still renders. The composition scales uniformly and
 centers within landscape, portrait, minimum, and DPI-adjusted viewports without stretching individual cards. It loads
 no WIC, loose font or image asset, or runtime shader compiler.
 
@@ -614,7 +743,8 @@ sibling policy owns deadline retention, pacing, and suppression. `WM_TIMECHANGE`
 5. Verify generic widget/rendering-interface negotiation, root visibility, and controlling-IUnknown identity. The
    GPU-only widget rejects the window IID and the window-only widget rejects the GPU IID. Every bundled widget exposes
    `IRedXeRaisedWidget`, returns `E_POINTER` for a null extent, reports its shipped fraction, and accepts idempotent
-   `SetRaised`. Compile-time contract checks MUST also prove that every public COM interface derives directly from
+   `SetRaised`. Compile-time contract checks MUST also pin every public record's `sizeof`, and every pointer-bearing
+   record's field offsets, and MUST prove that every public COM interface derives directly from
    `IUnknown` and that neither rendering, scheduled, nor raised interfaces derive from `IRedXeWidget`.
 6. Verify all configured GPU-widget instances receive device creation, render successfully, receive device loss, and
    survive WARP rendering without a hardware GPU. Matrix readback MUST contain configured background and glyph pixels;
@@ -635,6 +765,19 @@ sibling policy owns deadline retention, pacing, and suppression. `WM_TIMECHANGE`
     host dependency.
 12. Verify every static contract and effective settings object, exact case-sensitive declaration resolution,
     current-page-only provider creation outside swipes, independent instances, and adaptive composition order.
+12z. Host tests MUST prove that the host reports a GPU widget's target size once device resources exist, that
+    rendering frames at an unchanged size reports nothing further, that a viewport above the composition design size
+    moves Desk Clock's glyph atlas to its higher tier and back down when the viewport shrinks, and that the widget
+    still renders after a tier change.
+12a. Host tests MUST prove that staging an adjacent dashboard page adds no second acquisition thread, no second
+    data source for a provider ID, and no second module map, and that repeated provider lookup returns one shared
+    controlling identity.
+12b. Host tests MUST prove that `RequestFrame` succeeds and coalesces without a UI target, that a widget status
+    report is recorded, copied into bounded storage, and cleared on recovery, and that malformed status records,
+    unknown status values, and null arguments are rejected.
+12c. Host tests MUST prove that a valid page produces no placeholder tiles, that a widget reporting
+    `RedXeWidgetStatusUnavailable` hands exactly its own tile to the host while siblings keep drawing, that
+    `Degraded` and `Initializing` do not, and that recovery returns the tile to the widget.
 13. Compile-time checks MUST validate unique bundled plugin IDs and module names, keep every widget projection entry
     backed by one module entry, and keep that projection within the 64-plugin settings limit.
 14. Keep `/W4`, `/permissive-`, SDL checks, and warnings-as-errors green.

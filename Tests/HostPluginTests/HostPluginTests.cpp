@@ -2,6 +2,7 @@
 #include "DeskClockTestContract.h"
 #include "FrameScheduler.h"
 #include "MatrixRainTestContract.h"
+#include "PageEdgeAffordance.h"
 #include "PageNavigation.h"
 #include "PluginHost.h"
 #include "PluginManager.h"
@@ -10,6 +11,8 @@
 #include "Settings.h"
 #include "StudioClockTestContract.h"
 #include "WidgetRaise.h"
+
+#include <tlhelp32.h>
 
 #include <array>
 #include <chrono>
@@ -33,6 +36,32 @@ namespace
 {
 constexpr UINT kHostWidth = 2560;
 constexpr UINT kHostHeight = 720;
+
+// Thread count for this process. The shared plugin runtime owns exactly one acquisition worker no matter how many
+// PluginManager instances are live, so staging an adjacent page must not raise this.
+[[nodiscard]] DWORD CountProcessThreads() noexcept
+{
+    const wil::unique_handle snapshot{CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)};
+    if (!snapshot)
+    {
+        return 0;
+    }
+    THREADENTRY32 entry{};
+    entry.dwSize = sizeof(entry);
+    const DWORD processId = GetCurrentProcessId();
+    DWORD count = 0;
+    if (Thread32First(snapshot.get(), &entry))
+    {
+        do
+        {
+            if (entry.th32OwnerProcessID == processId)
+            {
+                ++count;
+            }
+        } while (Thread32Next(snapshot.get(), &entry));
+    }
+    return count;
+}
 
 void Check(bool condition, std::wstring_view message, bool& success) noexcept
 {
@@ -1093,7 +1122,7 @@ void TestDataProviderLookup(bool& success) noexcept
     {
         result = first->GetDataSets(&descriptors, &descriptorCount);
     }
-    Check(SUCCEEDED(result) && descriptors && descriptorCount == 18, L"host data provider exposes its source datasets",
+    Check(SUCCEEDED(result) && descriptors && descriptorCount == 22, L"host data provider exposes its source datasets",
           success);
 
     wil::com_ptr_nothrow<IRedXeDataProvider> unsupported;
@@ -1409,6 +1438,562 @@ void TestDebugHostComposition(bool& success) noexcept
     renderer.Shutdown();
     dashboard.Shutdown();
     window.PumpMessages();
+}
+
+void TestGpuTargetSizeNotification(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] GPU widget target-size notification\n";
+    // Desk Clock is the widget whose resources depend on how highTier it is drawn: its glyph atlas is rasterized at a
+    // resolution tier chosen from the reported target size. That makes it the honest end-to-end probe for the
+    // callback -- a no-op implementation would leave the tier stuck at 1.
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[)json"
+        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock"}}]}}]})json";
+
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, settings);
+    AttachedHostWindow window;
+    if (SUCCEEDED(result))
+    {
+        result = window.Initialize(kHostWidth, kHostHeight);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    DashboardHost dashboard;
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
+    }
+    Renderer renderer;
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Initialize(window.Get(), true, dashboard);
+    }
+    Check(SUCCEEDED(result) && plugins.WidgetCount() == 1, L"a Desk Clock page is composed for the size probe",
+          success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    const DeskClockGetTestDiagnosticsFn getDiagnostics =
+        ResolveFunction<DeskClockGetTestDiagnosticsFn>(GetModuleHandleW(L"DeskClock.dll"),
+                                                       kDeskClockGetTestDiagnosticsExport);
+    Check(getDiagnostics != nullptr, L"Desk Clock diagnostics are reachable", success);
+    if (!getDiagnostics)
+    {
+        return;
+    }
+    const auto read = [&](DeskClockTestDiagnostics& out) noexcept
+    {
+        out = DeskClockTestDiagnostics{};
+        out.sizeBytes = sizeof(out);
+        return SUCCEEDED(getDiagnostics(&out));
+    };
+
+    DeskClockTestDiagnostics afterCreate{};
+    Check(read(afterCreate) && afterCreate.targetSizeChanges >= 1,
+          L"the host reports a target size once device resources exist", success);
+
+    // A baseTier viewport keeps the atlas on the base tier.
+    result = renderer.Resize(720, 300);
+    DeskClockTestDiagnostics baseTier{};
+    Check(SUCCEEDED(result) && read(baseTier) && baseTier.atlasScale == 1 && baseTier.atlasEdgePixels == 1024,
+          L"a viewport below the design size keeps the base atlas tier", success);
+
+    // Frames must not re-report: the size did not change.
+    const uint64_t beforeFrames = baseTier.targetSizeChanges;
+    for (uint32_t frame = 0; frame < 8; ++frame)
+    {
+        result = renderer.Render(static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+        if (FAILED(result))
+        {
+            break;
+        }
+    }
+    DeskClockTestDiagnostics afterFrames{};
+    Check(SUCCEEDED(result) && read(afterFrames) && afterFrames.targetSizeChanges == beforeFrames,
+          L"rendering frames at an unchanged size reports nothing", success);
+
+    // A viewport well above the design size must move the atlas up a tier, which is the whole point of the callback.
+    result = renderer.Resize(3840, 1080);
+    DeskClockTestDiagnostics highTier{};
+    Check(SUCCEEDED(result) && read(highTier) && highTier.atlasScale == 2 && highTier.atlasEdgePixels == 2048,
+          L"a viewport above the design size rasterizes the atlas at a higher tier", success);
+    Check(highTier.targetSizeChanges > beforeFrames, L"growing the viewport reports a new target size", success);
+    Check(highTier.atlasBytes > baseTier.atlasBytes && highTier.atlasBytes < 6U * 1024U * 1024U,
+          L"the higher tier costs more coverage memory and stays inside its bound", success);
+
+    // Coming back down returns to the base tier rather than holding the larger atlas.
+    result = renderer.Resize(720, 300);
+    DeskClockTestDiagnostics back{};
+    Check(SUCCEEDED(result) && read(back) && back.atlasScale == 1 && back.atlasBytes == baseTier.atlasBytes,
+          L"shrinking the viewport releases the higher tier", success);
+
+    // The widget still draws correctly at both tiers.
+    result = renderer.Resize(3840, 1080);
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(1.0f, 1.0f / 60.0f);
+    }
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 1,
+          L"the widget renders after a tier change", success);
+}
+
+void TestSharedPluginRuntime(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] one process plugin runtime across current and staged pages\n";
+    // Two pages that both place a System Data viewer. Before the runtime became process scoped, staging the adjacent
+    // page built a second PluginHost with its own module map, its own IRedXeDataSource, and its own acquisition
+    // thread beside the current one.
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[)json"
+        R"json({"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.cpu-meter"}}]}},)json"
+        R"json({"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.memory-meter"}}]}}]})json";
+
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, settings);
+    AttachedHostWindow window;
+    if (SUCCEEDED(result))
+    {
+        result = window.Initialize(kHostWidth, kHostHeight);
+    }
+    Check(SUCCEEDED(result), L"shared-runtime settings and host window are ready", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    const DWORD threadsBefore = CountProcessThreads();
+
+    PluginManager currentPlugins;
+    result = currentPlugins.Initialize(settings);
+    DashboardHost currentDashboard;
+    if (SUCCEEDED(result))
+    {
+        result =
+            currentDashboard.Initialize(currentPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
+    }
+    Check(SUCCEEDED(result) && currentPlugins.WidgetCount() == 1, L"current page creates its System Data viewer",
+          success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    // The current page's viewer subscribes, so the shared acquisition worker exists from here on.
+    const DWORD threadsWithCurrent = CountProcessThreads();
+
+    AppSettings stagedSettings = settings;
+    result = MoveDashboardPage(stagedSettings, 1);
+    PluginManager stagedPlugins;
+    if (SUCCEEDED(result))
+    {
+        result = stagedPlugins.Initialize(stagedSettings);
+    }
+    DashboardHost stagedDashboard;
+    if (SUCCEEDED(result))
+    {
+        result = stagedDashboard.Initialize(stagedPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
+    }
+    Check(SUCCEEDED(result) && stagedPlugins.WidgetCount() == 1, L"staged adjacent page creates its System Data viewer",
+          success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    const DWORD threadsWithStaged = CountProcessThreads();
+    Check(threadsWithStaged <= threadsWithCurrent,
+          L"staging an adjacent page adds no second acquisition thread", success);
+    Check(threadsWithCurrent >= threadsBefore, L"the shared acquisition worker starts with the first subscription",
+          success);
+
+    // Both managers resolve the same data provider identity from the one runtime.
+    wil::com_ptr_nothrow<IRedXeDataProvider> first;
+    wil::com_ptr_nothrow<IRedXeDataProvider> second;
+    const HRESULT firstResult =
+        PluginHost::Instance().Interface()->GetDataProvider("builtin.system-data", first.put());
+    const HRESULT secondResult =
+        PluginHost::Instance().Interface()->GetDataProvider("builtin.system-data", second.put());
+    wil::com_ptr_nothrow<IUnknown> firstIdentity;
+    wil::com_ptr_nothrow<IUnknown> secondIdentity;
+    if (SUCCEEDED(firstResult) && SUCCEEDED(secondResult))
+    {
+        (void)first.query_to(firstIdentity.put());
+        (void)second.query_to(secondIdentity.put());
+    }
+    Check(SUCCEEDED(firstResult) && SUCCEEDED(secondResult) && firstIdentity && firstIdentity == secondIdentity,
+          L"repeated provider lookup returns one shared controlling identity", success);
+}
+
+void TestHostRequestFrameAndWidgetStatus(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] host frame request and widget status reporting\n";
+    IRedXeHost* host = PluginHost::Instance().Interface();
+
+    // RequestFrame is safe with no UI target: it coalesces and does nothing rather than failing.
+    Check(host->RequestFrame() == S_OK && host->RequestFrame() == S_OK,
+          L"RequestFrame succeeds and coalesces without a UI target", success);
+
+    RedXeWidgetStatusReport report{sizeof(RedXeWidgetStatusReport), RedXeWidgetStatusUnavailable,
+                                  L"sensor unavailable"};
+    Check(host->ReportWidgetStatus("status.test.instance", &report) == S_OK,
+          L"a widget can report itself unavailable", success);
+    Check(PluginHost::Instance().WidgetStatus("status.test.instance") == RedXeWidgetStatusUnavailable,
+          L"the host records the reported status", success);
+
+    std::array<wchar_t, 64> reason{};
+    Check(PluginHost::Instance().WidgetStatusReason("status.test.instance", reason.data(), reason.size()) &&
+              std::wcscmp(reason.data(), L"sensor unavailable") == 0,
+          L"the host copies the reported reason into bounded storage", success);
+
+    // Recovery clears the placeholder condition.
+    report.status = RedXeWidgetStatusOk;
+    report.reason = nullptr;
+    Check(host->ReportWidgetStatus("status.test.instance", &report) == S_OK &&
+              PluginHost::Instance().WidgetStatus("status.test.instance") == RedXeWidgetStatusOk,
+          L"a recovered widget clears its unavailable status", success);
+
+    // An instance that never reported is healthy, and a cleared instance returns to healthy.
+    Check(PluginHost::Instance().WidgetStatus("status.test.never-reported") == RedXeWidgetStatusOk,
+          L"an unreported instance reads back as healthy", success);
+    PluginHost::Instance().ClearWidgetStatus("status.test.instance");
+    Check(PluginHost::Instance().WidgetStatus("status.test.instance") == RedXeWidgetStatusOk,
+          L"clearing an instance status returns it to healthy", success);
+
+    // Malformed reports are rejected rather than recorded.
+    RedXeWidgetStatusReport malformed{sizeof(RedXeWidgetStatusReport) + 4, RedXeWidgetStatusOk, nullptr};
+    Check(host->ReportWidgetStatus("status.test.instance", &malformed) == E_INVALIDARG,
+          L"a stale-sized status record is rejected", success);
+    RedXeWidgetStatusReport outOfRange{sizeof(RedXeWidgetStatusReport), RedXeWidgetStatusUnavailable + 1, nullptr};
+    Check(host->ReportWidgetStatus("status.test.instance", &outOfRange) == E_INVALIDARG,
+          L"an unknown status value is rejected", success);
+    Check(host->ReportWidgetStatus(nullptr, &report) == E_INVALIDARG &&
+              host->ReportWidgetStatus("status.test.instance", nullptr) == E_INVALIDARG,
+          L"null status arguments are rejected", success);
+}
+
+void TestHostOwnedPlaceholderTiles(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] host-owned placeholder tiles\n";
+    // Note on coverage: PluginManager's construction-failure branch is defensive. ValidateAppSettings rejects the
+    // documents that would provoke a bundled plugin into refusing an instance, so no valid document can reach it;
+    // it exists for runtime failures such as exhausted memory or subscription slots. What is reachable, and what is
+    // covered here, is that a valid page produces no placeholders and that a constructed widget which reports itself
+    // unavailable hands its tile to the host.
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[)json"
+        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}},)json"
+        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.cpu-meter"}},)json"
+        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.memory-meter"}}]}}]})json";
+
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, settings);
+    AttachedHostWindow window;
+    if (SUCCEEDED(result))
+    {
+        result = window.Initialize(kHostWidth, kHostHeight);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    Check(SUCCEEDED(result) && plugins.WidgetCount() == 3, L"a valid page constructs every authored instance",
+          success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    bool anyPlaceholder = false;
+    bool anyFailure = false;
+    for (size_t index = 0; index < plugins.WidgetCount(); ++index)
+    {
+        anyPlaceholder = anyPlaceholder || plugins.IsPlaceholderAt(index);
+        anyFailure = anyFailure || FAILED(plugins.PlaceholderFailureAt(index));
+    }
+    Check(!anyPlaceholder && !anyFailure, L"a valid page produces no placeholder tiles", success);
+
+    DashboardHost dashboard;
+    result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
+    Renderer renderer;
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Initialize(window.Get(), true, dashboard);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(0.0f, 1.0f / 60.0f);
+    }
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 3,
+          L"every constructed widget draws before any status is reported", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    // A constructed widget that reports itself unavailable hands its tile to the host.
+    const char* unavailableId = plugins.WidgetInstanceIdAt(1);
+    RedXeWidgetStatusReport report{sizeof(RedXeWidgetStatusReport), RedXeWidgetStatusUnavailable, L"sensor offline"};
+    const HRESULT reported =
+        unavailableId ? PluginHost::Instance().Interface()->ReportWidgetStatus(unavailableId, &report) : E_FAIL;
+    Check(SUCCEEDED(reported) && dashboard.RequiresPlaceholderAt(1) && !dashboard.RequiresPlaceholderAt(0) &&
+              !dashboard.RequiresPlaceholderAt(2),
+          L"the host owns exactly the tile whose widget reported unavailable", success);
+
+    result = renderer.Render(0.1f, 1.0f / 60.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 2,
+          L"the frame draws the healthy widgets and the host draws the failed tile", success);
+
+    // Degraded and initializing are reported states, not host-owned tiles: the widget keeps drawing.
+    report.status = RedXeWidgetStatusDegraded;
+    Check(unavailableId && SUCCEEDED(PluginHost::Instance().Interface()->ReportWidgetStatus(unavailableId, &report)) &&
+              !dashboard.RequiresPlaceholderAt(1),
+          L"a degraded widget keeps its own tile", success);
+
+    report.status = RedXeWidgetStatusOk;
+    report.reason = nullptr;
+    Check(unavailableId && SUCCEEDED(PluginHost::Instance().Interface()->ReportWidgetStatus(unavailableId, &report)) &&
+              !dashboard.RequiresPlaceholderAt(1),
+          L"a recovered widget takes its tile back", success);
+    result = renderer.Render(0.2f, 1.0f / 60.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 3,
+          L"every widget draws again after recovery", success);
+}
+
+void TestPageEdgeAffordancePolicy(bool& success) noexcept
+{
+    // A live multi-page dashboard in the middle of the document offers both directions.
+    PageEdgeState middle{};
+    middle.rendererReady = true;
+    middle.windowVisible = true;
+    middle.displayPoweredOn = true;
+    middle.rendererSuspended = false;
+    middle.rendererOccluded = false;
+    middle.wrapPages = false;
+    middle.pageCount = 3;
+    middle.atFirstPage = false;
+    middle.atLastPage = false;
+    Check(ShouldShowEdgeAffordance(middle, kPageEdgeDirectionPrevious) &&
+              ShouldShowEdgeAffordance(middle, kPageEdgeDirectionNext),
+          L"A middle page offers both edge affordances.", success);
+
+    // Non-wrapping ends drop the band for the blocked direction only.
+    PageEdgeState first = middle;
+    first.atFirstPage = true;
+    Check(!ShouldShowEdgeAffordance(first, kPageEdgeDirectionPrevious) &&
+              ShouldShowEdgeAffordance(first, kPageEdgeDirectionNext),
+          L"The first page drops only the previous-page band.", success);
+
+    PageEdgeState last = middle;
+    last.atLastPage = true;
+    Check(ShouldShowEdgeAffordance(last, kPageEdgeDirectionPrevious) &&
+              !ShouldShowEdgeAffordance(last, kPageEdgeDirectionNext),
+          L"The last page drops only the next-page band.", success);
+
+    // Wrapping keeps both ends navigable.
+    PageEdgeState wrapped = middle;
+    wrapped.wrapPages = true;
+    wrapped.atFirstPage = true;
+    wrapped.atLastPage = false;
+    Check(ShouldShowEdgeAffordance(wrapped, kPageEdgeDirectionPrevious) &&
+              ShouldShowEdgeAffordance(wrapped, kPageEdgeDirectionNext),
+          L"Wrapping keeps both edge affordances at a document end.", success);
+
+    // A single-page document has nothing to navigate to.
+    PageEdgeState single = middle;
+    single.pageCount = 1;
+    single.atFirstPage = true;
+    single.atLastPage = true;
+    Check(!ShouldShowEdgeAffordance(single, kPageEdgeDirectionPrevious) &&
+              !ShouldShowEdgeAffordance(single, kPageEdgeDirectionNext),
+          L"A single-page document offers no edge affordance.", success);
+
+    // Every suppressed host state removes both bands.
+    const auto suppressed = [&](PageEdgeState state, const wchar_t* label) noexcept
+    {
+        Check(!ShouldShowEdgeAffordance(state, kPageEdgeDirectionPrevious) &&
+                  !ShouldShowEdgeAffordance(state, kPageEdgeDirectionNext),
+              label, success);
+    };
+    PageEdgeState blocked = middle;
+    blocked.rendererReady = false;
+    suppressed(blocked, L"A dashboard without a renderer offers no edge affordance.");
+    blocked = middle;
+    blocked.windowVisible = false;
+    suppressed(blocked, L"A hidden window offers no edge affordance.");
+    blocked = middle;
+    blocked.displayPoweredOn = false;
+    suppressed(blocked, L"A powered-off display offers no edge affordance.");
+    blocked = middle;
+    blocked.rendererSuspended = true;
+    suppressed(blocked, L"A suspended renderer offers no edge affordance.");
+    blocked = middle;
+    blocked.rendererOccluded = true;
+    suppressed(blocked, L"An occluded renderer offers no edge affordance.");
+    blocked = middle;
+    blocked.widgetRaised = true;
+    suppressed(blocked, L"A raised widget offers no edge affordance.");
+    blocked = middle;
+    blocked.pointerNavigationActive = true;
+    suppressed(blocked, L"An active pointer pan offers no edge affordance.");
+    blocked = middle;
+    blocked.settleActive = true;
+    suppressed(blocked, L"An active settle offers no edge affordance.");
+
+    Check(!ShouldShowEdgeAffordance(middle, 0) && !ShouldShowEdgeAffordance(middle, 2),
+          L"Only the two page-navigation directions select an edge affordance.", success);
+}
+
+void TestPageEdgeAffordanceGeometry(bool& success) noexcept
+{
+    constexpr UINT clientWidth = 2560;
+    constexpr UINT clientHeight = 720;
+
+    const RECT left = PageEdgeBandRect(kPageEdgeDirectionPrevious, clientWidth, clientHeight, 96);
+    const RECT right = PageEdgeBandRect(kPageEdgeDirectionNext, clientWidth, clientHeight, 96);
+    Check(left.left == 0 && left.top == 0 && left.right == kPageEdgeBandWidthDips && left.bottom == 720,
+          L"The previous-page band hugs the left edge at full client height.", success);
+    Check(right.right == static_cast<LONG>(clientWidth) && right.top == 0 && right.bottom == 720 &&
+              right.left == static_cast<LONG>(clientWidth) - kPageEdgeBandWidthDips,
+          L"The next-page band hugs the right edge at full client height.", success);
+    Check(left.right < right.left, L"The two bands never meet on a wide client.", success);
+
+    // The band scales with DPI.
+    const RECT scaled = PageEdgeBandRect(kPageEdgeDirectionPrevious, clientWidth, clientHeight, 192);
+    Check(scaled.right == kPageEdgeBandWidthDips * 2, L"Band width scales with the destination-monitor DPI.", success);
+
+    // A narrow client keeps a usable centre instead of letting the bands meet.
+    const RECT narrowLeft = PageEdgeBandRect(kPageEdgeDirectionPrevious, 90, 200, 96);
+    const RECT narrowRight = PageEdgeBandRect(kPageEdgeDirectionNext, 90, 200, 96);
+    Check(narrowLeft.right == 30 && narrowRight.left == 60 && narrowLeft.right < narrowRight.left,
+          L"A narrow client clamps each band to a third of the client width.", success);
+
+    // Degenerate inputs produce an empty band rather than a bad rectangle.
+    const RECT empty = PageEdgeBandRect(kPageEdgeDirectionNext, 0, 0, 96);
+    Check(empty.right == empty.left && empty.bottom == empty.top, L"A zero client produces no band.", success);
+    const RECT invalid = PageEdgeBandRect(0, clientWidth, clientHeight, 96);
+    Check(invalid.right == invalid.left, L"An invalid direction produces no band.", success);
+
+    // Hit testing is inclusive at the near edge and exclusive at the far edge.
+    Check(PageEdgeBandContains(left, POINT{0, 0}) && PageEdgeBandContains(left, POINT{left.right - 1, 719}) &&
+              !PageEdgeBandContains(left, POINT{left.right, 10}) && !PageEdgeBandContains(left, POINT{5, 720}),
+          L"Band hit testing is inclusive at the near edge and exclusive at the far edge.", success);
+
+    // The chevron is a Segoe Fluent Icons glyph, with a Unicode stand-in when no icon font is installed.
+    Check(PageEdgeChevronGlyph(kPageEdgeDirectionPrevious, FluentIcons::IconFont::Fluent) ==
+                  FluentIcons::kChevronLeft &&
+              PageEdgeChevronGlyph(kPageEdgeDirectionNext, FluentIcons::IconFont::Fluent) ==
+                  FluentIcons::kChevronRight,
+          L"The chevron uses the Fluent chevron glyph for each travel direction.", success);
+    Check(PageEdgeChevronGlyph(kPageEdgeDirectionPrevious, FluentIcons::IconFont::Legacy) ==
+                  FluentIcons::kChevronLeft &&
+              PageEdgeChevronGlyph(kPageEdgeDirectionNext, FluentIcons::IconFont::Legacy) ==
+                  FluentIcons::kChevronRight,
+          L"Segoe MDL2 Assets shares the Fluent chevron code points.", success);
+    Check(PageEdgeChevronGlyph(kPageEdgeDirectionPrevious, FluentIcons::IconFont::TextFallback) ==
+                  FluentIcons::kFallbackChevronLeft &&
+              PageEdgeChevronGlyph(kPageEdgeDirectionNext, FluentIcons::IconFont::TextFallback) ==
+                  FluentIcons::kFallbackChevronRight,
+          L"Without an icon font the chevron falls back to a standard Unicode glyph.", success);
+    Check(PageEdgeChevronGlyph(0, FluentIcons::IconFont::Fluent) == L'\0',
+          L"An invalid direction produces no chevron glyph.", success);
+
+    // The glyph cell is centred in its band and never escapes it.
+    const RECT cell = PageEdgeChevronCell(right, 96);
+    Check(cell.left >= right.left && cell.right <= right.right && cell.top >= right.top &&
+              cell.bottom <= right.bottom,
+          L"The chevron cell stays inside its band.", success);
+    Check((cell.left + cell.right) / 2 == (right.left + right.right) / 2 &&
+              (cell.top + cell.bottom) / 2 == (right.top + right.bottom) / 2,
+          L"The chevron cell is centred in its band.", success);
+    Check(PageEdgeChevronPixelHeight(192) == PageEdgeChevronPixelHeight(96) * 2,
+          L"The chevron scales with the destination-monitor DPI.", success);
+    const RECT degenerateCell = PageEdgeChevronCell(RECT{}, 96);
+    Check(degenerateCell.right == degenerateCell.left, L"An empty band produces no chevron cell.", success);
+
+    // Multi-display reach. One work area covering the whole client leaves it unchanged.
+    const RECT wholeClientRect{0, 0, static_cast<LONG>(clientWidth), static_cast<LONG>(clientHeight)};
+    const std::array oneBigDisplay{RECT{-100, -100, 4000, 2000}};
+    const RECT unclipped = PageEdgeReachableClient(wholeClientRect, oneBigDisplay.data(), oneBigDisplay.size());
+    Check(EqualRect(&unclipped, &wholeClientRect), L"A client inside one work area is entirely reachable.", success);
+
+    // A single display narrower than the client clips it, which is the case that hid the band off-screen.
+    const std::array oneSmallDisplay{RECT{0, 0, 1280, 1000}};
+    const RECT clippedReach = PageEdgeReachableClient(wholeClientRect, oneSmallDisplay.data(), oneSmallDisplay.size());
+    Check(clippedReach.right == 1280 && clippedReach.left == 0,
+          L"A client wider than its single display is reachable only to the display edge.", success);
+
+    // Two side-by-side displays: a window straddling them is reachable across both, not clamped to one.
+    const std::array twoDisplays{RECT{-1280, 0, 0, 1000}, RECT{0, 0, 1280, 1000}};
+    const RECT straddling{-600, 0, 1000, static_cast<LONG>(clientHeight)};
+    const RECT straddleReach = PageEdgeReachableClient(straddling, twoDisplays.data(), twoDisplays.size());
+    Check(straddleReach.left == -600 && straddleReach.right == 1000,
+          L"A window straddling two displays stays reachable across both.", success);
+    const RECT straddleLeft = PageEdgeBandRectIn(straddleReach, kPageEdgeDirectionPrevious, 96);
+    const RECT straddleRight = PageEdgeBandRectIn(straddleReach, kPageEdgeDirectionNext, 96);
+    Check(straddleLeft.left == -600 && straddleRight.right == 1000,
+          L"Straddling bands sit at the outer edges, not at the monitor seam.", success);
+
+    // Degenerate inputs fall back to the client rather than removing every band.
+    const RECT noAreas = PageEdgeReachableClient(wholeClientRect, nullptr, 0);
+    Check(EqualRect(&noAreas, &wholeClientRect), L"Absent display information leaves the whole client reachable.",
+          success);
+    const std::array offscreenDisplay{RECT{10000, 10000, 12000, 12000}};
+    const RECT disjoint =
+        PageEdgeReachableClient(wholeClientRect, offscreenDisplay.data(), offscreenDisplay.size());
+    Check(EqualRect(&disjoint, &wholeClientRect),
+          L"A client disjoint from every work area keeps its bands rather than losing them.", success);
+
+    // Bands follow the reachable client area, so a window larger than its monitor still offers a band the pointer
+    // can hit. A client that fits entirely on screen is unchanged.
+    const RECT wholeClient{0, 0, static_cast<LONG>(clientWidth), static_cast<LONG>(clientHeight)};
+    const RECT wholeLeft = PageEdgeBandRectIn(wholeClient, kPageEdgeDirectionPrevious, 96);
+    const RECT wholeRight = PageEdgeBandRectIn(wholeClient, kPageEdgeDirectionNext, 96);
+    Check(EqualRect(&left, &wholeLeft) && EqualRect(&right, &wholeRight),
+          L"A fully reachable client places bands exactly at the client edges.", success);
+
+    // Half the client hangs off the right of the display.
+    const RECT clipped{0, 0, 1280, static_cast<LONG>(clientHeight)};
+    const RECT clippedRight = PageEdgeBandRectIn(clipped, kPageEdgeDirectionNext, 96);
+    const RECT clippedLeft = PageEdgeBandRectIn(clipped, kPageEdgeDirectionPrevious, 96);
+    Check(clippedRight.right == 1280 && clippedRight.left == 1280 - kPageEdgeBandWidthDips &&
+              clippedRight.top == 0 && clippedRight.bottom == static_cast<LONG>(clientHeight),
+          L"An off-screen client edge moves the next-page band to the reachable edge.", success);
+    Check(clippedLeft.left == 0 && clippedLeft.right == kPageEdgeBandWidthDips,
+          L"Clipping one side leaves the opposite band where it was.", success);
+
+    // A reachable area offset from the client origin, as when the window hangs off the left of the display.
+    const RECT offset{600, 40, 1880, 700};
+    const RECT offsetLeft = PageEdgeBandRectIn(offset, kPageEdgeDirectionPrevious, 96);
+    const RECT offsetRight = PageEdgeBandRectIn(offset, kPageEdgeDirectionNext, 96);
+    Check(offsetLeft.left == 600 && offsetLeft.right == 600 + kPageEdgeBandWidthDips && offsetLeft.top == 40 &&
+              offsetLeft.bottom == 700,
+          L"A reachable area offset from the client origin places the previous-page band at its left edge.", success);
+    Check(offsetRight.right == 1880 && offsetRight.left == 1880 - kPageEdgeBandWidthDips,
+          L"A reachable area offset from the client origin places the next-page band at its right edge.", success);
+    const RECT emptyReachable = PageEdgeBandRectIn(RECT{}, kPageEdgeDirectionNext, 96);
+    Check(emptyReachable.right == emptyReachable.left, L"An empty reachable area produces no band.", success);
+
+    // A click settles to the same offset a committed swipe in that direction reaches.
+    Check(PageEdgeSettleTarget(kPageEdgeDirectionNext, 2560) == -2560 &&
+              PageEdgeSettleTarget(kPageEdgeDirectionPrevious, 2560) == 2560,
+          L"An edge click settles to the committed-swipe offset for its direction.", success);
+    Check(PageSwipeDirection(PageEdgeSettleTarget(kPageEdgeDirectionNext, 2560)) == kPageEdgeDirectionNext &&
+              PageSwipeDirection(PageEdgeSettleTarget(kPageEdgeDirectionPrevious, 2560)) ==
+                  kPageEdgeDirectionPrevious,
+          L"Edge settle targets agree with the swipe direction convention.", success);
+    Check(PageEdgeSettleTarget(kPageEdgeDirectionNext, 0) == 0 && PageEdgeSettleTarget(0, 2560) == 0,
+          L"A degenerate edge settle target is zero.", success);
+
+    // A click starts from rest, so the settle uses the clamped upper bound of the shared duration policy.
+    Check(PageSettleDurationMilliseconds(PageEdgeSettleTarget(kPageEdgeDirectionNext, 2560), 0.0f) == 280,
+          L"An edge click settles with the shared ease-out at its clamped upper bound.", success);
 }
 
 void TestNonDivisibleGridEdges(bool& success) noexcept
@@ -2034,6 +2619,12 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestDataProviderLookup(success);
     TestProcessViewerSubscription(success);
     TestSystemDataViewers(success);
+    TestGpuTargetSizeNotification(success);
+    TestSharedPluginRuntime(success);
+    TestHostRequestFrameAndWidgetStatus(success);
+    TestHostOwnedPlaceholderTiles(success);
+    TestPageEdgeAffordancePolicy(success);
+    TestPageEdgeAffordanceGeometry(success);
     TestNonDivisibleGridEdges(success);
     TestPromoteStagedDashboard(success);
     std::wcout << (success ? L"HostPluginTests passed.\n" : L"HostPluginTests failed.\n");

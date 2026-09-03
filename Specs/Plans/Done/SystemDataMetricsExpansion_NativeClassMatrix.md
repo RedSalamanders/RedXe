@@ -1,9 +1,50 @@
 # System data expansion — native information-class matrix
 
 Status: `COMPLETE` working artifact of
-[`SystemDataMetricsExpansion_2026-09-01.md`](SystemDataMetricsExpansion_2026-09-01.md)
+[`SystemDataMetricsExpansion_2026-09-01.md`](SystemDataMetricsExpansion_2026-09-01.md), amended 2026-09-03 by
+[`SystemDataNativeLayoutsAndAccelerators_2026-09-03.md`](SystemDataNativeLayoutsAndAccelerators_2026-09-03.md)
 Created: 2026-09-01
-Last measured: 2026-09-01 (primary x64). Legacy code extras inventoried; WDK `km` still absent.
+Last measured: 2026-09-03 (primary x64). Legacy code extras inventoried; WDK `km` still absent and no longer required.
+
+## 2026-09-03 amendment
+
+The 2026-09-01 dispositions treated an SDK `Reserved*` member as unknowable. It is not: the SDK pins the size and
+position of every reserved block, and the bytes inside it can be named, proven at compile time against the SDK member
+they overlay, and corroborated at runtime against a documented API. `Plugins/SystemData/NtLayout.h` holds those
+overlays. No third-party header is vendored, included, or linked; a public header set was read as documentation only.
+
+Two corrections to the recorded evidence:
+
+- `SystemPerformanceInformation` was never probed. The 312 in the original row is `sizeof` of the **SDK** struct, which
+  `Tests/SystemDataPhase0` also passed as the query length, so the kernel could not report more. Re-probed on
+  2026-09-03 with a 1,024-byte buffer, the measured `ReturnLength` is **376** — the 24H2 band.
+- A per-processor query length must be an exact multiple of one record. `SystemProcessorPerformanceInformation` and
+  `SystemInterruptInformation` return `STATUS_INFO_LENGTH_MISMATCH` for a merely generous buffer, which silently
+  yields no data. `Tests/SystemDataPhase0` now carries that as a fixture.
+
+| Class | Number | 2026-09-01 | 2026-09-03 | Basis |
+| --- | ---: | --- | --- | --- |
+| `SystemPerformanceInformation` | 2 | `opaque` | `used` | Probed by `ReturnLength` (measured 376) in three acceptance bands; oracles are `GlobalMemoryStatusEx`, `K32GetPerformanceInfo`, the sum of per-process `Reserved7` I/O, and the sum of per-processor `IdleTime`. |
+| `SystemTimeOfDayInformation` | 3 | `opaque` | `used` | Exactly 48 bytes, matching its SDK reserved block, so an exact-length return is a complete version gate. Oracle: `GetSystemTimeAsFileTime` and `GetTickCount64`. |
+| `SystemProcessInformation` | 5 | `used` (`NextEntryOffset`, `NumberOfThreads` only) | `used` (full named record) | `Reserved1`/`Reserved2`/`Reserved4`/`Reserved5`/`Reserved6`/`Reserved7` consumed through `RedXeNtProcessRecord`. Oracles: Toolhelp parent PID (exact), `GetProcessTimes` create time (exact), `GetProcessIoCounters` and `K32GetProcessMemoryInfo` (monotonic bounds). |
+| `SYSTEM_THREAD_INFORMATION` | (in 5) | `used` (identity only) | `used` (times and context switches) | `Reserved1`/`Reserved2`/`Reserved3` through `RedXeNtThreadRecord`. Oracle: a thread's CPU time cannot exceed its process's. |
+| `SystemProcessorPerformanceInformation` | 8 | `used` (DPC/interrupt withheld) | `used` (complete) | `Reserved1`/`Reserved2` are `DpcTime`, `InterruptTime`, `InterruptCount`. Oracle: DPC plus interrupt time never exceeds the interval; interrupt count monotonic. |
+| `SystemInterruptInformation` | 23 | `opaque` | `probed, unpublished` | Layout proven and queried, but the non-`Ex` entry point returns success with a zero length on Win11 26100, so nothing is published. Its columns are already served by class 8. |
+| `SystemExceptionInformation` | 33 | `opaque` | `probed, unpublished` | Returns exactly 16 bytes as expected. Near-zero on x64; gated on ARM64 measurement rather than shipping a permanently-zero column. |
+| `SystemLookasideInformation` | 45 | `opaque` | `opaque` | Unchanged. No owning column wants it. |
+| `SystemCodeIntegrityInformation` | 103 | `pending` | `used` | Both members are SDK-named; only the bit meanings come from Microsoft's published DDI documentation. Owns `security.posture`. |
+| `SystemPolicyInformation` | 134 | `opaque` | `opaque` | Unchanged. |
+| `SystemBasicProcessInformation` | 252 | `used` | `removed` | Its only consumer was parent PID, which is `Reserved2` of the class-5 record already in hand. The query, its 256 KiB buffer, and the 4,096-entry parent map are deleted. |
+| `SystemExtendedProcessInformation` | 57 | `unknown-layout` | `restricted` | Layout is known. Every member it adds over class 5 is an address, which the excluded list forbids publishing, so it is not worth a second walk. |
+| `SystemKernelVaShadowInformation`, `SystemSpeculationControlInformation`, `SystemIsolatedUserModeInformation`, `SystemDmaGuardPolicyInformation` | 196, 201, —, 202 | `unknown-layout` | `pending` | Layouts are documented publicly, but none has an SDK enumerator, so there is no SDK member to anchor an overlay against. They stay out of runtime code. `security.posture` ships without them. |
+| `SystemStoreInformation` (memory compression), `SystemFullProcessInformation` | 111, — | — | `blocked` | Require `SeProfileSingleProcessPrivilege` and administrator respectively. Out of scope for a non-elevated always-on source; "Compressed" memory is therefore not offered rather than approximated. |
+
+Documented Win32 surfaces adopted in the same pass, none of which needs a native class:
+`GetSystemCpuSetInformation` (CPU-set ID, efficiency class, parked, allocated), `CallNtPowerInformation(ProcessorInformation)`
+(current and maximum MHz; the `PROCESSOR_POWER_INFORMATION` declaration is the one Microsoft documents and asks callers
+to declare themselves), `GetProcessInformation(ProcessPowerThrottling)` (efficiency mode),
+`SYSTEM_POWER_CAPABILITIES.AoAc` (modern standby), `KMTQAITYPE_ADAPTERTYPE` and `DXCoreAdapterState` (accelerator
+classification and utilization).
 
 This file is not a separately indexed WIP plan. SDK `10.0.26100.0` `um\winternl.h` enumerators are inventoried below.
 WDK `km` headers were not present on the primary machine (`...\Include\10.0.26100.0\km` does not exist), so

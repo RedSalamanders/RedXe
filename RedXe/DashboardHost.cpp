@@ -1,5 +1,7 @@
 #include "DashboardHost.h"
 
+#include "Application.h"
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -11,6 +13,17 @@ constexpr wchar_t kPointerForwardPrevProc[] = L"RedXe.PtrPrevProc";
 LRESULT CALLBACK PointerForwardProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
 {
     const auto previous = reinterpret_cast<WNDPROC>(GetPropW(window, kPointerForwardPrevProc));
+    if (message == WM_MOUSEMOVE)
+    {
+        // Mouse moves stay with the widget, but the top-level window still needs to know the pointer moved so its
+        // edge-band hover can re-test. Post a notification rather than the message itself: WM_MOUSEMOVE carries
+        // container-relative coordinates that the top-level window would misread.
+        const HWND root = GetAncestor(window, GA_ROOT);
+        if (root && root != window)
+        {
+            (void)PostMessageW(root, Application::kPageEdgeHoverMessage, 0, 0);
+        }
+    }
     if (message == WM_POINTERDOWN || message == WM_POINTERUPDATE || message == WM_POINTERUP ||
         message == WM_POINTERCAPTURECHANGED)
     {
@@ -251,6 +264,11 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
     for (uint32_t index = 0; index < widgetCount; ++index)
     {
         IRedXeWidget* widget = pluginManager.WidgetAt(index);
+        if (!widget && pluginManager.IsPlaceholderAt(index))
+        {
+            // A placeholder tile has no plugin object to make visible; the host draws it.
+            continue;
+        }
         const HRESULT result = widget ? widget->SetVisible(visible ? TRUE : FALSE) : E_UNEXPECTED;
         if (FAILED(result))
         {
@@ -281,7 +299,6 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
     }
 
     _pluginManager = &pluginManager;
-    pluginManager.SetUiInvalidateTarget(parent);
     _placements = placements;
     _gridPlacements = gridPlacements;
     _adaptivePlacements = adaptivePlacements;
@@ -533,13 +550,20 @@ HRESULT DashboardHost::SetWidgetsVisible(bool visible) noexcept
     for (size_t index = 0; index < _widgetCount; ++index)
     {
         IRedXeWidget* widget = _pluginManager->WidgetAt(index);
+        if (!widget)
+        {
+            changedCount = index + 1;
+            continue;
+        }
         const HRESULT result = widget->SetVisible(visible ? TRUE : FALSE);
         if (FAILED(result))
         {
             for (size_t previous = 0; previous < changedCount; ++previous)
             {
-                IRedXeWidget* previousWidget = _pluginManager->WidgetAt(previous);
-                (void)previousWidget->SetVisible(_widgetsVisible ? TRUE : FALSE);
+                if (IRedXeWidget* previousWidget = _pluginManager->WidgetAt(previous))
+                {
+                    (void)previousWidget->SetVisible(_widgetsVisible ? TRUE : FALSE);
+                }
             }
             return result;
         }
@@ -565,7 +589,6 @@ void DashboardHost::Shutdown() noexcept
     }
 
     (void)SetWidgetsVisible(false);
-    _pluginManager->SetUiInvalidateTarget(nullptr);
     for (size_t index = _widgetCount; index > 0; --index)
     {
         const size_t widgetIndex = index - 1;
@@ -643,6 +666,21 @@ RECT DashboardHost::PixelBoundsAt(size_t index, UINT width, UINT height) const n
 bool DashboardHost::RequiresContinuousFrames() const noexcept
 {
     return _requiresContinuousFrames;
+}
+
+bool DashboardHost::RequiresPlaceholderAt(size_t index) const noexcept
+{
+    if (!_pluginManager || index >= _widgetCount)
+    {
+        return false;
+    }
+    if (_pluginManager->IsPlaceholderAt(index))
+    {
+        return true;
+    }
+    // A constructed widget that reported itself unavailable is drawn by the host for as long as it says so.
+    return PluginHost::Instance().WidgetStatus(_pluginManager->WidgetInstanceIdAt(index)) ==
+           RedXeWidgetStatusUnavailable;
 }
 
 HRESULT DashboardHost::GetNextFrameDelayMilliseconds(uint32_t* delayMilliseconds) const noexcept

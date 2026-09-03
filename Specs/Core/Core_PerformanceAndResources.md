@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 ## Mandate
 
@@ -41,6 +41,21 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   blocks in one message-aware wait. Expiry coalesces one frame. Continuous animation supersedes the wait; hidden,
   minimized, suspended, display-off, occluded, inactive-page, and shutdown states retain no deadline. Invalid or
   failed delay queries are isolated and must not create a retry loop.
+- The plugin runtime is process scoped. Exactly one module store, one set of data sources, and one acquisition worker
+  serve the whole application, including the dashboard page staged for a swipe. Staging an adjacent page MUST NOT map
+  a module a second time, create a second data source for a provider ID, or start a second acquisition thread, so a
+  page change costs no duplicate acquisition and no thread churn.
+- A plugin that needs a frame for an unpredictable state change calls `IRedXeHost::RequestFrame`, which coalesces one
+  invalidation on the UI thread and adds no timer or wake-up of its own. It MUST NOT be used to emulate continuous
+  animation, and it never overrides a blocked, hidden, suspended, display-off, or occluded state.
+- Host edge-navigation chrome is event driven. It reveals on pointer entry, hides on pointer leave, and MUST NOT own a
+  timer, a fade, a continuous frame, or any other wake-up. Re-evaluating the chrome with unchanged host state MUST
+  perform no window operations, so it is safe to call from the frame loop.
+- Resolution-dependent plugin resources are rebuilt on `IRedXeGpuWidget::OnTargetSizeChanged`, never in `Render`. That
+  callback is the sanctioned place for rasterization, texture creation, and allocation in a GPU widget, because it is
+  event driven: the host reports only an actual change in the largest viewport it will draw that widget at, never a
+  position-only change and never per frame. Freezing such a resource at device-creation size instead is a defect, not
+  a saving -- it produces wrong output at every other size.
 - Plugin `Render` calls use borrowed frame and D3D context records. Render, resize, and
   `IRedXeWidget::SetVisible` callbacks must not
   perform disk, network, device discovery, process creation, blocking waits, or long-held locks.

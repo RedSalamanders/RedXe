@@ -50,12 +50,22 @@ float RoundedCardCoverage(float2 uv)
 
 float GlyphCoverage(uint glyph, float2 uv, bool isDate)
 {
+    // Every cell, offset, and em size scales with the atlas tier, so cell geometry in texels is the base layout
+    // times this factor and normalized coordinates are identical across tiers.
+    const float atlasEdge = max(targetSize.w, 1.0f);
+    const float atlasScale = atlasEdge * (1.0f / 1024.0f);
+    const float inverseEdge = 1.0f / atlasEdge;
+
     if (isDate)
     {
         const uint dateGlyph = glyph - 10U;
         const uint2 cell = uint2(dateGlyph & 15U, dateGlyph >> 4U);
-        const float2 atlasPixel = float2(cell.x * 64U, 640U + cell.y * 64U) + 0.5f + saturate(uv) * 63.0f;
-        return glyphAtlas.Sample(glyphSampler, atlasPixel * (1.0f / 1024.0f));
+        const float cellSize = 64.0f * atlasScale;
+        const float2 origin = float2(float(cell.x) * cellSize, (640.0f * atlasScale) + float(cell.y) * cellSize);
+        const float2 atlasPixel = origin + 0.5f + saturate(uv) * (cellSize - 1.0f);
+        // Date cells are the small ones, and a filtered mip erases their thin strokes, so read level 0 explicitly.
+        // SampleLevel also needs no derivatives, which is the correct choice inside this divergent branch.
+        return glyphAtlas.SampleLevel(glyphSampler, atlasPixel * inverseEdge, 0.0f);
     }
 
     const float2 glyphMinimum = float2(0.11f, 0.09f);
@@ -66,9 +76,11 @@ float GlyphCoverage(uint glyph, float2 uv, bool isDate)
         return 0.0f;
     }
     const uint2 cell = uint2(glyph % 5U, glyph / 5U);
-    const float2 atlasPixel = float2(cell.x * 192U, cell.y * 288U) + 0.5f +
-                              saturate(glyphUv) * float2(191.0f, 287.0f);
-    return glyphAtlas.Sample(glyphSampler, atlasPixel * (1.0f / 1024.0f));
+    const float2 cellSize = float2(192.0f, 288.0f) * atlasScale;
+    const float2 origin = float2(float(cell.x), float(cell.y)) * cellSize;
+    const float2 atlasPixel = origin + 0.5f + saturate(glyphUv) * (cellSize - 1.0f);
+    // Time cells take the mip chain: they are minified on every tile at or below the composition design size.
+    return glyphAtlas.Sample(glyphSampler, atlasPixel * inverseEdge);
 }
 
 float4 PixelMain(ClockInput input) : SV_Target

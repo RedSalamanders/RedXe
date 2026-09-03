@@ -747,10 +747,7 @@ class StudioClockSharedResources final
 // object padding even though the record itself has an exact asserted layout.
 #pragma warning(push)
 #pragma warning(disable : 4324)
-class StudioClockWidget final : public IRedXeWidget,
-                                public IRedXeGpuWidget,
-                                public IRedXeScheduledWidget,
-                                public IRedXeRaisedWidget
+class StudioClockWidget final : public RedXeComObject<StudioClockWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
 {
   public:
     StudioClockWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner,
@@ -766,52 +763,6 @@ class StudioClockWidget final : public IRedXeWidget,
     {
         OnDeviceLost();
         gLiveWidgetCount.fetch_sub(1, std::memory_order_relaxed);
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-        {
-            return E_POINTER;
-        }
-        *result = nullptr;
-        if (interfaceId == __uuidof(IUnknown) || interfaceId == __uuidof(IRedXeWidget))
-        {
-            *result = static_cast<IRedXeWidget*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeGpuWidget))
-        {
-            *result = static_cast<IRedXeGpuWidget*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeScheduledWidget))
-        {
-            *result = static_cast<IRedXeScheduledWidget*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeRaisedWidget))
-        {
-            *result = static_cast<IRedXeRaisedWidget*>(this);
-        }
-        else
-        {
-            return E_NOINTERFACE;
-        }
-        AddRef();
-        return S_OK;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-        {
-            delete this;
-        }
-        return references;
     }
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL) noexcept override
@@ -892,6 +843,17 @@ class StudioClockWidget final : public IRedXeWidget,
         _resources->Release();
         _deviceAttached = false;
         _constantsDirty = true;
+    }
+
+    HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
+    {
+        if (!context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
+        {
+            return E_INVALIDARG;
+        }
+        // Dots and segments are generated geometry scaled per frame from the frame context; there is no glyph atlas or
+        // other resolution-dependent resource to rebuild.
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
@@ -1091,7 +1053,6 @@ class StudioClockWidget final : public IRedXeWidget,
         _instanceCount = kTimeDotInstances + secondsCount + dateCount + progressCount;
     }
 
-    std::atomic<ULONG> _references{1};
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _providerOwner;
     StudioClockConfiguration _configuration;
     StudioClockSharedResources* _resources;
@@ -1114,7 +1075,7 @@ class StudioClockWidget final : public IRedXeWidget,
 };
 #pragma warning(pop)
 
-class StudioClockProvider final : public IRedXeWidgetProvider
+class StudioClockProvider final : public RedXeComObject<StudioClockProvider, IRedXeWidgetProvider>
 {
   public:
     explicit StudioClockProvider(const StudioClockConfiguration& configuration) noexcept : _configuration(configuration)
@@ -1125,31 +1086,6 @@ class StudioClockProvider final : public IRedXeWidgetProvider
     ~StudioClockProvider()
     {
         gLiveProviderCount.fetch_sub(1, std::memory_order_relaxed);
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-            return E_POINTER;
-        *result = nullptr;
-        if (interfaceId != __uuidof(IUnknown) && interfaceId != __uuidof(IRedXeWidgetProvider))
-            return E_NOINTERFACE;
-        *result = static_cast<IRedXeWidgetProvider*>(this);
-        AddRef();
-        return S_OK;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-            delete this;
-        return references;
     }
 
     HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
@@ -1190,7 +1126,6 @@ class StudioClockProvider final : public IRedXeWidgetProvider
     }
 
   private:
-    std::atomic<ULONG> _references{1};
     StudioClockConfiguration _configuration;
     StudioClockSharedResources _resources;
 };
@@ -1250,7 +1185,7 @@ extern "C" void __stdcall RedXePluginShutdown() noexcept
     gTestTimeRevision.fetch_add(1, std::memory_order_release);
 }
 
-extern "C" __declspec(dllexport) HRESULT __stdcall RedXeStudioClockSetTestTime(
+extern "C" HRESULT __stdcall RedXeStudioClockSetTestTime(
     const StudioClockTestTime* testTime) noexcept
 {
     if (!testTime)
@@ -1281,7 +1216,7 @@ extern "C" __declspec(dllexport) HRESULT __stdcall RedXeStudioClockSetTestTime(
     return S_OK;
 }
 
-extern "C" __declspec(dllexport) HRESULT __stdcall RedXeStudioClockGetTestDiagnostics(
+extern "C" HRESULT __stdcall RedXeStudioClockGetTestDiagnostics(
     StudioClockTestDiagnostics* diagnostics) noexcept
 {
     if (!diagnostics)

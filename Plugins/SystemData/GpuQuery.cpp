@@ -3,16 +3,30 @@
 #include <algorithm>
 #include <cstring>
 #include <cwchar>
+#include <d3dkmthk.h>
 #include <pdh.h>
 #include <string_view>
 
+// dxcore.dll is bound at runtime rather than linked, so dxcore.lib is not available to define the adapter attribute
+// GUIDs that dxcore_interface.h only declares. INITGUID must precede this include so those declarations emit
+// definitions in this translation unit; it is placed here, out of alphabetical order, for exactly that reason.
+#include <initguid.h>
+
+#include <dxcore.h>
+
 namespace
 {
+constexpr UINT kKmtAdapterType = 15;
 constexpr UINT kKmtNodeMetadata = 25;
 constexpr UINT kKmtPhysicalAdapterCount = 30;
 constexpr UINT kKmtNodePerfData = 61;
 constexpr UINT kKmtAdapterPerfData = 62;
 constexpr UINT kKmtAdapterPerfDataCaps = 63;
+static_assert(kKmtAdapterType == KMTQAITYPE_ADAPTERTYPE);
+static_assert(kKmtNodeMetadata == KMTQAITYPE_NODEMETADATA);
+static_assert(kKmtPhysicalAdapterCount == KMTQAITYPE_PHYSICALADAPTERCOUNT);
+static_assert(kKmtAdapterPerfData == KMTQAITYPE_ADAPTERPERFDATA);
+static_assert(kKmtAdapterPerfDataCaps == KMTQAITYPE_ADAPTERPERFDATA_CAPS);
 constexpr uint32_t kMaxNodesPerAdapter = 64;
 constexpr wchar_t kGpuEngineCounterPath[] = L"\\GPU Engine(*)\\Utilization Percentage";
 
@@ -340,16 +354,22 @@ RedXeGpuState::~RedXeGpuState() noexcept
         pdhGpuEngineCounter = nullptr;
         pdhReady = false;
     }
+    if (dxcoreFactory)
+    {
+        dxcoreFactory->Release();
+        dxcoreFactory = nullptr;
+    }
+    if (dxcoreModule)
+    {
+        (void)FreeLibrary(dxcoreModule);
+        dxcoreModule = nullptr;
+    }
 }
 
-void RedXeGpuSampleAdapters(RedXeGpuState& state) noexcept
+// Enriches an already-built row from the DXGI adapter with the same LUID, when one exists. A compute-only adapter
+// has no DXGI entry at all, which is normal rather than an error, so a miss simply leaves the DXGI fields unset.
+void EnrichFromDxgi(RedXeGpuState& state, RedXeGpuAdapterRow& row) noexcept
 {
-    if (!state.dxgiFactory)
-    {
-        (void)CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(state.dxgiFactory.put()));
-    }
-    RefreshKmtAdapters(state);
-    state.adapterCount = 0;
     if (!state.dxgiFactory)
     {
         return;
@@ -358,22 +378,15 @@ void RedXeGpuSampleAdapters(RedXeGpuState& state) noexcept
     {
         wil::com_ptr_nothrow<IDXGIAdapter1> adapter;
         const HRESULT enumerated = state.dxgiFactory->EnumAdapters1(index, adapter.put());
-        if (enumerated == DXGI_ERROR_NOT_FOUND)
+        if (enumerated == DXGI_ERROR_NOT_FOUND || FAILED(enumerated) || !adapter)
         {
-            break;
-        }
-        if (FAILED(enumerated) || !adapter)
-        {
-            break;
+            return;
         }
         DXGI_ADAPTER_DESC1 description{};
-        if (FAILED(adapter->GetDesc1(&description)))
+        if (FAILED(adapter->GetDesc1(&description)) || LuidValue(description.AdapterLuid) != row.adapterLuid)
         {
             continue;
         }
-        RedXeGpuAdapterRow& row = state.adapters[state.adapterCount];
-        row = {};
-        row.adapterLuid = LuidValue(description.AdapterLuid);
         CopyWide(row.displayName, std::size(row.displayName), description.Description);
         row.vendorId = description.VendorId;
         row.deviceId = description.DeviceId;
@@ -381,9 +394,252 @@ void RedXeGpuSampleAdapters(RedXeGpuState& state) noexcept
         row.dedicatedBytes = description.DedicatedVideoMemory;
         row.sharedBytes = description.SharedSystemMemory;
         row.hasDxgi = true;
+        return;
+    }
+}
 
-        const D3dkmtHandle handle = FindKmtHandle(state, row.adapterLuid);
-        const auto queryAdapterInfo = reinterpret_cast<D3dkmtQueryAdapterInfoFn>(state.kmtQueryAdapterInfo);
+void ResolveDxcore(RedXeGpuState& state) noexcept
+{
+    if (state.dxcoreResolved)
+    {
+        return;
+    }
+    state.dxcoreResolved = true;
+    state.dxcoreModule = LoadLibraryExW(L"dxcore.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!state.dxcoreModule)
+    {
+        return;
+    }
+    using CreateFactoryFn = HRESULT(WINAPI*)(REFIID, void**);
+    const auto create = ResolveExport<CreateFactoryFn>(state.dxcoreModule, "DXCoreCreateAdapterFactory");
+    if (!create)
+    {
+        return;
+    }
+    IDXCoreAdapterFactory* factory = nullptr;
+    if (SUCCEEDED(create(__uuidof(IDXCoreAdapterFactory), reinterpret_cast<void**>(&factory))) && factory)
+    {
+        state.dxcoreFactory = factory;
+    }
+}
+
+void ReleaseDxcoreAdapters(RedXeGpuState& state) noexcept
+{
+    for (uint32_t index = 0; index < state.dxcoreCount; ++index)
+    {
+        if (state.dxcoreAdapters[index])
+        {
+            state.dxcoreAdapters[index]->Release();
+            state.dxcoreAdapters[index] = nullptr;
+        }
+    }
+    state.dxcoreCount = 0;
+}
+
+// Builds the DXCore side of the join: one IDXCoreAdapter1 per enumerated device, tagged with the runtime-agnostic
+// hardware type. Microsoft documents that exactly one hardware-type attribute is reported by the driver or inferred
+// by DXCore, which is the labelling Task Manager itself relies on. Adapter lists are per-attribute, so this walks
+// the four types and records the first that claims each LUID.
+void RefreshDxcoreAdapters(RedXeGpuState& state) noexcept
+{
+    ResolveDxcore(state);
+    ReleaseDxcoreAdapters(state);
+    if (!state.dxcoreFactory)
+    {
+        return;
+    }
+    auto* factory = static_cast<IDXCoreAdapterFactory*>(state.dxcoreFactory);
+    struct ClassAttribute final
+    {
+        const GUID* attribute;
+        uint64_t deviceClass;
+    };
+    const ClassAttribute attributes[]{
+        {&DXCORE_HARDWARE_TYPE_ATTRIBUTE_NPU, kRedXeDeviceClassNpu},
+        {&DXCORE_HARDWARE_TYPE_ATTRIBUTE_GPU, kRedXeDeviceClassGpu},
+        {&DXCORE_HARDWARE_TYPE_ATTRIBUTE_COMPUTE_ACCELERATOR, kRedXeDeviceClassComputeAccelerator},
+        {&DXCORE_HARDWARE_TYPE_ATTRIBUTE_MEDIA_ACCELERATOR, kRedXeDeviceClassMediaAccelerator},
+    };
+    for (const ClassAttribute& entry : attributes)
+    {
+        wil::com_ptr_nothrow<IDXCoreAdapterList> list;
+        if (FAILED(factory->CreateAdapterList(1, entry.attribute, __uuidof(IDXCoreAdapterList), list.put_void())) ||
+            !list)
+        {
+            continue;
+        }
+        const uint32_t count = list->GetAdapterCount();
+        for (uint32_t index = 0; index < count && state.dxcoreCount < kRedXeMaximumGpuAdapters; ++index)
+        {
+            wil::com_ptr_nothrow<IDXCoreAdapter> adapter;
+            if (FAILED(list->GetAdapter(index, __uuidof(IDXCoreAdapter), adapter.put_void())) || !adapter)
+            {
+                continue;
+            }
+            LUID instance{};
+            if (FAILED(adapter->GetProperty(DXCoreAdapterProperty::InstanceLuid, &instance)))
+            {
+                continue;
+            }
+            const uint64_t luid = LuidValue(instance);
+            bool alreadyKnown = false;
+            for (uint32_t known = 0; known < state.dxcoreCount; ++known)
+            {
+                alreadyKnown = alreadyKnown || state.dxcoreLuids[known] == luid;
+            }
+            if (alreadyKnown)
+            {
+                continue;
+            }
+            // IDXCoreAdapter1 carries QueryState/GetPropertyWithInput; an older runtime exposes only the base
+            // interface, in which case the row keeps its class but loses the state queries.
+            IUnknown* held = nullptr;
+            wil::com_ptr_nothrow<IDXCoreAdapter1> adapter1;
+            if (SUCCEEDED(adapter->QueryInterface(__uuidof(IDXCoreAdapter1), adapter1.put_void())) && adapter1)
+            {
+                held = adapter1.detach();
+            }
+            state.dxcoreAdapters[state.dxcoreCount] = held;
+            state.dxcoreLuids[state.dxcoreCount] = luid;
+            state.dxcoreClasses[state.dxcoreCount] = entry.deviceClass;
+            ++state.dxcoreCount;
+        }
+    }
+}
+
+[[nodiscard]] uint32_t FindDxcoreIndex(const RedXeGpuState& state, uint64_t luid) noexcept
+{
+    for (uint32_t index = 0; index < state.dxcoreCount; ++index)
+    {
+        if (state.dxcoreLuids[index] == luid)
+        {
+            return index;
+        }
+    }
+    return state.dxcoreCount;
+}
+
+// Machine-wide adapter memory use and temperature. These DXCoreAdapterState items are documented but flagged
+// prerelease, so every one is probed per adapter and a failure leaves the field unavailable rather than zero. This
+// is the documented answer to IDXGIAdapter3::QueryVideoMemoryInfo reporting only the calling process's budget.
+void FillDxcoreAdapterState(RedXeGpuState& state, RedXeGpuAdapterRow& row) noexcept
+{
+    const uint32_t index = FindDxcoreIndex(state, row.adapterLuid);
+    if (index >= state.dxcoreCount || !state.dxcoreAdapters[index])
+    {
+        return;
+    }
+    auto* adapter = static_cast<IDXCoreAdapter1*>(state.dxcoreAdapters[index]);
+    uint32_t engineCount = 0;
+    if (SUCCEEDED(adapter->GetProperty(DXCoreAdapterProperty::AdapterEngineCount, sizeof(engineCount), &engineCount)))
+    {
+        row.engineCount = engineCount;
+        row.hasEngineCount = true;
+    }
+    DXCoreMemoryQueryInput dedicatedInput{0, DXCoreMemoryType::Dedicated};
+    DXCoreMemoryUsage dedicated{};
+    DXCoreMemoryQueryInput sharedInput{0, DXCoreMemoryType::Shared};
+    DXCoreMemoryUsage shared{};
+    if (SUCCEEDED(adapter->QueryState(DXCoreAdapterState::AdapterMemoryUsageBytes, &dedicatedInput, &dedicated)) &&
+        SUCCEEDED(adapter->QueryState(DXCoreAdapterState::AdapterMemoryUsageBytes, &sharedInput, &shared)))
+    {
+        row.usedDedicatedBytes = dedicated.resident;
+        row.usedSharedBytes = shared.resident;
+        row.hasMemoryUsage = true;
+    }
+    if (!row.hasTemperature)
+    {
+        float temperature = 0.0f;
+        uint32_t physicalIndex = 0;
+        if (SUCCEEDED(adapter->QueryState(DXCoreAdapterState::AdapterTemperatureCelsius, &physicalIndex,
+                                          &temperature)) &&
+            temperature > 0.0f)
+        {
+            row.temperatureC = static_cast<double>(temperature);
+            row.hasTemperature = true;
+        }
+    }
+}
+
+// Builds one adapter row per dxgkrnl adapter. The D3DKMT adapter list is the spine because it is the only
+// enumeration that returns compute-only MCDM devices; DXGI and DXCore enrich rows joined by LUID. Driving the loop
+// from DXGI, as this did before, silently dropped every adapter without a Direct3D user-mode driver — every NPU.
+void RedXeGpuSampleAdapters(RedXeGpuState& state) noexcept
+{
+    if (!state.dxgiFactory)
+    {
+        (void)CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(state.dxgiFactory.put()));
+    }
+    RefreshKmtAdapters(state);
+    RefreshDxcoreAdapters(state);
+    state.adapterCount = 0;
+    const auto queryAdapterInfo = reinterpret_cast<D3dkmtQueryAdapterInfoFn>(state.kmtQueryAdapterInfo);
+    for (uint32_t kmtIndex = 0; kmtIndex < state.kmtCount && state.adapterCount < kRedXeMaximumGpuAdapters; ++kmtIndex)
+    {
+        RedXeGpuAdapterRow& row = state.adapters[state.adapterCount];
+        row = {};
+        row.adapterLuid = state.kmtLuids[kmtIndex];
+        EnrichFromDxgi(state, row);
+
+        const uint32_t dxcoreIndex = FindDxcoreIndex(state, row.adapterLuid);
+        const bool dxcoreResolved = dxcoreIndex < state.dxcoreCount;
+        const uint64_t dxcoreClass = dxcoreResolved ? state.dxcoreClasses[dxcoreIndex] : kRedXeDeviceClassUnknown;
+
+        const D3dkmtHandle handle = state.kmtHandles[kmtIndex];
+        if (handle != 0 && queryAdapterInfo)
+        {
+            D3DKMT_ADAPTERTYPE adapterType{};
+            D3dkmtQueryAdapterInfo typeQuery{};
+            typeQuery.hAdapter = handle;
+            typeQuery.Type = kKmtAdapterType;
+            typeQuery.PrivateDriverData = &adapterType;
+            typeQuery.PrivateDriverDataSize = static_cast<UINT>(sizeof(adapterType));
+            if (queryAdapterInfo(&typeQuery) >= 0)
+            {
+                row.hasAdapterType = true;
+                row.computeOnly = adapterType.ComputeOnly != 0 ? 1 : 0;
+                if (adapterType.SoftwareDevice != 0)
+                {
+                    row.software = 1;
+                }
+                if (adapterType.HybridIntegrated != 0)
+                {
+                    row.integrated = 1;
+                    row.hasIntegrated = true;
+                }
+            }
+            UINT32 physicalCount = 0;
+            D3dkmtQueryAdapterInfo countQuery{};
+            countQuery.hAdapter = handle;
+            countQuery.Type = kKmtPhysicalAdapterCount;
+            countQuery.PrivateDriverData = &physicalCount;
+            countQuery.PrivateDriverDataSize = static_cast<UINT>(sizeof(physicalCount));
+            if (queryAdapterInfo(&countQuery) >= 0 && physicalCount != 0)
+            {
+                row.physicalAdapterCount = physicalCount;
+            }
+        }
+
+        // Precedence: DXCore hardware type, then the D3DKMT adapter-type bits, then DXGI presence. A row with no
+        // evidence at all stays Unknown rather than being assumed to be a GPU.
+        if (dxcoreResolved)
+        {
+            row.deviceClass = dxcoreClass;
+            row.hasDeviceClass = true;
+        }
+        else if (row.hasAdapterType)
+        {
+            row.deviceClass = row.software != 0      ? kRedXeDeviceClassSoftware
+                              : row.computeOnly != 0 ? kRedXeDeviceClassComputeAccelerator
+                                                     : kRedXeDeviceClassGpu;
+            row.hasDeviceClass = true;
+        }
+        else if (row.hasDxgi)
+        {
+            row.deviceClass = row.software != 0 ? kRedXeDeviceClassSoftware : kRedXeDeviceClassGpu;
+            row.hasDeviceClass = true;
+        }
+
         if (handle != 0 && queryAdapterInfo)
         {
             D3dkmtAdapterPerfData perf{};
@@ -418,6 +674,7 @@ void RedXeGpuSampleAdapters(RedXeGpuState& state) noexcept
                 }
             }
         }
+        FillDxcoreAdapterState(state, row);
         ++state.adapterCount;
     }
     std::sort(state.adapters.begin(), state.adapters.begin() + state.adapterCount,
@@ -425,11 +682,116 @@ void RedXeGpuSampleAdapters(RedXeGpuState& state) noexcept
               { return left.adapterLuid < right.adapterLuid; });
 }
 
+uint64_t RedXeGpuDeviceClassForLuid(const RedXeGpuState& state, uint64_t luid) noexcept
+{
+    for (uint32_t index = 0; index < state.adapterCount; ++index)
+    {
+        if (state.adapters[index].adapterLuid == luid)
+        {
+            return state.adapters[index].deviceClass;
+        }
+    }
+    return kRedXeDeviceClassUnknown;
+}
+
+// Per-engine busy percentage from DXCore's cumulative running-time counter. This is the utilization path that works
+// for any adapter DXCore enumerates, NPUs included, without depending on a performance-counter set name — Microsoft
+// has not published the one NPU engines appear in, and it is not "GPU Engine".
+void FillDxcoreEngineUtilization(RedXeGpuState& state) noexcept
+{
+    if (state.dxcoreCount == 0 || state.engineCount == 0)
+    {
+        return;
+    }
+    FILETIME nowFileTime{};
+    GetSystemTimeAsFileTime(&nowFileTime);
+    const uint64_t now = (static_cast<uint64_t>(nowFileTime.dwHighDateTime) << 32) | nowFileTime.dwLowDateTime;
+    const uint64_t elapsed100ns =
+        state.previousEngineTimestamp100ns != 0 && now > state.previousEngineTimestamp100ns
+            ? now - state.previousEngineTimestamp100ns
+            : 0;
+
+    uint32_t written = 0;
+    for (uint32_t index = 0; index < state.engineCount; ++index)
+    {
+        RedXeGpuEngineRow& row = state.engines[index];
+        const uint32_t dxcoreIndex = FindDxcoreIndex(state, row.adapterLuid);
+        if (dxcoreIndex >= state.dxcoreCount || !state.dxcoreAdapters[dxcoreIndex])
+        {
+            continue;
+        }
+        auto* adapter = static_cast<IDXCoreAdapter1*>(state.dxcoreAdapters[dxcoreIndex]);
+        DXCoreAdapterEngineIndex engineIndex{static_cast<uint32_t>(row.physicalAdapterIndex),
+                                             static_cast<uint32_t>(row.nodeOrdinal)};
+        DXCoreEngineQueryOutput output{};
+        if (FAILED(adapter->QueryState(DXCoreAdapterState::AdapterEngineRunningTimeMicroseconds, &engineIndex,
+                                       &output)))
+        {
+            continue;
+        }
+        for (uint32_t previous = 0; previous < state.previousEngineCount; ++previous)
+        {
+            const RedXeAcceleratorEngineSample& sample = state.previousEngines[previous];
+            if (sample.adapterLuid != row.adapterLuid || sample.physicalAdapterIndex != row.physicalAdapterIndex ||
+                sample.engineIndex != row.nodeOrdinal)
+            {
+                continue;
+            }
+            if (elapsed100ns != 0 && output.runningTime >= sample.runningTimeMicroseconds)
+            {
+                // Running time is microseconds busy; the interval is 100 ns units, so ten microseconds of interval
+                // per unit of elapsed time makes a percentage.
+                const double busy = static_cast<double>(output.runningTime - sample.runningTimeMicroseconds);
+                const double interval = static_cast<double>(elapsed100ns) / 10.0;
+                row.utilizationPercent = interval > 0.0 ? std::clamp((busy / interval) * 100.0, 0.0, 100.0) : 0.0;
+                row.hasUtilization = true;
+            }
+            break;
+        }
+        if (written < state.previousEngines.size())
+        {
+            state.previousEngines[written] = RedXeAcceleratorEngineSample{
+                row.adapterLuid, static_cast<uint32_t>(row.physicalAdapterIndex),
+                static_cast<uint32_t>(row.nodeOrdinal), output.runningTime};
+            ++written;
+        }
+    }
+    state.previousEngineCount = written;
+    state.previousEngineTimestamp100ns = now;
+
+    // Roll the per-engine readings up into one adapter utilization, taking the busiest engine rather than an average
+    // so a single saturated engine is not hidden by idle siblings.
+    for (uint32_t index = 0; index < state.adapterCount; ++index)
+    {
+        RedXeGpuAdapterRow& adapterRow = state.adapters[index];
+        double best = 0.0;
+        bool any = false;
+        for (uint32_t engine = 0; engine < state.engineCount; ++engine)
+        {
+            const RedXeGpuEngineRow& engineRow = state.engines[engine];
+            if (engineRow.adapterLuid == adapterRow.adapterLuid && engineRow.hasUtilization)
+            {
+                best = (std::max)(best, engineRow.utilizationPercent);
+                any = true;
+            }
+        }
+        if (any)
+        {
+            adapterRow.utilizationPercent = best;
+            adapterRow.hasUtilization = true;
+        }
+    }
+}
+
 void RedXeGpuSampleEngines(RedXeGpuState& state) noexcept
 {
     if (state.kmtCount == 0)
     {
         RefreshKmtAdapters(state);
+    }
+    if (state.adapterCount == 0)
+    {
+        RedXeGpuSampleAdapters(state);
     }
     const auto queryAdapterInfo = reinterpret_cast<D3dkmtQueryAdapterInfoFn>(state.kmtQueryAdapterInfo);
     state.engineCount = 0;
@@ -503,6 +865,7 @@ void RedXeGpuSampleEngines(RedXeGpuState& state) noexcept
             }
         }
     }
+    FillDxcoreEngineUtilization(state);
 }
 
 void RedXeGpuSampleProcesses(RedXeGpuState& state) noexcept

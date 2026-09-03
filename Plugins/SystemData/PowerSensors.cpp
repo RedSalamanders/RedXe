@@ -400,6 +400,10 @@ void RedXePowerSampleSummary(RedXePowerState& state) noexcept
         state.summary.systemS4 = capabilities.SystemS4 ? 1 : 0;
         state.summary.hiberFilePresent = capabilities.HiberFilePresent ? 1 : 0;
         state.summary.thermalControl = capabilities.ThermalControl ? 1 : 0;
+        // Modern standby (S0 low-power idle). Without it a machine that reports SystemS3 == 0 looks unable to
+        // sleep at all, which is wrong for most current laptops.
+        state.summary.modernStandby = capabilities.AoAc ? 1 : 0;
+        state.summary.modernStandbyConnected = capabilities.AoAcConnectivitySupported ? 1 : 0;
         state.summary.hasCapabilities = true;
     }
 }

@@ -16,6 +16,10 @@
 #include <wil/resource.h>
 #pragma warning(pop)
 
+// One process-scoped plugin runtime. It owns every mapped plugin module, every host data provider and plugin data
+// source, the single acquisition worker, and subscription drain lifetime. PluginManager instances borrow it through
+// Instance() so that staging an adjacent dashboard page reuses the already-mapped modules, the already-created data
+// sources, and the already-running worker instead of building a second runtime beside them.
 class PluginHost final : public IRedXeHost
 {
   public:
@@ -27,6 +31,17 @@ class PluginHost final : public IRedXeHost
 
     PluginHost() = default;
     ~PluginHost();
+
+    // The process runtime. Every PluginManager in the application borrows this instance; tests may still construct a
+    // private PluginHost when they need an isolated runtime.
+    [[nodiscard]] static PluginHost& Instance() noexcept;
+
+    // Releases the process runtime. The caller MUST have destroyed every PluginManager, widget, provider, and
+    // subscription first. Modules stay mapped, and optional RedXePluginShutdown runs exactly once per module here.
+    static void ShutdownProcessRuntime() noexcept;
+
+    // Idempotent teardown of this runtime's worker, providers, sources, and module bindings.
+    void Shutdown() noexcept;
 
     PluginHost(const PluginHost&) = delete;
     PluginHost& operator=(const PluginHost&) = delete;
@@ -45,11 +60,25 @@ class PluginHost final : public IRedXeHost
     ULONG STDMETHODCALLTYPE AddRef() noexcept override;
     ULONG STDMETHODCALLTYPE Release() noexcept override;
     HRESULT STDMETHODCALLTYPE GetDataProvider(const char* providerId, IRedXeDataProvider** provider) noexcept override;
+    HRESULT STDMETHODCALLTYPE RequestFrame() noexcept override;
+    HRESULT STDMETHODCALLTYPE ReportWidgetStatus(const char* instanceId,
+                                                 const RedXeWidgetStatusReport* report) noexcept override;
+
+    // Latest status reported by one widget instance. Unknown instances read back as RedXeWidgetStatusOk so a widget
+    // that never reports is never drawn as a placeholder.
+    [[nodiscard]] uint32_t WidgetStatus(const char* instanceId) const noexcept;
+    // Copies the latest reason text for one instance into caller storage. Returns false when there is none.
+    [[nodiscard]] bool WidgetStatusReason(const char* instanceId, wchar_t* text, size_t capacity) const noexcept;
+    void ClearWidgetStatus(const char* instanceId) noexcept;
 
   private:
     static constexpr size_t kMaximumDataSetsPerProvider = 256;
     static constexpr size_t kMaximumSubscriptions = 32;
     static constexpr uint32_t kMaximumSubscriptionIntervalMilliseconds = 60'000;
+    // One slot per widget instance the host can compose at once: the current page plus its staged neighbour.
+    static constexpr size_t kMaximumWidgetStatusSlots = 64;
+    static constexpr size_t kMaximumWidgetStatusIdBytes = 128;
+    static constexpr size_t kMaximumWidgetStatusReasonCharacters = 96;
 
     class DataProvider;
     class Subscription;
@@ -80,6 +109,14 @@ class PluginHost final : public IRedXeHost
         const RedXeDataSetDescriptor* descriptors = nullptr;
         uint32_t descriptorCount = 0;
         std::array<DataSetRuntime, kMaximumDataSetsPerProvider> dataSets{};
+    };
+
+    struct WidgetStatusSlot final
+    {
+        std::array<char, kMaximumWidgetStatusIdBytes> instanceId{};
+        std::array<wchar_t, kMaximumWidgetStatusReasonCharacters> reason{};
+        uint32_t status = RedXeWidgetStatusOk;
+        bool used = false;
     };
 
     struct SubscriptionSlot final
@@ -116,10 +153,13 @@ class PluginHost final : public IRedXeHost
     size_t _providerCount = 0;
     std::array<SubscriptionSlot, kMaximumSubscriptions> _subscriptions;
     SRWLOCK _subscriptionLock = SRWLOCK_INIT;
+    std::array<WidgetStatusSlot, kMaximumWidgetStatusSlots> _widgetStatus;
+    mutable SRWLOCK _widgetStatusLock = SRWLOCK_INIT;
     wil::unique_event_nothrow _stopEvent;
     wil::unique_event_nothrow _changeEvent;
     std::jthread _worker;
     uint64_t _nextToken = 1;
     std::atomic<HWND> _uiWindow{nullptr};
     std::atomic<uint32_t> _pendingInvalidate{0};
+    bool _shutdown = false;
 };

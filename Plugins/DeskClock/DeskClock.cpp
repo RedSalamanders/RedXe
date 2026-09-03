@@ -93,7 +93,40 @@ inline constexpr uint32_t kDateDigitOffset = kTimeGlyphCount;
 inline constexpr uint32_t kDateGlyphCount = 62;
 inline constexpr uint32_t kGlyphCount = kDateDigitOffset + kDateGlyphCount;
 inline constexpr uint32_t kGlyphAtlasSize = 1024;
-inline constexpr uint32_t kGlyphAtlasBytes = kGlyphAtlasSize * kGlyphAtlasSize;
+inline constexpr uint32_t kGlyphAtlasMip0Bytes = kGlyphAtlasSize * kGlyphAtlasSize;
+
+// The atlas is rasterized once at a fixed em size and then scaled to whatever the tile is, so the glyphs are almost
+// always minified: a time cell is 192x288 while the on-screen glyph is 152x254 at the design size and smaller on
+// every tile below it. A single-level texture has nothing to minify from, so the sampler drops texels and the digits
+// stair-step. A short mip chain gives it filtered levels to fetch.
+//
+// The chain is deliberately short. Cells are packed edge to edge, so a deep chain would bleed neighbouring glyphs
+// into each other; three levels bound the widest fetch to four source texels, which stays inside the blank margin
+// every rasterized glyph leaves inside its cell.
+inline constexpr uint32_t kGlyphAtlasMipLevels = 3;
+
+[[nodiscard]] constexpr uint32_t GlyphAtlasLevelSize(uint32_t level) noexcept
+{
+    return kGlyphAtlasSize >> level;
+}
+
+[[nodiscard]] constexpr uint32_t GlyphAtlasLevelBytes(uint32_t level) noexcept
+{
+    return GlyphAtlasLevelSize(level) * GlyphAtlasLevelSize(level);
+}
+
+[[nodiscard]] constexpr uint32_t GlyphAtlasLevelOffset(uint32_t level) noexcept
+{
+    uint32_t offset = 0;
+    for (uint32_t index = 0; index < level; ++index)
+    {
+        offset += GlyphAtlasLevelBytes(index);
+    }
+    return offset;
+}
+
+inline constexpr uint32_t kGlyphAtlasBytes = GlyphAtlasLevelOffset(kGlyphAtlasMipLevels);
+static_assert(kGlyphAtlasBytes == 1024U * 1024U + 512U * 512U + 256U * 256U);
 inline constexpr uint32_t kTimeCellWidth = 192;
 inline constexpr uint32_t kTimeCellHeight = 288;
 inline constexpr uint32_t kTimeCellColumns = 5;
@@ -102,8 +135,69 @@ inline constexpr uint32_t kDateCellColumns = 16;
 inline constexpr uint32_t kDateAtlasTop = 640;
 inline constexpr float kTimeFontEmSize = 270.0f;
 inline constexpr float kDateFontEmSize = 64.0f;
+
+// Atlas resolution tiers.
+//
+// Every cell, em size, and offset scales by the tier, so normalized atlas coordinates are identical across tiers and
+// the shader needs only the atlas edge length. Mips cover the case where the widget is drawn smaller than the atlas;
+// a second tier covers the case where it is drawn larger, which mips cannot fix because the detail was never
+// rasterized. Two tiers span every viewport the dashboard can give a widget, from a quarter tile to a full 4K client.
+inline constexpr uint32_t kGlyphAtlasMaxScale = 2;
+
+[[nodiscard]] constexpr uint32_t GlyphAtlasBytesForScale(uint32_t scale) noexcept
+{
+    uint32_t bytes = 0;
+    for (uint32_t level = 0; level < kGlyphAtlasMipLevels; ++level)
+    {
+        const uint32_t size = (kGlyphAtlasSize * scale) >> level;
+        bytes += size * size;
+    }
+    return bytes;
+}
+
+[[nodiscard]] constexpr uint32_t GlyphAtlasLevelSizeForScale(uint32_t level, uint32_t scale) noexcept
+{
+    return (kGlyphAtlasSize * scale) >> level;
+}
+
+[[nodiscard]] constexpr uint32_t GlyphAtlasLevelOffsetForScale(uint32_t level, uint32_t scale) noexcept
+{
+    uint32_t offset = 0;
+    for (uint32_t index = 0; index < level; ++index)
+    {
+        const uint32_t size = GlyphAtlasLevelSizeForScale(index, scale);
+        offset += size * size;
+    }
+    return offset;
+}
+
+inline constexpr uint32_t kGlyphAtlasMaximumBytes = GlyphAtlasBytesForScale(kGlyphAtlasMaxScale);
+static_assert(GlyphAtlasBytesForScale(1) == kGlyphAtlasBytes);
+// Tier 1 stays at 1.31 MiB of R8 coverage; tier 2 reaches 5.25 MiB and is only built for a widget drawn that large.
+static_assert(kGlyphAtlasMaximumBytes < 6U * 1024U * 1024U);
+
+// Smallest tier whose time cell can hold the glyph height the host is about to draw. Derived from the same layout
+// arithmetic the vertex shader uses: the drawn glyph is 0.82 of a 310-unit card at the composition scale.
+[[nodiscard]] inline uint32_t SelectGlyphAtlasScale(uint32_t targetWidth, uint32_t targetHeight) noexcept
+{
+    if (targetWidth == 0 || targetHeight == 0)
+    {
+        return 1;
+    }
+    const float compositionScale =
+        std::min(static_cast<float>(targetWidth) / 1450.0f, static_cast<float>(targetHeight) / 600.0f);
+    const float requiredCellHeight = 0.82f * 310.0f * compositionScale;
+    uint32_t scale = 1;
+    while (scale < kGlyphAtlasMaxScale && static_cast<float>(kTimeCellHeight * scale) < requiredCellHeight)
+    {
+        ++scale;
+    }
+    return scale;
+}
 inline constexpr float kDateBaselineX = 4.0f;
 
+std::atomic<uint32_t> gTargetSizeChangeCount{0};
+std::atomic<uint32_t> gLiveAtlasScale{1};
 std::atomic<uint32_t> gLiveProviderCount{0};
 std::atomic<uint32_t> gLiveWidgetCount{0};
 std::atomic<uint32_t> gLiveDeviceResourceSetCount{0};
@@ -483,6 +577,7 @@ struct GlyphAtlasBuildResult final
     std::unique_ptr<std::uint8_t[]> pixels;
     std::array<float, kDateGlyphCount> dateAdvances{};
     float dateSpaceAdvance = 0.0f;
+    uint32_t scale = 1;
 };
 
 [[nodiscard]] HRESULT CreateClockFontFace(IDWriteFactory& factory, wil::com_ptr_nothrow<IDWriteFontFace>& face) noexcept
@@ -550,9 +645,10 @@ struct GlyphAtlasBuildResult final
 [[nodiscard]] HRESULT RasterizeGlyph(IDWriteFactory& factory, IDWriteFontFace& face, wchar_t character,
                                      float fontEmSize, uint32_t cellWidth, uint32_t cellHeight, uint32_t atlasX,
                                      uint32_t atlasY, bool fixedDateOrigin, std::uint8_t* atlasPixels,
-                                     std::uint8_t* scratch, uint32_t scratchBytes) noexcept
+                                     uint32_t atlasStride, std::uint8_t* scratch, uint32_t scratchBytes) noexcept
 {
-    if (!atlasPixels || !scratch || atlasX + cellWidth > kGlyphAtlasSize || atlasY + cellHeight > kGlyphAtlasSize)
+    if (!atlasPixels || !scratch || atlasStride == 0 || atlasX + cellWidth > atlasStride ||
+        atlasY + cellHeight > atlasStride)
     {
         return E_INVALIDARG;
     }
@@ -627,7 +723,7 @@ struct GlyphAtlasBuildResult final
             const uint32_t coverage =
                 static_cast<uint32_t>(scratch[source]) + scratch[source + 1U] + scratch[source + 2U];
             const size_t destination =
-                static_cast<size_t>(atlasY + static_cast<uint32_t>(bounds.top) + y) * kGlyphAtlasSize + atlasX +
+                static_cast<size_t>(atlasY + static_cast<uint32_t>(bounds.top) + y) * atlasStride + atlasX +
                 static_cast<uint32_t>(bounds.left) + x;
             atlasPixels[destination] = static_cast<std::uint8_t>((coverage + 1U) / 3U);
         }
@@ -635,11 +731,24 @@ struct GlyphAtlasBuildResult final
     return S_OK;
 }
 
-[[nodiscard]] HRESULT BuildGlyphAtlas(GlyphAtlasBuildResult& atlas) noexcept
+[[nodiscard]] HRESULT BuildGlyphAtlas(GlyphAtlasBuildResult& atlas, uint32_t scale) noexcept
 {
+    if (scale == 0 || scale > kGlyphAtlasMaxScale)
+    {
+        return E_INVALIDARG;
+    }
+    const uint32_t atlasStride = kGlyphAtlasSize * scale;
+    const uint32_t timeCellWidth = kTimeCellWidth * scale;
+    const uint32_t timeCellHeight = kTimeCellHeight * scale;
+    const uint32_t dateCellSize = kDateCellSize * scale;
+    const uint32_t dateAtlasTop = kDateAtlasTop * scale;
+    const float timeEmSize = kTimeFontEmSize * static_cast<float>(scale);
+    const float dateEmSize = kDateFontEmSize * static_cast<float>(scale);
+
     GlyphAtlasBuildResult built{};
-    built.pixels.reset(new (std::nothrow) std::uint8_t[kGlyphAtlasBytes]{});
-    constexpr uint32_t scratchBytes = kTimeCellWidth * kTimeCellHeight * 3U;
+    built.scale = scale;
+    built.pixels.reset(new (std::nothrow) std::uint8_t[GlyphAtlasBytesForScale(scale)]{});
+    const uint32_t scratchBytes = timeCellWidth * timeCellHeight * 3U;
     std::unique_ptr<std::uint8_t[]> scratch(new (std::nothrow) std::uint8_t[scratchBytes]);
     if (!built.pixels || !scratch)
     {
@@ -674,11 +783,12 @@ struct GlyphAtlasBuildResult final
 
     for (uint32_t digit = 0; digit < kTimeGlyphCount; ++digit)
     {
-        const uint32_t atlasX = (digit % kTimeCellColumns) * kTimeCellWidth;
-        const uint32_t atlasY = (digit / kTimeCellColumns) * kTimeCellHeight;
+        const uint32_t atlasX = (digit % kTimeCellColumns) * timeCellWidth;
+        const uint32_t atlasY = (digit / kTimeCellColumns) * timeCellHeight;
         result =
-            RasterizeGlyph(*factory, *face, static_cast<wchar_t>(L'0' + digit), kTimeFontEmSize, kTimeCellWidth,
-                           kTimeCellHeight, atlasX, atlasY, false, built.pixels.get(), scratch.get(), scratchBytes);
+            RasterizeGlyph(*factory, *face, static_cast<wchar_t>(L'0' + digit), timeEmSize, timeCellWidth,
+                           timeCellHeight, atlasX, atlasY, false, built.pixels.get(), atlasStride, scratch.get(),
+                           scratchBytes);
         if (FAILED(result))
         {
             return result;
@@ -704,10 +814,10 @@ struct GlyphAtlasBuildResult final
             return result;
         }
         built.dateAdvances[index] = static_cast<float>(metrics.advanceWidth) * inverseEm;
-        const uint32_t atlasX = (index % kDateCellColumns) * kDateCellSize;
-        const uint32_t atlasY = kDateAtlasTop + (index / kDateCellColumns) * kDateCellSize;
-        result = RasterizeGlyph(*factory, *face, dateCharacters[index], kDateFontEmSize, kDateCellSize, kDateCellSize,
-                                atlasX, atlasY, true, built.pixels.get(), scratch.get(), scratchBytes);
+        const uint32_t atlasX = (index % kDateCellColumns) * dateCellSize;
+        const uint32_t atlasY = dateAtlasTop + (index / kDateCellColumns) * dateCellSize;
+        result = RasterizeGlyph(*factory, *face, dateCharacters[index], dateEmSize, dateCellSize, dateCellSize,
+                                atlasX, atlasY, true, built.pixels.get(), atlasStride, scratch.get(), scratchBytes);
         if (FAILED(result))
         {
             return result;
@@ -722,8 +832,74 @@ struct GlyphAtlasBuildResult final
         return result;
     }
     built.dateSpaceAdvance = static_cast<float>(spaceMetrics.advanceWidth) * inverseEm;
+
+    // Box-filter the remaining levels from the rasterized coverage. Averaging coverage is the correct reduction for
+    // an alpha atlas, and doing it here keeps the texture immutable and needs no device context.
+    for (uint32_t level = 1; level < kGlyphAtlasMipLevels; ++level)
+    {
+        const uint32_t sourceSize = GlyphAtlasLevelSizeForScale(level - 1, scale);
+        const uint32_t targetSize = GlyphAtlasLevelSizeForScale(level, scale);
+        const std::uint8_t* source = built.pixels.get() + GlyphAtlasLevelOffsetForScale(level - 1, scale);
+        std::uint8_t* target = built.pixels.get() + GlyphAtlasLevelOffsetForScale(level, scale);
+        for (uint32_t y = 0; y < targetSize; ++y)
+        {
+            const std::uint8_t* upper = source + static_cast<size_t>(y * 2U) * sourceSize;
+            const std::uint8_t* lower = upper + sourceSize;
+            std::uint8_t* row = target + static_cast<size_t>(y) * targetSize;
+            for (uint32_t x = 0; x < targetSize; ++x)
+            {
+                const uint32_t sum = static_cast<uint32_t>(upper[x * 2U]) + upper[x * 2U + 1U] +
+                                     lower[x * 2U] + lower[x * 2U + 1U];
+                row[x] = static_cast<std::uint8_t>((sum + 2U) / 4U);
+            }
+        }
+    }
+
     atlas = std::move(built);
     gTypographyBuildCount.fetch_add(1, std::memory_order_relaxed);
+    return S_OK;
+}
+
+// Creates the atlas texture and view for one built tier. Shared by first initialization and by a later tier change,
+// so both paths produce identical resources.
+[[nodiscard]] HRESULT CreateAtlasResources(ID3D11Device& device, const GlyphAtlasBuildResult& glyphAtlas,
+                                           wil::com_ptr_nothrow<ID3D11Texture2D>& atlas,
+                                           wil::com_ptr_nothrow<ID3D11ShaderResourceView>& atlasView) noexcept
+{
+    if (!glyphAtlas.pixels || glyphAtlas.scale == 0 || glyphAtlas.scale > kGlyphAtlasMaxScale)
+    {
+        return E_INVALIDARG;
+    }
+    const uint32_t atlasEdge = kGlyphAtlasSize * glyphAtlas.scale;
+    D3D11_TEXTURE2D_DESC atlasDescription{};
+    atlasDescription.Width = atlasEdge;
+    atlasDescription.Height = atlasEdge;
+    atlasDescription.MipLevels = kGlyphAtlasMipLevels;
+    atlasDescription.ArraySize = 1;
+    atlasDescription.Format = DXGI_FORMAT_R8_UNORM;
+    atlasDescription.SampleDesc.Count = 1;
+    atlasDescription.Usage = D3D11_USAGE_IMMUTABLE;
+    atlasDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    std::array<D3D11_SUBRESOURCE_DATA, kGlyphAtlasMipLevels> atlasData{};
+    for (uint32_t level = 0; level < kGlyphAtlasMipLevels; ++level)
+    {
+        atlasData[level].pSysMem = glyphAtlas.pixels.get() + GlyphAtlasLevelOffsetForScale(level, glyphAtlas.scale);
+        atlasData[level].SysMemPitch = GlyphAtlasLevelSizeForScale(level, glyphAtlas.scale);
+    }
+    wil::com_ptr_nothrow<ID3D11Texture2D> created;
+    HRESULT result = device.CreateTexture2D(&atlasDescription, atlasData.data(), created.put());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    wil::com_ptr_nothrow<ID3D11ShaderResourceView> createdView;
+    result = device.CreateShaderResourceView(created.get(), nullptr, createdView.put());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    atlas = std::move(created);
+    atlasView = std::move(createdView);
     return S_OK;
 }
 
@@ -747,7 +923,7 @@ class DeskClockDeviceResources final
         }
 
         GlyphAtlasBuildResult glyphAtlas;
-        HRESULT result = BuildGlyphAtlas(glyphAtlas);
+        HRESULT result = BuildGlyphAtlas(glyphAtlas, 1);
         if (FAILED(result))
         {
             return result;
@@ -799,26 +975,9 @@ class DeskClockDeviceResources final
             }
         }
 
-        D3D11_TEXTURE2D_DESC atlasDescription{};
-        atlasDescription.Width = kGlyphAtlasSize;
-        atlasDescription.Height = kGlyphAtlasSize;
-        atlasDescription.MipLevels = 1;
-        atlasDescription.ArraySize = 1;
-        atlasDescription.Format = DXGI_FORMAT_R8_UNORM;
-        atlasDescription.SampleDesc.Count = 1;
-        atlasDescription.Usage = D3D11_USAGE_IMMUTABLE;
-        atlasDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        D3D11_SUBRESOURCE_DATA atlasData{};
-        atlasData.pSysMem = glyphAtlas.pixels.get();
-        atlasData.SysMemPitch = kGlyphAtlasSize;
         wil::com_ptr_nothrow<ID3D11Texture2D> atlas;
-        result = device->CreateTexture2D(&atlasDescription, &atlasData, atlas.put());
-        if (FAILED(result))
-        {
-            return result;
-        }
         wil::com_ptr_nothrow<ID3D11ShaderResourceView> atlasView;
-        result = device->CreateShaderResourceView(atlas.get(), nullptr, atlasView.put());
+        result = CreateAtlasResources(*device, glyphAtlas, atlas, atlasView);
         if (FAILED(result))
         {
             return result;
@@ -912,6 +1071,7 @@ class DeskClockDeviceResources final
         _opaqueBlend = std::move(opaqueBlend);
         _alphaBlend = std::move(alphaBlend);
         _constantBuffer = std::move(constantBuffer);
+        _atlasScale = glyphAtlas.scale;
         _dateAdvances = glyphAtlas.dateAdvances;
         _dateSpaceAdvance = glyphAtlas.dateSpaceAdvance;
         gLiveDeviceResourceSetCount.fetch_add(1, std::memory_order_relaxed);
@@ -930,6 +1090,51 @@ class DeskClockDeviceResources final
     [[nodiscard]] float DateSpaceAdvance() const noexcept
     {
         return _dateSpaceAdvance;
+    }
+
+    // Rebuilds the glyph atlas at a different resolution tier. Only the atlas and its derived advances change;
+    // shaders, buffers, and pipeline states are untouched, so a tier change costs one rasterization and one texture.
+    [[nodiscard]] HRESULT EnsureAtlasScale(uint32_t scale) noexcept
+    {
+        if (scale == 0 || scale > kGlyphAtlasMaxScale)
+        {
+            return E_INVALIDARG;
+        }
+        if (!_deviceIdentity || !_atlasView)
+        {
+            return E_UNEXPECTED;
+        }
+        if (_atlasScale == scale)
+        {
+            return S_OK;
+        }
+
+        GlyphAtlasBuildResult glyphAtlas;
+        HRESULT result = BuildGlyphAtlas(glyphAtlas, scale);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<ID3D11Texture2D> atlas;
+        wil::com_ptr_nothrow<ID3D11ShaderResourceView> atlasView;
+        result = CreateAtlasResources(*_deviceIdentity, glyphAtlas, atlas, atlasView);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        // Publish only after both the rasterization and the GPU resources succeeded, so a failure leaves the
+        // previous tier fully intact and the widget keeps rendering.
+        _atlas = std::move(atlas);
+        _atlasView = std::move(atlasView);
+        _dateAdvances = glyphAtlas.dateAdvances;
+        _dateSpaceAdvance = glyphAtlas.dateSpaceAdvance;
+        _atlasScale = glyphAtlas.scale;
+        return S_OK;
+    }
+
+    [[nodiscard]] uint32_t AtlasEdgePixels() const noexcept
+    {
+        return kGlyphAtlasSize * _atlasScale;
     }
 
     void Reset() noexcept
@@ -956,6 +1161,7 @@ class DeskClockDeviceResources final
         _backgroundVertexShader.reset();
         _dateAdvances.fill(0.0f);
         _dateSpaceAdvance = 0.0f;
+        _atlasScale = 1;
         _deviceIdentity = nullptr;
         _lastOwner = nullptr;
         _lastVersion = 0;
@@ -1040,6 +1246,7 @@ class DeskClockDeviceResources final
     wil::com_ptr_nothrow<ID3D11BlendState> _opaqueBlend;
     wil::com_ptr_nothrow<ID3D11BlendState> _alphaBlend;
     wil::com_ptr_nothrow<ID3D11Buffer> _constantBuffer;
+    uint32_t _atlasScale = 1;
     std::array<float, kDateGlyphCount> _dateAdvances{};
     float _dateSpaceAdvance = 0.0f;
 };
@@ -1140,10 +1347,7 @@ void ReadLocalClock(SYSTEMTIME& time) noexcept
     return clamped * clamped * clamped * (clamped * (clamped * 6.0f - 15.0f) + 10.0f);
 }
 
-class DeskClockWidget final : public IRedXeWidget,
-                              public IRedXeGpuWidget,
-                              public IRedXeScheduledWidget,
-                              public IRedXeRaisedWidget
+class DeskClockWidget final : public RedXeComObject<DeskClockWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
 {
   public:
     DeskClockWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, DeskClockDeviceResources& resources,
@@ -1161,52 +1365,6 @@ class DeskClockWidget final : public IRedXeWidget,
     ~DeskClockWidget()
     {
         gLiveWidgetCount.fetch_sub(1, std::memory_order_relaxed);
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-        {
-            return E_POINTER;
-        }
-        *result = nullptr;
-        if (interfaceId == __uuidof(IUnknown) || interfaceId == __uuidof(IRedXeWidget))
-        {
-            *result = static_cast<IRedXeWidget*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeGpuWidget))
-        {
-            *result = static_cast<IRedXeGpuWidget*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeScheduledWidget))
-        {
-            *result = static_cast<IRedXeScheduledWidget*>(this);
-        }
-        else if (interfaceId == __uuidof(IRedXeRaisedWidget))
-        {
-            *result = static_cast<IRedXeRaisedWidget*>(this);
-        }
-        else
-        {
-            return E_NOINTERFACE;
-        }
-        AddRef();
-        return S_OK;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-        {
-            delete this;
-        }
-        return references;
     }
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL) noexcept override
@@ -1258,11 +1416,35 @@ class DeskClockWidget final : public IRedXeWidget,
 
     void STDMETHODCALLTYPE OnDeviceLost() noexcept override
     {
+        gLiveAtlasScale.store(1, std::memory_order_relaxed);
         _resources->Reset();
         _initialized = false;
         _transitionActive = false;
         _changedMask = 0;
         _scheduleUsesCachedSample = false;
+    }
+
+    HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
+    {
+        if (!context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
+        {
+            return E_INVALIDARG;
+        }
+        gTargetSizeChangeCount.fetch_add(1, std::memory_order_relaxed);
+        if (!_initialized)
+        {
+            // No device resources yet; the tier is chosen from the first size reported after OnDeviceCreated.
+            return S_OK;
+        }
+        // Rasterizing here rather than in Render is the whole point of this callback: the glyph atlas is only
+        // correct for the size it was rasterized at, and Render is the steady path.
+        const HRESULT result =
+            _resources->EnsureAtlasScale(SelectGlyphAtlasScale(context->widthPixels, context->heightPixels));
+        if (SUCCEEDED(result))
+        {
+            gLiveAtlasScale.store(_resources->AtlasEdgePixels() / kGlyphAtlasSize, std::memory_order_relaxed);
+        }
+        return result;
     }
 
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
@@ -1489,6 +1671,8 @@ class DeskClockWidget final : public IRedXeWidget,
         constants.targetSize[0] = static_cast<float>(frame.widthPixels);
         constants.targetSize[1] = static_cast<float>(frame.heightPixels);
         constants.targetSize[2] = static_cast<float>(frame.dpi);
+        // Atlas coordinates are normalized, so the shader needs only the edge length of the live tier.
+        constants.targetSize[3] = static_cast<float>(_resources->AtlasEdgePixels());
         constants.layout[0] = _originX;
         constants.layout[1] = _originY;
         constants.layout[2] = _cardWidth;
@@ -1546,7 +1730,6 @@ class DeskClockWidget final : public IRedXeWidget,
         std::copy_n(_targetDatePositions.begin() + 8, 4, constants.targetDatePositions2);
     }
 
-    std::atomic<ULONG> _references{1};
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _providerOwner;
     DeskClockDeviceResources* _resources;
     DeskClockConfiguration _configuration;
@@ -1581,7 +1764,7 @@ class DeskClockWidget final : public IRedXeWidget,
     float _dateY = 0.0f;
 };
 
-class DeskClockProvider final : public IRedXeWidgetProvider
+class DeskClockProvider final : public RedXeComObject<DeskClockProvider, IRedXeWidgetProvider>
 {
   public:
     explicit DeskClockProvider(const DeskClockConfiguration& configuration) noexcept : _configuration(configuration)
@@ -1592,37 +1775,6 @@ class DeskClockProvider final : public IRedXeWidgetProvider
     ~DeskClockProvider()
     {
         gLiveProviderCount.fetch_sub(1, std::memory_order_relaxed);
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
-    {
-        if (!result)
-        {
-            return E_POINTER;
-        }
-        *result = nullptr;
-        if (interfaceId == __uuidof(IUnknown) || interfaceId == __uuidof(IRedXeWidgetProvider))
-        {
-            *result = static_cast<IRedXeWidgetProvider*>(this);
-            AddRef();
-            return S_OK;
-        }
-        return E_NOINTERFACE;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return ++_references;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG references = --_references;
-        if (references == 0)
-        {
-            delete this;
-        }
-        return references;
     }
 
     HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
@@ -1677,12 +1829,13 @@ class DeskClockProvider final : public IRedXeWidgetProvider
     }
 
   private:
-    std::atomic<ULONG> _references{1};
     DeskClockConfiguration _configuration;
     DeskClockDeviceResources _resources;
 };
 
-static_assert(kGlyphAtlasBytes == 1U * 1024U * 1024U);
+// The whole glyph chain stays under 1.5 MiB of R8 coverage. Mip 0 is 1 MiB; the two filtered levels add 320 KiB.
+static_assert(kGlyphAtlasBytes == 1024U * 1024U + 512U * 512U + 256U * 256U);
+static_assert(kGlyphAtlasBytes < 3U * 512U * 1024U);
 static_assert(sizeof(DeskClockDeviceResources) < 32U * 1024U);
 static_assert(sizeof(DeskClockProvider) < 32U * 1024U);
 static_assert(sizeof(DeskClockWidget) < 4U * 1024U);
@@ -1769,7 +1922,11 @@ extern "C" HRESULT __stdcall RedXeDeskClockGetTestDiagnostics(DeskClockTestDiagn
     diagnostics->drawCalls = gDrawCallCount.load(std::memory_order_relaxed);
     diagnostics->scheduleQueries = gScheduleQueryCount.load(std::memory_order_relaxed);
     diagnostics->typographyBuilds = gTypographyBuildCount.load(std::memory_order_relaxed);
-    diagnostics->atlasBytes = kGlyphAtlasBytes;
+    const uint32_t liveScale = gLiveAtlasScale.load(std::memory_order_relaxed);
+    diagnostics->atlasBytes = GlyphAtlasBytesForScale(liveScale == 0 ? 1U : liveScale);
+    diagnostics->atlasScale = liveScale;
+    diagnostics->atlasEdgePixels = kGlyphAtlasSize * liveScale;
+    diagnostics->targetSizeChanges = gTargetSizeChangeCount.load(std::memory_order_relaxed);
     diagnostics->constantBytes = sizeof(DeskClockConstants);
     return S_OK;
 }

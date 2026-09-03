@@ -6,8 +6,10 @@
 
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <new>
 #include <utility>
@@ -74,6 +76,11 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
     return true;
 }
 
+// Validates a plugin-published settings value against the bounded schema subset RedXe accepts. The supported subset
+// is exactly: "object" with "properties", "additionalProperties", and "required"; "integer" and "number" with
+// "minimum" and "maximum"; "string" with "enum" and the single hex-colour "pattern"; and "boolean". Anything else --
+// arrays, "$ref", composition keywords, or another pattern -- is rejected rather than silently accepted, so a plugin
+// cannot publish a constraint the host does not actually enforce. Plugins_API.md names this subset normatively.
 [[nodiscard]] bool ValidateValueAgainstPublishedSchema(yyjson_val* schema, yyjson_val* value) noexcept
 {
     if (!yyjson_is_obj(schema))
@@ -101,6 +108,23 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
         if (additional && !yyjson_is_bool(additional))
         {
             return false;
+        }
+        yyjson_val* required = yyjson_obj_get(schema, "required");
+        if (required)
+        {
+            if (!yyjson_is_arr(required))
+            {
+                return false;
+            }
+            const size_t requiredCount = yyjson_arr_size(required);
+            for (size_t index = 0; index < requiredCount; ++index)
+            {
+                yyjson_val* name = yyjson_arr_get(required, index);
+                if (!yyjson_is_str(name) || !yyjson_obj_getn(value, yyjson_get_str(name), yyjson_get_len(name)))
+                {
+                    return false;
+                }
+            }
         }
         yyjson_obj_iter iterator = yyjson_obj_iter_with(value);
         while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
@@ -133,6 +157,22 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
         yyjson_val* maximum = yyjson_obj_get(schema, "maximum");
         return (!minimum || (yyjson_is_uint(minimum) && number >= yyjson_get_uint(minimum))) &&
                (!maximum || (yyjson_is_uint(maximum) && number <= yyjson_get_uint(maximum)));
+    }
+    if (typeName == "number")
+    {
+        if (!yyjson_is_num(value))
+        {
+            return false;
+        }
+        const double number = yyjson_get_num(value);
+        if (!std::isfinite(number))
+        {
+            return false;
+        }
+        yyjson_val* minimum = yyjson_obj_get(schema, "minimum");
+        yyjson_val* maximum = yyjson_obj_get(schema, "maximum");
+        return (!minimum || (yyjson_is_num(minimum) && number >= yyjson_get_num(minimum))) &&
+               (!maximum || (yyjson_is_num(maximum) && number <= yyjson_get_num(maximum)));
     }
     if (typeName == "string")
     {
@@ -253,10 +293,69 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
     }
     return selectedType ? S_OK : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
+// One parsed schema per referenced plugin for the duration of a single staging pass. Without it the same plugin
+// schema is re-parsed once per widget appearance on every page, on every settings apply.
+class SchemaCache final
+{
+  public:
+    SchemaCache() = default;
+    SchemaCache(const SchemaCache&) = delete;
+    SchemaCache& operator=(const SchemaCache&) = delete;
+    SchemaCache(SchemaCache&&) = delete;
+    SchemaCache& operator=(SchemaCache&&) = delete;
+
+    [[nodiscard]] HRESULT Acquire(const PluginHost::ModuleView& module, const char* pluginId,
+                                  yyjson_val*& root) noexcept
+    {
+        root = nullptr;
+        for (size_t index = 0; index < _count; ++index)
+        {
+            if (RedXeAsciiEqualsIgnoreCase(_entries[index].pluginId, pluginId))
+            {
+                root = _entries[index].root;
+                return S_OK;
+            }
+        }
+        if (_count >= _entries.size())
+        {
+            return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
+        }
+
+        const RedXePluginSettingsContract* contract = nullptr;
+        const HRESULT result = GetAndValidateSettingsContract(module, pluginId, &contract);
+        if (FAILED(result) || !contract)
+        {
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        Entry& entry = _entries[_count];
+        entry.document.reset(yyjson_read(contract->schemaJsonUtf8, contract->schemaBytes, YYJSON_READ_NOFLAG));
+        if (!entry.document)
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        entry.pluginId = pluginId;
+        entry.root = yyjson_doc_get_root(entry.document.get());
+        ++_count;
+        root = entry.root;
+        return root ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+  private:
+    struct Entry final
+    {
+        unique_contract_doc document;
+        const char* pluginId = nullptr;
+        yyjson_val* root = nullptr;
+    };
+
+    std::array<Entry, kRedXeBundledWidgets.size()> _entries{};
+    size_t _count = 0;
+};
 } // namespace
 
 PluginManager::~PluginManager()
 {
+    ClearWidgetStatuses();
     for (size_t index = 0; index < _widgetCount; ++index)
     {
         _widgets[index].windowWidget.reset();
@@ -291,7 +390,7 @@ HRESULT PluginManager::CreateBundledProvider(const char* pluginId, const char* c
     }
 
     PluginHost::ModuleView module{};
-    HRESULT result = _pluginHost.GetPluginModule(pluginId, RedXePluginCapabilityWidgetProvider, &module);
+    HRESULT result = PluginHost::Instance().GetPluginModule(pluginId, RedXePluginCapabilityWidgetProvider, &module);
     if (FAILED(result))
     {
         return result;
@@ -307,7 +406,7 @@ HRESULT PluginManager::CreateBundledProvider(const char* pluginId, const char* c
 
     void* providerObject = nullptr;
     result =
-        module.create(__uuidof(IRedXeWidgetProvider), &options, _pluginHost.Interface(), pluginId, &providerObject);
+        module.create(__uuidof(IRedXeWidgetProvider), &options, PluginHost::Instance().Interface(), pluginId, &providerObject);
     if (FAILED(result))
     {
         return result;
@@ -379,6 +478,28 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     return S_OK;
 }
 
+void PluginManager::MakePlaceholder(WidgetSlot& widgetSlot, const WidgetInstanceSettings& settings,
+                                    HRESULT failure) noexcept
+{
+    widgetSlot = WidgetSlot{};
+    widgetSlot.instanceId = settings.id;
+    widgetSlot.placement = settings.placement;
+    widgetSlot.adaptivePlacement = settings.adaptivePlacement;
+    widgetSlot.usesAdaptivePlacement = settings.usesAdaptivePlacement;
+    widgetSlot.flags = RedXeWidgetFlagNone;
+    widgetSlot.placeholder = true;
+    widgetSlot.failure = FAILED(failure) ? failure : E_FAIL;
+    OutputDebugStringW(L"A widget instance could not be created; the host is drawing a placeholder tile.\n");
+}
+
+void PluginManager::ClearWidgetStatuses() noexcept
+{
+    for (size_t index = 0; index < _widgetCount; ++index)
+    {
+        PluginHost::Instance().ClearWidgetStatus(_widgets[index].instanceId.utf8.data());
+    }
+}
+
 HRESULT PluginManager::StageActivePage(const AppSettings& settings,
                                        std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
                                        std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,
@@ -392,6 +513,7 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
     {
         return result;
     }
+    SchemaCache schemaCache;
 
     // Static discovery covers every effective widget in the document. This maps each referenced module once and
     // validates its immutable settings contract without creating providers or widget resources.
@@ -409,7 +531,7 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
         }
         PluginHost::ModuleView module{};
-        result = _pluginHost.GetPluginModule(pluginSpec->pluginId, RedXePluginCapabilityWidgetProvider, &module);
+        result = PluginHost::Instance().GetPluginModule(pluginSpec->pluginId, RedXePluginCapabilityWidgetProvider, &module);
         if (FAILED(result))
         {
             return result;
@@ -435,23 +557,21 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
                 return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
             }
             PluginHost::ModuleView module{};
-            result = _pluginHost.GetPluginModule(pluginSpec->pluginId, RedXePluginCapabilityWidgetProvider, &module);
+            result = PluginHost::Instance().GetPluginModule(pluginSpec->pluginId, RedXePluginCapabilityWidgetProvider, &module);
             if (FAILED(result))
             {
                 return result;
             }
-            const RedXePluginSettingsContract* contract = nullptr;
-            if (FAILED(GetAndValidateSettingsContract(module, pluginSpec->pluginId, &contract)) || !contract)
+            yyjson_val* schemaRoot = nullptr;
+            result = schemaCache.Acquire(module, pluginSpec->pluginId, schemaRoot);
+            if (FAILED(result) || !schemaRoot)
             {
-                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
-            unique_contract_doc schemaDocument{
-                yyjson_read(contract->schemaJsonUtf8, contract->schemaBytes, YYJSON_READ_NOFLAG)};
             unique_contract_doc valueDocument{yyjson_read(widget.privateConfiguration.utf8.data(),
                                                           widget.privateConfiguration.bytes, YYJSON_READ_NOFLAG)};
-            if (!schemaDocument || !valueDocument ||
-                !ValidateValueAgainstPublishedSchema(yyjson_doc_get_root(schemaDocument.get()),
-                                                     yyjson_doc_get_root(valueDocument.get())))
+            if (!valueDocument ||
+                !ValidateValueAgainstPublishedSchema(schemaRoot, yyjson_doc_get_root(valueDocument.get())))
             {
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
@@ -509,7 +629,11 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
                                            providers[providerCount].provider.put());
             if (FAILED(result))
             {
-                return result;
+                // Runtime construction failure is isolated to this instance. The document is already validated, so a
+                // provider that cannot be built must not take the rest of the page or startup down with it.
+                MakePlaceholder(widgets[index], instance, result);
+                ++widgetCount;
+                continue;
             }
             ProviderBuildKey& key = providerKeys[providerCount];
             key.configuration = configuration;
@@ -521,7 +645,7 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
         result = CreateWidgetInstance(*providers[providerIndex].provider, instance, widgets[index]);
         if (FAILED(result))
         {
-            return result;
+            MakePlaceholder(widgets[index], instance, result);
         }
         ++widgetCount;
     }
@@ -556,16 +680,6 @@ HRESULT PluginManager::Initialize(const AppSettings& settings) noexcept
     return S_OK;
 }
 
-void PluginManager::SetUiInvalidateTarget(HWND window) noexcept
-{
-    _pluginHost.SetUiInvalidateTarget(window);
-}
-
-void PluginManager::AcknowledgeUiInvalidate() noexcept
-{
-    _pluginHost.AcknowledgeUiInvalidate();
-}
-
 HRESULT PluginManager::Reconfigure(const AppSettings& settings) noexcept
 {
     if (!_initialized)
@@ -583,6 +697,7 @@ HRESULT PluginManager::Reconfigure(const AppSettings& settings) noexcept
         return result;
     }
 
+    ClearWidgetStatuses();
     _widgets = std::move(widgets);
     _widgetCount = widgetCount;
     _providers = std::move(providers);
@@ -630,6 +745,16 @@ IRedXeRaisedWidget* PluginManager::RaisedWidgetAt(size_t index) const noexcept
 uint32_t PluginManager::WidgetFlagsAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].flags : RedXeWidgetFlagNone;
+}
+
+bool PluginManager::IsPlaceholderAt(size_t index) const noexcept
+{
+    return index < _widgetCount && _widgets[index].placeholder;
+}
+
+HRESULT PluginManager::PlaceholderFailureAt(size_t index) const noexcept
+{
+    return index < _widgetCount ? _widgets[index].failure : S_OK;
 }
 
 WidgetGridPlacement PluginManager::WidgetGridPlacementAt(size_t index) const noexcept

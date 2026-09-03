@@ -84,8 +84,8 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 
 ```text
 Common/PlugInterfaces/
-  Factory.*        Current factory ABI and shared factory implementation
-  Host.h           Host-service COM root
+  Factory.*        Current factory ABI, shared factory implementation, and the RedXeComObject mixin
+  Host.h           Host-service COM root: data providers, frame requests, and widget status
   Widget.h         Complete generic, GPU, scheduled, child-window, and raised-overlay widget ABI
   Data.h           Complete source, provider, snapshot, sink, and subscription ABI
 Plugins/
@@ -97,12 +97,13 @@ RedXe/
   Main.cpp          Process setup and command-line modes
   Application.*     Win32 window and message-loop lifetime
   CrashHandler.*    Fatal-process front door, local minidumps/call stacks, and prior-crash notice
-  PluginHost.*      Shared module loading and host-managed data providers
+  PluginHost.*      Process plugin runtime: module store, data providers, and the acquisition worker
   PluginManager.*   Widget providers and instance lifetime
   DashboardHost.*   Widget placement and frame-scheduling policy
-  Renderer.*        Direct3D 11 host resources, widget callbacks, and frames
+  Renderer.*        Direct3D 11 host resources, widget callbacks, placeholder tiles, and frames
   Settings.*        Typed yyjson persistence, paths, recovery, and file stamps
   SettingsWatcher.* Event-blocked directory notification; posts to the UI thread only
+  FluentIcons.h     Segoe Fluent Icons glyphs and font selection for all host chrome
   app.manifest      Per-monitor-v2 DPI and Windows compatibility metadata
 Tests/
   PluginContractTests/ Factory, COM identity, and rendering-IID tests
@@ -128,14 +129,25 @@ Keep the boundary explicit:
 - `SettingsStore` owns typed settings validation, user/deployed paths, cold recovery, and stamp deduplication.
 - `SettingsWatcher` owns one event-blocked directory watcher and only posts a coalesced UI message; settings and
   dashboard mutation remain on `Application`'s UI thread.
-- `PluginManager` owns plugin modules and provider/widget COM references.
+- `PluginHost` is process scoped. One instance owns every mapped module, every data source, and the single
+  acquisition worker for the whole application, including the dashboard page staged during a swipe. Optional
+  `RedXePluginShutdown` runs once per module at process teardown.
+- `PluginManager` borrows that runtime and owns only provider/widget COM references for one page. A per-instance
+  construction failure becomes a host-drawn placeholder tile; it does not fail the page.
 - `DashboardHost` owns design-canvas placements, native child containers, and frame-scheduling policy.
 - `Renderer` owns host COM graphics resources, cached viewports, device notifications, and presentation; it has no
   message-dispatch or plugin-specific drawing logic.
+- The ABI headers carry the consumer-facing contract on the declarations: thread affinity, reentrancy limits, borrow
+  lifetime, and the GPU pipeline-state guarantee. Every public record is pinned by `sizeof` and, when it carries a
+  pointer, by `offsetof` assertions.
 - `Widget.h` owns every widget declaration. Widgets expose supported GPU, scheduled, native-window, or raised-overlay
   mechanisms as sibling COM interfaces queried by IID.
 - GPU widgets receive the borrowed D3D11 device during setup and immediate context during rendering, but never the
-  HWND, swap chain, or back buffer.
+  HWND, swap chain, or back buffer. The host binds only render target and viewport before each callback, so a widget
+  binds every other state it depends on, including scissor state.
+- A GPU widget rebuilds resolution-dependent resources in `OnTargetSizeChanged`, which the host calls only when the
+  largest viewport it will draw that widget at actually changes. That is the one GPU callback allowed to rasterize,
+  create textures, or allocate; `Render` stays allocation-free.
 - A window widget receives only a host-owned child container, never the top-level HWND, and destroys all plugin-owned
   children before detach returns.
 - Device-independent state survives swap-chain recreation; device resources are rebuilt together after device loss.
@@ -162,6 +174,21 @@ contract in the owning domain spec. Rendering changes must keep the WARP smoke t
 hosts can validate device creation, embedded shader bytecode, resize, drawing, and presentation.
 `test.ps1` also validates crash capture by launching an isolated child process; it requires no desktop automation and
 must not write to the user's normal crash directory.
+
+## Host chrome iconography
+
+- Every icon in host-drawn chrome comes from `RedXe/FluentIcons.h`. Do not hand-draw arrows, glyphs, or symbols with
+  `Polyline`, `Polygon`, or path geometry: font glyphs are hinted, scale correctly with DPI, and match the Windows 11
+  shell, which hand-drawn shapes do not.
+- The font order is Segoe Fluent Icons, then Segoe MDL2 Assets for older builds, then a standard Unicode stand-in in
+  the normal UI font. Every glyph constant MUST have a Unicode fallback so chrome never renders a missing-glyph box.
+  `FluentIcons::CreateIconFont` selects the family and reports which glyph set applies; `FluentIcons::SelectGlyph`
+  picks the matching code point.
+- Add new glyphs to `FluentIcons.h` rather than inline in a paint routine, so the icon set stays reviewable in one
+  place.
+- Icon fonts are created per DPI and cached, never per paint:
+  [`Specs/Core/Core_PerformanceAndResources.md`](Specs/Core/Core_PerformanceAndResources.md) forbids creating GDI
+  handles inside a paint callback.
 
 ## C++ and Win32 rules
 
