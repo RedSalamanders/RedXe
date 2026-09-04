@@ -291,7 +291,12 @@ GPU vtables.
   - A widget with no resolution-dependent resources returns `S_OK` and does nothing.
   - A failure is isolated: the host keeps the widget's previous resources and continues rendering it.
 - `OnDeviceLost` is idempotent and releases all plugin-owned device resources before the host releases its device.
-- `Render` receives generic widget dimensions/timing, the borrowed immediate context, and the widget viewport.
+- `Render` receives generic widget dimensions/timing, the borrowed immediate context, and the widget viewport. During
+  a page swipe that viewport is the full design-canvas placement translated by the page offset: `TopLeftX`/`TopLeftY`
+  MAY be negative and the rectangle MAY extend past the render target. `widget` width and height stay that full size.
+  Direct3D clips to the target. A GPU widget MUST still draw and MUST NOT treat a finite negative origin as invalid.
+  The host MUST invoke `Render` for every positive-size viewport on the current and staged pages and MUST NOT shrink
+  the viewport to the visible intersection.
 - Before every callback the host binds exactly two things: its render target through `OMSetRenderTargets` and the
   widget's viewport through `RSSetViewports`. Nothing else is reset between widgets. Blend, depth-stencil, and
   rasterizer state, the scissor rectangle and `ScissorEnable`, input layout, primitive topology, shaders, shader
@@ -400,7 +405,9 @@ already fills the client MUST NOT raise.
   occlusion-status notification, and uses `DXGI_PRESENT_TEST` before resuming.
 - One widget failure does not prevent later widgets from rendering.
 - Native-window containers use the same cached design-canvas placements as GPU viewports. Resize and Per-Monitor-V2
-  DPI changes reposition the container and notify the plugin without per-frame layout work.
+  DPI changes reposition the container and notify the plugin without per-frame layout work. During a swipe the host
+  translates that same full-size rectangle, which MAY have a negative origin; it MUST NOT hide or shrink a container
+  because it is only partly inside the client. The parent HWND clips the visible portion.
 - Hidden, minimized, display-off, and DXGI-occluded states call `IRedXeWidget::SetVisible(FALSE)` so every widget
   quiesces visibility-dependent work. Recovery calls `SetVisible(TRUE)` only after visible rendering resumes.
 
@@ -779,6 +786,9 @@ sibling policy owns deadline retention, pacing, and suppression. `WM_TIMECHANGE`
     rendering frames at an unchanged size reports nothing further, that a viewport above the composition design size
     moves Desk Clock's glyph atlas to its higher tier and back down when the viewport shrinks, and that the widget
     still renders after a tier change.
+12y. Host tests MUST prove that a page swipe which places Matrix Rain, Studio Clock, or Desk Clock partly off the
+    render target still draws those widgets, including when the incoming page's viewport origin is negative. Plugin
+    tests MUST prove Studio Clock and Desk Clock accept a finite negative viewport origin.
 12a. Host tests MUST prove that staging an adjacent dashboard page adds no second acquisition thread, no second
     data source for a provider ID, and no second module map, and that repeated provider lookup returns one shared
     controlling identity.

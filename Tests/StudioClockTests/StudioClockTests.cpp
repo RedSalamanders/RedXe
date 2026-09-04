@@ -662,6 +662,23 @@ void ValidateRendering(const Exports& exports)
            "Studio Clock repeated an unchanged DPI upload");
     ValidateAllocationFreeRender(*created.gpu, target);
 
+    D3D11_VIEWPORT shifted{
+        -160.0f, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f,
+    };
+    ID3D11RenderTargetView* shiftedViews[] = {target.view.get()};
+    target.context->OMSetRenderTargets(1, shiftedViews, nullptr);
+    target.context->RSSetViewports(1, &shifted);
+    const RedXeWidgetFrameContext shiftedFrame{
+        sizeof(RedXeWidgetFrameContext), target.width, target.height, USER_DEFAULT_SCREEN_DPI, 0.0f, 0.0f,
+    };
+    const RedXeGpuFrameContext shiftedGpu{
+        sizeof(RedXeGpuFrameContext),
+        &shiftedFrame,
+        target.context.get(),
+        shifted,
+    };
+    Expect(created.gpu->Render(&shiftedGpu) == S_OK, "Studio Clock rejected a negative viewport origin");
+
     constexpr std::array seconds{0U, 1U, 30U, 59U};
     for (const uint32_t second : seconds)
     {

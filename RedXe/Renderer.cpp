@@ -5,7 +5,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
-#include <utility>
+#include <utility> // namespace
 
 Renderer::~Renderer()
 {

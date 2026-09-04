@@ -877,9 +877,8 @@ class StudioClockWidget final
             frame.deltaSeconds < 0.0f || !std::isfinite(context->viewport.TopLeftX) ||
             !std::isfinite(context->viewport.TopLeftY) || !std::isfinite(context->viewport.Width) ||
             !std::isfinite(context->viewport.Height) || !std::isfinite(context->viewport.MinDepth) ||
-            !std::isfinite(context->viewport.MaxDepth) || context->viewport.TopLeftX < 0.0f ||
-            context->viewport.TopLeftY < 0.0f || context->viewport.Width < 0.0f || context->viewport.Height < 0.0f ||
-            context->viewport.MinDepth < 0.0f || context->viewport.MaxDepth > 1.0f ||
+            !std::isfinite(context->viewport.MaxDepth) || context->viewport.Width < 0.0f ||
+            context->viewport.Height < 0.0f || context->viewport.MinDepth < 0.0f || context->viewport.MaxDepth > 1.0f ||
             context->viewport.MinDepth > context->viewport.MaxDepth)
         {
             return E_INVALIDARG;

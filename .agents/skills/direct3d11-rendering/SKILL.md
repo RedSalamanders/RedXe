@@ -29,7 +29,9 @@ their plugin projects.
   timer.
 - Check every resource-creation `HRESULT` before using the result.
 - Notify GPU widgets after device creation and before device release. Rebind the host target and widget viewport before
-  every plugin render callback.
+  every plugin render callback. Page-swipe viewports keep each tile's full size and may sit partly off the render
+  target; invoke `Render` for every positive-size viewport on the current and staged pages and do not shrink the
+  rectangle to the visible slice.
 - Compile bundled-plugin HLSL at build time, embed the bytecode, and keep shader input layouts, C++ vertex data, and
   HLSL semantics synchronized in the same change. Do not add a runtime `d3dcompiler` dependency for fixed shaders.
 - Preserve the `--warp` path and run `.\test.ps1` after renderer changes.

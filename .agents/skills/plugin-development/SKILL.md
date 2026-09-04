@@ -45,7 +45,9 @@ Preserve these boundaries:
   slice over the original column. Dimmed siblings keep drawing. The content rectangle MUST NOT shrink the tile.
   `SetRaised` is UI-thread, idempotent, and allocation-free.
 - GPU widgets receive a borrowed D3D11 device during setup and immediate context during rendering. They never receive
-  the HWND, swap chain, or back buffer. Share immutable device resources across compatible instances. System Data GPU
+  the HWND, swap chain, or back buffer. Share immutable device resources across compatible instances. A swipe
+  viewport keeps the widget's full size and may have a negative origin; `Render` must still draw, and must not treat
+  that origin as invalid. Direct3D clips to the target. System Data GPU
   viewers pick a density rung from the widget rectangle, grow type with leftover height among visible rows, split wide
   lists into two columns, omit content that does not fit below type floors of 16 / 18 / 30 / 48 px and a 26 px title
   floor, inset panel chrome 4 px with at least 12 px interior padding, color utilization and temperature values by

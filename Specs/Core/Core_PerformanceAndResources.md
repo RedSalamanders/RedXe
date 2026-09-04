@@ -61,7 +61,9 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   event driven: the host reports only an actual change in the largest viewport it will draw that widget at, never a
   position-only change and never per frame. Freezing such a resource at device-creation size instead is a defect, not
   a saving -- it produces wrong output at every other size.
-- Plugin `Render` calls use borrowed frame and D3D context records. Render, resize, and
+- Plugin `Render` calls use borrowed frame and D3D context records. A page-swipe viewport keeps the widget's full
+  size and MAY have a negative origin; shrinking it to the visible intersection would rebuild resolution-dependent
+  resources and reflow content every frame of the slide. Render, resize, and
   `IRedXeWidget::SetVisible` callbacks must not
   perform disk, network, device discovery, process creation, blocking waits, or long-held locks.
 - A visible native-window animation MAY use a UI-thread timer at the lowest rate that preserves its required visual

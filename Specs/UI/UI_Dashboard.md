@@ -81,6 +81,12 @@ Orientation is runtime state and MUST NOT appear in settings.
   both participating pages (continuous GPU widgets, sample-driven eases, and native-window timers) MUST continue
   through the slide. The page-scroll ease itself is those presentation-paced frames; the host MUST NOT freeze the
   dashboard on the last pointer-move invalidation and wait for the next input.
+- During a swipe the host keeps each widget's full design-canvas size and only translates it. GPU viewports and native
+  containers MAY have a negative origin or extend past the client; the host MUST NOT shrink a tile to the visible
+  intersection (that would reflow clocks and rain and fire `OnTargetSizeChanged`) and MUST NOT hide a tile merely
+  because it is not completely inside the client. Direct3D and the parent HWND clip the visible portion. The host MUST
+  still draw every GPU widget on the current and staged pages whose viewport has positive size, including the incoming
+  page sliding in from the left.
 - During a swipe only the current and directionally adjacent pages may be instantiated and rendered. Cancellation
   tears down the staged neighbor. Commit makes it current and tears down the prior page.
 - Resize, close, reload, and capture loss cancel an active transition immediately, without a settle animation.
@@ -207,6 +213,9 @@ fatal and are unaffected. A widget takes its tile back as soon as it reports any
   commit, settle interpolation, capture loss, deferred adjacent staging, in-place commit without device recreation,
   current-plus-adjacent-only resource lifetime, and that page navigation requires presentation-paced frames even when
   DXGI reports the swap chain occluded.
+- Host tests prove that a right-swipe onto a previous Matrix page still draws that Matrix while its viewport origin is
+  negative, that Studio Clock and Desk Clock keep drawing when only part of the tile is on-screen, and that
+  `LastFrameSuccessfulWidgetCount` includes those widgets rather than dropping a tile that is not completely visible.
 - Host tests prove that Process Viewer and the System Data GPU family activate data collection only while visible,
   expose GPU and scheduled interfaces rather than native-window widgets, request no continuous frames when settled, and
   drain subscriptions when the page is no longer active. The shipped `System` page places one instance of each family

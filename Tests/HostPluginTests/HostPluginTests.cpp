@@ -2179,6 +2179,116 @@ void TestPromoteStagedDashboard(bool& success) noexcept
     nextDashboard.Shutdown();
 }
 
+void TestSwipeRendersPartiallyOffscreenGpuWidgets(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] swipe keeps drawing partially visible GPU widgets\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.matrix-rain"}}]}},{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock"}},{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock"}}]}}]})json";
+
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, settings);
+    AttachedHostWindow window;
+    if (SUCCEEDED(result))
+    {
+        result = window.Initialize(kHostWidth, kHostHeight);
+    }
+
+    AppSettings clockSettings = settings;
+    if (SUCCEEDED(result))
+    {
+        result = MoveDashboardPage(clockSettings, 1);
+    }
+    PluginManager clockPlugins;
+    DashboardHost clockDashboard;
+    if (SUCCEEDED(result))
+    {
+        result = clockPlugins.Initialize(clockSettings);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = clockDashboard.Initialize(clockPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    }
+    Renderer renderer;
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Initialize(window.Get(), true, clockDashboard);
+    }
+
+    PluginManager matrixPlugins;
+    DashboardHost matrixDashboard;
+    if (SUCCEEDED(result))
+    {
+        result = matrixPlugins.Initialize(settings);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = matrixDashboard.Initialize(matrixPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    }
+
+    const LONG swipeRight = static_cast<LONG>(kHostWidth) / 4;
+    if (SUCCEEDED(result))
+    {
+        result = clockDashboard.SetHorizontalOffset(swipeRight);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = matrixDashboard.SetHorizontalOffset(swipeRight - static_cast<LONG>(kHostWidth));
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.SetTransitionDashboard(&matrixDashboard);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.RefreshLayout();
+    }
+    if (FAILED(result))
+    {
+        Check(false, L"partial-visibility swipe host failed to initialize", success);
+        renderer.Shutdown();
+        matrixDashboard.Shutdown();
+        clockDashboard.Shutdown();
+        return;
+    }
+
+    const RECT incomingMatrix = matrixDashboard.PixelBoundsAt(0, kHostWidth, kHostHeight);
+    const RECT leftClock = clockDashboard.PixelBoundsAt(0, kHostWidth, kHostHeight);
+    const RECT rightClock = clockDashboard.PixelBoundsAt(1, kHostWidth, kHostHeight);
+    Check(incomingMatrix.left < 0 && incomingMatrix.right > 0 && incomingMatrix.right < static_cast<LONG>(kHostWidth),
+          L"a right-swipe places the previous Matrix page partly on-screen from the left", success);
+    Check(leftClock.left > 0 && rightClock.right > static_cast<LONG>(kHostWidth),
+          L"the current clocks keep their full width and slide partly past the right edge", success);
+
+    result = renderer.Render(0.4f, 0.016f);
+    Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 3 && renderer.LastFrameSuccessfulWidgetCount() == 3,
+          L"Matrix Rain and both clocks still draw when they are not completely on-screen", success);
+
+    (void)renderer.SetTransitionDashboard(nullptr);
+    matrixDashboard.Shutdown();
+    if (SUCCEEDED(result))
+    {
+        result = clockDashboard.SetHorizontalOffset(-swipeRight);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.RefreshLayout();
+    }
+    const RECT slidingClock = clockDashboard.PixelBoundsAt(0, kHostWidth, kHostHeight);
+    Check(slidingClock.left < 0 && slidingClock.right > 0, L"a left-swipe leaves the left clock only partly visible",
+          success);
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(0.5f, 0.016f);
+    }
+    Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 2 && renderer.LastFrameSuccessfulWidgetCount() == 2,
+          L"Studio Clock and Desk Clock still draw when their tiles are not completely on-screen", success);
+
+    (void)clockDashboard.SetHorizontalOffset(0);
+    (void)renderer.RefreshLayout();
+    renderer.Shutdown();
+    clockDashboard.Shutdown();
+}
+
 void TestSettingsReloadKeepsCurrentPage(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] live settings reload keeps the current page\n";
@@ -2868,6 +2978,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestPageEdgeAffordanceGeometry(success);
     TestNonDivisibleGridEdges(success);
     TestPromoteStagedDashboard(success);
+    TestSwipeRendersPartiallyOffscreenGpuWidgets(success);
     TestSettingsReloadKeepsCurrentPage(success);
     TestAdoptPrimaryDashboardIsTransactional(success);
     TestNativeWindowNeighborSwipe(success);

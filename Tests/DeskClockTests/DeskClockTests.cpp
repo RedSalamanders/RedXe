@@ -182,6 +182,22 @@ struct RenderTarget final
     }
 }
 
+[[nodiscard]] HRESULT RenderAtOrigin(IRedXeGpuWidget& widget, RenderTarget& target, float originX,
+                                     float originY) noexcept
+{
+    ID3D11RenderTargetView* views[] = {target.view.get()};
+    target.context->OMSetRenderTargets(1, views, nullptr);
+    const D3D11_VIEWPORT viewport{
+        originX, originY, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f,
+    };
+    target.context->RSSetViewports(1, &viewport);
+    const RedXeWidgetFrameContext widgetFrame{
+        sizeof(RedXeWidgetFrameContext), target.width, target.height, USER_DEFAULT_SCREEN_DPI, 0.0f, 0.0f,
+    };
+    const RedXeGpuFrameContext frame{sizeof(RedXeGpuFrameContext), &widgetFrame, target.context.get(), viewport};
+    return widget.Render(&frame);
+}
+
 [[nodiscard]] bool Near(std::uint8_t value, std::uint8_t target, std::uint8_t tolerance) noexcept
 {
     return value >= static_cast<std::uint8_t>(target > tolerance ? target - tolerance : 0) &&
@@ -889,6 +905,11 @@ struct PixelBounds final
     {
         std::wprintf(L"Desk Clock initial WARP frame/composition failed: 0x%08X\n", static_cast<unsigned int>(result));
         return result;
+    }
+    if (RenderAtOrigin(*gpu, target, -160.0f, 0.0f) != S_OK)
+    {
+        std::wprintf(L"Desk Clock rejected a negative viewport origin.\n");
+        return kTestFailure;
     }
     DeskClockTestDiagnostics before{sizeof(DeskClockTestDiagnostics)};
     DeskClockTestDiagnostics after{sizeof(DeskClockTestDiagnostics)};

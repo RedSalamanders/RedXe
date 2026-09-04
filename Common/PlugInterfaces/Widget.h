@@ -65,6 +65,11 @@ static_assert(offsetof(RedXeGpuDeviceContext, device) == 8);
 static_assert(offsetof(RedXeGpuDeviceContext, targetFormat) == 16);
 
 // Borrowed D3D11 state supplied for one widget render call.
+//
+// viewport is the widget's full design-canvas placement, including during a page swipe. TopLeftX/Y MAY be negative
+// and Width/Height MAY extend past the render target; they MUST NOT be treated as invalid. widget->widthPixels and
+// widget->heightPixels stay that full size so layout does not reflow as the tile slides. Direct3D clips to the
+// target. A position-only change does not call OnTargetSizeChanged.
 struct RedXeGpuFrameContext final
 {
     uint32_t sizeBytes;
@@ -194,7 +199,9 @@ interface __declspec(uuid("355C7084-286B-409F-9FD3-A7695DEF2A33")) __declspec(no
     // resolution-dependent resources returns S_OK and does nothing. A failure is isolated: the host keeps the
     // widget's previous resources and continues rendering.
     virtual HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept = 0;
-    // Draws one frame inside the supplied viewport. Runs on the RedXe UI thread, non-reentrant.
+    // Draws one frame inside the supplied viewport. Runs on the RedXe UI thread, non-reentrant. The viewport may sit
+    // partly off the render target; the widget MUST still draw its full composition and MUST NOT reject a finite
+    // negative origin.
     virtual HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept = 0;
 };
 
