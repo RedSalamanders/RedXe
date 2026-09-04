@@ -79,7 +79,8 @@ Normal runs keep editable settings under `%LocalAppData%\RedXe\Settings`. Debug 
 `version` member, not its filename. The user schema is installed beside
 them as `RedXe.settings.schema.json`. Schema version 4 defines reusable declarations, plugin-owned settings, ordered
 swipeable pages, and adaptive ratio layouts that reflow between landscape and portrait without an orientation field.
-The first page is selected on launch. Valid changes and page switches recreate the dashboard transactionally;
+The first page is selected on launch. A live settings reload keeps that page when it still exists in the new
+document. Valid changes and page switches recreate the dashboard transactionally;
 inactive pages own no runtime resources except the adjacent staged page during a swipe. The directory watcher blocks
 on Windows events and does no
 periodic polling. Invalid live edits leave the previous dashboard active. The hidden self-test reads only the template

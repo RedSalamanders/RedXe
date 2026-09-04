@@ -747,7 +747,8 @@ class StudioClockSharedResources final
 // object padding even though the record itself has an exact asserted layout.
 #pragma warning(push)
 #pragma warning(disable : 4324)
-class StudioClockWidget final : public RedXeComObject<StudioClockWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
+class StudioClockWidget final
+    : public RedXeComObject<StudioClockWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
 {
   public:
     StudioClockWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner,
@@ -1185,8 +1186,7 @@ extern "C" void __stdcall RedXePluginShutdown() noexcept
     gTestTimeRevision.fetch_add(1, std::memory_order_release);
 }
 
-extern "C" HRESULT __stdcall RedXeStudioClockSetTestTime(
-    const StudioClockTestTime* testTime) noexcept
+extern "C" HRESULT __stdcall RedXeStudioClockSetTestTime(const StudioClockTestTime* testTime) noexcept
 {
     if (!testTime)
     {
@@ -1216,8 +1216,7 @@ extern "C" HRESULT __stdcall RedXeStudioClockSetTestTime(
     return S_OK;
 }
 
-extern "C" HRESULT __stdcall RedXeStudioClockGetTestDiagnostics(
-    StudioClockTestDiagnostics* diagnostics) noexcept
+extern "C" HRESULT __stdcall RedXeStudioClockGetTestDiagnostics(StudioClockTestDiagnostics* diagnostics) noexcept
 {
     if (!diagnostics)
     {

@@ -675,6 +675,39 @@ HRESULT MoveDashboardPage(AppSettings& settings, int direction) noexcept
     return S_OK;
 }
 
+HRESULT PreserveActiveDashboardPage(const AppSettings& previous, AppSettings& candidate) noexcept
+{
+    if (candidate.dashboard.pageCount == 0 || candidate.dashboard.pages.size() != candidate.dashboard.pageCount)
+    {
+        return E_INVALIDARG;
+    }
+
+    // Launch still starts on page 0. Live reload keeps the page that was current when that page still exists: same
+    // id first (authored ids follow a reorder; generated page.N ids stay put when the list is unchanged), otherwise
+    // the same index if it is still in range, otherwise the first page. The active page is not written to disk.
+    if (previous.dashboard.activePageId.bytes != 0)
+    {
+        for (uint32_t index = 0; index < candidate.dashboard.pageCount; ++index)
+        {
+            if (SettingsIdEquals(candidate.dashboard.pages[index].id.View(), previous.dashboard.activePageId.View()))
+            {
+                candidate.dashboard.activePageIndex = index;
+                candidate.dashboard.activePageId = candidate.dashboard.pages[index].id;
+                return S_OK;
+            }
+        }
+    }
+    if (previous.dashboard.activePageIndex < candidate.dashboard.pageCount)
+    {
+        candidate.dashboard.activePageIndex = previous.dashboard.activePageIndex;
+        candidate.dashboard.activePageId = candidate.dashboard.pages[previous.dashboard.activePageIndex].id;
+        return S_OK;
+    }
+    candidate.dashboard.activePageIndex = 0;
+    candidate.dashboard.activePageId = candidate.dashboard.pages[0].id;
+    return S_OK;
+}
+
 bool ActiveDashboardRuntimeEquals(const AppSettings& left, const AppSettings& right) noexcept
 {
     if (left.dashboard.gridColumns != right.dashboard.gridColumns ||

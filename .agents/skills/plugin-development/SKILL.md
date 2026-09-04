@@ -35,8 +35,9 @@ Preserve these boundaries:
   catalog and must fail when either default omits the plugin. Catalog plugin IDs and type IDs stay unique; module names
   MAY repeat. `PluginHost` maps a shared DLL once and copies exports to sibling slots; optional shutdown runs only on
   the owning slot.
-- After delivering a snapshot to an active GPU data sink, `PluginHost` coalesces one UI-thread frame invalidation so
-  scheduled GPU widgets can start an ease without a child HWND.
+- After delivering a snapshot to an active GPU data sink, `PluginHost` copies sink pointers, releases the subscription
+  lock, then invokes `OnDataSnapshot`, and coalesces one UI-thread frame invalidation so scheduled GPU widgets can
+  start an ease without a child HWND. A failed `CollectSnapshots` batch MUST NOT keep rate-history mutations.
 - Keep every widget declaration in `Widget.h` and every data declaration in `Data.h`. Generic widgets expose GPU,
   scheduled, native-window, and raised-overlay mechanisms through sibling IIDs; never add a plugin's geometry, shader, or
   drawing commands to the generic root. The host MUST query `IRedXeRaisedWidget::GetRaisedExtent` before raising a
@@ -60,6 +61,8 @@ Preserve these boundaries:
   window widgets destroy their children before `Detach` returns.
 - Keep GPU `Render`, GDI paint, and visibility callbacks allocation-free and non-blocking. Native-window resize may
   rebuild bounded size-dependent buffers and handles, then must reuse them until size or DPI changes again.
+  Process Viewer rasterizes new atlas glyphs from snapshot delivery or device creation, never from `Render`. Sample-
+  driven eases call `IRedXeHost::RequestFrame` after each presented frame instead of returning a 1 ms scheduled delay.
 - Keep each `CreateWidget` result isolated so multiple instance IDs can animate and configure independently.
 - Do not allow exceptions across exports, COM methods, callbacks, `wWinMain`, or Win32 procedures.
 

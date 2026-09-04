@@ -1,7 +1,7 @@
 # RedXe settings contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-04
 Owner: `SettingsStore`, `SettingsWatcher`, and UI-thread application orchestration
 
 ## Scope
@@ -112,10 +112,13 @@ non-integer or out-of-range duration, and malformed colors reject the complete c
 ## Pages and layout
 
 `pages` contains 1–16 entries in navigation order and at most 512 widget appearances in total. The first page is
-always selected on launch. A page has optional `id`, optional `name`, and optional `layout`. `id` is metadata and is
-not required for navigation. `name` is 1–128 Unicode code points; when omitted, UI derives `Page N` without modifying
-the file. `{}` is a valid blank page. Each page has at most 32 widget appearances. Adaptive layout and touch behavior
-are normative in `Specs/UI/UI_Dashboard.md`.
+always selected on launch. The active page is runtime state and MUST NOT be written to the document. A live reload of
+a valid document MUST keep the page that was current when that page still exists: match the previous page `id` in the
+new document, otherwise keep the previous index when it is still in range, otherwise select the first page. A page has
+optional `id`, optional `name`, and optional `layout`. `id` is metadata and is not required for swipe or edge
+navigation, but live reload uses it as the page's identity when it is present. `name` is 1–128 Unicode code points;
+when omitted, UI derives `Page N` without modifying the file. `{}` is a valid blank page. Each page has at most 32
+widget appearances. Adaptive layout and touch behavior are normative in `Specs/UI/UI_Dashboard.md`.
 
 ## Cold load and recovery
 
@@ -141,7 +144,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   remain on the UI thread.
 - The UI thread compares volume, file identity, last-write time, and size before parsing. Applied and rejected stamps
   are deduplicated; every distinct later change is reconsidered.
-- A valid candidate is applied transactionally. Failure preserves or restores the previous settings and dashboard.
+- A valid candidate is applied transactionally after the host reselects the page that was current, when that page
+  still exists in the candidate. Failure preserves or restores the previous settings and dashboard.
 - Invalid, unreadable, or missing live input remains untouched and leaves the exact last-valid in-memory state active.
 - Diagnostics SHOULD include every reliable line, column, and JSON path in clear user language.
 - At most one modal settings-error dialog may exist. Monitoring continues while visible. A later invalid save refreshes
@@ -175,7 +179,10 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   one-time legacy Release filename migration, stamps, watching, last-valid preservation, modal refresh/close
   behavior, and rejected-stamp deduplication.
 - Hidden host tests prove first-page startup, blank pages, inactive-page resource absence, transactional apply, WARP
-  rendering, and current-plus-adjacent-only swipe staging.
+  rendering, current-plus-adjacent-only swipe staging, and that a live reload of an unchanged page list keeps the page
+  that was current.
+- Parser tests prove that `PreserveActiveDashboardPage` follows an authored page id across a reorder, keeps a
+  generated `page.N` index when that page remains, and falls back to the first page when the current page is gone.
 - Debug and Release x64 tests, Release ARM64 compilation, formatting, skill validation, and `git diff --check` pass.
 
 ## Implementation anchors

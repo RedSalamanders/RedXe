@@ -63,8 +63,7 @@ static_assert(sizeof(RedXeNtProcessRecord) == sizeof(SYSTEM_PROCESS_INFORMATION)
 static_assert(offsetof(RedXeNtProcessRecord, nextEntryOffset) == offsetof(SYSTEM_PROCESS_INFORMATION, NextEntryOffset));
 static_assert(offsetof(RedXeNtProcessRecord, numberOfThreads) == offsetof(SYSTEM_PROCESS_INFORMATION, NumberOfThreads));
 // Reserved1[48] spans workingSetPrivateSize .. kernelTime and ends exactly where ImageName begins.
-static_assert(offsetof(RedXeNtProcessRecord, workingSetPrivateSize) ==
-              offsetof(SYSTEM_PROCESS_INFORMATION, Reserved1));
+static_assert(offsetof(RedXeNtProcessRecord, workingSetPrivateSize) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved1));
 static_assert(offsetof(RedXeNtProcessRecord, hardFaultCount) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved1) + 8);
 static_assert(offsetof(RedXeNtProcessRecord, numberOfThreadsHighWatermark) ==
               offsetof(SYSTEM_PROCESS_INFORMATION, Reserved1) + 12);
@@ -75,15 +74,13 @@ static_assert(offsetof(RedXeNtProcessRecord, kernelTime) == offsetof(SYSTEM_PROC
 static_assert(offsetof(RedXeNtProcessRecord, kernelTime) + 8 == offsetof(SYSTEM_PROCESS_INFORMATION, ImageName));
 static_assert(offsetof(RedXeNtProcessRecord, imageName) == offsetof(SYSTEM_PROCESS_INFORMATION, ImageName));
 static_assert(offsetof(RedXeNtProcessRecord, basePriority) == offsetof(SYSTEM_PROCESS_INFORMATION, BasePriority));
-static_assert(offsetof(RedXeNtProcessRecord, uniqueProcessId) ==
-              offsetof(SYSTEM_PROCESS_INFORMATION, UniqueProcessId));
+static_assert(offsetof(RedXeNtProcessRecord, uniqueProcessId) == offsetof(SYSTEM_PROCESS_INFORMATION, UniqueProcessId));
 static_assert(offsetof(RedXeNtProcessRecord, inheritedFromUniqueProcessId) ==
               offsetof(SYSTEM_PROCESS_INFORMATION, Reserved2));
 static_assert(offsetof(RedXeNtProcessRecord, handleCount) == offsetof(SYSTEM_PROCESS_INFORMATION, HandleCount));
 static_assert(offsetof(RedXeNtProcessRecord, sessionId) == offsetof(SYSTEM_PROCESS_INFORMATION, SessionId));
 static_assert(offsetof(RedXeNtProcessRecord, uniqueProcessKey) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved3));
-static_assert(offsetof(RedXeNtProcessRecord, peakVirtualSize) ==
-              offsetof(SYSTEM_PROCESS_INFORMATION, PeakVirtualSize));
+static_assert(offsetof(RedXeNtProcessRecord, peakVirtualSize) == offsetof(SYSTEM_PROCESS_INFORMATION, PeakVirtualSize));
 static_assert(offsetof(RedXeNtProcessRecord, virtualSize) == offsetof(SYSTEM_PROCESS_INFORMATION, VirtualSize));
 static_assert(offsetof(RedXeNtProcessRecord, pageFaultCount) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved4));
 static_assert(offsetof(RedXeNtProcessRecord, peakWorkingSetSize) ==

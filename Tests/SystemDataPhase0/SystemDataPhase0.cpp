@@ -442,13 +442,12 @@ void Run()
     // could never report more. Probing with an oversized buffer is what actually measures the record.
     std::array<std::byte, 1024> performanceProbe{};
     returned = 0;
-    const NTSTATUS performanceStatus =
-        QuerySystem(querySystem, SystemPerformanceInformation, performanceProbe.data(),
-                    static_cast<ULONG>(performanceProbe.size()), &returned);
+    const NTSTATUS performanceStatus = QuerySystem(querySystem, SystemPerformanceInformation, performanceProbe.data(),
+                                                   static_cast<ULONG>(performanceProbe.size()), &returned);
     std::wcout << L"SystemPerformanceInformation status=" << performanceStatus << L" probe_bytes="
-               << performanceProbe.size() << L" measured_return_length=" << returned
-               << L" sdk_sizeof=" << sizeof(SYSTEM_PERFORMANCE_INFORMATION) << L" redxe_overlay_sizeof="
-               << sizeof(RedXeNtPerformance) << L" band=";
+               << performanceProbe.size() << L" measured_return_length=" << returned << L" sdk_sizeof="
+               << sizeof(SYSTEM_PERFORMANCE_INFORMATION) << L" redxe_overlay_sizeof=" << sizeof(RedXeNtPerformance)
+               << L" band=";
     if (returned >= kRedXeNtPerformance24H2Bytes)
     {
         std::wcout << L"24h2\n";
@@ -470,11 +469,11 @@ void Run()
 
     // Short-buffer fixture: one byte under the SDK reserved block must be rejected, never silently truncated.
     ULONG shortReturned = 0;
-    const NTSTATUS shortStatus = QuerySystem(querySystem, SystemPerformanceInformation, performanceProbe.data(),
-                                             static_cast<ULONG>(sizeof(SYSTEM_PERFORMANCE_INFORMATION) - 1),
-                                             &shortReturned);
-    std::wcout << L"SystemPerformanceInformation short_buffer_status=" << shortStatus << L" returned="
-               << shortReturned << L'\n';
+    const NTSTATUS shortStatus =
+        QuerySystem(querySystem, SystemPerformanceInformation, performanceProbe.data(),
+                    static_cast<ULONG>(sizeof(SYSTEM_PERFORMANCE_INFORMATION) - 1), &shortReturned);
+    std::wcout << L"SystemPerformanceInformation short_buffer_status=" << shortStatus << L" returned=" << shortReturned
+               << L'\n';
     Expect(shortStatus < 0 || shortReturned < sizeof(SYSTEM_PERFORMANCE_INFORMATION),
            "a short SystemPerformanceInformation buffer reported a full-length result");
 
@@ -494,11 +493,10 @@ void Run()
     ULONG interruptReturned = 0;
     const ULONG interruptLength =
         static_cast<ULONG>(sizeof(RedXeNtInterruptRecord) * (activeProcessors == 0 ? 1 : activeProcessors));
-    const NTSTATUS interruptStatus =
-        interruptLength <= interruptProbe.size()
-            ? QuerySystem(querySystem, SystemInterruptInformation, interruptProbe.data(), interruptLength,
-                          &interruptReturned)
-            : static_cast<NTSTATUS>(0);
+    const NTSTATUS interruptStatus = interruptLength <= interruptProbe.size()
+                                         ? QuerySystem(querySystem, SystemInterruptInformation, interruptProbe.data(),
+                                                       interruptLength, &interruptReturned)
+                                         : static_cast<NTSTATUS>(0);
     std::wcout << L"SystemInterruptInformation status=" << interruptStatus << L" returned=" << interruptReturned
                << L" record_sizeof=" << sizeof(RedXeNtInterruptRecord) << L" processors=" << activeProcessors << L'\n';
     Expect(interruptReturned == 0 || interruptReturned % sizeof(RedXeNtInterruptRecord) == 0,

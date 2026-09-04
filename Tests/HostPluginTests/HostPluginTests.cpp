@@ -301,6 +301,17 @@ void TestFrameScheduler(bool& success) noexcept
           L"an unrelated message leaves a static host waiting", success);
     state.frameInvalidated = true;
     Check(SelectHostFrameAction(state) == HostFrameAction::Render, L"invalidated static host renders", success);
+
+    state.frameInvalidated = false;
+    state.pageNavigationActive = true;
+    Check(SelectHostFrameAction(state) == HostFrameAction::Render,
+          L"an active page swipe keeps presenting so widget animation continues", success);
+    state.rendererOccluded = true;
+    Check(SelectHostFrameAction(state) == HostFrameAction::Render,
+          L"page navigation keeps presenting when DXGI reports the swap chain occluded", success);
+    state.pageNavigationActive = false;
+    Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage,
+          L"occluded host without page navigation waits", success);
 }
 
 void TestPageSwipePolicy(bool& success) noexcept
@@ -1345,8 +1356,8 @@ void TestSystemDataViewers(bool& success) noexcept
     std::wcout << L"[       -- ] System page WARP mean frame " << meanMs << L" ms\n";
 
     uint32_t delay = 0;
-    Check(dashboard.GetNextFrameDelayMilliseconds(&delay) == S_OK && delay >= 1,
-          L"settled System page publishes a scheduled delay", success);
+    Check(dashboard.GetNextFrameDelayMilliseconds(&delay) == S_OK && delay > 1U,
+          L"settled System page publishes a rest interval rather than a 1 ms ease poll", success);
 
     if (SUCCEEDED(result))
     {
@@ -1479,9 +1490,8 @@ void TestGpuTargetSizeNotification(bool& success) noexcept
         return;
     }
 
-    const DeskClockGetTestDiagnosticsFn getDiagnostics =
-        ResolveFunction<DeskClockGetTestDiagnosticsFn>(GetModuleHandleW(L"DeskClock.dll"),
-                                                       kDeskClockGetTestDiagnosticsExport);
+    const DeskClockGetTestDiagnosticsFn getDiagnostics = ResolveFunction<DeskClockGetTestDiagnosticsFn>(
+        GetModuleHandleW(L"DeskClock.dll"), kDeskClockGetTestDiagnosticsExport);
     Check(getDiagnostics != nullptr, L"Desk Clock diagnostics are reachable", success);
     if (!getDiagnostics)
     {
@@ -1574,8 +1584,7 @@ void TestSharedPluginRuntime(bool& success) noexcept
     DashboardHost currentDashboard;
     if (SUCCEEDED(result))
     {
-        result =
-            currentDashboard.Initialize(currentPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
+        result = currentDashboard.Initialize(currentPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
     }
     Check(SUCCEEDED(result) && currentPlugins.WidgetCount() == 1, L"current page creates its System Data viewer",
           success);
@@ -1607,16 +1616,15 @@ void TestSharedPluginRuntime(bool& success) noexcept
     }
 
     const DWORD threadsWithStaged = CountProcessThreads();
-    Check(threadsWithStaged <= threadsWithCurrent,
-          L"staging an adjacent page adds no second acquisition thread", success);
+    Check(threadsWithStaged <= threadsWithCurrent, L"staging an adjacent page adds no second acquisition thread",
+          success);
     Check(threadsWithCurrent >= threadsBefore, L"the shared acquisition worker starts with the first subscription",
           success);
 
     // Both managers resolve the same data provider identity from the one runtime.
     wil::com_ptr_nothrow<IRedXeDataProvider> first;
     wil::com_ptr_nothrow<IRedXeDataProvider> second;
-    const HRESULT firstResult =
-        PluginHost::Instance().Interface()->GetDataProvider("builtin.system-data", first.put());
+    const HRESULT firstResult = PluginHost::Instance().Interface()->GetDataProvider("builtin.system-data", first.put());
     const HRESULT secondResult =
         PluginHost::Instance().Interface()->GetDataProvider("builtin.system-data", second.put());
     wil::com_ptr_nothrow<IUnknown> firstIdentity;
@@ -1640,9 +1648,9 @@ void TestHostRequestFrameAndWidgetStatus(bool& success) noexcept
           L"RequestFrame succeeds and coalesces without a UI target", success);
 
     RedXeWidgetStatusReport report{sizeof(RedXeWidgetStatusReport), RedXeWidgetStatusUnavailable,
-                                  L"sensor unavailable"};
-    Check(host->ReportWidgetStatus("status.test.instance", &report) == S_OK,
-          L"a widget can report itself unavailable", success);
+                                   L"sensor unavailable"};
+    Check(host->ReportWidgetStatus("status.test.instance", &report) == S_OK, L"a widget can report itself unavailable",
+          success);
     Check(PluginHost::Instance().WidgetStatus("status.test.instance") == RedXeWidgetStatusUnavailable,
           L"the host records the reported status", success);
 
@@ -1703,8 +1711,7 @@ void TestHostOwnedPlaceholderTiles(bool& success) noexcept
     {
         result = plugins.Initialize(settings);
     }
-    Check(SUCCEEDED(result) && plugins.WidgetCount() == 3, L"a valid page constructs every authored instance",
-          success);
+    Check(SUCCEEDED(result) && plugins.WidgetCount() == 3, L"a valid page constructs every authored instance", success);
     if (FAILED(result))
     {
         return;
@@ -1845,6 +1852,9 @@ void TestPageEdgeAffordancePolicy(bool& success) noexcept
     blocked = middle;
     blocked.settleActive = true;
     suppressed(blocked, L"An active settle offers no edge affordance.");
+    blocked = middle;
+    blocked.transitionStaged = true;
+    suppressed(blocked, L"A staged neighbor offers no edge affordance.");
 
     Check(!ShouldShowEdgeAffordance(middle, 0) && !ShouldShowEdgeAffordance(middle, 2),
           L"Only the two page-navigation directions select an edge affordance.", success);
@@ -1888,13 +1898,11 @@ void TestPageEdgeAffordanceGeometry(bool& success) noexcept
     // The chevron is a Segoe Fluent Icons glyph, with a Unicode stand-in when no icon font is installed.
     Check(PageEdgeChevronGlyph(kPageEdgeDirectionPrevious, FluentIcons::IconFont::Fluent) ==
                   FluentIcons::kChevronLeft &&
-              PageEdgeChevronGlyph(kPageEdgeDirectionNext, FluentIcons::IconFont::Fluent) ==
-                  FluentIcons::kChevronRight,
+              PageEdgeChevronGlyph(kPageEdgeDirectionNext, FluentIcons::IconFont::Fluent) == FluentIcons::kChevronRight,
           L"The chevron uses the Fluent chevron glyph for each travel direction.", success);
     Check(PageEdgeChevronGlyph(kPageEdgeDirectionPrevious, FluentIcons::IconFont::Legacy) ==
                   FluentIcons::kChevronLeft &&
-              PageEdgeChevronGlyph(kPageEdgeDirectionNext, FluentIcons::IconFont::Legacy) ==
-                  FluentIcons::kChevronRight,
+              PageEdgeChevronGlyph(kPageEdgeDirectionNext, FluentIcons::IconFont::Legacy) == FluentIcons::kChevronRight,
           L"Segoe MDL2 Assets shares the Fluent chevron code points.", success);
     Check(PageEdgeChevronGlyph(kPageEdgeDirectionPrevious, FluentIcons::IconFont::TextFallback) ==
                   FluentIcons::kFallbackChevronLeft &&
@@ -1906,8 +1914,7 @@ void TestPageEdgeAffordanceGeometry(bool& success) noexcept
 
     // The glyph cell is centred in its band and never escapes it.
     const RECT cell = PageEdgeChevronCell(right, 96);
-    Check(cell.left >= right.left && cell.right <= right.right && cell.top >= right.top &&
-              cell.bottom <= right.bottom,
+    Check(cell.left >= right.left && cell.right <= right.right && cell.top >= right.top && cell.bottom <= right.bottom,
           L"The chevron cell stays inside its band.", success);
     Check((cell.left + cell.right) / 2 == (right.left + right.right) / 2 &&
               (cell.top + cell.bottom) / 2 == (right.top + right.bottom) / 2,
@@ -1945,10 +1952,19 @@ void TestPageEdgeAffordanceGeometry(bool& success) noexcept
     Check(EqualRect(&noAreas, &wholeClientRect), L"Absent display information leaves the whole client reachable.",
           success);
     const std::array offscreenDisplay{RECT{10000, 10000, 12000, 12000}};
-    const RECT disjoint =
-        PageEdgeReachableClient(wholeClientRect, offscreenDisplay.data(), offscreenDisplay.size());
+    const RECT disjoint = PageEdgeReachableClient(wholeClientRect, offscreenDisplay.data(), offscreenDisplay.size());
     Check(EqualRect(&disjoint, &wholeClientRect),
           L"A client disjoint from every work area keeps its bands rather than losing them.", success);
+
+    // A work area inset by a taskbar still yields a full-client-height band. Horizontal clipping stays so a window
+    // wider than its monitor keeps a reachable edge.
+    const std::array taskbarInset{RECT{0, 40, 1280, 680}};
+    const RECT tallReach = PageEdgeReachableClient(wholeClientRect, taskbarInset.data(), taskbarInset.size());
+    Check(tallReach.top == 0 && tallReach.bottom == static_cast<LONG>(clientHeight) && tallReach.right == 1280,
+          L"A work-area taskbar does not shorten the band; width still clips to the display.", success);
+    const RECT tallRight = PageEdgeBandRectIn(tallReach, kPageEdgeDirectionNext, 96);
+    Check(tallRight.top == 0 && tallRight.bottom == static_cast<LONG>(clientHeight),
+          L"The next-page band runs from the top of the client to the bottom.", success);
 
     // Bands follow the reachable client area, so a window larger than its monitor still offers a band the pointer
     // can hit. A client that fits entirely on screen is unchanged.
@@ -1962,8 +1978,8 @@ void TestPageEdgeAffordanceGeometry(bool& success) noexcept
     const RECT clipped{0, 0, 1280, static_cast<LONG>(clientHeight)};
     const RECT clippedRight = PageEdgeBandRectIn(clipped, kPageEdgeDirectionNext, 96);
     const RECT clippedLeft = PageEdgeBandRectIn(clipped, kPageEdgeDirectionPrevious, 96);
-    Check(clippedRight.right == 1280 && clippedRight.left == 1280 - kPageEdgeBandWidthDips &&
-              clippedRight.top == 0 && clippedRight.bottom == static_cast<LONG>(clientHeight),
+    Check(clippedRight.right == 1280 && clippedRight.left == 1280 - kPageEdgeBandWidthDips && clippedRight.top == 0 &&
+              clippedRight.bottom == static_cast<LONG>(clientHeight),
           L"An off-screen client edge moves the next-page band to the reachable edge.", success);
     Check(clippedLeft.left == 0 && clippedLeft.right == kPageEdgeBandWidthDips,
           L"Clipping one side leaves the opposite band where it was.", success);
@@ -1985,8 +2001,7 @@ void TestPageEdgeAffordanceGeometry(bool& success) noexcept
               PageEdgeSettleTarget(kPageEdgeDirectionPrevious, 2560) == 2560,
           L"An edge click settles to the committed-swipe offset for its direction.", success);
     Check(PageSwipeDirection(PageEdgeSettleTarget(kPageEdgeDirectionNext, 2560)) == kPageEdgeDirectionNext &&
-              PageSwipeDirection(PageEdgeSettleTarget(kPageEdgeDirectionPrevious, 2560)) ==
-                  kPageEdgeDirectionPrevious,
+              PageSwipeDirection(PageEdgeSettleTarget(kPageEdgeDirectionPrevious, 2560)) == kPageEdgeDirectionPrevious,
           L"Edge settle targets agree with the swipe direction convention.", success);
     Check(PageEdgeSettleTarget(kPageEdgeDirectionNext, 0) == 0 && PageEdgeSettleTarget(0, 2560) == 0,
           L"A degenerate edge settle target is zero.", success);
@@ -2162,6 +2177,232 @@ void TestPromoteStagedDashboard(bool& success) noexcept
 
     renderer.Shutdown();
     nextDashboard.Shutdown();
+}
+
+void TestSettingsReloadKeepsCurrentPage(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] live settings reload keeps the current page\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}},{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}}]}}]})json";
+
+    AppSettings current{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, current);
+    Check(SUCCEEDED(result) && current.dashboard.activePageIndex == 0,
+          L"a freshly parsed document starts on the first page", success);
+    if (SUCCEEDED(result))
+    {
+        result = MoveDashboardPage(current, 1);
+    }
+    Check(SUCCEEDED(result) && current.dashboard.activePageIndex == 1, L"the runtime can leave the first page",
+          success);
+
+    AppSettings reloaded{};
+    if (SUCCEEDED(result))
+    {
+        result = ParseAppSettingsJson(settingsJson, reloaded);
+    }
+    Check(SUCCEEDED(result) && reloaded.dashboard.activePageIndex == 0,
+          L"a live parse still defaults to the first page", success);
+    if (SUCCEEDED(result))
+    {
+        result = PreserveActiveDashboardPage(current, reloaded);
+    }
+    Check(SUCCEEDED(result) && reloaded.dashboard.activePageIndex == 1,
+          L"reload keeps the second page when it still exists", success);
+
+    PluginManager plugins;
+    DashboardHost dashboard;
+    AttachedHostWindow window;
+    if (SUCCEEDED(result))
+    {
+        result = window.Initialize(kHostWidth, kHostHeight);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(reloaded);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
+    }
+    Check(SUCCEEDED(result) && plugins.WidgetCount() == 1 && plugins.WindowWidgetAt(0) != nullptr &&
+              plugins.GpuWidgetAt(0) == nullptr,
+          L"a reload that keeps page two stages the native-window neighbour, not the first-page GPU widget", success);
+
+    dashboard.Shutdown();
+}
+
+void TestAdoptPrimaryDashboardIsTransactional(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] failed adopt restores the previous dashboard\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}},{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}}]})json";
+
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, settings);
+    AttachedHostWindow window;
+    if (SUCCEEDED(result))
+    {
+        result = window.Initialize(kHostWidth, kHostHeight);
+    }
+    PluginManager currentPlugins;
+    DashboardHost currentDashboard;
+    if (SUCCEEDED(result))
+    {
+        result = currentPlugins.Initialize(settings);
+    }
+    if (SUCCEEDED(result))
+    {
+        result =
+            currentDashboard.Initialize(currentPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    }
+    Renderer renderer;
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Initialize(window.Get(), true, currentDashboard);
+    }
+    AppSettings nextSettings = settings;
+    PluginManager nextPlugins;
+    DashboardHost nextDashboard;
+    if (SUCCEEDED(result))
+    {
+        result = MoveDashboardPage(nextSettings, 1);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = nextPlugins.Initialize(nextSettings);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = nextDashboard.Initialize(nextPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.SetTransitionDashboard(&nextDashboard);
+    }
+    Check(SUCCEEDED(result), L"transactional-adopt host stages a neighbor", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    result = renderer.Resize(0, 0);
+    Check(SUCCEEDED(result) && renderer.IsSuspended(), L"zero-sized resize suspends the renderer", success);
+    result = renderer.AdoptPrimaryDashboard(nextDashboard);
+    Check(FAILED(result), L"adopt fails while the swap chain is zero-sized", success);
+    (void)renderer.SetTransitionDashboard(nullptr);
+    nextDashboard.Shutdown();
+    result = renderer.Resize(kHostWidth, kHostHeight);
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(0.4f, 1.0f / 60.0f);
+    }
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 1,
+          L"a failed adopt still draws the original page after the incoming host is destroyed", success);
+
+    renderer.Shutdown();
+    currentDashboard.Shutdown();
+}
+
+void TestNativeWindowNeighborSwipe(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] native-window neighbor swipe layout and occlusion\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}},{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}}]}}]})json";
+
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, settings);
+    AttachedHostWindow window;
+    if (SUCCEEDED(result))
+    {
+        result = window.Initialize(kHostWidth, kHostHeight);
+    }
+    PluginManager currentPlugins;
+    DashboardHost currentDashboard;
+    if (SUCCEEDED(result))
+    {
+        result = currentPlugins.Initialize(settings);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = currentDashboard.Initialize(currentPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
+    }
+    Renderer renderer;
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Initialize(window.Get(), true, currentDashboard);
+    }
+    AppSettings nextSettings = settings;
+    PluginManager nextPlugins;
+    DashboardHost nextDashboard;
+    if (SUCCEEDED(result))
+    {
+        result = MoveDashboardPage(nextSettings, 1);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = nextPlugins.Initialize(nextSettings);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = nextDashboard.Initialize(nextPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
+    }
+    Check(SUCCEEDED(result) && nextDashboard.HasWindowWidgets() && nextDashboard.WindowWidgetAt(0) != nullptr,
+          L"the neighbor page hosts a native-window widget", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+
+    result = nextDashboard.SetHorizontalOffset(static_cast<LONG>(kHostWidth));
+    if (SUCCEEDED(result))
+    {
+        result = renderer.SetTransitionDashboard(&nextDashboard);
+    }
+    const LONG offsets[] = {-static_cast<LONG>(kHostWidth) / 4, -static_cast<LONG>(kHostWidth) / 2,
+                            -static_cast<LONG>(kHostWidth)};
+    for (LONG offset : offsets)
+    {
+        if (FAILED(result))
+        {
+            break;
+        }
+        result = currentDashboard.SetHorizontalOffset(offset);
+        if (SUCCEEDED(result))
+        {
+            result = nextDashboard.SetHorizontalOffset(offset + static_cast<LONG>(kHostWidth));
+        }
+        if (SUCCEEDED(result))
+        {
+            result = renderer.RefreshLayout();
+        }
+        if (SUCCEEDED(result))
+        {
+            result = renderer.Render(0.2f, 1.0f / 60.0f);
+        }
+    }
+    Check(SUCCEEDED(result), L"RefreshLayout succeeds at every settle offset through a native neighbor", success);
+
+    result = renderer.AdoptPrimaryDashboard(nextDashboard);
+    if (SUCCEEDED(result))
+    {
+        currentDashboard.Shutdown();
+        result = nextDashboard.SetHorizontalOffset(0);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.RefreshLayout();
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(0.3f, 1.0f / 60.0f);
+    }
+    Check(SUCCEEDED(result) && !renderer.IsOccluded(),
+          L"a full-page native widget does not mark the swap chain occluded", success);
+
+    renderer.Shutdown();
+    nextDashboard.Shutdown();
+    currentDashboard.Shutdown();
 }
 
 [[nodiscard]] bool RunStudioClockHostSoak(std::chrono::seconds duration) noexcept
@@ -2627,6 +2868,9 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestPageEdgeAffordanceGeometry(success);
     TestNonDivisibleGridEdges(success);
     TestPromoteStagedDashboard(success);
+    TestSettingsReloadKeepsCurrentPage(success);
+    TestAdoptPrimaryDashboardIsTransactional(success);
+    TestNativeWindowNeighborSwipe(success);
     std::wcout << (success ? L"HostPluginTests passed.\n" : L"HostPluginTests failed.\n");
     return success ? 0 : 1;
 }

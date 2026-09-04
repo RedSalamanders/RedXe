@@ -222,7 +222,8 @@ class TriangleDeviceResources final
     return hash;
 }
 
-class RotatingTriangleWidget final : public RedXeComObject<RotatingTriangleWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeRaisedWidget>
+class RotatingTriangleWidget final
+    : public RedXeComObject<RotatingTriangleWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeRaisedWidget>
 {
   public:
     RotatingTriangleWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner,

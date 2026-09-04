@@ -1,7 +1,7 @@
 # RedXe adaptive dashboard and page-navigation contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-04
 Owner: `DashboardHost` layout, active-page composition, page navigation, edge-navigation chrome, host placeholder tiles, and raised overlay chrome
 
 ## Scope
@@ -17,9 +17,12 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 ## Pages
 
 - A document contains 1–16 ordered pages. Order is navigation order and the first page is selected on every launch.
-  RedXe does not persist the last active page.
-- Page `id` and `name` are optional metadata and do not control navigation. A missing name is displayed as `Page N`
-  without modifying the document.
+  RedXe does not persist the last active page to disk. A live settings reload MUST keep the page that was current when
+  that page still exists: the host selects the page whose `id` matches the page that was showing, or the same index if
+  that id is gone but the index is still in range, otherwise the first page. An in-progress swipe is cancelled without
+  a settle, as with any other reload.
+- Page `id` and `name` are optional metadata and do not control swipe or edge navigation. A missing name is displayed
+  as `Page N` without modifying the document. Live reload uses `id` only to recognize the page that was current.
 - A page with no `layout` is blank. A page contains at most 32 widget appearances.
 - Only the current page owns runtime resources, except while swiping when the adjacent transition page may also own
   resources. All other pages own no provider, widget, data subscription, child HWND, D3D resource, timer, acquisition,
@@ -74,6 +77,10 @@ Orientation is runtime state and MUST NOT appear in settings.
 - On release the host settles with presentation-paced ease-out frames. It commits when travel reaches one quarter of
   the client width or a same-direction flick exceeds the DPI-scaled speed threshold; otherwise it returns to the
   current page. Commit promotes the already-staged neighbor in place and MUST NOT recreate the Direct3D device.
+- While a pan, settle, or staged neighbor is in progress the host MUST keep presenting frames. Widget animation on
+  both participating pages (continuous GPU widgets, sample-driven eases, and native-window timers) MUST continue
+  through the slide. The page-scroll ease itself is those presentation-paced frames; the host MUST NOT freeze the
+  dashboard on the last pointer-move invalidation and wait for the next input.
 - During a swipe only the current and directionally adjacent pages may be instantiated and rendered. Cancellation
   tears down the staged neighbor. Commit makes it current and tears down the prior page.
 - Resize, close, reload, and capture loss cancel an active transition immediately, without a settle animation.
@@ -84,13 +91,15 @@ Touch and pen navigate by panning. A mouse navigates through a host-owned afford
 user is never left without page navigation. This section owns that affordance; it changes nothing about the pan
 contract above.
 
-- The host owns one full-height band at each edge of the **reachable** client area: the client rectangle intersected
-  with the work area of every display the window touches. A window straddling two monitors is reachable across both,
-  so the reachable area MUST NOT be clamped to a single monitor. For a window that fits on its monitor, and therefore always for the Release fullscreen
-  window, that is the whole client and the band hugs the true client edge. A titled window can be larger than the
-  monitor it sits on -- the Debug XENEON canvas frequently is -- and hugging the client edge would then place the band
-  beyond the side of the screen, where no pointer can reach it. Band width is DPI scaled and clamped so the two bands
-  can never meet: a narrow reachable area limits each band to one third of its width.
+- The host owns one full-client-height band at each **reachable** left or right edge of the client. Reachable width is
+  the client rectangle intersected with the work area of every display the window touches; reachable height is always
+  the full client, including over a taskbar inset or a hanging title strip, so the band runs from the top of the
+  window's client to the bottom. A window straddling two monitors is reachable across both, so the reachable width
+  MUST NOT be clamped to a single monitor. For a window that fits on its monitor, and therefore always for the Release
+  fullscreen window, that is the whole client and the band hugs the true client edge. A titled window can be wider
+  than the monitor it sits on -- the Debug XENEON canvas frequently is -- and hugging the client edge would then place
+  the band beyond the side of the screen, where no pointer can reach it. Band width is DPI scaled and clamped so the
+  two bands can never meet: a narrow reachable area limits each band to one third of its width.
 - A band exists only while the pointer is inside its zone. It is created on entry and destroyed on exit, in the same
   way the raised-overlay window exists only while a widget is raised. It MUST NOT be kept alive invisibly: a layered
   child window at zero alpha is transparent to hit testing and can never receive the hover that would reveal it, so
@@ -98,12 +107,10 @@ contract above.
 - Hover is owned by the top-level window, which tests the live cursor position against each zone. Host-owned native
   containers notify the top-level window when the pointer moves over them so that hover can be detected over a
   native-window widget as well as over a GPU tile.
-- **Open defect.** Committing an edge-click navigation onto a page that contains a native-window widget leaves the
-  page-transition state engaged, and because an engaged transition suppresses both bands, edge navigation then stops
-  responding for the rest of the session. Hover detection itself is unaffected: the cursor is found inside the zone
-  and the band is refused only by the suppression rule. Pages composed entirely of GPU widgets are unaffected and
-  navigate in both directions repeatedly. The shipped Release template reaches this through its second page, so this
-  MUST be fixed before edge navigation is considered complete.
+- A committed edge-click onto a page that contains a native-window widget MUST complete settle and promote the same
+  way a GPU-only page does. Host-owned native children covering the swap chain MUST NOT be treated as DXGI occlusion:
+  that report parked the settle and suppressed both bands for the rest of the session on the shipped Release second
+  page. After promote, both bands MUST be available again whenever the suppression table allows them.
 - A band exists only when the host is composing a live multi-page dashboard and that direction has a neighbour. It
   MUST NOT exist when the renderer is not ready, the window is hidden, the display is off, the renderer is suspended
   or occluded, a widget is raised, a pointer pan is in progress, or a settle or staged transition is in progress.
@@ -139,9 +146,11 @@ The overlay is a full-height slice whose width is 1/4, 1/3, 1/2, or 1/1 of the c
 tile's column: it grows from the tile's left edge, then shifts left only as needed to remain inside the client. It MUST
 NOT shrink either axis below the tile. Other tiles remain in their standard positions, keep rendering and scheduled
 updates, and appear dimmed. A small DPI-scaled close control sits in the top-right of the slice; the plugin occupies
-the full slice, including under that control. Host GDI paints a layered dim over everything except the slice, a drop
-shadow along the inner vertical edge, and the close mark. The overlay window region punches a hole over plugin content
-so GPU pixels or a native child show through at full brightness, then adds the close rectangle back so the mark stays
+the full slice, including under that control. The close mark is a Segoe Fluent Icons glyph from `RedXe/FluentIcons.h`,
+with the same MDL2 and Unicode fallback as other host chrome. Host GDI paints a layered dim over everything except the
+slice, a drop shadow along the inner vertical edge, and the close mark. Dim and shadow use distinct cached GDI brushes
+created for the overlay lifetime, not per paint. The overlay window region punches a hole over plugin content so GPU
+pixels or a native child show through at full brightness, then adds the close rectangle back so the mark stays
 clickable. The host MUST NOT add Direct3D shaders for this chrome.
 
 `SetRaised(TRUE)` runs before the overlay is shown; `SetRaised(FALSE)` runs before standard tiles return. A close
@@ -174,8 +183,9 @@ fatal and are unaffected. A widget takes its tile back as soon as it reports any
 - After a successful frame, the application selects the earliest valid delay from the current and staged dashboards,
   converts it immediately to a monotonic deadline, and blocks in one message-aware wait. Deadline expiry coalesces one
   ordinary frame invalidation.
-- A continuous widget on either participating dashboard supersedes scheduled waits. Unrelated messages do not render
-  a clean static dashboard.
+- A continuous widget on either participating dashboard supersedes scheduled waits. An active pan, settle, or staged
+  neighbor also supersedes them so the scroll ease and in-widget animation keep presenting. Unrelated messages do not
+  render a clean static dashboard.
 - Hidden, minimized, suspended, display-off, occluded, inactive-page, transition-cancel, and shutdown paths discard
   scheduled deadlines. Recovery invalidates once and establishes a fresh deadline after the recovery frame; missed
   deadlines are never replayed.
@@ -187,7 +197,16 @@ fatal and are unaffected. A widget takes its tile back as soon as it reports any
 - Geometry tests prove exact partitioning in landscape and portrait, including non-divisible dimensions and identical
   native/GPU edges.
 - Host tests prove first-page startup, blank pages, dynamic reflow, active-page-only creation, transactional switching,
-  and WARP rendering.
+  and WARP rendering. Host tests prove that a live-reload reconfigure of an unchanged two-page document keeps the
+  second page's widgets. Host tests prove that `Renderer::AdoptPrimaryDashboard` is transactional: a failed adopt leaves
+  the renderer pointing at the previous dashboard after the incoming host is destroyed.
+- Host tests prove that sliding through a native-window neighbor (GdiOrbit) succeeds at mid-settle and fully off-screen
+  offsets, that promote does not mark the swap chain occluded, and that a full-page native child does not freeze
+  subsequent frames.
+- Navigation tests cover direction, axis lock, vertical rejection, rubber-band end stops, wrap, distance and flick
+  commit, settle interpolation, capture loss, deferred adjacent staging, in-place commit without device recreation,
+  current-plus-adjacent-only resource lifetime, and that page navigation requires presentation-paced frames even when
+  DXGI reports the swap chain occluded.
 - Host tests prove that Process Viewer and the System Data GPU family activate data collection only while visible,
   expose GPU and scheduled interfaces rather than native-window widgets, request no continuous frames when settled, and
   drain subscriptions when the page is no longer active. The shipped `System` page places one instance of each family
@@ -197,9 +216,6 @@ fatal and are unaffected. A widget takes its tile back as soon as it reports any
 - Host tests prove that Desk Clock pages remain non-continuous, request the next-second boundary while static, request
   smooth presentation-paced frames only during a split-flap burst, return to a blocked wait at completion, add no
   resources or deadline while inactive, and stop scheduled work in every blocked state.
-- Navigation tests cover direction, axis lock, vertical rejection, rubber-band end stops, wrap, distance and flick
-  commit, settle interpolation, capture loss, deferred adjacent staging, in-place commit without device recreation,
-  and current-plus-adjacent-only resource lifetime.
 - Geometry tests prove raised overlay width fractions, full-height slices, close hit-testing, shadow placement along
   the inner edge, overlay region holes that keep the close control, double-activate interval/slop, reverse hit-test,
   rejection of already-full tiles, a quarter System Pulse column, and a stacked clock growing into a full-height
@@ -208,7 +224,8 @@ fatal and are unaffected. A widget takes its tile back as soon as it reports any
   container into overlay content then back to its tile without skipping sibling GPU draws.
 - Edge-navigation geometry tests cover band rectangles at multiple DPIs, the narrow-client clamp, inclusive/exclusive
   band hit testing, chevron glyph selection across all three font tiers, chevron cell centring and containment,
-  degenerate inputs, placement against a reachable area that is clipped or offset from the client origin, and that an edge click's settle target and duration match a committed
+  degenerate inputs, placement against a reachable area that is clipped or offset from the client origin, that a
+  work-area taskbar does not shorten the band, and that an edge click's settle target and duration match a committed
   swipe in the same direction.
 - Edge-navigation policy tests cover every row of the suppression rule, both non-wrapping ends, wrapping, a
   single-page document, and rejection of any direction other than previous and next.

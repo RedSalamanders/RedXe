@@ -599,18 +599,31 @@ HRESULT PluginHost::EnsureProvider(const char* providerId, size_t& providerIndex
         return result;
     }
 
-    const size_t newIndex = _providerCount;
-    auto* provider = new (std::nothrow) DataProvider(*this, newIndex);
+    AcquireSRWLockExclusive(&_subscriptionLock);
+    for (size_t index = 0; index < _providerCount; ++index)
+    {
+        if (RedXeAsciiEqualsIgnoreCase(_providers[index].providerId, providerId))
+        {
+            providerIndex = index;
+            ReleaseSRWLockExclusive(&_subscriptionLock);
+            return S_OK;
+        }
+    }
+    if (_providerCount >= _providers.size())
+    {
+        ReleaseSRWLockExclusive(&_subscriptionLock);
+        return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
+    }
+    auto* provider = new (std::nothrow) DataProvider(*this, _providerCount);
     if (!provider)
     {
+        ReleaseSRWLockExclusive(&_subscriptionLock);
         return E_OUTOFMEMORY;
     }
     runtime.provider.attach(provider);
-
-    AcquireSRWLockExclusive(&_subscriptionLock);
-    _providers[newIndex] = std::move(runtime);
+    _providers[_providerCount] = std::move(runtime);
+    providerIndex = _providerCount;
     ++_providerCount;
-    providerIndex = newIndex;
     ReleaseSRWLockExclusive(&_subscriptionLock);
     return S_OK;
 }
@@ -688,8 +701,8 @@ HRESULT PluginHost::ReportWidgetStatus(const char* instanceId, const RedXeWidget
     }
     if (slot)
     {
-        changed = slot->status != report->status ||
-                  std::wcsncmp(slot->reason.data(), reason.data(), reason.size()) != 0;
+        changed =
+            slot->status != report->status || std::wcsncmp(slot->reason.data(), reason.data(), reason.size()) != 0;
         slot->status = report->status;
         slot->reason = reason;
     }
@@ -923,6 +936,11 @@ HRESULT PluginHost::SetSubscriptionActive(size_t index, uint64_t token, bool act
         ReleaseSRWLockExclusive(&_subscriptionLock);
         return E_UNEXPECTED;
     }
+    if (_subscriptions[index].active == active)
+    {
+        ReleaseSRWLockExclusive(&_subscriptionLock);
+        return S_OK;
+    }
     _subscriptions[index].active = active;
     ReleaseSRWLockExclusive(&_subscriptionLock);
     SetEvent(_changeEvent.get());
@@ -952,17 +970,31 @@ void PluginHost::Deliver(size_t providerIndex, size_t dataSetIndex, const RedXeD
     {
         return;
     }
-    bool delivered = false;
+    // Copy sink pointers, then drop the lock before OnDataSnapshot. Holding it across the callback deadlocks a sink
+    // that re-enters Subscribe or GetDataProvider; sinks still MUST NOT do that.
+    std::array<wil::com_ptr_nothrow<IRedXeDataSink>, kMaximumSubscriptions> sinks{};
+    size_t sinkCount = 0;
     AcquireSRWLockShared(&_subscriptionLock);
     for (SubscriptionSlot& slot : _subscriptions)
     {
-        if (slot.sink && slot.active && slot.providerIndex == providerIndex && slot.dataSetIndex == dataSetIndex)
+        if (slot.sink && slot.active && slot.providerIndex == providerIndex && slot.dataSetIndex == dataSetIndex &&
+            sinkCount < sinks.size())
         {
-            (void)slot.sink->OnDataSnapshot(snapshot);
-            delivered = true;
+            sinks[sinkCount] = slot.sink;
+            ++sinkCount;
         }
     }
     ReleaseSRWLockShared(&_subscriptionLock);
+
+    bool delivered = false;
+    for (size_t index = 0; index < sinkCount; ++index)
+    {
+        if (sinks[index])
+        {
+            (void)sinks[index]->OnDataSnapshot(snapshot);
+            delivered = true;
+        }
+    }
     if (delivered)
     {
         RequestUiInvalidate();

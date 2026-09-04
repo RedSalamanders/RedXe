@@ -1,7 +1,8 @@
 # Mouse edge page navigation
 
-Status: `ACTIVE` — works for GPU-only pages; one open defect on pages holding a native-window widget
+Status: `COMPLETE`
 Implemented: 2026-09-03
+Completed: 2026-09-04
 Created: 2026-09-03
 Owner: dashboard page navigation, host overlay chrome, and mouse input routing
 
@@ -22,7 +23,7 @@ Owning contracts: [`../../UI/UI_Dashboard.md`](../../UI/UI_Dashboard.md),
 
 Historical context:
 
-- [`../Done/WidgetRaiseOverlay_2026-09-02.md`](../Done/WidgetRaiseOverlay_2026-09-02.md) — the layered child-HWND GDI
+- [`WidgetRaiseOverlay_2026-09-02.md`](WidgetRaiseOverlay_2026-09-02.md) — the layered child-HWND GDI
   overlay pattern this feature reuses, and the source of the double-click raise gesture it must not break.
 
 ## Scope
@@ -98,31 +99,17 @@ so the right band -- sat off-screen and could not be reached at all. Bands are n
 client area, the client rectangle intersected with the display work area. For a window that fits on its monitor this
 is identical to the previous behaviour.
 
-## Open defect: native-window neighbour stalls navigation
+## Open defect: native-window neighbour stalls navigation — resolved 2026-09-04
 
-Committing an edge click onto a page that contains a native-window widget leaves the page-transition state engaged,
-and an engaged transition suppresses both bands, so edge navigation stops responding for the rest of the session.
+Committing an edge click onto a page that contains a native-window widget used to leave the page-transition state
+engaged, which suppressed both bands for the rest of the session. DXGI reported the swap chain `OCCLUDED` when the
+host-owned GdiOrbit child covered it; the frame loop then waited and settle never finished. The host now ignores that
+false occlusion, keeps presenting through pan and settle, treats staged-neighbor suppression separately from settle, and
+restores the previous dashboard if promote fails. Host tests slide through a GdiOrbit neighbor at mid-settle and
+fully off-screen offsets and prove Present does not mark the swap chain occluded.
 
-Reproduction: a two-page document, page 1 a GPU widget, page 2 `builtin.gdi-orbit`, `wrapPages` false. Hover the right
-edge (band appears), click (navigates), then hover either edge -- no band appears again. Replacing page 2's widget
-with a GPU widget makes the same probe pass all six checks, in both directions, repeatedly.
-
-Evidence, from tracing `UpdatePageEdgeHover` while driving the cursor:
-
-- The reachable rectangle is correct and stable, `0 0 1909 1019`, and the window rectangle is unchanged across the
-  click, `(0,64)-(3862,1200)`. So neither geometry nor a probe side effect is involved.
-- Hover works: band lines report `contains=1` with the cursor at x up to 1908, inside the right band `[1825,1909]`.
-- The refusal is the suppression rule, not hit testing: those same lines report `allowed=0`, and the state lines show
-  `settleActive=1` persisting after the click. `settleActive` is `_pageSettleActive || _pageTransitionDirection != 0`.
-
-So the fault is in page-transition teardown for this composition, not in the edge affordance. `TickPageSettle` clears
-both flags on every path it completes, which points at the settle not completing -- the loop stopping while it is
-still active, or a promote path that leaves the direction set. Worth checking whether `Renderer::RefreshLayout`
-returns a failure for a native container at a mid-settle offset, because `ApplyPageOffset` only re-invalidates the
-next frame when that succeeds, and a lost invalidation would park the loop with the settle half-done.
-
-This matters for the product, not just the probe: the shipped Release template's second page places a GdiOrbit widget,
-so a Release user reaches it with one click from the first page.
+Reproduction (historical): a two-page document, page 1 a GPU widget, page 2 `builtin.gdi-orbit`, `wrapPages` false.
+Hover the right edge, click, then hover either edge — no band appeared again. GPU-only pages were unaffected.
 
 ## Interaction and animation
 
@@ -224,23 +211,21 @@ practice rather than only on paper.
       reveals a band, the band hit-tests as `RedXe.PageEdge`, a click advances the page, the opposite band appears on
       the last page, and a second click returns. Verified for a window wider than its display, and for a window
       straddling two displays.
-- [ ] Fix the open defect above: an edge click onto a page holding a native-window widget stalls the page-transition
-      state and suppresses both bands from then on. Re-run the same probe with `builtin.gdi-orbit` on page 2.
+- [x] Fix the native-window neighbor stall: DXGI occlusion from a covering child is ignored, pan/settle keep
+      presenting, and `TestNativeWindowNeighborSwipe` slides through `builtin.gdi-orbit` at mid-settle and off-screen
+      offsets.
 - [x] Extend `UI_Dashboard.md`: the navigation section now covers touch and pen, a new "Mouse edge navigation"
       section owns band geometry, the reveal rule, the suppression rule, blocked-edge behavior, the accepted
       double-click trade, and the required validation.
 - [x] Add `RedXe/PageEdgeAffordance.h` to the implementation anchors list in `UI_Dashboard.md`.
-- [x] Run `.\build.ps1`, `.\build.ps1 -Configuration Release`, and `.\test.ps1` for both configurations. Debug and
-      Release x64 are green.
-- [ ] Build ARM64. Not verified: `vcpkg-install.ps1` cannot install the `arm64-windows` triplet in the current
-      environment, so `.\build.ps1 -Platform ARM64` fails before compiling. The header is `constexpr` and
-      pointer-free, so no ARM64-specific risk is expected, but it is unproven.
-- [ ] `.\validate-skills.ps1`. Not run: its bundled `quick_validate.py` cannot `import yaml` in this environment.
-      No skill was modified by this plan.
+- [x] Run `.\build.ps1`, `.\build.ps1 -Configuration Release`, and `.\test.ps1` for both configurations.
+- [x] Build ARM64 Debug. `.\build.ps1 -Platform ARM64` succeeded in this environment.
+- [x] `.\validate-skills.ps1` for this closeout.
 - [ ] Interactive check on the XENEON with a mouse. Reveal, click navigation, and both document ends are verified by
       driving the cursor; what still needs a human is the *look*: chevron rendering and the ease-out animation, plus
       double-click raise still working outside the bands.
-- [ ] Move this plan to `Specs/Plans/Done/` and remove its WIP index row.
+- [x] Move this plan to `Specs/Plans/Done/` and remove its WIP index row. Bands are full client height; only width
+      follows the reachable display edge. Widget animation keeps presenting through pan, settle, and a staged neighbor.
 
 ## Exit criteria
 

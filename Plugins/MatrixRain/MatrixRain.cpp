@@ -878,7 +878,8 @@ class MatrixRainDeviceResources final
     wil::com_ptr_nothrow<ID3D11Buffer> _constantBuffer;
 };
 
-class MatrixRainWidget final : public RedXeComObject<MatrixRainWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeRaisedWidget>
+class MatrixRainWidget final
+    : public RedXeComObject<MatrixRainWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeRaisedWidget>
 {
   public:
     MatrixRainWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, MatrixRainDeviceResources& resources,
@@ -946,8 +947,8 @@ class MatrixRainWidget final : public RedXeComObject<MatrixRainWidget, IRedXeWid
         {
             return E_INVALIDARG;
         }
-        // The glyph atlas is a fixed 128x128 baked table, deliberately low resolution for the rain aesthetic, so it does
-        // not track the target size.
+        // The glyph atlas is a fixed 128x128 baked table, deliberately low resolution for the rain aesthetic, so it
+        // does not track the target size.
         return S_OK;
     }
 

@@ -16,6 +16,10 @@ struct HostFrameState final
     bool occlusionStatusChanged = false;
     bool continuousFramesRequired = false;
     bool frameInvalidated = true;
+    // Follow-finger pan, settle, or a staged neighbor. Presentation-paced frames MUST continue so widget animation
+    // and the page-scroll ease keep moving, even when DXGI reports the swap chain occluded because a native child
+    // covers it.
+    bool pageNavigationActive = false;
 };
 
 [[nodiscard]] constexpr HostFrameAction SelectHostFrameAction(const HostFrameState& state) noexcept
@@ -24,11 +28,11 @@ struct HostFrameState final
     {
         return HostFrameAction::WaitForMessage;
     }
-    if (state.rendererOccluded)
+    if (state.rendererOccluded && !state.pageNavigationActive)
     {
         return state.occlusionStatusChanged ? HostFrameAction::ProbeOcclusion : HostFrameAction::WaitForMessage;
     }
-    if (!state.continuousFramesRequired && !state.frameInvalidated)
+    if (!state.continuousFramesRequired && !state.frameInvalidated && !state.pageNavigationActive)
     {
         return HostFrameAction::WaitForMessage;
     }

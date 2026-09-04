@@ -33,6 +33,8 @@ notifications, `win32-windowing` for the posted UI message, and `plugin-developm
   Direct3D remain on the UI thread.
 - Acknowledge the coalesced message before reading so a later edit can post again. Deduplicate applied and rejected
   file stamps.
+- After a valid parse, reselect the page that was current when that page still exists (`PreserveActiveDashboardPage`)
+  before applying. Launch still starts on the first page; the active page is not written to the document.
 - Before replacing widget references, shut down renderer device callbacks and native child containers. Reconfigure
   widgets transactionally, rebuild the dashboard, and roll back the previous settings if apply fails.
 - Stop and join the watcher before destroying its target HWND.

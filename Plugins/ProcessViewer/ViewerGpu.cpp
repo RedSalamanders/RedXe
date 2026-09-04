@@ -678,3 +678,13 @@ ViewerGpuResources* ViewerGpuGet() noexcept
 {
     return g_users > 0 ? &g_resources : nullptr;
 }
+
+void ViewerGpuLock() noexcept
+{
+    AcquireSRWLockExclusive(&g_gpuLock);
+}
+
+void ViewerGpuUnlock() noexcept
+{
+    ReleaseSRWLockExclusive(&g_gpuLock);
+}

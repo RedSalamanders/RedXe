@@ -1,7 +1,7 @@
 # RedXe plugin API contract
 
 Status: current normative contract
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-04
 
 ## Purpose and scope
 
@@ -193,7 +193,11 @@ descriptors and performs synchronous, non-reentrant batch snapshot collection. `
 `RedXeDataCollectMaximumDataSets` (32). A successful `RedXeDataCollectResult` (`sizeof` 32) returns one non-null
 snapshot pointer per request ID, plus one common sequence and `timestampFileTime100ns` for the whole batch. Unknown
 IDs, duplicate IDs, a zero or oversized count, a null ID, or a mismatched `sizeBytes` fail the entire call and clear
-the result. Descriptors remain valid while the module is mapped. Returned snapshots and all referenced rows, values,
+the result. A failed call MUST NOT keep rate-history side effects from datasets collected earlier in that batch:
+network, storage, and GPU previous samples are restored, and CPU, memory, process, and thread rate histories are
+discarded so the next successful sample of those datasets is `Initializing` rather than a spike over a discarded
+interval. Sequence numbers advance only on a fully successful batch. Descriptors remain valid while the module is
+mapped. Returned snapshots and all referenced rows, values,
 and UTF-16 strings remain valid until the next `CollectSnapshots` call on that source or source release; consumers copy
 retained data before then. Widgets never receive a data source.
 
@@ -209,7 +213,9 @@ retaining the sink.
 module and every local data-provider runtime for every `PluginManager`, including the one staged for an adjacent page
 during a swipe. A `PluginManager` borrows it and never owns one. The first provider
 lookup lazily maps its catalog module, creates one `IRedXeDataSource`, validates and caches at most 256 datasets, and
-returns a host provider facade. All local sources share one acquisition worker and at most 32 subscriptions in total.
+returns a host provider facade. Insert of a new provider re-checks identity under the exclusive subscription lock so
+two overlapping creates cannot both insert. `SetActive` is a no-op when the requested state already matches and MUST
+NOT wake the worker. All local sources share one acquisition worker and at most 32 subscriptions in total.
 Active subscriptions for the same provider and dataset share one collection at the shortest requested interval,
 clamped to the source recommendation. When multiple datasets on one source are due in the same worker pass, the host
 gathers those unique IDs, orders them deterministically with `source.status` last, and issues one `CollectSnapshots`
@@ -220,9 +226,11 @@ indefinitely on its change and stop events; it owns no polling or periodic wake-
 datasets that would use a shared host device-I/O lane; no such lane is created until timeout, `CancelIoEx`, and
 teardown drain are measured. Sources MUST NOT create their own acquisition threads.
 
-The host provider does not retain or duplicate a source snapshot. It synchronously invokes each active sink while the
-source storage is borrowed. A sink copies only bounded values it needs, performs no blocking work or provider/host
-re-entry, and MUST NOT activate, deactivate, or release a subscription from inside `OnDataSnapshot`. A sink failure is
+The host provider does not retain or duplicate a source snapshot. `PluginHost::Deliver` copies the active sink
+pointers, releases the subscription lock, then invokes each `OnDataSnapshot`. A sink copies only bounded values it
+needs, performs no blocking work or provider/host re-entry, and MUST NOT activate, deactivate, or release a
+subscription from inside `OnDataSnapshot`. Holding the lock across the callback would deadlock a sink that broke that
+rule. A sink failure is
 isolated and does not stop later sinks or acquisition cycles. After a successful delivery to any active sink,
 `PluginHost` coalesces one UI-thread frame invalidation (`WM_APP + 3`) so GPU data widgets can start a sample-driven
 ease without a child HWND. `SetActive(FALSE)` and subscription release drain an
@@ -588,8 +596,10 @@ utilization or capacity KPI remains at or above 85% stay sample-driven. Decorati
 are not used; history recency fade and a live-edge highlight are sample-driven. Empty and `Unavailable` values
 render as muted em dashes; an AC-only desktop renders compact `AC` status, never invented zeros. Widget-local
 sparkline history is at most 60 samples in fixed storage and MUST NOT move into System Data. Eases use a 320 ms
-ease-out; animation is sample-driven: `GetNextFrameDelayMilliseconds` returns 1 while an ease or pulse is in flight,
-then the dataset interval. A settled System page MUST NOT request continuous frames.
+ease-out; animation is sample-driven: `GetNextFrameDelayMilliseconds` returns the dataset interval, and while an ease
+or pulse is in flight the widget calls `IRedXeHost::RequestFrame` after each presented frame. DirectWrite fills new
+atlas glyphs when a snapshot arrives or at device creation, never inside `Render`. A settled System page MUST NOT
+request continuous frames.
 
 Shared GPU resources live once per Process Viewer device, not once per widget instance: build-time Shader Model 5.0
 blobs, one instanced panel/bar/heatmap/glyph pipeline, one 1024×1024 `R8` atlas, and one dynamic instance buffer.
@@ -783,7 +793,8 @@ sibling policy owns deadline retention, pacing, and suppression. `WM_TIMECHANGE`
 14. Keep `/W4`, `/permissive-`, SDL checks, and warnings-as-errors green.
 15. Verify the system-data factory and `IRedXeDataSource`, controlling-IUnknown identity, static descriptors including
     unique IDs and `source.status`, unknown-dataset and malformed-batch rejection, common batch sequence/timestamp,
-    sequence advance, summary shape, process-row bounds, current-process visibility, value types and quality,
+    sequence advance only on full-batch success, discarded CPU rate history after a mid-batch failure, summary shape,
+    process-row bounds, current-process visibility, value types and quality,
     CPU/memory/thread tables, network interface/protocol, storage disk/volume, GPU adapter/engine/process, power
     summary, battery list, and thermal/fan sensor tables, and truncated-snapshot behavior through `SystemDataTests`.
     That suite MUST also scan every column ID for prohibited identity fields, require first-sample network rates to be

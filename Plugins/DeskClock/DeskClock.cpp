@@ -785,10 +785,9 @@ struct GlyphAtlasBuildResult final
     {
         const uint32_t atlasX = (digit % kTimeCellColumns) * timeCellWidth;
         const uint32_t atlasY = (digit / kTimeCellColumns) * timeCellHeight;
-        result =
-            RasterizeGlyph(*factory, *face, static_cast<wchar_t>(L'0' + digit), timeEmSize, timeCellWidth,
-                           timeCellHeight, atlasX, atlasY, false, built.pixels.get(), atlasStride, scratch.get(),
-                           scratchBytes);
+        result = RasterizeGlyph(*factory, *face, static_cast<wchar_t>(L'0' + digit), timeEmSize, timeCellWidth,
+                                timeCellHeight, atlasX, atlasY, false, built.pixels.get(), atlasStride, scratch.get(),
+                                scratchBytes);
         if (FAILED(result))
         {
             return result;
@@ -816,8 +815,8 @@ struct GlyphAtlasBuildResult final
         built.dateAdvances[index] = static_cast<float>(metrics.advanceWidth) * inverseEm;
         const uint32_t atlasX = (index % kDateCellColumns) * dateCellSize;
         const uint32_t atlasY = dateAtlasTop + (index / kDateCellColumns) * dateCellSize;
-        result = RasterizeGlyph(*factory, *face, dateCharacters[index], dateEmSize, dateCellSize, dateCellSize,
-                                atlasX, atlasY, true, built.pixels.get(), atlasStride, scratch.get(), scratchBytes);
+        result = RasterizeGlyph(*factory, *face, dateCharacters[index], dateEmSize, dateCellSize, dateCellSize, atlasX,
+                                atlasY, true, built.pixels.get(), atlasStride, scratch.get(), scratchBytes);
         if (FAILED(result))
         {
             return result;
@@ -848,8 +847,8 @@ struct GlyphAtlasBuildResult final
             std::uint8_t* row = target + static_cast<size_t>(y) * targetSize;
             for (uint32_t x = 0; x < targetSize; ++x)
             {
-                const uint32_t sum = static_cast<uint32_t>(upper[x * 2U]) + upper[x * 2U + 1U] +
-                                     lower[x * 2U] + lower[x * 2U + 1U];
+                const uint32_t sum =
+                    static_cast<uint32_t>(upper[x * 2U]) + upper[x * 2U + 1U] + lower[x * 2U] + lower[x * 2U + 1U];
                 row[x] = static_cast<std::uint8_t>((sum + 2U) / 4U);
             }
         }
@@ -1347,7 +1346,8 @@ void ReadLocalClock(SYSTEMTIME& time) noexcept
     return clamped * clamped * clamped * (clamped * (clamped * 6.0f - 15.0f) + 10.0f);
 }
 
-class DeskClockWidget final : public RedXeComObject<DeskClockWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
+class DeskClockWidget final
+    : public RedXeComObject<DeskClockWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
 {
   public:
     DeskClockWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, DeskClockDeviceResources& resources,

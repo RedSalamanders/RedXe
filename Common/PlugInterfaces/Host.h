@@ -56,5 +56,5 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     // Reporting RedXeWidgetStatusUnavailable makes the host draw its placeholder over that tile instead of the
     // widget's own output. Repeat reports are idempotent; only a change coalesces a frame.
     virtual HRESULT STDMETHODCALLTYPE ReportWidgetStatus(const char* instanceId,
-                                                        const RedXeWidgetStatusReport* report) noexcept = 0;
+                                                         const RedXeWidgetStatusReport* report) noexcept = 0;
 };

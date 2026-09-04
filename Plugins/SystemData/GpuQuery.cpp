@@ -551,8 +551,8 @@ void FillDxcoreAdapterState(RedXeGpuState& state, RedXeGpuAdapterRow& row) noexc
     {
         float temperature = 0.0f;
         uint32_t physicalIndex = 0;
-        if (SUCCEEDED(adapter->QueryState(DXCoreAdapterState::AdapterTemperatureCelsius, &physicalIndex,
-                                          &temperature)) &&
+        if (SUCCEEDED(
+                adapter->QueryState(DXCoreAdapterState::AdapterTemperatureCelsius, &physicalIndex, &temperature)) &&
             temperature > 0.0f)
         {
             row.temperatureC = static_cast<double>(temperature);
@@ -706,10 +706,9 @@ void FillDxcoreEngineUtilization(RedXeGpuState& state) noexcept
     FILETIME nowFileTime{};
     GetSystemTimeAsFileTime(&nowFileTime);
     const uint64_t now = (static_cast<uint64_t>(nowFileTime.dwHighDateTime) << 32) | nowFileTime.dwLowDateTime;
-    const uint64_t elapsed100ns =
-        state.previousEngineTimestamp100ns != 0 && now > state.previousEngineTimestamp100ns
-            ? now - state.previousEngineTimestamp100ns
-            : 0;
+    const uint64_t elapsed100ns = state.previousEngineTimestamp100ns != 0 && now > state.previousEngineTimestamp100ns
+                                      ? now - state.previousEngineTimestamp100ns
+                                      : 0;
 
     uint32_t written = 0;
     for (uint32_t index = 0; index < state.engineCount; ++index)
@@ -724,8 +723,8 @@ void FillDxcoreEngineUtilization(RedXeGpuState& state) noexcept
         DXCoreAdapterEngineIndex engineIndex{static_cast<uint32_t>(row.physicalAdapterIndex),
                                              static_cast<uint32_t>(row.nodeOrdinal)};
         DXCoreEngineQueryOutput output{};
-        if (FAILED(adapter->QueryState(DXCoreAdapterState::AdapterEngineRunningTimeMicroseconds, &engineIndex,
-                                       &output)))
+        if (FAILED(
+                adapter->QueryState(DXCoreAdapterState::AdapterEngineRunningTimeMicroseconds, &engineIndex, &output)))
         {
             continue;
         }
@@ -750,9 +749,9 @@ void FillDxcoreEngineUtilization(RedXeGpuState& state) noexcept
         }
         if (written < state.previousEngines.size())
         {
-            state.previousEngines[written] = RedXeAcceleratorEngineSample{
-                row.adapterLuid, static_cast<uint32_t>(row.physicalAdapterIndex),
-                static_cast<uint32_t>(row.nodeOrdinal), output.runningTime};
+            state.previousEngines[written] =
+                RedXeAcceleratorEngineSample{row.adapterLuid, static_cast<uint32_t>(row.physicalAdapterIndex),
+                                             static_cast<uint32_t>(row.nodeOrdinal), output.runningTime};
             ++written;
         }
     }

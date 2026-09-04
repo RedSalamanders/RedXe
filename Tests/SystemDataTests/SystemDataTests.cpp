@@ -558,8 +558,8 @@ void RunNativeLayoutOracles(IRedXeDataSource& source, const RedXeDataSetDescript
         // Reserved2 is the parent PID. Toolhelp reports the same value from a named field.
         if (IsGood(row, parentColumn))
         {
-            const auto match = std::find_if(toolhelp.begin(), toolhelp.end(),
-                                            [pid](const auto& entry) { return entry.first == pid; });
+            const auto match =
+                std::find_if(toolhelp.begin(), toolhelp.end(), [pid](const auto& entry) { return entry.first == pid; });
             if (match != toolhelp.end())
             {
                 Expect(static_cast<uint32_t>(ValueU64(row, parentColumn)) == match->second,
@@ -640,10 +640,15 @@ void RunNativeLayoutOracles(IRedXeDataSource& source, const RedXeDataSetDescript
         const RedXeDataRow& row = threads->rows[index];
         const uint32_t threadPid = static_cast<uint32_t>(ValueU64(row, threadPidColumn));
         Expect(IsGood(row, threadCreateColumn), "thread Reserved1 create time is unavailable");
-        // The idle process is created before the system clock exists and legitimately reports a zero create time;
-        // every other thread must carry one.
-        Expect(threadPid == 0 || ValueU64(row, threadCreateColumn) != 0,
-               "thread Reserved1 create time is zero for a real process");
+        // Idle (PID 0) and System (PID 4) are created before the interrupt-time base exists and legitimately report
+        // a zero create time. A never-scheduled thread on a later process can do the same; a thread that has
+        // accumulated CPU must carry a stamp.
+        const uint64_t createTime = ValueU64(row, threadCreateColumn);
+        if (threadPid != 0 && threadPid != 4 && createTime == 0)
+        {
+            Expect(ValueU64(row, threadUserColumn) == 0 && ValueU64(row, threadKernelColumn) == 0,
+                   "thread Reserved1 create time is zero for a real process");
+        }
         if (ValueU64(row, threadSwitchColumn) != 0)
         {
             ++switchingThreads;
@@ -682,11 +687,9 @@ void RunNativeLayoutOracles(IRedXeDataSource& source, const RedXeDataSetDescript
     for (uint32_t index = 0; index < logical->rowCount; ++index)
     {
         const RedXeDataRow& row = logical->rows[index];
-        Expect(IsGood(row, coreColumn) && IsGood(row, packageColumn),
-               "cpu.logical topology mapping is unavailable");
+        Expect(IsGood(row, coreColumn) && IsGood(row, packageColumn), "cpu.logical topology mapping is unavailable");
         Expect(IsGood(row, efficiencyColumn), "cpu.logical CPU-set identity is unavailable");
-        Expect(IsGood(row, currentMhzColumn) && IsGood(row, maximumMhzColumn) &&
-                   ValueU64(row, maximumMhzColumn) != 0,
+        Expect(IsGood(row, currentMhzColumn) && IsGood(row, maximumMhzColumn) && ValueU64(row, maximumMhzColumn) != 0,
                "cpu.logical frequency is unavailable");
         Expect(IsGood(row, interruptCountColumn), "class-8 Reserved2 interrupt count is unavailable");
         if (IsGood(row, dpcColumn))
@@ -765,8 +768,7 @@ void RunAcceleratorChecks(IRedXeDataSource& source, const RedXeDataSetDescriptor
     const RedXeDataSetDescriptor* npuProcessDescriptor = FindDataSet(descriptors, count, "npu.process");
     const RedXeDataSetDescriptor* securityDescriptor = FindDataSet(descriptors, count, "security.posture");
     const RedXeDataSetDescriptor* powerDescriptor = FindDataSet(descriptors, count, "power.summary");
-    Expect(npuAdapterDescriptor && npuEngineDescriptor && npuProcessDescriptor && securityDescriptor &&
-               powerDescriptor,
+    Expect(npuAdapterDescriptor && npuEngineDescriptor && npuProcessDescriptor && securityDescriptor && powerDescriptor,
            "accelerator or posture datasets are missing from the catalog");
     Expect(npuAdapterDescriptor->maximumRows == 16 && npuEngineDescriptor->maximumRows == 128 &&
                npuProcessDescriptor->maximumRows == 512 && securityDescriptor->maximumRows == 1 &&
@@ -956,9 +958,8 @@ void Run(bool benchmark, bool domains)
             (statusDescriptor->flags & RedXeDataSetFlagLocalSensitive) == 0 && statusDescriptor->columnCount == 12 &&
             summaryDescriptor->maximumRows == 1 && (summaryDescriptor->flags & RedXeDataSetFlagLocalSensitive) == 0 &&
             processDescriptor->maximumRows == 2048 && processDescriptor->columnCount == 39 &&
-            summaryDescriptor->columnCount == 12 &&
-            cpuLogicalDescriptor->maximumRows == 1024 && threadDescriptor->maximumRows == 8192 &&
-            networkInterfaceDescriptor->maximumRows == 256 &&
+            summaryDescriptor->columnCount == 12 && cpuLogicalDescriptor->maximumRows == 1024 &&
+            threadDescriptor->maximumRows == 8192 && networkInterfaceDescriptor->maximumRows == 256 &&
             (networkInterfaceDescriptor->flags & RedXeDataSetFlagLocalSensitive) != 0 &&
             networkInterfaceDescriptor->columnCount == 22 && networkProtocolDescriptor->maximumRows == 16 &&
             (networkProtocolDescriptor->flags & RedXeDataSetFlagLocalSensitive) == 0 &&
@@ -994,6 +995,35 @@ void Run(bool benchmark, bool domains)
            "unknown dataset collection did not clear its output");
     Expect(CollectOneSnapshot(*source, "missing", &snapshot) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) && !snapshot,
            "unknown dataset helper collection did not clear its output");
+
+    Expect(CollectOneSnapshot(*source, "cpu.logical", &snapshot) == S_OK && snapshot && snapshot->rowCount != 0,
+           "cpu.logical collection failed");
+    ValidateSnapshot(*snapshot, *cpuLogicalDescriptor);
+    const uint64_t logicalSequence = snapshot->sequence;
+    const uint32_t totalPercentColumn = FindColumn(*cpuLogicalDescriptor, "totalPercent");
+    const char* abortedIds[] = {"cpu.logical", "missing"};
+    RedXeDataCollectRequest abortedRequest{sizeof(RedXeDataCollectRequest), abortedIds, 2};
+    collectResult = reinterpret_cast<const RedXeDataCollectResult*>(1);
+    Expect(source->CollectSnapshots(&abortedRequest, &collectResult) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) &&
+               !collectResult,
+           "a batch that fails after a live dataset must not publish snapshots");
+    Expect(CollectOneSnapshot(*source, "cpu.logical", &snapshot) == S_OK && snapshot &&
+               snapshot->sequence == logicalSequence + 1,
+           "a failed batch must not consume a sequence number");
+    ValidateSnapshot(*snapshot, *cpuLogicalDescriptor);
+    bool ratesReinitialized = false;
+    for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
+    {
+        const uint32_t quality = snapshot->rows[rowIndex].values[totalPercentColumn].quality;
+        Expect(quality == RedXeDataQualityInitializing || quality == RedXeDataQualityUnavailable,
+               "an aborted batch left cpu.logical rates live");
+        if (quality == RedXeDataQualityInitializing)
+        {
+            ratesReinitialized = true;
+        }
+    }
+    Expect(ratesReinitialized, "an aborted batch did not reinitialize cpu.logical rates");
+
     Expect(CollectOneSnapshot(*source, "system.summary", &snapshot) == S_OK && snapshot,
            "system summary collection failed");
     ValidateSnapshot(*snapshot, *summaryDescriptor);

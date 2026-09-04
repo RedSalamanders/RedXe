@@ -994,11 +994,13 @@ class ViewerSink final : public RedXeComObject<ViewerSink, IRedXeDataSink>
     uint32_t _dataSetIndex;
 };
 
-class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
+class ViewerWidget final
+    : public RedXeComObject<ViewerWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
 {
   public:
-    ViewerWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, ViewerKind kind, uint32_t topN) noexcept
-        : _providerOwner(std::move(providerOwner)), _kind(kind), _topN(topN)
+    ViewerWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, ViewerKind kind, uint32_t topN,
+                 IRedXeHost* host) noexcept
+        : _providerOwner(std::move(providerOwner)), _kind(kind), _topN(topN), _host(host)
     {
         g_liveWidgetCount.fetch_add(1, std::memory_order_relaxed);
         if (kind == ViewerKind::ProcessViewer)
@@ -1077,19 +1079,29 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     {
         AcquireSRWLockExclusive(&_lock);
         const HRESULT result = Ingest(dataSetIndex, snapshot);
+        ViewerSample sample{};
         if (SUCCEEDED(result))
         {
             BeginEase();
             g_sampleCount.fetch_add(1, std::memory_order_relaxed);
+            sample = _sample;
         }
         ReleaseSRWLockExclusive(&_lock);
+        if (SUCCEEDED(result) && _gpuHeld)
+        {
+            RasterizeSampleGlyphs(sample);
+        }
         return result;
     }
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL visible) noexcept override
     {
         const bool show = visible != FALSE;
-        _visible.store(show, std::memory_order_release);
+        const bool previous = _visible.exchange(show, std::memory_order_acq_rel);
+        if (previous == show)
+        {
+            return S_OK;
+        }
         for (uint32_t index = 0; index < _subscriptionCount; ++index)
         {
             if (_subscriptions[index])
@@ -1141,6 +1153,10 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         if (SUCCEEDED(result))
         {
             _gpuHeld = true;
+            AcquireSRWLockShared(&_lock);
+            const ViewerSample sample = _sample;
+            ReleaseSRWLockShared(&_lock);
+            RasterizeSampleGlyphs(sample);
         }
         return result;
     }
@@ -1220,18 +1236,22 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         ReleaseSRWLockExclusive(&_lock);
 
         ViewerDrawList list;
+        ViewerGpuLock();
         HRESULT result = BuildScene(*resources, list, sample, static_cast<float>(frame.widthPixels),
                                     static_cast<float>(frame.heightPixels), pulse);
-        if (FAILED(result))
+        if (SUCCEEDED(result))
         {
-            return result;
+            result = resources->Render(context->deviceContext, static_cast<float>(frame.widthPixels),
+                                       static_cast<float>(frame.heightPixels), list);
         }
-        result = resources->Render(context->deviceContext, static_cast<float>(frame.widthPixels),
-                                   static_cast<float>(frame.heightPixels), list);
+        ViewerGpuUnlock();
         if (SUCCEEDED(result))
         {
             g_paintCount.fetch_add(1, std::memory_order_relaxed);
-            (void)easing;
+            if ((easing || pulse > 0.0f) && _host)
+            {
+                (void)_host->RequestFrame();
+            }
         }
         return result;
     }
@@ -1251,10 +1271,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             *delayMilliseconds = kRedXeMaximumScheduledFrameDelayMilliseconds;
             return S_OK;
         }
-        AcquireSRWLockShared(&_lock);
-        const bool busy = _easing || _pulse > 0.0f;
-        ReleaseSRWLockShared(&_lock);
-        *delayMilliseconds = busy ? 1U : std::max(1U, _restDelay);
+        *delayMilliseconds = std::max(1U, _restDelay);
         return S_OK;
     }
 
@@ -2175,11 +2192,6 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                                0.35f + pulse * 0.65f, 0.0f);
         }
         const ViewerCatalogEntry& entry = Catalog(_kind);
-        const HRESULT glyphs = EnsureSceneGlyphs(resources, sample, entry);
-        if (FAILED(glyphs))
-        {
-            return glyphs;
-        }
         if (panel.showTitle)
         {
             (void)AppendClippedText(resources, list, panel.pad, panel.pad, panel.titlePx, panel.innerW, 0.88f, 0.88f,
@@ -2241,7 +2253,24 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                 }
             }
         }
+        result = resources.EnsureGlyphs(L"Physical", 8);
+        if (FAILED(result))
+        {
+            return result;
+        }
         return S_OK;
+    }
+
+    void RasterizeSampleGlyphs(const ViewerSample& sample) noexcept
+    {
+        ViewerGpuResources* resources = ViewerGpuGet();
+        if (!resources)
+        {
+            return;
+        }
+        ViewerGpuLock();
+        (void)EnsureSceneGlyphs(*resources, sample, Catalog(_kind));
+        ViewerGpuUnlock();
     }
 
     void DrawTrack(ViewerDrawList& list, float x, float y, float width, float height, float fill01, bool available,
@@ -2654,7 +2683,6 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             float extraH = std::max(0.0f, height - panel.pad - extraY);
             if (extraH >= 56.0f && sample.counts[0] != 0)
             {
-                (void)resources.EnsureGlyphs(L"Physical", 8);
                 const float bandH = std::min(72.0f, extraH * 0.32f);
                 DrawCapacityBar(resources, list, panel.pad, extraY, panel.innerW, L"Physical", sample.display[4],
                                 sample.counts[0] != 0, sample.counts[4], sample.counts[0], panel.labelPx + 2.0f, 12.0f,
@@ -3122,6 +3150,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     ViewerKind _kind;
     uint32_t _topN;
     uint32_t _restDelay = 1000;
+    IRedXeHost* _host = nullptr;
     std::atomic<bool> _visible{false};
     bool _raised = false;
     bool _gpuHeld = false;
@@ -3144,8 +3173,9 @@ HRESULT ViewerSink::OnDataSnapshot(const RedXeDataSnapshot* snapshot) noexcept
 class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetProvider>
 {
   public:
-    ViewerProvider(wil::com_ptr_nothrow<IRedXeDataProvider>&& dataProvider, ViewerKind kind, uint32_t topN) noexcept
-        : _dataProvider(std::move(dataProvider)), _kind(kind), _topN(topN)
+    ViewerProvider(wil::com_ptr_nothrow<IRedXeDataProvider>&& dataProvider, ViewerKind kind, uint32_t topN,
+                   IRedXeHost* host) noexcept
+        : _dataProvider(std::move(dataProvider)), _kind(kind), _topN(topN), _host(host)
     {
         const ViewerCatalogEntry& entry = Catalog(kind);
         _types[0] = RedXeWidgetTypeDescriptor{
@@ -3212,7 +3242,7 @@ class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetP
         {
             return result;
         }
-        auto* created = new (std::nothrow) ViewerWidget(std::move(providerOwner), _kind, _topN);
+        auto* created = new (std::nothrow) ViewerWidget(std::move(providerOwner), _kind, _topN, _host);
         if (!created)
         {
             return E_OUTOFMEMORY;
@@ -3231,6 +3261,7 @@ class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetP
     wil::com_ptr_nothrow<IRedXeDataProvider> _dataProvider;
     ViewerKind _kind;
     uint32_t _topN;
+    IRedXeHost* _host = nullptr;
     std::array<RedXeWidgetTypeDescriptor, 1> _types{};
 };
 
@@ -3271,7 +3302,7 @@ HRESULT CreateViewerProviderFor(ViewerKind kind, REFIID interfaceId, const RedXe
     {
         return configurationResult;
     }
-    auto* provider = new (std::nothrow) ViewerProvider(std::move(dataProvider), kind, topN);
+    auto* provider = new (std::nothrow) ViewerProvider(std::move(dataProvider), kind, topN, host);
     if (!provider)
     {
         return E_OUTOFMEMORY;

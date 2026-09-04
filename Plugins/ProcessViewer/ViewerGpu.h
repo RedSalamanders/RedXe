@@ -162,3 +162,5 @@ class ViewerGpuResources final
 [[nodiscard]] HRESULT ViewerGpuAcquire(ID3D11Device* device) noexcept;
 void ViewerGpuRelease() noexcept;
 [[nodiscard]] ViewerGpuResources* ViewerGpuGet() noexcept;
+void ViewerGpuLock() noexcept;
+void ViewerGpuUnlock() noexcept;

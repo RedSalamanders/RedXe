@@ -668,6 +668,18 @@ bool DashboardHost::RequiresContinuousFrames() const noexcept
     return _requiresContinuousFrames;
 }
 
+bool DashboardHost::HasWindowWidgets() const noexcept
+{
+    for (size_t index = 0; index < _widgetCount; ++index)
+    {
+        if (_windowContainers[index])
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool DashboardHost::RequiresPlaceholderAt(size_t index) const noexcept
 {
     if (!_pluginManager || index >= _widgetCount)

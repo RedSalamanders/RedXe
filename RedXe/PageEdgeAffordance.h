@@ -47,12 +47,17 @@ inline constexpr int kPageEdgeDirectionNext = 1;
 // Largest number of displays whose work areas are unioned for one window. A window cannot usefully straddle more.
 inline constexpr size_t kPageEdgeMaximumWorkAreas = 8;
 
-// Reachable part of the client: the client rectangle intersected with the union of the supplied work areas, all in
-// client coordinates.
+// Reachable part of the client, in client coordinates: the client rectangle intersected with the union of the
+// supplied work areas on the horizontal axis only. Vertical extent is always the full client.
 //
-// The union matters. A window straddling two displays is reachable across both, so clamping to the nearest single
-// monitor would drop a band into the middle of the window, over the other screen. With no work areas supplied the
-// whole client is treated as reachable, which is the correct answer when display information is unavailable.
+// Horizontal clipping is what keeps a band on-screen when a titled window is wider than its monitor. Vertical
+// clipping is not: intersecting with the work area (taskbar, hanging title strip) shortens the band so it no longer
+// runs from the top of the window to the bottom. The pointer can already travel the full client height inside the
+// window, so the band MUST span that height.
+//
+// The union still matters horizontally. A window straddling two displays is reachable across both, so clamping to
+// the nearest single monitor would drop a band into the middle of the window, over the other screen. With no work
+// areas supplied the whole client is treated as reachable.
 [[nodiscard]] inline RECT PageEdgeReachableClient(const RECT& client, const RECT* workAreas, size_t count) noexcept
 {
     if (client.right <= client.left || client.bottom <= client.top)
@@ -89,10 +94,10 @@ inline constexpr size_t kPageEdgeMaximumWorkAreas = 8;
         return client;
     }
 
-    const RECT reachable{std::max(client.left, combined.left), std::max(client.top, combined.top),
-                         std::min(client.right, combined.right), std::min(client.bottom, combined.bottom)};
-    // A window fully outside every work area leaves nothing reachable; fall back to the client so the bands still
-    // exist rather than vanishing.
+    const RECT reachable{std::max(client.left, combined.left), client.top, std::min(client.right, combined.right),
+                         client.bottom};
+    // A window fully outside every work area horizontally leaves nothing reachable; fall back to the client so the
+    // bands still exist rather than vanishing.
     return (reachable.right > reachable.left && reachable.bottom > reachable.top) ? reachable : client;
 }
 
@@ -152,6 +157,9 @@ struct PageEdgeState final
     bool widgetRaised = false;
     bool pointerNavigationActive = false;
     bool settleActive = false;
+    // True while a neighbor is staged or a settle/promote is still holding the transition direction. Distinct from
+    // settleActive so an interrupted settle cannot suppress both bands forever after the pointer has already gone.
+    bool transitionStaged = false;
     bool wrapPages = false;
     bool atFirstPage = true;
     bool atLastPage = true;
@@ -173,7 +181,7 @@ struct PageEdgeState final
     {
         return false;
     }
-    if (state.widgetRaised || state.pointerNavigationActive || state.settleActive)
+    if (state.widgetRaised || state.pointerNavigationActive || state.settleActive || state.transitionStaged)
     {
         return false;
     }
@@ -212,8 +220,8 @@ struct PageEdgeState final
     {
         return cell;
     }
-    const LONG size = std::max(1L, std::min({PageEdgeDipPixels(kPageEdgeChevronHeightDips, dpi), bandWidth,
-                                             bandHeight}));
+    const LONG size =
+        std::max(1L, std::min({PageEdgeDipPixels(kPageEdgeChevronHeightDips, dpi), bandWidth, bandHeight}));
     const LONG centreX = band.left + bandWidth / 2;
     const LONG centreY = band.top + bandHeight / 2;
     cell = {centreX - size / 2, centreY - size / 2, centreX + size / 2, centreY + size / 2};

@@ -10,7 +10,6 @@ Add every direct WIP plan to this table exactly once. Use `ACTIVE` for executabl
 | --- | --- | --- | --- |
 | [`PluginDashboardRemainingCloseout_2026-09-02.md`](PluginDashboardRemainingCloseout_2026-09-02.md) | `ACTIVE` | `Specs/Plugins/Plugins_API.md`, `Specs/Core/Core_PerformanceAndResources.md`, `Specs/Core/Core_Settings.md`, and `Specs/UI/UI_XeneonDisplayWindowing.md` | Close remaining System Data host validation and leftover plugin-dashboard architecture gates. |
 | [`PluginBoundaryHardening_2026-09-03.md`](PluginBoundaryHardening_2026-09-03.md) | `ACTIVE` | `Specs/Plugins/Plugins_API.md`, `Specs/Core/Core_PerformanceAndResources.md`, `Specs/UI/UI_Dashboard.md`, and `Specs/Core/Core_Settings.md` | Make the plugin runtime process-scoped, pin and document the ABI records, add missing host services, and isolate per-widget failure. Landed except G2 and H3. |
-| [`MouseEdgePageNavigation_2026-09-03.md`](MouseEdgePageNavigation_2026-09-03.md) | `ACTIVE` | `Specs/UI/UI_Dashboard.md`, `Specs/UI/UI_XeneonDisplayWindowing.md`, and `Specs/Core/Core_PerformanceAndResources.md` | Add hover-revealed left/right edge affordances that animate to the adjacent page on click. Landed; awaiting ARM64 and interactive verification. |
 
 On completion, merge durable requirements into the owning domain spec, move the plan to `Specs/Plans/Done/`, and remove
 its row here.

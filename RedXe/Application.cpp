@@ -1,6 +1,7 @@
 #include "Application.h"
 
 #include "CrashHandler.h"
+#include "FluentIcons.h"
 #include "FrameScheduler.h"
 #include "PageNavigation.h"
 #include "Settings.h"
@@ -363,11 +364,11 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     else
     {
         // Owned by UI_XeneonDisplayWindowing.md: Release prompts for a windowed fallback, Debug never does.
-        const int choice =
-            MessageBoxW(nullptr,
-                        L"A CORSAIR XENEON display was not found.\n\nDo you want to display RedXe anyway in a standard "
-                        L"window with a title bar?",
-                        L"RedXe \u2014 XENEON display missing", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND);
+        const int choice = MessageBoxW(
+            nullptr,
+            L"A CORSAIR XENEON display was not found.\n\nDo you want to display RedXe anyway in a standard "
+            L"window with a title bar?",
+            L"RedXe \u2014 XENEON display missing", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND);
         if (choice != IDYES)
         {
             return 0;
@@ -457,6 +458,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             _occlusionStatusChanged,
             DashboardRequiresContinuousFrames(),
             _frameInvalidated,
+            PageNavigationInProgress(),
         });
         if (frameAction == HostFrameAction::ProbeOcclusion)
         {
@@ -488,6 +490,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
                 false,
                 DashboardRequiresContinuousFrames(),
                 _frameInvalidated,
+                PageNavigationInProgress(),
             });
         }
 
@@ -922,7 +925,11 @@ HRESULT Application::StageTransitionPage(int direction) noexcept
         return S_OK;
     }
     ClearTransitionPage();
-    auto settings = std::make_unique<AppSettings>(*_settings);
+    auto settings = std::unique_ptr<AppSettings>(new (std::nothrow) AppSettings(*_settings));
+    if (!settings)
+    {
+        return E_OUTOFMEMORY;
+    }
     HRESULT result = MoveDashboardPage(*settings, direction);
     if (FAILED(result))
     {
@@ -994,10 +1001,11 @@ void Application::ApplyPageOffset(LONG offset, LONG clientWidth) noexcept
     {
         layoutResult = _transitionDashboardHost->SetHorizontalOffset(offset + _pageTransitionDirection * clientWidth);
     }
-    if (SUCCEEDED(layoutResult) && SUCCEEDED(_renderer.RefreshLayout()))
+    if (SUCCEEDED(layoutResult))
     {
-        _frameInvalidated = true;
+        (void)_renderer.RefreshLayout();
     }
+    _frameInvalidated = true;
 }
 
 void Application::FlushPendingTransitionStage() noexcept
@@ -1168,7 +1176,8 @@ PageEdgeState Application::CurrentPageEdgeState() const noexcept
     state.rendererOccluded = _renderer.IsOccluded();
     state.widgetRaised = _raisedActive;
     state.pointerNavigationActive = _pagePointerActive || _pagePanStarted;
-    state.settleActive = _pageSettleActive || _pageTransitionDirection != 0;
+    state.settleActive = _pageSettleActive;
+    state.transitionStaged = _pageTransitionDirection != 0 || _pageStagePendingDirection != 0;
     state.wrapPages = _settings->dashboard.wrapPages;
     state.pageCount = _settings->dashboard.pageCount;
     state.atFirstPage = _settings->dashboard.activePageIndex == 0;
@@ -1253,10 +1262,10 @@ void Application::RefreshPageEdgeAffordances() noexcept
 
         if (!_pageEdges[index])
         {
-            const HWND edge = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_NOPARENTNOTIFY | WS_EX_LAYERED,
-                                              kPageEdgeClassName, L"", WS_CHILD | WS_CLIPSIBLINGS, band.left, band.top,
-                                              band.right - band.left, band.bottom - band.top, _window.get(), nullptr,
-                                              _instance, this);
+            const HWND edge =
+                CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_NOPARENTNOTIFY | WS_EX_LAYERED, kPageEdgeClassName, L"",
+                                WS_CHILD | WS_CLIPSIBLINGS, band.left, band.top, band.right - band.left,
+                                band.bottom - band.top, _window.get(), nullptr, _instance, this);
             if (!edge)
             {
                 _pageEdgeRevealed[index] = false;
@@ -1356,8 +1365,7 @@ void Application::UpdatePageEdgeHover() noexcept
     {
         const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
         const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
-        const bool reveal =
-            ShouldShowEdgeAffordance(state, direction) && PageEdgeBandContains(band, cursor);
+        const bool reveal = ShouldShowEdgeAffordance(state, direction) && PageEdgeBandContains(band, cursor);
         if (_pageEdgeRevealed[index] != reveal)
         {
             _pageEdgeRevealed[index] = reveal;
@@ -1449,8 +1457,7 @@ LRESULT CALLBACK Application::PageEdgeProcedure(HWND window, UINT message, WPARA
     return DefWindowProcW(window, message, wParam, lParam);
 }
 
-LRESULT Application::HandlePageEdgeMessage(HWND edge, size_t index, UINT message, WPARAM wParam,
-                                           LPARAM lParam) noexcept
+LRESULT Application::HandlePageEdgeMessage(HWND edge, size_t index, UINT message, WPARAM wParam, LPARAM lParam) noexcept
 {
     const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
     switch (message)
@@ -1540,10 +1547,13 @@ void Application::PaintPageEdge(HWND edge, size_t index) noexcept
     if (index < _pageEdges.size())
     {
         const UINT dpi = GetDpiForWindow(edge);
-        wil::unique_hbrush wash{CreateSolidBrush(RGB(10, 14, 26))};
-        if (wash)
+        if (!_pageEdgeWashBrush)
         {
-            FillRect(deviceContext, &client, wash.get());
+            _pageEdgeWashBrush.reset(CreateSolidBrush(RGB(10, 14, 26)));
+        }
+        if (_pageEdgeWashBrush)
+        {
+            FillRect(deviceContext, &client, _pageEdgeWashBrush.get());
         }
         EnsurePageEdgeIconFont(dpi);
         const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
@@ -1689,6 +1699,7 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
         {
             _pageGestureIgnored = true;
             _pagePointerActive = false;
+            ResumePageSettleIfNeeded();
             return;
         }
         if (!PageSwipeLocksHorizontal(deltaX, deltaY, threshold))
@@ -1757,6 +1768,11 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
     if (!panStarted)
     {
         _pageGestureIgnored = false;
+        if (_pageCurrentOffset != 0 || _pageTransitionDirection != 0)
+        {
+            ResumePageSettleIfNeeded();
+            return;
+        }
         POINT position{};
         UINT64 qpc = 0;
         if (TryPointerClientPosition(window, pointerId, position, qpc))
@@ -1925,6 +1941,7 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
     _raisedLayout = layout;
     _raisedWidgetIndex = widgetIndex;
     _raisedActive = true;
+    EnsureRaiseOverlayChrome(dpi);
     RefreshPageEdgeAffordances();
     _frameInvalidated = true;
     return S_OK;
@@ -2019,6 +2036,33 @@ LRESULT Application::HandleRaiseOverlayMessage(HWND overlay, UINT message, WPARA
     return DefWindowProcW(overlay, message, wParam, lParam);
 }
 
+void Application::EnsureRaiseOverlayChrome(UINT dpi) noexcept
+{
+    const UINT effectiveDpi = dpi == 0 ? USER_DEFAULT_SCREEN_DPI : dpi;
+    if (!_raiseDimBrush)
+    {
+        _raiseDimBrush.reset(CreateSolidBrush(RGB(8, 10, 16)));
+    }
+    if (!_raiseShadowBrush)
+    {
+        _raiseShadowBrush.reset(CreateSolidBrush(RGB(0, 0, 0)));
+    }
+    if (_raiseCloseFont && _raiseCloseFontDpi == effectiveDpi)
+    {
+        return;
+    }
+    const LONG closeHeight = std::max(1L, _raisedLayout.close.bottom - _raisedLayout.close.top);
+    FluentIcons::IconFont kind = FluentIcons::IconFont::TextFallback;
+    wil::unique_hfont font{FluentIcons::CreateIconFont(static_cast<int>(closeHeight), kind)};
+    if (!font)
+    {
+        return;
+    }
+    _raiseCloseFont = std::move(font);
+    _raiseCloseFontDpi = effectiveDpi;
+    _raiseCloseFontKind = kind;
+}
+
 void Application::PaintRaiseOverlay(HWND overlay) noexcept
 {
     PAINTSTRUCT paint{};
@@ -2029,27 +2073,28 @@ void Application::PaintRaiseOverlay(HWND overlay) noexcept
     }
     RECT client{};
     GetClientRect(overlay, &client);
-    wil::unique_hbrush dim{CreateSolidBrush(RGB(0, 0, 0))};
-    wil::unique_hbrush shadow{CreateSolidBrush(RGB(0, 0, 0))};
-    if (dim)
+    EnsureRaiseOverlayChrome(GetDpiForWindow(overlay));
+    if (_raiseDimBrush)
     {
-        FillRect(deviceContext, &client, dim.get());
+        FillRect(deviceContext, &client, _raiseDimBrush.get());
     }
-    if (shadow && _raisedLayout.shadow.right > _raisedLayout.shadow.left)
+    if (_raiseShadowBrush && _raisedLayout.shadow.right > _raisedLayout.shadow.left)
     {
-        FillRect(deviceContext, &_raisedLayout.shadow, shadow.get());
+        FillRect(deviceContext, &_raisedLayout.shadow, _raiseShadowBrush.get());
     }
-    wil::unique_hpen pen{CreatePen(PS_SOLID, 2, RGB(240, 240, 240))};
-    if (pen)
+    const wchar_t glyph =
+        FluentIcons::SelectGlyph(_raiseCloseFontKind, FluentIcons::kClear, FluentIcons::kFallbackClear);
+    if (_raiseCloseFont && glyph != L'\0' && _raisedLayout.close.right > _raisedLayout.close.left)
     {
-        const HGDIOBJ previous = SelectObject(deviceContext, pen.get());
-        const RECT& close = _raisedLayout.close;
-        const LONG inset = std::max(1L, (close.right - close.left) / 4);
-        MoveToEx(deviceContext, close.left + inset, close.top + inset, nullptr);
-        LineTo(deviceContext, close.right - inset, close.bottom - inset);
-        MoveToEx(deviceContext, close.right - inset, close.top + inset, nullptr);
-        LineTo(deviceContext, close.left + inset, close.bottom - inset);
-        SelectObject(deviceContext, previous);
+        RECT close = _raisedLayout.close;
+        const HGDIOBJ previousFont = SelectObject(deviceContext, _raiseCloseFont.get());
+        const int previousMode = SetBkMode(deviceContext, TRANSPARENT);
+        const COLORREF previousColor = SetTextColor(deviceContext, RGB(240, 240, 240));
+        (void)DrawTextW(deviceContext, &glyph, 1, &close,
+                        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP | DT_NOPREFIX);
+        (void)SetTextColor(deviceContext, previousColor);
+        (void)SetBkMode(deviceContext, previousMode);
+        SelectObject(deviceContext, previousFont);
     }
     EndPaint(overlay, &paint);
 }
@@ -2084,9 +2129,15 @@ void Application::OnSettingsChanged() noexcept
         break;
     }
 
-    if (!candidate)
+    if (!candidate || !_settings)
     {
         OutputDebugStringW(L"Settings reload returned no candidate; the current settings remain active.\n");
+        return;
+    }
+
+    if (FAILED(PreserveActiveDashboardPage(*_settings, *candidate)))
+    {
+        ShowSettingsError(L"The changed settings could not be applied. The previous dashboard was restored.");
         return;
     }
 
@@ -2211,15 +2262,42 @@ bool Application::WaitUntilMessage() noexcept
 
 bool Application::DashboardRequiresContinuousFrames() const noexcept
 {
-    return _pageSettleActive || (_dashboardHost && _dashboardHost->RequiresContinuousFrames()) ||
+    return (_dashboardHost && _dashboardHost->RequiresContinuousFrames()) ||
            (_transitionDashboardHost && _transitionDashboardHost->RequiresContinuousFrames());
+}
+
+bool Application::PageNavigationInProgress() const noexcept
+{
+    return _pagePointerActive || _pagePanStarted || _pageSettleActive || _pageTransitionDirection != 0 ||
+           _pageStagePendingDirection != 0;
+}
+
+void Application::ResumePageSettleIfNeeded() noexcept
+{
+    if (_pageSettleActive || _pagePointerActive || _pagePanStarted)
+    {
+        return;
+    }
+    if (_pageCurrentOffset == 0 && _pageTransitionDirection == 0)
+    {
+        return;
+    }
+    RECT client{};
+    if (!_window || !GetClientRect(_window.get(), &client) || client.right <= 0)
+    {
+        CancelPageNavigation();
+        return;
+    }
+    const bool commit = _pageSettleCommit && _transitionDashboardHost;
+    const LONG target = commit ? -_pageTransitionDirection * client.right : 0;
+    BeginPageSettle(target, commit);
 }
 
 void Application::RefreshScheduledFrameDeadline() noexcept
 {
     ClearScheduledFrameDeadline();
     if (!_windowVisible || !_displayPoweredOn || !_rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
-        DashboardRequiresContinuousFrames())
+        DashboardRequiresContinuousFrames() || PageNavigationInProgress())
     {
         return;
     }

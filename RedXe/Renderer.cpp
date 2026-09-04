@@ -104,41 +104,77 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
     {
         _transitionDashboardHost = nullptr;
         _transitionWidgetsDeviceReady = false;
-        return UpdateCachedViewports();
+        return (_width == 0 || _height == 0) ? S_OK : UpdateCachedViewports();
     }
 
     const bool keepDevice = _transitionDashboardHost == &dashboardHost && _transitionWidgetsDeviceReady;
-    if (_gpuWidgetsDeviceReady && _dashboardHost)
-    {
-        for (size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
-        {
-            if (IRedXeGpuWidget* widget = _dashboardHost->GpuWidgetAt(index))
-            {
-                widget->OnDeviceLost();
-            }
-        }
-        _gpuWidgetsDeviceReady = false;
-    }
-    if (_transitionDashboardHost && _transitionDashboardHost != &dashboardHost && _transitionWidgetsDeviceReady)
-    {
-        for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
-        {
-            if (IRedXeGpuWidget* widget = _transitionDashboardHost->GpuWidgetAt(index))
-            {
-                widget->OnDeviceLost();
-            }
-        }
-    }
+    DashboardHost* const previousPrimary = _dashboardHost;
+    DashboardHost* const previousTransition = _transitionDashboardHost;
+    const bool previousTransitionReady = _transitionWidgetsDeviceReady;
+    const bool previousGpuReady = _gpuWidgetsDeviceReady;
 
+    _dashboardHost = &dashboardHost;
     _transitionDashboardHost = nullptr;
     _transitionWidgetsDeviceReady = false;
-    _dashboardHost = &dashboardHost;
     if (keepDevice)
     {
         _gpuWidgetsDeviceReady = true;
-        return UpdateCachedViewports();
     }
-    return NotifyDeviceCreated();
+
+    HRESULT result = S_OK;
+    if (keepDevice)
+    {
+        result = UpdateCachedViewports();
+    }
+    else
+    {
+        _gpuWidgetsDeviceReady = false;
+        result = NotifyDeviceCreated();
+        if (SUCCEEDED(result))
+        {
+            result = UpdateCachedViewports();
+        }
+    }
+    if (FAILED(result))
+    {
+        if (!keepDevice)
+        {
+            for (size_t index = 0; index < dashboardHost.WidgetCount(); ++index)
+            {
+                if (IRedXeGpuWidget* widget = dashboardHost.GpuWidgetAt(index))
+                {
+                    widget->OnDeviceLost();
+                }
+            }
+        }
+        _dashboardHost = previousPrimary;
+        _transitionDashboardHost = previousTransition;
+        _transitionWidgetsDeviceReady = previousTransitionReady;
+        _gpuWidgetsDeviceReady = previousGpuReady;
+        return result;
+    }
+
+    if (previousGpuReady && previousPrimary && previousPrimary != &dashboardHost)
+    {
+        for (size_t index = 0; index < previousPrimary->WidgetCount(); ++index)
+        {
+            if (IRedXeGpuWidget* widget = previousPrimary->GpuWidgetAt(index))
+            {
+                widget->OnDeviceLost();
+            }
+        }
+    }
+    if (previousTransitionReady && previousTransition && previousTransition != &dashboardHost)
+    {
+        for (size_t index = 0; index < previousTransition->WidgetCount(); ++index)
+        {
+            if (IRedXeGpuWidget* widget = previousTransition->GpuWidgetAt(index))
+            {
+                widget->OnDeviceLost();
+            }
+        }
+    }
+    return S_OK;
 }
 
 HRESULT Renderer::SetRaisedOverlay(size_t widgetIndex, const RECT& content) noexcept
@@ -448,12 +484,13 @@ HRESULT Renderer::UpdateCachedViewports() noexcept
     for (size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
     {
         const RECT bounds = _dashboardHost->PixelBoundsAt(index, _width, _height);
+        D3D11_VIEWPORT& viewport = _widgetViewports[index];
         if (bounds.right <= bounds.left || bounds.bottom <= bounds.top)
         {
-            return E_INVALIDARG;
+            viewport = {};
+            continue;
         }
 
-        D3D11_VIEWPORT& viewport = _widgetViewports[index];
         viewport.TopLeftX = static_cast<float>(bounds.left);
         viewport.TopLeftY = static_cast<float>(bounds.top);
         viewport.Width = static_cast<float>(bounds.right - bounds.left);
@@ -477,9 +514,12 @@ HRESULT Renderer::UpdateCachedViewports() noexcept
         for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
         {
             const RECT bounds = _transitionDashboardHost->PixelBoundsAt(index, _width, _height);
-            if (bounds.right <= bounds.left || bounds.bottom <= bounds.top)
-                return E_INVALIDARG;
             D3D11_VIEWPORT& viewport = _transitionWidgetViewports[index];
+            if (bounds.right <= bounds.left || bounds.bottom <= bounds.top)
+            {
+                viewport = {};
+                continue;
+            }
             viewport.TopLeftX = static_cast<float>(bounds.left);
             viewport.TopLeftY = static_cast<float>(bounds.top);
             viewport.Width = static_cast<float>(bounds.right - bounds.left);
@@ -745,7 +785,12 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
         const HRESULT recoveryResult = RecoverDevice();
         return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
     }
-    _occluded = result == DXGI_STATUS_OCCLUDED;
+    // A host-owned native child that covers the swap chain makes DXGI report OCCLUDED even though the window is
+    // still the foreground dashboard. Treating that as real occlusion parked page-settle and hid the edge bands for
+    // the rest of the session on any page that includes a window widget.
+    const bool nativeCover = (_dashboardHost && _dashboardHost->HasWindowWidgets()) ||
+                             (_transitionDashboardHost && _transitionDashboardHost->HasWindowWidgets());
+    _occluded = result == DXGI_STATUS_OCCLUDED && !nativeCover;
     return _occluded ? S_OK : result;
 }
 

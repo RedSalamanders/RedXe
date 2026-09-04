@@ -204,6 +204,51 @@ constexpr std::string_view kRepresentative = R"json(
         parsed.dashboard.activePageIndex != 0)
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
+    AppSettings reloaded{};
+    if (FAILED(ParseAppSettingsJson(kRepresentative, reloaded)) || reloaded.dashboard.activePageIndex != 0)
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    parsed.dashboard.wrapPages = true;
+    if (FAILED(MoveDashboardPage(parsed, -1)) || parsed.dashboard.activePageIndex != 1)
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    if (FAILED(PreserveActiveDashboardPage(parsed, reloaded)) || reloaded.dashboard.activePageIndex != 1 ||
+        reloaded.dashboard.activePageId.View() != parsed.dashboard.activePageId.View())
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+    constexpr std::string_view authoredPages = R"json({
+      "version":{"major":4},
+      "pages":[
+        {"id":"home","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}},
+        {"id":"system","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}}]}}
+      ]
+    })json";
+    constexpr std::string_view authoredReordered = R"json({
+      "version":{"major":4},
+      "pages":[
+        {"id":"system","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}}]}},
+        {"id":"home","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}}
+      ]
+    })json";
+    constexpr std::string_view authoredHomeOnly = R"json({
+      "version":{"major":4},
+      "pages":[
+        {"id":"home","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}}
+      ]
+    })json";
+    AppSettings authored{};
+    AppSettings reordered{};
+    AppSettings homeOnly{};
+    if (FAILED(ParseAppSettingsJson(authoredPages, authored)) ||
+        FAILED(ParseAppSettingsJson(authoredReordered, reordered)) ||
+        FAILED(ParseAppSettingsJson(authoredHomeOnly, homeOnly)) || FAILED(MoveDashboardPage(authored, 1)) ||
+        authored.dashboard.activePageId.View() != "system")
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    if (FAILED(PreserveActiveDashboardPage(authored, reordered)) || reordered.dashboard.activePageIndex != 0 ||
+        reordered.dashboard.activePageId.View() != "system")
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    if (FAILED(PreserveActiveDashboardPage(authored, homeOnly)) || homeOnly.dashboard.activePageIndex != 0 ||
+        homeOnly.dashboard.activePageId.View() != "home")
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
     constexpr std::string_view processViewerSettings =
         R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer"}},{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer","settings":{"topN":7}}}]}}]})json";
     AppSettings processViewer{};

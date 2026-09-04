@@ -405,8 +405,8 @@ HRESULT PluginManager::CreateBundledProvider(const char* pluginId, const char* c
     options.configurationBytes = configurationBytes;
 
     void* providerObject = nullptr;
-    result =
-        module.create(__uuidof(IRedXeWidgetProvider), &options, PluginHost::Instance().Interface(), pluginId, &providerObject);
+    result = module.create(__uuidof(IRedXeWidgetProvider), &options, PluginHost::Instance().Interface(), pluginId,
+                           &providerObject);
     if (FAILED(result))
     {
         return result;
@@ -531,7 +531,8 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
         }
         PluginHost::ModuleView module{};
-        result = PluginHost::Instance().GetPluginModule(pluginSpec->pluginId, RedXePluginCapabilityWidgetProvider, &module);
+        result =
+            PluginHost::Instance().GetPluginModule(pluginSpec->pluginId, RedXePluginCapabilityWidgetProvider, &module);
         if (FAILED(result))
         {
             return result;
@@ -557,7 +558,8 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
                 return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
             }
             PluginHost::ModuleView module{};
-            result = PluginHost::Instance().GetPluginModule(pluginSpec->pluginId, RedXePluginCapabilityWidgetProvider, &module);
+            result = PluginHost::Instance().GetPluginModule(pluginSpec->pluginId, RedXePluginCapabilityWidgetProvider,
+                                                            &module);
             if (FAILED(result))
             {
                 return result;

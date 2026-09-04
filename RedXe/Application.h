@@ -61,6 +61,9 @@ class Application final
     HRESULT UpdateDashboardVisibility() noexcept;
     void CloseMainWindow() noexcept;
     [[nodiscard]] bool DashboardRequiresContinuousFrames() const noexcept;
+    [[nodiscard]] bool PageNavigationInProgress() const noexcept;
+    void ResumePageSettleIfNeeded() noexcept;
+    void EnsureRaiseOverlayChrome(UINT dpi) noexcept;
     void RefreshScheduledFrameDeadline() noexcept;
     void ClearScheduledFrameDeadline() noexcept;
     bool WaitUntilMessage() noexcept;
@@ -78,8 +81,9 @@ class Application final
     void PaintRaiseOverlay(HWND overlay) noexcept;
     void CancelPageNavigation() noexcept;
     [[nodiscard]] PageEdgeState CurrentPageEdgeState() const noexcept;
-    // Client rectangle intersected with the display work area, in client coordinates. Edge bands are placed against
-    // its edges so they stay reachable when the window is larger than its monitor.
+    // Client rectangle with work-area width clipping, always full client height. Edge bands hug the reachable
+    // left/right so they stay pointer-reachable when the window is wider than its monitor, and they span the window
+    // from top to bottom.
     [[nodiscard]] RECT ReachableClientRect() const noexcept;
     // Recomputes which edge band the pointer is over, from the live cursor position. A layered band at zero alpha is
     // click-through, so hover cannot be detected by the band itself; the top-level window owns it.
@@ -106,6 +110,12 @@ class Application final
     HINSTANCE _instance = nullptr;
     wil::unique_hwnd _window;
     wil::unique_hwnd _raiseOverlay;
+    wil::unique_hbrush _raiseDimBrush;
+    wil::unique_hbrush _raiseShadowBrush;
+    wil::unique_hbrush _pageEdgeWashBrush;
+    wil::unique_hfont _raiseCloseFont;
+    UINT _raiseCloseFontDpi = 0;
+    FluentIcons::IconFont _raiseCloseFontKind = FluentIcons::IconFont::TextFallback;
     // Index 0 is the previous-page band on the left edge; index 1 is the next-page band on the right edge.
     std::array<wil::unique_hwnd, 2> _pageEdges;
     std::array<bool, 2> _pageEdgeRevealed{};

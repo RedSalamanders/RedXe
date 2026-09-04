@@ -268,8 +268,7 @@ void FillCpuSets(RedXeNativeState& state, RedXeNativeCheapSample& sample, const 
                 }
                 if (flat < sample.logicalCount)
                 {
-                    sample.logical[flat].parked =
-                        (record->CpuSet.AllFlags & SYSTEM_CPU_SET_INFORMATION_PARKED) != 0;
+                    sample.logical[flat].parked = (record->CpuSet.AllFlags & SYSTEM_CPU_SET_INFORMATION_PARKED) != 0;
                     sample.logical[flat].allocated =
                         (record->CpuSet.AllFlags & SYSTEM_CPU_SET_INFORMATION_ALLOCATED) != 0;
                 }
@@ -333,11 +332,8 @@ void FillProcessorTimes(NtQuerySystemInformationFn query, RedXeNativeState& stat
                         RedXeNativeCheapSample& sample) noexcept
 {
     auto* records = reinterpret_cast<RedXeNtProcessorPerformance*>(state.processorTimeBuffer.data());
-    static_assert(sizeof(decltype(RedXeNativeState::processorTimeBuffer){}) %
-                      sizeof(RedXeNtProcessorPerformance) ==
-                  0);
-    const ULONG capacity =
-        static_cast<ULONG>(kRedXeMaximumLogicalProcessors * sizeof(RedXeNtProcessorPerformance));
+    static_assert(sizeof(decltype(RedXeNativeState::processorTimeBuffer){}) % sizeof(RedXeNtProcessorPerformance) == 0);
+    const ULONG capacity = static_cast<ULONG>(kRedXeMaximumLogicalProcessors * sizeof(RedXeNtProcessorPerformance));
     ULONG returned = 0;
     if (!QuerySystem(query, SystemProcessorPerformanceInformation, records, capacity, returned))
     {
@@ -641,7 +637,7 @@ bool RedXeNativeQueryWalk(RedXeNativeState& state, RedXeNativeWalkSample& sample
             return false;
         }
         const auto* threads = reinterpret_cast<const RedXeNtThreadRecord*>(state.processBuffer.data() + offset +
-                                                                          sizeof(RedXeNtProcessRecord));
+                                                                           sizeof(RedXeNtProcessRecord));
 
         if (sample.processCount < sample.processes.size())
         {

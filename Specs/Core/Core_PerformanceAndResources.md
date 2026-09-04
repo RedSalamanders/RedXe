@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-04
 
 ## Mandate
 
@@ -28,6 +28,9 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   when its inputs change.
 - Visible continuous animation must be paced by display presentation. Hidden, minimized, suspended, or display-off
   rendering must block on events and must not build or present a frame because an unrelated message was dispatched.
+  An active page pan, settle, or staged neighbor is visible motion: the host MUST keep presenting so widget animation
+  and the page-scroll ease continue. A host-owned native child covering the swap chain MUST NOT be treated as DXGI
+  occlusion.
 - After `Present` reports occlusion, RedXe must stop frame construction, wait for the DXGI factory's registered
   occlusion-status window message, and use `DXGI_PRESENT_TEST` to detect recovery without presenting content.
   Occlusion polling and periodic timers are prohibited.
@@ -50,7 +53,9 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   animation, and it never overrides a blocked, hidden, suspended, display-off, or occluded state.
 - Host edge-navigation chrome is event driven. It reveals on pointer entry, hides on pointer leave, and MUST NOT own a
   timer, a fade, a continuous frame, or any other wake-up. Re-evaluating the chrome with unchanged host state MUST
-  perform no window operations, so it is safe to call from the frame loop.
+  perform no window operations, so it is safe to call from the frame loop. Each band is full client height; only its
+  horizontal placement follows the reachable display edge. GDI wash and icon fonts are created once per DPI, never per
+  paint.
 - Resolution-dependent plugin resources are rebuilt on `IRedXeGpuWidget::OnTargetSizeChanged`, never in `Render`. That
   callback is the sanctioned place for rasterization, texture creation, and allocation in a GPU widget, because it is
   event driven: the host reports only an actual change in the largest viewport it will draw that widget at, never a
@@ -74,7 +79,8 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   quiesced when their owning feature is no longer active, except for the documented current no-unload plugin policy.
 - Local data sources share one host acquisition worker. Background acquisition must block on events or timers at the
   lowest useful rate, coalesce subscriptions for the same provider and dataset into one sample, batch every unique due
-  dataset from one source into a single `CollectSnapshots` call, and keep bounded history. Multiple providers must not
+  dataset from one source into a single `CollectSnapshots` call, and keep bounded history. A failed batch MUST NOT keep
+  rate-history mutations from datasets collected before the failure. Multiple providers must not
   create one worker per provider. Busy-waiting is prohibited. Sources MUST NOT create acquisition threads. A dedicated
   device-I/O lane is optional and host-owned; it MUST NOT ship until timeout, cancellation, and teardown drain are
   bounded.
@@ -144,8 +150,10 @@ settings-visible widgets share one device resource hub: build-time Shader Model 
 1024×1024 `R8` atlas, and one dynamic instance buffer. Each visible widget frame maps that buffer and issues one
 `DrawInstanced`. DirectWrite loads only while filling new atlas glyphs, then releases. Ranked lists copy at most
 `topN` rows; the CPU heatmap stores at most 64 display cells. Sparkline history is 60 samples of widget-local fixed
-storage. Eases last 320 ms; `GetNextFrameDelayMilliseconds` returns 1 while an ease or pulse is in flight, then the
-dataset interval. A settled System page MUST NOT set continuous animation. Hidden, minimized, suspended, occluded, and
+storage. Eases last 320 ms. `GetNextFrameDelayMilliseconds` returns the dataset interval, not a 1 ms poll; while an
+ease or pulse is in flight the widget calls `IRedXeHost::RequestFrame` after each presented frame so motion is
+presentation-paced. Glyph rasterization runs when a snapshot arrives or at device creation, never inside `Render`.
+A settled System page MUST NOT set continuous animation. Hidden, minimized, suspended, occluded, and
 display-off states stop eases and drain subscriptions; recovery draws current values and does not replay missed
 motion. Snapshot copy stays on the acquisition worker. After delivery, the host coalesces one UI-thread invalidation.
 This family remains on the immediate-context GPU path. Release x64 `HostPluginTests` at 2560×720 measured an 8.24 ms
@@ -190,7 +198,8 @@ observable resource benefit are not required.
 - Review must confirm that steady-state GPU callbacks allocate no heap memory and reuse bounded device resources.
 - `HostPluginTests` must exercise the production `PluginManager`, `DashboardHost`, and `Renderer` with a hidden
   off-screen HWND and WARP. It must verify the scheduler decision table for hidden, minimized/suspended, display-off,
-  occluded, clean-static, invalidated-static, and continuous states without automating the desktop. The scheduler
+  occluded, clean-static, invalidated-static, continuous, and page-navigation-active states without automating the
+  desktop, including that page navigation keeps presenting when DXGI reports the swap chain occluded. The scheduler
   input MUST NOT contain an any-message redraw proxy.
 - `HostPluginTests` MUST also prove raised-overlay geometry, Process Viewer half-width raise while sibling tiles still
   draw, no continuous wake from that raise, and GdiOrbit container move/restore, using the same hidden WARP host.
