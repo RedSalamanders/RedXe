@@ -1,0 +1,8 @@
+<Project>
+  <Import Project="$(MSBuildThisFileDirectory)..\.build\dependencies\DxUi\DxUi.resolved.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\.build\dependencies\DxUi\DxUi.resolved.props')" />
+  <Import Project="$(DxUiRoot)\Build\DxUi.Consumer.props" Condition="'$(DxUiRoot)'!=''" />
+  <Target Name="RequireRestoredDxUi" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(DxUiRoot)'==''" Text="Run restore-dxui.ps1 for the selected platform before building the AV Control consumer." />
+  </Target>
+</Project>

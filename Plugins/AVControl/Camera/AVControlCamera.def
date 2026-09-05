@@ -1,0 +1,4 @@
+LIBRARY AVControlCamera
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

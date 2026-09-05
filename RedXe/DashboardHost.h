@@ -44,9 +44,13 @@ class DashboardHost final
     [[nodiscard]] size_t WidgetCount() const noexcept;
     [[nodiscard]] IRedXeWidget* WidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeGpuWidget* GpuWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] IRedXePreparedGpuWidget* PreparedGpuWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeWindowWidget* WindowWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeRaisedWidget* RaisedWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeInteractiveWidget* InteractiveWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] IRedXeKeyboardWidget* KeyboardWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] IRedXeTextInputWidget* TextInputWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] IRedXeAccessibilityWidget* AccessibilityWidgetAt(size_t index) const noexcept;
     [[nodiscard]] const char* WidgetInstanceIdAt(size_t index) const noexcept;
     [[nodiscard]] size_t RaisedNativeIndex() const noexcept;
     [[nodiscard]] WidgetPlacement PlacementAt(size_t index) const noexcept;

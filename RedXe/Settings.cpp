@@ -2,6 +2,7 @@
 
 #include "BundledPlugins.h"
 #include "PlugInterfaces/Factory.h"
+#include "../Plugins/AVControl/AVControlModel.h"
 
 #include <array>
 #include <cctype>
@@ -32,6 +33,198 @@ using unique_malloc_string = wil::unique_any<char*, decltype(&free), free>;
 [[nodiscard]] unique_yyjson_doc ParseStoredObject(const JsonObjectSettings& settings) noexcept;
 
 constexpr size_t kMaximumSettingsBytes = 1024U * 1024U;
+
+// Input is valid compact JSON from yyjson. Only whitespace outside tokens changes here.
+[[nodiscard]] size_t JsonTokenEnd(std::string_view json, size_t begin, size_t limit) noexcept
+{
+    size_t cursor = begin;
+    if (json[begin] == '"')
+    {
+        ++cursor;
+        while (cursor < limit)
+        {
+            const char value = json[cursor++];
+            if (value == '"')
+                return cursor;
+            if (value == '\\' && cursor < limit)
+                ++cursor;
+        }
+        return limit;
+    }
+    while (cursor < limit && std::strchr("{}[],:", json[cursor]) == nullptr)
+        ++cursor;
+    return cursor;
+}
+
+[[nodiscard]] bool IsStructuredJsonSection(std::string_view key) noexcept
+{
+    return key == "\"declare\"" || key == "\"pages\"" || key == "\"layout\"" || key == "\"areas\"" ||
+           key == "\"shortcuts\"";
+}
+
+[[nodiscard]] bool FitsInlineJson(std::string_view json, size_t begin, size_t column) noexcept
+{
+    // Keep a single scalar property together even when an indivisible path/string exceeds the soft line width.
+    if (json[begin] == '{' && begin + 1 < json.size() && json[begin + 1] == '"')
+    {
+        const size_t keyEnd = JsonTokenEnd(json, begin + 1, json.size());
+        const size_t value = keyEnd + 1;
+        if (value < json.size() && json[keyEnd] == ':' && json[value] != '{' && json[value] != '[')
+        {
+            const size_t valueEnd = JsonTokenEnd(json, value, json.size());
+            if (valueEnd < json.size() && json[valueEnd] == '}')
+                return true;
+        }
+    }
+    constexpr size_t lineWidth = 120;
+    if (column >= lineWidth)
+        return false;
+    const size_t available = lineWidth - column;
+    const size_t scanEnd = begin + ((json.size() - begin < available) ? json.size() - begin : available);
+    size_t width = 0, depth = 0;
+    std::string_view lastString;
+    for (size_t cursor = begin; cursor < scanEnd; ++cursor)
+    {
+        const char value = json[cursor];
+        if (value == '"')
+        {
+            const size_t end = JsonTokenEnd(json, cursor, scanEnd);
+            if (end == scanEnd)
+                return false;
+            lastString = json.substr(cursor, end - cursor);
+            width += end - cursor;
+            cursor = end - 1;
+        }
+        else if (value == '{' || value == '[')
+        {
+            if (value == '[' && cursor + 1 < json.size() && json[cursor + 1] != ']')
+                return false; // Non-empty lists stay one item per line.
+            ++depth;
+            width += (cursor + 1 < json.size() && (json[cursor + 1] == '}' || json[cursor + 1] == ']')) ? 1 : 2;
+        }
+        else if (value == '}' || value == ']')
+        {
+            width += (json[cursor - 1] == '{' || json[cursor - 1] == '[') ? 1 : 2;
+            if (--depth == 0)
+                return width <= available;
+        }
+        else if (value == ':')
+        {
+            if (IsStructuredJsonSection(lastString) && cursor + 2 < json.size() &&
+                (json[cursor + 1] == '{' || json[cursor + 1] == '[') && json[cursor + 2] != '}' &&
+                json[cursor + 2] != ']')
+                return false;
+            width += 2;
+        }
+        else
+            width += value == ',' ? 2 : 1;
+        if (width > available)
+            return false;
+    }
+    return false;
+}
+
+[[nodiscard]] HRESULT FormatCompactSettingsJson(std::string_view json, std::string& formatted) noexcept
+{
+    try
+    {
+        std::string output;
+        output.reserve(json.size() < kMaximumSettingsBytes ? json.size() : kMaximumSettingsBytes);
+        std::vector<uint8_t> inlineContainers;
+        inlineContainers.reserve(32);
+        size_t column = 0;
+        bool fits = true, structuredSection = true;
+        std::string_view lastString;
+        const auto append = [&](std::string_view text)
+        {
+            if (text.size() > kMaximumSettingsBytes - output.size())
+                fits = false;
+            else
+            {
+                output.append(text);
+                column += text.size();
+            }
+        };
+        const auto newline = [&](size_t depth)
+        {
+            append("\n");
+            const size_t spaces = depth * 2;
+            if (spaces > kMaximumSettingsBytes - output.size())
+                fits = false;
+            else
+                output.append(spaces, ' ');
+            column = spaces;
+        };
+        for (size_t cursor = 0; cursor < json.size() && fits;)
+        {
+            const char value = json[cursor];
+            if (value == '{' || value == '[')
+            {
+                if (cursor + 1 < json.size() && (json[cursor + 1] == '}' || json[cursor + 1] == ']'))
+                {
+                    append(json.substr(cursor, 2));
+                    cursor += 2;
+                }
+                else
+                {
+                    const bool inlineValue =
+                        !structuredSection && ((!inlineContainers.empty() && inlineContainers.back() != 0) ||
+                                               FitsInlineJson(json, cursor, column));
+                    append(json.substr(cursor++, 1));
+                    inlineContainers.push_back(inlineValue ? 1 : 0);
+                    if (inlineValue)
+                        append(" ");
+                    else
+                        newline(inlineContainers.size());
+                }
+                structuredSection = false;
+            }
+            else if (value == '}' || value == ']')
+            {
+                if (inlineContainers.empty())
+                    return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                if (inlineContainers.back() != 0)
+                    append(" ");
+                else
+                    newline(inlineContainers.size() - 1);
+                inlineContainers.pop_back();
+                append(json.substr(cursor++, 1));
+            }
+            else if (value == ',')
+            {
+                append(json.substr(cursor++, 1));
+                if (!inlineContainers.empty() && inlineContainers.back() != 0)
+                    append(" ");
+                else
+                    newline(inlineContainers.size());
+            }
+            else if (value == ':')
+            {
+                append(": ");
+                structuredSection = IsStructuredJsonSection(lastString);
+                ++cursor;
+            }
+            else
+            {
+                const size_t end = JsonTokenEnd(json, cursor, json.size());
+                lastString = value == '"' ? json.substr(cursor, end - cursor) : std::string_view{};
+                append(json.substr(cursor, end - cursor));
+                cursor = end;
+                structuredSection = false;
+            }
+        }
+        append("\n");
+        if (!fits)
+            return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
+        formatted.swap(output);
+        return S_OK;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+}
+
 constexpr char kSchemaReference[] = "RedXe.settings.schema.json";
 constexpr char kMatrixPluginId[] = "builtin.matrix-rain";
 constexpr char kProcessViewerPluginId[] = "builtin.process-viewer";
@@ -39,6 +232,7 @@ constexpr char kStudioClockPluginId[] = "builtin.studio-clock";
 constexpr char kDeskClockPluginId[] = "builtin.desk-clock";
 constexpr char kWeatherPluginId[] = "builtin.weather";
 constexpr char kLauncherPluginId[] = "builtin.launcher";
+constexpr char kAvControlPluginId[] = "builtin.av-control";
 
 #if defined(_DEBUG)
 constexpr const wchar_t* kSelectedSettingsFileName = kRedXeDebugSettingsFileName;
@@ -1304,6 +1498,13 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
                     return E_INVALIDARG;
                 }
             }
+            else if (SettingsIdEquals(widget.pluginId.View(), kAvControlPluginId))
+            {
+                AVControl::Configuration configuration;
+                if (FAILED(AVControl::ParseConfiguration(
+                    {widget.privateConfiguration.utf8.data(), widget.privateConfiguration.bytes}, configuration)))
+                    return E_INVALIDARG;
+            }
             else if (!IsEmptyPrivate(widget.privateConfiguration))
             {
                 return E_INVALIDARG;
@@ -1504,15 +1705,11 @@ HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view inst
         widget->privateConfiguration = previousPrivate;
         return E_OUTOFMEMORY;
     }
-    try
-    {
-        settings.sourceDocument.assign(written.get(), length);
-    }
-    catch (const std::bad_alloc&)
+    result = FormatCompactSettingsJson(std::string_view(written.get(), length), settings.sourceDocument);
+    if (FAILED(result))
     {
         widget->privateConfiguration = previousPrivate;
-        // std::string::assign leaves the previous source intact on allocation failure.
-        return E_OUTOFMEMORY;
+        return result;
     }
     return S_OK;
 }

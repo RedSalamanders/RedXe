@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|ARM64"><Configuration>Debug</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64"><Configuration>Release</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{DFB2AB75-7077-4A83-AB06-CA1A22347FA0}</ProjectGuid>
+    <RootNamespace>AVControlTests</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'!='Debug'">false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="..\..\Build\RedXe.DxUi.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
+            Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
+            Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>..\..\Plugins\AVControl;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>d3d11.lib;windowscodecs.lib;ole32.lib;propsys.lib;uuid.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <AdditionalIncludeDirectories>..\..\Plugins\AVControl;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>d3d11.lib;windowscodecs.lib;ole32.lib;propsys.lib;uuid.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="AVControlTests.cpp" />
+    <ClCompile Include="ControlWorkQueueTests.cpp" />
+    <ClCompile Include="NativeViewTests.cpp" />
+    <ClCompile Include="TextTransportTests.cpp" />
+    <ClCompile Include="WidgetTextClientTests.cpp" />
+    <ClCompile Include="AccessibilityHostTests.cpp" />
+    <ClCompile Include="..\..\RedXe\AccessibilityHost.cpp" />
+    <ClCompile Include="..\..\RedXe\WidgetTextClient.cpp" />
+    <ClCompile Include="BrokerTests.cpp" />
+    <ClCompile Include="ProfileTransactionTests.cpp" />
+    <ClCompile Include="CoordinatorTests.cpp" />
+    <ClCompile Include="InventorySelectionTests.cpp" />
+    <ClCompile Include="AudioBackendTests.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\WindowsAudioBackend.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\AudioPolicy.cpp" />
+    <ClCompile Include="ModuleTests.cpp" />
+    <ClCompile Include="CameraMediaTests.cpp" />
+    <ClCompile Include="CameraBridgeTests.cpp" />
+    <ClCompile Include="CameraActivationTests.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\Camera\CameraMediaSource.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\Camera\CameraFrameChannel.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\Camera\CameraBridge.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\Camera\CameraBridgeServer.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\Camera\CameraCapture.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\Camera\CameraController.cpp" />
+    <ClCompile Include="..\..\RedXe\ControlWorkQueue.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\AVControlModel.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\AVControlLayout.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\AVControlView.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\AVControlBroker.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\ProfileTransaction.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\ProfileControls.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\Coordinator.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Plugins\AVControl\AVControl.vcxproj">
+      <Project>{8C35D7E4-A3FB-4E01-AF83-D4BC09F74A62}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies><ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Plugins\AVControl\AVControlBroker.vcxproj">
+      <Project>{4D464220-EC4D-465E-ACDC-345A2C4A6ADF}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies><ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="..\..\Build\RedXe.DxUi.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>

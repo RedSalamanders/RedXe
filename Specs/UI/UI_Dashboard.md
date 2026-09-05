@@ -194,6 +194,12 @@ tile) leaves raise and edge-click navigation unchanged. Once a horizontal page p
 does not treat the contact as a launch. Edge-band clicks never reach the widget. While a widget is raised, pointer
 coordinates use the overlay content rectangle as the local origin.
 
+A widget may return `RedXePointerCapture` for a hit-tested Down that requires an uninterrupted gesture. The host
+then acquires mouse/touch/pen capture, routes matching Move/Up outside the original control, and suppresses page pan,
+edge navigation and double-activate raise. Other contacts cannot replace the captured pointer. Capture failure or
+loss, hide, resize, DPI change and cancellation deliver Cancel. The pointer record includes the actual viewport
+dimensions, DPI and tile/raised view identity so a prepared final layout can map an animated viewport correctly.
+
 The top-level HWND is an OLE drop target after `OleInitialize`. `DragOver` hit-tests a GPU interactive widget and
 calls `OnDragOver`. `Drop` copies `CF_HDROP` filesystem paths and Unicode text that is a full URL into a bounded
 `RedXeDropEvent` (1 through 8 items) and calls `OnDrop`. A native-window child that is not itself a drop target
@@ -292,6 +298,18 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
   jump.
 
 ## Implementation anchors
+
+The application lazily creates its UI Automation root on WM_GETOBJECT for UiaRootObjectId. Participating prepared
+GPU widgets appear as virtual fragment children in dashboard slot order. Only the raised widget is exposed during
+a settled raised view. Hidden, suspended, occluded, display-off, moving-page/overlay and settings-error-modal states
+remove these children immediately. Reappearing views get fresh attachment identities. This integration covers
+opted-in widget content; it does not assert that unrelated host chrome or every plugin is accessible.
+
+Accessibility focus and committed raise/dismiss are processed through one generation-tagged posted message.
+The queue is bounded to 32 widget slots, coalesces repeated requests and keeps only the latest requested focus.
+The application updates geometry after successful preparation or placement/focus changes; clean frames must not
+call into a widget or retry unavailable providers. The COM contract lives in Plugins_API.md. Hidden-window component
+tests exercise the production root and AV DLL; real assistive-technology validation remains a separate gate.
 
 - Typed pages and split paths: `RedXe/Settings.*`
 - Geometry and native containers: `RedXe/DashboardHost.*`

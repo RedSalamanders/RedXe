@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <unknwn.h>
 
+interface IRedXeControlWork;
+
 // Every sizeBytes field must equal the current record's sizeof value.
 
 // Condition a widget reports about its own content.
@@ -102,9 +104,10 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     // send the complete object or a subset of members. The host merges supplied members into the stored instance
     // settings, validates the complete result, and may write the user document. It MUST NOT destroy or detach the
     // calling widget. A failed validation or file replacement leaves typed settings and the source document intact.
+    // An older queued patch for this instance is delivered first, so it cannot later overwrite this newer edit.
     //
     // UI thread only, synchronous, non-reentrant. Forbidden from device, size, visibility, raise, Render, and
-    // CollectPersistentSettings. Allowed from OnPointer (committed click) and OnDrop. A null instanceId, a null
+    // CollectPersistentSettings. Allowed from OnPointer, OnKey/OnCharacter (committed activation), and OnDrop. A null instanceId, a null
     // JSON pointer, or zero bytes returns E_INVALIDARG.
     virtual HRESULT STDMETHODCALLTYPE PersistWidgetSettings(const char* instanceId, const char* settingsJsonUtf8,
                                                             uint32_t settingsBytes) noexcept = 0;
@@ -115,9 +118,18 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     // an unknown level returns E_INVALIDARG / E_POINTER. Truncation preserves complete UTF-8, JSON, the optional
     // HRESULT, and a trailing newline; malformed UTF-8 bytes are replaced with ASCII '?'.
     virtual HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept = 0;
+
+    // UI-thread only. Retains a bounded local-work unit for the host's lazy MTA control lane (16 slots). Repeated
+    // submission of the same object coalesces one rerun. S_FALSE means coalesced; ERROR_BUSY means not accepted.
+    // Allowed from committed input, control completion, Prepare, and visibility changes (bounded enqueue only).
+    // Never from Render/paint/device callbacks. Preparation/visibility may schedule observation or cleanup, not
+    // implicit device-setting changes. User mutations require explicit committed input.
+    // Completion is posted to the UI thread and never invokes the widget recursively. No work starts in self-tests.
+    virtual HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork* work) noexcept = 0;
 };
 
-// Optional asynchronous settings delivery for worker-discovered state. Query as a sibling of IRedXeHost.
+// Optional asynchronous settings delivery for discovered state, including imports during visibility callbacks.
+// Query as a sibling of IRedXeHost.
 interface __declspec(uuid("A07AB01E-67EB-466E-A7E0-9F9608539F8D")) __declspec(novtable) IRedXeSettingsQueue : IUnknown
 {
     // Any thread except Render/paint/scheduling callbacks. Copies at most 4096 UTF-8 bytes plus a 127-byte instance

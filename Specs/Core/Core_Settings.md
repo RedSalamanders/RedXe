@@ -131,7 +131,10 @@ Launcher settings are the closed object `shortcuts`: an array of 0 through 8 clo
 absolute Win32 path or a URI with an alphabetic scheme of at least two characters followed by `:`. Defaults are
 `{"shortcuts":[]}`. Unknown members, non-arrays, extra item members, empty or relative targets, schemeless host names,
 overlong strings, duplicate targets, and more than eight items reject the complete candidate. An empty authored list is
-valid: the widget shows taskbar pins at runtime and MUST NOT persist that fallback into the document.
+valid: on first population, the widget imports up to eight taskbar pins that fit the 4096-byte settings cap, shows
+them and queues them for persistence as editable shortcuts. Each placement saves its own settings/override; shared
+declarations remain unchanged. Once populated, configured shortcuts are authoritative and are not reimported from
+the taskbar. Empty/unavailable pin folders cause no save. Shipped defaults remain empty so first use can import.
 
 ### Plugin persist
 
@@ -151,6 +154,17 @@ Interactive persistence MUST roll back both typed private settings and the retai
 or atomic file replacement fails. A later partial save MUST NOT resurrect a rejected change. The transaction saves
 only the affected private object and source text, rather than copying the entire typed dashboard. Once replacement
 commits, failure to query the file stamp MUST NOT report a failed save; clear deduplication state and allow reload.
+
+Persisted documents MUST use a compact, readable layout with two-space indentation and a final LF newline. Keep
+empty objects and arrays inline. Keep small objects inline when they fit a soft 120-byte line width; a single scalar
+property stays together even when its indivisible string or path exceeds that width. Keep the root object, nonempty
+`declare`, `pages`, `layout`, `areas`, and `shortcuts` sections multiline, and put each nonempty array item on its own
+line. The internal plugin/factory settings representations remain compact. Reject a formatted result exceeding
+1 MiB and roll back the typed and source state. Preserve semantic values, member order and compatible newer-minor
+fields. Formatting changes only whitespace outside JSON tokens and runs only when saving settings.
+If an interactive save arrives while an older patch for that instance is queued, apply the older patch first, then
+the interactive patch. A failed older commit is logged and must not prevent a valid newer save. Neither may run
+under the queue lock. A detached UI delivery batch must not drain newer worker submissions ahead of itself.
 
 ## Pages and layout
 
@@ -223,6 +237,9 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   defaults plus a valid persist merge of a `shortcuts` array.
 - Tests cover merge rules, plugin replacement, minor compatibility, and compatible unknown-field preservation.
 - Tests prove a partial widget persist merge keeps unspecified members and rejects unknown plugin members.
+- Tests prove compact/idempotent formatting, inline small objects and long single-path records, multiline sections
+  and arrays, fewer lines than fully expanded output, escaped/Unicode paths, named/inline/override widget round
+  trips, compatible unknown-field retention, and transactional rejection of oversized formatted output.
 - An isolated file test MUST block replacement with an open handle, verify exact typed/source/disk rollback, then
   release the handle and verify a different partial save commits without including the rejected patch.
 - Plugin contract tests prove `CollectPersistentSettings` returns `S_FALSE` when nothing to save and `E_POINTER` for a

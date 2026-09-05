@@ -35,6 +35,7 @@ inline constexpr std::array kRedXeBundledPlugins{
     RedXeBundledPluginSpec{"builtin.desk-clock", L"DeskClock.dll"},
     RedXeBundledPluginSpec{"builtin.launcher", L"Launcher.dll"},
     RedXeBundledPluginSpec{"builtin.weather", L"Weather.dll"},
+    RedXeBundledPluginSpec{"builtin.av-control", L"AVControl.dll"},
     RedXeBundledPluginSpec{"builtin.system-data", L"SystemData.dll"},
 };
 
@@ -56,6 +57,7 @@ inline constexpr std::array kRedXeBundledWidgets{
     RedXeBundledWidgetSpec{"builtin.desk-clock", "desk-clock"},
     RedXeBundledWidgetSpec{"builtin.launcher", "launcher"},
     RedXeBundledWidgetSpec{"builtin.weather", "weather"},
+    RedXeBundledWidgetSpec{"builtin.av-control", "av-control"},
 };
 
 template <typename Character>

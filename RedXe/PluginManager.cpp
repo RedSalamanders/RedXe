@@ -79,8 +79,9 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
 // Validates a plugin-published settings value against the bounded schema subset RedXe accepts. The supported subset
 // is exactly: "object" with "properties", "additionalProperties", and "required"; "array" with "items", "minItems",
 // and "maxItems" where items is one closed object; "integer" and "number" with "minimum" and "maximum"; "string"
-// with "enum" and the single hex-colour "pattern"; and "boolean". Nested arrays, "$ref", composition keywords, or
-// another pattern are rejected rather than silently accepted. Plugins_API.md names this subset normatively.
+// with scalar-value "minLength"/"maxLength", "enum" and hex-colour or ASCII machine-ID "pattern"; and "boolean". Nested
+// arrays, "$ref", composition keywords, or another pattern are rejected rather than silently accepted. Plugins_API.md
+// names this subset normatively.
 [[nodiscard]] bool SchemaKeyIsAllowed(std::string_view typeName, std::string_view key) noexcept
 {
     if (key == "type")
@@ -105,7 +106,7 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
     }
     if (typeName == "string")
     {
-        return key == "enum" || key == "pattern";
+        return key == "enum" || key == "pattern" || key == "minLength" || key == "maxLength";
     }
     return false;
 }
@@ -211,6 +212,17 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
         {
             return false;
         }
+        // yyjson already validates UTF-8. JSON Schema lengths count Unicode scalar values, not encoded bytes.
+        uint64_t scalarCount = 0;
+        const std::string_view text{yyjson_get_str(value), yyjson_get_len(value)};
+        for (unsigned char byte : text)
+            if ((byte & 0xC0U) != 0x80U)
+                ++scalarCount;
+        yyjson_val* minimum = yyjson_obj_get(schema, "minLength");
+        yyjson_val* maximum = yyjson_obj_get(schema, "maxLength");
+        if ((minimum && (!yyjson_is_uint(minimum) || scalarCount < yyjson_get_uint(minimum))) ||
+            (maximum && (!yyjson_is_uint(maximum) || scalarCount > yyjson_get_uint(maximum))))
+            return false;
         yyjson_val* allowedValues = yyjson_obj_get(schema, "enum");
         if (allowedValues)
         {
@@ -219,7 +231,6 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
                 return false;
             }
             bool matched = false;
-            const std::string_view text{yyjson_get_str(value), yyjson_get_len(value)};
             const size_t count = yyjson_arr_size(allowedValues);
             for (size_t index = 0; index < count; ++index)
             {
@@ -237,9 +248,18 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
         {
             return true;
         }
-        return yyjson_is_str(pattern) &&
-               std::string_view{yyjson_get_str(pattern), yyjson_get_len(pattern)} == "^#[0-9A-Fa-f]{6}$" &&
-               IsHexColor(value);
+        if (!yyjson_is_str(pattern))
+            return false;
+        const std::string_view expression{yyjson_get_str(pattern), yyjson_get_len(pattern)};
+        if (expression == "^#[0-9A-Fa-f]{6}$")
+            return IsHexColor(value);
+        if (expression != "^[A-Za-z0-9_-]+$" || text.empty())
+            return false;
+        for (unsigned char byte : text)
+            if (!((byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') || (byte >= '0' && byte <= '9') ||
+                  byte == '_' || byte == '-'))
+                return false;
+        return true;
     }
     if (typeName == "boolean")
     {
@@ -348,7 +368,34 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
         }
         return ValidatePublishedSchemaShape(items, 1);
     }
-    if (typeName == "integer" || typeName == "number" || typeName == "string" || typeName == "boolean")
+    if (typeName == "string")
+    {
+        yyjson_val* minimum = yyjson_obj_get(schema, "minLength");
+        yyjson_val* maximum = yyjson_obj_get(schema, "maxLength");
+        if ((minimum && !yyjson_is_uint(minimum)) || (maximum && !yyjson_is_uint(maximum)) ||
+            (minimum && maximum && yyjson_get_uint(minimum) > yyjson_get_uint(maximum)))
+            return false;
+        yyjson_val* pattern = yyjson_obj_get(schema, "pattern");
+        if (pattern)
+        {
+            if (!yyjson_is_str(pattern))
+                return false;
+            const std::string_view expression{yyjson_get_str(pattern), yyjson_get_len(pattern)};
+            if (expression != "^#[0-9A-Fa-f]{6}$" && expression != "^[A-Za-z0-9_-]+$")
+                return false;
+        }
+        yyjson_val* values = yyjson_obj_get(schema, "enum");
+        if (values)
+        {
+            if (!yyjson_is_arr(values) || yyjson_arr_size(values) == 0)
+                return false;
+            for (size_t i = 0; i < yyjson_arr_size(values); ++i)
+                if (!yyjson_is_str(yyjson_arr_get(values, i)))
+                    return false;
+        }
+        return true;
+    }
+    if (typeName == "integer" || typeName == "number" || typeName == "boolean")
     {
         return true;
     }
@@ -581,8 +628,9 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
                                             WidgetSlot& widgetSlot) noexcept
 {
     if (!RedXeIsValidMachineId(settings.typeId.utf8.data()) || !RedXeIsValidMachineId(settings.id.utf8.data()) ||
-        widgetSlot.widget || widgetSlot.gpuWidget || widgetSlot.scheduledWidget || widgetSlot.windowWidget ||
-        widgetSlot.raisedWidget || widgetSlot.interactiveWidget || widgetSlot.networkWidget)
+        widgetSlot.widget || widgetSlot.gpuWidget || widgetSlot.preparedGpuWidget || widgetSlot.scheduledWidget ||
+        widgetSlot.windowWidget || widgetSlot.raisedWidget || widgetSlot.interactiveWidget ||
+        widgetSlot.keyboardWidget || widgetSlot.textInputWidget || widgetSlot.accessibilityWidget || widgetSlot.networkWidget)
     {
         return E_INVALIDARG;
     }
@@ -601,14 +649,26 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     }
 
     const HRESULT gpuResult = widgetSlot.widget.query_to(widgetSlot.gpuWidget.put());
+    const HRESULT preparedResult = widgetSlot.widget.query_to(widgetSlot.preparedGpuWidget.put());
     const HRESULT scheduledResult = widgetSlot.widget.query_to(widgetSlot.scheduledWidget.put());
     const HRESULT windowResult = widgetSlot.widget.query_to(widgetSlot.windowWidget.put());
     const HRESULT raisedResult = widgetSlot.widget.query_to(widgetSlot.raisedWidget.put());
     const HRESULT interactiveResult = widgetSlot.widget.query_to(widgetSlot.interactiveWidget.put());
+    const HRESULT keyboardResult = widgetSlot.widget.query_to(widgetSlot.keyboardWidget.put());
+    const HRESULT textResult = widgetSlot.widget.query_to(widgetSlot.textInputWidget.put());
+    const HRESULT accessibilityResult = widgetSlot.widget.query_to(widgetSlot.accessibilityWidget.put());
     const HRESULT networkResult = widgetSlot.widget.query_to(widgetSlot.networkWidget.put());
     if (gpuResult != S_OK && gpuResult != E_NOINTERFACE)
     {
         return gpuResult;
+    }
+    if (preparedResult != S_OK && preparedResult != E_NOINTERFACE)
+    {
+        return preparedResult;
+    }
+    if (widgetSlot.preparedGpuWidget && !widgetSlot.gpuWidget)
+    {
+        return E_NOINTERFACE;
     }
     if (windowResult != S_OK && windowResult != E_NOINTERFACE)
     {
@@ -626,6 +686,16 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     {
         return interactiveResult;
     }
+    if (keyboardResult != S_OK && keyboardResult != E_NOINTERFACE)
+        return keyboardResult;
+    if (widgetSlot.keyboardWidget && !widgetSlot.gpuWidget)
+        return E_NOINTERFACE;
+    if (textResult != S_OK && textResult != E_NOINTERFACE)
+        return textResult;
+    if (widgetSlot.textInputWidget && (!widgetSlot.preparedGpuWidget || !widgetSlot.keyboardWidget))
+        return E_NOINTERFACE;
+    if (accessibilityResult != S_OK && accessibilityResult != E_NOINTERFACE) return accessibilityResult;
+    if (widgetSlot.accessibilityWidget && (!widgetSlot.preparedGpuWidget || !widgetSlot.keyboardWidget)) return E_NOINTERFACE;
     if (networkResult != S_OK && networkResult != E_NOINTERFACE)
     {
         return networkResult;
@@ -930,6 +1000,11 @@ IRedXeGpuWidget* PluginManager::GpuWidgetAt(size_t index) const noexcept
     return index < _widgetCount ? _widgets[index].gpuWidget.get() : nullptr;
 }
 
+IRedXePreparedGpuWidget* PluginManager::PreparedGpuWidgetAt(size_t index) const noexcept
+{
+    return index < _widgetCount ? _widgets[index].preparedGpuWidget.get() : nullptr;
+}
+
 IRedXeScheduledWidget* PluginManager::ScheduledWidgetAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].scheduledWidget.get() : nullptr;
@@ -948,6 +1023,18 @@ IRedXeRaisedWidget* PluginManager::RaisedWidgetAt(size_t index) const noexcept
 IRedXeInteractiveWidget* PluginManager::InteractiveWidgetAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].interactiveWidget.get() : nullptr;
+}
+IRedXeKeyboardWidget* PluginManager::KeyboardWidgetAt(size_t index) const noexcept
+{
+    return index < _widgetCount ? _widgets[index].keyboardWidget.get() : nullptr;
+}
+IRedXeTextInputWidget* PluginManager::TextInputWidgetAt(size_t index) const noexcept
+{
+    return index < _widgetCount ? _widgets[index].textInputWidget.get() : nullptr;
+}
+IRedXeAccessibilityWidget* PluginManager::AccessibilityWidgetAt(size_t index) const noexcept
+{
+    return index < _widgetCount ? _widgets[index].accessibilityWidget.get() : nullptr;
 }
 
 IRedXeNetworkWidget* PluginManager::NetworkWidgetAt(size_t index) const noexcept

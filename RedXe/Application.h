@@ -20,6 +20,12 @@
 #pragma warning(pop)
 
 class ApplicationDropTarget;
+class WidgetTextClient;
+class AccessibilityHost;
+namespace DxUi
+{
+class TextInputServices;
+}
 
 class Application final
 {
@@ -125,9 +131,21 @@ class Application final
     [[nodiscard]] bool PointInPageEdgeBand(HWND window, POINT position) const noexcept;
     [[nodiscard]] bool HitInteractiveLocal(POINT client, size_t& widgetIndex, float& localX,
                                            float& localY) const noexcept;
-    HRESULT ForwardInteractivePointer(POINT client, uint32_t pointerId, uint32_t kind, uint32_t phase,
-                                      bool* consumed) noexcept;
+    HRESULT ForwardInteractivePointer(POINT client, uint32_t pointerId, uint32_t kind, uint32_t phase, bool* consumed,
+                                      uint32_t modifiers = 0, float wheelDelta = 0) noexcept;
     void CancelInteractivePointer() noexcept;
+    void ClearKeyboardFocus() noexcept;
+    void RefreshAppearance() noexcept;
+    bool FocusKeyboardWidget(size_t index) noexcept;
+    bool AdvanceKeyboardWidget(bool reverse) noexcept;
+    bool ForwardWidgetKey(uint32_t key, bool down) noexcept;
+    bool ForwardWidgetCharacter(uint32_t character) noexcept;
+    bool HandleKeyboardResult(HRESULT result) noexcept;
+    void ClearTextServices() noexcept;
+    void RefreshAccessibility(uint64_t preparedWidgets = 0) noexcept;
+    void HandleAccessibilityRequests() noexcept;
+    std::unique_ptr<AccessibilityHost> _accessibility;
+    void RefreshTextServices(bool layoutPrepared = false) noexcept;
     HRESULT HandleOleDragOver(POINT client, DWORD* effect) noexcept;
     void HandleOleDragLeave() noexcept;
     HRESULT HandleOleDrop(POINT client, const wchar_t* const* targets, uint32_t count, DWORD* effect) noexcept;
@@ -225,6 +243,14 @@ class Application final
     size_t _activateWidgetIndex = SIZE_MAX;
     size_t _interactivePointerWidget = SIZE_MAX;
     bool _interactivePointerConsumed = false;
+    bool _interactiveOwnsPointer = false;
+    uint32_t _interactivePointerId = 0;
+    uint32_t _interactivePointerKind = RedXePointerKindMouse;
+    wil::com_ptr_nothrow<IRedXeKeyboardWidget> _keyboardWidget;
+    std::unique_ptr<DxUi::TextInputServices> _textServices;
+    std::shared_ptr<WidgetTextClient> _textClient;
+    size_t _keyboardWidgetIndex = SIZE_MAX;
+    uint32_t _keyboardView = 0;
     size_t _dragWidgetIndex = SIZE_MAX;
     bool _oleInitialized = false;
     bool _dropRegistered = false;

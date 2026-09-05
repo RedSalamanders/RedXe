@@ -16,7 +16,7 @@
   </Target>
 
   <Target Name="CopyLauncherRuntimeDependencies" AfterTargets="Link"
-          Condition="'$(MSBuildProjectExtension)'=='.vcxproj' and '$(MSBuildProjectName)'=='Launcher'">
+          Condition="'$(MSBuildProjectExtension)'=='.vcxproj' and ('$(MSBuildProjectName)'=='Launcher' or '$(MSBuildProjectName)'=='AVControl')">
     <Error Condition="!Exists('$(RedXeVcpkgRuntimeDir)yyjson.dll')"
            Text="Missing vcpkg runtime dependency: $(RedXeVcpkgRuntimeDir)yyjson.dll. Run .\vcpkg-install.ps1 -Platform $(Platform)." />
     <ItemGroup>

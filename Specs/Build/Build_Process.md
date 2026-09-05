@@ -30,6 +30,8 @@ independently launched or unrelated RedXe process.
 ## Output and validation
 
 Build outputs remain under `.build/<Platform>/<Configuration>/`, with intermediates under `.build/Intermediate/`.
+The root `test.ps1` exits zero only after every required assertion has passed. Expected nonzero exits from isolated
+negative-test children must not become the test entrypoint's success exit code.
 `build.ps1` MUST begin with the framed RedXe product banner and identify the selected platform and configuration. The
 banner MUST color-split RED from XE on color hosts and MUST include the XENEON EDGE build-signal tagline. In a plain
 interactive console it MUST keep MSBuild attached directly so native color and message ordering are preserved. In

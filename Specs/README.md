@@ -62,6 +62,7 @@ durable.
 | Dashboard pages, adaptive layout, orientation reflow, and touch navigation | [`UI/UI_Dashboard.md`](UI/UI_Dashboard.md) |
 | UI, display, windowing, and DPI | [`UI/UI_XeneonDisplayWindowing.md`](UI/UI_XeneonDisplayWindowing.md) |
 | Native plugins and generic widgets | [`Plugins/Plugins_API.md`](Plugins/Plugins_API.md) |
+| AV controls, profiles and camera route | [`Plugins/Plugins_AVControl.md`](Plugins/Plugins_AVControl.md) |
 
 The canonical user JSON schema is [`Settings.schema.json`](Settings.schema.json). The build copies it beside deployed
 and per-user settings files as `RedXe.settings.schema.json`.

@@ -21,6 +21,60 @@ The current executable host renders `IRedXeGpuWidget` and hosts `IRedXeWindowWid
 The native-window path supports GDI, native controls, media hosts, and future WebView implementations without exposing
 the RedXe top-level window.
 
+## Retained text services transport
+
+`IRedXeTextInputWidget` is the optional UI-thread text-state mechanism for GPU widgets. `ReadTextState` returns a
+bounded owned snapshot of focused text; `ApplyTextState` handles preview, commit and cancellation against its opaque
+revision and stable focus-session identity. `CancelTextInput` cancels only that session's composition; an old OS
+context cannot cancel a newly focused editor. Actual focus loss uses the keyboard interface separately. These calls
+run outside Render and may request a coalesced frame after an accepted change; other reentrant host calls are
+prohibited. A hidden, detached or unprepared view returns no text. The host owns OS focus, TSF/IME,
+clipboard and screen coordinates; the plugin receives neither an HWND nor a host-side DxUi object.
+
+The 9,312-byte pointer-free record carries at most 4,096 UTF-16 units and 256 clause boundaries. It rejects larger
+documents without truncation. Optional indexes use `UINT32_MAX`; text is length-delimited and cannot contain NUL or
+unpaired surrogates. Validate flags, lengths, ranges, clause ordering and finite ordered geometry before applying
+state. Caret and viewport rectangles use widget-local physical pixels. The adapter converts DIPs once; the host
+adds the displayed tile/raised offset and the window's screen position. Control-owned read-only/masking policy
+cannot be overridden through incoming state. Preview never notifies the application model; commit is one edit
+relative to the composition base. Newer external text must survive cancellation. `HitTestText` and
+`GetTextRangeBounds` return revision-checked physical geometry for TSF candidate placement and point queries.
+Missing or stale layout returns no geometry; the host must never substitute an unrelated control's bounds.
+
+The shared text component and AV host integration have passed isolated synthetic validation. Adoption of the newer
+DxUi source and real OS IME acceptance remain open in the active AV plan.
+
+## Embedded accessibility transport
+
+`IRedXeAccessibilityWidget` is an optional sibling mechanism for a prepared GPU widget with keyboard input. The
+plugin returns its public UI Automation fragment root through `ConnectAccessibility`, using an application-supplied
+`IRedXeAccessibilitySite`. C++ DxUi objects and ownership stay inside each module. All calls run on the attaching
+COM STA; providers advertise COM threading so marshaled calls return to that apartment.
+
+The 56-byte placement record carries the view (tile 0 or raised 1), nonzero process-unique attachment identity,
+physical screen rectangle, and OS keyboard-focus state. Validate exact size, finite positive bounds, view, BOOL and
+reserved fields. Host positioning adds the window's screen origin exactly once; the displayed dimensions must match
+the prepared view. `UpdateAccessibility` returns S_OK for an existing connection, including a pending redraw or an
+unchanged snapshot; S_FALSE requests reconnection. Ordinary input must not reconnect and discard a queued action.
+
+The site supplies parent/sibling navigation, the application fragment root, and focus/action completion requests.
+Completion posts coalesced UI-thread work; it must not synchronously re-enter UIA or destroy/change the tree. The
+host drains `TakeAccessibilityAction` once and accepts only ordinary success, generic raise or generic dismiss.
+Sites and queued actions are generation-bound: hiding, page replacement, modal view replacement and disconnect
+retire the old site and all pending requests. A screen reader holding a retired provider must receive
+UIA_E_ELEMENTNOTAVAILABLE, never a replacement control at the same path.
+
+Provider code must remain mapped while an external UIA reference survives. AV pins its already-loaded image on the
+first successful provider publication and disconnects providers before releasing controls, graphics or runtime.
+The pin lasts until process exit; it does not retain the coordinator, control tree, device or helper. Ordinary
+module shutdown still runs after owned widget/provider/work references drain. This deliberate mapping retention
+prevents calls through unloaded COM vtables after host teardown.
+
+Validation must cover controlling COM identity, independent view lifetimes, negative-origin/DPI geometry,
+prepared/dirty updates, coalesced focus and navigation, unavailable siblings, same-path replacements, foreign-thread
+rejection, clean-update reuse, confirmed model mutations, and a retained provider after shutdown/loader release.
+Component tests are not proof of real screen-reader, IME or touch acceptance; those remain AV release gates.
+
 The mandatory requirements in `Specs/Core/Core_PerformanceAndResources.md` apply to every plugin and host path.
 
 ## Public interfaces
@@ -35,6 +89,9 @@ The mandatory requirements in `Specs/Core/Core_PerformanceAndResources.md` apply
 | `Widget.h` | `IRedXeWindowWidget` | `3219FA78-260B-416A-BB76-6331DBF30593` | Host-owned child-container mechanism |
 | `Widget.h` | `IRedXeRaisedWidget` | `A7E4C19B-2F58-4D13-9C6A-80B1D4E7F203` | Optional raised-overlay extent and state |
 | `Widget.h` | `IRedXeInteractiveWidget` | `E4C2A91B-7D3E-4F18-B6A5-2C9D8E0F1744` | Optional pointer and OLE-drop for GPU tiles |
+| `Widget.h` | `IRedXeTextInputWidget` | `87529906-149E-4A99-91B3-2A8C65BCD206` | Optional focused text and geometry transport |
+| `Widget.h` | `IRedXeAccessibilityWidget` | `B8FA0B10-EE1D-44E8-8070-A7B80EEA7D4E` | Optional prepared UIA fragment connection |
+| `Widget.h` | `IRedXeAccessibilitySite` | `3C430805-12D0-49B0-AAB8-7C07F3909164` | Application-owned navigation, focus and deferred-action site |
 | `Widget.h` | `IRedXeNetworkWidget` | `3F8C1A70-9B24-4E61-A7D2-5C0E8B4F1D93` | Optional host-scheduled plugin-owned HTTP work |
 | `Data.h` | `IRedXeDataSource` | `C3A81F6E-2D47-4B90-A1E5-6F8C9D0B3E21` | Plugin-side typed, bounded pull snapshots |
 | `Data.h` | `IRedXeDataProvider` | `9EAE20F1-36A8-48A8-B451-F60401A898CD` | Host-side dataset discovery and subscription |
@@ -120,7 +177,9 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   The host never calls these exports. The current surface is: `RedXeMatrixRainGetTestDiagnostics`,
   `RedXeProcessViewerGetTestDiagnostics`, `RedXeStudioClockGetTestDiagnostics`, `RedXeStudioClockSetTestTime`,
   `RedXeDeskClockGetTestDiagnostics`, `RedXeDeskClockSetTestTime`, `RedXeWeatherGetTestDiagnostics`, and
-  `RedXeWeatherProbeHttpGetOnSmallStack`, and `RedXeWeatherBuildTestLocationSearchUrl`.
+  `RedXeWeatherProbeHttpGetOnSmallStack`, `RedXeWeatherBuildTestLocationSearchUrl`,
+  `RedXeAVControlUseSyntheticBackend` and `RedXeAVControlTestSnapshot`. AV synthetic mode is accepted only before
+  providers exist and is never exposed as a user setting or environment toggle.
 - Every factory call names one non-empty plugin ID. Null and empty IDs are invalid, including in single-plugin DLLs.
 - Factory, enumeration, widget creation, device notification, GPU rendering, native-window lifecycle, host-service,
   data-source, provider, and data-sink calls are synchronous and non-reentrant. Widget visibility, collect-on-exit,
@@ -166,6 +225,15 @@ object it was supplied to.
   motion, and rather than returning a short `IRedXeScheduledWidget` delay purely to be polled.
 - `RequestFrame` is the only host service a sink may call from inside `OnDataSnapshot` besides `Log`. `RunNetworkWork`
   MAY call `RequestFrame` and `Log` and MUST NOT call `PersistWidgetSettings`.
+- `QueueControlWork` is a UI-thread service for bounded local device work. Its lazy process-wide MTA lane retains
+  at most 16 distinct `IRedXeControlWork` objects and coalesces repeated submission into one rerun (`S_FALSE`);
+  saturation returns `ERROR_BUSY` without accepting work. `Run` receives a borrowed cancellation event and the
+  remaining part of a three-second enqueue-to-result budget. It performs no D3D, UI mutation, persistence or UI wait.
+  Potentially unbounded driver calls belong in an owned terminable helper, never directly in this worker.
+  Completion is posted and drained on the UI thread outside input/render dispatch; it may publish state, request
+  a frame or queue another unit. Shutdown signals cancellation, drains the worker, suppresses completions and
+  releases retained references on the UI thread before module shutdown. Self-tests reject device work explicitly.
+  Committed input may enqueue mutations. Preparation and visibility changes may enqueue observation/cleanup only.
 - `ReportWidgetStatus` records the condition of one widget instance, named by the instance ID the host passed to
   `CreateWidget`. Status is one of `RedXeWidgetStatusOk`, `Initializing`, `Degraded`, or `Unavailable`, with an
   optional borrowed UTF-16 reason the host copies into bounded storage and truncates. Repeat reports are idempotent;
@@ -184,18 +252,14 @@ object it was supplied to.
 - An interactive settings save is transactional: validation or file-replacement failure MUST preserve both the
   typed instance settings and the retained source document. A committed file replacement remains success even if
   querying its deduplication stamp fails afterward; the next watcher notification may reload it.
-- The optional sibling `IRedXeSettingsQueue` shares the host's controlling `IUnknown`. Workers MAY queue up to 4096
+- The optional sibling `IRedXeSettingsQueue` shares the host's controlling `IUnknown`. Workers and visibility imports MAY queue up to 4096
   JSON bytes for a 127-byte instance ID. The host copies at most eight pending instances, coalesces the same ID, and
   returns `ERROR_BUSY` when full. `S_OK` means accepted, not committed. A coalesced UI invalidation drains the queue
   through the existing validated persist handler outside callbacks/locks. Teardown discards that instance's records.
   Failed commits log once; widgets retain collect fallback. Empty queues own no heap records or timer. GPU, paint and
-  scheduling callbacks MUST NOT use this service. Host tests cover bounds, coalescing, teardown, UI delivery and identity.
-- The optional sibling `IRedXeSettingsQueue` shares the host's controlling `IUnknown`. Workers MAY queue up to 4096
-  JSON bytes for a 127-byte instance ID. The host copies at most eight pending instances, coalesces the same ID, and
-  returns `ERROR_BUSY` when full. `S_OK` means accepted, not committed. A coalesced UI invalidation drains the queue
-  through the existing validated persist handler outside callbacks/locks. Teardown discards that instance's records.
-  Failed commits log once; widgets retain collect fallback. Empty queues own no heap records or timer. GPU, paint and
-  scheduling callbacks MUST NOT use this service. Host tests cover bounds, coalescing, teardown, UI delivery and identity.
+  scheduling callbacks MUST NOT use this service. An older queued patch precedes a newer synchronous save for that instance; a detached
+  delivery batch must not consume newer submissions. Failed older saves log once and do not prevent a newer valid
+  save. Host tests cover bounds, coalescing, teardown, UI delivery, save ordering and identity.
 - `Log` appends one diagnostic JSONL line. It is safe from any thread, including the acquisition and network workers,
   copies bounded fields into a 32-slot 1024-byte ring, and never blocks on disk. The host writer is event-blocked and
   writes UTC-dated files (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`), opening a new file when the UTC
@@ -227,7 +291,8 @@ requested plugin ID. The record and its UTF-8 strings remain valid while the mod
 - The host validates a bounded subset of that syntax, not the whole draft. The supported subset is exactly:
   `"object"` with `properties`, `additionalProperties`, and `required`; `"array"` with `items`, `minItems`, and
   `maxItems` where `items` is one closed `"object"` (nested arrays are forbidden); `"integer"` and `"number"` with
-  `minimum` and `maximum`; `"string"` with `enum` and the single `pattern` `^#[0-9A-Fa-f]{6}$`; and `"boolean"`.
+  `minimum` and `maximum`; `"string"` with `enum`, Unicode-scalar `minLength`/`maxLength`, and either fixed `pattern`
+  `^#[0-9A-Fa-f]{6}$` or `^[A-Za-z0-9_-]+$`; and `"boolean"`.
   `$ref`, composition keywords, and any other `pattern` are rejected rather than silently accepted, so a plugin cannot
   publish a constraint the host does not enforce. A plugin schema MUST stay inside this subset.
 - The host parses each referenced plugin's schema once per staging pass, not once per widget appearance.
@@ -343,8 +408,9 @@ GPU vtables.
 
 - `OnDeviceCreated` receives the borrowed host device, target format, and selected feature level. A widget may create
   and retain its own device resources and may share immutable resources across instances.
-- `OnTargetSizeChanged` reports the largest viewport the host will draw this widget at in the current composition, and
-  is the only callback where a GPU widget MAY rasterize, create textures, or allocate. The host calls it on the UI
+- `OnTargetSizeChanged` reports the largest viewport the host will draw this widget at in the current composition.
+  Device creation, this callback and optional `IRedXePreparedGpuWidget::Prepare` MAY allocate bounded resources or
+  rasterize; `Render` MUST NOT do either. The host calls size notification on the UI
   thread, synchronously and non-reentrantly, after `OnDeviceCreated` and before the first `Render`, and again whenever
   that size changes: resize, DPI change, layout change, and raise or dismiss.
   - It MUST NOT be called for a position-only change such as a page-swipe offset, MUST NOT be called per frame, and
@@ -365,6 +431,19 @@ GPU vtables.
   Process Viewer and Weather resource hubs use an atomic instance-ownership flag and the shared GPU lock for this.
   During recovery, both current and staged pages receive device creation before the new render target exists;
   viewport calculation and initial size notifications MUST wait until that target has physical dimensions.
+- `IRedXePreparedGpuWidget` is an optional sibling of the GPU interface. `Renderer::PrepareWidgets` runs before frame
+  construction and reports final tile and raised physical extents, DPI and cached Windows appearance. The current
+  preparation record is 56 bytes; its 32-byte appearance member carries dark/high-contrast flags and seven opaque
+  ARGB system colors. Application reads those values only at initialization and on Windows theme, color or settings
+  notifications. Neither preparation nor rendering queries the registry/system theme. The host unbinds its render target before
+  preparation. Widgets coalesce dirty changes with the existing `RequestFrame`; a clean Prepare returns `S_FALSE`
+  without allocation, layout or rasterization. This bounded check runs only for an already-requested frame and does
+  not introduce a timer or idle polling. A widget MUST preserve requests raised during preparation for a later frame.
+  A failed preparation suppresses stale input/composition and MUST NOT retry until a new request or geometry change.
+  Device-loss results enter the normal host recovery path; other failures remain local to that widget.
+- `RedXeGpuFrameContext::viewId` identifies the tile (0) or separately prepared raised view (1). Their final layouts
+  remain independent during raise animation; position-only changes do not rerasterize. All source-coordinated
+  plugins MUST rebuild against the current 56-byte frame record; old record sizes are not accepted.
 - `Render` receives generic widget dimensions/timing, the borrowed immediate context, and the widget viewport. During
   a page swipe that viewport is the full design-canvas placement translated by the page offset: `TopLeftX`/`TopLeftY`
   MAY be negative and the rectangle MAY extend past the render target. `widget` width and height stay that full size.
@@ -438,6 +517,25 @@ HWND after `OleInitialize`; it parses `CF_HDROP` paths and Unicode text that is 
 calls `OnDrop`. Native-window children that are not drop targets (GdiOrbit) MUST NOT steal GPU-tile drops. Plugins
 MUST NOT initialize OLE or call `RegisterDragDrop`.
 
+The current pointer record is 48 bytes and carries view identity, modifiers and vertical wheel delta. View 0 means
+the tile; view 1 means the raised layout. Coordinates are widget-local physical pixels and convert to DIP exactly
+once inside an embedded adapter. Wheel delta retains Win32 wheel units; it targets the topmost interactive view
+under the pointer and never changes capture. Non-finite samples and unsupported phases are rejected. Page pans,
+owned live-control drags, hidden windows and display-off suppress wheel dispatch.
+
+`RedXePointerCapture` on Down transfers that contact to the widget until Up/Cancel; page navigation cannot steal
+the active slider gesture. Capture/focus loss, hidden state, page or geometry replacement, resize and DPI change
+cancel the gesture before releasing it. `RedXePointerRaise` and `RedXePointerDismiss` are committed-input results;
+the host applies them after dispatch, never by lending its HWND to the plugin. Ordinary consumed contacts retain
+the existing double-activation/page-pan behavior described above.
+
+`IRedXeKeyboardWidget` is an optional sibling with view-aware focus, a 20-byte key record and UTF-16 character
+delivery. Host focus is independent of COM identity and clears before widget teardown, page replacement or focus
+loss. Tab/Shift+Tab traverse participating widgets when the current one returns `RedXeKeyboardBoundary`;
+temporary editors may trap their internal tab order. Committed keyboard activation may return raise/dismiss and
+persist settings just like pointer Up. Unsupported input returns `S_FALSE`, preserving host shortcuts. Text
+composition/IME and a generic UIA bridge are separate pending mechanisms; character forwarding does not imply them.
+
 Shipped extents:
 
 - Process Viewer, GPU Processes, Network, Storage, and Thermal: half.
@@ -445,6 +543,7 @@ Shipped extents:
 - CPU, Memory, GPU, and Power: third.
 - Studio Clock and Desk Clock: half.
 - Launcher: half.
+- AV Control: half.
 - Matrix Rain: full.
 - Rotating Triangle and GdiOrbit: quarter.
 
@@ -870,8 +969,13 @@ members, nested arrays, and more than eight items reject the complete candidate.
 
 When the authored list is empty, `SetVisible(TRUE)` enumerates up to eight `.lnk` files in the current user's pinned
 taskbar folder (`FOLDERID_UserPinned` + `\TaskBar`, then the roaming Quick Launch `User Pinned\TaskBar` fallback),
-sorted by name, skipping `desktop.ini`. Those shortcuts are display-only and MUST NOT appear in persist JSON. A drop
-while showing pins persists only the dropped items. `--self-test`, HostPluginTests, and other automated hosts set
+sorted by name, skipping `desktop.ini`. Import the fitting prefix into authored shortcuts (at most 4096 compact JSON
+bytes), then queue it through `IRedXeSettingsQueue` for UI-thread persistence outside the visibility callback. The
+import remains dirty for collect fallback if the queue is unavailable, full, or its commit fails. A populated list
+MUST NOT be reimported or repeatedly queued on later visibility changes. Later drops append to the imported list;
+a failed drop save restores both the earlier shortcuts and their dirty state. Saved shortcuts are user-editable
+and authoritative on subsequent creation. An empty/unavailable folder causes no save.
+`--self-test`, HostPluginTests, and other automated hosts set
 `REDXE_AUTOMATED_HOST=1` and MUST NOT read the live taskbar; tests inject a pin directory through
 `RedXeLauncherSetTestPinDirectory`. `nullptr` restores live enumeration; an empty string means no pins.
 
@@ -892,7 +996,8 @@ A swipe viewport keeps the widget's full size and may have a negative origin; `R
 click starts a bounded 3D launch motion of at most 400 ms via `RequestFrame` from `Render` only; idle with a static
 grid owns no wake-up. `RequestFrame` MUST NOT be called from `SetVisible` or `OnDeviceCreated`. `OnDrop` and
 `OnPointer` (committed click) MAY call `RequestFrame` and `PersistWidgetSettings`. `CollectPersistentSettings` returns
-`S_FALSE` when the authored list is unchanged.
+`S_FALSE` when neither imports nor edits await persistence. A queued import retains collect fallback until a later
+synchronous save succeeds; queued acceptance alone is not a commit acknowledgement.
 
 ## Required validation
 
@@ -1020,7 +1125,8 @@ grid owns no wake-up. `RequestFrame` MUST NOT be called from `SetVisible` or `On
 19. Verify Launcher factory/settings rejection (unknown members, nine items, empty target, relative path, schemeless
     host name, overlong string), injected pin-directory fallback, automated empty list without live taskbar reads,
     jumbo-or-PNG extraction, WARP two-draw icon grid, device-loss re-upload without a second extract, launch counting
-    with zero `ShellExecuteExW`, drop append/cap, and that persist JSON never contains the pin snapshot, through
+    with zero `ShellExecuteExW`, imported-pin persistence/recreation, queue/commit failure and collect fallback,
+    drop append/cap/rollback, and ordering of an older queued import before a newer interactive save, through
     `LauncherTests`, `SettingsTests`, and `HostPluginTests`. WARP pixel and hit-target tests MUST alternate tile and
     overlay sizes after one largest-size notification and verify zero allocations on those cached draws.
 

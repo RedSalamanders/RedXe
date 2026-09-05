@@ -39,6 +39,14 @@ class Renderer final
     HRESULT SetRaisedOverlay(size_t widgetIndex, const RECT& content, SIZE targetPixels = {}) noexcept;
     void ClearRaisedOverlay() noexcept;
     HRESULT Render(float elapsedSeconds, float deltaSeconds) noexcept;
+    // Separate from Render: dirty retained controls may prepare their bounded resources here.
+    HRESULT PrepareWidgets(size_t observedWidget = SIZE_MAX, bool* observedChanged = nullptr,
+                           uint64_t* changedWidgets = nullptr) noexcept;
+    // UI-thread cached value supplied by Application; no registry/system-color queries in Prepare/Render.
+    void SetAppearance(const RedXeAppearance& appearance) noexcept
+    {
+        _appearance = appearance;
+    }
     HRESULT ProbeOcclusion() noexcept;
     [[nodiscard]] bool IsSuspended() const noexcept;
     [[nodiscard]] bool IsOccluded() const noexcept;
@@ -94,6 +102,7 @@ class Renderer final
     UINT _width = 0;
     UINT _height = 0;
     UINT _dpi = USER_DEFAULT_SCREEN_DPI;
+    RedXeAppearance _appearance;
     D3D_FEATURE_LEVEL _featureLevel = D3D_FEATURE_LEVEL_11_0;
     size_t _lastFrameWidgetCount = 0;
     size_t _lastFrameSuccessfulWidgetCount = 0;

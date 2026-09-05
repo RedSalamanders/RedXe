@@ -61,10 +61,12 @@
   <ItemGroup>
     <ClCompile Include="HostPluginTests.cpp" />
     <ClCompile Include="..\..\RedXe\PluginHost.cpp" />
+    <ClCompile Include="..\..\RedXe\ControlWorkQueue.cpp" />
     <ClCompile Include="..\..\RedXe\DashboardHost.cpp" />
     <ClCompile Include="..\..\RedXe\PluginManager.cpp" />
     <ClCompile Include="..\..\RedXe\Renderer.cpp" />
     <ClCompile Include="..\..\RedXe\Settings.cpp" />
+    <ClCompile Include="..\..\Plugins\AVControl\AVControlModel.cpp" />
     <ClCompile Include="..\..\RedXe\SettingsV4.cpp" />
   </ItemGroup>
   <ItemGroup>

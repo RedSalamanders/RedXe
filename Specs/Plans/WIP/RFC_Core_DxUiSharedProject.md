@@ -1,21 +1,33 @@
 # DxUi: independent shared control library
 
-Status: DECISION — proposed repository and integration contract; extraction and implementation have not started
+Status: HOLD — user paused RedXe integration; single-library implementation delivered, acceptance remains open
 Date: 2026-09-05
 First consumer: RedXe, through AV Control
 Later consumer: RedSalamander
-Proposed working checkout: `Z:\src\DxUi`, beside `Z:\src\RedXe` and `Z:\src\RedSalamander`
+
+Latest pause checkpoint (2026-09-05 21:15 UTC):
+[AVControl-Continuation.md](../../../docs/AVControl-Continuation.md). It records the separate canonical/validation
+pins, coordinated task, completed UIA integration, failed CI/performance evidence and remaining adoption gates.
+The canonical DxUi task may continue independently; this pause applies to this RedXe integration task.
+
+Working checkout: `Z:\src\DxUi`, beside `Z:\src\RedXe` and `Z:\src\RedSalamander`
+Repository: [RedSalamanders/DxUi](https://github.com/RedSalamanders/DxUi), private, default branch `main`
 
 ## Purpose and authority
 
 Create an independently buildable, tested, documented DxUi repository from RedSalamander's existing
-`Common/DxUI`. It owns reusable controls, rendering, input behavior, accessibility, and host adapters. RedXe is
+`Common/DxUi`. It owns reusable controls, rendering, input behavior, accessibility, and host adapters. RedXe is
 the first application to consume the extracted library. RedSalamander keeps its current implementation until a
 separate migration is executed later.
 
-This document is the requested proposal, stored in RedXe until the new repository is bootstrapped. Paths in the
-proposed tree below are future deliverables, not files already created. It does not create the sibling checkout,
-move source, register a remote, change either application's dependencies, or claim that an embedded host exists.
+The user approved this proposal and repository creation on 2026-09-05. The private sibling repository now owns its
+library contracts and adoption plan. The user subsequently chose one `DxUi.lib`, superseding the split-target
+proposal. It contains Foundation, all 26 public controls, native Win32 hosting/text/accessibility, and EmbeddedHost
+with a supplied-device graphics pool. A public toggle/slider consumer and all-control gallery exercise the library.
+DxUi owns source under src, public headers under include/DxUi and tests under Tests; historical attribution stays in
+provenance and Git. This is the canonical home of shared development.
+RedXe's preparation/input/text/UIA bridges and AV backend remain unfinished. Library test evidence does not establish
+that the native AV adapter exists. The exact tested commit will be pinned by the adoption change.
 
 Current RedXe authority remains in [spec policy](../../README.md), [plugin API](../../Plugins/Plugins_API.md),
 [dashboard](../../UI/UI_Dashboard.md), [performance](../../Core/Core_PerformanceAndResources.md), and
@@ -24,16 +36,16 @@ At implementation, add `Specs/Core/Core_DxUiIntegration.md` in RedXe and update 
 ABI declarations together. DxUi's own normative contracts are listed below. Do not describe an unfinished adapter
 as currently supported merely because its intended contract has been written.
 
-## Proposed decision: static libraries from a pinned source revision
+## Accepted decision: one static library from a pinned source revision
 
-Use one independent source repository and MSBuild static-library targets. Build the selected targets with the
-consumer's supported toolchain and link them into the binary that owns the controls. For the first RedXe integration,
-that binary is `AVControl.dll`. A small OS-services target may also be linked into `RedXe.exe` for host-owned text
-and accessibility integration; it does not contain a second control tree or renderer.
+Use one independent source repository and the single `src/DxUi.vcxproj` target, producing `DxUi.lib`.
+Link it into `AVControl.dll`, which owns the control trees and shared graphics pool. If RedXe's OS bridge needs shared
+utilities, it references this same target; it does not introduce a separately shipped service library or a second
+renderer owner. Match the supported compiler, CRT, architecture and API revision 2. The lock target is `["DxUi"]`.
 
 | Integration | Benefit | Cost / constraint | Decision |
 | --- | --- | --- | --- |
-| Pinned source, compiled into static `.lib` targets | Shared implementation and tests; ordinary C++ internally; no additional DxUi runtime DLL to deploy. | Consumer rebuild on updates; code/state can be duplicated if many DLLs link the same targets. | **Use for V1.** Link only the necessary targets. |
+| Pinned source, compiled into one `DxUi.lib` | Shared implementation and tests; ordinary C++ internally; no additional DxUi runtime DLL to deploy. | Consumer rebuild on updates; code/state can be duplicated if many DLLs link the same archive. | **Use for V1.** Reference one project once. |
 | Shared `DxUi.dll` runtime | Can centralize code and resources across modules within one process. | Export/ownership ABI, version negotiation, loader/staging policy, and coordinated lifetime become a separate product surface. | Defer until measurements justify it. A future DLL needs its own reviewed interface contract. |
 | Include the sibling `.cpp` files in each application project | Small initial project-file change. | Consumer flags and source inventories drift; no independent build boundary. | Reject. Consume a project/library target. |
 | Copy DxUi source into each application | Each checkout is self-contained. | Permanent parallel implementations and fixes; defeats the requested shared ownership. | Reject as the ongoing integration model. A documented initial extraction is the only copy. |
@@ -56,13 +68,13 @@ Source inspected on 2026-09-05:
 
 | Source anchor in RedSalamander | Existing capability / coupling | Extraction requirement |
 | --- | --- | --- |
-| `Common/DxUI/DxUi.h` | Button, Toggle, Slider, ComboBox, TextField, panels, menus, grid/tree, accessibility metadata. Public header imports `PlugInterfaces/Viewer.h`; namespace is `RedSalamander::DxUi`. | Move to application-independent `DxUi` namespace and public headers. Replace viewer/theme dependencies with library-owned types; translate in the application adapter. |
+| `Common/DxUi/DxUi.h` | Button, Toggle, Slider, ComboBox, TextField, panels, menus, grid/tree, accessibility metadata. Public header imports `PlugInterfaces/Viewer.h`; namespace is `RedSalamander::DxUi`. | Move to application-independent `DxUi` namespace and public headers. Replace viewer/theme dependencies with library-owned types; translate in the application adapter. |
 | `DxUi.Controls.cpp`, `DxUi.ComboBox.cpp`, text and accessibility sources | Controls paint and receive input through concrete `WindowHost&`. | Introduce a host-services/rendering abstraction; both embedded and window hosts use the same controls and behavior. Do not fork each control for RedXe. |
 | `DxUi.WindowHost.cpp` | D3D11 creation, D2D context, HWND/composition swap chains, `Present`, Win32 messages, text services and UIA. | Split reusable services from window presentation. Keep the existing window-host mode available in the new repository, but RedXe uses embedded mode. |
 | `Helpers.h`, `WindowMessages.h`, `Ui/AnimationDispatcher.h`, `WindowSizing.h`, `Win32CallbackHelpers.h` includes | Logging, dispatch, scheduling and window utilities reach into RedSalamander. | Inventory transitive symbols. Inject callbacks or extract only the generic helper with provenance and tests. No dependency on either application's Common library. |
 | `DxUi.FrameRuntime.*` | Event/animation frame stages and timing; diagnostics use application helpers. | Retain timing semantics with injected diagnostics and externally driven embedded scheduling. |
 | `DxUi.WindowHost.cpp::GetSolidBrush` and text-layout helpers | Lazy brush/cache population can allocate during painting. | Preparation must populate bounded caches before the RedXe composite callback. Existing performance is evidence to assess, not proof of RedXe compliance. |
-| `Common/DxUI/DxUi.vcxproj` | Already a static library with x64/ARM64 configurations, but relies on solution-root paths and RedSalamander properties. | Make targets independent of `SolutionDir` and application property names. |
+| `Common/DxUi/DxUi.vcxproj` | Already a static library with x64/ARM64 configurations, but relies on solution-root paths and RedSalamander properties. | Make targets independent of `SolutionDir` and application property names. |
 | `Tests/DxUiTests/*` and `Baselines/*` | Existing control, rendering, input, accessibility, theme and window-host regression coverage. | Extract generic tests and their bounded support dependencies; preserve baseline provenance. Application-specific tests stay in their application. |
 | `LICENSE.txt` | MIT notice present in the source repository. | Carry the actual notices and inventory included code/fonts/assets in `THIRD-PARTY-NOTICES.md`; do not invent new ownership statements. |
 
@@ -79,7 +91,7 @@ rewrite, project-reference change, or application rebuild is part of RedXe adopt
 ## Required repository bootstrap
 
 The sibling path is a convenient checkout layout, not a hard-coded build dependency. The repository must also build
-from a different drive or a path containing spaces. Proposed structure:
+from a different drive or a path containing spaces. Delivered library structure:
 
 ```text
 DxUi/
@@ -111,6 +123,9 @@ DxUi/
   vcpkg-configuration.json
   build.ps1
   test.ps1
+  test-consumer.ps1
+  gallery.ps1
+  vcpkg-install.ps1
   format.ps1
   validate-skills.ps1
   validate-specs.ps1
@@ -122,18 +137,16 @@ DxUi/
   Build/DxUi.Consumer.targets
   include/DxUi/
   src/Controls/
-  src/Embedded/
-  src/Win32Services/
-  src/Win32Host/
+  src/DxUi.vcxproj
+  src/Foundation/
+  src/Rendering/
+  src/Support/
   Tests/Controls/
-  Tests/Rendering/
-  Tests/InputAccessibility/
-  Tests/HostLifecycle/
-  Tests/ConsumerIntegration/
-  Tests/Performance/
-  Tests/Baselines/
-  Samples/EmbeddedHost/
-  Samples/WindowHost/
+  Tests/Foundation/
+  Tests/Embedded/
+  Tests/Support/
+  Tests/Controls/Baselines/
+  Samples/EmbeddedControls/
   Specs/README.md
   Specs/Core/Core_Architecture.md
   Specs/Core/Core_PerformanceAndResources.md
@@ -148,7 +161,7 @@ DxUi/
   Specs/Plans/WIP/BootstrapAndRedXeAdoption_2026-09-05.md
   Specs/Plans/WIP/RedSalamanderMigration.md
   Specs/Plans/Done/README.md
-  provenance/source-import.json
+  provenance/source-origin.json
   provenance/migration-ledger.md
   .build/                           # ignored: outputs, reports, test scratch
 ```
@@ -203,20 +216,16 @@ of enduring requirements. Every direct WIP plan is indexed exactly once. Complet
 implementation, validation and normative closeout; an application migration on HOLD is not a blocker for completing
 the separate bootstrap/RedXe plan.
 
-## Library targets and dependency direction
+### Library and hosting boundaries
 
-| Target | Responsibility | V1 consumer |
-| --- | --- | --- |
-| `DxUi.Controls.lib` | Shared retained controls, layout, state, theme/text, prepared D2D drawing and host abstraction. | AV Control and the library's two samples. |
-| `DxUi.Embedded.lib` | Externally scheduled content preparation and texture composition using a supplied D3D11 device. | AV Control. |
-| `DxUi.Win32Services.lib` | Reusable OS text-input/accessibility service implementation behind bounded transport contracts; no window renderer. | RedXe host adapter where needed, and WindowHost. |
-| `DxUi.Win32Host.lib` | HWND/message integration, window presentation, popups and scheduling on top of shared controls/services. | WindowHost sample now; RedSalamander later. |
+One archive contains controls and both hosting modes. `ControlHost` owns the retained tree services; native
+WindowHost is a compatibility alias. `EmbeddedHost` configures those services for a caller-created D3D11 device and
+never attaches a renderer HWND, creates a swap chain or starts a timer. Win32 mode is retained for the later
+RedSalamander port. Inclusion of both modes in one archive is not a claim that no native object code will be linked.
 
-Controls depend on neutral host-service contracts, not the concrete embedded or window host. The services target must
-not pull the control renderer into `RedXe.exe`. The embedded target must not link the window presentation target.
-The public namespace is `DxUi`; application compatibility aliases, viewer-theme translation, logging IDs and settings
-adapters live with the consumer. Platform libraries and WIL are allowed dependencies. A monolithic RedSalamander
-`Helpers.h`, settings store, plugin ABI, animation dispatcher or global logger is not.
+`GraphicsDevice::Create` shares D2D/DWrite and composition state per supplied device generation. Each EmbeddedHost
+owns one tree and cached surface. AV uses distinct tile/raised views bound to the same application model; this avoids
+reusing hit rectangles from a different density. Its module admits their summed surface cost.
 
 Library controls implement UI semantics, not AV operations. DxUi never enumerates audio/camera devices, switches
 profiles, stores RedXe settings, or embeds XENEON-specific dimensions. The consumer supplies labels, application
@@ -233,9 +242,12 @@ text and accessibility paths require actual verification. Preserve existing ASan
 additional tests, not replacements for the four required builds.
 
 Each consumer adds a machine-readable `Dependencies/DxUi.lock.json` with source repository identity, exact commit,
-required API revision, enabled targets and dependency/toolchain fingerprint. The actual remote and first commit are
-filled in during bootstrap; this RFC invents neither. No floating `main`, branch name, `latest`, or silently accepted
-dirty sibling checkout is a release dependency.
+required API revision, enabled targets and dependency/toolchain fingerprint. The repository is
+`https://github.com/RedSalamanders/DxUi.git`; bootstrap revision
+`316e39cbdfc20eea619020b5d4e31e4f395b34e5` passed all five hosted checks, including native x64/ARM64 Debug/Release.
+That Foundation-only revision is provenance, not an AV-ready dependency pin. RedXe pins a tested revision that
+provides its required Controls/Embedded capabilities when those gates pass. No floating `main`, branch name,
+`latest`, or silently accepted dirty sibling checkout is a release dependency.
 
 `DxUiRoot` defaults to a sibling checkout and supports an explicit absolute override. A consumer restore entrypoint
 can populate an isolated pinned checkout for CI using its configured repository identity. It never resets, checks
@@ -243,7 +255,7 @@ out, cleans or overwrites the developer's existing sibling checkout. A missing r
 with an actionable message. An explicit development override may use edited source, but must record its fingerprint
 and mark the result non-release; clean release validation requires the lock match.
 
-Consumers import `Build/DxUi.Consumer.props` / `.targets` and reference the selected DxUi `.vcxproj` targets. They do
+Consumers import `Build/DxUi.Consumer.props` / `.targets`, which reference the single `src/DxUi.vcxproj` target. They do
 not maintain a second list of library `.cpp` files. Public header paths and output paths resolve from the imported
 file/project, never an assumed application `SolutionDir`. Standalone `.build` outputs and consumer dependency outputs
 are separate. Consumer outputs use `.build/dependencies/DxUi/<fingerprint>/<platform>/<configuration>/` beneath that
@@ -252,7 +264,7 @@ not share writable intermediates or vcpkg work trees.
 
 Pin WIL and any other extracted dependency with the library; no implicit reuse of whatever headers are on the
 developer's machine. Build validation detects conflicting public-header dependencies and incompatible CRT/STL flags.
-Shipping static libraries means there is no `DxUi.dll` to stage; the existing `AVControl.dll` remains dynamically
+Shipping the static library means there is no `DxUi.dll` to stage; the existing `AVControl.dll` remains dynamically
 loaded by RedXe as a plugin. Windows/system runtime dependencies and notices still require normal packaging checks.
 
 Library CI builds and tests without either application checkout. RedXe CI restores its pinned revision and runs
@@ -319,14 +331,15 @@ even when the existing largest-extent notification alone would not change.
 
 ### Input, text and accessibility
 
-RedXe's adapter maps widget-local physical coordinates to DxUi DIPs exactly once. It extends the generic input
+RedXe's adapter supplies widget-local physical coordinates; EmbeddedHost maps them to DIPs exactly once. RedXe extends the generic input
 contract to distinguish capture by a control from page-pan arbitration, and forwards Move/Up/Cancel for the captured
 pointer. One accepted slider Down owns the gesture; edge navigation retains its reserved region. Cancel on hide,
 capture loss, detach and invalidating geometry changes; no volume setter on cancellation.
 
 Keyboard, focus, text and UIA are implementation gates, not optional polish. Add generic keyboard/focus/text events
 to the interactive mechanism, including composition and cancellation semantics. The host owns OS focus, message
-routing and any TSF/IME HWND association. Reusable `DxUi.Win32Services` code executes on the host side; bounded
+routing and any TSF/IME HWND association. The adoption work must expose reusable text services from the same
+`DxUi.lib` for the host side; bounded
 COM/POD transport connects it to the plugin's control tree. No top-level HWND, `DxUi::Control*`, `std::function` or
 STL string crosses the RedXe ABI. Clipboard and text-service behavior use explicit host requests.
 
@@ -377,7 +390,7 @@ and no competing checklists for the same deliverable.
 | Phase | Deliverables | Exit gate |
 | --- | --- | --- |
 | D0 — establish repository | Sibling checkout, actual origin/pin, provenance and notices, all bootstrap files, usable AGENTS/skills/specs/plans, isolated outputs. | Skill/spec/link/dependency validation runs from a clean checkout without either application or personal Codex paths. |
-| D1 — extract shared library | Dependency cleanup, public namespace/API, four library targets, retained controls, Win32 sample and extracted generic tests. | Four required configurations build; control and existing WindowHost regression tests pass; no application includes/imports remain. |
+| D1 — extract shared library | Dependency cleanup, public namespace/API, one library target, retained controls, Win32 sample and extracted generic tests. | Four required configurations build; control and existing WindowHost regression tests pass; no application includes/imports remain. |
 | D2 — prove embedded host | Minimal independent sample renders toggle, slider, combo and editable text with synthetic state; borrowed-device lifecycle and prepared surfaces. | WARP, state isolation, alpha/text, DPI, input, dirty/clean/hidden behavior, allocation and surface accounting pass. |
 | D3 — first application: RedXe | Pinned projects/imports, preparation/input/text/UIA bridges and current ABI/spec updates; a synthetic RedXe integration fixture. | Host and every bundled plugin rebuilt; WARP and real input/accessibility gates pass; no hardware AV changes in automated tests. |
 | D4 — AV Control adoption | Shared DxUi controls with the reviewed responsive layout; AV model/backend gates stay in its own RFC. | AV native UX/instance/lifecycle tests and measured resource acceptance pass. DxUi completion does not falsely close audio/camera gates. |
@@ -385,7 +398,7 @@ and no competing checklists for the same deliverable.
 
 Bootstrap acceptance checklist:
 
-- [ ] All required repository guidance and skill content exists and passes clean-checkout validators.
+- [x] All required repository guidance and skill content exists and passes clean-checkout validators.
 - [ ] Source/test/license provenance and transitive dependency inventory are complete.
 - [ ] Public headers compile independently of both applications; standalone and relocated/path-with-spaces builds work.
 - [ ] MSBuild source pin, overrides, wrong-revision failure, header/library mismatch and simultaneous consumer output
@@ -407,17 +420,57 @@ Bootstrap acceptance checklist:
 
 ## Proposal validation record
 
-This change is documentation only. Inspected the existing DxUi control API, rendering/window ownership, project
+The initial proposal was documentation only. Inspected the existing DxUi control API, rendering/window ownership, project
 dependencies, test inventory and source notice, and RedXe's device flags, GPU/input ABI and resource requirements.
-No library was built or imported and neither application runtime was changed. The proposal deliberately identifies
+The subsequent approved bootstrap builds the Foundation target in the new repository; neither application runtime
+was changed. The proposal deliberately identifies
 the preparation, touch, text/UIA and resource measurements that still need implementation evidence.
 
 Validation on 2026-09-05:
 
 - Both RFCs have valid relative links, no trailing whitespace and exactly one entry each in the active index.
 - `git diff --check` passed for the index edit. Existing unrelated workspace changes were left in place.
-- **[blocked]** `validate-skills.ps1` cannot run its validator through the system Python launcher: no interpreter
-  is installed for that launcher. A direct retry with the bundled Python reaches the validator but fails to import
-  `yaml` (PyYAML). No skill content was evaluated; this is a tooling prerequisite failure, not a skill-content result.
-- No C++ build or native UI test is claimed for this documentation-only change. Existing AV mockup screenshots
-  validate its interaction design, not this proposed native adapter.
+- The initial sandbox validation was blocked by its Python launcher/PyYAML environment. Retrying in the normal
+  user context on 2026-09-05 passed all ten RedXe skills. The tooling block is resolved.
+- DxUi's separate bootstrap passed x64 Debug/Release tests and all four x64/ARM64 builds locally.
+  [Hosted run 33958577659](https://github.com/RedSalamanders/DxUi/actions/runs/33958577659) passed Linux validation
+  and all four native Foundation test configurations, including ARM64. Its adoption plan records the evidence.
+  Existing AV mockup screenshots validate interaction design, not the proposed native adapter.
+
+
+### Approved single-library implementation update
+
+DxUi now exposes DxUi.h, Embedded.h, ControlCatalog.h, neutral ThemeColors, diagnostics and FrameRuntime headers.
+Slider::SetOnChange distinguishes Preview/Commit/Cancel; AV calls Windows setters only on Commit. EmbeddedHost
+converts supplied widget-local pixels to DIPs and separates Prepare from allocation-free Composite. The standalone
+consumer creates its own WARP device and renders a working toggle/slider through the public API. Gallery tooling
+generates every concrete control in five themes. Inherited cases have an explicit test-port inventory.
+
+This replaces split Controls/Embedded/Win32Services/Win32Host delivery. RedXe's ABI additions, release pin, real
+touch/IME/UIA acceptance and AV backend integration remain in this active plan; RedSalamander migration is later.
+
+### Coordinated source pin, 2026-09-05
+
+RedXe now restores `4544d3492c33c95c061894646f6a20d28e37cb4c` from DxUi `main`. The shared checkout's
+documentation/workflow task published the coordinated library changes; RedXe never builds in or resets that checkout.
+[Native CI 33971459949](https://github.com/RedSalamanders/DxUi/actions/runs/33971459949) passed validation and all four
+x64/ARM64 Debug/Release native jobs at this exact commit, including consumer and gallery steps. The earlier Menu
+owner-message-flood failure is resolved at this revision, without changing its two 800-ms assertions.
+[Formatting CI 33971460024](https://github.com/RedSalamanders/DxUi/actions/runs/33971460024) also passed.
+
+The full RedXe Debug build passed against this pin. Device and role selectors opt into the public 48-DIP popup-row
+minimum. This closes the dependency's failed-native-CI blocker; it does not close RedXe IME/UIA, physical touch,
+camera/audio compatibility, or application resource acceptance. Those remain in the AV/host implementation work.
+
+### Contrast pin and text-service continuation, 2026-09-05
+
+The current lock now selects `1947a5b91beb029e9b99d71e0893c6075bbb29ca`. Its high-contrast primary buttons preserve
+the exact opaque system selection pair. [Native CI 33980767827](https://github.com/RedSalamanders/DxUi/actions/runs/33980767827)
+passed all four x64/ARM64 Debug/Release configurations; [formatting CI 33980767838](https://github.com/RedSalamanders/DxUi/actions/runs/33980767838)
+passed. RedXe's full Debug rebuild and regression entrypoint passed with zero compiler warnings/errors.
+
+Further work is isolated on `codex/av-input-services`, preserving the canonical task's checkout. Its supplied patch
+has been integrated, retaining the independent complex sample and v2 benchmark. Embedded revision-checked text
+snapshots and composition imports are being validated; application-side TSF/IME and UIA transport remain open.
+The new library source is not in the RedXe pin. New-harness performance evidence will compare identical v2 fixtures
+against an unchanged-library checkout, retaining the original v1 results and their limitations.

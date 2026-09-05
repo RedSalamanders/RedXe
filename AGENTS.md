@@ -95,6 +95,7 @@ Plugins/
   ProcessViewer/    System Data GPU viewers sharing one Direct3D DLL
   Launcher/         GPU shortcut launcher with jumbo icons, taskbar-pin fallback, and shell launch
   Weather/          GPU weather widget with host-owned network lane
+  AVControl/        DxUi retained controls, isolated audio/camera helper, profiles and virtual-camera source
 RedXe/
   Main.cpp          Process setup and command-line modes
   Application.*     Win32 window and message-loop lifetime
@@ -113,6 +114,7 @@ Tests/
   SettingsTests/       Settings, schema, stamp, watcher, and log-retention tests
   LauncherTests/       Launcher factory, pin fallback, WARP, launch, and drop tests
   WeatherTests/        Weather HTTP heap-body and small-stack overflow regression
+  AVControlTests/      Synthetic AV/IPC/MF faults, native controls, camera packaging and bounded control work
 Settings/
   RedXe-debug.settings.json  Shipped Debug default
   RedXe.settings.json        Shipped Release default

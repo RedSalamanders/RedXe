@@ -116,6 +116,7 @@ $operationStopwatch = [Diagnostics.Stopwatch]::StartNew()
 if (-not $Clean) {
     Write-Host '[1/2] Dependencies' -ForegroundColor Cyan
     & $dependencyInstaller -Platform $Platform
+    & (Join-Path $repoRoot 'restore-dxui.ps1') -Platform $Platform
     Write-Host ''
 }
 

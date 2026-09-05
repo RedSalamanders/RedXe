@@ -1995,6 +1995,7 @@ void TestWidgetSettingsPersist(bool& success) noexcept
     {
         std::array<char, 64> instanceId{};
         std::array<char, 128> json{};
+        std::array<char, 128> previousJson{};
         uint32_t bytes = 0;
         uint32_t calls = 0;
         DWORD threadId = 0;
@@ -2018,6 +2019,7 @@ void TestWidgetSettingsPersist(bool& success) noexcept
         }
         if (json && bytes < captured->json.size())
         {
+            captured->previousJson = captured->json;
             std::memcpy(captured->json.data(), json, bytes);
             captured->json[bytes] = '\0';
         }
@@ -2070,6 +2072,15 @@ void TestWidgetSettingsPersist(bool& success) noexcept
         Check(capture.calls == 9, L"teardown discards the pending settings for that instance", success);
         host.AcknowledgeUiInvalidate();
         Check(capture.calls == 9, L"empty acknowledgement does not repeat settings writes", success);
+        constexpr char newer[] = "{\"shortcuts\":[{\"target\":\"https://example.com/new\"}]}";
+        Check(queue->QueueWidgetSettings("widget.1", kPartial, sizeof(kPartial) - 1) == S_OK &&
+                  host.PersistWidgetSettings("widget.1", newer, sizeof(newer) - 1) == S_OK && capture.calls == 11 &&
+                  std::string_view(capture.previousJson.data()) == kPartial &&
+                  std::string_view(capture.json.data()) == newer,
+              L"an older queued import is applied before a newer interactive save", success);
+        host.AcknowledgeUiInvalidate();
+        Check(capture.calls == 11 && std::string_view(capture.json.data()) == newer,
+              L"a queued import cannot overwrite the newer interactive edit", success);
     }
 
     constexpr std::string_view settingsJson =
@@ -2488,6 +2499,19 @@ void TestPublishedArraySchema(bool& success) noexcept
           L"a Matrix-style closed object schema remains valid", success);
     Check(FAILED(PluginManager::ValidatePluginPublishedSchema(nestedSchema, R"json({"rows":[]})json")),
           L"nested arrays are rejected", success);
+    constexpr std::string_view boundedText = R"({"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":2}}})";
+    Check(SUCCEEDED(PluginManager::ValidatePluginPublishedSchema(boundedText, R"({"name":"\u00e9\ud83d\ude00"})")),
+          L"published text bounds count Unicode scalars rather than UTF-8 bytes or UTF-16 units", success);
+    Check(FAILED(PluginManager::ValidatePluginPublishedSchema(boundedText, R"({"name":"abc"})")) &&
+          FAILED(PluginManager::ValidatePluginPublishedSchema(boundedText, R"({"name":""})")),
+          L"both published string length bounds are enforced", success);
+    constexpr std::string_view machineId = R"({"type":"object","properties":{"id":{"type":"string","pattern":"^[A-Za-z0-9_-]+$"}}})";
+    Check(SUCCEEDED(PluginManager::ValidatePluginPublishedSchema(machineId, R"({"id":"office_2-main"})")) &&
+          FAILED(PluginManager::ValidatePluginPublishedSchema(machineId, R"({"id":"office.2"})")),
+          L"published machine identifiers use the fixed ASCII pattern", success);
+    constexpr std::string_view unsupportedEmpty = R"({"type":"object","properties":{"rows":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","pattern":".*"}}}}}})";
+    Check(FAILED(PluginManager::ValidatePluginPublishedSchema(unsupportedEmpty, R"({"rows":[]})")),
+          L"unsupported string constraints are rejected even when a defaults array is empty", success);
 }
 
 void TestPageEdgeAffordancePolicy(bool& success) noexcept
@@ -3698,6 +3722,7 @@ int wmain(int argumentCount, wchar_t** arguments)
         return 1;
     }
     PluginHost::Instance().SetNetworkAccessEnabled(false);
+    PluginHost::Instance().SetControlAccessEnabled(false);
     TestFrameScheduler(success);
     TestPageSwipePolicy(success);
     TestWidgetRaisePolicy(success);

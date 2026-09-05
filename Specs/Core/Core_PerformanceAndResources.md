@@ -10,6 +10,14 @@ implementation, review, and validation change must minimize CPU time, memory, al
 GPU submissions, wake-ups, and loaded resources while preserving correctness, security, visual quality, and required
 behavior.
 
+Embedded accessibility is lazy: no root, snapshots or provider image pin before the first UIA request. Its host
+queue uses 32 fixed slots and one coalesced message; it adds no worker, HWND, timer or periodic retry. Unchanged
+preparations/geometry reuse published snapshots; composition performs no accessibility work. Hidden/modal-transition
+views disconnect. AV keeps its already-loaded provider image mapped through process exit after first publication so
+external COM references remain safe after module shutdown. All device/model/control resources still release normally.
+This image-retention cost must be included in application accessibility resource measurements; the active AV plan
+does not yet claim matched resource acceptance or full real-client validation.
+
 When several correct designs exist, RedXe must use the design with the lowest steady-state resource cost unless a
 measured result or a materially simpler and safer implementation justifies another choice. A resource regression must
 be explicit, measured in the affected configuration, and justified in the owning normative contract or active plan.
@@ -22,6 +30,18 @@ or state change is pending. Normal operating-system scheduling noise is outside 
 - Steady-state frame construction and rendering must not allocate or free heap memory after initialization.
 - Per-frame and per-widget storage must be bounded and reused. Capacity exhaustion fails one widget frame safely; it
   must not trigger unbounded growth on the render path.
+- Retained controls use `IRedXePreparedGpuWidget::Prepare` before frame construction for changed layout and raster
+  work. Clean checks are allocation-free and run only on already-requested frames. Preparation measurements are
+  separate from composition; neither may be omitted from the reported UI cost. Idle/hidden frame policy suppresses
+  both phases, and requests raised during preparation remain coalesced for a later frame.
+- Windows appearance is captured once at initialization and on theme/system-color/settings notifications, then
+  copied into preparation records. Plugins must not query system colors or the registry on a clean preparation or
+  render path. Opaque consumer surfaces are prepared with the changed palette; clean composition remains unchanged.
+- Local device commands use one lazy, process-wide MTA control lane with 16 fixed slots and coalesced reruns.
+  Enqueue-to-result time is at most three seconds, including queue age. Potentially hanging device calls execute
+  in a separately owned helper process. Shutdown signals cancellation, joins bounded work, suppresses UI completions
+  and releases references before unloading modules. Hidden AV display observation is suspended independently from
+  an armed camera route; that route captures only while consumer sample requests maintain a 250-ms demand lease.
 - RedXe and plugins must share immutable device resources across compatible widget instances and minimize dynamic
   uploads, state changes, render-target switches, and draw calls without restricting what a GPU widget may render.
 - Derived display state such as DPI, design-canvas transforms, and widget viewports must be cached and recomputed only
@@ -93,6 +113,11 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   Cached coordinates and a saved city eliminate repeated location work. The host settings queue owns at most eight
   temporary records of 4096 JSON bytes plus 127-byte IDs, allocates only on submission, releases records after UI
   dispatch/teardown, and uses the existing coalesced UI message. Empty dispatch checks one atomic without a queue lock.
+- Launcher imports reuse its bounded authored identity records and the existing host settings queue. Import/encode
+  occurs only on an empty-list cold path, never Render; populated instances add no polling, timers, workers or repeated
+  queue submissions. An interactive save racing an older queued import may perform two ordered cold writes to retain
+  unrelated fields and ensure the newer edit wins. Formatted settings allocate only on the cold save path and remain
+  within the 1 MiB document limit; compact plugin settings retain the 4096-byte bound.
 - Typed configuration for inactive pages MAY remain in bounded settings storage, but inactive pages MUST create no
   providers, widgets, child HWNDs, Direct3D resources, timers, or frame work. Subsystems MUST NOT retain redundant
   complete copies of the settings document when narrow cached active state is sufficient.

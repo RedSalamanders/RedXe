@@ -1,11 +1,15 @@
 # AV Control: Direct3D audio and webcam profiles
 
-Status: DECISION — proposed feature specification; no runtime implementation
+Status: HOLD — user requested a continuation checkpoint; implementation authorized, release gates remain open
 Date: 2026-09-05
-Requested deliverables: specification and interactive UI mockup; shared DxUi integration proposal
+Requested deliverables: complete AV Control implementation, native integration, tests and specification closeout
 Proposed identity: `builtin.av-control` / widget type `av-control` / `AVControl.dll`
 
 ## Purpose and authority
+
+Latest pause checkpoint (2026-09-05 21:15 UTC):
+[AVControl-Continuation.md](../../../docs/AVControl-Continuation.md). It supersedes older progress notes for pins,
+test results, failed CI/performance evidence, restored negative controls and ordered resume steps.
 
 AV Control gives the XENEON EDGE a touch-friendly control surface for selecting an audio output, microphone, and
 webcam together, muting each independently, and adjusting system output volume and microphone input level.
@@ -21,14 +25,16 @@ Owning contracts:
 - [Dashboard](../../UI/UI_Dashboard.md): tile/raised geometry, touch arbitration, keyboard and accessibility integration.
 - [Settings](../../Core/Core_Settings.md): schema, bounded persistence, live reload, shipped examples.
 - [Performance and resources](../../Core/Core_PerformanceAndResources.md): event-driven work and resource bounds.
-- [Shared DxUi project proposal](RFC_Core_DxUiSharedProject.md): standalone library, pinned static linkage,
+- [Approved shared DxUi project](RFC_Core_DxUiSharedProject.md): standalone library, pinned static linkage,
   embedded rendering, input/accessibility adapters and RedXe-first adoption.
 - Planned feature owner at implementation: `Specs/Plugins/Plugins_AVControl.md`.
 
-AV Control is the first application feature to consume the proposed independent `Z:\src\DxUi` library. Its native
-controls reuse that library; it does not copy `RedSalamander/Common/DxUI` into this plugin or implement a second set
-of sliders, selectors and text fields. RedSalamander's later port is independent of AV delivery. DxUi extraction and
-host integration remain unfinished prerequisites, not capabilities proved by the browser mockup.
+AV Control is the planned first application feature to consume the independent `Z:\src\DxUi` library, now hosted
+in private [RedSalamanders/DxUi](https://github.com/RedSalamanders/DxUi) with default branch `main`. Its single
+`DxUi.lib` now contains public controls and supplied-device embedded rendering, with a standalone toggle/slider
+consumer and all-control gallery. RedXe's preparation/input/text/UIA adapter and AV backend remain prerequisites.
+AV reuses the library at an exact tested commit; it does not copy RedSalamander source or fork controls.
+RedSalamander's later migration is independent. The browser mockup does not prove native host or backend behavior.
 
 The interactive design source is [av-control.html](../../../Mockups/av-control.html). It uses synthetic devices and
 local interaction only. It does not enumerate hardware, change Windows settings, record audio, or open a webcam.
@@ -62,7 +68,7 @@ always-on level meters, and continuous webcam preview. These are not needed for 
 | Audio default selection | A private, isolated audio-policy adapter; no documented default setter was established in this research. | G1 must identify the actual API, compatibility policy, supported OS builds, and failure behavior. |
 | Camera selection and off/on | Proposed Windows 11 `RedXe Camera` virtual route, with a physical source selected by the profile. | G2 must prove source switching, off-state frame behavior, lifetime, packaging, and client interoperability. |
 | Windows 10 webcam control | Only a separately validated supported application/device integration. | Otherwise show `Camera control unavailable`; do not claim AV-02/AV-05 are fully delivered on Windows 10. |
-| Native control library | Pinned standalone DxUi static targets, with embedded D3D11 hosting. | D0-D3 of the shared-library proposal and G3 below must prove preparation, input, text/UIA and resource behavior before AV ships. |
+| Native control library | Pinned standalone DxUi.lib, with embedded D3D11 hosting. | D0-D3 of the shared-library proposal and G3 below must prove preparation, input, text/UIA and resource behavior before AV ships. |
 
 Default audio switching is a distinct problem from endpoint enumeration or changing volume. Microsoft's MMDevice
 documentation describes reading defaults and observing role changes; its legacy role guidance does not supply a setter.
@@ -266,10 +272,12 @@ IUnknown. No continuous-animation flag, scheduled polling, child window renderer
 ### Shared DxUi dependency and native control mapping
 
 Follow [RFC_Core_DxUiSharedProject.md](RFC_Core_DxUiSharedProject.md) for extraction, ownership and build integration.
-Link `DxUi.Controls.lib` and `DxUi.Embedded.lib` into `AVControl.dll` from a pinned source revision through the supplied
-MSBuild targets. RedXe's OS-side adapter may link `DxUi.Win32Services.lib`; AV must not link the window-presentation
-target or create its own window host. No separate `DxUi.dll` is required by this proposal. No DxUi C++ objects or
-STL ownership cross the RedXe COM ABI.
+Link **DxUi.lib** into AVControl.dll through the supplied consumer props/targets, using API revision 2 and lock
+target `["DxUi"]`. No separate Controls/Embedded/service archive or DxUi runtime DLL is required. EmbeddedHost uses
+the host-created D3D11 device through one AV-module GraphicsDevice pool and separate tile/raised views. AV supplies
+physical widget-local coordinates; EmbeddedHost converts to DIPs. It never starts its native WindowHost mode.
+No DxUi C++ object, callback or STL ownership crosses the RedXe COM ABI. Host text/UIA transport remains a generic
+RedXe integration gate even though native Win32 text/accessibility is available inside the library.
 
 | AV behavior | Shared DxUi primitive / responsibility |
 | --- | --- |
@@ -281,8 +289,8 @@ STL ownership cross the RedXe COM ABI.
 | Density, raised view and device-loss recovery | AV chooses the reviewed layout tier; DxUi measures and prepares the visible controls, preserves logical state and rebuilds graphics only. |
 
 The library must support AV's large touch targets and pressed/pending semantics without a local control fork.
-Reusable changes belong upstream in DxUi with tests; XENEON dimensions, profile rules, camera scope and endpoints
-remain in AV. Existing `SetOnValueChanged` support alone is not proof of preview/commit/cancel behavior.
+Reusable changes belong in the canonical DxUi repository with tests; XENEON dimensions, profile rules, camera scope and endpoints
+remain in AV. Use the tested `Slider::SetOnChange` phases; legacy `SetOnValueChanged` is a live-value observer.
 
 G3 adopts the shared proposal's event-driven preparation service and GPU preparation callback, including both final
 tile and raised extents. These are new generic host mechanisms. Prepare changed layout, text, brushes and offscreen
@@ -403,11 +411,11 @@ Design deliverables in this change:
 - [x] Record platform limitations, behavior, UI, persistence, resource budgets, and release gates in this RFC.
 - [x] Provide a synthetic interactive mockup with profiles, independent controls, sliders, and profile editing.
 - [x] Run mockup interaction/layout checks and inspect rendered dark/desktop and light/narrow images.
-- [x] Propose the independent DxUi repository and update native AV architecture to reuse its pinned static libraries.
-- [ ] **[blocked]** Complete `validate-skills.ps1`: the available Python runtime lacks PyYAML and the package download
-  failed TLS authentication. No repository skill failed its content validation; the validator could not start.
+- [x] Propose the independent DxUi repository and update native AV architecture to reuse its pinned static library.
+- [x] Complete `validate-skills.ps1`: initial sandbox Python/PyYAML failures were resolved by using the normal user
+  context on 2026-09-05; all ten RedXe skills passed.
 
-Future implementation — remains unfinished and is outside this design deliverable:
+Authorized implementation — remains unfinished until the following gates pass:
 
 - [ ] **G1: audio switching.** Identify/validate a default-policy backend on supported Windows 10/11 builds, x64 and
   ARM64. Exercise all-role and communications-only changes, Bluetooth/USB/HDMI removal, pinned app sessions,
@@ -494,3 +502,363 @@ layout. Native DPI, physical touch accuracy, UI Automation, full breakpoint-boun
 device behavior remain implementation validation. A fresh `validate-skills.ps1` attempt with bundled Python was
 again **[blocked]** at importing `yaml`; no project skill content was evaluated. This UX revision changes only the
 RFC and mockup, not application code or current normative host behavior.
+
+### Shared-library bootstrap update, 2026-09-05
+
+The approved private DxUi repository now exists on `main`, with independent Foundation builds, library contracts,
+agent guidance, skills and an adoption plan. Its [hosted validation](https://github.com/RedSalamanders/DxUi/actions/runs/33958577659)
+passed Linux validators and native x64/ARM64 Debug/Release tests. RedXe's unchanged `validate-skills.ps1` also
+passed all ten skills in the normal user context; the earlier sandbox Python/PyYAML block is resolved.
+That was Foundation-only historical evidence. The single-library implementation supersedes split Controls/Embedded
+delivery; AV hardware/backend gates and RedXe adapter work remain open.
+
+
+### Single-library adoption contract
+
+Create/configure controls through the public API or ControlCatalog; keep device identities and confirmed/pending
+state in AV. The graphics pool is retained across views, not recreated per widget. Prepare changed content before
+host composition; Composite uses the already prepared surface. On slider Preview update the displayed draft; on
+Commit issue the AV command; on Cancel restore confirmed/draft-start state without changing a Windows endpoint.
+`gallery.ps1` and the public EmbeddedControls sample are library validation tools, not an implementation of AV.
+
+### Implementation resumed, 2026-09-05
+
+The user authorized continuing until AV Control is delivered and requested coordination with the concurrent
+DxUi documentation/workflow task. This task owns RedXe integration, AV model/backend/UI, settings and tests.
+DxUi changes and the validated release pin must be coordinated before adopting them; never change or reset the
+other task's checkout. The saved DxUi handoff is historical, not an instruction to keep this task paused.
+
+Execution order: bounded model/configuration and responsive geometry; generic host preparation/input/work lane;
+native DxUi views and editor; real endpoint/backend and camera route; synthetic failure/lifetime/resource tests;
+platform evidence and final normative closeout. Automated tests use synthetic devices and isolated settings only.
+No full-feature claim is permitted while G1/G2/G3 or required validation remains unresolved.
+
+#### Implementation checkpoint: native views and broker
+
+- Implemented strict fixed-capacity configuration/profile matching/gesture model and all density geometry.
+- Added generic host preparation and tile/raised view IDs, explicit pointer capture and cancellation, and a lazy
+  bounded host control queue. Full Debug tests passed after preparation; later capture/queue changes still require
+  a final full host regression pass after AV integration.
+- Restored an isolated development DxUi pin (`f74a4a9c50d18e2af678ed360d86321e7dd2068b`, API 2, one library).
+  The shared checkout has the other task's uncommitted docs/archive/license/performance changes and remains untouched.
+  That development pin is not a validated release pin: CI 33965482623 passed validation, x64 Release and both ARM64
+  configurations but failed the x64 Debug Menu owner-message-flood test. Do not combine jobs from different revisions.
+- Implemented native retained live controls and offscreen screenshots for ten sizes. Inspected minimum and half-screen
+  views, then improved large-view typography/device labels. Synthetic AVControlTests passed **4,538 checks** after
+  those updates and the new helper fault tests (Debug). This is not whole-feature/platform acceptance.
+- Added a process-isolated audio backend and explicit synthetic helper fixtures. Broker build passes with zero
+  warnings. The protocol/child fault tests prove timeout/cancellation/crash/invalid-reply containment and idle waiting;
+  no real hardware mutations were performed.
+- Remaining: profile chooser/editor and transactional coordinator; module/DLL/host integration; event subscription
+  lifetimes; real virtual-camera media source, packaging and interoperability; keyboard/IME/UIA transport; settings
+  catalog/schema/templates; cross-configuration and full regression/resource/platform evidence; DxUi Menu CI fix and
+  final release pin. Preserve G1/G2/G3 until evidence passes.
+
+Subsequent checkpoint: `ProfileTransaction` and failure injection tests are implemented. The AV Debug suite passed
+4,645 checks; the full root Debug regression also passed, including host integration, hidden WARP and both crash
+harnesses. A subsequent small change keeps the broker notification event stable across process restarts and adds a
+test for that lifetime; rebuild/run that change before considering this checkpoint current. The full coordinator,
+native editor, module registration and camera route remain unfinished.
+
+#### Current checkpoint: module and shared coordinator
+
+- Implemented the module coordinator, event-driven helper observation, coalesced safety/level lanes, communications
+  route projection, native chooser/editor, DLL factory integration and shared supplied-device graphics pool.
+- Added generic keyboard focus/Tab traversal, UTF-16 characters, F6 profile entry and committed raise/dismiss results.
+  Added the bundled catalog, host settings validation, schema and real examples in both settings templates.
+- AV Debug tests passed 4,988 synthetic checks, including loading the actual DLL, explicit synthetic helper IPC,
+  two instances sharing observation, mute readback, profile raise/dismiss, idle composites, and unsaved draft recovery.
+  Audio revision tests cover fractional changes, change-back, independent mute and duplicate callback/readback.
+- Full Debug regression initially found an outdated gallery widget-count assertion after AV was placed. The
+  assertion and additional host settings/profile tests are under revalidation; that run is not recorded as a pass.
+- DxUi touch selectors and the coordinated documentation/workflow changes are being validated together. Its
+  pre-existing native Menu CI failure still blocks a release pin; local native capability skips do not close it.
+- Remaining: real camera media source/capture/packaging and G2 interoperability; generic IME and UIA, wheel and
+  theme changes; full configuration/platform/resource evidence; G1 real-device validation; final normative closeout.
+  Camera streaming must survive tile hiding independently of display observation. The current audio-only coordinator
+  stops its helper when the last view hides; extend that policy before attaching the real camera consumer lifetime.
+
+#### Camera implementation in progress
+
+The standalone Media Foundation source now implements the Frame Server source/stream interfaces, one explicit
+1280×720 NV12/30 FPS format, a bounded six-sample allocator, four pending tokens, request-driven timer scheduling,
+QPC timestamps, restart and shutdown. Synthetic tests exercise real MF events/buffers without COM registration or
+opening a camera. A failed/partial transport frame is entirely replaced with neutral NV12, including padding.
+
+The frame-channel component uses one latest image and a bounded mutex wait. Source-created Session-0 Global objects
+grant access only to the user SID, Local Service and SYSTEM; tests explicitly use Local objects. A read lease extends
+through media-sample publication. Off/source-change takes the same gate, clears the image and changes its revision;
+late old-source frames are rejected. Expired or abandoned producer data yields neutral output. Already delivered
+frames retained inside consuming apps/Frame Server cannot be recalled; the gate covers new source publications.
+
+Remaining camera steps, before G2 can pass:
+
+1. Add the COM activation DLL and a Release-only installer/remover into a Local-Service-readable installed directory.
+   Mapped development drive paths are not an installation. Use the official Windows 11 virtual-camera API and keep
+   normal user privacy consent; no registry-based hardware disabling or camera privacy bypass.
+2. Bind an authenticated local named-pipe consumer handshake to the source-created frame channel. Limit clients,
+   validate every descriptor/header, reject remote pipes and unrelated object-name pairs, and contain stalled peers.
+3. Implement physical capture/selection in the owned helper, with one event-blocked acquisition lane, bounded samples,
+   notifications, missing/busy/privacy states, and no physical capture while off or without consumers. Bridge access
+   control is per user; keep its consumer lifetime independent of widget visibility.
+4. Integrate real camera inventory/capabilities, frame-gate acknowledgements, profile transaction rollback and retry.
+   Preserve a stable virtual-camera identity so apps choose RedXe Camera once. Define restart/exit behavior explicitly:
+   an active source must fail to neutral if its helper disappears and must not replay its last physical frame.
+5. Exercise the installed route in actual capture apps, security/session boundaries, x64/ARM64, unplug/busy/denied,
+   off/switch races, driver hangs, process/page exit and active-media resource/latency budgets. Synthetic Media
+   Foundation and channel tests do not establish hardware interoperability or package acceptance.
+
+Primary implementation references: [Frame Server custom media source](https://learn.microsoft.com/en-us/windows-hardware/drivers/stream/frame-server-custom-media-source),
+[Microsoft virtual-camera sample](https://github.com/microsoft/Windows-Camera/tree/master/Samples/VirtualCamera),
+and [MF request timer](https://learn.microsoft.com/en-us/windows/win32/api/mfapi/nf-mfapi-mfscheduleworkitem).
+
+#### Camera bridge and activation checkpoint, 2026-09-05
+
+The exact DxUi main pin `4544d3492c33c95c061894646f6a20d28e37cb4c` passed all four native configurations
+in [CI 33971459949](https://github.com/RedSalamanders/DxUi/actions/runs/33971459949). The prior dependency CI blocker
+is closed. RedXe's full Debug regression passed after correcting published-schema support for bounded Unicode
+strings/ASCII identifiers and the placed gallery count. That regression is `.build/av-schema-full-debug.log`;
+the new camera pieces below still require the final full-configuration regression.
+
+- Added a fixed four-consumer local named-pipe bridge. The source verifies the pipe's kernel owner SID; the helper
+  identifies the peer as Session-0 Local Service before opening its channel. Same-user admission and Local mappings
+  are explicit isolated-test construction only, absent from the COM activation attributes. Remote peers, wrong
+  versions, stalled handshakes, excess consumers and unrelated mapping/mutex pairs are rejected.
+- Added `AVControlCamera.dll`, exposing standard COM factory/activation entrypoints and one stable source CLSID.
+  Loading/metadata activation starts no capture and performs no registration. Factory locks, activation/attribute
+  identity, repeated activation, detach, source shutdown and DLL unload are covered through the actual DLL.
+- Synthetic Debug AV tests passed **5,180 checks** at the activation checkpoint. This includes real MF source events,
+  standard sample buffers, channel publication fences and pipe admission/disconnect/restart tests. No physical camera
+  or normal user audio settings were touched. These tests do not prove Session-0 installation/interoperability.
+- The physical capture adapter now uses an asynchronous Source Reader with one completed-sample mailbox, a reused
+  NV12 output image, isolated callback sessions and an owned duplicate wake event. Its real MF reader integration
+  tests and the new AV popup row/wheel assertions are being validated; do not record that run as a pass yet.
+
+Still required: connect capture, camera inventory and virtual-device registration to the helper/coordinator; installer
+and setup flow; independent media-consumer lifetime; cross-process/service/hardware G2 evidence; IME/UIA/theme work;
+remaining G1/G3 and resource/configuration validation; normative closeout. The helper still reports unsupported
+camera control until that production integration is complete.
+
+Capture follow-up: Debug AV tests passed **5,253 checks**, including actual asynchronous Source Reader negotiation,
+NV12 plane copies, a slow-consumer sample bound and rapid callback-session replacement. Full Debug passed in
+`.build/av-camera-full-debug.log`. Release then built cleanly and passed **5,274 AV checks**, including a separate
+owned child process transferring real synthetic frame pixels over the authenticated pipe/mapping and exiting when
+the consumer disconnected. The complete Release regression is running; native ARM64 AV acceptance is still open.
+
+The new `VirtualCameraRoute` implementation uses dynamically resolved Windows 11 `MFCreateVirtualCamera`, stable
+CurrentUser/System-lifetime arguments and the fixed source CLSID. Machine COM registration must point to the
+native-architecture DLL below Program Files; metadata loading from the development drive is not deployment.
+Closing the API object preserves the persistent device; removal is an explicit operation. This new registration
+component has not yet been compiled or connected to the helper at this checkpoint and has not registered a camera.
+
+#### Controller and backend integration, 2026-09-05
+
+Full Release regression passed in `.build/av-camera-full-release.log`. ARM64 Release cross-build passed with zero
+warnings/errors in `.build/av-camera-arm64-release-build.log`; this is not native ARM64 AV runtime evidence. Debug
+camera-controller integration passed in `.build/av-camera-controller-tests.log` (5,303 AV checks): real synthetic
+Source Reader to frame-channel pixels, armed-without-capture, stream start without demand, pause/resume, source
+switch, privacy failure, explicit retry, off and repeated shutdown. Subsequent demand-expiry/watchdog/backend changes
+are under validation and need refreshed configuration results.
+
+The Windows camera backend is now connected to the production broker, using MF inventory, native source-registration
+preflight, the official persistent CurrentUser virtual-camera API and the tested controller. Camera operations and
+audio operations retain independent failure results. Selected-device notifications run in the broker while hidden;
+quick removal/arrival invalidates intents and turns capture off. Protocol revision 2 suspends audio observation while
+retaining an armed camera helper. Driver-call progress wakes the broker's watchdog; no periodic idle watchdog runs.
+
+The installed source/GUI setup and removal flow is still missing; no actual registration or webcam capture has been
+performed. Remaining work includes watchdog fault injection, stronger IPC payload validation, retained inventory
+priority, IME/UIA/theme, setup packaging, camera/audio hardware/platform G1/G2 evidence, full final resource and
+configuration validation, and normative host ABI closeout. Keep this plan open until those items pass.
+
+#### Setup and containment follow-up, 2026-09-05
+
+Debug builds are warning-free and synthetic AV validation now passes **5,456 checks** in
+`.build/av-camera-watchdog-debug-tests.log`. New checks reject malformed broker Unicode/IDs, bool representations,
+duplicates, revisions and capability fields before publishing state. Explicit isolated child processes exercise
+blocked capture Open, ReadFrame, and demand-expiry Close; the watchdog exits each with ERROR_TIMEOUT while the
+parent performs no tile observation. Camera busy/privacy/failed state now permits explicit revision-bound retry.
+
+`AVControlCameraSetup.exe`, `package-camera.ps1`, `install-camera.ps1` and `setup-camera.ps1` implement native Release
+packaging, machine source installation/removal, and separate non-elevated per-user route registration/removal.
+Read the [camera setup guide](../../../Plugins/AVControl/Camera/README.md). Debug package-rejection tests passed;
+Release compilation and full package validation are under way. No camera has been installed, registered or opened.
+Installed-route setup/rollback and G2 hardware acceptance are still outstanding, as is guided in-plugin setup.
+
+The coordinated DxUi task moved the eleven original AV JSON receipts unchanged into
+`docs/measurements/av-touch-2026-09-05`, with a historical scope note. Its new generic samples/benchmarks remain in
+DxUi. RedXe still consumes the previously validated exact pin; concurrent uncommitted DxUi work is not imported.
+
+Next open work: retained/default inventory priority, generic IME/TSF and UIA, theme changes, guided camera setup,
+complete host ABI normative reconciliation, final regression/resource/platform evidence, and real G1/G2 acceptance.
+The plan remains WIP; implementation and synthetic evidence alone do not close its release gates.
+
+Release follow-up: `.build/av-camera-setup-release-tests.log` passed **5,457 synthetic checks** and
+`.build/av-camera-package-release-tests.log` passed **12 package validation checks**. The identified x64 Release
+package passed `install-camera.ps1 -WhatIf`, including native architecture, old-registration ownership and protected
+target-directory checks, without writing machine files or registration. Actual installation/rollback remains unproved.
+
+The host preparation record now carries cached appearance (56 bytes total), populated only on initialization and
+Windows appearance notifications. AV applies normal light/dark or exact high-contrast surface/foreground/selection
+colors without animation-only frames. New light/high-contrast WARP captures and clean-cache assertions are under
+validation; no pass is recorded until the current run completes. Generic text/IME and UIA remain open.
+
+#### Appearance and inventory follow-up, 2026-09-05
+
+Appearance tests passed 5,495 synthetic AV checks in `.build/av-appearance-debug-tests.log`, including an exact
+opaque high-contrast background check. A shared DxUi primary-button contrast defect is being fixed in the isolated
+`Z:/src/DxUi-worktrees/av-high-contrast` checkout, preserving the completed DxUi task's uncommitted sample/docs work.
+All 18 x64 Release library suites passed, with nine recorded Menu capability skips. Matched performance acceptance
+is still open: timing failures coincided with other active compiler jobs; the original baseline and diagnostic logs
+are retained. Do not adopt the new library source or label the performance gate passed yet.
+
+The latest warning-free Debug build and `.build/av-inventory-debug-tests.log` passed **6,215 synthetic AV checks**.
+Protocol revision 3 carries the bounded union of loaded-widget profile bindings. Inventory now retains all audio
+defaults and the selected camera before profile references and ordinary devices. Audio membership is finalized
+before subscription replacement, and the profile view explicitly reports overflow. Tests cover late enumeration,
+changed defaults, independent device-class capacities, malformed preferences, actual helper overflow transport,
+64-widget registration, duplicate binding reuse, definition changes and retirement while hidden. Real-device
+inventory/watch hotplug behavior, release/platform regressions and the remaining IME/UIA/setup/G1/G2 gates remain.
+
+Injected backend follow-up: `.build/av-audio-hotplug-debug-tests.log` passed **6,313 checks** with a warning-free
+Debug build. The production audio backend now runs against explicit fake MMDevice/EndpointVolume COM interfaces
+in component tests: full subscription arrays, late default/reference admission, eviction before replacement,
+generation changes on re-admission and rapid same-ID remove/add, external volume change-back, mute-preserving
+readback, default-policy suppression, local read denial and complete callback teardown. A failed enumeration marks
+live and listed endpoints Unknown, and default-role notification counters commit only with a successful refresh.
+The visible profile overflow heading and accessible explanation are checked at full and minimum sizes.
+
+The isolated DxUi contrast fix is committed as `1947a5b91beb029e9b99d71e0893c6075bbb29ca` on
+`codex/av-high-contrast`, with all 36 local suite receipts, nine Menu capability skips per configuration, both ARM64
+cross-builds, regenerated/reviewed gallery and repository validators. Debug passed against its retained baseline.
+An additional Release baseline/candidate pair with the same owned-process CPU affinity passed unchanged comparison
+thresholds; unrestricted timing also varied for unchanged source. The library's
+`docs/measurements/primary-high-contrast-2026-09-05/README.md` retains raw comparisons, earlier failure logs and
+the limits of this evidence. GitHub CI is pending; RedXe still consumes the previously validated 4544d34 pin.
+
+Latest contrast adoption: CI 33980767827 passed all four native configurations and 33980767838 passed formatting.
+RedXe now pins the exact `1947a5b91beb029e9b99d71e0893c6075bbb29ca` source. Its full Debug rebuild and all root
+regression checks passed in `.build/av-contrast-integration-debug.log` (zero compiler warnings/errors); Release is
+running. The entrypoint now explicitly returns success after all assertions pass, so an expected nonzero child exit
+from its process-preflight tests cannot leak into a calling script. No real endpoints or camera setup were changed.
+
+The next isolated library branch adds revision-checked embedded text snapshots and composition preview/commit/cancel.
+The new embedded tests and inherited Debug suites passed before the independent-sample integration; undo/history
+and thread tests are being added. The coordinated v2 sample is preserved, and a matching unchanged-library fixture
+is being built for performance comparison. Host-side TSF/IME/UIA, guided setup and hardware/resource gates remain open.
+
+Latest local validation: both full RedXe x64 root suites passed at 1947a5b, and both ARM64 configurations built with
+zero warnings/errors. Follow-up AV suites passed 6,328 Debug and 6,330 Release checks after adding an exact pixel
+assertion for the muted card's system highlight/text pair and a non-clipping minimum-width overflow caption.
+Both new captures were visually reviewed. Root skill validation passed all ten skills.
+
+The isolated input branch now passes all 18 x64 DxUi suites in each configuration (six Menu capability skips each),
+including 1,569 embedded checks. Both complete-suite measurements passed unchanged thresholds against retained,
+matching baselines. Earlier failed/mixed measurements remain archived. The independent benchmark entry was isolated
+equally in baseline/candidate and added to their fixture hashes; older hashes are never compared to the new driver.
+Text tokens reuse the existing view revision, adding no second counter write to ordinary invalidation. Further
+library ARM64 builds/CI are in progress; this input source is still outside the RedXe pin.
+
+Consumer integration must cancel an active composition before LiveView captures a retained profile draft for device
+loss, and route Escape to composition cancellation before closing profiles. The host still needs OS focus,
+TSF/IME/clipboard and UIA attachment. Character forwarding and the new retained-tree API alone do not satisfy them.
+
+The embedded input component and independent samples are committed on DxUi `codex/av-input-services` (1acd177),
+with relocated-consumer path fixes through ad88833. The standalone relocated Release consumer rendered both
+examples and rejected five invalid pins. All local tooling validators passed. Native CI is still running; RedXe
+continues to pin 1947a5b. A follow-up native text-store lifetime fix now covers callbacks that destroy controls,
+change focus/text or throw; its targeted NativeTextInput suite passes. Wider performance acceptance remains under
+investigation: two runs exceeded different timing bands, and an unchanged ad88833 worktree is being built for an
+adjacent comparison. Preserve every original receipt and do not silently rebaseline.
+
+The generic text transport uses a 9,304-byte POD snapshot with 4,096 UTF-16 units, 256 clause boundaries, revision
+validation and widget-local physical geometry. Host/plugin conversion tests cover malformed Unicode, ranges, flags,
+capacity and DPI. These changes do not yet expose AV's text interface or claim functioning OS text/UIA services.
+
+The next transport revision is 9,312 bytes and adds a stable focus-session identity plus revision-checked point/range
+geometry. Common/DxUiTextTransport.h is shared by both sides. RedXe now has source for an application-owned TSF client,
+lazy message-loop attachment, clipboard routing, prepared-layout notifications and cancellation on hide/focus/resize/
+page/device lifetime. AV exposes the generic interface and cancels preview before retaining profile drafts. New AV
+tests cover stale edits, replaced focus, Escape-before-Back and uncommitted device-loss preview. These integration
+changes require the new DxUi pin and have not yet been built; the last built RedXe state passed 6,360 checks with
+the focus-ID transport alone. The canonical dependency remains 1947a5b until library validation is accepted.
+
+The library component's final x64 Debug/Release suites pass; ARM64 builds are running. Its public-only text sample
+rendered Unicode using a hidden TSF attachment and private clipboard; Embedded passes 1,588 checks with zero warm
+composition allocations. Declare the next common-fixture comparison before measuring: A1/B1/B2/A2 in both Debug and
+Release, where A is the retained ad88833 baseline and B is the current component, both on the same v2 harness and
+owned-process affinity. Both nearest pairs must pass unchanged comparison thresholds. Keep every raw run and failed
+comparison. This evidence cannot replace the outstanding real IME/UIA, hardware, presented-resource and camera gates.
+
+
+#### Current continuation: embedded accessibility and minimum-size profile access
+
+DxUi text-services commit 2ca8cc03aae08f943d00abdfeddfe6f87f7800cd passed native CI 33988110749 in all four
+configurations and format CI 33988110763. Its relocated Release consumer rendered three public examples and rejected
+five invalid pins. The canonical RedXe pin remains 1947a5b while the retained matched-performance gate is open.
+The isolated consumer is Z:/src/RxAv; its local dependency lock is a validation override, not accepted adoption.
+Full RedXe Debug regression passed with the generic text integration and confirmed-toggle semantics in
+.build/av-text-root-debug-tests2.log. Release, ARM64 and final resource/real-device gates need refreshing after UIA.
+
+The minimum native layout now keeps a direct Profile button plus all five live controls. Compact sliders replace
+paired steppers, with 48-pixel hit height and 92-pixel microphone width at 160x180. The updated layout, one-tap profile
+tests and confirmed mute semantics passed 6,118 synthetic checks in .build/av-minimum-profile-debug-tests.log;
+the smaller assertion count reflects six targets replacing the previous seven-target stepper grid. Native captures
+at 160x180, 320x180 and 640x360 were visually reviewed. Mockups/av-control.html and the existing review wrapper are
+aligned; its headless minimum-layout check passed all six target bounds, overlap, profile-open and focus-return
+checks at 160x180, 320x180 and 640x180, with no JavaScript errors.
+
+On the coordinated isolated DxUi branch, the initial shared UIA adapter passes 1,709 embedded checks. It reuses
+existing Toggle/RangeValue/Value/Text providers, uses the owning COM STA (including an actual marshaled cross-apartment
+test), transforms physical-screen bounds once, rejects detached/hidden/replaced controls, and gives replacements
+distinct runtime IDs. One thousand clean accessibility updates allocate nothing. UIA range edits now deliver the
+normal committed callback; model SetValue remains silent. Prepared-state change notifications and a coalescible
+application completion callback are implemented, but full validation and RedXe's COM/root adaptation remain open.
+Inherited native Accessibility and NativeTextInput suites pass. A mistyped Controls suite filter was rejected; its
+failed invocation is retained and cannot count as a full suite pass. The pending full matrix uses the default list.
+
+Still required: finish/test the RedXe UIA root, generic COM site, queued focus/navigation and provider module lifetime;
+guided in-plugin camera setup; actual IME/touch/screen-reader behavior; paired resource acceptance and long-run/presented
+measurements; real G1 audio-policy and G2 camera installation/client/platform evidence. This plan remains active.
+
+#### UIA integration validation and next resource comparison
+
+The RedXe generic COM site/root, prepared publication, deferred focus/navigation and provider module lifetime now
+pass the isolated AV suite. Full RedXe x64 Debug and Release root suites passed with DxUi 5b366f2; logs are
+.build/av-uia-full-debug.log and .build/av-uia-full-release.log. A real OS UIA MTA client discovers the AV output
+slider through WM_GETOBJECT and receives its confirmed range-value event. All three Toggle patterns retain confirmed
+state until worker acknowledgment. Tests also retain a disconnected provider after plugin shutdown and loader-owner
+release. Real screen-reader/IME/touch usability and hardware acceptance are still open.
+
+DxUi 26459b4b25c8573fccf049d4947a1d221f64b182 fixes the public accessibility header's standalone COM prerequisites;
+all 18 local suites in each x64 configuration, both ARM64 cross-builds and validators passed. Its exact-commit CI is
+pending. Preceding 5b366f2 CI passed x64 Release and both ARM64 jobs, but x64 Debug Menu failed. The retained trace
+shows the intended posted move reached and hovered row 1 before an OS-generated move at the real cursor cleared it.
+The cooperating DxUi task is reviewing a deterministic fixture correction; the failure is not waived.
+
+Declare the next comparison before running it: EmbeddedUia-20260905-01, A1/B1/B2/A2 in Debug then Release. A remains
+the retained ad88833 text-services baseline; B is 26459b4, both using the identical v2 benchmark inputs and owned-process
+affinity 0xFFFF. Run after compilers/linkers stop. Keep every raw receipt, both nearest-pair comparisons and same-source
+controls, with unchanged thresholds. This measures cumulative library changes with accessibility inactive; it does
+not replace explicit active-UIA, AV idle/hidden, presented-frame or camera-resource acceptance. Prior failed comparisons
+remain archived and unresolved; no canonical dependency adoption follows from an unpaired or ambiguous result.
+
+Camera setup guidance now renders six steps through the profile chooser, with minimum-size captures reviewed.
+It explains the existing package/setup tools and app-side route selection; it does not perform installation. Large
+layout typography and all six minimum captures have now been visually reviewed. The latest guided Debug synthetic
+suite passed 7,370 checks. Machine install/rollback and usable release distribution remain G2 work.
+
+#### Saved continuation, 2026-09-05 21:15 UTC
+
+Work is paused at the user's request. The declared EmbeddedUia ABBA run completed: all four matched pairs flagged
+different metrics, and same-source controls also vary. Acceptance remains OPEN; 24 JSON reports and the run log are
+retained in the isolated DxUi Measurements/TextInput/EmbeddedUia-2026-09-05 archive. A longer fixture is proposed only.
+
+The isolated owner-flood Menu fixture now uses a scoped thread hook. Both deliberate negative variants failed as
+intended, sources were restored byte-for-byte, and the restored Release Menu suite passed. Production Menu has no
+diff. The uncommitted test changes still require final validation and CI.
+
+At 26459b4, CI 33991448220 passed; another run of the same commit, 33991599173, failed x64 Release in the separate
+split-button Refine-row hover test. Other native configurations and both format runs passed. Preserve the failure.
+Canonical RedXe remains pinned to 1947a5b; newer API source is validated only in RxAv with its 5b366f2 override.
+No canonical dependency adoption or completion is claimed.

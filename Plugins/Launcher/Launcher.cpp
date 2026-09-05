@@ -1315,6 +1315,7 @@ class LauncherWidget final
         {
             return E_INVALIDARG;
         }
+        if (event->phase == RedXePointerPhaseWheel) return S_FALSE;
         if (event->phase == RedXePointerPhaseCancel)
         {
             _pointerDown = false;
@@ -1377,6 +1378,7 @@ class LauncherWidget final
         }
         LauncherConfiguration previous{};
         CopyConfigurationIdentity(_authored, previous);
+        const bool previousDirty = _dirty;
         uint32_t accepted = 0;
         for (uint32_t index = 0; index < event->itemCount && _authored.count < kMaximumShortcuts; ++index)
         {
@@ -1435,7 +1437,7 @@ class LauncherWidget final
             if (FAILED(writtenResult) || FAILED(_host->PersistWidgetSettings(_instanceId, json.data(), written)))
             {
                 CopyConfigurationIdentity(previous, _authored);
-                _dirty = false;
+                _dirty = previousDirty;
                 RefreshDisplay(false);
                 return E_FAIL;
             }
@@ -1535,6 +1537,27 @@ class LauncherWidget final
             ResolvePinDirectory(directory.data(), directory.size());
             EnumerateLnks(directory.data(), _display);
             _usingPins = _display.count > 0;
+            if (_usingPins)
+            {
+                CopyConfigurationIdentity(_display, _authored);
+                _dirty = true;
+                std::array<char, kSettingsJsonCapacity + 1> json{};
+                uint32_t written = 0;
+                HRESULT encoded = WriteAuthoredJson(json.data(), static_cast<uint32_t>(json.size()), written);
+                while (encoded == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) && _authored.count > 0)
+                {
+                    --_authored.count;
+                    _display.count = _authored.count;
+                    encoded = WriteAuthoredJson(json.data(), static_cast<uint32_t>(json.size()), written);
+                }
+                // Visibility callbacks only enqueue; the host commits outside this callback on its UI thread.
+                wil::com_ptr_nothrow<IRedXeSettingsQueue> queue;
+                if (SUCCEEDED(encoded) && _host && SUCCEEDED(_host->QueryInterface(IID_PPV_ARGS(queue.put()))))
+                {
+                    (void)queue->QueueWidgetSettings(_instanceId, json.data(), written);
+                }
+                // Keep dirty until a synchronous save succeeds; collect retries unavailable/failed queued saves.
+            }
         }
         bool degraded = false;
         for (uint32_t index = 0; index < _display.count; ++index)
@@ -1661,7 +1684,11 @@ class LauncherWidget final
         }
         size_t length = 0;
         unique_malloc_string text{yyjson_mut_write(document.get(), 0, &length)};
-        if (!text || length == 0 || length >= capacityBytes)
+        if (!text || length == 0)
+        {
+            return E_OUTOFMEMORY;
+        }
+        if (length >= capacityBytes)
         {
             return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
         }

@@ -1,11 +1,15 @@
 #include "Application.h"
+#include "AccessibilityHost.h"
+#include <UIAutomation.h>
 
 #include "CrashHandler.h"
 #include "FluentIcons.h"
 #include "FrameScheduler.h"
 #include "PageNavigation.h"
 #include "Settings.h"
+#include "TextInputValidation.h"
 #include "WidgetRaise.h"
+#include "WidgetTextClient.h"
 #include "resource.h"
 
 #include <algorithm>
@@ -604,6 +608,18 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             {
                 return FAILED(_runtimeFailure) ? 5 : static_cast<int>(message.wParam);
             }
+            if (_textServices && (message.message == WM_KEYDOWN || message.message == WM_KEYUP ||
+                                  message.message == WM_SYSKEYDOWN || message.message == WM_SYSKEYUP))
+            {
+                RefreshTextServices();
+                bool handled = false;
+                (void)_textServices->PreTranslate(message, handled);
+                if (handled)
+                {
+                    RefreshTextServices();
+                    continue;
+                }
+            }
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }
@@ -690,7 +706,15 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         const float elapsedSeconds = elapsed.count();
         const float deltaSeconds = elapsedSeconds - previousElapsedSeconds;
         previousElapsedSeconds = elapsedSeconds;
-        result = _renderer.Render(elapsedSeconds, deltaSeconds);
+        bool focusedViewPrepared = false;
+        uint64_t preparedWidgets = 0;
+        result = _renderer.PrepareWidgets(_keyboardWidgetIndex, &focusedViewPrepared,
+                                          _accessibility ? &preparedWidgets : nullptr);
+        if (focusedViewPrepared || result == S_FALSE)
+            RefreshTextServices(focusedViewPrepared);
+        RefreshAccessibility(preparedWidgets);
+        if (SUCCEEDED(result))
+            result = _renderer.Render(elapsedSeconds, deltaSeconds);
         if (FAILED(result))
         {
             _runtimeFailure = result;
@@ -724,6 +748,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
 int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
 {
     PluginHost::Instance().SetNetworkAccessEnabled(false);
+    PluginHost::Instance().SetControlAccessEnabled(false);
     if (!_pluginManager || !_dashboardHost)
     {
         OutputDebugStringW(L"Dashboard host allocation failed.\n");
@@ -827,7 +852,9 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     }
 
     const size_t expectedGpuWidgetCount = CountGpuWidgets(*_pluginManager);
-    result = _renderer.Render(0.0f, 0.0f);
+    result = _renderer.PrepareWidgets();
+    if (SUCCEEDED(result))
+        result = _renderer.Render(0.0f, 0.0f);
     if (FAILED(result) || _renderer.LastFrameWidgetCount() != expectedGpuWidgetCount ||
         _renderer.LastFrameSuccessfulWidgetCount() != expectedGpuWidgetCount ||
         (!PluginEnabled(*_settings, "builtin.rotating-triangle") && GetModuleHandleW(L"RotatingTriangle.dll")) ||
@@ -849,6 +876,8 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         result = MoveDashboardPage(*changed, 1);
         if (SUCCEEDED(result))
             result = ApplySettings(std::move(changed));
+        if (SUCCEEDED(result))
+            result = _renderer.PrepareWidgets();
         if (SUCCEEDED(result))
             result = _renderer.Render(0.0f, 0.0f);
         const size_t changedGpuWidgetCount = CountGpuWidgets(*_pluginManager);
@@ -1060,6 +1089,7 @@ HRESULT Application::InitializeDashboardRuntime() noexcept
         return result;
     }
     _rendererReady = true;
+    RefreshAppearance();
     PluginHost::Instance().SetUiInvalidateTarget(_window.get());
     RefreshPageEdgeAffordances();
     result = UpdateDashboardVisibility();
@@ -1293,6 +1323,7 @@ void Application::BeginPageSettle(LONG targetOffset, bool commit) noexcept
     }
 
     _pageSettleActive = true;
+    if (_accessibility) _accessibility->ClearViews();
     _pageSettleCommit = commit;
     _pageSettleStart = _pageCurrentOffset;
     _pageSettleTarget = targetOffset;
@@ -1778,6 +1809,7 @@ void Application::PaintPageEdge(HWND edge, size_t index) noexcept
 
 void Application::CancelPageNavigation() noexcept
 {
+    ClearKeyboardFocus();
     if (_pagePointerCaptured && _window && _pagePointerId != 0)
     {
         HostReleasePointerCapture(_window.get(), _pagePointerId);
@@ -1829,6 +1861,8 @@ bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT&
 
 void Application::OnPointerDown(HWND window, WPARAM wParam) noexcept
 {
+    if (_pagePointerActive || _interactiveOwnsPointer)
+        return;
     const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
     POINT position{};
     UINT64 qpc = 0;
@@ -1855,6 +1889,8 @@ void Application::OnPointerDown(HWND window, WPARAM wParam) noexcept
         (void)ForwardInteractivePointer(position, pointerId, kind, RedXePointerPhaseDown, &consumed);
         (void)consumed;
     }
+    if (_interactiveOwnsPointer)
+        return;
     if (_raisedActive)
     {
         return;
@@ -1892,6 +1928,20 @@ void Application::OnPointerDown(HWND window, WPARAM wParam) noexcept
 
 void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
 {
+    if (_interactiveOwnsPointer)
+    {
+        const uint32_t pointerId = GET_POINTERID_WPARAM(wParam);
+        if (pointerId != _interactivePointerId)
+            return;
+        POINT position{};
+        UINT64 qpc = 0;
+        if (!TryPointerClientPosition(window, pointerId, position, qpc))
+            CancelInteractivePointer();
+        else
+            (void)ForwardInteractivePointer(position, pointerId, _interactivePointerKind, RedXePointerPhaseMove,
+                                            nullptr);
+        return;
+    }
     if (_raisedActive)
     {
         return;
@@ -1938,6 +1988,7 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
         }
         CancelInteractivePointer();
         _pagePanStarted = true;
+        if (_accessibility) _accessibility->ClearViews();
         _pageSettleActive = false;
         if (HostSetPointerCapture(window, pointerId))
         {
@@ -1984,6 +2035,17 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
     POINT position{};
     UINT64 qpc = 0;
     const bool havePosition = TryPointerClientPosition(window, GET_POINTERID_WPARAM(wParam), position, qpc);
+    if (_interactiveOwnsPointer)
+    {
+        if (GET_POINTERID_WPARAM(wParam) != _interactivePointerId)
+            return;
+        if (havePosition)
+            (void)ForwardInteractivePointer(position, _interactivePointerId, _interactivePointerKind,
+                                            RedXePointerPhaseUp, nullptr);
+        else
+            CancelInteractivePointer();
+        return;
+    }
     if (_raisedActive)
     {
         bool consumed = false;
@@ -2072,7 +2134,7 @@ void Application::OnMouseButtonUp(HWND window, LPARAM lParam) noexcept
         return;
     }
     const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-    if (TryNavigateFromPageEdge(window, position))
+    if (!_interactiveOwnsPointer && TryNavigateFromPageEdge(window, position))
     {
         CancelInteractivePointer();
         return;
@@ -2114,8 +2176,14 @@ bool Application::PointInPageEdgeBand(HWND window, POINT position) const noexcep
 }
 
 HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId, uint32_t kind, uint32_t phase,
-                                               bool* consumed) noexcept
+                                               bool* consumed, uint32_t modifiers, float wheelDelta) noexcept
 {
+    const auto refreshText = wil::scope_exit(
+        [this, phase]() noexcept
+        {
+            if (_textClient || phase == RedXePointerPhaseDown || phase == RedXePointerPhaseUp)
+                RefreshTextServices();
+        });
     if (consumed)
     {
         *consumed = false;
@@ -2132,8 +2200,44 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
         {
             return S_FALSE;
         }
-        const RedXePointerEvent event{sizeof(RedXePointerEvent), pointerId, kind, phase, localX, localY};
+        RECT bounds{};
+        const bool raised = _raisedActive && index == _raisedWidgetIndex;
+        if (raised)
+            bounds = _raisedLayout.content;
+        else if (_window)
+        {
+            RECT clientBounds{};
+            if (GetClientRect(_window.get(), &clientBounds))
+                bounds = _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(clientBounds.right),
+                                                       static_cast<UINT>(clientBounds.bottom));
+        }
+        const RedXePointerEvent event{sizeof(RedXePointerEvent),
+                                      pointerId,
+                                      kind,
+                                      phase,
+                                      localX,
+                                      localY,
+                                      raised ? 1U : 0U,
+                                      static_cast<uint32_t>(std::max(0L, bounds.right - bounds.left)),
+                                      static_cast<uint32_t>(std::max(0L, bounds.bottom - bounds.top)),
+                                      _window ? GetDpiForWindow(_window.get()) : 96U,
+                                      modifiers,
+                                      wheelDelta};
         return widget->OnPointer(&event);
+    };
+
+    const auto releaseCapture = [&]() noexcept
+    {
+        if (!_interactiveOwnsPointer)
+            return;
+        _interactiveOwnsPointer = false;
+        if (_interactivePointerKind == RedXePointerKindMouse)
+        {
+            if (_window && GetCapture() == _window.get())
+                (void)ReleaseCapture();
+        }
+        else if (_window)
+            HostReleasePointerCapture(_window.get(), _interactivePointerId);
     };
 
     if (phase == RedXePointerPhaseCancel)
@@ -2142,6 +2246,7 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
         const bool wasConsumed = _interactivePointerConsumed;
         _interactivePointerWidget = SIZE_MAX;
         _interactivePointerConsumed = false;
+        releaseCapture();
         if (index == SIZE_MAX)
         {
             return S_FALSE;
@@ -2155,6 +2260,9 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
     }
 
     size_t index = SIZE_MAX;
+    if ((phase == RedXePointerPhaseMove || phase == RedXePointerPhaseUp) && _interactivePointerWidget != SIZE_MAX &&
+        pointerId != _interactivePointerId)
+        return S_FALSE;
     float localX = 0.0f;
     float localY = 0.0f;
     bool haveLocal = false;
@@ -2185,16 +2293,38 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
     }
     if (!haveLocal)
     {
+        if (phase == RedXePointerPhaseDown)
+            ClearKeyboardFocus();
         return S_FALSE;
     }
 
     const HRESULT result = send(index, localX, localY);
     if (phase == RedXePointerPhaseDown)
     {
-        if (result == S_OK)
+        if (result == S_OK || result == RedXePointerCapture)
         {
+            (void)FocusKeyboardWidget(index);
             _interactivePointerWidget = index;
             _interactivePointerConsumed = true;
+            _interactivePointerId = pointerId;
+            _interactivePointerKind = kind;
+            if (result == RedXePointerCapture && _window)
+            {
+                if (kind == RedXePointerKindMouse)
+                {
+                    (void)SetCapture(_window.get());
+                    _interactiveOwnsPointer = GetCapture() == _window.get();
+                }
+                else
+                    _interactiveOwnsPointer = HostSetPointerCapture(_window.get(), pointerId);
+                if (!_interactiveOwnsPointer)
+                {
+                    CancelInteractivePointer();
+                    // The canceled Down was still consumed; its later Up must not become a raise gesture.
+                    _interactivePointerWidget = index;
+                    _interactivePointerConsumed = true;
+                }
+            }
             if (consumed)
             {
                 *consumed = true;
@@ -2204,9 +2334,15 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
     }
     if (phase == RedXePointerPhaseUp)
     {
-        const bool gestureConsumed = _interactivePointerConsumed || result == S_OK;
+        const bool gestureConsumed = _interactivePointerConsumed || result == S_OK || result == RedXePointerCapture ||
+                                     result == RedXePointerRaise || result == RedXePointerDismiss;
         _interactivePointerWidget = SIZE_MAX;
         _interactivePointerConsumed = false;
+        releaseCapture();
+        if (result == RedXePointerRaise && !_raisedActive && _window)
+            (void)TryRaiseWidgetAt(_window.get(), index);
+        else if (result == RedXePointerDismiss && _raisedActive && index == _raisedWidgetIndex)
+            DismissWidgetRaise(true);
         if (consumed)
         {
             *consumed = gestureConsumed;
@@ -2215,7 +2351,7 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
     }
     if (consumed)
     {
-        *consumed = result == S_OK;
+        *consumed = result == S_OK || result == RedXePointerCapture;
     }
     return result;
 }
@@ -2279,6 +2415,257 @@ void Application::CancelInteractivePointer() noexcept
     }
     _interactivePointerWidget = SIZE_MAX;
     _interactivePointerConsumed = false;
+}
+
+void Application::RefreshAppearance() noexcept
+{
+    RedXeAppearance appearance;
+    DWORD light = 0, bytes = sizeof(light);
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                     L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &light, &bytes) == ERROR_SUCCESS &&
+        light)
+        appearance.flags &= ~RedXeAppearanceDark;
+    HIGHCONTRASTW contrast{sizeof(HIGHCONTRASTW)};
+    if (SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
+        (contrast.dwFlags & HCF_HIGHCONTRASTON))
+        appearance.flags |= RedXeAppearanceHighContrast;
+    const auto color = [](int index) noexcept -> uint32_t
+    {
+        const COLORREF value = GetSysColor(index);
+        return 0xff000000U | uint32_t(GetRValue(value)) << 16 | uint32_t(GetGValue(value)) << 8 |
+               uint32_t(GetBValue(value));
+    };
+    appearance.window = color(COLOR_WINDOW);
+    appearance.windowText = color(COLOR_WINDOWTEXT);
+    appearance.highlight = color(COLOR_HIGHLIGHT);
+    appearance.highlightText = color(COLOR_HIGHLIGHTTEXT);
+    appearance.button = color(COLOR_BTNFACE);
+    appearance.buttonText = color(COLOR_BTNTEXT);
+    appearance.disabledText = color(COLOR_GRAYTEXT);
+    _renderer.SetAppearance(appearance);
+    _frameInvalidated = true;
+}
+void Application::ClearTextServices() noexcept
+{
+    if (_textServices)
+        _textServices->ClearClient();
+    if (_textClient)
+        _textClient->Disconnect();
+    _textClient.reset();
+}
+void Application::RefreshAccessibility(uint64_t preparedWidgets) noexcept
+{
+    if (!_accessibility) return;
+    if (!_dashboardHost || !_window || !_windowVisible || !_displayPoweredOn || _renderer.IsSuspended() ||
+        _renderer.IsOccluded() || PageNavigationInProgress() || OverlayMotionInProgress() || _settingsErrorDialog)
+    {
+        _accessibility->ClearViews();
+        return;
+    }
+    RECT client{};
+    if (!GetClientRect(_window.get(), &client) || client.right <= 0 || client.bottom <= 0)
+    {
+        _accessibility->ClearViews();
+        return;
+    }
+    std::array<AccessibleWidgetView, PluginManager::kMaximumWidgetInstances> views{};
+    size_t count = 0;
+    for (size_t index = 0; index < _dashboardHost->WidgetCount() && count < views.size(); ++index)
+    {
+        if (_raisedActive && index != _raisedWidgetIndex) continue;
+        auto* widget = _dashboardHost->AccessibilityWidgetAt(index);
+        if (!widget || _dashboardHost->RequiresPlaceholderAt(index)) continue;
+        const RECT bounds = _raisedActive ? _raisedLayout.content : _dashboardHost->PixelBoundsAt(index,
+            static_cast<UINT>(client.right), static_cast<UINT>(client.bottom));
+        POINT top{bounds.left, bounds.top}, bottom{bounds.right, bounds.bottom};
+        if (!ClientToScreen(_window.get(), &top) || !ClientToScreen(_window.get(), &bottom)) continue;
+        views[count++] = {index, widget, _raisedActive ? 1U : 0U, {top.x, top.y, bottom.x, bottom.y},
+            _keyboardWidgetIndex == index && GetFocus() == _window.get(), (preparedWidgets & (uint64_t{1} << index)) != 0};
+    }
+    (void)_accessibility->Update(std::span<const AccessibleWidgetView>(views.data(), count));
+}
+void Application::HandleAccessibilityRequests() noexcept
+{
+    if (!_accessibility) return;
+    RefreshAccessibility();
+    AccessibilityRequest request;
+    while (_accessibility->TakeRequest(request))
+    {
+        if (!_dashboardHost || (_raisedActive && request.index != _raisedWidgetIndex) ||
+            request.viewId != (_raisedActive ? 1U : 0U)) continue;
+        if (request.focus)
+        {
+            ::SetFocus(_window.get());
+            (void)FocusKeyboardWidget(request.index);
+        }
+        if (request.action == RedXePointerRaise) (void)TryRaiseWidgetAt(_window.get(), request.index);
+        else if (request.action == RedXePointerDismiss && _raisedActive) DismissWidgetRaise();
+        _frameInvalidated = true;
+    }
+    RefreshTextServices();
+    RefreshAccessibility();
+}
+void Application::RefreshTextServices(bool layoutPrepared) noexcept
+{
+    if (!_keyboardWidget || !_dashboardHost || !_window || GetFocus() != _window.get() || !_windowVisible ||
+        !_displayPoweredOn || _renderer.IsSuspended() || _renderer.IsOccluded() || PageNavigationInProgress() ||
+        OverlayMotionInProgress() || (_raisedActive && _keyboardWidgetIndex != _raisedWidgetIndex))
+    {
+        ClearTextServices();
+        return;
+    }
+    auto* widget = _dashboardHost->TextInputWidgetAt(_keyboardWidgetIndex);
+    RedXeTextState state;
+    if (!widget || widget->ReadTextState(_keyboardView, &state) != S_OK || !IsValidRedXeTextState(state))
+    {
+        ClearTextServices();
+        return;
+    }
+    RECT client{};
+    if (!GetClientRect(_window.get(), &client) || client.right <= 0 || client.bottom <= 0)
+    {
+        ClearTextServices();
+        return;
+    }
+    const RECT bounds = _keyboardView
+                            ? _raisedLayout.content
+                            : _dashboardHost->PixelBoundsAt(_keyboardWidgetIndex, static_cast<UINT>(client.right),
+                                                            static_cast<UINT>(client.bottom));
+    POINT origin{bounds.left, bounds.top};
+    if (!ClientToScreen(_window.get(), &origin))
+    {
+        ClearTextServices();
+        return;
+    }
+    try
+    {
+        if (!_textServices)
+        {
+            auto service = std::make_unique<DxUi::TextInputServices>();
+            if (FAILED(service->Attach(_window.get())))
+                return;
+            _textServices = std::move(service);
+        }
+        if (!_textClient || !_textClient->Matches(widget, _keyboardView, state.focusId))
+        {
+            ClearTextServices();
+            _textClient = std::make_shared<WidgetTextClient>(widget, _keyboardView, state.focusId, origin);
+        }
+        _textClient->SetScreenOrigin(origin);
+        if (!_textServices->HasClient() && _textServices->SetClient(_textClient) != S_OK)
+        {
+            ClearTextServices();
+            return;
+        }
+        _textServices->NotifyChanged();
+        if (layoutPrepared)
+            _textServices->NotifyLayoutChanged();
+    }
+    catch (const std::bad_alloc&)
+    {
+        ClearTextServices();
+    }
+}
+void Application::ClearKeyboardFocus() noexcept
+{
+    ClearTextServices();
+    auto previous = std::move(_keyboardWidget);
+    const uint32_t view = _keyboardView;
+    _keyboardWidgetIndex = SIZE_MAX;
+    _keyboardView = 0;
+    if (previous)
+        (void)previous->SetKeyboardFocus(FALSE, view);
+}
+bool Application::FocusKeyboardWidget(size_t index) noexcept
+{
+    auto* target = _dashboardHost ? _dashboardHost->KeyboardWidgetAt(index) : nullptr;
+    const uint32_t view = _raisedActive && index == _raisedWidgetIndex ? 1U : 0U;
+    if (_keyboardWidget.get() == target && _keyboardWidgetIndex == index && _keyboardView == view)
+        return target != nullptr;
+    ClearKeyboardFocus();
+    if (!target || _dashboardHost->RequiresPlaceholderAt(index))
+        return false;
+    _keyboardWidget = target;
+    _keyboardWidgetIndex = index;
+    _keyboardView = view;
+    if (FAILED(target->SetKeyboardFocus(TRUE, view)))
+    {
+        ClearKeyboardFocus();
+        return false;
+    }
+    return true;
+}
+bool Application::AdvanceKeyboardWidget(bool reverse) noexcept
+{
+    const auto refreshText = wil::scope_exit([this]() noexcept { RefreshTextServices(); });
+    if (!_dashboardHost || !_dashboardHost->WidgetCount())
+        return false;
+    const size_t count = _dashboardHost->WidgetCount();
+    const size_t previous = _keyboardWidgetIndex;
+    ClearKeyboardFocus();
+    for (size_t offset = 1; offset <= count; ++offset)
+    {
+        const size_t candidate = previous >= count ? (reverse ? count - offset : offset - 1)
+                                 : reverse         ? (previous + count - offset) % count
+                                                   : (previous + offset) % count;
+        if (_raisedActive && candidate != _raisedWidgetIndex)
+            continue;
+        if (!FocusKeyboardWidget(candidate))
+            continue;
+        const RedXeKeyEvent event{sizeof(RedXeKeyEvent), VK_TAB, reverse ? MK_SHIFT : 0U, _keyboardView, TRUE};
+        (void)_keyboardWidget->OnKey(&event);
+        return true;
+    }
+    return false;
+}
+bool Application::HandleKeyboardResult(HRESULT result) noexcept
+{
+    if (result == RedXePointerRaise)
+    {
+        const size_t index = _keyboardWidgetIndex;
+        if (!_raisedActive && _window)
+            (void)TryRaiseWidgetAt(_window.get(), index);
+        return true;
+    }
+    if (result == RedXePointerDismiss)
+    {
+        if (_raisedActive)
+            DismissWidgetRaise(true);
+        return true;
+    }
+    return result == S_OK;
+}
+bool Application::ForwardWidgetKey(uint32_t key, bool down) noexcept
+{
+    const auto refreshText = wil::scope_exit([this]() noexcept { RefreshTextServices(); });
+    if (!_windowVisible || !_displayPoweredOn || !_dashboardHost)
+        return false;
+    const uint32_t modifiers = ((GetKeyState(VK_SHIFT) & 0x8000) ? MK_SHIFT : 0U) |
+                               ((GetKeyState(VK_CONTROL) & 0x8000) ? MK_CONTROL : 0U) |
+                               ((GetKeyState(VK_MENU) & 0x8000) ? 0x20U : 0U);
+    if (_keyboardWidget && _dashboardHost->KeyboardWidgetAt(_keyboardWidgetIndex) != _keyboardWidget.get())
+        ClearKeyboardFocus();
+    if (!_keyboardWidget)
+        return down && key == VK_TAB && AdvanceKeyboardWidget((modifiers & MK_SHIFT) != 0);
+    const RedXeKeyEvent event{sizeof(RedXeKeyEvent), key, modifiers, _keyboardView, down ? TRUE : FALSE};
+    const HRESULT result = _keyboardWidget->OnKey(&event);
+    if (result == RedXeKeyboardBoundary && down && key == VK_TAB)
+        return AdvanceKeyboardWidget((modifiers & MK_SHIFT) != 0);
+    return HandleKeyboardResult(result);
+}
+bool Application::ForwardWidgetCharacter(uint32_t character) noexcept
+{
+    const auto refreshText = wil::scope_exit([this]() noexcept { RefreshTextServices(); });
+    if (!_windowVisible || !_displayPoweredOn || !_dashboardHost || !_keyboardWidget)
+        return false;
+    if (_dashboardHost->KeyboardWidgetAt(_keyboardWidgetIndex) != _keyboardWidget.get())
+    {
+        ClearKeyboardFocus();
+        return false;
+    }
+    const uint32_t modifiers =
+        ((GetKeyState(VK_SHIFT) & 0x8000) ? MK_SHIFT : 0U) | ((GetKeyState(VK_CONTROL) & 0x8000) ? MK_CONTROL : 0U);
+    return HandleKeyboardResult(_keyboardWidget->OnCharacter(character, modifiers, _keyboardView));
 }
 
 bool Application::TryNavigateFromPageEdge(HWND window, POINT position) noexcept
@@ -2426,6 +2813,7 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
     _raiseTargetPixels = SIZE{target.content.right - target.content.left, target.content.bottom - target.content.top};
     _raisedWidgetIndex = widgetIndex;
     _raisedActive = true;
+    if (_accessibility) _accessibility->ClearViews();
     _activateTick = 0;
     _activateWidgetIndex = SIZE_MAX;
     _raisedLayout = target;
@@ -2440,6 +2828,7 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
         return result;
     }
     BeginRaiseSettle(start, target, 0, kRaiseOverlayDimAlpha, false);
+    (void)FocusKeyboardWidget(widgetIndex);
     RefreshPageEdgeAffordances();
     return S_OK;
 }
@@ -2531,6 +2920,7 @@ HRESULT Application::ApplyRaiseVisual(const RaisedLayout& layout, BYTE dimAlpha)
 void Application::BeginRaiseSettle(const RaisedLayout& from, const RaisedLayout& to, BYTE dimFrom, BYTE dimTo,
                                    bool dismissing) noexcept
 {
+    if (_accessibility) _accessibility->ClearViews();
     _raiseSettleFrom = from;
     _raiseSettleTo = to;
     _raiseDimFrom = dimFrom;
@@ -2598,6 +2988,9 @@ void Application::CompleteRaiseSettle() noexcept
 
 void Application::CompleteDismissImmediate() noexcept
 {
+    if (_accessibility) _accessibility->ClearViews();
+    const size_t previousKeyboardWidget = _keyboardWidgetIndex;
+    ClearKeyboardFocus();
     IRedXeRaisedWidget* raisedWidget =
         _dashboardHost && _raisedWidgetIndex != SIZE_MAX ? _dashboardHost->RaisedWidgetAt(_raisedWidgetIndex) : nullptr;
     if (raisedWidget)
@@ -2627,6 +3020,8 @@ void Application::CompleteDismissImmediate() noexcept
     _raiseCloseHovered = false;
     _raiseCloseMouseTracking = false;
     _frameInvalidated = true;
+    if (_window && GetFocus() == _window.get() && previousKeyboardWidget != SIZE_MAX)
+        (void)FocusKeyboardWidget(previousKeyboardWidget);
 }
 
 void Application::SetRaiseCloseHovered(bool hovered) noexcept
@@ -2662,6 +3057,11 @@ LRESULT Application::HandleRaiseOverlayMessage(HWND overlay, UINT message, WPARA
 {
     switch (message)
     {
+    case WM_THEMECHANGED:
+    case WM_SYSCOLORCHANGE:
+    case WM_SETTINGCHANGE:
+        RefreshAppearance();
+        break;
     case WM_ERASEBKGND:
         return 1;
     case WM_SETCURSOR:
@@ -2890,6 +3290,7 @@ void Application::ShowSettingsError(std::wstring_view message) noexcept
             return;
         }
         EnableWindow(_window.get(), FALSE);
+        if (_accessibility) _accessibility->ClearViews();
         const HWND text =
             CreateWindowExW(0, L"STATIC", std::wstring(message).c_str(), WS_CHILD | WS_VISIBLE | SS_LEFT, 24, 24,
                             width - 48, 120, _settingsErrorDialog, reinterpret_cast<HMENU>(100), _instance, nullptr);
@@ -3045,6 +3446,12 @@ HRESULT Application::UpdateDashboardVisibility() noexcept
 
     const bool visible =
         _windowVisible && _displayPoweredOn && _rendererReady && !_renderer.IsSuspended() && !_renderer.IsOccluded();
+    if (!visible && _accessibility)
+        _accessibility->ClearViews();
+    if (!visible)
+        ClearKeyboardFocus();
+    if (!visible)
+        CancelInteractivePointer();
     HRESULT result = _dashboardHost->SetWidgetsVisible(visible);
     if (SUCCEEDED(result) && _transitionDashboardHost)
     {
@@ -3055,6 +3462,10 @@ HRESULT Application::UpdateDashboardVisibility() noexcept
 
 void Application::CloseMainWindow() noexcept
 {
+    if (_accessibility) _accessibility->Disconnect();
+    _accessibility.reset();
+    ClearKeyboardFocus();
+    _textServices.reset();
     PluginHost::Instance().SetUiInvalidateTarget(nullptr);
     if (_dropRegistered && _window)
     {
@@ -3117,8 +3528,36 @@ LRESULT CALLBACK Application::SettingsDialogProcedure(HWND window, UINT message,
 
 LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
 {
+    const auto refreshAccessibility = wil::scope_exit([&]() noexcept
+    {
+        if (message == WM_SIZE || message == WM_DPICHANGED || message == WM_SHOWWINDOW || message == WM_POWERBROADCAST ||
+            message == WM_MOVE || message == WM_SETFOCUS || message == WM_KILLFOCUS) RefreshAccessibility();
+    });
+    if (_accessibility && _accessibility->IsMessage(message, wParam))
+    {
+        HandleAccessibilityRequests();
+        return 0;
+    }
+    if (_textServices)
+    {
+        bool handled = false;
+        (void)_textServices->HandleMessage(message, wParam, lParam, handled);
+        if (handled)
+        {
+            RefreshTextServices();
+            return 0;
+        }
+    }
     switch (message)
     {
+    case WM_GETOBJECT:
+        if (static_cast<LONG>(lParam) == UiaRootObjectId)
+        {
+            if (!_accessibility && FAILED(AccessibilityHost::Create(window, _accessibility))) break;
+            RefreshAccessibility();
+            return UiaReturnRawElementProvider(window, wParam, lParam, _accessibility->Provider());
+        }
+        break;
     case WM_SIZE:
         return OnSize(window, LOWORD(lParam), HIWORD(lParam));
     case WM_DPICHANGED:
@@ -3183,6 +3622,8 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         OnPointerUp(window, wParam);
         return 0;
     case WM_POINTERCAPTURECHANGED:
+        if (_interactiveOwnsPointer && GET_POINTERID_WPARAM(wParam) == _interactivePointerId)
+            CancelInteractivePointer();
         if (_pagePointerActive || _pagePointerCaptured)
         {
             CancelPageNavigation();
@@ -3194,10 +3635,28 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case WM_LBUTTONUP:
         OnMouseButtonUp(window, lParam);
         return 0;
+    case WM_MOUSEWHEEL:
+    {
+        if (!_windowVisible || !_displayPoweredOn || _interactiveOwnsPointer || _pagePanStarted)
+            return 0;
+        POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+        bool consumed = false;
+        if (ScreenToClient(window, &point))
+            (void)ForwardInteractivePointer(point, 1, RedXePointerKindMouse, RedXePointerPhaseWheel, &consumed,
+                                            GET_KEYSTATE_WPARAM(wParam),
+                                            static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam)));
+        if (consumed)
+            return 0;
+        break;
+    }
     case WM_MOUSEMOVE:
         // The top-level window owns edge-band hover: a band is created only while the pointer is inside its zone.
         if (!IsPointerSynthesizedMouseMessage())
         {
+            (void)ForwardInteractivePointer({GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}, 1, RedXePointerKindMouse,
+                                            RedXePointerPhaseMove, nullptr);
+            if (_interactiveOwnsPointer)
+                return 0;
             if (!_pageEdgeMouseTracking)
             {
                 TRACKMOUSEEVENT track{sizeof(TRACKMOUSEEVENT), TME_LEAVE, window, 0};
@@ -3239,6 +3698,16 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         // Entering a band is also a leave for the parent, so re-test the cursor instead of hiding unconditionally.
         UpdatePageEdgeHover();
         return 0;
+    case WM_CANCELMODE:
+    case WM_KILLFOCUS:
+        CancelInteractivePointer();
+        ClearKeyboardFocus();
+        break;
+    case WM_CAPTURECHANGED:
+        if (_interactiveOwnsPointer && _interactivePointerKind == RedXePointerKindMouse &&
+            reinterpret_cast<HWND>(lParam) != window)
+            CancelInteractivePointer();
+        break;
     case WM_GETMINMAXINFO:
     {
         auto* minimums = reinterpret_cast<MINMAXINFO*>(lParam);
@@ -3254,7 +3723,13 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         }
         return 0;
     }
+    case WM_MOVE:
+        if (_textClient)
+            RefreshTextServices(true);
+        break;
     case WM_KEYDOWN:
+        if (ForwardWidgetKey(static_cast<uint32_t>(wParam), true))
+            return 0;
         if (wParam == VK_ESCAPE)
         {
             if (_raisedActive)
@@ -3265,6 +3740,14 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             CloseMainWindow();
             return 0;
         }
+        break;
+    case WM_KEYUP:
+        if (ForwardWidgetKey(static_cast<uint32_t>(wParam), false))
+            return 0;
+        break;
+    case WM_CHAR:
+        if (ForwardWidgetCharacter(static_cast<uint32_t>(wParam)))
+            return 0;
         break;
     case WM_ERASEBKGND:
         return 1;
@@ -3296,6 +3779,8 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
 
 LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
 {
+    ClearKeyboardFocus();
+    CancelInteractivePointer();
     const auto refreshEdges = wil::scope_exit([this]() noexcept { RefreshPageEdgeAffordances(); });
     if (!_rendererReady)
     {
@@ -3334,6 +3819,8 @@ LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
 
 LRESULT Application::OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBounds) noexcept
 {
+    ClearKeyboardFocus();
+    CancelInteractivePointer();
     const auto refreshEdges = wil::scope_exit([this]() noexcept { RefreshPageEdgeAffordances(); });
     if (!suggestedBounds)
     {

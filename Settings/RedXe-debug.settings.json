@@ -11,6 +11,7 @@
     "DeskClock": { "plugin": "builtin.desk-clock" },
     "Weather": { "plugin": "builtin.weather" },
     "Launcher": { "plugin": "builtin.launcher", "settings": { "shortcuts": [] } },
+    "AVControl": { "plugin": "builtin.av-control", "settings": { "profiles": [] } },
     "Processes": { "plugin": "builtin.process-viewer", "settings": { "topN": 10 } },
     "Pulse": { "plugin": "builtin.system-pulse" },
     "Cpu": { "plugin": "builtin.cpu-meter" },
@@ -71,7 +72,8 @@
             ]
           },
           { "sizeRatio": 5, "widget": "Weather" },
-          { "sizeRatio": 2, "widget": "Launcher" }
+          { "sizeRatio": 2, "widget": "Launcher" },
+          { "sizeRatio": 4, "widget": "AVControl" }
         ]
       }
     },

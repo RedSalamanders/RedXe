@@ -35,10 +35,14 @@ class PluginManager final
     [[nodiscard]] size_t WidgetCount() const noexcept;
     [[nodiscard]] IRedXeWidget* WidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeGpuWidget* GpuWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] IRedXePreparedGpuWidget* PreparedGpuWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeScheduledWidget* ScheduledWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeWindowWidget* WindowWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeRaisedWidget* RaisedWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeInteractiveWidget* InteractiveWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] IRedXeKeyboardWidget* KeyboardWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] IRedXeTextInputWidget* TextInputWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] IRedXeAccessibilityWidget* AccessibilityWidgetAt(size_t index) const noexcept;
     [[nodiscard]] static HRESULT ValidatePluginPublishedSchema(std::string_view schemaJson,
                                                                std::string_view defaultsJson) noexcept;
     [[nodiscard]] IRedXeNetworkWidget* NetworkWidgetAt(size_t index) const noexcept;
@@ -58,10 +62,14 @@ class PluginManager final
     struct WidgetSlot final
     {
         wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
+        wil::com_ptr_nothrow<IRedXePreparedGpuWidget> preparedGpuWidget;
         wil::com_ptr_nothrow<IRedXeScheduledWidget> scheduledWidget;
         wil::com_ptr_nothrow<IRedXeWindowWidget> windowWidget;
         wil::com_ptr_nothrow<IRedXeRaisedWidget> raisedWidget;
         wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactiveWidget;
+        wil::com_ptr_nothrow<IRedXeKeyboardWidget> keyboardWidget;
+        wil::com_ptr_nothrow<IRedXeTextInputWidget> textInputWidget;
+        wil::com_ptr_nothrow<IRedXeAccessibilityWidget> accessibilityWidget;
         wil::com_ptr_nothrow<IRedXeNetworkWidget> networkWidget;
         wil::com_ptr_nothrow<IRedXeWidget> widget;
         SettingsText instanceId;

@@ -78,8 +78,9 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     return S_OK;
 }
 
-class TestHost final : public IRedXeHost
+class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
 {
+    HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork*) noexcept override { return E_ACCESSDENIED; }
   public:
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
     {
@@ -88,11 +89,14 @@ class TestHost final : public IRedXeHost
             return E_POINTER;
         }
         *result = nullptr;
-        if (interfaceId != IID_IUnknown && interfaceId != __uuidof(IRedXeHost))
+        if (interfaceId == __uuidof(IRedXeSettingsQueue) && supportsQueue)
+            *result = static_cast<IRedXeSettingsQueue*>(this);
+        else if (interfaceId == IID_IUnknown || interfaceId == __uuidof(IRedXeHost))
+            *result = static_cast<IRedXeHost*>(this);
+        else
         {
             return E_NOINTERFACE;
         }
-        *result = static_cast<IRedXeHost*>(this);
         AddRef();
         return S_OK;
     }
@@ -148,6 +152,32 @@ class TestHost final : public IRedXeHost
         return S_OK;
     }
 
+    HRESULT STDMETHODCALLTYPE QueueWidgetSettings(const char* instanceId, const char* json,
+                                                  uint32_t bytes) noexcept override
+    {
+        ++queueCalls;
+        if (FAILED(queueResult))
+            return queueResult;
+        pendingInstance.assign(instanceId);
+        pendingJson.assign(json, bytes);
+        return S_OK;
+    }
+
+    void Drain() noexcept
+    {
+        if (!pendingJson.empty())
+        {
+            (void)PersistWidgetSettings(pendingInstance.c_str(), pendingJson.data(),
+                                        static_cast<uint32_t>(pendingJson.size()));
+            pendingJson.clear();
+        }
+    }
+
+    bool supportsQueue = true;
+    HRESULT queueResult = S_OK;
+    uint32_t queueCalls = 0;
+    std::string pendingInstance;
+    std::string pendingJson;
     uint32_t frameRequests = 0;
     uint32_t persistCalls = 0;
     uint32_t persistBytes = 0;
@@ -572,7 +602,8 @@ struct RenderTarget final
     LauncherTestDiagnostics pinDiagnostics{sizeof(LauncherTestDiagnostics)};
     result = getDiagnostics(&pinDiagnostics);
     if (FAILED(result) || pinDiagnostics.displayCount == 0 || pinDiagnostics.usingTaskbarPins == 0 ||
-        pinDiagnostics.authoredCount != 0)
+        pinDiagnostics.authoredCount != pinDiagnostics.displayCount || host.queueCalls != 1 || host.persistCalls != 0 ||
+        host.pendingJson.find("Alpha.lnk") == std::string::npos)
     {
         std::wprintf(L"Injected pin directory did not populate the empty list.\n");
         return kTestFailure;
@@ -614,13 +645,102 @@ struct RenderTarget final
     }
 
     uint32_t written = 1;
-    std::array<char, 64> collect{};
+    std::array<char, 4097> collect{};
     if (emptyWidget->CollectPersistentSettings(collect.data(), static_cast<uint32_t>(collect.size()), &written) !=
-            S_FALSE ||
-        written != 0)
+            S_OK ||
+        written == 0 || std::string_view(collect.data(), written) != host.pendingJson)
     {
-        std::wprintf(L"Pin fallback was persisted.\n");
+        std::wprintf(L"Imported pins were not retained for collect fallback.\n");
         return kTestFailure;
+    }
+    if (emptyWidget->CollectPersistentSettings(collect.data(), 2, &written) !=
+            HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) ||
+        written != 0)
+        return kTestFailure;
+    if (FAILED(emptyWidget->SetVisible(FALSE)) || FAILED(emptyWidget->SetVisible(TRUE)) || host.queueCalls != 1)
+        return kTestFailure;
+    host.persistResult = E_ACCESSDENIED;
+    host.Drain();
+    wil::com_ptr_nothrow<IRedXeInteractiveWidget> importedInteractive;
+    if (FAILED(emptyWidget.query_to(importedInteractive.put())))
+        return kTestFailure;
+    const RedXeDropItem failedItem{sizeof(RedXeDropItem), 0, L"https://example.com/rejected"};
+    const RedXeDropEvent failedDrop{sizeof(RedXeDropEvent), 1, 1, 1, &failedItem};
+    if (SUCCEEDED(importedInteractive->OnDrop(&failedDrop)) ||
+        emptyWidget->CollectPersistentSettings(collect.data(), static_cast<uint32_t>(collect.size()), &written) !=
+            S_OK ||
+        std::string_view(collect.data(), written).find("Alpha.lnk") == std::string_view::npos ||
+        std::string_view(collect.data(), written).find("rejected") != std::string_view::npos)
+        return kTestFailure;
+    host.persistResult = S_OK;
+
+    // Saved imports remain editable configured shortcuts, even when the taskbar directory is unavailable later.
+    TestHost savedHost;
+    wil::com_ptr_nothrow<IRedXeWidgetProvider> savedProvider;
+    wil::com_ptr_nothrow<IRedXeWidget> savedWidget;
+    if (FAILED(setPinDirectory(L"")) ||
+        FAILED(CreateProvider(create, std::string_view(collect.data(), written), &savedHost, savedProvider)) ||
+        FAILED(savedProvider->CreateWidget(kWidgetTypeId, "launcher.saved", savedWidget.put())) ||
+        FAILED(savedWidget->SetVisible(TRUE)) || FAILED(getDiagnostics(&pinDiagnostics)) ||
+        pinDiagnostics.authoredCount != 1 || pinDiagnostics.displayCount != 1 || savedHost.queueCalls != 0)
+        return kTestFailure;
+    (void)setPinDirectory(pinDir.data());
+    for (const bool available : {false, true})
+    {
+        TestHost fallbackHost;
+        fallbackHost.supportsQueue = available;
+        fallbackHost.queueResult = HRESULT_FROM_WIN32(ERROR_BUSY);
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> fallbackProvider;
+        wil::com_ptr_nothrow<IRedXeWidget> fallbackWidget;
+        if (FAILED(CreateProvider(create, kEmptyShortcuts, &fallbackHost, fallbackProvider)) ||
+            FAILED(fallbackProvider->CreateWidget(kWidgetTypeId, "launcher.fallback", fallbackWidget.put())) ||
+            FAILED(fallbackWidget->SetVisible(TRUE)) ||
+            fallbackWidget->CollectPersistentSettings(collect.data(), static_cast<uint32_t>(collect.size()),
+                                                      &written) != S_OK ||
+            written == 0 || fallbackHost.persistCalls != 0)
+            return kTestFailure;
+    }
+
+    {
+        const std::wstring longDirectory = std::wstring(pinDir.data()) + L"\\Long";
+        if (!CreateDirectoryW(longDirectory.c_str(), nullptr))
+            return HRESULT_FROM_WIN32(GetLastError());
+        std::array<std::wstring, 8> paths;
+        const auto cleanLongPins = wil::scope_exit(
+            [&]() noexcept
+            {
+                (void)setPinDirectory(pinDir.data());
+                for (const auto& path : paths)
+                    if (!path.empty())
+                        (void)DeleteFileW(path.c_str());
+                (void)RemoveDirectoryW(longDirectory.c_str());
+            });
+        const int directoryBytes =
+            WideCharToMultiByte(CP_UTF8, 0, longDirectory.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        if (directoryBytes <= 0 || directoryBytes >= 200)
+            return kTestFailure;
+        const size_t characters = (511U - static_cast<size_t>(directoryBytes) - 5U) / 3U;
+        for (size_t index = 0; index < paths.size(); ++index)
+        {
+            paths[index] = longDirectory + L"\\" + static_cast<wchar_t>(L'A' + index) +
+                           std::wstring(characters, L'\x96ea') + L".lnk";
+            if (FAILED(WriteShortcut(paths[index].c_str())))
+                return kTestFailure;
+        }
+        TestHost boundedHost;
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> boundedProvider;
+        wil::com_ptr_nothrow<IRedXeWidget> boundedWidget;
+        if (FAILED(setPinDirectory(longDirectory.c_str())) ||
+            FAILED(CreateProvider(create, kEmptyShortcuts, &boundedHost, boundedProvider)) ||
+            FAILED(boundedProvider->CreateWidget(kWidgetTypeId, "launcher.bounded", boundedWidget.put())) ||
+            FAILED(boundedWidget->SetVisible(TRUE)) || FAILED(getDiagnostics(&pinDiagnostics)) ||
+            pinDiagnostics.authoredCount == 0 || pinDiagnostics.authoredCount >= 8 ||
+            pinDiagnostics.displayCount != pinDiagnostics.authoredCount || boundedHost.pendingJson.empty() ||
+            boundedHost.pendingJson.size() > 4096)
+            return kTestFailure;
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> roundTrip;
+        if (FAILED(CreateProvider(create, boundedHost.pendingJson, &boundedHost, roundTrip)))
+            return kTestFailure;
     }
 
     std::array<wchar_t, MAX_PATH> pngPath{};
@@ -785,12 +905,15 @@ struct RenderTarget final
         RedXeDropItem{sizeof(RedXeDropItem), 0, kUrl},
     };
     const RedXeDropEvent multi{sizeof(RedXeDropEvent), 8.0f, 8.0f, static_cast<uint32_t>(items.size()), items.data()};
+    if (FAILED(dropWidget->SetVisible(TRUE)) || dropHost.queueCalls != 1)
+        return kTestFailure;
+    dropHost.Drain();
     result = dropInteractive->OnDrop(&multi);
-    if (result != S_OK || dropHost.persistCalls != 1 || dropHost.persistJson.find("notepad.exe") == std::string::npos ||
+    if (result != S_OK || dropHost.persistCalls != 2 || dropHost.persistJson.find("notepad.exe") == std::string::npos ||
         dropHost.persistJson.find("https://example.com/path") == std::string::npos ||
-        dropHost.persistJson.find("TaskBar") != std::string::npos)
+        dropHost.persistJson.find("Alpha.lnk") == std::string::npos)
     {
-        std::wprintf(L"Drop persist did not round-trip filesystem and URL targets without pins.\n");
+        std::wprintf(L"Drop persist did not retain imported pins alongside filesystem and URL targets.\n");
         return kTestFailure;
     }
     uint32_t dropWritten = 1;

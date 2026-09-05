@@ -63,6 +63,14 @@ if ($contractProcess.ExitCode -ne 0) {
     throw "Plugin contract tests failed with exit code $($contractProcess.ExitCode)."
 }
 
+$avControlTests = Join-Path $repoRoot ".build\$Platform\$Configuration\AVControlTests.exe"
+Write-Host 'Running AV Control model, input and layout tests...' -ForegroundColor Cyan
+$avControlProcess = Start-Process -FilePath $avControlTests -WindowStyle Hidden -Wait -PassThru
+if ($avControlProcess.ExitCode -ne 0) {
+    throw "AV Control tests failed with exit code $($avControlProcess.ExitCode)."
+}
+& (Join-Path $repoRoot 'Tests/AVControlTests/CameraPackageTests.ps1') -Configuration $Configuration -Platform $Platform
+
 $systemDataTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SystemDataTests.exe"
 Write-Host 'Running local system-data provider contract tests...' -ForegroundColor Cyan
 $systemDataProcess = Start-Process -FilePath $systemDataTests -Wait -PassThru
@@ -250,3 +258,4 @@ Invoke-RedXeCrashTest -CrashArgument '--crash-test-stack-overflow' -ExpectedExce
     -Label 'stack-overflow'
 
 Write-Host 'All tests passed.' -ForegroundColor Green
+exit 0

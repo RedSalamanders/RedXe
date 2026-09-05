@@ -478,6 +478,7 @@ void PluginHost::ShutdownProcessRuntime() noexcept
 void PluginHost::Shutdown() noexcept
 {
     SetUiInvalidateTarget(nullptr);
+    _controlWork.Stop();
     StopNetworkService();
     AcquireSRWLockExclusive(&_widgetStatusLock);
     for (WidgetStatusSlot& slot : _widgetStatus)
@@ -553,6 +554,27 @@ HRESULT PluginHost::PersistWidgetSettings(const char* instanceId, const char* se
     if (!_settingsPersistHandler)
     {
         return E_UNEXPECTED;
+    }
+    // Apply an older queued discovery before a newer interactive edit, preserving unrelated members and order.
+    std::unique_ptr<PendingSettings> earlier;
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_pendingSettingsLock);
+        for (auto& pending : _pendingSettings)
+        {
+            if (pending && RedXeAsciiEqualsIgnoreCase(pending->instanceId.data(), instanceId))
+            {
+                earlier = std::move(pending);
+                break;
+            }
+        }
+    }
+    if (earlier)
+    {
+        const HRESULT result =
+            _settingsPersistHandler(_settingsPersistContext, instanceId, earlier->json.data(), earlier->bytes);
+        if (FAILED(result))
+            (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, "host", instanceId, "settings-queue-failed",
+                               "Queued settings could not be committed before the interactive edit.", result);
     }
     return _settingsPersistHandler(_settingsPersistContext, instanceId, settingsJsonUtf8, settingsBytes);
 }
@@ -1077,6 +1099,7 @@ void PluginHost::SetUiInvalidateTarget(HWND window) noexcept
 void PluginHost::AcknowledgeUiInvalidate() noexcept
 {
     _pendingInvalidate.store(0, std::memory_order_release);
+    _controlWork.DrainCompletions();
     if (!_hasPendingSettings.load(std::memory_order_acquire))
         return;
     decltype(_pendingSettings) pending;
@@ -1089,11 +1112,25 @@ void PluginHost::AcknowledgeUiInvalidate() noexcept
     {
         if (!item)
             continue;
-        const HRESULT result = PersistWidgetSettings(item->instanceId.data(), item->json.data(), item->bytes);
+        // This batch was detached before newer worker submissions; never drain those ahead of the older batch.
+        const HRESULT result = _settingsPersistHandler
+                                   ? _settingsPersistHandler(_settingsPersistContext, item->instanceId.data(),
+                                                             item->json.data(), item->bytes)
+                                   : E_UNEXPECTED;
         if (FAILED(result))
             (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, "host", item->instanceId.data(),
                                "settings-queue-failed", "Queued settings could not be committed.", result);
     }
+}
+
+HRESULT PluginHost::QueueControlWork(IRedXeControlWork* work) noexcept
+{
+    if (!work) return E_POINTER;
+    if (!_controlAccessEnabled) return E_ACCESSDENIED;
+    const HRESULT started = _controlWork.Start([](void* context) noexcept {
+        static_cast<PluginHost*>(context)->RequestUiInvalidate();
+    }, this);
+    return FAILED(started) ? started : _controlWork.Enqueue(work);
 }
 
 void PluginHost::RequestUiInvalidate() noexcept

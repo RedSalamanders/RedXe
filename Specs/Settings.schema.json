@@ -90,8 +90,82 @@
         "windUnit": { "type": "string", "enum": ["kmh", "mph"] }
       }
     },
+    "avControlSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "profiles": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "name",
+              "outputId",
+              "microphoneId",
+              "cameraId",
+              "audioRoles",
+              "restoreLevels",
+              "outputLevel",
+              "microphoneLevel"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32,
+                "pattern": "^[A-Za-z0-9_-]+$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 48
+              },
+              "outputId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "microphoneId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "cameraId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "audioRoles": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "communications"
+                ]
+              },
+              "restoreLevels": {
+                "type": "boolean"
+              },
+              "outputLevel": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "microphoneLevel": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              }
+            }
+          }
+        }
+      }
+    },
     "launcherSettings": {
       "type": "object",
+      "description": "An empty shortcuts list imports taskbar pins once and saves them as editable per-widget shortcuts.",
       "additionalProperties": false,
       "properties": {
         "shortcuts": {
@@ -193,6 +267,15 @@
           "properties": {
             "plugin": { "const": "builtin.launcher" },
             "settings": { "$ref": "#/$defs/launcherSettings" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plugin"],
+          "properties": {
+            "plugin": { "const": "builtin.av-control" },
+            "settings": { "$ref": "#/$defs/avControlSettings" }
           }
         }
       ]

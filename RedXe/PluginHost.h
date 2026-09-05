@@ -5,6 +5,7 @@
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
 #include "Settings.h"
+#include "ControlWorkQueue.h"
 
 #include <array>
 #include <atomic>
@@ -83,6 +84,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     HRESULT STDMETHODCALLTYPE PersistWidgetSettings(const char* instanceId, const char* settingsJsonUtf8,
                                                     uint32_t settingsBytes) noexcept override;
     HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept override;
+    HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork* work) noexcept override;
+    void SetControlAccessEnabled(bool enabled) noexcept { _controlAccessEnabled = enabled; }
     HRESULT STDMETHODCALLTYPE QueueWidgetSettings(const char* instanceId, const char* jsonUtf8,
                                                   uint32_t bytes) noexcept override;
 
@@ -103,6 +106,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     void ClearWidgetStatus(const char* instanceId) noexcept;
 
   private:
+    ControlWorkQueue _controlWork;
+    bool _controlAccessEnabled = true;
     static constexpr size_t kMaximumDataSetsPerProvider = 256;
     static constexpr size_t kMaximumSubscriptions = 32;
     static constexpr uint32_t kMaximumSubscriptionIntervalMilliseconds = 60'000;

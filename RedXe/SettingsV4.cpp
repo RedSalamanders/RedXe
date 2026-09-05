@@ -2,6 +2,8 @@
 
 #include "BundledPlugins.h"
 #include "PlugInterfaces/Factory.h"
+#include "../Plugins/AVControl/AVControlModel.h"
+#include "../Plugins/AVControl/AVControlSettings.h"
 
 #include <array>
 #include <cctype>
@@ -37,6 +39,7 @@ constexpr char kStudioClockPlugin[] = "builtin.studio-clock";
 constexpr char kDeskClockPlugin[] = "builtin.desk-clock";
 constexpr char kWeatherPlugin[] = "builtin.weather";
 constexpr char kLauncherPlugin[] = "builtin.launcher";
+constexpr char kAvControlPlugin[] = "builtin.av-control";
 constexpr char kMatrixDefaults[] =
     R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35})json";
 constexpr char kProcessViewerDefaults[] = R"json({"topN":10})json";
@@ -346,6 +349,14 @@ struct Declaration final
            color("backgroundColor") && color("cardColor") && color("digitColor") && color("dateColor");
 }
 
+[[nodiscard]] bool ValidateAvControlSettings(yyjson_val* settings) noexcept
+{
+    size_t length = 0;
+    unique_json serialized(yyjson_val_write(settings, 0, &length));
+    AVControl::Configuration configuration;
+    return serialized && SUCCEEDED(AVControl::ParseConfiguration({serialized.get(), length}, configuration));
+}
+
 [[nodiscard]] bool ValidateWeatherSettings(yyjson_val* settings) noexcept
 {
     if (!ObjectHasOnly(settings, {"locationMode", "location", "temperatureUnit", "windUnit"}, false) ||
@@ -533,6 +544,7 @@ struct Declaration final
                                : plugin == kDeskClockPlugin                                     ? kDeskClockDefaults
                                : plugin == kWeatherPlugin                                       ? kWeatherDefaults
                                : plugin == kLauncherPlugin                                      ? kLauncherDefaults
+                               : plugin == kAvControlPlugin                                     ? AVControl::DefaultsJson
                                                                                                 : "{}";
     defaults.reset(yyjson_read(defaultsText, std::strlen(defaultsText), YYJSON_READ_NOFLAG));
     if (!settingsValue)
@@ -541,7 +553,7 @@ struct Declaration final
     }
     else if (plugin == kMatrixPlugin || plugin == kProcessViewerPlugin || plugin == kNetworkMeterPlugin ||
              plugin == kGpuProcessesPlugin || plugin == kStudioClockPlugin || plugin == kDeskClockPlugin ||
-             plugin == kWeatherPlugin || plugin == kLauncherPlugin)
+             plugin == kWeatherPlugin || plugin == kLauncherPlugin || plugin == kAvControlPlugin)
     {
         effectiveDocument.reset(yyjson_mut_doc_new(nullptr));
         yyjson_mut_val* merged =
@@ -566,6 +578,7 @@ struct Declaration final
                                : plugin == kDeskClockPlugin   ? ValidateDeskClockSettings(settingsValue)
                                : plugin == kWeatherPlugin     ? ValidateWeatherSettings(settingsValue)
                                : plugin == kLauncherPlugin    ? ValidateLauncherSettings(settingsValue)
+                               : plugin == kAvControlPlugin   ? ValidateAvControlSettings(settingsValue)
                                                               : yyjson_obj_size(settingsValue) == 0;
     if (!validSettings)
         return false;

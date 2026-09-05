@@ -57,6 +57,7 @@
   </PropertyGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="..\Build\RedXe.DxUi.props" />
 
   <ImportGroup Label="ExtensionSettings" />
   <ImportGroup Label="Shared" />
@@ -100,6 +101,8 @@
     <ClInclude Include="..\Common\PlugInterfaces\Host.h" />
     <ClInclude Include="..\Common\PlugInterfaces\Widget.h" />
     <ClInclude Include="Application.h" />
+    <ClInclude Include="WidgetTextClient.h" />
+    <ClInclude Include="AccessibilityHost.h" />
     <ClInclude Include="BundledPlugins.h" />
     <ClInclude Include="CrashHandler.h" />
     <ClInclude Include="PluginHost.h" />
@@ -115,13 +118,17 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Application.cpp" />
+    <ClCompile Include="WidgetTextClient.cpp" />
+    <ClCompile Include="AccessibilityHost.cpp" />
     <ClCompile Include="CrashHandler.cpp" />
     <ClCompile Include="PluginHost.cpp" />
+    <ClCompile Include="ControlWorkQueue.cpp" />
     <ClCompile Include="DashboardHost.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="PluginManager.cpp" />
     <ClCompile Include="Renderer.cpp" />
     <ClCompile Include="Settings.cpp" />
+    <ClCompile Include="..\Plugins\AVControl\AVControlModel.cpp" />
     <ClCompile Include="SettingsV4.cpp" />
     <ClCompile Include="SettingsWatcher.cpp" />
   </ItemGroup>
@@ -149,6 +156,10 @@
     </None>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Plugins\AVControl\AVControl.vcxproj">
+      <Project>{8C35D7E4-A3FB-4E01-AF83-D4BC09F74A62}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies><ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
     <ProjectReference Include="..\Plugins\GdiOrbit\GdiOrbit.vcxproj">
       <Project>{A403C867-9CE6-4DE1-8792-7A628E41C2DF}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
@@ -197,5 +208,6 @@
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="..\Build\RedXe.DxUi.targets" />
   <ImportGroup Label="ExtensionTargets" />
 </Project>

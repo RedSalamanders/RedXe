@@ -700,6 +700,11 @@ IRedXeGpuWidget* DashboardHost::GpuWidgetAt(size_t index) const noexcept
     return _pluginManager && index < _widgetCount ? _pluginManager->GpuWidgetAt(index) : nullptr;
 }
 
+IRedXePreparedGpuWidget* DashboardHost::PreparedGpuWidgetAt(size_t index) const noexcept
+{
+    return _pluginManager && index < _widgetCount ? _pluginManager->PreparedGpuWidgetAt(index) : nullptr;
+}
+
 IRedXeWindowWidget* DashboardHost::WindowWidgetAt(size_t index) const noexcept
 {
     return _pluginManager && index < _widgetCount ? _pluginManager->WindowWidgetAt(index) : nullptr;
@@ -713,6 +718,18 @@ IRedXeRaisedWidget* DashboardHost::RaisedWidgetAt(size_t index) const noexcept
 IRedXeInteractiveWidget* DashboardHost::InteractiveWidgetAt(size_t index) const noexcept
 {
     return _pluginManager && index < _widgetCount ? _pluginManager->InteractiveWidgetAt(index) : nullptr;
+}
+IRedXeKeyboardWidget* DashboardHost::KeyboardWidgetAt(size_t index) const noexcept
+{
+    return _pluginManager && index < _widgetCount ? _pluginManager->KeyboardWidgetAt(index) : nullptr;
+}
+IRedXeTextInputWidget* DashboardHost::TextInputWidgetAt(size_t index) const noexcept
+{
+    return _pluginManager && index < _widgetCount ? _pluginManager->TextInputWidgetAt(index) : nullptr;
+}
+IRedXeAccessibilityWidget* DashboardHost::AccessibilityWidgetAt(size_t index) const noexcept
+{
+    return _pluginManager && index < _widgetCount ? _pluginManager->AccessibilityWidgetAt(index) : nullptr;
 }
 
 const char* DashboardHost::WidgetInstanceIdAt(size_t index) const noexcept

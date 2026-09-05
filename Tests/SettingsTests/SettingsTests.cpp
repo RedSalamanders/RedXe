@@ -3,6 +3,8 @@
 #include "../../RedXe/SettingsWatcher.h"
 
 #include <array>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -160,9 +162,9 @@ constexpr std::string_view kRepresentative = R"json(
     if (FAILED(result) || !CoversBundledPluginCatalog(debug) || !CoversBundledPluginCatalog(release) ||
         debug.dashboard.pageCount != 3 || debug.dashboard.pages[0].widgetCount != 4 ||
         debug.dashboard.pages[0].widgets[0].pluginId.View() != "builtin.launcher" ||
-        debug.dashboard.pages[1].widgetCount != 7 || debug.dashboard.pages[2].widgetCount != 10 ||
+        debug.dashboard.pages[1].widgetCount != 8 || debug.dashboard.pages[2].widgetCount != 10 ||
         release.dashboard.pageCount != 3 || release.dashboard.pages[0].widgetCount != 1 ||
-        release.dashboard.pages[1].widgetCount != 7 || release.dashboard.pages[2].widgetCount != 10 ||
+        release.dashboard.pages[1].widgetCount != 8 || release.dashboard.pages[2].widgetCount != 10 ||
         !debug.dashboard.pages[0].widgets[0].usesAdaptivePlacement || debug.logRetentionDays != 15 ||
         release.logRetentionDays != 15 || FAILED(ValidateAppSettings(debug)) || FAILED(ValidateAppSettings(release)))
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -506,6 +508,158 @@ constexpr std::string_view kRepresentative = R"json(
         return E_FAIL;
     }
     return S_OK;
+}
+
+[[nodiscard]] HRESULT ValidateAvControlSettings() noexcept
+{
+    try
+    {
+        const std::string prefix = R"({"version":{"major":4},"declare":{"AV":{"plugin":"builtin.av-control","settings":)";
+        const std::string suffix = R"(}},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":"AV"},{"sizeRatio":1,"widget":{"use":"AV","override":{"settings":{"profiles":[]}}}}]}}]})";
+        const std::string profile = R"({"id":"office","name":"Office","outputId":"opaque-output","microphoneId":"opaque-mic","cameraId":"opaque-camera","audioRoles":"communications","restoreLevels":true,"outputLevel":45,"microphoneLevel":67})";
+        auto settings = std::make_unique<AppSettings>();
+        if (FAILED(ParseAppSettingsJson(prefix + R"({"profiles":[)" + profile + "]}" + suffix, *settings)))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        const auto& page = settings->dashboard.pages[0];
+        if (page.widgetCount != 2 || page.widgets[0].privateConfiguration.View().find("opaque-camera") == std::string_view::npos ||
+            page.widgets[1].privateConfiguration.View() != R"({"profiles":[]})" || FAILED(ValidateAppSettings(*settings)))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        const std::array<std::string, 5> invalid{
+            R"({"profiles":[{"id":"incomplete"}]})",
+            R"({"profiles":[],"mute":true})",
+            R"({"profiles":[)" + profile + "," + profile + "]}",
+            R"({"profiles":[)" + profile.substr(0, profile.size() - 1) + R"(,"microphoneLevel":101}]})",
+            R"({"profiles":{}})"};
+        for (const auto& value : invalid)
+            if (SUCCEEDED(ParseAppSettingsJson(prefix + value + suffix, *settings))) return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        // A missing profile list selects the declared default; loading either form only builds configuration.
+        if (FAILED(ParseAppSettingsJson(prefix + "{}" + suffix, *settings)) ||
+            settings->dashboard.pages[0].widgets[0].privateConfiguration.View() != R"({"profiles":[]})")
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        return S_OK;
+    }
+    catch (const std::bad_alloc&) { return E_OUTOFMEMORY; }
+    catch (const std::length_error&) { return E_INVALIDARG; }
+}
+
+[[nodiscard]] HRESULT ValidatePersistFormatting() noexcept
+{
+    try
+    {
+        constexpr std::string_view patch =
+            R"json({"shortcuts":[{"target":"C:\\Apps\\éditeur.exe"},{"target":"https://example.com/a?x=1&y=2"}]})json";
+        const std::array<std::string_view, 3> widgets{
+            R"json("Launch")json", R"json({"plugin":"builtin.launcher","settings":{"shortcuts":[]}})json",
+            R"json({"use":"Launch","override":{"settings":{"shortcuts":[]}}})json"};
+        for (const auto widget : widgets)
+        {
+            const std::string source =
+                R"json({"version":{"major":4,"minor":1},"futureRoot":{"label":"keep\nthis","quoted":"\"{}[],:\\","list":[[],{},true,false,null,1.25e-4,-2]},"declare":{"Launch":{"plugin":"builtin.launcher"}},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":)json" +
+                std::string(widget) + R"json(}]}}]})json";
+            auto settings = std::make_unique<AppSettings>();
+            if (FAILED(ParseAppSettingsJson(source, *settings)))
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            const auto id = settings->dashboard.pages[0].widgets[0].id;
+            if (FAILED(PatchWidgetInstanceSettings(*settings, id.View(), patch)) ||
+                settings->sourceDocument.find("\n  \"version\": { \"major\": 4, \"minor\": 1 }") == std::string::npos ||
+                settings->sourceDocument.find("\"Launch\": { \"plugin\": \"builtin.launcher\" }") ==
+                    std::string::npos ||
+                settings->sourceDocument.find("\"shortcuts\": [\n") == std::string::npos ||
+                settings->sourceDocument.back() != '\n' ||
+                settings->sourceDocument.find("{ \"target\": \"C:\\\\Apps\\\\éditeur.exe\" }") == std::string::npos ||
+                settings->sourceDocument.find("\"futureRoot\":") == std::string::npos ||
+                settings->dashboard.pages[0].widgets[0].privateConfiguration.View() != patch)
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            const std::string formatted = settings->sourceDocument;
+            unique_doc before{yyjson_read(source.data(), source.size(), YYJSON_READ_NOFLAG)};
+            unique_doc after{yyjson_read(formatted.data(), formatted.size(), YYJSON_READ_NOFLAG)};
+            if (!before || !after ||
+                !yyjson_equals(yyjson_obj_get(yyjson_doc_get_root(before.get()), "futureRoot"),
+                               yyjson_obj_get(yyjson_doc_get_root(after.get()), "futureRoot")))
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            auto reloaded = std::make_unique<AppSettings>();
+            if (FAILED(ParseAppSettingsJson(formatted, *reloaded)) ||
+                reloaded->dashboard.pages[0].widgets[0].privateConfiguration.View() != patch ||
+                FAILED(PatchWidgetInstanceSettings(*settings, id.View(), patch)) ||
+                settings->sourceDocument != formatted)
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // Save a complete shipped-template preview using the same production persistence formatter.
+        std::string templateJson;
+        std::filesystem::path templatePath;
+        auto preview = std::make_unique<AppSettings>();
+        if (FAILED(GetDeployedPath(L"RedXe.settings.json", templatePath)) ||
+            FAILED(ReadFile(templatePath, templateJson)) || FAILED(ParseAppSettingsJson(templateJson, *preview)))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        bool previewSaved = false;
+        for (uint32_t page = 0; page < preview->dashboard.pageCount && !previewSaved; ++page)
+        {
+            auto& layout = preview->dashboard.pages[page];
+            for (uint32_t item = 0; item < layout.widgetCount && !previewSaved; ++item)
+            {
+                auto& widget = layout.widgets[item];
+                if (widget.pluginId.View() != "builtin.launcher")
+                    continue;
+                // Long single-property shortcut records stay on one line.
+                const std::string longPatch =
+                    R"({"shortcuts":[{"target":"https://example.com/)" + std::string(160, 'a') + R"("}]})";
+                if (FAILED(PatchWidgetInstanceSettings(*preview, widget.id.View(), longPatch)) ||
+                    preview->sourceDocument.find("{ \"target\": \"https://example.com/" + std::string(160, 'a') +
+                                                 "\" }") == std::string::npos ||
+                    FAILED(PatchWidgetInstanceSettings(*preview, widget.id.View(), patch)))
+                    return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                unique_doc document{yyjson_read(preview->sourceDocument.data(), preview->sourceDocument.size(), 0)};
+                if (!document)
+                    return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                size_t bytes = 0;
+                using unique_text = wil::unique_any<char*, decltype(&free), free>;
+                unique_text expanded{yyjson_write(document.get(), YYJSON_WRITE_PRETTY_TWO_SPACES, &bytes)};
+                if (!expanded)
+                    return E_OUTOFMEMORY;
+                const auto lines = [](std::string_view text)
+                {
+                    size_t count = 0;
+                    for (const char c : text)
+                        count += c == '\n' ? 1U : 0U;
+                    return count;
+                };
+                const size_t compactLines = lines(preview->sourceDocument),
+                             expandedLines = lines({expanded.get(), bytes});
+                if (compactLines * 100 > expandedLines * 70)
+                    return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                std::printf("Settings formatting: %zu lines instead of %zu.\n", compactLines, expandedLines);
+                std::ofstream stream(templatePath.parent_path().parent_path() / L"compact-settings-preview.json",
+                                     std::ios::binary);
+                stream << preview->sourceDocument;
+                if (!stream)
+                    return E_FAIL;
+                previewSaved = true;
+            }
+        }
+        if (!previewSaved)
+            return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+
+        // A compact accepted document must not be written as an oversized, subsequently unreadable pretty document.
+        std::string large =
+            R"json({"version":{"major":4,"minor":1},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.launcher"}}]}}],"futurePadding":")json";
+        large.append(1024U * 1024U - large.size() - 2, 'x');
+        large += "\"}";
+        auto settings = std::make_unique<AppSettings>();
+        if (FAILED(ParseAppSettingsJson(large, *settings)))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        const auto& widget = settings->dashboard.pages[0].widgets[0];
+        const std::string previousPrivate(widget.privateConfiguration.View());
+        if (PatchWidgetInstanceSettings(*settings, widget.id.View(), patch) !=
+                HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE) ||
+            settings->sourceDocument != large || widget.privateConfiguration.View() != previousPrivate)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
 }
 
 struct LowStackContext final
@@ -884,12 +1038,14 @@ int wmain()
     };
     const Test tests[]{{L"templates/schema", ValidateTemplatesAndSchema},
                        {L"parser", ValidateParser},
+                       {L"AV profile configuration", ValidateAvControlSettings},
                        {L"low stack", ValidateLowStack},
                        {L"watcher", ValidateWatcher},
                        {L"external selection", ValidateExternalSelection},
                        {L"default recovery", ValidateDefaultRecovery},
                        {L"legacy filename", ValidateLegacyReleaseFilenameMigration},
                        {L"logs directory", ValidateLogsDirectory},
+                       {L"persist formatting", ValidatePersistFormatting},
                        {L"persist rollback", ValidatePersistRollback}};
     for (const auto& test : tests)
     {
