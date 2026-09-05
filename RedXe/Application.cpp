@@ -3471,7 +3471,7 @@ HRESULT Application::ApplyWidgetSettingsPersist(const char* instanceId, const ch
         return PatchWidgetInstanceSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
     }
     return _settingsStore.PersistWidgetSettings(*_settings, instanceId,
-                                               std::string_view(settingsJsonUtf8, settingsBytes));
+                                                std::string_view(settingsJsonUtf8, settingsBytes));
 }
 
 HRESULT Application::SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8,

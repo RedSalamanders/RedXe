@@ -269,14 +269,16 @@ interface __declspec(uuid("231AC0E8-1204-4BFF-BCEA-7CACF11F439D")) __declspec(no
 interface __declspec(uuid("355C7084-286B-409F-9FD3-A7695DEF2A33")) __declspec(novtable) IRedXeGpuWidget : IUnknown
 {
     // Supplies the borrowed device, target format, and feature level. The widget may create and retain its own device
-    // resources here and may share immutable resources across instances.
+    // resources here and may share immutable resources across instances. The host hides and drains widget work
+    // before device setup/teardown and restores visibility only after successful setup.
     virtual HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept = 0;
     // Idempotent. MUST release every plugin-owned device resource before the host releases its device.
     virtual void STDMETHODCALLTYPE OnDeviceLost() noexcept = 0;
     // Reports the largest viewport the host will draw this widget at. Called on the RedXe UI thread, synchronously
-    // and non-reentrantly, after OnDeviceCreated and before the first Render, and again whenever that size changes:
+    // and non-reentrantly, after OnDeviceCreated and before the first Render, and again whenever size or DPI changes:
     // resize, DPI change, layout change, and raise or dismiss. It is NOT called for a position-only change such as a
-    // page-swipe offset, and never once per frame.
+    // page-swipe offset, and never once per frame. A DPI-only change still notifies. The widget may also draw at a
+    // smaller tile or animated overlay size: its geometry and hit targets must follow the actual Render dimensions.
     //
     // This is the only callback where a GPU widget may rasterize, create textures, or allocate. A widget with no
     // resolution-dependent resources returns S_OK and does nothing. A failure is isolated: the host keeps the

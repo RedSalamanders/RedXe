@@ -1,3 +1,4 @@
+#include "../../Plugins/Weather/WeatherTestContract.h"
 #include "DashboardHost.h"
 #include "DeskClockTestContract.h"
 #include "FrameScheduler.h"
@@ -5,6 +6,7 @@
 #include "MatrixRainTestContract.h"
 #include "PageEdgeAffordance.h"
 #include "PageNavigation.h"
+#include "PlugInterfaces/FactoryImpl.h"
 #include "PluginHost.h"
 #include "PluginManager.h"
 #include "ProcessViewerTestContract.h"
@@ -27,6 +29,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <yyjson.h>
 
 #include <ole2.h>
 #include <psapi.h>
@@ -1488,6 +1491,161 @@ void TestDebugHostComposition(bool& success) noexcept
     window.PumpMessages();
 }
 
+class PausedDataSink final : public RedXeComObject<PausedDataSink, IRedXeDataSink>
+{
+  public:
+    wil::unique_event_nothrow entered{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    wil::unique_event_nothrow resume{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    std::atomic<uint32_t> callbacks{0};
+    std::atomic<bool> timedOut{false};
+
+    HRESULT STDMETHODCALLTYPE OnDataSnapshot(const RedXeDataSnapshot*) noexcept override
+    {
+        callbacks.fetch_add(1, std::memory_order_relaxed);
+        SetEvent(entered.get());
+        if (WaitForSingleObject(resume.get(), 5000) != WAIT_OBJECT_0)
+            timedOut.store(true, std::memory_order_relaxed);
+        return S_OK;
+    }
+};
+
+void TestSubscriptionDrain(bool& success)
+{
+    std::wcout << L"[ RUN      ] subscription callback drain and slot reuse\n";
+    PluginHost host;
+    wil::com_ptr_nothrow<IRedXeDataProvider> provider;
+    HRESULT result = host.GetDataProvider("builtin.system-data", provider.put());
+    Check(SUCCEEDED(result), L"the production data provider is available for drain tests", success);
+    if (FAILED(result))
+        return;
+    for (bool release : {false, true, false, true})
+    {
+        wil::com_ptr_nothrow<PausedDataSink> sink;
+        sink.attach(new PausedDataSink());
+        wil::unique_event_nothrow started{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+        wil::unique_event_nothrow returned{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+        if (!sink->entered || !sink->resume || !started || !returned)
+        {
+            Check(false, L"callback barriers can be created", success);
+            return;
+        }
+        const auto unblock = wil::scope_exit([&]() noexcept { SetEvent(sink->resume.get()); });
+        wil::com_ptr_nothrow<IRedXeDataSubscription> subscription;
+        const RedXeDataSubscriptionOptions options{sizeof(options), "cpu.summary", 1000};
+        result = provider->Subscribe(&options, sink.get(), subscription.put());
+        if (SUCCEEDED(result))
+            result = subscription->SetActive(TRUE);
+        const bool entered = SUCCEEDED(result) && WaitForSingleObject(sink->entered.get(), 5000) == WAIT_OBJECT_0;
+        Check(entered, L"the worker enters a controlled callback", success);
+        if (!entered)
+            return;
+        HRESULT operationResult = S_OK;
+        std::jthread operation(
+            [&]()
+            {
+                SetEvent(started.get());
+                if (release)
+                    subscription.reset();
+                else
+                    operationResult = subscription->SetActive(FALSE);
+                SetEvent(returned.get());
+            });
+        Check(WaitForSingleObject(started.get(), 2000) == WAIT_OBJECT_0,
+              L"the drain operation starts on a separate thread", success);
+        Check(WaitForSingleObject(returned.get(), 150) == WAIT_TIMEOUT,
+              release ? L"Release waits for the in-flight callback"
+                      : L"SetActive(FALSE) waits for the in-flight callback",
+              success);
+        SetEvent(sink->resume.get());
+        Check(WaitForSingleObject(returned.get(), 2000) == WAIT_OBJECT_0,
+              L"draining completes promptly after the callback returns", success);
+        operation.join();
+        Check(SUCCEEDED(operationResult) && !sink->timedOut.load() && sink->callbacks.load() == 1,
+              L"the callback completes normally and the drain succeeds", success);
+        if (subscription)
+        {
+            Check(subscription->SetActive(FALSE) == S_OK, L"repeated deactivation is idempotent", success);
+            ResetEvent(sink->entered.get());
+            Check(subscription->SetActive(TRUE) == S_OK &&
+                      WaitForSingleObject(sink->entered.get(), 2500) == WAIT_OBJECT_0,
+                  L"a drained subscription can resume delivery", success);
+            Check(subscription->SetActive(FALSE) == S_OK, L"reactivated delivery drains again", success);
+        }
+    }
+}
+
+void TestReservedSubscriptionDrain(bool& success)
+{
+    std::wcout << L"[ RUN      ] reserved subscription callback drain\n";
+    PluginHost host;
+    wil::com_ptr_nothrow<IRedXeDataProvider> provider;
+    if (FAILED(host.GetDataProvider("builtin.system-data", provider.put())))
+    {
+        Check(false, L"the provider initializes for the reservation test", success);
+        return;
+    }
+    std::array<wil::com_ptr_nothrow<PausedDataSink>, 3> sinks;
+    for (auto& sink : sinks)
+        sink.attach(new PausedDataSink());
+    std::array<wil::com_ptr_nothrow<IRedXeDataSubscription>, 3> subscriptions;
+    // The first gate holds one worker pass while both test subscriptions become active for the next pass.
+    const auto unblock = wil::scope_exit(
+        [&]() noexcept
+        {
+            for (auto& sink : sinks)
+                SetEvent(sink->resume.get());
+        });
+    const RedXeDataSubscriptionOptions options{sizeof(options), "cpu.summary", 1000};
+    for (size_t index = 0; index < sinks.size(); ++index)
+    {
+        if (!sinks[index]->entered || !sinks[index]->resume ||
+            FAILED(provider->Subscribe(&options, sinks[index].get(), subscriptions[index].put())) ||
+            FAILED(subscriptions[index]->SetActive(TRUE)))
+        {
+            Check(false, L"all reservation test subscriptions activate", success);
+            return;
+        }
+        if (index == 0 && WaitForSingleObject(sinks[0]->entered.get(), 2500) != WAIT_OBJECT_0)
+        {
+            Check(false, L"the initial worker pass enters the setup gate", success);
+            return;
+        }
+    }
+    SetEvent(sinks[0]->resume.get());
+    (void)subscriptions[0]->SetActive(FALSE);
+    if (WaitForSingleObject(sinks[1]->entered.get(), 2500) != WAIT_OBJECT_0)
+    {
+        Check(false, L"the next worker pass reserves both test callbacks", success);
+        return;
+    }
+    wil::unique_event_nothrow started{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    wil::unique_event_nothrow returned{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    if (!started || !returned)
+    {
+        Check(false, L"the reservation operation barriers initialize", success);
+        return;
+    }
+    HRESULT drainResult = E_PENDING;
+    SetEvent(sinks[2]->resume.get());
+    std::jthread operation(
+        [&]()
+        {
+            SetEvent(started.get());
+            drainResult = subscriptions[2]->SetActive(FALSE);
+            SetEvent(returned.get());
+        });
+    Check(WaitForSingleObject(started.get(), 2000) == WAIT_OBJECT_0 &&
+              WaitForSingleObject(returned.get(), 150) == WAIT_TIMEOUT &&
+              WaitForSingleObject(sinks[2]->entered.get(), 0) == WAIT_TIMEOUT,
+          L"deactivation waits even when the copied callback has not entered yet", success);
+    SetEvent(sinks[1]->resume.get());
+    operation.join();
+    (void)subscriptions[1]->SetActive(FALSE);
+    Check(drainResult == S_OK && sinks[2]->callbacks.load() == 1 && !sinks[1]->timedOut.load() &&
+              !sinks[2]->timedOut.load(),
+          L"the reserved callback completes before deactivation returns", success);
+}
+
 void TestGpuTargetSizeNotification(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] GPU widget target-size notification\n";
@@ -1565,6 +1723,16 @@ void TestGpuTargetSizeNotification(bool& success) noexcept
     Check(SUCCEEDED(result) && read(afterFrames) && afterFrames.targetSizeChanges == beforeFrames,
           L"rendering frames at an unchanged size reports nothing", success);
 
+    const UINT changedDpi = window.Dpi() == 144 ? 192 : 144;
+    result = renderer.SetDpi(changedDpi);
+    DeskClockTestDiagnostics afterDpi{};
+    Check(SUCCEEDED(result) && read(afterDpi) && afterDpi.targetSizeChanges == beforeFrames + 1,
+          L"a DPI-only change reports exactly one target notification", success);
+    result = renderer.SetDpi(changedDpi);
+    DeskClockTestDiagnostics repeatedDpi{};
+    Check(SUCCEEDED(result) && read(repeatedDpi) && repeatedDpi.targetSizeChanges == afterDpi.targetSizeChanges,
+          L"an unchanged DPI does not repeat the notification", success);
+
     // A viewport well above the design size must move the atlas up a tier, which is the whole point of the callback.
     result = renderer.Resize(3840, 1080);
     DeskClockTestDiagnostics highTier{};
@@ -1588,6 +1756,104 @@ void TestGpuTargetSizeNotification(bool& success) noexcept
     }
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 1,
           L"the widget renders after a tier change", success);
+}
+
+void TestGpuPageLifetime(bool& success)
+{
+    std::wcout << L"[ RUN      ] GPU page lifetime and target notification identity\n";
+    constexpr std::string_view page = R"({"layout":{"arrangeAlong":"long-side","areas":[)"
+                                      R"({"sizeRatio":1,"widget":{"plugin":"builtin.cpu-meter"}},)"
+                                      R"({"sizeRatio":1,"widget":{"plugin":"builtin.weather"}},)"
+                                      R"({"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock"}}]}})";
+    const std::string json = std::string(R"({"version":{"major":4},"pages":[)") + std::string(page) + "," +
+                             std::string(page) + "," + std::string(page) + "]}";
+    AppSettings settings;
+    AttachedHostWindow window;
+    HRESULT result = ParseAppSettingsJson(json, settings);
+    if (SUCCEEDED(result))
+        result = window.Initialize(kHostWidth, kHostHeight);
+    std::array<PluginManager, 3> managers;
+    std::array<DashboardHost, 3> dashboards;
+    for (size_t index = 0; index < dashboards.size() && SUCCEEDED(result); ++index)
+    {
+        if (index != 0)
+            result = MoveDashboardPage(settings, 1);
+        if (SUCCEEDED(result))
+            result = managers[index].Initialize(settings);
+        if (SUCCEEDED(result))
+            result = dashboards[index].Initialize(managers[index], window.Get(), kHostWidth, kHostHeight, window.Dpi(),
+                                                  true);
+    }
+    Check(SUCCEEDED(result), L"three pages with data, network, and sized GPU widgets construct", success);
+    if (FAILED(result))
+        return;
+    const auto viewer = ResolveFunction<ProcessViewerGetTestDiagnosticsFn>(GetModuleHandleW(L"ProcessViewer.dll"),
+                                                                           kProcessViewerGetTestDiagnosticsExport);
+    const auto weather = ResolveFunction<WeatherGetTestDiagnosticsFn>(GetModuleHandleW(L"Weather.dll"),
+                                                                      kWeatherGetTestDiagnosticsExport);
+    const auto clock = ResolveFunction<DeskClockGetTestDiagnosticsFn>(GetModuleHandleW(L"DeskClock.dll"),
+                                                                      kDeskClockGetTestDiagnosticsExport);
+    Check(viewer && weather && clock, L"page lifetime diagnostics are available", success);
+    if (!viewer || !weather || !clock)
+        return;
+    ProcessViewerTestDiagnostics viewerBefore{sizeof(viewerBefore)};
+    WeatherTestDiagnostics weatherBefore{sizeof(weatherBefore)};
+    (void)viewer(&viewerBefore);
+    (void)weather(&weatherBefore);
+    Renderer renderer;
+    result = renderer.Initialize(window.Get(), true, dashboards[0]);
+    Check(SUCCEEDED(result) && dashboards[0].WidgetsVisible(), L"device setup restores a visible primary page",
+          success);
+    if (FAILED(result))
+        return;
+    result = renderer.SetTransitionDashboard(&dashboards[1]);
+    DeskClockTestDiagnostics firstStage{sizeof(firstStage)};
+    (void)clock(&firstStage);
+    Check(SUCCEEDED(result) && dashboards[1].WidgetsVisible(), L"device setup restores a visible staged page", success);
+    result = renderer.SetTransitionDashboard(&dashboards[2]);
+    DeskClockTestDiagnostics replacement{sizeof(replacement)};
+    (void)clock(&replacement);
+    Check(SUCCEEDED(result) && !dashboards[1].WidgetsVisible() &&
+              replacement.targetSizeChanges == firstStage.targetSizeChanges + 1,
+          L"replacing a same-sized staged page hides the old page and notifies the new widget", success);
+    result = renderer.AdoptPrimaryDashboard(dashboards[2]);
+    DeskClockTestDiagnostics promoted{sizeof(promoted)};
+    (void)clock(&promoted);
+    Check(SUCCEEDED(result) && !dashboards[0].WidgetsVisible() && dashboards[2].WidgetsVisible() &&
+              promoted.targetSizeChanges == replacement.targetSizeChanges,
+          L"promotion retains the staged widget's size cache and hides the outgoing page", success);
+    (void)dashboards[1].SetWidgetsVisible(true);
+    result = renderer.AdoptPrimaryDashboard(dashboards[1]);
+    Check(SUCCEEDED(result) && dashboards[1].WidgetsVisible() && !dashboards[2].WidgetsVisible(),
+          L"adopting an unprepared page quiesces it for device creation and restores visibility", success);
+    result = renderer.Render(0.0f, 0.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 3, L"the adopted page draws every widget",
+          success);
+    renderer.Shutdown();
+    Check(!dashboards[1].WidgetsVisible(), L"renderer shutdown quiesces the page before releasing GPU resources",
+          success);
+    // Registering the staged page before Initialize exercises the same two-page setup ordering as device recovery:
+    // NotifyDeviceCreated must prepare both pages before CreateRenderTarget has assigned physical dimensions.
+    result = renderer.SetTransitionDashboard(&dashboards[0]);
+    if (SUCCEEDED(result))
+        result = renderer.Initialize(window.Get(), true, dashboards[1]);
+    if (SUCCEEDED(result))
+        result = dashboards[1].SetWidgetsVisible(true);
+    if (SUCCEEDED(result))
+        result = dashboards[0].SetWidgetsVisible(true);
+    if (SUCCEEDED(result))
+        result = renderer.Render(0.1f, 0.1f);
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 6,
+          L"a fresh WARP device rebuilds and draws both surviving pages", success);
+    renderer.Shutdown();
+    Check(!dashboards[0].WidgetsVisible() && !dashboards[1].WidgetsVisible(),
+          L"shutdown drains both the primary and staged pages", success);
+    ProcessViewerTestDiagnostics viewerAfter{sizeof(viewerAfter)};
+    WeatherTestDiagnostics weatherAfter{sizeof(weatherAfter)};
+    Check(SUCCEEDED(viewer(&viewerAfter)) && SUCCEEDED(weather(&weatherAfter)) &&
+              viewerAfter.deviceCallbacksWhileVisible == viewerBefore.deviceCallbacksWhileVisible &&
+              weatherAfter.deviceCallbacksWhileVisible == weatherBefore.deviceCallbacksWhileVisible,
+          L"all data and network widget device callbacks run while the widget is quiescent", success);
 }
 
 void TestSharedPluginRuntime(bool& success) noexcept
@@ -1867,7 +2133,45 @@ void TestHostJsonlLog(bool& success) noexcept
                               "weather fetch or parse failed.",
                               notFound};
     Check(iface->Log(&line) == S_OK, L"a valid log record is accepted", success);
+    const std::array<std::string, 6> longMessages{std::string(384, '\n'),
+                                                  std::string(384, '"'),
+                                                  std::string(383, 'a') + "\xE2\x82\xAC",
+                                                  std::string(382, 'a') + "\xF0\x9F\x8C\xA6",
+                                                  std::string(100, '\x01') + std::string(280, '\\'),
+                                                  std::string("invalid \xED\xA0\x80 \xFF UTF-8")};
+    const std::string longIdentity(128, '\n');
+    for (const std::string& message : longMessages)
+    {
+        const RedXeLogRecord bounded{sizeof(bounded),
+                                     RedXeLogLevelError,
+                                     longIdentity.c_str(),
+                                     longIdentity.c_str(),
+                                     "bounded-message",
+                                     message.c_str(),
+                                     E_FAIL};
+        Check(iface->Log(&bounded) == S_OK, L"a message requiring escaping or UTF-8 truncation is accepted", success);
+    }
+    const RedXeLogRecord following{sizeof(following),
+                                   RedXeLogLevelInfo,
+                                   nullptr,
+                                   nullptr,
+                                   "after-bounded",
+                                   "the next record remains independent",
+                                   S_OK};
+    Check(iface->Log(&following) == S_OK, L"a following record is accepted", success);
     Check(SUCCEEDED(host.FlushLog(2000)), L"FlushLog waits for the writer to drain", success);
+    constexpr size_t flushBatches = 64;
+    constexpr size_t recordsPerBatch = 4;
+    const RedXeLogRecord pulse{sizeof(pulse), RedXeLogLevelInfo,   nullptr, nullptr,
+                               "flush-pulse", "queued after idle", S_OK};
+    bool flushesSucceeded = true;
+    for (size_t batch = 0; batch < flushBatches; ++batch)
+    {
+        for (size_t record = 0; record < recordsPerBatch; ++record)
+            flushesSucceeded = (iface->Log(&pulse) == S_OK) && flushesSucceeded;
+        flushesSucceeded = (host.FlushLog(2000) == S_OK) && flushesSucceeded;
+    }
+    Check(flushesSucceeded, L"repeated enqueue/flush boundaries never observe a stale idle signal", success);
 
     SYSTEMTIME utc{};
     GetSystemTime(&utc);
@@ -1882,6 +2186,42 @@ void TestHostJsonlLog(bool& success) noexcept
         bytes.assign(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
     }
     Check(!bytes.empty(), L"the dated JSONL file can be read after flush", success);
+    size_t offset = 0;
+    size_t boundedCount = 0;
+    size_t followingCount = 0;
+    size_t flushedCount = 0;
+    while (offset < bytes.size())
+    {
+        const size_t newline = bytes.find('\n', offset);
+        if (newline == std::string::npos)
+        {
+            Check(false, L"every JSONL record ends in a newline", success);
+            break;
+        }
+        using unique_json = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
+        unique_json document{yyjson_read(bytes.data() + offset, newline - offset, YYJSON_READ_NOFLAG)};
+        Check(document && newline - offset < 1024, L"each bounded line is independently valid UTF-8 JSON", success);
+        if (document)
+        {
+            yyjson_val* rootValue = yyjson_doc_get_root(document.get());
+            const char* event = yyjson_get_str(yyjson_obj_get(rootValue, "event"));
+            if (event && std::strcmp(event, "bounded-message") == 0)
+            {
+                ++boundedCount;
+                const char* hr = yyjson_get_str(yyjson_obj_get(rootValue, "hr"));
+                Check(hr && std::strcmp(hr, "0x80004005") == 0 && yyjson_is_str(yyjson_obj_get(rootValue, "message")),
+                      L"truncation preserves the message and complete HRESULT suffix", success);
+            }
+            if (event && std::strcmp(event, "after-bounded") == 0)
+                ++followingCount;
+            if (event && std::strcmp(event, "flush-pulse") == 0)
+                ++flushedCount;
+        }
+        offset = newline + 1;
+    }
+    Check(boundedCount == longMessages.size() && followingCount == 1,
+          L"escaped records and the following record never merge or disappear", success);
+    Check(flushedCount == flushBatches * recordsPerBatch, L"every flushed batch is present on disk", success);
     Check(bytes.find("\"event\":\"log-open\"") != std::string::npos, L"opening the log writes a log-open line",
           success);
     Check(bytes.find("\"event\":\"forecast-failed\"") != std::string::npos &&
@@ -3331,7 +3671,10 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestDataProviderLookup(success);
     TestProcessViewerSubscription(success);
     TestSystemDataViewers(success);
+    TestSubscriptionDrain(success);
+    TestReservedSubscriptionDrain(success);
     TestGpuTargetSizeNotification(success);
+    TestGpuPageLifetime(success);
     TestSharedPluginRuntime(success);
     TestHostRequestFrameAndWidgetStatus(success);
     TestWidgetSettingsPersist(success);

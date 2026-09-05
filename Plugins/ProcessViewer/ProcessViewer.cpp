@@ -221,6 +221,7 @@ std::atomic<uint32_t> g_liveWidgetCount{0};
 std::atomic<uint32_t> g_liveSubscriptionCount{0};
 std::atomic<uint32_t> g_sampleCount{0};
 std::atomic<uint32_t> g_paintCount{0};
+std::atomic<uint32_t> g_deviceCallbacksWhileVisible{0};
 std::atomic<uint32_t> g_lastPublishedRowCount{0};
 std::atomic<uint32_t> g_configuredTopN{0};
 
@@ -1146,6 +1147,8 @@ class ViewerWidget final
 
     HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept override
     {
+        if (_visible.load(std::memory_order_acquire))
+            g_deviceCallbacksWhileVisible.fetch_add(1, std::memory_order_relaxed);
         if (!context || context->sizeBytes != sizeof(RedXeGpuDeviceContext) || !context->device)
         {
             return E_INVALIDARG;
@@ -1168,6 +1171,8 @@ class ViewerWidget final
 
     void STDMETHODCALLTYPE OnDeviceLost() noexcept override
     {
+        if (_visible.load(std::memory_order_acquire))
+            g_deviceCallbacksWhileVisible.fetch_add(1, std::memory_order_relaxed);
         if (_gpuHeld.exchange(false, std::memory_order_acq_rel))
         {
             ViewerGpuRelease();
@@ -3412,5 +3417,6 @@ extern "C" HRESULT __stdcall RedXeProcessViewerGetTestDiagnostics(ProcessViewerT
     diagnostics->paintCount = g_paintCount.load(std::memory_order_relaxed);
     diagnostics->lastPublishedRowCount = g_lastPublishedRowCount.load(std::memory_order_relaxed);
     diagnostics->configuredTopN = g_configuredTopN.load(std::memory_order_relaxed);
+    diagnostics->deviceCallbacksWhileVisible = g_deviceCallbacksWhileVisible.load(std::memory_order_relaxed);
     return S_OK;
 }

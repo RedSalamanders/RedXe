@@ -86,6 +86,7 @@ enum class WeatherDensity : uint32_t
 std::atomic<uint32_t> gLiveProviderCount{0};
 std::atomic<uint32_t> gLiveWidgetCount{0};
 std::atomic<uint32_t> gPaintCount{0};
+std::atomic<uint32_t> gDeviceCallbacksWhileVisible{0};
 std::atomic<uint32_t> gNetworkWorkCount{0};
 std::atomic<uint32_t> gLastDelay{0};
 std::atomic<uint32_t> gLastStatus{RedXeWidgetStatusInitializing};
@@ -337,6 +338,8 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
 
     HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept override
     {
+        if (_visible.load(std::memory_order_acquire))
+            gDeviceCallbacksWhileVisible.fetch_add(1, std::memory_order_relaxed);
         if (!context || context->sizeBytes != sizeof(RedXeGpuDeviceContext) || !context->device)
         {
             return E_INVALIDARG;
@@ -362,6 +365,8 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
 
     void STDMETHODCALLTYPE OnDeviceLost() noexcept override
     {
+        if (_visible.load(std::memory_order_acquire))
+            gDeviceCallbacksWhileVisible.fetch_add(1, std::memory_order_relaxed);
         if (_gpuHeld.exchange(false, std::memory_order_acq_rel))
         {
             WeatherGpuRelease();
@@ -510,7 +515,7 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
             {
                 std::array<char, kWeatherMaximumUrlBytes> url{};
                 const HRESULT built = WeatherBuildLocationSearchUrl(_configuration.location.data(), url.data(),
-                                                                     static_cast<uint32_t>(url.size()));
+                                                                    static_cast<uint32_t>(url.size()));
                 if (FAILED(built))
                 {
                     return built;
@@ -1042,6 +1047,7 @@ extern "C" HRESULT __stdcall RedXeWeatherGetTestDiagnostics(WeatherTestDiagnosti
     diagnostics->liveWidgetCount = gLiveWidgetCount.load(std::memory_order_relaxed);
     diagnostics->paintCount = gPaintCount.load(std::memory_order_relaxed);
     diagnostics->networkWorkCount = gNetworkWorkCount.load(std::memory_order_relaxed);
+    diagnostics->deviceCallbacksWhileVisible = gDeviceCallbacksWhileVisible.load(std::memory_order_relaxed);
     diagnostics->httpGetCount = WeatherHttpGetCount();
     diagnostics->httpResponseSizeBytes = static_cast<uint32_t>(sizeof(WeatherHttpResponse));
     diagnostics->lastDelayMilliseconds = gLastDelay.load(std::memory_order_relaxed);
@@ -1187,7 +1193,7 @@ extern "C" HRESULT __stdcall RedXeWeatherParseTestLatLon(const char* text, doubl
 }
 
 extern "C" HRESULT __stdcall RedXeWeatherBuildTestLocationSearchUrl(const char* location, char* url,
-                                                                   uint32_t capacity) noexcept
+                                                                    uint32_t capacity) noexcept
 {
     return WeatherBuildLocationSearchUrl(location ? std::string_view(location) : std::string_view{}, url, capacity);
 }

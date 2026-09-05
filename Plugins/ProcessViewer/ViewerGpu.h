@@ -161,6 +161,7 @@ class ViewerGpuResources final
 
 [[nodiscard]] HRESULT ViewerGpuAcquire(ID3D11Device* device) noexcept;
 void ViewerGpuRelease() noexcept;
+// Worker callers hold ViewerGpuLock across the instance ownership check, this lookup, and resource use.
 [[nodiscard]] ViewerGpuResources* ViewerGpuGet() noexcept;
 void ViewerGpuLock() noexcept;
 void ViewerGpuUnlock() noexcept;

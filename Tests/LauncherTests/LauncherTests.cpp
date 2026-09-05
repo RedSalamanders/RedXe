@@ -203,21 +203,49 @@ struct RenderTarget final
 }
 
 [[nodiscard]] HRESULT RenderFrame(IRedXeGpuWidget& widget, RenderTarget& target, float elapsedSeconds,
-                                  float deltaSeconds, float originX = 0.0f) noexcept
+                                  float deltaSeconds, float originX = 0.0f, uint32_t width = 0,
+                                  uint32_t height = 0) noexcept
 {
+    width = width == 0 ? target.width : width;
+    height = height == 0 ? target.height : height;
     target.context->ClearState();
     ID3D11RenderTargetView* views[] = {target.view.get()};
     target.context->OMSetRenderTargets(1, views, nullptr);
     const D3D11_VIEWPORT viewport{
-        originX, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f,
+        originX, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f,
     };
     target.context->RSSetViewports(1, &viewport);
     const RedXeWidgetFrameContext widgetFrame{
-        sizeof(RedXeWidgetFrameContext), target.width,   target.height,
-        USER_DEFAULT_SCREEN_DPI,         elapsedSeconds, deltaSeconds,
+        sizeof(RedXeWidgetFrameContext), width, height, USER_DEFAULT_SCREEN_DPI, elapsedSeconds, deltaSeconds,
     };
     const RedXeGpuFrameContext frame{sizeof(RedXeGpuFrameContext), &widgetFrame, target.context.get(), viewport};
     return widget.Render(&frame);
+}
+
+[[nodiscard]] HRESULT CheckWhiteIcon(RenderTarget& target, uint32_t centerX, uint32_t centerY) noexcept
+{
+    D3D11_TEXTURE2D_DESC description{};
+    target.texture->GetDesc(&description);
+    description.Usage = D3D11_USAGE_STAGING;
+    description.BindFlags = 0;
+    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    wil::com_ptr_nothrow<ID3D11Texture2D> staging;
+    HRESULT result = target.device->CreateTexture2D(&description, nullptr, staging.put());
+    if (FAILED(result))
+        return result;
+    target.context->CopyResource(staging.get(), target.texture.get());
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    result = target.context->Map(staging.get(), 0, D3D11_MAP_READ, 0, &mapped);
+    if (FAILED(result))
+        return result;
+    const auto unmap = wil::scope_exit([&]() noexcept { target.context->Unmap(staging.get(), 0); });
+    const auto* pixel = static_cast<const uint8_t*>(mapped.pData) + centerY * mapped.RowPitch + centerX * 4;
+    if (pixel[0] < 240 || pixel[1] < 240 || pixel[2] < 240 || pixel[3] < 240)
+    {
+        std::wprintf(L"Launcher icon is missing at the actual viewport center.\n");
+        return kTestFailure;
+    }
+    return S_OK;
 }
 
 [[nodiscard]] HRESULT CreateProvider(RedXeCreateFn create, std::string_view configuration, IRedXeHost* host,
@@ -655,12 +683,36 @@ struct RenderTarget final
         return kTestFailure;
     }
 
+    wil::com_ptr_nothrow<IRedXeInteractiveWidget> layoutInput;
+    if (FAILED(pngWidget.query_to(layoutInput.put())))
+        return kTestFailure;
+    // One largest-size notification, followed by the tile and overlay draws on the same device.
+    for (uint32_t edge : {120U, 480U, 120U, 480U})
+    {
+        result = RenderFrame(*pngGpu, target, 0.0f, 0.0f, 0.0f, edge, edge);
+        if (SUCCEEDED(result))
+            result = CheckWhiteIcon(target, edge / 2, edge / 2);
+        const float center = static_cast<float>(edge) * 0.5f;
+        const RedXePointerEvent hit{sizeof(hit), 1, RedXePointerKindMouse, RedXePointerPhaseDown, center, center};
+        const RedXePointerEvent cancel{sizeof(cancel),          1,      RedXePointerKindMouse,
+                                       RedXePointerPhaseCancel, center, center};
+        const RedXePointerEvent padding{sizeof(padding), 1, RedXePointerKindMouse, RedXePointerPhaseDown, 1.0f, 1.0f};
+        if (FAILED(result) || layoutInput->OnPointer(&hit) != S_OK || layoutInput->OnPointer(&cancel) != S_FALSE ||
+            layoutInput->OnPointer(&padding) != S_FALSE)
+            return kTestFailure;
+    }
+
     gRenderThread.store(GetCurrentThreadId(), std::memory_order_relaxed);
     gRenderAllocations.store(0, std::memory_order_relaxed);
 #if defined(_DEBUG)
     _CrtSetAllocHook(CountRenderAllocation);
 #endif
-    result = RenderFrame(*pngGpu, target, 0.5f, 1.0f / 60.0f);
+    for (uint32_t edge : {120U, 480U, 120U, 480U})
+    {
+        result = RenderFrame(*pngGpu, target, 0.5f, 1.0f / 60.0f, 0.0f, edge, edge);
+        if (FAILED(result))
+            break;
+    }
 #if defined(_DEBUG)
     _CrtSetAllocHook(nullptr);
 #endif

@@ -741,6 +741,78 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 #endif
 }
 
+[[nodiscard]] HRESULT ValidatePersistRollback() noexcept
+{
+    constexpr std::string_view documentJson =
+        R"({"version":{"major":4},"declare":{"Matrix":{"plugin":"builtin.matrix-rain",)"
+        R"("settings":{"seed":7,"densityPercent":60}}},"pages":[{"layout":{"arrangeAlong":"long-side",)"
+        R"("areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}},)"
+        R"({"sizeRatio":1,"widget":"Matrix"}]}}]})";
+    try
+    {
+        const auto directory =
+            std::filesystem::temp_directory_path() / (L"RedXe.PersistTests." + std::to_wstring(GetCurrentProcessId()) +
+                                                      L"." + std::to_wstring(GetTickCount64()));
+        std::filesystem::create_directories(directory);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code error;
+                std::filesystem::remove_all(directory, error);
+            });
+        const auto path = directory / L"custom.settings.json";
+        {
+            std::ofstream stream(path, std::ios::binary);
+            stream << documentJson;
+        }
+        SettingsStore store;
+        std::unique_ptr<AppSettings> loaded;
+        HRESULT result = store.Initialize(false, path.wstring(), loaded);
+        if (FAILED(result) || !loaded || loaded->dashboard.pages[0].widgets.size() < 2)
+            return FAILED(result) ? result : E_UNEXPECTED;
+        const auto before = std::make_unique<AppSettings>(*loaded);
+        const std::string id(loaded->dashboard.pages[0].widgets[1].id.View());
+        // A real open handle without FILE_SHARE_DELETE prevents the atomic replacement from committing.
+        wil::unique_hfile locked{CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+        if (!locked)
+            return HRESULT_FROM_WIN32(GetLastError());
+        result = store.PersistWidgetSettings(*loaded, id, R"({"seed":17})");
+        std::string disk;
+        if ((result != HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION) && result != E_ACCESSDENIED) || *loaded != *before ||
+            FAILED(ReadFile(path, disk)) || disk != documentJson)
+        {
+            std::wprintf(L"Failed persistence changed the authoritative settings or disk.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        locked.reset();
+        if (SUCCEEDED(store.PersistWidgetSettings(*loaded, id, "[]")) || *loaded != *before)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        result = store.PersistWidgetSettings(*loaded, id, R"({"densityPercent":75})");
+        if (FAILED(result))
+            return result;
+        auto reloaded = std::make_unique<AppSettings>();
+        result = LoadAppSettingsFile(path.wstring(), *reloaded);
+        if (FAILED(result))
+            return result;
+        const auto& saved = reloaded->dashboard.pages[0].widgets[1].privateConfiguration;
+        unique_doc document{yyjson_read(saved.View().data(), saved.View().size(), YYJSON_READ_NOFLAG)};
+        yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+        if (!root || yyjson_get_uint(yyjson_obj_get(root, "seed")) != 7 ||
+            yyjson_get_uint(yyjson_obj_get(root, "densityPercent")) != 75 ||
+            saved != loaded->dashboard.pages[0].widgets[1].privateConfiguration)
+        {
+            std::wprintf(L"A later save resurrected the rejected patch or lost the new patch.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
 [[nodiscard]] HRESULT ValidateLogsDirectory() noexcept
 {
     try
@@ -805,12 +877,28 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 
 int wmain()
 {
-    for (const HRESULT result : {ValidateTemplatesAndSchema(), ValidateParser(), ValidateLowStack(), ValidateWatcher(),
-                                 ValidateExternalSelection(), ValidateDefaultRecovery(),
-                                 ValidateLegacyReleaseFilenameMigration(), ValidateLogsDirectory()})
+    struct Test final
     {
+        const wchar_t* name;
+        HRESULT (*run)() noexcept;
+    };
+    const Test tests[]{{L"templates/schema", ValidateTemplatesAndSchema},
+                       {L"parser", ValidateParser},
+                       {L"low stack", ValidateLowStack},
+                       {L"watcher", ValidateWatcher},
+                       {L"external selection", ValidateExternalSelection},
+                       {L"default recovery", ValidateDefaultRecovery},
+                       {L"legacy filename", ValidateLegacyReleaseFilenameMigration},
+                       {L"logs directory", ValidateLogsDirectory},
+                       {L"persist rollback", ValidatePersistRollback}};
+    for (const auto& test : tests)
+    {
+        const HRESULT result = test.run();
         if (FAILED(result))
-            return static_cast<int>(result & 0xFF);
+        {
+            std::wprintf(L"Settings test '%s' failed: 0x%08X\n", test.name, static_cast<unsigned int>(result));
+            return 1;
+        }
     }
     return 0;
 }

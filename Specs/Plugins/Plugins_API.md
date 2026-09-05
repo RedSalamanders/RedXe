@@ -1,7 +1,7 @@
 # RedXe plugin API contract
 
 Status: current normative contract
-Last reviewed: 2026-09-04
+Last reviewed: 2026-09-05
 
 ## Purpose and scope
 
@@ -120,7 +120,7 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   The host never calls these exports. The current surface is: `RedXeMatrixRainGetTestDiagnostics`,
   `RedXeProcessViewerGetTestDiagnostics`, `RedXeStudioClockGetTestDiagnostics`, `RedXeStudioClockSetTestTime`,
   `RedXeDeskClockGetTestDiagnostics`, `RedXeDeskClockSetTestTime`, `RedXeWeatherGetTestDiagnostics`, and
-  `RedXeWeatherProbeHttpGetOnSmallStack`.
+  `RedXeWeatherProbeHttpGetOnSmallStack`, and `RedXeWeatherBuildTestLocationSearchUrl`.
 - Every factory call names one non-empty plugin ID. Null and empty IDs are invalid, including in single-plugin DLLs.
 - Factory, enumeration, widget creation, device notification, GPU rendering, native-window lifecycle, host-service,
   data-source, provider, and data-sink calls are synchronous and non-reentrant. Widget visibility, collect-on-exit,
@@ -181,6 +181,9 @@ object it was supplied to.
   `OnPointer` (committed click) and `OnDrop`. A null instance ID, a null JSON pointer, or zero bytes returns
   `E_INVALIDARG`. `--self-test` and HostPluginTests keep a successful merge in memory and MUST NOT write
   `%LocalAppData%`.
+- An interactive settings save is transactional: validation or file-replacement failure MUST preserve both the
+  typed instance settings and the retained source document. A committed file replacement remains success even if
+  querying its deduplication stamp fails afterward; the next watcher notification may reload it.
 - `Log` appends one diagnostic JSONL line. It is safe from any thread, including the acquisition and network workers,
   copies bounded fields into a 32-slot 1024-byte ring, and never blocks on disk. The host writer is event-blocked and
   writes UTC-dated files (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`), opening a new file when the UTC
@@ -191,6 +194,12 @@ object it was supplied to.
   `Render` or GDI paint and MUST NOT emit per-frame success. Factory create, module map, placeholder construction,
   native attach, GPU device-create, GPU render failure (once per instance and HRESULT), and weather forecast outcomes
   are the required coverage.
+  Escaping and truncation MUST preserve complete JSON syntax, the optional HRESULT, one trailing newline, and valid
+  UTF-8. Each identity has a bounded escaped-output budget, and message truncation reserves room for the record
+  suffix. A partial final UTF-8 sequence is omitted; malformed input bytes are replaced with ASCII `?`.
+  The log writer's empty-queue test and idle signal MUST be synchronized with producer enqueue/reset, so a completed
+  flush cannot be inferred from a stale idle event. Host tests exercise repeated bounded enqueue/flush batches and
+  verify every flushed record is present on disk.
 
 ### Static settings contract
 
@@ -255,8 +264,9 @@ module and every local data-provider runtime for every `PluginManager`, includin
 during a swipe. A `PluginManager` borrows it and never owns one. The first provider
 lookup lazily maps its catalog module, creates one `IRedXeDataSource`, validates and caches at most 256 datasets, and
 returns a host provider facade. Insert of a new provider re-checks identity under the exclusive subscription lock so
-two overlapping creates cannot both insert. `SetActive` is a no-op when the requested state already matches and MUST
-NOT wake the worker. All local sources share one acquisition worker and at most 32 subscriptions in total.
+two overlapping creates cannot both insert. `SetActive` MUST NOT wake the worker when the requested state already
+matches; deactivation still honors the drain guarantee. All local sources share one acquisition worker and at most
+32 subscriptions in total.
 Active subscriptions for the same provider and dataset share one collection at the shortest requested interval,
 clamped to the source recommendation. When multiple datasets on one source are due in the same worker pass, the host
 gathers those unique IDs, orders them deterministically with `source.status` last, and issues one `CollectSnapshots`
@@ -267,15 +277,16 @@ indefinitely on its change and stop events; it owns no polling or periodic wake-
 datasets that would use a shared host device-I/O lane; no such lane is created until timeout, `CancelIoEx`, and
 teardown drain are measured. Sources MUST NOT create their own acquisition threads.
 
-The host provider does not retain or duplicate a source snapshot. `PluginHost::Deliver` copies the active sink
-pointers, releases the subscription lock, then invokes each `OnDataSnapshot`. A sink copies only bounded values it
+The host provider does not retain or duplicate a source snapshot. `PluginHost::Deliver` reserves and copies the active
+sink pointers under the subscription lock, releases that lock, then invokes each `OnDataSnapshot`. A sink copies only bounded values it
 needs, performs no blocking work or provider/host re-entry, and MUST NOT activate, deactivate, or release a
-subscription from inside `OnDataSnapshot`. Holding the lock across the callback would deadlock a sink that broke that
-rule. A sink failure is
+subscription from inside `OnDataSnapshot`: draining its own reserved callback would deadlock. A sink failure is
 isolated and does not stop later sinks or acquisition cycles. After a successful delivery to any active sink,
 `PluginHost` coalesces one UI-thread frame invalidation (`WM_APP + 3`) so GPU data widgets can start a sample-driven
 ease without a child HWND. `SetActive(FALSE)` and subscription release drain an
-in-flight callback before returning when called outside the callback. Shutdown signals and joins the worker before
+in-flight callback and every reserved callback that has not yet entered before returning when called outside the
+callback. A slot MUST NOT be reused until its copied sink references have been released. Draining uses an event-blocked
+wait, never polling. Shutdown signals and joins the worker before
 releasing providers and sources. Push delivery and schema-based automatic source selection are outside the current
 contract; bindings use explicit provider and dataset IDs.
 
@@ -327,12 +338,21 @@ GPU vtables.
   - It MUST NOT be called for a position-only change such as a page-swipe offset, MUST NOT be called per frame, and
     MUST NOT be called for each interpolated rectangle during a raise or dismiss settle. The host reports the final
     overlay size when raise starts and the tile size when dismiss completes. The host compares the integer viewport
-    size against the last size it reported for that widget and calls only on a difference.
+    size and DPI against the last values it reported for that widget and calls only on a difference. A DPI-only change
+    MUST notify even when physical dimensions are unchanged. Caches belong to widget identity: a replacement staged
+    page gets initial notifications even at the same dimensions, while promotion retains its existing cache.
   - A raised widget is drawn twice in one frame, at its tile and again at the overlay slice, so the reported size is
-    the larger of the two. The smaller draw is a minification the sampler handles.
+    the larger of the two. Raster resources may be minified, but layout and input coordinates MUST match the actual
+    per-frame viewport, including intermediate overlay sizes during animation.
   - A widget with no resolution-dependent resources returns `S_OK` and does nothing.
   - A failure is isolated: the host keeps the widget's previous resources and continues rendering it.
 - `OnDeviceLost` is idempotent and releases all plugin-owned device resources before the host releases its device.
+  The host MUST deactivate and drain current and staged widget work before device teardown, stage new pages hidden
+  until setup completes, and restore prior visibility only after successful resource creation. GPU state accessed by
+  snapshot or network workers MUST synchronize its lifetime check and resource access with device teardown. The
+  Process Viewer and Weather resource hubs use an atomic instance-ownership flag and the shared GPU lock for this.
+  During recovery, both current and staged pages receive device creation before the new render target exists;
+  viewport calculation and initial size notifications MUST wait until that target has physical dimensions.
 - `Render` receives generic widget dimensions/timing, the borrowed immediate context, and the widget viewport. During
   a page swipe that viewport is the full design-canvas placement translated by the page offset: `TopLeftX`/`TopLeftY`
   MAY be negative and the rectangle MAY extend past the render target. `widget` width and height stay that full size.
@@ -808,6 +828,12 @@ time at most once per displayed second. The plugin owns no timer, worker, HWND, 
 render path performs no heap allocation. Host visibility, power, suspension, occlusion, active-page, and continuous-
 sibling policy owns deadline retention, pacing, and suppression. `WM_TIMECHANGE` invalidates one host frame.
 
+Weather manual city lookup MUST encode the UTF-8 location as one URL query value. ASCII unreserved bytes pass through;
+all other bytes, including spaces, Unicode bytes, and query delimiters, use percent encoding. The bounded builder
+accepts at most 128 input bytes and fails without a partial URL if the output buffer cannot include the terminator.
+Offline WeatherTests MUST cover spaces, Unicode, reserved characters, unreserved characters, exact capacity, and
+empty/overlong input; live geocoding is not a test dependency.
+
 `Plugins/Launcher` exposes settings-visible plugin ID `builtin.launcher`, internally maps it to type ID `launcher`,
 and exposes sibling `IRedXeGpuWidget`, `IRedXeInteractiveWidget`, and `IRedXeRaisedWidget` interfaces on one
 controlling `IUnknown`. It rejects `IRedXeWindowWidget` and `IRedXeScheduledWidget`. Its raised extent is half. The
@@ -839,6 +865,9 @@ padding is trimmed. Device loss keeps CPU BGRA and re-uploads without a second s
 Shared device resources live once per provider: embedded Shader Model 5.0 blobs, textured-quad pipeline, sampler, and
 immutable blend/rasterizer/depth state. Each instance owns at most eight 256×256 icon textures and one 320-byte
 dynamic constant buffer. `Render` is allocation-free and issues at most two draws (background plus instanced icons).
+Grid geometry uses two bounded cache entries keyed by actual width, height, DPI, and shortcut count. The tile and
+overlay therefore reuse distinct layouts, and pointer hit testing uses the most recently drawn layout (the overlay
+draw is last while raised). A largest-target notification MUST NOT displace or clip icons in the original tile.
 A swipe viewport keeps the widget's full size and may have a negative origin; `Render` must still draw. A committed
 click starts a bounded 3D launch motion of at most 400 ms via `RequestFrame` from `Render` only; idle with a static
 grid owns no wake-up. `RequestFrame` MUST NOT be called from `SetVisible` or `OnDeviceCreated`. `OnDrop` and
@@ -886,7 +915,11 @@ grid owns no wake-up. `RequestFrame` MUST NOT be called from `SetVisible` or `On
 12z. Host tests MUST prove that the host reports a GPU widget's target size once device resources exist, that
     rendering frames at an unchanged size reports nothing further, that a viewport above the composition design size
     moves Desk Clock's glyph atlas to its higher tier and back down when the viewport shrinks, and that the widget
-    still renders after a tier change.
+    still renders after a tier change. Also verify one notification for a DPI-only change, none for unchanged DPI,
+    correct initial notification for a same-sized replacement page, and cache preservation on promotion.
+    Lifecycle tests MUST prove data/network widgets are hidden during all device callbacks and render after WARP
+    recreation. Event-barrier tests MUST prove subscription release and deactivation wait for running and reserved
+    callbacks, allow reactivation, and safely reuse released subscription slots.
 12y. Host tests MUST prove that a page swipe which places Matrix Rain, Studio Clock, or Desk Clock partly off the
     render target still draws those widgets, including when the incoming page's viewport origin is negative. Plugin
     tests MUST prove Studio Clock and Desk Clock accept a finite negative viewport origin.
@@ -917,6 +950,8 @@ grid owns no wake-up. `RequestFrame` MUST NOT be called from `SetVisible` or `On
     calls `SetLogDirectory`. Compile-time contract checks MUST pin `sizeof(RedXeLogRecord)` and its pointer offsets.
     Settings tests MUST prove the default logs directory is the `Logs` sibling of `Settings` and that `logRetentionDays`
     defaults to 15 and rejects 0 and 366.
+    Long escaped identities/messages, split multibyte boundaries, and malformed UTF-8 MUST remain independently
+    parseable JSONL with their HRESULT suffixes and the following record intact.
 13. Compile-time checks MUST validate unique bundled plugin IDs and module names, keep every widget projection entry
     backed by one module entry, and keep that projection within the 64-plugin settings limit.
 14. Keep `/W4`, `/permissive-`, SDL checks, and warnings-as-errors green.
@@ -966,7 +1001,8 @@ grid owns no wake-up. `RequestFrame` MUST NOT be called from `SetVisible` or `On
     host name, overlong string), injected pin-directory fallback, automated empty list without live taskbar reads,
     jumbo-or-PNG extraction, WARP two-draw icon grid, device-loss re-upload without a second extract, launch counting
     with zero `ShellExecuteExW`, drop append/cap, and that persist JSON never contains the pin snapshot, through
-    `LauncherTests`, `SettingsTests`, and `HostPluginTests`.
+    `LauncherTests`, `SettingsTests`, and `HostPluginTests`. WARP pixel and hit-target tests MUST alternate tile and
+    overlay sizes after one largest-size notification and verify zero allocations on those cached draws.
 
 The automated Debug host composition must contain the GPU launcher, one rotating-triangle GPU fixture, the GDI
 fixture, and Matrix Rain. The automated

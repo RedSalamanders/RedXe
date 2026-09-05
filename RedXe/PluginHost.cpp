@@ -136,7 +136,7 @@ size_t AppendLogText(char* destination, size_t capacity, size_t used, const char
 }
 
 size_t AppendLogEscaped(char* destination, size_t capacity, size_t used, const char* text,
-                         uint32_t maxCharacters) noexcept
+                        uint32_t maxCharacters) noexcept
 {
     uint32_t copied = 0;
     while (text && copied < maxCharacters && *text != '\0')
@@ -173,8 +173,11 @@ size_t AppendLogEscaped(char* destination, size_t capacity, size_t used, const c
         }
         // Copy complete UTF-8 code points, including at the input and escaped-output limits. Invalid input is
         // replaced with one ASCII '?' so a diagnostic can never corrupt the JSONL stream.
-        uint32_t bytes = character < 0x80 ? 1U : character >= 0xC2 && character <= 0xDF ? 2U :
-                         character >= 0xE0 && character <= 0xEF ? 3U : character >= 0xF0 && character <= 0xF4 ? 4U : 0U;
+        uint32_t bytes = character < 0x80                         ? 1U
+                         : character >= 0xC2 && character <= 0xDF ? 2U
+                         : character >= 0xE0 && character <= 0xEF ? 3U
+                         : character >= 0xF0 && character <= 0xF4 ? 4U
+                                                                  : 0U;
         if (bytes > maxCharacters - copied)
         {
             break;
@@ -863,10 +866,14 @@ void PluginHost::LogWorker() noexcept
             (void)FlushFileBuffers(_logFile.get());
         }
 
-        if (_logIdleEvent && _logQueued.load(std::memory_order_acquire) == 0)
+        // Pair the idle transition with EnqueueLogLine's reset under the same lock. Otherwise a producer can
+        // enqueue/reset between the empty check and SetEvent, making FlushLog observe a stale idle signal.
+        AcquireSRWLockExclusive(&_logLock);
+        if (_logIdleEvent && _logCount == 0)
         {
             SetEvent(_logIdleEvent.get());
         }
+        ReleaseSRWLockExclusive(&_logLock);
         if (stopping)
         {
             return;

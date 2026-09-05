@@ -101,7 +101,7 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     // Asks the host to persist this instance's plugin settings object (not the factory envelope). The widget may
     // send the complete object or a subset of members. The host merges supplied members into the stored instance
     // settings, validates the complete result, and may write the user document. It MUST NOT destroy or detach the
-    // calling widget.
+    // calling widget. A failed validation or file replacement leaves typed settings and the source document intact.
     //
     // UI thread only, synchronous, non-reentrant. Forbidden from device, size, visibility, raise, Render, and
     // CollectPersistentSettings. Allowed from OnPointer (committed click) and OnDrop. A null instanceId, a null
@@ -112,7 +112,8 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     // Appends one diagnostic line to the host JSONL log. Safe from any thread, including the acquisition and network
     // workers. Copies bounded fields into a ring and never blocks on disk. MUST NOT be called from Render or GDI
     // paint. MUST NOT emit per-frame success. A null record, a mismatched sizeBytes, a missing event or message, or
-    // an unknown level returns E_INVALIDARG / E_POINTER.
+    // an unknown level returns E_INVALIDARG / E_POINTER. Truncation preserves complete UTF-8, JSON, the optional
+    // HRESULT, and a trailing newline; malformed UTF-8 bytes are replaced with ASCII '?'.
     virtual HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept = 0;
 };
 

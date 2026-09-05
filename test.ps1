@@ -126,10 +126,16 @@ if ($settingsProcess.ExitCode -ne 0) {
 
 $hostPluginTests = Join-Path $repoRoot ".build\$Platform\$Configuration\HostPluginTests.exe"
 Write-Host 'Running production host and plugin integration tests...' -ForegroundColor Cyan
-$hostPluginProcess = Start-Process -FilePath $hostPluginTests -Wait -PassThru
+$hostPluginLog = Join-Path $repoRoot ".build\$Platform\$Configuration\HostPluginTests.log"
+$hostPluginErrors = Join-Path $repoRoot ".build\$Platform\$Configuration\HostPluginTests.stderr.log"
+$hostPluginProcess = Start-Process -FilePath $hostPluginTests -WindowStyle Hidden -Wait -PassThru `
+    -RedirectStandardOutput $hostPluginLog -RedirectStandardError $hostPluginErrors
 if ($hostPluginProcess.ExitCode -ne 0) {
+    Get-Content -LiteralPath $hostPluginLog -Tail 80
+    Get-Content -LiteralPath $hostPluginErrors -Tail 40
     throw "Host/plugin integration tests failed with exit code $($hostPluginProcess.ExitCode)."
 }
+Write-Host "Host integration log: $hostPluginLog" -ForegroundColor DarkGray
 
 Write-Host 'Running hidden Direct3D 11 WARP smoke test...' -ForegroundColor Cyan
 $process = Start-Process -FilePath $executable -ArgumentList @('--self-test', '--warp') -Wait -PassThru

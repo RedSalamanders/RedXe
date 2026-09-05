@@ -1,7 +1,7 @@
 # RedXe adaptive dashboard and page-navigation contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-04
+Last reviewed: 2026-09-05
 Owner: `DashboardHost` layout, active-page composition, page navigation, edge-navigation chrome, host placeholder tiles, and raised overlay chrome
 
 ## Scope
@@ -179,7 +179,9 @@ it, using the same interval and slop as raise. Page swipe MUST NOT start or cont
 overlay HWND exists only while raised.
 
 GPU composition draws every current-page widget at its tile viewport, then draws a raised GPU widget once more at the
-slice. It MUST NOT compose a transition page while raised. A raised window widget moves its host container to the
+slice. GPU widget geometry MUST follow each actual draw size; the largest-target notification does not replace the
+tile's layout. Hit testing uses the last drawn geometry, so raised input matches the final overlay draw.
+It MUST NOT compose a transition page while raised. A raised window widget moves its host container to the
 slice, stays below the overlay so the close control remains hittable, and MUST NOT hide sibling native containers.
 Host-owned native containers forward mouse `WM_LBUTTONUP` to the top-level window (screen-converted, ignoring
 pointer-synthesized mouse) so a GDI widget can raise and restore through the same double-activate path as a GPU tile.

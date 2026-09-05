@@ -196,9 +196,9 @@ interface __declspec(uuid("F9834987-EBC6-411E-9F28-A49E4DBB49D9")) __declspec(no
 interface __declspec(uuid("B8912B7D-89AD-4830-9CFB-73F4E72027FB")) __declspec(novtable) IRedXeDataSubscription
     : IUnknown
 {
-    // Called outside OnDataSnapshot, SetActive(FALSE) and releasing the subscription both drain an in-flight sink
-    // callback before returning, so a widget that releases its subscriptions before dropping its sinks can rely on
-    // the sink no longer being reachable from the host.
+    // Called outside OnDataSnapshot, SetActive(FALSE) and releasing the subscription both drain running and reserved
+    // sink callbacks (including a copied sink not yet invoked) before returning. No later callback may start while
+    // inactive. Releasing subscriptions before dropping a sink's owner therefore ends all callback access to it.
     virtual HRESULT STDMETHODCALLTYPE SetActive(BOOL active) noexcept = 0;
 };
 

@@ -1,7 +1,7 @@
 # XENEON display and windowing contract
 
 Status: current normative product contract
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-05
 Owner: `Application` process, display-selection, HWND, and DPI behavior
 
 ## Scope
@@ -34,6 +34,8 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 ## DPI transitions
 
 - The top-level window MUST handle `WM_DPICHANGED` using the new DPI carried in `wParam`.
+- The renderer MUST report a changed DPI to GPU widgets through `OnTargetSizeChanged` even when their physical
+  viewport dimensions stay unchanged. Repeating the same dimensions and DPI MUST NOT notify again.
 - A titled window MUST use the suggested destination position and recalculate its outer dimensions for an exact
   2560×720 logical client canvas at the new DPI. This avoids cumulative non-client rounding drift.
 - The current fixed-canvas foundation resets a titled window to the default logical canvas during a DPI transition.

@@ -266,8 +266,8 @@ HRESULT WeatherBuildLocationSearchUrl(std::string_view location, char* url, uint
     constexpr std::string_view suffix = "&format=json&limit=1";
     const auto unreserved = [](unsigned char value) noexcept
     {
-        return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') ||
-               (value >= '0' && value <= '9') || value == '-' || value == '.' || value == '_' || value == '~';
+        return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9') ||
+               value == '-' || value == '.' || value == '_' || value == '~';
     };
     size_t bytes = prefix.size() + suffix.size();
     for (unsigned char value : location)

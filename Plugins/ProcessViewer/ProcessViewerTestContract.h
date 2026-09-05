@@ -13,6 +13,7 @@ struct ProcessViewerTestDiagnostics final
     uint32_t paintCount;
     uint32_t lastPublishedRowCount;
     uint32_t configuredTopN;
+    uint32_t deviceCallbacksWhileVisible;
 };
 
 #if defined(REDXE_PLUGIN_EXPORTS)

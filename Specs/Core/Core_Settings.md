@@ -1,7 +1,7 @@
 # RedXe settings contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-04
+Last reviewed: 2026-09-05
 Owner: `SettingsStore`, `SettingsWatcher`, and UI-thread application orchestration
 
 ## Scope
@@ -141,6 +141,11 @@ object, then validates the complete result (4096-byte compact cap and the plugin
 complete persist. A successful interactive persist MAY write the user document. `--self-test` MUST keep the merge in
 memory and MUST NOT write or watch `%LocalAppData%`.
 
+Interactive persistence MUST roll back both typed private settings and the retained source document if validation
+or atomic file replacement fails. A later partial save MUST NOT resurrect a rejected change. The transaction saves
+only the affected private object and source text, rather than copying the entire typed dashboard. Once replacement
+commits, failure to query the file stamp MUST NOT report a failed save; clear deduplication state and allow reload.
+
 ## Pages and layout
 
 `pages` contains 1–16 entries in navigation order and at most 512 widget appearances in total. The first page is
@@ -212,6 +217,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   defaults plus a valid persist merge of a `shortcuts` array.
 - Tests cover merge rules, plugin replacement, minor compatibility, and compatible unknown-field preservation.
 - Tests prove a partial widget persist merge keeps unspecified members and rejects unknown plugin members.
+- An isolated file test MUST block replacement with an open handle, verify exact typed/source/disk rollback, then
+  release the handle and verify a different partial save commits without including the rejected patch.
 - Plugin contract tests prove `CollectPersistentSettings` returns `S_FALSE` when nothing to save and `E_POINTER` for a
   null `writtenBytes`. Host tests prove persist without a handler is `E_UNEXPECTED` and that a handler receives a
   partial object.

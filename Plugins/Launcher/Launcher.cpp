@@ -1234,6 +1234,12 @@ class LauncherWidget final
         {
             return E_UNEXPECTED;
         }
+        // The size notification describes the largest target. A raised widget also draws its original tile.
+        _width = widget.widthPixels;
+        _height = widget.heightPixels;
+        _dpi = widget.dpi == 0 ? USER_DEFAULT_SCREEN_DPI : widget.dpi;
+        ComputeGrid();
+        const auto& cells = _grids[_activeGrid].cells;
         float launchAmount = 0.0f;
         if (_launchActive)
         {
@@ -1271,10 +1277,10 @@ class LauncherWidget final
         constants.iconCount = _display.count;
         for (uint32_t index = 0; index < _display.count; ++index)
         {
-            constants.iconRect[index][0] = _cells[index][0];
-            constants.iconRect[index][1] = _cells[index][1];
-            constants.iconRect[index][2] = _cells[index][2];
-            constants.iconRect[index][3] = _cells[index][3];
+            constants.iconRect[index][0] = cells[index][0];
+            constants.iconRect[index][1] = cells[index][1];
+            constants.iconRect[index][2] = cells[index][2];
+            constants.iconRect[index][3] = cells[index][3];
             float dim = 1.0f;
             float tilt = 0.0f;
             float z = 0.0f;
@@ -1445,50 +1451,64 @@ class LauncherWidget final
         gAuthoredCount.store(_authored.count, std::memory_order_relaxed);
         gDisplayCount.store(_display.count, std::memory_order_relaxed);
         gUsingPins.store(_usingPins ? 1U : 0U, std::memory_order_relaxed);
-        gColumns.store(_columns, std::memory_order_relaxed);
-        gRows.store(_rows, std::memory_order_relaxed);
+        gColumns.store(_grids[_activeGrid].columns, std::memory_order_relaxed);
+        gRows.store(_grids[_activeGrid].rows, std::memory_order_relaxed);
     }
 
     void ComputeGrid() noexcept
     {
         const uint32_t n = _display.count;
+        for (size_t index = 0; index < _grids.size(); ++index)
+        {
+            const auto& cached = _grids[index];
+            if (cached.width == _width && cached.height == _height && cached.dpi == _dpi && cached.count == n)
+            {
+                _activeGrid = index;
+                return;
+            }
+        }
+        _activeGrid = 1 - _activeGrid;
+        auto& grid = _grids[_activeGrid];
+        grid = {};
+        grid.width = _width;
+        grid.height = _height;
+        grid.dpi = _dpi;
+        grid.count = n;
         if (n == 0 || _width == 0 || _height == 0)
         {
-            _columns = 0;
-            _rows = 0;
             PublishCounts();
             return;
         }
         const float aspect = static_cast<float>(_width) / static_cast<float>(_height);
         const long rounded = std::lround(std::sqrt(static_cast<float>(n) * aspect));
-        _columns = static_cast<uint32_t>(std::clamp(rounded, 1L, static_cast<long>(n)));
-        _rows = (n + _columns - 1U) / _columns;
-        const float cellWidth = static_cast<float>(_width) / static_cast<float>(_columns);
-        const float cellHeight = static_cast<float>(_height) / static_cast<float>(_rows);
+        grid.columns = static_cast<uint32_t>(std::clamp(rounded, 1L, static_cast<long>(n)));
+        grid.rows = (n + grid.columns - 1U) / grid.columns;
+        const float cellWidth = static_cast<float>(_width) / static_cast<float>(grid.columns);
+        const float cellHeight = static_cast<float>(_height) / static_cast<float>(grid.rows);
         const float padding = std::max(6.0f, static_cast<float>(_dpi) * 10.0f / 96.0f);
         const float icon = std::max(8.0f, std::min(cellWidth, cellHeight) - padding * 2.0f);
-        const float usedWidth = static_cast<float>(_columns) * cellWidth;
-        const float usedHeight = static_cast<float>(_rows) * cellHeight;
+        const float usedWidth = static_cast<float>(grid.columns) * cellWidth;
+        const float usedHeight = static_cast<float>(grid.rows) * cellHeight;
         const float originX = (static_cast<float>(_width) - usedWidth) * 0.5f;
         const float originY = (static_cast<float>(_height) - usedHeight) * 0.5f;
         for (uint32_t index = 0; index < n; ++index)
         {
-            const uint32_t column = index % _columns;
-            const uint32_t row = index / _columns;
-            _cells[index][0] = originX + (static_cast<float>(column) + 0.5f) * cellWidth;
-            _cells[index][1] = originY + (static_cast<float>(row) + 0.5f) * cellHeight;
-            _cells[index][2] = icon * 0.5f;
-            _cells[index][3] = icon * 0.5f;
+            const uint32_t column = index % grid.columns;
+            const uint32_t row = index / grid.columns;
+            grid.cells[index][0] = originX + (static_cast<float>(column) + 0.5f) * cellWidth;
+            grid.cells[index][1] = originY + (static_cast<float>(row) + 0.5f) * cellHeight;
+            grid.cells[index][2] = icon * 0.5f;
+            grid.cells[index][3] = icon * 0.5f;
         }
         PublishCounts();
     }
 
     [[nodiscard]] uint32_t HitCell(float x, float y) const noexcept
     {
+        const auto& cells = _grids[_activeGrid].cells;
         for (uint32_t index = 0; index < _display.count; ++index)
         {
-            if (std::fabs(x - _cells[index][0]) <= _cells[index][2] &&
-                std::fabs(y - _cells[index][1]) <= _cells[index][3])
+            if (std::fabs(x - cells[index][0]) <= cells[index][2] && std::fabs(y - cells[index][1]) <= cells[index][3])
             {
                 return index;
             }
@@ -1659,12 +1679,21 @@ class LauncherWidget final
     char _instanceId[kInstanceIdCapacity]{};
     LauncherConfiguration _authored{};
     LauncherConfiguration _display{};
-    std::array<std::array<float, 4>, kMaximumShortcuts> _cells{};
+    struct GridLayout final
+    {
+        uint32_t width = 0;
+        uint32_t height = 0;
+        uint32_t dpi = 0;
+        uint32_t count = 0;
+        uint32_t columns = 0;
+        uint32_t rows = 0;
+        std::array<std::array<float, 4>, kMaximumShortcuts> cells{};
+    };
+    std::array<GridLayout, 2> _grids{};
+    size_t _activeGrid = 0;
     uint32_t _width = 0;
     uint32_t _height = 0;
     uint32_t _dpi = USER_DEFAULT_SCREEN_DPI;
-    uint32_t _columns = 0;
-    uint32_t _rows = 0;
     uint32_t _downIndex = kMaximumShortcuts;
     uint32_t _launchIndex = kMaximumShortcuts;
     uint32_t _hoverIndex = kMaximumShortcuts;

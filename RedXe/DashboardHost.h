@@ -32,7 +32,10 @@ class DashboardHost final
                                      bool visible) noexcept;
     [[nodiscard]] HRESULT Resize(UINT width, UINT height, UINT dpi) noexcept;
     [[nodiscard]] HRESULT SetWidgetsVisible(bool visible) noexcept;
-    [[nodiscard]] bool WidgetsVisible() const noexcept { return _widgetsVisible; }
+    [[nodiscard]] bool WidgetsVisible() const noexcept
+    {
+        return _widgetsVisible;
+    }
     [[nodiscard]] HRESULT SetHorizontalOffset(LONG offset) noexcept;
     [[nodiscard]] LONG HorizontalOffset() const noexcept;
     [[nodiscard]] HRESULT ApplyRaisedNativeLayout(size_t widgetIndex, const RECT& content, UINT dpi) noexcept;

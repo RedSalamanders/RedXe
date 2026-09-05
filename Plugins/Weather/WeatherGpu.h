@@ -164,6 +164,7 @@ class WeatherGpuResources final
 
 [[nodiscard]] HRESULT WeatherGpuAcquire(ID3D11Device* device) noexcept;
 void WeatherGpuRelease() noexcept;
+// Worker callers hold WeatherGpuLock across the instance ownership check, this lookup, and resource use.
 [[nodiscard]] WeatherGpuResources* WeatherGpuGet() noexcept;
 void WeatherGpuLock() noexcept;
 void WeatherGpuUnlock() noexcept;

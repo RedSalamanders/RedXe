@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
+#include <string>
 #include <windows.h>
 
 #pragma warning(push)
@@ -50,6 +51,41 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     return S_OK;
 }
 
+[[nodiscard]] HRESULT ValidateLocationUrls(decltype(&RedXeWeatherBuildTestLocationSearchUrl) build)
+{
+    struct Case final
+    {
+        const char* location;
+        const char* encoded;
+    };
+    constexpr Case cases[]{{"New York", "New%20York"},
+                           {"S\xC3\xA3o Paulo", "S%C3%A3o%20Paulo"},
+                           {"\xE6\x9D\xB1\xE4\xBA\xAC", "%E6%9D%B1%E4%BA%AC"},
+                           {"A&B#?/+%", "A%26B%23%3F%2F%2B%25"},
+                           {"a-Z_0.~", "a-Z_0.~"}};
+    std::array<char, 1024> url{};
+    for (const auto& item : cases)
+    {
+        const std::string expected =
+            std::string("https://nominatim.openstreetmap.org/search?q=") + item.encoded + "&format=json&limit=1";
+        const uint32_t exactCapacity = static_cast<uint32_t>(expected.size() + 1);
+        if (build(item.location, url.data(), exactCapacity) != S_OK || std::strcmp(url.data(), expected.c_str()) != 0)
+            return kTestFailure;
+        if (build(item.location, url.data(), exactCapacity - 1) != HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) ||
+            url[0] != '\0')
+            return kTestFailure;
+    }
+    const std::string maximum(128, ' ');
+    const std::string overlong(129, 'a');
+    if (build(maximum.c_str(), url.data(), static_cast<uint32_t>(url.size())) != S_OK ||
+        build(overlong.c_str(), url.data(), static_cast<uint32_t>(url.size())) != E_INVALIDARG ||
+        build("", url.data(), static_cast<uint32_t>(url.size())) != E_INVALIDARG ||
+        build(nullptr, url.data(), static_cast<uint32_t>(url.size())) != E_INVALIDARG ||
+        SUCCEEDED(build("Paris", nullptr, 1024)) || SUCCEEDED(build("Paris", url.data(), 0)))
+        return kTestFailure;
+    return S_OK;
+}
+
 [[nodiscard]] HRESULT Run() noexcept
 {
     std::array<wchar_t, 1024> path{};
@@ -76,9 +112,18 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     const auto parseIso =
         Resolve<decltype(&RedXeWeatherParseTestIso8601)>(module.get(), kWeatherParseTestIso8601Export);
     const RedXePluginShutdownFn shutdown = Resolve<RedXePluginShutdownFn>(module.get(), kRedXePluginShutdownExport);
-    if (!getDiagnostics || !probe || !formatClockDay || !formatUnits || !parseIso || !shutdown)
+    const auto buildUrl = Resolve<decltype(&RedXeWeatherBuildTestLocationSearchUrl)>(
+        module.get(), kWeatherBuildTestLocationSearchUrlExport);
+    if (!getDiagnostics || !probe || !formatClockDay || !formatUnits || !parseIso || !shutdown || !buildUrl)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    }
+    result = ValidateLocationUrls(buildUrl);
+    if (FAILED(result))
+    {
+        std::wprintf(L"Weather location URL encoding or bounds failed.\n");
+        shutdown();
+        return result;
     }
 
     std::array<wchar_t, 1024> fontPath{};

@@ -105,6 +105,12 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
         }
     }
     _transitionWidgetsDeviceReady = true;
+    // During device recovery both pages are initialized before the new render target exists. Its creation will
+    // calculate viewports and send the initial size notifications for both pages together.
+    if (_width == 0 || _height == 0)
+    {
+        return S_OK;
+    }
     const HRESULT result = UpdateCachedViewports();
     return SUCCEEDED(result) ? dashboardHost->SetWidgetsVisible(incomingVisible) : result;
 }
@@ -123,6 +129,13 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
     }
 
     const bool keepDevice = _transitionDashboardHost == &dashboardHost && _transitionWidgetsDeviceReady;
+    const bool incomingVisible = dashboardHost.WidgetsVisible();
+    if (!keepDevice)
+    {
+        const HRESULT hidden = dashboardHost.SetWidgetsVisible(false);
+        if (FAILED(hidden))
+            return hidden;
+    }
     DashboardHost* const previousPrimary = _dashboardHost;
     DashboardHost* const previousTransition = _transitionDashboardHost;
     const bool previousTransitionReady = _transitionWidgetsDeviceReady;
@@ -152,6 +165,10 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
         {
             result = UpdateCachedViewports();
         }
+        if (SUCCEEDED(result))
+        {
+            result = dashboardHost.SetWidgetsVisible(incomingVisible);
+        }
     }
     if (FAILED(result))
     {
@@ -170,6 +187,7 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
         _transitionWidgetsDeviceReady = previousTransitionReady;
         _gpuWidgetsDeviceReady = previousGpuReady;
         _widgetTargetSizes = previousTargets;
+        _transitionTargetSizes = incomingTargets;
         return result;
     }
 
@@ -481,9 +499,9 @@ void Renderer::ResetTargetSizes() noexcept
 
 void Renderer::NotifyTargetSizes() noexcept
 {
-    const auto notify = [this](DashboardHost* dashboard,
-                               const std::array<D3D11_VIEWPORT, kMaximumWidgetViewports>& viewports,
-                                std::array<ReportedTarget, kMaximumWidgetViewports>& reported, bool includeRaised) noexcept
+    const auto notify =
+        [this](DashboardHost* dashboard, const std::array<D3D11_VIEWPORT, kMaximumWidgetViewports>& viewports,
+               std::array<ReportedTarget, kMaximumWidgetViewports>& reported, bool includeRaised) noexcept
     {
         if (!dashboard)
         {

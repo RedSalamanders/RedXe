@@ -16,6 +16,7 @@ struct WeatherTestDiagnostics final
     uint32_t dailyCount;
     uint32_t alertCount;
     uint32_t lastStatus;
+    uint32_t deviceCallbacksWhileVisible;
     float lastTemperatureCelsius;
     wchar_t lastLocation[64];
 };
@@ -71,8 +72,9 @@ extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherTryAutomaticLoca
     double* longitude) noexcept;
 extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherProbeHttpGetOnSmallStack(
     uint32_t stackReserveBytes) noexcept;
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherBuildTestLocationSearchUrl(
-    const char* location, char* url, uint32_t capacity) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherBuildTestLocationSearchUrl(const char* location,
+                                                                                           char* url,
+                                                                                           uint32_t capacity) noexcept;
 
 using WeatherGetTestDiagnosticsFn = decltype(&RedXeWeatherGetTestDiagnostics);
 using WeatherApplyTestSnapshotFn = decltype(&RedXeWeatherApplyTestSnapshot);
