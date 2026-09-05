@@ -42,8 +42,9 @@ Historical context:
 ### Excluded
 
 - `IRedXeHttpService` or any host URL/body ABI. Curl is not linked into `RedXe.exe`.
-- WinRT, C++/WinRT, `windowsapp.lib`, `RoGetActivationFactory`, and the Windows Location COM stack (`locationapi.lib`
-  / `CLSID_Location`). None of these may be linked or loaded for weather.
+- WinRT/geolocation loaded into RedXe.exe or Weather.dll. The disposable WeatherLocation.exe helper is the sole
+  exception, revised on 2026-09-05; it exits after one bounded discovery chain and the city is persisted. A legacy
+  LocationAPI report is permitted only as a helper-local fallback. See `Specs/Plugins/Plugins_Weather.md`.
 - API keys, tokens, or accounts: no WeatherAPI, OpenWeather, Météo-France Vigilance API, or compiled secrets.
 - Open-Meteo hosted free endpoint (non-commercial only).
 - IP geolocation (discloses the user IP to a third party and typical free endpoints are non-commercial).
@@ -169,33 +170,13 @@ Request order on the serial worker, once the widget is visible and has coordinat
 one alert document. Geocoding, if needed, runs first. Honor each response `Expires` (clamped 5–60 minutes) for the
 next `RunNetworkWork`. Inactive widgets are not queued.
 
-### 6. Location — no WinRT
+### 6. Location — disposable helper and persisted city
 
-Settings:
-
-| Member | Type | Default |
-| --- | --- | --- |
-| `locationMode` | `"automatic"` or `"manual"` | `"automatic"` |
-| `location` | string, at most 128 UTF-8 bytes | `""` |
-| `temperatureUnit` | `"celsius"` or `"fahrenheit"` | `"celsius"` |
-| `windUnit` | `"kmh"` or `"mph"` | `"kmh"` |
-
-The published plugin schema stays inside the host's bounded subset (closed object, enums, unconstrained strings, no
-`maxLength` keyword). The plugin and `SettingsV4` still reject overlong strings. There is no key or token member.
-
-WinRT geolocation would pull the WinRT runtime, consent UI stacks, and additional in-memory modules. That is
-forbidden here: no extra link library and no extra loaded image beyond `Weather.dll` + `libcurl` + code the process
-already uses.
-
-**Automatic:** `GetUserGeoID(GEOCLASS_NATION)` and `GetGeoInfo` (`GEO_LATITUDE`, `GEO_LONGITUDE`, `GEO_ISO2`,
-`GEO_FRIENDLYNAME`) from the already-linked NLS APIs. This is the Windows **region**, not GPS: a nation centroid.
-The widget reports `Degraded` with a reason that a city can be entered for a local forecast. Never from `Render`.
-
-**Manual:** parse `location` as `lat,lon` when both numbers are finite and in range; otherwise Nominatim search
-(limit 1). Reverse-geocode when only coordinates are known so the tile can show a place name and ISO country code.
-
-If automatic region lookup fails and `location` is non-empty, use the manual path. If both fail, `Initializing` or
-`Unavailable` with a reason to enter a location.
+The location policy was revised by the user on 2026-09-05. The current contract is
+[`Plugins_Weather.md`](../../Plugins/Plugins_Weather.md): a configured city always wins; an empty city permits a
+short-lived Windows geolocation helper, with the result queued for UI-thread persistence. WinRT never enters the
+host/plugin process. No country-centroid fallback or continuous location service remains. The JSON members and
+defaults are unchanged (locationMode, location, temperatureUnit, windUnit).
 
 ### 7. Widget identity and visuals
 
@@ -209,33 +190,10 @@ If automatic region lookup fails and `location` is non-empty, use the manual pat
   while work is in flight or the widget is hidden.
 - Default size 960×540, minimum 160×72, matching other information tiles.
 
-Layout is density-driven from the widget rectangle, following Process Viewer floors rather than stretching one
-composition. Standard density matches the three-zone outline mockup:
-
-```text
-[ 27°C              ☁ outline              ☀ 07:11 ]
-[                                          ☀ 20:27 ]
-[ Paris             20°C | 28°C         🌬 17km/h  ]
-[ Friday, 4         20°C | 28°C                 ☁ ]
-[ Saturday, 5       16°C | 24°C                 ☁ ]
-```
-
-| Density | Shown |
-| --- | --- |
-| Tiny | Temperature left, outline condition icon right |
-| Compact | Hero temperature, centered outline icon, location, today's min `\|` max |
-| Standard | Compact plus stacked sunrise/sunset, wind, and as many weekday forecast rows as fit |
-| Raised / wide | Standard plus alert banner and more forecast days, up to 9 |
-
-Omit rows that do not fit. Convert units only in the display formatter. Daily labels are `Today`, `Tomorrow`, or the
-local weekday and day number (`Friday, 4`), never `Day N`. Temperature ranges use ` | `. Wind is `17km/h` / `11mph`
-with a leading wind glyph. Sunrise and sunset are local `HH:MM` beside sunrise/sunset glyphs. Condition, wind, and
-sun-time marks come from Erik Flowers [Weather Icons](https://erikflowers.github.io/weather-icons/) (`weathericons-regular-webfont.ttf`,
-SIL OFL 1.1), copied beside `Weather.dll` and atlas-rasterized through DirectWrite. Geometry stroke marks remain only
-as a fallback if that font file is missing. Do not use host `FluentIcons.h` chrome for weather symbols. Type is
-light-weight Segoe UI (Bahnschrift, then Arial), not bold condensed. The widget copies the Process Viewer GPU pattern:
-shared device resources, DirectWrite atlas rasterized from snapshot delivery and `OnTargetSizeChanged`, allocation-free
-`Render`.
+The current composition contract is [`Plugins_Weather.md`](../../Plugins/Plugins_Weather.md). Location owns a line;
+Today appears once; bounded upcoming-hour columns and rain/snow forecast notices use available space before future
+daily rows. Weather Icons and light Segoe UI remain, with complete fitted atlas ink and measured/ellipsized labels.
+The render path remains allocation-free.
 
 Visual language: opaque near-black panel, light-gray type, thin monochrome outline weather marks. MET Norway
 `symbol_code` maps to a closed condition enum (clear, partly cloudy, cloudy, rain, snow, thunder, fog, sleet, wind).
@@ -262,7 +220,7 @@ stays light gray for readability; color is the icon stroke and alert chrome, not
 Attribution `MET Norway` (and MeteoAlarm or NWS when those bodies are shown) is visible at Standard density and
 above.
 
-Status: `Initializing` until the first usable snapshot, `Degraded` when showing Windows-region coordinates, stale
+Status: `Initializing` until the first usable snapshot, `Degraded` when showing stale
 cache, or missing alerts, `Unavailable` only when the widget cannot draw (no location and no cached snapshot).
 `Unavailable` hands the tile to the host placeholder.
 
@@ -276,7 +234,7 @@ cache, or missing alerts, `Unavailable` only when the widget cannot draw (no loc
 | H4 | `--self-test` and HostPluginTests disable the network lane before widget create. | Hidden WARP and self-test make zero sockets to weather hosts. |
 | W1 | `Weather.dll` factory, settings contract, catalog, schema, both templates. Replace the gallery Process Viewer tile with Weather so page-1 widget counts stay 6; `builtin.process-viewer` remains on the System page. | SettingsTests catalog coverage and page counts stay green; schema `oneOf` accepts `builtin.weather`; no key fields. |
 | W2 | Snapshot parsers for MET compact, sunrise, Nominatim, MeteoAlarm, NWS, plus unit and intent-color formatters. | WeatherTests apply fixtures with no network and assert SI storage, display conversion, alert severity colors, and Europe/US routing. |
-| W3 | Location: NLS region for automatic, `lat,lon` parse, Nominatim for manual city. | Automatic uses `GetGeoInfo` only; tests inject coordinates; no WinRT/LocationApi module load. |
+| W3 | Configured city wins; empty city resolves in a disposable helper and persists. | Offline precedence/cache/save/cancellation tests; no WinRT/LocationAPI module in the host/plugin process. See `Plugins_Weather.md`. |
 | W4 | GPU widget: adaptive layout, condition/alert color, scheduled refresh, raise, `SetVisible(FALSE)` cancels network work. | WeatherTests WARP at tiny/compact/standard/raised sizes; negative swipe origin still draws; `Render` allocates nothing. |
 | W5 | Closeout: merge durable rules into `Plugins_API.md`, `Core_PerformanceAndResources.md`, `Core_Settings.md`, plugin-development and performance skills; AGENTS.md catalog row. | Domain specs name the network lane, weather plugin, curl lifetime, no-key adapters, and offline-test rule. |
 

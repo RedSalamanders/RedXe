@@ -28,6 +28,12 @@ The filename MUST NOT encode the settings schema version; compatibility is deter
 instead. RedXe MUST monitor the selected external file at its own location. Duplicate `--settings` arguments and a
 missing path are command-line errors.
 
+Weather treats a non-empty location as authoritative regardless of `locationMode`. An empty location allows a
+disposable Windows helper; its city/country (or coordinates when reverse lookup fails) is merged into that widget's
+settings for later runs. `IRedXeSettingsQueue` copies worker results and dispatches the existing transactional persist
+handler on the UI thread. Plugins retain collect fallback and never write the file. JSON shape, shipped defaults and
+units are unchanged; see `../Plugins/Plugins_Weather.md`.
+
 Interactive RedXe appends host and plugin diagnostics as JSON Lines beside the settings root. When the settings
 directory is named `Settings`, logs live in its parent `Logs` folder; otherwise they live in `<settingsDir>\Logs`.
 Default interactive files are UTC-dated `%LocalAppData%\RedXe\Logs\RedXe-debug-YYYY-MM-DD.jsonl` (Debug) and

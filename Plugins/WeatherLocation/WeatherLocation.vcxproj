@@ -9,8 +9,8 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{B91C4E2A-7F15-4D83-9A6E-2C8F1B5D3047}</ProjectGuid>
-    <RootNamespace>WeatherTests</RootNamespace>
+    <ProjectGuid>{A4EF63BE-1145-41FB-9CAC-E68CEB967A90}</ProjectGuid>
+    <RootNamespace>WeatherLocation</RootNamespace>
     <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -29,54 +29,36 @@
             Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
             Label="LocalAppDataPlatform" />
   </ImportGroup>
-  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Label="UserMacros"><OutDir>$(RedXeBuildRoot)$(Platform)\$(Configuration)\Plugins\</OutDir></PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>
+      <ExceptionHandling>Sync</ExceptionHandling>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>..\..\Plugins\Weather;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\Weather;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>d3d11.lib;windowscodecs.lib;ole32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <SubSystem>Console</SubSystem><AdditionalDependencies>windowsapp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
     <ClCompile>
+      <ExceptionHandling>Sync</ExceptionHandling>
       <Optimization>MaxSpeed</Optimization>
-      <AdditionalIncludeDirectories>..\..\Plugins\Weather;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\Weather;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>d3d11.lib;windowscodecs.lib;ole32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <SubSystem>Console</SubSystem><AdditionalDependencies>windowsapp.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
   </ItemDefinitionGroup>
-  <ItemGroup>
-    <ClCompile Include="WeatherTests.cpp" />
-    <ClCompile Include="WeatherRegressionTests.cpp" />
-    <ClCompile Include="WeatherLocationTests.cpp" />
-    <ClCompile Include="..\..\Plugins\WeatherLocation\LocationPolicy.cpp" />
-    <ClCompile Include="..\..\Plugins\Weather\WeatherModel.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="..\..\Plugins\Weather\WeatherHttp.h" />
-    <ClInclude Include="..\..\Plugins\Weather\WeatherTestContract.h" />
-    <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\Plugins\Weather\Weather.vcxproj">
-      <Project>{8C4E1B27-6A91-4F3D-9E50-2B7D84C1A6E8}</Project>
-      <LinkLibraryDependencies>false</LinkLibraryDependencies>
-      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
-    </ProjectReference>
-  </ItemGroup>
+  <ItemGroup><ClCompile Include="Main.cpp" /><ClCompile Include="LocationPolicy.cpp" /></ItemGroup>
+  <ItemGroup><ClInclude Include="LocationPolicy.h" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <ImportGroup Label="ExtensionTargets" />
 </Project>

@@ -85,6 +85,14 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   MUST reuse resize-owned buffers and GDI objects rather than allocate memory or create handles per paint.
 - Startup-only work may allocate when required, but temporary allocations must be released promptly and persistent
   caches must have a demonstrated reuse benefit.
+- Weather's empty-location discovery is a cold operation in a disposable helper. WinRT never enters RedXe/Weather.dll.
+  Acquisition is bounded to eight seconds plus a four-second coarse fallback. Recent-report/default-position reads
+  run only after acquisition failure; a 20-second parent bound covers the entire chain, including synchronous API
+  stalls. Cancellation terminates and joins that owned helper. This adds at most five seconds of cold failure-path
+  lifetime versus the former single-attempt helper, with no steady-state CPU, memory, library, or wake-up cost.
+  Cached coordinates and a saved city eliminate repeated location work. The host settings queue owns at most eight
+  temporary records of 4096 JSON bytes plus 127-byte IDs, allocates only on submission, releases records after UI
+  dispatch/teardown, and uses the existing coalesced UI message. Empty dispatch checks one atomic without a queue lock.
 - Typed configuration for inactive pages MAY remain in bounded settings storage, but inactive pages MUST create no
   providers, widgets, child HWNDs, Direct3D resources, timers, or frame work. Subsystems MUST NOT retain redundant
   complete copies of the settings document when narrow cached active state is sufficient.

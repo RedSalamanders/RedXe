@@ -117,6 +117,18 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     virtual HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept = 0;
 };
 
+// Optional asynchronous settings delivery for worker-discovered state. Query as a sibling of IRedXeHost.
+interface __declspec(uuid("A07AB01E-67EB-466E-A7E0-9F9608539F8D")) __declspec(novtable) IRedXeSettingsQueue : IUnknown
+{
+    // Any thread except Render/paint/scheduling callbacks. Copies at most 4096 UTF-8 bytes plus a 127-byte instance
+    // ID, queues at most eight pending instances, and posts one coalesced UI notification. S_OK means accepted,
+    // not committed; validation and disk replacement run on the UI thread. Later submissions for an instance
+    // replace earlier pending ones; a full queue returns ERROR_BUSY. Keep CollectPersistentSettings as fallback.
+    // Does not call back into the widget. The host discards pending entries when that instance is torn down.
+    virtual HRESULT STDMETHODCALLTYPE QueueWidgetSettings(const char* instanceId, const char* jsonUtf8,
+                                                          uint32_t bytes) noexcept = 0;
+};
+
 inline HRESULT RedXeHostLog(IRedXeHost* host, uint32_t level, const char* pluginId, const char* instanceId,
                             const char* eventId, const char* messageUtf8, HRESULT code = S_OK) noexcept
 {

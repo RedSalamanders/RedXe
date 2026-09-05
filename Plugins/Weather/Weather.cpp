@@ -5,6 +5,7 @@
 #include "WeatherGpu.h"
 #include "WeatherHttp.h"
 #include "WeatherIcons.h"
+#include "WeatherLocation.h"
 #include "WeatherModel.h"
 #include "WeatherTestContract.h"
 
@@ -41,14 +42,8 @@ constexpr float kPanelB = 10.0f / 255.0f;
 constexpr float kTextR = 0.90f;
 constexpr float kTextG = 0.90f;
 constexpr float kTextB = 0.92f;
-constexpr float kMuted = 0.55f;
 constexpr float kPanelInset = 4.0f;
 constexpr float kPadFloorPx = 12.0f;
-constexpr float kLabelFloorPx = 16.0f;
-constexpr float kRowFloorPx = 18.0f;
-constexpr float kListFloorPx = 22.0f;
-constexpr float kKpiFloorPx = 30.0f;
-constexpr float kHeroFloorPx = 48.0f;
 
 constexpr std::array kMetadata{
     RedXePluginMetadata{
@@ -93,6 +88,13 @@ std::atomic<uint32_t> gLastStatus{RedXeWidgetStatusInitializing};
 std::atomic<float> gLastTemperature{0.0f};
 std::atomic<uint32_t> gLastDailyCount{0};
 std::atomic<uint32_t> gLastAlertCount{0};
+std::atomic<uint32_t> gLastHourlyDrawn{0};
+std::atomic<uint32_t> gLastDailyDrawn{0};
+std::atomic<uint32_t> gLastOverflowCount{0};
+std::atomic<bool> gLastPrecipitationNotice{false};
+std::atomic<uint64_t> gTestNow{0};
+std::atomic<uint32_t> gTestHelperMode{0};
+std::atomic<uint32_t> gLocationHelperRuns{0};
 std::array<wchar_t, 64> gLastLocation{};
 SRWLOCK gLastLocationLock = SRWLOCK_INIT;
 std::atomic<bool> gUseTestSnapshot{false};
@@ -133,6 +135,34 @@ void AppendTextLeft(WeatherGpuResources& resources, WeatherDrawList& list, float
                     float green, float blue, float alpha, const wchar_t* text, uint32_t characters) noexcept
 {
     (void)resources.AppendText(list, x, y, height, red, green, blue, alpha, text, characters);
+}
+
+// Keep complete glyphs at the requested readable size; truncate only the end of a label.
+void AppendTextFit(WeatherGpuResources& resources, WeatherDrawList& list, float x, float y, float width, float height,
+                   const wchar_t* text, float alpha = 1.0f) noexcept
+{
+    const uint32_t count = WideCount(text);
+    if (width <= 0.0f || count == 0)
+        return;
+    if (resources.MeasureText(text, count, height) <= width + 0.05f)
+    {
+        AppendTextLeft(resources, list, x, y, height, kTextR, kTextG, kTextB, alpha, text, count);
+        return;
+    }
+    std::array<wchar_t, 192> shortened{};
+    uint32_t keep = std::min(count, static_cast<uint32_t>(shortened.size()) - 4);
+    while (keep > 0)
+    {
+        std::memcpy(shortened.data(), text, keep * sizeof(wchar_t));
+        shortened[keep] = shortened[keep + 1] = shortened[keep + 2] = L'.';
+        shortened[keep + 3] = L'\0';
+        if (resources.MeasureText(shortened.data(), keep + 3, height) <= width)
+        {
+            AppendTextLeft(resources, list, x, y, height, kTextR, kTextG, kTextB, alpha, shortened.data(), keep + 3);
+            return;
+        }
+        --keep;
+    }
 }
 
 void DrawSunOutline(WeatherDrawList& list, float x, float y, float size, float red, float green, float blue) noexcept
@@ -317,7 +347,17 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
     HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes,
                                                         uint32_t* writtenBytes) noexcept override
     {
-        return RedXeCollectNoPersistentSettings(jsonUtf8, capacityBytes, writtenBytes);
+        if (!writtenBytes)
+            return E_POINTER;
+        *writtenBytes = 0;
+        const auto guard = wil::AcquireSRWLockShared(&_lock);
+        if (_locationSettingsBytes == 0)
+            return S_FALSE;
+        if (!jsonUtf8 || capacityBytes <= _locationSettingsBytes)
+            return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+        std::memcpy(jsonUtf8, _locationSettings.data(), _locationSettingsBytes + 1);
+        *writtenBytes = _locationSettingsBytes;
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
@@ -412,6 +452,15 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
                                     static_cast<float>(frame.heightPixels));
         if (SUCCEEDED(result))
         {
+            uint32_t overflow = 0;
+            for (uint32_t index = 0; gTestNow.load(std::memory_order_relaxed) != 0 && index < list.Count(); ++index)
+            {
+                const auto& rect = list.Data()[index].rect;
+                if (rect[0] < -0.1f || rect[1] < -0.1f || rect[0] + rect[2] > frame.widthPixels + 0.1f ||
+                    rect[1] + rect[3] > frame.heightPixels + 0.1f)
+                    ++overflow;
+            }
+            gLastOverflowCount.store(overflow, std::memory_order_relaxed);
             result = resources->Render(context->deviceContext, static_cast<float>(frame.widthPixels),
                                        static_cast<float>(frame.heightPixels), list);
         }
@@ -500,8 +549,15 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
     [[nodiscard]] HRESULT FetchLive(HANDLE cancelEvent, WeatherSnapshot& snapshot, uint32_t& delay) noexcept
     {
         delay = kWeatherDefaultRefreshMilliseconds;
-        wchar_t reason[96] = L"Enter a city for a local forecast.";
-        if (_configuration.locationMode == WeatherLocationMode::Manual)
+        if (_locationResolved)
+        {
+            snapshot.latitude = _resolvedLatitude;
+            snapshot.longitude = _resolvedLongitude;
+            snapshot.locationName = _resolvedCity;
+            snapshot.countryCode = _resolvedCountry;
+            snapshot.hasCoordinates = true;
+        }
+        if (!snapshot.hasCoordinates && _configuration.location[0] != '\0')
         {
             double latitude = 0.0;
             double longitude = 0.0;
@@ -537,20 +593,30 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         }
         if (!snapshot.hasCoordinates)
         {
-            if (!WeatherTryAutomaticLocation(snapshot.locationName.data(), snapshot.locationName.size(),
-                                             snapshot.countryCode.data(), snapshot.countryCode.size(),
-                                             snapshot.latitude, snapshot.longitude))
+            if (!_locationAttempted)
             {
-                ReportStatus(_host, _instanceId.data(), RedXeWidgetStatusUnavailable, reason);
-                return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+                gLocationHelperRuns.fetch_add(1, std::memory_order_relaxed);
+                const uint32_t mode = gTestHelperMode.load(std::memory_order_relaxed);
+                _locationResult = WeatherLocateWithHelper(cancelEvent, snapshot.latitude, snapshot.longitude,
+                                                          mode == 1   ? L"--test-result"
+                                                          : mode == 2 ? L"--test-unavailable"
+                                                          : mode == 3 ? L"--test-coarse"
+                                                          : mode == 4 ? L"--test-cached"
+                                                          : mode == 5 ? L"--test-default"
+                                                                      : nullptr);
+                _locationAttempted = _locationResult != HRESULT_FROM_WIN32(ERROR_CANCELLED);
+            }
+            if (FAILED(_locationResult))
+            {
+                ReportStatus(_host, _instanceId.data(), RedXeWidgetStatusUnavailable,
+                             L"Location unavailable. Enter a city in widget settings.");
+                return _locationResult;
             }
             snapshot.hasCoordinates = true;
-            snapshot.regionCoordinates = true;
-            wcscpy_s(reason, L"Windows region only. Enter a city for a local forecast.");
         }
 
         WeatherHttpResponse http{};
-        if (snapshot.hasCoordinates && (snapshot.regionCoordinates || snapshot.locationName[0] == L'\0'))
+        if (snapshot.hasCoordinates && snapshot.locationName[0] == L'\0')
         {
             std::array<char, kWeatherMaximumUrlBytes> reverseUrl{};
             sprintf_s(
@@ -568,6 +634,30 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
                     WeatherCopyNarrow(place.countryCode.data(), snapshot.countryCode.data(),
                                       snapshot.countryCode.size());
                 }
+            }
+        }
+
+        const bool firstResolution = !_locationResolved;
+        _resolvedLatitude = snapshot.latitude;
+        _resolvedLongitude = snapshot.longitude;
+        _resolvedCity = snapshot.locationName;
+        _resolvedCountry = snapshot.countryCode;
+        _locationResolved = true;
+        if (firstResolution && _configuration.location[0] == '\0')
+        {
+            std::array<char, 1024> json{};
+            uint32_t written = 0;
+            if (SUCCEEDED(
+                    WeatherWriteLocationSettings(snapshot, json.data(), static_cast<uint32_t>(json.size()), written)))
+            {
+                {
+                    const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+                    _locationSettings = json;
+                    _locationSettingsBytes = written;
+                }
+                wil::com_ptr_nothrow<IRedXeSettingsQueue> queue;
+                if (_host && SUCCEEDED(_host->QueryInterface(IID_PPV_ARGS(queue.put()))))
+                    (void)queue->QueueWidgetSettings(_instanceId.data(), json.data(), written);
             }
         }
 
@@ -633,8 +723,7 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
                 (void)WeatherParseMeteoAlarm(WeatherHttpBody(http), snapshot);
             }
         }
-        const wchar_t* statusReason = snapshot.regionCoordinates ? reason : L"";
-        return ApplySnapshot(snapshot, statusReason, snapshot.regionCoordinates);
+        return ApplySnapshot(snapshot, L"", false);
     }
 
     [[nodiscard]] HRESULT ApplySnapshot(const WeatherSnapshot& snapshot, const wchar_t* reason, bool degraded) noexcept
@@ -688,201 +777,253 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
                                      const WeatherSnapshot& snapshot, bool hasSnapshot, float width,
                                      float height) noexcept
     {
+        gLastHourlyDrawn.store(0, std::memory_order_relaxed);
+        gLastDailyDrawn.store(0, std::memory_order_relaxed);
+        gLastPrecipitationNotice.store(false, std::memory_order_relaxed);
         const float inset = kPanelInset;
-        const float pad = kPadFloorPx;
-        (void)list.AddFill(inset, inset, width - inset * 2.0f, height - inset * 2.0f, kPanelR, kPanelG, kPanelB, 1.0f,
-                           10.0f);
-        const WeatherRgb iconColor = MixIconColor(snapshot.currentCondition);
-        const WeatherAlertSeverity alertSeverity = WeatherHighestAlertSeverity(snapshot);
-        const WeatherRgb alertColor = WeatherAlertColor(alertSeverity);
-        if (alertSeverity != WeatherAlertSeverity::None)
-        {
-            (void)list.AddFill(inset, inset, 4.0f, height - inset * 2.0f, alertColor.red, alertColor.green,
+        (void)list.AddFill(inset, inset, width - 2 * inset, height - 2 * inset, kPanelR, kPanelG, kPanelB, 1.0f, 10.0f);
+        if (width < 48.0f || height < 40.0f)
+            return S_OK;
+        const auto severity = WeatherHighestAlertSeverity(snapshot);
+        const auto alertColor = WeatherAlertColor(severity);
+        if (severity != WeatherAlertSeverity::None)
+            (void)list.AddFill(inset, inset, 4.0f, height - 2 * inset, alertColor.red, alertColor.green,
                                alertColor.blue, 1.0f, 0.0f);
-        }
-
+        const float left = inset + kPadFloorPx + (severity != WeatherAlertSeverity::None ? 6.0f : 0.0f);
+        const float right = width - inset - kPadFloorPx;
+        const float available = right - left;
+        const float bottom = height - inset - kPadFloorPx;
+        float y = inset + kPadFloorPx;
         const bool raised = _raised.load(std::memory_order_acquire);
-        const WeatherDensity density = DensityForSize(width, height, raised);
-        const float contentLeft = inset + pad + (alertSeverity != WeatherAlertSeverity::None ? 6.0f : 0.0f);
-        const float contentRight = width - inset - pad;
-        const float contentWidth = contentRight - contentLeft;
-        float y = inset + pad;
+        const auto density = DensityForSize(width, height, raised);
         if (!hasSnapshot)
         {
-            AppendTextLeft(resources, list, contentLeft, y, kKpiFloorPx, kTextR, kTextG, kTextB, 1.0f, L"Weather", 7);
+            AppendTextFit(resources, list, left, y, available, std::min(30.0f, bottom - y), L"Weather");
+            if (bottom - y >= 62.0f)
+                AppendTextFit(resources, list, left, y + 34.0f, available, 22.0f, L"Set a city in widget settings",
+                              0.7f);
             return S_OK;
         }
-
-        std::array<wchar_t, 32> temperature{};
+        FILETIME fileTime{};
+        GetSystemTimeAsFileTime(&fileTime);
+        const uint64_t testNow = gTestNow.load(std::memory_order_relaxed);
+        const uint64_t now =
+            testNow != 0 ? testNow : (static_cast<uint64_t>(fileTime.dwHighDateTime) << 32) | fileTime.dwLowDateTime;
+        std::array<wchar_t, 24> temperature{}, range{}, wind{};
         (void)WeatherFormatTemperature(snapshot.temperatureCelsius, _configuration.temperatureUnit, temperature.data(),
                                        static_cast<uint32_t>(temperature.size()));
-        const uint32_t temperatureChars = WideCount(temperature.data());
-        std::array<wchar_t, 48> todayRange{};
-        (void)WeatherFormatTemperatureRange(snapshot.todayMinimumCelsius, snapshot.todayMaximumCelsius,
-                                            _configuration.temperatureUnit, todayRange.data(),
-                                            static_cast<uint32_t>(todayRange.size()));
-        const uint32_t todayRangeChars = WideCount(todayRange.data());
-        std::array<wchar_t, 32> wind{};
         (void)WeatherFormatWind(snapshot.windMetersPerSecond, _configuration.windUnit, wind.data(),
                                 static_cast<uint32_t>(wind.size()));
-        const uint32_t windChars = WideCount(wind.data());
-        std::array<wchar_t, 8> sunrise{};
-        std::array<wchar_t, 8> sunset{};
-        const uint32_t sunriseChars =
-            WeatherFormatClock(snapshot.sunriseFileTime100ns, sunrise.data(), static_cast<uint32_t>(sunrise.size()));
-        const uint32_t sunsetChars =
-            WeatherFormatClock(snapshot.sunsetFileTime100ns, sunset.data(), static_cast<uint32_t>(sunset.size()));
-        const uint32_t locationChars = WideCount(snapshot.locationName.data());
+        std::array<wchar_t, 96> precipitation{};
+        const bool havePrecipitation =
+            WeatherFormatPrecipitationNotice(snapshot, now, precipitation.data(),
+                                             static_cast<uint32_t>(precipitation.size())) != 0;
+        const auto conditionColor = MixIconColor(snapshot.currentCondition);
 
-        if (density == WeatherDensity::Tiny)
+        if (density == WeatherDensity::Tiny || height < 180.0f)
         {
-            const float iconSize = std::min(height - pad * 2.0f, 56.0f);
-            const float tempH = kKpiFloorPx;
-            AppendTextLeft(resources, list, contentLeft, y + (iconSize - tempH) * 0.5f, tempH, kTextR, kTextG, kTextB,
-                           1.0f, temperature.data(), temperatureChars);
-            DrawConditionIcon(resources, list, contentRight - iconSize, y, iconSize, snapshot.currentCondition,
-                              iconColor);
+            const bool locationFits = height >= 100.0f;
+            if (locationFits)
+            {
+                AppendTextFit(resources, list, left, y, available, 22.0f, snapshot.locationName.data());
+                y += 25.0f;
+            }
+            const float icon = std::min(52.0f, bottom - y);
+            const float textSpace = std::max(1.0f, available - icon - 8.0f);
+            const float measured = resources.MeasureText(temperature.data(), WideCount(temperature.data()), 1.0f);
+            const float hero = std::min({58.0f, bottom - y, textSpace / std::max(0.01f, measured)});
+            AppendTextFit(resources, list, left, y, textSpace, hero, temperature.data());
+            DrawConditionIcon(resources, list, right - icon, y, icon, snapshot.currentCondition, conditionColor);
+            y += std::max(hero, icon) + 4.0f;
+            if (havePrecipitation && bottom - y >= 22.0f)
+            {
+                AppendTextFit(resources, list, left, y, available, 22.0f, precipitation.data());
+                gLastPrecipitationNotice.store(true, std::memory_order_relaxed);
+            }
             return S_OK;
         }
 
-        const float headerH = std::clamp(std::min(contentWidth * 0.28f, height * 0.26f), 72.0f,
-                                         density == WeatherDensity::Standard ? 168.0f : 120.0f);
-        const float tempH = std::clamp(headerH * 0.78f, kHeroFloorPx, 104.0f);
-        float iconSize = std::clamp(headerH * 0.88f, 48.0f, 128.0f);
-        const bool showSunTimes = (sunriseChars > 0 || sunsetChars > 0) && contentWidth >= 260.0f;
-        const bool showWind = windChars > 0 && contentWidth >= 260.0f;
-        const float sunTextH = std::clamp(headerH * 0.26f, kLabelFloorPx, 22.0f);
-        const float sunIcon = sunTextH * 1.2f;
-        const float clockWidth = std::max(resources.MeasureText(sunrise.data(), sunriseChars, sunTextH),
-                                          std::max(resources.MeasureText(sunset.data(), sunsetChars, sunTextH),
-                                                   resources.MeasureText(L"00:00", 5, sunTextH)));
-        const float sunBlockW = showSunTimes ? sunIcon + 8.0f + clockWidth : 0.0f;
-        const float tempWidth = resources.MeasureText(temperature.data(), temperatureChars, tempH);
-        float iconX = (width - iconSize) * 0.5f;
-        if (iconX < contentLeft + tempWidth + 10.0f)
+        const float labelH = width >= 400.0f ? 32.0f : 26.0f;
+        AppendTextFit(resources, list, left, y, available, labelH, snapshot.locationName.data());
+        y += labelH + 4.0f;
+        const float headerH = std::clamp(height * 0.18f, 62.0f, 112.0f);
+        const float heroH = std::min(104.0f, headerH);
+        const float icon = std::min(100.0f, headerH);
+        std::array<wchar_t, 8> rise{}, set{};
+        (void)WeatherFormatClock(snapshot.sunriseFileTime100ns, rise.data(), static_cast<uint32_t>(rise.size()));
+        (void)WeatherFormatClock(snapshot.sunsetFileTime100ns, set.data(), static_cast<uint32_t>(set.size()));
+        constexpr float sunH = 24.0f;
+        const float sunWidth = sunH + 8.0f +
+                               std::max(resources.MeasureText(rise.data(), WideCount(rise.data()), sunH),
+                                        resources.MeasureText(set.data(), WideCount(set.data()), sunH));
+        const float temperatureWidth = resources.MeasureText(temperature.data(), WideCount(temperature.data()), heroH);
+        const bool showSun =
+            (rise[0] != L'\0' || set[0] != L'\0') && available >= temperatureWidth + icon + sunWidth + 40.0f;
+        const float iconRight = showSun ? right - sunWidth - 20.0f : right;
+        const float iconX = std::max(left, std::min(left + available * 0.5f - icon * 0.5f, iconRight - icon));
+        const float textWidth = std::max(1.0f, iconX - left - 12.0f);
+        const float fittedHero = std::min(heroH, heroH * textWidth / std::max(1.0f, temperatureWidth));
+        AppendTextFit(resources, list, left, y + (headerH - fittedHero) * 0.5f, textWidth, fittedHero,
+                      temperature.data());
+        DrawConditionIcon(resources, list, iconX, y + (headerH - icon) * 0.5f, icon, snapshot.currentCondition,
+                          conditionColor);
+        if (showSun)
         {
-            iconX = contentLeft + tempWidth + 10.0f;
-        }
-        if (showSunTimes && iconX + iconSize > contentRight - sunBlockW - 8.0f)
-        {
-            iconX = contentRight - sunBlockW - 8.0f - iconSize;
-            if (iconX < contentLeft + tempWidth + 8.0f)
+            const float sunX = right - sunWidth;
+            const float sunY = y + (headerH - 2 * sunH - 8.0f) * 0.5f;
+            if (rise[0] != L'\0')
             {
-                iconSize = std::max(40.0f, iconSize - (contentLeft + tempWidth + 8.0f - iconX));
-                iconX = contentLeft + tempWidth + 8.0f;
+                DrawHorizonSun(resources, list, sunX, sunY, sunH, kTextR, kTextG, kTextB, true);
+                AppendTextFit(resources, list, sunX + sunH + 8.0f, sunY, sunWidth - sunH - 8.0f, sunH, rise.data(),
+                              0.8f);
+            }
+            if (set[0] != L'\0')
+            {
+                DrawHorizonSun(resources, list, sunX, sunY + sunH + 8.0f, sunH, kTextR, kTextG, kTextB, false);
+                AppendTextFit(resources, list, sunX + sunH + 8.0f, sunY + sunH + 8.0f, sunWidth - sunH - 8.0f, sunH,
+                              set.data(), 0.8f);
             }
         }
-
-        const float tempY = y + (headerH - tempH) * 0.5f;
-        AppendTextLeft(resources, list, contentLeft, tempY, tempH, kTextR, kTextG, kTextB, 1.0f, temperature.data(),
-                       temperatureChars);
-        DrawConditionIcon(resources, list, iconX, y + (headerH - iconSize) * 0.5f, iconSize, snapshot.currentCondition,
-                          iconColor);
-        if (showSunTimes)
+        y += headerH + 4.0f;
+        std::array<wchar_t, 64> today{};
+        for (uint32_t index = 0; index < snapshot.dailyCount; ++index)
         {
-            const float sunBlockH = sunTextH * 2.0f + 8.0f;
-            const float sunY = y + (headerH - sunBlockH) * 0.5f;
-            const float sunX = contentRight - sunBlockW;
-            if (sunriseChars > 0)
-            {
-                DrawHorizonSun(resources, list, sunX, sunY, sunIcon, kTextR, kTextG, kTextB, true);
-                AppendTextLeft(resources, list, sunX + sunIcon + 6.0f, sunY + (sunIcon - sunTextH) * 0.5f, sunTextH,
-                               kTextR, kTextG, kTextB, 1.0f, sunrise.data(), sunriseChars);
-            }
-            if (sunsetChars > 0)
-            {
-                const float rowY = sunY + sunTextH + 8.0f;
-                DrawHorizonSun(resources, list, sunX, rowY, sunIcon, kTextR, kTextG, kTextB, false);
-                AppendTextLeft(resources, list, sunX + sunIcon + 6.0f, rowY + (sunIcon - sunTextH) * 0.5f, sunTextH,
-                               kTextR, kTextG, kTextB, 1.0f, sunset.data(), sunsetChars);
-            }
+            const auto& day = snapshot.daily[index];
+            if (!WeatherSameLocalDay(day.dayFileTime100ns, now))
+                continue;
+            (void)WeatherFormatTemperatureRange(day.minimumCelsius, day.maximumCelsius, _configuration.temperatureUnit,
+                                                range.data(), static_cast<uint32_t>(range.size()));
+            (void)swprintf_s(today.data(), today.size(), L"Today   %s", range.data());
+            break;
         }
-        y += headerH + 10.0f;
-
-        const uint32_t plannedDays = std::min(snapshot.dailyCount, raised ? kWeatherDailyCount
-                                                                   : density == WeatherDensity::Standard ? 5U
-                                                                                                         : 3U);
-        const float attributionReserve = kLabelFloorPx + 6.0f;
-        const float alertReserve = snapshot.alertCount > 0 ? kRowFloorPx + 14.0f : 0.0f;
-        const float metaProbe = kListFloorPx + 12.0f;
-        const float forecastBudget = height - inset - pad - attributionReserve - y - alertReserve - metaProbe;
-        const float minRow = kListFloorPx + 8.0f;
-        uint32_t rows = plannedDays;
-        if (forecastBudget < minRow)
-        {
-            rows = 0;
-        }
-        else
-        {
-            rows = std::min(rows, static_cast<uint32_t>(forecastBudget / minRow));
-        }
-        const float rowH = rows > 0 ? std::min(44.0f, forecastBudget / static_cast<float>(rows)) : 0.0f;
-        const float listH = rows > 0 ? std::clamp(rowH * 0.72f, kListFloorPx, 34.0f) : kListFloorPx;
-        const float metaH = listH + 4.0f;
-        const float gap = 14.0f;
-        float maxDayWidth = resources.MeasureText(snapshot.locationName.data(), locationChars, listH);
-        float maxRangeWidth = resources.MeasureText(todayRange.data(), todayRangeChars, listH);
-        std::array<std::array<wchar_t, 32>, kWeatherDailyCount> dayLabels{};
-        std::array<std::array<wchar_t, 48>, kWeatherDailyCount> dayRanges{};
-        for (uint32_t index = 0; index < rows; ++index)
-        {
-            (void)WeatherFormatForecastDay(snapshot.daily[index].dayFileTime100ns, 0, index, dayLabels[index].data(),
-                                           static_cast<uint32_t>(dayLabels[index].size()));
-            (void)WeatherFormatTemperatureRange(snapshot.daily[index].minimumCelsius,
-                                                snapshot.daily[index].maximumCelsius, _configuration.temperatureUnit,
-                                                dayRanges[index].data(),
-                                                static_cast<uint32_t>(dayRanges[index].size()));
-            maxDayWidth = std::max(
-                maxDayWidth, resources.MeasureText(dayLabels[index].data(), WideCount(dayLabels[index].data()), listH));
-            maxRangeWidth = std::max(maxRangeWidth, resources.MeasureText(dayRanges[index].data(),
-                                                                          WideCount(dayRanges[index].data()), listH));
-        }
-        const float rangeX = contentLeft + maxDayWidth + gap;
-        const float mark = listH * 1.15f;
-        const float iconColumn = rangeX + maxRangeWidth + gap;
-
-        AppendTextLeft(resources, list, contentLeft, y, listH, kTextR, kTextG, kTextB, 1.0f,
-                       snapshot.locationName.data(), locationChars);
-        AppendTextLeft(resources, list, rangeX, y, listH, kTextR, kTextG, kTextB, 1.0f, todayRange.data(),
-                       todayRangeChars);
+        const float metaH = width >= 400.0f ? 30.0f : 24.0f;
+        const float windWidth = resources.MeasureText(wind.data(), WideCount(wind.data()), metaH) + metaH + 8.0f;
+        const float todayWidth = resources.MeasureText(today.data(), WideCount(today.data()), metaH);
+        const bool showWind = todayWidth + windWidth + 24.0f <= available;
+        AppendTextFit(resources, list, left, y, showWind ? available - windWidth - 24.0f : available, metaH,
+                      today.data(), 0.8f);
         if (showWind)
         {
-            DrawWindMark(resources, list, iconColumn, y + (listH - mark) * 0.5f, mark, kTextR, kTextG, kTextB);
-            AppendTextLeft(resources, list, iconColumn + mark + 6.0f, y, listH, kTextR, kTextG, kTextB, 1.0f,
-                           wind.data(), windChars);
+            DrawWindMark(resources, list, right - windWidth, y, metaH, kTextR, kTextG, kTextB);
+            AppendTextFit(resources, list, right - windWidth + metaH + 8.0f, y, windWidth - metaH - 8.0f, metaH,
+                          wind.data(), 0.8f);
         }
-        y += metaH + 8.0f;
-
-        if (snapshot.alertCount > 0)
+        y += metaH + 10.0f;
+        constexpr float footerH = 18.0f;
+        const float contentBottom = bottom - footerH - 8.0f;
+        if (snapshot.alertCount > 0 && contentBottom - y >= 34.0f)
         {
-            (void)list.AddFill(contentLeft, y, contentWidth, kRowFloorPx + 8.0f, alertColor.red, alertColor.green,
-                               alertColor.blue, 0.22f, 4.0f);
-            AppendTextLeft(resources, list, contentLeft + 6.0f, y + 4.0f, kLabelFloorPx, alertColor.red,
-                           alertColor.green, alertColor.blue, 1.0f, snapshot.alerts[0].title.data(),
-                           WideCount(snapshot.alerts[0].title.data()));
-            y += kRowFloorPx + 14.0f;
+            (void)list.AddFill(left, y, available, 30.0f, alertColor.red, alertColor.green, alertColor.blue, 0.18f,
+                               4.0f);
+            AppendTextFit(resources, list, left + 6.0f, y + 2.0f, available - 12.0f, 26.0f,
+                          snapshot.alerts[0].title.data());
+            y += 36.0f;
+        }
+        if (havePrecipitation && contentBottom - y >= 34.0f)
+        {
+            (void)list.AddFill(left, y, available, 30.0f, 0.3f, 0.6f, 0.8f, 0.12f, 4.0f);
+            AppendTextFit(resources, list, left + 6.0f, y + 2.0f, available - 12.0f, 26.0f, precipitation.data());
+            y += 38.0f;
+            gLastPrecipitationNotice.store(true, std::memory_order_relaxed);
         }
 
-        for (uint32_t index = 0; index < rows; ++index)
+        constexpr uint64_t hourTicks = 36000000000ULL;
+        std::array<uint32_t, kWeatherHourlyCount> upcoming{};
+        uint32_t upcomingCount = 0;
+        for (uint32_t index = 0; index < snapshot.hourlyCount; ++index)
+            if (snapshot.hourly[index].timeFileTime100ns + hourTicks > now &&
+                snapshot.hourly[index].timeFileTime100ns < now + 24 * hourTicks)
+                upcoming[upcomingCount++] = index;
+        constexpr float hourlyHeight = 132.0f;
+        if (upcomingCount > 0 && available >= 210.0f && contentBottom - y >= hourlyHeight)
         {
-            const WeatherDailyForecast& day = snapshot.daily[index];
-            const WeatherRgb dayColor = MixIconColor(day.condition);
-            const float rowY = y + (rowH - listH) * 0.5f;
-            AppendTextLeft(resources, list, contentLeft, rowY, listH, kTextR, kTextG, kTextB, 1.0f,
-                           dayLabels[index].data(), WideCount(dayLabels[index].data()));
-            AppendTextLeft(resources, list, rangeX, rowY, listH, kTextR, kTextG, kTextB, 1.0f, dayRanges[index].data(),
-                           WideCount(dayRanges[index].data()));
-            DrawConditionIcon(resources, list, iconColumn, y + (rowH - mark) * 0.5f, mark, day.condition, dayColor);
+            AppendTextFit(resources, list, left, y, available, 22.0f, L"Upcoming hours", 0.65f);
+            y += 26.0f;
+            const uint32_t columns = std::min({upcomingCount, 12U, static_cast<uint32_t>(available / 76.0f)});
+            const float columnWidth = available / static_cast<float>(columns);
+            for (uint32_t column = 0; column < columns; ++column)
+            {
+                const auto& hour = snapshot.hourly[upcoming[column]];
+                std::array<wchar_t, 16> time{}, value{}, amount{};
+                (void)WeatherFormatClock(hour.timeFileTime100ns, time.data(), static_cast<uint32_t>(time.size()));
+                if (hour.timeFileTime100ns <= now)
+                    WeatherCopyWide(L"Now", time.data(), time.size());
+                (void)WeatherFormatTemperature(hour.temperatureCelsius, _configuration.temperatureUnit, value.data(),
+                                               static_cast<uint32_t>(value.size()));
+                const float x = left + column * columnWidth;
+                const auto centered = [&](const wchar_t* text, float textY, float size, float alpha) noexcept
+                {
+                    const float measured = resources.MeasureText(text, WideCount(text), size);
+                    AppendTextFit(resources, list, x + std::max(0.0f, (columnWidth - measured) * 0.5f), textY,
+                                  std::min(columnWidth, measured), size, text, alpha);
+                };
+                centered(time.data(), y, 22.0f, 0.75f);
+                DrawConditionIcon(resources, list, x + (columnWidth - 34.0f) * 0.5f, y + 24.0f, 34.0f, hour.condition,
+                                  MixIconColor(hour.condition));
+                centered(value.data(), y + 60.0f, 27.0f, 1.0f);
+                if (hour.hasPrecipitation && hour.precipitationMillimeters > 0.0f)
+                {
+                    if (hour.precipitationMillimeters < 0.1f)
+                        WeatherCopyWide(L"<0.1 mm", amount.data(), amount.size());
+                    else
+                        (void)swprintf_s(amount.data(), amount.size(), L"%.1f mm",
+                                         static_cast<double>(hour.precipitationMillimeters));
+                    centered(amount.data(), y + 87.0f, 18.0f, 0.65f);
+                }
+            }
+            gLastHourlyDrawn.store(columns, std::memory_order_relaxed);
+            y += hourlyHeight - 26.0f + 8.0f;
+        }
+
+        const float rowH = width >= 400.0f ? 38.0f : 32.0f;
+        const float rowText = rowH - 6.0f;
+        uint32_t drawn = 0;
+        bool heading = false;
+        for (uint32_t index = 0; index < snapshot.dailyCount && drawn < (raised ? 8U : 5U); ++index)
+        {
+            const auto& day = snapshot.daily[index];
+            if (day.dayFileTime100ns <= now || WeatherSameLocalDay(day.dayFileTime100ns, now))
+                continue;
+            if (contentBottom - y < rowH + (heading ? 0.0f : 28.0f))
+                break;
+            if (!heading)
+            {
+                AppendTextFit(resources, list, left, y, available, 22.0f, L"Next days", 0.65f);
+                y += 28.0f;
+                heading = true;
+            }
+            std::array<wchar_t, 32> label{};
+            (void)WeatherFormatForecastDay(day.dayFileTime100ns, now, index, label.data(),
+                                           static_cast<uint32_t>(label.size()));
+            (void)WeatherFormatTemperatureRange(day.minimumCelsius, day.maximumCelsius, _configuration.temperatureUnit,
+                                                range.data(), static_cast<uint32_t>(range.size()));
+            const float rangeWidth = resources.MeasureText(range.data(), WideCount(range.data()), rowText);
+            const float mark = rowText;
+            const float rangeX = right - mark - 16.0f - rangeWidth;
+            AppendTextFit(resources, list, left, y, std::max(0.0f, rangeX - left - 16.0f), rowText, label.data());
+            AppendTextFit(resources, list, rangeX, y, rangeWidth, rowText, range.data(), 0.85f);
+            DrawConditionIcon(resources, list, right - mark, y, mark, day.condition, MixIconColor(day.condition));
             y += rowH;
+            ++drawn;
         }
-
-        AppendTextLeft(resources, list, contentLeft, height - inset - pad - kLabelFloorPx, kLabelFloorPx, kTextR,
-                       kTextG, kTextB, kMuted, L"MET Norway", 10);
+        gLastDailyDrawn.store(drawn, std::memory_order_relaxed);
+        const wchar_t* attribution = snapshot.stale ? L"MET Norway  |  Cached forecast" : L"MET Norway";
+        AppendTextFit(resources, list, left, bottom - footerH, available, footerH, attribution, 0.5f);
         return S_OK;
     }
 
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _providerOwner;
     WeatherConfiguration _configuration;
+    // Network-worker-owned location cache, without another copy of the forecast/alerts.
+    double _resolvedLatitude = 0.0;
+    double _resolvedLongitude = 0.0;
+    std::array<wchar_t, kWeatherMaximumNameCharacters> _resolvedCity{};
+    std::array<char, 8> _resolvedCountry{};
+    bool _locationResolved = false;
+    bool _locationAttempted = false;
+    HRESULT _locationResult = E_PENDING;
+    std::array<char, 1024> _locationSettings{}; // Protected by _lock; collected on the UI thread.
+    uint32_t _locationSettingsBytes = 0;
     IRedXeHost* _host = nullptr;
     std::array<char, 128> _instanceId{};
     WeatherSnapshot _snapshot{};
@@ -1054,6 +1195,11 @@ extern "C" HRESULT __stdcall RedXeWeatherGetTestDiagnostics(WeatherTestDiagnosti
     diagnostics->dailyCount = gLastDailyCount.load(std::memory_order_relaxed);
     diagnostics->alertCount = gLastAlertCount.load(std::memory_order_relaxed);
     diagnostics->lastStatus = gLastStatus.load(std::memory_order_relaxed);
+    diagnostics->hourlyDrawn = gLastHourlyDrawn.load(std::memory_order_relaxed);
+    diagnostics->dailyDrawn = gLastDailyDrawn.load(std::memory_order_relaxed);
+    diagnostics->overflowingQuads = gLastOverflowCount.load(std::memory_order_relaxed);
+    diagnostics->precipitationNotice = gLastPrecipitationNotice.load(std::memory_order_relaxed);
+    diagnostics->locationHelperRuns = gLocationHelperRuns.load(std::memory_order_relaxed);
     diagnostics->lastTemperatureCelsius = gLastTemperature.load(std::memory_order_relaxed);
     AcquireSRWLockShared(&gLastLocationLock);
     WeatherCopyWide(gLastLocation.data(), diagnostics->lastLocation, 64);
@@ -1098,6 +1244,30 @@ extern "C" HRESULT __stdcall RedXeWeatherApplyTestSnapshot(const WeatherTestSnap
     gUseTestSnapshot.store(true, std::memory_order_release);
     ReleaseSRWLockExclusive(&gTestSnapshotLock);
     return S_OK;
+}
+
+extern "C" void __stdcall RedXeWeatherSetTestTime(uint64_t now) noexcept
+{
+    gTestNow.store(now, std::memory_order_relaxed);
+}
+
+extern "C" void __stdcall RedXeWeatherSetTestServices(WeatherHttpTestResponseFn response, uint32_t helperMode) noexcept
+{
+    WeatherHttpSetTestResponse(response);
+    gTestHelperMode.store(helperMode, std::memory_order_relaxed);
+    gUseTestSnapshot.store(false, std::memory_order_release);
+}
+
+extern "C" HRESULT __stdcall RedXeWeatherTestLocationHelper(HANDLE cancelEvent, uint32_t mode) noexcept
+{
+    double latitude = 0.0, longitude = 0.0;
+    return WeatherLocateWithHelper(cancelEvent, latitude, longitude,
+                                   mode == 1   ? L"--test-wait"
+                                   : mode == 2 ? L"--test-unavailable"
+                                   : mode == 3 ? L"--test-coarse"
+                                   : mode == 4 ? L"--test-cached"
+                                   : mode == 5 ? L"--test-default"
+                                               : L"--test-result");
 }
 
 extern "C" HRESULT __stdcall RedXeWeatherParseTestForecast(const char* json, uint32_t bytes, float* temperatureCelsius,

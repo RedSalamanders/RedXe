@@ -1997,11 +1997,13 @@ void TestWidgetSettingsPersist(bool& success) noexcept
         std::array<char, 128> json{};
         uint32_t bytes = 0;
         uint32_t calls = 0;
+        DWORD threadId = 0;
     } capture{};
     const auto handler = [](void* context, const char* instanceId, const char* json, uint32_t bytes) noexcept -> HRESULT
     {
         auto* captured = static_cast<Capture*>(context);
         captured->calls += 1;
+        captured->threadId = GetCurrentThreadId();
         captured->bytes = bytes;
         if (instanceId)
         {
@@ -2032,6 +2034,43 @@ void TestWidgetSettingsPersist(bool& success) noexcept
     Check(SUCCEEDED(host.PersistWidgetSettings("widget.1", kPartial, static_cast<uint32_t>(sizeof(kPartial) - 1))) &&
               capture.calls == 1 && std::string_view(capture.json.data()) == kPartial,
           L"persist forwards a partial settings object", success);
+
+    wil::com_ptr_nothrow<IRedXeSettingsQueue> queue;
+    Check(SUCCEEDED(host.QueryInterface(IID_PPV_ARGS(queue.put()))), L"host exposes the worker settings queue",
+          success);
+    if (queue)
+    {
+        wil::com_ptr_nothrow<IUnknown> identity;
+        Check(SUCCEEDED(queue.query_to(identity.put())) && identity.get() == static_cast<IRedXeHost*>(&host),
+              L"settings queue shares the host COM identity", success);
+        HRESULT queued = E_FAIL;
+        std::thread worker([&]() noexcept
+                           { queued = queue->QueueWidgetSettings("widget.1", kPartial, sizeof(kPartial) - 1); });
+        worker.join();
+        Check(queued == S_OK && capture.calls == 1, L"worker settings do not persist on the worker", success);
+        host.AcknowledgeUiInvalidate();
+        Check(capture.calls == 2 && capture.threadId == GetCurrentThreadId() &&
+                  std::string_view(capture.json.data()) == kPartial,
+              L"queued settings commit on the UI thread", success);
+        Check(queue->QueueWidgetSettings(nullptr, "{}", 2) == E_INVALIDARG &&
+                  queue->QueueWidgetSettings("widget.1", "{}", 4097) == E_INVALIDARG,
+              L"queued settings reject invalid identifiers and oversized JSON", success);
+        for (uint32_t index = 0; index < 8; ++index)
+        {
+            char id[32]{};
+            sprintf_s(id, "queued.%u", index);
+            Check(queue->QueueWidgetSettings(id, "{}", 2) == S_OK, L"bounded queue accepts eight instances", success);
+        }
+        Check(queue->QueueWidgetSettings("overflow", "{}", 2) == HRESULT_FROM_WIN32(ERROR_BUSY),
+              L"full settings queue rejects another instance", success);
+        Check(queue->QueueWidgetSettings("queued.0", kPartial, sizeof(kPartial) - 1) == S_OK,
+              L"a pending instance can be replaced even when full", success);
+        host.ClearWidgetStatus("queued.1");
+        host.AcknowledgeUiInvalidate();
+        Check(capture.calls == 9, L"teardown discards the pending settings for that instance", success);
+        host.AcknowledgeUiInvalidate();
+        Check(capture.calls == 9, L"empty acknowledgement does not repeat settings writes", success);
+    }
 
     constexpr std::string_view settingsJson =
         R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}}]})json";

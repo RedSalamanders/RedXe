@@ -682,14 +682,16 @@ void PluginManager::ClearWidgetStatuses() noexcept
 
 void PluginManager::ReleaseWidgets() noexcept
 {
-    ClearWidgetStatuses();
     for (size_t index = 0; index < _widgetCount; ++index)
     {
         if (_widgets[index].networkWidget)
         {
             PluginHost::Instance().UnregisterNetworkWidget(_widgets[index].networkWidget.get());
         }
+        const auto instanceId = _widgets[index].instanceId;
         _widgets[index] = WidgetSlot{};
+        // Worker callbacks and widget destruction must finish before discarding their queued settings/status.
+        PluginHost::Instance().ClearWidgetStatus(instanceId.utf8.data());
     }
     _widgetCount = 0;
 }

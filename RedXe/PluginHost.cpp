@@ -486,6 +486,12 @@ void PluginHost::Shutdown() noexcept
     }
     ReleaseSRWLockExclusive(&_widgetStatusLock);
     StopDataService();
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_pendingSettingsLock);
+        for (auto& pending : _pendingSettings)
+            pending.reset();
+        _hasPendingSettings.store(false, std::memory_order_release);
+    }
     ShutdownModules();
     StopLogService();
     _shutdown = true;
@@ -497,8 +503,8 @@ IRedXeHost* PluginHost::Interface() noexcept
 }
 
 // PluginHost is the process runtime, not a heap-owned object, so it does not use RedXeComObject: its reference count
-// is advisory and Release never destroys it. It exposes IRedXeHost only; persist is a method on that vtable, not a
-// sibling editor IID. Plugins borrow IRedXeHost for the lifetime of the runtime and must not outlive it.
+// is advisory and Release never destroys it. The optional settings queue shares its controlling IUnknown.
+// Plugins borrow IRedXeHost for the lifetime of the runtime and must not outlive it.
 HRESULT PluginHost::QueryInterface(REFIID interfaceId, void** result) noexcept
 {
     if (!result)
@@ -510,6 +516,8 @@ HRESULT PluginHost::QueryInterface(REFIID interfaceId, void** result) noexcept
     {
         *result = static_cast<IRedXeHost*>(this);
     }
+    else if (interfaceId == __uuidof(IRedXeSettingsQueue))
+        *result = static_cast<IRedXeSettingsQueue*>(this);
     else
     {
         return E_NOINTERFACE;
@@ -547,6 +555,39 @@ HRESULT PluginHost::PersistWidgetSettings(const char* instanceId, const char* se
         return E_UNEXPECTED;
     }
     return _settingsPersistHandler(_settingsPersistContext, instanceId, settingsJsonUtf8, settingsBytes);
+}
+
+HRESULT PluginHost::QueueWidgetSettings(const char* instanceId, const char* jsonUtf8, uint32_t bytes) noexcept
+{
+    if (!instanceId || !instanceId[0] || strnlen_s(instanceId, 128) >= 128 || !jsonUtf8 || bytes == 0 || bytes > 4096)
+        return E_INVALIDARG;
+    std::unique_ptr<PendingSettings> pending{new (std::nothrow) PendingSettings};
+    if (!pending)
+        return E_OUTOFMEMORY;
+    strcpy_s(pending->instanceId.data(), pending->instanceId.size(), instanceId);
+    std::memcpy(pending->json.data(), jsonUtf8, bytes);
+    pending->bytes = bytes;
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_pendingSettingsLock);
+        size_t selected = _pendingSettings.size();
+        for (size_t index = 0; index < _pendingSettings.size(); ++index)
+        {
+            if (_pendingSettings[index] &&
+                RedXeAsciiEqualsIgnoreCase(_pendingSettings[index]->instanceId.data(), instanceId))
+            {
+                selected = index;
+                break;
+            }
+            if (!_pendingSettings[index] && selected == _pendingSettings.size())
+                selected = index;
+        }
+        if (selected == _pendingSettings.size())
+            return HRESULT_FROM_WIN32(ERROR_BUSY);
+        _pendingSettings[selected] = std::move(pending);
+        _hasPendingSettings.store(true, std::memory_order_release);
+    }
+    RequestUiInvalidate();
+    return S_OK;
 }
 
 HRESULT PluginHost::Log(const RedXeLogRecord* record) noexcept
@@ -1036,6 +1077,23 @@ void PluginHost::SetUiInvalidateTarget(HWND window) noexcept
 void PluginHost::AcknowledgeUiInvalidate() noexcept
 {
     _pendingInvalidate.store(0, std::memory_order_release);
+    if (!_hasPendingSettings.load(std::memory_order_acquire))
+        return;
+    decltype(_pendingSettings) pending;
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_pendingSettingsLock);
+        pending.swap(_pendingSettings);
+        _hasPendingSettings.store(false, std::memory_order_release);
+    }
+    for (const auto& item : pending)
+    {
+        if (!item)
+            continue;
+        const HRESULT result = PersistWidgetSettings(item->instanceId.data(), item->json.data(), item->bytes);
+        if (FAILED(result))
+            (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, "host", item->instanceId.data(),
+                               "settings-queue-failed", "Queued settings could not be committed.", result);
+    }
 }
 
 void PluginHost::RequestUiInvalidate() noexcept
@@ -1364,6 +1422,12 @@ void PluginHost::ClearWidgetStatus(const char* instanceId) noexcept
     if (!instanceId || instanceId[0] == '\0')
     {
         return;
+    }
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_pendingSettingsLock);
+        for (auto& pending : _pendingSettings)
+            if (pending && RedXeAsciiEqualsIgnoreCase(pending->instanceId.data(), instanceId))
+                pending.reset();
     }
     AcquireSRWLockExclusive(&_widgetStatusLock);
     for (WidgetStatusSlot& candidate : _widgetStatus)

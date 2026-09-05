@@ -7,7 +7,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cwchar>
-#include <winnls.h>
 
 #include <yyjson.h>
 
@@ -19,6 +18,8 @@
 namespace
 {
 using unique_doc = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
+[[nodiscard]] bool FileTimeToLocalSystem(uint64_t fileTime100ns, SYSTEMTIME& local) noexcept;
+[[nodiscard]] uint32_t CivilDayNumber(const SYSTEMTIME& local) noexcept;
 
 constexpr char kEuropeIso2[][3] = {"AT", "BE", "BA", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR",
                                    "DE", "GR", "HU", "IS", "IE", "IT", "LV", "LI", "LT", "LU", "MT",
@@ -60,7 +61,7 @@ constexpr char kEuropeIso2[][3] = {"AT", "BE", "BA", "BG", "HR", "CY", "CZ", "DK
         const char* text = yyjson_get_str(value);
         char* end = nullptr;
         out = std::strtod(text, &end);
-        return end != text && std::isfinite(out);
+        return end != text && end == text + yyjson_get_len(value) && std::isfinite(out);
     }
     return false;
 }
@@ -391,56 +392,6 @@ bool WeatherParseLatLon(std::string_view text, double& latitude, double& longitu
     return true;
 }
 
-bool WeatherTryAutomaticLocation(wchar_t* name, size_t nameCapacity, char* countryCode, size_t countryCapacity,
-                                 double& latitude, double& longitude) noexcept
-{
-    latitude = 0.0;
-    longitude = 0.0;
-    if (name && nameCapacity != 0)
-    {
-        name[0] = L'\0';
-    }
-    if (countryCode && countryCapacity != 0)
-    {
-        countryCode[0] = '\0';
-    }
-    const GEOID geoId = GetUserGeoID(GEOCLASS_NATION);
-    if (geoId == GEOID_NOT_AVAILABLE)
-    {
-        return false;
-    }
-    std::array<wchar_t, 64> latText{};
-    std::array<wchar_t, 64> lonText{};
-    std::array<wchar_t, 8> iso2{};
-    std::array<wchar_t, kWeatherMaximumNameCharacters> friendly{};
-    if (GetGeoInfoW(geoId, GEO_LATITUDE, latText.data(), static_cast<int>(latText.size()), 0) <= 0 ||
-        GetGeoInfoW(geoId, GEO_LONGITUDE, lonText.data(), static_cast<int>(lonText.size()), 0) <= 0)
-    {
-        return false;
-    }
-    latitude = wcstod(latText.data(), nullptr);
-    longitude = wcstod(lonText.data(), nullptr);
-    if (!std::isfinite(latitude) || !std::isfinite(longitude))
-    {
-        return false;
-    }
-    if (GetGeoInfoW(geoId, GEO_ISO2, iso2.data(), static_cast<int>(iso2.size()), 0) > 0 && countryCode &&
-        countryCapacity > 1)
-    {
-        const int converted = WideCharToMultiByte(CP_UTF8, 0, iso2.data(), -1, countryCode,
-                                                  static_cast<int>(countryCapacity), nullptr, nullptr);
-        if (converted <= 0)
-        {
-            countryCode[0] = '\0';
-        }
-    }
-    if (GetGeoInfoW(geoId, GEO_FRIENDLYNAME, friendly.data(), static_cast<int>(friendly.size()), 0) > 0)
-    {
-        WeatherCopyWide(friendly.data(), name, nameCapacity);
-    }
-    return true;
-}
-
 HRESULT WeatherParseLocationForecast(std::string_view json, WeatherSnapshot& snapshot) noexcept
 {
     unique_doc document = ParseJsonCopy(json);
@@ -478,6 +429,7 @@ HRESULT WeatherParseLocationForecast(std::string_view json, WeatherSnapshot& sna
         }
         (void)JsonNumber(yyjson_obj_get(details, "wind_speed"), wind);
         yyjson_val* next1 = yyjson_is_obj(data) ? yyjson_obj_get(data, "next_1_hours") : nullptr;
+        const bool oneHour = yyjson_is_obj(next1);
         if (!next1)
         {
             next1 = yyjson_is_obj(data) ? yyjson_obj_get(data, "next_6_hours") : nullptr;
@@ -493,16 +445,25 @@ HRESULT WeatherParseLocationForecast(std::string_view json, WeatherSnapshot& sna
             snapshot.currentCondition = condition;
             haveCurrent = true;
         }
-        if (snapshot.hourlyCount < snapshot.hourly.size())
+        if (oneHour && snapshot.hourlyCount < snapshot.hourly.size())
         {
             WeatherHourlyForecast& hour = snapshot.hourly[snapshot.hourlyCount++];
+            hour = {};
             hour.timeFileTime100ns = time;
             hour.temperatureCelsius = static_cast<float>(temperature);
             hour.condition = condition;
+            double precipitation = 0.0;
+            hour.hasPrecipitation =
+                JsonNumber(yyjson_obj_get(yyjson_obj_get(next1, "details"), "precipitation_amount"), precipitation) &&
+                precipitation >= 0.0;
+            if (hour.hasPrecipitation)
+                hour.precipitationMillimeters = static_cast<float>(precipitation);
         }
 
-        constexpr uint64_t kDay = 864000000000ULL;
-        const uint64_t day = (time / kDay) * kDay;
+        SYSTEMTIME local{};
+        if (!FileTimeToLocalSystem(time, local))
+            continue;
+        const uint64_t day = CivilDayNumber(local);
         if (!accumulatingDay || day != currentDay)
         {
             if (accumulatingDay && snapshot.dailyCount < snapshot.daily.size())
@@ -512,7 +473,7 @@ HRESULT WeatherParseLocationForecast(std::string_view json, WeatherSnapshot& sna
                 snapshot.daily[snapshot.dailyCount++] = accumulating;
             }
             accumulating = WeatherDailyForecast{};
-            accumulating.dayFileTime100ns = day;
+            accumulating.dayFileTime100ns = time;
             accumulating.condition = condition;
             dayMin = temperature;
             dayMax = temperature;
@@ -599,7 +560,8 @@ HRESULT WeatherParseNominatim(std::string_view json, WeatherSnapshot& snapshot) 
     }
     double latitude = 0.0;
     double longitude = 0.0;
-    if (!JsonNumber(yyjson_obj_get(entry, "lat"), latitude) || !JsonNumber(yyjson_obj_get(entry, "lon"), longitude))
+    if (!JsonNumber(yyjson_obj_get(entry, "lat"), latitude) || !JsonNumber(yyjson_obj_get(entry, "lon"), longitude) ||
+        latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -868,6 +830,85 @@ uint32_t WeatherFormatClock(uint64_t fileTime100ns, wchar_t* text, uint32_t capa
     }
     const int written = swprintf_s(text, capacity, L"%02u:%02u", local.wHour, local.wMinute);
     return written > 0 ? static_cast<uint32_t>(written) : 0;
+}
+
+bool WeatherSameLocalDay(uint64_t first, uint64_t second) noexcept
+{
+    SYSTEMTIME a{}, b{};
+    return FileTimeToLocalSystem(first, a) && FileTimeToLocalSystem(second, b) &&
+           CivilDayNumber(a) == CivilDayNumber(b);
+}
+
+HRESULT WeatherWriteLocationSettings(const WeatherSnapshot& snapshot, char* json, uint32_t capacity,
+                                     uint32_t& written) noexcept
+{
+    written = 0;
+    if (!json || capacity == 0 || !snapshot.hasCoordinates)
+        return E_INVALIDARG;
+    std::array<char, 129> city{};
+    const int converted = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, snapshot.locationName.data(), -1,
+                                              city.data(), 120, nullptr, nullptr);
+    if (converted > 1)
+    {
+        if (snapshot.countryCode[0] != '\0')
+        {
+            strcat_s(city.data(), city.size(), ", ");
+            strcat_s(city.data(), city.size(), snapshot.countryCode.data());
+        }
+    }
+    else
+        sprintf_s(city.data(), city.size(), "%.6f,%.6f", snapshot.latitude, snapshot.longitude);
+    using unique_mut_doc = wil::unique_any<yyjson_mut_doc*, decltype(&yyjson_mut_doc_free), yyjson_mut_doc_free>;
+    unique_mut_doc document{yyjson_mut_doc_new(nullptr)};
+    yyjson_mut_val* root = document ? yyjson_mut_obj(document.get()) : nullptr;
+    if (!root || !yyjson_mut_obj_add_strcpy(document.get(), root, "location", city.data()) ||
+        !yyjson_mut_obj_add_str(document.get(), root, "locationMode", "manual"))
+        return E_OUTOFMEMORY;
+    yyjson_mut_doc_set_root(document.get(), root);
+    size_t length = 0;
+    using unique_malloc_string = wil::unique_any<char*, decltype(&std::free), std::free>;
+    unique_malloc_string serialized{yyjson_mut_write(document.get(), 0, &length)};
+    if (!serialized)
+        return E_OUTOFMEMORY;
+    if (length >= capacity)
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    std::memcpy(json, serialized.get(), length + 1);
+    written = static_cast<uint32_t>(length);
+    return S_OK;
+}
+
+uint32_t WeatherFormatPrecipitationNotice(const WeatherSnapshot& snapshot, uint64_t nowFileTime100ns, wchar_t* text,
+                                          uint32_t capacity) noexcept
+{
+    if (!text || capacity == 0)
+        return 0;
+    text[0] = L'\0';
+    if (snapshot.stale)
+        return 0;
+    constexpr uint64_t hourTicks = 36000000000ULL;
+    for (uint32_t index = 0; index < snapshot.hourlyCount; ++index)
+    {
+        const auto& hour = snapshot.hourly[index];
+        if (hour.timeFileTime100ns + hourTicks <= nowFileTime100ns ||
+            hour.timeFileTime100ns > nowFileTime100ns + 12 * hourTicks)
+            continue;
+        const bool wetSymbol = hour.condition == WeatherCondition::Rain || hour.condition == WeatherCondition::Snow ||
+                               hour.condition == WeatherCondition::Sleet || hour.condition == WeatherCondition::Thunder;
+        // An explicit zero amount beats a broad weather symbol. Missing amounts do not mean zero.
+        if (hour.hasPrecipitation ? hour.precipitationMillimeters <= 0.0f : !wetSymbol)
+            continue;
+        const wchar_t* kind = hour.condition == WeatherCondition::Snow      ? L"Snow"
+                              : hour.condition == WeatherCondition::Sleet   ? L"Rain / snow"
+                              : hour.condition == WeatherCondition::Thunder ? L"Thundery rain"
+                                                                            : L"Rain";
+        std::array<wchar_t, 8> clock{};
+        (void)WeatherFormatClock(hour.timeFileTime100ns, clock.data(), static_cast<uint32_t>(clock.size()));
+        const int written = hour.timeFileTime100ns <= nowFileTime100ns
+                                ? _snwprintf_s(text, capacity, _TRUNCATE, L"%s forecast this hour", kind)
+                                : _snwprintf_s(text, capacity, _TRUNCATE, L"%s expected around %s", kind, clock.data());
+        return written > 0 ? static_cast<uint32_t>(written) : 0;
+    }
+    return 0;
 }
 
 uint32_t WeatherFormatForecastDay(uint64_t fileTime100ns, uint64_t nowFileTime100ns, uint32_t fallbackIndex,

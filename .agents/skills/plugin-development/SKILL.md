@@ -69,10 +69,11 @@ Preserve these boundaries:
   panel with fill matching KPI intent color, sit network and memory bars under their text, keep thermal names above
   the level track, and join `gpu.process` names from `process.list` without adding a new dataset ID. While
   `SetRaised(TRUE)`, System Data viewers use Standard density so overlay content can show every row that `topN` allows.
-  Raised System Pulse also fills leftover height with a physical-memory bar and CPU history. Weather Standard density
-  uses a three-zone layout: large light-gray temperature, centered outline condition icon, stacked sunrise/sunset;
-  then location, min ` | ` max, and wind; then weekday forecast rows (`Friday, 4`) with aligned ranges and a trailing
-  outline icon. Type is light-weight Segoe UI; condition color tints icon strokes only. Daily labels are never `D1`.
+  Raised System Pulse also fills leftover height with a physical-memory bar and CPU history. Weather follows
+  `Specs/Plugins/Plugins_Weather.md`: configured city wins; empty city resolves once in a disposable helper and the
+  host queues a UI-thread save. Location owns a line, Today appears once, and fitting hourly columns, rain/snow
+  notices and future-day rows use remaining space. Fit complete glyph ink, preserve accents/icons, and ellipsize
+  labels without overflow. Type remains light Segoe UI.
 - Window widgets receive only a borrowed host-owned child container and own all children, timers, controllers, and GDI
   resources they create. Every widget quiesces visibility-dependent work in `IRedXeWidget::SetVisible(FALSE)`;
   window widgets destroy their children before `Detach` returns.
@@ -91,6 +92,8 @@ Preserve these boundaries:
   `IRedXeHost::PersistWidgetSettings` from `OnPointer` (committed click) or `OnDrop` with all of its instance settings
   or a part of them. The host always merges, then validates the complete object. Do not persist from `Render`,
   device, size, visibility, raise, collect, `OnDataSnapshot`, or `RunNetworkWork`.
+  Worker-discovered settings may instead use the optional `IRedXeSettingsQueue`; it copies a bounded merge and posts
+  UI-thread persistence outside plugin callbacks. Retain collect fallback for failed or unavailable queued delivery.
 - Do not allow exceptions across exports, COM methods, callbacks, `wWinMain`, or Win32 procedures.
 
 When a plugin project is added, include all four solution configurations, place its DLL under the host output

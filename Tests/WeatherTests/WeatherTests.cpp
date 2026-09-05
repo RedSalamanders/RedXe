@@ -15,6 +15,8 @@
 #include <wil/resource.h>
 #pragma warning(pop)
 
+[[nodiscard]] HRESULT RunWeatherRegressionTests(HMODULE module);
+
 namespace
 {
 constexpr HRESULT kTestFailure = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -66,8 +68,8 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     std::array<char, 1024> url{};
     for (const auto& item : cases)
     {
-        const std::string expected =
-            std::string("https://nominatim.openstreetmap.org/search?q=") + item.encoded + "&format=json&limit=1";
+        const std::string expected = std::string("https://nominatim.openstreetmap.org/search?q=") + item.encoded +
+                                     "&format=json&limit=1&addressdetails=1";
         const uint32_t exactCapacity = static_cast<uint32_t>(expected.size() + 1);
         if (build(item.location, url.data(), exactCapacity) != S_OK || std::strcmp(url.data(), expected.c_str()) != 0)
             return kTestFailure;
@@ -236,8 +238,9 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
         return FAILED(result) ? result : kTestFailure;
     }
 
+    result = RunWeatherRegressionTests(module.get());
     shutdown();
-    return S_OK;
+    return result;
 }
 } // namespace
 

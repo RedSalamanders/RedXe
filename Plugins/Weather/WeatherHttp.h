@@ -43,3 +43,7 @@ static_assert(sizeof(WeatherHttpResponse) <= kWeatherHttpResponseMaximumBytes);
 void WeatherHttpShutdown() noexcept;
 [[nodiscard]] uint32_t WeatherHttpGetCount() noexcept;
 [[nodiscard]] HRESULT WeatherHttpGet(std::string_view url, HANDLE cancelEvent, WeatherHttpResponse& response) noexcept;
+using WeatherHttpTestResponseFn = HRESULT(__stdcall*)(const char* url, uint32_t urlBytes, const char** body,
+                                                      uint32_t* bodyBytes) noexcept;
+// Offline harness hook; set/clear only while no network callback is active.
+void WeatherHttpSetTestResponse(WeatherHttpTestResponseFn response) noexcept;

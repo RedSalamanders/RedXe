@@ -1,5 +1,6 @@
 #pragma once
 
+#include "WeatherHttp.h"
 #include <cstdint>
 #include <windows.h>
 
@@ -19,6 +20,11 @@ struct WeatherTestDiagnostics final
     uint32_t deviceCallbacksWhileVisible;
     float lastTemperatureCelsius;
     wchar_t lastLocation[64];
+    uint32_t hourlyDrawn;
+    uint32_t dailyDrawn;
+    uint32_t overflowingQuads;
+    BOOL precipitationNotice;
+    uint32_t locationHelperRuns;
 };
 
 struct WeatherTestSnapshot final
@@ -75,6 +81,11 @@ extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherProbeHttpGetOnSm
 extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherBuildTestLocationSearchUrl(const char* location,
                                                                                            char* url,
                                                                                            uint32_t capacity) noexcept;
+extern "C" REDXE_WEATHER_TEST_API void __stdcall RedXeWeatherSetTestTime(uint64_t now) noexcept;
+extern "C" REDXE_WEATHER_TEST_API void __stdcall RedXeWeatherSetTestServices(WeatherHttpTestResponseFn response,
+                                                                             uint32_t helperMode) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherTestLocationHelper(HANDLE cancelEvent,
+                                                                                   uint32_t mode) noexcept;
 
 using WeatherGetTestDiagnosticsFn = decltype(&RedXeWeatherGetTestDiagnostics);
 using WeatherApplyTestSnapshotFn = decltype(&RedXeWeatherApplyTestSnapshot);

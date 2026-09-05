@@ -75,6 +75,8 @@ struct WeatherHourlyForecast final
     uint64_t timeFileTime100ns = 0;
     float temperatureCelsius = 0.0f;
     WeatherCondition condition = WeatherCondition::Unknown;
+    float precipitationMillimeters = 0.0f;
+    bool hasPrecipitation = false;
 };
 
 struct WeatherDailyForecast final
@@ -141,6 +143,12 @@ bool WeatherCopyNarrow(std::string_view source, char* destination, size_t capaci
 [[nodiscard]] bool WeatherTryAutomaticLocation(wchar_t* name, size_t nameCapacity, char* countryCode,
                                                size_t countryCapacity, double& latitude, double& longitude) noexcept;
 [[nodiscard]] HRESULT WeatherParseLocationForecast(std::string_view json, WeatherSnapshot& snapshot) noexcept;
+// Uses only genuine one-hour forecast periods; zero means there is no upcoming precipitation notice.
+[[nodiscard]] uint32_t WeatherFormatPrecipitationNotice(const WeatherSnapshot& snapshot, uint64_t nowFileTime100ns,
+                                                        wchar_t* text, uint32_t capacity) noexcept;
+[[nodiscard]] bool WeatherSameLocalDay(uint64_t first, uint64_t second) noexcept;
+[[nodiscard]] HRESULT WeatherWriteLocationSettings(const WeatherSnapshot& snapshot, char* json, uint32_t capacity,
+                                                   uint32_t& written) noexcept;
 [[nodiscard]] HRESULT WeatherParseSunrise(std::string_view json, WeatherSnapshot& snapshot) noexcept;
 [[nodiscard]] HRESULT WeatherParseNominatim(std::string_view json, WeatherSnapshot& snapshot) noexcept;
 [[nodiscard]] HRESULT WeatherParseMeteoAlarm(std::string_view json, WeatherSnapshot& snapshot) noexcept;

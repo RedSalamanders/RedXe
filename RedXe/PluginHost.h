@@ -24,7 +24,7 @@
 // subscription drain lifetime. PluginManager instances borrow it through Instance() so that staging an adjacent
 // dashboard page reuses the already-mapped modules, the already-created data sources, and the already-running workers
 // instead of building a second runtime beside them.
-class PluginHost final : public IRedXeHost
+class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
 {
   public:
     struct ModuleView final
@@ -83,6 +83,8 @@ class PluginHost final : public IRedXeHost
     HRESULT STDMETHODCALLTYPE PersistWidgetSettings(const char* instanceId, const char* settingsJsonUtf8,
                                                     uint32_t settingsBytes) noexcept override;
     HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept override;
+    HRESULT STDMETHODCALLTYPE QueueWidgetSettings(const char* instanceId, const char* jsonUtf8,
+                                                  uint32_t bytes) noexcept override;
 
     // Opens `%LocalAppData%\RedXe\Logs` (or a test directory) and starts the event-blocked writer. `--self-test`
     // must not call this. Until it succeeds, Log returns S_OK and drops the line. A null or empty directory returns
@@ -114,6 +116,16 @@ class PluginHost final : public IRedXeHost
 
     class DataProvider;
     class Subscription;
+
+    struct PendingSettings final
+    {
+        std::array<char, 128> instanceId{};
+        std::array<char, 4097> json{};
+        uint32_t bytes = 0;
+    };
+    std::array<std::unique_ptr<PendingSettings>, 8> _pendingSettings{};
+    SRWLOCK _pendingSettingsLock = SRWLOCK_INIT;
+    std::atomic<bool> _hasPendingSettings{false};
 
     struct ModuleSlot final
     {

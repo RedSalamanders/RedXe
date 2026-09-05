@@ -184,6 +184,18 @@ object it was supplied to.
 - An interactive settings save is transactional: validation or file-replacement failure MUST preserve both the
   typed instance settings and the retained source document. A committed file replacement remains success even if
   querying its deduplication stamp fails afterward; the next watcher notification may reload it.
+- The optional sibling `IRedXeSettingsQueue` shares the host's controlling `IUnknown`. Workers MAY queue up to 4096
+  JSON bytes for a 127-byte instance ID. The host copies at most eight pending instances, coalesces the same ID, and
+  returns `ERROR_BUSY` when full. `S_OK` means accepted, not committed. A coalesced UI invalidation drains the queue
+  through the existing validated persist handler outside callbacks/locks. Teardown discards that instance's records.
+  Failed commits log once; widgets retain collect fallback. Empty queues own no heap records or timer. GPU, paint and
+  scheduling callbacks MUST NOT use this service. Host tests cover bounds, coalescing, teardown, UI delivery and identity.
+- The optional sibling `IRedXeSettingsQueue` shares the host's controlling `IUnknown`. Workers MAY queue up to 4096
+  JSON bytes for a 127-byte instance ID. The host copies at most eight pending instances, coalesces the same ID, and
+  returns `ERROR_BUSY` when full. `S_OK` means accepted, not committed. A coalesced UI invalidation drains the queue
+  through the existing validated persist handler outside callbacks/locks. Teardown discards that instance's records.
+  Failed commits log once; widgets retain collect fallback. Empty queues own no heap records or timer. GPU, paint and
+  scheduling callbacks MUST NOT use this service. Host tests cover bounds, coalescing, teardown, UI delivery and identity.
 - `Log` appends one diagnostic JSONL line. It is safe from any thread, including the acquisition and network workers,
   copies bounded fields into a 32-slot 1024-byte ring, and never blocks on disk. The host writer is event-blocked and
   writes UTC-dated files (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`), opening a new file when the UTC
@@ -833,6 +845,14 @@ all other bytes, including spaces, Unicode bytes, and query delimiters, use perc
 accepts at most 128 input bytes and fails without a partial URL if the output buffer cannot include the terminator.
 Offline WeatherTests MUST cover spaces, Unicode, reserved characters, unreserved characters, exact capacity, and
 empty/overlong input; live geocoding is not a test dependency.
+
+Weather location selection, disposable Windows helper, saved city, precipitation notices, glyph fitting and responsive
+hourly/daily composition are owned by [`Plugins_Weather.md`](Plugins_Weather.md). A configured city takes precedence;
+automatic discovery must never use a country centroid as the computer's city.
+
+Weather location selection, disposable Windows helper, saved city, precipitation notices, glyph fitting and responsive
+hourly/daily composition are owned by [`Plugins_Weather.md`](Plugins_Weather.md). A configured city takes precedence;
+automatic discovery must never use a country centroid as the computer's city.
 
 `Plugins/Launcher` exposes settings-visible plugin ID `builtin.launcher`, internally maps it to type ID `launcher`,
 and exposes sibling `IRedXeGpuWidget`, `IRedXeInteractiveWidget`, and `IRedXeRaisedWidget` interfaces on one

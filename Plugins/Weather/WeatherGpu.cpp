@@ -175,10 +175,10 @@ struct DirectWriteSession final
     {
         return result;
     }
-    bounds.left = std::max(bounds.left, 0L);
-    bounds.top = std::max(bounds.top, 0L);
-    bounds.right = std::min(bounds.right, static_cast<LONG>(kWeatherGlyphCell));
-    bounds.bottom = std::min(bounds.bottom, static_cast<LONG>(kWeatherGlyphCell));
+    // Reject a clipped glyph rather than silently baking missing strokes into the atlas.
+    if (bounds.left < 0 || bounds.top < 0 || bounds.right > static_cast<LONG>(kWeatherGlyphCell) ||
+        bounds.bottom > static_cast<LONG>(kWeatherGlyphCell))
+        return E_BOUNDS;
     if (bounds.right <= bounds.left || bounds.bottom <= bounds.top)
     {
         return S_OK;
@@ -210,8 +210,11 @@ struct DirectWriteSession final
 
 [[nodiscard]] HRESULT RasterizeIntoAtlas(IDWriteFactory& factory, IDWriteFontFace& face, wchar_t character,
                                          uint32_t atlasX, uint32_t atlasY, uint8_t* atlasPixels, float& advance,
-                                         bool centerInCell) noexcept
+                                         bool centerInCell, WeatherGlyphInk& ink) noexcept
 {
+    ink = {};
+    for (uint32_t row = 0; row < kWeatherGlyphCell; ++row)
+        std::memset(atlasPixels + static_cast<size_t>(atlasY + row) * kWeatherAtlasSize + atlasX, 0, kWeatherGlyphCell);
     const UINT32 codePoint = static_cast<UINT32>(character);
     UINT16 glyphIndex = 0;
     HRESULT result = face.GetGlyphIndices(&codePoint, 1, &glyphIndex);
@@ -236,20 +239,23 @@ struct DirectWriteSession final
     {
         return E_UNEXPECTED;
     }
-    const float emSize = centerInCell ? static_cast<float>(kWeatherGlyphCell) * 0.78f : kGlyphEmSize;
+    float emSize =
+        centerInCell
+            ? static_cast<float>(kWeatherGlyphCell) * 0.78f
+            : std::min(kGlyphEmSize, 44.0f * fontMetrics.designUnitsPerEm / (fontMetrics.ascent + fontMetrics.descent));
     const float designScale = emSize / static_cast<float>(fontMetrics.designUnitsPerEm);
-    const float pixelAdvance = static_cast<float>(glyphMetrics.advanceWidth) * designScale;
+    float pixelAdvance = static_cast<float>(glyphMetrics.advanceWidth) * designScale;
     advance = centerInCell ? 1.0f : pixelAdvance / static_cast<float>(kWeatherGlyphCell);
-    float baselineX = 4.0f - static_cast<float>(glyphMetrics.leftSideBearing) * designScale;
-    const float capHeight = static_cast<float>(fontMetrics.capHeight) * designScale;
+    float baselineX = 3.0f;
+    const float ascent = static_cast<float>(fontMetrics.ascent) * designScale;
     const float descent = static_cast<float>(fontMetrics.descent) * designScale;
-    float baselineY = (static_cast<float>(kWeatherGlyphCell) - capHeight - descent) * 0.5f + capHeight;
+    float baselineY = (static_cast<float>(kWeatherGlyphCell) - ascent - descent) * 0.5f + ascent;
     if (centerInCell)
     {
         baselineX = 0.0f;
         baselineY = emSize;
     }
-    const DWRITE_GLYPH_RUN run{&face, emSize, 1, &glyphIndex, &pixelAdvance, nullptr, FALSE, 0};
+    DWRITE_GLYPH_RUN run{&face, emSize, 1, &glyphIndex, &pixelAdvance, nullptr, FALSE, 0};
     wil::com_ptr_nothrow<IDWriteGlyphRunAnalysis> analysis;
     result = factory.CreateGlyphRunAnalysis(&run, 1.0f, nullptr, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
                                             DWRITE_MEASURING_MODE_NATURAL, baselineX, baselineY, analysis.put());
@@ -257,7 +263,7 @@ struct DirectWriteSession final
     {
         return result;
     }
-    if (centerInCell)
+    for (uint32_t attempt = 0; attempt < 4; ++attempt)
     {
         RECT bounds{};
         result = analysis->GetAlphaTextureBounds(DWRITE_TEXTURE_CLEARTYPE_3x1, &bounds);
@@ -265,25 +271,48 @@ struct DirectWriteSession final
         {
             return result;
         }
-        if (bounds.right > bounds.left && bounds.bottom > bounds.top)
+        const float inkWidth = static_cast<float>(bounds.right - bounds.left);
+        const float inkHeight = static_cast<float>(bounds.bottom - bounds.top);
+        if (inkWidth <= 0.0f || inkHeight <= 0.0f)
+            return S_OK;
+        if (inkWidth <= 44.0f && inkHeight <= 44.0f && bounds.left >= 1 && bounds.top >= 1 && bounds.right <= 47 &&
+            bounds.bottom <= 47 && (!centerInCell || attempt != 0))
         {
-            const float shiftX =
-                (static_cast<float>(kWeatherGlyphCell) - static_cast<float>(bounds.right - bounds.left)) * 0.5f -
-                static_cast<float>(bounds.left);
-            const float shiftY =
-                (static_cast<float>(kWeatherGlyphCell) - static_cast<float>(bounds.bottom - bounds.top)) * 0.5f -
-                static_cast<float>(bounds.top);
-            analysis.reset();
-            result = factory.CreateGlyphRunAnalysis(&run, 1.0f, nullptr, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
-                                                    DWRITE_MEASURING_MODE_NATURAL, baselineX + shiftX,
-                                                    baselineY + shiftY, analysis.put());
-            if (FAILED(result))
-            {
-                return result;
-            }
+            constexpr float cell = static_cast<float>(kWeatherGlyphCell);
+            // Include one transparent texel to preserve antialiasing when filtering the cropped quad.
+            ink = {(bounds.left - 1) / cell, (bounds.top - 1) / cell, (inkWidth + 2) / cell, (inkHeight + 2) / cell};
+            advance = centerInCell ? 1.0f : pixelAdvance / cell;
+            return BlitGlyphAnalysis(*analysis, atlasX, atlasY, atlasPixels);
+        }
+        if (inkWidth > 44.0f || inkHeight > 44.0f)
+        {
+            const float scale = 42.0f / std::max(inkWidth, inkHeight);
+            emSize *= scale;
+            pixelAdvance *= scale;
+            run.fontEmSize = emSize;
+            baselineX *= scale;
+            baselineY *= scale;
+        }
+        else
+        {
+            const float shiftX = (centerInCell ? (48.0f - inkWidth) * 0.5f
+                                               : std::clamp(static_cast<float>(bounds.left), 2.0f, 46.0f - inkWidth)) -
+                                 bounds.left;
+            const float shiftY = (centerInCell ? (48.0f - inkHeight) * 0.5f
+                                               : std::clamp(static_cast<float>(bounds.top), 2.0f, 46.0f - inkHeight)) -
+                                 bounds.top;
+            baselineX += shiftX;
+            baselineY += shiftY;
+        }
+        analysis.reset();
+        result = factory.CreateGlyphRunAnalysis(&run, 1.0f, nullptr, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
+                                                DWRITE_MEASURING_MODE_NATURAL, baselineX, baselineY, analysis.put());
+        if (FAILED(result))
+        {
+            return result;
         }
     }
-    return BlitGlyphAnalysis(*analysis, atlasX, atlasY, atlasPixels);
+    return E_BOUNDS;
 }
 } // namespace
 
@@ -497,7 +526,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
         const uint32_t atlasY = (slot / kWeatherGlyphColumns) * kWeatherGlyphCell;
         float advance = 0.5f;
         result = RasterizeIntoAtlas(*session.factory, *session.face, static_cast<wchar_t>(character), atlasX, atlasY,
-                                    _atlasPixels.data(), advance, false);
+                                    _atlasPixels.data(), advance, false, _glyphInk[slot]);
         if (FAILED(result))
         {
             return result;
@@ -513,7 +542,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
         const uint32_t atlasY = (slot / kWeatherGlyphColumns) * kWeatherGlyphCell;
         float advance = 0.5f;
         result = RasterizeIntoAtlas(*session.factory, *session.face, kStaticExtraGlyphs[extra], atlasX, atlasY,
-                                    _atlasPixels.data(), advance, false);
+                                    _atlasPixels.data(), advance, false, _glyphInk[slot]);
         if (FAILED(result))
         {
             return result;
@@ -531,7 +560,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
             const uint32_t atlasY = (slot / kWeatherGlyphColumns) * kWeatherGlyphCell;
             float advance = 1.0f;
             result = RasterizeIntoAtlas(*session.factory, *session.iconFace, glyph, atlasX, atlasY, _atlasPixels.data(),
-                                        advance, true);
+                                        advance, true, _glyphInk[slot]);
             if (result == S_FALSE)
             {
                 continue;
@@ -623,7 +652,7 @@ HRESULT WeatherGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t characte
         const uint32_t atlasY = (slot / kWeatherGlyphColumns) * kWeatherGlyphCell;
         float advance = 0.5f;
         result = RasterizeIntoAtlas(*session.factory, *session.face, character, atlasX, atlasY, _atlasPixels.data(),
-                                    advance, false);
+                                    advance, false, _glyphInk[slot]);
         if (FAILED(result))
         {
             return result;
@@ -647,6 +676,7 @@ float WeatherGpuResources::MeasureText(const wchar_t* text, uint32_t characters,
         return 0.0f;
     }
     float width = 0.0f;
+    float pen = 0.0f;
     for (uint32_t index = 0; index < characters; ++index)
     {
         const wchar_t character = text[index];
@@ -656,9 +686,11 @@ float WeatherGpuResources::MeasureText(const wchar_t* text, uint32_t characters,
         }
         const uint32_t slot = FindGlyph(character);
         const float advance = slot == kMissingGlyph ? 0.45f : _glyphAdvances[slot];
-        width += advance * height;
+        if (slot != kMissingGlyph)
+            width = std::max(width, pen + (_glyphInk[slot].left + _glyphInk[slot].width) * height);
+        pen += advance * height;
     }
-    return width;
+    return std::max(width, pen);
 }
 
 HRESULT WeatherGpuResources::AppendText(WeatherDrawList& list, float x, float y, float height, float red, float green,
@@ -682,10 +714,12 @@ HRESULT WeatherGpuResources::AppendText(WeatherDrawList& list, float x, float y,
         const float advance = (slot == kMissingGlyph ? 0.45f : _glyphAdvances[slot]) * height;
         if (slot != kMissingGlyph)
         {
-            const float u0 = static_cast<float>(slot % kWeatherGlyphColumns) * cell;
-            const float v0 = static_cast<float>(slot / kWeatherGlyphColumns) * cell;
-            if (!list.Add(WeatherQuadKindGlyph, pen, y, height, height, red, green, blue, alpha, 0.0f, 0.0f, u0, v0,
-                          u0 + cell, v0 + cell))
+            const auto& ink = _glyphInk[slot];
+            const float u0 = (static_cast<float>(slot % kWeatherGlyphColumns) + ink.left) * cell;
+            const float v0 = (static_cast<float>(slot / kWeatherGlyphColumns) + ink.top) * cell;
+            if (!list.Add(WeatherQuadKindGlyph, pen + ink.left * height, y + ink.top * height, ink.width * height,
+                          ink.height * height, red, green, blue, alpha, 0.0f, 0.0f, u0, v0, u0 + ink.width * cell,
+                          v0 + ink.height * cell))
             {
                 return S_OK;
             }

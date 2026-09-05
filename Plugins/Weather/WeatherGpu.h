@@ -32,6 +32,14 @@ struct WeatherQuadInstance final
     float params[4];
 };
 
+struct WeatherGlyphInk final
+{
+    float left = 0.0f;
+    float top = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
 class WeatherDrawList final
 {
   public:
@@ -156,6 +164,7 @@ class WeatherGpuResources final
     std::array<uint8_t, kWeatherAtlasSize * kWeatherAtlasSize> _atlasPixels{};
     std::array<wchar_t, kWeatherGlyphCapacity> _glyphCharacters{};
     std::array<float, kWeatherGlyphCapacity> _glyphAdvances{};
+    std::array<WeatherGlyphInk, kWeatherGlyphCapacity> _glyphInk{};
     uint32_t _glyphCount = 0;
     uint32_t _staticGlyphCount = 0;
     uint32_t _dynamicCursor = 0;

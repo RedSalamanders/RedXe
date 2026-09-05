@@ -63,6 +63,7 @@
     <ClCompile Include="WeatherGpu.cpp" />
     <ClCompile Include="WeatherHttp.cpp" />
     <ClCompile Include="WeatherModel.cpp" />
+    <ClCompile Include="WeatherLocation.cpp" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="WeatherPixel.hlsl">
@@ -93,6 +94,7 @@
   <ItemGroup>
     <ClInclude Include="WeatherHttp.h" />
     <ClInclude Include="WeatherModel.h" />
+    <ClInclude Include="WeatherLocation.h" />
     <ClInclude Include="WeatherIcons.h" />
     <ClInclude Include="WeatherGpu.h" />
     <ClInclude Include="WeatherTestContract.h" />
@@ -102,6 +104,13 @@
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\WeatherLocation\WeatherLocation.vcxproj">
+      <Project>{A4EF63BE-1145-41FB-9CAC-E68CEB967A90}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

@@ -263,7 +263,7 @@ HRESULT WeatherBuildLocationSearchUrl(std::string_view location, char* url, uint
         return E_INVALIDARG;
     }
     constexpr std::string_view prefix = "https://nominatim.openstreetmap.org/search?q=";
-    constexpr std::string_view suffix = "&format=json&limit=1";
+    constexpr std::string_view suffix = "&format=json&limit=1&addressdetails=1";
     const auto unreserved = [](unsigned char value) noexcept
     {
         return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9') ||
@@ -320,6 +320,16 @@ uint32_t WeatherHttpGetCount() noexcept
     return g_httpGetCount.load(std::memory_order_relaxed);
 }
 
+namespace
+{
+std::atomic<WeatherHttpTestResponseFn> g_testResponse{nullptr};
+}
+
+void WeatherHttpSetTestResponse(WeatherHttpTestResponseFn response) noexcept
+{
+    g_testResponse.store(response, std::memory_order_release);
+}
+
 HRESULT WeatherHttpGet(std::string_view url, HANDLE cancelEvent, WeatherHttpResponse& response) noexcept
 {
     g_httpGetCount.fetch_add(1, std::memory_order_relaxed);
@@ -335,6 +345,18 @@ HRESULT WeatherHttpGet(std::string_view url, HANDLE cancelEvent, WeatherHttpResp
     if (WaitForSingleObject(cancelEvent, 0) == WAIT_OBJECT_0)
     {
         return HRESULT_FROM_WIN32(ERROR_CANCELLED);
+    }
+    if (const auto test = g_testResponse.load(std::memory_order_acquire))
+    {
+        const char* body = nullptr;
+        uint32_t bytes = 0;
+        const HRESULT result = test(url.data(), static_cast<uint32_t>(url.size()), &body, &bytes);
+        if (FAILED(result))
+            return result;
+        if (!body || bytes > kWeatherMaximumBodyBytes)
+            return E_INVALIDARG;
+        response.status = 200;
+        return CopyBody(body, bytes, response.body, response.bytes, response.capacity);
     }
     const HRESULT init = WeatherHttpInitialize();
     if (FAILED(init))
