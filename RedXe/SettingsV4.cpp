@@ -12,6 +12,7 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
+#include <windows.h>
 
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027 28182)
@@ -34,6 +35,8 @@ constexpr char kNetworkMeterPlugin[] = "builtin.network-meter";
 constexpr char kGpuProcessesPlugin[] = "builtin.gpu-processes";
 constexpr char kStudioClockPlugin[] = "builtin.studio-clock";
 constexpr char kDeskClockPlugin[] = "builtin.desk-clock";
+constexpr char kWeatherPlugin[] = "builtin.weather";
+constexpr char kLauncherPlugin[] = "builtin.launcher";
 constexpr char kMatrixDefaults[] =
     R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35})json";
 constexpr char kProcessViewerDefaults[] = R"json({"topN":10})json";
@@ -42,6 +45,9 @@ constexpr char kStudioClockDefaults[] =
     R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","backgroundColor":"#111111"})json";
 constexpr char kDeskClockDefaults[] =
     R"json({"flipDurationMilliseconds":420,"backgroundColor":"#000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json";
+constexpr char kWeatherDefaults[] =
+    R"json({"locationMode":"automatic","location":"","temperatureUnit":"celsius","windUnit":"kmh"})json";
+constexpr char kLauncherDefaults[] = R"json({"shortcuts":[]})json";
 
 struct Declaration final
 {
@@ -340,6 +346,136 @@ struct Declaration final
            color("backgroundColor") && color("cardColor") && color("digitColor") && color("dateColor");
 }
 
+[[nodiscard]] bool ValidateWeatherSettings(yyjson_val* settings) noexcept
+{
+    if (!ObjectHasOnly(settings, {"locationMode", "location", "temperatureUnit", "windUnit"}, false) ||
+        yyjson_obj_size(settings) != 4)
+    {
+        return false;
+    }
+    yyjson_val* locationModeValue = yyjson_obj_get(settings, "locationMode");
+    yyjson_val* locationValue = yyjson_obj_get(settings, "location");
+    yyjson_val* temperatureValue = yyjson_obj_get(settings, "temperatureUnit");
+    yyjson_val* windValue = yyjson_obj_get(settings, "windUnit");
+    const char* locationMode = yyjson_is_str(locationModeValue) ? yyjson_get_str(locationModeValue) : nullptr;
+    const char* temperatureUnit = yyjson_is_str(temperatureValue) ? yyjson_get_str(temperatureValue) : nullptr;
+    const char* windUnit = yyjson_is_str(windValue) ? yyjson_get_str(windValue) : nullptr;
+    return locationMode && (std::strcmp(locationMode, "automatic") == 0 || std::strcmp(locationMode, "manual") == 0) &&
+           yyjson_is_str(locationValue) && yyjson_get_len(locationValue) <= 128 && temperatureUnit &&
+           (std::strcmp(temperatureUnit, "celsius") == 0 || std::strcmp(temperatureUnit, "fahrenheit") == 0) &&
+           windUnit && (std::strcmp(windUnit, "kmh") == 0 || std::strcmp(windUnit, "mph") == 0);
+}
+
+[[nodiscard]] int ClassifyLauncherTarget(std::string_view target) noexcept
+{
+    if (target.empty() || target.size() > 512)
+    {
+        return 0;
+    }
+    if (target.size() >= 3 && ((target[0] >= 'A' && target[0] <= 'Z') || (target[0] >= 'a' && target[0] <= 'z')) &&
+        target[1] == ':' && (target[2] == '\\' || target[2] == '/'))
+    {
+        return 1;
+    }
+    if (target.size() >= 2 && target[0] == '\\' && target[1] == '\\')
+    {
+        return 1;
+    }
+    if (target.size() < 3 || !std::isalpha(static_cast<unsigned char>(target[0])))
+    {
+        return 0;
+    }
+    size_t index = 1;
+    while (index < target.size())
+    {
+        const unsigned char value = static_cast<unsigned char>(target[index]);
+        if (!(std::isalnum(value) || value == '+' || value == '.' || value == '-'))
+        {
+            break;
+        }
+        ++index;
+    }
+    return (index >= 2 && index < target.size() && target[index] == ':') ? 2 : 0;
+}
+
+[[nodiscard]] bool LauncherTargetsEqual(std::string_view left, std::string_view right, int kind) noexcept
+{
+    if (kind == 2)
+    {
+        return left == right;
+    }
+    std::array<wchar_t, 513> leftWide{};
+    std::array<wchar_t, 513> rightWide{};
+    const int leftCount = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, left.data(), static_cast<int>(left.size()),
+                                              leftWide.data(), static_cast<int>(leftWide.size() - 1));
+    const int rightCount =
+        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, right.data(), static_cast<int>(right.size()),
+                            rightWide.data(), static_cast<int>(rightWide.size() - 1));
+    if (leftCount <= 0 || rightCount <= 0)
+    {
+        return left == right;
+    }
+    return CompareStringOrdinal(leftWide.data(), leftCount, rightWide.data(), rightCount, TRUE) == CSTR_EQUAL;
+}
+
+[[nodiscard]] bool ValidateLauncherSettings(yyjson_val* settings) noexcept
+{
+    if (!ObjectHasOnly(settings, {"shortcuts"}, false))
+    {
+        return false;
+    }
+    yyjson_val* shortcuts = yyjson_obj_get(settings, "shortcuts");
+    if (!yyjson_is_arr(shortcuts) || yyjson_arr_size(shortcuts) > 8)
+    {
+        return false;
+    }
+    const size_t count = yyjson_arr_size(shortcuts);
+    std::array<std::string_view, 8> seen{};
+    std::array<int, 8> kinds{};
+    for (size_t index = 0; index < count; ++index)
+    {
+        yyjson_val* item = yyjson_arr_get(shortcuts, index);
+        if (!ObjectHasOnly(item, {"target", "iconPng"}, false))
+        {
+            return false;
+        }
+        yyjson_val* targetValue = yyjson_obj_get(item, "target");
+        if (!yyjson_is_str(targetValue) || yyjson_get_len(targetValue) == 0 || yyjson_get_len(targetValue) > 512)
+        {
+            return false;
+        }
+        const std::string_view target(yyjson_get_str(targetValue), yyjson_get_len(targetValue));
+        const int kind = ClassifyLauncherTarget(target);
+        if (kind == 0)
+        {
+            return false;
+        }
+        yyjson_val* iconValue = yyjson_obj_get(item, "iconPng");
+        if (iconValue)
+        {
+            if (!yyjson_is_str(iconValue) || yyjson_get_len(iconValue) > 260)
+            {
+                return false;
+            }
+            const std::string_view icon(yyjson_get_str(iconValue), yyjson_get_len(iconValue));
+            if (!icon.empty() && ClassifyLauncherTarget(icon) != 1)
+            {
+                return false;
+            }
+        }
+        for (size_t previous = 0; previous < index; ++previous)
+        {
+            if (kinds[previous] == kind && LauncherTargetsEqual(seen[previous], target, kind))
+            {
+                return false;
+            }
+        }
+        seen[index] = target;
+        kinds[index] = kind;
+    }
+    return true;
+}
+
 [[nodiscard]] yyjson_val* FindDeclaration(const std::vector<Declaration>& declarations, std::string_view name) noexcept
 {
     for (const Declaration& declaration : declarations)
@@ -395,6 +531,8 @@ struct Declaration final
                                : plugin == kNetworkMeterPlugin || plugin == kGpuProcessesPlugin ? kRankedViewerDefaults
                                : plugin == kStudioClockPlugin                                   ? kStudioClockDefaults
                                : plugin == kDeskClockPlugin                                     ? kDeskClockDefaults
+                               : plugin == kWeatherPlugin                                       ? kWeatherDefaults
+                               : plugin == kLauncherPlugin                                      ? kLauncherDefaults
                                                                                                 : "{}";
     defaults.reset(yyjson_read(defaultsText, std::strlen(defaultsText), YYJSON_READ_NOFLAG));
     if (!settingsValue)
@@ -402,7 +540,8 @@ struct Declaration final
         settingsValue = defaults ? yyjson_doc_get_root(defaults.get()) : nullptr;
     }
     else if (plugin == kMatrixPlugin || plugin == kProcessViewerPlugin || plugin == kNetworkMeterPlugin ||
-             plugin == kGpuProcessesPlugin || plugin == kStudioClockPlugin || plugin == kDeskClockPlugin)
+             plugin == kGpuProcessesPlugin || plugin == kStudioClockPlugin || plugin == kDeskClockPlugin ||
+             plugin == kWeatherPlugin || plugin == kLauncherPlugin)
     {
         effectiveDocument.reset(yyjson_mut_doc_new(nullptr));
         yyjson_mut_val* merged =
@@ -425,6 +564,8 @@ struct Declaration final
                                    ? ValidateTopNSettings(settingsValue, 1, 16)
                                : plugin == kStudioClockPlugin ? ValidateStudioClockSettings(settingsValue)
                                : plugin == kDeskClockPlugin   ? ValidateDeskClockSettings(settingsValue)
+                               : plugin == kWeatherPlugin     ? ValidateWeatherSettings(settingsValue)
+                               : plugin == kLauncherPlugin    ? ValidateLauncherSettings(settingsValue)
                                                               : yyjson_obj_size(settingsValue) == 0;
     if (!validSettings)
         return false;
@@ -581,7 +722,8 @@ HRESULT ParseAppSettingsJsonV4(std::string_view json, std::unique_ptr<AppSetting
         if (fileMinor > UINT32_MAX)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         const bool allowUnknown = fileMinor > kRedXeSettingsVersionMinor;
-        if (!ObjectHasOnly(root, {"$schema", "version", "wrapPages", "declare", "pages"}, allowUnknown))
+        if (!ObjectHasOnly(root, {"$schema", "version", "wrapPages", "logRetentionDays", "declare", "pages"},
+                           allowUnknown))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         yyjson_val* schema = yyjson_obj_get(root, "$schema");
         if (schema && (!yyjson_is_str(schema) || std::string_view(yyjson_get_str(schema), yyjson_get_len(schema)) !=
@@ -598,6 +740,18 @@ HRESULT ParseAppSettingsJsonV4(std::string_view json, std::unique_ptr<AppSetting
         if (wrap && !yyjson_is_bool(wrap))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         parsed->dashboard.wrapPages = wrap && yyjson_get_bool(wrap);
+        yyjson_val* retention = yyjson_obj_get(root, "logRetentionDays");
+        if (retention)
+        {
+            if (!yyjson_is_uint(retention))
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            const uint64_t days = yyjson_get_uint(retention);
+            if (days < kRedXeMinimumLogRetentionDays || days > kRedXeMaximumLogRetentionDays)
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            parsed->logRetentionDays = static_cast<uint32_t>(days);
+        }
+        else
+            parsed->logRetentionDays = kRedXeDefaultLogRetentionDays;
 
         std::vector<Declaration> declarations;
         yyjson_val* declarationObject = yyjson_obj_get(root, "declare");

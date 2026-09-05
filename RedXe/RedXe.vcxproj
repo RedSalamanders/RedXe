@@ -75,7 +75,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>d3d11.lib;dxgi.lib;shell32.lib;uuid.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;ole32.lib;shell32.lib;uuid.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -91,12 +91,13 @@
       <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>d3d11.lib;dxgi.lib;shell32.lib;uuid.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;ole32.lib;shell32.lib;uuid.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
   <ItemGroup>
     <ClInclude Include="..\Common\PlugInterfaces\Data.h" />
+    <ClInclude Include="..\Common\PlugInterfaces\Host.h" />
     <ClInclude Include="..\Common\PlugInterfaces\Widget.h" />
     <ClInclude Include="Application.h" />
     <ClInclude Include="BundledPlugins.h" />
@@ -175,6 +176,16 @@
     </ProjectReference>
     <ProjectReference Include="..\Plugins\DeskClock\DeskClock.vcxproj">
       <Project>{C1F9CE0E-12D9-4E93-A4AA-370E7F7BC3FC}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\Plugins\Weather\Weather.vcxproj">
+      <Project>{8C4E1B27-6A91-4F3D-9E50-2B7D84C1A6E8}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\Plugins\Launcher\Launcher.vcxproj">
+      <Project>{B4E91C27-8F3A-4D6E-9C11-A7D25E84F019}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>

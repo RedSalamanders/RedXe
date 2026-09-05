@@ -19,6 +19,8 @@
 #include <wil/resource.h>
 #pragma warning(pop)
 
+class ApplicationDropTarget;
+
 class Application final
 {
   public:
@@ -26,6 +28,8 @@ class Application final
     // window widget as well as over a GPU tile. The container cannot forward WM_MOUSEMOVE directly because its
     // coordinates are in the container's client space.
     static constexpr UINT kPageEdgeHoverMessage = WM_APP + 4;
+    // Posted by a band from WM_LBUTTONUP so navigation (and the band's own destroy) run after that WndProc returns.
+    static constexpr UINT kPageEdgeNavigateMessage = WM_APP + 5;
 
     Application(HINSTANCE instance, bool forceWarp) noexcept;
     ~Application();
@@ -34,6 +38,8 @@ class Application final
     Application& operator=(const Application&) = delete;
     Application(Application&&) = delete;
     Application& operator=(Application&&) = delete;
+
+    friend class ApplicationDropTarget;
 
     // Production entry point: create the window, then run the frame loop until the window closes.
     int Run(int showCommand, std::wstring_view settingsPath = {}) noexcept;
@@ -62,6 +68,7 @@ class Application final
     void CloseMainWindow() noexcept;
     [[nodiscard]] bool DashboardRequiresContinuousFrames() const noexcept;
     [[nodiscard]] bool PageNavigationInProgress() const noexcept;
+    [[nodiscard]] bool OverlayMotionInProgress() const noexcept;
     void ResumePageSettleIfNeeded() noexcept;
     void EnsureRaiseOverlayChrome(UINT dpi) noexcept;
     void RefreshScheduledFrameDeadline() noexcept;
@@ -73,10 +80,20 @@ class Application final
     void OnPointerDown(HWND window, WPARAM wParam) noexcept;
     void OnPointerUpdate(HWND window, WPARAM wParam) noexcept;
     void OnPointerUp(HWND window, WPARAM wParam) noexcept;
+    void OnMouseButtonDown(HWND window, LPARAM lParam) noexcept;
     void OnMouseButtonUp(HWND window, LPARAM lParam) noexcept;
     void OnClientActivateAttempt(HWND window, POINT position, ULONGLONG tick) noexcept;
+    void OnRaisedContentActivateAttempt(HWND window, POINT position, ULONGLONG tick) noexcept;
+    [[nodiscard]] bool TryNavigateFromPageEdge(HWND window, POINT position) noexcept;
     HRESULT TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept;
-    void DismissWidgetRaise() noexcept;
+    void DismissWidgetRaise(bool animate = true) noexcept;
+    HRESULT ApplyRaiseVisual(const RaisedLayout& layout, BYTE dimAlpha) noexcept;
+    void BeginRaiseSettle(const RaisedLayout& from, const RaisedLayout& to, BYTE dimFrom, BYTE dimTo,
+                          bool dismissing) noexcept;
+    void TickRaiseSettle() noexcept;
+    void CompleteRaiseSettle() noexcept;
+    void CompleteDismissImmediate() noexcept;
+    void SetRaiseCloseHovered(bool hovered) noexcept;
     LRESULT HandleRaiseOverlayMessage(HWND overlay, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
     void PaintRaiseOverlay(HWND overlay) noexcept;
     void CancelPageNavigation() noexcept;
@@ -95,7 +112,6 @@ class Application final
     LRESULT HandlePageEdgeMessage(HWND edge, size_t index, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
     void PaintPageEdge(HWND edge, size_t index) noexcept;
     void EnsurePageEdgeIconFont(UINT dpi) noexcept;
-    void SetPageEdgeRevealed(size_t index, bool revealed) noexcept;
     HRESULT NavigateToAdjacentPage(int direction) noexcept;
     void ApplyPageOffset(LONG offset, LONG clientWidth) noexcept;
     void FlushPendingTransitionStage() noexcept;
@@ -106,12 +122,26 @@ class Application final
     void ClearTransitionPage() noexcept;
     [[nodiscard]] bool TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position,
                                                 UINT64& qpc) const noexcept;
+    [[nodiscard]] bool PointInPageEdgeBand(HWND window, POINT position) const noexcept;
+    [[nodiscard]] bool HitInteractiveLocal(POINT client, size_t& widgetIndex, float& localX,
+                                           float& localY) const noexcept;
+    HRESULT ForwardInteractivePointer(POINT client, uint32_t pointerId, uint32_t kind, uint32_t phase,
+                                      bool* consumed) noexcept;
+    void CancelInteractivePointer() noexcept;
+    HRESULT HandleOleDragOver(POINT client, DWORD* effect) noexcept;
+    void HandleOleDragLeave() noexcept;
+    HRESULT HandleOleDrop(POINT client, const wchar_t* const* targets, uint32_t count, DWORD* effect) noexcept;
+    HRESULT ApplyWidgetSettingsPersist(const char* instanceId, const char* settingsJsonUtf8,
+                                       uint32_t settingsBytes) noexcept;
+    static HRESULT SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8,
+                                        uint32_t settingsBytes) noexcept;
 
     HINSTANCE _instance = nullptr;
     wil::unique_hwnd _window;
     wil::unique_hwnd _raiseOverlay;
     wil::unique_hbrush _raiseDimBrush;
     wil::unique_hbrush _raiseShadowBrush;
+    wil::unique_hbrush _raiseCloseHoverBrush;
     wil::unique_hbrush _pageEdgeWashBrush;
     wil::unique_hfont _raiseCloseFont;
     UINT _raiseCloseFontDpi = 0;
@@ -177,7 +207,27 @@ class Application final
     bool _raisedActive = false;
     size_t _raisedWidgetIndex = SIZE_MAX;
     RaisedLayout _raisedLayout{};
+    RECT _raiseTile{};
+    SIZE _raiseTargetPixels{};
+    BYTE _raiseDimAlpha = 0;
+    bool _raiseSettleActive = false;
+    bool _raiseDismissing = false;
+    RaisedLayout _raiseSettleFrom{};
+    RaisedLayout _raiseSettleTo{};
+    BYTE _raiseDimFrom = 0;
+    BYTE _raiseDimTo = 0;
+    UINT64 _raiseSettleStartQpc = 0;
+    UINT64 _raiseSettleDurationQpc = 0;
+    bool _raiseCloseHovered = false;
+    bool _raiseCloseMouseTracking = false;
     ULONGLONG _activateTick = 0;
     POINT _activatePoint{};
     size_t _activateWidgetIndex = SIZE_MAX;
+    size_t _interactivePointerWidget = SIZE_MAX;
+    bool _interactivePointerConsumed = false;
+    size_t _dragWidgetIndex = SIZE_MAX;
+    bool _oleInitialized = false;
+    bool _dropRegistered = false;
+    bool _persistSettingsToDisk = true;
+    std::unique_ptr<ApplicationDropTarget> _dropTarget;
 };

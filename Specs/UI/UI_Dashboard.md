@@ -112,7 +112,10 @@ contract above.
   an always-present band would be permanently inert.
 - Hover is owned by the top-level window, which tests the live cursor position against each zone. Host-owned native
   containers notify the top-level window when the pointer moves over them so that hover can be detected over a
-  native-window widget as well as over a GPU tile.
+  native-window widget as well as over a GPU tile. A band HWND created under the cursor often does not receive
+  `WM_SETCURSOR` or `WM_LBUTTONUP` until the mouse moves, so the top-level window MUST apply the hand cursor and MUST
+  commit navigation when the live cursor is inside a navigable zone, even if the band child did not see the click.
+  Native containers stay below the bands (`SWP_NOZORDER` during page offset, overlay and bands `HWND_TOP`).
 - A committed edge-click onto a page that contains a native-window widget MUST complete settle and promote the same
   way a GPU-only page does. Host-owned native children covering the swap chain MUST NOT be treated as DXGI occlusion:
   that report parked the settle and suppressed both bands for the rest of the session on the shipped Release second
@@ -134,7 +137,9 @@ contract above.
 - Clicking a revealed band stages the adjacent page, then commits through the same ease-out settle and in-place
   promote a committed pan uses. It MUST NOT recreate the Direct3D device. Unlike a pan there is no follow-finger
   phase, so staging is synchronous at click time and the settle starts from rest, which places its duration at the
-  clamped upper bound of the shared settle policy.
+  clamped upper bound of the shared settle policy. The band MUST NOT destroy its HWND from inside its own
+  `WM_LBUTTONUP`; navigation is posted to the top-level window so settle can destroy the band after that WndProc
+  returns.
 - A navigation click MUST NOT count as part of a double-activate raise gesture. Accepted trade: a revealed band
   consumes the click in its strip, so a widget under a band cannot be double-click-raised there; it stays raisable
   everywhere else in its tile. Band width is a single DPI-scaled constant so this is tunable in one place.
@@ -157,24 +162,53 @@ with the same MDL2 and Unicode fallback as other host chrome. Host GDI paints a 
 slice, a drop shadow along the inner vertical edge, and the close mark. Dim and shadow use distinct cached GDI brushes
 created for the overlay lifetime, not per paint. The overlay window region punches a hole over plugin content so GPU
 pixels or a native child show through at full brightness, then adds the close rectangle back so the mark stays
-clickable. The host MUST NOT add Direct3D shaders for this chrome.
+clickable. The host MUST NOT add Direct3D shaders for this chrome. The close control MUST show an event-driven GDI
+hover wash and a brighter glyph, plus the hand cursor, while the pointer is inside its rectangle. Hover MUST NOT add
+a timer or a host Present: `InvalidateRect` on the overlay HWND is enough. Leaving the close rectangle restores the
+idle chrome immediately.
 
-`SetRaised(TRUE)` runs before the overlay is shown; `SetRaised(FALSE)` runs before standard tiles return. A close
-hit, Escape, resize, DPI change, settings reload, or shutdown dismisses the overlay. A tap on the dim region MUST NOT
-dismiss it. Page swipe MUST NOT start or continue while a widget is raised. The overlay HWND exists only while raised.
+`SetRaised(TRUE)` runs before the overlay is shown; `SetRaised(FALSE)` runs after a dismiss settle completes, or
+immediately when dismiss cannot animate. Raise and restore interpolate the overlay content rectangle from the tile to
+the full-height slice (and back) with the same presentation-paced ease-out cubic as a page settle, duration clamped to
+160–240 ms from travel. Dim alpha eases from 0 to 148 and back. The host reports the **final** overlay size to
+`OnTargetSizeChanged` when raise starts and MUST NOT call it on each interpolated frame. `Render` draws at the live
+viewport; native containers follow the interpolated HWND. Close, Escape, and a double-activate on the raised content
+animate the restore. Resize, DPI change, settings reload, and shutdown snap dismiss with no animation. A tap on the
+dim region MUST NOT dismiss it. A mouse double-click or touch/pen double-tap on the raised plugin content MUST restore
+it, using the same interval and slop as raise. Page swipe MUST NOT start or continue while a widget is raised. The
+overlay HWND exists only while raised.
 
 GPU composition draws every current-page widget at its tile viewport, then draws a raised GPU widget once more at the
 slice. It MUST NOT compose a transition page while raised. A raised window widget moves its host container to the
-slice and MUST NOT hide sibling native containers. Dismiss restores tile bounds.
+slice, stays below the overlay so the close control remains hittable, and MUST NOT hide sibling native containers.
+Host-owned native containers forward mouse `WM_LBUTTONUP` to the top-level window (screen-converted, ignoring
+pointer-synthesized mouse) so a GDI widget can raise and restore through the same double-activate path as a GPU tile.
+Dismiss restores tile bounds.
+
+GPU widgets that expose `IRedXeInteractiveWidget` receive host-forwarded pointer and drop events in widget-local
+pixels. Hit-testing uses the same topmost tile bounds as raise. `OnPointer` returning `S_OK` on Down/Up consumes the
+contact for that widget and MUST NOT count toward double-activate raise. `S_FALSE` (padding, empty cell, or empty
+tile) leaves raise and edge-click navigation unchanged. Once a horizontal page pan locks, the host sends `Cancel` and
+does not treat the contact as a launch. Edge-band clicks never reach the widget. While a widget is raised, pointer
+coordinates use the overlay content rectangle as the local origin.
+
+The top-level HWND is an OLE drop target after `OleInitialize`. `DragOver` hit-tests a GPU interactive widget and
+calls `OnDragOver`. `Drop` copies `CF_HDROP` filesystem paths and Unicode text that is a full URL into a bounded
+`RedXeDropEvent` (1 through 8 items) and calls `OnDrop`. A native-window child that is not itself a drop target
+(GdiOrbit) MUST NOT steal drops destined for a GPU tile. `Application` revokes the drop target before destroying the
+HWND and calls `OleUninitialize` after dashboard teardown. Plugins MUST NOT initialize or uninitialize COM/OLE and
+MUST NOT call `RegisterDragDrop`.
 
 ## Host-owned placeholder tiles
 
-A tile whose widget instance failed to construct at runtime, or whose widget reported
-`RedXeWidgetStatusUnavailable`, is drawn by the host rather than by the plugin. The host keeps the authored placement,
-fills the tile with its placeholder wash, and leaves every sibling widget in its authored geometry, still rendering
-and still scheduled. A page MUST NOT fail because one instance failed. Document-level validation failures remain
-fatal and are unaffected. A widget takes its tile back as soon as it reports any status other than `Unavailable`;
-`Degraded` and `Initializing` never hand the tile to the host.
+A tile whose widget instance failed to construct at runtime, whose catalogued module could not be mapped, or whose
+widget reported `RedXeWidgetStatusUnavailable`, is drawn by the host rather than by the plugin. The host keeps the
+authored placement, fills the tile with its placeholder wash via `ID3D11DeviceContext1::ClearView`, and leaves every
+sibling widget in its authored
+geometry, still rendering and still scheduled. A page MUST NOT fail because one instance failed. Document-level
+validation failures remain fatal and are unaffected. An unknown plugin ID is still a document failure; a known
+catalogued DLL that `LoadLibraryExW` cannot map is not. A widget takes its tile back as soon as it reports any status
+other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to the host.
 
 ## Low-cadence scheduled frames
 
@@ -230,7 +264,12 @@ fatal and are unaffected. A widget takes its tile back as soon as it reports any
   rejection of already-full tiles, a quarter System Pulse column, and a stacked clock growing into a full-height
   slice. Host tests prove the host asks each System Data viewer for its shipped extent, raises Process Viewer to a
   half-width slice while every GPU tile still draws, restores every GPU tile on dismiss, and moves a GdiOrbit
-  container into overlay content then back to its tile without skipping sibling GPU draws.
+  container into overlay content then back to its tile without skipping sibling GPU draws. Geometry tests also prove
+  tile-to-slice interpolation endpoints, ease-out cubic mixing, raise-settle duration clamps, and that the parent
+  edge-click predicate is `ShouldShowEdgeAffordance && PageEdgeBandContains`.
+- LauncherTests prove drop of a file and of an `https://` URL reach `OnDrop`. Consumed-click versus raise and
+  swipe-over-tile pan are Application pointer routing. HostPluginTests do not compile `Application.cpp` and cannot
+  fully prove that path; interactive checks cover click-to-launch, raise on padding, and pan-cancel.
 - Edge-navigation geometry tests cover band rectangles at multiple DPIs, the narrow-client clamp, inclusive/exclusive
   band hit testing, chevron glyph selection across all three font tiers, chevron cell centring and containment,
   degenerate inputs, placement against a reachable area that is clipped or offset from the client origin, that a
@@ -239,11 +278,16 @@ fatal and are unaffected. A widget takes its tile back as soon as it reports any
 - Edge-navigation policy tests cover every row of the suppression rule, both non-wrapping ends, wrapping, a
   single-page document, and rejection of any direction other than previous and next.
 - Host tests prove that a valid page produces no placeholder tiles, that a widget reporting unavailable hands exactly
-  its own tile to the host while siblings keep drawing and the frame still composes, and that recovery restores it.
+  its own tile to the host while siblings keep drawing and the frame still composes, that recovery restores it, and
+  that a catalogued plugin whose module cannot be mapped becomes a placeholder without aborting the page. The renderer
+  obtains `ID3D11DeviceContext1` at device creation so the placeholder wash is actually filled.
 - Interactive validation on a touch-capable XENEON SHOULD verify finger tracking, settle, and both orientations before
   release. It SHOULD also verify double-tap raise, the close control, and Escape dismiss. With a mouse it SHOULD
   verify edge reveal, chevron direction, click navigation in both directions, both document ends with and without
-  `wrapPages`, and that double-click raise still works outside the bands.
+  `wrapPages`, that a revealed band shows the hand cursor and a click changes page even if the mouse has not moved
+  since the band appeared, that double-click raise still works outside the bands, that double-click or double-tap on
+  raised content restores the tile, that the close control hover-washes, and that raise and restore ease rather than
+  jump.
 
 ## Implementation anchors
 

@@ -11,6 +11,7 @@ behavior changes.
 
 Read `Specs/Core/Core_PerformanceAndResources.md` for every rendering change. Cache size/DPI-derived state, avoid
 steady-state allocations, batch uploads and compatible draws, and never spin while rendering is suspended or occluded.
+Launcher icon textures and the 3D launch animation are owned by `Specs/Plugins/Plugins_API.md`.
 
 Keep host graphics ownership inside `RedXe/Renderer.*`; plugin-specific shaders, geometry, and buffers stay inside
 their plugin projects.
@@ -34,6 +35,8 @@ their plugin projects.
   rectangle to the visible slice.
 - Compile bundled-plugin HLSL at build time, embed the bytecode, and keep shader input layouts, C++ vertex data, and
   HLSL semantics synchronized in the same change. Do not add a runtime `d3dcompiler` dependency for fixed shaders.
+- Query `ID3D11DeviceContext1` when the device is created. Host placeholder tiles fill with `ClearView`; that API is
+  not on `ID3D11DeviceContext`.
 - Preserve the `--warp` path and run `.\test.ps1` after renderer changes.
 
 Rendering happens on the idle side of the UI message loop. Do not move real-time drawing into `WM_PAINT`.

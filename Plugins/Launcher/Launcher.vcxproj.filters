@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files"><UniqueIdentifier>{A4B5C6D7-E8F9-4012-ABCD-5678901234AB}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files"><UniqueIdentifier>{B5C6D7E8-F901-4123-BCDE-6789012345BC}</UniqueIdentifier></Filter>
+    <Filter Include="Shader Files"><UniqueIdentifier>{C6D7E8F9-0123-4234-CDEF-7890123456CD}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Launcher.cpp"><Filter>Source Files</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="LauncherTestContract.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Host.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h"><Filter>Header Files</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="LauncherPixel.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="LauncherVertex.hlsl"><Filter>Shader Files</Filter></FxCompile>
+  </ItemGroup>
+</Project>

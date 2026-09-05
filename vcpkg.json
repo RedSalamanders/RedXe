@@ -2,7 +2,8 @@
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
   "name": "redxe",
   "version-string": "0.1.0",
-  "builtin-baseline": "f941c7e94d289cf53903405bed7f41c5b197ca6c",
+  "$comment": "builtin-baseline must be the same commit as vcpkg-tool.json. A newer baseline resolves ports the pinned versions database cannot load.",
+  "builtin-baseline": "9e593bb18ea69cc5095e012465dcd675a822ed0d",
   "dependencies": [
     {
       "name": "wil",
@@ -11,6 +12,11 @@
     {
       "name": "yyjson",
       "version>=": "0.12.0"
+    },
+    {
+      "name": "curl",
+      "default-features": false,
+      "features": ["ssl"]
     }
   ]
 }

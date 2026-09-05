@@ -1,10 +1,12 @@
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/Factory.h"
+#include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
 
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -38,6 +40,8 @@ static_assert(std::is_base_of_v<IUnknown, IRedXeGpuWidget>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeScheduledWidget>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeWindowWidget>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeRaisedWidget>);
+static_assert(std::is_base_of_v<IUnknown, IRedXeInteractiveWidget>);
+static_assert(std::is_base_of_v<IUnknown, IRedXeNetworkWidget>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeDataSource>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeDataProvider>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeDataSink>);
@@ -46,10 +50,20 @@ static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeGpuWidget>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeScheduledWidget>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeWindowWidget>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeRaisedWidget>);
+static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeInteractiveWidget>);
+static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeNetworkWidget>);
+static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeHost>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataSource>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataProvider>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataSink>);
 static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataSubscription>);
+
+static_assert(sizeof(RedXeLogRecord) == 48);
+static_assert(offsetof(RedXeLogRecord, pluginId) == 8);
+static_assert(offsetof(RedXeLogRecord, instanceId) == 16);
+static_assert(offsetof(RedXeLogRecord, eventId) == 24);
+static_assert(offsetof(RedXeLogRecord, messageUtf8) == 32);
+static_assert(offsetof(RedXeLogRecord, code) == 40);
 
 constexpr char kPluginId[] = "builtin.rotating-triangle";
 constexpr char kWidgetTypeId[] = "rotating-triangle";
@@ -111,6 +125,23 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     wil::com_ptr_nothrow<IUnknown> raisedIdentity;
     if (FAILED(widget.QueryInterface(__uuidof(IUnknown), reinterpret_cast<void**>(widgetIdentity.put()))) ||
         FAILED(raised.query_to(raisedIdentity.put())) || widgetIdentity.get() != raisedIdentity.get())
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT ValidateNothingToSave(IRedXeWidget& widget) noexcept
+{
+    uint32_t written = 1;
+    if (widget.CollectPersistentSettings(nullptr, 0, nullptr) != E_POINTER)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    std::array<char, 8> collectBuffer{};
+    if (widget.CollectPersistentSettings(collectBuffer.data(), static_cast<uint32_t>(collectBuffer.size()), &written) !=
+            S_FALSE ||
+        written != 0)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -379,6 +410,11 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     {
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
+    result = ValidateNothingToSave(*widget);
+    if (FAILED(result))
+    {
+        return result;
+    }
 
     wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
     result = widget.query_to(gpuWidget.put());
@@ -576,6 +612,11 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     if (FAILED(result) || FAILED(widget->SetVisible(TRUE)) || FAILED(widget->SetVisible(FALSE)))
     {
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    result = ValidateNothingToSave(*widget);
+    if (FAILED(result))
+    {
+        return result;
     }
 
     windowWidget->Detach();

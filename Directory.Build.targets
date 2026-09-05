@@ -14,4 +14,34 @@
            Text="Missing vcpkg runtime dependency: %(RedXeRuntimeDependency.Identity). Run .\vcpkg-install.ps1 -Platform $(Platform)." />
     <Copy SourceFiles="@(RedXeRuntimeDependency)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
+
+  <Target Name="CopyLauncherRuntimeDependencies" AfterTargets="Link"
+          Condition="'$(MSBuildProjectExtension)'=='.vcxproj' and '$(MSBuildProjectName)'=='Launcher'">
+    <Error Condition="!Exists('$(RedXeVcpkgRuntimeDir)yyjson.dll')"
+           Text="Missing vcpkg runtime dependency: $(RedXeVcpkgRuntimeDir)yyjson.dll. Run .\vcpkg-install.ps1 -Platform $(Platform)." />
+    <ItemGroup>
+      <LauncherRuntimeDependency Include="$(RedXeVcpkgRuntimeDir)yyjson.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(LauncherRuntimeDependency)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyWeatherRuntimeDependencies" AfterTargets="Link"
+          Condition="'$(MSBuildProjectExtension)'=='.vcxproj' and '$(MSBuildProjectName)'=='Weather'">
+    <Error Condition="!Exists('$(RedXeVcpkgRuntimeDir)yyjson.dll')"
+           Text="Missing vcpkg runtime dependency: $(RedXeVcpkgRuntimeDir)yyjson.dll. Run .\vcpkg-install.ps1 -Platform $(Platform)." />
+    <Error Condition="!Exists('$(RedXeVcpkgRuntimeDir)libcurl.dll') and !Exists('$(RedXeVcpkgRuntimeDir)libcurl-d.dll')"
+           Text="Missing vcpkg libcurl runtime DLL. Run .\vcpkg-install.ps1 -Platform $(Platform)." />
+    <Error Condition="!Exists('$(RedXeVcpkgRuntimeDir)z.dll') and !Exists('$(RedXeVcpkgRuntimeDir)zd.dll') and !Exists('$(RedXeVcpkgRuntimeDir)zlib1.dll') and !Exists('$(RedXeVcpkgRuntimeDir)zlibd1.dll')"
+           Text="Missing vcpkg zlib runtime DLL (z.dll / zd.dll / zlib1.dll). Run .\vcpkg-install.ps1 -Platform $(Platform)." />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)Plugins\Weather\Fonts\weathericons-regular-webfont.ttf')"
+           Text="Missing Weather Icons font. Expected Plugins\Weather\Fonts\weathericons-regular-webfont.ttf." />
+    <ItemGroup>
+      <!-- libcurl imports zlib as z.dll / zd.dll on this baseline, not zlib1.dll. Copy every vcpkg runtime DLL
+           Weather.dll can LoadLibrary from Plugins\ (LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR). -->
+      <WeatherRuntimeDependency Include="$(RedXeVcpkgRuntimeDir)*.dll" />
+      <WeatherRuntimeDependency Include="$(MSBuildThisFileDirectory)Plugins\Weather\Fonts\weathericons-regular-webfont.ttf" />
+      <WeatherRuntimeDependency Include="$(MSBuildThisFileDirectory)Plugins\Weather\Fonts\OFL.txt" />
+    </ItemGroup>
+    <Copy SourceFiles="@(WeatherRuntimeDependency)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

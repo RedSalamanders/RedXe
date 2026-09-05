@@ -38,6 +38,10 @@ class PluginManager final
     [[nodiscard]] IRedXeScheduledWidget* ScheduledWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeWindowWidget* WindowWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeRaisedWidget* RaisedWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] IRedXeInteractiveWidget* InteractiveWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] static HRESULT ValidatePluginPublishedSchema(std::string_view schemaJson,
+                                                               std::string_view defaultsJson) noexcept;
+    [[nodiscard]] IRedXeNetworkWidget* NetworkWidgetAt(size_t index) const noexcept;
     [[nodiscard]] uint32_t WidgetFlagsAt(size_t index) const noexcept;
     // True when the instance could not be constructed and the host owns its tile. Its placement is still honoured so
     // sibling widgets keep their authored geometry.
@@ -57,6 +61,8 @@ class PluginManager final
         wil::com_ptr_nothrow<IRedXeScheduledWidget> scheduledWidget;
         wil::com_ptr_nothrow<IRedXeWindowWidget> windowWidget;
         wil::com_ptr_nothrow<IRedXeRaisedWidget> raisedWidget;
+        wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactiveWidget;
+        wil::com_ptr_nothrow<IRedXeNetworkWidget> networkWidget;
         wil::com_ptr_nothrow<IRedXeWidget> widget;
         SettingsText instanceId;
         WidgetGridPlacement placement;
@@ -88,6 +94,7 @@ class PluginManager final
     static void MakePlaceholder(WidgetSlot& widgetSlot, const WidgetInstanceSettings& settings,
                                 HRESULT failure) noexcept;
     void ClearWidgetStatuses() noexcept;
+    void ReleaseWidgets() noexcept;
     [[nodiscard]] HRESULT StageActivePage(const AppSettings& settings,
                                           std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
                                           std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,

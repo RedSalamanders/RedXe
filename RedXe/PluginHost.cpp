@@ -1,13 +1,16 @@
 #include "PluginHost.h"
 
 #include "PlugInterfaces/FactoryImpl.h"
+#include "Settings.h"
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <cstring>
 #include <cwchar>
 #include <memory>
 #include <new>
+#include <shlobj.h>
 #include <strsafe.h>
 #include <utility>
 
@@ -71,6 +74,213 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         return result;
     }
     return StringCchCatW(separator + 1, capacity - prefixLength, moduleName);
+}
+
+[[nodiscard]] const char* LogLevelName(uint32_t level) noexcept
+{
+    switch (level)
+    {
+    case RedXeLogLevelError:
+        return "error";
+    case RedXeLogLevelWarning:
+        return "warning";
+    case RedXeLogLevelInfo:
+        return "info";
+    case RedXeLogLevelDebug:
+        return "debug";
+    default:
+        return nullptr;
+    }
+}
+
+[[nodiscard]] bool IsValidLogEventId(const char* eventId) noexcept
+{
+    if (!eventId || eventId[0] == '\0')
+    {
+        return false;
+    }
+    uint32_t length = 0;
+    while (eventId[length] != '\0')
+    {
+        const unsigned char character = static_cast<unsigned char>(eventId[length]);
+        if (length >= kRedXeMaximumLogEventBytes)
+        {
+            return false;
+        }
+        const bool allowed = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+                             (character >= '0' && character <= '9') || character == '-' || character == '.';
+        if (!allowed)
+        {
+            return false;
+        }
+        ++length;
+    }
+    return true;
+}
+
+size_t AppendLogText(char* destination, size_t capacity, size_t used, const char* text) noexcept
+{
+    if (!text)
+    {
+        return used;
+    }
+    while (*text != '\0' && used + 1 < capacity)
+    {
+        destination[used++] = *text++;
+    }
+    if (used < capacity)
+    {
+        destination[used] = '\0';
+    }
+    return used;
+}
+
+size_t AppendLogEscaped(char* destination, size_t capacity, size_t used, const char* text,
+                         uint32_t maxCharacters) noexcept
+{
+    uint32_t copied = 0;
+    while (text && copied < maxCharacters && *text != '\0')
+    {
+        const unsigned char character = static_cast<unsigned char>(*text);
+        if (character == '"' || character == '\\')
+        {
+            if (used + 2 >= capacity)
+            {
+                break;
+            }
+            destination[used++] = '\\';
+            destination[used++] = static_cast<char>(character);
+            ++text;
+            ++copied;
+            continue;
+        }
+        if (character < 0x20)
+        {
+            if (used + 6 >= capacity)
+            {
+                break;
+            }
+            destination[used++] = '\\';
+            destination[used++] = 'u';
+            destination[used++] = '0';
+            destination[used++] = '0';
+            constexpr char kHex[] = "0123456789abcdef";
+            destination[used++] = kHex[(character >> 4) & 0x0f];
+            destination[used++] = kHex[character & 0x0f];
+            ++text;
+            ++copied;
+            continue;
+        }
+        // Copy complete UTF-8 code points, including at the input and escaped-output limits. Invalid input is
+        // replaced with one ASCII '?' so a diagnostic can never corrupt the JSONL stream.
+        uint32_t bytes = character < 0x80 ? 1U : character >= 0xC2 && character <= 0xDF ? 2U :
+                         character >= 0xE0 && character <= 0xEF ? 3U : character >= 0xF0 && character <= 0xF4 ? 4U : 0U;
+        if (bytes > maxCharacters - copied)
+        {
+            break;
+        }
+        bool valid = bytes != 0;
+        for (uint32_t index = 1; valid && index < bytes; ++index)
+        {
+            const unsigned char next = static_cast<unsigned char>(text[index]);
+            valid = next >= 0x80 && next <= 0xBF;
+            if (index == 1)
+            {
+                valid = valid && !(character == 0xE0 && next < 0xA0) && !(character == 0xED && next >= 0xA0) &&
+                        !(character == 0xF0 && next < 0x90) && !(character == 0xF4 && next >= 0x90);
+            }
+        }
+        if (!valid)
+        {
+            if (used + 1 >= capacity)
+                break;
+            destination[used++] = '?';
+            ++text;
+            ++copied;
+            continue;
+        }
+        if (used + bytes >= capacity)
+        {
+            break;
+        }
+        std::memcpy(destination + used, text, bytes);
+        used += bytes;
+        copied += bytes;
+        text += bytes;
+    }
+    if (used < capacity)
+    {
+        destination[used] = '\0';
+    }
+    return used;
+}
+
+[[nodiscard]] uint32_t FormatLogLine(const RedXeLogRecord& record, char* destination, size_t capacity) noexcept
+{
+    if (!destination || capacity < 512)
+    {
+        return 0;
+    }
+    SYSTEMTIME utc{};
+    GetSystemTime(&utc);
+    char timestamp[32]{};
+    if (sprintf_s(timestamp, "%04u-%02u-%02uT%02u:%02u:%02u.%03uZ", utc.wYear, utc.wMonth, utc.wDay, utc.wHour,
+                  utc.wMinute, utc.wSecond, utc.wMilliseconds) < 0)
+    {
+        return 0;
+    }
+    const char* level = LogLevelName(record.level);
+    if (!level)
+    {
+        return 0;
+    }
+
+    size_t used = 0;
+    used = AppendLogText(destination, capacity, used, "{\"ts\":\"");
+    used = AppendLogText(destination, capacity, used, timestamp);
+    used = AppendLogText(destination, capacity, used, "\",\"level\":\"");
+    used = AppendLogText(destination, capacity, used, level);
+    used = AppendLogText(destination, capacity, used, "\"");
+    if (record.pluginId && record.pluginId[0] != '\0')
+    {
+        used = AppendLogText(destination, capacity, used, ",\"plugin\":\"");
+        used = AppendLogEscaped(destination, std::min(capacity, used + 129), used, record.pluginId, 128);
+        used = AppendLogText(destination, capacity, used, "\"");
+    }
+    if (record.instanceId && record.instanceId[0] != '\0')
+    {
+        used = AppendLogText(destination, capacity, used, ",\"instance\":\"");
+        used = AppendLogEscaped(destination, std::min(capacity, used + 129), used, record.instanceId, 128);
+        used = AppendLogText(destination, capacity, used, "\"");
+    }
+    used = AppendLogText(destination, capacity, used, ",\"event\":\"");
+    used = AppendLogEscaped(destination, capacity, used, record.eventId, kRedXeMaximumLogEventBytes);
+    used = AppendLogText(destination, capacity, used, "\",\"message\":\"");
+    // Reserve the closing quote, optional HRESULT, closing brace, newline, and terminator before truncating text.
+    used = AppendLogEscaped(destination, capacity - 32, used, record.messageUtf8, kRedXeMaximumLogMessageBytes);
+    used = AppendLogText(destination, capacity, used, "\"");
+    if (record.code != S_OK)
+    {
+        char code[16]{};
+        if (sprintf_s(code, "0x%08X", static_cast<unsigned int>(record.code)) >= 0)
+        {
+            used = AppendLogText(destination, capacity, used, ",\"hr\":\"");
+            used = AppendLogText(destination, capacity, used, code);
+            used = AppendLogText(destination, capacity, used, "\"");
+        }
+    }
+    used = AppendLogText(destination, capacity, used, "}\n");
+    return used > 1 && used < capacity ? static_cast<uint32_t>(used) : 0;
+}
+
+[[nodiscard]] HRESULT EnsureLogDirectory(const wchar_t* directory) noexcept
+{
+    const int result = SHCreateDirectoryExW(nullptr, directory, nullptr);
+    if (result == ERROR_SUCCESS || result == ERROR_ALREADY_EXISTS || result == ERROR_FILE_EXISTS)
+    {
+        return S_OK;
+    }
+    return HRESULT_FROM_WIN32(static_cast<DWORD>(result));
 }
 
 [[nodiscard]] HRESULT ValidateMetadata(const RedXePluginMetadata* metadata, uint32_t count,
@@ -265,6 +475,7 @@ void PluginHost::ShutdownProcessRuntime() noexcept
 void PluginHost::Shutdown() noexcept
 {
     SetUiInvalidateTarget(nullptr);
+    StopNetworkService();
     AcquireSRWLockExclusive(&_widgetStatusLock);
     for (WidgetStatusSlot& slot : _widgetStatus)
     {
@@ -273,6 +484,7 @@ void PluginHost::Shutdown() noexcept
     ReleaseSRWLockExclusive(&_widgetStatusLock);
     StopDataService();
     ShutdownModules();
+    StopLogService();
     _shutdown = true;
 }
 
@@ -282,8 +494,8 @@ IRedXeHost* PluginHost::Interface() noexcept
 }
 
 // PluginHost is the process runtime, not a heap-owned object, so it does not use RedXeComObject: its reference count
-// is advisory and Release never destroys it. Plugins borrow IRedXeHost for the lifetime of the runtime and must not
-// outlive it.
+// is advisory and Release never destroys it. It exposes IRedXeHost only; persist is a method on that vtable, not a
+// sibling editor IID. Plugins borrow IRedXeHost for the lifetime of the runtime and must not outlive it.
 HRESULT PluginHost::QueryInterface(REFIID interfaceId, void** result) noexcept
 {
     if (!result)
@@ -291,11 +503,14 @@ HRESULT PluginHost::QueryInterface(REFIID interfaceId, void** result) noexcept
         return E_POINTER;
     }
     *result = nullptr;
-    if (interfaceId != __uuidof(IUnknown) && interfaceId != __uuidof(IRedXeHost))
+    if (interfaceId == __uuidof(IUnknown) || interfaceId == __uuidof(IRedXeHost))
+    {
+        *result = static_cast<IRedXeHost*>(this);
+    }
+    else
     {
         return E_NOINTERFACE;
     }
-    *result = static_cast<IRedXeHost*>(this);
     AddRef();
     return S_OK;
 }
@@ -308,6 +523,382 @@ ULONG PluginHost::AddRef() noexcept
 ULONG PluginHost::Release() noexcept
 {
     return --_references;
+}
+
+void PluginHost::SetSettingsPersistHandler(SettingsPersistHandler handler, void* context) noexcept
+{
+    _settingsPersistHandler = handler;
+    _settingsPersistContext = context;
+}
+
+HRESULT PluginHost::PersistWidgetSettings(const char* instanceId, const char* settingsJsonUtf8,
+                                          uint32_t settingsBytes) noexcept
+{
+    if (!instanceId || instanceId[0] == '\0' || !settingsJsonUtf8 || settingsBytes == 0 ||
+        settingsBytes > kPrivateConfigurationCapacity)
+    {
+        return E_INVALIDARG;
+    }
+    if (!_settingsPersistHandler)
+    {
+        return E_UNEXPECTED;
+    }
+    return _settingsPersistHandler(_settingsPersistContext, instanceId, settingsJsonUtf8, settingsBytes);
+}
+
+HRESULT PluginHost::Log(const RedXeLogRecord* record) noexcept
+{
+    if (!record)
+    {
+        return E_POINTER;
+    }
+    if (record->sizeBytes != sizeof(RedXeLogRecord) || !IsValidLogEventId(record->eventId) || !record->messageUtf8 ||
+        record->messageUtf8[0] == '\0' || !LogLevelName(record->level))
+    {
+        return E_INVALIDARG;
+    }
+#if !defined(_DEBUG)
+    if (record->level == RedXeLogLevelDebug)
+    {
+        return S_OK;
+    }
+#endif
+    if (_shutdown)
+    {
+        return E_UNEXPECTED;
+    }
+
+    std::array<char, kLogLineCapacity> line{};
+    const uint32_t bytes = FormatLogLine(*record, line.data(), line.size());
+    if (bytes == 0)
+    {
+        return E_FAIL;
+    }
+    return EnqueueLogLine(line.data(), bytes);
+}
+
+HRESULT PluginHost::SetLogDirectory(const wchar_t* directory) noexcept
+{
+    if (!directory || directory[0] == L'\0')
+    {
+        return E_INVALIDARG;
+    }
+    if (_shutdown)
+    {
+        return E_UNEXPECTED;
+    }
+
+    _logDirectory = directory;
+    _logFile.reset();
+    _logFilePath.clear();
+
+    HRESULT result = EnsureLogDirectory(_logDirectory.c_str());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = EnsureLogWorker();
+    if (FAILED(result))
+    {
+        return result;
+    }
+    const RedXeLogRecord opened{
+        sizeof(RedXeLogRecord), RedXeLogLevelInfo, nullptr, nullptr, "log-open", "host JSONL log opened.", S_OK};
+    return Log(&opened);
+}
+
+HRESULT PluginHost::SetLogRetentionDays(uint32_t days) noexcept
+{
+    if (days < kRedXeMinimumLogRetentionDays || days > kRedXeMaximumLogRetentionDays)
+    {
+        return E_INVALIDARG;
+    }
+    if (_shutdown)
+    {
+        return E_UNEXPECTED;
+    }
+    _logRetentionDays.store(days, std::memory_order_release);
+    if (_logWakeEvent)
+    {
+        SetEvent(_logWakeEvent.get());
+    }
+    return S_OK;
+}
+
+HRESULT PluginHost::FlushLog(uint32_t timeoutMilliseconds) noexcept
+{
+    if (!_logWorker.joinable())
+    {
+        return S_OK;
+    }
+    if (_logWakeEvent)
+    {
+        SetEvent(_logWakeEvent.get());
+    }
+    if (!_logIdleEvent)
+    {
+        return E_UNEXPECTED;
+    }
+    const DWORD wait = WaitForSingleObject(_logIdleEvent.get(), timeoutMilliseconds);
+    if (wait == WAIT_OBJECT_0)
+    {
+        return _logQueued.load(std::memory_order_acquire) == 0 ? S_OK : HRESULT_FROM_WIN32(ERROR_IO_PENDING);
+    }
+    if (wait == WAIT_TIMEOUT)
+    {
+        return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+    }
+    return HRESULT_FROM_WIN32(GetLastError());
+}
+
+HRESULT PluginHost::EnqueueLogLine(const char* line, uint32_t bytes) noexcept
+{
+    if (!line || bytes == 0 || bytes >= kLogLineCapacity)
+    {
+        return E_INVALIDARG;
+    }
+    if (_logDirectory.empty())
+    {
+        return S_OK;
+    }
+
+    AcquireSRWLockExclusive(&_logLock);
+    if (_logCount == kLogRingSlots)
+    {
+        _logTail = (_logTail + 1) % kLogRingSlots;
+        --_logCount;
+        _logQueued.store(static_cast<uint32_t>(_logCount), std::memory_order_release);
+    }
+    LogLineSlot& slot = _logRing[_logHead];
+    std::memcpy(slot.line.data(), line, bytes);
+    slot.bytes = bytes;
+    _logHead = (_logHead + 1) % kLogRingSlots;
+    ++_logCount;
+    _logQueued.store(static_cast<uint32_t>(_logCount), std::memory_order_release);
+    if (_logIdleEvent)
+    {
+        ResetEvent(_logIdleEvent.get());
+    }
+    ReleaseSRWLockExclusive(&_logLock);
+    if (_logWakeEvent)
+    {
+        SetEvent(_logWakeEvent.get());
+    }
+    return S_OK;
+}
+
+HRESULT PluginHost::EnsureCurrentLogFile() noexcept
+{
+    if (_logDirectory.empty())
+    {
+        return E_UNEXPECTED;
+    }
+    SYSTEMTIME utc{};
+    GetSystemTime(&utc);
+    wchar_t name[kRedXeLogFileNameCapacity]{};
+    if (!RedXeFormatLogFileName(name, kRedXeLogFileNameCapacity, utc))
+    {
+        return E_FAIL;
+    }
+    std::wstring path = _logDirectory;
+    if (!path.empty() && path.back() != L'\\' && path.back() != L'/')
+    {
+        path.push_back(L'\\');
+    }
+    path.append(name);
+    if (_logFile && _logFilePath == path)
+    {
+        PurgeExpiredLogs();
+        return S_OK;
+    }
+    _logFile.reset();
+    _logFilePath = std::move(path);
+    _logFile.reset(CreateFileW(_logFilePath.c_str(), FILE_APPEND_DATA | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                               nullptr));
+    if (!_logFile)
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    PurgeExpiredLogs();
+    return S_OK;
+}
+
+void PluginHost::PurgeExpiredLogs() noexcept
+{
+    if (_logDirectory.empty())
+    {
+        return;
+    }
+    const uint32_t retention = _logRetentionDays.load(std::memory_order_acquire);
+    SYSTEMTIME today{};
+    GetSystemTime(&today);
+
+    auto purgeWildcard = [&](const wchar_t* wildcard) noexcept
+    {
+        std::wstring pattern = _logDirectory;
+        if (!pattern.empty() && pattern.back() != L'\\' && pattern.back() != L'/')
+        {
+            pattern.push_back(L'\\');
+        }
+        pattern.append(wildcard);
+        WIN32_FIND_DATAW found{};
+        const HANDLE handle = FindFirstFileW(pattern.c_str(), &found);
+        if (handle == INVALID_HANDLE_VALUE)
+        {
+            return;
+        }
+        do
+        {
+            if ((found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+            {
+                continue;
+            }
+            SYSTEMTIME fileDate{};
+            const bool dated = RedXeTryParseLogFileDate(found.cFileName, fileDate);
+            const bool legacy = RedXeIsLegacyLogFileName(found.cFileName);
+            if (!dated && !legacy)
+            {
+                continue;
+            }
+            const bool expired = legacy || RedXeUtcDateDayDifference(fileDate, today) >= retention;
+            if (!expired)
+            {
+                continue;
+            }
+            std::wstring path = _logDirectory;
+            if (!path.empty() && path.back() != L'\\' && path.back() != L'/')
+            {
+                path.push_back(L'\\');
+            }
+            path.append(found.cFileName);
+            DeleteFileW(path.c_str());
+        } while (FindNextFileW(handle, &found) != FALSE);
+        FindClose(handle);
+    };
+
+    purgeWildcard(L"*.jsonl");
+    purgeWildcard(L"*.jsonl.1");
+}
+
+HRESULT PluginHost::EnsureLogWorker() noexcept
+{
+    if (_logWorker.joinable())
+    {
+        return S_OK;
+    }
+    _logStopEvent.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    _logWakeEvent.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
+    _logIdleEvent.reset(CreateEventW(nullptr, TRUE, TRUE, nullptr));
+    if (!_logStopEvent || !_logWakeEvent || !_logIdleEvent)
+    {
+        const DWORD error = GetLastError();
+        _logIdleEvent.reset();
+        _logWakeEvent.reset();
+        _logStopEvent.reset();
+        return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
+    }
+    try
+    {
+        _logWorker = std::jthread([this](std::stop_token) noexcept { LogWorker(); });
+    }
+    catch (const std::bad_alloc&)
+    {
+        _logIdleEvent.reset();
+        _logWakeEvent.reset();
+        _logStopEvent.reset();
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        _logIdleEvent.reset();
+        _logWakeEvent.reset();
+        _logStopEvent.reset();
+        return E_FAIL;
+    }
+    return S_OK;
+}
+
+void PluginHost::LogWorker() noexcept
+{
+    HANDLE handles[] = {_logStopEvent.get(), _logWakeEvent.get()};
+    for (;;)
+    {
+        const DWORD waitResult = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
+        const bool stopping = waitResult == WAIT_OBJECT_0;
+        if (waitResult != WAIT_OBJECT_0 && waitResult != WAIT_OBJECT_0 + 1)
+        {
+            return;
+        }
+
+        (void)EnsureCurrentLogFile();
+
+        for (;;)
+        {
+            LogLineSlot slot{};
+            AcquireSRWLockExclusive(&_logLock);
+            if (_logCount == 0)
+            {
+                ReleaseSRWLockExclusive(&_logLock);
+                break;
+            }
+            slot = _logRing[_logTail];
+            _logTail = (_logTail + 1) % kLogRingSlots;
+            --_logCount;
+            _logQueued.store(static_cast<uint32_t>(_logCount), std::memory_order_release);
+            ReleaseSRWLockExclusive(&_logLock);
+
+            if (FAILED(EnsureCurrentLogFile()))
+            {
+                continue;
+            }
+            if (_logFile && slot.bytes > 0)
+            {
+                DWORD written = 0;
+                (void)WriteFile(_logFile.get(), slot.line.data(), slot.bytes, &written, nullptr);
+            }
+        }
+        if (_logFile)
+        {
+            (void)FlushFileBuffers(_logFile.get());
+        }
+
+        if (_logIdleEvent && _logQueued.load(std::memory_order_acquire) == 0)
+        {
+            SetEvent(_logIdleEvent.get());
+        }
+        if (stopping)
+        {
+            return;
+        }
+    }
+}
+
+void PluginHost::StopLogService() noexcept
+{
+    if (_logStopEvent)
+    {
+        SetEvent(_logStopEvent.get());
+    }
+    if (_logWakeEvent)
+    {
+        SetEvent(_logWakeEvent.get());
+    }
+    if (_logWorker.joinable())
+    {
+        _logWorker.join();
+    }
+    _logWorker = std::jthread{};
+    _logFile.reset();
+    _logIdleEvent.reset();
+    _logWakeEvent.reset();
+    _logStopEvent.reset();
+    AcquireSRWLockExclusive(&_logLock);
+    _logHead = 0;
+    _logTail = 0;
+    _logCount = 0;
+    _logQueued.store(0, std::memory_order_release);
+    ReleaseSRWLockExclusive(&_logLock);
 }
 
 HRESULT PluginHost::LoadModule(const RedXeBundledPluginSpec& spec, ModuleSlot& slot) noexcept
@@ -931,19 +1522,23 @@ HRESULT PluginHost::Subscribe(size_t providerIndex, const RedXeDataSubscriptionO
 HRESULT PluginHost::SetSubscriptionActive(size_t index, uint64_t token, bool active) noexcept
 {
     AcquireSRWLockExclusive(&_subscriptionLock);
-    if (index >= _subscriptions.size() || !_subscriptions[index].sink || _subscriptions[index].token != token)
+    if (index >= _subscriptions.size() || !_subscriptions[index].sink || _subscriptions[index].token != token ||
+        _subscriptions[index].removing)
     {
         ReleaseSRWLockExclusive(&_subscriptionLock);
         return E_UNEXPECTED;
     }
-    if (_subscriptions[index].active == active)
-    {
-        ReleaseSRWLockExclusive(&_subscriptionLock);
-        return S_OK;
-    }
+    const bool changed = _subscriptions[index].active != active;
     _subscriptions[index].active = active;
+    while (!active && _subscriptions[index].token == token && _subscriptions[index].inFlight != 0)
+    {
+        SleepConditionVariableSRW(&_subscriptionDrained, &_subscriptionLock, INFINITE, 0);
+    }
     ReleaseSRWLockExclusive(&_subscriptionLock);
-    SetEvent(_changeEvent.get());
+    if (changed)
+    {
+        SetEvent(_changeEvent.get());
+    }
     return S_OK;
 }
 
@@ -953,6 +1548,12 @@ void PluginHost::RemoveSubscription(size_t index, uint64_t token) noexcept
     AcquireSRWLockExclusive(&_subscriptionLock);
     if (index < _subscriptions.size() && _subscriptions[index].token == token)
     {
+        _subscriptions[index].active = false;
+        _subscriptions[index].removing = true;
+        while (_subscriptions[index].inFlight != 0)
+        {
+            SleepConditionVariableSRW(&_subscriptionDrained, &_subscriptionLock, INFINITE, 0);
+        }
         sink = std::move(_subscriptions[index].sink);
         _subscriptions[index] = SubscriptionSlot{};
     }
@@ -970,21 +1571,25 @@ void PluginHost::Deliver(size_t providerIndex, size_t dataSetIndex, const RedXeD
     {
         return;
     }
-    // Copy sink pointers, then drop the lock before OnDataSnapshot. Holding it across the callback deadlocks a sink
-    // that re-enters Subscribe or GetDataProvider; sinks still MUST NOT do that.
+    // Reserve deliveries under the lock so deactivation/release also drains callbacks already copied out but not
+    // yet entered. Slot reuse is forbidden until every reserved reference has been released.
     std::array<wil::com_ptr_nothrow<IRedXeDataSink>, kMaximumSubscriptions> sinks{};
+    std::array<size_t, kMaximumSubscriptions> slots{};
     size_t sinkCount = 0;
-    AcquireSRWLockShared(&_subscriptionLock);
-    for (SubscriptionSlot& slot : _subscriptions)
+    AcquireSRWLockExclusive(&_subscriptionLock);
+    for (size_t slotIndex = 0; slotIndex < _subscriptions.size(); ++slotIndex)
     {
+        SubscriptionSlot& slot = _subscriptions[slotIndex];
         if (slot.sink && slot.active && slot.providerIndex == providerIndex && slot.dataSetIndex == dataSetIndex &&
             sinkCount < sinks.size())
         {
             sinks[sinkCount] = slot.sink;
+            slots[sinkCount] = slotIndex;
+            ++slot.inFlight;
             ++sinkCount;
         }
     }
-    ReleaseSRWLockShared(&_subscriptionLock);
+    ReleaseSRWLockExclusive(&_subscriptionLock);
 
     bool delivered = false;
     for (size_t index = 0; index < sinkCount; ++index)
@@ -992,6 +1597,11 @@ void PluginHost::Deliver(size_t providerIndex, size_t dataSetIndex, const RedXeD
         if (sinks[index])
         {
             (void)sinks[index]->OnDataSnapshot(snapshot);
+            sinks[index].reset();
+            AcquireSRWLockExclusive(&_subscriptionLock);
+            --_subscriptions[slots[index]].inFlight;
+            WakeAllConditionVariable(&_subscriptionDrained);
+            ReleaseSRWLockExclusive(&_subscriptionLock);
             delivered = true;
         }
     }
@@ -1148,6 +1758,350 @@ void PluginHost::StopDataService() noexcept
     _providerCount = 0;
     _changeEvent.reset();
     _stopEvent.reset();
+}
+
+void PluginHost::SetNetworkAccessEnabled(bool enabled) noexcept
+{
+    _networkAccessEnabled.store(enabled, std::memory_order_release);
+    if (enabled)
+    {
+        return;
+    }
+
+    bool waitForIdle = false;
+    AcquireSRWLockExclusive(&_networkLock);
+    for (NetworkSlot& slot : _networkSlots)
+    {
+        slot.active = false;
+        slot.due = 0;
+        waitForIdle = waitForIdle || slot.inFlight;
+    }
+    ReleaseSRWLockExclusive(&_networkLock);
+    if (_networkCancelEvent)
+    {
+        SetEvent(_networkCancelEvent.get());
+    }
+    if (waitForIdle && _networkIdleEvent)
+    {
+        (void)WaitForSingleObject(_networkIdleEvent.get(), INFINITE);
+    }
+    JoinNetworkWorker();
+}
+
+bool PluginHost::NetworkAccessEnabled() const noexcept
+{
+    return _networkAccessEnabled.load(std::memory_order_acquire);
+}
+
+bool PluginHost::NetworkWorkerRunning() const noexcept
+{
+    return _networkWorker.joinable();
+}
+
+HRESULT PluginHost::RegisterNetworkWidget(IRedXeNetworkWidget* widget) noexcept
+{
+    if (!widget)
+    {
+        return E_POINTER;
+    }
+
+    AcquireSRWLockExclusive(&_networkLock);
+    size_t empty = kMaximumNetworkWidgets;
+    for (size_t index = 0; index < kMaximumNetworkWidgets; ++index)
+    {
+        NetworkSlot& slot = _networkSlots[index];
+        if (slot.widget.get() == widget)
+        {
+            ReleaseSRWLockExclusive(&_networkLock);
+            return S_OK;
+        }
+        if (!slot.widget && empty == kMaximumNetworkWidgets)
+        {
+            empty = index;
+        }
+    }
+    if (empty == kMaximumNetworkWidgets)
+    {
+        ReleaseSRWLockExclusive(&_networkLock);
+        return HRESULT_FROM_WIN32(ERROR_BUSY);
+    }
+    _networkSlots[empty].widget = widget;
+    _networkSlots[empty].due = 0;
+    _networkSlots[empty].active = false;
+    _networkSlots[empty].inFlight = false;
+    ReleaseSRWLockExclusive(&_networkLock);
+    return S_OK;
+}
+
+void PluginHost::UnregisterNetworkWidget(IRedXeNetworkWidget* widget) noexcept
+{
+    if (!widget)
+    {
+        return;
+    }
+    SetNetworkWidgetActive(widget, false);
+    AcquireSRWLockExclusive(&_networkLock);
+    for (NetworkSlot& slot : _networkSlots)
+    {
+        if (slot.widget.get() == widget)
+        {
+            slot = NetworkSlot{};
+            break;
+        }
+    }
+    ReleaseSRWLockExclusive(&_networkLock);
+}
+
+void PluginHost::SetNetworkWidgetActive(IRedXeNetworkWidget* widget, bool active) noexcept
+{
+    if (!widget)
+    {
+        return;
+    }
+
+    bool waitForIdle = false;
+    AcquireSRWLockExclusive(&_networkLock);
+    NetworkSlot* selected = nullptr;
+    for (NetworkSlot& slot : _networkSlots)
+    {
+        if (slot.widget.get() == widget)
+        {
+            selected = &slot;
+            break;
+        }
+    }
+    if (!selected)
+    {
+        ReleaseSRWLockExclusive(&_networkLock);
+        return;
+    }
+
+    if (active)
+    {
+        const bool allow = _networkAccessEnabled.load(std::memory_order_acquire);
+        selected->active = allow;
+        selected->due = 0;
+        ReleaseSRWLockExclusive(&_networkLock);
+        if (allow && SUCCEEDED(EnsureNetworkWorker()) && _networkWakeEvent)
+        {
+            SetEvent(_networkWakeEvent.get());
+        }
+        return;
+    }
+
+    selected->active = false;
+    selected->due = 0;
+    waitForIdle = selected->inFlight;
+    if (waitForIdle && _networkCancelEvent)
+    {
+        SetEvent(_networkCancelEvent.get());
+    }
+    ReleaseSRWLockExclusive(&_networkLock);
+    if (waitForIdle && _networkIdleEvent)
+    {
+        (void)WaitForSingleObject(_networkIdleEvent.get(), INFINITE);
+    }
+}
+
+HRESULT PluginHost::EnsureNetworkWorker() noexcept
+{
+    if (!_networkAccessEnabled.load(std::memory_order_acquire))
+    {
+        return HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE);
+    }
+    if (_networkWorker.joinable())
+    {
+        return S_OK;
+    }
+
+    _networkStopEvent.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    _networkWakeEvent.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
+    _networkCancelEvent.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    _networkIdleEvent.reset(CreateEventW(nullptr, TRUE, TRUE, nullptr));
+    if (!_networkStopEvent || !_networkWakeEvent || !_networkCancelEvent || !_networkIdleEvent)
+    {
+        const DWORD error = GetLastError();
+        _networkIdleEvent.reset();
+        _networkCancelEvent.reset();
+        _networkWakeEvent.reset();
+        _networkStopEvent.reset();
+        return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
+    }
+    try
+    {
+        _networkWorker = std::jthread([this](std::stop_token) noexcept { NetworkWorker(); });
+    }
+    catch (const std::bad_alloc&)
+    {
+        _networkIdleEvent.reset();
+        _networkCancelEvent.reset();
+        _networkWakeEvent.reset();
+        _networkStopEvent.reset();
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        _networkIdleEvent.reset();
+        _networkCancelEvent.reset();
+        _networkWakeEvent.reset();
+        _networkStopEvent.reset();
+        return E_FAIL;
+    }
+    return S_OK;
+}
+
+void PluginHost::NetworkWorker() noexcept
+{
+    HANDLE handles[] = {_networkStopEvent.get(), _networkWakeEvent.get()};
+    for (;;)
+    {
+        DWORD timeout = INFINITE;
+        const uint64_t now = GetTickCount64();
+        AcquireSRWLockExclusive(&_networkLock);
+        for (const NetworkSlot& slot : _networkSlots)
+        {
+            if (slot.widget && slot.active && !slot.inFlight)
+            {
+                timeout = std::min(timeout, WaitMilliseconds(now, slot.due));
+            }
+        }
+        ReleaseSRWLockExclusive(&_networkLock);
+
+        const DWORD waitResult = WaitForMultipleObjects(2, handles, FALSE, timeout);
+        if (waitResult == WAIT_OBJECT_0)
+        {
+            return;
+        }
+        if (waitResult != WAIT_OBJECT_0 + 1 && waitResult != WAIT_TIMEOUT)
+        {
+            return;
+        }
+
+        wil::com_ptr_nothrow<IRedXeNetworkWidget> selected;
+        AcquireSRWLockExclusive(&_networkLock);
+        const uint64_t afterWait = GetTickCount64();
+        NetworkSlot* dueSlot = nullptr;
+        for (NetworkSlot& slot : _networkSlots)
+        {
+            if (!slot.widget || !slot.active || slot.inFlight)
+            {
+                continue;
+            }
+            if (slot.due == 0 || afterWait >= slot.due)
+            {
+                dueSlot = &slot;
+                break;
+            }
+        }
+        if (dueSlot)
+        {
+            selected = dueSlot->widget;
+            dueSlot->inFlight = true;
+            if (_networkIdleEvent)
+            {
+                ResetEvent(_networkIdleEvent.get());
+            }
+            if (_networkCancelEvent)
+            {
+                ResetEvent(_networkCancelEvent.get());
+            }
+        }
+        ReleaseSRWLockExclusive(&_networkLock);
+        if (!selected)
+        {
+            continue;
+        }
+
+        uint32_t delayMilliseconds = 0;
+        const HRESULT result = selected->RunNetworkWork(_networkCancelEvent.get(), &delayMilliseconds);
+        AcquireSRWLockExclusive(&_networkLock);
+        for (NetworkSlot& slot : _networkSlots)
+        {
+            if (slot.widget.get() != selected.get())
+            {
+                continue;
+            }
+            slot.inFlight = false;
+            if (!slot.active)
+            {
+                slot.due = 0;
+            }
+            else if (result == S_OK && delayMilliseconds >= 1 &&
+                     delayMilliseconds <= kRedXeMaximumScheduledFrameDelayMilliseconds)
+            {
+                slot.due = GetTickCount64() + delayMilliseconds;
+            }
+            else if (result == S_FALSE)
+            {
+                slot.active = false;
+                slot.due = 0;
+            }
+            else
+            {
+                slot.due = GetTickCount64() + 60'000ULL;
+            }
+            break;
+        }
+        if (_networkIdleEvent)
+        {
+            SetEvent(_networkIdleEvent.get());
+        }
+        ReleaseSRWLockExclusive(&_networkLock);
+    }
+}
+
+void PluginHost::JoinNetworkWorker() noexcept
+{
+    if (_networkStopEvent)
+    {
+        SetEvent(_networkStopEvent.get());
+    }
+    if (_networkWorker.joinable())
+    {
+        _networkWorker.join();
+    }
+    _networkWorker = std::jthread{};
+    AcquireSRWLockExclusive(&_networkLock);
+    for (NetworkSlot& slot : _networkSlots)
+    {
+        slot.inFlight = false;
+    }
+    ReleaseSRWLockExclusive(&_networkLock);
+    if (_networkIdleEvent)
+    {
+        SetEvent(_networkIdleEvent.get());
+    }
+    _networkIdleEvent.reset();
+    _networkCancelEvent.reset();
+    _networkWakeEvent.reset();
+    _networkStopEvent.reset();
+}
+
+void PluginHost::StopNetworkService() noexcept
+{
+    bool waitForIdle = false;
+    AcquireSRWLockExclusive(&_networkLock);
+    for (NetworkSlot& slot : _networkSlots)
+    {
+        slot.active = false;
+        waitForIdle = waitForIdle || slot.inFlight;
+    }
+    ReleaseSRWLockExclusive(&_networkLock);
+    if (_networkCancelEvent)
+    {
+        SetEvent(_networkCancelEvent.get());
+    }
+    if (waitForIdle && _networkIdleEvent)
+    {
+        (void)WaitForSingleObject(_networkIdleEvent.get(), INFINITE);
+    }
+    JoinNetworkWorker();
+    AcquireSRWLockExclusive(&_networkLock);
+    for (NetworkSlot& slot : _networkSlots)
+    {
+        slot = NetworkSlot{};
+    }
+    ReleaseSRWLockExclusive(&_networkLock);
 }
 
 void PluginHost::ShutdownModules() noexcept

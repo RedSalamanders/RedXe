@@ -48,7 +48,8 @@ Open `RedXe.sln` for IDE development. Binaries are written to:
 ```
 
 The first command-line build clones and bootstraps the vcpkg commit pinned in `vcpkg-tool.json`, then installs the
-manifest from `vcpkg.json`. All tool, package, download, and installed state stays under `.build`. x64 and ARM64 use
+manifest from `vcpkg.json`. That manifest's `builtin-baseline` MUST be the same commit so the versions database can
+resolve every port. All tool, package, download, and installed state stays under `.build`. x64 and ARM64 use
 separate install roots so their manifest metadata cannot purge one another. Run `vcpkg-install.ps1` once before the
 first direct Visual Studio build.
 

@@ -9,6 +9,7 @@
     "$schema": { "const": "RedXe.settings.schema.json" },
     "version": { "$ref": "#/$defs/version" },
     "wrapPages": { "type": "boolean", "default": false },
+    "logRetentionDays": { "type": "integer", "minimum": 1, "maximum": 365, "default": 15 },
     "declare": {
       "type": "object",
       "maxProperties": 128,
@@ -79,6 +80,36 @@
         "backgroundColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#111111" }
       }
     },
+    "weatherSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "locationMode": { "type": "string", "enum": ["automatic", "manual"] },
+        "location": { "type": "string" },
+        "temperatureUnit": { "type": "string", "enum": ["celsius", "fahrenheit"] },
+        "windUnit": { "type": "string", "enum": ["kmh", "mph"] }
+      }
+    },
+    "launcherSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shortcuts": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["target"],
+            "properties": {
+              "target": { "type": "string", "minLength": 1, "maxLength": 512 },
+              "iconPng": { "type": "string", "maxLength": 260 }
+            }
+          }
+        }
+      }
+    },
     "deskClockSettings": {
       "type": "object",
       "additionalProperties": false,
@@ -144,6 +175,24 @@
           "properties": {
             "plugin": { "const": "builtin.desk-clock" },
             "settings": { "$ref": "#/$defs/deskClockSettings" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plugin"],
+          "properties": {
+            "plugin": { "const": "builtin.weather" },
+            "settings": { "$ref": "#/$defs/weatherSettings" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plugin"],
+          "properties": {
+            "plugin": { "const": "builtin.launcher" },
+            "settings": { "$ref": "#/$defs/launcherSettings" }
           }
         }
       ]

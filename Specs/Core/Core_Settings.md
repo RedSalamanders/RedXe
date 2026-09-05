@@ -28,9 +28,19 @@ The filename MUST NOT encode the settings schema version; compatibility is deter
 instead. RedXe MUST monitor the selected external file at its own location. Duplicate `--settings` arguments and a
 missing path are command-line errors.
 
+Interactive RedXe appends host and plugin diagnostics as JSON Lines beside the settings root. When the settings
+directory is named `Settings`, logs live in its parent `Logs` folder; otherwise they live in `<settingsDir>\Logs`.
+Default interactive files are UTC-dated `%LocalAppData%\RedXe\Logs\RedXe-debug-YYYY-MM-DD.jsonl` (Debug) and
+`%LocalAppData%\RedXe\Logs\RedXe-YYYY-MM-DD.jsonl` (Release). `--settings` follows the same sibling rule from the
+portable file's directory. The host writer is event-blocked, uses a bounded 32×1024 ring, opens a new file when the
+UTC day changes, and deletes dated JSONL files whose UTC date is at least `logRetentionDays` old. Omitted
+`logRetentionDays` is 15; valid values are integers 1 through 365. Legacy undated `RedXe.jsonl` /
+`RedXe-debug.jsonl` and `*.jsonl.1` rotate files in that folder are also deleted. `--self-test` MUST NOT open this
+directory.
+
 The build output MUST contain both templates and `RedXe.settings.schema.json`. Repository sources are `Settings/` and
 `Specs/Settings.schema.json`. The hidden `--self-test` path MUST use the deployed template and MUST NOT touch or watch
-the user's settings directory.
+the user's settings directory. It MUST NOT create or write the diagnostic `Logs` directory.
 
 Both shipped templates MUST contain three pages: a representative low-resource startup composition, a denser gallery,
 and a `System` page that places one instance of every Process Viewer family widget. Every settings-visible plugin
@@ -53,6 +63,7 @@ The root members are:
 | `$schema` | No | When present, `RedXe.settings.schema.json`. |
 | `version` | Yes | Object with required `major` and optional `minor`; omitted minor is zero. |
 | `wrapPages` | No | Omitted or false stops at page ends; true wraps. |
+| `logRetentionDays` | No | Integer 1–365. Omitted is 15. How many UTC days of dated JSONL files to keep. |
 | `declare` | No | Reusable widget definitions keyed by authored names. |
 | `pages` | Yes | One through sixteen ordered pages. |
 
@@ -109,6 +120,27 @@ integer from 250 through 800 and colors are exact `#RRGGBB` strings with case-in
 merges omitted members from these defaults before static validation and provider creation. Unknown members,
 non-integer or out-of-range duration, and malformed colors reject the complete candidate.
 
+Launcher settings are the closed object `shortcuts`: an array of 0 through 8 closed items. Each item has required
+`target` (UTF-8 string, 1 through 512 bytes) and optional `iconPng` (UTF-8 string, 0 through 260 bytes). `target` is an
+absolute Win32 path or a URI with an alphabetic scheme of at least two characters followed by `:`. Defaults are
+`{"shortcuts":[]}`. Unknown members, non-arrays, extra item members, empty or relative targets, schemeless host names,
+overlong strings, duplicate targets, and more than eight items reject the complete candidate. An empty authored list is
+valid: the widget shows taskbar pins at runtime and MUST NOT persist that fallback into the document.
+
+### Plugin persist
+
+Plugins MUST NOT write the settings file. The host owns merge, schema validation, and the optional document write.
+
+Every widget MUST implement `IRedXeWidget::CollectPersistentSettings`. The host calls it on the UI thread after
+`SetVisible(FALSE)` and before `Detach`. `S_FALSE` means nothing to save. `S_OK` supplies a complete instance settings
+object or a mergeable subset. The widget MUST NOT persist from inside collect; the host writes.
+
+At any time on the UI thread, a widget MAY call `IRedXeHost::PersistWidgetSettings` with all of its instance settings
+or a part of them. There is no persist-scope enum. The host always merges supplied members into the stored instance
+object, then validates the complete result (4096-byte compact cap and the plugin schema). Unknown members reject the
+complete persist. A successful interactive persist MAY write the user document. `--self-test` MUST keep the merge in
+memory and MUST NOT write or watch `%LocalAppData%`.
+
 ## Pages and layout
 
 `pages` contains 1–16 entries in navigation order and at most 512 widget appearances in total. The first page is
@@ -127,7 +159,9 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 - On Release, when `RedXe.settings.json` is absent and the legacy `RedXe-1.0.settings.json` exists, RedXe MUST move
   that file unchanged to the new name before validation. It MUST NOT perform a schema conversion. A present new-name
   file always wins and leaves the legacy path untouched.
-- A missing default file causes atomic installation and loading of the selected v4 template.
+- A missing default file causes atomic installation and loading of the selected v4 template. Startup MUST continue
+  after that install. A catalogued plugin whose DLL cannot be mapped becomes a placeholder tile; it MUST NOT abort
+  launch or roll back the installed file.
 - An invalid or incompatible default is preserved byte-for-byte beside it, then atomically replaced with a fresh
   template. Its backup name is `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`. The user is told what happened and where
   the backup was written.
@@ -173,23 +207,34 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   merge results, plugin settings failures, Process Viewer `topN` values outside 1 through 32, Network Meter and GPU
   Processes `topN` values outside 1 through 16, and malformed Studio
   Clock booleans including `externalDotsAlwaysOn`, colors, date formats, and unknown members. They also reject Desk
-  Clock duration and color failures and verify its complete merged defaults and valid partial overrides.
+  Clock duration and color failures and verify its complete merged defaults and valid partial overrides. They also
+  reject Launcher shortcut failures (schemeless host names, unknown members, duplicate targets) and verify empty-list
+  defaults plus a valid persist merge of a `shortcuts` array.
 - Tests cover merge rules, plugin replacement, minor compatibility, and compatible unknown-field preservation.
+- Tests prove a partial widget persist merge keeps unspecified members and rejects unknown plugin members.
+- Plugin contract tests prove `CollectPersistentSettings` returns `S_FALSE` when nothing to save and `E_POINTER` for a
+  null `writtenBytes`. Host tests prove persist without a handler is `E_UNEXPECTED` and that a handler receives a
+  partial object.
 - Tests verify exact invalid-default backup bytes/name, fresh installation, external fallback without mutation,
   one-time legacy Release filename migration, stamps, watching, last-valid preservation, modal refresh/close
   behavior, and rejected-stamp deduplication.
 - Hidden host tests prove first-page startup, blank pages, inactive-page resource absence, transactional apply, WARP
-  rendering, current-plus-adjacent-only swipe staging, and that a live reload of an unchanged page list keeps the page
-  that was current.
+  rendering, current-plus-adjacent-only swipe staging, that a live reload of an unchanged page list keeps the page
+  that was current, and that a catalogued plugin whose DLL cannot be mapped becomes a placeholder without aborting
+  startup. Host tests prove JSONL `Log` reject/write/flush behavior, UTC-dated file names, and retention deletion of
+  expired and legacy log files. Settings tests prove the default logs path is the
+  `Logs` sibling of `Settings`, omitted `logRetentionDays` is 15, and values outside 1–365 are rejected.
 - Parser tests prove that `PreserveActiveDashboardPage` follows an authored page id across a reorder, keeps a
   generated `page.N` index when that page remains, and falls back to the first page when the current page is gone.
 - Debug and Release x64 tests, Release ARM64 compilation, formatting, skill validation, and `git diff --check` pass.
 
 ## Implementation anchors
 
-- Parsing, paths, recovery, diagnostics, and stamps: `RedXe/Settings.*`
+- Parsing, paths, recovery, diagnostics, stamps, and persist merge: `RedXe/Settings.*`
 - Event-blocked watching: `RedXe/SettingsWatcher.*`
-- UI-thread apply and error-dialog state: `RedXe/Application.*`
+- UI-thread apply, persist thunk, and error-dialog state: `RedXe/Application.*`
+- Collect-on-exit: `RedXe/DashboardHost.cpp`
 - Contracts and runtime creation: `RedXe/PluginManager.*`, `Common/PlugInterfaces/Factory.*`
+- Host persist thunk and JSONL log writer: `RedXe/PluginHost.*`
 - Schema/templates: `Specs/Settings.schema.json`, `Settings/`
 - Tests: `Tests/SettingsTests/`, `Tests/HostPluginTests/`, `Tests/PluginContractTests/`

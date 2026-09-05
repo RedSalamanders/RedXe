@@ -1,6 +1,7 @@
 #include "Renderer.h"
 
 #include "DashboardHost.h"
+#include "PluginHost.h"
 
 #include <array>
 #include <cmath>
@@ -45,7 +46,9 @@ void Renderer::Shutdown() noexcept
     _raisedOverlayActive = false;
     _raisedOverlayIndex = SIZE_MAX;
     _raisedContent = {};
+    _raisedTargetSize = {};
     _raisedViewport = {};
+    _lastLoggedRenderFailure = {};
 }
 
 HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
@@ -54,8 +57,18 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
     {
         return E_INVALIDARG;
     }
+    const bool incomingVisible = dashboardHost && dashboardHost->WidgetsVisible();
+    if (dashboardHost)
+    {
+        const HRESULT result = dashboardHost->SetWidgetsVisible(false);
+        if (FAILED(result))
+            return result;
+    }
     if (_transitionWidgetsDeviceReady && _transitionDashboardHost)
     {
+        const HRESULT result = _transitionDashboardHost->SetWidgetsVisible(false);
+        if (FAILED(result))
+            return result;
         for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
         {
             if (IRedXeGpuWidget* widget = _transitionDashboardHost->GpuWidgetAt(index))
@@ -64,6 +77,7 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
     }
     _transitionWidgetsDeviceReady = false;
     _transitionDashboardHost = dashboardHost;
+    _transitionTargetSizes = {};
     if (!dashboardHost)
     {
         return S_OK;
@@ -91,7 +105,8 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
         }
     }
     _transitionWidgetsDeviceReady = true;
-    return UpdateCachedViewports();
+    const HRESULT result = UpdateCachedViewports();
+    return SUCCEEDED(result) ? dashboardHost->SetWidgetsVisible(incomingVisible) : result;
 }
 
 HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
@@ -112,6 +127,8 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
     DashboardHost* const previousTransition = _transitionDashboardHost;
     const bool previousTransitionReady = _transitionWidgetsDeviceReady;
     const bool previousGpuReady = _gpuWidgetsDeviceReady;
+    const auto previousTargets = _widgetTargetSizes;
+    const auto incomingTargets = _transitionTargetSizes;
 
     _dashboardHost = &dashboardHost;
     _transitionDashboardHost = nullptr;
@@ -119,6 +136,7 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
     if (keepDevice)
     {
         _gpuWidgetsDeviceReady = true;
+        _widgetTargetSizes = incomingTargets;
     }
 
     HRESULT result = S_OK;
@@ -151,11 +169,13 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
         _transitionDashboardHost = previousTransition;
         _transitionWidgetsDeviceReady = previousTransitionReady;
         _gpuWidgetsDeviceReady = previousGpuReady;
+        _widgetTargetSizes = previousTargets;
         return result;
     }
 
     if (previousGpuReady && previousPrimary && previousPrimary != &dashboardHost)
     {
+        (void)previousPrimary->SetWidgetsVisible(false);
         for (size_t index = 0; index < previousPrimary->WidgetCount(); ++index)
         {
             if (IRedXeGpuWidget* widget = previousPrimary->GpuWidgetAt(index))
@@ -166,6 +186,7 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
     }
     if (previousTransitionReady && previousTransition && previousTransition != &dashboardHost)
     {
+        (void)previousTransition->SetWidgetsVisible(false);
         for (size_t index = 0; index < previousTransition->WidgetCount(); ++index)
         {
             if (IRedXeGpuWidget* widget = previousTransition->GpuWidgetAt(index))
@@ -177,7 +198,7 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
     return S_OK;
 }
 
-HRESULT Renderer::SetRaisedOverlay(size_t widgetIndex, const RECT& content) noexcept
+HRESULT Renderer::SetRaisedOverlay(size_t widgetIndex, const RECT& content, SIZE targetPixels) noexcept
 {
     if (!_dashboardHost || widgetIndex >= _dashboardHost->WidgetCount() || content.right <= content.left ||
         content.bottom <= content.top)
@@ -187,6 +208,14 @@ HRESULT Renderer::SetRaisedOverlay(size_t widgetIndex, const RECT& content) noex
     _raisedOverlayActive = true;
     _raisedOverlayIndex = widgetIndex;
     _raisedContent = content;
+    if (targetPixels.cx > 0 && targetPixels.cy > 0)
+    {
+        _raisedTargetSize = targetPixels;
+    }
+    else
+    {
+        _raisedTargetSize = SIZE{content.right - content.left, content.bottom - content.top};
+    }
     _raisedViewport = {};
     return (!_suspended && _width != 0 && _height != 0) ? UpdateCachedViewports() : S_OK;
 }
@@ -196,6 +225,7 @@ void Renderer::ClearRaisedOverlay() noexcept
     _raisedOverlayActive = false;
     _raisedOverlayIndex = SIZE_MAX;
     _raisedContent = {};
+    _raisedTargetSize = {};
     _raisedViewport = {};
     if (!_suspended && _dashboardHost && _width != 0 && _height != 0)
     {
@@ -209,12 +239,22 @@ HRESULT Renderer::SetDpi(UINT dpi) noexcept
     {
         return E_INVALIDARG;
     }
+    if (_dpi == dpi)
+    {
+        return S_OK;
+    }
     _dpi = dpi;
+    if (_gpuWidgetsDeviceReady && !_suspended)
+    {
+        NotifyTargetSizes();
+    }
     return S_OK;
 }
 
 HRESULT Renderer::CreateDeviceResources() noexcept
 {
+    const bool primaryVisible = _dashboardHost && _dashboardHost->WidgetsVisible();
+    const bool transitionVisible = _transitionDashboardHost && _transitionDashboardHost->WidgetsVisible();
     ReleaseDeviceResources();
 
     HRESULT result = CreateDevice(_forceWarp);
@@ -254,7 +294,16 @@ HRESULT Renderer::CreateDeviceResources() noexcept
         return S_OK;
     }
 
-    return CreateRenderTarget(width, height);
+    result = CreateRenderTarget(width, height);
+    if (SUCCEEDED(result) && _dashboardHost)
+    {
+        result = _dashboardHost->SetWidgetsVisible(primaryVisible);
+    }
+    if (SUCCEEDED(result) && _transitionDashboardHost)
+    {
+        result = _transitionDashboardHost->SetWidgetsVisible(transitionVisible);
+    }
+    return result;
 }
 
 HRESULT Renderer::CreateDevice(bool useWarp) noexcept
@@ -288,6 +337,17 @@ HRESULT Renderer::CreateDevice(bool useWarp) noexcept
         result = create(flags);
     }
 #endif
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = _context.query_to(_context1.put());
+    if (FAILED(result))
+    {
+        _context1.reset();
+        _context.reset();
+        _device.reset();
+    }
     return result;
 }
 
@@ -423,7 +483,7 @@ void Renderer::NotifyTargetSizes() noexcept
 {
     const auto notify = [this](DashboardHost* dashboard,
                                const std::array<D3D11_VIEWPORT, kMaximumWidgetViewports>& viewports,
-                               std::array<SIZE, kMaximumWidgetViewports>& reported, bool includeRaised) noexcept
+                                std::array<ReportedTarget, kMaximumWidgetViewports>& reported, bool includeRaised) noexcept
     {
         if (!dashboard)
         {
@@ -438,17 +498,22 @@ void Renderer::NotifyTargetSizes() noexcept
             // larger of the two: the smaller draw is a minification the sampler already handles well.
             if (includeRaised && _raisedOverlayActive && index == _raisedOverlayIndex)
             {
-                size.cx = std::max(size.cx, static_cast<LONG>(_raisedViewport.Width + 0.5f));
-                size.cy = std::max(size.cy, static_cast<LONG>(_raisedViewport.Height + 0.5f));
+                const LONG raisedWidth =
+                    _raisedTargetSize.cx > 0 ? _raisedTargetSize.cx : static_cast<LONG>(_raisedViewport.Width + 0.5f);
+                const LONG raisedHeight =
+                    _raisedTargetSize.cy > 0 ? _raisedTargetSize.cy : static_cast<LONG>(_raisedViewport.Height + 0.5f);
+                size.cx = std::max(size.cx, raisedWidth);
+                size.cy = std::max(size.cy, raisedHeight);
             }
-            if (size.cx <= 0 || size.cy <= 0 || (size.cx == reported[index].cx && size.cy == reported[index].cy))
+            if (size.cx <= 0 || size.cy <= 0 ||
+                (size.cx == reported[index].cx && size.cy == reported[index].cy && _dpi == reported[index].dpi))
             {
                 continue;
             }
             IRedXeGpuWidget* widget = dashboard->GpuWidgetAt(index);
             if (!widget)
             {
-                reported[index] = size;
+                reported[index] = {size.cx, size.cy, _dpi};
                 continue;
             }
             const RedXeGpuTargetSizeContext context{
@@ -462,7 +527,7 @@ void Renderer::NotifyTargetSizes() noexcept
             {
                 OutputDebugStringW(L"A GPU widget failed to resize its resources; keeping the previous ones.\n");
             }
-            reported[index] = size;
+            reported[index] = {size.cx, size.cy, _dpi};
         }
     };
 
@@ -557,6 +622,9 @@ HRESULT Renderer::NotifyDeviceCreated() noexcept
         const HRESULT result = widget->OnDeviceCreated(&context);
         if (FAILED(result))
         {
+            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr,
+                               _dashboardHost->WidgetInstanceIdAt(index), "gpu-device-create-failed",
+                               "IRedXeGpuWidget::OnDeviceCreated failed.", result);
             for (size_t previous = 0; previous < initializedCount; ++previous)
             {
                 IRedXeGpuWidget* initializedWidget = _dashboardHost->GpuWidgetAt(previous);
@@ -714,6 +782,13 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
         if (FAILED(widgetResult))
         {
             OutputDebugStringW(L"A GPU widget failed to render; continuing with remaining widgets.\n");
+            if (index < _lastLoggedRenderFailure.size() && _lastLoggedRenderFailure[index] != widgetResult)
+            {
+                _lastLoggedRenderFailure[index] = widgetResult;
+                (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr,
+                                   _dashboardHost->WidgetInstanceIdAt(index), "gpu-render-failed",
+                                   "IRedXeGpuWidget::Render failed.", widgetResult);
+            }
             return S_FALSE;
         }
         ++_lastFrameSuccessfulWidgetCount;
@@ -863,6 +938,15 @@ HRESULT Renderer::RecoverDevice() noexcept
 
 void Renderer::ReleaseDeviceResources() noexcept
 {
+    // Visibility deactivation drains data and network callbacks before any plugin device state is released.
+    if (_dashboardHost)
+    {
+        (void)_dashboardHost->SetWidgetsVisible(false);
+    }
+    if (_transitionDashboardHost)
+    {
+        (void)_transitionDashboardHost->SetWidgetsVisible(false);
+    }
     if (_factory && _occlusionStatusRegistered)
     {
         _factory->UnregisterOcclusionStatus(_occlusionStatusCookie);

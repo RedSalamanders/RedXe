@@ -77,10 +77,41 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
 }
 
 // Validates a plugin-published settings value against the bounded schema subset RedXe accepts. The supported subset
-// is exactly: "object" with "properties", "additionalProperties", and "required"; "integer" and "number" with
-// "minimum" and "maximum"; "string" with "enum" and the single hex-colour "pattern"; and "boolean". Anything else --
-// arrays, "$ref", composition keywords, or another pattern -- is rejected rather than silently accepted, so a plugin
-// cannot publish a constraint the host does not actually enforce. Plugins_API.md names this subset normatively.
+// is exactly: "object" with "properties", "additionalProperties", and "required"; "array" with "items", "minItems",
+// and "maxItems" where items is one closed object; "integer" and "number" with "minimum" and "maximum"; "string"
+// with "enum" and the single hex-colour "pattern"; and "boolean". Nested arrays, "$ref", composition keywords, or
+// another pattern are rejected rather than silently accepted. Plugins_API.md names this subset normatively.
+[[nodiscard]] bool SchemaKeyIsAllowed(std::string_view typeName, std::string_view key) noexcept
+{
+    if (key == "type")
+    {
+        return true;
+    }
+    if (key.size() >= 5 && key.substr(0, 5) == "x-ui-")
+    {
+        return true;
+    }
+    if (typeName == "object")
+    {
+        return key == "properties" || key == "additionalProperties" || key == "required";
+    }
+    if (typeName == "array")
+    {
+        return key == "items" || key == "minItems" || key == "maxItems";
+    }
+    if (typeName == "integer" || typeName == "number")
+    {
+        return key == "minimum" || key == "maximum";
+    }
+    if (typeName == "string")
+    {
+        return key == "enum" || key == "pattern";
+    }
+    return false;
+}
+
+[[nodiscard]] bool ValidatePublishedSchemaShape(yyjson_val* schema, uint32_t arrayDepth) noexcept;
+
 [[nodiscard]] bool ValidateValueAgainstPublishedSchema(yyjson_val* schema, yyjson_val* value) noexcept
 {
     if (!yyjson_is_obj(schema))
@@ -214,6 +245,113 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
     {
         return yyjson_is_bool(value);
     }
+    if (typeName == "array")
+    {
+        if (!yyjson_is_arr(value))
+        {
+            return false;
+        }
+        const uint64_t count = yyjson_arr_size(value);
+        yyjson_val* minimum = yyjson_obj_get(schema, "minItems");
+        yyjson_val* maximum = yyjson_obj_get(schema, "maxItems");
+        if ((minimum && (!yyjson_is_uint(minimum) || count < yyjson_get_uint(minimum))) ||
+            (maximum && (!yyjson_is_uint(maximum) || count > yyjson_get_uint(maximum))))
+        {
+            return false;
+        }
+        yyjson_val* items = yyjson_obj_get(schema, "items");
+        if (!items)
+        {
+            return false;
+        }
+        for (size_t index = 0; index < yyjson_arr_size(value); ++index)
+        {
+            if (!ValidateValueAgainstPublishedSchema(items, yyjson_arr_get(value, index)))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+[[nodiscard]] bool ValidatePublishedSchemaShape(yyjson_val* schema, uint32_t arrayDepth) noexcept
+{
+    if (!yyjson_is_obj(schema) || arrayDepth > 1)
+    {
+        return false;
+    }
+    yyjson_val* type = yyjson_obj_get(schema, "type");
+    if (!yyjson_is_str(type))
+    {
+        return false;
+    }
+    const std::string_view typeName{yyjson_get_str(type), yyjson_get_len(type)};
+    yyjson_obj_iter iterator = yyjson_obj_iter_with(schema);
+    while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
+    {
+        const std::string_view name{yyjson_get_str(key), yyjson_get_len(key)};
+        if (!SchemaKeyIsAllowed(typeName, name))
+        {
+            return false;
+        }
+    }
+    if (typeName == "object")
+    {
+        yyjson_val* properties = yyjson_obj_get(schema, "properties");
+        if (properties)
+        {
+            if (!yyjson_is_obj(properties))
+            {
+                return false;
+            }
+            yyjson_obj_iter propertyIterator = yyjson_obj_iter_with(properties);
+            while (yyjson_val* key = yyjson_obj_iter_next(&propertyIterator))
+            {
+                if (!ValidatePublishedSchemaShape(yyjson_obj_iter_get_val(key), arrayDepth))
+                {
+                    return false;
+                }
+            }
+        }
+        yyjson_val* additional = yyjson_obj_get(schema, "additionalProperties");
+        if (additional && !yyjson_is_bool(additional))
+        {
+            return false;
+        }
+        yyjson_val* required = yyjson_obj_get(schema, "required");
+        if (required && !yyjson_is_arr(required))
+        {
+            return false;
+        }
+        return true;
+    }
+    if (typeName == "array")
+    {
+        if (arrayDepth != 0)
+        {
+            return false;
+        }
+        yyjson_val* items = yyjson_obj_get(schema, "items");
+        yyjson_val* itemsType = items ? yyjson_obj_get(items, "type") : nullptr;
+        if (!yyjson_is_obj(items) || !yyjson_is_str(itemsType) ||
+            std::string_view{yyjson_get_str(itemsType), yyjson_get_len(itemsType)} != "object")
+        {
+            return false;
+        }
+        yyjson_val* minimum = yyjson_obj_get(schema, "minItems");
+        yyjson_val* maximum = yyjson_obj_get(schema, "maxItems");
+        if ((minimum && !yyjson_is_uint(minimum)) || (maximum && !yyjson_is_uint(maximum)))
+        {
+            return false;
+        }
+        return ValidatePublishedSchemaShape(items, 1);
+    }
+    if (typeName == "integer" || typeName == "number" || typeName == "string" || typeName == "boolean")
+    {
+        return true;
+    }
     return false;
 }
 
@@ -245,12 +383,40 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
         yyjson_read(selected->defaultsJsonUtf8, selected->defaultsBytes, YYJSON_READ_NOFLAG)};
     if (!schemaDocument || !defaultsDocument || !yyjson_is_obj(yyjson_doc_get_root(schemaDocument.get())) ||
         !yyjson_is_obj(yyjson_doc_get_root(defaultsDocument.get())) ||
+        !ValidatePublishedSchemaShape(yyjson_doc_get_root(schemaDocument.get()), 0) ||
         !ValidateValueAgainstPublishedSchema(yyjson_doc_get_root(schemaDocument.get()),
                                              yyjson_doc_get_root(defaultsDocument.get())))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     *contract = selected;
+    return S_OK;
+}
+
+// S_OK: the catalogued module is mapped and its settings contract is valid.
+// S_FALSE: LoadLibrary could not map the DLL; skip published-schema checks and placeholder instances.
+// Failed: the mapped module published an invalid contract (document-fatal).
+[[nodiscard]] HRESULT TryMapBundledWidgetModule(const char* pluginId, PluginHost::ModuleView& module) noexcept
+{
+    module = {};
+    const HRESULT mapResult =
+        PluginHost::Instance().GetPluginModule(pluginId, RedXePluginCapabilityWidgetProvider, &module);
+    if (FAILED(mapResult))
+    {
+        OutputDebugStringW(
+            L"A bundled plugin module could not be mapped; widget instances will use placeholder tiles.\n");
+        module = {};
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, pluginId, nullptr,
+                           "module-map-failed", "catalogued plugin DLL could not be mapped.", mapResult);
+        return S_FALSE;
+    }
+
+    const RedXePluginSettingsContract* contract = nullptr;
+    const HRESULT contractResult = GetAndValidateSettingsContract(module, pluginId, &contract);
+    if (FAILED(contractResult))
+    {
+        return contractResult;
+    }
     return S_OK;
 }
 
@@ -293,6 +459,7 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
     }
     return selectedType ? S_OK : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
+
 // One parsed schema per referenced plugin for the duration of a single staging pass. Without it the same plugin
 // schema is re-parsed once per widget appearance on every page, on every settings apply.
 class SchemaCache final
@@ -355,16 +522,7 @@ class SchemaCache final
 
 PluginManager::~PluginManager()
 {
-    ClearWidgetStatuses();
-    for (size_t index = 0; index < _widgetCount; ++index)
-    {
-        _widgets[index].windowWidget.reset();
-        _widgets[index].scheduledWidget.reset();
-        _widgets[index].gpuWidget.reset();
-        _widgets[index].raisedWidget.reset();
-        _widgets[index].widget.reset();
-    }
-    _widgetCount = 0;
+    ReleaseWidgets();
 
     for (size_t index = 0; index < _providerCount; ++index)
     {
@@ -424,7 +582,7 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
 {
     if (!RedXeIsValidMachineId(settings.typeId.utf8.data()) || !RedXeIsValidMachineId(settings.id.utf8.data()) ||
         widgetSlot.widget || widgetSlot.gpuWidget || widgetSlot.scheduledWidget || widgetSlot.windowWidget ||
-        widgetSlot.raisedWidget)
+        widgetSlot.raisedWidget || widgetSlot.interactiveWidget || widgetSlot.networkWidget)
     {
         return E_INVALIDARG;
     }
@@ -446,6 +604,8 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     const HRESULT scheduledResult = widgetSlot.widget.query_to(widgetSlot.scheduledWidget.put());
     const HRESULT windowResult = widgetSlot.widget.query_to(widgetSlot.windowWidget.put());
     const HRESULT raisedResult = widgetSlot.widget.query_to(widgetSlot.raisedWidget.put());
+    const HRESULT interactiveResult = widgetSlot.widget.query_to(widgetSlot.interactiveWidget.put());
+    const HRESULT networkResult = widgetSlot.widget.query_to(widgetSlot.networkWidget.put());
     if (gpuResult != S_OK && gpuResult != E_NOINTERFACE)
     {
         return gpuResult;
@@ -462,6 +622,14 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     {
         return raisedResult;
     }
+    if (interactiveResult != S_OK && interactiveResult != E_NOINTERFACE)
+    {
+        return interactiveResult;
+    }
+    if (networkResult != S_OK && networkResult != E_NOINTERFACE)
+    {
+        return networkResult;
+    }
     if (!widgetSlot.gpuWidget && !widgetSlot.windowWidget)
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
@@ -469,6 +637,15 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     if (widgetSlot.gpuWidget)
     {
         widgetSlot.windowWidget.reset();
+    }
+    if (widgetSlot.networkWidget)
+    {
+        const HRESULT registerResult = PluginHost::Instance().RegisterNetworkWidget(widgetSlot.networkWidget.get());
+        if (FAILED(registerResult))
+        {
+            widgetSlot.networkWidget.reset();
+            return registerResult;
+        }
     }
     widgetSlot.instanceId = settings.id;
     widgetSlot.placement = settings.placement;
@@ -490,6 +667,9 @@ void PluginManager::MakePlaceholder(WidgetSlot& widgetSlot, const WidgetInstance
     widgetSlot.placeholder = true;
     widgetSlot.failure = FAILED(failure) ? failure : E_FAIL;
     OutputDebugStringW(L"A widget instance could not be created; the host is drawing a placeholder tile.\n");
+    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, settings.pluginId.utf8.data(),
+                       settings.id.utf8.data(), "widget-placeholder",
+                       "widget instance could not be constructed; host placeholder tile.", widgetSlot.failure);
 }
 
 void PluginManager::ClearWidgetStatuses() noexcept
@@ -498,6 +678,20 @@ void PluginManager::ClearWidgetStatuses() noexcept
     {
         PluginHost::Instance().ClearWidgetStatus(_widgets[index].instanceId.utf8.data());
     }
+}
+
+void PluginManager::ReleaseWidgets() noexcept
+{
+    ClearWidgetStatuses();
+    for (size_t index = 0; index < _widgetCount; ++index)
+    {
+        if (_widgets[index].networkWidget)
+        {
+            PluginHost::Instance().UnregisterNetworkWidget(_widgets[index].networkWidget.get());
+        }
+        _widgets[index] = WidgetSlot{};
+    }
+    _widgetCount = 0;
 }
 
 HRESULT PluginManager::StageActivePage(const AppSettings& settings,
@@ -531,17 +725,14 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
         }
         PluginHost::ModuleView module{};
-        result =
-            PluginHost::Instance().GetPluginModule(pluginSpec->pluginId, RedXePluginCapabilityWidgetProvider, &module);
-        if (FAILED(result))
+        const HRESULT mapResult = TryMapBundledWidgetModule(pluginSpec->pluginId, module);
+        if (mapResult == S_FALSE)
         {
-            return result;
+            continue;
         }
-        const RedXePluginSettingsContract* contract = nullptr;
-        result = GetAndValidateSettingsContract(module, pluginSpec->pluginId, &contract);
-        if (FAILED(result))
+        if (FAILED(mapResult))
         {
-            return result;
+            return mapResult;
         }
     }
 
@@ -558,11 +749,14 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
                 return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
             }
             PluginHost::ModuleView module{};
-            result = PluginHost::Instance().GetPluginModule(pluginSpec->pluginId, RedXePluginCapabilityWidgetProvider,
-                                                            &module);
-            if (FAILED(result))
+            const HRESULT mapResult = TryMapBundledWidgetModule(pluginSpec->pluginId, module);
+            if (mapResult == S_FALSE)
             {
-                return result;
+                continue;
+            }
+            if (FAILED(mapResult))
+            {
+                return mapResult;
             }
             yyjson_val* schemaRoot = nullptr;
             result = schemaCache.Acquire(module, pluginSpec->pluginId, schemaRoot);
@@ -580,10 +774,10 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
         }
     }
 
-    const DashboardPageSettings* page = SUCCEEDED(result) ? FindActiveDashboardPage(settings) : nullptr;
-    if (FAILED(result) || !page || page->widgetCount > kMaximumWidgetInstances)
+    const DashboardPageSettings* page = FindActiveDashboardPage(settings);
+    if (!page || page->widgetCount > kMaximumWidgetInstances)
     {
-        return FAILED(result) ? result : E_INVALIDARG;
+        return E_INVALIDARG;
     }
     if (page->widgetCount == 0)
     {
@@ -649,6 +843,11 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
         {
             MakePlaceholder(widgets[index], instance, result);
         }
+        else
+        {
+            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, pluginSpec->pluginId,
+                               instance.id.utf8.data(), "widget-created", "widget instance constructed.");
+        }
         ++widgetCount;
     }
     return S_OK;
@@ -699,7 +898,7 @@ HRESULT PluginManager::Reconfigure(const AppSettings& settings) noexcept
         return result;
     }
 
-    ClearWidgetStatuses();
+    ReleaseWidgets();
     _widgets = std::move(widgets);
     _widgetCount = widgetCount;
     _providers = std::move(providers);
@@ -742,6 +941,16 @@ IRedXeWindowWidget* PluginManager::WindowWidgetAt(size_t index) const noexcept
 IRedXeRaisedWidget* PluginManager::RaisedWidgetAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].raisedWidget.get() : nullptr;
+}
+
+IRedXeInteractiveWidget* PluginManager::InteractiveWidgetAt(size_t index) const noexcept
+{
+    return index < _widgetCount ? _widgets[index].interactiveWidget.get() : nullptr;
+}
+
+IRedXeNetworkWidget* PluginManager::NetworkWidgetAt(size_t index) const noexcept
+{
+    return index < _widgetCount ? _widgets[index].networkWidget.get() : nullptr;
 }
 
 uint32_t PluginManager::WidgetFlagsAt(size_t index) const noexcept
@@ -787,4 +996,25 @@ uint32_t PluginManager::GridColumns() const noexcept
 uint32_t PluginManager::GridRows() const noexcept
 {
     return _initialized ? _gridRows : 0;
+}
+
+HRESULT PluginManager::ValidatePluginPublishedSchema(std::string_view schemaJson,
+                                                     std::string_view defaultsJson) noexcept
+{
+    if (schemaJson.empty() || defaultsJson.empty() || schemaJson.size() > kPrivateConfigurationCapacity ||
+        defaultsJson.size() > kPrivateConfigurationCapacity)
+    {
+        return E_INVALIDARG;
+    }
+    unique_contract_doc schemaDocument{yyjson_read(schemaJson.data(), schemaJson.size(), YYJSON_READ_NOFLAG)};
+    unique_contract_doc defaultsDocument{yyjson_read(defaultsJson.data(), defaultsJson.size(), YYJSON_READ_NOFLAG)};
+    if (!schemaDocument || !defaultsDocument || !yyjson_is_obj(yyjson_doc_get_root(schemaDocument.get())) ||
+        !yyjson_is_obj(yyjson_doc_get_root(defaultsDocument.get())) ||
+        !ValidatePublishedSchemaShape(yyjson_doc_get_root(schemaDocument.get()), 0) ||
+        !ValidateValueAgainstPublishedSchema(yyjson_doc_get_root(schemaDocument.get()),
+                                             yyjson_doc_get_root(defaultsDocument.get())))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    return S_OK;
 }

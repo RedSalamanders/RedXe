@@ -1,6 +1,7 @@
 #include "DashboardHost.h"
 #include "DeskClockTestContract.h"
 #include "FrameScheduler.h"
+#include "LauncherTestContract.h"
 #include "MatrixRainTestContract.h"
 #include "PageEdgeAffordance.h"
 #include "PageNavigation.h"
@@ -19,11 +20,15 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
+#include <string>
 #include <string_view>
 #include <thread>
 
+#include <ole2.h>
 #include <psapi.h>
 #include <windows.h>
 
@@ -312,6 +317,15 @@ void TestFrameScheduler(bool& success) noexcept
     state.pageNavigationActive = false;
     Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage,
           L"occluded host without page navigation waits", success);
+    state.overlayMotionActive = true;
+    Check(SelectHostFrameAction(state) == HostFrameAction::Render,
+          L"raise or dismiss settle keeps presenting when DXGI reports the swap chain occluded", success);
+    state.rendererOccluded = false;
+    Check(SelectHostFrameAction(state) == HostFrameAction::Render,
+          L"an active raise settle keeps presenting so overlay motion continues", success);
+    state.overlayMotionActive = false;
+    Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage,
+          L"a settled overlay does not keep a static host presenting", success);
 }
 
 void TestPageSwipePolicy(bool& success) noexcept
@@ -418,6 +432,24 @@ void TestWidgetRaisePolicy(bool& success) noexcept
               !IsDoubleActivate(1000, POINT{10, 10}, 1100, POINT{40, 10}, 500, 16) &&
               !IsDoubleActivate(1000, POINT{10, 10}, 1100, POINT{12, 11}, 0, 16),
           L"double-activate requires the system interval and slop", success);
+
+    const RaisedLayout fromTile = RaisedLayoutFromTile(tile, 2560, 720, 96);
+    Check(fromTile.content.left == tile.left && fromTile.content.top == tile.top &&
+              fromTile.content.right == tile.right && fromTile.content.bottom == tile.bottom,
+          L"raise settle starts from the tile rectangle", success);
+    const RaisedLayout atStart = InterpolateRaisedLayout(fromTile, half, 0.0f);
+    const RaisedLayout atEnd = InterpolateRaisedLayout(fromTile, half, 1.0f);
+    Check(atStart.content.left == fromTile.content.left && atStart.content.bottom == fromTile.content.bottom &&
+              atEnd.content.left == half.content.left && atEnd.content.right == half.content.right &&
+              atEnd.content.bottom == half.content.bottom,
+          L"raise interpolation preserves start and end layouts", success);
+    Check(InterpolateRaisedCoordinate(0, 100, 0.5f) == 88, L"raise interpolation uses ease-out cubic", success);
+    Check(InterpolateRaisedAlpha(0, 148, 0.0f) == 0 && InterpolateRaisedAlpha(0, 148, 1.0f) == 148,
+          L"dim alpha interpolation preserves start and end", success);
+    const UINT shortTravel = RaiseSettleDurationMilliseconds(RECT{0, 0, 10, 10}, RECT{0, 0, 12, 12});
+    const UINT longTravel = RaiseSettleDurationMilliseconds(RECT{0, 0, 100, 100}, RECT{0, 0, 2000, 720});
+    Check(shortTravel == 160 && longTravel == 240, L"raise settle duration stays within the 160-240 ms window",
+          success);
 }
 
 void TestWidgetRaiseHost(bool& success) noexcept
@@ -628,6 +660,10 @@ void TestReleaseHostIntegration(bool& success) noexcept
               L"Release static discovery maps the Studio Clock DLL without creating its page", success);
         Check(GetModuleHandleW(L"DeskClock.dll") != nullptr,
               L"Release static discovery maps the Desk Clock DLL without creating its page", success);
+        Check(GetModuleHandleW(L"Launcher.dll") != nullptr,
+              L"Release static discovery maps the gallery launcher DLL without creating its page", success);
+        Check(GetModuleHandleW(L"Weather.dll") != nullptr,
+              L"Release static discovery maps the gallery weather DLL without creating its page", success);
         StudioClockTestDiagnostics inactiveClock{};
         Check(SUCCEEDED(ReadStudioClockDiagnostics(inactiveClock)) && inactiveClock.liveProviderCount == 0 &&
                   inactiveClock.liveWidgetCount == 0 && inactiveClock.liveSharedDeviceResourceSetCount == 0,
@@ -1398,8 +1434,8 @@ void TestDebugHostComposition(bool& success) noexcept
     {
         result = plugins.Initialize(settings);
     }
-    Check(SUCCEEDED(result) && plugins.ProviderCount() == 3 && plugins.WidgetCount() == 4,
-          L"Debug composition shares one normalized provider across identical triangle instances", success);
+    Check(SUCCEEDED(result) && plugins.ProviderCount() == 4 && plugins.WidgetCount() == 4,
+          L"Debug composition constructs launcher, triangle, GDI Orbit, and Matrix on the first page", success);
     if (FAILED(result))
     {
         return;
@@ -1409,8 +1445,9 @@ void TestDebugHostComposition(bool& success) noexcept
     result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
     Check(SUCCEEDED(result), L"Debug dashboard attaches the native and GPU widgets while hidden", success);
     Check(dashboard.WindowWidgetAt(2) != nullptr && dashboard.GpuWidgetAt(0) != nullptr &&
-              dashboard.GpuWidgetAt(1) != nullptr && dashboard.GpuWidgetAt(3) != nullptr,
-          L"Debug dashboard exposes two triangles, GDI Orbit, and Matrix mechanisms", success);
+              dashboard.GpuWidgetAt(1) != nullptr && dashboard.GpuWidgetAt(3) != nullptr &&
+              dashboard.InteractiveWidgetAt(0) != nullptr,
+          L"Debug dashboard exposes launcher, triangle, GDI Orbit, and Matrix mechanisms", success);
     Check(dashboard.PlacementAt(0) == WidgetPlacement{0.0f, 0.0f, 640.0f, 720.0f} &&
               dashboard.PlacementAt(1) == WidgetPlacement{640.0f, 0.0f, 640.0f, 360.0f} &&
               dashboard.PlacementAt(2) == WidgetPlacement{640.0f, 360.0f, 640.0f, 360.0f} &&
@@ -1685,6 +1722,182 @@ void TestHostRequestFrameAndWidgetStatus(bool& success) noexcept
           L"null status arguments are rejected", success);
 }
 
+void TestWidgetSettingsPersist(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] widget settings persist and collect\n";
+    struct Capture final
+    {
+        std::array<char, 64> instanceId{};
+        std::array<char, 128> json{};
+        uint32_t bytes = 0;
+        uint32_t calls = 0;
+    } capture{};
+    const auto handler = [](void* context, const char* instanceId, const char* json, uint32_t bytes) noexcept -> HRESULT
+    {
+        auto* captured = static_cast<Capture*>(context);
+        captured->calls += 1;
+        captured->bytes = bytes;
+        if (instanceId)
+        {
+            const size_t length = std::strlen(instanceId);
+            size_t copy = captured->instanceId.size() - 1;
+            if (length < copy)
+            {
+                copy = length;
+            }
+            std::memcpy(captured->instanceId.data(), instanceId, copy);
+            captured->instanceId[copy] = '\0';
+        }
+        if (json && bytes < captured->json.size())
+        {
+            std::memcpy(captured->json.data(), json, bytes);
+            captured->json[bytes] = '\0';
+        }
+        return S_OK;
+    };
+
+    PluginHost host;
+    Check(host.PersistWidgetSettings("widget.1", "{}", 2) == E_UNEXPECTED,
+          L"persist without a host handler is rejected", success);
+    host.SetSettingsPersistHandler(handler, &capture);
+    Check(host.PersistWidgetSettings(nullptr, "{}", 2) == E_INVALIDARG, L"a null persist instance is rejected",
+          success);
+    constexpr char kPartial[] = "{\"location\":\"Paris\"}";
+    Check(SUCCEEDED(host.PersistWidgetSettings("widget.1", kPartial, static_cast<uint32_t>(sizeof(kPartial) - 1))) &&
+              capture.calls == 1 && std::string_view(capture.json.data()) == kPartial,
+          L"persist forwards a partial settings object", success);
+
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}}]})json";
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, settings);
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    Check(SUCCEEDED(result) && plugins.WidgetCount() == 1, L"a triangle page constructs for collect", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+    uint32_t written = 1;
+    std::array<char, 8> buffer{};
+    IRedXeWidget* widget = plugins.WidgetAt(0);
+    Check(widget &&
+              widget->CollectPersistentSettings(buffer.data(), static_cast<uint32_t>(buffer.size()), &written) ==
+                  S_FALSE &&
+              written == 0,
+          L"a widget with nothing to save returns S_FALSE", success);
+}
+
+void TestHostJsonlLog(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] host JSONL plugin log\n";
+    PluginHost host;
+    IRedXeHost* iface = host.Interface();
+    Check(iface->Log(nullptr) == E_POINTER, L"a null log record is rejected", success);
+
+    RedXeLogRecord malformed{
+        sizeof(RedXeLogRecord) + 4, RedXeLogLevelInfo, nullptr, nullptr, "test-event", "message", S_OK};
+    Check(iface->Log(&malformed) == E_INVALIDARG, L"a mismatched log sizeBytes is rejected", success);
+
+    RedXeLogRecord missingEvent{sizeof(RedXeLogRecord), RedXeLogLevelInfo, nullptr, nullptr, nullptr, "message", S_OK};
+    Check(iface->Log(&missingEvent) == E_INVALIDARG, L"a missing log event id is rejected", success);
+
+    RedXeLogRecord missingMessage{sizeof(RedXeLogRecord), RedXeLogLevelInfo, nullptr, nullptr,
+                                  "test-event",           nullptr,           S_OK};
+    Check(iface->Log(&missingMessage) == E_INVALIDARG, L"a missing log message is rejected", success);
+
+    RedXeLogRecord unknownLevel{sizeof(RedXeLogRecord), 99, nullptr, nullptr, "test-event", "message", S_OK};
+    Check(iface->Log(&unknownLevel) == E_INVALIDARG, L"an unknown log level is rejected", success);
+
+    const RedXeLogRecord dropped{sizeof(RedXeLogRecord),
+                                 RedXeLogLevelInfo,
+                                 "builtin.weather",
+                                 "weather.1",
+                                 "before-dir",
+                                 "dropped until a log directory is set.",
+                                 S_OK};
+    Check(iface->Log(&dropped) == S_OK, L"log without a directory succeeds and drops the line", success);
+
+    std::error_code error;
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() /
+        (L"RedXe.LogTests." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()));
+    std::filesystem::create_directories(root, error);
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            std::error_code removeError;
+            std::filesystem::remove_all(root, removeError);
+        });
+    if (error)
+    {
+        Check(false, L"a temporary log directory can be created", success);
+        return;
+    }
+
+    Check(SUCCEEDED(host.SetLogDirectory(root.c_str())), L"SetLogDirectory starts the JSONL writer", success);
+    Check(host.SetLogRetentionDays(0) == E_INVALIDARG, L"retention below 1 day is rejected", success);
+    Check(host.SetLogRetentionDays(366) == E_INVALIDARG, L"retention above 365 days is rejected", success);
+    Check(SUCCEEDED(host.SetLogRetentionDays(15)), L"a 15-day retention is accepted", success);
+
+    const std::filesystem::path stale = root / L"RedXe-debug-2000-01-01.jsonl";
+    const std::filesystem::path staleRelease = root / L"RedXe-2000-01-01.jsonl";
+    const std::filesystem::path legacy = root / L"RedXe.jsonl";
+    const std::filesystem::path legacyRotated = root / L"RedXe-debug.jsonl.1";
+    {
+        std::ofstream staleStream(stale, std::ios::binary);
+        staleStream << "{\"event\":\"stale\"}\n";
+        std::ofstream releaseStream(staleRelease, std::ios::binary);
+        releaseStream << "{\"event\":\"stale-release\"}\n";
+        std::ofstream legacyStream(legacy, std::ios::binary);
+        legacyStream << "{\"event\":\"legacy\"}\n";
+        std::ofstream rotatedStream(legacyRotated, std::ios::binary);
+        rotatedStream << "{\"event\":\"rotated\"}\n";
+    }
+
+    const HRESULT notFound = HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    const RedXeLogRecord line{sizeof(RedXeLogRecord),
+                              RedXeLogLevelWarning,
+                              "builtin.weather",
+                              "weather.1",
+                              "forecast-failed",
+                              "weather fetch or parse failed.",
+                              notFound};
+    Check(iface->Log(&line) == S_OK, L"a valid log record is accepted", success);
+    Check(SUCCEEDED(host.FlushLog(2000)), L"FlushLog waits for the writer to drain", success);
+
+    SYSTEMTIME utc{};
+    GetSystemTime(&utc);
+    wchar_t name[kRedXeLogFileNameCapacity]{};
+    Check(RedXeFormatLogFileName(name, kRedXeLogFileNameCapacity, utc), L"today's UTC log file name can be formatted",
+          success);
+    const std::filesystem::path file = root / name;
+    std::ifstream stream(file, std::ios::binary);
+    std::string bytes;
+    if (stream)
+    {
+        bytes.assign(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
+    }
+    Check(!bytes.empty(), L"the dated JSONL file can be read after flush", success);
+    Check(bytes.find("\"event\":\"log-open\"") != std::string::npos, L"opening the log writes a log-open line",
+          success);
+    Check(bytes.find("\"event\":\"forecast-failed\"") != std::string::npos &&
+              bytes.find("\"plugin\":\"builtin.weather\"") != std::string::npos &&
+              bytes.find("\"instance\":\"weather.1\"") != std::string::npos &&
+              bytes.find("\"level\":\"warning\"") != std::string::npos &&
+              bytes.find("\"hr\":\"0x") != std::string::npos,
+          L"a plugin log line stores event, plugin, instance, level, and HRESULT", success);
+    Check(bytes.find("before-dir") == std::string::npos, L"records logged before SetLogDirectory are not written",
+          success);
+    std::error_code existsError;
+    Check(!std::filesystem::exists(stale, existsError) && !std::filesystem::exists(staleRelease, existsError) &&
+              !std::filesystem::exists(legacy, existsError) && !std::filesystem::exists(legacyRotated, existsError),
+          L"dated logs older than retention and legacy undated log files are deleted", success);
+}
+
 void TestHostOwnedPlaceholderTiles(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] host-owned placeholder tiles\n";
@@ -1771,6 +1984,131 @@ void TestHostOwnedPlaceholderTiles(bool& success) noexcept
     result = renderer.Render(0.2f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 3,
           L"every widget draws again after recovery", success);
+}
+
+void TestUnmappedCatalogModulePlaceholder(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] unmapped catalogued module placeholder\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[)json"
+        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}},)json"
+        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.launcher","settings":{"shortcuts":[]}}}]}}]})json";
+
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, settings);
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    Check(SUCCEEDED(result) && plugins.WidgetCount() == 2,
+          L"a page initializes when one catalogued module cannot be mapped", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+    Check(!plugins.IsPlaceholderAt(0), L"the constructable sibling is not a placeholder", success);
+    if (GetModuleHandleW(L"Launcher.dll") == nullptr)
+    {
+        Check(plugins.IsPlaceholderAt(1) && FAILED(plugins.PlaceholderFailureAt(1)),
+              L"an unmapped catalogued plugin becomes a placeholder", success);
+    }
+    else
+    {
+        Check(!plugins.IsPlaceholderAt(1), L"Launcher constructs when its DLL is present", success);
+    }
+
+    AttachedHostWindow window;
+    HRESULT windowResult = window.Initialize(kHostWidth, kHostHeight);
+    Check(SUCCEEDED(windowResult), L"hidden host window initializes for an unmapped-module page", success);
+    if (FAILED(windowResult))
+    {
+        return;
+    }
+    DashboardHost dashboard;
+    Check(SUCCEEDED(dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false)),
+          L"the dashboard hosts a page that includes a placeholder tile", success);
+}
+
+void TestWeatherPluginConstructs(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] weather plugin DLL constructs\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[)json"
+        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.weather"}}]}}]})json";
+
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, settings);
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    Check(SUCCEEDED(result) && plugins.WidgetCount() == 1 && !plugins.IsPlaceholderAt(0) &&
+              plugins.GpuWidgetAt(0) != nullptr,
+          L"Weather.dll maps with curl and zlib beside it and constructs a GPU widget", success);
+}
+
+void TestLauncherPluginConstructs(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] launcher plugin DLL constructs\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[)json"
+        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.launcher","settings":{"shortcuts":[]}}}]}}]})json";
+
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, settings);
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    Check(SUCCEEDED(result) && plugins.WidgetCount() == 1 && !plugins.IsPlaceholderAt(0) &&
+              plugins.GpuWidgetAt(0) != nullptr && plugins.InteractiveWidgetAt(0) != nullptr,
+          L"Launcher.dll maps and constructs a GPU interactive widget", success);
+    if (FAILED(result) || plugins.WidgetCount() == 0)
+    {
+        return;
+    }
+    uint32_t written = 1;
+    std::array<char, 8> buffer{};
+    IRedXeWidget* widget = plugins.WidgetAt(0);
+    Check(widget &&
+              widget->CollectPersistentSettings(buffer.data(), static_cast<uint32_t>(buffer.size()), &written) ==
+                  S_FALSE &&
+              written == 0,
+          L"an empty launcher has nothing to save", success);
+    const HMODULE module = GetModuleHandleW(L"Launcher.dll");
+    const LauncherGetTestDiagnosticsFn getDiagnostics =
+        ResolveFunction<LauncherGetTestDiagnosticsFn>(module, kLauncherGetTestDiagnosticsExport);
+    Check(getDiagnostics != nullptr, L"launcher diagnostics export resolves", success);
+    if (widget && getDiagnostics)
+    {
+        Check(SUCCEEDED(widget->SetVisible(TRUE)), L"empty launcher SetVisible succeeds", success);
+        LauncherTestDiagnostics diagnostics{sizeof(LauncherTestDiagnostics)};
+        Check(SUCCEEDED(getDiagnostics(&diagnostics)) && diagnostics.usingTaskbarPins == 0 &&
+                  diagnostics.authoredCount == 0,
+              L"automated empty launcher does not read the live taskbar", success);
+    }
+}
+
+void TestPublishedArraySchema(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] plugin published array schema subset\n";
+    constexpr std::string_view launcherSchema =
+        R"json({"type":"object","additionalProperties":false,"properties":{"shortcuts":{"type":"array","minItems":0,"maxItems":8,"items":{"type":"object","additionalProperties":false,"properties":{"target":{"type":"string"}},"required":["target"]}}}})json";
+    constexpr std::string_view launcherDefaults = R"json({"shortcuts":[]})json";
+    constexpr std::string_view objectSchema =
+        R"json({"type":"object","additionalProperties":false,"properties":{}})json";
+    constexpr std::string_view objectDefaults = R"json({})json";
+    constexpr std::string_view nestedSchema =
+        R"json({"type":"object","additionalProperties":false,"properties":{"rows":{"type":"array","minItems":0,"maxItems":1,"items":{"type":"array","minItems":0,"maxItems":1,"items":{"type":"string"}}}}})json";
+    Check(SUCCEEDED(PluginManager::ValidatePluginPublishedSchema(launcherSchema, launcherDefaults)),
+          L"a bounded array of closed objects is accepted", success);
+    Check(SUCCEEDED(PluginManager::ValidatePluginPublishedSchema(objectSchema, objectDefaults)),
+          L"a Matrix-style closed object schema remains valid", success);
+    Check(FAILED(PluginManager::ValidatePluginPublishedSchema(nestedSchema, R"json({"rows":[]})json")),
+          L"nested arrays are rejected", success);
 }
 
 void TestPageEdgeAffordancePolicy(bool& success) noexcept
@@ -1894,6 +2232,21 @@ void TestPageEdgeAffordanceGeometry(bool& success) noexcept
     Check(PageEdgeBandContains(left, POINT{0, 0}) && PageEdgeBandContains(left, POINT{left.right - 1, 719}) &&
               !PageEdgeBandContains(left, POINT{left.right, 10}) && !PageEdgeBandContains(left, POINT{5, 720}),
           L"Band hit testing is inclusive at the near edge and exclusive at the far edge.", success);
+
+    PageEdgeState live{};
+    live.rendererReady = true;
+    live.windowVisible = true;
+    live.displayPoweredOn = true;
+    live.rendererSuspended = false;
+    live.pageCount = 3;
+    live.atFirstPage = false;
+    live.atLastPage = false;
+    Check(PageEdgeClickNavigates(live, kPageEdgeDirectionPrevious, left, POINT{0, 10}) &&
+              !PageEdgeClickNavigates(live, kPageEdgeDirectionPrevious, left, POINT{left.right, 10}),
+          L"A parent edge click navigates only when the zone is live and the point is inside the band.", success);
+    live.widgetRaised = true;
+    Check(!PageEdgeClickNavigates(live, kPageEdgeDirectionPrevious, left, POINT{0, 10}),
+          L"A parent edge click does not navigate while a widget is raised.", success);
 
     // The chevron is a Segoe Fluent Icons glyph, with a Unicode stand-in when no icon font is installed.
     Check(PageEdgeChevronGlyph(kPageEdgeDirectionPrevious, FluentIcons::IconFont::Fluent) ==
@@ -2921,6 +3274,7 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
 int wmain(int argumentCount, wchar_t** arguments)
 {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
     if (argumentCount >= 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--matrix-soak")
     {
         std::chrono::seconds duration{};
@@ -2958,6 +3312,13 @@ int wmain(int argumentCount, wchar_t** arguments)
     }
 
     bool success = true;
+    const HRESULT ole = OleInitialize(nullptr);
+    if (FAILED(ole))
+    {
+        std::wcerr << L"OleInitialize failed.\n";
+        return 1;
+    }
+    PluginHost::Instance().SetNetworkAccessEnabled(false);
     TestFrameScheduler(success);
     TestPageSwipePolicy(success);
     TestWidgetRaisePolicy(success);
@@ -2973,7 +3334,13 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestGpuTargetSizeNotification(success);
     TestSharedPluginRuntime(success);
     TestHostRequestFrameAndWidgetStatus(success);
+    TestWidgetSettingsPersist(success);
+    TestHostJsonlLog(success);
     TestHostOwnedPlaceholderTiles(success);
+    TestUnmappedCatalogModulePlaceholder(success);
+    TestWeatherPluginConstructs(success);
+    TestLauncherPluginConstructs(success);
+    TestPublishedArraySchema(success);
     TestPageEdgeAffordancePolicy(success);
     TestPageEdgeAffordanceGeometry(success);
     TestNonDivisibleGridEdges(success);
@@ -2983,5 +3350,6 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestAdoptPrimaryDashboardIsTransactional(success);
     TestNativeWindowNeighborSwipe(success);
     std::wcout << (success ? L"HostPluginTests passed.\n" : L"HostPluginTests failed.\n");
+    OleUninitialize();
     return success ? 0 : 1;
 }

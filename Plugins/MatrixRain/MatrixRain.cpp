@@ -900,6 +900,12 @@ class MatrixRainWidget final
         return S_OK;
     }
 
+    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes,
+                                                        uint32_t* writtenBytes) noexcept override
+    {
+        return RedXeCollectNoPersistentSettings(jsonUtf8, capacityBytes, writtenBytes);
+    }
+
     HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
     {
         if (!extent)

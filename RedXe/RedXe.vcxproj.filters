@@ -21,6 +21,9 @@
     <ClInclude Include="..\Common\PlugInterfaces\Data.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\Common\PlugInterfaces\Host.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClCompile Include="Application.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

@@ -103,6 +103,20 @@ if ($deskClockProcess.ExitCode -ne 0) {
     throw "Desk Clock tests failed with exit code $($deskClockProcess.ExitCode)."
 }
 
+$launcherTests = Join-Path $repoRoot ".build\$Platform\$Configuration\LauncherTests.exe"
+Write-Host 'Running Launcher factory, pin fallback, WARP, launch, and drop tests...' -ForegroundColor Cyan
+$launcherProcess = Start-Process -FilePath $launcherTests -Wait -PassThru
+if ($launcherProcess.ExitCode -ne 0) {
+    throw "Launcher tests failed with exit code $($launcherProcess.ExitCode)."
+}
+
+$weatherTests = Join-Path $repoRoot ".build\$Platform\$Configuration\WeatherTests.exe"
+Write-Host 'Running Weather HTTP, unit, and label format tests...' -ForegroundColor Cyan
+$weatherProcess = Start-Process -FilePath $weatherTests -Wait -PassThru
+if ($weatherProcess.ExitCode -ne 0) {
+    throw "Weather tests failed with exit code $($weatherProcess.ExitCode)."
+}
+
 $settingsTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SettingsTests.exe"
 Write-Host 'Running settings, schema, stamp, and watcher contract tests...' -ForegroundColor Cyan
 $settingsProcess = Start-Process -FilePath $settingsTests -Wait -PassThru

@@ -32,6 +32,7 @@ class DashboardHost final
                                      bool visible) noexcept;
     [[nodiscard]] HRESULT Resize(UINT width, UINT height, UINT dpi) noexcept;
     [[nodiscard]] HRESULT SetWidgetsVisible(bool visible) noexcept;
+    [[nodiscard]] bool WidgetsVisible() const noexcept { return _widgetsVisible; }
     [[nodiscard]] HRESULT SetHorizontalOffset(LONG offset) noexcept;
     [[nodiscard]] LONG HorizontalOffset() const noexcept;
     [[nodiscard]] HRESULT ApplyRaisedNativeLayout(size_t widgetIndex, const RECT& content, UINT dpi) noexcept;
@@ -42,6 +43,8 @@ class DashboardHost final
     [[nodiscard]] IRedXeGpuWidget* GpuWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeWindowWidget* WindowWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeRaisedWidget* RaisedWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] IRedXeInteractiveWidget* InteractiveWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] const char* WidgetInstanceIdAt(size_t index) const noexcept;
     [[nodiscard]] size_t RaisedNativeIndex() const noexcept;
     [[nodiscard]] WidgetPlacement PlacementAt(size_t index) const noexcept;
     [[nodiscard]] RECT PixelBoundsAt(size_t index, UINT width, UINT height) const noexcept;

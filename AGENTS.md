@@ -85,30 +85,34 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 ```text
 Common/PlugInterfaces/
   Factory.*        Current factory ABI, shared factory implementation, and the RedXeComObject mixin
-  Host.h           Host-service COM root: data providers, frame requests, and widget status
-  Widget.h         Complete generic, GPU, scheduled, child-window, and raised-overlay widget ABI
+  Host.h           Host-service COM root: data providers, frame requests, widget status, settings persist, and JSONL log
+  Widget.h         Complete generic, GPU, scheduled, child-window, raised-overlay, interactive, and network widget ABI
   Data.h           Complete source, provider, snapshot, sink, and subscription ABI
 Plugins/
   RotatingTriangle/ First bundled widget-provider DLL
   GdiOrbit/         Double-buffered GDI window-widget DLL
   MatrixRain/       Production low-resource Direct3D digital-rain DLL
   ProcessViewer/    System Data GPU viewers sharing one Direct3D DLL
+  Launcher/         GPU shortcut launcher with jumbo icons, taskbar-pin fallback, and shell launch
+  Weather/          GPU weather widget with host-owned network lane
 RedXe/
   Main.cpp          Process setup and command-line modes
   Application.*     Win32 window and message-loop lifetime
   CrashHandler.*    Fatal-process front door, local minidumps/call stacks, and prior-crash notice
-  PluginHost.*      Process plugin runtime: module store, data providers, and the acquisition worker
+  PluginHost.*      Process plugin runtime: module store, data providers, workers, JSONL log, and settings persist
   PluginManager.*   Widget providers and instance lifetime
-  DashboardHost.*   Widget placement and frame-scheduling policy
+  DashboardHost.*   Widget placement, frame-scheduling policy, and collect-on-exit
   Renderer.*        Direct3D 11 host resources, widget callbacks, placeholder tiles, and frames
-  Settings.*        Typed yyjson persistence, paths, recovery, and file stamps
+  Settings.*        Typed yyjson persistence, paths, recovery, stamps, and persist merge
   SettingsWatcher.* Event-blocked directory notification; posts to the UI thread only
   FluentIcons.h     Segoe Fluent Icons glyphs and font selection for all host chrome
   app.manifest      Per-monitor-v2 DPI and Windows compatibility metadata
 Tests/
   PluginContractTests/ Factory, COM identity, and rendering-IID tests
   HostPluginTests/     Hidden WARP production host/plugin integration and soak tests
-  SettingsTests/       Settings, schema, stamp, and watcher tests
+  SettingsTests/       Settings, schema, stamp, watcher, and log-retention tests
+  LauncherTests/       Launcher factory, pin fallback, WARP, launch, and drop tests
+  WeatherTests/        Weather HTTP heap-body and small-stack overflow regression
 Settings/
   RedXe-debug.settings.json  Shipped Debug default
   RedXe.settings.json        Shipped Release default
@@ -126,12 +130,13 @@ Keep the boundary explicit:
 - `Application` owns the HWND and translates messages into narrow operations.
 - `CrashHandler` owns fatal-process registration and best-effort local artifacts; it creates no background work and
   never uploads dumps.
-- `SettingsStore` owns typed settings validation, user/deployed paths, cold recovery, and stamp deduplication.
+- `SettingsStore` owns typed settings validation, user/deployed paths, the sibling Logs directory path, cold recovery,
+  and stamp deduplication.
 - `SettingsWatcher` owns one event-blocked directory watcher and only posts a coalesced UI message; settings and
   dashboard mutation remain on `Application`'s UI thread.
-- `PluginHost` is process scoped. One instance owns every mapped module, every data source, and the single
-  acquisition worker for the whole application, including the dashboard page staged during a swipe. Optional
-  `RedXePluginShutdown` runs once per module at process teardown.
+- `PluginHost` is process scoped. One instance owns every mapped module, every data source, the single acquisition
+  worker, the optional network worker, and the JSONL log writer for the whole application, including the dashboard
+  page staged during a swipe. Optional `RedXePluginShutdown` runs once per module at process teardown.
 - `PluginManager` borrows that runtime and owns only provider/widget COM references for one page. A per-instance
   construction failure becomes a host-drawn placeholder tile; it does not fail the page.
 - `DashboardHost` owns design-canvas placements, native child containers, and frame-scheduling policy.

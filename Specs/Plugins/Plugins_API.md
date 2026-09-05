@@ -27,13 +27,15 @@ The mandatory requirements in `Specs/Core/Core_PerformanceAndResources.md` apply
 
 | Header | Interface | IID | Purpose |
 | --- | --- | --- | --- |
-| `Host.h` | `IRedXeHost` | `052F039E-794D-4221-9CF2-28B9208F446F` | Host services: data-provider lookup, frame requests, and widget status |
-| `Widget.h` | `IRedXeWidget` | `62DB9FB4-AF7B-47C0-BBF9-B7D5CA535502` | Generic widget identity, lifetime, and visibility |
+| `Host.h` | `IRedXeHost` | `052F039E-794D-4221-9CF2-28B9208F446F` | Host services: data-provider lookup, frame requests, widget status, settings persist, and JSONL log |
+| `Widget.h` | `IRedXeWidget` | `62DB9FB4-AF7B-47C0-BBF9-B7D5CA535502` | Generic widget identity, visibility, and collect-on-exit |
 | `Widget.h` | `IRedXeWidgetProvider` | `231AC0E8-1204-4BFF-BCEA-7CACF11F439D` | Type enumeration and instance creation |
 | `Widget.h` | `IRedXeGpuWidget` | `355C7084-286B-409F-9FD3-A7695DEF2A33` | Direct3D 11 rendering mechanism |
 | `Widget.h` | `IRedXeScheduledWidget` | `1B6B4F9E-5421-4B4E-BC2D-190EE6CE86CB` | Optional low-cadence frame deadline |
 | `Widget.h` | `IRedXeWindowWidget` | `3219FA78-260B-416A-BB76-6331DBF30593` | Host-owned child-container mechanism |
 | `Widget.h` | `IRedXeRaisedWidget` | `A7E4C19B-2F58-4D13-9C6A-80B1D4E7F203` | Optional raised-overlay extent and state |
+| `Widget.h` | `IRedXeInteractiveWidget` | `E4C2A91B-7D3E-4F18-B6A5-2C9D8E0F1744` | Optional pointer and OLE-drop for GPU tiles |
+| `Widget.h` | `IRedXeNetworkWidget` | `3F8C1A70-9B24-4E61-A7D2-5C0E8B4F1D93` | Optional host-scheduled plugin-owned HTTP work |
 | `Data.h` | `IRedXeDataSource` | `C3A81F6E-2D47-4B90-A1E5-6F8C9D0B3E21` | Plugin-side typed, bounded pull snapshots |
 | `Data.h` | `IRedXeDataProvider` | `9EAE20F1-36A8-48A8-B451-F60401A898CD` | Host-side dataset discovery and subscription |
 | `Data.h` | `IRedXeDataSink` | `F9834987-EBC6-411E-9F28-A49E4DBB49D9` | Synchronous borrowed-snapshot delivery on the host worker |
@@ -53,18 +55,31 @@ process runtime rather than a heap-owned object, its reference count is advisory
 Every public COM declaration MUST use the MSVC
 `interface __declspec(uuid("...")) __declspec(novtable) Name : IUnknown` form. Declaring a COM interface with the C++
 `struct` keyword is forbidden. Every interface in the table is a direct child of `IUnknown`; rendering, scheduling,
-host, and data mechanisms MUST NOT inherit from `IRedXeWidget` or from one another.
+interaction, network, host, and data mechanisms MUST NOT inherit from `IRedXeWidget` or from one another.
 
-`IRedXeWidget` adds only `SetVisible`. A widget implementation exposes that interface and each supported rendering
-mechanism as sibling COM interfaces on one object. `QueryInterface(IID_IUnknown)` from every interface MUST return the
-same controlling `IUnknown` pointer. This preserves COM identity without creating a C++ inheritance relationship or
-an accidental vtable dependency between the generic widget and a rendering mechanism.
+RedXe is pre-production: `IRedXeHost` and `IRedXeWidget` vtables MAY grow when a host service or generic widget duty
+is added. Rebuild every source-coordinated consumer together. Do not add a sibling `QueryInterface` only to avoid
+growing those vtables. Rendering and work mechanisms stay sibling IIDs so adding one never changes an existing
+widget vtable. There is no `IRedXeSettingsEditor`. Widget settings persist is a host service on `IRedXeHost`.
+
+`IRedXeWidget` carries `SetVisible` and `CollectPersistentSettings`. A widget implementation exposes that interface
+and each supported rendering or work mechanism as sibling COM interfaces on one object. `QueryInterface(IID_IUnknown)`
+from every interface MUST return the same controlling `IUnknown` pointer. This preserves COM identity without creating
+a C++ inheritance relationship or an accidental vtable dependency between the generic widget and a rendering
+mechanism.
 
 Widgets are initially invisible. `SetVisible` is synchronous, idempotent, and runs on the RedXe UI thread for every
 widget, regardless of rendering mechanism. `SetVisible(FALSE)` quiesces widget-owned animation, subscriptions,
 timers, and other visibility-dependent work before returning. `SetVisible(TRUE)` may resume only work required by
 visible content. The host enables visibility only after the selected mechanism is ready and disables it before that
 mechanism is detached. Attach/detach and device lifetime remain on their mechanism-specific interfaces.
+
+Every widget MUST implement `CollectPersistentSettings`. The host calls it on the UI thread after `SetVisible(FALSE)`
+and before `Detach` during dashboard shutdown and page teardown. `S_FALSE` means nothing to save and MUST set
+`writtenBytes` to 0. `S_OK` writes a complete instance settings object or a mergeable subset into the host-owned
+buffer; `writtenBytes` is the JSON length excluding a terminator. A null `writtenBytes` returns `E_POINTER`. The
+widget MUST NOT write the settings file and MUST NOT call `PersistWidgetSettings` from inside collect; the host
+writes. Widgets with no dirty state, including the current bundled plugins, return `S_FALSE`.
 
 Every public record starts with `sizeBytes`. It is retained so a future production compatibility policy can define
 safe record evolution. Under the current pre-production contract it is an exact stale-binary and malformed-input
@@ -104,11 +119,13 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   raw `__declspec(dllexport)` in the implementation, so the shipped export set is readable from the contract header.
   The host never calls these exports. The current surface is: `RedXeMatrixRainGetTestDiagnostics`,
   `RedXeProcessViewerGetTestDiagnostics`, `RedXeStudioClockGetTestDiagnostics`, `RedXeStudioClockSetTestTime`,
-  `RedXeDeskClockGetTestDiagnostics`, and `RedXeDeskClockSetTestTime`.
+  `RedXeDeskClockGetTestDiagnostics`, `RedXeDeskClockSetTestTime`, `RedXeWeatherGetTestDiagnostics`, and
+  `RedXeWeatherProbeHttpGetOnSmallStack`.
 - Every factory call names one non-empty plugin ID. Null and empty IDs are invalid, including in single-plugin DLLs.
 - Factory, enumeration, widget creation, device notification, GPU rendering, native-window lifecycle, host-service,
-  data-source, provider, and data-sink calls are synchronous and non-reentrant. Widget visibility and native-window
-  calls run on the RedXe UI thread; data-sink callbacks run only on the host acquisition worker.
+  data-source, provider, and data-sink calls are synchronous and non-reentrant. Widget visibility, collect-on-exit,
+  persist, native-window, pointer, and drop calls run on the RedXe UI thread; data-sink callbacks run only on the host
+  acquisition worker; `IRedXeNetworkWidget::RunNetworkWork` runs only on the host network worker.
 - Rendering interfaces and generic widgets are released before providers, optional shutdown, and process teardown.
 - Modules remain mapped until process teardown. Exceptions must not cross ABI or Win32 boundaries.
 
@@ -141,18 +158,39 @@ object it was supplied to.
 
 - `GetDataProvider` and `ReportWidgetStatus` are synchronous, non-reentrant, and run on the caller's thread.
 - `RequestFrame` coalesces one host frame for a widget whose own state changed. It is safe from any thread, including
-  a data-sink callback on the acquisition worker, performs no allocation, and never blocks. It does not force a
+  a data-sink callback on the acquisition worker and `RunNetworkWork` on the network worker, performs no allocation,
+  and never blocks. It does not force a
   frame: hidden, minimized, suspended, display-off, and occluded hosts still block. It is the per-instance mechanism;
   `RedXeWidgetFlagContinuousAnimation` is a property of the widget *type* and cannot describe an instance whose motion
   starts and stops. A widget MUST use `RequestFrame` rather than declaring continuous animation for intermittent
   motion, and rather than returning a short `IRedXeScheduledWidget` delay purely to be polled.
-- `RequestFrame` is the only host service a sink may call from inside `OnDataSnapshot`.
+- `RequestFrame` is the only host service a sink may call from inside `OnDataSnapshot` besides `Log`. `RunNetworkWork`
+  MAY call `RequestFrame` and `Log` and MUST NOT call `PersistWidgetSettings`.
 - `ReportWidgetStatus` records the condition of one widget instance, named by the instance ID the host passed to
   `CreateWidget`. Status is one of `RedXeWidgetStatusOk`, `Initializing`, `Degraded`, or `Unavailable`, with an
   optional borrowed UTF-16 reason the host copies into bounded storage and truncates. Repeat reports are idempotent;
   only a change coalesces a frame. A malformed record, an unknown status value, or an invalid instance ID returns
   `E_INVALIDARG`. Reporting `Unavailable` makes the host own that tile and draw its placeholder; `Degraded` and
   `Initializing` are recorded but leave the widget drawing its own content.
+- `PersistWidgetSettings` asks the host to persist this instance's plugin settings object, not the factory envelope.
+  The widget MAY send the complete object or a subset of members. The host always merges supplied members into the
+  stored instance object, validates the complete result against the 4096-byte compact cap and the plugin schema, and
+  MAY write the user document. The call MUST NOT destroy or detach the calling widget. Plugins MUST NOT write the
+  settings file. The call is UI-thread only, synchronous, and non-reentrant. It is forbidden from device, size,
+  visibility, raise, `Render`, `CollectPersistentSettings`, `OnDataSnapshot`, and `RunNetworkWork`. It is allowed from
+  `OnPointer` (committed click) and `OnDrop`. A null instance ID, a null JSON pointer, or zero bytes returns
+  `E_INVALIDARG`. `--self-test` and HostPluginTests keep a successful merge in memory and MUST NOT write
+  `%LocalAppData%`.
+- `Log` appends one diagnostic JSONL line. It is safe from any thread, including the acquisition and network workers,
+  copies bounded fields into a 32-slot 1024-byte ring, and never blocks on disk. The host writer is event-blocked and
+  writes UTC-dated files (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`), opening a new file when the UTC
+  day changes and deleting dated files at least `logRetentionDays` old (default 15, range 1–365). Interactive RedXe
+  stores those files under the settings sibling `Logs` directory (`%LocalAppData%\RedXe\Logs` by default). `--self-test`
+  MUST NOT open that directory. Release drops `RedXeLogLevelDebug`. A null record, a mismatched `sizeBytes`, a missing
+  event id or message, or an unknown level returns `E_POINTER` / `E_INVALIDARG`. Plugins MUST NOT call `Log` from
+  `Render` or GDI paint and MUST NOT emit per-frame success. Factory create, module map, placeholder construction,
+  native attach, GPU device-create, GPU render failure (once per instance and HRESULT), and weather forecast outcomes
+  are the required coverage.
 
 ### Static settings contract
 
@@ -166,10 +204,11 @@ requested plugin ID. The record and its UTF-8 strings remain valid while the mod
 - Schema and defaults are JSON objects bounded at 4096 bytes each. The schema is written in Draft 2020-12 syntax and
   may contain bounded `x-ui-*` annotations. Defaults MUST validate against the schema.
 - The host validates a bounded subset of that syntax, not the whole draft. The supported subset is exactly:
-  `"object"` with `properties`, `additionalProperties`, and `required`; `"integer"` and `"number"` with `minimum` and
-  `maximum`; `"string"` with `enum` and the single `pattern` `^#[0-9A-Fa-f]{6}$`; and `"boolean"`. Arrays, `$ref`,
-  composition keywords, and any other `pattern` are rejected rather than silently accepted, so a plugin cannot publish
-  a constraint the host does not enforce. A plugin schema MUST stay inside this subset.
+  `"object"` with `properties`, `additionalProperties`, and `required`; `"array"` with `items`, `minItems`, and
+  `maxItems` where `items` is one closed `"object"` (nested arrays are forbidden); `"integer"` and `"number"` with
+  `minimum` and `maximum`; `"string"` with `enum` and the single `pattern` `^#[0-9A-Fa-f]{6}$`; and `"boolean"`.
+  `$ref`, composition keywords, and any other `pattern` are rejected rather than silently accepted, so a plugin cannot
+  publish a constraint the host does not enforce. A plugin schema MUST stay inside this subset.
 - The host parses each referenced plugin's schema once per staging pass, not once per widget appearance.
 - One settings-visible plugin ID selects one widget kind. A DLL may publish several IDs, each with its own contract.
 - The host copies or parses borrowed strings synchronously and never frees them.
@@ -179,7 +218,9 @@ requested plugin ID. The record and its UTF-8 strings remain valid while the mod
   `topN` object with range 1 through 16 and default 8. System Pulse, CPU Meter, Memory Meter, Storage Meter, GPU Meter,
   Power Meter, and Thermal Meter publish closed empty-object schemas and `{}` defaults. Studio Clock publishes its
   complete closed boolean, color, and date-format schema and defaults. Desk Clock publishes its complete closed duration
-  and color schema and defaults.
+  and color schema and defaults. Weather publishes its closed location and unit schema and defaults. Launcher publishes
+  a closed `shortcuts` array of 0 through 8 objects with required `target` and optional `iconPng`, default
+  `{"shortcuts":[]}`.
 
 The metadata capability surface advertises factory-created plugin services through
 `RedXePluginCapabilityWidgetProvider` and `RedXePluginCapabilityDataSource`. Rendering mechanisms are discovered on
@@ -283,9 +324,10 @@ GPU vtables.
   is the only callback where a GPU widget MAY rasterize, create textures, or allocate. The host calls it on the UI
   thread, synchronously and non-reentrantly, after `OnDeviceCreated` and before the first `Render`, and again whenever
   that size changes: resize, DPI change, layout change, and raise or dismiss.
-  - It MUST NOT be called for a position-only change such as a page-swipe offset, and MUST NOT be called per frame.
-    The host compares the integer viewport size against the last size it reported for that widget and calls only on a
-    difference.
+  - It MUST NOT be called for a position-only change such as a page-swipe offset, MUST NOT be called per frame, and
+    MUST NOT be called for each interpolated rectangle during a raise or dismiss settle. The host reports the final
+    overlay size when raise starts and the tile size when dismiss completes. The host compares the integer viewport
+    size against the last size it reported for that widget and calls only on a difference.
   - A raised widget is drawn twice in one frame, at its tile and again at the overlay slice, so the reported size is
     the larger of the two. The smaller draw is a minification the sampler handles.
   - A widget with no resolution-dependent resources returns `S_OK` and does nothing.
@@ -351,7 +393,18 @@ MUST leave the tile in standard layout.
 `SetRaised` is synchronous, idempotent, and runs on the RedXe UI thread. `TRUE` tells the widget it now occupies a
 larger host overlay content rectangle and MUST use that size to present bigger glyphs or every value that now fits,
 including extra rows, bars, or history that the compact tile omitted. `FALSE` restores standard tile presentation.
+The host sends `TRUE` when raise starts, before the settle eases the viewport, and `FALSE` when a dismiss settle
+completes (or immediately when dismiss cannot animate).
 The call MUST NOT allocate, wait, or re-enter the host.
+
+`IRedXeInteractiveWidget` is an optional sibling for GPU tiles that have no child HWND. The host hit-tests the same
+topmost widget bounds as raise, converts contacts to widget-local pixels, and forwards `OnPointer`. `S_OK` on Down/Up
+consumes the contact and MUST NOT count toward double-activate raise. `S_FALSE` leaves raise and edge-click navigation
+unchanged. A page pan that locks horizontal sends `Cancel` and does not launch. Edge-band clicks never reach the
+widget. While raised, local origin is the overlay content rectangle. The host implements `IDropTarget` on the top-level
+HWND after `OleInitialize`; it parses `CF_HDROP` paths and Unicode text that is a full URL into `RedXeDropEvent` and
+calls `OnDrop`. Native-window children that are not drop targets (GdiOrbit) MUST NOT steal GPU-tile drops. Plugins
+MUST NOT initialize OLE or call `RegisterDragDrop`.
 
 Shipped extents:
 
@@ -359,6 +412,7 @@ Shipped extents:
 - System Pulse: quarter.
 - CPU, Memory, GPU, and Power: third.
 - Studio Clock and Desk Clock: half.
+- Launcher: half.
 - Matrix Rain: full.
 - Rotating Triangle and GdiOrbit: quarter.
 
@@ -387,11 +441,15 @@ already fills the client MUST NOT raise.
   behaviorally invisible to independent widget instances.
 - Document-level validation failures stay fatal: a malformed document, an unknown plugin or widget type, a disabled
   plugin, or private configuration that fails its published schema rejects the document as a whole.
+- A catalogued bundled module that `LoadLibraryExW` cannot map is not an unknown plugin. It is a per-instance *runtime*
+  mapping failure: skip that module's published-schema check, keep going, and treat current-page instances as
+  placeholders. Startup MUST NOT abort because one catalogued DLL is absent or unloadable. A mapped module that
+  publishes an invalid settings contract remains document-fatal.
 - A per-instance *runtime* construction failure MUST NOT fail its page or startup. The host keeps the authored
   placement, marks the slot a placeholder, records the failing `HRESULT`, and draws its own placeholder over that
   tile. Sibling widgets keep their authored geometry and continue to render. This branch is defensive: current
   document validation rejects the cases that would make a bundled plugin refuse an instance, so it covers runtime
-  exhaustion such as memory or subscription slots.
+  exhaustion such as memory or subscription slots, and a catalogued DLL that cannot be mapped.
 - A widget that reports `RedXeWidgetStatusUnavailable` is drawn with the same host placeholder for as long as it says
   so, and takes its tile back when it reports any other status.
 - `DashboardHost` owns compiled adaptive split paths, cached responsive placements, host child containers,
@@ -410,6 +468,9 @@ already fills the client MUST NOT raise.
   because it is only partly inside the client. The parent HWND clips the visible portion.
 - Hidden, minimized, display-off, and DXGI-occluded states call `IRedXeWidget::SetVisible(FALSE)` so every widget
   quiesces visibility-dependent work. Recovery calls `SetVisible(TRUE)` only after visible rendering resumes.
+- Dashboard shutdown and page teardown call `CollectPersistentSettings` after `SetVisible(FALSE)` and before `Detach`.
+  `S_OK` with a non-empty buffer is forwarded to `IRedXeHost::PersistWidgetSettings`. A persist failure MUST NOT fail
+  teardown.
 
 ## Bundled plugins
 
@@ -747,6 +808,43 @@ time at most once per displayed second. The plugin owns no timer, worker, HWND, 
 render path performs no heap allocation. Host visibility, power, suspension, occlusion, active-page, and continuous-
 sibling policy owns deadline retention, pacing, and suppression. `WM_TIMECHANGE` invalidates one host frame.
 
+`Plugins/Launcher` exposes settings-visible plugin ID `builtin.launcher`, internally maps it to type ID `launcher`,
+and exposes sibling `IRedXeGpuWidget`, `IRedXeInteractiveWidget`, and `IRedXeRaisedWidget` interfaces on one
+controlling `IUnknown`. It rejects `IRedXeWindowWidget` and `IRedXeScheduledWidget`. Its raised extent is half. The
+static descriptor is 480×480 with a 160×160 minimum and does not request continuous animation. The Debug first page
+places it as the left leaf so page-1 widget count stays 4. Both shipped galleries add one Launcher leaf (page-2 count
+7). It is not on the System page. Shipped examples use `{"shortcuts":[]}`.
+
+Launcher settings are the closed object `shortcuts`: an array of 0 through 8 items. Each item is a closed object with
+required `target` (UTF-8, 1 through 512 bytes) and optional `iconPng` (UTF-8, 0 through 260 bytes, absolute PNG path).
+`target` is either an absolute Win32 filesystem path (`C:\...` or `\\server\share\...`) or a URI with an alphabetic
+scheme of at least two characters followed by `:`. Relative paths, empty targets, schemeless host names, unknown
+members, nested arrays, and more than eight items reject the complete candidate. Duplicate `target` values
+(case-insensitive Win32 path compare, exact URL compare) reject the document. Compact settings remain ≤ 4096 bytes.
+
+When the authored list is empty, `SetVisible(TRUE)` enumerates up to eight `.lnk` files in the current user's pinned
+taskbar folder (`FOLDERID_UserPinned` + `\TaskBar`, then the roaming Quick Launch `User Pinned\TaskBar` fallback),
+sorted by name, skipping `desktop.ini`. Those shortcuts are display-only and MUST NOT appear in persist JSON. A drop
+while showing pins persists only the dropped items. `--self-test`, HostPluginTests, and other automated hosts set
+`REDXE_AUTOMATED_HOST=1` and MUST NOT read the live taskbar; tests inject a pin directory through
+`RedXeLauncherSetTestPinDirectory`. `nullptr` restores live enumeration; an empty string means no pins.
+
+Launch uses `ShellExecuteExW` only, on the UI thread: `lpVerb` is null (the default verb), `fMask` is
+`SEE_MASK_FLAG_NO_UI` only, `hwnd` is null, and the call does not wait. Automated hosts count launches and MUST NOT
+call `ShellExecuteExW`. Icon extraction is off `Render`: PNG via WIC (PNG container only, long edge capped at 256),
+else `IExtractIconW` 256, else `IShellItemImageFactory::GetImage` 256 with `SIIGBF_BIGGERSIZEOK`, else
+`SHGFI_SYSICONINDEX` plus `IImageList::GetIcon` from `SHIL_JUMBO` then XL/LARGE/SMALL. Never `SHGFI_ICON`. Jumbo
+padding is trimmed. Device loss keeps CPU BGRA and re-uploads without a second shell extract.
+
+Shared device resources live once per provider: embedded Shader Model 5.0 blobs, textured-quad pipeline, sampler, and
+immutable blend/rasterizer/depth state. Each instance owns at most eight 256×256 icon textures and one 320-byte
+dynamic constant buffer. `Render` is allocation-free and issues at most two draws (background plus instanced icons).
+A swipe viewport keeps the widget's full size and may have a negative origin; `Render` must still draw. A committed
+click starts a bounded 3D launch motion of at most 400 ms via `RequestFrame` from `Render` only; idle with a static
+grid owns no wake-up. `RequestFrame` MUST NOT be called from `SetVisible` or `OnDeviceCreated`. `OnDrop` and
+`OnPointer` (committed click) MAY call `RequestFrame` and `PersistWidgetSettings`. `CollectPersistentSettings` returns
+`S_FALSE` when the authored list is unchanged.
+
 ## Required validation
 
 1. Run `./format.ps1` and `./validate-skills.ps1`.
@@ -757,12 +855,15 @@ sibling policy owns deadline retention, pacing, and suppression. `WM_TIMECHANGE`
    larger records, every
    configuration pointer/length mismatch, the 8192-byte cap, synchronous configuration copying, and borrowed array
    stability.
-5. Verify generic widget/rendering-interface negotiation, root visibility, and controlling-IUnknown identity. The
+5. Verify generic widget/rendering-interface negotiation, root visibility, collect-on-exit, and controlling-IUnknown
+   identity. The
    GPU-only widget rejects the window IID and the window-only widget rejects the GPU IID. Every bundled widget exposes
    `IRedXeRaisedWidget`, returns `E_POINTER` for a null extent, reports its shipped fraction, and accepts idempotent
-   `SetRaised`. Compile-time contract checks MUST also pin every public record's `sizeof`, and every pointer-bearing
+   `SetRaised`. A widget with nothing to save returns `S_FALSE` from `CollectPersistentSettings` and `E_POINTER` for a
+   null `writtenBytes`. Compile-time contract checks MUST also pin every public record's `sizeof`, and every pointer-bearing
    record's field offsets, and MUST prove that every public COM interface derives directly from
-   `IUnknown` and that neither rendering, scheduled, nor raised interfaces derive from `IRedXeWidget`.
+   `IUnknown` and that neither rendering, scheduled, raised, interactive, nor network interfaces derive from
+   `IRedXeWidget`. Persist is on `IRedXeHost`, not a base of `IRedXeWidget`.
 6. Verify all configured GPU-widget instances receive device creation, render successfully, receive device loss, and
    survive WARP rendering without a hardware GPU. Matrix readback MUST contain configured background and glyph pixels;
    identical inputs MUST reproduce identical pixels, while time and seed changes MUST change the result.
@@ -797,7 +898,25 @@ sibling policy owns deadline retention, pacing, and suppression. `WM_TIMECHANGE`
     unknown status values, and null arguments are rejected.
 12c. Host tests MUST prove that a valid page produces no placeholder tiles, that a widget reporting
     `RedXeWidgetStatusUnavailable` hands exactly its own tile to the host while siblings keep drawing, that
-    `Degraded` and `Initializing` do not, and that recovery returns the tile to the widget.
+    `Degraded` and `Initializing` do not, and that recovery returns the tile to the widget. They MUST also prove that
+    a catalogued plugin whose module cannot be mapped becomes a placeholder beside a constructable sibling and does
+    not abort page initialization. Host tests MUST prove `Weather.dll` maps and constructs a GPU widget (its curl and
+    zlib runtime DLLs MUST sit beside it in `Plugins\`). WeatherTests MUST prove `sizeof(WeatherHttpResponse)` stays
+    within 64 bytes and that a cancelled `WeatherHttpGet` on a 192 KiB reserved stack returns `ERROR_CANCELLED` without
+    overflowing. HTTP response bodies are 256 KiB heap buffers; they MUST NOT be automatic arrays on the network worker.
+    `weathericons-regular-webfont.ttf` MUST sit beside `Weather.dll` so DirectWrite can atlas-rasterize Weather Icons
+    glyphs; `Render` stays allocation-free.
+12d. Host tests MUST prove that `PersistWidgetSettings` without a host handler returns `E_UNEXPECTED`, that a handler
+    receives a partial settings object, and that a constructed widget with nothing to save returns `S_FALSE` from
+    `CollectPersistentSettings`. Settings tests MUST prove a partial merge keeps unspecified members and rejects
+    unknown plugin members.
+12e. Host tests MUST prove that `Log` rejects a null record, a mismatched `sizeBytes`, a missing event or message, and
+    an unknown level; that `Log` before `SetLogDirectory` succeeds and writes nothing; that `SetLogDirectory` plus
+    `FlushLog` produces a UTC-dated JSONL file containing `ts`, `level`, `event`, and `message`; that retention deletes
+    expired dated files and legacy undated names; and that `--self-test` never
+    calls `SetLogDirectory`. Compile-time contract checks MUST pin `sizeof(RedXeLogRecord)` and its pointer offsets.
+    Settings tests MUST prove the default logs directory is the `Logs` sibling of `Settings` and that `logRetentionDays`
+    defaults to 15 and rejects 0 and 366.
 13. Compile-time checks MUST validate unique bundled plugin IDs and module names, keep every widget projection entry
     backed by one module entry, and keep that projection within the 64-plugin settings limit.
 14. Keep `/W4`, `/permissive-`, SDL checks, and warnings-as-errors green.
@@ -843,11 +962,17 @@ sibling policy owns deadline retention, pacing, and suppression. `WM_TIMECHANGE`
     compiler, WIC, and loose font/image assets, five-minute scheduled production-host soak, and complete teardown
     through `DeskClockTests`,
     `SettingsTests`, and `HostPluginTests`.
+19. Verify Launcher factory/settings rejection (unknown members, nine items, empty target, relative path, schemeless
+    host name, overlong string), injected pin-directory fallback, automated empty list without live taskbar reads,
+    jumbo-or-PNG extraction, WARP two-draw icon grid, device-loss re-upload without a second extract, launch counting
+    with zero `ShellExecuteExW`, drop append/cap, and that persist JSON never contains the pin snapshot, through
+    `LauncherTests`, `SettingsTests`, and `HostPluginTests`.
 
-The automated Debug host composition must contain two GPU fixtures, the GDI fixture, and Matrix Rain. The automated
+The automated Debug host composition must contain the GPU launcher, one rotating-triangle GPU fixture, the GDI
+fixture, and Matrix Rain. The automated
 Release first-page composition must contain one full-canvas Matrix widget. The second page of each shipped template
 must demonstrate every settings-visible plugin in the compile-time bundled widget projection, including Process Viewer,
-Studio Clock, and Desk Clock. The third page of each shipped template is named `System` and MUST place one instance of
+Studio Clock, Desk Clock, Weather, and Launcher. The third page of each shipped template is named `System` and MUST place one instance of
 every Process Viewer family widget.
 Scheduler tests must prove
 that hidden, minimized,

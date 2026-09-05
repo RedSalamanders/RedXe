@@ -1,0 +1,923 @@
+#include "../../Plugins/Launcher/LauncherTestContract.h"
+#include "PlugInterfaces/Factory.h"
+#include "PlugInterfaces/Host.h"
+#include "PlugInterfaces/Widget.h"
+
+#include <array>
+#include <atomic>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <cwchar>
+#include <string>
+#include <string_view>
+
+#if defined(_DEBUG)
+#include <crtdbg.h>
+#endif
+
+#include <d3d11.h>
+#include <ole2.h>
+#include <shellapi.h>
+#include <shlobj.h>
+#include <wincodec.h>
+
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027 28182)
+#include <wil/com.h>
+#include <wil/resource.h>
+#pragma warning(pop)
+
+namespace
+{
+constexpr char kPluginId[] = "builtin.launcher";
+constexpr char kWidgetTypeId[] = "launcher";
+constexpr std::string_view kEmptyShortcuts = R"json({"shortcuts":[]})json";
+constexpr HRESULT kTestFailure = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+constexpr wchar_t kNotepad[] = L"C:\\Windows\\System32\\notepad.exe";
+
+std::atomic<uint64_t> gRenderAllocations{0};
+std::atomic<DWORD> gRenderThread{0};
+
+#if defined(_DEBUG)
+int __cdecl CountRenderAllocation(int allocationType, void*, size_t, int, long, const unsigned char*, int)
+{
+    if (allocationType != _HOOK_FREE && GetCurrentThreadId() == gRenderThread.load(std::memory_order_relaxed))
+    {
+        gRenderAllocations.fetch_add(1, std::memory_order_relaxed);
+    }
+    return TRUE;
+}
+#endif
+
+template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, const char* name) noexcept
+{
+    return reinterpret_cast<Function>(GetProcAddress(module, name));
+}
+
+[[nodiscard]] HRESULT BuildSiblingPath(const wchar_t* relativePath, std::array<wchar_t, 1024>& path) noexcept
+{
+    const DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+    if (length == 0 || length >= path.size())
+    {
+        return HRESULT_FROM_WIN32(length == 0 ? GetLastError() : ERROR_INSUFFICIENT_BUFFER);
+    }
+    wchar_t* separator = std::wcsrchr(path.data(), L'\\');
+    if (!separator)
+    {
+        return E_UNEXPECTED;
+    }
+    ++separator;
+    const size_t prefix = static_cast<size_t>(separator - path.data());
+    const size_t suffix = std::wcslen(relativePath);
+    if (prefix + suffix + 1 > path.size())
+    {
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    }
+    std::memcpy(separator, relativePath, (suffix + 1) * sizeof(wchar_t));
+    return S_OK;
+}
+
+class TestHost final : public IRedXeHost
+{
+  public:
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
+    {
+        if (!result)
+        {
+            return E_POINTER;
+        }
+        *result = nullptr;
+        if (interfaceId != IID_IUnknown && interfaceId != __uuidof(IRedXeHost))
+        {
+            return E_NOINTERFACE;
+        }
+        *result = static_cast<IRedXeHost*>(this);
+        AddRef();
+        return S_OK;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return 1;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        return 1;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetDataProvider(const char*, IRedXeDataProvider** provider) noexcept override
+    {
+        if (provider)
+        {
+            *provider = nullptr;
+        }
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE RequestFrame() noexcept override
+    {
+        ++frameRequests;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE ReportWidgetStatus(const char*, const RedXeWidgetStatusReport*) noexcept override
+    {
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE PersistWidgetSettings(const char* instanceId, const char* json,
+                                                    uint32_t bytes) noexcept override
+    {
+        persistCalls += 1;
+        persistBytes = bytes;
+        if (instanceId)
+        {
+            persistInstance.assign(instanceId);
+        }
+        if (json && bytes > 0)
+        {
+            persistJson.assign(json, bytes);
+        }
+        return persistResult;
+    }
+
+    HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord*) noexcept override
+    {
+        return S_OK;
+    }
+
+    uint32_t frameRequests = 0;
+    uint32_t persistCalls = 0;
+    uint32_t persistBytes = 0;
+    HRESULT persistResult = S_OK;
+    std::string persistInstance;
+    std::string persistJson;
+};
+
+struct RenderTarget final
+{
+    uint32_t width = 0;
+    uint32_t height = 0;
+    D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
+    wil::com_ptr_nothrow<ID3D11Device> device;
+    wil::com_ptr_nothrow<ID3D11DeviceContext> context;
+    wil::com_ptr_nothrow<ID3D11Texture2D> texture;
+    wil::com_ptr_nothrow<ID3D11RenderTargetView> view;
+};
+
+[[nodiscard]] HRESULT CreateRenderTarget(uint32_t width, uint32_t height, RenderTarget& target) noexcept
+{
+    constexpr std::array featureLevels{D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
+    RenderTarget created{};
+    created.width = width;
+    created.height = height;
+    HRESULT result = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                                       featureLevels.data(), static_cast<UINT>(featureLevels.size()), D3D11_SDK_VERSION,
+                                       created.device.put(), &created.featureLevel, created.context.put());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    D3D11_TEXTURE2D_DESC description{};
+    description.Width = width;
+    description.Height = height;
+    description.MipLevels = 1;
+    description.ArraySize = 1;
+    description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    description.SampleDesc.Count = 1;
+    description.Usage = D3D11_USAGE_DEFAULT;
+    description.BindFlags = D3D11_BIND_RENDER_TARGET;
+    result = created.device->CreateTexture2D(&description, nullptr, created.texture.put());
+    if (SUCCEEDED(result))
+    {
+        result = created.device->CreateRenderTargetView(created.texture.get(), nullptr, created.view.put());
+    }
+    if (FAILED(result))
+    {
+        return result;
+    }
+    target = std::move(created);
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT RenderFrame(IRedXeGpuWidget& widget, RenderTarget& target, float elapsedSeconds,
+                                  float deltaSeconds, float originX = 0.0f) noexcept
+{
+    target.context->ClearState();
+    ID3D11RenderTargetView* views[] = {target.view.get()};
+    target.context->OMSetRenderTargets(1, views, nullptr);
+    const D3D11_VIEWPORT viewport{
+        originX, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f,
+    };
+    target.context->RSSetViewports(1, &viewport);
+    const RedXeWidgetFrameContext widgetFrame{
+        sizeof(RedXeWidgetFrameContext), target.width,   target.height,
+        USER_DEFAULT_SCREEN_DPI,         elapsedSeconds, deltaSeconds,
+    };
+    const RedXeGpuFrameContext frame{sizeof(RedXeGpuFrameContext), &widgetFrame, target.context.get(), viewport};
+    return widget.Render(&frame);
+}
+
+[[nodiscard]] HRESULT CreateProvider(RedXeCreateFn create, std::string_view configuration, IRedXeHost* host,
+                                     wil::com_ptr_nothrow<IRedXeWidgetProvider>& provider) noexcept
+{
+    try
+    {
+        std::string envelope;
+        envelope.reserve(configuration.size() + 32);
+        envelope.append("{\"plugin\":{},\"instance\":").append(configuration).append("}");
+        RedXeFactoryOptions options{};
+        options.sizeBytes = sizeof(options);
+        options.configurationJsonUtf8 = envelope.data();
+        options.configurationBytes = static_cast<uint32_t>(envelope.size());
+        void* object = nullptr;
+        const HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, host, kPluginId, &object);
+        if (FAILED(result) || !object)
+        {
+            return FAILED(result) ? result : E_UNEXPECTED;
+        }
+        provider.attach(static_cast<IRedXeWidgetProvider*>(object));
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_OUTOFMEMORY;
+    }
+}
+
+[[nodiscard]] HRESULT ExpectReject(RedXeCreateFn create, std::string_view configuration) noexcept
+{
+    wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+    const HRESULT result = CreateProvider(create, configuration, nullptr, provider);
+    return (FAILED(result) && !provider) ? S_OK : kTestFailure;
+}
+
+[[nodiscard]] HRESULT WritePng(const wchar_t* path) noexcept
+{
+    wil::com_ptr_nothrow<IWICImagingFactory> factory;
+    HRESULT result =
+        CoCreateInstance(CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.put()));
+    if (FAILED(result))
+    {
+        return result;
+    }
+    constexpr UINT edge = 32;
+    std::array<uint8_t, edge * edge * 4> pixels{};
+    for (uint8_t& value : pixels)
+    {
+        value = 255;
+    }
+    wil::com_ptr_nothrow<IWICBitmap> bitmap;
+    result = factory->CreateBitmapFromMemory(edge, edge, GUID_WICPixelFormat32bppPBGRA, edge * 4,
+                                             static_cast<UINT>(pixels.size()), pixels.data(), bitmap.put());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    wil::com_ptr_nothrow<IWICStream> stream;
+    result = factory->CreateStream(stream.put());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = stream->InitializeFromFilename(path, GENERIC_WRITE);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    wil::com_ptr_nothrow<IWICBitmapEncoder> encoder;
+    result = factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, encoder.put());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = encoder->Initialize(stream.get(), WICBitmapEncoderNoCache);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    wil::com_ptr_nothrow<IWICBitmapFrameEncode> frame;
+    result = encoder->CreateNewFrame(frame.put(), nullptr);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = frame->Initialize(nullptr);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = frame->SetSize(edge, edge);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    WICPixelFormatGUID format = GUID_WICPixelFormat32bppPBGRA;
+    result = frame->SetPixelFormat(&format);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = frame->WriteSource(bitmap.get(), nullptr);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = frame->Commit();
+    if (FAILED(result))
+    {
+        return result;
+    }
+    return encoder->Commit();
+}
+
+[[nodiscard]] HRESULT WriteShortcut(const wchar_t* path) noexcept
+{
+    wil::com_ptr_nothrow<IShellLinkW> link;
+    HRESULT result = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(link.put()));
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = link->SetPath(kNotepad);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    wil::com_ptr_nothrow<IPersistFile> persist;
+    result = link.query_to(persist.put());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    return persist->Save(path, TRUE);
+}
+
+[[nodiscard]] HRESULT AttachGpu(IRedXeWidget& widget, RenderTarget& target, IRedXeGpuWidget** gpuOut) noexcept
+{
+    wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
+    HRESULT result = widget.QueryInterface(__uuidof(IRedXeGpuWidget), reinterpret_cast<void**>(gpu.put()));
+    if (FAILED(result) || !gpu)
+    {
+        return FAILED(result) ? result : kTestFailure;
+    }
+    const RedXeGpuDeviceContext deviceContext{sizeof(RedXeGpuDeviceContext), target.device.get(),
+                                              DXGI_FORMAT_B8G8R8A8_UNORM, target.featureLevel};
+    result = gpu->OnDeviceCreated(&deviceContext);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    const RedXeGpuTargetSizeContext sizeContext{sizeof(RedXeGpuTargetSizeContext), target.width, target.height,
+                                                USER_DEFAULT_SCREEN_DPI};
+    result = gpu->OnTargetSizeChanged(&sizeContext);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    *gpuOut = gpu.detach();
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT ValidateFactoryAndSettings(RedXeCreateFn create, RedXeEnumeratePluginsFn enumerate,
+                                                 RedXeGetPluginSettingsContractFn getContract) noexcept
+{
+    if (enumerate(nullptr, nullptr) != E_POINTER || getContract(kPluginId, nullptr) != E_POINTER)
+    {
+        return kTestFailure;
+    }
+    const RedXePluginMetadata* metadata = nullptr;
+    uint32_t count = 0;
+    HRESULT result = enumerate(&metadata, &count);
+    if (FAILED(result) || count != 1 || !metadata || !metadata->id || std::strcmp(metadata->id, kPluginId) != 0)
+    {
+        return kTestFailure;
+    }
+    const RedXePluginSettingsContract* contract = nullptr;
+    result = getContract(kPluginId, &contract);
+    if (FAILED(result) || !contract || contract->sizeBytes != sizeof(RedXePluginSettingsContract))
+    {
+        return kTestFailure;
+    }
+    if (FAILED(ExpectReject(create, R"json({"shortcuts":[{"target":""}]})json")) ||
+        FAILED(ExpectReject(create, R"json({"shortcuts":[{"target":"example.com"}]})json")) ||
+        FAILED(ExpectReject(create, R"json({"shortcuts":[{"target":"Docs\\file.txt"}]})json")) ||
+        FAILED(ExpectReject(create, R"json({"extra":1,"shortcuts":[]})json")) ||
+        FAILED(ExpectReject(create, R"json({"shortcuts":[{"target":"C:\\Windows\\notepad.exe","nope":1}]})json")) ||
+        FAILED(ExpectReject(
+            create,
+            R"json({"shortcuts":[{"target":"C:\\a.exe"},{"target":"C:\\b.exe"},{"target":"C:\\c.exe"},{"target":"C:\\d.exe"},{"target":"C:\\e.exe"},{"target":"C:\\f.exe"},{"target":"C:\\g.exe"},{"target":"C:\\h.exe"},{"target":"C:\\i.exe"}]})json")))
+    {
+        std::wprintf(L"Launcher factory rejected a valid document or accepted an invalid one.\n");
+        return kTestFailure;
+    }
+    wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+    result = CreateProvider(create, kEmptyShortcuts, nullptr, provider);
+    if (FAILED(result) || !provider)
+    {
+        return FAILED(result) ? result : kTestFailure;
+    }
+    void* window = reinterpret_cast<void*>(1);
+    wil::com_ptr_nothrow<IRedXeWidget> widget;
+    result = provider->CreateWidget(kWidgetTypeId, "launcher.test", widget.put());
+    if (FAILED(result) || !widget)
+    {
+        return FAILED(result) ? result : kTestFailure;
+    }
+    if (widget->QueryInterface(__uuidof(IRedXeWindowWidget), &window) != E_NOINTERFACE || window)
+    {
+        return kTestFailure;
+    }
+    wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
+    wil::com_ptr_nothrow<IRedXeRaisedWidget> raised;
+    if (FAILED(widget.query_to(interactive.put())) || FAILED(widget.query_to(raised.put())) || !interactive || !raised)
+    {
+        return kTestFailure;
+    }
+    RedXeRaisedExtent extent = static_cast<RedXeRaisedExtent>(0);
+    if (raised->GetRaisedExtent(&extent) != S_OK || extent != RedXeRaisedExtentHalf)
+    {
+        return kTestFailure;
+    }
+    uint32_t written = 1;
+    std::array<char, 8> buffer{};
+    if (widget->CollectPersistentSettings(buffer.data(), static_cast<uint32_t>(buffer.size()), &written) != S_FALSE ||
+        written != 0)
+    {
+        return kTestFailure;
+    }
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT ValidatePinsAndRendering(RedXeCreateFn create, LauncherSetTestPinDirectoryFn setPinDirectory,
+                                               LauncherGetTestDiagnosticsFn getDiagnostics,
+                                               LauncherResetTestDiagnosticsFn resetDiagnostics) noexcept
+{
+    resetDiagnostics();
+    if (FAILED(setPinDirectory(L"")))
+    {
+        return kTestFailure;
+    }
+    TestHost host;
+    wil::com_ptr_nothrow<IRedXeWidgetProvider> emptyProvider;
+    HRESULT result = CreateProvider(create, kEmptyShortcuts, &host, emptyProvider);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    wil::com_ptr_nothrow<IRedXeWidget> emptyWidget;
+    result = emptyProvider->CreateWidget(kWidgetTypeId, "launcher.empty", emptyWidget.put());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    RenderTarget target{};
+    result = CreateRenderTarget(480, 480, target);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    IRedXeGpuWidget* rawGpu = nullptr;
+    result = AttachGpu(*emptyWidget, target, &rawGpu);
+    wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
+    gpu.attach(rawGpu);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = emptyWidget->SetVisible(TRUE);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    LauncherTestDiagnostics emptyDiagnostics{sizeof(LauncherTestDiagnostics)};
+    result = getDiagnostics(&emptyDiagnostics);
+    if (FAILED(result) || emptyDiagnostics.displayCount != 0 || emptyDiagnostics.usingTaskbarPins != 0)
+    {
+        std::wprintf(L"Automated empty list still showed pins.\n");
+        return kTestFailure;
+    }
+    result = RenderFrame(*gpu, target, 0.0f, 1.0f / 60.0f);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = getDiagnostics(&emptyDiagnostics);
+    if (FAILED(result) || emptyDiagnostics.lastDrawCount != 1)
+    {
+        std::wprintf(L"Empty tile did not draw the hint background only.\n");
+        return kTestFailure;
+    }
+
+    std::array<wchar_t, MAX_PATH> tempRoot{};
+    if (GetTempPathW(static_cast<DWORD>(tempRoot.size()), tempRoot.data()) == 0)
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    std::array<wchar_t, MAX_PATH> pinDir{};
+    if (swprintf_s(pinDir.data(), pinDir.size(), L"%sRedXeLauncherPins-%lu", tempRoot.data(), GetCurrentProcessId()) <=
+        0)
+    {
+        return E_UNEXPECTED;
+    }
+    CreateDirectoryW(pinDir.data(), nullptr);
+    std::array<wchar_t, MAX_PATH> lnkPath{};
+    (void)swprintf_s(lnkPath.data(), lnkPath.size(), L"%s\\Alpha.lnk", pinDir.data());
+    result = WriteShortcut(lnkPath.data());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = setPinDirectory(pinDir.data());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    const uint64_t extractsBefore = emptyDiagnostics.extractCalls;
+    result = emptyWidget->SetVisible(TRUE);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    LauncherTestDiagnostics pinDiagnostics{sizeof(LauncherTestDiagnostics)};
+    result = getDiagnostics(&pinDiagnostics);
+    if (FAILED(result) || pinDiagnostics.displayCount == 0 || pinDiagnostics.usingTaskbarPins == 0 ||
+        pinDiagnostics.authoredCount != 0)
+    {
+        std::wprintf(L"Injected pin directory did not populate the empty list.\n");
+        return kTestFailure;
+    }
+    result = RenderFrame(*gpu, target, 0.1f, 1.0f / 60.0f);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = getDiagnostics(&pinDiagnostics);
+    if (FAILED(result) || pinDiagnostics.lastDrawCount != 2 || pinDiagnostics.lastInstanceCount == 0)
+    {
+        std::wprintf(L"Pin grid did not issue background plus instanced icon draws.\n");
+        return kTestFailure;
+    }
+    const uint64_t extractsAfterPins = pinDiagnostics.extractCalls;
+    if (extractsAfterPins <= extractsBefore)
+    {
+        return kTestFailure;
+    }
+    gpu->OnDeviceLost();
+    const RedXeGpuDeviceContext recreate{sizeof(RedXeGpuDeviceContext), target.device.get(), DXGI_FORMAT_B8G8R8A8_UNORM,
+                                         target.featureLevel};
+    result = gpu->OnDeviceCreated(&recreate);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = getDiagnostics(&pinDiagnostics);
+    if (FAILED(result) || pinDiagnostics.extractCalls != extractsAfterPins)
+    {
+        std::wprintf(L"Device loss re-extracted shell icons.\n");
+        return kTestFailure;
+    }
+    result = RenderFrame(*gpu, target, 0.2f, 1.0f / 60.0f, -40.0f);
+    if (FAILED(result))
+    {
+        return result;
+    }
+
+    uint32_t written = 1;
+    std::array<char, 64> collect{};
+    if (emptyWidget->CollectPersistentSettings(collect.data(), static_cast<uint32_t>(collect.size()), &written) !=
+            S_FALSE ||
+        written != 0)
+    {
+        std::wprintf(L"Pin fallback was persisted.\n");
+        return kTestFailure;
+    }
+
+    std::array<wchar_t, MAX_PATH> pngPath{};
+    (void)swprintf_s(pngPath.data(), pngPath.size(), L"%s\\override.png", pinDir.data());
+    result = WritePng(pngPath.data());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    char pngUtf8[MAX_PATH]{};
+    if (WideCharToMultiByte(CP_UTF8, 0, pngPath.data(), -1, pngUtf8, static_cast<int>(sizeof(pngUtf8)), nullptr,
+                            nullptr) <= 0)
+    {
+        return E_FAIL;
+    }
+    std::string escaped = R"json({"shortcuts":[{"target":"C:\\Windows\\System32\\notepad.exe","iconPng":")json";
+    for (const char* cursor = pngUtf8; *cursor != '\0'; ++cursor)
+    {
+        if (*cursor == '\\' || *cursor == '"')
+        {
+            escaped.push_back('\\');
+        }
+        escaped.push_back(*cursor);
+    }
+    escaped.append(R"json("}]})json");
+    wil::com_ptr_nothrow<IRedXeWidgetProvider> pngProvider;
+    result = CreateProvider(create, escaped, &host, pngProvider);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    wil::com_ptr_nothrow<IRedXeWidget> pngWidget;
+    result = pngProvider->CreateWidget(kWidgetTypeId, "launcher.png", pngWidget.put());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    IRedXeGpuWidget* pngGpuRaw = nullptr;
+    result = AttachGpu(*pngWidget, target, &pngGpuRaw);
+    wil::com_ptr_nothrow<IRedXeGpuWidget> pngGpu;
+    pngGpu.attach(pngGpuRaw);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = pngWidget->SetVisible(TRUE);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = RenderFrame(*pngGpu, target, 0.0f, 1.0f / 60.0f);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    LauncherTestDiagnostics pngDiagnostics{sizeof(LauncherTestDiagnostics)};
+    result = getDiagnostics(&pngDiagnostics);
+    if (FAILED(result) || pngDiagnostics.authoredCount != 1 || pngDiagnostics.usingTaskbarPins != 0)
+    {
+        return kTestFailure;
+    }
+
+    gRenderThread.store(GetCurrentThreadId(), std::memory_order_relaxed);
+    gRenderAllocations.store(0, std::memory_order_relaxed);
+#if defined(_DEBUG)
+    _CrtSetAllocHook(CountRenderAllocation);
+#endif
+    result = RenderFrame(*pngGpu, target, 0.5f, 1.0f / 60.0f);
+#if defined(_DEBUG)
+    _CrtSetAllocHook(nullptr);
+#endif
+    if (FAILED(result) || gRenderAllocations.load(std::memory_order_relaxed) != 0)
+    {
+        std::wprintf(L"Launcher Render allocated on the steady path.\n");
+        return kTestFailure;
+    }
+
+    wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
+    if (FAILED(pngWidget.query_to(interactive.put())) || !interactive)
+    {
+        return kTestFailure;
+    }
+    const RedXePointerEvent down{sizeof(RedXePointerEvent), 1,      RedXePointerKindMouse,
+                                 RedXePointerPhaseDown,     240.0f, 240.0f};
+    const RedXePointerEvent up{sizeof(RedXePointerEvent), 1,      RedXePointerKindMouse,
+                               RedXePointerPhaseUp,       240.0f, 240.0f};
+    if (interactive->OnPointer(&down) != S_OK || interactive->OnPointer(&up) != S_OK)
+    {
+        return kTestFailure;
+    }
+    LauncherTestDiagnostics launchDiagnostics{sizeof(LauncherTestDiagnostics)};
+    result = getDiagnostics(&launchDiagnostics);
+    if (FAILED(result) || launchDiagnostics.launchCount == 0 || launchDiagnostics.shellExecuteCount != 0 ||
+        launchDiagnostics.lastLaunchKind != 1 || launchDiagnostics.lastVerbWasNull == 0 ||
+        launchDiagnostics.lastShellMask != SEE_MASK_FLAG_NO_UI)
+    {
+        std::wprintf(L"Automated launch did not count a filesystem ShellExecuteExW-shaped call.\n");
+        return kTestFailure;
+    }
+    result = RenderFrame(*pngGpu, target, 0.51f, 1.0f / 60.0f);
+    if (FAILED(result) || host.frameRequests == 0)
+    {
+        std::wprintf(L"Launch animation did not request a follow-up frame.\n");
+        return kTestFailure;
+    }
+
+    const wchar_t* dropTarget = kNotepad;
+    RedXeDropItem dropItem{sizeof(RedXeDropItem), 0, dropTarget};
+    const RedXeDropEvent dropEvent{sizeof(RedXeDropEvent), 12.0f, 12.0f, 1, &dropItem};
+    result = interactive->OnDrop(&dropEvent);
+    if (result != S_FALSE)
+    {
+        std::wprintf(L"Duplicate drop was not ignored.\n");
+        return kTestFailure;
+    }
+
+    TestHost dropHost;
+    wil::com_ptr_nothrow<IRedXeWidgetProvider> dropProvider;
+    result = CreateProvider(create, kEmptyShortcuts, &dropHost, dropProvider);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    wil::com_ptr_nothrow<IRedXeWidget> dropWidget;
+    result = dropProvider->CreateWidget(kWidgetTypeId, "launcher.drop", dropWidget.put());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    wil::com_ptr_nothrow<IRedXeInteractiveWidget> dropInteractive;
+    if (FAILED(dropWidget.query_to(dropInteractive.put())))
+    {
+        return kTestFailure;
+    }
+    constexpr wchar_t kUrl[] = L"https://example.com/path";
+    const std::array items{
+        RedXeDropItem{sizeof(RedXeDropItem), 0, kNotepad},
+        RedXeDropItem{sizeof(RedXeDropItem), 0, kUrl},
+    };
+    const RedXeDropEvent multi{sizeof(RedXeDropEvent), 8.0f, 8.0f, static_cast<uint32_t>(items.size()), items.data()};
+    result = dropInteractive->OnDrop(&multi);
+    if (result != S_OK || dropHost.persistCalls != 1 || dropHost.persistJson.find("notepad.exe") == std::string::npos ||
+        dropHost.persistJson.find("https://example.com/path") == std::string::npos ||
+        dropHost.persistJson.find("TaskBar") != std::string::npos)
+    {
+        std::wprintf(L"Drop persist did not round-trip filesystem and URL targets without pins.\n");
+        return kTestFailure;
+    }
+    uint32_t dropWritten = 1;
+    if (dropWidget->CollectPersistentSettings(collect.data(), static_cast<uint32_t>(collect.size()), &dropWritten) !=
+            S_FALSE ||
+        dropWritten != 0)
+    {
+        return kTestFailure;
+    }
+
+    std::array<RedXeDropItem, 8> extras{};
+    std::array<std::array<wchar_t, 64>, 8> extraPaths{};
+    for (uint32_t index = 0; index < extras.size(); ++index)
+    {
+        (void)swprintf_s(extraPaths[index].data(), extraPaths[index].size(), L"C:\\Windows\\System32\\extra%u.exe",
+                         index);
+        extras[index] = RedXeDropItem{sizeof(RedXeDropItem), 0, extraPaths[index].data()};
+    }
+    const RedXeDropEvent overflow{sizeof(RedXeDropEvent), 1.0f, 1.0f, static_cast<uint32_t>(extras.size()),
+                                  extras.data()};
+    (void)dropInteractive->OnDrop(&overflow);
+    const RedXeDropItem ninth{sizeof(RedXeDropItem), 0, L"C:\\Windows\\System32\\ninth.exe"};
+    const RedXeDropEvent ninthEvent{sizeof(RedXeDropEvent), 1.0f, 1.0f, 1, &ninth};
+    if (dropInteractive->OnDrop(&ninthEvent) != S_FALSE)
+    {
+        std::wprintf(L"A ninth shortcut was accepted.\n");
+        return kTestFailure;
+    }
+
+    (void)setPinDirectory(nullptr);
+    DeleteFileW(lnkPath.data());
+    DeleteFileW(pngPath.data());
+    RemoveDirectoryW(pinDir.data());
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT ValidateGrid(RedXeCreateFn create, LauncherGetTestDiagnosticsFn getDiagnostics) noexcept
+{
+    constexpr std::string_view four =
+        R"json({"shortcuts":[{"target":"C:\\Windows\\System32\\notepad.exe"},{"target":"C:\\Windows\\System32\\cmd.exe"},{"target":"C:\\Windows\\System32\\write.exe"},{"target":"C:\\Windows\\System32\\winver.exe"}]})json";
+    TestHost host;
+    wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+    HRESULT result = CreateProvider(create, four, &host, provider);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    wil::com_ptr_nothrow<IRedXeWidget> widget;
+    result = provider->CreateWidget(kWidgetTypeId, "launcher.grid", widget.put());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    RenderTarget wide{};
+    result = CreateRenderTarget(960, 160, wide);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    IRedXeGpuWidget* gpuRaw = nullptr;
+    result = AttachGpu(*widget, wide, &gpuRaw);
+    wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
+    gpu.attach(gpuRaw);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = widget->SetVisible(TRUE);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    LauncherTestDiagnostics diagnostics{sizeof(LauncherTestDiagnostics)};
+    result = getDiagnostics(&diagnostics);
+    if (FAILED(result) || diagnostics.displayCount != 4 || diagnostics.columns < diagnostics.rows)
+    {
+        std::wprintf(L"Wide strip did not prefer extra columns.\n");
+        return kTestFailure;
+    }
+    RenderTarget square{};
+    result = CreateRenderTarget(160, 160, square);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    const RedXeGpuDeviceContext deviceContext{sizeof(RedXeGpuDeviceContext), square.device.get(),
+                                              DXGI_FORMAT_B8G8R8A8_UNORM, square.featureLevel};
+    gpu->OnDeviceLost();
+    result = gpu->OnDeviceCreated(&deviceContext);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    const RedXeGpuTargetSizeContext sizeContext{sizeof(RedXeGpuTargetSizeContext), 160, 160, USER_DEFAULT_SCREEN_DPI};
+    result = gpu->OnTargetSizeChanged(&sizeContext);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = getDiagnostics(&diagnostics);
+    if (FAILED(result) || diagnostics.columns == 0 || diagnostics.rows == 0)
+    {
+        return kTestFailure;
+    }
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT Run() noexcept
+{
+    const bool compilerLoaded = GetModuleHandleW(L"d3dcompiler_47.dll") != nullptr;
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    const HRESULT ole = OleInitialize(nullptr);
+    if (FAILED(ole))
+    {
+        return ole;
+    }
+    std::array<wchar_t, 1024> path{};
+    HRESULT result = BuildSiblingPath(L"Plugins\\Launcher.dll", path);
+    if (FAILED(result))
+    {
+        OleUninitialize();
+        return result;
+    }
+    wil::unique_hmodule module{
+        LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+    if (!module)
+    {
+        OleUninitialize();
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    const RedXeCreateFn create = Resolve<RedXeCreateFn>(module.get(), kRedXeCreateExport);
+    const RedXeEnumeratePluginsFn enumerate =
+        Resolve<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
+    const RedXeGetPluginSettingsContractFn getContract =
+        Resolve<RedXeGetPluginSettingsContractFn>(module.get(), kRedXeGetPluginSettingsContractExport);
+    const RedXePluginShutdownFn shutdown = Resolve<RedXePluginShutdownFn>(module.get(), kRedXePluginShutdownExport);
+    const LauncherSetTestPinDirectoryFn setPin =
+        Resolve<LauncherSetTestPinDirectoryFn>(module.get(), kLauncherSetTestPinDirectoryExport);
+    const LauncherGetTestDiagnosticsFn getDiagnostics =
+        Resolve<LauncherGetTestDiagnosticsFn>(module.get(), kLauncherGetTestDiagnosticsExport);
+    const LauncherResetTestDiagnosticsFn resetDiagnostics =
+        Resolve<LauncherResetTestDiagnosticsFn>(module.get(), kLauncherResetTestDiagnosticsExport);
+    if (!create || !enumerate || !getContract || !shutdown || !setPin || !getDiagnostics || !resetDiagnostics)
+    {
+        OleUninitialize();
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    }
+    result = ValidateFactoryAndSettings(create, enumerate, getContract);
+    if (SUCCEEDED(result))
+    {
+        result = ValidatePinsAndRendering(create, setPin, getDiagnostics, resetDiagnostics);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ValidateGrid(create, getDiagnostics);
+    }
+    shutdown();
+    OleUninitialize();
+    if (FAILED(result))
+    {
+        return result;
+    }
+    if (!compilerLoaded && GetModuleHandleW(L"d3dcompiler_47.dll"))
+    {
+        std::wprintf(L"Launcher loaded d3dcompiler_47.dll.\n");
+        return kTestFailure;
+    }
+    return S_OK;
+}
+} // namespace
+
+int wmain() noexcept
+{
+    const HRESULT result = Run();
+    if (FAILED(result))
+    {
+        std::wprintf(L"Launcher tests failed: 0x%08X\n", static_cast<unsigned int>(result));
+        return 1;
+    }
+    std::wprintf(L"Launcher factory, pin fallback, WARP, launch, and drop tests passed.\n");
+    return 0;
+}

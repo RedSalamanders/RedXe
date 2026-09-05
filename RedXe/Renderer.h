@@ -36,7 +36,7 @@ class Renderer final
     HRESULT RefreshLayout() noexcept;
     HRESULT SetTransitionDashboard(DashboardHost* dashboardHost) noexcept;
     HRESULT AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept;
-    HRESULT SetRaisedOverlay(size_t widgetIndex, const RECT& content) noexcept;
+    HRESULT SetRaisedOverlay(size_t widgetIndex, const RECT& content, SIZE targetPixels = {}) noexcept;
     void ClearRaisedOverlay() noexcept;
     HRESULT Render(float elapsedSeconds, float deltaSeconds) noexcept;
     HRESULT ProbeOcclusion() noexcept;
@@ -51,6 +51,13 @@ class Renderer final
   private:
     static constexpr size_t kMaximumWidgetViewports = 32;
     static constexpr DXGI_FORMAT kTargetFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+    struct ReportedTarget final
+    {
+        LONG cx = 0;
+        LONG cy = 0;
+        UINT dpi = 0;
+    };
 
     HRESULT CreateDeviceResources() noexcept;
     HRESULT CreateDevice(bool useWarp) noexcept;
@@ -93,14 +100,16 @@ class Renderer final
     bool _raisedOverlayActive = false;
     size_t _raisedOverlayIndex = SIZE_MAX;
     RECT _raisedContent{};
+    SIZE _raisedTargetSize{};
     D3D11_VIEWPORT _raisedViewport{};
 
     std::array<D3D11_VIEWPORT, kMaximumWidgetViewports> _widgetViewports{};
     std::array<D3D11_VIEWPORT, kMaximumWidgetViewports> _transitionWidgetViewports{};
     // Last size reported to each widget. A zeroed entry means "not yet reported", so the first notification after
     // device creation always fires.
-    std::array<SIZE, kMaximumWidgetViewports> _widgetTargetSizes{};
-    std::array<SIZE, kMaximumWidgetViewports> _transitionTargetSizes{};
+    std::array<ReportedTarget, kMaximumWidgetViewports> _widgetTargetSizes{};
+    std::array<ReportedTarget, kMaximumWidgetViewports> _transitionTargetSizes{};
+    std::array<HRESULT, kMaximumWidgetViewports> _lastLoggedRenderFailure{};
 
     wil::com_ptr_nothrow<ID3D11Device> _device;
     wil::com_ptr_nothrow<ID3D11DeviceContext> _context;

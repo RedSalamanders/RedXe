@@ -195,6 +195,14 @@ struct PageEdgeState final
     return !PageSwipeBlocksDirection(offset, state.wrapPages, state.atFirstPage, state.atLastPage);
 }
 
+// Windows tags mouse messages synthesized from a touch or pen contact. Those belong to the WM_POINTER path.
+[[nodiscard]] inline bool IsPointerSynthesizedMouseMessage() noexcept
+{
+    constexpr ULONG_PTR kPointerSignatureMask = 0xFFFFFF00;
+    constexpr ULONG_PTR kPointerSignature = 0xFF515700;
+    return (static_cast<ULONG_PTR>(GetMessageExtraInfo()) & kPointerSignatureMask) == kPointerSignature;
+}
+
 // Chevron glyph for one travel direction. Host chrome draws icons from Segoe Fluent Icons rather than hand-drawn
 // shapes, so the arrow is hinted, scales with DPI, and matches the shell.
 [[nodiscard]] constexpr wchar_t PageEdgeChevronGlyph(int direction, FluentIcons::IconFont font) noexcept
@@ -237,6 +245,14 @@ struct PageEdgeState final
 {
     return band.right > band.left && band.bottom > band.top && point.x >= band.left && point.x < band.right &&
            point.y >= band.top && point.y < band.bottom;
+}
+
+// Parent-owned click fallback. A child created under the cursor often does not receive WM_SETCURSOR or
+// WM_LBUTTONUP until the mouse moves, so the top-level window navigates when this predicate is true.
+[[nodiscard]] constexpr bool PageEdgeClickNavigates(const PageEdgeState& state, int direction, const RECT& band,
+                                                    POINT point) noexcept
+{
+    return ShouldShowEdgeAffordance(state, direction) && PageEdgeBandContains(band, point);
 }
 
 // Settle target for a click. The current page leaves toward the opposite side of the travel direction.

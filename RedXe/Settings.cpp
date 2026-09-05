@@ -4,6 +4,7 @@
 #include "PlugInterfaces/Factory.h"
 
 #include <array>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -25,7 +26,10 @@
 namespace
 {
 using unique_yyjson_doc = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
+using unique_mut_doc = wil::unique_any<yyjson_mut_doc*, decltype(&yyjson_mut_doc_free), yyjson_mut_doc_free>;
 using unique_malloc_string = wil::unique_any<char*, decltype(&free), free>;
+
+[[nodiscard]] unique_yyjson_doc ParseStoredObject(const JsonObjectSettings& settings) noexcept;
 
 constexpr size_t kMaximumSettingsBytes = 1024U * 1024U;
 constexpr char kSchemaReference[] = "RedXe.settings.schema.json";
@@ -33,6 +37,8 @@ constexpr char kMatrixPluginId[] = "builtin.matrix-rain";
 constexpr char kProcessViewerPluginId[] = "builtin.process-viewer";
 constexpr char kStudioClockPluginId[] = "builtin.studio-clock";
 constexpr char kDeskClockPluginId[] = "builtin.desk-clock";
+constexpr char kWeatherPluginId[] = "builtin.weather";
+constexpr char kLauncherPluginId[] = "builtin.launcher";
 
 #if defined(_DEBUG)
 constexpr const wchar_t* kSelectedSettingsFileName = kRedXeDebugSettingsFileName;
@@ -198,6 +204,31 @@ template <size_t Count>
            IsColor(object, "dateColor");
 }
 
+[[nodiscard]] bool IsValidWeatherPrivate(yyjson_val* object) noexcept
+{
+    constexpr std::array keys{"locationMode", "location", "temperatureUnit", "windUnit"};
+    yyjson_val* locationModeValue = yyjson_obj_get(object, "locationMode");
+    yyjson_val* locationValue = yyjson_obj_get(object, "location");
+    yyjson_val* temperatureValue = yyjson_obj_get(object, "temperatureUnit");
+    yyjson_val* windValue = yyjson_obj_get(object, "windUnit");
+    const char* locationMode = yyjson_is_str(locationModeValue) ? yyjson_get_str(locationModeValue) : nullptr;
+    const char* temperatureUnit = yyjson_is_str(temperatureValue) ? yyjson_get_str(temperatureValue) : nullptr;
+    const char* windUnit = yyjson_is_str(windValue) ? yyjson_get_str(windValue) : nullptr;
+    const bool validLocationMode =
+        locationMode && (std::strcmp(locationMode, "automatic") == 0 || std::strcmp(locationMode, "manual") == 0);
+    const bool validTemperature = temperatureUnit && (std::strcmp(temperatureUnit, "celsius") == 0 ||
+                                                      std::strcmp(temperatureUnit, "fahrenheit") == 0);
+    const bool validWind = windUnit && (std::strcmp(windUnit, "kmh") == 0 || std::strcmp(windUnit, "mph") == 0);
+    return HasExactKeys(object, keys) && validLocationMode && yyjson_is_str(locationValue) &&
+           yyjson_get_len(locationValue) <= 128 && validTemperature && validWind;
+}
+
+[[nodiscard]] bool IsWeatherPrivate(const JsonObjectSettings& settings) noexcept
+{
+    unique_yyjson_doc document = ParseStoredObject(settings);
+    return document && IsValidWeatherPrivate(yyjson_doc_get_root(document.get()));
+}
+
 [[nodiscard]] bool IsSupportedPluginType(std::string_view pluginId, std::string_view typeId) noexcept
 {
     for (const RedXeBundledWidgetSpec& candidate : kRedXeBundledWidgets)
@@ -270,6 +301,131 @@ template <size_t Count>
     return document && IsValidDeskClockPrivate(yyjson_doc_get_root(document.get()));
 }
 
+[[nodiscard]] int ClassifyLauncherTarget(std::string_view target) noexcept
+{
+    if (target.empty() || target.size() > 512)
+    {
+        return 0;
+    }
+    if (target.size() >= 3 && ((target[0] >= 'A' && target[0] <= 'Z') || (target[0] >= 'a' && target[0] <= 'z')) &&
+        target[1] == ':' && (target[2] == '\\' || target[2] == '/'))
+    {
+        return 1;
+    }
+    if (target.size() >= 2 && target[0] == '\\' && target[1] == '\\')
+    {
+        return 1;
+    }
+    if (target.size() < 3 || !std::isalpha(static_cast<unsigned char>(target[0])))
+    {
+        return 0;
+    }
+    size_t index = 1;
+    while (index < target.size())
+    {
+        const unsigned char value = static_cast<unsigned char>(target[index]);
+        if (!(std::isalnum(value) || value == '+' || value == '.' || value == '-'))
+        {
+            break;
+        }
+        ++index;
+    }
+    return (index >= 2 && index < target.size() && target[index] == ':') ? 2 : 0;
+}
+
+[[nodiscard]] bool LauncherTargetsEqual(std::string_view left, std::string_view right, int kind) noexcept
+{
+    if (kind == 2)
+    {
+        return left == right;
+    }
+    std::array<wchar_t, 513> leftWide{};
+    std::array<wchar_t, 513> rightWide{};
+    const int leftCount = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, left.data(), static_cast<int>(left.size()),
+                                              leftWide.data(), static_cast<int>(leftWide.size() - 1));
+    const int rightCount =
+        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, right.data(), static_cast<int>(right.size()),
+                            rightWide.data(), static_cast<int>(rightWide.size() - 1));
+    if (leftCount <= 0 || rightCount <= 0)
+    {
+        return left == right;
+    }
+    return CompareStringOrdinal(leftWide.data(), leftCount, rightWide.data(), rightCount, TRUE) == CSTR_EQUAL;
+}
+
+[[nodiscard]] bool IsValidLauncherPrivate(yyjson_val* settings) noexcept
+{
+    if (!yyjson_is_obj(settings) || !HasExactKeys(settings, std::array{"shortcuts"}))
+    {
+        return false;
+    }
+    yyjson_val* shortcuts = yyjson_obj_get(settings, "shortcuts");
+    if (!yyjson_is_arr(shortcuts) || yyjson_arr_size(shortcuts) > 8)
+    {
+        return false;
+    }
+    const size_t count = yyjson_arr_size(shortcuts);
+    std::array<std::string_view, 8> seen{};
+    std::array<int, 8> kinds{};
+    for (size_t index = 0; index < count; ++index)
+    {
+        yyjson_val* item = yyjson_arr_get(shortcuts, index);
+        if (!yyjson_is_obj(item))
+        {
+            return false;
+        }
+        yyjson_obj_iter iterator = yyjson_obj_iter_with(item);
+        while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
+        {
+            const char* text = yyjson_get_str(key);
+            if (!text || (std::strcmp(text, "target") != 0 && std::strcmp(text, "iconPng") != 0))
+            {
+                return false;
+            }
+        }
+        yyjson_val* targetValue = yyjson_obj_get(item, "target");
+        if (!yyjson_is_str(targetValue) || yyjson_get_len(targetValue) == 0 || yyjson_get_len(targetValue) > 512)
+        {
+            return false;
+        }
+        const std::string_view target(yyjson_get_str(targetValue), yyjson_get_len(targetValue));
+        const int kind = ClassifyLauncherTarget(target);
+        if (kind == 0)
+        {
+            return false;
+        }
+        yyjson_val* iconValue = yyjson_obj_get(item, "iconPng");
+        if (iconValue)
+        {
+            if (!yyjson_is_str(iconValue) || yyjson_get_len(iconValue) > 260)
+            {
+                return false;
+            }
+            const std::string_view icon(yyjson_get_str(iconValue), yyjson_get_len(iconValue));
+            if (!icon.empty() && ClassifyLauncherTarget(icon) != 1)
+            {
+                return false;
+            }
+        }
+        for (size_t previous = 0; previous < index; ++previous)
+        {
+            if (kinds[previous] == kind && LauncherTargetsEqual(seen[previous], target, kind))
+            {
+                return false;
+            }
+        }
+        seen[index] = target;
+        kinds[index] = kind;
+    }
+    return true;
+}
+
+[[nodiscard]] bool IsLauncherPrivate(const JsonObjectSettings& settings) noexcept
+{
+    unique_yyjson_doc document = ParseStoredObject(settings);
+    return document && IsValidLauncherPrivate(yyjson_doc_get_root(document.get()));
+}
+
 [[nodiscard]] HRESULT CopyObject(yyjson_val* object, JsonObjectSettings& destination) noexcept
 {
     if (!yyjson_is_obj(object))
@@ -291,6 +447,56 @@ template <size_t Count>
     JsonObjectSettings copied{};
     copied.utf8.fill('\0');
     std::memcpy(copied.utf8.data(), serialized.get(), length);
+    copied.bytes = static_cast<uint32_t>(length);
+    destination = copied;
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT MergeSettingsObject(const JsonObjectSettings& base, yyjson_val* patch,
+                                          JsonObjectSettings& destination) noexcept
+{
+    if (!yyjson_is_obj(patch))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    unique_yyjson_doc baseDocument = ParseStoredObject(base);
+    yyjson_val* baseRoot = baseDocument ? yyjson_doc_get_root(baseDocument.get()) : nullptr;
+    if (!yyjson_is_obj(baseRoot))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    unique_mut_doc mutableDocument{yyjson_mut_doc_new(nullptr)};
+    yyjson_mut_val* mutableRoot = mutableDocument ? yyjson_val_mut_copy(mutableDocument.get(), baseRoot) : nullptr;
+    if (!mutableRoot)
+    {
+        return E_OUTOFMEMORY;
+    }
+    yyjson_mut_doc_set_root(mutableDocument.get(), mutableRoot);
+    yyjson_obj_iter iterator = yyjson_obj_iter_with(patch);
+    yyjson_val* key = nullptr;
+    while ((key = yyjson_obj_iter_next(&iterator)))
+    {
+        yyjson_val* value = yyjson_obj_iter_get_val(key);
+        yyjson_mut_val* mutKey = yyjson_mut_strncpy(mutableDocument.get(), yyjson_get_str(key), yyjson_get_len(key));
+        yyjson_mut_val* mutValue = yyjson_val_mut_copy(mutableDocument.get(), value);
+        if (!mutKey || !mutValue || !yyjson_mut_obj_put(mutableRoot, mutKey, mutValue))
+        {
+            return E_OUTOFMEMORY;
+        }
+    }
+    size_t length = 0;
+    unique_malloc_string written{yyjson_mut_write(mutableDocument.get(), YYJSON_WRITE_NOFLAG, &length)};
+    if (!written || length == 0)
+    {
+        return E_OUTOFMEMORY;
+    }
+    if (length > kPrivateConfigurationCapacity)
+    {
+        return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
+    }
+    JsonObjectSettings copied{};
+    copied.utf8.fill('\0');
+    std::memcpy(copied.utf8.data(), written.get(), length);
     copied.bytes = static_cast<uint32_t>(length);
     destination = copied;
     return S_OK;
@@ -409,6 +615,23 @@ template <size_t Count>
         return S_OK;
     }
     return HRESULT_FROM_WIN32(static_cast<DWORD>(result));
+}
+
+[[nodiscard]] std::wstring MakeLogsDirectory(const std::wstring& settingsDirectory) noexcept
+{
+    try
+    {
+        const std::filesystem::path settings(settingsDirectory);
+        if (_wcsicmp(settings.filename().c_str(), L"Settings") == 0)
+        {
+            return (settings.parent_path() / kRedXeLogsDirectoryName).wstring();
+        }
+        return (settings / kRedXeLogsDirectoryName).wstring();
+    }
+    catch (...)
+    {
+        return {};
+    }
 }
 
 [[nodiscard]] HRESULT CopyFileAtomically(const std::filesystem::path& source, const std::filesystem::path& target,
@@ -569,6 +792,165 @@ template <size_t Count>
                 return HRESULT_FROM_WIN32(ERROR_HANDLE_EOF);
             }
             totalRead += chunkRead;
+        }
+        return S_OK;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+[[nodiscard]] bool ParseWidgetInstanceIndex(std::string_view instanceId, uint32_t& index) noexcept
+{
+    constexpr std::string_view prefix{"widget."};
+    if (instanceId.size() <= prefix.size() || instanceId.compare(0, prefix.size(), prefix) != 0)
+    {
+        return false;
+    }
+    uint32_t value = 0;
+    for (size_t cursor = prefix.size(); cursor < instanceId.size(); ++cursor)
+    {
+        const char digit = instanceId[cursor];
+        if (digit < '0' || digit > '9' || value > (UINT32_MAX - 9U) / 10U)
+        {
+            return false;
+        }
+        value = value * 10U + static_cast<uint32_t>(digit - '0');
+    }
+    if (value == 0)
+    {
+        return false;
+    }
+    index = value - 1U;
+    return true;
+}
+
+[[nodiscard]] WidgetInstanceSettings* FindWidgetInstance(AppSettings& settings, std::string_view instanceId) noexcept
+{
+    for (uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
+    {
+        DashboardPageSettings& page = settings.dashboard.pages[pageIndex];
+        for (uint32_t widgetIndex = 0; widgetIndex < page.widgetCount; ++widgetIndex)
+        {
+            if (SettingsIdEquals(page.widgets[widgetIndex].id.View(), instanceId))
+            {
+                return &page.widgets[widgetIndex];
+            }
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] bool PatchMutableWidgetValue(yyjson_mut_doc* document, yyjson_mut_val* area,
+                                           yyjson_mut_val* settingsObject) noexcept
+{
+    yyjson_mut_val* widget = yyjson_mut_obj_get(area, "widget");
+    if (!widget || !settingsObject)
+    {
+        return false;
+    }
+    if (yyjson_mut_is_str(widget))
+    {
+        yyjson_mut_val* wrapper = yyjson_mut_obj(document);
+        yyjson_mut_val* overrideObject = yyjson_mut_obj(document);
+        if (!wrapper || !overrideObject)
+        {
+            return false;
+        }
+        yyjson_mut_val* use = yyjson_mut_strncpy(document, yyjson_mut_get_str(widget), yyjson_mut_get_len(widget));
+        if (!use || !yyjson_mut_obj_add_val(document, wrapper, "use", use) ||
+            !yyjson_mut_obj_add_val(document, overrideObject, "settings", settingsObject) ||
+            !yyjson_mut_obj_add_val(document, wrapper, "override", overrideObject))
+        {
+            return false;
+        }
+        return yyjson_mut_obj_put(area, yyjson_mut_str(document, "widget"), wrapper);
+    }
+    if (!yyjson_mut_is_obj(widget))
+    {
+        return false;
+    }
+    if (yyjson_mut_obj_get(widget, "plugin"))
+    {
+        return yyjson_mut_obj_put(widget, yyjson_mut_str(document, "settings"), settingsObject);
+    }
+    yyjson_mut_val* overrideObject = yyjson_mut_obj_get(widget, "override");
+    if (!overrideObject)
+    {
+        overrideObject = yyjson_mut_obj(document);
+        if (!overrideObject || !yyjson_mut_obj_add_val(document, widget, "override", overrideObject))
+        {
+            return false;
+        }
+    }
+    return yyjson_mut_is_obj(overrideObject) &&
+           yyjson_mut_obj_put(overrideObject, yyjson_mut_str(document, "settings"), settingsObject);
+}
+
+[[nodiscard]] bool PatchMutableLayout(yyjson_mut_doc* document, yyjson_mut_val* layout, uint32_t& instanceIndex,
+                                      uint32_t targetIndex, yyjson_mut_val* settingsObject) noexcept
+{
+    yyjson_mut_val* areas = yyjson_mut_obj_get(layout, "areas");
+    if (!yyjson_mut_is_arr(areas))
+    {
+        return false;
+    }
+    const size_t count = yyjson_mut_arr_size(areas);
+    for (size_t index = 0; index < count; ++index)
+    {
+        yyjson_mut_val* area = yyjson_mut_arr_get(areas, index);
+        yyjson_mut_val* widget = yyjson_mut_obj_get(area, "widget");
+        yyjson_mut_val* childAreas = yyjson_mut_obj_get(area, "areas");
+        if (widget && !childAreas)
+        {
+            if (instanceIndex == targetIndex)
+            {
+                return PatchMutableWidgetValue(document, area, settingsObject);
+            }
+            ++instanceIndex;
+        }
+        else if (!widget && childAreas)
+        {
+            if (PatchMutableLayout(document, area, instanceIndex, targetIndex, settingsObject))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] HRESULT WriteUtf8FileAtomically(const std::filesystem::path& target, std::string_view bytes) noexcept
+{
+    try
+    {
+        std::wstring temporary = target.wstring();
+        temporary.append(L".tmp.");
+        temporary.append(std::to_wstring(GetCurrentProcessId()));
+        temporary.push_back(L'.');
+        temporary.append(std::to_wstring(GetTickCount64()));
+        wil::unique_hfile file{CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                                           FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
+        if (!file)
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+        const auto cleanup = wil::scope_exit([&temporary]() noexcept { DeleteFileW(temporary.c_str()); });
+        DWORD written = 0;
+        if (!WriteFile(file.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr) ||
+            written != bytes.size())
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+        file.reset();
+        if (!MoveFileExW(temporary.c_str(), target.c_str(), MOVEFILE_WRITE_THROUGH | MOVEFILE_REPLACE_EXISTING))
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
         }
         return S_OK;
     }
@@ -908,6 +1290,20 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
                     return E_INVALIDARG;
                 }
             }
+            else if (SettingsIdEquals(widget.pluginId.View(), kWeatherPluginId))
+            {
+                if (!IsWeatherPrivate(widget.privateConfiguration))
+                {
+                    return E_INVALIDARG;
+                }
+            }
+            else if (SettingsIdEquals(widget.pluginId.View(), kLauncherPluginId))
+            {
+                if (!IsLauncherPrivate(widget.privateConfiguration))
+                {
+                    return E_INVALIDARG;
+                }
+            }
             else if (!IsEmptyPrivate(widget.privateConfiguration))
             {
                 return E_INVALIDARG;
@@ -990,6 +1386,134 @@ HRESULT SerializeFactoryConfigurationJson(const PluginSettings& plugin, const Wi
         return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
     }
     jsonBytes = static_cast<uint32_t>(written);
+    return S_OK;
+}
+
+HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view instanceId,
+                                    std::string_view settingsJson) noexcept
+{
+    if (instanceId.empty() || settingsJson.empty() || settingsJson.size() > kPrivateConfigurationCapacity)
+    {
+        return E_INVALIDARG;
+    }
+    WidgetInstanceSettings* widget = FindWidgetInstance(settings, instanceId);
+    uint32_t targetIndex = 0;
+    if (!widget || !ParseWidgetInstanceIndex(instanceId, targetIndex))
+    {
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
+
+    unique_yyjson_doc document;
+    try
+    {
+        std::vector<char> mutableJson(settingsJson.begin(), settingsJson.end());
+        yyjson_read_err error{};
+        document.reset(yyjson_read_opts(mutableJson.data(), mutableJson.size(), YYJSON_READ_NOFLAG, nullptr, &error));
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+    yyjson_val* patchRoot = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    if (!yyjson_is_obj(patchRoot))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    const JsonObjectSettings previousPrivate = widget->privateConfiguration;
+
+    HRESULT result = MergeSettingsObject(previousPrivate, patchRoot, widget->privateConfiguration);
+    if (SUCCEEDED(result))
+    {
+        result = ValidateAppSettings(settings);
+    }
+    if (FAILED(result))
+    {
+        widget->privateConfiguration = previousPrivate;
+        return result;
+    }
+    if (settings.sourceDocument.empty())
+    {
+        return S_OK;
+    }
+
+    unique_yyjson_doc merged = ParseStoredObject(widget->privateConfiguration);
+    yyjson_val* mergedRoot = merged ? yyjson_doc_get_root(merged.get()) : nullptr;
+    unique_yyjson_doc source;
+    try
+    {
+        std::vector<char> mutableSource(settings.sourceDocument.begin(), settings.sourceDocument.end());
+        yyjson_read_err error{};
+        source.reset(yyjson_read_opts(mutableSource.data(), mutableSource.size(),
+                                      YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS, nullptr, &error));
+    }
+    catch (const std::bad_alloc&)
+    {
+        widget->privateConfiguration = previousPrivate;
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        widget->privateConfiguration = previousPrivate;
+        return E_FAIL;
+    }
+    unique_mut_doc mutableDocument{yyjson_mut_doc_new(nullptr)};
+    yyjson_mut_val* mutableRoot = mutableDocument && source
+                                      ? yyjson_val_mut_copy(mutableDocument.get(), yyjson_doc_get_root(source.get()))
+                                      : nullptr;
+    yyjson_mut_val* settingsCopy =
+        mutableDocument && mergedRoot ? yyjson_val_mut_copy(mutableDocument.get(), mergedRoot) : nullptr;
+    if (!mutableRoot || !settingsCopy)
+    {
+        widget->privateConfiguration = previousPrivate;
+        return E_OUTOFMEMORY;
+    }
+    yyjson_mut_doc_set_root(mutableDocument.get(), mutableRoot);
+    yyjson_mut_val* pages = yyjson_mut_obj_get(mutableRoot, "pages");
+    if (!yyjson_mut_is_arr(pages))
+    {
+        widget->privateConfiguration = previousPrivate;
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    uint32_t instanceIndex = 0;
+    bool patched = false;
+    const size_t pageCount = yyjson_mut_arr_size(pages);
+    for (size_t pageIndex = 0; pageIndex < pageCount && !patched; ++pageIndex)
+    {
+        yyjson_mut_val* page = yyjson_mut_arr_get(pages, pageIndex);
+        yyjson_mut_val* layout = yyjson_mut_obj_get(page, "layout");
+        if (!layout)
+        {
+            continue;
+        }
+        patched = PatchMutableLayout(mutableDocument.get(), layout, instanceIndex, targetIndex, settingsCopy);
+    }
+    if (!patched)
+    {
+        widget->privateConfiguration = previousPrivate;
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
+    size_t length = 0;
+    unique_malloc_string written{yyjson_mut_write(mutableDocument.get(), YYJSON_WRITE_NOFLAG, &length)};
+    if (!written || length == 0)
+    {
+        widget->privateConfiguration = previousPrivate;
+        return E_OUTOFMEMORY;
+    }
+    try
+    {
+        settings.sourceDocument.assign(written.get(), length);
+    }
+    catch (const std::bad_alloc&)
+    {
+        widget->privateConfiguration = previousPrivate;
+        // std::string::assign leaves the previous source intact on allocation failure.
+        return E_OUTOFMEMORY;
+    }
     return S_OK;
 }
 
@@ -1104,6 +1628,7 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
         {
             _settingsPath = selectedTemplate.wstring();
             _settingsDirectory = deployedSettings.wstring();
+            _logsDirectory = MakeLogsDirectory(_settingsDirectory);
             _schemaPath = deployedSchema.wstring();
             result = LoadAppSettingsFileCandidate(_settingsPath, settings);
             if (FAILED(result))
@@ -1123,6 +1648,7 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
             const std::filesystem::path externalPath = std::filesystem::absolute(std::filesystem::path(selectedPath));
             _settingsPath = externalPath.wstring();
             _settingsDirectory = externalPath.parent_path().wstring();
+            _logsDirectory = MakeLogsDirectory(_settingsDirectory);
             _schemaPath = deployedSchema.wstring();
 
             result = LoadAppSettingsFileCandidate(_settingsPath, settings);
@@ -1168,6 +1694,7 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
         const std::filesystem::path schemaPath = settingsDirectory / kRedXeSettingsSchemaFileName;
         _settingsPath = settingsPath.wstring();
         _settingsDirectory = settingsDirectory.wstring();
+        _logsDirectory = MakeLogsDirectory(_settingsDirectory);
         _schemaPath = schemaPath.wstring();
 
         result = CopyFileAtomically(deployedSchema, schemaPath, true);
@@ -1309,6 +1836,11 @@ const std::wstring& SettingsStore::SettingsDirectory() const noexcept
     return _settingsDirectory;
 }
 
+const std::wstring& SettingsStore::LogsDirectory() const noexcept
+{
+    return _logsDirectory;
+}
+
 const std::wstring& SettingsStore::SchemaPath() const noexcept
 {
     return _schemaPath;
@@ -1327,4 +1859,58 @@ const std::wstring& SettingsStore::InitialNotice() const noexcept
 const std::wstring& SettingsStore::LastDiagnosticText() const noexcept
 {
     return _lastDiagnosticText;
+}
+
+HRESULT SettingsStore::PersistPatchedDocument(const AppSettings& settings) noexcept
+{
+    if (_settingsPath.empty() || settings.sourceDocument.empty())
+    {
+        return E_UNEXPECTED;
+    }
+    const HRESULT result = WriteUtf8FileAtomically(_settingsPath, settings.sourceDocument);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    SettingsFileStamp stamp{};
+    const HRESULT stampResult = QuerySettingsFileStamp(_settingsPath, stamp);
+    if (stampResult != S_OK)
+    {
+        // The atomic replacement already committed. Stamp bookkeeping must not turn that successful write into
+        // a reported failure and make a widget roll back its state. Let the watcher read the next notification.
+        _lastAppliedStamp.reset();
+        return S_OK;
+    }
+    _lastAppliedStamp = stamp;
+    return S_OK;
+}
+
+HRESULT SettingsStore::PersistWidgetSettings(AppSettings& settings, std::string_view instanceId,
+                                             std::string_view settingsJson) noexcept
+{
+    WidgetInstanceSettings* widget = FindWidgetInstance(settings, instanceId);
+    if (!widget)
+    {
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
+    const JsonObjectSettings previousPrivate = widget->privateConfiguration;
+    try
+    {
+        std::string previousSource = settings.sourceDocument;
+        HRESULT result = PatchWidgetInstanceSettings(settings, instanceId, settingsJson);
+        if (SUCCEEDED(result))
+        {
+            result = PersistPatchedDocument(settings);
+        }
+        if (FAILED(result))
+        {
+            widget->privateConfiguration = previousPrivate;
+            settings.sourceDocument = std::move(previousSource);
+        }
+        return result;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
 }

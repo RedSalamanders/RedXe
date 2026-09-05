@@ -184,9 +184,11 @@ interface __declspec(uuid("F9834987-EBC6-411E-9F28-A49E4DBB49D9")) __declspec(no
     // the bounded values needed and return.
     //
     // Inside this call the sink MUST NOT block, and MUST NOT re-enter the host except through
-    // IRedXeHost::RequestFrame. In particular it MUST NOT activate, deactivate, or release a subscription, and MUST
-    // NOT call IRedXeHost::GetDataProvider: the host holds its subscription lock across this call, so any of those
-    // would deadlock. A failing sink is isolated and does not stop later sinks or future acquisition cycles.
+    // IRedXeHost::RequestFrame and IRedXeHost::Log. In particular it MUST NOT activate, deactivate, or release a
+    // subscription, and MUST NOT call IRedXeHost::GetDataProvider. The host releases its lock before calling sinks,
+    // but subscription deactivation/release drains reserved callbacks and would wait for this call itself. A failing
+    // sink is isolated and does not stop later sinks or future
+    // acquisition cycles.
     virtual HRESULT STDMETHODCALLTYPE OnDataSnapshot(const RedXeDataSnapshot* snapshot) noexcept = 0;
 };
 

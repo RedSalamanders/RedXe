@@ -15,6 +15,7 @@
 #include <cstring>
 #include <memory>
 #include <new>
+#include <ole2.h>
 #include <shellapi.h>
 #include <string>
 #include <string_view>
@@ -24,14 +25,6 @@
 
 namespace
 {
-// Windows tags mouse messages synthesized from a touch or pen contact. Those belong to the WM_POINTER swipe path, so
-// the mouse edge affordance ignores them.
-[[nodiscard]] bool IsPointerSynthesizedMouseMessage() noexcept
-{
-    constexpr ULONG_PTR kPointerSignatureMask = 0xFFFFFF00;
-    constexpr ULONG_PTR kPointerSignature = 0xFF515700;
-    return (static_cast<ULONG_PTR>(GetMessageExtraInfo()) & kPointerSignatureMask) == kPointerSignature;
-}
 constexpr LONG kXeneonEdgeClientWidth = 2560;
 constexpr LONG kXeneonEdgeClientHeight = 720;
 
@@ -292,6 +285,154 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
 
 } // namespace
 
+class ApplicationDropTarget final : public IDropTarget
+{
+  public:
+    explicit ApplicationDropTarget(Application* owner) noexcept : _owner(owner) {}
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) override
+    {
+        if (!result)
+        {
+            return E_POINTER;
+        }
+        *result = nullptr;
+        if (interfaceId != IID_IUnknown && interfaceId != IID_IDropTarget)
+        {
+            return E_NOINTERFACE;
+        }
+        *result = static_cast<IDropTarget*>(this);
+        AddRef();
+        return S_OK;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override
+    {
+        return ++_references;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        return --_references;
+    }
+
+    HRESULT STDMETHODCALLTYPE DragEnter(IDataObject* data, DWORD keyState, POINTL screen, DWORD* effect) override
+    {
+        (void)data;
+        return DragOver(keyState, screen, effect);
+    }
+
+    HRESULT STDMETHODCALLTYPE DragOver(DWORD /*keyState*/, POINTL screen, DWORD* effect) override
+    {
+        if (!_owner || !effect)
+        {
+            return E_POINTER;
+        }
+        POINT client{screen.x, screen.y};
+        if (_owner->_window)
+        {
+            ScreenToClient(_owner->_window.get(), &client);
+        }
+        return _owner->HandleOleDragOver(client, effect);
+    }
+
+    HRESULT STDMETHODCALLTYPE DragLeave() override
+    {
+        if (_owner)
+        {
+            _owner->HandleOleDragLeave();
+        }
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE Drop(IDataObject* data, DWORD /*keyState*/, POINTL screen, DWORD* effect) override
+    {
+        if (!_owner || !data || !effect)
+        {
+            return E_POINTER;
+        }
+        POINT client{screen.x, screen.y};
+        if (_owner->_window)
+        {
+            ScreenToClient(_owner->_window.get(), &client);
+        }
+        std::array<std::array<wchar_t, 520>, 8> storage{};
+        std::array<const wchar_t*, 8> targets{};
+        uint32_t count = 0;
+        FORMATETC format{CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+        STGMEDIUM medium{};
+        if (SUCCEEDED(data->GetData(&format, &medium)) && medium.hGlobal)
+        {
+            const HDROP drop = static_cast<HDROP>(GlobalLock(medium.hGlobal));
+            if (drop)
+            {
+                const UINT files = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+                for (UINT index = 0; index < files && count < targets.size(); ++index)
+                {
+                    const UINT length = DragQueryFileW(drop, index, nullptr, 0);
+                    if (length == 0 || length >= storage[count].size())
+                    {
+                        continue;
+                    }
+                    if (DragQueryFileW(drop, index, storage[count].data(), static_cast<UINT>(storage[count].size())) !=
+                        0)
+                    {
+                        targets[count] = storage[count].data();
+                        ++count;
+                    }
+                }
+                GlobalUnlock(medium.hGlobal);
+            }
+            ReleaseStgMedium(&medium);
+        }
+        FORMATETC textFormat{CF_UNICODETEXT, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+        STGMEDIUM textMedium{};
+        if (count < targets.size() && SUCCEEDED(data->GetData(&textFormat, &textMedium)) && textMedium.hGlobal)
+        {
+            const auto* text = static_cast<const wchar_t*>(GlobalLock(textMedium.hGlobal));
+            if (text && text[0] != L'\0')
+            {
+                size_t length = 0;
+                while (text[length] != L'\0' && length + 1 < storage[count].size())
+                {
+                    ++length;
+                }
+                if (length >= 3)
+                {
+                    bool url = (text[0] >= L'A' && text[0] <= L'Z') || (text[0] >= L'a' && text[0] <= L'z');
+                    size_t cursor = 1;
+                    while (url && cursor < length)
+                    {
+                        const wchar_t value = text[cursor];
+                        if (!((value >= L'A' && value <= L'Z') || (value >= L'a' && value <= L'z') ||
+                              (value >= L'0' && value <= L'9') || value == L'+' || value == L'.' || value == L'-'))
+                        {
+                            break;
+                        }
+                        ++cursor;
+                    }
+                    if (url && cursor >= 2 && cursor < length && text[cursor] == L':')
+                    {
+                        std::memcpy(storage[count].data(), text, (length + 1) * sizeof(wchar_t));
+                        targets[count] = storage[count].data();
+                        ++count;
+                    }
+                }
+            }
+            if (text)
+            {
+                GlobalUnlock(textMedium.hGlobal);
+            }
+            ReleaseStgMedium(&textMedium);
+        }
+        return _owner->HandleOleDrop(client, targets.data(), count, effect);
+    }
+
+  private:
+    Application* _owner = nullptr;
+    ULONG _references = 1;
+};
+
 Application::Application(HINSTANCE instance, bool forceWarp) noexcept : _instance(instance), _forceWarp(forceWarp)
 {
     _pluginManager.reset(new (std::nothrow) PluginManager());
@@ -308,6 +449,12 @@ Application::~Application()
     _displayPowerNotification.reset();
     CloseSettingsError();
     CloseMainWindow();
+    _dropTarget.reset();
+    if (_oleInitialized)
+    {
+        OleUninitialize();
+        _oleInitialized = false;
+    }
     if (_classRegistered)
     {
         UnregisterClassW(kSettingsDialogClassName, _instance);
@@ -337,6 +484,11 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     if (_settingsStore.UsedInitialFallback())
     {
         MessageBoxW(nullptr, _settingsStore.InitialNotice().c_str(), L"RedXe settings", MB_OK | MB_ICONERROR);
+    }
+    if (!_settingsStore.LogsDirectory().empty())
+    {
+        (void)PluginHost::Instance().SetLogDirectory(_settingsStore.LogsDirectory().c_str());
+        (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
     }
 
     RECT xeneonBounds{};
@@ -389,6 +541,27 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         OutputDebugStringW(L"CreateMainWindow failed.\n");
         return 2;
     }
+
+    result = OleInitialize(nullptr);
+    if (FAILED(result))
+    {
+        OutputDebugStringW(L"OleInitialize failed.\n");
+        return 2;
+    }
+    _oleInitialized = true;
+    _dropTarget.reset(new (std::nothrow) ApplicationDropTarget(this));
+    if (!_dropTarget)
+    {
+        return 2;
+    }
+    result = RegisterDragDrop(_window.get(), _dropTarget.get());
+    if (FAILED(result))
+    {
+        OutputDebugStringW(L"RegisterDragDrop failed.\n");
+        return 2;
+    }
+    _dropRegistered = true;
+    PluginHost::Instance().SetSettingsPersistHandler(&Application::SettingsPersistThunk, this);
 
     result = _pluginManager->Initialize(*_settings);
     if (FAILED(result))
@@ -444,6 +617,10 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         {
             TickPageSettle();
         }
+        if (_raiseSettleActive)
+        {
+            TickRaiseSettle();
+        }
 
         if (!_renderer.IsOccluded())
         {
@@ -459,6 +636,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             DashboardRequiresContinuousFrames(),
             _frameInvalidated,
             PageNavigationInProgress(),
+            OverlayMotionInProgress(),
         });
         if (frameAction == HostFrameAction::ProbeOcclusion)
         {
@@ -491,6 +669,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
                 DashboardRequiresContinuousFrames(),
                 _frameInvalidated,
                 PageNavigationInProgress(),
+                OverlayMotionInProgress(),
             });
         }
 
@@ -538,11 +717,13 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
 
 // Hidden startup validation for `--self-test`. It shares Application's startup steps but never shows a window and
 // never enters the frame loop, so the production Run above carries no test branches and no `selfTest` parameter.
+// It MUST NOT call SetLogDirectory: diagnostics stay off `%LocalAppData%` and the deployed tree.
 //
 // UI_XeneonDisplayWindowing.md owns this mode: skip display discovery and prompts, create the titled window hidden,
 // validate its DPI-adjusted client dimensions, render one frame, and exit.
 int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
 {
+    PluginHost::Instance().SetNetworkAccessEnabled(false);
     if (!_pluginManager || !_dashboardHost)
     {
         OutputDebugStringW(L"Dashboard host allocation failed.\n");
@@ -586,6 +767,29 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         OutputDebugStringW(L"The default client area does not match the current monitor DPI.\n");
         return 2;
     }
+
+    _persistSettingsToDisk = false;
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    result = OleInitialize(nullptr);
+    if (FAILED(result))
+    {
+        OutputDebugStringW(L"OleInitialize failed.\n");
+        return 2;
+    }
+    _oleInitialized = true;
+    _dropTarget.reset(new (std::nothrow) ApplicationDropTarget(this));
+    if (!_dropTarget)
+    {
+        return 2;
+    }
+    result = RegisterDragDrop(_window.get(), _dropTarget.get());
+    if (FAILED(result))
+    {
+        OutputDebugStringW(L"RegisterDragDrop failed.\n");
+        return 2;
+    }
+    _dropRegistered = true;
+    PluginHost::Instance().SetSettingsPersistHandler(&Application::SettingsPersistThunk, this);
 
 #if defined(_DEBUG)
     {
@@ -872,7 +1076,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     {
         return E_POINTER;
     }
-    DismissWidgetRaise();
+    DismissWidgetRaise(false);
     CancelPageNavigation();
     if (*settings == *_settings)
     {
@@ -881,6 +1085,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     if (ActiveDashboardRuntimeEquals(*settings, *_settings))
     {
         _settings = std::move(settings);
+        (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         return S_OK;
     }
 
@@ -896,6 +1101,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     if (SUCCEEDED(applyResult))
     {
         _settings = std::move(settings);
+        (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         return S_OK;
     }
 
@@ -958,11 +1164,13 @@ HRESULT Application::StageTransitionPage(int direction) noexcept
     }
     const bool visible = _windowVisible && _displayPoweredOn && !_renderer.IsSuspended() && !_renderer.IsOccluded();
     result = dashboard->Initialize(*plugins, _window.get(), static_cast<UINT>(client.right),
-                                   static_cast<UINT>(client.bottom), dpi, visible);
+                                   static_cast<UINT>(client.bottom), dpi, false);
     if (SUCCEEDED(result))
         result = dashboard->SetHorizontalOffset(_pageCurrentOffset + direction * client.right);
     if (SUCCEEDED(result))
         result = _renderer.SetTransitionDashboard(dashboard.get());
+    if (SUCCEEDED(result))
+        result = dashboard->SetWidgetsVisible(visible);
     if (FAILED(result))
     {
         dashboard->Shutdown();
@@ -1274,6 +1482,9 @@ void Application::RefreshPageEdgeAffordances() noexcept
             _pageEdges[index].reset(edge);
             (void)SetLayeredWindowAttributes(edge, 0, kPageEdgeRevealedAlpha, LWA_ALPHA);
             ShowWindow(edge, SW_SHOWNA);
+            // A child created under the cursor does not receive WM_SETCURSOR until the mouse moves, so the parent
+            // still shows IDC_ARROW. Force the hand as soon as the band exists.
+            SetCursor(LoadCursorW(nullptr, IDC_HAND));
             // Leave tracking is armed from the band's first WM_MOUSEMOVE, not here. TrackMouseEvent posts
             // WM_MOUSELEAVE immediately when the cursor is not already inside the window, and a child created under
             // the cursor has not been hit-tested onto yet, so arming here makes the band destroy itself at once.
@@ -1395,19 +1606,6 @@ void Application::ClearPageEdgeHover() noexcept
     }
 }
 
-void Application::SetPageEdgeRevealed(size_t index, bool revealed) noexcept
-{
-    if (index >= _pageEdgeRevealed.size() || _pageEdgeRevealed[index] == revealed)
-    {
-        return;
-    }
-    // Instant reveal, by creating or destroying the band window. A cross-fade would need a timer, and
-    // Core_PerformanceAndResources.md prohibits wake-ups that visible content does not require.
-    _pageEdgeRevealed[index] = revealed;
-    _pageEdgeApplyValid = false;
-    RefreshPageEdgeAffordances();
-}
-
 HRESULT Application::NavigateToAdjacentPage(int direction) noexcept
 {
     if (!_window || !_rendererReady || _raisedActive || _pageSettleActive || _pagePointerActive)
@@ -1464,6 +1662,9 @@ LRESULT Application::HandlePageEdgeMessage(HWND edge, size_t index, UINT message
     {
     case WM_ERASEBKGND:
         return 1;
+    case WM_SETCURSOR:
+        SetCursor(LoadCursorW(nullptr, IDC_HAND));
+        return TRUE;
     case WM_PAINT:
         PaintPageEdge(edge, index);
         return 0;
@@ -1483,10 +1684,11 @@ LRESULT Application::HandlePageEdgeMessage(HWND edge, size_t index, UINT message
         UpdatePageEdgeHover();
         return 0;
     case WM_LBUTTONUP:
-        if (index < _pageEdges.size() && !IsPointerSynthesizedMouseMessage())
+        if (index < _pageEdges.size() && !IsPointerSynthesizedMouseMessage() && _window)
         {
-            SetPageEdgeRevealed(index, false);
-            (void)NavigateToAdjacentPage(direction);
+            // Navigate after this WndProc returns. Destroying the band here, or from NavigateToAdjacentPage's
+            // affordance refresh, would tear down the HWND that is still dispatching this click.
+            (void)PostMessageW(_window.get(), kPageEdgeNavigateMessage, static_cast<WPARAM>(direction), 0);
         }
         return 0;
     case WM_POINTERDOWN:
@@ -1627,14 +1829,37 @@ bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT&
 
 void Application::OnPointerDown(HWND window, WPARAM wParam) noexcept
 {
+    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+    POINT position{};
+    UINT64 qpc = 0;
+    if (!TryPointerClientPosition(window, pointerId, position, qpc))
+    {
+        return;
+    }
+    if (PointInPageEdgeBand(window, position))
+    {
+        // Edge-band contacts never reach a widget; page pan may still start from the band.
+    }
+    else
+    {
+        bool consumed = false;
+        const uint32_t kind = [&]() noexcept -> uint32_t
+        {
+            POINTER_INFO information{};
+            if (GetPointerInfo(pointerId, &information) && information.pointerType == PT_PEN)
+            {
+                return RedXePointerKindPen;
+            }
+            return RedXePointerKindTouch;
+        }();
+        (void)ForwardInteractivePointer(position, pointerId, kind, RedXePointerPhaseDown, &consumed);
+        (void)consumed;
+    }
     if (_raisedActive)
     {
         return;
     }
-    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
-    POINT position{};
-    UINT64 qpc = 0;
-    if (_pagePointerActive || !TryPointerClientPosition(window, pointerId, position, qpc))
+    if (_pagePointerActive)
     {
         return;
     }
@@ -1680,6 +1905,7 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
     UINT64 qpc = 0;
     if (!TryPointerClientPosition(window, pointerId, position, qpc))
     {
+        CancelInteractivePointer();
         CancelPageNavigation();
         return;
     }
@@ -1704,9 +1930,13 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
         }
         if (!PageSwipeLocksHorizontal(deltaX, deltaY, threshold))
         {
+            bool consumed = false;
+            (void)ForwardInteractivePointer(position, pointerId, RedXePointerKindTouch, RedXePointerPhaseMove,
+                                            &consumed);
             _pagePointerX = position.x;
             return;
         }
+        CancelInteractivePointer();
         _pagePanStarted = true;
         _pageSettleActive = false;
         if (HostSetPointerCapture(window, pointerId))
@@ -1751,6 +1981,23 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
 
 void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
 {
+    POINT position{};
+    UINT64 qpc = 0;
+    const bool havePosition = TryPointerClientPosition(window, GET_POINTERID_WPARAM(wParam), position, qpc);
+    if (_raisedActive)
+    {
+        bool consumed = false;
+        if (havePosition)
+        {
+            (void)ForwardInteractivePointer(position, GET_POINTERID_WPARAM(wParam), RedXePointerKindTouch,
+                                            RedXePointerPhaseUp, &consumed);
+        }
+        if (!consumed && havePosition)
+        {
+            OnRaisedContentActivateAttempt(window, position, GetTickCount64());
+        }
+        return;
+    }
     const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
     if (!_pagePointerActive || pointerId != _pagePointerId)
     {
@@ -1773,15 +2020,19 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
             ResumePageSettleIfNeeded();
             return;
         }
-        POINT position{};
-        UINT64 qpc = 0;
-        if (TryPointerClientPosition(window, pointerId, position, qpc))
+        bool consumed = false;
+        if (havePosition)
+        {
+            (void)ForwardInteractivePointer(position, pointerId, RedXePointerKindTouch, RedXePointerPhaseUp, &consumed);
+        }
+        if (!consumed && havePosition)
         {
             OnClientActivateAttempt(window, position, GetTickCount64());
         }
         return;
     }
 
+    CancelInteractivePointer();
     FlushPendingTransitionStage();
     RECT client{};
     if (!_settings || !GetClientRect(window, &client) || client.right <= 0)
@@ -1799,14 +2050,284 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
     BeginPageSettle(target, commit);
 }
 
-void Application::OnMouseButtonUp(HWND window, LPARAM lParam) noexcept
+void Application::OnMouseButtonDown(HWND window, LPARAM lParam) noexcept
 {
-    if (_raisedActive || _pagePointerActive || _pagePanStarted)
+    if (_pagePointerActive || _pagePanStarted || IsPointerSynthesizedMouseMessage())
     {
         return;
     }
     const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (PointInPageEdgeBand(window, position))
+    {
+        return;
+    }
+    bool consumed = false;
+    (void)ForwardInteractivePointer(position, 1, RedXePointerKindMouse, RedXePointerPhaseDown, &consumed);
+}
+
+void Application::OnMouseButtonUp(HWND window, LPARAM lParam) noexcept
+{
+    if (_pagePointerActive || _pagePanStarted || IsPointerSynthesizedMouseMessage())
+    {
+        return;
+    }
+    const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (TryNavigateFromPageEdge(window, position))
+    {
+        CancelInteractivePointer();
+        return;
+    }
+    bool consumed = false;
+    (void)ForwardInteractivePointer(position, 1, RedXePointerKindMouse, RedXePointerPhaseUp, &consumed);
+    if (consumed)
+    {
+        _activateTick = 0;
+        _activateWidgetIndex = SIZE_MAX;
+        return;
+    }
+    if (_raisedActive)
+    {
+        OnRaisedContentActivateAttempt(window, position, GetTickCount64());
+        return;
+    }
     OnClientActivateAttempt(window, position, GetTickCount64());
+}
+
+bool Application::PointInPageEdgeBand(HWND window, POINT position) const noexcept
+{
+    if (!_window || window != _window.get() || _raisedActive)
+    {
+        return false;
+    }
+    const RECT reachable = ReachableClientRect();
+    const UINT dpi = GetDpiForWindow(window);
+    for (size_t index = 0; index < _pageEdges.size(); ++index)
+    {
+        const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
+        const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
+        if (PageEdgeBandContains(band, position))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId, uint32_t kind, uint32_t phase,
+                                               bool* consumed) noexcept
+{
+    if (consumed)
+    {
+        *consumed = false;
+    }
+    if (!_dashboardHost)
+    {
+        return S_FALSE;
+    }
+
+    const auto send = [&](size_t index, float localX, float localY) noexcept -> HRESULT
+    {
+        IRedXeInteractiveWidget* widget = _dashboardHost->InteractiveWidgetAt(index);
+        if (!widget)
+        {
+            return S_FALSE;
+        }
+        const RedXePointerEvent event{sizeof(RedXePointerEvent), pointerId, kind, phase, localX, localY};
+        return widget->OnPointer(&event);
+    };
+
+    if (phase == RedXePointerPhaseCancel)
+    {
+        const size_t index = _interactivePointerWidget;
+        const bool wasConsumed = _interactivePointerConsumed;
+        _interactivePointerWidget = SIZE_MAX;
+        _interactivePointerConsumed = false;
+        if (index == SIZE_MAX)
+        {
+            return S_FALSE;
+        }
+        const HRESULT result = send(index, 0.0f, 0.0f);
+        if (consumed)
+        {
+            *consumed = wasConsumed;
+        }
+        return result;
+    }
+
+    size_t index = SIZE_MAX;
+    float localX = 0.0f;
+    float localY = 0.0f;
+    bool haveLocal = false;
+    if ((phase == RedXePointerPhaseMove || phase == RedXePointerPhaseUp) && _interactivePointerWidget != SIZE_MAX)
+    {
+        index = _interactivePointerWidget;
+        RECT bounds{};
+        if (_raisedActive && index == _raisedWidgetIndex)
+        {
+            bounds = _raisedLayout.content;
+        }
+        else if (_window)
+        {
+            RECT clientRect{};
+            if (GetClientRect(_window.get(), &clientRect) && clientRect.right > 0 && clientRect.bottom > 0)
+            {
+                bounds = _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(clientRect.right),
+                                                       static_cast<UINT>(clientRect.bottom));
+            }
+        }
+        localX = static_cast<float>(client.x - bounds.left);
+        localY = static_cast<float>(client.y - bounds.top);
+        haveLocal = true;
+    }
+    else
+    {
+        haveLocal = HitInteractiveLocal(client, index, localX, localY);
+    }
+    if (!haveLocal)
+    {
+        return S_FALSE;
+    }
+
+    const HRESULT result = send(index, localX, localY);
+    if (phase == RedXePointerPhaseDown)
+    {
+        if (result == S_OK)
+        {
+            _interactivePointerWidget = index;
+            _interactivePointerConsumed = true;
+            if (consumed)
+            {
+                *consumed = true;
+            }
+        }
+        return result;
+    }
+    if (phase == RedXePointerPhaseUp)
+    {
+        const bool gestureConsumed = _interactivePointerConsumed || result == S_OK;
+        _interactivePointerWidget = SIZE_MAX;
+        _interactivePointerConsumed = false;
+        if (consumed)
+        {
+            *consumed = gestureConsumed;
+        }
+        return result;
+    }
+    if (consumed)
+    {
+        *consumed = result == S_OK;
+    }
+    return result;
+}
+
+bool Application::HitInteractiveLocal(POINT client, size_t& widgetIndex, float& localX, float& localY) const noexcept
+{
+    widgetIndex = SIZE_MAX;
+    localX = 0.0f;
+    localY = 0.0f;
+    if (!_dashboardHost || !_window)
+    {
+        return false;
+    }
+
+    const auto accept = [&](size_t index, const RECT& bounds) noexcept -> bool
+    {
+        if (!_dashboardHost->GpuWidgetAt(index) || !_dashboardHost->InteractiveWidgetAt(index) ||
+            _dashboardHost->WindowWidgetAt(index) || _dashboardHost->RequiresPlaceholderAt(index))
+        {
+            return false;
+        }
+        if (!PointInRectInclusive(bounds, client))
+        {
+            return false;
+        }
+        widgetIndex = index;
+        localX = static_cast<float>(client.x - bounds.left);
+        localY = static_cast<float>(client.y - bounds.top);
+        return true;
+    };
+
+    if (_raisedActive)
+    {
+        return accept(_raisedWidgetIndex, _raisedLayout.content);
+    }
+
+    RECT clientRect{};
+    if (!GetClientRect(_window.get(), &clientRect) || clientRect.right <= 0 || clientRect.bottom <= 0)
+    {
+        return false;
+    }
+    std::array<RECT, PluginManager::kMaximumWidgetInstances> bounds{};
+    const size_t count = _dashboardHost->WidgetCount();
+    for (size_t index = 0; index < count; ++index)
+    {
+        bounds[index] = _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(clientRect.right),
+                                                      static_cast<UINT>(clientRect.bottom));
+    }
+    const size_t hit = HitTestTopmostWidget(client, bounds.data(), count);
+    return hit != SIZE_MAX && accept(hit, bounds[hit]);
+}
+
+void Application::CancelInteractivePointer() noexcept
+{
+    if (_interactivePointerWidget != SIZE_MAX)
+    {
+        bool consumed = false;
+        (void)ForwardInteractivePointer({}, 0, RedXePointerKindMouse, RedXePointerPhaseCancel, &consumed);
+        (void)consumed;
+        return;
+    }
+    _interactivePointerWidget = SIZE_MAX;
+    _interactivePointerConsumed = false;
+}
+
+bool Application::TryNavigateFromPageEdge(HWND window, POINT position) noexcept
+{
+    if (_raisedActive || OverlayMotionInProgress() || !_window || window != _window.get())
+    {
+        return false;
+    }
+    const PageEdgeState state = CurrentPageEdgeState();
+    const RECT reachable = ReachableClientRect();
+    const UINT dpi = GetDpiForWindow(window);
+    for (size_t index = 0; index < _pageEdges.size(); ++index)
+    {
+        const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
+        const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
+        if (PageEdgeClickNavigates(state, direction, band, position))
+        {
+            return SUCCEEDED(NavigateToAdjacentPage(direction));
+        }
+    }
+    return false;
+}
+
+void Application::OnRaisedContentActivateAttempt(HWND window, POINT position, ULONGLONG tick) noexcept
+{
+    if (!_raisedActive)
+    {
+        return;
+    }
+    if (PointInRectInclusive(_raisedLayout.close, position))
+    {
+        return;
+    }
+    if (!PointInRectInclusive(_raisedLayout.content, position))
+    {
+        return;
+    }
+    const UINT dpi = GetDpiForWindow(window);
+    const UINT interval = GetDoubleClickTime();
+    if (_activateWidgetIndex == _raisedWidgetIndex &&
+        IsDoubleActivate(_activateTick, _activatePoint, tick, position, interval, DoubleActivateSlopPixels(dpi)))
+    {
+        _activateWidgetIndex = SIZE_MAX;
+        DismissWidgetRaise(true);
+        return;
+    }
+    _activateTick = tick;
+    _activatePoint = position;
+    _activateWidgetIndex = _raisedWidgetIndex;
 }
 
 void Application::OnClientActivateAttempt(HWND window, POINT position, ULONGLONG tick) noexcept
@@ -1876,8 +2397,10 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
     }
 
     const UINT dpi = GetDpiForWindow(window);
-    const RaisedLayout layout = MakeRaisedLayout(clientWidth, clientHeight, extent, dpi, &tile);
-    if (layout.content.right <= layout.content.left || layout.content.bottom <= layout.content.top)
+    const RaisedLayout target = MakeRaisedLayout(clientWidth, clientHeight, extent, dpi, &tile);
+    const RaisedLayout start = RaisedLayoutFromTile(tile, clientWidth, clientHeight, dpi);
+    if (target.content.right <= target.content.left || target.content.bottom <= target.content.top ||
+        start.content.right <= start.content.left || start.content.bottom <= start.content.top)
     {
         return E_UNEXPECTED;
     }
@@ -1888,19 +2411,6 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
     {
         return result;
     }
-    result = _dashboardHost->ApplyRaisedNativeLayout(widgetIndex, layout.content, dpi);
-    if (FAILED(result))
-    {
-        (void)raisedWidget->SetRaised(FALSE);
-        return result;
-    }
-    result = _renderer.SetRaisedOverlay(widgetIndex, layout.content);
-    if (FAILED(result))
-    {
-        (void)_dashboardHost->ClearRaisedNativeLayout(dpi);
-        (void)raisedWidget->SetRaised(FALSE);
-        return result;
-    }
 
     const HWND overlay =
         CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_NOPARENTNOTIFY | WS_EX_LAYERED, kRaiseOverlayClassName, L"",
@@ -1908,46 +2418,33 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
                         window, nullptr, _instance, this);
     if (!overlay)
     {
-        _renderer.ClearRaisedOverlay();
-        (void)_dashboardHost->ClearRaisedNativeLayout(dpi);
         (void)raisedWidget->SetRaised(FALSE);
         return HRESULT_FROM_WIN32(GetLastError());
     }
     _raiseOverlay.reset(overlay);
-    if (!SetLayeredWindowAttributes(overlay, 0, 148, LWA_ALPHA))
-    {
-        _raiseOverlay.reset();
-        _renderer.ClearRaisedOverlay();
-        (void)_dashboardHost->ClearRaisedNativeLayout(dpi);
-        (void)raisedWidget->SetRaised(FALSE);
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    const HRGN region = CreateRaisedOverlayRegion(clientWidth, clientHeight, layout.content, layout.close);
-    if (!region || !SetWindowRgn(overlay, region, TRUE))
-    {
-        if (region)
-        {
-            DeleteObject(region);
-        }
-        _raiseOverlay.reset();
-        _renderer.ClearRaisedOverlay();
-        (void)_dashboardHost->ClearRaisedNativeLayout(dpi);
-        (void)raisedWidget->SetRaised(FALSE);
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    SetWindowPos(overlay, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-    ShowWindow(overlay, SW_SHOWNA);
-
-    _raisedLayout = layout;
+    _raiseTile = tile;
+    _raiseTargetPixels = SIZE{target.content.right - target.content.left, target.content.bottom - target.content.top};
     _raisedWidgetIndex = widgetIndex;
     _raisedActive = true;
+    _activateTick = 0;
+    _activateWidgetIndex = SIZE_MAX;
+    _raisedLayout = target;
     EnsureRaiseOverlayChrome(dpi);
+    ShowWindow(overlay, SW_SHOWNA);
+
+    result = ApplyRaiseVisual(start, 0);
+    if (FAILED(result))
+    {
+        CompleteDismissImmediate();
+        RefreshPageEdgeAffordances();
+        return result;
+    }
+    BeginRaiseSettle(start, target, 0, kRaiseOverlayDimAlpha, false);
     RefreshPageEdgeAffordances();
-    _frameInvalidated = true;
     return S_OK;
 }
 
-void Application::DismissWidgetRaise() noexcept
+void Application::DismissWidgetRaise(bool animate) noexcept
 {
     const auto refreshEdges = wil::scope_exit([this]() noexcept { RefreshPageEdgeAffordances(); });
     if (!_raisedActive)
@@ -1955,7 +2452,152 @@ void Application::DismissWidgetRaise() noexcept
         _raiseOverlay.reset();
         return;
     }
+    if (_raiseSettleActive && _raiseDismissing && animate)
+    {
+        return;
+    }
+    if (!animate || !_window || !_qpcFrequency)
+    {
+        CompleteDismissImmediate();
+        return;
+    }
 
+    RECT client{};
+    if (!GetClientRect(_window.get(), &client) || client.right <= 0 || client.bottom <= 0)
+    {
+        CompleteDismissImmediate();
+        return;
+    }
+    const UINT dpi = GetDpiForWindow(_window.get());
+    const RaisedLayout tileLayout =
+        RaisedLayoutFromTile(_raiseTile, static_cast<UINT>(client.right), static_cast<UINT>(client.bottom), dpi);
+    if (tileLayout.content.right <= tileLayout.content.left)
+    {
+        CompleteDismissImmediate();
+        return;
+    }
+    BeginRaiseSettle(_raisedLayout, tileLayout, _raiseDimAlpha, 0, true);
+}
+
+HRESULT Application::ApplyRaiseVisual(const RaisedLayout& layout, BYTE dimAlpha) noexcept
+{
+    _raisedLayout = layout;
+    _raiseDimAlpha = dimAlpha;
+    if (!_window || !_raiseOverlay || !_dashboardHost || _raisedWidgetIndex == SIZE_MAX)
+    {
+        return E_UNEXPECTED;
+    }
+    RECT client{};
+    if (!GetClientRect(_window.get(), &client) || client.right <= 0 || client.bottom <= 0)
+    {
+        return E_UNEXPECTED;
+    }
+    const UINT clientWidth = static_cast<UINT>(client.right);
+    const UINT clientHeight = static_cast<UINT>(client.bottom);
+    const BYTE windowAlpha = dimAlpha == 0 ? 1 : dimAlpha;
+    if (!SetLayeredWindowAttributes(_raiseOverlay.get(), 0, windowAlpha, LWA_ALPHA))
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    const HRGN region = CreateRaisedOverlayRegion(clientWidth, clientHeight, layout.content, layout.close);
+    if (!region || !SetWindowRgn(_raiseOverlay.get(), region, FALSE))
+    {
+        if (region)
+        {
+            DeleteObject(region);
+        }
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    HRESULT result = _renderer.SetRaisedOverlay(_raisedWidgetIndex, layout.content, _raiseTargetPixels);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    const UINT dpi = GetDpiForWindow(_window.get());
+    if (dpi != 0)
+    {
+        result = _dashboardHost->ApplyRaisedNativeLayout(_raisedWidgetIndex, layout.content, dpi);
+        if (FAILED(result))
+        {
+            return result;
+        }
+    }
+    SetWindowPos(_raiseOverlay.get(), HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    InvalidateRect(_raiseOverlay.get(), nullptr, FALSE);
+    _frameInvalidated = true;
+    return S_OK;
+}
+
+void Application::BeginRaiseSettle(const RaisedLayout& from, const RaisedLayout& to, BYTE dimFrom, BYTE dimTo,
+                                   bool dismissing) noexcept
+{
+    _raiseSettleFrom = from;
+    _raiseSettleTo = to;
+    _raiseDimFrom = dimFrom;
+    _raiseDimTo = dimTo;
+    _raiseDismissing = dismissing;
+    if (!_qpcFrequency)
+    {
+        (void)ApplyRaiseVisual(to, dimTo);
+        CompleteRaiseSettle();
+        return;
+    }
+    LARGE_INTEGER now{};
+    if (!QueryPerformanceCounter(&now))
+    {
+        (void)ApplyRaiseVisual(to, dimTo);
+        CompleteRaiseSettle();
+        return;
+    }
+    _raiseSettleStartQpc = static_cast<UINT64>(now.QuadPart);
+    const UINT durationMs = RaiseSettleDurationMilliseconds(from.content, to.content);
+    _raiseSettleDurationQpc = static_cast<UINT64>(durationMs) * _qpcFrequency / 1000ULL;
+    if (_raiseSettleDurationQpc == 0)
+    {
+        _raiseSettleDurationQpc = _qpcFrequency / 10ULL;
+    }
+    _raiseSettleActive = true;
+    _frameInvalidated = true;
+}
+
+void Application::TickRaiseSettle() noexcept
+{
+    if (!_raiseSettleActive || !_window)
+    {
+        return;
+    }
+
+    float t = 1.0f;
+    LARGE_INTEGER now{};
+    if (_raiseSettleDurationQpc != 0 && QueryPerformanceCounter(&now))
+    {
+        const UINT64 elapsed = static_cast<UINT64>(now.QuadPart) - _raiseSettleStartQpc;
+        t = elapsed >= _raiseSettleDurationQpc
+                ? 1.0f
+                : static_cast<float>(elapsed) / static_cast<float>(_raiseSettleDurationQpc);
+    }
+    const RaisedLayout layout = InterpolateRaisedLayout(_raiseSettleFrom, _raiseSettleTo, t);
+    const BYTE dim = InterpolateRaisedAlpha(_raiseDimFrom, _raiseDimTo, t);
+    if (FAILED(ApplyRaiseVisual(layout, dim)) || t >= 1.0f)
+    {
+        CompleteRaiseSettle();
+    }
+}
+
+void Application::CompleteRaiseSettle() noexcept
+{
+    _raiseSettleActive = false;
+    if (_raiseDismissing)
+    {
+        CompleteDismissImmediate();
+        RefreshPageEdgeAffordances();
+        return;
+    }
+    (void)ApplyRaiseVisual(_raiseSettleTo, _raiseDimTo);
+}
+
+void Application::CompleteDismissImmediate() noexcept
+{
     IRedXeRaisedWidget* raisedWidget =
         _dashboardHost && _raisedWidgetIndex != SIZE_MAX ? _dashboardHost->RaisedWidgetAt(_raisedWidgetIndex) : nullptr;
     if (raisedWidget)
@@ -1975,7 +2617,29 @@ void Application::DismissWidgetRaise() noexcept
     _raisedActive = false;
     _raisedWidgetIndex = SIZE_MAX;
     _raisedLayout = {};
+    _raiseTile = {};
+    _raiseTargetPixels = {};
+    _raiseDimAlpha = 0;
+    _raiseSettleActive = false;
+    _raiseDismissing = false;
+    _raiseSettleFrom = {};
+    _raiseSettleTo = {};
+    _raiseCloseHovered = false;
+    _raiseCloseMouseTracking = false;
     _frameInvalidated = true;
+}
+
+void Application::SetRaiseCloseHovered(bool hovered) noexcept
+{
+    if (_raiseCloseHovered == hovered)
+    {
+        return;
+    }
+    _raiseCloseHovered = hovered;
+    if (_raiseOverlay)
+    {
+        InvalidateRect(_raiseOverlay.get(), nullptr, FALSE);
+    }
 }
 
 LRESULT CALLBACK Application::RaiseOverlayProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
@@ -2000,6 +2664,39 @@ LRESULT Application::HandleRaiseOverlayMessage(HWND overlay, UINT message, WPARA
     {
     case WM_ERASEBKGND:
         return 1;
+    case WM_SETCURSOR:
+        if (LOWORD(lParam) == HTCLIENT)
+        {
+            POINT cursor{};
+            if (GetCursorPos(&cursor) && ScreenToClient(overlay, &cursor) &&
+                PointInRectInclusive(_raisedLayout.close, cursor))
+            {
+                SetCursor(LoadCursorW(nullptr, IDC_HAND));
+                SetRaiseCloseHovered(true);
+            }
+            else
+            {
+                SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+                SetRaiseCloseHovered(false);
+            }
+            return TRUE;
+        }
+        break;
+    case WM_MOUSEMOVE:
+    {
+        if (!_raiseCloseMouseTracking)
+        {
+            TRACKMOUSEEVENT track{sizeof(TRACKMOUSEEVENT), TME_LEAVE, overlay, 0};
+            _raiseCloseMouseTracking = TrackMouseEvent(&track) != FALSE;
+        }
+        const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+        SetRaiseCloseHovered(PointInRectInclusive(_raisedLayout.close, position));
+        return 0;
+    }
+    case WM_MOUSELEAVE:
+        _raiseCloseMouseTracking = false;
+        SetRaiseCloseHovered(false);
+        return 0;
     case WM_PAINT:
         PaintRaiseOverlay(overlay);
         return 0;
@@ -2008,7 +2705,7 @@ LRESULT Application::HandleRaiseOverlayMessage(HWND overlay, UINT message, WPARA
         const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
         if (PointInRectInclusive(_raisedLayout.close, position))
         {
-            DismissWidgetRaise();
+            DismissWidgetRaise(true);
         }
         return 0;
     }
@@ -2019,7 +2716,7 @@ LRESULT Application::HandleRaiseOverlayMessage(HWND overlay, UINT message, WPARA
         if (TryPointerClientPosition(_window.get(), GET_POINTERID_WPARAM(wParam), position, qpc) &&
             PointInRectInclusive(_raisedLayout.close, position))
         {
-            DismissWidgetRaise();
+            DismissWidgetRaise(true);
         }
         return 0;
     }
@@ -2046,6 +2743,10 @@ void Application::EnsureRaiseOverlayChrome(UINT dpi) noexcept
     if (!_raiseShadowBrush)
     {
         _raiseShadowBrush.reset(CreateSolidBrush(RGB(0, 0, 0)));
+    }
+    if (!_raiseCloseHoverBrush)
+    {
+        _raiseCloseHoverBrush.reset(CreateSolidBrush(RGB(52, 62, 84)));
     }
     if (_raiseCloseFont && _raiseCloseFontDpi == effectiveDpi)
     {
@@ -2087,9 +2788,14 @@ void Application::PaintRaiseOverlay(HWND overlay) noexcept
     if (_raiseCloseFont && glyph != L'\0' && _raisedLayout.close.right > _raisedLayout.close.left)
     {
         RECT close = _raisedLayout.close;
+        if (_raiseCloseHovered && _raiseCloseHoverBrush)
+        {
+            FillRect(deviceContext, &close, _raiseCloseHoverBrush.get());
+        }
         const HGDIOBJ previousFont = SelectObject(deviceContext, _raiseCloseFont.get());
         const int previousMode = SetBkMode(deviceContext, TRANSPARENT);
-        const COLORREF previousColor = SetTextColor(deviceContext, RGB(240, 240, 240));
+        const COLORREF glyphColor = _raiseCloseHovered ? RGB(255, 255, 255) : RGB(214, 220, 230);
+        const COLORREF previousColor = SetTextColor(deviceContext, glyphColor);
         (void)DrawTextW(deviceContext, &glyph, 1, &close,
                         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP | DT_NOPREFIX);
         (void)SetTextColor(deviceContext, previousColor);
@@ -2272,6 +2978,11 @@ bool Application::PageNavigationInProgress() const noexcept
            _pageStagePendingDirection != 0;
 }
 
+bool Application::OverlayMotionInProgress() const noexcept
+{
+    return _raiseSettleActive;
+}
+
 void Application::ResumePageSettleIfNeeded() noexcept
 {
     if (_pageSettleActive || _pagePointerActive || _pagePanStarted)
@@ -2297,7 +3008,7 @@ void Application::RefreshScheduledFrameDeadline() noexcept
 {
     ClearScheduledFrameDeadline();
     if (!_windowVisible || !_displayPoweredOn || !_rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
-        DashboardRequiresContinuousFrames() || PageNavigationInProgress())
+        DashboardRequiresContinuousFrames() || PageNavigationInProgress() || OverlayMotionInProgress())
     {
         return;
     }
@@ -2345,17 +3056,27 @@ HRESULT Application::UpdateDashboardVisibility() noexcept
 void Application::CloseMainWindow() noexcept
 {
     PluginHost::Instance().SetUiInvalidateTarget(nullptr);
+    if (_dropRegistered && _window)
+    {
+        (void)RevokeDragDrop(_window.get());
+        _dropRegistered = false;
+    }
     _pageEdgeMouseTracking = false;
     DestroyPageEdgeAffordances();
     _settingsWatcher.Stop();
-    DismissWidgetRaise();
+    DismissWidgetRaise(false);
     CancelPageNavigation();
     _renderer.Shutdown();
     _rendererReady = false;
+    if (_transitionDashboardHost)
+    {
+        _transitionDashboardHost->Shutdown();
+    }
     if (_dashboardHost)
     {
         _dashboardHost->Shutdown();
     }
+    PluginHost::Instance().SetSettingsPersistHandler(nullptr, nullptr);
     _window.reset();
 }
 
@@ -2467,6 +3188,9 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             CancelPageNavigation();
         }
         return 0;
+    case WM_LBUTTONDOWN:
+        OnMouseButtonDown(window, lParam);
+        return 0;
     case WM_LBUTTONUP:
         OnMouseButtonUp(window, lParam);
         return 0;
@@ -2485,6 +3209,31 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case kPageEdgeHoverMessage:
         UpdatePageEdgeHover();
         return 0;
+    case kPageEdgeNavigateMessage:
+        (void)NavigateToAdjacentPage(static_cast<int>(wParam));
+        return 0;
+    case WM_SETCURSOR:
+        if (LOWORD(lParam) == HTCLIENT)
+        {
+            POINT cursor{};
+            if (GetCursorPos(&cursor) && ScreenToClient(window, &cursor))
+            {
+                const PageEdgeState state = CurrentPageEdgeState();
+                const RECT reachable = ReachableClientRect();
+                const UINT dpi = GetDpiForWindow(window);
+                for (size_t index = 0; index < _pageEdges.size(); ++index)
+                {
+                    const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
+                    const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
+                    if (PageEdgeClickNavigates(state, direction, band, cursor))
+                    {
+                        SetCursor(LoadCursorW(nullptr, IDC_HAND));
+                        return TRUE;
+                    }
+                }
+            }
+        }
+        break;
     case WM_MOUSELEAVE:
         _pageEdgeMouseTracking = false;
         // Entering a band is also a leave for the parent, so re-test the cursor instead of hiding unconditionally.
@@ -2510,7 +3259,7 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         {
             if (_raisedActive)
             {
-                DismissWidgetRaise();
+                DismissWidgetRaise(true);
                 return 0;
             }
             CloseMainWindow();
@@ -2552,7 +3301,7 @@ LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
     {
         return 0;
     }
-    DismissWidgetRaise();
+    DismissWidgetRaise(false);
     if (_pagePointerActive || _pagePanStarted || _pageSettleActive || _pageCurrentOffset != 0)
     {
         CancelPageNavigation();
@@ -2591,7 +3340,7 @@ LRESULT Application::OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBo
         return 0;
     }
 
-    DismissWidgetRaise();
+    DismissWidgetRaise(false);
     if (_rendererReady)
     {
         const HRESULT result = _renderer.SetDpi(dpi);
@@ -2621,4 +3370,114 @@ LRESULT Application::OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBo
     SetWindowPos(window, nullptr, suggestedBounds->left, suggestedBounds->top, width, height,
                  SWP_NOACTIVATE | SWP_NOZORDER);
     return 0;
+}
+
+HRESULT Application::HandleOleDragOver(POINT client, DWORD* effect) noexcept
+{
+    if (!effect)
+    {
+        return E_POINTER;
+    }
+    *effect = DROPEFFECT_NONE;
+    size_t index = SIZE_MAX;
+    float localX = 0.0f;
+    float localY = 0.0f;
+    if (!HitInteractiveLocal(client, index, localX, localY))
+    {
+        HandleOleDragLeave();
+        return S_OK;
+    }
+    IRedXeInteractiveWidget* widget = _dashboardHost->InteractiveWidgetAt(index);
+    if (!widget)
+    {
+        HandleOleDragLeave();
+        return S_OK;
+    }
+    if (_dragWidgetIndex != SIZE_MAX && _dragWidgetIndex != index)
+    {
+        IRedXeInteractiveWidget* previous = _dashboardHost->InteractiveWidgetAt(_dragWidgetIndex);
+        if (previous)
+        {
+            (void)previous->OnDragLeave();
+        }
+    }
+    _dragWidgetIndex = index;
+    if (widget->OnDragOver(localX, localY) == S_OK)
+    {
+        *effect = DROPEFFECT_COPY;
+    }
+    return S_OK;
+}
+
+void Application::HandleOleDragLeave() noexcept
+{
+    if (_dragWidgetIndex == SIZE_MAX || !_dashboardHost)
+    {
+        _dragWidgetIndex = SIZE_MAX;
+        return;
+    }
+    IRedXeInteractiveWidget* widget = _dashboardHost->InteractiveWidgetAt(_dragWidgetIndex);
+    _dragWidgetIndex = SIZE_MAX;
+    if (widget)
+    {
+        (void)widget->OnDragLeave();
+    }
+}
+
+HRESULT Application::HandleOleDrop(POINT client, const wchar_t* const* targets, uint32_t count, DWORD* effect) noexcept
+{
+    if (!effect)
+    {
+        return E_POINTER;
+    }
+    *effect = DROPEFFECT_NONE;
+    size_t index = SIZE_MAX;
+    float localX = 0.0f;
+    float localY = 0.0f;
+    IRedXeInteractiveWidget* widget = nullptr;
+    if (HitInteractiveLocal(client, index, localX, localY) && _dashboardHost)
+    {
+        widget = _dashboardHost->InteractiveWidgetAt(index);
+    }
+    HandleOleDragLeave();
+    if (!widget || !targets || count == 0)
+    {
+        return S_OK;
+    }
+    const uint32_t itemCount = (std::min)(count, kRedXeMaximumDropItems);
+    std::array<RedXeDropItem, kRedXeMaximumDropItems> items{};
+    for (uint32_t itemIndex = 0; itemIndex < itemCount; ++itemIndex)
+    {
+        items[itemIndex].sizeBytes = sizeof(RedXeDropItem);
+        items[itemIndex].target = targets[itemIndex];
+    }
+    const RedXeDropEvent event{sizeof(RedXeDropEvent), localX, localY, itemCount, items.data()};
+    if (widget->OnDrop(&event) == S_OK)
+    {
+        *effect = DROPEFFECT_COPY;
+    }
+    return S_OK;
+}
+
+HRESULT Application::ApplyWidgetSettingsPersist(const char* instanceId, const char* settingsJsonUtf8,
+                                                uint32_t settingsBytes) noexcept
+{
+    if (!_settings || !instanceId || !settingsJsonUtf8 || settingsBytes == 0)
+    {
+        return E_INVALIDARG;
+    }
+    if (!_persistSettingsToDisk)
+    {
+        return PatchWidgetInstanceSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
+    }
+    return _settingsStore.PersistWidgetSettings(*_settings, instanceId,
+                                               std::string_view(settingsJsonUtf8, settingsBytes));
+}
+
+HRESULT Application::SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8,
+                                          uint32_t settingsBytes) noexcept
+{
+    auto* application = static_cast<Application*>(context);
+    return application ? application->ApplyWidgetSettingsPersist(instanceId, settingsJsonUtf8, settingsBytes)
+                       : E_POINTER;
 }

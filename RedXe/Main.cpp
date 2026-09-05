@@ -127,6 +127,10 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         }
         else
         {
+            if (selfTest)
+            {
+                PluginHost::Instance().SetNetworkAccessEnabled(false);
+            }
             exitCode = selfTest ? application->RunSelfTest(settingsPath) : application->Run(showCommand, settingsPath);
         }
     }
@@ -137,8 +141,28 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
 
     if (exitCode != 0 && !selfTest)
     {
-        MessageBoxW(nullptr, L"RedXe could not complete graphics initialization or rendering. See the debugger output.",
-                    L"RedXe", MB_OK | MB_ICONERROR);
+        const wchar_t* message = L"RedXe could not start. See the debugger output.";
+        switch (exitCode)
+        {
+        case 1:
+            message = L"RedXe could not load settings. See the debugger output.";
+            break;
+        case 2:
+            message = L"RedXe could not create its window. See the debugger output.";
+            break;
+        case 3:
+            message = L"RedXe could not initialize bundled plugins. See the debugger output.";
+            break;
+        case 5:
+            message = L"RedXe could not complete graphics initialization or rendering. See the debugger output.";
+            break;
+        case 7:
+            message = L"RedXe could not watch its settings file. See the debugger output.";
+            break;
+        default:
+            break;
+        }
+        MessageBoxW(nullptr, message, L"RedXe", MB_OK | MB_ICONERROR);
     }
     return exitCode;
 }

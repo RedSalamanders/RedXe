@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <windows.h>
 
 [[nodiscard]] constexpr bool RedXeRaisedExtentIsValid(RedXeRaisedExtent extent) noexcept
@@ -100,6 +101,98 @@ struct RaisedLayout final
         layout.shadow = {std::max(0L, layout.overlay.left - shadow), 0, layout.overlay.left, overlayHeight};
     }
     return layout;
+}
+
+[[nodiscard]] inline RaisedLayout RaisedLayoutFromTile(const RECT& tile, UINT clientWidth, UINT clientHeight,
+                                                       UINT dpi) noexcept
+{
+    RaisedLayout layout{};
+    if (clientWidth == 0 || clientHeight == 0 || tile.right <= tile.left || tile.bottom <= tile.top)
+    {
+        return layout;
+    }
+    RECT overlay = tile;
+    if (overlay.left < 0)
+    {
+        overlay.left = 0;
+    }
+    if (overlay.top < 0)
+    {
+        overlay.top = 0;
+    }
+    if (overlay.right > static_cast<LONG>(clientWidth))
+    {
+        overlay.right = static_cast<LONG>(clientWidth);
+    }
+    if (overlay.bottom > static_cast<LONG>(clientHeight))
+    {
+        overlay.bottom = static_cast<LONG>(clientHeight);
+    }
+    if (overlay.right <= overlay.left || overlay.bottom <= overlay.top)
+    {
+        return layout;
+    }
+    layout.overlay = overlay;
+    layout.content = overlay;
+    const LONG closeSize = RaisedDipPixels(22, dpi);
+    const LONG closePad = RaisedDipPixels(8, dpi);
+    layout.close = {overlay.right - closePad - closeSize, overlay.top + closePad, overlay.right - closePad,
+                    overlay.top + closePad + closeSize};
+    const LONG shadow = RaisedDipPixels(14, dpi);
+    if (overlay.right < static_cast<LONG>(clientWidth))
+    {
+        layout.shadow = {overlay.right, overlay.top, std::min(static_cast<LONG>(clientWidth), overlay.right + shadow),
+                         overlay.bottom};
+    }
+    else if (overlay.left > 0)
+    {
+        layout.shadow = {std::max(0L, overlay.left - shadow), overlay.top, overlay.left, overlay.bottom};
+    }
+    return layout;
+}
+
+[[nodiscard]] inline LONG InterpolateRaisedCoordinate(LONG start, LONG target, float t) noexcept
+{
+    const float clamped = t <= 0.0f ? 0.0f : (t >= 1.0f ? 1.0f : t);
+    const float inv = 1.0f - clamped;
+    const float eased = 1.0f - inv * inv * inv;
+    const float mixed = static_cast<float>(start) + static_cast<float>(target - start) * eased;
+    return mixed >= 0.0f ? static_cast<LONG>(mixed + 0.5f) : static_cast<LONG>(mixed - 0.5f);
+}
+
+[[nodiscard]] inline RECT InterpolateRaisedRect(const RECT& start, const RECT& target, float t) noexcept
+{
+    return RECT{InterpolateRaisedCoordinate(start.left, target.left, t),
+                InterpolateRaisedCoordinate(start.top, target.top, t),
+                InterpolateRaisedCoordinate(start.right, target.right, t),
+                InterpolateRaisedCoordinate(start.bottom, target.bottom, t)};
+}
+
+[[nodiscard]] inline RaisedLayout InterpolateRaisedLayout(const RaisedLayout& start, const RaisedLayout& target,
+                                                          float t) noexcept
+{
+    RaisedLayout layout{};
+    layout.overlay = InterpolateRaisedRect(start.overlay, target.overlay, t);
+    layout.content = InterpolateRaisedRect(start.content, target.content, t);
+    layout.close = InterpolateRaisedRect(start.close, target.close, t);
+    layout.shadow = InterpolateRaisedRect(start.shadow, target.shadow, t);
+    return layout;
+}
+
+[[nodiscard]] inline UINT RaiseSettleDurationMilliseconds(const RECT& from, const RECT& to) noexcept
+{
+    const LONG travelX = std::abs((to.right - to.left) - (from.right - from.left)) + std::abs(to.left - from.left);
+    const LONG travelY = std::abs((to.bottom - to.top) - (from.bottom - from.top)) + std::abs(to.top - from.top);
+    const float distance = static_cast<float>(std::max(travelX, travelY));
+    const UINT rounded = static_cast<UINT>(distance / 2.8f + 0.5f);
+    return std::clamp(rounded, 160U, 240U);
+}
+
+inline constexpr BYTE kRaiseOverlayDimAlpha = 148;
+
+[[nodiscard]] inline BYTE InterpolateRaisedAlpha(BYTE start, BYTE target, float t) noexcept
+{
+    return static_cast<BYTE>(InterpolateRaisedCoordinate(static_cast<LONG>(start), static_cast<LONG>(target), t));
 }
 
 [[nodiscard]] inline bool WidgetFillsClient(const RECT& bounds, UINT clientWidth, UINT clientHeight) noexcept

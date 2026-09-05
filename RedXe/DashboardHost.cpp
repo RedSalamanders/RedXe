@@ -1,14 +1,28 @@
 #include "DashboardHost.h"
 
 #include "Application.h"
+#include "PageEdgeAffordance.h"
+#include "PluginHost.h"
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <windowsx.h>
 
 namespace
 {
 constexpr wchar_t kPointerForwardPrevProc[] = L"RedXe.PtrPrevProc";
+
+void SetNetworkWidgetsActive(PluginManager& pluginManager, size_t widgetCount, bool active) noexcept
+{
+    for (size_t index = 0; index < widgetCount; ++index)
+    {
+        if (IRedXeNetworkWidget* widget = pluginManager.NetworkWidgetAt(index))
+        {
+            PluginHost::Instance().SetNetworkWidgetActive(widget, active);
+        }
+    }
+}
 
 LRESULT CALLBACK PointerForwardProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
 {
@@ -22,6 +36,20 @@ LRESULT CALLBACK PointerForwardProcedure(HWND window, UINT message, WPARAM wPara
         if (root && root != window)
         {
             (void)PostMessageW(root, Application::kPageEdgeHoverMessage, 0, 0);
+        }
+    }
+    if (message == WM_LBUTTONUP && !IsPointerSynthesizedMouseMessage())
+    {
+        // Double-activate raise/dismiss is owned by the top-level window. GPU tiles already deliver WM_LBUTTONUP
+        // there; native containers would otherwise swallow the mouse click. Touch and pen stay on the pointer path.
+        const HWND root = GetAncestor(window, GA_ROOT);
+        if (root && root != window)
+        {
+            POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            if (ClientToScreen(window, &position) && ScreenToClient(root, &position))
+            {
+                (void)SendMessageW(root, WM_LBUTTONUP, wParam, MAKELPARAM(position.x, position.y));
+            }
         }
     }
     if (message == WM_POINTERDOWN || message == WM_POINTERUPDATE || message == WM_POINTERUP ||
@@ -180,7 +208,7 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
     {
         IRedXeGpuWidget* gpuWidget = pluginManager.GpuWidgetAt(index);
         IRedXeWindowWidget* windowWidget = pluginManager.WindowWidgetAt(index);
-        if (!gpuWidget && !windowWidget)
+        if (!gpuWidget && !windowWidget && !pluginManager.IsPlaceholderAt(index))
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
         }
@@ -248,6 +276,9 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
         HRESULT result = windowWidget->Attach(&context);
         if (FAILED(result))
         {
+            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr,
+                               pluginManager.WidgetInstanceIdAt(index), "window-attach-failed",
+                               "native window widget Attach failed.", result);
             windowWidget->Detach();
             for (uint32_t previous = 0; previous < index; ++previous)
             {
@@ -258,6 +289,9 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
             }
             return result;
         }
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr,
+                           pluginManager.WidgetInstanceIdAt(index), "window-attached",
+                           "native window widget attached to host container.");
         InstallPointerForwarding(container);
     }
 
@@ -272,9 +306,13 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
         const HRESULT result = widget ? widget->SetVisible(visible ? TRUE : FALSE) : E_UNEXPECTED;
         if (FAILED(result))
         {
+            SetNetworkWidgetsActive(pluginManager, index, false);
             for (uint32_t previous = 0; previous < index; ++previous)
             {
-                (void)pluginManager.WidgetAt(previous)->SetVisible(FALSE);
+                if (IRedXeWidget* previousWidget = pluginManager.WidgetAt(previous))
+                {
+                    (void)previousWidget->SetVisible(FALSE);
+                }
             }
             for (uint32_t previous = widgetCount; previous > 0; --previous)
             {
@@ -288,6 +326,9 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
         }
     }
     if (visible)
+    {
+        SetNetworkWidgetsActive(pluginManager, widgetCount, true);
+    }
     {
         for (wil::unique_hwnd& container : containers)
         {
@@ -461,6 +502,8 @@ HRESULT DashboardHost::ApplyRaisedNativeLayout(size_t widgetIndex, const RECT& c
         {
             continue;
         }
+        // HWND_TOP keeps the raised native above sibling containers. The host restacks the raise overlay after this
+        // call so the close control stays above the plugin HWND.
         if (!SetWindowPos(_windowContainers[index].get(), HWND_TOP, content.left, content.top,
                           content.right - content.left, content.bottom - content.top, SWP_NOACTIVATE))
         {
@@ -546,6 +589,11 @@ HRESULT DashboardHost::SetWidgetsVisible(bool visible) noexcept
         return S_OK;
     }
 
+    if (!visible)
+    {
+        SetNetworkWidgetsActive(*_pluginManager, _widgetCount, false);
+    }
+
     size_t changedCount = 0;
     for (size_t index = 0; index < _widgetCount; ++index)
     {
@@ -565,9 +613,18 @@ HRESULT DashboardHost::SetWidgetsVisible(bool visible) noexcept
                     (void)previousWidget->SetVisible(_widgetsVisible ? TRUE : FALSE);
                 }
             }
+            if (_widgetsVisible)
+            {
+                SetNetworkWidgetsActive(*_pluginManager, _widgetCount, true);
+            }
             return result;
         }
         changedCount = index + 1;
+    }
+
+    if (visible)
+    {
+        SetNetworkWidgetsActive(*_pluginManager, _widgetCount, true);
     }
 
     for (size_t index = 0; index < _widgetCount; ++index)
@@ -589,6 +646,22 @@ void DashboardHost::Shutdown() noexcept
     }
 
     (void)SetWidgetsVisible(false);
+    for (size_t index = 0; index < _widgetCount; ++index)
+    {
+        IRedXeWidget* widget = _pluginManager->WidgetAt(index);
+        const char* instanceId = _pluginManager->WidgetInstanceIdAt(index);
+        if (!widget || !instanceId)
+        {
+            continue;
+        }
+        std::array<char, kPrivateConfigurationCapacity + 1> json{};
+        uint32_t written = 0;
+        const HRESULT collect = widget->CollectPersistentSettings(json.data(), kPrivateConfigurationCapacity, &written);
+        if (collect == S_OK && written != 0)
+        {
+            (void)PluginHost::Instance().PersistWidgetSettings(instanceId, json.data(), written);
+        }
+    }
     for (size_t index = _widgetCount; index > 0; --index)
     {
         const size_t widgetIndex = index - 1;
@@ -635,6 +708,16 @@ IRedXeWindowWidget* DashboardHost::WindowWidgetAt(size_t index) const noexcept
 IRedXeRaisedWidget* DashboardHost::RaisedWidgetAt(size_t index) const noexcept
 {
     return _pluginManager && index < _widgetCount ? _pluginManager->RaisedWidgetAt(index) : nullptr;
+}
+
+IRedXeInteractiveWidget* DashboardHost::InteractiveWidgetAt(size_t index) const noexcept
+{
+    return _pluginManager && index < _widgetCount ? _pluginManager->InteractiveWidgetAt(index) : nullptr;
+}
+
+const char* DashboardHost::WidgetInstanceIdAt(size_t index) const noexcept
+{
+    return _pluginManager && index < _widgetCount ? _pluginManager->WidgetInstanceIdAt(index) : nullptr;
 }
 
 size_t DashboardHost::RaisedNativeIndex() const noexcept

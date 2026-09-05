@@ -69,6 +69,11 @@ is still open.
 Decide provider isolation and push/network-provider policy. Local `IRedXeDataSource` pull, host `CollectSnapshots`
 batching, and `builtin.system-data` are already shipped.
 
+Outbound HTTP for bundled widgets is no longer decided from this file.
+[`WeatherPlugin_2026-09-04.md`](WeatherPlugin_2026-09-04.md) owns the host network lane (schedule, cancel, shutdown),
+plugin-owned curl in `Weather.dll`, and the weather widget. Push providers and a network `IRedXeDataSource` remain
+open here.
+
 ### 2. Host-owned primitive batching
 
 Keep `IRedXeGpuWidget` as the immediate-context mechanism. Studio Clock, Desk Clock, and the shipped Process Viewer

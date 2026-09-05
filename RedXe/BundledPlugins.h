@@ -33,6 +33,8 @@ inline constexpr std::array kRedXeBundledPlugins{
     RedXeBundledPluginSpec{"builtin.thermal-meter", L"ProcessViewer.dll"},
     RedXeBundledPluginSpec{"builtin.studio-clock", L"StudioClock.dll"},
     RedXeBundledPluginSpec{"builtin.desk-clock", L"DeskClock.dll"},
+    RedXeBundledPluginSpec{"builtin.launcher", L"Launcher.dll"},
+    RedXeBundledPluginSpec{"builtin.weather", L"Weather.dll"},
     RedXeBundledPluginSpec{"builtin.system-data", L"SystemData.dll"},
 };
 
@@ -52,6 +54,8 @@ inline constexpr std::array kRedXeBundledWidgets{
     RedXeBundledWidgetSpec{"builtin.thermal-meter", "thermal-meter"},
     RedXeBundledWidgetSpec{"builtin.studio-clock", "studio-clock"},
     RedXeBundledWidgetSpec{"builtin.desk-clock", "desk-clock"},
+    RedXeBundledWidgetSpec{"builtin.launcher", "launcher"},
+    RedXeBundledWidgetSpec{"builtin.weather", "weather"},
 };
 
 template <typename Character>

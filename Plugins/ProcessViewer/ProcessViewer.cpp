@@ -1033,10 +1033,9 @@ class ViewerWidget final
         }
         _sinks[0].reset();
         _sinks[1].reset();
-        if (_gpuHeld)
+        if (_gpuHeld.exchange(false, std::memory_order_acq_rel))
         {
             ViewerGpuRelease();
-            _gpuHeld = false;
         }
         g_liveWidgetCount.fetch_sub(1, std::memory_order_relaxed);
     }
@@ -1087,7 +1086,7 @@ class ViewerWidget final
             sample = _sample;
         }
         ReleaseSRWLockExclusive(&_lock);
-        if (SUCCEEDED(result) && _gpuHeld)
+        if (SUCCEEDED(result))
         {
             RasterizeSampleGlyphs(sample);
         }
@@ -1123,6 +1122,12 @@ class ViewerWidget final
         return S_OK;
     }
 
+    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes,
+                                                        uint32_t* writtenBytes) noexcept override
+    {
+        return RedXeCollectNoPersistentSettings(jsonUtf8, capacityBytes, writtenBytes);
+    }
+
     HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
     {
         if (!extent)
@@ -1152,7 +1157,7 @@ class ViewerWidget final
         const HRESULT result = ViewerGpuAcquire(context->device);
         if (SUCCEEDED(result))
         {
-            _gpuHeld = true;
+            _gpuHeld.store(true, std::memory_order_release);
             AcquireSRWLockShared(&_lock);
             const ViewerSample sample = _sample;
             ReleaseSRWLockShared(&_lock);
@@ -1163,10 +1168,9 @@ class ViewerWidget final
 
     void STDMETHODCALLTYPE OnDeviceLost() noexcept override
     {
-        if (_gpuHeld)
+        if (_gpuHeld.exchange(false, std::memory_order_acq_rel))
         {
             ViewerGpuRelease();
-            _gpuHeld = false;
         }
         AcquireSRWLockExclusive(&_lock);
         _easing = false;
@@ -2263,14 +2267,18 @@ class ViewerWidget final
 
     void RasterizeSampleGlyphs(const ViewerSample& sample) noexcept
     {
+        ViewerGpuLock();
+        const auto unlock = wil::scope_exit([]() noexcept { ViewerGpuUnlock(); });
+        if (!_gpuHeld.load(std::memory_order_acquire))
+        {
+            return;
+        }
         ViewerGpuResources* resources = ViewerGpuGet();
         if (!resources)
         {
             return;
         }
-        ViewerGpuLock();
         (void)EnsureSceneGlyphs(*resources, sample, Catalog(_kind));
-        ViewerGpuUnlock();
     }
 
     void DrawTrack(ViewerDrawList& list, float x, float y, float width, float height, float fill01, bool available,
@@ -3153,7 +3161,7 @@ class ViewerWidget final
     IRedXeHost* _host = nullptr;
     std::atomic<bool> _visible{false};
     bool _raised = false;
-    bool _gpuHeld = false;
+    std::atomic<bool> _gpuHeld{false};
     mutable SRWLOCK _lock = SRWLOCK_INIT;
     ViewerSample _sample{};
     std::array<NetIdleWatch, kMaximumRows> _netIdle{};

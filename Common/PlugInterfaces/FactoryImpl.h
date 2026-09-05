@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Factory.h"
+#include "Host.h"
 
 #include <atomic>
 #include <cstddef>
@@ -252,5 +253,18 @@ struct RedXeSettingsContractEntry final
     {
         return E_UNEXPECTED;
     }
-    return selected->create(interfaceId, options, host, result);
+    const HRESULT created = selected->create(interfaceId, options, host, result);
+    if (host)
+    {
+        if (FAILED(created))
+        {
+            (void)RedXeHostLog(host, RedXeLogLevelError, pluginId, nullptr, "create-failed", "RedXeCreate failed.",
+                               created);
+        }
+        else
+        {
+            (void)RedXeHostLog(host, RedXeLogLevelInfo, pluginId, nullptr, "created", "plugin object created.");
+        }
+    }
+    return created;
 }

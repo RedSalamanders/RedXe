@@ -123,7 +123,60 @@ struct RedXeWindowWidgetSizeContext final
 
 static_assert(sizeof(RedXeWindowWidgetSizeContext) == 16);
 
+// Borrowed pointer sample forwarded by the host to a GPU interactive widget. Coordinates are widget-local pixels
+// with origin at the tile's top-left, including while the tile is raised.
+enum RedXePointerKind : uint32_t
+{
+    RedXePointerKindMouse = 0,
+    RedXePointerKindTouch = 1,
+    RedXePointerKindPen = 2,
+};
+
+enum RedXePointerPhase : uint32_t
+{
+    RedXePointerPhaseDown = 0,
+    RedXePointerPhaseMove = 1,
+    RedXePointerPhaseUp = 2,
+    RedXePointerPhaseCancel = 3,
+};
+
+struct RedXePointerEvent final
+{
+    uint32_t sizeBytes;
+    uint32_t pointerId;
+    uint32_t kind;
+    uint32_t phase;
+    float x;
+    float y;
+};
+
+static_assert(sizeof(RedXePointerEvent) == 24);
+
+// One dropped filesystem path or full URL. target is borrowed UTF-16 for this call only.
+struct RedXeDropItem final
+{
+    uint32_t sizeBytes;
+    uint32_t reserved;
+    const wchar_t* target;
+};
+
+static_assert(sizeof(RedXeDropItem) == 16);
+static_assert(offsetof(RedXeDropItem, target) == 8);
+
+struct RedXeDropEvent final
+{
+    uint32_t sizeBytes;
+    float x;
+    float y;
+    uint32_t itemCount;
+    const RedXeDropItem* items;
+};
+
+static_assert(sizeof(RedXeDropEvent) == 24);
+static_assert(offsetof(RedXeDropEvent, items) == 16);
+
 inline constexpr uint32_t kRedXeMaximumScheduledFrameDelayMilliseconds = 86'400'000U;
+inline constexpr uint32_t kRedXeMaximumDropItems = 8;
 
 // Fraction of the client rectangle a widget requests when the host raises it.
 enum RedXeRaisedExtent : uint32_t
@@ -140,9 +193,16 @@ enum RedXeRaisedExtent : uint32_t
 // A widget object exposes IRedXeWidget plus each mechanism it supports, and QueryInterface(IID_IUnknown) MUST return
 // the same controlling IUnknown pointer from every one of them. RedXeComObject in FactoryImpl.h provides that.
 //
-// Threading: every call on this interface and on IRedXeWindowWidget, IRedXeScheduledWidget, and IRedXeRaisedWidget
-// runs synchronously on the RedXe UI thread and is non-reentrant. A widget MUST NOT call back into the host from
-// inside one of these calls, except IRedXeHost::RequestFrame.
+// Threading: every call on this interface and on IRedXeWindowWidget, IRedXeScheduledWidget, IRedXeRaisedWidget,
+// and IRedXeInteractiveWidget runs synchronously on the RedXe UI thread and is non-reentrant. A widget MUST NOT
+// call back into the host from inside one of these calls, except IRedXeHost::RequestFrame and IRedXeHost::Log.
+// RequestFrame, Log, and IRedXeHost::PersistWidgetSettings MAY also be called from OnPointer (committed click) and
+// OnDrop. Log MUST NOT be called from Render or GDI paint and MUST NOT emit per-frame success.
+// CollectPersistentSettings is invoked by the host after SetVisible(FALSE) and before Detach; the widget answers
+// with JSON or S_FALSE (nothing to save) and MUST NOT write the settings file or call PersistWidgetSettings.
+// IRedXeNetworkWidget::RunNetworkWork runs on the host network worker, never on the UI thread.
+//
+// RedXe is pre-production: this vtable MAY grow. Rebuild every source-coordinated consumer together.
 interface __declspec(uuid("62DB9FB4-AF7B-47C0-BBF9-B7D5CA535502")) __declspec(novtable) IRedXeWidget : IUnknown
 {
     // Enables visible work. Widgets are created invisible. This call is synchronous and idempotent.
@@ -150,8 +210,31 @@ interface __declspec(uuid("62DB9FB4-AF7B-47C0-BBF9-B7D5CA535502")) __declspec(no
     // FALSE MUST quiesce every animation, timer, data subscription, and other visibility-dependent activity the
     // widget owns before returning. TRUE may resume only what visible content requires. The host enables visibility
     // only after the selected rendering mechanism is ready, and disables it before that mechanism is detached.
+    // Network work is not widget-owned: the host cancels and drains IRedXeNetworkWidget::RunNetworkWork before it
+    // calls SetVisible(FALSE), so this callback MUST NOT wait on the network worker or re-enter PluginHost.
     virtual HRESULT STDMETHODCALLTYPE SetVisible(BOOL visible) noexcept = 0;
+
+    // Host-owned buffer. S_FALSE means nothing to save (writtenBytes is 0). S_OK writes a complete settings object
+    // or a mergeable subset; writtenBytes is the JSON length excluding a terminator. A null writtenBytes returns
+    // E_POINTER. The widget MUST NOT persist from inside this call.
+    virtual HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes,
+                                                                uint32_t* writtenBytes) noexcept = 0;
 };
+
+inline HRESULT RedXeCollectNoPersistentSettings(char* jsonUtf8, uint32_t capacityBytes, uint32_t* writtenBytes) noexcept
+{
+    if (writtenBytes)
+    {
+        *writtenBytes = 0;
+    }
+    if (!writtenBytes)
+    {
+        return E_POINTER;
+    }
+    (void)jsonUtf8;
+    (void)capacityBytes;
+    return S_FALSE;
+}
 
 // Enumerates widget types and creates independent widget instances.
 interface __declspec(uuid("231AC0E8-1204-4BFF-BCEA-7CACF11F439D")) __declspec(novtable) IRedXeWidgetProvider : IUnknown
@@ -201,7 +284,7 @@ interface __declspec(uuid("355C7084-286B-409F-9FD3-A7695DEF2A33")) __declspec(no
     virtual HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept = 0;
     // Draws one frame inside the supplied viewport. Runs on the RedXe UI thread, non-reentrant. The viewport may sit
     // partly off the render target; the widget MUST still draw its full composition and MUST NOT reject a finite
-    // negative origin.
+    // negative origin. MUST NOT call IRedXeHost::Log.
     virtual HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept = 0;
 };
 
@@ -249,4 +332,36 @@ interface __declspec(uuid("A7E4C19B-2F58-4D13-9C6A-80B1D4E7F203")) __declspec(no
     // rectangle and should present more of its content; FALSE restores compact tile presentation. The call MUST NOT
     // allocate, wait, or re-enter the host.
     virtual HRESULT STDMETHODCALLTYPE SetRaised(BOOL raised) noexcept = 0;
+};
+
+// Optional pointer and OLE-drop mechanism for GPU tiles that have no child HWND. The host hit-tests, converts to
+// widget-local pixels, and parses OLE formats; the plugin never sees IDataObject or the top-level HWND.
+//
+// OnPointer returns S_OK when the contact is consumed (for example a click on an icon) and S_FALSE on a miss
+// (padding or empty cell). A consumed Down/Up MUST NOT count toward double-activate raise. Page pan that locks
+// horizontal sends Cancel and does not launch. Edge-band clicks never reach the widget.
+interface __declspec(uuid("E4C2A91B-7D3E-4F18-B6A5-2C9D8E0F1744")) __declspec(novtable) IRedXeInteractiveWidget
+    : IUnknown
+{
+    virtual HRESULT STDMETHODCALLTYPE OnPointer(const RedXePointerEvent* event) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE OnDragOver(float x, float y) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE OnDragLeave() noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE OnDrop(const RedXeDropEvent* event) noexcept = 0;
+};
+
+// Optional host-scheduled network work. The widget owns curl (or any HTTP client) and parsers; the host owns the
+// worker, cancellation, and shutdown drain. This interface is a sibling of IRedXeWidget, never a base of it.
+//
+// Threading: RunNetworkWork runs only on the host network worker, never on the UI thread, and never on the local
+// data-acquisition worker. It is non-reentrant per widget. Inside the call the widget MAY perform bounded HTTP and
+// copy a snapshot. It MUST return promptly when cancelEvent is signaled. It MUST NOT touch Direct3D, wait on the UI
+// thread, create a thread, or re-enter the host except through IRedXeHost::RequestFrame and IRedXeHost::Log.
+interface __declspec(uuid("3F8C1A70-9B24-4E61-A7D2-5C0E8B4F1D93")) __declspec(novtable) IRedXeNetworkWidget : IUnknown
+{
+    // Executes one network cycle. cancelEvent is borrowed for the duration of the call and is never null.
+    //
+    // A null nextDelayMilliseconds returns E_POINTER; a present output is cleared first.
+    // S_OK writes a delay from 1 through kRedXeMaximumScheduledFrameDelayMilliseconds until the next run.
+    // S_FALSE requests no further run until the host activates the widget again.
+    virtual HRESULT STDMETHODCALLTYPE RunNetworkWork(HANDLE cancelEvent, uint32_t* nextDelayMilliseconds) noexcept = 0;
 };

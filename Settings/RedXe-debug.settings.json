@@ -2,12 +2,15 @@
   "$schema": "RedXe.settings.schema.json",
   "version": { "major": 4, "minor": 0 },
   "wrapPages": false,
+  "logRetentionDays": 15,
   // Reusable definitions create independent instances wherever they appear.
   "declare": {
     "Triangle": { "plugin": "builtin.rotating-triangle" },
     "Matrix": { "plugin": "builtin.matrix-rain" },
     "StudioClock": { "plugin": "builtin.studio-clock", "settings": { "externalDotsAlwaysOn": true } },
     "DeskClock": { "plugin": "builtin.desk-clock" },
+    "Weather": { "plugin": "builtin.weather" },
+    "Launcher": { "plugin": "builtin.launcher", "settings": { "shortcuts": [] } },
     "Processes": { "plugin": "builtin.process-viewer", "settings": { "topN": 10 } },
     "Pulse": { "plugin": "builtin.system-pulse" },
     "Cpu": { "plugin": "builtin.cpu-meter" },
@@ -26,7 +29,7 @@
       "layout": {
         "arrangeAlong": "long-side",
         "areas": [
-          { "sizeRatio": 1, "widget": "Triangle" },
+          { "sizeRatio": 1, "widget": "Launcher" },
           {
             "sizeRatio": 1,
             "arrangeAlong": "short-side",
@@ -67,7 +70,8 @@
               { "sizeRatio": 1, "widget": "DeskClock" }
             ]
           },
-          { "sizeRatio": 5, "widget": "Processes" }
+          { "sizeRatio": 5, "widget": "Weather" },
+          { "sizeRatio": 2, "widget": "Launcher" }
         ]
       }
     },

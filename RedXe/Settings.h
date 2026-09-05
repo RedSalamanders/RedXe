@@ -3,6 +3,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cwchar>
 #include <memory>
 #include <optional>
 #include <string>
@@ -16,6 +18,98 @@ inline constexpr uint32_t kRedXeSettingsVersionMinor = 0;
 inline constexpr wchar_t kRedXeDebugSettingsFileName[] = L"RedXe-debug.settings.json";
 inline constexpr wchar_t kRedXeReleaseSettingsFileName[] = L"RedXe.settings.json";
 inline constexpr wchar_t kRedXeSettingsSchemaFileName[] = L"RedXe.settings.schema.json";
+inline constexpr wchar_t kRedXeLogsDirectoryName[] = L"Logs";
+inline constexpr uint32_t kRedXeDefaultLogRetentionDays = 15;
+inline constexpr uint32_t kRedXeMinimumLogRetentionDays = 1;
+inline constexpr uint32_t kRedXeMaximumLogRetentionDays = 365;
+inline constexpr size_t kRedXeLogFileNameCapacity = 64;
+#if defined(_DEBUG)
+inline constexpr wchar_t kRedXeLogFileNamePrefix[] = L"RedXe-debug-";
+#else
+inline constexpr wchar_t kRedXeLogFileNamePrefix[] = L"RedXe-";
+#endif
+
+[[nodiscard]] inline bool RedXeFormatLogFileName(wchar_t* buffer, size_t capacity, const SYSTEMTIME& utcDate) noexcept
+{
+    if (!buffer)
+    {
+        return false;
+    }
+    return swprintf_s(buffer, capacity, L"%s%04u-%02u-%02u.jsonl", kRedXeLogFileNamePrefix, utcDate.wYear,
+                      utcDate.wMonth, utcDate.wDay) > 0;
+}
+
+[[nodiscard]] inline bool RedXeTryParseLogFileDate(const wchar_t* fileName, SYSTEMTIME& utcDate) noexcept
+{
+    if (!fileName)
+    {
+        return false;
+    }
+    const wchar_t* prefixes[] = {L"RedXe-debug-", L"RedXe-"};
+    for (const wchar_t* prefix : prefixes)
+    {
+        const size_t prefixLength = std::wcslen(prefix);
+        if (std::wcsncmp(fileName, prefix, prefixLength) != 0)
+        {
+            continue;
+        }
+        unsigned year = 0;
+        unsigned month = 0;
+        unsigned day = 0;
+        wchar_t extra = 0;
+        if (swscanf_s(fileName + prefixLength, L"%4u-%2u-%2u.jsonl%c", &year, &month, &day, &extra, 1) != 3 ||
+            year < 2000 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31)
+        {
+            continue;
+        }
+        utcDate = {};
+        utcDate.wYear = static_cast<WORD>(year);
+        utcDate.wMonth = static_cast<WORD>(month);
+        utcDate.wDay = static_cast<WORD>(day);
+        return true;
+    }
+    return false;
+}
+
+[[nodiscard]] inline bool RedXeIsLegacyLogFileName(const wchar_t* fileName) noexcept
+{
+    return fileName &&
+           (std::wcscmp(fileName, L"RedXe.jsonl") == 0 || std::wcscmp(fileName, L"RedXe-debug.jsonl") == 0 ||
+            std::wcscmp(fileName, L"RedXe.jsonl.1") == 0 || std::wcscmp(fileName, L"RedXe-debug.jsonl.1") == 0);
+}
+
+[[nodiscard]] inline uint32_t RedXeUtcDateDayDifference(const SYSTEMTIME& earlier, const SYSTEMTIME& later) noexcept
+{
+    SYSTEMTIME start = earlier;
+    SYSTEMTIME end = later;
+    start.wHour = 0;
+    start.wMinute = 0;
+    start.wSecond = 0;
+    start.wMilliseconds = 0;
+    end.wHour = 0;
+    end.wMinute = 0;
+    end.wSecond = 0;
+    end.wMilliseconds = 0;
+    FILETIME startFile{};
+    FILETIME endFile{};
+    if (!SystemTimeToFileTime(&start, &startFile) || !SystemTimeToFileTime(&end, &endFile))
+    {
+        return 0;
+    }
+    ULARGE_INTEGER startTicks{};
+    ULARGE_INTEGER endTicks{};
+    startTicks.LowPart = startFile.dwLowDateTime;
+    startTicks.HighPart = startFile.dwHighDateTime;
+    endTicks.LowPart = endFile.dwLowDateTime;
+    endTicks.HighPart = endFile.dwHighDateTime;
+    if (endTicks.QuadPart < startTicks.QuadPart)
+    {
+        return 0;
+    }
+    constexpr uint64_t kDay = 86'400ULL * 10'000'000ULL;
+    const uint64_t days = (endTicks.QuadPart - startTicks.QuadPart) / kDay;
+    return days > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(days);
+}
 
 inline constexpr size_t kMaximumSettingsPlugins = 64;
 inline constexpr size_t kMaximumDashboardPages = 16;
@@ -137,6 +231,7 @@ struct AppSettings final
 {
     uint32_t versionMajor = kRedXeSettingsVersionMajor;
     uint32_t versionMinor = kRedXeSettingsVersionMinor;
+    uint32_t logRetentionDays = kRedXeDefaultLogRetentionDays;
     std::string sourceDocument;
     std::vector<PluginSettings> plugins;
     uint32_t pluginCount = 0;
@@ -200,6 +295,8 @@ enum class SettingsReloadStatus : std::uint8_t
                                                         const WidgetInstanceSettings& instance,
                                                         std::array<char, kFactoryConfigurationCapacity>& json,
                                                         uint32_t& jsonBytes) noexcept;
+[[nodiscard]] HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view instanceId,
+                                                  std::string_view settingsJson) noexcept;
 
 class SettingsStore final
 {
@@ -214,14 +311,19 @@ class SettingsStore final
 
     [[nodiscard]] const std::wstring& SettingsPath() const noexcept;
     [[nodiscard]] const std::wstring& SettingsDirectory() const noexcept;
+    [[nodiscard]] const std::wstring& LogsDirectory() const noexcept;
     [[nodiscard]] const std::wstring& SchemaPath() const noexcept;
     [[nodiscard]] bool UsedInitialFallback() const noexcept;
     [[nodiscard]] const std::wstring& InitialNotice() const noexcept;
     [[nodiscard]] const std::wstring& LastDiagnosticText() const noexcept;
+    [[nodiscard]] HRESULT PersistPatchedDocument(const AppSettings& settings) noexcept;
+    [[nodiscard]] HRESULT PersistWidgetSettings(AppSettings& settings, std::string_view instanceId,
+                                                std::string_view settingsJson) noexcept;
 
   private:
     std::wstring _settingsPath;
     std::wstring _settingsDirectory;
+    std::wstring _logsDirectory;
     std::wstring _schemaPath;
     std::optional<SettingsFileStamp> _lastAppliedStamp;
     std::optional<SettingsFileStamp> _lastRejectedStamp;

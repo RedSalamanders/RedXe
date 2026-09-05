@@ -7,13 +7,16 @@ description: Implement or revise this project's native Win32 window, WndProc rou
 
 Before changing startup window mode, display selection, sizing, or DPI behavior, read
 `Specs/UI/UI_XeneonDisplayWindowing.md`. It is the normative contract; update it in the same change when intended
-behavior changes.
+behavior changes. UI-thread `OleInitialize`, top-level `IDropTarget`, and forwarding pointer/drop to GPU widgets
+are owned by `Specs/UI/UI_Dashboard.md`.
 
 Work in `RedXe/Application.*` and keep the callback boundary narrow.
 
 - Bind `Application*` from `CREATESTRUCTW::lpCreateParams` during `WM_NCCREATE`, store it in `GWLP_USERDATA`, and
   clear it during `WM_NCDESTROY`.
 - Route messages to small handlers when logic exceeds a few lines.
+- A child created under the cursor may not receive `WM_SETCURSOR` until the mouse moves. When the parent owns a
+  hover-created chrome HWND, apply the intended cursor from the parent's `WM_SETCURSOR` as well.
 - No exception may cross `WindowProcedure`; use `HRESULT` or explicit state for fallible work.
 - Forward `WM_SIZE` dimensions to `Renderer::Resize`. A minimized zero-sized client area is normal.
 - For `WM_DPICHANGED`, follow the domain spec: use the suggested destination, recompute a titled window's outer frame

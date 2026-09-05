@@ -29,8 +29,10 @@ or state change is pending. Normal operating-system scheduling noise is outside 
 - Visible continuous animation must be paced by display presentation. Hidden, minimized, suspended, or display-off
   rendering must block on events and must not build or present a frame because an unrelated message was dispatched.
   An active page pan, settle, or staged neighbor is visible motion: the host MUST keep presenting so widget animation
-  and the page-scroll ease continue. A host-owned native child covering the swap chain MUST NOT be treated as DXGI
-  occlusion.
+  and the page-scroll ease continue. A raise or dismiss settle is the same class of visible motion and MUST keep
+  presenting until it completes; settled overlay chrome MUST NOT add a periodic wake. Close-control hover is
+  event-driven GDI on the overlay HWND and MUST NOT start a timer or a host Present. A host-owned native child covering
+  the swap chain MUST NOT be treated as DXGI occlusion.
 - After `Present` reports occlusion, RedXe must stop frame construction, wait for the DXGI factory's registered
   occlusion-status window message, and use `DXGI_PRESENT_TEST` to detect recovery without presenting content.
   Occlusion polling and periodic timers are prohibited.
@@ -44,10 +46,10 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   blocks in one message-aware wait. Expiry coalesces one frame. Continuous animation supersedes the wait; hidden,
   minimized, suspended, display-off, occluded, inactive-page, and shutdown states retain no deadline. Invalid or
   failed delay queries are isolated and must not create a retry loop.
-- The plugin runtime is process scoped. Exactly one module store, one set of data sources, and one acquisition worker
-  serve the whole application, including the dashboard page staged for a swipe. Staging an adjacent page MUST NOT map
-  a module a second time, create a second data source for a provider ID, or start a second acquisition thread, so a
-  page change costs no duplicate acquisition and no thread churn.
+- The plugin runtime is process scoped. Exactly one module store, one set of data sources, one acquisition worker, and
+  one JSONL log writer serve the whole application, including the dashboard page staged for a swipe. Staging an
+  adjacent page MUST NOT map a module a second time, create a second data source for a provider ID, or start a second
+  acquisition thread, so a page change costs no duplicate acquisition and no thread churn.
 - A plugin that needs a frame for an unpredictable state change calls `IRedXeHost::RequestFrame`, which coalesces one
   invalidation on the UI thread and adds no timer or wake-up of its own. It MUST NOT be used to emulate continuous
   animation, and it never overrides a blocked, hidden, suspended, display-off, or occluded state.
@@ -65,7 +67,11 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   size and MAY have a negative origin; shrinking it to the visible intersection would rebuild resolution-dependent
   resources and reflow content every frame of the slide. Render, resize, and
   `IRedXeWidget::SetVisible` callbacks must not
-  perform disk, network, device discovery, process creation, blocking waits, or long-held locks.
+  perform network, process creation, blocking waits, or long-held locks. `Render` must not perform disk, extract
+  icons, or decode images. The launcher MAY enumerate at most eight taskbar `.lnk` files and extract jumbo or PNG
+  icons on `SetVisible(TRUE)` when the authored shortcut list is empty, and on drop or settings apply; that work MUST
+  NOT run from `Render`. Launch animation uses `RequestFrame` for at most 400 ms, then returns to idle with no
+  wake-up.
 - A visible native-window animation MAY use a UI-thread timer at the lowest rate that preserves its required visual
   quality. It MUST stop the timer while hidden, minimized, display-off, occluded, or detached. GDI paint callbacks
   MUST reuse resize-owned buffers and GDI objects rather than allocate memory or create handles per paint.
@@ -86,10 +92,19 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   create one worker per provider. Busy-waiting is prohibited. Sources MUST NOT create acquisition threads. A dedicated
   device-I/O lane is optional and host-owned; it MUST NOT ship until timeout, cancellation, and teardown drain are
   bounded.
-- Logging and diagnostics must not format or emit per-frame success messages.
+- Logging and diagnostics must not format or emit per-frame success messages. `IRedXeHost::Log` copies a bounded
+  record into a 32-slot 1024-byte ring and wakes one event-blocked writer. The writer appends JSONL under the settings
+  sibling `Logs` directory using a UTC-dated file (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`) and
+  deletes files older than `logRetentionDays` (default 15) on open, day change, and retention apply. Release omits
+  `RedXeLogLevelDebug`. The call is allocation-free on the
+  caller, never blocks on disk, and is forbidden from GPU `Render` and GDI paint. Plugin HTTP bodies that can exceed a
+  few kilobytes MUST live on the heap; a 256 KiB automatic array on the network worker overflows the default thread
+  stack (`STATUS_STACK_OVERFLOW`).
 - A raised overlay MAY create one host child HWND, one GDI region, and GDI chrome brushes only while a widget is
-  raised. Dismiss MUST destroy that HWND. Settled raised content follows the same scheduled or continuous policy as
-  the widget's tile; raising MUST NOT add a periodic wake. While raised, the host keeps submitting GPU work for every
+  raised. Dismiss MUST destroy that HWND. Raise and restore MAY present for a clamped 160–240 ms ease; that motion is
+  presentation-paced and then idle. Settled raised content follows the same scheduled or continuous policy as
+  the widget's tile; raising MUST NOT add a periodic wake. Close hover is an `InvalidateRect` of overlay chrome, not a
+  frame. While raised, the host keeps submitting GPU work for every
   current-page widget so dimmed tiles stay live, then submits one extra draw for a raised GPU widget at the overlay
   slice. The extra draw is required so the focused plugin can show more information without freezing the rest of the
   dashboard.
@@ -200,8 +215,9 @@ observable resource benefit are not required.
 - Review must confirm that steady-state GPU callbacks allocate no heap memory and reuse bounded device resources.
 - `HostPluginTests` must exercise the production `PluginManager`, `DashboardHost`, and `Renderer` with a hidden
   off-screen HWND and WARP. It must verify the scheduler decision table for hidden, minimized/suspended, display-off,
-  occluded, clean-static, invalidated-static, continuous, and page-navigation-active states without automating the
-  desktop, including that page navigation keeps presenting when DXGI reports the swap chain occluded. The scheduler
+  occluded, clean-static, invalidated-static, continuous, page-navigation-active, and overlay-motion-active states
+  without automating the desktop, including that page navigation and raise/dismiss settle keep presenting when DXGI
+  reports the swap chain occluded. The scheduler
   input MUST NOT contain an any-message redraw proxy.
 - `HostPluginTests` MUST also prove raised-overlay geometry, Process Viewer half-width raise while sibling tiles still
   draw, no continuous wake from that raise, and GdiOrbit container move/restore, using the same hidden WARP host.

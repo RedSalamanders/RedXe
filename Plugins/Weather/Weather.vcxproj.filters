@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files"><UniqueIdentifier>{A1B2C3D4-E5F6-4789-ABCD-1234567890AB}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files"><UniqueIdentifier>{B2C3D4E5-F607-489A-BCDE-234567890ABC}</UniqueIdentifier></Filter>
+    <Filter Include="Shader Files"><UniqueIdentifier>{C3D4E5F6-0718-49AB-CDEF-34567890ABCD}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Weather.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="WeatherGpu.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="WeatherHttp.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="WeatherModel.cpp"><Filter>Source Files</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="WeatherHttp.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="WeatherModel.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="WeatherIcons.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="WeatherGpu.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="WeatherTestContract.h"><Filter>Header Files</Filter></ClInclude>
+    <None Include="Fonts\weathericons-regular-webfont.ttf"><Filter>Header Files</Filter></None>
+    <None Include="Fonts\OFL.txt"><Filter>Header Files</Filter></None>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Host.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h"><Filter>Header Files</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="WeatherPixel.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="WeatherVertex.hlsl"><Filter>Shader Files</Filter></FxCompile>
+  </ItemGroup>
+</Project>

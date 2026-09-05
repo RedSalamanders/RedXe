@@ -33,13 +33,53 @@ struct RedXeWidgetStatusReport final
 static_assert(sizeof(RedXeWidgetStatusReport) == 16);
 static_assert(offsetof(RedXeWidgetStatusReport, reason) == 8);
 
+// Severity for IRedXeHost::Log. Debug is omitted from Release files.
+enum RedXeLogLevel : uint32_t
+{
+    RedXeLogLevelError = 0,
+    RedXeLogLevelWarning = 1,
+    RedXeLogLevelInfo = 2,
+    RedXeLogLevelDebug = 3,
+};
+
+inline constexpr uint32_t kRedXeMaximumLogEventBytes = 64;
+inline constexpr uint32_t kRedXeMaximumLogMessageBytes = 384;
+
+// Borrowed log line. The host copies every field synchronously and retains no pointer. sizeBytes must equal sizeof.
+struct RedXeLogRecord final
+{
+    uint32_t sizeBytes;
+    uint32_t level;
+    // Optional machine id of the bundled plugin. Null omits the field.
+    const char* pluginId;
+    // Optional CreateWidget instance id. Null omits the field.
+    const char* instanceId;
+    // Required short event token, for example "module-map-failed".
+    const char* eventId;
+    // Required UTF-8 message. The host truncates to kRedXeMaximumLogMessageBytes.
+    const char* messageUtf8;
+    // Optional HRESULT. S_OK omits the field.
+    HRESULT code;
+};
+
+static_assert(sizeof(RedXeLogRecord) == 48);
+static_assert(offsetof(RedXeLogRecord, pluginId) == 8);
+static_assert(offsetof(RedXeLogRecord, instanceId) == 16);
+static_assert(offsetof(RedXeLogRecord, eventId) == 24);
+static_assert(offsetof(RedXeLogRecord, messageUtf8) == 32);
+static_assert(offsetof(RedXeLogRecord, code) == 40);
+
 // Services supplied to plugins by the RedXe host.
 //
 // Threading and reentrancy: GetDataProvider and ReportWidgetStatus are synchronous and non-reentrant, and run on the
-// caller's thread. RequestFrame is the exception: it is safe from any thread, including a data-sink callback on the
-// host acquisition worker. No host service may be called from inside IRedXeDataSink::OnDataSnapshot except
-// RequestFrame. A plugin borrows IRedXeHost for the lifetime of the host runtime and MUST NOT retain it past the
-// release of the object it was supplied to.
+// caller's thread. RequestFrame and Log are the exceptions: they are safe from any thread, including a data-sink
+// callback on the host acquisition worker and RunNetworkWork on the host network worker. No host service may be called
+// from inside IRedXeDataSink::OnDataSnapshot except RequestFrame and Log. A plugin borrows IRedXeHost for the lifetime
+// of the host runtime and MUST NOT retain it past the release of the object it was supplied to.
+//
+// RedXe is pre-production: this vtable MAY grow when a host service is added. Rebuild every source-coordinated
+// consumer together. Do not add a sibling QueryInterface only to avoid growing this vtable. Widget settings persist
+// is a host service on this interface (full object or a mergeable subset), not a separate editor IID.
 interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(novtable) IRedXeHost : IUnknown
 {
     // Returns shared host-managed access to one data-source plugin.
@@ -57,4 +97,32 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     // widget's own output. Repeat reports are idempotent; only a change coalesces a frame.
     virtual HRESULT STDMETHODCALLTYPE ReportWidgetStatus(const char* instanceId,
                                                          const RedXeWidgetStatusReport* report) noexcept = 0;
+
+    // Asks the host to persist this instance's plugin settings object (not the factory envelope). The widget may
+    // send the complete object or a subset of members. The host merges supplied members into the stored instance
+    // settings, validates the complete result, and may write the user document. It MUST NOT destroy or detach the
+    // calling widget.
+    //
+    // UI thread only, synchronous, non-reentrant. Forbidden from device, size, visibility, raise, Render, and
+    // CollectPersistentSettings. Allowed from OnPointer (committed click) and OnDrop. A null instanceId, a null
+    // JSON pointer, or zero bytes returns E_INVALIDARG.
+    virtual HRESULT STDMETHODCALLTYPE PersistWidgetSettings(const char* instanceId, const char* settingsJsonUtf8,
+                                                            uint32_t settingsBytes) noexcept = 0;
+
+    // Appends one diagnostic line to the host JSONL log. Safe from any thread, including the acquisition and network
+    // workers. Copies bounded fields into a ring and never blocks on disk. MUST NOT be called from Render or GDI
+    // paint. MUST NOT emit per-frame success. A null record, a mismatched sizeBytes, a missing event or message, or
+    // an unknown level returns E_INVALIDARG / E_POINTER.
+    virtual HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept = 0;
 };
+
+inline HRESULT RedXeHostLog(IRedXeHost* host, uint32_t level, const char* pluginId, const char* instanceId,
+                            const char* eventId, const char* messageUtf8, HRESULT code = S_OK) noexcept
+{
+    if (!host)
+    {
+        return E_POINTER;
+    }
+    const RedXeLogRecord record{sizeof(RedXeLogRecord), level, pluginId, instanceId, eventId, messageUtf8, code};
+    return host->Log(&record);
+}
