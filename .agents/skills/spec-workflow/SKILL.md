@@ -15,6 +15,7 @@ spec completely before changing its behavior. For display, window, fullscreen, f
 - `AGENTS.md` and `Specs/README.md` state repository-wide policy.
 - `Specs/Plans/WIP/` contains non-normative active work; index every direct plan in its `README.md`.
 - `Specs/Plans/Done/` is historical and does not override a current domain spec.
+- `docs/` is the end-user guide. It is not an authority for product behavior.
 - Implementation and tests are evidence and consumers. Reconcile disagreements; do not silently declare either side
   authoritative.
 
@@ -26,8 +27,10 @@ spec completely before changing its behavior. For display, window, fullscreen, f
 3. Keep requirements in the domain spec, not only in commentary, a WIP checklist, code, or tests.
 4. Update all affected contracts and consumers in the same change when behavior changes.
 5. Run the domain spec's validation plus the relevant repo skill's checks.
-6. Before closeout, move every lasting discovery into the authoritative spec. Move a completed WIP plan to Done and
-   remove its active index row.
+6. Before closeout, move every lasting discovery into the authoritative spec. If the finished change impacts an
+   end-user scenario, update `docs/` in the same closeout: global usage and/or the affected plugin page, including the
+   screenshot when appearance or interaction changed. `docs/` MUST NOT receive measurement receipts, checkpoints, or
+   generated reports. Move a completed WIP plan to Done and remove its active index row.
 
 Use normative language only for observable requirements, ownership boundaries, compatibility constraints, and
 required validation. Keep rationale concise and avoid copying exact schemas, dependency versions, or generated data

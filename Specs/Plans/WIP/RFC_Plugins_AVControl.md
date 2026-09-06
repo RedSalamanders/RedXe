@@ -8,7 +8,7 @@ Proposed identity: `builtin.av-control` / widget type `av-control` / `AVControl.
 ## Purpose and authority
 
 Latest pause checkpoint (2026-09-05 21:15 UTC):
-[AVControl-Continuation.md](../../../docs/AVControl-Continuation.md). It supersedes older progress notes for pins,
+[AVControl-Continuation.md](AVControl-Continuation.md). It supersedes older progress notes for pins,
 test results, failed CI/performance evidence, restored negative controls and ordered resume steps.
 
 AV Control gives the XENEON EDGE a touch-friendly control surface for selecting an audio output, microphone, and
@@ -687,9 +687,9 @@ Read the [camera setup guide](../../../Plugins/AVControl/Camera/README.md). Debu
 Release compilation and full package validation are under way. No camera has been installed, registered or opened.
 Installed-route setup/rollback and G2 hardware acceptance are still outstanding, as is guided in-plugin setup.
 
-The coordinated DxUi task moved the eleven original AV JSON receipts unchanged into
-`docs/measurements/av-touch-2026-09-05`, with a historical scope note. Its new generic samples/benchmarks remain in
-DxUi. RedXe still consumes the previously validated exact pin; concurrent uncommitted DxUi work is not imported.
+The coordinated DxUi task kept the eleven original AV JSON receipts in the DxUi library archive. Those copies are
+DxUi offscreen-fixture receipts, not RedXe product measurements, and are not retained in this repository. RedXe still
+consumes the previously validated exact pin; concurrent uncommitted DxUi work is not imported.
 
 Next open work: retained/default inventory priority, generic IME/TSF and UIA, theme changes, guided camera setup,
 complete host ABI normative reconciliation, final regression/resource/platform evidence, and real G1/G2 acceptance.
@@ -734,7 +734,7 @@ The isolated DxUi contrast fix is committed as `1947a5b91beb029e9b99d71e0893c607
 `codex/av-high-contrast`, with all 36 local suite receipts, nine Menu capability skips per configuration, both ARM64
 cross-builds, regenerated/reviewed gallery and repository validators. Debug passed against its retained baseline.
 An additional Release baseline/candidate pair with the same owned-process CPU affinity passed unchanged comparison
-thresholds; unrestricted timing also varied for unchanged source. The library's
+thresholds; unrestricted timing also varied for unchanged source. DxUi's library archive
 `docs/measurements/primary-high-contrast-2026-09-05/README.md` retains raw comparisons, earlier failure logs and
 the limits of this evidence. GitHub CI is pending; RedXe still consumes the previously validated 4544d34 pin.
 

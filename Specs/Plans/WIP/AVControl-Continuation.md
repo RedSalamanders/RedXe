@@ -7,9 +7,9 @@ and next actions. The normative contracts and WIP plans remain authoritative for
 ## Resume first
 
 1. Read `AGENTS.md`, `Specs/README.md`, `Specs/Plugins/Plugins_AVControl.md`, the
-   [AV plan](../Specs/Plans/WIP/RFC_Plugins_AVControl.md) and
-   [DxUi integration contract](../Specs/Core/Core_DxUiIntegration.md) plus historical
-   [shared-library plan](../Specs/Plans/Done/RFC_Core_DxUiSharedProject.md).
+   [AV plan](RFC_Plugins_AVControl.md) and
+   [DxUi integration contract](../../Core/Core_DxUiIntegration.md) plus historical
+   [shared-library plan](../Done/RFC_Core_DxUiSharedProject.md).
 2. Inspect actual Git status in all working directories. Preserve unrelated changes; do not reset, clean, stage
    everything or overwrite a checkout from this checkpoint.
 3. Coordinate with the existing task **Update DxUi docs and workflow**, ID

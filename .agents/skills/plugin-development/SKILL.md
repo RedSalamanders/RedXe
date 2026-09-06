@@ -39,9 +39,10 @@ Preserve these boundaries:
 - Release widget, host-provider, and plugin-source COM objects before optional shutdown. Keep the module mapped until
   process teardown.
 - When adding or removing a settings-visible bundled widget, update `RedXe/BundledPlugins.h`, schema/parser support,
-  and real placed examples in both shipped settings templates in the same change. Template validation iterates this
-  catalog and must fail when either default omits the plugin. Catalog plugin IDs and type IDs stay unique; module names
-  MAY repeat. `PluginHost` maps a shared DLL once and copies exports to sibling slots; optional shutdown runs only on
+  real placed examples in both shipped settings templates, and the matching `docs/plugins/` user-guide page in the same
+  change. Template validation iterates this catalog and must fail when either default omits the plugin. Catalog plugin
+  IDs and type IDs stay unique; module names MAY repeat. `PluginHost` maps a shared DLL once and copies exports to
+  sibling slots; optional shutdown runs only on
   the owning slot. A catalogued DLL that `LoadLibraryExW` cannot map is a per-instance placeholder, not a startup abort.
   Unknown plugin IDs remain a fatal document. Do not put a catalogued widget on the Debug or Release first page until
   its DLL is in the `Plugins` output.

@@ -61,7 +61,8 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 - Native factory, generic widget mechanisms, bundled plugin, and plugin-lifetime behavior is owned by
   [`Specs/Plugins/Plugins_API.md`](Specs/Plugins/Plugins_API.md).
 - Adding or removing a settings-visible bundled widget requires one aligned change to `RedXe/BundledPlugins.h`, the
-  schema/parser, its plugin contract, and real placed examples in both Debug and Release settings templates.
+  schema/parser, its plugin contract, real placed examples in both Debug and Release settings templates, and the
+  matching user-guide page under `docs/plugins/`.
 - Mandatory performance and resource behavior is owned by
   [`Specs/Core/Core_PerformanceAndResources.md`](Specs/Core/Core_PerformanceAndResources.md).
 - User settings files, schema, cold recovery, and live reload are owned by
@@ -81,6 +82,8 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 - When every plan item is implemented, its tests and required validation pass, and its durable behavior is persisted
   in the normative contracts, the plan MUST be moved from WIP to Done and removed from the active index. A completed
   plan MUST NOT remain under `Specs/Plans/WIP/`.
+- When that finished spec change impacts an end-user scenario, update `docs/` in the same closeout. `docs/` is the
+  user guide (global usage plus one page per settings-visible widget). It is not a product-behavior authority.
 
 ## Architecture
 
@@ -127,6 +130,10 @@ Specs/
   UI/               Normative display and windowing behavior
   Plans/WIP/        Non-normative active plans
   Plans/Done/       Historical completed plans
+docs/
+  README.md         End-user guide index
+  usage.md          Global usage
+  plugins/          One page per settings-visible bundled widget
 ```
 
 Keep the boundary explicit:
