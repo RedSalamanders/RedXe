@@ -1,7 +1,7 @@
 # AV Control
 
 Status: normative implementation contract; feature delivery in progress
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-06
 
 The active [AV implementation plan](../Plans/WIP/RFC_Plugins_AVControl.md) tracks unfinished integration and release
 gates. The browser mockup and synthetic tests are not evidence of working Windows audio or camera backends.
@@ -78,8 +78,8 @@ The editor keeps its unsaved name, bindings and page through a graphics-device r
 persists only the definition through host services, and failure leaves the draft repairable. Generic committed input
 results request half-screen raise or dismissal after dispatch; the widget never owns or receives the main HWND.
 The keyboard mechanism supports Tab/Shift+Tab, activation, range keys, Escape and UTF-16 character delivery. F6 opens
-profiles as a keyboard shortcut at every size. Full composition/IME and UI Automation remain open acceptance
-gates; character forwarding alone does not establish their support.
+profiles as a keyboard shortcut at every size. Real composition/IME and screen-reader acceptance remain open;
+character forwarding and synthetic UIA tests do not establish them.
 
 The shared embedded UIA adapter exposes all three confirmed-state toggles, committed scalar ranges, profile actions
 and editor text through the generic host accessibility site. Pending commands do not change the accessible toggle
@@ -114,9 +114,10 @@ the Windows device enumerator or default-policy client.
 
 ## Embedded rendering and isolated device work
 
-`AVControlView` builds retained controls through public DxUi headers. RedXe restores an exact library commit into
-`.build/dependencies/DxUi/source/<commit>` and gives that source an isolated output directory containing the commit,
-API revision, toolset, SDK and CRT identity. `restore-dxui.ps1` never edits or resets the sibling DxUi checkout.
+`AVControlView` builds retained controls through public DxUi headers. Pin, restore, CRT matching and the COM/POD
+boundary are owned by [`Core_DxUiIntegration.md`](../Core/Core_DxUiIntegration.md). RedXe restores an exact library
+commit into `.build/dependencies/DxUi/source/<commit>` and isolates outputs by commit, API revision, toolset, SDK
+and CRT. `restore-dxui.ps1` never edits or resets the sibling DxUi checkout.
 Consumer project references preserve Configuration/Platform when built through the RedXe solution; MSBuild's
 default behavior for projects outside the solution would otherwise select Win32.
 

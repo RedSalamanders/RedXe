@@ -68,6 +68,8 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
   [`Specs/Core/Core_Settings.md`](Specs/Core/Core_Settings.md).
 - Fatal-process capture, local minidumps, prior-crash UI, and the crash harness are owned by
   [`Specs/Core/Core_CrashHandling.md`](Specs/Core/Core_CrashHandling.md).
+- Pinned DxUi restore, host/plugin adapters, and the COM/POD boundary are owned by
+  [`Specs/Core/Core_DxUiIntegration.md`](Specs/Core/Core_DxUiIntegration.md).
 - Dashboard pages, the placement grid, active-page composition, and widget instance layout are owned by
   [`Specs/UI/UI_Dashboard.md`](Specs/UI/UI_Dashboard.md).
 - Domain specs describe current behavior. `Specs/Plans/WIP/` is non-normative active work and

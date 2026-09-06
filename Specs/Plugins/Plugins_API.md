@@ -1,7 +1,7 @@
 # RedXe plugin API contract
 
 Status: current normative contract
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-06
 
 ## Purpose and scope
 
@@ -41,8 +41,8 @@ relative to the composition base. Newer external text must survive cancellation.
 `GetTextRangeBounds` return revision-checked physical geometry for TSF candidate placement and point queries.
 Missing or stale layout returns no geometry; the host must never substitute an unrelated control's bounds.
 
-The shared text component and AV host integration have passed isolated synthetic validation. Adoption of the newer
-DxUi source and real OS IME acceptance remain open in the active AV plan.
+The shared text component and AV host integration have passed isolated synthetic validation. Real OS IME acceptance
+remains open in the AV plan. The DxUi pin and adapters are owned by [`Core_DxUiIntegration.md`](../Core/Core_DxUiIntegration.md).
 
 ## Embedded accessibility transport
 

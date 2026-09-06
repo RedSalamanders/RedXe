@@ -1,7 +1,7 @@
 # RedXe specification authority and workflow
 
 Status: current normative repository policy
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-06
 
 ## Purpose
 
@@ -63,6 +63,7 @@ durable.
 | UI, display, windowing, and DPI | [`UI/UI_XeneonDisplayWindowing.md`](UI/UI_XeneonDisplayWindowing.md) |
 | Native plugins and generic widgets | [`Plugins/Plugins_API.md`](Plugins/Plugins_API.md) |
 | AV controls, profiles and camera route | [`Plugins/Plugins_AVControl.md`](Plugins/Plugins_AVControl.md) |
+| DxUi pin, restore, and host/plugin adapters | [`Core/Core_DxUiIntegration.md`](Core/Core_DxUiIntegration.md) |
 
 The canonical user JSON schema is [`Settings.schema.json`](Settings.schema.json). The build copies it beside deployed
 and per-user settings files as `RedXe.settings.schema.json`.

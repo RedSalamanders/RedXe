@@ -1,9 +1,15 @@
 # DxUi: independent shared control library
 
-Status: HOLD — user paused RedXe integration; single-library implementation delivered, acceptance remains open
+Status: COMPLETE (2026-09-06) — library extraction and synthetic RedXe pin/adapters
 Date: 2026-09-05
 First consumer: RedXe, through AV Control
 Later consumer: RedSalamander
+
+Normative consumer behavior now lives in [`Specs/Core/Core_DxUiIntegration.md`](../../Core/Core_DxUiIntegration.md).
+Real IME/touch/screen-reader, matched text/UIA performance, and AV hardware backends remain on
+[`RFC_Plugins_AVControl.md`](../WIP/RFC_Plugins_AVControl.md). RedSalamander stays on DxUi's HOLD migration plan.
+
+This file is historical sequencing. Do not treat remaining AV release gates as unfinished library extraction.
 
 Latest pause checkpoint (2026-09-05 21:15 UTC):
 [AVControl-Continuation.md](../../../docs/AVControl-Continuation.md). It records the separate canonical/validation
@@ -26,14 +32,13 @@ proposal. It contains Foundation, all 26 public controls, native Win32 hosting/t
 with a supplied-device graphics pool. A public toggle/slider consumer and all-control gallery exercise the library.
 DxUi owns source under src, public headers under include/DxUi and tests under Tests; historical attribution stays in
 provenance and Git. This is the canonical home of shared development.
-RedXe's preparation/input/text/UIA bridges and AV backend remain unfinished. Library test evidence does not establish
-that the native AV adapter exists. The exact tested commit will be pinned by the adoption change.
+RedXe pins an exact DxUi commit and ships synthetic preparation/input/text/UIA adapters. Real IME/AT and AV
+backends remain unfinished consumer gates. Library test evidence does not establish those product backends.
 
 Current RedXe authority remains in [spec policy](../../README.md), [plugin API](../../Plugins/Plugins_API.md),
-[dashboard](../../UI/UI_Dashboard.md), [performance](../../Core/Core_PerformanceAndResources.md), and
-[build process](../../Build/Build_Process.md). The [AV Control RFC](RFC_Plugins_AVControl.md) depends on this work.
-At implementation, add `Specs/Core/Core_DxUiIntegration.md` in RedXe and update the affected current contracts and
-ABI declarations together. DxUi's own normative contracts are listed below. Do not describe an unfinished adapter
+[dashboard](../../UI/UI_Dashboard.md), [performance](../../Core/Core_PerformanceAndResources.md),
+[build process](../../Build/Build_Process.md), and [DxUi integration](../../Core/Core_DxUiIntegration.md).
+The [AV Control RFC](../WIP/RFC_Plugins_AVControl.md) owns remaining product gates. DxUi's own normative contracts are listed below. Do not describe an unfinished adapter
 as currently supported merely because its intended contract has been written.
 
 ## Accepted decision: one static library from a pinned source revision
@@ -479,5 +484,6 @@ the consumer lock moved.
 The current lock selects `3208083836a89d2c3348e4389b105cf3c2b453fc` on DxUi `main`. Public headers are identical to
 `26459b4b25c8573fccf049d4947a1d221f64b182`: `CancelTextInput`, `TextInputServices`, and `EmbeddedAccessibility.h`.
 RedXe's in-tree AV and host adapters already called those APIs; `1947a5b` cannot compile them. This restores a
-buildable consumer. Library matched-performance acceptance, real IME/UIA, hardware, and AV resource gates remain
-open.
+buildable consumer. DxUi closed library text/UIA APIs and synthetic tests in
+`Specs/Plans/Done/EmbeddedTextServices_2026-09-05.md`; that does not close matched performance, real IME/AT,
+hardware, or AV resource gates.

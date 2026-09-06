@@ -1,6 +1,6 @@
 # AV Control: Direct3D audio and webcam profiles
 
-Status: HOLD — user requested a continuation checkpoint; implementation authorized, release gates remain open
+Status: HOLD — AV release gates remain open (real IME/AT, matched text/UIA performance, G1 audio, G2 camera)
 Date: 2026-09-05
 Requested deliverables: complete AV Control implementation, native integration, tests and specification closeout
 Proposed identity: `builtin.av-control` / widget type `av-control` / `AVControl.dll`
@@ -25,16 +25,17 @@ Owning contracts:
 - [Dashboard](../../UI/UI_Dashboard.md): tile/raised geometry, touch arbitration, keyboard and accessibility integration.
 - [Settings](../../Core/Core_Settings.md): schema, bounded persistence, live reload, shipped examples.
 - [Performance and resources](../../Core/Core_PerformanceAndResources.md): event-driven work and resource bounds.
-- [Approved shared DxUi project](RFC_Core_DxUiSharedProject.md): standalone library, pinned static linkage,
-  embedded rendering, input/accessibility adapters and RedXe-first adoption.
+- [DxUi consumer contract](../../Core/Core_DxUiIntegration.md): pin, restore, module linkage, and COM/POD adapters.
+- Historical extraction sequencing: [RFC_Core_DxUiSharedProject.md](../Done/RFC_Core_DxUiSharedProject.md).
 - Planned feature owner at implementation: `Specs/Plugins/Plugins_AVControl.md`.
 
-AV Control is the planned first application feature to consume the independent `Z:\src\DxUi` library, now hosted
-in private [RedSalamanders/DxUi](https://github.com/RedSalamanders/DxUi) with default branch `main`. Its single
-`DxUi.lib` now contains public controls and supplied-device embedded rendering, with a standalone toggle/slider
-consumer and all-control gallery. RedXe's preparation/input/text/UIA adapter and AV backend remain prerequisites.
-AV reuses the library at an exact tested commit; it does not copy RedSalamander source or fork controls.
-RedSalamander's later migration is independent. The browser mockup does not prove native host or backend behavior.
+AV Control is the first application feature to consume the independent `Z:\src\DxUi` library, hosted in private
+[RedSalamanders/DxUi](https://github.com/RedSalamanders/DxUi) with default branch `main`. Its single `DxUi.lib`
+contains public controls and supplied-device embedded rendering. RedXe pins `3208083836a89d2c3348e4389b105cf3c2b453fc`
+and ships synthetic preparation/input/text/UIA adapters. Real IME/touch/screen-reader, matched text/UIA performance,
+and AV audio/camera backends remain this plan's release gates. AV does not copy RedSalamander source or fork
+controls. RedSalamander's later migration is independent. The browser mockup does not prove native host or backend
+behavior.
 
 The interactive design source is [av-control.html](../../../Mockups/av-control.html). It uses synthetic devices and
 local interaction only. It does not enumerate hardware, change Windows settings, record audio, or open a webcam.
@@ -68,7 +69,7 @@ always-on level meters, and continuous webcam preview. These are not needed for 
 | Audio default selection | A private, isolated audio-policy adapter; no documented default setter was established in this research. | G1 must identify the actual API, compatibility policy, supported OS builds, and failure behavior. |
 | Camera selection and off/on | Proposed Windows 11 `RedXe Camera` virtual route, with a physical source selected by the profile. | G2 must prove source switching, off-state frame behavior, lifetime, packaging, and client interoperability. |
 | Windows 10 webcam control | Only a separately validated supported application/device integration. | Otherwise show `Camera control unavailable`; do not claim AV-02/AV-05 are fully delivered on Windows 10. |
-| Native control library | Pinned standalone DxUi.lib, with embedded D3D11 hosting. | D0-D3 of the shared-library proposal and G3 below must prove preparation, input, text/UIA and resource behavior before AV ships. |
+| Native control library | Pinned standalone DxUi.lib, with embedded D3D11 hosting. | Library extraction, pin, and synthetic adapters are Done. Remaining G3 work is real IME/AT and measured resource acceptance, not another library extraction. |
 
 Default audio switching is a distinct problem from endpoint enumeration or changing volume. Microsoft's MMDevice
 documentation describes reading defaults and observing role changes; its legacy role guidance does not supply a setter.
@@ -271,7 +272,7 @@ IUnknown. No continuous-animation flag, scheduled polling, child window renderer
 
 ### Shared DxUi dependency and native control mapping
 
-Follow [RFC_Core_DxUiSharedProject.md](RFC_Core_DxUiSharedProject.md) for extraction, ownership and build integration.
+Follow [`Core_DxUiIntegration.md`](../../Core/Core_DxUiIntegration.md) for pin, restore, and module linkage. Extraction history is [RFC_Core_DxUiSharedProject.md](../Done/RFC_Core_DxUiSharedProject.md).
 Link **DxUi.lib** into AVControl.dll through the supplied consumer props/targets, using API revision 2 and lock
 target `["DxUi"]`. No separate Controls/Embedded/service archive or DxUi runtime DLL is required. EmbeddedHost uses
 the host-created D3D11 device through one AV-module GraphicsDevice pool and separate tile/raised views. AV supplies
@@ -424,10 +425,11 @@ Authorized implementation — remains unfinished until the following gates pass:
   behavior, multiple consumers, app-side initial selection, and graceful failure/crash. Decide OS minimum, installation
   and removal, source/helper lifetime beyond RedXe page/process exit, and measured active-media budgets. Windows 10
   support or its explicit limitation must be resolved before full-feature claims.
-- [ ] **G3a: shared DxUi and UI hosting.** Complete the shared proposal's D0-D3 gates: standalone repository and
-  extracted controls, pinned static-library build, embedded preparation/composition, capture, keyboard/focus,
-  TSF/IME text entry, UIA lifetimes, tile/raised layouts and measured CPU/GPU resource acceptance. Update current
-  ABI headers, library/RedXe normative contracts and all consumers together. RedSalamander migration is not required.
+- [x] **G3a library extraction and pin.** Standalone DxUi, pinned static library, embedded preparation/composition,
+  and synthetic text/UIA adapters. Durable consumer rules live in `Specs/Core/Core_DxUiIntegration.md`.
+- [ ] **G3a remaining UI hosting.** Real TSF/IME text entry, screen-reader lifetimes, tile/raised resource
+  acceptance, and matched CPU/GPU measurements. NativeStore/HostServices archives stay OPEN; do not waive them.
+  RedSalamander migration is not required.
 - [ ] **G3b: local-control work.** Specify and prove the host local-control lane, bounded completions,
   cancellation/drain and UI preparation invalidation. DxUi provides UI controls, not audio-policy/camera backends or
   protection against unbounded device calls. Neither G3 part exists merely because the mockup demonstrates it.
@@ -862,5 +864,5 @@ At 26459b4, CI 33991448220 passed; another run of the same commit, 33991599173, 
 split-button Refine-row hover test. Other native configurations and both format runs passed. Preserve the failure.
 Canonical RedXe now pins DxUi `main` at `3208083836a89d2c3348e4389b105cf3c2b453fc`, whose public headers match
 `26459b4`. That restores compilation of the in-tree text/UIA adapters against `EmbeddedHost::CancelTextInput` and
-`DxUi/EmbeddedAccessibility.h`. Matched performance, real IME/UIA, hardware, and resource gates remain open; this is
-not plan closeout.
+`DxUi/EmbeddedAccessibility.h`. DxUi closed library extraction, the first-consumer pin, and synthetic adapters;
+matched performance, real IME/AT, hardware, and resource gates remain open on this plan. This is not AV closeout.

@@ -1,5 +1,7 @@
 # Completed plan history
 
+- [`RFC_Core_DxUiSharedProject.md`](RFC_Core_DxUiSharedProject.md) — completed 2026-09-06 (library extraction and synthetic RedXe pin/adapters; remaining AV gates stay on the HOLD AV RFC).
+
 Completed plans are moved here after their durable requirements have been merged into authoritative domain specs.
 They record sequencing and rationale only; they do not define current RedXe behavior.
 
