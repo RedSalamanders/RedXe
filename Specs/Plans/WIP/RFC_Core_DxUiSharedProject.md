@@ -464,13 +464,20 @@ camera/audio compatibility, or application resource acceptance. Those remain in 
 
 ### Contrast pin and text-service continuation, 2026-09-05
 
-The current lock now selects `1947a5b91beb029e9b99d71e0893c6075bbb29ca`. Its high-contrast primary buttons preserve
-the exact opaque system selection pair. [Native CI 33980767827](https://github.com/RedSalamanders/DxUi/actions/runs/33980767827)
+The lock then selected `1947a5b91beb029e9b99d71e0893c6075bbb29ca`. Its high-contrast primary buttons preserve the
+exact opaque system selection pair. [Native CI 33980767827](https://github.com/RedSalamanders/DxUi/actions/runs/33980767827)
 passed all four x64/ARM64 Debug/Release configurations; [formatting CI 33980767838](https://github.com/RedSalamanders/DxUi/actions/runs/33980767838)
-passed. RedXe's full Debug rebuild and regression entrypoint passed with zero compiler warnings/errors.
+passed. RedXe's full Debug rebuild and regression entrypoint passed with zero compiler warnings/errors against that
+pin.
 
-Further work is isolated on `codex/av-input-services`, preserving the canonical task's checkout. Its supplied patch
-has been integrated, retaining the independent complex sample and v2 benchmark. Embedded revision-checked text
-snapshots and composition imports are being validated; application-side TSF/IME and UIA transport remain open.
-The new library source is not in the RedXe pin. New-harness performance evidence will compare identical v2 fixtures
-against an unchanged-library checkout, retaining the original v1 results and their limitations.
+Further work continued on `codex/av-input-services` and later `main`: revision-checked embedded text snapshots,
+composition imports, application-owned TSF/IME services, and embedded UIA. Those APIs landed in RedXe source before
+the consumer lock moved.
+
+### Text/UIA pin, 2026-09-06
+
+The current lock selects `3208083836a89d2c3348e4389b105cf3c2b453fc` on DxUi `main`. Public headers are identical to
+`26459b4b25c8573fccf049d4947a1d221f64b182`: `CancelTextInput`, `TextInputServices`, and `EmbeddedAccessibility.h`.
+RedXe's in-tree AV and host adapters already called those APIs; `1947a5b` cannot compile them. This restores a
+buildable consumer. Library matched-performance acceptance, real IME/UIA, hardware, and AV resource gates remain
+open.

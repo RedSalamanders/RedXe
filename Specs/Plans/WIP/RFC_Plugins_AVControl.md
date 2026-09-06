@@ -860,5 +860,7 @@ diff. The uncommitted test changes still require final validation and CI.
 
 At 26459b4, CI 33991448220 passed; another run of the same commit, 33991599173, failed x64 Release in the separate
 split-button Refine-row hover test. Other native configurations and both format runs passed. Preserve the failure.
-Canonical RedXe remains pinned to 1947a5b; newer API source is validated only in RxAv with its 5b366f2 override.
-No canonical dependency adoption or completion is claimed.
+Canonical RedXe now pins DxUi `main` at `3208083836a89d2c3348e4389b105cf3c2b453fc`, whose public headers match
+`26459b4`. That restores compilation of the in-tree text/UIA adapters against `EmbeddedHost::CancelTextInput` and
+`DxUi/EmbeddedAccessibility.h`. Matched performance, real IME/UIA, hardware, and resource gates remain open; this is
+not plan closeout.
