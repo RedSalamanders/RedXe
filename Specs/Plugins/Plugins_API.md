@@ -510,12 +510,13 @@ The call MUST NOT allocate, wait, or re-enter the host.
 
 `IRedXeInteractiveWidget` is an optional sibling for GPU tiles that have no child HWND. The host hit-tests the same
 topmost widget bounds as raise, converts contacts to widget-local pixels, and forwards `OnPointer`. `S_OK` on Down/Up
-consumes the contact and MUST NOT count toward double-activate raise. `S_FALSE` leaves raise and edge-click navigation
-unchanged. A page pan that locks horizontal sends `Cancel` and does not launch. Edge-band clicks never reach the
-widget. While raised, local origin is the overlay content rectangle. The host implements `IDropTarget` on the top-level
-HWND after `OleInitialize`; it parses `CF_HDROP` paths and Unicode text that is a full URL into `RedXeDropEvent` and
-calls `OnDrop`. Native-window children that are not drop targets (GdiOrbit) MUST NOT steal GPU-tile drops. Plugins
-MUST NOT initialize OLE or call `RegisterDragDrop`.
+consumes the contact and MUST NOT count toward double-activate raise. `S_FALSE` leaves raise and mouse edge-click
+navigation unchanged. The host still forwards later Move/Up of that one-finger contact to the same widget so it can
+start an internal pan after a padding Down. Two- or three-finger host page pan that locks horizontal sends `Cancel`
+and does not launch. Mouse edge-band clicks never reach the widget. While raised, local origin is the overlay content
+rectangle. The host implements `IDropTarget` on the top-level HWND after `OleInitialize`; it parses `CF_HDROP` paths
+and Unicode text that is a full URL into `RedXeDropEvent` and calls `OnDrop`. Native-window children that are not drop
+targets (GdiOrbit) MUST NOT steal GPU-tile drops. Plugins MUST NOT initialize OLE or call `RegisterDragDrop`.
 
 The current pointer record is 48 bytes and carries view identity, modifiers and vertical wheel delta. View 0 means
 the tile; view 1 means the raised layout. Coordinates are widget-local physical pixels and convert to DIP exactly
@@ -523,11 +524,12 @@ once inside an embedded adapter. Wheel delta retains Win32 wheel units; it targe
 under the pointer and never changes capture. Non-finite samples and unsupported phases are rejected. Page pans,
 owned live-control drags, hidden windows and display-off suppress wheel dispatch.
 
-`RedXePointerCapture` on Down transfers that contact to the widget until Up/Cancel; page navigation cannot steal
-the active slider gesture. Capture/focus loss, hidden state, page or geometry replacement, resize and DPI change
-cancel the gesture before releasing it. `RedXePointerRaise` and `RedXePointerDismiss` are committed-input results;
-the host applies them after dispatch, never by lending its HWND to the plugin. Ordinary consumed contacts retain
-the existing double-activation/page-pan behavior described above.
+`RedXePointerCapture` on Down transfers that one-finger contact to the widget until Up/Cancel. One finger alone MUST
+NOT steal an active slider gesture. A second or third concurrent touch cancels that capture and starts host page
+navigation. Capture/focus loss, hidden state, page or geometry replacement, resize and DPI change cancel the gesture
+before releasing it. `RedXePointerRaise` and `RedXePointerDismiss` are committed-input results; the host applies them
+after dispatch, never by lending its HWND to the plugin. Ordinary consumed contacts retain the existing
+double-activation behavior described above.
 
 `IRedXeKeyboardWidget` is an optional sibling with view-aware focus, a 20-byte key record and UTF-16 character
 delivery. Host focus is independent of COM identity and clears before widget teardown, page replacement or focus
@@ -989,11 +991,14 @@ padding is trimmed. Device loss keeps CPU BGRA and re-uploads without a second s
 Shared device resources live once per provider: embedded Shader Model 5.0 blobs, textured-quad pipeline, sampler, and
 immutable blend/rasterizer/depth state. Each instance owns at most eight 256×256 icon textures and one 320-byte
 dynamic constant buffer. `Render` is allocation-free and issues at most two draws (background plus instanced icons).
-Grid geometry uses two bounded cache entries keyed by actual width, height, DPI, and shortcut count. The tile and
+Grid geometry uses two bounded cache entries keyed by actual width, height, DPI, shortcut count, and launcher page. The tile and
 overlay therefore reuse distinct layouts, and pointer hit testing uses the most recently drawn layout (the overlay
 draw is last while raised). A largest-target notification MUST NOT displace or clip icons in the original tile.
-A swipe viewport keeps the widget's full size and may have a negative origin; `Render` must still draw. A committed
-click starts a bounded 3D launch motion of at most 400 ms via `RequestFrame` from `Render` only; idle with a static
+A swipe viewport keeps the widget's full size and may have a negative origin; `Render` must still draw. When more
+shortcuts exist than fit at a 72 DIP minimum cell, Launcher paginates them and GPU-draws a bottom page-dot strip
+using the same DIP metrics as `DxUi::PageIndicator` (20 DIP strip, 3/4 DIP radii, 14 DIP gap). One-finger horizontal
+swipe or a tap on a dot changes the launcher page and MUST NOT launch. Fewer than two launcher pages paint no dots.
+A committed click starts a bounded 3D launch motion of at most 400 ms via `RequestFrame` from `Render` only; idle with a static
 grid owns no wake-up. `RequestFrame` MUST NOT be called from `SetVisible` or `OnDeviceCreated`. `OnDrop` and
 `OnPointer` (committed click) MAY call `RequestFrame` and `PersistWidgetSettings`. `CollectPersistentSettings` returns
 `S_FALSE` when neither imports nor edits await persistence. A queued import retains collect fallback until a later
@@ -1126,7 +1131,8 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     host name, overlong string), injected pin-directory fallback, automated empty list without live taskbar reads,
     jumbo-or-PNG extraction, WARP two-draw icon grid, device-loss re-upload without a second extract, launch counting
     with zero `ShellExecuteExW`, imported-pin persistence/recreation, queue/commit failure and collect fallback,
-    drop append/cap/rollback, and ordering of an older queued import before a newer interactive save, through
+    drop append/cap/rollback, overflow paging with a bottom page-dot strip, one-finger launcher page swipe without
+    launch, and ordering of an older queued import before a newer interactive save, through
     `LauncherTests`, `SettingsTests`, and `HostPluginTests`. WARP pixel and hit-target tests MUST alternate tile and
     overlay sizes after one largest-size notification and verify zero allocations on those cached draws.
 

@@ -1,3 +1,4 @@
+#include "../../Plugins/Launcher/LauncherPaging.h"
 #include "../../Plugins/Launcher/LauncherTestContract.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
@@ -80,7 +81,11 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
 
 class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
 {
-    HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork*) noexcept override { return E_ACCESSDENIED; }
+    HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork*) noexcept override
+    {
+        return E_ACCESSDENIED;
+    }
+
   public:
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
     {
@@ -950,6 +955,103 @@ struct RenderTarget final
     return S_OK;
 }
 
+[[nodiscard]] HRESULT ValidatePages(RedXeCreateFn create, LauncherGetTestDiagnosticsFn getDiagnostics) noexcept
+{
+    const auto fit = ComputeLauncherPages(480, 480, 96, 8, 0);
+    if (fit.pageCount != 1 || fit.visibleCount != 8)
+    {
+        std::wprintf(L"A large launcher tile should keep eight shortcuts on one page.\n");
+        return kTestFailure;
+    }
+    const auto paged = ComputeLauncherPages(160, 160, 96, 8, 0);
+    if (paged.pageCount < 2 || paged.visibleCount == 0 || paged.visibleCount >= 8)
+    {
+        std::wprintf(L"A compact launcher tile should page overflow shortcuts.\n");
+        return kTestFailure;
+    }
+    if (HitLauncherPageDot(80.0f, 150.0f, 160, 160, 96, paged.pageCount) == UINT32_MAX)
+    {
+        std::wprintf(L"Paged launcher dots should be hittable at the bottom strip.\n");
+        return kTestFailure;
+    }
+
+    constexpr std::string_view eight =
+        R"json({"shortcuts":[{"target":"C:\\Windows\\System32\\notepad.exe"},{"target":"C:\\Windows\\System32\\cmd.exe"},{"target":"C:\\Windows\\System32\\write.exe"},{"target":"C:\\Windows\\System32\\winver.exe"},{"target":"C:\\Windows\\explorer.exe"},{"target":"C:\\Windows\\System32\\mspaint.exe"},{"target":"C:\\Windows\\System32\\control.exe"},{"target":"C:\\Windows\\System32\\calc.exe"}]})json";
+    TestHost host;
+    wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+    HRESULT result = CreateProvider(create, eight, &host, provider);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    wil::com_ptr_nothrow<IRedXeWidget> widget;
+    result = provider->CreateWidget(kWidgetTypeId, "launcher.pages", widget.put());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    RenderTarget target{};
+    result = CreateRenderTarget(160, 160, target);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    IRedXeGpuWidget* gpuRaw = nullptr;
+    result = AttachGpu(*widget, target, &gpuRaw);
+    wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
+    gpu.attach(gpuRaw);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = widget->SetVisible(TRUE);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = RenderFrame(*gpu, target, 0.0f, 0.0f, 0.0f, 160, 160);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    LauncherTestDiagnostics diagnostics{sizeof(LauncherTestDiagnostics)};
+    result = getDiagnostics(&diagnostics);
+    if (FAILED(result) || diagnostics.pageCount < 2 || diagnostics.pageIndex != 0)
+    {
+        std::wprintf(L"Compact eight-shortcut launcher did not report multiple pages.\n");
+        return kTestFailure;
+    }
+    const uint64_t launchesBefore = diagnostics.launchCount;
+    wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
+    if (FAILED(widget.query_to(interactive.put())) || !interactive)
+    {
+        return kTestFailure;
+    }
+    const RedXePointerEvent down{sizeof(RedXePointerEvent), 2,      RedXePointerKindTouch,
+                                 RedXePointerPhaseDown,     140.0f, 20.0f};
+    const RedXePointerEvent move{sizeof(RedXePointerEvent), 2,     RedXePointerKindTouch,
+                                 RedXePointerPhaseMove,     20.0f, 20.0f};
+    const RedXePointerEvent up{sizeof(RedXePointerEvent), 2, RedXePointerKindTouch, RedXePointerPhaseUp, 20.0f, 20.0f};
+    const HRESULT downResult = interactive->OnPointer(&down);
+    if (FAILED(downResult) || interactive->OnPointer(&move) != S_OK || interactive->OnPointer(&up) != S_OK)
+    {
+        std::wprintf(L"Launcher did not consume a one-finger page swipe.\n");
+        return kTestFailure;
+    }
+    result = getDiagnostics(&diagnostics);
+    if (FAILED(result) || diagnostics.pageIndex == 0)
+    {
+        std::wprintf(L"Launcher page swipe did not advance the page.\n");
+        return kTestFailure;
+    }
+    if (diagnostics.launchCount != launchesBefore)
+    {
+        std::wprintf(L"Launcher page swipe launched a shortcut.\n");
+        return kTestFailure;
+    }
+    return S_OK;
+}
+
 [[nodiscard]] HRESULT ValidateGrid(RedXeCreateFn create, LauncherGetTestDiagnosticsFn getDiagnostics) noexcept
 {
     constexpr std::string_view four =
@@ -1069,6 +1171,10 @@ struct RenderTarget final
     if (SUCCEEDED(result))
     {
         result = ValidateGrid(create, getDiagnostics);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ValidatePages(create, getDiagnostics);
     }
     shutdown();
     OleUninitialize();

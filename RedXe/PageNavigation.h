@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <windows.h>
 
 [[nodiscard]] inline LONG PageSwipeThresholdPixels(UINT dpi) noexcept
@@ -14,6 +15,14 @@
 {
     const int scaleDpi = dpi == 0 ? USER_DEFAULT_SCREEN_DPI : static_cast<int>(dpi);
     return MulDiv(2200, scaleDpi, USER_DEFAULT_SCREEN_DPI);
+}
+
+inline constexpr uint32_t kPageSwipeMinFingerCount = 2;
+inline constexpr uint32_t kPageSwipeMaxFingerCount = 3;
+
+[[nodiscard]] constexpr bool PageSwipeAcceptsFingerCount(uint32_t fingers) noexcept
+{
+    return fingers >= kPageSwipeMinFingerCount && fingers <= kPageSwipeMaxFingerCount;
 }
 
 [[nodiscard]] constexpr bool PageSwipeLocksHorizontal(LONG deltaX, LONG deltaY, LONG threshold) noexcept

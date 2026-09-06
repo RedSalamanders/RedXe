@@ -35,7 +35,40 @@ float4 PixelMain(PixelInput input) : SV_Target
             const float thickness = max(arm * 0.14f, 3.0f);
             plus = ((delta.x < thickness && delta.y < arm) || (delta.y < thickness && delta.x < arm)) ? 1.0f : 0.0f;
         }
-        return lerp(backgroundColor, hintColor, plus);
+        float4 color = lerp(backgroundColor, hintColor, plus);
+        if (iconPad.x >= 2)
+        {
+            const float2 pixel = input.uv * max(viewportSize, float2(1.0f, 1.0f));
+            const uint pages = iconPad.x;
+            const uint selected = iconPad.y;
+            const float scale = max(float(iconPad.z), 96.0f) / 96.0f;
+            const float radius = 3.0f * scale;
+            const float selectedRadius = 4.0f * scale;
+            const float gap = 14.0f * scale;
+            const float strip = 20.0f * scale;
+            const float total = gap * float(pages - 1);
+            const float originX = viewportSize.x * 0.5f - total * 0.5f;
+            const float originY = viewportSize.y - strip * 0.5f;
+            [loop]
+            for (uint i = 0; i < 8; ++i)
+            {
+                if (i >= pages)
+                {
+                    break;
+                }
+                const float2 center = float2(originX + gap * float(i), originY);
+                const float r = (i == selected) ? selectedRadius : radius;
+                const float d = length(pixel - center);
+                if (d < r)
+                {
+                    const float4 dotColor = (i == selected) ? float4(0.85f, 0.88f, 0.95f, 1.0f)
+                                                            : float4(0.40f, 0.42f, 0.48f, 1.0f);
+                    const float aa = saturate((r - d) / max(r * 0.25f, 0.75f));
+                    color = lerp(color, dotColor, aa);
+                }
+            }
+        }
+        return color;
     }
 
     const float4 color = icons.Sample(iconSampler, float3(input.uv, input.slice));

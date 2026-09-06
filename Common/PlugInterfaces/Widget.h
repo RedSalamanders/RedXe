@@ -194,9 +194,10 @@ static_assert(sizeof(RedXePointerEvent) == 48);
 static_assert(offsetof(RedXePointerEvent, viewId) == 24);
 static_assert(offsetof(RedXePointerEvent, wheelDelta) == 44);
 
-// An interactive widget returns this only for a handled Down that must own the entire gesture (for example a
-// slider). The host captures the mouse/touch/pen and suppresses page/edge navigation until Up or Cancel. S_OK
-// preserves the existing click-with-possible-page-pan behavior. Failure to acquire OS capture sends Cancel.
+// An interactive widget returns this only for a handled Down that must own the entire one-finger gesture (for
+// example a slider). The host captures that mouse/touch/pen contact and suppresses one-finger page/edge navigation
+// until Up or Cancel. A second or third concurrent touch cancels capture and starts host page navigation. S_OK
+// preserves click-with-possible-raise behavior. Failure to acquire OS capture sends Cancel.
 inline constexpr HRESULT RedXePointerCapture = MAKE_HRESULT(SEVERITY_SUCCESS, FACILITY_ITF, 0x301);
 // Committed Up may request generic raise/dismiss after the host releases gesture capture. These are consumed
 // results, never double-activate candidates. The normal advertised extent and host bounds still govern raising.
@@ -417,8 +418,10 @@ interface __declspec(uuid("A7E4C19B-2F58-4D13-9C6A-80B1D4E7F203")) __declspec(no
 // widget-local pixels, and parses OLE formats; the plugin never sees IDataObject or the top-level HWND.
 //
 // OnPointer returns S_OK when the contact is consumed (for example a click on an icon) and S_FALSE on a miss
-// (padding or empty cell). A consumed Down/Up MUST NOT count toward double-activate raise. Page pan that locks
-// horizontal sends Cancel and does not launch. Edge-band clicks never reach the widget.
+// (padding or empty cell). A consumed Down/Up MUST NOT count toward double-activate raise. The host still forwards
+// later one-finger Move/Up of that contact so a plugin can start an internal pan after a padding Down. Two- or
+// three-finger host page pan that locks horizontal sends Cancel and does not launch. Mouse edge-band clicks never
+// reach the widget.
 interface __declspec(uuid("E4C2A91B-7D3E-4F18-B6A5-2C9D8E0F1744")) __declspec(novtable) IRedXeInteractiveWidget
     : IUnknown
 {

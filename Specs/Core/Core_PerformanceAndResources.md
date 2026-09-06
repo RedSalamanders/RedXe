@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-06
 
 ## Mandate
 
@@ -50,10 +50,11 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   Per-slot in-flight counters and fixed delivery arrays preserve the 32-subscription bound without heap allocation.
   Widgets MUST be quiescent before GPU teardown. Worker-side GPU lifetime checks and access share the resource lock;
   an atomic ownership flag alone is insufficient to protect a device resource.
-- Launcher uses two fixed geometry entries for the tile and overlay. Their combined 304-byte payload plus an 8-byte
-  index replaces 136 bytes of single-grid cells/dimensions, a bounded 176-byte increase per instance. This preserves
-  both draw geometries and avoids repeated grid derivation when settled; alternating WARP draws MUST allocate zero
-  heap memory. Animated overlay sizes recompute only the changed entry.
+- Launcher uses two fixed geometry entries for the tile and overlay. Each entry stores dimensions, paging, and eight
+  cell rects (172 bytes). Their combined 344-byte payload plus an 8-byte index preserves both draw geometries and
+  avoids repeated grid derivation when settled; alternating WARP draws MUST allocate zero heap memory. Animated overlay
+  sizes recompute only the changed entry. Overflow shortcuts paginate inside the widget; the GPU page-dot strip shares
+  `DxUi::PageIndicator` DIP metrics and does not add a second constant buffer.
 - Visible continuous animation must be paced by display presentation. Hidden, minimized, suspended, or display-off
   rendering must block on events and must not build or present a frame because an unrelated message was dispatched.
   An active page pan, settle, or staged neighbor is visible motion: the host MUST keep presenting so widget animation

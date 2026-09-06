@@ -31,12 +31,22 @@ class ProfileControls final
     void Hide() noexcept;
     void Back() noexcept;
     void Prepare(float width, float height);
-    [[nodiscard]] bool IsEditing() const noexcept { return _mode == Mode::Editor; }
+    [[nodiscard]] bool IsEditing() const noexcept
+    {
+        return _mode == Mode::Editor;
+    }
     [[nodiscard]] DxUi::Control* InitialFocus() const noexcept;
     [[nodiscard]] RetainedState CaptureState() const noexcept;
     void RestoreState(const RetainedState& state) noexcept;
+
   private:
-    enum class Mode { Chooser, Definitions, Editor, CameraSetup };
+    enum class Mode
+    {
+        Chooser,
+        Definitions,
+        Editor,
+        CameraSetup
+    };
     Mode _mode = Mode::Chooser;
     ProfileCallbacks _callbacks;
     Configuration _configuration;
@@ -54,6 +64,7 @@ class ProfileControls final
     DxUi::Button* _back = nullptr;
     DxUi::Button* _remove = nullptr;
     DxUi::Button* _cameraSetup = nullptr;
+    DxUi::PageIndicator* _indicator = nullptr;
     std::array<DxUi::Button*, MaximumProfiles> _profiles{};
     std::array<DxUi::Button*, 3> _footer{};
     std::array<DxUi::Control*, 8> _fields{};

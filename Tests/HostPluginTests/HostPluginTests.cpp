@@ -334,6 +334,12 @@ void TestFrameScheduler(bool& success) noexcept
 void TestPageSwipePolicy(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] page swipe axis lock, rubber-band, commit, and settle\n";
+    Check(!PageSwipeAcceptsFingerCount(0), L"no fingers do not navigate dashboard pages", success);
+    Check(!PageSwipeAcceptsFingerCount(1), L"one finger does not navigate dashboard pages", success);
+    Check(PageSwipeAcceptsFingerCount(2), L"two fingers may navigate dashboard pages", success);
+    Check(PageSwipeAcceptsFingerCount(3), L"three fingers may navigate dashboard pages", success);
+    Check(!PageSwipeAcceptsFingerCount(4), L"four fingers do not navigate dashboard pages", success);
+
     Check(PageSwipeLocksHorizontal(20, 4, 16), L"horizontal delta past the threshold locks page navigation", success);
     Check(!PageSwipeLocksHorizontal(10, 4, 16), L"sub-threshold contact does not lock page navigation", success);
     Check(!PageSwipeLocksHorizontal(20, 24, 16), L"a diagonal with larger Y does not lock page navigation", success);
@@ -2499,17 +2505,20 @@ void TestPublishedArraySchema(bool& success) noexcept
           L"a Matrix-style closed object schema remains valid", success);
     Check(FAILED(PluginManager::ValidatePluginPublishedSchema(nestedSchema, R"json({"rows":[]})json")),
           L"nested arrays are rejected", success);
-    constexpr std::string_view boundedText = R"({"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":2}}})";
+    constexpr std::string_view boundedText =
+        R"({"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":2}}})";
     Check(SUCCEEDED(PluginManager::ValidatePluginPublishedSchema(boundedText, R"({"name":"\u00e9\ud83d\ude00"})")),
           L"published text bounds count Unicode scalars rather than UTF-8 bytes or UTF-16 units", success);
     Check(FAILED(PluginManager::ValidatePluginPublishedSchema(boundedText, R"({"name":"abc"})")) &&
-          FAILED(PluginManager::ValidatePluginPublishedSchema(boundedText, R"({"name":""})")),
+              FAILED(PluginManager::ValidatePluginPublishedSchema(boundedText, R"({"name":""})")),
           L"both published string length bounds are enforced", success);
-    constexpr std::string_view machineId = R"({"type":"object","properties":{"id":{"type":"string","pattern":"^[A-Za-z0-9_-]+$"}}})";
+    constexpr std::string_view machineId =
+        R"({"type":"object","properties":{"id":{"type":"string","pattern":"^[A-Za-z0-9_-]+$"}}})";
     Check(SUCCEEDED(PluginManager::ValidatePluginPublishedSchema(machineId, R"({"id":"office_2-main"})")) &&
-          FAILED(PluginManager::ValidatePluginPublishedSchema(machineId, R"({"id":"office.2"})")),
+              FAILED(PluginManager::ValidatePluginPublishedSchema(machineId, R"({"id":"office.2"})")),
           L"published machine identifiers use the fixed ASCII pattern", success);
-    constexpr std::string_view unsupportedEmpty = R"({"type":"object","properties":{"rows":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","pattern":".*"}}}}}})";
+    constexpr std::string_view unsupportedEmpty =
+        R"({"type":"object","properties":{"rows":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","pattern":".*"}}}}}})";
     Check(FAILED(PluginManager::ValidatePluginPublishedSchema(unsupportedEmpty, R"({"rows":[]})")),
           L"unsupported string constraints are rejected even when a defaults array is empty", success);
 }

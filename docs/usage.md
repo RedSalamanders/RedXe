@@ -26,13 +26,13 @@ If RedXe stopped after a crash, the next normal launch may offer to open the loc
 
 ## Pages
 
-Swipe **left** (touch or pen) to go forward, **right** to go back. Navigation is always horizontal, including in portrait.
+Swipe **left** with **two or three fingers** to go forward, **right** to go back. Navigation is always horizontal, including in portrait. One finger stays with the tile (for example AV Control sliders, or Launcher's own pages). A pen does not change dashboard pages.
 
 With a **mouse**, hover the left or right edge of the window. A chevron appears when that direction has a neighbor. Click it to change page.
 
 By default you stop at the first and last page. Set `"wrapPages": true` in settings to wrap from either end.
 
-Double-click or double-tap a tile that does not already fill the window to **raise** it. Close, Escape, or a second double-activate restores it. You cannot swipe pages while a widget is raised.
+Double-click or double-tap a tile that does not already fill the window to **raise** it. Close, Escape, or a second double-activate restores it. You cannot swipe dashboard pages while a widget is raised.
 
 A tile that failed to load stays in place as a host placeholder. Other tiles on the page keep working.
 

@@ -97,7 +97,10 @@ actual installed workflow, failures/rollback, package distribution and capture-c
 
 The host forwards vertical wheel input to the topmost interactive view at the pointer, using widget-local physical
 coordinates, Win32 wheel units and the final view ID. A wheel sample never starts or terminates pointer capture and
-is suppressed during an owned slider drag/page pan. Unsupported widgets return `S_FALSE`.
+is suppressed during an owned slider drag or a two- or three-finger host page pan. Unsupported widgets return
+`S_FALSE`. Paged profile, editor, and camera-setup surfaces host `DxUi::PageIndicator` at the bottom when more than
+one page is visible. The strip uses the control's 20 DIP height, does not scroll, and reports `Page N of M`. One-finger
+contacts remain with the widget so sliders and the indicator stay usable.
 
 Audio callbacks track exact scalar changes, including changes back before the next observation, separately from
 mute revisions. All admitted audio endpoints have bounded subscriptions, including profile destinations and

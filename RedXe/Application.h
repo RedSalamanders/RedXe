@@ -103,6 +103,11 @@ class Application final
     LRESULT HandleRaiseOverlayMessage(HWND overlay, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
     void PaintRaiseOverlay(HWND overlay) noexcept;
     void CancelPageNavigation() noexcept;
+    void ReleasePagePointerCaptures(HWND window) noexcept;
+    void AdoptPageTouches(const UINT32* ids, const POINT* positions, uint32_t count, bool grabbingSettle) noexcept;
+    [[nodiscard]] LONG PageTouchDeltaX() const noexcept;
+    [[nodiscard]] LONG PageTouchDeltaY() const noexcept;
+    [[nodiscard]] bool PageTouchesContain(UINT32 pointerId) const noexcept;
     [[nodiscard]] PageEdgeState CurrentPageEdgeState() const noexcept;
     // Client rectangle with work-area width clipping, always full client height. Edge bands hug the reachable
     // left/right so they stay pointer-reachable when the window is wider than its monitor, and they span the window
@@ -202,14 +207,23 @@ class Application final
     bool _frameInvalidated = true;
     ULONGLONG _scheduledFrameDeadlineTick = 0;
     HRESULT _runtimeFailure = S_OK;
-    UINT32 _pagePointerId = 0;
-    LONG _pagePointerStartX = 0;
-    LONG _pagePointerStartY = 0;
-    LONG _pagePointerX = 0;
-    LONG _pageCurrentOffset = 0;
     UINT64 _pagePointerQpc = 0;
     UINT64 _qpcFrequency = 0;
     float _pageVelocityPxPerSec = 0.0f;
+    static constexpr uint32_t kPageSwipeMaxTouches = 3;
+    struct PageSwipeTouch final
+    {
+        UINT32 id = 0;
+        LONG startX = 0;
+        LONG startY = 0;
+        LONG x = 0;
+        LONG y = 0;
+        bool captured = false;
+    };
+    std::array<PageSwipeTouch, kPageSwipeMaxTouches> _pageTouches{};
+    uint32_t _pageTouchCount = 0;
+    LONG _pageCentroidX = 0;
+    LONG _pageCurrentOffset = 0;
     bool _pagePointerActive = false;
     bool _pagePointerCaptured = false;
     bool _pagePanStarted = false;

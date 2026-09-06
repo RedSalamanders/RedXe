@@ -5,8 +5,10 @@
 #include <cmath>
 #include <audioclient.h>
 #include <endpointvolume.h>
+// clang-format off
 #include <propkeydef.h>
 #include <functiondiscoverykeys_devpkey.h>
+// clang-format on
 #include <mmdeviceapi.h>
 #include <propsys.h>
 #include <wil/com.h>

@@ -24,6 +24,8 @@ struct LauncherTestDiagnostics final
     uint64_t shellExecuteCount;
     uint32_t largestIconEdge;
     uint32_t liveWidgets;
+    uint32_t pageCount;
+    uint32_t pageIndex;
 };
 
 #if defined(REDXE_PLUGIN_EXPORTS)

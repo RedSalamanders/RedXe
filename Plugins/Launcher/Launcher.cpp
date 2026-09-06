@@ -3,6 +3,7 @@
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
 
+#include "LauncherPaging.h"
 #include "LauncherPixelShader.h"
 #include "LauncherTestContract.h"
 #include "LauncherVertexShader.h"
@@ -110,6 +111,8 @@ std::atomic<uint32_t> gColumns{0};
 std::atomic<uint32_t> gRows{0};
 std::atomic<uint32_t> gLastInstanceCount{0};
 std::atomic<uint32_t> gLastDrawCount{0};
+std::atomic<uint32_t> gPageCount{1};
+std::atomic<uint32_t> gPageIndex{0};
 SRWLOCK gPinLock = SRWLOCK_INIT;
 PinMode gPinMode = PinMode::Live;
 wchar_t gPinOverride[1024]{};
@@ -1239,7 +1242,9 @@ class LauncherWidget final
         _height = widget.heightPixels;
         _dpi = widget.dpi == 0 ? USER_DEFAULT_SCREEN_DPI : widget.dpi;
         ComputeGrid();
-        const auto& cells = _grids[_activeGrid].cells;
+        const auto& grid = _grids[_activeGrid];
+        const auto& cells = grid.cells;
+        const uint32_t packed = grid.pageCount > 1 ? grid.visibleCount : grid.count;
         float launchAmount = 0.0f;
         if (_launchActive)
         {
@@ -1274,9 +1279,13 @@ class LauncherWidget final
         constants.hintColor[1] = 0.58f;
         constants.hintColor[2] = 0.62f;
         constants.hintColor[3] = 1.0f;
-        constants.iconCount = _display.count;
-        for (uint32_t index = 0; index < _display.count; ++index)
+        constants.iconCount = packed;
+        constants.pad[0] = grid.pageCount;
+        constants.pad[1] = grid.pageIndex;
+        constants.pad[2] = _dpi;
+        for (uint32_t index = 0; index < packed; ++index)
         {
+            const uint32_t global = grid.firstIndex + index;
             constants.iconRect[index][0] = cells[index][0];
             constants.iconRect[index][1] = cells[index][1];
             constants.iconRect[index][2] = cells[index][2];
@@ -1284,7 +1293,7 @@ class LauncherWidget final
             float dim = 1.0f;
             float tilt = 0.0f;
             float z = 0.0f;
-            if (_launchActive && index == _launchIndex)
+            if (_launchActive && global == _launchIndex)
             {
                 tilt = launchAmount * 0.65f;
                 z = launchAmount * 48.0f;
@@ -1293,14 +1302,14 @@ class LauncherWidget final
             {
                 dim = 1.0f - launchAmount * 0.45f;
             }
-            if (_dragHighlight && index == _hoverIndex)
+            if (_dragHighlight && global == _hoverIndex)
             {
                 dim *= 1.08f;
             }
             constants.iconMotion[index][0] = tilt;
             constants.iconMotion[index][1] = z;
             constants.iconMotion[index][2] = dim;
-            constants.iconMotion[index][3] = static_cast<float>(index);
+            constants.iconMotion[index][3] = static_cast<float>(global);
         }
         return _resources->Draw(context->deviceContext, _gpu, constants);
     }
@@ -1315,32 +1324,98 @@ class LauncherWidget final
         {
             return E_INVALIDARG;
         }
-        if (event->phase == RedXePointerPhaseWheel) return S_FALSE;
+        if (event->phase == RedXePointerPhaseWheel)
+            return S_FALSE;
         if (event->phase == RedXePointerPhaseCancel)
         {
             _pointerDown = false;
+            _pagePan = false;
             _downIndex = kMaximumShortcuts;
             return S_FALSE;
         }
-        const uint32_t hit = HitCell(event->x, event->y);
+        const auto& grid = _grids[_activeGrid];
+        const uint32_t pageHit = HitLauncherPageDot(event->x, event->y, _width, _height, _dpi, grid.pageCount);
         if (event->phase == RedXePointerPhaseDown)
         {
-            _pointerDown = hit < _display.count;
+            _pagePan = false;
+            _pointerStartX = event->x;
+            _pointerStartY = event->y;
+            if (pageHit < grid.pageCount)
+            {
+                _pointerDown = true;
+                _downIndex = kMaximumShortcuts;
+                _dotDown = pageHit;
+                return S_OK;
+            }
+            _dotDown = UINT32_MAX;
+            const uint32_t hit = HitCell(event->x, event->y);
+            _pointerDown = true;
             _downIndex = hit;
-            return _pointerDown ? S_OK : S_FALSE;
+            return hit < _display.count ? S_OK : S_FALSE;
+        }
+        if (event->phase == RedXePointerPhaseMove)
+        {
+            if (!_pointerDown)
+            {
+                return S_FALSE;
+            }
+            const LONG deltaX = static_cast<LONG>(event->x - _pointerStartX);
+            const LONG deltaY = static_cast<LONG>(event->y - _pointerStartY);
+            const LONG threshold = LauncherPageSwipeThresholdPixels(_dpi);
+            if (!_pagePan && grid.pageCount > 1 && LauncherPageSwipeLocksHorizontal(deltaX, deltaY, threshold))
+            {
+                _pagePan = true;
+                _downIndex = kMaximumShortcuts;
+            }
+            return _pagePan || _downIndex < _display.count || _dotDown < grid.pageCount ? S_OK : S_FALSE;
         }
         if (event->phase == RedXePointerPhaseUp)
         {
-            const bool consume = _pointerDown && hit == _downIndex && hit < _display.count;
+            const bool panned = _pagePan;
+            const uint32_t down = _downIndex;
+            const uint32_t dot = _dotDown;
             _pointerDown = false;
-            if (consume)
+            _pagePan = false;
+            _downIndex = kMaximumShortcuts;
+            _dotDown = UINT32_MAX;
+            if (panned && grid.pageCount > 1)
+            {
+                const LONG deltaX = static_cast<LONG>(event->x - _pointerStartX);
+                const LONG commit = static_cast<LONG>(_width / 4);
+                if (deltaX <= -commit && _pageIndex + 1 < grid.pageCount)
+                {
+                    ++_pageIndex;
+                }
+                else if (deltaX >= commit && _pageIndex > 0)
+                {
+                    --_pageIndex;
+                }
+                ComputeGrid();
+                if (_host)
+                {
+                    (void)_host->RequestFrame();
+                }
+                return S_OK;
+            }
+            if (dot < grid.pageCount && pageHit == dot)
+            {
+                _pageIndex = dot;
+                ComputeGrid();
+                if (_host)
+                {
+                    (void)_host->RequestFrame();
+                }
+                return S_OK;
+            }
+            const uint32_t hit = HitCell(event->x, event->y);
+            if (down < _display.count && hit == down)
             {
                 Launch(hit);
                 return S_OK;
             }
             return S_FALSE;
         }
-        return hit < _display.count ? S_OK : S_FALSE;
+        return HitCell(event->x, event->y) < _display.count ? S_OK : S_FALSE;
     }
 
     HRESULT STDMETHODCALLTYPE OnDragOver(float x, float y) noexcept override
@@ -1455,17 +1530,23 @@ class LauncherWidget final
         gUsingPins.store(_usingPins ? 1U : 0U, std::memory_order_relaxed);
         gColumns.store(_grids[_activeGrid].columns, std::memory_order_relaxed);
         gRows.store(_grids[_activeGrid].rows, std::memory_order_relaxed);
+        gPageCount.store(_grids[_activeGrid].pageCount, std::memory_order_relaxed);
+        gPageIndex.store(_pageIndex, std::memory_order_relaxed);
     }
 
     void ComputeGrid() noexcept
     {
         const uint32_t n = _display.count;
+        const LauncherPageGeometry pages = ComputeLauncherPages(_width, _height, _dpi, n, _pageIndex);
+        _pageIndex = pages.pageIndex;
         for (size_t index = 0; index < _grids.size(); ++index)
         {
             const auto& cached = _grids[index];
-            if (cached.width == _width && cached.height == _height && cached.dpi == _dpi && cached.count == n)
+            if (cached.width == _width && cached.height == _height && cached.dpi == _dpi && cached.count == n &&
+                cached.pageIndex == pages.pageIndex && cached.pageCount == pages.pageCount)
             {
                 _activeGrid = index;
+                PublishCounts();
                 return;
             }
         }
@@ -1476,24 +1557,39 @@ class LauncherWidget final
         grid.height = _height;
         grid.dpi = _dpi;
         grid.count = n;
+        grid.pageCount = pages.pageCount;
+        grid.pageIndex = pages.pageIndex;
+        grid.firstIndex = pages.firstIndex;
+        grid.visibleCount = pages.visibleCount;
+        grid.indicatorHeight = pages.indicatorHeightPx;
         if (n == 0 || _width == 0 || _height == 0)
         {
             PublishCounts();
             return;
         }
-        const float aspect = static_cast<float>(_width) / static_cast<float>(_height);
-        const long rounded = std::lround(std::sqrt(static_cast<float>(n) * aspect));
-        grid.columns = static_cast<uint32_t>(std::clamp(rounded, 1L, static_cast<long>(n)));
-        grid.rows = (n + grid.columns - 1U) / grid.columns;
+        const uint32_t packed = pages.pageCount > 1 ? pages.visibleCount : n;
+        const float contentHeight = pages.pageCount > 1 ? pages.contentHeightPx : static_cast<float>(_height);
+        if (pages.pageCount > 1)
+        {
+            grid.columns = pages.columns;
+            grid.rows = pages.rows;
+        }
+        else
+        {
+            const float aspect = static_cast<float>(_width) / std::max(contentHeight, 1.0f);
+            const long rounded = std::lround(std::sqrt(static_cast<float>(packed) * aspect));
+            grid.columns = static_cast<uint32_t>(std::clamp(rounded, 1L, static_cast<long>(packed)));
+            grid.rows = (packed + grid.columns - 1U) / grid.columns;
+        }
         const float cellWidth = static_cast<float>(_width) / static_cast<float>(grid.columns);
-        const float cellHeight = static_cast<float>(_height) / static_cast<float>(grid.rows);
+        const float cellHeight = contentHeight / static_cast<float>(grid.rows);
         const float padding = std::max(6.0f, static_cast<float>(_dpi) * 10.0f / 96.0f);
         const float icon = std::max(8.0f, std::min(cellWidth, cellHeight) - padding * 2.0f);
         const float usedWidth = static_cast<float>(grid.columns) * cellWidth;
         const float usedHeight = static_cast<float>(grid.rows) * cellHeight;
         const float originX = (static_cast<float>(_width) - usedWidth) * 0.5f;
-        const float originY = (static_cast<float>(_height) - usedHeight) * 0.5f;
-        for (uint32_t index = 0; index < n; ++index)
+        const float originY = (contentHeight - usedHeight) * 0.5f;
+        for (uint32_t index = 0; index < packed; ++index)
         {
             const uint32_t column = index % grid.columns;
             const uint32_t row = index / grid.columns;
@@ -1507,12 +1603,14 @@ class LauncherWidget final
 
     [[nodiscard]] uint32_t HitCell(float x, float y) const noexcept
     {
-        const auto& cells = _grids[_activeGrid].cells;
-        for (uint32_t index = 0; index < _display.count; ++index)
+        const auto& grid = _grids[_activeGrid];
+        const uint32_t packed = grid.pageCount > 1 ? grid.visibleCount : grid.count;
+        for (uint32_t index = 0; index < packed; ++index)
         {
-            if (std::fabs(x - cells[index][0]) <= cells[index][2] && std::fabs(y - cells[index][1]) <= cells[index][3])
+            if (std::fabs(x - grid.cells[index][0]) <= grid.cells[index][2] &&
+                std::fabs(y - grid.cells[index][1]) <= grid.cells[index][3])
             {
-                return index;
+                return grid.firstIndex + index;
             }
         }
         return kMaximumShortcuts;
@@ -1714,6 +1812,11 @@ class LauncherWidget final
         uint32_t count = 0;
         uint32_t columns = 0;
         uint32_t rows = 0;
+        uint32_t pageCount = 1;
+        uint32_t pageIndex = 0;
+        uint32_t firstIndex = 0;
+        uint32_t visibleCount = 0;
+        float indicatorHeight = 0.0f;
         std::array<std::array<float, 4>, kMaximumShortcuts> cells{};
     };
     std::array<GridLayout, 2> _grids{};
@@ -1724,12 +1827,17 @@ class LauncherWidget final
     uint32_t _downIndex = kMaximumShortcuts;
     uint32_t _launchIndex = kMaximumShortcuts;
     uint32_t _hoverIndex = kMaximumShortcuts;
+    uint32_t _pageIndex = 0;
+    uint32_t _dotDown = UINT32_MAX;
+    float _pointerStartX = 0.0f;
+    float _pointerStartY = 0.0f;
     uint64_t _launchStartQpc = 0;
     uint64_t _qpcFrequency = 0;
     bool _visible = false;
     bool _deviceReady = false;
     bool _usingPins = false;
     bool _pointerDown = false;
+    bool _pagePan = false;
     bool _launchActive = false;
     bool _dragHighlight = false;
     bool _dirty = false;
@@ -1910,6 +2018,8 @@ extern "C" HRESULT __stdcall RedXeLauncherGetTestDiagnostics(LauncherTestDiagnos
     diagnostics->shellExecuteCount = gShellExecuteCount.load(std::memory_order_relaxed);
     diagnostics->largestIconEdge = gLargestIconEdge.load(std::memory_order_relaxed);
     diagnostics->liveWidgets = gLiveWidgets.load(std::memory_order_relaxed);
+    diagnostics->pageCount = gPageCount.load(std::memory_order_relaxed);
+    diagnostics->pageIndex = gPageIndex.load(std::memory_order_relaxed);
     return S_OK;
 }
 

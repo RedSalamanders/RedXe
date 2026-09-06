@@ -58,7 +58,11 @@ Preserve these boundaries:
   dismiss settle completes. `OnTargetSizeChanged` reports the final overlay size at raise start, not each interpolated
   frame.
 - GPU widgets receive a borrowed D3D11 device during setup and immediate context during rendering. They never receive
-  the HWND, swap chain, or back buffer. Share immutable device resources across compatible instances. A swipe
+  the HWND, swap chain, or back buffer. Share immutable device resources across compatible instances. Dashboard page
+  pan requires two or three simultaneous touch contacts. One-finger and pen contacts are forwarded to
+  `IRedXeInteractiveWidget`, including Move/Up after a padding Down that returned `S_FALSE`. A second or third finger
+  cancels an in-progress one-finger `RedXePointerCapture` and starts host paging. Launcher paginates overflow shortcuts
+  and GPU-draws a bottom page-dot strip using the same DIP metrics as `DxUi::PageIndicator`. A swipe
   viewport keeps the widget's full size and may have a negative origin; `Render` must still draw, and must not treat
   that origin as invalid. Direct3D clips to the target. System Data GPU
   viewers pick a density rung from the widget rectangle, grow type with leftover height among visible rows, split wide

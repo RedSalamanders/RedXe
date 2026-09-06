@@ -6,6 +6,7 @@
 #include "FluentIcons.h"
 #include "FrameScheduler.h"
 #include "PageNavigation.h"
+#include "PlugInterfaces/Widget.h"
 #include "Settings.h"
 #include "TextInputValidation.h"
 #include "WidgetRaise.h"
@@ -58,6 +59,71 @@ void HostReleasePointerCapture(HWND window, UINT32 pointerId) noexcept
     {
         ReleaseCapture();
     }
+}
+
+struct TouchContact final
+{
+    UINT32 id = 0;
+    POINT client{};
+    UINT64 qpc = 0;
+};
+
+[[nodiscard]] uint32_t PointerKindFromId(UINT32 pointerId) noexcept
+{
+    POINTER_INFO information{};
+    if (GetPointerInfo(pointerId, &information) && information.pointerType == PT_PEN)
+    {
+        return RedXePointerKindPen;
+    }
+    return RedXePointerKindTouch;
+}
+
+[[nodiscard]] uint32_t CollectInContactTouches(HWND window, UINT32 pointerId,
+                                               std::array<TouchContact, 10>& contacts) noexcept
+{
+    std::array<POINTER_TOUCH_INFO, 10> frame{};
+    UINT32 count = static_cast<UINT32>(frame.size());
+    BOOL ok = GetPointerFrameTouchInfo(pointerId, &count, frame.data());
+    if (!ok && count > 0 && count <= frame.size())
+    {
+        ok = GetPointerFrameTouchInfo(pointerId, &count, frame.data());
+    }
+    if (ok)
+    {
+        uint32_t written = 0;
+        for (UINT32 index = 0; index < count && written < contacts.size(); ++index)
+        {
+            const POINTER_INFO& information = frame[index].pointerInfo;
+            if (information.pointerType != PT_TOUCH || (information.pointerFlags & POINTER_FLAG_INCONTACT) == 0)
+            {
+                continue;
+            }
+            POINT position = information.ptPixelLocation;
+            if (!ScreenToClient(window, &position))
+            {
+                continue;
+            }
+            contacts[written++] = TouchContact{information.pointerId, position, information.PerformanceCount};
+        }
+        if (written > 0)
+        {
+            return written;
+        }
+    }
+
+    POINTER_INFO information{};
+    if (!GetPointerInfo(pointerId, &information) || information.pointerType != PT_TOUCH ||
+        (information.pointerFlags & POINTER_FLAG_INCONTACT) == 0)
+    {
+        return 0;
+    }
+    POINT position = information.ptPixelLocation;
+    if (!ScreenToClient(window, &position))
+    {
+        return 0;
+    }
+    contacts[0] = TouchContact{pointerId, position, information.PerformanceCount};
+    return 1;
 }
 
 [[nodiscard]] HRESULT ValidateExecutableShellIcon() noexcept
@@ -1323,7 +1389,8 @@ void Application::BeginPageSettle(LONG targetOffset, bool commit) noexcept
     }
 
     _pageSettleActive = true;
-    if (_accessibility) _accessibility->ClearViews();
+    if (_accessibility)
+        _accessibility->ClearViews();
     _pageSettleCommit = commit;
     _pageSettleStart = _pageCurrentOffset;
     _pageSettleTarget = targetOffset;
@@ -1726,8 +1793,8 @@ LRESULT Application::HandlePageEdgeMessage(HWND edge, size_t index, UINT message
     case WM_POINTERUPDATE:
     case WM_POINTERUP:
     case WM_POINTERCAPTURECHANGED:
-        // Touch and pen keep the swipe contract. Forward to the top-level window exactly as host-owned native
-        // containers do, so a pan that starts inside a band behaves like one that starts anywhere else.
+        // Touch and pen keep the host pointer contract. One-finger contacts stay with the widget; two or three
+        // fingers start page pan. Forward to the top-level window exactly as host-owned native containers do.
         if (_window)
         {
             return SendMessageW(_window.get(), message, wParam, lParam);
@@ -1810,9 +1877,9 @@ void Application::PaintPageEdge(HWND edge, size_t index) noexcept
 void Application::CancelPageNavigation() noexcept
 {
     ClearKeyboardFocus();
-    if (_pagePointerCaptured && _window && _pagePointerId != 0)
+    if (_window)
     {
-        HostReleasePointerCapture(_window.get(), _pagePointerId);
+        ReleasePagePointerCaptures(_window.get());
     }
     _pagePointerCaptured = false;
     _pagePointerActive = false;
@@ -1820,7 +1887,9 @@ void Application::CancelPageNavigation() noexcept
     _pageGestureIgnored = false;
     _pageSettleActive = false;
     _pageSettleCommit = false;
-    _pagePointerId = 0;
+    _pageTouchCount = 0;
+    _pageTouches = {};
+    _pageCentroidX = 0;
     _pagePointerQpc = 0;
     _pageVelocityPxPerSec = 0.0f;
     _pageCurrentOffset = 0;
@@ -1836,6 +1905,111 @@ void Application::CancelPageNavigation() noexcept
     }
     _frameInvalidated = true;
     RefreshPageEdgeAffordances();
+}
+
+void Application::ReleasePagePointerCaptures(HWND window) noexcept
+{
+    if (!window)
+    {
+        return;
+    }
+    for (uint32_t index = 0; index < _pageTouchCount; ++index)
+    {
+        if (_pageTouches[index].captured && _pageTouches[index].id != 0)
+        {
+            HostReleasePointerCapture(window, _pageTouches[index].id);
+            _pageTouches[index].captured = false;
+        }
+    }
+}
+
+void Application::AdoptPageTouches(const UINT32* ids, const POINT* positions, uint32_t count,
+                                   bool grabbingSettle) noexcept
+{
+    count = std::min(count, kPageSwipeMaxTouches);
+    std::array<PageSwipeTouch, kPageSwipeMaxTouches> next{};
+    for (uint32_t index = 0; index < count; ++index)
+    {
+        next[index].id = ids[index];
+        next[index].x = positions[index].x;
+        next[index].y = positions[index].y;
+        bool found = false;
+        for (uint32_t existing = 0; existing < _pageTouchCount; ++existing)
+        {
+            if (_pageTouches[existing].id == ids[index])
+            {
+                next[index].startX = _pageTouches[existing].startX;
+                next[index].startY = _pageTouches[existing].startY;
+                next[index].captured = _pageTouches[existing].captured;
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+        {
+            next[index].startX = grabbingSettle ? positions[index].x - _pageCurrentOffset : positions[index].x;
+            next[index].startY = positions[index].y;
+        }
+    }
+    _pageTouches = next;
+    _pageTouchCount = count;
+    _pagePointerActive = count > 0;
+    const POINT centroid = [&]() noexcept -> POINT
+    {
+        if (count == 0)
+        {
+            return {};
+        }
+        LONG x = 0;
+        LONG y = 0;
+        for (uint32_t index = 0; index < count; ++index)
+        {
+            x += positions[index].x;
+            y += positions[index].y;
+        }
+        return {x / static_cast<LONG>(count), y / static_cast<LONG>(count)};
+    }();
+    _pageCentroidX = centroid.x;
+}
+
+LONG Application::PageTouchDeltaX() const noexcept
+{
+    if (_pageTouchCount == 0)
+    {
+        return 0;
+    }
+    LONG total = 0;
+    for (uint32_t index = 0; index < _pageTouchCount; ++index)
+    {
+        total += _pageTouches[index].x - _pageTouches[index].startX;
+    }
+    return total / static_cast<LONG>(_pageTouchCount);
+}
+
+LONG Application::PageTouchDeltaY() const noexcept
+{
+    if (_pageTouchCount == 0)
+    {
+        return 0;
+    }
+    LONG total = 0;
+    for (uint32_t index = 0; index < _pageTouchCount; ++index)
+    {
+        total += _pageTouches[index].y - _pageTouches[index].startY;
+    }
+    return total / static_cast<LONG>(_pageTouchCount);
+}
+
+bool Application::PageTouchesContain(UINT32 pointerId) const noexcept
+{
+    for (uint32_t index = 0; index < _pageTouchCount; ++index)
+    {
+        if (_pageTouches[index].id == pointerId)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position, UINT64& qpc) const noexcept
@@ -1861,8 +2035,6 @@ bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT&
 
 void Application::OnPointerDown(HWND window, WPARAM wParam) noexcept
 {
-    if (_pagePointerActive || _interactiveOwnsPointer)
-        return;
     const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
     POINT position{};
     UINT64 qpc = 0;
@@ -1870,67 +2042,66 @@ void Application::OnPointerDown(HWND window, WPARAM wParam) noexcept
     {
         return;
     }
-    if (PointInPageEdgeBand(window, position))
+
+    POINTER_INFO information{};
+    const bool isTouch = GetPointerInfo(pointerId, &information) && information.pointerType == PT_TOUCH;
+    std::array<TouchContact, 10> contacts{};
+    const uint32_t touchCount = isTouch ? CollectInContactTouches(window, pointerId, contacts) : 0;
+
+    if (!_raisedActive && PageSwipeAcceptsFingerCount(touchCount))
     {
-        // Edge-band contacts never reach a widget; page pan may still start from the band.
-    }
-    else
-    {
-        bool consumed = false;
-        const uint32_t kind = [&]() noexcept -> uint32_t
+        CancelInteractivePointer();
+        std::array<UINT32, kPageSwipeMaxTouches> ids{};
+        std::array<POINT, kPageSwipeMaxTouches> points{};
+        const uint32_t use = std::min(touchCount, kPageSwipeMaxTouches);
+        for (uint32_t index = 0; index < use; ++index)
         {
-            POINTER_INFO information{};
-            if (GetPointerInfo(pointerId, &information) && information.pointerType == PT_PEN)
+            ids[index] = contacts[index].id;
+            points[index] = contacts[index].client;
+        }
+        const bool grabbingSettle = _pageSettleActive || _pageCurrentOffset != 0;
+        if (_pageSettleActive)
+        {
+            _pageSettleActive = false;
+            _pagePanStarted = _pageCurrentOffset != 0;
+            _pageGestureIgnored = false;
+        }
+        else if (!_pagePointerActive)
+        {
+            _pagePanStarted = false;
+            _pageGestureIgnored = false;
+            if (!grabbingSettle)
             {
-                return RedXePointerKindPen;
+                _pageCurrentOffset = 0;
             }
-            return RedXePointerKindTouch;
-        }();
-        (void)ForwardInteractivePointer(position, pointerId, kind, RedXePointerPhaseDown, &consumed);
-        (void)consumed;
-    }
-    if (_interactiveOwnsPointer)
-        return;
-    if (_raisedActive)
-    {
+        }
+        AdoptPageTouches(ids.data(), points.data(), use, grabbingSettle);
+        _pagePointerQpc = contacts[0].qpc;
+        _pageVelocityPxPerSec = 0.0f;
+        _pagePointerCaptured = false;
+        _frameInvalidated = true;
         return;
     }
     if (_pagePointerActive)
     {
         return;
     }
-
-    if (_pageSettleActive)
+    if (_interactiveOwnsPointer)
     {
-        _pageSettleActive = false;
-        _pagePointerStartX = position.x - _pageCurrentOffset;
-        _pagePointerStartY = position.y;
-        _pagePanStarted = _pageCurrentOffset != 0;
-        _pageGestureIgnored = false;
-    }
-    else
-    {
-        _pagePointerStartX = position.x;
-        _pagePointerStartY = position.y;
-        _pagePanStarted = false;
-        _pageGestureIgnored = false;
-        _pageCurrentOffset = 0;
+        return;
     }
 
-    _pagePointerId = pointerId;
-    _pagePointerX = position.x;
-    _pagePointerQpc = qpc;
-    _pageVelocityPxPerSec = 0.0f;
-    _pagePointerActive = true;
-    _pagePointerCaptured = false;
-    _frameInvalidated = true;
+    const uint32_t kind = (!isTouch && information.pointerType == PT_PEN) ? RedXePointerKindPen : RedXePointerKindTouch;
+    bool consumed = false;
+    (void)ForwardInteractivePointer(position, pointerId, kind, RedXePointerPhaseDown, &consumed);
+    (void)consumed;
 }
 
 void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
 {
-    if (_interactiveOwnsPointer)
+    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+    if (_interactiveOwnsPointer && !_pagePointerActive)
     {
-        const uint32_t pointerId = GET_POINTERID_WPARAM(wParam);
         if (pointerId != _interactivePointerId)
             return;
         POINT position{};
@@ -1942,102 +2113,147 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
                                             nullptr);
         return;
     }
+    if (_pagePointerActive)
+    {
+        if (_pageGestureIgnored || !PageTouchesContain(pointerId))
+        {
+            return;
+        }
+        std::array<TouchContact, 10> contacts{};
+        const uint32_t touchCount = CollectInContactTouches(window, pointerId, contacts);
+        for (uint32_t index = 0; index < _pageTouchCount; ++index)
+        {
+            for (uint32_t contact = 0; contact < touchCount; ++contact)
+            {
+                if (contacts[contact].id == _pageTouches[index].id)
+                {
+                    _pageTouches[index].x = contacts[contact].client.x;
+                    _pageTouches[index].y = contacts[contact].client.y;
+                    break;
+                }
+            }
+        }
+        POINT position{};
+        UINT64 qpc = 0;
+        if (!TryPointerClientPosition(window, pointerId, position, qpc))
+        {
+            CancelInteractivePointer();
+            CancelPageNavigation();
+            return;
+        }
+        RECT client{};
+        if (!GetClientRect(window, &client) || client.right <= 0)
+        {
+            return;
+        }
+
+        const LONG deltaX = PageTouchDeltaX();
+        const LONG deltaY = PageTouchDeltaY();
+        const UINT dpi = GetDpiForWindow(window);
+        const LONG threshold = PageSwipeThresholdPixels(dpi);
+        if (!_pagePanStarted)
+        {
+            if (PageSwipeRejectsAsVertical(deltaX, deltaY, threshold))
+            {
+                _pageGestureIgnored = true;
+                ReleasePagePointerCaptures(window);
+                _pagePointerActive = false;
+                _pageTouchCount = 0;
+                ResumePageSettleIfNeeded();
+                return;
+            }
+            if (!PageSwipeLocksHorizontal(deltaX, deltaY, threshold))
+            {
+                return;
+            }
+            CancelInteractivePointer();
+            _pagePanStarted = true;
+            if (_accessibility)
+                _accessibility->ClearViews();
+            _pageSettleActive = false;
+            bool capturedAny = false;
+            for (uint32_t index = 0; index < _pageTouchCount; ++index)
+            {
+                if (HostSetPointerCapture(window, _pageTouches[index].id))
+                {
+                    _pageTouches[index].captured = true;
+                    capturedAny = true;
+                }
+                POINTER_INFO target{};
+                if (GetPointerInfo(_pageTouches[index].id, &target) && target.hwndTarget && target.hwndTarget != window)
+                {
+                    SendMessageW(target.hwndTarget, WM_CANCELMODE, 0, 0);
+                }
+            }
+            _pagePointerCaptured = capturedAny;
+        }
+
+        LONG centroidX = 0;
+        for (uint32_t index = 0; index < _pageTouchCount; ++index)
+        {
+            centroidX += _pageTouches[index].x;
+        }
+        centroidX /= static_cast<LONG>(_pageTouchCount);
+        if (_pagePointerQpc != 0 && qpc > _pagePointerQpc && _qpcFrequency != 0)
+        {
+            const double dt = static_cast<double>(qpc - _pagePointerQpc) / static_cast<double>(_qpcFrequency);
+            if (dt > 0.0005 && dt < 0.08)
+            {
+                const float instant = static_cast<float>(static_cast<double>(centroidX - _pageCentroidX) / dt);
+                _pageVelocityPxPerSec = _pageVelocityPxPerSec * 0.55f + instant * 0.45f;
+            }
+        }
+        _pageCentroidX = centroidX;
+        _pagePointerQpc = qpc;
+
+        const bool atFirst = _settings && _settings->dashboard.activePageIndex == 0;
+        const bool atLast = _settings && _settings->dashboard.activePageIndex + 1U >= _settings->dashboard.pageCount;
+        const bool wrapPages = _settings && _settings->dashboard.wrapPages;
+        const bool blocked = PageSwipeBlocksDirection(deltaX, wrapPages, atFirst, atLast);
+        const LONG offset = ApplyPageEdgeResistance(deltaX, client.right, blocked);
+        const int direction = blocked ? 0 : PageSwipeDirection(offset);
+        if (direction != 0 && direction != _pageTransitionDirection && direction != _pageStagePendingDirection)
+        {
+            if (_pageTransitionDirection != 0)
+            {
+                ClearTransitionPage();
+            }
+            _pageStagePendingDirection = direction;
+        }
+        ApplyPageOffset(offset, client.right);
+        return;
+    }
     if (_raisedActive)
     {
+        POINT position{};
+        UINT64 qpc = 0;
+        if (TryPointerClientPosition(window, pointerId, position, qpc))
+        {
+            (void)ForwardInteractivePointer(position, pointerId, PointerKindFromId(pointerId), RedXePointerPhaseMove,
+                                            nullptr);
+        }
         return;
     }
-    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
-    if (!_pagePointerActive || pointerId != _pagePointerId || _pageGestureIgnored)
-    {
-        return;
-    }
+
     POINT position{};
     UINT64 qpc = 0;
-    if (!TryPointerClientPosition(window, pointerId, position, qpc))
+    if (TryPointerClientPosition(window, pointerId, position, qpc))
     {
-        CancelInteractivePointer();
-        CancelPageNavigation();
-        return;
+        const uint32_t kind =
+            _interactivePointerWidget != SIZE_MAX ? _interactivePointerKind : PointerKindFromId(pointerId);
+        (void)ForwardInteractivePointer(position, pointerId, kind, RedXePointerPhaseMove, nullptr);
     }
-    RECT client{};
-    if (!GetClientRect(window, &client) || client.right <= 0)
-    {
-        return;
-    }
-
-    const LONG deltaX = position.x - _pagePointerStartX;
-    const LONG deltaY = position.y - _pagePointerStartY;
-    const UINT dpi = GetDpiForWindow(window);
-    const LONG threshold = PageSwipeThresholdPixels(dpi);
-    if (!_pagePanStarted)
-    {
-        if (PageSwipeRejectsAsVertical(deltaX, deltaY, threshold))
-        {
-            _pageGestureIgnored = true;
-            _pagePointerActive = false;
-            ResumePageSettleIfNeeded();
-            return;
-        }
-        if (!PageSwipeLocksHorizontal(deltaX, deltaY, threshold))
-        {
-            bool consumed = false;
-            (void)ForwardInteractivePointer(position, pointerId, RedXePointerKindTouch, RedXePointerPhaseMove,
-                                            &consumed);
-            _pagePointerX = position.x;
-            return;
-        }
-        CancelInteractivePointer();
-        _pagePanStarted = true;
-        if (_accessibility) _accessibility->ClearViews();
-        _pageSettleActive = false;
-        if (HostSetPointerCapture(window, pointerId))
-        {
-            _pagePointerCaptured = true;
-        }
-        POINTER_INFO information{};
-        if (GetPointerInfo(pointerId, &information) && information.hwndTarget && information.hwndTarget != window)
-        {
-            SendMessageW(information.hwndTarget, WM_CANCELMODE, 0, 0);
-        }
-    }
-
-    if (_pagePointerQpc != 0 && qpc > _pagePointerQpc && _qpcFrequency != 0)
-    {
-        const double dt = static_cast<double>(qpc - _pagePointerQpc) / static_cast<double>(_qpcFrequency);
-        if (dt > 0.0005 && dt < 0.08)
-        {
-            const float instant = static_cast<float>(static_cast<double>(position.x - _pagePointerX) / dt);
-            _pageVelocityPxPerSec = _pageVelocityPxPerSec * 0.55f + instant * 0.45f;
-        }
-    }
-    _pagePointerX = position.x;
-    _pagePointerQpc = qpc;
-
-    const bool atFirst = _settings && _settings->dashboard.activePageIndex == 0;
-    const bool atLast = _settings && _settings->dashboard.activePageIndex + 1U >= _settings->dashboard.pageCount;
-    const bool wrapPages = _settings && _settings->dashboard.wrapPages;
-    const bool blocked = PageSwipeBlocksDirection(deltaX, wrapPages, atFirst, atLast);
-    const LONG offset = ApplyPageEdgeResistance(deltaX, client.right, blocked);
-    const int direction = blocked ? 0 : PageSwipeDirection(offset);
-    if (direction != 0 && direction != _pageTransitionDirection && direction != _pageStagePendingDirection)
-    {
-        if (_pageTransitionDirection != 0)
-        {
-            ClearTransitionPage();
-        }
-        _pageStagePendingDirection = direction;
-    }
-    ApplyPageOffset(offset, client.right);
 }
 
 void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
 {
     POINT position{};
     UINT64 qpc = 0;
-    const bool havePosition = TryPointerClientPosition(window, GET_POINTERID_WPARAM(wParam), position, qpc);
-    if (_interactiveOwnsPointer)
+    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+    const bool havePosition = TryPointerClientPosition(window, pointerId, position, qpc);
+    if (_interactiveOwnsPointer && !_pagePointerActive)
     {
-        if (GET_POINTERID_WPARAM(wParam) != _interactivePointerId)
+        if (pointerId != _interactivePointerId)
             return;
         if (havePosition)
             (void)ForwardInteractivePointer(position, _interactivePointerId, _interactivePointerKind,
@@ -2046,13 +2262,87 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
             CancelInteractivePointer();
         return;
     }
+    if (_pagePointerActive && PageTouchesContain(pointerId))
+    {
+        std::array<TouchContact, 10> contacts{};
+        uint32_t remaining = CollectInContactTouches(window, pointerId, contacts);
+        if (!PageSwipeAcceptsFingerCount(remaining))
+        {
+            remaining = 0;
+            for (uint32_t index = 0; index < _pageTouchCount && remaining < contacts.size(); ++index)
+            {
+                if (_pageTouches[index].id == pointerId)
+                {
+                    continue;
+                }
+                POINTER_INFO information{};
+                if (!GetPointerInfo(_pageTouches[index].id, &information) || information.pointerType != PT_TOUCH ||
+                    (information.pointerFlags & POINTER_FLAG_INCONTACT) == 0)
+                {
+                    continue;
+                }
+                POINT tracked = information.ptPixelLocation;
+                if (!ScreenToClient(window, &tracked))
+                {
+                    continue;
+                }
+                contacts[remaining++] = TouchContact{_pageTouches[index].id, tracked, information.PerformanceCount};
+            }
+        }
+        if (PageSwipeAcceptsFingerCount(remaining))
+        {
+            std::array<UINT32, kPageSwipeMaxTouches> ids{};
+            std::array<POINT, kPageSwipeMaxTouches> points{};
+            const uint32_t use = std::min(remaining, kPageSwipeMaxTouches);
+            for (uint32_t index = 0; index < use; ++index)
+            {
+                ids[index] = contacts[index].id;
+                points[index] = contacts[index].client;
+            }
+            AdoptPageTouches(ids.data(), points.data(), use, false);
+            return;
+        }
+        ReleasePagePointerCaptures(window);
+        _pagePointerCaptured = false;
+        _pagePointerActive = false;
+        const bool panStarted = _pagePanStarted;
+        _pagePanStarted = false;
+        _pageTouchCount = 0;
+        if (!panStarted)
+        {
+            _pageGestureIgnored = false;
+            if (_pageCurrentOffset != 0 || _pageTransitionDirection != 0)
+            {
+                ResumePageSettleIfNeeded();
+            }
+            return;
+        }
+
+        CancelInteractivePointer();
+        FlushPendingTransitionStage();
+        RECT client{};
+        if (!_settings || !GetClientRect(window, &client) || client.right <= 0)
+        {
+            CancelPageNavigation();
+            return;
+        }
+        const bool atFirst = _settings->dashboard.activePageIndex == 0;
+        const bool atLast = _settings->dashboard.activePageIndex + 1U >= _settings->dashboard.pageCount;
+        const UINT dpi = GetDpiForWindow(window);
+        const bool commit = ShouldCommitPageSwipe(_pageCurrentOffset, client.right, _pageVelocityPxPerSec, dpi,
+                                                  _settings->dashboard.wrapPages, atFirst, atLast) &&
+                            _transitionDashboardHost;
+        const LONG target = commit ? -_pageTransitionDirection * client.right : 0;
+        BeginPageSettle(target, commit);
+        return;
+    }
     if (_raisedActive)
     {
         bool consumed = false;
         if (havePosition)
         {
-            (void)ForwardInteractivePointer(position, GET_POINTERID_WPARAM(wParam), RedXePointerKindTouch,
-                                            RedXePointerPhaseUp, &consumed);
+            (void)ForwardInteractivePointer(position, pointerId, PointerKindFromId(pointerId), RedXePointerPhaseUp,
+                                            &consumed);
         }
         if (!consumed && havePosition)
         {
@@ -2060,56 +2350,17 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
         }
         return;
     }
-    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
-    if (!_pagePointerActive || pointerId != _pagePointerId)
+    bool consumed = false;
+    if (havePosition)
     {
-        return;
+        const uint32_t kind =
+            _interactivePointerWidget != SIZE_MAX ? _interactivePointerKind : PointerKindFromId(pointerId);
+        (void)ForwardInteractivePointer(position, pointerId, kind, RedXePointerPhaseUp, &consumed);
     }
-    if (_pagePointerCaptured)
+    if (!consumed && havePosition)
     {
-        HostReleasePointerCapture(window, pointerId);
-        _pagePointerCaptured = false;
+        OnClientActivateAttempt(window, position, GetTickCount64());
     }
-    _pagePointerActive = false;
-    const bool panStarted = _pagePanStarted;
-    _pagePanStarted = false;
-    _pagePointerId = 0;
-    if (!panStarted)
-    {
-        _pageGestureIgnored = false;
-        if (_pageCurrentOffset != 0 || _pageTransitionDirection != 0)
-        {
-            ResumePageSettleIfNeeded();
-            return;
-        }
-        bool consumed = false;
-        if (havePosition)
-        {
-            (void)ForwardInteractivePointer(position, pointerId, RedXePointerKindTouch, RedXePointerPhaseUp, &consumed);
-        }
-        if (!consumed && havePosition)
-        {
-            OnClientActivateAttempt(window, position, GetTickCount64());
-        }
-        return;
-    }
-
-    CancelInteractivePointer();
-    FlushPendingTransitionStage();
-    RECT client{};
-    if (!_settings || !GetClientRect(window, &client) || client.right <= 0)
-    {
-        CancelPageNavigation();
-        return;
-    }
-    const bool atFirst = _settings->dashboard.activePageIndex == 0;
-    const bool atLast = _settings->dashboard.activePageIndex + 1U >= _settings->dashboard.pageCount;
-    const UINT dpi = GetDpiForWindow(window);
-    const bool commit = ShouldCommitPageSwipe(_pageCurrentOffset, client.right, _pageVelocityPxPerSec, dpi,
-                                              _settings->dashboard.wrapPages, atFirst, atLast) &&
-                        _transitionDashboardHost;
-    const LONG target = commit ? -_pageTransitionDirection * client.right : 0;
-    BeginPageSettle(target, commit);
 }
 
 void Application::OnMouseButtonDown(HWND window, LPARAM lParam) noexcept
@@ -2301,34 +2552,34 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
     const HRESULT result = send(index, localX, localY);
     if (phase == RedXePointerPhaseDown)
     {
-        if (result == S_OK || result == RedXePointerCapture)
+        _interactivePointerWidget = index;
+        _interactivePointerId = pointerId;
+        _interactivePointerKind = kind;
+        _interactivePointerConsumed = result == S_OK || result == RedXePointerCapture;
+        if (_interactivePointerConsumed)
         {
             (void)FocusKeyboardWidget(index);
-            _interactivePointerWidget = index;
-            _interactivePointerConsumed = true;
-            _interactivePointerId = pointerId;
-            _interactivePointerKind = kind;
-            if (result == RedXePointerCapture && _window)
+        }
+        if (result == RedXePointerCapture && _window)
+        {
+            if (kind == RedXePointerKindMouse)
             {
-                if (kind == RedXePointerKindMouse)
-                {
-                    (void)SetCapture(_window.get());
-                    _interactiveOwnsPointer = GetCapture() == _window.get();
-                }
-                else
-                    _interactiveOwnsPointer = HostSetPointerCapture(_window.get(), pointerId);
-                if (!_interactiveOwnsPointer)
-                {
-                    CancelInteractivePointer();
-                    // The canceled Down was still consumed; its later Up must not become a raise gesture.
-                    _interactivePointerWidget = index;
-                    _interactivePointerConsumed = true;
-                }
+                (void)SetCapture(_window.get());
+                _interactiveOwnsPointer = GetCapture() == _window.get();
             }
-            if (consumed)
+            else
+                _interactiveOwnsPointer = HostSetPointerCapture(_window.get(), pointerId);
+            if (!_interactiveOwnsPointer)
             {
-                *consumed = true;
+                CancelInteractivePointer();
+                // The canceled Down was still consumed; its later Up must not become a raise gesture.
+                _interactivePointerWidget = index;
+                _interactivePointerConsumed = true;
             }
+        }
+        if (consumed)
+        {
+            *consumed = _interactivePointerConsumed;
         }
         return result;
     }
@@ -2455,7 +2706,8 @@ void Application::ClearTextServices() noexcept
 }
 void Application::RefreshAccessibility(uint64_t preparedWidgets) noexcept
 {
-    if (!_accessibility) return;
+    if (!_accessibility)
+        return;
     if (!_dashboardHost || !_window || !_windowVisible || !_displayPoweredOn || _renderer.IsSuspended() ||
         _renderer.IsOccluded() || PageNavigationInProgress() || OverlayMotionInProgress() || _settingsErrorDialog)
     {
@@ -2472,34 +2724,46 @@ void Application::RefreshAccessibility(uint64_t preparedWidgets) noexcept
     size_t count = 0;
     for (size_t index = 0; index < _dashboardHost->WidgetCount() && count < views.size(); ++index)
     {
-        if (_raisedActive && index != _raisedWidgetIndex) continue;
+        if (_raisedActive && index != _raisedWidgetIndex)
+            continue;
         auto* widget = _dashboardHost->AccessibilityWidgetAt(index);
-        if (!widget || _dashboardHost->RequiresPlaceholderAt(index)) continue;
-        const RECT bounds = _raisedActive ? _raisedLayout.content : _dashboardHost->PixelBoundsAt(index,
-            static_cast<UINT>(client.right), static_cast<UINT>(client.bottom));
+        if (!widget || _dashboardHost->RequiresPlaceholderAt(index))
+            continue;
+        const RECT bounds = _raisedActive ? _raisedLayout.content
+                                          : _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(client.right),
+                                                                          static_cast<UINT>(client.bottom));
         POINT top{bounds.left, bounds.top}, bottom{bounds.right, bounds.bottom};
-        if (!ClientToScreen(_window.get(), &top) || !ClientToScreen(_window.get(), &bottom)) continue;
-        views[count++] = {index, widget, _raisedActive ? 1U : 0U, {top.x, top.y, bottom.x, bottom.y},
-            _keyboardWidgetIndex == index && GetFocus() == _window.get(), (preparedWidgets & (uint64_t{1} << index)) != 0};
+        if (!ClientToScreen(_window.get(), &top) || !ClientToScreen(_window.get(), &bottom))
+            continue;
+        views[count++] = {index,
+                          widget,
+                          _raisedActive ? 1U : 0U,
+                          {top.x, top.y, bottom.x, bottom.y},
+                          _keyboardWidgetIndex == index && GetFocus() == _window.get(),
+                          (preparedWidgets & (uint64_t{1} << index)) != 0};
     }
     (void)_accessibility->Update(std::span<const AccessibleWidgetView>(views.data(), count));
 }
 void Application::HandleAccessibilityRequests() noexcept
 {
-    if (!_accessibility) return;
+    if (!_accessibility)
+        return;
     RefreshAccessibility();
     AccessibilityRequest request;
     while (_accessibility->TakeRequest(request))
     {
         if (!_dashboardHost || (_raisedActive && request.index != _raisedWidgetIndex) ||
-            request.viewId != (_raisedActive ? 1U : 0U)) continue;
+            request.viewId != (_raisedActive ? 1U : 0U))
+            continue;
         if (request.focus)
         {
             ::SetFocus(_window.get());
             (void)FocusKeyboardWidget(request.index);
         }
-        if (request.action == RedXePointerRaise) (void)TryRaiseWidgetAt(_window.get(), request.index);
-        else if (request.action == RedXePointerDismiss && _raisedActive) DismissWidgetRaise();
+        if (request.action == RedXePointerRaise)
+            (void)TryRaiseWidgetAt(_window.get(), request.index);
+        else if (request.action == RedXePointerDismiss && _raisedActive)
+            DismissWidgetRaise();
         _frameInvalidated = true;
     }
     RefreshTextServices();
@@ -2813,7 +3077,8 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
     _raiseTargetPixels = SIZE{target.content.right - target.content.left, target.content.bottom - target.content.top};
     _raisedWidgetIndex = widgetIndex;
     _raisedActive = true;
-    if (_accessibility) _accessibility->ClearViews();
+    if (_accessibility)
+        _accessibility->ClearViews();
     _activateTick = 0;
     _activateWidgetIndex = SIZE_MAX;
     _raisedLayout = target;
@@ -2920,7 +3185,8 @@ HRESULT Application::ApplyRaiseVisual(const RaisedLayout& layout, BYTE dimAlpha)
 void Application::BeginRaiseSettle(const RaisedLayout& from, const RaisedLayout& to, BYTE dimFrom, BYTE dimTo,
                                    bool dismissing) noexcept
 {
-    if (_accessibility) _accessibility->ClearViews();
+    if (_accessibility)
+        _accessibility->ClearViews();
     _raiseSettleFrom = from;
     _raiseSettleTo = to;
     _raiseDimFrom = dimFrom;
@@ -2988,7 +3254,8 @@ void Application::CompleteRaiseSettle() noexcept
 
 void Application::CompleteDismissImmediate() noexcept
 {
-    if (_accessibility) _accessibility->ClearViews();
+    if (_accessibility)
+        _accessibility->ClearViews();
     const size_t previousKeyboardWidget = _keyboardWidgetIndex;
     ClearKeyboardFocus();
     IRedXeRaisedWidget* raisedWidget =
@@ -3290,7 +3557,8 @@ void Application::ShowSettingsError(std::wstring_view message) noexcept
             return;
         }
         EnableWindow(_window.get(), FALSE);
-        if (_accessibility) _accessibility->ClearViews();
+        if (_accessibility)
+            _accessibility->ClearViews();
         const HWND text =
             CreateWindowExW(0, L"STATIC", std::wstring(message).c_str(), WS_CHILD | WS_VISIBLE | SS_LEFT, 24, 24,
                             width - 48, 120, _settingsErrorDialog, reinterpret_cast<HMENU>(100), _instance, nullptr);
@@ -3462,7 +3730,8 @@ HRESULT Application::UpdateDashboardVisibility() noexcept
 
 void Application::CloseMainWindow() noexcept
 {
-    if (_accessibility) _accessibility->Disconnect();
+    if (_accessibility)
+        _accessibility->Disconnect();
     _accessibility.reset();
     ClearKeyboardFocus();
     _textServices.reset();
@@ -3528,11 +3797,13 @@ LRESULT CALLBACK Application::SettingsDialogProcedure(HWND window, UINT message,
 
 LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
 {
-    const auto refreshAccessibility = wil::scope_exit([&]() noexcept
-    {
-        if (message == WM_SIZE || message == WM_DPICHANGED || message == WM_SHOWWINDOW || message == WM_POWERBROADCAST ||
-            message == WM_MOVE || message == WM_SETFOCUS || message == WM_KILLFOCUS) RefreshAccessibility();
-    });
+    const auto refreshAccessibility = wil::scope_exit(
+        [&]() noexcept
+        {
+            if (message == WM_SIZE || message == WM_DPICHANGED || message == WM_SHOWWINDOW ||
+                message == WM_POWERBROADCAST || message == WM_MOVE || message == WM_SETFOCUS || message == WM_KILLFOCUS)
+                RefreshAccessibility();
+        });
     if (_accessibility && _accessibility->IsMessage(message, wParam))
     {
         HandleAccessibilityRequests();
@@ -3553,7 +3824,8 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case WM_GETOBJECT:
         if (static_cast<LONG>(lParam) == UiaRootObjectId)
         {
-            if (!_accessibility && FAILED(AccessibilityHost::Create(window, _accessibility))) break;
+            if (!_accessibility && FAILED(AccessibilityHost::Create(window, _accessibility)))
+                break;
             RefreshAccessibility();
             return UiaReturnRawElementProvider(window, wParam, lParam, _accessibility->Provider());
         }
@@ -3624,7 +3896,7 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case WM_POINTERCAPTURECHANGED:
         if (_interactiveOwnsPointer && GET_POINTERID_WPARAM(wParam) == _interactivePointerId)
             CancelInteractivePointer();
-        if (_pagePointerActive || _pagePointerCaptured)
+        if (PageTouchesContain(GET_POINTERID_WPARAM(wParam)))
         {
             CancelPageNavigation();
         }

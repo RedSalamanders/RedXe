@@ -1,13 +1,13 @@
 # RedXe adaptive dashboard and page-navigation contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-06
 Owner: `DashboardHost` layout, active-page composition, page navigation, edge-navigation chrome, host placeholder tiles, and raised overlay chrome
 
 ## Scope
 
 This specification owns ordered pages, responsive layout compilation, runtime orientation reflow, widget geometry,
-horizontal touch and pen navigation, mouse edge navigation, host-owned placeholder tiles, and the host
+horizontal two- or three-finger touch navigation, mouse edge navigation, host-owned placeholder tiles, and the host
 raised-overlay chrome. Settings syntax belongs to `Specs/Core/Core_Settings.md`; plugin identities and
 rendering mechanisms belong to `Specs/Plugins/Plugins_API.md`; display/DPI policy belongs to
 `Specs/UI/UI_XeneonDisplayWindowing.md`.
@@ -59,15 +59,22 @@ Orientation is runtime state and MUST NOT appear in settings.
 - GPU viewports and native child containers use identical cached geometry and shared edges.
 - Resize and DPI changes recompute physical bounds without reparsing or changing the authored tree.
 
-## Horizontal touch and pen navigation
+## Horizontal two- and three-finger touch navigation
 
 - Navigation is horizontal in both orientations. Swipe left advances; swipe right returns.
+- Dashboard page pan requires **two or three** simultaneous touch contacts. One finger, a pen, and four or more
+  fingers MUST NOT start or continue host page navigation. One-finger and pen contacts are forwarded to the topmost
+  `IRedXeInteractiveWidget` so a plugin can consume them (AV Control sliders, Launcher internal pages, and similar).
+- A second or third finger cancels an in-progress one-finger widget gesture, including `RedXePointerCapture`, and
+  starts page navigation from the centroid of the participating contacts. One finger alone MUST NOT steal a captured
+  slider or other widget gesture.
 - Omitted or false `wrapPages` stops at the first and last page. True wraps either end to the opposite end. A blocked
   end follows the pointer with rubber-band resistance and MUST NOT instantiate a neighbor or commit.
-- A page follows the pointer 1:1 after a horizontal lock. The host MUST NOT capture on contact. A widget that already
-  owns an interactive captured pointer sequence retains it; otherwise a horizontal pan whose absolute X delta exceeds
-  both the host threshold and the absolute Y delta becomes page navigation. Vertical-dominant movement MUST NOT switch
-  pages and MUST leave the contact with the widget.
+- A page follows the two- or three-finger centroid 1:1 after a horizontal lock. The host MUST NOT capture on contact.
+  Vertical-dominant two- or three-finger movement MUST NOT switch pages. After a page pan locks, the host sends
+  `Cancel` to the widget that held the first contact and does not treat that contact as a launch.
+- Mouse edge-band clicks never reach the widget. One-finger touch over an edge-band zone is forwarded to the widget;
+  only mouse hover/click owns the band.
 - Host-owned native containers forward uncaptured pointer messages to the top-level window so a pan can start over a
   window widget. Taking over a pan sends `WM_CANCELMODE` to the original target and captures the pointer until commit,
   cancellation, or capture loss.
@@ -93,9 +100,9 @@ Orientation is runtime state and MUST NOT appear in settings.
 
 ## Mouse edge navigation
 
-Touch and pen navigate by panning. A mouse navigates through a host-owned affordance at each client edge, so a mouse
-user is never left without page navigation. This section owns that affordance; it changes nothing about the pan
-contract above.
+Touch uses two or three fingers to pan between dashboard pages. Pen and one-finger contacts stay with the widget. A
+mouse navigates through a host-owned affordance at each client edge, so a mouse user is never left without page
+navigation. This section owns that affordance; it changes nothing about the pan contract above.
 
 - The host owns one full-client-height band at each **reachable** left or right edge of the client. Reachable width is
   the client rectangle intersected with the work area of every display the window touches; reachable height is always
@@ -175,7 +182,7 @@ the full-height slice (and back) with the same presentation-paced ease-out cubic
 viewport; native containers follow the interpolated HWND. Close, Escape, and a double-activate on the raised content
 animate the restore. Resize, DPI change, settings reload, and shutdown snap dismiss with no animation. A tap on the
 dim region MUST NOT dismiss it. A mouse double-click or touch/pen double-tap on the raised plugin content MUST restore
-it, using the same interval and slop as raise. Page swipe MUST NOT start or continue while a widget is raised. The
+it, using the same interval and slop as raise. Two- or three-finger page swipe MUST NOT start or continue while a widget is raised. The
 overlay HWND exists only while raised.
 
 GPU composition draws every current-page widget at its tile viewport, then draws a raised GPU widget once more at the
@@ -190,13 +197,15 @@ Dismiss restores tile bounds.
 GPU widgets that expose `IRedXeInteractiveWidget` receive host-forwarded pointer and drop events in widget-local
 pixels. Hit-testing uses the same topmost tile bounds as raise. `OnPointer` returning `S_OK` on Down/Up consumes the
 contact for that widget and MUST NOT count toward double-activate raise. `S_FALSE` (padding, empty cell, or empty
-tile) leaves raise and edge-click navigation unchanged. Once a horizontal page pan locks, the host sends `Cancel` and
-does not treat the contact as a launch. Edge-band clicks never reach the widget. While a widget is raised, pointer
+tile) leaves raise and edge-click navigation unchanged. The host still forwards later Move/Up of that one-finger
+contact to the same widget so it can start an internal pan after a padding Down. A two- or three-finger page pan that
+locks sends `Cancel` and does not treat the contact as a launch. Mouse edge-band clicks never reach the widget. While a widget is raised, pointer
 coordinates use the overlay content rectangle as the local origin.
 
-A widget may return `RedXePointerCapture` for a hit-tested Down that requires an uninterrupted gesture. The host
-then acquires mouse/touch/pen capture, routes matching Move/Up outside the original control, and suppresses page pan,
-edge navigation and double-activate raise. Other contacts cannot replace the captured pointer. Capture failure or
+A widget may return `RedXePointerCapture` for a hit-tested Down that requires an uninterrupted one-finger gesture. The host
+then acquires mouse/touch/pen capture, routes matching Move/Up outside the original control, and suppresses one-finger
+page pan, edge navigation and double-activate raise. A second or third concurrent touch cancels that capture and starts
+host page navigation. Other one-finger contacts cannot replace the captured pointer. Capture failure or
 loss, hide, resize, DPI change and cancellation deliver Cancel. The pointer record includes the actual viewport
 dimensions, DPI and tile/raised view identity so a prepared final layout can map an animated viewport correctly.
 
@@ -251,7 +260,7 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
 - Host tests prove that sliding through a native-window neighbor (GdiOrbit) succeeds at mid-settle and fully off-screen
   offsets, that promote does not mark the swap chain occluded, and that a full-page native child does not freeze
   subsequent frames.
-- Navigation tests cover direction, axis lock, vertical rejection, rubber-band end stops, wrap, distance and flick
+- Navigation tests cover two- and three-finger eligibility, one-finger exclusion, direction, axis lock, vertical rejection, rubber-band end stops, wrap, distance and flick
   commit, settle interpolation, capture loss, deferred adjacent staging, in-place commit without device recreation,
   current-plus-adjacent-only resource lifetime, and that page navigation requires presentation-paced frames even when
   DXGI reports the swap chain occluded.
@@ -275,9 +284,12 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
   container into overlay content then back to its tile without skipping sibling GPU draws. Geometry tests also prove
   tile-to-slice interpolation endpoints, ease-out cubic mixing, raise-settle duration clamps, and that the parent
   edge-click predicate is `ShouldShowEdgeAffordance && PageEdgeBandContains`.
-- LauncherTests prove drop of a file and of an `https://` URL reach `OnDrop`. Consumed-click versus raise and
-  swipe-over-tile pan are Application pointer routing. HostPluginTests do not compile `Application.cpp` and cannot
-  fully prove that path; interactive checks cover click-to-launch, raise on padding, and pan-cancel.
+- LauncherTests prove drop of a file and of an `https://` URL reach `OnDrop`, that overflow shortcuts paginate, that a
+  one-finger horizontal swipe changes the launcher page without launching, and that a bottom page-dot strip is hittable
+  when more than one launcher page exists. Consumed-click versus raise and two-finger swipe-over-tile host pan are
+  Application pointer routing. HostPluginTests do not compile `Application.cpp` and cannot
+  fully prove that path; interactive checks cover click-to-launch, raise on padding, one-finger launcher paging, and
+  two- or three-finger host pan.
 - Edge-navigation geometry tests cover band rectangles at multiple DPIs, the narrow-client clamp, inclusive/exclusive
   band hit testing, chevron glyph selection across all three font tiers, chevron cell centring and containment,
   degenerate inputs, placement against a reachable area that is clipped or offset from the client origin, that a
@@ -289,7 +301,8 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
   its own tile to the host while siblings keep drawing and the frame still composes, that recovery restores it, and
   that a catalogued plugin whose module cannot be mapped becomes a placeholder without aborting the page. The renderer
   obtains `ID3D11DeviceContext1` at device creation so the placeholder wash is actually filled.
-- Interactive validation on a touch-capable XENEON SHOULD verify finger tracking, settle, and both orientations before
+- Interactive validation on a touch-capable XENEON SHOULD verify two- and three-finger tracking, settle, one-finger
+  delivery to interactive widgets, and both orientations before
   release. It SHOULD also verify double-tap raise, the close control, and Escape dismiss. With a mouse it SHOULD
   verify edge reveal, chevron direction, click navigation in both directions, both document ends with and without
   `wrapPages`, that a revealed band shows the hand cursor and a click changes page even if the mouse has not moved

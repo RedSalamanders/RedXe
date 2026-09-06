@@ -559,14 +559,23 @@ uint32_t RunNativeViewTests()
     prepare();
     for (uint32_t step = 1; step <= 6; ++step)
     {
-        Check(FindAccessible(view.Controls().GetRoot(), std::wstring(L"Camera setup, step ") + std::to_wstring(step) + L" of 6") != nullptr,
-            "camera setup exposes a numbered accessible step");
+        Check(FindAccessible(view.Controls().GetRoot(),
+                             std::wstring(L"Camera setup, step ") + std::to_wstring(step) + L" of 6") != nullptr,
+              "camera setup exposes a numbered accessible step");
+        Check(FindAccessible(view.Controls().GetRoot(), std::wstring(L"Page ") + std::to_wstring(step) + L" of 6") !=
+                  nullptr,
+              "camera setup shows a page indicator for the current step");
         gpu.Draw(view);
         gpu.Save(artifactRoot / (L"camera-setup-minimum-" + std::to_wstring(step) + L".png"));
         auto* done = FindAccessible(view.Controls().GetRoot(), L"Return to AV profiles without changing devices");
-        Check(done && done->GetBounds().right - done->GetBounds().left >= 48 && done->GetBounds().bottom - done->GetBounds().top >= 48,
-            "camera guide retains a full-size return target at minimum dimensions");
-        if (step < 6) { ClickNamed(view, L"Next"); prepare(); }
+        Check(done && done->GetBounds().right - done->GetBounds().left >= 48 &&
+                  done->GetBounds().bottom - done->GetBounds().top >= 48,
+              "camera guide retains a full-size return target at minimum dimensions");
+        if (step < 6)
+        {
+            ClickNamed(view, L"Next");
+            prepare();
+        }
     }
     gpu.Resize(1280, 720);
     prepare();
@@ -574,8 +583,9 @@ uint32_t RunNativeViewTests()
     gpu.Save(artifactRoot / L"camera-setup-full.png");
     ClickNamed(view, L"Return to AV profiles without changing devices");
     prepare();
-    Check(FindAccessible(view.Controls().GetRoot(), L"Camera setup guide") && commands.count == guideCommands && commands.savedCount == guideSaves,
-        "camera guidance never registers a device, changes audio or saves profiles");
+    Check(FindAccessible(view.Controls().GetRoot(), L"Camera setup guide") && commands.count == guideCommands &&
+              commands.savedCount == guideSaves,
+          "camera guidance never registers a device, changes audio or saves profiles");
     view.Detach();
     return nativeChecks;
 }
