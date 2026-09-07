@@ -30,11 +30,9 @@ Omitted keys take these defaults. Unknown keys reject the document. `location` i
 ```json
 {
   "plugin": "builtin.weather",
-  "settings": {
-    "locationMode": "manual",
-    "location": "Lyon, France",
-    "temperatureUnit": "celsius",
-    "windUnit": "kmh"
-  }
+  "locationMode": "manual",
+  "location": "Lyon, France",
+  "temperatureUnit": "celsius",
+  "windUnit": "kmh"
 }
 ```

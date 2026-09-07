@@ -1,16 +1,107 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <string_view>
 #include <windows.h>
 
 // DIP metrics match DxUi::PageIndicator so GPU-drawn launcher dots align with the shared control.
-inline constexpr float kLauncherMinCellDip = 72.0f;
+inline constexpr float kLauncherSmallCellDip = 72.0f;
+inline constexpr float kLauncherMediumCellDip = 96.0f;
+inline constexpr float kLauncherLargeCellDip = 144.0f;
+inline constexpr float kLauncherHugeCellDip = 192.0f;
+inline constexpr float kLauncherAutomaticFloorDip = kLauncherSmallCellDip;
 inline constexpr float kLauncherPageIndicatorHeightDip = 20.0f;
 inline constexpr float kLauncherPageIndicatorDotRadiusDip = 3.0f;
 inline constexpr float kLauncherPageIndicatorSelectedRadiusDip = 4.0f;
 inline constexpr float kLauncherPageIndicatorDotGapDip = 14.0f;
+inline constexpr float kLauncherIconInnerGutterDip = 4.0f;
+// Minimum gap between neighboring icon edges, DPI-scaled. Matching inset from the tile edge and page-dot strip.
+inline constexpr float kLauncherMinGutterDip = 8.0f;
+inline constexpr float kLauncherEdgeInsetDip = 8.0f;
+inline constexpr float kLauncherMaxIconDip = 256.0f;
+inline constexpr uint32_t kLauncherMaximumShortcuts = 32;
+
+enum class LauncherIconSize : uint8_t
+{
+    Small,
+    Medium,
+    Large,
+    Huge,
+    Automatic,
+};
+
+[[nodiscard]] constexpr bool LauncherIconSizeIsAutomatic(LauncherIconSize iconSize) noexcept
+{
+    return iconSize == LauncherIconSize::Automatic;
+}
+
+[[nodiscard]] constexpr float LauncherIconSizeCellDip(LauncherIconSize iconSize) noexcept
+{
+    switch (iconSize)
+    {
+    case LauncherIconSize::Small:
+        return kLauncherSmallCellDip;
+    case LauncherIconSize::Medium:
+        return kLauncherMediumCellDip;
+    case LauncherIconSize::Large:
+        return kLauncherLargeCellDip;
+    case LauncherIconSize::Huge:
+    case LauncherIconSize::Automatic:
+        return kLauncherHugeCellDip;
+    }
+    return kLauncherHugeCellDip;
+}
+
+[[nodiscard]] constexpr const char* LauncherIconSizeName(LauncherIconSize iconSize) noexcept
+{
+    switch (iconSize)
+    {
+    case LauncherIconSize::Small:
+        return "small";
+    case LauncherIconSize::Medium:
+        return "medium";
+    case LauncherIconSize::Large:
+        return "large";
+    case LauncherIconSize::Automatic:
+        return "automatic";
+    case LauncherIconSize::Huge:
+        break;
+    }
+    return "huge";
+}
+
+[[nodiscard]] constexpr bool TryParseLauncherIconSize(std::string_view text, LauncherIconSize& iconSize) noexcept
+{
+    if (text == "small")
+    {
+        iconSize = LauncherIconSize::Small;
+        return true;
+    }
+    if (text == "medium")
+    {
+        iconSize = LauncherIconSize::Medium;
+        return true;
+    }
+    if (text == "large")
+    {
+        iconSize = LauncherIconSize::Large;
+        return true;
+    }
+    if (text == "huge")
+    {
+        iconSize = LauncherIconSize::Huge;
+        return true;
+    }
+    if (text == "automatic")
+    {
+        iconSize = LauncherIconSize::Automatic;
+        return true;
+    }
+    return false;
+}
 
 struct LauncherPageGeometry final
 {
@@ -23,6 +114,8 @@ struct LauncherPageGeometry final
     uint32_t visibleCount = 0;
     float indicatorHeightPx = 0.0f;
     float contentHeightPx = 0.0f;
+    float cellSizePx = 0.0f;
+    float iconSizePx = 0.0f;
 };
 
 [[nodiscard]] inline float LauncherDipToPixels(float dip, UINT dpi) noexcept
@@ -31,8 +124,107 @@ struct LauncherPageGeometry final
     return dip * scale;
 }
 
+[[nodiscard]] inline float LauncherEvenGutterPixels(UINT dpi) noexcept
+{
+    return std::max(LauncherDipToPixels(kLauncherMinGutterDip, dpi), LauncherDipToPixels(kLauncherEdgeInsetDip, dpi));
+}
+
+[[nodiscard]] inline uint32_t LauncherCellsAlong(float extentPx, float cellPx, float gutterPx) noexcept
+{
+    if (extentPx < 1.0f || cellPx < 1.0f)
+    {
+        return 1;
+    }
+    const float gutter = std::max(0.0f, gutterPx);
+    const float denom = cellPx + gutter;
+    const float usable = extentPx - gutter;
+    if (denom < 1.0f || usable < cellPx)
+    {
+        return 1;
+    }
+    return std::max(1U, static_cast<uint32_t>(usable / denom));
+}
+
+[[nodiscard]] inline float LauncherEvenSlotLimit(float extentPx, uint32_t count, float gutterPx) noexcept
+{
+    count = std::max(1U, count);
+    const float gutter = std::max(0.0f, gutterPx);
+    return (extentPx - gutter * static_cast<float>(count + 1U)) / static_cast<float>(count);
+}
+
+inline void LauncherChooseSpreadGrid(uint32_t widthPx, uint32_t heightPx, uint32_t shortcutCount, uint32_t maxColumns,
+                                     uint32_t maxRows, uint32_t& columns, uint32_t& rows) noexcept
+{
+    const uint32_t count = std::max(1U, shortcutCount);
+    maxColumns = std::max(1U, std::min(maxColumns, count));
+    maxRows = std::max(1U, maxRows);
+    columns = 1;
+    rows = count;
+    float bestScore = 3.4e38f;
+    for (uint32_t candidateCols = 1; candidateCols <= maxColumns; ++candidateCols)
+    {
+        const uint32_t candidateRows = (count + candidateCols - 1U) / candidateCols;
+        if (candidateRows > maxRows)
+        {
+            continue;
+        }
+        const float slotW = static_cast<float>(widthPx) / static_cast<float>(candidateCols);
+        const float slotH = static_cast<float>(heightPx) / static_cast<float>(candidateRows);
+        const float aspectPenalty = std::fabs(slotW - slotH);
+        const uint32_t empty = candidateCols * candidateRows - count;
+        const float score = aspectPenalty + static_cast<float>(empty) * 0.25f * std::min(slotW, slotH);
+        if (score < bestScore)
+        {
+            bestScore = score;
+            columns = candidateCols;
+            rows = candidateRows;
+        }
+    }
+    if (rows > maxRows)
+    {
+        columns = maxColumns;
+        rows = std::min(maxRows, std::max(1U, (count + columns - 1U) / columns));
+    }
+}
+
+[[nodiscard]] inline float LauncherChosenCellPixels(uint32_t widthPx, uint32_t heightPx, UINT dpi,
+                                                    uint32_t shortcutCount, LauncherIconSize iconSize) noexcept
+{
+    const float gutter = LauncherEvenGutterPixels(dpi);
+    const float width = static_cast<float>(widthPx);
+    const float height = static_cast<float>(heightPx);
+    const float insetLimit = std::max(1.0f, std::min(width - 2.0f * gutter, height - 2.0f * gutter));
+    if (!LauncherIconSizeIsAutomatic(iconSize))
+    {
+        const float desired = std::max(1.0f, LauncherDipToPixels(LauncherIconSizeCellDip(iconSize), dpi));
+        return std::min(desired, insetLimit);
+    }
+
+    const float floorPx = std::max(1.0f, LauncherDipToPixels(kLauncherAutomaticFloorDip, dpi));
+    const float hugePx = std::min(std::max(1.0f, LauncherDipToPixels(kLauncherHugeCellDip, dpi)), insetLimit);
+    if (shortcutCount == 0)
+    {
+        return hugePx;
+    }
+    float cellPx = 0.0f;
+    const uint32_t limit = std::min(shortcutCount, kLauncherMaximumShortcuts);
+    for (uint32_t columns = 1; columns <= limit; ++columns)
+    {
+        const uint32_t rows = (shortcutCount + columns - 1U) / columns;
+        const float candidate =
+            std::min(LauncherEvenSlotLimit(width, columns, gutter), LauncherEvenSlotLimit(height, rows, gutter));
+        const float clamped = std::min(candidate, hugePx);
+        if (clamped + 0.01f >= floorPx && clamped > cellPx)
+        {
+            cellPx = clamped;
+        }
+    }
+    return cellPx > 0.0f ? cellPx : std::min(floorPx, insetLimit);
+}
+
 [[nodiscard]] inline LauncherPageGeometry ComputeLauncherPages(uint32_t widthPx, uint32_t heightPx, UINT dpi,
-                                                               uint32_t shortcutCount, uint32_t requestedPage) noexcept
+                                                               uint32_t shortcutCount, uint32_t requestedPage,
+                                                               LauncherIconSize iconSize = LauncherIconSize::Huge) noexcept
 {
     LauncherPageGeometry geometry{};
     geometry.contentHeightPx = static_cast<float>(heightPx);
@@ -42,21 +234,27 @@ struct LauncherPageGeometry final
         return geometry;
     }
 
-    const float minCell = std::max(1.0f, LauncherDipToPixels(kLauncherMinCellDip, dpi));
-    const uint32_t columnsFit = std::max(1U, static_cast<uint32_t>(static_cast<float>(widthPx) / minCell));
-    const uint32_t rowsFit = std::max(1U, static_cast<uint32_t>(static_cast<float>(heightPx) / minCell));
+    const float gutter = LauncherEvenGutterPixels(dpi);
+    const float cellPx = LauncherChosenCellPixels(widthPx, heightPx, dpi, shortcutCount, iconSize);
+    geometry.cellSizePx = cellPx;
+    geometry.iconSizePx = cellPx;
+    const uint32_t columnsFit = LauncherCellsAlong(static_cast<float>(widthPx), cellPx, gutter);
+    const uint32_t rowsFit = LauncherCellsAlong(static_cast<float>(heightPx), cellPx, gutter);
     if (shortcutCount <= columnsFit * rowsFit)
     {
+        LauncherChooseSpreadGrid(widthPx, heightPx, shortcutCount, columnsFit, rowsFit, geometry.columns,
+                                 geometry.rows);
         geometry.perPage = shortcutCount;
         geometry.visibleCount = shortcutCount;
         geometry.pageIndex = 0;
+        geometry.pageCount = 1;
         return geometry;
     }
 
     geometry.indicatorHeightPx = LauncherDipToPixels(kLauncherPageIndicatorHeightDip, dpi);
-    geometry.contentHeightPx = std::max(minCell, static_cast<float>(heightPx) - geometry.indicatorHeightPx);
-    geometry.columns = std::max(1U, static_cast<uint32_t>(static_cast<float>(widthPx) / minCell));
-    geometry.rows = std::max(1U, static_cast<uint32_t>(geometry.contentHeightPx / minCell));
+    geometry.contentHeightPx = std::max(1.0f, static_cast<float>(heightPx) - geometry.indicatorHeightPx);
+    geometry.columns = columnsFit;
+    geometry.rows = std::max(1U, LauncherCellsAlong(geometry.contentHeightPx, cellPx, gutter));
     geometry.perPage = std::max(1U, geometry.columns * geometry.rows);
     geometry.pageCount = (shortcutCount + geometry.perPage - 1U) / geometry.perPage;
     if (geometry.pageCount == 0)
@@ -110,9 +308,156 @@ struct LauncherPageGeometry final
     return MulDiv(16, scaleDpi, USER_DEFAULT_SCREEN_DPI);
 }
 
+[[nodiscard]] inline LONG LauncherPageSwipeFlickSpeedPixelsPerSecond(UINT dpi) noexcept
+{
+    const int scaleDpi = dpi == 0 ? USER_DEFAULT_SCREEN_DPI : static_cast<int>(dpi);
+    return MulDiv(2200, scaleDpi, USER_DEFAULT_SCREEN_DPI);
+}
+
 [[nodiscard]] constexpr bool LauncherPageSwipeLocksHorizontal(LONG deltaX, LONG deltaY, LONG threshold) noexcept
 {
     const LONG absX = deltaX < 0 ? -deltaX : deltaX;
     const LONG absY = deltaY < 0 ? -deltaY : deltaY;
     return absX >= threshold && absX > absY;
+}
+
+[[nodiscard]] constexpr bool LauncherPageSwipeBlocksDirection(LONG offset, bool atFirst, bool atLast) noexcept
+{
+    if (offset == 0)
+    {
+        return false;
+    }
+    return (offset > 0 && atFirst) || (offset < 0 && atLast);
+}
+
+[[nodiscard]] inline LONG LauncherApplyPageEdgeResistance(LONG offset, LONG pageWidth, bool blocked) noexcept
+{
+    if (pageWidth <= 0)
+    {
+        return 0;
+    }
+    const LONG clamped = std::clamp(offset, -pageWidth, pageWidth);
+    if (!blocked)
+    {
+        return clamped;
+    }
+    const LONG limit = std::max(pageWidth / 8, 1L);
+    return std::clamp(clamped / 4, -limit, limit);
+}
+
+[[nodiscard]] constexpr LONG LauncherPageSwipeCommitDistance(LONG pageWidth) noexcept
+{
+    return pageWidth > 0 ? pageWidth / 4 : 0;
+}
+
+[[nodiscard]] inline bool LauncherShouldCommitPageSwipe(LONG offset, LONG pageWidth, float velocityPxPerSec, UINT dpi,
+                                                        bool atFirst, bool atLast) noexcept
+{
+    if (pageWidth <= 0 || offset == 0 || LauncherPageSwipeBlocksDirection(offset, atFirst, atLast))
+    {
+        return false;
+    }
+    const LONG distance = offset < 0 ? -offset : offset;
+    if (distance >= LauncherPageSwipeCommitDistance(pageWidth))
+    {
+        return true;
+    }
+    const float directedVelocity = offset < 0 ? -velocityPxPerSec : velocityPxPerSec;
+    return directedVelocity >= static_cast<float>(LauncherPageSwipeFlickSpeedPixelsPerSecond(dpi));
+}
+
+[[nodiscard]] constexpr float LauncherEaseOutCubic(float t) noexcept
+{
+    if (t <= 0.0f)
+    {
+        return 0.0f;
+    }
+    if (t >= 1.0f)
+    {
+        return 1.0f;
+    }
+    const float inv = 1.0f - t;
+    return 1.0f - inv * inv * inv;
+}
+
+[[nodiscard]] inline LONG LauncherInterpolatePageOffset(LONG start, LONG target, float t) noexcept
+{
+    const float eased = LauncherEaseOutCubic(t);
+    const float mixed = static_cast<float>(start) + static_cast<float>(target - start) * eased;
+    return mixed >= 0.0f ? static_cast<LONG>(mixed + 0.5f) : static_cast<LONG>(mixed - 0.5f);
+}
+
+[[nodiscard]] inline UINT LauncherPageSettleDurationMilliseconds(LONG remaining, float velocityPxPerSec) noexcept
+{
+    const float distance = std::fabs(static_cast<float>(remaining));
+    const float speed = std::max(std::fabs(velocityPxPerSec), 1400.0f);
+    const float milliseconds = distance / speed * 1000.0f;
+    const UINT rounded = static_cast<UINT>(milliseconds + 0.5f);
+    return std::clamp(rounded, 140U, 280U);
+}
+
+[[nodiscard]] inline float LauncherIconDrawPixels(float iconSizePx, float cellPx, UINT dpi) noexcept
+{
+    const float gutter = LauncherDipToPixels(kLauncherIconInnerGutterDip, dpi) * 2.0f;
+    float icon = iconSizePx > 0.0f ? iconSizePx : cellPx;
+    if (icon <= 0.0f)
+    {
+        icon = cellPx;
+    }
+    icon = std::min(icon, cellPx);
+    icon = std::min(icon, std::max(8.0f, cellPx - gutter));
+    return std::max(8.0f, icon);
+}
+
+[[nodiscard]] inline float LauncherSpreadIconPixels(float widthPx, float contentHeightPx, uint32_t columns,
+                                                    uint32_t rows, float namedCellPx, UINT dpi) noexcept
+{
+    columns = std::max(1U, columns);
+    rows = std::max(1U, rows);
+    const float gutter = LauncherEvenGutterPixels(dpi);
+    const float cap = LauncherDipToPixels(kLauncherMaxIconDip, dpi);
+    float named = namedCellPx > 0.0f ? namedCellPx : cap;
+    named = std::min(named, cap);
+    float icon = LauncherIconDrawPixels(named, named, dpi);
+    icon = std::min(icon, LauncherEvenSlotLimit(widthPx, columns, gutter));
+    icon = std::min(icon, LauncherEvenSlotLimit(contentHeightPx, rows, gutter));
+    return std::max(8.0f, icon);
+}
+
+[[nodiscard]] constexpr uint32_t LauncherPackedIconCount(const LauncherPageGeometry& pages,
+                                                         uint32_t shortcutCount) noexcept
+{
+    return pages.pageCount > 1 ? pages.visibleCount : shortcutCount;
+}
+
+inline void FillLauncherPageCells(uint32_t widthPx, uint32_t heightPx, UINT dpi, uint32_t shortcutCount,
+                                  const LauncherPageGeometry& pages,
+                                  std::array<std::array<float, 4>, kLauncherMaximumShortcuts>& cells) noexcept
+{
+    // Space-evenly: leftover width/height becomes equal gutters around and between icon quads (min 8 DIP).
+    cells = {};
+    const uint32_t packed = LauncherPackedIconCount(pages, shortcutCount);
+    if (packed == 0 || widthPx == 0 || heightPx == 0)
+    {
+        return;
+    }
+    const float contentHeight = pages.contentHeightPx > 0.0f ? pages.contentHeightPx : static_cast<float>(heightPx);
+    const uint32_t columns = std::max(1U, pages.columns);
+    const uint32_t rows = std::max(1U, pages.rows);
+    const float named = pages.iconSizePx > 0.0f ? pages.iconSizePx : pages.cellSizePx;
+    const float icon =
+        LauncherSpreadIconPixels(static_cast<float>(widthPx), contentHeight, columns, rows, named, dpi);
+    const float half = icon * 0.5f;
+    const float gutterX =
+        (static_cast<float>(widthPx) - static_cast<float>(columns) * icon) / static_cast<float>(columns + 1U);
+    const float gutterY = (contentHeight - static_cast<float>(rows) * icon) / static_cast<float>(rows + 1U);
+    for (uint32_t index = 0; index < packed && index < cells.size(); ++index)
+    {
+        const uint32_t column = index % columns;
+        const uint32_t row = index / columns;
+        cells[index][0] = gutterX + static_cast<float>(column) * (icon + gutterX) + half;
+        cells[index][1] = gutterY + static_cast<float>(row) * (icon + gutterY) + half;
+        cells[index][2] = half;
+        cells[index][3] = half;
+    }
 }

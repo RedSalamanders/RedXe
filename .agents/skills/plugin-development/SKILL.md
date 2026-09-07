@@ -10,7 +10,7 @@ Read `Specs/Plugins/Plugins_API.md` before changing shipped plugin behavior. Rea
 the host network lane, plugin-owned curl, or the weather widget. Read
 [`Specs/Plans/WIP/PluginDashboardRemainingCloseout_2026-09-02.md`](../../Specs/Plans/WIP/PluginDashboardRemainingCloseout_2026-09-02.md)
 only when work concerns remaining closeout: push providers, network `IRedXeDataSource` datasets, host-owned primitive
-batching, settings migration beyond version 4 reset, interactive WebView policy, or System Data follow-on hosts. Read
+batching, settings migration beyond version 5 reset, interactive WebView policy, or System Data follow-on hosts. Read
 `Specs/Core/Core_PerformanceAndResources.md` for every plugin ABI or hot path change. Apply `spec-workflow` when
 behavior or ABI changes. Launcher GPU tiles, `IRedXeInteractiveWidget`, jumbo extraction, host drop, and shortcut
 persist are owned by `Specs/Plugins/Plugins_API.md` and `Specs/UI/UI_Dashboard.md`.
@@ -62,7 +62,12 @@ Preserve these boundaries:
   pan requires two or three simultaneous touch contacts. One-finger and pen contacts are forwarded to
   `IRedXeInteractiveWidget`, including Move/Up after a padding Down that returned `S_FALSE`. A second or third finger
   cancels an in-progress one-finger `RedXePointerCapture` and starts host paging. Launcher paginates overflow shortcuts
-  and GPU-draws a bottom page-dot strip using the same DIP metrics as `DxUi::PageIndicator`. A swipe
+  and GPU-draws a bottom page-dot strip using the same DIP metrics as `DxUi::PageIndicator` when shortcuts
+  overflow the chosen cell (`iconSize` `small`/`medium`/`large`/`huge` = 72/96/144/192 DIP square icon edge and
+  pagination cell, closed cap 32 shortcuts, leftover space even gutters of at least 8 DIP between icon edges plus an
+  8 DIP edge inset, `automatic` shrinks
+  from huge toward small). Internal pages
+  follow a one-finger pan 1:1, then ease-out settle via `RequestFrame`; dots stay put. A swipe
   viewport keeps the widget's full size and may have a negative origin; `Render` must still draw, and must not treat
   that origin as invalid. Direct3D clips to the target. System Data GPU
   viewers pick a density rung from the widget rectangle, grow type with leftover height among visible rows, split wide

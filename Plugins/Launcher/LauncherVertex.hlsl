@@ -5,11 +5,17 @@ cbuffer LauncherConstants : register(b0)
     float hint;
     float4 backgroundColor;
     float4 hintColor;
-    float4 iconRect[8];
-    float4 iconMotion[8];
     uint iconCount;
     uint3 iconPad;
 };
+
+struct LauncherIconInstance
+{
+    float4 rect;
+    float4 motion;
+};
+
+StructuredBuffer<LauncherIconInstance> iconInstances : register(t1);
 
 struct PixelInput
 {
@@ -43,19 +49,20 @@ PixelInput VertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instance
         float2(0.0f, 1.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f),
     };
     const float2 corner = corners[vertexId];
-    const float2 halfSize = iconRect[instanceId].zw;
+    const LauncherIconInstance icon = iconInstances[instanceId];
+    const float2 halfSize = icon.rect.zw;
     const float2 local = (corner * 2.0f - 1.0f) * halfSize;
-    const float tilt = iconMotion[instanceId].x;
-    const float zOffset = iconMotion[instanceId].y;
+    const float tilt = icon.motion.x;
+    const float zOffset = icon.motion.y;
     const float cosine = cos(tilt);
     const float sine = sin(tilt);
     const float3 rotated = float3(local.x * cosine, local.y, -local.x * sine + zOffset);
     const float perspective = 1.0f / max(1.0f + rotated.z * 0.0035f, 0.15f);
-    const float2 pixel = iconRect[instanceId].xy + rotated.xy * perspective;
+    const float2 pixel = icon.rect.xy + rotated.xy * perspective;
     const float2 size = max(viewportSize, float2(1.0f, 1.0f));
     output.position = float4(pixel.x / size.x * 2.0f - 1.0f, 1.0f - pixel.y / size.y * 2.0f, 0.0f, 1.0f);
     output.uv = corner;
-    output.dim = iconMotion[instanceId].z;
-    output.slice = iconMotion[instanceId].w;
+    output.dim = icon.motion.z;
+    output.slice = icon.motion.w;
     return output;
 }

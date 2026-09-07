@@ -19,5 +19,5 @@ It does not collect command lines, full paths, or user names. Inaccessible value
 | `topN` | integer | 1–32 | `10` | How many rows to keep |
 
 ```json
-{ "plugin": "builtin.process-viewer", "settings": { "topN": 10 } }
+{ "plugin": "builtin.process-viewer", "topN": 10 }
 ```

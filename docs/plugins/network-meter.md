@@ -17,5 +17,5 @@ Aggregate throughput plus per-interface rates. Interfaces that stay at 0 B/s for
 | `topN` | integer | 1–16 | `8` | How many interface rows to keep |
 
 ```json
-{ "plugin": "builtin.network-meter", "settings": { "topN": 8 } }
+{ "plugin": "builtin.network-meter", "topN": 8 }
 ```

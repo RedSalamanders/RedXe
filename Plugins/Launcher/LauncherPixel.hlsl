@@ -5,8 +5,6 @@ cbuffer LauncherConstants : register(b0)
     float hint;
     float4 backgroundColor;
     float4 hintColor;
-    float4 iconRect[8];
-    float4 iconMotion[8];
     uint iconCount;
     uint3 iconPad;
 };
@@ -50,7 +48,7 @@ float4 PixelMain(PixelInput input) : SV_Target
             const float originX = viewportSize.x * 0.5f - total * 0.5f;
             const float originY = viewportSize.y - strip * 0.5f;
             [loop]
-            for (uint i = 0; i < 8; ++i)
+            for (uint i = 0; i < 32; ++i)
             {
                 if (i >= pages)
                 {
@@ -61,8 +59,8 @@ float4 PixelMain(PixelInput input) : SV_Target
                 const float d = length(pixel - center);
                 if (d < r)
                 {
-                    const float4 dotColor = (i == selected) ? float4(0.85f, 0.88f, 0.95f, 1.0f)
-                                                            : float4(0.40f, 0.42f, 0.48f, 1.0f);
+                    const float4 dotColor = (i == selected) ? float4(0.92f, 0.94f, 1.00f, 1.0f)
+                                                            : float4(0.52f, 0.54f, 0.60f, 1.0f);
                     const float aa = saturate((r - d) / max(r * 0.25f, 0.75f));
                     color = lerp(color, dotColor, aa);
                 }

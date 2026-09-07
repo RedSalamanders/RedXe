@@ -12,7 +12,7 @@
 #include <vector>
 #include <windows.h>
 
-inline constexpr uint32_t kRedXeSettingsVersionMajor = 4;
+inline constexpr uint32_t kRedXeSettingsVersionMajor = 5;
 inline constexpr uint32_t kRedXeSettingsVersionMinor = 0;
 // Removed with the v3 parser; retained temporarily so the transition remains buildable between slices.
 inline constexpr wchar_t kRedXeDebugSettingsFileName[] = L"RedXe-debug.settings.json";
@@ -259,6 +259,7 @@ struct SettingsParseDiagnostic final
     uint64_t byteOffset = 0;
     uint32_t line = 1;
     uint32_t column = 1;
+    bool hasLocation = false;
     std::string path = "$";
     std::string message;
 };
@@ -287,6 +288,8 @@ enum class SettingsReloadStatus : std::uint8_t
 [[nodiscard]] HRESULT ParseAppSettingsJson(std::string_view json, AppSettings& settings) noexcept;
 [[nodiscard]] HRESULT ParseAppSettingsJsonV4(std::string_view json, std::unique_ptr<AppSettings>& settings,
                                              SettingsParseDiagnostic* diagnostic = nullptr) noexcept;
+[[nodiscard]] HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSettings>& settings,
+                                             SettingsParseDiagnostic* diagnostic = nullptr) noexcept;
 [[nodiscard]] HRESULT ParseAppSettingsJsonDetailed(std::string_view json, AppSettings& settings,
                                                    SettingsParseDiagnostic& diagnostic) noexcept;
 [[nodiscard]] HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexcept;
@@ -308,6 +311,7 @@ class SettingsStore final
                                          SettingsReloadStatus& status) noexcept;
     void MarkApplied(const SettingsFileStamp& stamp) noexcept;
     void MarkRejected(const SettingsFileStamp& stamp) noexcept;
+    void SuppressDocumentWrites(bool suppress) noexcept;
 
     [[nodiscard]] const std::wstring& SettingsPath() const noexcept;
     [[nodiscard]] const std::wstring& SettingsDirectory() const noexcept;
@@ -329,6 +333,8 @@ class SettingsStore final
     std::optional<SettingsFileStamp> _lastRejectedStamp;
     bool _missingObserved = false;
     bool _usedInitialFallback = false;
+    bool _selfTest = false;
+    bool _suppressDocumentWrites = false;
     std::wstring _lastDiagnosticText;
     std::wstring _initialNotice;
 };

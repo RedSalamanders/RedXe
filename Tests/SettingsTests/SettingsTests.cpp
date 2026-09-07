@@ -1,3 +1,4 @@
+#include "../../Plugins/Launcher/LauncherPaging.h"
 #include "../../RedXe/BundledPlugins.h"
 #include "../../RedXe/Settings.h"
 #include "../../RedXe/SettingsWatcher.h"
@@ -27,29 +28,19 @@ using unique_doc = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjs
 
 constexpr std::string_view kRepresentative = R"json(
 {
-  "version": { "major": 4, "minor": 0 },
+  "version": { "major": 5, "minor": 0 },
   "wrapPages": true,
   "declare": {
-    "Matrix": { "plugin": "builtin.matrix-rain", "settings": { "seed": 7, "densityPercent": 60 } },
+    "Matrix": { "plugin": "builtin.matrix-rain", "seed": 7, "densityPercent": 60 },
     "Triangle": { "plugin": "builtin.rotating-triangle" },
   },
   "pages": [
     {
       "id": "main",
-      "layout": {
-        "arrangeAlong": "long-side",
-        "areas": [
-          { "sizeRatio": 2, "widget": "Triangle" },
-          {
-            "sizeRatio": 1,
-            "arrangeAlong": "short-side",
-            "areas": [
-              { "sizeRatio": 1, "widget": "Matrix" },
-              { "sizeRatio": 1, "widget": { "use": "Matrix", "override": { "settings": { "seed": 9, "densityPercent": null } } } }
-            ]
-          }
-        ]
-      }
+      "columns": [
+        { "weight": 2, "widget": "Triangle" },
+        { "rows": ["Matrix", { "use": "Matrix", "seed": 9, "densityPercent": null }] }
+      ]
     },
     {},
   ]
@@ -159,15 +150,62 @@ constexpr std::string_view kRepresentative = R"json(
     result = LoadAppSettingsFile(debugPath.wstring(), debug);
     if (SUCCEEDED(result))
         result = LoadAppSettingsFile(releasePath.wstring(), release);
-    if (FAILED(result) || !CoversBundledPluginCatalog(debug) || !CoversBundledPluginCatalog(release) ||
-        debug.dashboard.pageCount != 3 || debug.dashboard.pages[0].widgetCount != 4 ||
-        debug.dashboard.pages[0].widgets[0].pluginId.View() != "builtin.launcher" ||
-        debug.dashboard.pages[1].widgetCount != 8 || debug.dashboard.pages[2].widgetCount != 10 ||
+    if (FAILED(result))
+    {
+        std::wprintf(L"Deployed settings templates did not load.\n");
+        return result;
+    }
+    if (!CoversBundledPluginCatalog(debug) || !CoversBundledPluginCatalog(release))
+    {
+        std::wprintf(L"Deployed templates do not cover the bundled plugin catalog.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    if (debug.dashboard.pageCount != 3 || debug.dashboard.pages[0].widgetCount != 4)
+    {
+        std::wprintf(L"Debug template page count contract failed (%u pages, first widgets %u).\n",
+                     debug.dashboard.pageCount, debug.dashboard.pages[0].widgetCount);
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    if (debug.dashboard.pages[0].widgets[0].pluginId.View() != "builtin.launcher" ||
+        !debug.dashboard.pages[0].widgets[0].usesAdaptivePlacement)
+    {
+        std::wprintf(L"Debug template first widget is not an adaptive launcher.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    if (debug.dashboard.pages[1].widgetCount != 8 || debug.dashboard.pages[2].widgetCount != 10 ||
         release.dashboard.pageCount != 3 || release.dashboard.pages[0].widgetCount != 1 ||
         release.dashboard.pages[1].widgetCount != 8 || release.dashboard.pages[2].widgetCount != 10 ||
-        !debug.dashboard.pages[0].widgets[0].usesAdaptivePlacement || debug.logRetentionDays != 15 ||
-        release.logRetentionDays != 15 || FAILED(ValidateAppSettings(debug)) || FAILED(ValidateAppSettings(release)))
-        return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        debug.logRetentionDays != 15 || release.logRetentionDays != 15)
+    {
+        std::wprintf(L"Deployed template page inventory contract failed.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    const WidgetInstanceSettings& gpu = release.dashboard.pages[2].widgets[7];
+    const WidgetInstanceSettings& thermal = release.dashboard.pages[2].widgets[8];
+    const WidgetInstanceSettings& power = release.dashboard.pages[2].widgets[9];
+    const auto isRatio = [](const LayoutSplitStep& step, LayoutAxis axis, uint32_t sizeRatio,
+                            uint32_t totalRatio) noexcept
+    {
+        return step.axis == axis && step.sizeRatio == sizeRatio && step.totalRatio == totalRatio;
+    };
+    if (gpu.pluginId.View() != "builtin.gpu-meter" || thermal.pluginId.View() != "builtin.thermal-meter" ||
+        power.pluginId.View() != "builtin.power-meter" || gpu.adaptivePlacement.depth != 2 ||
+        thermal.adaptivePlacement.depth != 2 || power.adaptivePlacement.depth != 2 ||
+        !isRatio(gpu.adaptivePlacement.steps[0], LayoutAxis::LongSide, 3, 13) ||
+        !isRatio(thermal.adaptivePlacement.steps[0], LayoutAxis::LongSide, 3, 13) ||
+        !isRatio(power.adaptivePlacement.steps[0], LayoutAxis::LongSide, 3, 13) ||
+        !isRatio(gpu.adaptivePlacement.steps[1], LayoutAxis::ShortSide, 2, 6) ||
+        !isRatio(thermal.adaptivePlacement.steps[1], LayoutAxis::ShortSide, 3, 6) ||
+        !isRatio(power.adaptivePlacement.steps[1], LayoutAxis::ShortSide, 1, 6))
+    {
+        std::wprintf(L"Release System last column is not Gpu/Thermal/Power 2-3-1.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    if (FAILED(ValidateAppSettings(debug)) || FAILED(ValidateAppSettings(release)))
+    {
+        std::wprintf(L"Deployed templates failed ValidateAppSettings.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
 
     std::string schemaBytes;
     result = ReadFile(schemaPath, schemaBytes);
@@ -187,6 +225,13 @@ constexpr std::string_view kRepresentative = R"json(
         !yyjson_is_uint(yyjson_obj_get(retention, "default")) ||
         yyjson_get_uint(yyjson_obj_get(retention, "default")) != kRedXeDefaultLogRetentionDays)
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    yyjson_val* defs = yyjson_obj_get(root, "$defs");
+    yyjson_val* launcherSettings = yyjson_is_obj(defs) ? yyjson_obj_get(defs, "launcherSettings") : nullptr;
+    yyjson_val* launcherProperties = yyjson_is_obj(launcherSettings) ? yyjson_obj_get(launcherSettings, "properties") : nullptr;
+    yyjson_val* shortcuts = yyjson_is_obj(launcherProperties) ? yyjson_obj_get(launcherProperties, "shortcuts") : nullptr;
+    if (!yyjson_is_uint(yyjson_obj_get(shortcuts, "maxItems")) ||
+        yyjson_get_uint(yyjson_obj_get(shortcuts, "maxItems")) != kLauncherMaximumShortcuts)
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     for (const RedXeBundledWidgetSpec& plugin : kRedXeBundledWidgets)
     {
         if (!SchemaAcceptsPlugin(root, plugin.pluginId))
@@ -201,12 +246,13 @@ constexpr std::string_view kRepresentative = R"json(
     HRESULT result = ParseAppSettingsJson(kRepresentative, parsed);
     if (FAILED(result) || !parsed.dashboard.wrapPages || parsed.logRetentionDays != kRedXeDefaultLogRetentionDays ||
         parsed.dashboard.pageCount != 2 || parsed.dashboard.pages[0].widgetCount != 3 ||
-        parsed.dashboard.pages[1].widgetCount != 0 ||
-        parsed.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"seed\":7") == std::string_view::npos ||
-        parsed.dashboard.pages[0].widgets[2].privateConfiguration.View().find("\"seed\":9") == std::string_view::npos ||
-        parsed.dashboard.pages[0].widgets[2].privateConfiguration.View().find("\"densityPercent\":70") ==
-            std::string_view::npos)
+        parsed.dashboard.pages[1].widgetCount != 0)
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    const std::string_view cfg1 = parsed.dashboard.pages[0].widgets[1].privateConfiguration.View();
+    const std::string_view cfg2 = parsed.dashboard.pages[0].widgets[2].privateConfiguration.View();
+    if (cfg1.find("\"seed\":7") == std::string_view::npos || cfg2.find("\"seed\":9") == std::string_view::npos ||
+        cfg2.find("\"densityPercent\":70") == std::string_view::npos)
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     if (FAILED(MoveDashboardPage(parsed, -1)) || parsed.dashboard.activePageIndex != 1 ||
         FAILED(MoveDashboardPage(parsed, 1)) || parsed.dashboard.activePageIndex != 0)
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -226,32 +272,34 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
     constexpr std::string_view retentionDocument = R"json({
-      "version":{"major":4},
+      "version":{"major":5},
       "logRetentionDays":30,
-      "pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}}]}}]
+      "pages":[{"widgets":[{"plugin":"builtin.gdi-orbit"}]}]
     })json";
     AppSettings retention{};
     if (FAILED(ParseAppSettingsJson(retentionDocument, retention)) || retention.logRetentionDays != 30)
+    {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
 
     constexpr std::string_view authoredPages = R"json({
-      "version":{"major":4},
+      "version":{"major":5},
       "pages":[
-        {"id":"home","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}},
-        {"id":"system","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}}]}}
+        {"id":"home","widgets":[{"plugin":"builtin.rotating-triangle"}]},
+        {"id":"system","widgets":[{"plugin":"builtin.gdi-orbit"}]}
       ]
     })json";
     constexpr std::string_view authoredReordered = R"json({
-      "version":{"major":4},
+      "version":{"major":5},
       "pages":[
-        {"id":"system","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}}]}},
-        {"id":"home","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}}
+        {"id":"system","widgets":[{"plugin":"builtin.gdi-orbit"}]},
+        {"id":"home","widgets":[{"plugin":"builtin.rotating-triangle"}]}
       ]
     })json";
     constexpr std::string_view authoredHomeOnly = R"json({
-      "version":{"major":4},
+      "version":{"major":5},
       "pages":[
-        {"id":"home","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}}
+        {"id":"home","widgets":[{"plugin":"builtin.rotating-triangle"}]}
       ]
     })json";
     AppSettings authored{};
@@ -261,33 +309,43 @@ constexpr std::string_view kRepresentative = R"json(
         FAILED(ParseAppSettingsJson(authoredReordered, reordered)) ||
         FAILED(ParseAppSettingsJson(authoredHomeOnly, homeOnly)) || FAILED(MoveDashboardPage(authored, 1)) ||
         authored.dashboard.activePageId.View() != "system")
+    {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
     if (FAILED(PreserveActiveDashboardPage(authored, reordered)) || reordered.dashboard.activePageIndex != 0 ||
         reordered.dashboard.activePageId.View() != "system")
+    {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
     if (FAILED(PreserveActiveDashboardPage(authored, homeOnly)) || homeOnly.dashboard.activePageIndex != 0 ||
         homeOnly.dashboard.activePageId.View() != "home")
+    {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
 
     constexpr std::string_view processViewerSettings =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer"}},{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer","settings":{"topN":7}}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer"},{"plugin":"builtin.process-viewer","topN":7}]}]})json";
     AppSettings processViewer{};
     if (FAILED(ParseAppSettingsJson(processViewerSettings, processViewer)) ||
         processViewer.dashboard.pages[0].widgets[0].privateConfiguration.View() != R"json({"topN":10})json" ||
         processViewer.dashboard.pages[0].widgets[1].privateConfiguration.View() != R"json({"topN":7})json")
+    {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
 
     constexpr std::string_view rankedViewerSettings =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.network-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.gpu-processes","settings":{"topN":4}}},{"sizeRatio":1,"widget":{"plugin":"builtin.system-pulse"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.network-meter"},{"plugin":"builtin.gpu-processes","topN":4},{"plugin":"builtin.system-pulse"}]}]})json";
     AppSettings rankedViewers{};
     if (FAILED(ParseAppSettingsJson(rankedViewerSettings, rankedViewers)) ||
         rankedViewers.dashboard.pages[0].widgets[0].privateConfiguration.View() != R"json({"topN":8})json" ||
         rankedViewers.dashboard.pages[0].widgets[1].privateConfiguration.View() != R"json({"topN":4})json" ||
         rankedViewers.dashboard.pages[0].widgets[2].privateConfiguration.View() != R"json({})json")
+    {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
 
     constexpr std::string_view studioClockSettings =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock"}},{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock","settings":{"showDate":true,"backgroundColor":"#010203"}}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock"},{"plugin":"builtin.studio-clock","showDate":true,"backgroundColor":"#010203"}]}]})json";
     AppSettings studioClock{};
     if (FAILED(ParseAppSettingsJson(studioClockSettings, studioClock)) ||
         studioClock.dashboard.pages[0].widgets[0].privateConfiguration.View() !=
@@ -296,10 +354,12 @@ constexpr std::string_view kRepresentative = R"json(
             std::string_view::npos ||
         studioClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"backgroundColor\":\"#010203\"") ==
             std::string_view::npos)
+    {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
 
     constexpr std::string_view deskClockSettings =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock"}},{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock","settings":{"flipDurationMilliseconds":250,"backgroundColor":"#010203"}}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock"},{"plugin":"builtin.desk-clock","flipDurationMilliseconds":250,"backgroundColor":"#010203"}]}]})json";
     AppSettings deskClock{};
     if (FAILED(ParseAppSettingsJson(deskClockSettings, deskClock)) ||
         deskClock.dashboard.pages[0].widgets[0].privateConfiguration.View() !=
@@ -308,10 +368,12 @@ constexpr std::string_view kRepresentative = R"json(
             std::string_view::npos ||
         deskClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"backgroundColor\":\"#010203\"") ==
             std::string_view::npos)
+    {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
 
     constexpr std::string_view weatherSettings =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.weather"}},{"sizeRatio":1,"widget":{"plugin":"builtin.weather","settings":{"locationMode":"manual","location":"48.86,2.35","temperatureUnit":"fahrenheit","windUnit":"mph"}}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.weather"},{"plugin":"builtin.weather","locationMode":"manual","location":"48.86,2.35","temperatureUnit":"fahrenheit","windUnit":"mph"}]}]})json";
     AppSettings weather{};
     if (FAILED(ParseAppSettingsJson(weatherSettings, weather)) ||
         weather.dashboard.pages[0].widgets[0].privateConfiguration.View() !=
@@ -320,7 +382,9 @@ constexpr std::string_view kRepresentative = R"json(
             std::string_view::npos ||
         weather.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"windUnit\":\"mph\"") ==
             std::string_view::npos)
+    {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
     if (FAILED(PatchWidgetInstanceSettings(weather, weather.dashboard.pages[0].widgets[0].id.View(),
                                            R"json({"location":"Paris"})json")) ||
         weather.dashboard.pages[0].widgets[0].privateConfiguration.View().find("\"location\":\"Paris\"") ==
@@ -329,110 +393,157 @@ constexpr std::string_view kRepresentative = R"json(
             std::string_view::npos ||
         weather.dashboard.pages[0].widgets[0].privateConfiguration.View().find("\"temperatureUnit\":\"celsius\"") ==
             std::string_view::npos)
+    {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
     if (SUCCEEDED(PatchWidgetInstanceSettings(weather, weather.dashboard.pages[0].widgets[0].id.View(),
                                               R"json({"weatherApiKey":"secret"})json")))
+    {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
 
     constexpr std::string_view launcherSettings =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.launcher"}},{"sizeRatio":1,"widget":{"plugin":"builtin.launcher","settings":{"shortcuts":[{"target":"C:\\Windows\\notepad.exe"}]}}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher"},{"plugin":"builtin.launcher","shortcuts":[{"target":"C:\\Windows\\notepad.exe"}]}]}]})json";
     AppSettings launcher{};
     if (FAILED(ParseAppSettingsJson(launcherSettings, launcher)) ||
-        launcher.dashboard.pages[0].widgets[0].privateConfiguration.View() != R"json({"shortcuts":[]})json" ||
+        launcher.dashboard.pages[0].widgets[0].privateConfiguration.View().find("\"shortcuts\":[]") ==
+            std::string_view::npos ||
+        launcher.dashboard.pages[0].widgets[0].privateConfiguration.View().find("\"iconSize\":\"huge\"") ==
+            std::string_view::npos ||
         launcher.dashboard.pages[0].widgets[1].privateConfiguration.View().find("notepad.exe") ==
             std::string_view::npos)
+    {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    for (const char* size : {"small", "medium", "large", "huge", "automatic"})
+    {
+        const std::string sized =
+            std::string(
+                R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","iconSize":")json") +
+            size + "\"}]}]}";
+        AppSettings sizedSettings{};
+        if (FAILED(ParseAppSettingsJson(sized, sizedSettings)) ||
+            sizedSettings.dashboard.pages[0].widgets[0].privateConfiguration.View().find(size) ==
+                std::string_view::npos)
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
+    {
+        std::string thirtyTwo = R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","shortcuts":[)json";
+        for (uint32_t index = 0; index < kLauncherMaximumShortcuts; ++index)
+        {
+            if (index != 0)
+            {
+                thirtyTwo += ',';
+            }
+            char item[80]{};
+            (void)sprintf_s(item, R"({"target":"C:\\Windows\\n%02u.exe"})", index);
+            thirtyTwo += item;
+        }
+        thirtyTwo += "]}]}]}";
+        AppSettings cap{};
+        if (FAILED(ParseAppSettingsJson(thirtyTwo, cap)))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        std::string thirtyThree = R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","shortcuts":[)json";
+        for (uint32_t index = 0; index < kLauncherMaximumShortcuts + 1; ++index)
+        {
+            if (index != 0)
+            {
+                thirtyThree += ',';
+            }
+            char item[80]{};
+            (void)sprintf_s(item, R"({"target":"C:\\Windows\\n%02u.exe"})", index);
+            thirtyThree += item;
+        }
+        thirtyThree += "]}]}]}";
+        if (FAILED(ExpectRejected(thirtyThree)))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
     if (FAILED(PatchWidgetInstanceSettings(launcher, launcher.dashboard.pages[0].widgets[0].id.View(),
                                            R"json({"shortcuts":[{"target":"https://example.com/"}]})json")) ||
         launcher.dashboard.pages[0].widgets[0].privateConfiguration.View().find("https://example.com/") ==
             std::string_view::npos)
+    {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
     if (SUCCEEDED(PatchWidgetInstanceSettings(launcher, launcher.dashboard.pages[0].widgets[0].id.View(),
                                               R"json({"shortcuts":[{"target":"example.com"}]})json")))
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-
-    constexpr std::
-        array<std::string_view, 37>
-            invalid{
-                std::string_view{R"json({"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":4,"minor":"0"},"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":4},"unknown":1,"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":4},"version":{"major":4},"pages":[{}]})json"},
-                std::string_view{R"json({version:{major:4},pages:[{}]})json"},
-                std::string_view{R"json({'version':{'major':4},'pages':[{}]})json"},
-                std::string_view{R"json({"version":{"major":4},"pages":[]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":0,"widget":{"plugin":"builtin.gdi-orbit"}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":"missing"}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"missing.plugin"}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit","settings":{"bad":1}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer","settings":{"topN":0}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer","settings":{"topN":33}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer","settings":{"topN":10,"bad":1}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.network-meter","settings":{"topN":0}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gpu-processes","settings":{"topN":17}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock","settings":{"showSeconds":1}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock","settings":{"externalDotsAlwaysOn":1}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock","settings":{"dateFormat":"locale"}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock","settings":{"secondsColor":"#GG0000"}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock","settings":{"unknown":true}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock","settings":{"flipDurationMilliseconds":249}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock","settings":{"flipDurationMilliseconds":801}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock","settings":{"cardColor":"#GG0000"}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock","settings":{"unknown":true}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.weather","settings":{"locationMode":"gps"}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.weather","settings":{"weatherApiKey":"secret"}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.weather","settings":{"temperatureUnit":"kelvin"}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.launcher","settings":{"shortcuts":[{"target":"example.com"}]}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.launcher","settings":{"shortcuts":[{"target":"C:\\\\Windows\\\\notepad.exe"},{"target":"C:\\\\Windows\\\\write.exe"},{"target":"C:\\\\Windows\\\\regedit.exe"},{"target":"C:\\\\Windows\\\\explorer.exe"},{"target":"C:\\\\Windows\\\\notepad.exe"}]}}}]}}]})json"},
-                std::string_view{
-                    R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.launcher","settings":{"extra":1,"shortcuts":[]}}}]}}]})json"},
-                std::string_view{R"json({"version":{"major":4},"logRetentionDays":0,"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":4},"logRetentionDays":366,"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":4},"logRetentionDays":false,"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":4},"logRetentionDays":-1,"pages":[{}]})json"},
-            };
-    for (const std::string_view candidate : invalid)
     {
-        result = ExpectRejected(candidate);
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    constexpr std::array<std::string_view, 45> invalid{
+                std::string_view{R"json({"pages":[{}]})json"},
+                std::string_view{R"json({"version":{"major":4},"pages":[{}]})json"},
+                std::string_view{R"json({"version":{"major":5,"minor":"0"},"pages":[{}]})json"},
+                std::string_view{R"json({"version":{"major":5},"unknown":1,"pages":[{}]})json"},
+                std::string_view{R"json({"version":{"major":5},"version":{"major":5},"pages":[{}]})json"},
+                std::string_view{R"json({version:{major:5},pages:[{}]})json"},
+                std::string_view{R"json({'version':{'major':5},'pages':[{}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"columns":[{"weight":0,"widget":{"plugin":"builtin.gdi-orbit"}}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":["missing"]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"missing.plugin"}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.gdi-orbit","bad":1}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer","topN":0}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer","topN":33}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer","topN":10,"bad":1}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.network-meter","topN":0}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.gpu-processes","topN":17}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","showSeconds":1}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","externalDotsAlwaysOn":1}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","dateFormat":"locale"}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","secondsColor":"#GG0000"}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","unknown":true}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock","flipDurationMilliseconds":249}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock","flipDurationMilliseconds":801}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock","cardColor":"#GG0000"}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock","unknown":true}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.weather","locationMode":"gps"}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.weather","weatherApiKey":"secret"}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.weather","temperatureUnit":"kelvin"}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","shortcuts":[{"target":"example.com"}]}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","shortcuts":[{"target":"C:\\\\Windows\\\\notepad.exe"},{"target":"C:\\\\Windows\\\\write.exe"},{"target":"C:\\\\Windows\\\\regedit.exe"},{"target":"C:\\\\Windows\\\\explorer.exe"},{"target":"C:\\\\Windows\\\\notepad.exe"}]}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","extra":1,"shortcuts":[]}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","iconSize":"jumbo","shortcuts":[]}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","iconSize":"auto"}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"logRetentionDays":0,"pages":[{}]})json"},
+                std::string_view{R"json({"version":{"major":5},"logRetentionDays":366,"pages":[{}]})json"},
+                std::string_view{R"json({"version":{"major":5},"logRetentionDays":false,"pages":[{}]})json"},
+                std::string_view{R"json({"version":{"major":5},"logRetentionDays":-1,"pages":[{}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}}]}}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.gdi-orbit","settings":{}}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"declare":{"X":{"plugin":"builtin.matrix-rain","settings":{"seed":1}}},"pages":[{}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"use":"Missing","seed":1}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","settings":{"shortcuts":[]},"shortcuts":[]}]}]})json"},
+                std::string_view{R"json({"version":{"major":5},"pages":[{"columns":[],"rows":[]}]})json"},
+            };
+    for (size_t index = 0; index < invalid.size(); ++index)
+    {
+        result = ExpectRejected(invalid[index]);
         if (FAILED(result))
+        {
             return result;
+        }
     }
 
     constexpr std::string_view newerMinor =
-        R"json({"version":{"major":4,"minor":1},"futureRoot":true,"pages":[{"futurePage":1}]})json";
+        R"json({"version":{"major":5,"minor":1},"futureRoot":true,"pages":[{"futurePage":1}]})json";
     if (FAILED(ParseAppSettingsJson(newerMinor, parsed)) || parsed.dashboard.pageCount != 1 ||
         parsed.versionMinor != 1 || parsed.sourceDocument.find("futureRoot") == std::string::npos)
+    {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
 
     try
     {
-        std::string tooMany = R"json({"version":{"major":4},"pages":[)json";
+        std::string tooMany = R"json({"version":{"major":5},"pages":[)json";
         for (size_t index = 0; index <= kMaximumDashboardPages; ++index)
         {
             if (index != 0)
@@ -445,15 +556,14 @@ constexpr std::string_view kRepresentative = R"json(
 
         const auto widgetDocument = [](size_t count)
         {
-            std::string document =
-                R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[)json";
+            std::string document = R"json({"version":{"major":5},"pages":[{"widgets":[)json";
             for (size_t index = 0; index < count; ++index)
             {
                 if (index != 0)
                     document += ',';
-                document += R"json({"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}})json";
+                document += R"json({"plugin":"builtin.rotating-triangle"})json";
             }
-            document += "]}}]}";
+            document += "]}]}";
             return document;
         };
         const std::string maximumWidgets = widgetDocument(kMaximumWidgetsPerPage);
@@ -463,7 +573,7 @@ constexpr std::string_view kRepresentative = R"json(
         if (FAILED(ExpectRejected(widgetDocument(kMaximumWidgetsPerPage + 1))))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
-        std::string tooManyDeclarations = R"json({"version":{"major":4},"declare":{)json";
+        std::string tooManyDeclarations = R"json({"version":{"major":5},"declare":{)json";
         for (size_t index = 0; index <= kMaximumSettingsDeclarations; ++index)
         {
             if (index != 0)
@@ -480,28 +590,107 @@ constexpr std::string_view kRepresentative = R"json(
             name.reserve(codePoints * 2U);
             for (size_t index = 0; index < codePoints; ++index)
                 name += "\xC3\xA9";
-            return std::string{"{\"version\":{\"major\":4},\"pages\":[{\"name\":\""} + name + "\"}]}";
+            return std::string{"{\"version\":{\"major\":5},\"pages\":[{\"name\":\""} + name + "\"}]}";
         };
         if (FAILED(ParseAppSettingsJson(namedPage(128), parsed)) || FAILED(ExpectRejected(namedPage(129))))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
         const auto nestedLayout = [](size_t levels)
         {
-            std::string area = R"json({"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}})json";
+            std::string area = R"json({"plugin":"builtin.gdi-orbit"})json";
             for (size_t level = 1; level < levels; ++level)
-            {
-                area = R"json({"sizeRatio":1,"arrangeAlong":"long-side","areas":[)json" + area + "]}";
-            }
-            return R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[)json" + area +
-                   "]}}]}";
+                area = R"json({"columns":[)json" + area + "]}";
+            return R"json({"version":{"major":5},"pages":[{"columns":[)json" + area + "]}]}";
         };
-        if (FAILED(ParseAppSettingsJson(nestedLayout(kMaximumLayoutDepth), parsed)) ||
-            FAILED(ExpectRejected(nestedLayout(kMaximumLayoutDepth + 1U))))
+        if (FAILED(ParseAppSettingsJson(nestedLayout(kMaximumLayoutDepth), parsed)))
+        {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (FAILED(ExpectRejected(nestedLayout(kMaximumLayoutDepth + 1U))))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
 
         std::string oversized(1024U * 1024U + 1U, ' ');
         if (FAILED(ExpectRejected(oversized)))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        auto expectDiagnostic = [](std::string_view json, std::string_view pathNeedle,
+                                   std::string_view messageNeedle) noexcept -> HRESULT
+        {
+            AppSettings settings{};
+            SettingsParseDiagnostic diagnostic;
+            if (SUCCEEDED(ParseAppSettingsJsonDetailed(json, settings, diagnostic)))
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            if (diagnostic.path.find(pathNeedle) == std::string::npos ||
+                diagnostic.message.find(messageNeedle) == std::string::npos ||
+                diagnostic.message.find("version 4 schema") != std::string::npos)
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            return S_OK;
+        };
+        if (FAILED(expectDiagnostic(R"json({"version":{"major":5},"unknown":1,"pages":[{}]})json", ".unknown",
+                                    "Unknown member")))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (FAILED(expectDiagnostic(R"json({"version":{"major":4},"pages":[{}]})json", ".version.major", "version 5")))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (FAILED(expectDiagnostic(
+                R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"missing.plugin"}]}]})json", ".plugin",
+                "Unknown plugin")))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (FAILED(expectDiagnostic(
+                R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer","topN":0}]}]})json",
+                ".topN", "topN must be an integer")))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (FAILED(expectDiagnostic(R"json({"version":{"major":5},"pages":[]})json", ".pages", "At least one page")))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (FAILED(expectDiagnostic(
+                R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","iconSize":"jumbo"}]}]})json",
+                ".iconSize", "iconSize must be small, medium, large, huge, or automatic")))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (FAILED(expectDiagnostic(
+                R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","iconSize":"auto"}]}]})json",
+                ".iconSize", "iconSize must be small, medium, large, huge, or automatic")))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (FAILED(expectDiagnostic(
+                R"json({"version":{"major":5},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[]}}]})json",
+                ".layout", "layout is not accepted")))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (FAILED(expectDiagnostic(
+                R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.gdi-orbit","settings":{}}]}]})json",
+                ".settings", "flattened")))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        constexpr std::string_view catalogIds =
+            R"json({"version":{"major":5},"pages":[{"widgets":["builtin.launcher","builtin.matrix-rain"]}]})json";
+        if (FAILED(ParseAppSettingsJson(catalogIds, parsed)) || parsed.dashboard.pages[0].widgetCount != 2 ||
+            parsed.dashboard.pages[0].widgets[0].pluginId.View() != "builtin.launcher" ||
+            parsed.dashboard.pages[0].widgets[0].adaptivePlacement.steps[0].sizeRatio != 1 ||
+            parsed.dashboard.pages[0].widgets[0].adaptivePlacement.steps[0].axis != LayoutAxis::LongSide)
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (FAILED(ExpectRejected(R"json({"version":{"major":5},"pages":[{"widgets":["Launcher"]}]})json")))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
     }
     catch (...)
     {
@@ -514,26 +703,26 @@ constexpr std::string_view kRepresentative = R"json(
 {
     try
     {
-        const std::string prefix = R"({"version":{"major":4},"declare":{"AV":{"plugin":"builtin.av-control","settings":)";
-        const std::string suffix = R"(}},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":"AV"},{"sizeRatio":1,"widget":{"use":"AV","override":{"settings":{"profiles":[]}}}}]}}]})";
+        const std::string prefix = R"({"version":{"major":5},"declare":{"AV":{"plugin":"builtin.av-control")";
+        const std::string suffix = R"(}},"pages":[{"widgets":["AV",{"use":"AV","profiles":[]}]}]})";
         const std::string profile = R"({"id":"office","name":"Office","outputId":"opaque-output","microphoneId":"opaque-mic","cameraId":"opaque-camera","audioRoles":"communications","restoreLevels":true,"outputLevel":45,"microphoneLevel":67})";
         auto settings = std::make_unique<AppSettings>();
-        if (FAILED(ParseAppSettingsJson(prefix + R"({"profiles":[)" + profile + "]}" + suffix, *settings)))
+        if (FAILED(ParseAppSettingsJson(prefix + R"(,"profiles":[)" + profile + "]" + suffix, *settings)))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         const auto& page = settings->dashboard.pages[0];
         if (page.widgetCount != 2 || page.widgets[0].privateConfiguration.View().find("opaque-camera") == std::string_view::npos ||
             page.widgets[1].privateConfiguration.View() != R"({"profiles":[]})" || FAILED(ValidateAppSettings(*settings)))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         const std::array<std::string, 5> invalid{
-            R"({"profiles":[{"id":"incomplete"}]})",
-            R"({"profiles":[],"mute":true})",
-            R"({"profiles":[)" + profile + "," + profile + "]}",
-            R"({"profiles":[)" + profile.substr(0, profile.size() - 1) + R"(,"microphoneLevel":101}]})",
-            R"({"profiles":{}})"};
+            R"(,"profiles":[{"id":"incomplete"}])",
+            R"(,"profiles":[],"mute":true)",
+            R"(,"profiles":[)" + profile + "," + profile + "]",
+            R"(,"profiles":[)" + profile.substr(0, profile.size() - 1) + R"(,"microphoneLevel":101}])",
+            R"(,"profiles":{})"};
         for (const auto& value : invalid)
             if (SUCCEEDED(ParseAppSettingsJson(prefix + value + suffix, *settings))) return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         // A missing profile list selects the declared default; loading either form only builds configuration.
-        if (FAILED(ParseAppSettingsJson(prefix + "{}" + suffix, *settings)) ||
+        if (FAILED(ParseAppSettingsJson(prefix + suffix, *settings)) ||
             settings->dashboard.pages[0].widgets[0].privateConfiguration.View() != R"({"profiles":[]})")
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         return S_OK;
@@ -549,26 +738,30 @@ constexpr std::string_view kRepresentative = R"json(
         constexpr std::string_view patch =
             R"json({"shortcuts":[{"target":"C:\\Apps\\éditeur.exe"},{"target":"https://example.com/a?x=1&y=2"}]})json";
         const std::array<std::string_view, 3> widgets{
-            R"json("Launch")json", R"json({"plugin":"builtin.launcher","settings":{"shortcuts":[]}})json",
-            R"json({"use":"Launch","override":{"settings":{"shortcuts":[]}}})json"};
+            R"json("Launch")json", R"json({"plugin":"builtin.launcher","shortcuts":[]})json",
+            R"json({"use":"Launch","shortcuts":[]})json"};
         for (const auto widget : widgets)
         {
             const std::string source =
-                R"json({"version":{"major":4,"minor":1},"futureRoot":{"label":"keep\nthis","quoted":"\"{}[],:\\","list":[[],{},true,false,null,1.25e-4,-2]},"declare":{"Launch":{"plugin":"builtin.launcher"}},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":)json" +
-                std::string(widget) + R"json(}]}}]})json";
+                R"json({"version":{"major":5,"minor":1},"futureRoot":{"label":"keep\nthis","quoted":"\"{}[],:\\","list":[[],{},true,false,null,1.25e-4,-2]},"declare":{"Launch":{"plugin":"builtin.launcher"}},"pages":[{"widgets":[)json" +
+                std::string(widget) + R"json(]}]})json";
             auto settings = std::make_unique<AppSettings>();
             if (FAILED(ParseAppSettingsJson(source, *settings)))
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             const auto id = settings->dashboard.pages[0].widgets[0].id;
             if (FAILED(PatchWidgetInstanceSettings(*settings, id.View(), patch)) ||
-                settings->sourceDocument.find("\n  \"version\": { \"major\": 4, \"minor\": 1 }") == std::string::npos ||
+                settings->sourceDocument.find("\n  \"version\": { \"major\": 5, \"minor\": 1 }") == std::string::npos ||
                 settings->sourceDocument.find("\"Launch\": { \"plugin\": \"builtin.launcher\" }") ==
                     std::string::npos ||
+                settings->sourceDocument.find("\"layout\"") != std::string::npos ||
                 settings->sourceDocument.find("\"shortcuts\": [\n") == std::string::npos ||
                 settings->sourceDocument.back() != '\n' ||
                 settings->sourceDocument.find("{ \"target\": \"C:\\\\Apps\\\\éditeur.exe\" }") == std::string::npos ||
                 settings->sourceDocument.find("\"futureRoot\":") == std::string::npos ||
-                settings->dashboard.pages[0].widgets[0].privateConfiguration.View() != patch)
+                settings->dashboard.pages[0].widgets[0].privateConfiguration.View().find("éditeur.exe") ==
+                    std::string_view::npos ||
+                settings->dashboard.pages[0].widgets[0].privateConfiguration.View().find("\"iconSize\":\"huge\"") ==
+                    std::string_view::npos)
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             const std::string formatted = settings->sourceDocument;
             unique_doc before{yyjson_read(source.data(), source.size(), YYJSON_READ_NOFLAG)};
@@ -579,7 +772,10 @@ constexpr std::string_view kRepresentative = R"json(
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             auto reloaded = std::make_unique<AppSettings>();
             if (FAILED(ParseAppSettingsJson(formatted, *reloaded)) ||
-                reloaded->dashboard.pages[0].widgets[0].privateConfiguration.View() != patch ||
+                reloaded->dashboard.pages[0].widgets[0].privateConfiguration.View().find("éditeur.exe") ==
+                    std::string_view::npos ||
+                reloaded->dashboard.pages[0].widgets[0].privateConfiguration.View().find("\"iconSize\":\"huge\"") ==
+                    std::string_view::npos ||
                 FAILED(PatchWidgetInstanceSettings(*settings, id.View(), patch)) ||
                 settings->sourceDocument != formatted)
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -608,6 +804,9 @@ constexpr std::string_view kRepresentative = R"json(
                     preview->sourceDocument.find("{ \"target\": \"https://example.com/" + std::string(160, 'a') +
                                                  "\" }") == std::string::npos ||
                     FAILED(PatchWidgetInstanceSettings(*preview, widget.id.View(), patch)))
+                    return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                if (preview->sourceDocument.find("\"columns\"") == std::string::npos ||
+                    preview->sourceDocument.find("\"layout\"") != std::string::npos)
                     return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
                 unique_doc document{yyjson_read(preview->sourceDocument.data(), preview->sourceDocument.size(), 0)};
                 if (!document)
@@ -642,7 +841,7 @@ constexpr std::string_view kRepresentative = R"json(
 
         // A compact accepted document must not be written as an oversized, subsequently unreadable pretty document.
         std::string large =
-            R"json({"version":{"major":4,"minor":1},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.launcher"}}]}}],"futurePadding":")json";
+            R"json({"version":{"major":5,"minor":1},"pages":[{"widgets":[{"plugin":"builtin.launcher"}]}],"futurePadding":")json";
         large.append(1024U * 1024U - large.size() - 2, 'x');
         large += "\"}";
         auto settings = std::make_unique<AppSettings>();
@@ -775,6 +974,21 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             fallbackStore.SettingsPath() != std::filesystem::absolute(selected).wstring())
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
+        constexpr std::string_view v4Portable = R"json({"version":{"major":4},"pages":[{}]})json";
+        {
+            std::ofstream stream(selected, std::ios::binary | std::ios::trunc);
+            stream << v4Portable;
+        }
+        SettingsStore v4Store;
+        std::unique_ptr<AppSettings> v4Fallback;
+        result = v4Store.Initialize(false, selected.wstring(), v4Fallback);
+        std::string v4Unchanged;
+        if (SUCCEEDED(result))
+            result = ReadFile(selected, v4Unchanged);
+        if (FAILED(result) || !v4Fallback || !v4Store.UsedInitialFallback() || v4Unchanged != v4Portable ||
+            v4Fallback->versionMajor != kRedXeSettingsVersionMajor)
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
         {
             std::ofstream stream(selected, std::ios::binary | std::ios::trunc);
             stream << kRepresentative;
@@ -843,6 +1057,49 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         AppSettings installed{};
         if (backupCount != 1 || FAILED(LoadAppSettingsFile(selected.wstring(), installed)))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        const std::filesystem::path v4Root =
+            std::filesystem::temp_directory_path() /
+            (L"RedXe.DefaultRecoveryV4Tests." + std::to_wstring(GetCurrentProcessId()) + L"." +
+             std::to_wstring(GetTickCount64()));
+        const std::filesystem::path v4Directory = v4Root / L"RedXe" / L"Settings";
+        std::filesystem::create_directories(v4Directory);
+        const auto cleanupV4 = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code error;
+                std::filesystem::remove_all(v4Root, error);
+            });
+        constexpr std::string_view v4Bytes = R"json({"version":{"major":4},"pages":[{}]})json";
+        const std::filesystem::path v4Selected = v4Directory / selectedName;
+        {
+            std::ofstream stream(v4Selected, std::ios::binary);
+            stream.write(v4Bytes.data(), static_cast<std::streamsize>(v4Bytes.size()));
+        }
+        SettingsStore v4Store;
+        std::unique_ptr<AppSettings> v4Recovered;
+        result = v4Store.Initialize(false, {}, v4Recovered, v4Root.wstring());
+        if (FAILED(result) || !v4Recovered || !v4Store.UsedInitialFallback() ||
+            v4Recovered->versionMajor != kRedXeSettingsVersionMajor ||
+            v4Store.InitialNotice().find(L".invalid-") == std::wstring::npos)
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        size_t v4BackupCount = 0;
+        for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(v4Directory))
+        {
+            const std::wstring name = entry.path().filename().wstring();
+            if (!name.starts_with(std::filesystem::path(selectedName).stem().wstring() + L".invalid-") ||
+                entry.path().extension() != L".json")
+                continue;
+            ++v4BackupCount;
+            std::string preserved;
+            result = ReadFile(entry.path(), preserved);
+            if (FAILED(result) || preserved != v4Bytes)
+                return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        AppSettings v4Installed{};
+        if (v4BackupCount != 1 || FAILED(LoadAppSettingsFile(v4Selected.wstring(), v4Installed)) ||
+            v4Installed.versionMajor != kRedXeSettingsVersionMajor)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         return S_OK;
     }
     catch (...)
@@ -898,10 +1155,9 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 [[nodiscard]] HRESULT ValidatePersistRollback() noexcept
 {
     constexpr std::string_view documentJson =
-        R"({"version":{"major":4},"declare":{"Matrix":{"plugin":"builtin.matrix-rain",)"
-        R"("settings":{"seed":7,"densityPercent":60}}},"pages":[{"layout":{"arrangeAlong":"long-side",)"
-        R"("areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}},)"
-        R"({"sizeRatio":1,"widget":"Matrix"}]}}]})";
+        R"({"version":{"major":5},"declare":{"Matrix":{"plugin":"builtin.matrix-rain",)"
+        R"("seed":7,"densityPercent":60}},"pages":[{"widgets":[{"plugin":"builtin.rotating-triangle"},)"
+        R"("Matrix"]}]})";
     try
     {
         const auto directory =
@@ -1027,6 +1283,105 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         return E_FAIL;
     }
 }
+
+[[nodiscard]] HRESULT ValidateLiveReloadNoWrite() noexcept
+{
+    try
+    {
+        const std::filesystem::path directory = std::filesystem::temp_directory_path() /
+                                                (L"RedXe.LiveReloadTests." + std::to_wstring(GetCurrentProcessId()) +
+                                                 L"." + std::to_wstring(GetTickCount64()));
+        std::filesystem::create_directory(directory);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code error;
+                std::filesystem::remove_all(directory, error);
+            });
+        const std::filesystem::path file = directory / L"live.settings.json";
+        {
+            std::ofstream stream(file, std::ios::binary);
+            stream << kRepresentative;
+        }
+        SettingsStore store;
+        std::unique_ptr<AppSettings> loaded;
+        HRESULT result = store.Initialize(false, file.wstring(), loaded);
+        if (FAILED(result) || !loaded)
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        constexpr std::string_view nextValid =
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher"}]}]})json";
+        {
+            std::ofstream stream(file, std::ios::binary | std::ios::trunc);
+            stream << nextValid;
+        }
+        std::string afterValidWrite;
+        result = ReadFile(file, afterValidWrite);
+        std::unique_ptr<AppSettings> candidate;
+        SettingsFileStamp stamp{};
+        SettingsReloadStatus status = SettingsReloadStatus::Unchanged;
+        if (FAILED(result) || FAILED(store.TryLoadChanged(candidate, stamp, status)) ||
+            status != SettingsReloadStatus::Loaded || !candidate || candidate->dashboard.pages[0].widgets.empty())
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        std::string afterValidLoad;
+        if (FAILED(ReadFile(file, afterValidLoad)) || afterValidLoad != afterValidWrite)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        constexpr std::string_view persistPatch =
+            R"json({"shortcuts":[{"target":"C:\\Windows\\notepad.exe"}]})json";
+        const std::string_view instanceId = candidate->dashboard.pages[0].widgets[0].id.View();
+        store.SuppressDocumentWrites(true);
+        result = store.PersistWidgetSettings(*candidate, instanceId, persistPatch);
+        store.SuppressDocumentWrites(false);
+        std::string afterSuppressedPersist;
+        if (FAILED(result) || FAILED(ReadFile(file, afterSuppressedPersist)) ||
+            afterSuppressedPersist != afterValidWrite)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        result = store.PersistWidgetSettings(*candidate, instanceId, persistPatch);
+        std::string afterExplicitPersist;
+        if (FAILED(result) || FAILED(ReadFile(file, afterExplicitPersist)) ||
+            afterExplicitPersist == afterValidWrite)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        constexpr std::string_view invalid = R"json({"version":{"major":4},"pages":[{}]})json";
+        {
+            std::ofstream stream(file, std::ios::binary | std::ios::trunc);
+            stream << invalid;
+        }
+        std::string afterInvalidWrite;
+        result = ReadFile(file, afterInvalidWrite);
+        candidate.reset();
+        status = SettingsReloadStatus::Unchanged;
+        if (FAILED(result) || FAILED(store.TryLoadChanged(candidate, stamp, status)) ||
+            status != SettingsReloadStatus::Invalid || candidate)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        std::string afterInvalidLoad;
+        if (FAILED(ReadFile(file, afterInvalidLoad)) || afterInvalidLoad != afterInvalidWrite ||
+            store.LastDiagnosticText().find(L"version 5") == std::wstring::npos)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        constexpr std::string_view laterValid = R"json({"version":{"major":5},"wrapPages":true,"pages":[{}]})json";
+        {
+            std::ofstream stream(file, std::ios::binary | std::ios::trunc);
+            stream << laterValid;
+        }
+        std::string afterLaterWrite;
+        candidate.reset();
+        status = SettingsReloadStatus::Unchanged;
+        if (FAILED(ReadFile(file, afterLaterWrite)) || FAILED(store.TryLoadChanged(candidate, stamp, status)) ||
+            status != SettingsReloadStatus::Loaded || !candidate)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        std::string afterLaterLoad;
+        if (FAILED(ReadFile(file, afterLaterLoad)) || afterLaterLoad != afterLaterWrite)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
 } // namespace
 
 int wmain()
@@ -1046,7 +1401,8 @@ int wmain()
                        {L"legacy filename", ValidateLegacyReleaseFilenameMigration},
                        {L"logs directory", ValidateLogsDirectory},
                        {L"persist formatting", ValidatePersistFormatting},
-                       {L"persist rollback", ValidatePersistRollback}};
+                       {L"persist rollback", ValidatePersistRollback},
+                       {L"live reload no write", ValidateLiveReloadNoWrite}};
     for (const auto& test : tests)
     {
         const HRESULT result = test.run();

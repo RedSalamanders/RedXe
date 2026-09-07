@@ -40,7 +40,7 @@ class DashboardHost final
     [[nodiscard]] LONG HorizontalOffset() const noexcept;
     [[nodiscard]] HRESULT ApplyRaisedNativeLayout(size_t widgetIndex, const RECT& content, UINT dpi) noexcept;
     [[nodiscard]] HRESULT ClearRaisedNativeLayout(UINT dpi) noexcept;
-    void Shutdown() noexcept;
+    void Shutdown(bool persistCollectedSettings = true) noexcept;
     [[nodiscard]] size_t WidgetCount() const noexcept;
     [[nodiscard]] IRedXeWidget* WidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeGpuWidget* GpuWidgetAt(size_t index) const noexcept;

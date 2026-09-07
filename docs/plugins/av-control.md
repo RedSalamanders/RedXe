@@ -42,8 +42,6 @@ Shipped templates use an empty `profiles` array. Prefer editing profiles in the 
 ```json
 {
   "plugin": "builtin.av-control",
-  "settings": {
-    "profiles": []
-  }
+  "profiles": []
 }
 ```

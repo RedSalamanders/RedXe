@@ -50,11 +50,15 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   Per-slot in-flight counters and fixed delivery arrays preserve the 32-subscription bound without heap allocation.
   Widgets MUST be quiescent before GPU teardown. Worker-side GPU lifetime checks and access share the resource lock;
   an atomic ownership flag alone is insufficient to protect a device resource.
-- Launcher uses two fixed geometry entries for the tile and overlay. Each entry stores dimensions, paging, and eight
-  cell rects (172 bytes). Their combined 344-byte payload plus an 8-byte index preserves both draw geometries and
-  avoids repeated grid derivation when settled; alternating WARP draws MUST allocate zero heap memory. Animated overlay
-  sizes recompute only the changed entry. Overflow shortcuts paginate inside the widget; the GPU page-dot strip shares
-  `DxUi::PageIndicator` DIP metrics and does not add a second constant buffer.
+- Launcher uses two fixed geometry entries for the tile and overlay. Each entry stores dimensions, paging, `iconSize`,
+  and 32 cell rects. Their combined payload plus an 8-byte index preserves both draw geometries and avoids repeated
+  grid derivation when settled; alternating WARP draws MUST allocate zero heap memory. Animated overlay sizes recompute
+  only the changed entry. Overflow shortcuts paginate inside the widget at the chosen cell size; the GPU page-dot strip
+  shares `DxUi::PageIndicator` DIP metrics and does not add a second constant buffer. Each visible launcher instance
+  owns one 32-slice 256×256 BGRA `Texture2DArray` (8 MiB) plus a 64-byte dynamic constant buffer and a 1 KiB
+  (32×32-byte) dynamic structured instance buffer. That 8 MiB texture is the justified capacity cost of 32 jumbo
+  icons; `Render` only maps the existing instance and constant buffers. CPU BGRA sources stay bounded at
+  32×256×256×4 and rebuild the GPU array after device loss without a second extract.
 - Visible continuous animation must be paced by display presentation. Hidden, minimized, suspended, or display-off
   rendering must block on events and must not build or present a frame because an unrelated message was dispatched.
   An active page pan, settle, or staged neighbor is visible motion: the host MUST keep presenting so widget animation
@@ -97,10 +101,11 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   resources and reflow content every frame of the slide. Render, resize, and
   `IRedXeWidget::SetVisible` callbacks must not
   perform network, process creation, blocking waits, or long-held locks. `Render` must not perform disk, extract
-  icons, or decode images. The launcher MAY enumerate at most eight taskbar `.lnk` files and extract jumbo or PNG
+  icons, or decode images. The launcher MAY enumerate at most 32 taskbar `.lnk` files and extract jumbo or PNG
   icons on `SetVisible(TRUE)` when the authored shortcut list is empty, and on drop or settings apply; that work MUST
   NOT run from `Render`. Launch animation uses `RequestFrame` for at most 400 ms, then returns to idle with no
-  wake-up.
+  wake-up. Launcher page-slide follow uses `RequestFrame` only while the finger is moving or a 140–280 ms ease-out
+  settle is in flight; a static grid owns no wake-up.
 - A visible native-window animation MAY use a UI-thread timer at the lowest rate that preserves its required visual
   quality. It MUST stop the timer while hidden, minimized, display-off, occluded, or detached. GDI paint callbacks
   MUST reuse resize-owned buffers and GDI objects rather than allocate memory or create handles per paint.

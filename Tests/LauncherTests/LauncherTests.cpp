@@ -4,8 +4,10 @@
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -317,6 +319,30 @@ struct RenderTarget final
     return (FAILED(result) && !provider) ? S_OK : kTestFailure;
 }
 
+[[nodiscard]] std::string MakeShortcutListJson(uint32_t count, const char* iconSize = nullptr)
+{
+    std::string json = "{";
+    if (iconSize && iconSize[0] != '\0')
+    {
+        json += "\"iconSize\":\"";
+        json += iconSize;
+        json += "\",";
+    }
+    json += "\"shortcuts\":[";
+    for (uint32_t index = 0; index < count; ++index)
+    {
+        if (index != 0)
+        {
+            json += ',';
+        }
+        char item[80]{};
+        (void)sprintf_s(item, R"({"target":"C:\\Windows\\System32\\n%02u.exe"})", index);
+        json += item;
+    }
+    json += "]}";
+    return json;
+}
+
 [[nodiscard]] HRESULT WritePng(const wchar_t* path) noexcept
 {
     wil::com_ptr_nothrow<IWICImagingFactory> factory;
@@ -469,14 +495,27 @@ struct RenderTarget final
         FAILED(ExpectReject(create, R"json({"shortcuts":[{"target":"Docs\\file.txt"}]})json")) ||
         FAILED(ExpectReject(create, R"json({"extra":1,"shortcuts":[]})json")) ||
         FAILED(ExpectReject(create, R"json({"shortcuts":[{"target":"C:\\Windows\\notepad.exe","nope":1}]})json")) ||
-        FAILED(ExpectReject(
-            create,
-            R"json({"shortcuts":[{"target":"C:\\a.exe"},{"target":"C:\\b.exe"},{"target":"C:\\c.exe"},{"target":"C:\\d.exe"},{"target":"C:\\e.exe"},{"target":"C:\\f.exe"},{"target":"C:\\g.exe"},{"target":"C:\\h.exe"},{"target":"C:\\i.exe"}]})json")))
+        FAILED(ExpectReject(create, MakeShortcutListJson(kLauncherMaximumShortcuts + 1))) ||
+        FAILED(ExpectReject(create, R"json({"iconSize":"jumbo"})json")) ||
+        FAILED(ExpectReject(create, R"json({"iconSize":"auto"})json")))
     {
         std::wprintf(L"Launcher factory rejected a valid document or accepted an invalid one.\n");
         return kTestFailure;
     }
     wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+    const std::string thirtyTwo = MakeShortcutListJson(kLauncherMaximumShortcuts);
+    if (FAILED(CreateProvider(create, thirtyTwo, nullptr, provider)))
+    {
+        std::wprintf(L"Launcher factory rejected 32 shortcuts.\n");
+        return kTestFailure;
+    }
+    if (FAILED(CreateProvider(create, R"json({"iconSize":"small"})json", nullptr, provider)) ||
+        FAILED(CreateProvider(create, R"json({"iconSize":"medium"})json", nullptr, provider)) ||
+        FAILED(CreateProvider(create, R"json({"iconSize":"large"})json", nullptr, provider)))
+    {
+        std::wprintf(L"Launcher factory rejected a valid iconSize.\n");
+        return kTestFailure;
+    }
     result = CreateProvider(create, kEmptyShortcuts, nullptr, provider);
     if (FAILED(result) || !provider)
     {
@@ -627,6 +666,7 @@ struct RenderTarget final
     const uint64_t extractsAfterPins = pinDiagnostics.extractCalls;
     if (extractsAfterPins <= extractsBefore)
     {
+        std::wprintf(L"Pin import did not extract icons.\n");
         return kTestFailure;
     }
     gpu->OnDeviceLost();
@@ -661,9 +701,15 @@ struct RenderTarget final
     if (emptyWidget->CollectPersistentSettings(collect.data(), 2, &written) !=
             HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) ||
         written != 0)
+    {
+        std::wprintf(L"Collect did not report a bounded persist buffer.\n");
         return kTestFailure;
+    }
     if (FAILED(emptyWidget->SetVisible(FALSE)) || FAILED(emptyWidget->SetVisible(TRUE)) || host.queueCalls != 1)
+    {
+        std::wprintf(L"Hide/show re-queued imported pins.\n");
         return kTestFailure;
+    }
     host.persistResult = E_ACCESSDENIED;
     host.Drain();
     wil::com_ptr_nothrow<IRedXeInteractiveWidget> importedInteractive;
@@ -676,7 +722,10 @@ struct RenderTarget final
             S_OK ||
         std::string_view(collect.data(), written).find("Alpha.lnk") == std::string_view::npos ||
         std::string_view(collect.data(), written).find("rejected") != std::string_view::npos)
+    {
+        std::wprintf(L"Failed drop mutated imported pins.\n");
         return kTestFailure;
+    }
     host.persistResult = S_OK;
 
     // Saved imports remain editable configured shortcuts, even when the taskbar directory is unavailable later.
@@ -688,7 +737,10 @@ struct RenderTarget final
         FAILED(savedProvider->CreateWidget(kWidgetTypeId, "launcher.saved", savedWidget.put())) ||
         FAILED(savedWidget->SetVisible(TRUE)) || FAILED(getDiagnostics(&pinDiagnostics)) ||
         pinDiagnostics.authoredCount != 1 || pinDiagnostics.displayCount != 1 || savedHost.queueCalls != 0)
+    {
+        std::wprintf(L"Saved pin import did not reload as authored shortcuts.\n");
         return kTestFailure;
+    }
     (void)setPinDirectory(pinDir.data());
     for (const bool available : {false, true})
     {
@@ -703,7 +755,10 @@ struct RenderTarget final
             fallbackWidget->CollectPersistentSettings(collect.data(), static_cast<uint32_t>(collect.size()),
                                                       &written) != S_OK ||
             written == 0 || fallbackHost.persistCalls != 0)
+        {
+            std::wprintf(L"Pin import fallback did not keep a collectable persist payload.\n");
             return kTestFailure;
+        }
     }
 
     {
@@ -742,12 +797,19 @@ struct RenderTarget final
             pinDiagnostics.authoredCount == 0 || pinDiagnostics.authoredCount >= 8 ||
             pinDiagnostics.displayCount != pinDiagnostics.authoredCount || boundedHost.pendingJson.empty() ||
             boundedHost.pendingJson.size() > 4096)
+        {
+            std::wprintf(L"Long pin paths were not bounded for persist.\n");
             return kTestFailure;
+        }
         wil::com_ptr_nothrow<IRedXeWidgetProvider> roundTrip;
         if (FAILED(CreateProvider(create, boundedHost.pendingJson, &boundedHost, roundTrip)))
+        {
+            std::wprintf(L"Bounded persist JSON was not a valid factory instance.\n");
             return kTestFailure;
+        }
     }
 
+    std::wprintf(L"Pin import checks passed; starting PNG layout checks.\n");
     std::array<wchar_t, MAX_PATH> pngPath{};
     (void)swprintf_s(pngPath.data(), pngPath.size(), L"%s\\override.png", pinDir.data());
     result = WritePng(pngPath.data());
@@ -805,6 +867,7 @@ struct RenderTarget final
     result = getDiagnostics(&pngDiagnostics);
     if (FAILED(result) || pngDiagnostics.authoredCount != 1 || pngDiagnostics.usingTaskbarPins != 0)
     {
+        std::wprintf(L"PNG override shortcut did not stay authored.\n");
         return kTestFailure;
     }
 
@@ -824,7 +887,10 @@ struct RenderTarget final
         const RedXePointerEvent padding{sizeof(padding), 1, RedXePointerKindMouse, RedXePointerPhaseDown, 1.0f, 1.0f};
         if (FAILED(result) || layoutInput->OnPointer(&hit) != S_OK || layoutInput->OnPointer(&cancel) != S_FALSE ||
             layoutInput->OnPointer(&padding) != S_FALSE)
+        {
+            std::wprintf(L"PNG icon hit-test failed at %u DIP.\n", edge);
             return kTestFailure;
+        }
     }
 
     gRenderThread.store(GetCurrentThreadId(), std::memory_order_relaxed);
@@ -929,23 +995,44 @@ struct RenderTarget final
         return kTestFailure;
     }
 
-    std::array<RedXeDropItem, 8> extras{};
-    std::array<std::array<wchar_t, 64>, 8> extraPaths{};
-    for (uint32_t index = 0; index < extras.size(); ++index)
+    std::array<wchar_t, 64> extraPath{};
+    LauncherTestDiagnostics dropDiagnostics{sizeof(LauncherTestDiagnostics)};
+    result = getDiagnostics(&dropDiagnostics);
+    if (FAILED(result))
     {
-        (void)swprintf_s(extraPaths[index].data(), extraPaths[index].size(), L"C:\\Windows\\System32\\extra%u.exe",
-                         index);
-        extras[index] = RedXeDropItem{sizeof(RedXeDropItem), 0, extraPaths[index].data()};
+        return result;
     }
-    const RedXeDropEvent overflow{sizeof(RedXeDropEvent), 1.0f, 1.0f, static_cast<uint32_t>(extras.size()),
-                                  extras.data()};
-    (void)dropInteractive->OnDrop(&overflow);
-    const RedXeDropItem ninth{sizeof(RedXeDropItem), 0, L"C:\\Windows\\System32\\ninth.exe"};
-    const RedXeDropEvent ninthEvent{sizeof(RedXeDropEvent), 1.0f, 1.0f, 1, &ninth};
-    if (dropInteractive->OnDrop(&ninthEvent) != S_FALSE)
+    uint32_t extraIndex = 0;
+    while (dropDiagnostics.authoredCount < kLauncherMaximumShortcuts)
     {
-        std::wprintf(L"A ninth shortcut was accepted.\n");
+        (void)swprintf_s(extraPath.data(), extraPath.size(), L"C:\\Windows\\System32\\extra%u.exe", extraIndex);
+        const RedXeDropItem extraItem{sizeof(RedXeDropItem), 0, extraPath.data()};
+        const RedXeDropEvent extraEvent{sizeof(RedXeDropEvent), 1.0f, 1.0f, 1, &extraItem};
+        if (dropInteractive->OnDrop(&extraEvent) != S_OK)
+        {
+            std::wprintf(L"Launcher rejected a shortcut before reaching 32.\n");
+            return kTestFailure;
+        }
+        ++extraIndex;
+        result = getDiagnostics(&dropDiagnostics);
+        if (FAILED(result) || extraIndex > kLauncherMaximumShortcuts + 4)
+        {
+            std::wprintf(L"Launcher drop fill did not reach 32 shortcuts.\n");
+            return FAILED(result) ? result : kTestFailure;
+        }
+    }
+    const RedXeDropItem overflowItem{sizeof(RedXeDropItem), 0, L"C:\\Windows\\System32\\extra33.exe"};
+    const RedXeDropEvent overflowEvent{sizeof(RedXeDropEvent), 1.0f, 1.0f, 1, &overflowItem};
+    if (dropInteractive->OnDrop(&overflowEvent) != S_FALSE)
+    {
+        std::wprintf(L"A 33rd shortcut was accepted.\n");
         return kTestFailure;
+    }
+    result = getDiagnostics(&dropDiagnostics);
+    if (FAILED(result) || dropDiagnostics.authoredCount != kLauncherMaximumShortcuts)
+    {
+        std::wprintf(L"Launcher drop cap did not stay at 32 shortcuts.\n");
+        return FAILED(result) ? result : kTestFailure;
     }
 
     (void)setPinDirectory(nullptr);
@@ -955,18 +1042,157 @@ struct RenderTarget final
     return S_OK;
 }
 
-[[nodiscard]] HRESULT ValidatePages(RedXeCreateFn create, LauncherGetTestDiagnosticsFn getDiagnostics) noexcept
+[[nodiscard]] bool LauncherCellsAreRegular(const std::array<std::array<float, 4>, kLauncherMaximumShortcuts>& cells,
+                                           uint32_t packed, uint32_t columns, float width, float contentHeight) noexcept
 {
-    const auto fit = ComputeLauncherPages(480, 480, 96, 8, 0);
-    if (fit.pageCount != 1 || fit.visibleCount != 8)
+    if (packed == 0 || columns == 0)
     {
-        std::wprintf(L"A large launcher tile should keep eight shortcuts on one page.\n");
+        return false;
+    }
+    constexpr float kEps = 0.75f;
+    const float half = cells[0][2];
+    if (half < 4.0f || std::fabs(cells[0][3] - half) > kEps)
+    {
+        return false;
+    }
+    for (uint32_t index = 0; index < packed; ++index)
+    {
+        if (std::fabs(cells[index][2] - half) > kEps || std::fabs(cells[index][3] - half) > kEps)
+        {
+            return false;
+        }
+        if (cells[index][0] - half < -kEps || cells[index][0] + half > width + kEps ||
+            cells[index][1] - half < -kEps || cells[index][1] + half > contentHeight + kEps)
+        {
+            return false;
+        }
+        if (index > 0 && index % columns != 0 &&
+            std::fabs((cells[index][0] - cells[index - 1][0]) - (cells[1][0] - cells[0][0])) > kEps)
+        {
+            return false;
+        }
+        if (index >= columns &&
+            std::fabs((cells[index][1] - cells[index - columns][1]) - (cells[columns][1] - cells[0][1])) > kEps)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool LauncherCellsKeepMinimumGutters(
+    const std::array<std::array<float, 4>, kLauncherMaximumShortcuts>& cells, uint32_t packed, uint32_t columns,
+    float width, float contentHeight, UINT dpi) noexcept
+{
+    if (packed == 0 || columns == 0)
+    {
+        return false;
+    }
+    constexpr float kEps = 0.75f;
+    const float minGutter = LauncherDipToPixels(kLauncherMinGutterDip, dpi);
+    const float edgeInset = LauncherDipToPixels(kLauncherEdgeInsetDip, dpi);
+    const float iconEdge = cells[0][2] * 2.0f;
+    for (uint32_t index = 0; index < packed; ++index)
+    {
+        const float half = cells[index][2];
+        if (cells[index][0] - half + kEps < edgeInset || cells[index][0] + half > width - edgeInset + kEps ||
+            cells[index][1] - half + kEps < edgeInset || cells[index][1] + half > contentHeight - edgeInset + kEps)
+        {
+            return false;
+        }
+        if (index > 0 && index % columns != 0 &&
+            cells[index][0] - cells[index - 1][0] + kEps < iconEdge + minGutter)
+        {
+            return false;
+        }
+        if (index >= columns && cells[index][1] - cells[index - columns][1] + kEps < iconEdge + minGutter)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] HRESULT ExpectNamedSizeLayout(uint32_t width, uint32_t height, UINT dpi, uint32_t shortcutCount,
+                                            LauncherIconSize iconSize, const LauncherPageGeometry& huge) noexcept
+{
+    const auto pages = ComputeLauncherPages(width, height, dpi, shortcutCount, 0, iconSize);
+    if (pages.columns == 0 || pages.rows == 0 || pages.iconSizePx <= 0.0f || pages.cellSizePx <= 0.0f)
+    {
+        std::wprintf(L"Launcher %hs paging did not publish a regular cell.\n", LauncherIconSizeName(iconSize));
         return kTestFailure;
     }
-    const auto paged = ComputeLauncherPages(160, 160, 96, 8, 0);
+    const bool paging = pages.pageCount > 1;
+    if (paging != (pages.indicatorHeightPx > 0.5f) ||
+        (!paging && pages.contentHeightPx + 0.5f < static_cast<float>(height)))
+    {
+        std::wprintf(L"Launcher %hs reserved the page-dot strip incorrectly.\n", LauncherIconSizeName(iconSize));
+        return kTestFailure;
+    }
+    if (pages.rows <= huge.rows && pages.iconSizePx + 0.5f >= huge.iconSizePx)
+    {
+        std::wprintf(L"Launcher %hs on a tall tile should produce more rows or a smaller icon than huge.\n",
+                     LauncherIconSizeName(iconSize));
+        return kTestFailure;
+    }
+    std::array<std::array<float, 4>, kLauncherMaximumShortcuts> cells{};
+    FillLauncherPageCells(width, height, dpi, shortcutCount, pages, cells);
+    const uint32_t packed = LauncherPackedIconCount(pages, shortcutCount);
+    if (packed == 0 || packed > shortcutCount ||
+        !LauncherCellsAreRegular(cells, packed, pages.columns, static_cast<float>(width), pages.contentHeightPx) ||
+        !LauncherCellsKeepMinimumGutters(cells, packed, pages.columns, static_cast<float>(width), pages.contentHeightPx,
+                                         dpi))
+    {
+        std::wprintf(L"Launcher %hs icons were clipped or used uneven cell geometry.\n",
+                     LauncherIconSizeName(iconSize));
+        return kTestFailure;
+    }
+    const float expectedHalf = LauncherSpreadIconPixels(static_cast<float>(width), pages.contentHeightPx, pages.columns,
+                                                        pages.rows, pages.iconSizePx, dpi) *
+                               0.5f;
+    if (std::fabs(cells[0][2] - expectedHalf) > 0.75f)
+    {
+        std::wprintf(L"Launcher %hs draw size did not follow the named DIP cell.\n", LauncherIconSizeName(iconSize));
+        return kTestFailure;
+    }
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT ValidatePages(RedXeCreateFn create, LauncherGetTestDiagnosticsFn getDiagnostics) noexcept
+{
+    const auto hugeLarge = ComputeLauncherPages(480, 480, 96, 8, 0, LauncherIconSize::Huge);
+    if (hugeLarge.pageCount < 2 || hugeLarge.visibleCount == 0 || hugeLarge.visibleCount >= 8)
+    {
+        std::wprintf(L"Huge icons on a large tile should paginate eight shortcuts.\n");
+        return kTestFailure;
+    }
+    const auto automaticLarge = ComputeLauncherPages(480, 480, 96, 8, 0, LauncherIconSize::Automatic);
+    if (automaticLarge.pageCount != 1 || automaticLarge.visibleCount != 8)
+    {
+        std::wprintf(L"Automatic icons on a large tile should fit eight shortcuts without dots.\n");
+        return kTestFailure;
+    }
+    const auto smallLarge = ComputeLauncherPages(480, 480, 96, 8, 0, LauncherIconSize::Small);
+    const auto mediumLarge = ComputeLauncherPages(480, 480, 96, 8, 0, LauncherIconSize::Medium);
+    const auto largeLarge = ComputeLauncherPages(480, 480, 96, 8, 0, LauncherIconSize::Large);
+    if (smallLarge.pageCount != 1 || mediumLarge.pageCount != 1 || largeLarge.pageCount != 1 ||
+        smallLarge.visibleCount != 8 || mediumLarge.visibleCount != 8 || largeLarge.visibleCount != 8 ||
+        smallLarge.pageCount == hugeLarge.pageCount || mediumLarge.visibleCount == hugeLarge.visibleCount ||
+        largeLarge.visibleCount == hugeLarge.visibleCount)
+    {
+        std::wprintf(L"Named icon sizes should change per-page count versus huge on a large tile.\n");
+        return kTestFailure;
+    }
+    const auto paged = ComputeLauncherPages(160, 160, 96, 8, 0, LauncherIconSize::Huge);
     if (paged.pageCount < 2 || paged.visibleCount == 0 || paged.visibleCount >= 8)
     {
         std::wprintf(L"A compact launcher tile should page overflow shortcuts.\n");
+        return kTestFailure;
+    }
+    const auto automaticCompact = ComputeLauncherPages(160, 160, 96, 8, 0, LauncherIconSize::Automatic);
+    if (automaticCompact.pageCount < 2)
+    {
+        std::wprintf(L"Automatic icons should still paginate when the 72 DIP floor cannot hold eight shortcuts.\n");
         return kTestFailure;
     }
     if (HitLauncherPageDot(80.0f, 150.0f, 160, 160, 96, paged.pageCount) == UINT32_MAX)
@@ -975,8 +1201,143 @@ struct RenderTarget final
         return kTestFailure;
     }
 
+    constexpr uint32_t kTallWidth = 256;
+    constexpr uint32_t kTallHeight = 720;
+    const auto hugeTall = ComputeLauncherPages(kTallWidth, kTallHeight, 96, 8, 0, LauncherIconSize::Huge);
+    if (hugeTall.pageCount < 2 || hugeTall.iconSizePx < 180.0f || hugeTall.columns == 0 || hugeTall.rows == 0)
+    {
+        std::wprintf(L"Huge icons on a tall 256x720 tile should stay jumbo-class and paginate eight shortcuts.\n");
+        return kTestFailure;
+    }
+    std::array<std::array<float, 4>, kLauncherMaximumShortcuts> hugeCells{};
+    FillLauncherPageCells(kTallWidth, kTallHeight, 96, 8, hugeTall, hugeCells);
+    const uint32_t hugePacked = LauncherPackedIconCount(hugeTall, 8);
+    if (!LauncherCellsAreRegular(hugeCells, hugePacked, hugeTall.columns, static_cast<float>(kTallWidth),
+                                 hugeTall.contentHeightPx) ||
+        !LauncherCellsKeepMinimumGutters(hugeCells, hugePacked, hugeTall.columns, static_cast<float>(kTallWidth),
+                                         hugeTall.contentHeightPx, 96))
+    {
+        std::wprintf(L"Huge launcher icons were clipped on a tall tile.\n");
+        return kTestFailure;
+    }
+    const auto smallTall = ComputeLauncherPages(kTallWidth, kTallHeight, 96, 8, 0, LauncherIconSize::Small);
+    std::array<std::array<float, 4>, kLauncherMaximumShortcuts> smallCells{};
+    FillLauncherPageCells(kTallWidth, kTallHeight, 96, 8, smallTall, smallCells);
+    const uint32_t smallPacked = LauncherPackedIconCount(smallTall, 8);
+    if (smallTall.pageCount != 1 || smallTall.columns > 2 || smallTall.rows < 4 || smallPacked != 8 ||
+        smallCells[smallPacked - 1][1] - smallCells[0][1] < smallTall.contentHeightPx * 0.45f ||
+        !LauncherCellsKeepMinimumGutters(smallCells, smallPacked, smallTall.columns, static_cast<float>(kTallWidth),
+                                         smallTall.contentHeightPx, 96))
+    {
+        std::wprintf(L"Small icons on a tall 256x720 tile clustered instead of spreading with gutters.\n");
+        return kTestFailure;
+    }
+    const auto thirtyTwoSmall = ComputeLauncherPages(720, 720, 96, kLauncherMaximumShortcuts, 0, LauncherIconSize::Small);
+    if (thirtyTwoSmall.pageCount != 1 || thirtyTwoSmall.visibleCount != kLauncherMaximumShortcuts)
+    {
+        std::wprintf(L"Small icons should fit 32 shortcuts on a large square tile.\n");
+        return kTestFailure;
+    }
+    std::array<std::array<float, 4>, kLauncherMaximumShortcuts> thirtyTwoCells{};
+    FillLauncherPageCells(720, 720, 96, kLauncherMaximumShortcuts, thirtyTwoSmall, thirtyTwoCells);
+    if (!LauncherCellsAreRegular(thirtyTwoCells, kLauncherMaximumShortcuts, thirtyTwoSmall.columns, 720.0f,
+                                 thirtyTwoSmall.contentHeightPx) ||
+        !LauncherCellsKeepMinimumGutters(thirtyTwoCells, kLauncherMaximumShortcuts, thirtyTwoSmall.columns, 720.0f,
+                                         thirtyTwoSmall.contentHeightPx, 96))
+    {
+        std::wprintf(L"32 small launcher icons did not keep even gutters.\n");
+        return kTestFailure;
+    }
+    if (FAILED(ExpectNamedSizeLayout(kTallWidth, kTallHeight, 96, 8, LauncherIconSize::Small, hugeTall)) ||
+        FAILED(ExpectNamedSizeLayout(kTallWidth, kTallHeight, 96, 8, LauncherIconSize::Medium, hugeTall)) ||
+        FAILED(ExpectNamedSizeLayout(kTallWidth, kTallHeight, 96, 8, LauncherIconSize::Large, hugeTall)) ||
+        FAILED(ExpectNamedSizeLayout(kTallWidth, kTallHeight, 96, 8, LauncherIconSize::Automatic, hugeTall)))
+    {
+        return kTestFailure;
+    }
+
     constexpr std::string_view eight =
         R"json({"shortcuts":[{"target":"C:\\Windows\\System32\\notepad.exe"},{"target":"C:\\Windows\\System32\\cmd.exe"},{"target":"C:\\Windows\\System32\\write.exe"},{"target":"C:\\Windows\\System32\\winver.exe"},{"target":"C:\\Windows\\explorer.exe"},{"target":"C:\\Windows\\System32\\mspaint.exe"},{"target":"C:\\Windows\\System32\\control.exe"},{"target":"C:\\Windows\\System32\\calc.exe"}]})json";
+    constexpr std::string_view smallEight =
+        R"json({"iconSize":"small","shortcuts":[{"target":"C:\\Windows\\System32\\notepad.exe"},{"target":"C:\\Windows\\System32\\cmd.exe"},{"target":"C:\\Windows\\System32\\write.exe"},{"target":"C:\\Windows\\System32\\winver.exe"},{"target":"C:\\Windows\\explorer.exe"},{"target":"C:\\Windows\\System32\\mspaint.exe"},{"target":"C:\\Windows\\System32\\control.exe"},{"target":"C:\\Windows\\System32\\calc.exe"}]})json";
+    {
+        TestHost tallHost;
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> smallProvider;
+        HRESULT result = CreateProvider(create, smallEight, &tallHost, smallProvider);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<IRedXeWidget> smallWidget;
+        result = smallProvider->CreateWidget(kWidgetTypeId, "launcher.tall.small", smallWidget.put());
+        if (FAILED(result))
+        {
+            return result;
+        }
+        RenderTarget tall{};
+        result = CreateRenderTarget(256, 720, tall);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        IRedXeGpuWidget* smallGpuRaw = nullptr;
+        result = AttachGpu(*smallWidget, tall, &smallGpuRaw);
+        wil::com_ptr_nothrow<IRedXeGpuWidget> smallGpu;
+        smallGpu.attach(smallGpuRaw);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        result = smallWidget->SetVisible(TRUE);
+        if (FAILED(result) || FAILED(RenderFrame(*smallGpu, tall, 0.0f, 0.0f, 0.0f, 256, 720)))
+        {
+            return FAILED(result) ? result : kTestFailure;
+        }
+        LauncherTestDiagnostics smallDiag{sizeof(LauncherTestDiagnostics)};
+        result = getDiagnostics(&smallDiag);
+        if (FAILED(result) || smallDiag.pageCount != 1 || smallDiag.columns > 2 || smallDiag.rows < 4 ||
+            smallDiag.iconHalfExtentPx == 0 || smallDiag.iconHalfExtentPx >= 64 ||
+            (smallDiag.rows <= hugeTall.rows &&
+             smallDiag.iconHalfExtentPx >= static_cast<uint32_t>(hugeTall.iconSizePx * 0.5f + 0.5f)))
+        {
+            std::wprintf(L"Small icons on a tall tile did not draw a spread smaller grid.\n");
+            return kTestFailure;
+        }
+
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> hugeProvider;
+        result = CreateProvider(create, eight, &tallHost, hugeProvider);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<IRedXeWidget> hugeWidget;
+        result = hugeProvider->CreateWidget(kWidgetTypeId, "launcher.tall.huge", hugeWidget.put());
+        if (FAILED(result))
+        {
+            return result;
+        }
+        IRedXeGpuWidget* hugeGpuRaw = nullptr;
+        result = AttachGpu(*hugeWidget, tall, &hugeGpuRaw);
+        wil::com_ptr_nothrow<IRedXeGpuWidget> hugeGpu;
+        hugeGpu.attach(hugeGpuRaw);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        result = hugeWidget->SetVisible(TRUE);
+        if (FAILED(result) || FAILED(RenderFrame(*hugeGpu, tall, 0.0f, 0.0f, 0.0f, 256, 720)))
+        {
+            return FAILED(result) ? result : kTestFailure;
+        }
+        LauncherTestDiagnostics hugeDiag{sizeof(LauncherTestDiagnostics)};
+        result = getDiagnostics(&hugeDiag);
+        if (FAILED(result) || hugeDiag.pageCount < 2 || hugeDiag.iconHalfExtentPx <= smallDiag.iconHalfExtentPx)
+        {
+            std::wprintf(L"Huge icons on a tall tile did not keep a larger draw size than small.\n");
+            return kTestFailure;
+        }
+    }
+
     TestHost host;
     wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
     HRESULT result = CreateProvider(create, eight, &host, provider);
@@ -1033,15 +1394,61 @@ struct RenderTarget final
                                  RedXePointerPhaseMove,     20.0f, 20.0f};
     const RedXePointerEvent up{sizeof(RedXePointerEvent), 2, RedXePointerKindTouch, RedXePointerPhaseUp, 20.0f, 20.0f};
     const HRESULT downResult = interactive->OnPointer(&down);
-    if (FAILED(downResult) || interactive->OnPointer(&move) != S_OK || interactive->OnPointer(&up) != S_OK)
+    if (FAILED(downResult) || interactive->OnPointer(&move) != S_OK)
     {
         std::wprintf(L"Launcher did not consume a one-finger page swipe.\n");
+        return kTestFailure;
+    }
+    result = getDiagnostics(&diagnostics);
+    if (FAILED(result) || diagnostics.pageIndex != 0 || diagnostics.pageSlidePx == 0)
+    {
+        std::wprintf(L"Launcher page swipe did not follow the finger before release.\n");
+        return kTestFailure;
+    }
+    if (interactive->OnPointer(&up) != S_OK)
+    {
+        std::wprintf(L"Launcher did not consume a one-finger page swipe release.\n");
         return kTestFailure;
     }
     result = getDiagnostics(&diagnostics);
     if (FAILED(result) || diagnostics.pageIndex == 0)
     {
         std::wprintf(L"Launcher page swipe did not advance the page.\n");
+        return kTestFailure;
+    }
+    if (diagnostics.pageSlidePx == 0 && diagnostics.pageSettling == 0)
+    {
+        std::wprintf(L"Launcher page swipe committed without a settle offset.\n");
+        return kTestFailure;
+    }
+    Sleep(300);
+    result = RenderFrame(*gpu, target, 0.6f, 1.0f / 60.0f, 0.0f, 160, 160);
+    result = getDiagnostics(&diagnostics);
+    if (FAILED(result) || diagnostics.pageIndex == 0 || diagnostics.pageSlidePx != 0 || diagnostics.pageSettling != 0)
+    {
+        std::wprintf(L"Launcher page swipe did not settle the icon grid.\n");
+        return kTestFailure;
+    }
+    const uint32_t committedPage = diagnostics.pageIndex;
+    const uint32_t targetPage = committedPage == 0 ? 1U : 0U;
+    const float gap = LauncherDipToPixels(kLauncherPageIndicatorDotGapDip, 96);
+    const float total = gap * static_cast<float>(diagnostics.pageCount - 1);
+    const float dotX = static_cast<float>(160) * 0.5f - total * 0.5f + gap * static_cast<float>(targetPage);
+    const RedXePointerEvent dotDown{sizeof(RedXePointerEvent), 3,      RedXePointerKindTouch,
+                                    RedXePointerPhaseDown,     dotX,   150.0f};
+    const RedXePointerEvent dotUp{sizeof(RedXePointerEvent), 3, RedXePointerKindTouch, RedXePointerPhaseUp, dotX,
+                                  150.0f};
+    if (HitLauncherPageDot(dotX, 150.0f, 160, 160, 96, diagnostics.pageCount) != targetPage ||
+        interactive->OnPointer(&dotDown) != S_OK || interactive->OnPointer(&dotUp) != S_OK)
+    {
+        std::wprintf(L"Launcher did not consume a page-dot tap.\n");
+        return kTestFailure;
+    }
+    result = getDiagnostics(&diagnostics);
+    if (FAILED(result) || diagnostics.pageIndex != targetPage ||
+        (diagnostics.pageSlidePx == 0 && diagnostics.pageSettling == 0))
+    {
+        std::wprintf(L"Launcher page-dot tap did not animate to the selected page.\n");
         return kTestFailure;
     }
     if (diagnostics.launchCount != launchesBefore)
@@ -1090,7 +1497,7 @@ struct RenderTarget final
     }
     LauncherTestDiagnostics diagnostics{sizeof(LauncherTestDiagnostics)};
     result = getDiagnostics(&diagnostics);
-    if (FAILED(result) || diagnostics.displayCount != 4 || diagnostics.columns < diagnostics.rows)
+    if (FAILED(result) || diagnostics.displayCount != 4 || diagnostics.columns < 4 || diagnostics.rows != 1)
     {
         std::wprintf(L"Wide strip did not prefer extra columns.\n");
         return kTestFailure;
@@ -1164,17 +1571,27 @@ struct RenderTarget final
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
     result = ValidateFactoryAndSettings(create, enumerate, getContract);
+    if (FAILED(result))
+    {
+        std::wprintf(L"ValidateFactoryAndSettings failed: 0x%08X\n", static_cast<unsigned int>(result));
+    }
     if (SUCCEEDED(result))
     {
         result = ValidatePinsAndRendering(create, setPin, getDiagnostics, resetDiagnostics);
+        if (FAILED(result))
+            std::wprintf(L"ValidatePinsAndRendering failed: 0x%08X\n", static_cast<unsigned int>(result));
     }
     if (SUCCEEDED(result))
     {
         result = ValidateGrid(create, getDiagnostics);
+        if (FAILED(result))
+            std::wprintf(L"ValidateGrid failed: 0x%08X\n", static_cast<unsigned int>(result));
     }
     if (SUCCEEDED(result))
     {
         result = ValidatePages(create, getDiagnostics);
+        if (FAILED(result))
+            std::wprintf(L"ValidatePages failed: 0x%08X\n", static_cast<unsigned int>(result));
     }
     shutdown();
     OleUninitialize();

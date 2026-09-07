@@ -1,12 +1,12 @@
 # RedXe settings contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-07
 Owner: `SettingsStore`, `SettingsWatcher`, and UI-thread application orchestration
 
 ## Scope
 
-This specification owns settings selection, the version 4 host document, plugin-settings validation, cold recovery,
+This specification owns settings selection, the version 5 host document, plugin-settings validation, cold recovery,
 diagnostics, and live reload for one physical XENEON display. Dashboard layout and page navigation belong to
 `Specs/UI/UI_Dashboard.md`; plugin ABI belongs to `Specs/Plugins/Plugins_API.md`; all resource rules in
 `Specs/Core/Core_PerformanceAndResources.md` remain mandatory.
@@ -57,7 +57,7 @@ fail when either template or the canonical schema omits an entry. Adding or remo
 requires updating the catalog, schema support, and both templates in the same change. Catalog plugin IDs and type IDs
 stay unique; module file names MAY repeat so several settings-visible widgets can share `ProcessViewer.dll`.
 
-## Version 4 document
+## Version 5 document
 
 RedXe accepts standard JSON semantics plus comments and trailing commas. It MUST reject duplicate object members and
 other JSON5 extensions. The source MUST NOT exceed 1 MiB.
@@ -73,26 +73,46 @@ The root members are:
 | `declare` | No | Reusable widget definitions keyed by authored names. |
 | `pages` | Yes | One through sixteen ordered pages. |
 
-Version 4 begins at major 4, minor 0. Missing, malformed, or different-major versions are errors. A newer RedXe accepts
-older minors and supplies documented defaults. An older RedXe accepts a newer minor of the same major, validates the
-shape it understands, and silently ignores additive unknown host fields. Exact-version unknown host fields are
-errors. A future editor saving a compatible newer-minor file MUST preserve unknown fields. Version 3 is not migrated.
+Version 5 begins at major 5, minor 0. This build reads major 5 only. Missing, malformed, or different-major versions
+(including 4) are errors (`ERROR_INVALID_DATA`) with a diagnostic on `$.version.major`. RedXe MUST NOT convert a
+version 4 layout tree. A newer RedXe accepts older minors of major 5 and supplies documented defaults. An older RedXe
+accepts a newer minor of the same major, validates the shape it understands, and silently ignores additive unknown
+host fields. Exact-version unknown host fields are errors. A future editor saving a compatible newer-minor file MUST
+preserve unknown fields. Version 3 is not migrated. Version 4 is an incompatible major: cold recovery of a default
+file backs up the bytes and installs the version 5 template; a `--settings` portable version 4 file is left unchanged
+and the process runs the in-memory deployed version 5 default.
+
+User documents MUST NOT contain `layout`, `areas`, `arrangeAlong`, `sizeRatio`, nested `settings`, or `override`.
+Those members reject the complete candidate with a diagnostic on the authored JSON path.
 
 ### Declarations and widgets
 
 `declare` is optional and has at most 128 members. A declaration name is 1–128 Unicode code points, may contain spaces,
-and matches references by the exact case-sensitive sequence without normalization. Every declaration is a widget
-definition containing required `plugin` and optional object `settings` members. There is no user-visible plugin
-registry, enable flag, type ID, plugin-private object, or separate instance-private object.
+and matches references by the exact case-sensitive sequence without normalization. Every declaration is a flattened
+plugin object: required `plugin` plus that plugin's settings keys on the same object. Nested `settings` is not
+accepted. There is no user-visible plugin registry, enable flag, type ID, plugin-private object, or separate
+instance-private object.
 
-A layout leaf's `widget` is an inline definition, a declaration-name string, or
-`{ "use": <name>, "override": <merge-patch> }`. Each appearance creates an independent runtime widget instance. An
-override applies to the complete declaration: absent fields inherit, object members merge recursively, scalars
-replace, arrays replace in full, and null removes an inherited member. The result MUST contain one valid plugin and
-settings object. An override MAY replace the plugin.
+A widget value is exactly one of:
 
-Every authored settings object, override, effective settings object, plugin schema, and plugin defaults object MUST
-have a compact representation no larger than 4096 bytes.
+1. A declaration-name string resolved through `declare`.
+2. A catalogued settings-visible plugin ID string (`builtin.launcher`) when that string is not a declare name. Human
+   aliases such as `"Launcher"` without a matching `declare` entry are unresolved errors.
+3. A flattened plugin object `{ "plugin": "...", ...pluginKeys }` with no `settings` member. Other members become the
+   settings object and then validate against that plugin's closed schema.
+4. A flattened use-object `{ "use": "<name>", ...pluginKeys, optional "plugin" }`. Extra keys besides `use` and
+   optional `plugin` merge onto the declaration (absent inherit, objects merge, scalars replace, arrays replace, null
+   removes). `plugin` on a use-object swaps the plugin. The result MUST contain one valid plugin and settings object.
+
+Reserved host keys on a widget object are `plugin` and `use`. `weight`, `widget`, `rows`, `columns`, and `along` are
+reserved on split items as specified below. Flattened keys become the settings object, then existing plugin
+validators run (including launcher `iconSize`). After parse, typed `privateConfiguration` remains the compact plugin
+object (for example launcher `{shortcuts, iconSize}`) even when the file stored flattened keys.
+
+Each appearance creates an independent runtime widget instance.
+
+Every authored settings object, effective settings object, plugin schema, and plugin defaults object MUST have a
+compact representation no larger than 4096 bytes.
 
 ### Plugin settings contracts
 
@@ -101,7 +121,7 @@ The contract contains the stable plugin ID, an independently versioned schema co
 Schema for its settings object, and bounded defaults. Defaults MUST validate against the schema. Discovery MUST create
 no provider, widget, HWND, device resource, timer, or worker.
 
-RedXe validates host structure, resolves declarations and overrides, discovers every unique referenced plugin at most
+RedXe validates host structure, resolves declarations and flattened use-objects, discovers every unique referenced plugin at most
 once, and validates every effective widget on every page. Inactive pages create no runtime widget resources. Contract
 or settings failure rejects the complete candidate. ABI details are normative in `Specs/Plugins/Plugins_API.md`.
 
@@ -126,13 +146,15 @@ integer from 250 through 800 and colors are exact `#RRGGBB` strings with case-in
 merges omitted members from these defaults before static validation and provider creation. Unknown members,
 non-integer or out-of-range duration, and malformed colors reject the complete candidate.
 
-Launcher settings are the closed object `shortcuts`: an array of 0 through 8 closed items. Each item has required
-`target` (UTF-8 string, 1 through 512 bytes) and optional `iconPng` (UTF-8 string, 0 through 260 bytes). `target` is an
-absolute Win32 path or a URI with an alphabetic scheme of at least two characters followed by `:`. Defaults are
-`{"shortcuts":[]}`. Unknown members, non-arrays, extra item members, empty or relative targets, schemeless host names,
-overlong strings, duplicate targets, and more than eight items reject the complete candidate. An empty authored list is
-valid: on first population, the widget imports up to eight taskbar pins that fit the 4096-byte settings cap, shows
-them and queues them for persistence as editable shortcuts. Each placement saves its own settings/override; shared
+Launcher settings are the closed object `shortcuts` plus optional `iconSize`. `shortcuts` is an array of 0 through 32
+closed items. Each item has required `target` (UTF-8 string, 1 through 512 bytes) and optional `iconPng` (UTF-8 string,
+0 through 260 bytes). `target` is an absolute Win32 path or a URI with an alphabetic scheme of at least two characters
+followed by `:`. `iconSize` is `"small"`, `"medium"`, `"large"`, `"huge"`, or `"automatic"`; omitted values merge to `"huge"`. Defaults are
+`{"shortcuts":[],"iconSize":"huge"}`. Unknown members, non-arrays, extra item members, empty or relative targets,
+schemeless host names, overlong strings, duplicate targets, unknown `iconSize` values, and more than 32 items reject
+the complete candidate. An empty authored list is
+valid: on first population, the widget imports up to 32 taskbar pins that fit the 4096-byte settings cap, shows
+them and queues them for persistence as editable shortcuts. Each placement saves its own flattened keys; shared
 declarations remain unchanged. Once populated, configured shortcuts are authoritative and are not reimported from
 the taskbar. Empty/unavailable pin folders cause no save. Shipped defaults remain empty so first use can import.
 
@@ -147,7 +169,10 @@ object or a mergeable subset. The widget MUST NOT persist from inside collect; t
 At any time on the UI thread, a widget MAY call `IRedXeHost::PersistWidgetSettings` with all of its instance settings
 or a part of them. There is no persist-scope enum. The host always merges supplied members into the stored instance
 object, then validates the complete result (4096-byte compact cap and the plugin schema). Unknown members reject the
-complete persist. A successful interactive persist MAY write the user document. `--self-test` MUST keep the merge in
+complete persist. A successful interactive persist MAY write the user document. Persist MUST patch flattened keys in place on the
+authored `widgets` / `columns` / `rows` sugar. It MUST NOT rewrite a page into `layout`. A bare string leaf MAY become
+an inline `{ "use", ...keys }` object when the string was a declare name, or `{ "plugin", ...keys }` otherwise, for
+that instance only. `--self-test` MUST keep the merge in
 memory and MUST NOT write or watch `%LocalAppData%`.
 
 Interactive persistence MUST roll back both typed private settings and the retained source document if validation
@@ -158,7 +183,7 @@ commits, failure to query the file stamp MUST NOT report a failed save; clear de
 Persisted documents MUST use a compact, readable layout with two-space indentation and a final LF newline. Keep
 empty objects and arrays inline. Keep small objects inline when they fit a soft 120-byte line width; a single scalar
 property stays together even when its indivisible string or path exceeds that width. Keep the root object, nonempty
-`declare`, `pages`, `layout`, `areas`, and `shortcuts` sections multiline, and put each nonempty array item on its own
+`declare`, `pages`, `widgets`, `columns`, `rows`, and `shortcuts` sections multiline, and put each nonempty array item on its own
 line. The internal plugin/factory settings representations remain compact. Reject a formatted result exceeding
 1 MiB and roll back the typed and source state. Preserve semantic values, member order and compatible newer-minor
 fields. Formatting changes only whitespace outside JSON tokens and runs only when saving settings.
@@ -172,10 +197,18 @@ under the queue lock. A detached UI delivery batch must not drain newer worker s
 always selected on launch. The active page is runtime state and MUST NOT be written to the document. A live reload of
 a valid document MUST keep the page that was current when that page still exists: match the previous page `id` in the
 new document, otherwise keep the previous index when it is still in range, otherwise select the first page. A page has
-optional `id`, optional `name`, and optional `layout`. `id` is metadata and is not required for swipe or edge
-navigation, but live reload uses it as the page's identity when it is present. `name` is 1–128 Unicode code points;
-when omitted, UI derives `Page N` without modifying the file. `{}` is a valid blank page. Each page has at most 32
-widget appearances. Adaptive layout and touch behavior are normative in `Specs/UI/UI_Dashboard.md`.
+optional `id`, optional `name`, and exactly one of: no placement members (blank), `widgets`, `columns`, or `rows`.
+Mixing those placement members, or mixing them with `along` except `along` on `widgets`, rejects the page. `id` is
+metadata and is not required for swipe or edge navigation, but live reload uses it as the page's identity when it is
+present. `name` is 1–128 Unicode code points; when omitted, UI derives `Page N` without modifying the file. `{}` is a
+valid blank page. Each page has at most 32 widget appearances.
+
+The parser compiles human syntax into the in-memory adaptive tree owned by `Specs/UI/UI_Dashboard.md`. `weight`
+(omitted 1, range 1–1000) becomes `sizeRatio`. `columns` compiles to a long-side split. `rows` compiles to a
+short-side split. `widgets` is an equal-share list; omitted `along` is `long-side`. Nested `rows` inside `columns`
+(and the reverse) compile to nested containers. After that compile, existing area, depth, and widget caps apply.
+`DashboardHost` never sees `widgets` / `columns` / `rows` as a dashboard primitive. Adaptive layout and touch
+behavior are normative in `Specs/UI/UI_Dashboard.md`.
 
 ## Cold load and recovery
 
@@ -184,7 +217,7 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 - On Release, when `RedXe.settings.json` is absent and the legacy `RedXe-1.0.settings.json` exists, RedXe MUST move
   that file unchanged to the new name before validation. It MUST NOT perform a schema conversion. A present new-name
   file always wins and leaves the legacy path untouched.
-- A missing default file causes atomic installation and loading of the selected v4 template. Startup MUST continue
+- A missing default file causes atomic installation and loading of the selected version 5 template. Startup MUST continue
   after that install. A catalogued plugin whose DLL cannot be mapped becomes a placeholder tile; it MUST NOT abort
   launch or roll back the installed file.
 - An invalid or incompatible default is preserved byte-for-byte beside it, then atomically replaced with a fresh
@@ -205,8 +238,15 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   are deduplicated; every distinct later change is reconsidered.
 - A valid candidate is applied transactionally after the host reselects the page that was current, when that page
   still exists in the candidate. Failure preserves or restores the previous settings and dashboard.
+- A successful live load MUST apply the candidate in memory only. It MUST NOT write the watched file, format it,
+  persist a widget merge, or collect-on-exit onto that path. The editor's bytes stay until an explicit widget persist
+  or other user-driven save. `--self-test` MUST NOT write `%LocalAppData%` and MUST NOT write the deployed template.
 - Invalid, unreadable, or missing live input remains untouched and leaves the exact last-valid in-memory state active.
-- Diagnostics SHOULD include every reliable line, column, and JSON path in clear user language.
+  An invalid live load MUST NOT rewrite the invalid file and MUST NOT write the last-good document over it. Monitoring
+  continues until a later distinct save can be loaded.
+- Diagnostics MUST name the JSON path and the specific problem in clear user language. When the byte location is
+  reliable (JSON syntax errors, or a path the locator can resolve), they MUST also include line and column. The dialog
+  MUST NOT report a generic version-5 schema failure at `path $` when a more specific member is known.
 - At most one modal settings-error dialog may exist. Monitoring continues while visible. A later invalid save refreshes
   it with the newest bounded error list; dialogs never stack. If all errors do not fit, an ellipsis states that more
   were omitted. A valid save applies and closes the dialog automatically.
@@ -227,18 +267,23 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 
 ## Required validation
 
-- Templates and canonical schema agree with v4 and all syntax, count, size, and depth limits.
-- Tests reject malformed syntax/version, duplicate and exact-version unknown members, unresolved references, invalid
-  merge results, plugin settings failures, Process Viewer `topN` values outside 1 through 32, Network Meter and GPU
-  Processes `topN` values outside 1 through 16, and malformed Studio
+- Templates and canonical schema agree with version 5 and all syntax, count, size, and depth limits. The Release
+  template System last column compiles Gpu/Thermal/Power short-side ratios 2, 3, and 1.
+- Tests reject version 4 documents, `layout` / `areas` / `arrangeAlong` / `sizeRatio`, nested `settings`, and
+  `override`. They reject malformed syntax/version, duplicate and exact-version unknown members, unresolved
+  references, invalid merge results, plugin settings failures, Process Viewer `topN` values outside 1 through 32,
+  Network Meter and GPU Processes `topN` values outside 1 through 16, and malformed Studio
   Clock booleans including `externalDotsAlwaysOn`, colors, date formats, and unknown members. They also reject Desk
   Clock duration and color failures and verify its complete merged defaults and valid partial overrides. They also
-  reject Launcher shortcut failures (schemeless host names, unknown members, duplicate targets) and verify empty-list
-  defaults plus a valid persist merge of a `shortcuts` array.
+  reject Launcher shortcut failures (schemeless host names, unknown members, duplicate targets, unknown `iconSize`)
+  and verify empty-list defaults plus a valid persist merge of a `shortcuts` array. Settings tests prove a live
+  `TryLoadChanged` of a valid or invalid file does not mutate those bytes, and that persist writes remain opt-in.
+  Persist of an instance on a `widgets` / `columns` / `rows` page MUST leave sibling human syntax intact and MUST NOT
+  rewrite the page to `layout`.
 - Tests cover merge rules, plugin replacement, minor compatibility, and compatible unknown-field preservation.
 - Tests prove a partial widget persist merge keeps unspecified members and rejects unknown plugin members.
 - Tests prove compact/idempotent formatting, inline small objects and long single-path records, multiline sections
-  and arrays, fewer lines than fully expanded output, escaped/Unicode paths, named/inline/override widget round
+  and arrays, fewer lines than fully expanded output, escaped/Unicode paths, named/inline/use-object widget round
   trips, compatible unknown-field retention, and transactional rejection of oversized formatted output.
 - An isolated file test MUST block replacement with an open handle, verify exact typed/source/disk rollback, then
   release the handle and verify a different partial save commits without including the rejected patch.

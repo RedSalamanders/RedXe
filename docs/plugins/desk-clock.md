@@ -25,9 +25,7 @@ Omitted keys take these defaults. Colors are `#RRGGBB`. Unknown keys reject the 
 ```json
 {
   "plugin": "builtin.desk-clock",
-  "settings": {
-    "flipDurationMilliseconds": 500,
-    "cardColor": "#FF3B43"
-  }
+  "flipDurationMilliseconds": 500,
+  "cardColor": "#FF3B43"
 }
 ```

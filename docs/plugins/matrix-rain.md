@@ -32,12 +32,10 @@ All members are optional in the file; omitted keys take these defaults. Unknown 
 ```json
 {
   "plugin": "builtin.matrix-rain",
-  "settings": {
-    "seed": 4242,
-    "densityPercent": 55,
-    "speedPercent": 75,
-    "headColor": "#B8E8FF",
-    "trailColor": "#2388D1"
-  }
+  "seed": 4242,
+  "densityPercent": 55,
+  "speedPercent": 75,
+  "headColor": "#B8E8FF",
+  "trailColor": "#2388D1"
 }
 ```

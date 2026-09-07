@@ -26,6 +26,9 @@ struct LauncherTestDiagnostics final
     uint32_t liveWidgets;
     uint32_t pageCount;
     uint32_t pageIndex;
+    int32_t pageSlidePx;
+    uint32_t pageSettling;
+    uint32_t iconHalfExtentPx;
 };
 
 #if defined(REDXE_PLUGIN_EXPORTS)

@@ -45,7 +45,7 @@ Without `--settings`, RedXe uses one editable file:
 | Debug | `%LocalAppData%\RedXe\Settings\RedXe-debug.settings.json` |
 | Release | `%LocalAppData%\RedXe\Settings\RedXe.settings.json` |
 
-Save the file to apply it. RedXe watches that path; you do not restart. A valid document keeps the page you were on when that page still exists. An invalid save leaves the last good dashboard running and shows one error dialog. Dismissing the dialog suppresses only that failed save; a later distinct invalid save can prompt again.
+Save the file to apply it. RedXe watches that path; you do not restart. A valid document keeps the page you were on when that page still exists. An invalid save leaves the last good dashboard running and shows one error dialog with the JSON path and the reason (and line and column when those are known). Dismissing the dialog suppresses only that failed save; a later distinct invalid save can prompt again.
 
 If the default file is missing, RedXe installs the shipped template and continues. If it is invalid, RedXe copies the bytes beside it as `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`, installs a fresh template, and tells you where the backup went.
 
@@ -57,11 +57,33 @@ Host fields you typically edit:
 | --- | --- | --- |
 | `wrapPages` | `false` | Wrap page navigation at the ends |
 | `logRetentionDays` | `15` | UTC days of JSONL logs to keep (1–365) under `%LocalAppData%\RedXe\Logs\` |
-| `declare` | shipped names | Reusable widget definitions (`plugin` plus optional `settings`) |
+| `declare` | shipped names | Reusable widget definitions (`plugin` plus flattened keys) |
 | `pages` | 1–16 | Ordered pages. Optional `name` is the label; omitted names display as `Page N` |
 
-A page `layout` is `arrangeAlong` (`long-side` or `short-side`) plus `areas`. Each area has `sizeRatio` (1–1000) and either a `widget` or nested `areas`. `long-side` is horizontal in landscape and vertical in portrait.
+This build reads `"version": { "major": 5 }` only. A leftover version 4 file is invalid: the default path is backed up and replaced with the shipped template; `--settings` leaves the portable file alone.
 
-Widgets are named in `declare` and referenced by that name, written inline, or reused with `{ "use": "<name>", "override": { ... } }`. Overrides merge objects, replace scalars and arrays, and may replace the plugin.
+A page uses exactly one of `widgets`, `columns`, or `rows` (or none, for a blank page). `columns` split along the long side of the window, `rows` along the short side. Omitted `weight` is 1. `widgets` is an equal-share list (omitted `along` is `long-side`). Nested `rows` inside `columns` stack tiles in a column.
+
+```json
+{
+  "version": { "major": 5 },
+  "declare": {
+    "Matrix": { "plugin": "builtin.matrix-rain" },
+    "Launcher": { "plugin": "builtin.launcher", "shortcuts": [] }
+  },
+  "pages": [
+    { "name": "Main", "widgets": ["Matrix"] },
+    {
+      "name": "Mix",
+      "columns": [
+        { "weight": 2, "rows": ["Launcher", "Matrix"] },
+        { "weight": 5, "widget": { "use": "Matrix", "seed": 4242 } }
+      ]
+    }
+  ]
+}
+```
+
+Widgets are named in `declare` and referenced by that name, written as a `builtin.*` plugin id, written inline as `{ "plugin": "...", ...keys }`, or reused with `{ "use": "<name>", ...keys }`. Extra keys on a use-object merge: objects merge, scalars and arrays replace. Do not nest a `settings` object and do not write `layout` / `areas`.
 
 Every settings-visible widget is documented under [plugins](plugins/README.md).

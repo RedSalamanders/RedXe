@@ -1187,7 +1187,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
 
     _renderer.Shutdown();
     _rendererReady = false;
-    _dashboardHost->Shutdown();
+    _dashboardHost->Shutdown(false);
 
     HRESULT applyResult = _pluginManager->Reconfigure(*settings);
     if (SUCCEEDED(applyResult))
@@ -1203,7 +1203,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
 
     _renderer.Shutdown();
     _rendererReady = false;
-    _dashboardHost->Shutdown();
+    _dashboardHost->Shutdown(false);
     HRESULT rollbackResult = _pluginManager->Reconfigure(*_settings);
     if (SUCCEEDED(rollbackResult))
     {
@@ -3514,6 +3514,8 @@ void Application::OnSettingsChanged() noexcept
         return;
     }
 
+    _settingsStore.SuppressDocumentWrites(true);
+    const auto resumeWrites = wil::scope_exit([&]() noexcept { _settingsStore.SuppressDocumentWrites(false); });
     const HRESULT applyResult = ApplySettings(std::move(candidate));
     if (SUCCEEDED(applyResult))
     {
@@ -3545,8 +3547,8 @@ void Application::ShowSettingsError(std::wstring_view message) noexcept
         }
         RECT owner{};
         GetWindowRect(_window.get(), &owner);
-        constexpr int width = 560;
-        constexpr int height = 230;
+        constexpr int width = 600;
+        constexpr int height = 280;
         const int x = owner.left + ((owner.right - owner.left) - width) / 2;
         const int y = owner.top + ((owner.bottom - owner.top) - height) / 2;
         _settingsErrorDialog = CreateWindowExW(WS_EX_DLGMODALFRAME, kSettingsDialogClassName, L"RedXe settings error",
@@ -3559,9 +3561,10 @@ void Application::ShowSettingsError(std::wstring_view message) noexcept
         EnableWindow(_window.get(), FALSE);
         if (_accessibility)
             _accessibility->ClearViews();
-        const HWND text =
-            CreateWindowExW(0, L"STATIC", std::wstring(message).c_str(), WS_CHILD | WS_VISIBLE | SS_LEFT, 24, 24,
-                            width - 48, 120, _settingsErrorDialog, reinterpret_cast<HMENU>(100), _instance, nullptr);
+        const HWND text = CreateWindowExW(0, L"STATIC", std::wstring(message).c_str(),
+                                          WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX | SS_EDITCONTROL, 24, 20,
+                                          width - 48, 170, _settingsErrorDialog, reinterpret_cast<HMENU>(100),
+                                          _instance, nullptr);
         const HWND button =
             CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, width - 120, height - 78, 80,
                             28, _settingsErrorDialog, reinterpret_cast<HMENU>(IDOK), _instance, nullptr);

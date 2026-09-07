@@ -29,7 +29,7 @@
       "additionalProperties": false,
       "required": ["major"],
       "properties": {
-        "major": { "const": 4 },
+        "major": { "const": 5 },
         "minor": { "type": "integer", "minimum": 0, "default": 0 }
       }
     },
@@ -168,10 +168,17 @@
       "description": "An empty shortcuts list imports taskbar pins once and saves them as editable per-widget shortcuts.",
       "additionalProperties": false,
       "properties": {
+        "iconSize": {
+          "type": "string",
+          "enum": ["small", "medium", "large", "huge", "automatic"],
+          "default": "huge",
+          "description": "Fixed cells: small 72 DIP, medium 96 DIP, large 144 DIP, huge 192 DIP (default). automatic starts at huge and shrinks toward small before paging."
+        },
         "shortcuts": {
           "type": "array",
           "minItems": 0,
-          "maxItems": 8,
+          "maxItems": 32,
+          "description": "Closed list of 0 through 32 shortcuts.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -195,6 +202,29 @@
         "dateColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#D8D8D8" }
       }
     },
+    "weight": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 1 },
+    "pluginId": {
+      "enum": [
+        "builtin.rotating-triangle",
+        "builtin.gdi-orbit",
+        "builtin.matrix-rain",
+        "builtin.studio-clock",
+        "builtin.desk-clock",
+        "builtin.weather",
+        "builtin.launcher",
+        "builtin.av-control",
+        "builtin.process-viewer",
+        "builtin.system-pulse",
+        "builtin.cpu-meter",
+        "builtin.memory-meter",
+        "builtin.network-meter",
+        "builtin.storage-meter",
+        "builtin.gpu-meter",
+        "builtin.gpu-processes",
+        "builtin.power-meter",
+        "builtin.thermal-meter"
+      ]
+    },
     "widgetDefinition": {
       "oneOf": [
         {
@@ -202,8 +232,7 @@
           "additionalProperties": false,
           "required": ["plugin"],
           "properties": {
-            "plugin": { "enum": ["builtin.rotating-triangle", "builtin.gdi-orbit", "builtin.system-pulse", "builtin.cpu-meter", "builtin.memory-meter", "builtin.storage-meter", "builtin.gpu-meter", "builtin.power-meter", "builtin.thermal-meter"] },
-            "settings": { "type": "object", "maxProperties": 0 }
+            "plugin": { "enum": ["builtin.rotating-triangle", "builtin.gdi-orbit", "builtin.system-pulse", "builtin.cpu-meter", "builtin.memory-meter", "builtin.storage-meter", "builtin.gpu-meter", "builtin.power-meter", "builtin.thermal-meter"] }
           }
         },
         {
@@ -212,7 +241,16 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "const": "builtin.matrix-rain" },
-            "settings": { "$ref": "#/$defs/matrixSettings" }
+            "seed": { "$ref": "#/$defs/matrixSettings/properties/seed" },
+            "glyphHeightDips": { "$ref": "#/$defs/matrixSettings/properties/glyphHeightDips" },
+            "densityPercent": { "$ref": "#/$defs/matrixSettings/properties/densityPercent" },
+            "speedPercent": { "$ref": "#/$defs/matrixSettings/properties/speedPercent" },
+            "trailLengthGlyphs": { "$ref": "#/$defs/matrixSettings/properties/trailLengthGlyphs" },
+            "mutationPerSecond": { "$ref": "#/$defs/matrixSettings/properties/mutationPerSecond" },
+            "headColor": { "$ref": "#/$defs/matrixSettings/properties/headColor" },
+            "trailColor": { "$ref": "#/$defs/matrixSettings/properties/trailColor" },
+            "backgroundColor": { "$ref": "#/$defs/matrixSettings/properties/backgroundColor" },
+            "glowPercent": { "$ref": "#/$defs/matrixSettings/properties/glowPercent" }
           }
         },
         {
@@ -221,7 +259,7 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "const": "builtin.process-viewer" },
-            "settings": { "$ref": "#/$defs/processViewerSettings" }
+            "topN": { "$ref": "#/$defs/processViewerSettings/properties/topN" }
           }
         },
         {
@@ -230,7 +268,7 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "enum": ["builtin.network-meter", "builtin.gpu-processes"] },
-            "settings": { "$ref": "#/$defs/rankedViewerSettings" }
+            "topN": { "$ref": "#/$defs/rankedViewerSettings/properties/topN" }
           }
         },
         {
@@ -239,7 +277,14 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "const": "builtin.studio-clock" },
-            "settings": { "$ref": "#/$defs/studioClockSettings" }
+            "showSecondProgress": { "$ref": "#/$defs/studioClockSettings/properties/showSecondProgress" },
+            "externalDotsAlwaysOn": { "$ref": "#/$defs/studioClockSettings/properties/externalDotsAlwaysOn" },
+            "showSeconds": { "$ref": "#/$defs/studioClockSettings/properties/showSeconds" },
+            "secondsColor": { "$ref": "#/$defs/studioClockSettings/properties/secondsColor" },
+            "showDate": { "$ref": "#/$defs/studioClockSettings/properties/showDate" },
+            "dateFormat": { "$ref": "#/$defs/studioClockSettings/properties/dateFormat" },
+            "timeColor": { "$ref": "#/$defs/studioClockSettings/properties/timeColor" },
+            "backgroundColor": { "$ref": "#/$defs/studioClockSettings/properties/backgroundColor" }
           }
         },
         {
@@ -248,7 +293,11 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "const": "builtin.desk-clock" },
-            "settings": { "$ref": "#/$defs/deskClockSettings" }
+            "flipDurationMilliseconds": { "$ref": "#/$defs/deskClockSettings/properties/flipDurationMilliseconds" },
+            "backgroundColor": { "$ref": "#/$defs/deskClockSettings/properties/backgroundColor" },
+            "cardColor": { "$ref": "#/$defs/deskClockSettings/properties/cardColor" },
+            "digitColor": { "$ref": "#/$defs/deskClockSettings/properties/digitColor" },
+            "dateColor": { "$ref": "#/$defs/deskClockSettings/properties/dateColor" }
           }
         },
         {
@@ -257,7 +306,10 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "const": "builtin.weather" },
-            "settings": { "$ref": "#/$defs/weatherSettings" }
+            "locationMode": { "$ref": "#/$defs/weatherSettings/properties/locationMode" },
+            "location": { "$ref": "#/$defs/weatherSettings/properties/location" },
+            "temperatureUnit": { "$ref": "#/$defs/weatherSettings/properties/temperatureUnit" },
+            "windUnit": { "$ref": "#/$defs/weatherSettings/properties/windUnit" }
           }
         },
         {
@@ -266,7 +318,8 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "const": "builtin.launcher" },
-            "settings": { "$ref": "#/$defs/launcherSettings" }
+            "iconSize": { "$ref": "#/$defs/launcherSettings/properties/iconSize" },
+            "shortcuts": { "$ref": "#/$defs/launcherSettings/properties/shortcuts" }
           }
         },
         {
@@ -275,63 +328,158 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "const": "builtin.av-control" },
-            "settings": { "$ref": "#/$defs/avControlSettings" }
+            "profiles": { "$ref": "#/$defs/avControlSettings/properties/profiles" }
           }
         }
       ]
     },
     "widgetUse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["use"],
+      "properties": {
+        "use": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "plugin": { "$ref": "#/$defs/pluginId" },
+        "seed": { "$ref": "#/$defs/matrixSettings/properties/seed" },
+        "glyphHeightDips": { "$ref": "#/$defs/matrixSettings/properties/glyphHeightDips" },
+        "densityPercent": { "$ref": "#/$defs/matrixSettings/properties/densityPercent" },
+        "speedPercent": { "$ref": "#/$defs/matrixSettings/properties/speedPercent" },
+        "trailLengthGlyphs": { "$ref": "#/$defs/matrixSettings/properties/trailLengthGlyphs" },
+        "mutationPerSecond": { "$ref": "#/$defs/matrixSettings/properties/mutationPerSecond" },
+        "headColor": { "$ref": "#/$defs/matrixSettings/properties/headColor" },
+        "trailColor": { "$ref": "#/$defs/matrixSettings/properties/trailColor" },
+        "backgroundColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "glowPercent": { "$ref": "#/$defs/matrixSettings/properties/glowPercent" },
+        "topN": { "type": "integer", "minimum": 1, "maximum": 32 },
+        "showSecondProgress": { "type": "boolean" },
+        "externalDotsAlwaysOn": { "type": "boolean" },
+        "showSeconds": { "type": "boolean" },
+        "secondsColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "showDate": { "type": "boolean" },
+        "dateFormat": { "enum": ["dd-mm-yyyy", "mm-dd-yyyy", "yyyy-mm-dd"] },
+        "timeColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "flipDurationMilliseconds": { "type": "integer", "minimum": 250, "maximum": 800 },
+        "cardColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "digitColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "dateColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "locationMode": { "type": "string", "enum": ["automatic", "manual"] },
+        "location": { "type": "string" },
+        "temperatureUnit": { "type": "string", "enum": ["celsius", "fahrenheit"] },
+        "windUnit": { "type": "string", "enum": ["kmh", "mph"] },
+        "iconSize": { "$ref": "#/$defs/launcherSettings/properties/iconSize" },
+        "shortcuts": { "$ref": "#/$defs/launcherSettings/properties/shortcuts" },
+        "profiles": { "$ref": "#/$defs/avControlSettings/properties/profiles" }
+      }
+    },
+    "widgetValue": {
       "oneOf": [
         { "$ref": "#/$defs/widgetDefinition" },
         { "type": "string", "minLength": 1, "maxLength": 128 },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["use", "override"],
-          "properties": {
-            "use": { "type": "string", "minLength": 1, "maxLength": 128 },
-            "override": { "type": "object" }
-          }
-        }
+        { "$ref": "#/$defs/widgetUse" }
       ]
     },
-    "leafArea": {
+    "splitItem": {
+      "oneOf": [
+        { "$ref": "#/$defs/widgetValue" },
+        { "$ref": "#/$defs/weightedWidget" },
+        { "$ref": "#/$defs/weightedRows" },
+        { "$ref": "#/$defs/weightedColumns" }
+      ]
+    },
+    "weightedWidget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sizeRatio", "widget"],
+      "required": ["widget"],
       "properties": {
-        "sizeRatio": { "type": "integer", "minimum": 1, "maximum": 1000 },
-        "widget": { "$ref": "#/$defs/widgetUse" }
+        "weight": { "$ref": "#/$defs/weight" },
+        "widget": { "$ref": "#/$defs/widgetValue" }
       }
     },
-    "containerArea": {
+    "weightedRows": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sizeRatio", "arrangeAlong", "areas"],
+      "required": ["rows"],
       "properties": {
-        "sizeRatio": { "type": "integer", "minimum": 1, "maximum": 1000 },
-        "arrangeAlong": { "enum": ["long-side", "short-side"] },
-        "areas": { "type": "array", "minItems": 1, "maxItems": 127, "items": { "$ref": "#/$defs/area" } }
+        "weight": { "$ref": "#/$defs/weight" },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 127,
+          "items": { "$ref": "#/$defs/splitItem" }
+        }
       }
     },
-    "area": { "oneOf": [{ "$ref": "#/$defs/leafArea" }, { "$ref": "#/$defs/containerArea" }] },
-    "layout": {
+    "weightedColumns": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["arrangeAlong", "areas"],
+      "required": ["columns"],
       "properties": {
-        "arrangeAlong": { "enum": ["long-side", "short-side"] },
-        "areas": { "type": "array", "minItems": 1, "maxItems": 127, "items": { "$ref": "#/$defs/area" } }
+        "weight": { "$ref": "#/$defs/weight" },
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 127,
+          "items": { "$ref": "#/$defs/splitItem" }
+        }
       }
     },
     "page": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$" },
-        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "layout": { "$ref": "#/$defs/layout" }
-      }
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$" },
+            "name": { "type": "string", "minLength": 1, "maxLength": 128 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["widgets"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$" },
+            "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "along": { "enum": ["long-side", "short-side"], "default": "long-side" },
+            "widgets": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": { "$ref": "#/$defs/widgetValue" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["columns"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$" },
+            "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "columns": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 127,
+              "items": { "$ref": "#/$defs/splitItem" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rows"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$" },
+            "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "rows": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 127,
+              "items": { "$ref": "#/$defs/splitItem" }
+            }
+          }
+        }
+      ]
     }
   }
 }

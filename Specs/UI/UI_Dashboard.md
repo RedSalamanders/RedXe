@@ -1,7 +1,7 @@
 # RedXe adaptive dashboard and page-navigation contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-06
+Last reviewed: 2026-09-07
 Owner: `DashboardHost` layout, active-page composition, page navigation, edge-navigation chrome, host placeholder tiles, and raised overlay chrome
 
 ## Scope
@@ -23,14 +23,17 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
   a settle, as with any other reload.
 - Page `id` and `name` are optional metadata and do not control swipe or edge navigation. A missing name is displayed
   as `Page N` without modifying the document. Live reload uses `id` only to recognize the page that was current.
-- A page with no `layout` is blank. A page contains at most 32 widget appearances.
+- A page with no `widgets`, `columns`, or `rows` is blank. A page contains at most 32 widget appearances.
+  Authored JSON uses those human shapes; `Specs/Core/Core_Settings.md` owns the syntax. The host compiles them to the
+  adaptive tree below before `DashboardHost` evaluates geometry.
 - Only the current page owns runtime resources, except while swiping when the adjacent transition page may also own
   resources. All other pages own no provider, widget, data subscription, child HWND, D3D resource, timer, acquisition,
   or frame work.
 
 ## Adaptive layout tree
 
-A nonblank page root layout contains exactly `arrangeAlong` and nonempty `areas`.
+The compiled in-memory tree for a nonblank page root contains exactly `arrangeAlong` and nonempty `areas`. User
+documents MUST NOT author `layout` / `areas` / `arrangeAlong` / `sizeRatio`; those keys are compile output only.
 
 - `arrangeAlong` is `long-side` or `short-side`.
 - Every child area has integer `sizeRatio` from 1 through 1000.
@@ -57,7 +60,7 @@ Orientation is runtime state and MUST NOT appear in settings.
 - In portrait, `long-side` is vertical and `short-side` is horizontal.
 - Horizontal order is left-to-right and vertical order is top-to-bottom.
 - GPU viewports and native child containers use identical cached geometry and shared edges.
-- Resize and DPI changes recompute physical bounds without reparsing or changing the authored tree.
+- Resize and DPI changes recompute physical bounds without reparsing or changing the compiled tree.
 
 ## Horizontal two- and three-finger touch navigation
 
@@ -249,7 +252,8 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
 
 ## Required validation
 
-- Parser/schema tests reject empty/mixed areas, malformed widgets, invalid ratios, and excessive pages, widgets,
+- Parser/schema tests reject mixed page shapes, `layout` keys, empty/mixed compiled areas, malformed widgets, invalid
+  ratios, and excessive pages, widgets,
   areas, or depth.
 - Geometry tests prove exact partitioning in landscape and portrait, including non-divisible dimensions and identical
   native/GPU edges.
@@ -284,9 +288,13 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
   container into overlay content then back to its tile without skipping sibling GPU draws. Geometry tests also prove
   tile-to-slice interpolation endpoints, ease-out cubic mixing, raise-settle duration clamps, and that the parent
   edge-click predicate is `ShouldShowEdgeAffordance && PageEdgeBandContains`.
-- LauncherTests prove drop of a file and of an `https://` URL reach `OnDrop`, that overflow shortcuts paginate, that a
-  one-finger horizontal swipe changes the launcher page without launching, and that a bottom page-dot strip is hittable
-  when more than one launcher page exists. Consumed-click versus raise and two-finger swipe-over-tile host pan are
+- LauncherTests prove drop of a file and of an `https://` URL reach `OnDrop`, that `iconSize` `huge` paginates eight
+  shortcuts on a large tile while `small`, `medium`, `large`, and `automatic` change the per-page count, that a tall
+  256×720 tile spreads at most two columns of `small` icons through the height with even gutters of at least 8 DIP
+  between icon edges (and 8 DIP edge inset) instead of clustering, that 32 shortcuts are the closed cap, that a
+  one-finger horizontal swipe follows the finger
+  then settles to the next page without launching, that a page-dot tap animates rather than teleporting, and that a
+  bottom page-dot strip is hittable when more than one launcher page exists. Consumed-click versus raise and two-finger swipe-over-tile host pan are
   Application pointer routing. HostPluginTests do not compile `Application.cpp` and cannot
   fully prove that path; interactive checks cover click-to-launch, raise on padding, one-finger launcher paging, and
   two- or three-finger host pan.

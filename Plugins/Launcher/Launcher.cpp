@@ -41,8 +41,8 @@ namespace
 constexpr char kPluginId[] = "builtin.launcher";
 constexpr char kWidgetTypeId[] = "launcher";
 constexpr char kSettingsSchema[] =
-    R"json({"type":"object","additionalProperties":false,"properties":{"shortcuts":{"type":"array","minItems":0,"maxItems":8,"items":{"type":"object","additionalProperties":false,"properties":{"target":{"type":"string"},"iconPng":{"type":"string"}},"required":["target"]}}}})json";
-constexpr char kSettingsDefaults[] = R"json({"shortcuts":[]})json";
+    R"json({"type":"object","additionalProperties":false,"properties":{"shortcuts":{"type":"array","minItems":0,"maxItems":32,"items":{"type":"object","additionalProperties":false,"properties":{"target":{"type":"string"},"iconPng":{"type":"string"}},"required":["target"]}},"iconSize":{"type":"string","enum":["small","medium","large","huge","automatic"]}}})json";
+constexpr char kSettingsDefaults[] = R"json({"shortcuts":[],"iconSize":"huge"})json";
 constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
@@ -74,7 +74,7 @@ constexpr std::array kWidgetTypes{
     },
 };
 
-constexpr uint32_t kMaximumShortcuts = 8;
+constexpr uint32_t kMaximumShortcuts = kLauncherMaximumShortcuts;
 constexpr uint32_t kIconEdge = 256;
 constexpr uint32_t kTargetCapacity = 513;
 constexpr uint32_t kIconPngCapacity = 261;
@@ -113,6 +113,9 @@ std::atomic<uint32_t> gLastInstanceCount{0};
 std::atomic<uint32_t> gLastDrawCount{0};
 std::atomic<uint32_t> gPageCount{1};
 std::atomic<uint32_t> gPageIndex{0};
+std::atomic<int32_t> gPageSlidePx{0};
+std::atomic<uint32_t> gPageSettling{0};
+std::atomic<uint32_t> gIconHalfExtentPx{0};
 SRWLOCK gPinLock = SRWLOCK_INIT;
 PinMode gPinMode = PinMode::Live;
 wchar_t gPinOverride[1024]{};
@@ -240,6 +243,7 @@ struct ShortcutRecord final
 struct LauncherConfiguration final
 {
     uint32_t count = 0;
+    LauncherIconSize iconSize = LauncherIconSize::Huge;
     std::array<ShortcutRecord, kMaximumShortcuts> items{};
 };
 
@@ -251,13 +255,18 @@ struct alignas(16) LauncherConstants final
     float hint;
     float background[4];
     float hintColor[4];
-    float iconRect[kMaximumShortcuts][4];
-    float iconMotion[kMaximumShortcuts][4];
     uint32_t iconCount;
     uint32_t pad[3];
 };
 
-static_assert(sizeof(LauncherConstants) == 320);
+struct alignas(16) LauncherIconInstance final
+{
+    float rect[4];
+    float motion[4];
+};
+
+static_assert(sizeof(LauncherConstants) == 64);
+static_assert(sizeof(LauncherIconInstance) == 32);
 
 [[nodiscard]] HRESULT CopyWicToBgra(IWICBitmapSource* source, ShortcutRecord& record) noexcept
 {
@@ -681,7 +690,20 @@ void ResolvePinDirectory(wchar_t* directory, size_t capacity) noexcept
     while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
     {
         const std::string_view name{yyjson_get_str(key), yyjson_get_len(key)};
-        if (name != "shortcuts")
+        if (name != "shortcuts" && name != "iconSize")
+        {
+            return false;
+        }
+    }
+    yyjson_val* iconSize = yyjson_obj_get(instance, "iconSize");
+    if (iconSize)
+    {
+        if (!yyjson_is_str(iconSize))
+        {
+            return false;
+        }
+        const std::string_view size{yyjson_get_str(iconSize), yyjson_get_len(iconSize)};
+        if (!TryParseLauncherIconSize(size, configuration.iconSize))
         {
             return false;
         }
@@ -815,7 +837,7 @@ class LauncherInstanceGpu final
         {
             return E_POINTER;
         }
-        if (_deviceIdentity == device && _constantBuffer && _texture)
+        if (_deviceIdentity == device && _constantBuffer && _instanceBuffer && _texture)
         {
             return S_OK;
         }
@@ -827,6 +849,29 @@ class LauncherInstanceGpu final
         constantDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
         wil::com_ptr_nothrow<ID3D11Buffer> constantBuffer;
         HRESULT result = device->CreateBuffer(&constantDescription, nullptr, constantBuffer.put());
+        if (FAILED(result))
+        {
+            return result;
+        }
+        D3D11_BUFFER_DESC instanceDescription{};
+        instanceDescription.ByteWidth = sizeof(LauncherIconInstance) * kMaximumShortcuts;
+        instanceDescription.Usage = D3D11_USAGE_DYNAMIC;
+        instanceDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        instanceDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        instanceDescription.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+        instanceDescription.StructureByteStride = sizeof(LauncherIconInstance);
+        wil::com_ptr_nothrow<ID3D11Buffer> instanceBuffer;
+        result = device->CreateBuffer(&instanceDescription, nullptr, instanceBuffer.put());
+        if (FAILED(result))
+        {
+            return result;
+        }
+        D3D11_SHADER_RESOURCE_VIEW_DESC instanceViewDescription{};
+        instanceViewDescription.Format = DXGI_FORMAT_UNKNOWN;
+        instanceViewDescription.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+        instanceViewDescription.Buffer.NumElements = kMaximumShortcuts;
+        wil::com_ptr_nothrow<ID3D11ShaderResourceView> instanceView;
+        result = device->CreateShaderResourceView(instanceBuffer.get(), &instanceViewDescription, instanceView.put());
         if (FAILED(result))
         {
             return result;
@@ -859,6 +904,8 @@ class LauncherInstanceGpu final
         }
         _deviceIdentity = device;
         _constantBuffer = std::move(constantBuffer);
+        _instanceBuffer = std::move(instanceBuffer);
+        _instanceView = std::move(instanceView);
         _texture = std::move(texture);
         _view = std::move(view);
         return S_OK;
@@ -868,6 +915,8 @@ class LauncherInstanceGpu final
     {
         _view.reset();
         _texture.reset();
+        _instanceView.reset();
+        _instanceBuffer.reset();
         _constantBuffer.reset();
         _deviceIdentity = nullptr;
     }
@@ -899,6 +948,16 @@ class LauncherInstanceGpu final
         return _constantBuffer.get();
     }
 
+    [[nodiscard]] ID3D11Buffer* InstanceBuffer() const noexcept
+    {
+        return _instanceBuffer.get();
+    }
+
+    [[nodiscard]] ID3D11ShaderResourceView* InstanceView() const noexcept
+    {
+        return _instanceView.get();
+    }
+
     [[nodiscard]] ID3D11ShaderResourceView* View() const noexcept
     {
         return _view.get();
@@ -907,6 +966,8 @@ class LauncherInstanceGpu final
   private:
     ID3D11Device* _deviceIdentity = nullptr;
     wil::com_ptr_nothrow<ID3D11Buffer> _constantBuffer;
+    wil::com_ptr_nothrow<ID3D11Buffer> _instanceBuffer;
+    wil::com_ptr_nothrow<ID3D11ShaderResourceView> _instanceView;
     wil::com_ptr_nothrow<ID3D11Texture2D> _texture;
     wil::com_ptr_nothrow<ID3D11ShaderResourceView> _view;
 };
@@ -1005,9 +1066,13 @@ class LauncherDeviceResources final
     }
 
     [[nodiscard]] HRESULT Draw(ID3D11DeviceContext* context, LauncherInstanceGpu& instance,
-                               LauncherConstants constants) noexcept
+                               LauncherConstants constants, const LauncherIconInstance* icons) noexcept
     {
         if (!context || !_vertexShader || !instance.ConstantBuffer() || !instance.View())
+        {
+            return E_UNEXPECTED;
+        }
+        if (constants.iconCount > 0 && (!icons || !instance.InstanceBuffer() || !instance.InstanceView()))
         {
             return E_UNEXPECTED;
         }
@@ -1045,6 +1110,13 @@ class LauncherDeviceResources final
         uint32_t draws = 1;
         if (constants.iconCount > 0)
         {
+            result = context->Map(instance.InstanceBuffer(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+            if (FAILED(result))
+            {
+                return result;
+            }
+            std::memcpy(mapped.pData, icons, sizeof(LauncherIconInstance) * constants.iconCount);
+            context->Unmap(instance.InstanceBuffer(), 0);
             result = context->Map(constantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
             if (FAILED(result))
             {
@@ -1053,7 +1125,11 @@ class LauncherDeviceResources final
             constants.drawMode = 1.0f;
             std::memcpy(mapped.pData, &constants, sizeof(constants));
             context->Unmap(constantBuffer, 0);
+            ID3D11ShaderResourceView* instanceViews[] = {instance.InstanceView()};
+            context->VSSetShaderResources(1, 1, instanceViews);
             context->DrawInstanced(6, constants.iconCount, 0, 0);
+            ID3D11ShaderResourceView* unbound[] = {nullptr};
+            context->VSSetShaderResources(1, 1, unbound);
             ++draws;
         }
         gDrawCalls.fetch_add(draws, std::memory_order_relaxed);
@@ -1084,6 +1160,7 @@ void CopyConfigurationIdentity(const LauncherConfiguration& source, LauncherConf
 {
     destination = {};
     destination.count = source.count;
+    destination.iconSize = source.iconSize;
     for (uint32_t index = 0; index < source.count; ++index)
     {
         CopyShortcutIdentity(source.items[index], destination.items[index]);
@@ -1121,6 +1198,8 @@ class LauncherWidget final
         {
             _launchActive = false;
             _pointerDown = false;
+            _pagePan = false;
+            StopPageSettle(true);
             return S_OK;
         }
         RefreshDisplay(false);
@@ -1243,8 +1322,7 @@ class LauncherWidget final
         _dpi = widget.dpi == 0 ? USER_DEFAULT_SCREEN_DPI : widget.dpi;
         ComputeGrid();
         const auto& grid = _grids[_activeGrid];
-        const auto& cells = grid.cells;
-        const uint32_t packed = grid.pageCount > 1 ? grid.visibleCount : grid.count;
+        const uint32_t shortcutCount = grid.count;
         float launchAmount = 0.0f;
         if (_launchActive)
         {
@@ -1279,39 +1357,66 @@ class LauncherWidget final
         constants.hintColor[1] = 0.58f;
         constants.hintColor[2] = 0.62f;
         constants.hintColor[3] = 1.0f;
-        constants.iconCount = packed;
+        AdvancePageSettle();
+        const float slide = static_cast<float>(_slidePx);
+        const LauncherIconSize iconSize = _display.count > 0 ? _display.iconSize : _authored.iconSize;
+        std::array<LauncherIconInstance, kMaximumShortcuts> instances{};
+        uint32_t drawn = 0;
+        const auto appendPage = [&](uint32_t page, float xOffset) noexcept
+        {
+            const LauncherPageGeometry pageGeometry =
+                ComputeLauncherPages(_width, _height, _dpi, shortcutCount, page, iconSize);
+            std::array<std::array<float, 4>, kMaximumShortcuts> pageCells{};
+            FillLauncherPageCells(_width, _height, _dpi, shortcutCount, pageGeometry, pageCells);
+            const uint32_t pagePacked = LauncherPackedIconCount(pageGeometry, shortcutCount);
+            for (uint32_t index = 0; index < pagePacked && drawn < kMaximumShortcuts; ++index)
+            {
+                const uint32_t global = pageGeometry.firstIndex + index;
+                instances[drawn].rect[0] = pageCells[index][0] + xOffset;
+                instances[drawn].rect[1] = pageCells[index][1];
+                instances[drawn].rect[2] = pageCells[index][2];
+                instances[drawn].rect[3] = pageCells[index][3];
+                float dim = 1.0f;
+                float tilt = 0.0f;
+                float z = 0.0f;
+                if (_launchActive && global == _launchIndex)
+                {
+                    tilt = launchAmount * 0.65f;
+                    z = launchAmount * 48.0f;
+                }
+                else if (_launchActive)
+                {
+                    dim = 1.0f - launchAmount * 0.45f;
+                }
+                if (_dragHighlight && global == _hoverIndex)
+                {
+                    dim *= 1.08f;
+                }
+                instances[drawn].motion[0] = tilt;
+                instances[drawn].motion[1] = z;
+                instances[drawn].motion[2] = dim;
+                instances[drawn].motion[3] = static_cast<float>(global);
+                ++drawn;
+            }
+        };
+        appendPage(_pageIndex, slide);
+        if (_slidePx < 0 && _pageIndex + 1 < grid.pageCount)
+        {
+            appendPage(_pageIndex + 1, slide + static_cast<float>(_width));
+        }
+        else if (_slidePx > 0 && _pageIndex > 0)
+        {
+            appendPage(_pageIndex - 1, slide - static_cast<float>(_width));
+        }
+        constants.iconCount = drawn;
         constants.pad[0] = grid.pageCount;
         constants.pad[1] = grid.pageIndex;
         constants.pad[2] = _dpi;
-        for (uint32_t index = 0; index < packed; ++index)
+        if ((_settleActive || _pagePan || _launchActive) && _host)
         {
-            const uint32_t global = grid.firstIndex + index;
-            constants.iconRect[index][0] = cells[index][0];
-            constants.iconRect[index][1] = cells[index][1];
-            constants.iconRect[index][2] = cells[index][2];
-            constants.iconRect[index][3] = cells[index][3];
-            float dim = 1.0f;
-            float tilt = 0.0f;
-            float z = 0.0f;
-            if (_launchActive && global == _launchIndex)
-            {
-                tilt = launchAmount * 0.65f;
-                z = launchAmount * 48.0f;
-            }
-            else if (_launchActive)
-            {
-                dim = 1.0f - launchAmount * 0.45f;
-            }
-            if (_dragHighlight && global == _hoverIndex)
-            {
-                dim *= 1.08f;
-            }
-            constants.iconMotion[index][0] = tilt;
-            constants.iconMotion[index][1] = z;
-            constants.iconMotion[index][2] = dim;
-            constants.iconMotion[index][3] = static_cast<float>(global);
+            (void)_host->RequestFrame();
         }
-        return _resources->Draw(context->deviceContext, _gpu, constants);
+        return _resources->Draw(context->deviceContext, _gpu, constants, instances.data());
     }
 
     HRESULT STDMETHODCALLTYPE OnPointer(const RedXePointerEvent* event) noexcept override
@@ -1331,6 +1436,11 @@ class LauncherWidget final
             _pointerDown = false;
             _pagePan = false;
             _downIndex = kMaximumShortcuts;
+            _dotDown = UINT32_MAX;
+            if (_slidePx != 0)
+            {
+                StartPageSettle(0);
+            }
             return S_FALSE;
         }
         const auto& grid = _grids[_activeGrid];
@@ -1338,8 +1448,16 @@ class LauncherWidget final
         if (event->phase == RedXePointerPhaseDown)
         {
             _pagePan = false;
-            _pointerStartX = event->x;
+            _launchActive = false;
+            _pointerStartX = event->x - static_cast<float>(_slidePx);
             _pointerStartY = event->y;
+            _pointerLastX = event->x;
+            _pointerLastQpc = 0;
+            _velocityPxPerSec = 0.0f;
+            if (_settleActive)
+            {
+                StopPageSettle(false);
+            }
             if (pageHit < grid.pageCount)
             {
                 _pointerDown = true;
@@ -1351,7 +1469,7 @@ class LauncherWidget final
             const uint32_t hit = HitCell(event->x, event->y);
             _pointerDown = true;
             _downIndex = hit;
-            return hit < _display.count ? S_OK : S_FALSE;
+            return hit < _display.count || _slidePx != 0 ? S_OK : S_FALSE;
         }
         if (event->phase == RedXePointerPhaseMove)
         {
@@ -1359,6 +1477,7 @@ class LauncherWidget final
             {
                 return S_FALSE;
             }
+            UpdatePagePanVelocity(event->x);
             const LONG deltaX = static_cast<LONG>(event->x - _pointerStartX);
             const LONG deltaY = static_cast<LONG>(event->y - _pointerStartY);
             const LONG threshold = LauncherPageSwipeThresholdPixels(_dpi);
@@ -1366,6 +1485,18 @@ class LauncherWidget final
             {
                 _pagePan = true;
                 _downIndex = kMaximumShortcuts;
+                _dotDown = UINT32_MAX;
+            }
+            if (_pagePan)
+            {
+                const bool blocked = LauncherPageSwipeBlocksDirection(deltaX, _pageIndex == 0,
+                                                                     _pageIndex + 1 >= grid.pageCount);
+                _slidePx = LauncherApplyPageEdgeResistance(deltaX, static_cast<LONG>(_width), blocked);
+                PublishCounts();
+                if (_host)
+                {
+                    (void)_host->RequestFrame();
+                }
             }
             return _pagePan || _downIndex < _display.count || _dotDown < grid.pageCount ? S_OK : S_FALSE;
         }
@@ -1380,31 +1511,30 @@ class LauncherWidget final
             _dotDown = UINT32_MAX;
             if (panned && grid.pageCount > 1)
             {
-                const LONG deltaX = static_cast<LONG>(event->x - _pointerStartX);
-                const LONG commit = static_cast<LONG>(_width / 4);
-                if (deltaX <= -commit && _pageIndex + 1 < grid.pageCount)
+                const bool atFirst = _pageIndex == 0;
+                const bool atLast = _pageIndex + 1 >= grid.pageCount;
+                if (LauncherShouldCommitPageSwipe(_slidePx, static_cast<LONG>(_width), _velocityPxPerSec, _dpi, atFirst,
+                                                  atLast))
                 {
-                    ++_pageIndex;
+                    const LONG width = static_cast<LONG>(_width);
+                    if (_slidePx < 0)
+                    {
+                        ++_pageIndex;
+                        _slidePx += width;
+                    }
+                    else
+                    {
+                        --_pageIndex;
+                        _slidePx -= width;
+                    }
+                    ComputeGrid();
                 }
-                else if (deltaX >= commit && _pageIndex > 0)
-                {
-                    --_pageIndex;
-                }
-                ComputeGrid();
-                if (_host)
-                {
-                    (void)_host->RequestFrame();
-                }
+                StartPageSettle(0);
                 return S_OK;
             }
             if (dot < grid.pageCount && pageHit == dot)
             {
-                _pageIndex = dot;
-                ComputeGrid();
-                if (_host)
-                {
-                    (void)_host->RequestFrame();
-                }
+                AnimateToPage(dot);
                 return S_OK;
             }
             const uint32_t hit = HitCell(event->x, event->y);
@@ -1532,18 +1662,124 @@ class LauncherWidget final
         gRows.store(_grids[_activeGrid].rows, std::memory_order_relaxed);
         gPageCount.store(_grids[_activeGrid].pageCount, std::memory_order_relaxed);
         gPageIndex.store(_pageIndex, std::memory_order_relaxed);
+        gPageSlidePx.store(_slidePx, std::memory_order_relaxed);
+        gPageSettling.store(_settleActive ? 1U : 0U, std::memory_order_relaxed);
+        const auto& grid = _grids[_activeGrid];
+        const uint32_t packed = grid.pageCount > 1 ? grid.visibleCount : grid.count;
+        const uint32_t half = packed > 0 ? static_cast<uint32_t>(grid.cells[0][2] + 0.5f) : 0U;
+        gIconHalfExtentPx.store(half, std::memory_order_relaxed);
+    }
+
+    void StopPageSettle(bool snapToTarget) noexcept
+    {
+        if (snapToTarget && _settleActive)
+        {
+            _slidePx = _settleTargetPx;
+        }
+        _settleActive = false;
+        _settleStartPx = _slidePx;
+        _settleTargetPx = _slidePx;
+        PublishCounts();
+    }
+
+    void StartPageSettle(LONG target) noexcept
+    {
+        if (_slidePx == target)
+        {
+            _settleActive = false;
+            PublishCounts();
+            if (_host)
+            {
+                (void)_host->RequestFrame();
+            }
+            return;
+        }
+        _settleStartPx = _slidePx;
+        _settleTargetPx = target;
+        _settleActive = true;
+        LARGE_INTEGER now{};
+        QueryPerformanceCounter(&now);
+        _settleStartQpc = static_cast<uint64_t>(now.QuadPart);
+        _settleDurationMs = LauncherPageSettleDurationMilliseconds(_settleTargetPx - _settleStartPx, _velocityPxPerSec);
+        PublishCounts();
+        if (_host)
+        {
+            (void)_host->RequestFrame();
+        }
+    }
+
+    void AdvancePageSettle() noexcept
+    {
+        if (!_settleActive)
+        {
+            return;
+        }
+        if (_qpcFrequency == 0 || _settleDurationMs == 0)
+        {
+            _slidePx = _settleTargetPx;
+            _settleActive = false;
+            PublishCounts();
+            return;
+        }
+        LARGE_INTEGER now{};
+        QueryPerformanceCounter(&now);
+        const double elapsed = static_cast<double>(static_cast<uint64_t>(now.QuadPart) - _settleStartQpc) /
+                               static_cast<double>(_qpcFrequency);
+        const float t = static_cast<float>(elapsed * 1000.0 / static_cast<double>(_settleDurationMs));
+        _slidePx = LauncherInterpolatePageOffset(_settleStartPx, _settleTargetPx, t);
+        if (t >= 1.0f)
+        {
+            _slidePx = _settleTargetPx;
+            _settleActive = false;
+        }
+        PublishCounts();
+    }
+
+    void AnimateToPage(uint32_t page) noexcept
+    {
+        const auto& grid = _grids[_activeGrid];
+        if (page >= grid.pageCount || page == _pageIndex)
+        {
+            return;
+        }
+        const LONG width = static_cast<LONG>(_width);
+        const LONG delta = static_cast<LONG>(_pageIndex) - static_cast<LONG>(page);
+        _pageIndex = page;
+        _slidePx = delta * width;
+        ComputeGrid();
+        StartPageSettle(0);
+    }
+
+    void UpdatePagePanVelocity(float x) noexcept
+    {
+        LARGE_INTEGER now{};
+        QueryPerformanceCounter(&now);
+        const uint64_t ticks = static_cast<uint64_t>(now.QuadPart);
+        if (_pointerLastQpc != 0 && _qpcFrequency != 0 && ticks > _pointerLastQpc)
+        {
+            const double seconds =
+                static_cast<double>(ticks - _pointerLastQpc) / static_cast<double>(_qpcFrequency);
+            if (seconds > 0.0 && seconds < 0.05)
+            {
+                _velocityPxPerSec = static_cast<float>((x - _pointerLastX) / seconds);
+            }
+        }
+        _pointerLastX = x;
+        _pointerLastQpc = ticks;
     }
 
     void ComputeGrid() noexcept
     {
         const uint32_t n = _display.count;
-        const LauncherPageGeometry pages = ComputeLauncherPages(_width, _height, _dpi, n, _pageIndex);
+        const LauncherIconSize iconSize = _display.count > 0 ? _display.iconSize : _authored.iconSize;
+        const LauncherPageGeometry pages = ComputeLauncherPages(_width, _height, _dpi, n, _pageIndex, iconSize);
         _pageIndex = pages.pageIndex;
         for (size_t index = 0; index < _grids.size(); ++index)
         {
             const auto& cached = _grids[index];
             if (cached.width == _width && cached.height == _height && cached.dpi == _dpi && cached.count == n &&
-                cached.pageIndex == pages.pageIndex && cached.pageCount == pages.pageCount)
+                cached.pageIndex == pages.pageIndex && cached.pageCount == pages.pageCount &&
+                cached.iconSize == iconSize)
             {
                 _activeGrid = index;
                 PublishCounts();
@@ -1562,47 +1798,24 @@ class LauncherWidget final
         grid.firstIndex = pages.firstIndex;
         grid.visibleCount = pages.visibleCount;
         grid.indicatorHeight = pages.indicatorHeightPx;
+        grid.iconSize = iconSize;
         if (n == 0 || _width == 0 || _height == 0)
         {
             PublishCounts();
             return;
         }
-        const uint32_t packed = pages.pageCount > 1 ? pages.visibleCount : n;
-        const float contentHeight = pages.pageCount > 1 ? pages.contentHeightPx : static_cast<float>(_height);
-        if (pages.pageCount > 1)
-        {
-            grid.columns = pages.columns;
-            grid.rows = pages.rows;
-        }
-        else
-        {
-            const float aspect = static_cast<float>(_width) / std::max(contentHeight, 1.0f);
-            const long rounded = std::lround(std::sqrt(static_cast<float>(packed) * aspect));
-            grid.columns = static_cast<uint32_t>(std::clamp(rounded, 1L, static_cast<long>(packed)));
-            grid.rows = (packed + grid.columns - 1U) / grid.columns;
-        }
-        const float cellWidth = static_cast<float>(_width) / static_cast<float>(grid.columns);
-        const float cellHeight = contentHeight / static_cast<float>(grid.rows);
-        const float padding = std::max(6.0f, static_cast<float>(_dpi) * 10.0f / 96.0f);
-        const float icon = std::max(8.0f, std::min(cellWidth, cellHeight) - padding * 2.0f);
-        const float usedWidth = static_cast<float>(grid.columns) * cellWidth;
-        const float usedHeight = static_cast<float>(grid.rows) * cellHeight;
-        const float originX = (static_cast<float>(_width) - usedWidth) * 0.5f;
-        const float originY = (contentHeight - usedHeight) * 0.5f;
-        for (uint32_t index = 0; index < packed; ++index)
-        {
-            const uint32_t column = index % grid.columns;
-            const uint32_t row = index / grid.columns;
-            grid.cells[index][0] = originX + (static_cast<float>(column) + 0.5f) * cellWidth;
-            grid.cells[index][1] = originY + (static_cast<float>(row) + 0.5f) * cellHeight;
-            grid.cells[index][2] = icon * 0.5f;
-            grid.cells[index][3] = icon * 0.5f;
-        }
+        FillLauncherPageCells(_width, _height, _dpi, n, pages, grid.cells);
+        grid.columns = std::max(1U, pages.columns);
+        grid.rows = std::max(1U, pages.rows);
         PublishCounts();
     }
 
     [[nodiscard]] uint32_t HitCell(float x, float y) const noexcept
     {
+        if (_slidePx != 0 || _settleActive || _pagePan)
+        {
+            return kMaximumShortcuts;
+        }
         const auto& grid = _grids[_activeGrid];
         const uint32_t packed = grid.pageCount > 1 ? grid.visibleCount : grid.count;
         for (uint32_t index = 0; index < packed; ++index)
@@ -1622,6 +1835,7 @@ class LauncherWidget final
         {
             _display = {};
             _display.count = _authored.count;
+            _display.iconSize = _authored.iconSize;
             for (uint32_t index = 0; index < _authored.count; ++index)
             {
                 CopyShortcutIdentity(_authored.items[index], _display.items[index]);
@@ -1631,6 +1845,7 @@ class LauncherWidget final
         else
         {
             _display = {};
+            _display.iconSize = _authored.iconSize;
             std::array<wchar_t, 1024> directory{};
             ResolvePinDirectory(directory.data(), directory.size());
             EnumerateLnks(directory.data(), _display);
@@ -1776,7 +1991,8 @@ class LauncherWidget final
                 return E_OUTOFMEMORY;
             }
         }
-        if (!yyjson_mut_obj_add_val(document.get(), root, "shortcuts", array))
+        if (!yyjson_mut_obj_add_val(document.get(), root, "shortcuts", array) ||
+            !yyjson_mut_obj_add_strcpy(document.get(), root, "iconSize", LauncherIconSizeName(_authored.iconSize)))
         {
             return E_OUTOFMEMORY;
         }
@@ -1817,6 +2033,7 @@ class LauncherWidget final
         uint32_t firstIndex = 0;
         uint32_t visibleCount = 0;
         float indicatorHeight = 0.0f;
+        LauncherIconSize iconSize = LauncherIconSize::Huge;
         std::array<std::array<float, 4>, kMaximumShortcuts> cells{};
     };
     std::array<GridLayout, 2> _grids{};
@@ -1829,8 +2046,16 @@ class LauncherWidget final
     uint32_t _hoverIndex = kMaximumShortcuts;
     uint32_t _pageIndex = 0;
     uint32_t _dotDown = UINT32_MAX;
+    LONG _slidePx = 0;
+    LONG _settleStartPx = 0;
+    LONG _settleTargetPx = 0;
+    UINT _settleDurationMs = 0;
+    uint64_t _settleStartQpc = 0;
     float _pointerStartX = 0.0f;
     float _pointerStartY = 0.0f;
+    float _pointerLastX = 0.0f;
+    float _velocityPxPerSec = 0.0f;
+    uint64_t _pointerLastQpc = 0;
     uint64_t _launchStartQpc = 0;
     uint64_t _qpcFrequency = 0;
     bool _visible = false;
@@ -1838,6 +2063,7 @@ class LauncherWidget final
     bool _usingPins = false;
     bool _pointerDown = false;
     bool _pagePan = false;
+    bool _settleActive = false;
     bool _launchActive = false;
     bool _dragHighlight = false;
     bool _dirty = false;
@@ -2020,6 +2246,9 @@ extern "C" HRESULT __stdcall RedXeLauncherGetTestDiagnostics(LauncherTestDiagnos
     diagnostics->liveWidgets = gLiveWidgets.load(std::memory_order_relaxed);
     diagnostics->pageCount = gPageCount.load(std::memory_order_relaxed);
     diagnostics->pageIndex = gPageIndex.load(std::memory_order_relaxed);
+    diagnostics->pageSlidePx = gPageSlidePx.load(std::memory_order_relaxed);
+    diagnostics->pageSettling = gPageSettling.load(std::memory_order_relaxed);
+    diagnostics->iconHalfExtentPx = gIconHalfExtentPx.load(std::memory_order_relaxed);
     return S_OK;
 }
 
@@ -2032,4 +2261,7 @@ extern "C" void __stdcall RedXeLauncherResetTestDiagnostics() noexcept
     gShellExecuteCount.store(0, std::memory_order_relaxed);
     gLastLaunchKind.store(0, std::memory_order_relaxed);
     gLargestIconEdge.store(0, std::memory_order_relaxed);
+    gPageSlidePx.store(0, std::memory_order_relaxed);
+    gPageSettling.store(0, std::memory_order_relaxed);
+    gIconHalfExtentPx.store(0, std::memory_order_relaxed);
 }

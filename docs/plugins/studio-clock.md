@@ -28,10 +28,8 @@ Omitted keys take these defaults. Colors are `#RRGGBB`. Unknown keys reject the 
 ```json
 {
   "plugin": "builtin.studio-clock",
-  "settings": {
-    "showDate": true,
-    "dateFormat": "yyyy-mm-dd",
-    "externalDotsAlwaysOn": true
-  }
+  "showDate": true,
+  "dateFormat": "yyyy-mm-dd",
+  "externalDotsAlwaysOn": true
 }
 ```

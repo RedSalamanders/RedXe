@@ -1,25 +1,25 @@
 {
   "$schema": "RedXe.settings.schema.json",
-  "version": { "major": 4, "minor": 0 },
+  "version": { "major": 5, "minor": 0 },
   "wrapPages": false,
   "logRetentionDays": 15,
   // Reusable definitions create independent instances wherever they appear.
   "declare": {
     "Triangle": { "plugin": "builtin.rotating-triangle" },
     "Matrix": { "plugin": "builtin.matrix-rain" },
-    "StudioClock": { "plugin": "builtin.studio-clock", "settings": { "externalDotsAlwaysOn": true } },
+    "StudioClock": { "plugin": "builtin.studio-clock", "externalDotsAlwaysOn": true },
     "DeskClock": { "plugin": "builtin.desk-clock" },
     "Weather": { "plugin": "builtin.weather" },
-    "Launcher": { "plugin": "builtin.launcher", "settings": { "shortcuts": [] } },
-    "AVControl": { "plugin": "builtin.av-control", "settings": { "profiles": [] } },
-    "Processes": { "plugin": "builtin.process-viewer", "settings": { "topN": 10 } },
+    "Launcher": { "plugin": "builtin.launcher", "shortcuts": [] },
+    "AVControl": { "plugin": "builtin.av-control", "profiles": [] },
+    "Processes": { "plugin": "builtin.process-viewer", "topN": 10 },
     "Pulse": { "plugin": "builtin.system-pulse" },
     "Cpu": { "plugin": "builtin.cpu-meter" },
     "Memory": { "plugin": "builtin.memory-meter" },
-    "Network": { "plugin": "builtin.network-meter", "settings": { "topN": 8 } },
+    "Network": { "plugin": "builtin.network-meter", "topN": 8 },
     "Storage": { "plugin": "builtin.storage-meter" },
     "Gpu": { "plugin": "builtin.gpu-meter" },
-    "GpuProcesses": { "plugin": "builtin.gpu-processes", "settings": { "topN": 8 } },
+    "GpuProcesses": { "plugin": "builtin.gpu-processes", "topN": 8 },
     "Power": { "plugin": "builtin.power-meter" },
     "Thermal": { "plugin": "builtin.thermal-meter" }
   },
@@ -27,97 +27,34 @@
     {
       "id": "development",
       "name": "Development",
-      "layout": {
-        "arrangeAlong": "long-side",
-        "areas": [
-          { "sizeRatio": 1, "widget": "Launcher" },
-          {
-            "sizeRatio": 1,
-            "arrangeAlong": "short-side",
-            "areas": [
-              { "sizeRatio": 1, "widget": "Triangle" },
-              { "sizeRatio": 1, "widget": { "plugin": "builtin.gdi-orbit" } }
-            ]
-          },
-          { "sizeRatio": 2, "widget": "Matrix" }
-        ]
-      }
+      "columns": [
+        "Launcher",
+        { "rows": ["Triangle", { "plugin": "builtin.gdi-orbit" }] },
+        { "weight": 2, "widget": "Matrix" }
+      ]
     },
     {
       "name": "Alternate Gallery",
-      "layout": {
-        "arrangeAlong": "long-side",
-        "areas": [
-          {
-            "sizeRatio": 2,
-            "arrangeAlong": "short-side",
-            "areas": [
-              { "sizeRatio": 1, "widget": "Triangle" },
-              { "sizeRatio": 1, "widget": { "plugin": "builtin.gdi-orbit" } }
-            ]
-          },
-          {
-            "sizeRatio": 5,
-            "widget": {
-              "use": "Matrix",
-              "override": { "settings": { "seed": 2000, "densityPercent": 80 } }
-            }
-          },
-          {
-            "sizeRatio": 2,
-            "arrangeAlong": "short-side",
-            "areas": [
-              { "sizeRatio": 1, "widget": "StudioClock" },
-              { "sizeRatio": 1, "widget": "DeskClock" }
-            ]
-          },
-          { "sizeRatio": 5, "widget": "Weather" },
-          { "sizeRatio": 2, "widget": "Launcher" },
-          { "sizeRatio": 4, "widget": "AVControl" }
-        ]
-      }
+      "columns": [
+        { "weight": 2, "rows": ["Triangle", { "plugin": "builtin.gdi-orbit" }] },
+        {
+          "weight": 5,
+          "widget": { "use": "Matrix", "seed": 2000, "densityPercent": 80 }
+        },
+        { "weight": 2, "rows": ["StudioClock", "DeskClock"] },
+        { "weight": 5, "widget": "Weather" },
+        { "weight": 2, "widget": "Launcher" },
+        { "weight": 4, "widget": "AVControl" }
+      ]
     },
     {
       "name": "System",
-      "layout": {
-        "arrangeAlong": "long-side",
-        "areas": [
-          {
-            "sizeRatio": 3,
-            "arrangeAlong": "short-side",
-            "areas": [
-              { "sizeRatio": 1, "widget": "Pulse" },
-              { "sizeRatio": 1, "widget": "Cpu" },
-              { "sizeRatio": 1, "widget": "Memory" }
-            ]
-          },
-          {
-            "sizeRatio": 4,
-            "arrangeAlong": "short-side",
-            "areas": [
-              { "sizeRatio": 1, "widget": "Processes" },
-              { "sizeRatio": 1, "widget": "GpuProcesses" }
-            ]
-          },
-          {
-            "sizeRatio": 3,
-            "arrangeAlong": "short-side",
-            "areas": [
-              { "sizeRatio": 1, "widget": "Network" },
-              { "sizeRatio": 1, "widget": "Storage" }
-            ]
-          },
-          {
-            "sizeRatio": 3,
-            "arrangeAlong": "short-side",
-            "areas": [
-              { "sizeRatio": 1, "widget": "Gpu" },
-              { "sizeRatio": 1, "widget": "Thermal" },
-              { "sizeRatio": 1, "widget": "Power" }
-            ]
-          }
-        ]
-      }
+      "columns": [
+        { "weight": 3, "rows": ["Pulse", "Cpu", "Memory"] },
+        { "weight": 4, "rows": ["Processes", "GpuProcesses"] },
+        { "weight": 3, "rows": ["Network", "Storage"] },
+        { "weight": 3, "rows": ["Gpu", "Thermal", "Power"] }
+      ]
     }
   ]
 }

@@ -78,7 +78,7 @@ remains hidden and noninteractive in every configuration and verifies the DPI-ad
 Normal runs keep editable settings under `%LocalAppData%\RedXe\Settings`. Debug uses
 `RedXe-debug.settings.json`; Release uses `RedXe.settings.json`. Schema compatibility comes from the document's
 `version` member, not its filename. The user schema is installed beside
-them as `RedXe.settings.schema.json`. Schema version 4 defines reusable declarations, plugin-owned settings, ordered
+them as `RedXe.settings.schema.json`. Schema version 5 defines reusable declarations, flattened plugin keys, ordered
 swipeable pages, and adaptive ratio layouts that reflow between landscape and portrait without an orientation field.
 The first page is selected on launch. A live settings reload keeps that page when it still exists in the new
 document. Valid changes and page switches recreate the dashboard transactionally;

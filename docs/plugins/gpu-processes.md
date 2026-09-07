@@ -17,5 +17,5 @@ Ranks processes by GPU engine use and joins image names from the process list. S
 | `topN` | integer | 1–16 | `8` | How many rows to keep |
 
 ```json
-{ "plugin": "builtin.gpu-processes", "settings": { "topN": 8 } }
+{ "plugin": "builtin.gpu-processes", "topN": 8 }
 ```

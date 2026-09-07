@@ -1,7 +1,7 @@
 # RedXe plugin API contract
 
 Status: current normative contract
-Last reviewed: 2026-09-06
+Last reviewed: 2026-09-07
 
 ## Purpose and scope
 
@@ -155,8 +155,9 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
 
 ## Identifiers and strings
 
-- ABI plugin IDs, widget type IDs, and runtime instance IDs are stable UTF-8 ASCII strings. Version 4 user settings
-  expose only the plugin ID; the host maps that settings-visible ID to the module's internal widget type and generates
+- ABI plugin IDs, widget type IDs, and runtime instance IDs are stable UTF-8 ASCII strings. Version 5 user documents
+  expose only the plugin ID and flattened plugin keys; `Specs/Core/Core_Settings.md` owns that syntax. The host maps
+  the settings-visible ID to the module's internal widget type and generates
   runtime instance IDs.
 - IDs contain 1–128 characters, start with an ASCII alphanumeric character, and otherwise use only
   `[A-Za-z0-9_.-]`.
@@ -305,8 +306,9 @@ requested plugin ID. The record and its UTF-8 strings remain valid while the mod
   Power Meter, and Thermal Meter publish closed empty-object schemas and `{}` defaults. Studio Clock publishes its
   complete closed boolean, color, and date-format schema and defaults. Desk Clock publishes its complete closed duration
   and color schema and defaults. Weather publishes its closed location and unit schema and defaults. Launcher publishes
-  a closed `shortcuts` array of 0 through 8 objects with required `target` and optional `iconPng`, default
-  `{"shortcuts":[]}`.
+  a closed `shortcuts` array of 0 through 32 objects with required `target` and optional `iconPng`, plus optional
+  `iconSize` (`small`, `medium`, `large`, `huge`, or `automatic`, default `huge`), default
+  `{"shortcuts":[],"iconSize":"huge"}`.
 
 The metadata capability surface advertises factory-created plugin services through
 `RedXePluginCapabilityWidgetProvider` and `RedXePluginCapabilityDataSource`. Rendering mechanisms are discovered on
@@ -962,14 +964,17 @@ static descriptor is 480×480 with a 160×160 minimum and does not request conti
 places it as the left leaf so page-1 widget count stays 4. Both shipped galleries add one Launcher leaf (page-2 count
 7). It is not on the System page. Shipped examples use `{"shortcuts":[]}`.
 
-Launcher settings are the closed object `shortcuts`: an array of 0 through 8 items. Each item is a closed object with
-required `target` (UTF-8, 1 through 512 bytes) and optional `iconPng` (UTF-8, 0 through 260 bytes, absolute PNG path).
-`target` is either an absolute Win32 filesystem path (`C:\...` or `\\server\share\...`) or a URI with an alphabetic
-scheme of at least two characters followed by `:`. Relative paths, empty targets, schemeless host names, unknown
-members, nested arrays, and more than eight items reject the complete candidate. Duplicate `target` values
-(case-insensitive Win32 path compare, exact URL compare) reject the document. Compact settings remain ≤ 4096 bytes.
+Launcher settings are the closed object `shortcuts` plus optional `iconSize`. `shortcuts` is an array of 0 through 32
+items. Each item is a closed object with required `target` (UTF-8, 1 through 512 bytes) and optional `iconPng` (UTF-8,
+0 through 260 bytes, absolute PNG path). `target` is either an absolute Win32 filesystem path (`C:\...` or
+`\\server\share\...`) or a URI with an alphabetic scheme of at least two characters followed by `:`. `iconSize` is
+`"small"` (72 DIP), `"medium"` (96 DIP), `"large"` (144 DIP), `"huge"` (fixed 192 DIP jumbo cell; default), or
+`"automatic"` (start at huge and shrink toward small). Relative paths, empty
+targets, schemeless host names, unknown members, unknown `iconSize` values, nested arrays, and more than 32 items
+reject the complete candidate. Duplicate `target` values (case-insensitive Win32 path compare, exact URL compare)
+reject the document. Compact settings remain ≤ 4096 bytes.
 
-When the authored list is empty, `SetVisible(TRUE)` enumerates up to eight `.lnk` files in the current user's pinned
+When the authored list is empty, `SetVisible(TRUE)` enumerates up to 32 `.lnk` files in the current user's pinned
 taskbar folder (`FOLDERID_UserPinned` + `\TaskBar`, then the roaming Quick Launch `User Pinned\TaskBar` fallback),
 sorted by name, skipping `desktop.ini`. Import the fitting prefix into authored shortcuts (at most 4096 compact JSON
 bytes), then queue it through `IRedXeSettingsQueue` for UI-thread persistence outside the visibility callback. The
@@ -989,17 +994,41 @@ else `IExtractIconW` 256, else `IShellItemImageFactory::GetImage` 256 with `SIIG
 padding is trimmed. Device loss keeps CPU BGRA and re-uploads without a second shell extract.
 
 Shared device resources live once per provider: embedded Shader Model 5.0 blobs, textured-quad pipeline, sampler, and
-immutable blend/rasterizer/depth state. Each instance owns at most eight 256×256 icon textures and one 320-byte
-dynamic constant buffer. `Render` is allocation-free and issues at most two draws (background plus instanced icons).
-Grid geometry uses two bounded cache entries keyed by actual width, height, DPI, shortcut count, and launcher page. The tile and
-overlay therefore reuse distinct layouts, and pointer hit testing uses the most recently drawn layout (the overlay
-draw is last while raised). A largest-target notification MUST NOT displace or clip icons in the original tile.
+immutable blend/rasterizer/depth state. Each instance owns a 32-slice 256×256 `Texture2DArray` (8 MiB BGRA) for jumbo
+icons, one 64-byte dynamic constant buffer (viewport, hint, page-dot globals, and `iconCount`), and one 32-slot
+dynamic structured buffer of instance rects and motion (32 bytes each). `Render` is allocation-free: it maps those
+existing buffers with `WRITE_DISCARD` and issues at most two draws (background plus instanced icons). Instance rects
+MUST NOT live in the constant buffer. Device loss keeps CPU BGRA and re-uploads the texture array without a second
+shell extract. Grid geometry uses two bounded cache entries keyed by actual width, height, DPI, shortcut count, `iconSize`, and
+launcher page. The tile and overlay therefore reuse distinct layouts, and pointer hit testing uses the most recently
+drawn layout (the overlay draw is last while raised). A largest-target notification MUST NOT displace or clip icons in
+the original tile.
 A swipe viewport keeps the widget's full size and may have a negative origin; `Render` must still draw. When more
-shortcuts exist than fit at a 72 DIP minimum cell, Launcher paginates them and GPU-draws a bottom page-dot strip
-using the same DIP metrics as `DxUi::PageIndicator` (20 DIP strip, 3/4 DIP radii, 14 DIP gap). One-finger horizontal
-swipe or a tap on a dot changes the launcher page and MUST NOT launch. Fewer than two launcher pages paint no dots.
+shortcuts exist than fit at the chosen cell size, Launcher paginates them and GPU-draws a bottom page-dot strip
+using the same DIP metrics as `DxUi::PageIndicator` (20 DIP strip, 3/4 DIP radii, 14 DIP gap). The strip is reserved
+only when `pageCount > 1`; a single page uses the full tile height. Fixed `iconSize` values keep one square icon edge
+and pagination quantum: `small` 72 DIP, `medium` 96 DIP, `large` 144 DIP, `huge` 192 DIP jumbo. The extracted 256 px
+texture MUST NOT dictate layout or half-extents. Named `iconSize` is the minimum cell used to decide pagination
+(`count > columns * rows` at that DIP, including gutters). When fewer icons occupy the tile than that minimum cell
+would pack, Launcher spreads them: it chooses columns and rows that cover the width×height (matching the tile aspect,
+so a tall strip becomes one or two columns stretched down the tile rather than a compact cluster) without going
+below the named DIP cell, grows the icon up to that named size (or `automatic`'s current size, never past 256 DIP
+jumbo texture usefulness), and distributes leftover space as even gutters around and between cells
+(`space-evenly`). Adjacent icon edges stay at least `kLauncherMinGutterDip` (8 DIP, DPI-scaled) apart, and edge icons
+inset at least `kLauncherEdgeInsetDip` (8 DIP, matching) from the tile edge and page-dot strip. A 4 DIP inner gutter
+keeps icon ink inside the cell so padding around a single-icon tile remains hittable. Named sizes MUST NOT shrink
+below their DIP except when the tile is smaller than one cell plus edge insets, in which case the grid scales
+uniformly to the shorter remaining edge. `automatic` starts from the huge cell and shrinks toward small so every
+shortcut fits, then paginates only
+after the 72 DIP floor still cannot hold them. Overflow still paginates when `count > columns * rows` at that cell.
+Hit testing uses the same cell centers and half-extents as `Render`. One-finger horizontal swipe or a
+tap on a dot changes the launcher page and MUST NOT launch. A swipe follows the finger 1:1 after the horizontal lock
+and draws the outgoing and incoming icon pages in the existing instanced draw by sliding instance-rect x positions; dots
+stay pinned to the bottom strip. On release, a short ease-out cubic settle (140–280 ms, presentation-paced
+`RequestFrame` from `Render`) commits when distance or flick matches the host page-pan thresholds, otherwise snaps
+back. A dot tap MUST slide to that page rather than teleport. Fewer than two launcher pages paint no dots.
 A committed click starts a bounded 3D launch motion of at most 400 ms via `RequestFrame` from `Render` only; idle with a static
-grid owns no wake-up. `RequestFrame` MUST NOT be called from `SetVisible` or `OnDeviceCreated`. `OnDrop` and
+grid owns no wake-up. Page-slide settle uses the same `RequestFrame` rule and MUST NOT add a timer thread. `RequestFrame` MUST NOT be called from `SetVisible` or `OnDeviceCreated`. `OnDrop` and
 `OnPointer` (committed click) MAY call `RequestFrame` and `PersistWidgetSettings`. `CollectPersistentSettings` returns
 `S_FALSE` when neither imports nor edits await persistence. A queued import retains collect fallback until a later
 synchronous save succeeds; queued acceptance alone is not a commit acknowledgement.
@@ -1127,12 +1156,14 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     compiler, WIC, and loose font/image assets, five-minute scheduled production-host soak, and complete teardown
     through `DeskClockTests`,
     `SettingsTests`, and `HostPluginTests`.
-19. Verify Launcher factory/settings rejection (unknown members, nine items, empty target, relative path, schemeless
+19. Verify Launcher factory/settings rejection (unknown members, 33 items, empty target, relative path, schemeless
     host name, overlong string), injected pin-directory fallback, automated empty list without live taskbar reads,
     jumbo-or-PNG extraction, WARP two-draw icon grid, device-loss re-upload without a second extract, launch counting
     with zero `ShellExecuteExW`, imported-pin persistence/recreation, queue/commit failure and collect fallback,
-    drop append/cap/rollback, overflow paging with a bottom page-dot strip, one-finger launcher page swipe without
-    launch, and ordering of an older queued import before a newer interactive save, through
+    drop append/cap/rollback, overflow paging with a bottom page-dot strip, named `iconSize` spread-grid layout
+    (uniform half-extents, even gutters of at least 8 DIP between icon edges and 8 DIP edge inset, no mid-tile cluster
+    when leftover space exists, no clip except page-slide), one-finger follow-finger page swipe with
+    settle (no launch), page-dot tap animation, and ordering of an older queued import before a newer interactive save, through
     `LauncherTests`, `SettingsTests`, and `HostPluginTests`. WARP pixel and hit-target tests MUST alternate tile and
     overlay sizes after one largest-size notification and verify zero allocations on those cached draws.
 

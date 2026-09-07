@@ -465,7 +465,7 @@ void TestWidgetRaiseHost(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] raised overlay host composition\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"name":"System","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":3,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.system-pulse"}},{"sizeRatio":1,"widget":{"plugin":"builtin.cpu-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.memory-meter"}}]},{"sizeRatio":4,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer"}},{"sizeRatio":1,"widget":{"plugin":"builtin.gpu-processes"}}]},{"sizeRatio":3,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.network-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.storage-meter"}}]},{"sizeRatio":3,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gpu-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.thermal-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.power-meter"}}]}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"name":"System","columns":[{"weight":3,"rows":[{"plugin":"builtin.system-pulse"},{"plugin":"builtin.cpu-meter"},{"plugin":"builtin.memory-meter"}]},{"weight":4,"rows":[{"plugin":"builtin.process-viewer"},{"plugin":"builtin.gpu-processes"}]},{"weight":3,"rows":[{"plugin":"builtin.network-meter"},{"plugin":"builtin.storage-meter"}]},{"weight":3,"rows":[{"plugin":"builtin.gpu-meter"},{"plugin":"builtin.thermal-meter"},{"plugin":"builtin.power-meter"}]}]}]})json";
 
     AttachedHostWindow window;
     HRESULT result = window.Initialize(kHostWidth, kHostHeight);
@@ -817,7 +817,7 @@ void TestStudioClockScheduling(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] Studio Clock scheduled production host integration\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"name":"Clock","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"name":"Clock","widgets":[{"plugin":"builtin.studio-clock"}]}]})json";
     constexpr std::string_view changedConfiguration =
         R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#00EE44","showDate":true,"dateFormat":"yyyy-mm-dd","timeColor":"#E0E0FF","backgroundColor":"#050607"})json";
 
@@ -956,7 +956,7 @@ void TestDeskClockScheduling(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] Desk Clock scheduled flip production host integration\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"name":"Clock","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"name":"Clock","widgets":[{"plugin":"builtin.desk-clock"}]}]})json";
     constexpr std::string_view changedConfiguration =
         R"json({"flipDurationMilliseconds":300,"backgroundColor":"#050607","cardColor":"#D02030","digitColor":"#F0F0FF","dateColor":"#C0C0D0"})json";
 
@@ -1195,7 +1195,7 @@ void TestProcessViewerSubscription(bool& success) noexcept
     if (SUCCEEDED(result))
     {
         constexpr std::string_view processViewerComposition =
-            R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer"}},{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer"}}]}}]})json";
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer"},{"plugin":"builtin.process-viewer"}]}]})json";
         result = ParseAppSettingsJson(processViewerComposition, settings);
     }
     Check(SUCCEEDED(result), L"Process Viewer isolated composition is parsed", success);
@@ -1293,7 +1293,7 @@ void TestSystemDataViewers(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] System Data GPU viewer family\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"name":"System","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":3,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.system-pulse"}},{"sizeRatio":1,"widget":{"plugin":"builtin.cpu-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.memory-meter"}}]},{"sizeRatio":4,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.process-viewer"}},{"sizeRatio":1,"widget":{"plugin":"builtin.gpu-processes"}}]},{"sizeRatio":3,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.network-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.storage-meter"}}]},{"sizeRatio":3,"arrangeAlong":"short-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gpu-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.thermal-meter"}},{"sizeRatio":1,"widget":{"plugin":"builtin.power-meter"}}]}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"name":"System","columns":[{"weight":3,"rows":[{"plugin":"builtin.system-pulse"},{"plugin":"builtin.cpu-meter"},{"plugin":"builtin.memory-meter"}]},{"weight":4,"rows":[{"plugin":"builtin.process-viewer"},{"plugin":"builtin.gpu-processes"}]},{"weight":3,"rows":[{"plugin":"builtin.network-meter"},{"plugin":"builtin.storage-meter"}]},{"weight":3,"rows":[{"plugin":"builtin.gpu-meter"},{"plugin":"builtin.thermal-meter"},{"plugin":"builtin.power-meter"}]}]}]})json";
 
     AttachedHostWindow window;
     HRESULT result = window.Initialize(kHostWidth, kHostHeight);
@@ -1659,8 +1659,8 @@ void TestGpuTargetSizeNotification(bool& success) noexcept
     // resolution tier chosen from the reported target size. That makes it the honest end-to-end probe for the
     // callback -- a no-op implementation would leave the tier stuck at 1.
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[)json"
-        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[)json"
+        R"json({"plugin":"builtin.desk-clock"}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -1767,11 +1767,11 @@ void TestGpuTargetSizeNotification(bool& success) noexcept
 void TestGpuPageLifetime(bool& success)
 {
     std::wcout << L"[ RUN      ] GPU page lifetime and target notification identity\n";
-    constexpr std::string_view page = R"({"layout":{"arrangeAlong":"long-side","areas":[)"
-                                      R"({"sizeRatio":1,"widget":{"plugin":"builtin.cpu-meter"}},)"
-                                      R"({"sizeRatio":1,"widget":{"plugin":"builtin.weather"}},)"
-                                      R"({"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock"}}]}})";
-    const std::string json = std::string(R"({"version":{"major":4},"pages":[)") + std::string(page) + "," +
+    constexpr std::string_view page = R"({"widgets":[)"
+                                      R"({"plugin":"builtin.cpu-meter"},)"
+                                      R"({"plugin":"builtin.weather"},)"
+                                      R"({"plugin":"builtin.desk-clock"}]})";
+    const std::string json = std::string(R"({"version":{"major":5},"pages":[)") + std::string(page) + "," +
                              std::string(page) + "," + std::string(page) + "]}";
     AppSettings settings;
     AttachedHostWindow window;
@@ -1869,9 +1869,9 @@ void TestSharedPluginRuntime(bool& success) noexcept
     // page built a second PluginHost with its own module map, its own IRedXeDataSource, and its own acquisition
     // thread beside the current one.
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[)json"
-        R"json({"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.cpu-meter"}}]}},)json"
-        R"json({"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.memory-meter"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[)json"
+        R"json({"widgets":[{"plugin":"builtin.cpu-meter"}]},)json"
+        R"json({"widgets":[{"plugin":"builtin.memory-meter"}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -2090,7 +2090,7 @@ void TestWidgetSettingsPersist(bool& success) noexcept
     }
 
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.rotating-triangle"}]}]})json";
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
     PluginManager plugins;
@@ -2303,10 +2303,10 @@ void TestHostOwnedPlaceholderTiles(bool& success) noexcept
     // covered here, is that a valid page produces no placeholders and that a constructed widget which reports itself
     // unavailable hands its tile to the host.
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[)json"
-        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}},)json"
-        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.cpu-meter"}},)json"
-        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.memory-meter"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[)json"
+        R"json({"plugin":"builtin.rotating-triangle"},)json"
+        R"json({"plugin":"builtin.cpu-meter"},)json"
+        R"json({"plugin":"builtin.memory-meter"}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -2386,9 +2386,9 @@ void TestUnmappedCatalogModulePlaceholder(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] unmapped catalogued module placeholder\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[)json"
-        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}},)json"
-        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.launcher","settings":{"shortcuts":[]}}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[)json"
+        R"json({"plugin":"builtin.rotating-triangle"},)json"
+        R"json({"plugin":"builtin.launcher","shortcuts":[]}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -2430,8 +2430,8 @@ void TestWeatherPluginConstructs(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] weather plugin DLL constructs\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[)json"
-        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.weather"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[)json"
+        R"json({"plugin":"builtin.weather"}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -2449,8 +2449,8 @@ void TestLauncherPluginConstructs(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] launcher plugin DLL constructs\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[)json"
-        R"json({"sizeRatio":1,"widget":{"plugin":"builtin.launcher","settings":{"shortcuts":[]}}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[)json"
+        R"json({"plugin":"builtin.launcher","shortcuts":[]}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -2492,7 +2492,7 @@ void TestPublishedArraySchema(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] plugin published array schema subset\n";
     constexpr std::string_view launcherSchema =
-        R"json({"type":"object","additionalProperties":false,"properties":{"shortcuts":{"type":"array","minItems":0,"maxItems":8,"items":{"type":"object","additionalProperties":false,"properties":{"target":{"type":"string"}},"required":["target"]}}}})json";
+        R"json({"type":"object","additionalProperties":false,"properties":{"shortcuts":{"type":"array","minItems":0,"maxItems":32,"items":{"type":"object","additionalProperties":false,"properties":{"target":{"type":"string"}},"required":["target"]}}}})json";
     constexpr std::string_view launcherDefaults = R"json({"shortcuts":[]})json";
     constexpr std::string_view objectSchema =
         R"json({"type":"object","additionalProperties":false,"properties":{}})json";
@@ -2780,7 +2780,7 @@ void TestNonDivisibleGridEdges(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] non-divisible dashboard grid edges\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":2,"widget":{"plugin":"builtin.rotating-triangle"}},{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"columns":[{"weight":2,"widget":{"plugin":"builtin.rotating-triangle"}},{"widget":{"plugin":"builtin.rotating-triangle"}}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -2856,7 +2856,7 @@ void TestPromoteStagedDashboard(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] in-place swipe commit keeps the Direct3D device\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}},{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}},{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.rotating-triangle"}]},{"widgets":[{"plugin":"builtin.rotating-triangle"},{"plugin":"builtin.rotating-triangle"}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -2948,7 +2948,7 @@ void TestSwipeRendersPartiallyOffscreenGpuWidgets(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] swipe keeps drawing partially visible GPU widgets\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.matrix-rain"}}]}},{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock"}},{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain"}]},{"widgets":[{"plugin":"builtin.studio-clock"},{"plugin":"builtin.desk-clock"}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -3058,7 +3058,7 @@ void TestSettingsReloadKeepsCurrentPage(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] live settings reload keeps the current page\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}},{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.rotating-triangle"}]},{"widgets":[{"plugin":"builtin.gdi-orbit"}]}]})json";
 
     AppSettings current{};
     HRESULT result = ParseAppSettingsJson(settingsJson, current);
@@ -3111,7 +3111,7 @@ void TestAdoptPrimaryDashboardIsTransactional(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] failed adopt restores the previous dashboard\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}},{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.rotating-triangle"}]},{"widgets":[{"plugin":"builtin.rotating-triangle"}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -3183,7 +3183,7 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] native-window neighbor swipe layout and occlusion\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.rotating-triangle"}}]}},{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.rotating-triangle"}]},{"widgets":[{"plugin":"builtin.gdi-orbit"}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -3285,7 +3285,7 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
     bool success = true;
     std::wcout << L"[ RUN      ] scheduled production-host Studio Clock soak\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"name":"Clock","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.studio-clock"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"name":"Clock","widgets":[{"plugin":"builtin.studio-clock"}]}]})json";
     AttachedHostWindow window;
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -3415,7 +3415,7 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
     bool success = true;
     std::wcout << L"[ RUN      ] scheduled production-host Desk Clock flip soak\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":4},"pages":[{"name":"Clock","layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.desk-clock"}}]}}]})json";
+        R"json({"version":{"major":5},"pages":[{"name":"Clock","widgets":[{"plugin":"builtin.desk-clock"}]}]})json";
     AttachedHostWindow window;
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);

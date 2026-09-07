@@ -3,6 +3,7 @@
 #include "BundledPlugins.h"
 #include "PlugInterfaces/Factory.h"
 #include "../Plugins/AVControl/AVControlModel.h"
+#include "../Plugins/Launcher/LauncherPaging.h"
 
 #include <array>
 #include <cctype>
@@ -58,8 +59,8 @@ constexpr size_t kMaximumSettingsBytes = 1024U * 1024U;
 
 [[nodiscard]] bool IsStructuredJsonSection(std::string_view key) noexcept
 {
-    return key == "\"declare\"" || key == "\"pages\"" || key == "\"layout\"" || key == "\"areas\"" ||
-           key == "\"shortcuts\"";
+    return key == "\"declare\"" || key == "\"pages\"" || key == "\"widgets\"" || key == "\"columns\"" ||
+           key == "\"rows\"" || key == "\"shortcuts\"";
 }
 
 [[nodiscard]] bool FitsInlineJson(std::string_view json, size_t begin, size_t column) noexcept
@@ -547,20 +548,47 @@ template <size_t Count>
     return CompareStringOrdinal(leftWide.data(), leftCount, rightWide.data(), rightCount, TRUE) == CSTR_EQUAL;
 }
 
+[[nodiscard]] bool IsValidLauncherIconSize(yyjson_val* iconSize) noexcept
+{
+    if (!iconSize)
+    {
+        return true;
+    }
+    if (!yyjson_is_str(iconSize))
+    {
+        return false;
+    }
+    LauncherIconSize parsed = LauncherIconSize::Huge;
+    return TryParseLauncherIconSize({yyjson_get_str(iconSize), yyjson_get_len(iconSize)}, parsed);
+}
+
 [[nodiscard]] bool IsValidLauncherPrivate(yyjson_val* settings) noexcept
 {
-    if (!yyjson_is_obj(settings) || !HasExactKeys(settings, std::array{"shortcuts"}))
+    if (!yyjson_is_obj(settings))
+    {
+        return false;
+    }
+    const bool hasIconSize = yyjson_obj_get(settings, "iconSize") != nullptr;
+    if (hasIconSize)
+    {
+        if (!HasExactKeys(settings, std::array{"shortcuts", "iconSize"}) ||
+            !IsValidLauncherIconSize(yyjson_obj_get(settings, "iconSize")))
+        {
+            return false;
+        }
+    }
+    else if (!HasExactKeys(settings, std::array{"shortcuts"}))
     {
         return false;
     }
     yyjson_val* shortcuts = yyjson_obj_get(settings, "shortcuts");
-    if (!yyjson_is_arr(shortcuts) || yyjson_arr_size(shortcuts) > 8)
+    if (!yyjson_is_arr(shortcuts) || yyjson_arr_size(shortcuts) > kLauncherMaximumShortcuts)
     {
         return false;
     }
     const size_t count = yyjson_arr_size(shortcuts);
-    std::array<std::string_view, 8> seen{};
-    std::array<int, 8> kinds{};
+    std::array<std::string_view, kLauncherMaximumShortcuts> seen{};
+    std::array<int, kLauncherMaximumShortcuts> kinds{};
     for (size_t index = 0; index < count; ++index)
     {
         yyjson_val* item = yyjson_arr_get(shortcuts, index);
@@ -1040,83 +1068,169 @@ template <size_t Count>
     return nullptr;
 }
 
-[[nodiscard]] bool PatchMutableWidgetValue(yyjson_mut_doc* document, yyjson_mut_val* area,
-                                           yyjson_mut_val* settingsObject) noexcept
+[[nodiscard]] bool ApplyFlattenedSettings(yyjson_mut_doc* document, yyjson_mut_val* widget,
+                                          yyjson_mut_val* settingsObject) noexcept
 {
-    yyjson_mut_val* widget = yyjson_mut_obj_get(area, "widget");
-    if (!widget || !settingsObject)
+    if (!document || !yyjson_mut_is_obj(widget) || !yyjson_mut_is_obj(settingsObject))
+    {
+        return false;
+    }
+    std::vector<std::string> remove;
+    yyjson_mut_obj_iter iterator = yyjson_mut_obj_iter_with(widget);
+    while (yyjson_mut_val* key = yyjson_mut_obj_iter_next(&iterator))
+    {
+        const char* name = yyjson_mut_get_str(key);
+        if (name && std::strcmp(name, "plugin") != 0 && std::strcmp(name, "use") != 0)
+        {
+            remove.emplace_back(name);
+        }
+    }
+    for (const std::string& name : remove)
+    {
+        yyjson_mut_obj_remove_key(widget, name.c_str());
+    }
+    yyjson_mut_obj_iter settingsIterator = yyjson_mut_obj_iter_with(settingsObject);
+    while (yyjson_mut_val* key = yyjson_mut_obj_iter_next(&settingsIterator))
+    {
+        const char* name = yyjson_mut_get_str(key);
+        if (!name || std::strcmp(name, "plugin") == 0 || std::strcmp(name, "use") == 0)
+        {
+            continue;
+        }
+        yyjson_mut_val* copiedValue =
+            yyjson_mut_val_mut_copy(document, yyjson_mut_obj_iter_get_val(key));
+        if (!copiedValue || !yyjson_mut_obj_add_val(document, widget, name, copiedValue))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool IsDeclareName(yyjson_mut_val* declare, std::string_view name) noexcept
+{
+    return yyjson_mut_is_obj(declare) && yyjson_mut_obj_getn(declare, name.data(), name.size()) != nullptr;
+}
+
+[[nodiscard]] bool PatchMutableWidgetValue(yyjson_mut_doc* document, yyjson_mut_val* parent, bool parentIsArray,
+                                           size_t arrayIndex, const char* objectKey, yyjson_mut_val* settingsObject,
+                                           yyjson_mut_val* declare) noexcept
+{
+    if (!document || !parent || !settingsObject)
+    {
+        return false;
+    }
+    yyjson_mut_val* widget =
+        parentIsArray ? yyjson_mut_arr_get(parent, arrayIndex) : yyjson_mut_obj_get(parent, objectKey);
+    if (!widget)
     {
         return false;
     }
     if (yyjson_mut_is_str(widget))
     {
         yyjson_mut_val* wrapper = yyjson_mut_obj(document);
-        yyjson_mut_val* overrideObject = yyjson_mut_obj(document);
-        if (!wrapper || !overrideObject)
+        if (!wrapper)
         {
             return false;
         }
-        yyjson_mut_val* use = yyjson_mut_strncpy(document, yyjson_mut_get_str(widget), yyjson_mut_get_len(widget));
-        if (!use || !yyjson_mut_obj_add_val(document, wrapper, "use", use) ||
-            !yyjson_mut_obj_add_val(document, overrideObject, "settings", settingsObject) ||
-            !yyjson_mut_obj_add_val(document, wrapper, "override", overrideObject))
+        const std::string_view name(yyjson_mut_get_str(widget), yyjson_mut_get_len(widget));
+        yyjson_mut_val* copiedName = yyjson_mut_strncpy(document, name.data(), name.size());
+        const bool useDeclare = IsDeclareName(declare, name);
+        if (!copiedName ||
+            !yyjson_mut_obj_add_val(document, wrapper, useDeclare ? "use" : "plugin", copiedName) ||
+            !ApplyFlattenedSettings(document, wrapper, settingsObject))
         {
             return false;
         }
-        return yyjson_mut_obj_put(area, yyjson_mut_str(document, "widget"), wrapper);
+        if (parentIsArray)
+        {
+            return yyjson_mut_arr_replace(parent, arrayIndex, wrapper) != nullptr;
+        }
+        yyjson_mut_val* key = yyjson_mut_str(document, objectKey);
+        return key && yyjson_mut_obj_put(parent, key, wrapper);
     }
     if (!yyjson_mut_is_obj(widget))
     {
         return false;
     }
-    if (yyjson_mut_obj_get(widget, "plugin"))
-    {
-        return yyjson_mut_obj_put(widget, yyjson_mut_str(document, "settings"), settingsObject);
-    }
-    yyjson_mut_val* overrideObject = yyjson_mut_obj_get(widget, "override");
-    if (!overrideObject)
-    {
-        overrideObject = yyjson_mut_obj(document);
-        if (!overrideObject || !yyjson_mut_obj_add_val(document, widget, "override", overrideObject))
-        {
-            return false;
-        }
-    }
-    return yyjson_mut_is_obj(overrideObject) &&
-           yyjson_mut_obj_put(overrideObject, yyjson_mut_str(document, "settings"), settingsObject);
+    return ApplyFlattenedSettings(document, widget, settingsObject);
 }
 
-[[nodiscard]] bool PatchMutableLayout(yyjson_mut_doc* document, yyjson_mut_val* layout, uint32_t& instanceIndex,
-                                      uint32_t targetIndex, yyjson_mut_val* settingsObject) noexcept
+[[nodiscard]] bool IsMutableSplitContainer(yyjson_mut_val* item) noexcept
 {
-    yyjson_mut_val* areas = yyjson_mut_obj_get(layout, "areas");
-    if (!yyjson_mut_is_arr(areas))
+    return yyjson_mut_is_obj(item) && (yyjson_mut_obj_get(item, "weight") || yyjson_mut_obj_get(item, "widget") ||
+                                       yyjson_mut_obj_get(item, "rows") || yyjson_mut_obj_get(item, "columns"));
+}
+
+[[nodiscard]] bool PatchMutableHumanItems(yyjson_mut_doc* document, yyjson_mut_val* items, uint32_t& instanceIndex,
+                                          uint32_t targetIndex, yyjson_mut_val* settingsObject,
+                                          yyjson_mut_val* declare) noexcept;
+
+[[nodiscard]] bool PatchMutableHumanItems(yyjson_mut_doc* document, yyjson_mut_val* items, uint32_t& instanceIndex,
+                                          uint32_t targetIndex, yyjson_mut_val* settingsObject,
+                                          yyjson_mut_val* declare) noexcept
+{
+    if (!yyjson_mut_is_arr(items))
     {
         return false;
     }
-    const size_t count = yyjson_mut_arr_size(areas);
+    const size_t count = yyjson_mut_arr_size(items);
     for (size_t index = 0; index < count; ++index)
     {
-        yyjson_mut_val* area = yyjson_mut_arr_get(areas, index);
-        yyjson_mut_val* widget = yyjson_mut_obj_get(area, "widget");
-        yyjson_mut_val* childAreas = yyjson_mut_obj_get(area, "areas");
-        if (widget && !childAreas)
+        yyjson_mut_val* item = yyjson_mut_arr_get(items, index);
+        if (IsMutableSplitContainer(item))
+        {
+            yyjson_mut_val* widget = yyjson_mut_obj_get(item, "widget");
+            yyjson_mut_val* rows = yyjson_mut_obj_get(item, "rows");
+            yyjson_mut_val* columns = yyjson_mut_obj_get(item, "columns");
+            if (widget)
+            {
+                if (instanceIndex == targetIndex)
+                {
+                    return PatchMutableWidgetValue(document, item, false, 0, "widget", settingsObject, declare);
+                }
+                ++instanceIndex;
+            }
+            else if (rows)
+            {
+                if (PatchMutableHumanItems(document, rows, instanceIndex, targetIndex, settingsObject, declare))
+                {
+                    return true;
+                }
+            }
+            else if (columns)
+            {
+                if (PatchMutableHumanItems(document, columns, instanceIndex, targetIndex, settingsObject, declare))
+                {
+                    return true;
+                }
+            }
+        }
+        else
         {
             if (instanceIndex == targetIndex)
             {
-                return PatchMutableWidgetValue(document, area, settingsObject);
+                return PatchMutableWidgetValue(document, items, true, index, nullptr, settingsObject, declare);
             }
             ++instanceIndex;
         }
-        else if (!widget && childAreas)
-        {
-            if (PatchMutableLayout(document, area, instanceIndex, targetIndex, settingsObject))
-            {
-                return true;
-            }
-        }
     }
     return false;
+}
+
+[[nodiscard]] bool PatchMutablePage(yyjson_mut_doc* document, yyjson_mut_val* page, uint32_t& instanceIndex,
+                                    uint32_t targetIndex, yyjson_mut_val* settingsObject,
+                                    yyjson_mut_val* declare) noexcept
+{
+    if (!yyjson_mut_is_obj(page))
+    {
+        return false;
+    }
+    yyjson_mut_val* widgets = yyjson_mut_obj_get(page, "widgets");
+    yyjson_mut_val* columns = yyjson_mut_obj_get(page, "columns");
+    yyjson_mut_val* rows = yyjson_mut_obj_get(page, "rows");
+    yyjson_mut_val* items = widgets ? widgets : (columns ? columns : rows);
+    return items && PatchMutableHumanItems(document, items, instanceIndex, targetIndex, settingsObject, declare);
 }
 
 [[nodiscard]] HRESULT WriteUtf8FileAtomically(const std::filesystem::path& target, std::string_view bytes) noexcept
@@ -1538,7 +1652,7 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
 [[nodiscard]] HRESULT ParseAppSettingsJsonCandidate(std::string_view json,
                                                     std::unique_ptr<AppSettings>& settings) noexcept
 {
-    return ParseAppSettingsJsonV4(json, settings);
+    return ParseAppSettingsJsonV5(json, settings);
 }
 
 HRESULT ParseAppSettingsJson(std::string_view json, AppSettings& settings) noexcept
@@ -1556,7 +1670,7 @@ HRESULT ParseAppSettingsJsonDetailed(std::string_view json, AppSettings& setting
                                      SettingsParseDiagnostic& diagnostic) noexcept
 {
     std::unique_ptr<AppSettings> parsed;
-    const HRESULT result = ParseAppSettingsJsonV4(json, parsed, &diagnostic);
+    const HRESULT result = ParseAppSettingsJsonV5(json, parsed, &diagnostic);
     if (SUCCEEDED(result))
     {
         settings = *parsed;
@@ -1682,16 +1796,12 @@ HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view inst
     }
     uint32_t instanceIndex = 0;
     bool patched = false;
+    yyjson_mut_val* declare = yyjson_mut_obj_get(mutableRoot, "declare");
     const size_t pageCount = yyjson_mut_arr_size(pages);
     for (size_t pageIndex = 0; pageIndex < pageCount && !patched; ++pageIndex)
     {
         yyjson_mut_val* page = yyjson_mut_arr_get(pages, pageIndex);
-        yyjson_mut_val* layout = yyjson_mut_obj_get(page, "layout");
-        if (!layout)
-        {
-            continue;
-        }
-        patched = PatchMutableLayout(mutableDocument.get(), layout, instanceIndex, targetIndex, settingsCopy);
+        patched = PatchMutablePage(mutableDocument.get(), page, instanceIndex, targetIndex, settingsCopy, declare);
     }
     if (!patched)
     {
@@ -1728,7 +1838,7 @@ HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexc
     const HRESULT result = ReadFileBytes(path, bytes);
     return SUCCEEDED(result)
                ? (diagnostic
-                      ? ParseAppSettingsJsonV4(std::string_view(bytes.data(), bytes.size()), settings, diagnostic)
+                      ? ParseAppSettingsJsonV5(std::string_view(bytes.data(), bytes.size()), settings, diagnostic)
                       : ParseAppSettingsJsonCandidate(std::string_view(bytes.data(), bytes.size()), settings))
                : result;
 }
@@ -1737,8 +1847,7 @@ HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexc
 {
     try
     {
-        std::wstring message = L"Line " + std::to_wstring(diagnostic.line) + L", column " +
-                               std::to_wstring(diagnostic.column) + L", path ";
+        std::wstring message;
         const auto appendUtf8 = [&message](std::string_view text)
         {
             if (text.empty())
@@ -1752,9 +1861,22 @@ HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexc
             MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()),
                                 message.data() + offset, count);
         };
-        appendUtf8(diagnostic.path);
-        message += L": ";
-        appendUtf8(diagnostic.message);
+        if (diagnostic.hasLocation)
+        {
+            message += L"Line " + std::to_wstring(diagnostic.line) + L", column " +
+                       std::to_wstring(diagnostic.column) + L"\r\n";
+        }
+        message += L"Path: ";
+        appendUtf8(diagnostic.path.empty() ? "$" : diagnostic.path);
+        message += L"\r\n\r\n";
+        if (diagnostic.message.empty())
+        {
+            message += L"The settings file is not valid version 5.";
+        }
+        else
+        {
+            appendUtf8(diagnostic.message);
+        }
         return message;
     }
     catch (...)
@@ -1808,6 +1930,8 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
 {
     settings.reset();
     _usedInitialFallback = false;
+    _selfTest = selfTest;
+    _suppressDocumentWrites = false;
     _initialNotice.clear();
     try
     {
@@ -2023,6 +2147,11 @@ void SettingsStore::MarkRejected(const SettingsFileStamp& stamp) noexcept
     _lastRejectedStamp = stamp;
 }
 
+void SettingsStore::SuppressDocumentWrites(bool suppress) noexcept
+{
+    _suppressDocumentWrites = suppress;
+}
+
 const std::wstring& SettingsStore::SettingsPath() const noexcept
 {
     return _settingsPath;
@@ -2060,6 +2189,10 @@ const std::wstring& SettingsStore::LastDiagnosticText() const noexcept
 
 HRESULT SettingsStore::PersistPatchedDocument(const AppSettings& settings) noexcept
 {
+    if (_selfTest || _suppressDocumentWrites)
+    {
+        return S_OK;
+    }
     if (_settingsPath.empty() || settings.sourceDocument.empty())
     {
         return E_UNEXPECTED;
@@ -2095,7 +2228,7 @@ HRESULT SettingsStore::PersistWidgetSettings(AppSettings& settings, std::string_
     {
         std::string previousSource = settings.sourceDocument;
         HRESULT result = PatchWidgetInstanceSettings(settings, instanceId, settingsJson);
-        if (SUCCEEDED(result))
+        if (SUCCEEDED(result) && !_selfTest && !_suppressDocumentWrites)
         {
             result = PersistPatchedDocument(settings);
         }

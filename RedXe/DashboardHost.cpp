@@ -638,7 +638,7 @@ HRESULT DashboardHost::SetWidgetsVisible(bool visible) noexcept
     return S_OK;
 }
 
-void DashboardHost::Shutdown() noexcept
+void DashboardHost::Shutdown(bool persistCollectedSettings) noexcept
 {
     if (!_pluginManager)
     {
@@ -650,7 +650,7 @@ void DashboardHost::Shutdown() noexcept
     {
         IRedXeWidget* widget = _pluginManager->WidgetAt(index);
         const char* instanceId = _pluginManager->WidgetInstanceIdAt(index);
-        if (!widget || !instanceId)
+        if (!widget || !instanceId || !persistCollectedSettings)
         {
             continue;
         }
