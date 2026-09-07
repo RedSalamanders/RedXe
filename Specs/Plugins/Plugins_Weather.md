@@ -1,7 +1,7 @@
 # Weather widget
 
 Status: current normative product contract
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-07
 Owner: `Plugins/Weather`, `Plugins/WeatherLocation`, and `Tests/WeatherTests`
 
 The native ABI and host services are owned by `Plugins_API.md`. Resource requirements remain owned by
@@ -52,6 +52,8 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
 - Upcoming hours use available width for up to 12 chronological columns: time/Now, condition, temperature, and supplied
   positive precipitation. Only unexpired intervals starting within 24 hours qualify. Add the strip when at least
   210 px width and 132 px height remain. Future-day rows use remaining space, up to five normally/eight raised.
+  Hours or days that do not fit draw a bottom-right `+N` count; one-finger swipe or wheel pages them. The widget
+  exposes `IRedXeInteractiveWidget` for that paging and returns `S_FALSE` on Down so raise still works.
   Reserve attribution space and omit unavailable/non-fitting content without shrinking body type below its floor.
 - A separate notice selects the earliest unexpired wet hourly interval starting within 12 hours. Preserve snow,
   sleet and thunder names. Use `Rain expected around HH:MM` or `Snow forecast this hour`, never precise nowcasting.

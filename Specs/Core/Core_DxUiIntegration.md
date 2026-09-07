@@ -17,7 +17,7 @@ that exact commit under `.build/dependencies/DxUi/source/<commit>` and isolates 
 fingerprint that includes commit, API revision, toolset, SDK and CRT. It never checks out, resets, or edits a sibling
 `DxUi` working tree. A mismatched or dirty pin fails the consumer restore.
 
-The pinned library (commit `6051a8cf…`, DxUi branch `perf/embedded-surface-lifetime`) releases the cached surface
+The pinned library (commit `2d5691fe…`) releases the cached surface
 of a hidden or zero-extent `EmbeddedHost`, marks a view dirty only through control invalidation, and bounds its
 solid-brush and configured-text-format caches (256 and 96 entries, reported through `EmbeddedStatistics`). Consumers
 rely on `SetVisible(false)` alone to drop a hidden tile's or an unraised overlay's surface; the next sized `Prepare`

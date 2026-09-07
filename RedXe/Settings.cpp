@@ -1,9 +1,9 @@
 #include "Settings.h"
 
-#include "BundledPlugins.h"
-#include "PlugInterfaces/Factory.h"
 #include "../Plugins/AVControl/AVControlModel.h"
 #include "../Plugins/Launcher/LauncherPaging.h"
+#include "BundledPlugins.h"
+#include "PlugInterfaces/Factory.h"
 
 #include <array>
 #include <cctype>
@@ -1097,8 +1097,7 @@ template <size_t Count>
         {
             continue;
         }
-        yyjson_mut_val* copiedValue =
-            yyjson_mut_val_mut_copy(document, yyjson_mut_obj_iter_get_val(key));
+        yyjson_mut_val* copiedValue = yyjson_mut_val_mut_copy(document, yyjson_mut_obj_iter_get_val(key));
         if (!copiedValue || !yyjson_mut_obj_add_val(document, widget, name, copiedValue))
         {
             return false;
@@ -1136,8 +1135,7 @@ template <size_t Count>
         const std::string_view name(yyjson_mut_get_str(widget), yyjson_mut_get_len(widget));
         yyjson_mut_val* copiedName = yyjson_mut_strncpy(document, name.data(), name.size());
         const bool useDeclare = IsDeclareName(declare, name);
-        if (!copiedName ||
-            !yyjson_mut_obj_add_val(document, wrapper, useDeclare ? "use" : "plugin", copiedName) ||
+        if (!copiedName || !yyjson_mut_obj_add_val(document, wrapper, useDeclare ? "use" : "plugin", copiedName) ||
             !ApplyFlattenedSettings(document, wrapper, settingsObject))
         {
             return false;
@@ -1616,7 +1614,7 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
             {
                 AVControl::Configuration configuration;
                 if (FAILED(AVControl::ParseConfiguration(
-                    {widget.privateConfiguration.utf8.data(), widget.privateConfiguration.bytes}, configuration)))
+                        {widget.privateConfiguration.utf8.data(), widget.privateConfiguration.bytes}, configuration)))
                     return E_INVALIDARG;
             }
             else if (!IsEmptyPrivate(widget.privateConfiguration))
@@ -1863,8 +1861,8 @@ HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexc
         };
         if (diagnostic.hasLocation)
         {
-            message += L"Line " + std::to_wstring(diagnostic.line) + L", column " +
-                       std::to_wstring(diagnostic.column) + L"\r\n";
+            message += L"Line " + std::to_wstring(diagnostic.line) + L", column " + std::to_wstring(diagnostic.column) +
+                       L"\r\n";
         }
         message += L"Path: ";
         appendUtf8(diagnostic.path.empty() ? "$" : diagnostic.path);

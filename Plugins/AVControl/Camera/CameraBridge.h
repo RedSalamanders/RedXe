@@ -41,11 +41,18 @@ class BridgeFrameProvider final : public FrameProvider
 {
   public:
     explicit BridgeFrameProvider(BridgeIdentity identity) noexcept : _identity(std::move(identity)) {}
-    ~BridgeFrameProvider() override { Stop(); }
+    ~BridgeFrameProvider() override
+    {
+        Stop();
+    }
     HRESULT Start() noexcept override;
     void Stop() noexcept override;
     HRESULT Fill(BYTE* bytes, DWORD capacity, LONG pitch, LONGLONG timestamp) noexcept override;
-    void EndFrame() noexcept override { _channel.EndRead(); }
+    void EndFrame() noexcept override
+    {
+        _channel.EndRead();
+    }
+
   private:
     BridgeIdentity _identity;
     FrameChannel _channel;

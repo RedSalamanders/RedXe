@@ -316,7 +316,7 @@ void LogWeather(IRedXeHost* host, uint32_t level, const char* instanceId, const 
 }
 
 class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget,
-                                                  IRedXeRaisedWidget, IRedXeNetworkWidget>
+                                                  IRedXeRaisedWidget, IRedXeNetworkWidget, IRedXeInteractiveWidget>
 {
   public:
     WeatherWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, const WeatherConfiguration& configuration,
@@ -374,6 +374,115 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
     {
         _raised.store(raised != FALSE, std::memory_order_release);
         return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE OnPointer(const RedXePointerEvent* event) noexcept override
+    {
+        if (!event)
+        {
+            return E_POINTER;
+        }
+        if (event->sizeBytes != sizeof(RedXePointerEvent))
+        {
+            return E_INVALIDARG;
+        }
+        const uint32_t pageCount = (std::max)(1u, _pageCount.load(std::memory_order_relaxed));
+        if (event->phase == RedXePointerPhaseCancel)
+        {
+            _pointerDown = false;
+            _pagePan = false;
+            return S_FALSE;
+        }
+        if (event->phase == RedXePointerPhaseWheel)
+        {
+            if (pageCount <= 1 || event->wheelDelta == 0.0f)
+            {
+                return S_FALSE;
+            }
+            uint32_t page = _overflowPage.load(std::memory_order_relaxed);
+            if (event->wheelDelta < 0.0f)
+            {
+                if (page + 1 < pageCount)
+                {
+                    _overflowPage.store(page + 1, std::memory_order_relaxed);
+                }
+            }
+            else if (page > 0)
+            {
+                _overflowPage.store(page - 1, std::memory_order_relaxed);
+            }
+            if (_host)
+            {
+                (void)_host->RequestFrame();
+            }
+            return S_OK;
+        }
+        if (event->phase == RedXePointerPhaseDown)
+        {
+            _pointerDown = true;
+            _pagePan = false;
+            _pointerStartX = event->x;
+            _pointerStartY = event->y;
+            return S_FALSE;
+        }
+        if (event->phase == RedXePointerPhaseMove)
+        {
+            if (!_pointerDown || pageCount <= 1)
+            {
+                return S_FALSE;
+            }
+            const float threshold = 48.0f * static_cast<float>(event->dpi ? event->dpi : 96) / 96.0f;
+            const float dx = event->x - _pointerStartX;
+            const float dy = event->y - _pointerStartY;
+            if (!_pagePan && (std::fabs(dx) >= threshold || std::fabs(dy) >= threshold))
+            {
+                _pagePan = true;
+            }
+            return _pagePan ? S_OK : S_FALSE;
+        }
+        if (event->phase == RedXePointerPhaseUp)
+        {
+            const bool panned = _pagePan;
+            const float dx = event->x - _pointerStartX;
+            const float dy = event->y - _pointerStartY;
+            _pointerDown = false;
+            _pagePan = false;
+            if (!panned || pageCount <= 1)
+            {
+                return S_FALSE;
+            }
+            uint32_t page = _overflowPage.load(std::memory_order_relaxed);
+            const float delta = std::fabs(dx) >= std::fabs(dy) ? dx : dy;
+            if (delta < 0.0f && page + 1 < pageCount)
+            {
+                _overflowPage.store(page + 1, std::memory_order_relaxed);
+            }
+            else if (delta > 0.0f && page > 0)
+            {
+                _overflowPage.store(page - 1, std::memory_order_relaxed);
+            }
+            if (_host)
+            {
+                (void)_host->RequestFrame();
+            }
+            return S_OK;
+        }
+        return S_FALSE;
+    }
+
+    HRESULT STDMETHODCALLTYPE OnDragOver(float, float) noexcept override
+    {
+        return S_FALSE;
+    }
+
+    HRESULT STDMETHODCALLTYPE OnDragLeave() noexcept override
+    {
+        return S_FALSE;
+    }
+
+    HRESULT STDMETHODCALLTYPE OnDrop(const RedXeDropEvent*) noexcept override
+    {
+        return S_FALSE;
     }
 
     HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept override
@@ -780,6 +889,7 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         gLastHourlyDrawn.store(0, std::memory_order_relaxed);
         gLastDailyDrawn.store(0, std::memory_order_relaxed);
         gLastPrecipitationNotice.store(false, std::memory_order_relaxed);
+        _pageCount.store(1, std::memory_order_relaxed);
         const float inset = kPanelInset;
         (void)list.AddFill(inset, inset, width - 2 * inset, height - 2 * inset, kPanelR, kPanelG, kPanelB, 1.0f, 10.0f);
         if (width < 48.0f || height < 40.0f)
@@ -809,7 +919,7 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         const uint64_t testNow = gTestNow.load(std::memory_order_relaxed);
         const uint64_t now =
             testNow != 0 ? testNow : (static_cast<uint64_t>(fileTime.dwHighDateTime) << 32) | fileTime.dwLowDateTime;
-        std::array<wchar_t, 24> temperature{}, range{}, wind{};
+        std::array<wchar_t, 32> temperature{}, range{}, wind{};
         (void)WeatherFormatTemperature(snapshot.temperatureCelsius, _configuration.temperatureUnit, temperature.data(),
                                        static_cast<uint32_t>(temperature.size()));
         (void)WeatherFormatWind(snapshot.windMetersPerSecond, _configuration.windUnit, wind.data(),
@@ -935,15 +1045,32 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
                 snapshot.hourly[index].timeFileTime100ns < now + 24 * hourTicks)
                 upcoming[upcomingCount++] = index;
         constexpr float hourlyHeight = 132.0f;
+        uint32_t hidden = 0;
+        uint32_t hourPages = 1;
         if (upcomingCount > 0 && available >= 210.0f && contentBottom - y >= hourlyHeight)
         {
             AppendTextFit(resources, list, left, y, available, 22.0f, L"Upcoming hours", 0.65f);
             y += 26.0f;
-            const uint32_t columns = std::min({upcomingCount, 12U, static_cast<uint32_t>(available / 76.0f)});
+            const uint32_t columnsFit =
+                std::max(1u, std::min({upcomingCount, 12U, static_cast<uint32_t>(available / 76.0f)}));
+            hourPages = (upcomingCount + columnsFit - 1) / columnsFit;
+            uint32_t page = _overflowPage.load(std::memory_order_relaxed);
+            if (hourPages > 1)
+            {
+                if (page >= hourPages)
+                {
+                    page = hourPages - 1;
+                    _overflowPage.store(page, std::memory_order_relaxed);
+                }
+                _pageCount.store(hourPages, std::memory_order_relaxed);
+            }
+            const uint32_t hourStart = hourPages > 1 ? page * columnsFit : 0;
+            const uint32_t columns = std::min(columnsFit, upcomingCount - hourStart);
+            hidden += upcomingCount - hourStart - columns;
             const float columnWidth = available / static_cast<float>(columns);
             for (uint32_t column = 0; column < columns; ++column)
             {
-                const auto& hour = snapshot.hourly[upcoming[column]];
+                const auto& hour = snapshot.hourly[upcoming[hourStart + column]];
                 std::array<wchar_t, 16> time{}, value{}, amount{};
                 (void)WeatherFormatClock(hour.timeFileTime100ns, time.data(), static_cast<uint32_t>(time.size()));
                 if (hour.timeFileTime100ns <= now)
@@ -979,10 +1106,38 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         const float rowText = rowH - 6.0f;
         uint32_t drawn = 0;
         bool heading = false;
-        for (uint32_t index = 0; index < snapshot.dailyCount && drawn < (raised ? 8U : 5U); ++index)
+        uint32_t eligibleDays = 0;
+        for (uint32_t index = 0; index < snapshot.dailyCount; ++index)
         {
             const auto& day = snapshot.daily[index];
             if (day.dayFileTime100ns <= now || WeatherSameLocalDay(day.dayFileTime100ns, now))
+            {
+                continue;
+            }
+            ++eligibleDays;
+        }
+        const uint32_t dayCap = raised ? 8U : 5U;
+        uint32_t skipped = 0;
+        if (hourPages <= 1)
+        {
+            const uint32_t dayPages = eligibleDays == 0 ? 1u : (eligibleDays + dayCap - 1) / dayCap;
+            uint32_t page = _overflowPage.load(std::memory_order_relaxed);
+            if (page >= dayPages)
+            {
+                page = dayPages - 1;
+                _overflowPage.store(page, std::memory_order_relaxed);
+            }
+            _pageCount.store((std::max)(_pageCount.load(std::memory_order_relaxed), dayPages),
+                             std::memory_order_relaxed);
+            skipped = page * dayCap;
+        }
+        uint32_t seenEligible = 0;
+        for (uint32_t index = 0; index < snapshot.dailyCount && drawn < dayCap; ++index)
+        {
+            const auto& day = snapshot.daily[index];
+            if (day.dayFileTime100ns <= now || WeatherSameLocalDay(day.dayFileTime100ns, now))
+                continue;
+            if (seenEligible++ < skipped)
                 continue;
             if (contentBottom - y < rowH + (heading ? 0.0f : 28.0f))
                 break;
@@ -1007,8 +1162,24 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
             ++drawn;
         }
         gLastDailyDrawn.store(drawn, std::memory_order_relaxed);
+        if (eligibleDays > skipped + drawn)
+        {
+            hidden += eligibleDays - skipped - drawn;
+        }
         const wchar_t* attribution = snapshot.stale ? L"MET Norway  |  Cached forecast" : L"MET Norway";
-        AppendTextFit(resources, list, left, bottom - footerH, available, footerH, attribution, 0.5f);
+        if (hidden > 0)
+        {
+            wchar_t extra[16]{};
+            (void)swprintf_s(extra, 16, L"+%u", hidden);
+            const float extraW = resources.MeasureText(extra, WideCount(extra), footerH);
+            AppendTextFit(resources, list, left, bottom - footerH, std::max(0.0f, available - extraW - 12.0f), footerH,
+                          attribution, 0.5f);
+            AppendTextFit(resources, list, right - extraW, bottom - footerH, extraW, footerH, extra, 0.65f);
+        }
+        else
+        {
+            AppendTextFit(resources, list, left, bottom - footerH, available, footerH, attribution, 0.5f);
+        }
         return S_OK;
     }
 
@@ -1033,6 +1204,12 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
     std::atomic<uint32_t> _nextFrameDelay{kWeatherDefaultRefreshMilliseconds};
     bool _hasSnapshot = false;
     std::atomic<bool> _gpuHeld{false};
+    std::atomic<uint32_t> _overflowPage{0};
+    std::atomic<uint32_t> _pageCount{1};
+    float _pointerStartX = 0.0f;
+    float _pointerStartY = 0.0f;
+    bool _pointerDown = false;
+    bool _pagePan = false;
 };
 
 class WeatherProvider final : public RedXeComObject<WeatherProvider, IRedXeWidgetProvider>

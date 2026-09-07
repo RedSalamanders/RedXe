@@ -35,13 +35,34 @@ template <size_t Capacity> struct Text final
         length = static_cast<uint32_t>(value.size());
         return true;
     }
-    bool operator==(const Text& other) const noexcept { return View() == other.View(); }
+    bool operator==(const Text& other) const noexcept
+    {
+        return View() == other.View();
+    }
 };
 
 using DeviceId = Text<MaximumDeviceIdBytes>;
-enum class AudioRoles : uint32_t { All, Communications };
-enum class DeviceKind : uint32_t { Output, Microphone, Camera };
-enum class Availability : uint32_t { Unknown, Ready, Missing, AccessDenied, Busy, Unsupported, Failed };
+enum class AudioRoles : uint32_t
+{
+    All,
+    Communications
+};
+enum class DeviceKind : uint32_t
+{
+    Output,
+    Microphone,
+    Camera
+};
+enum class Availability : uint32_t
+{
+    Unknown,
+    Ready,
+    Missing,
+    AccessDenied,
+    Busy,
+    Unsupported,
+    Failed
+};
 
 struct Profile final
 {
@@ -64,7 +85,16 @@ struct Configuration final
 
 enum class ConfigurationError : uint32_t
 {
-    None, Json, Shape, Capacity, Identifier, Name, DeviceIdentifier, DuplicateProfile, Level, Roles
+    None,
+    Json,
+    Shape,
+    Capacity,
+    Identifier,
+    Name,
+    DeviceIdentifier,
+    DuplicateProfile,
+    Level,
+    Roles
 };
 
 // Strict, transactional parsing. On failure destination remains unchanged. IDs are never truncated or repaired.
@@ -106,10 +136,16 @@ struct ConfirmedState final
     uint64_t revision = 0;
 };
 
-enum class ProfileMatch : uint32_t { Custom, Active, Adjusted };
+enum class ProfileMatch : uint32_t
+{
+    Custom,
+    Active,
+    Adjusted
+};
 [[nodiscard]] ProfileMatch MatchProfile(const Profile& profile, const ConfirmedState& state) noexcept;
 
-// Widget-local preview state. A geometry/device/level revision invalidates a gesture before it can write a new endpoint.
+// Widget-local preview state. A geometry/device/level revision invalidates a gesture before it can write a new
+// endpoint.
 class LevelGesture final
 {
   public:
@@ -117,8 +153,15 @@ class LevelGesture final
     [[nodiscard]] bool Preview(uint32_t level) noexcept;
     [[nodiscard]] bool Commit(const Endpoint& endpoint, uint64_t layoutRevision, uint32_t& level) noexcept;
     void Cancel() noexcept;
-    [[nodiscard]] bool Active() const noexcept { return _active; }
-    [[nodiscard]] uint32_t Draft() const noexcept { return _draft; }
+    [[nodiscard]] bool Active() const noexcept
+    {
+        return _active;
+    }
+    [[nodiscard]] uint32_t Draft() const noexcept
+    {
+        return _draft;
+    }
+
   private:
     DeviceId _id;
     uint64_t _generation = 0;

@@ -19,19 +19,33 @@ class BridgeServer final
 {
   public:
     BridgeServer() = default;
-    ~BridgeServer() { Stop(); }
+    ~BridgeServer()
+    {
+        Stop();
+    }
     HRESULT Start(BridgeIdentity identity, BridgeObserver* observer) noexcept;
     void Stop() noexcept;
-    void Wake() noexcept { if (_wake) SetEvent(_wake.get()); }
-    [[nodiscard]] uint32_t Consumers() const noexcept { return _consumers.load(); }
+    void Wake() noexcept
+    {
+        if (_wake)
+            SetEvent(_wake.get());
+    }
+    [[nodiscard]] uint32_t Consumers() const noexcept
+    {
+        return _consumers.load();
+    }
     // A connected/started stream alone is not a request for physical capture. Each sample request renews a
     // short lease. Capture callbacks check this lease and quiesce when consumers stop requesting frames.
     [[nodiscard]] uint32_t DemandingConsumers() noexcept;
     // Borrowed until Stop. CaptureReader duplicates only EVENT_MODIFY_STATE for its callback mailbox.
-    [[nodiscard]] HANDLE WakeEvent() const noexcept { return _wake.get(); }
+    [[nodiscard]] HANDLE WakeEvent() const noexcept
+    {
+        return _wake.get();
+    }
     // Changing the generation invalidates callbacks from the old physical source, even when staying enabled.
     HRESULT SetGate(uint64_t generation, bool enabled) noexcept;
     HRESULT Publish(uint64_t generation, std::span<const BYTE> frame, LONGLONG timestamp) noexcept;
+
   private:
     struct Client final
     {

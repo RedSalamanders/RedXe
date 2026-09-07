@@ -649,6 +649,29 @@ void FitGridLayout(float innerHeight, float innerWidth, float rowMin, float over
     rowHeight = FittedRowHeight(listHeight, rows, rowMin);
 }
 
+struct OverflowSlice final
+{
+    uint32_t start = 0;
+    uint32_t count = 0;
+    uint32_t hidden = 0;
+    uint32_t pageCount = 1;
+};
+
+[[nodiscard]] OverflowSlice MakeOverflowSlice(uint32_t total, uint32_t pageSize, uint32_t page) noexcept
+{
+    OverflowSlice slice{};
+    if (pageSize == 0 || total == 0)
+    {
+        return slice;
+    }
+    slice.pageCount = (total + pageSize - 1) / pageSize;
+    const uint32_t usePage = page >= slice.pageCount ? slice.pageCount - 1 : page;
+    slice.start = usePage * pageSize;
+    slice.count = (std::min)(pageSize, total - slice.start);
+    slice.hidden = total - slice.start - slice.count;
+    return slice;
+}
+
 void CellOrigin(float originX, float originY, uint32_t index, uint32_t columns, float colWidth, float rowHeight,
                 float displayY, bool slide, float& x, float& y) noexcept
 {
@@ -995,8 +1018,8 @@ class ViewerSink final : public RedXeComObject<ViewerSink, IRedXeDataSink>
     uint32_t _dataSetIndex;
 };
 
-class ViewerWidget final
-    : public RedXeComObject<ViewerWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
+class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget,
+                                                 IRedXeRaisedWidget, IRedXeInteractiveWidget>
 {
   public:
     ViewerWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, ViewerKind kind, uint32_t topN,
@@ -1143,6 +1166,116 @@ class ViewerWidget final
     {
         _raised = raised != FALSE;
         return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE OnPointer(const RedXePointerEvent* event) noexcept override
+    {
+        if (!event)
+        {
+            return E_POINTER;
+        }
+        if (event->sizeBytes != sizeof(RedXePointerEvent))
+        {
+            return E_INVALIDARG;
+        }
+        const uint32_t pageCount = (std::max)(1u, _pageCount.load(std::memory_order_relaxed));
+        if (event->phase == RedXePointerPhaseCancel)
+        {
+            _pointerDown = false;
+            _pagePan = false;
+            return S_FALSE;
+        }
+        if (event->phase == RedXePointerPhaseWheel)
+        {
+            if (pageCount <= 1 || event->wheelDelta == 0.0f)
+            {
+                return S_FALSE;
+            }
+            uint32_t page = _overflowPage.load(std::memory_order_relaxed);
+            if (event->wheelDelta < 0.0f)
+            {
+                if (page + 1 < pageCount)
+                {
+                    _overflowPage.store(page + 1, std::memory_order_relaxed);
+                }
+            }
+            else if (page > 0)
+            {
+                _overflowPage.store(page - 1, std::memory_order_relaxed);
+            }
+            if (_host)
+            {
+                (void)_host->RequestFrame();
+            }
+            return S_OK;
+        }
+        if (event->phase == RedXePointerPhaseDown)
+        {
+            _pointerDown = true;
+            _pagePan = false;
+            _pointerStartX = event->x;
+            _pointerStartY = event->y;
+            return S_FALSE;
+        }
+        if (event->phase == RedXePointerPhaseMove)
+        {
+            if (!_pointerDown || pageCount <= 1)
+            {
+                return S_FALSE;
+            }
+            const float threshold = 48.0f * static_cast<float>(event->dpi ? event->dpi : 96) / 96.0f;
+            const float dx = event->x - _pointerStartX;
+            const float dy = event->y - _pointerStartY;
+            if (!_pagePan && (std::fabs(dx) >= threshold || std::fabs(dy) >= threshold))
+            {
+                _pagePan = true;
+            }
+            return _pagePan ? S_OK : S_FALSE;
+        }
+        if (event->phase == RedXePointerPhaseUp)
+        {
+            const bool panned = _pagePan;
+            const float dx = event->x - _pointerStartX;
+            const float dy = event->y - _pointerStartY;
+            _pointerDown = false;
+            _pagePan = false;
+            if (!panned || pageCount <= 1)
+            {
+                return S_FALSE;
+            }
+            uint32_t page = _overflowPage.load(std::memory_order_relaxed);
+            const bool horizontal = std::fabs(dx) >= std::fabs(dy);
+            const float delta = horizontal ? dx : dy;
+            if (delta < 0.0f && page + 1 < pageCount)
+            {
+                _overflowPage.store(page + 1, std::memory_order_relaxed);
+            }
+            else if (delta > 0.0f && page > 0)
+            {
+                _overflowPage.store(page - 1, std::memory_order_relaxed);
+            }
+            if (_host)
+            {
+                (void)_host->RequestFrame();
+            }
+            return S_OK;
+        }
+        return S_FALSE;
+    }
+
+    HRESULT STDMETHODCALLTYPE OnDragOver(float, float) noexcept override
+    {
+        return S_FALSE;
+    }
+
+    HRESULT STDMETHODCALLTYPE OnDragLeave() noexcept override
+    {
+        return S_FALSE;
+    }
+
+    HRESULT STDMETHODCALLTYPE OnDrop(const RedXeDropEvent*) noexcept override
+    {
+        return S_FALSE;
     }
 
     HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept override
@@ -1432,7 +1565,7 @@ class ViewerWidget final
             RankedRow row{};
             row.identity = values[0].uint64Value;
             row.pid = values[0].uint64Value;
-            CopyName(row.name, row.nameCharacters, values[1], L"(unnamed)");
+            CopyName(row.name, row.nameCharacters, values[1], row.pid == 0 ? L"System Idle Process" : L"(unnamed)");
             double cpu = 0.0;
             row.primaryAvailable = TakeF64(values[2], cpu);
             row.primary = row.primaryAvailable ? static_cast<float>(std::clamp(cpu, 0.0, 100.0)) : 0.0f;
@@ -1994,10 +2127,6 @@ class ViewerWidget final
 
     void RememberPidName(uint64_t pid, const RedXeDataValue& value) noexcept
     {
-        if (pid == 0)
-        {
-            return;
-        }
         for (uint32_t index = 0; index < _pidNameCount; ++index)
         {
             if (_pidNames[index].pid == pid)
@@ -2028,8 +2157,18 @@ class ViewerWidget final
         }
         if (row.nameCharacters == 0)
         {
-            FormatPid(row.name.data(), static_cast<uint32_t>(row.name.size()), row.pid);
-            row.nameCharacters = static_cast<uint32_t>(wcsnlen(row.name.data(), row.name.size()));
+            if (row.pid == 0)
+            {
+                constexpr wchar_t kIdle[] = L"System Idle Process";
+                row.nameCharacters = static_cast<uint32_t>(wcsnlen(kIdle, row.name.size() - 1));
+                std::wmemcpy(row.name.data(), kIdle, row.nameCharacters);
+                row.name[row.nameCharacters] = L'\0';
+            }
+            else
+            {
+                FormatPid(row.name.data(), static_cast<uint32_t>(row.name.size()), row.pid);
+                row.nameCharacters = static_cast<uint32_t>(wcsnlen(row.name.data(), row.name.size()));
+            }
         }
     }
 
@@ -2350,8 +2489,22 @@ class ViewerWidget final
         (void)list.AddFill(hotX, y, 1.5f, height, kAccentR, kAccentG, kAccentB, 0.85f, 0.0f);
     }
 
-    void DrawOverflow(ViewerGpuResources& resources, ViewerDrawList& list, float x, float y, float size,
-                      uint32_t hidden) noexcept
+    [[nodiscard]] OverflowSlice BindOverflow(uint32_t total, uint32_t pageSize) noexcept
+    {
+        uint32_t page = _overflowPage.load(std::memory_order_relaxed);
+        OverflowSlice slice = MakeOverflowSlice(total, pageSize, page);
+        if (slice.pageCount > 0 && page >= slice.pageCount)
+        {
+            page = slice.pageCount - 1;
+            _overflowPage.store(page, std::memory_order_relaxed);
+            slice = MakeOverflowSlice(total, pageSize, page);
+        }
+        _pageCount.store(slice.pageCount == 0 ? 1u : slice.pageCount, std::memory_order_relaxed);
+        return slice;
+    }
+
+    void DrawOverflow(ViewerGpuResources& resources, ViewerDrawList& list, const PanelMetrics& panel, float height,
+                      float size, uint32_t hidden) noexcept
     {
         if (hidden == 0)
         {
@@ -2359,8 +2512,11 @@ class ViewerWidget final
         }
         wchar_t extra[16]{};
         (void)swprintf_s(extra, 16, L"+%u", hidden);
-        (void)resources.AppendText(list, x, y, size, kMuted, kMuted, kMuted, 1.0f, extra,
-                                   static_cast<uint32_t>(wcsnlen(extra, 16)));
+        const uint32_t characters = static_cast<uint32_t>(wcsnlen(extra, 16));
+        const float width = resources.MeasureText(extra, characters, size);
+        const float x = panel.pad + panel.innerW - width;
+        const float y = height - panel.pad - size;
+        (void)resources.AppendText(list, x, y, size, kMuted, kMuted, kMuted, 1.0f, extra, characters);
     }
 
     [[nodiscard]] HRESULT DrawProcessTable(ViewerGpuResources& resources, ViewerDrawList& list,
@@ -2370,23 +2526,24 @@ class ViewerWidget final
         const float y0 = panel.contentTop;
         if (sample.rowCount == 0)
         {
+            _pageCount.store(1, std::memory_order_relaxed);
             return resources.AppendText(list, panel.pad, y0, panel.kpiPx, kMuted, kMuted, kMuted, 1.0f, L"--", 2);
         }
         if (panel.density == ViewerDensity::Hero)
         {
+            const OverflowSlice slice = BindOverflow(sample.rowCount, 1);
+            const RankedRow& row = sample.rows[slice.start];
             wchar_t cpu[16]{};
-            FormatPercent(cpu, 16, sample.rows[0].displayPrimary, sample.rows[0].primaryAvailable);
+            FormatPercent(cpu, 16, row.displayPrimary, row.primaryAvailable);
             float ir = kTextR;
             float ig = kTextG;
             float ib = kTextB;
-            IntentTextColor(sample.rows[0].displayPrimary / 100.0f, sample.rows[0].primaryAvailable, ir, ig, ib);
+            IntentTextColor(row.displayPrimary / 100.0f, row.primaryAvailable, ir, ig, ib);
             (void)resources.AppendText(list, panel.pad, y0, panel.heroPx, ir, ig, ib, 1.0f, cpu,
                                        static_cast<uint32_t>(wcsnlen(cpu, 16)));
             (void)AppendClippedText(resources, list, panel.pad, y0 + panel.heroPx + 4.0f, panel.labelPx, panel.innerW,
-                                    kMuted, kMuted, kMuted, 1.0f, sample.rows[0].name.data(),
-                                    sample.rows[0].nameCharacters);
-            DrawOverflow(resources, list, panel.pad, height - panel.pad - panel.labelPx, panel.labelPx,
-                         sample.rowCount > 1 ? sample.rowCount - 1 : 0);
+                                    kMuted, kMuted, kMuted, 1.0f, row.name.data(), row.nameCharacters);
+            DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden);
             (void)width;
             return S_OK;
         }
@@ -2412,12 +2569,14 @@ class ViewerWidget final
             rowPx = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
         }
         const float trackH = ClampOrdered(rowHeight * 0.22f, 8.0f, 14.0f);
-        for (uint32_t index = 0; index < visible; ++index)
+        const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
+        for (uint32_t index = 0; index < slice.count; ++index)
         {
-            const RankedRow& row = sample.rows[index];
+            const RankedRow& row = sample.rows[slice.start + index];
             float cellX = 0.0f;
             float cellY = 0.0f;
-            CellOrigin(panel.pad, y0, index, columns, colWidth, rowHeight, row.displayY, columns == 1, cellX, cellY);
+            const float layoutY = slice.start == 0 ? row.displayY : static_cast<float>(index);
+            CellOrigin(panel.pad, y0, index, columns, colWidth, rowHeight, layoutY, columns == 1, cellX, cellY);
             const float trackY = std::min(cellY + 2.0f + rowPx + 4.0f, cellY + rowHeight - trackH - 2.0f);
             DrawCpuTrack(list, cellX, trackY, colWidth, trackH, row.displayPrimary, row.primaryAvailable);
             wchar_t ws[16]{};
@@ -2440,7 +2599,7 @@ class ViewerWidget final
             (void)resources.AppendText(list, cpuX, cellY + 2.0f, rowPx, ir, ig, ib, 1.0f, cpu,
                                        static_cast<uint32_t>(wcsnlen(cpu, 16)));
         }
-        DrawOverflow(resources, list, panel.pad, y0 + listHeight, panel.labelPx, sample.rowCount - visible);
+        DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden);
         (void)width;
         return S_OK;
     }
@@ -2456,17 +2615,19 @@ class ViewerWidget final
         }
         if (panel.density == ViewerDensity::Hero)
         {
+            const OverflowSlice slice = BindOverflow(sample.rowCount, 1);
+            const RankedRow& row = sample.rows[slice.start];
             wchar_t gpu[16]{};
-            FormatPercent(gpu, 16, sample.rows[0].displayPrimary, sample.rows[0].primaryAvailable);
+            FormatPercent(gpu, 16, row.displayPrimary, row.primaryAvailable);
             float ir = kTextR;
             float ig = kTextG;
             float ib = kTextB;
-            IntentTextColor(sample.rows[0].displayPrimary / 100.0f, sample.rows[0].primaryAvailable, ir, ig, ib);
+            IntentTextColor(row.displayPrimary / 100.0f, row.primaryAvailable, ir, ig, ib);
             (void)resources.AppendText(list, panel.pad, y0, panel.heroPx, ir, ig, ib, 1.0f, gpu,
                                        static_cast<uint32_t>(wcsnlen(gpu, 16)));
             (void)AppendClippedText(resources, list, panel.pad, y0 + panel.heroPx + 4.0f, panel.labelPx, panel.innerW,
-                                    kMuted, kMuted, kMuted, 1.0f, sample.rows[0].name.data(),
-                                    sample.rows[0].nameCharacters);
+                                    kMuted, kMuted, kMuted, 1.0f, row.name.data(), row.nameCharacters);
+            DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden);
             (void)width;
             return S_OK;
         }
@@ -2493,12 +2654,14 @@ class ViewerWidget final
         }
         const float trackH = ClampOrdered(rowHeight * 0.22f, 8.0f, 14.0f);
         const bool showEngine = columns == 1 && colWidth >= gpuReserve + 160.0f;
-        for (uint32_t index = 0; index < visible; ++index)
+        const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
+        for (uint32_t index = 0; index < slice.count; ++index)
         {
-            const RankedRow& row = sample.rows[index];
+            const RankedRow& row = sample.rows[slice.start + index];
             float cellX = 0.0f;
             float cellY = 0.0f;
-            CellOrigin(panel.pad, y0, index, columns, colWidth, rowHeight, row.displayY, columns == 1, cellX, cellY);
+            const float layoutY = slice.start == 0 ? row.displayY : static_cast<float>(index);
+            CellOrigin(panel.pad, y0, index, columns, colWidth, rowHeight, layoutY, columns == 1, cellX, cellY);
             const float trackY = std::min(cellY + 2.0f + rowPx + 4.0f, cellY + rowHeight - trackH - 2.0f);
             DrawCpuTrack(list, cellX, trackY, colWidth, trackH, row.displayPrimary, row.primaryAvailable);
             wchar_t gpu[16]{};
@@ -2522,9 +2685,8 @@ class ViewerWidget final
             (void)resources.AppendText(list, gpuX, cellY + 2.0f, rowPx, ir, ig, ib, 1.0f, gpu,
                                        static_cast<uint32_t>(wcsnlen(gpu, 16)));
         }
-        DrawOverflow(resources, list, panel.pad, y0 + listHeight, panel.labelPx, sample.rowCount - visible);
+        DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden);
         (void)width;
-        (void)height;
         return S_OK;
     }
 
@@ -2542,30 +2704,30 @@ class ViewerWidget final
         }
         if (sample.rowCount == 0)
         {
+            _pageCount.store(1, std::memory_order_relaxed);
             if (sample.hiddenCount > 0)
             {
-                wchar_t idle[24]{};
-                (void)swprintf_s(idle, 24, L"+%u idle", sample.hiddenCount);
-                return resources.AppendText(list, panel.pad, y, panel.kpiPx, kMuted, kMuted, kMuted, 1.0f, idle,
-                                            static_cast<uint32_t>(wcsnlen(idle, 24)));
+                DrawOverflow(resources, list, panel, height, panel.kpiPx, sample.hiddenCount);
+                return S_OK;
             }
             return resources.AppendText(list, panel.pad, y, panel.kpiPx, kMuted, kMuted, kMuted, 1.0f, L"--", 2);
         }
         if (panel.density == ViewerDensity::Hero)
         {
+            const OverflowSlice slice = BindOverflow(sample.rowCount, 1);
+            const RankedRow& row = sample.rows[slice.start];
             wchar_t rate[32]{};
-            FormatRate(rate, 32, sample.rows[0].displayPrimary, sample.rows[0].primaryAvailable);
-            const float fill =
-                LogRateFill(static_cast<double>(sample.rows[0].displayPrimary), sample.rows[0].secondary);
+            FormatRate(rate, 32, row.displayPrimary, row.primaryAvailable);
+            const float fill = LogRateFill(static_cast<double>(row.displayPrimary), row.secondary);
             float ir = kTextR;
             float ig = kTextG;
             float ib = kTextB;
-            IntentTextColor(fill, sample.rows[0].primaryAvailable, ir, ig, ib);
+            IntentTextColor(fill, row.primaryAvailable, ir, ig, ib);
             (void)resources.AppendText(list, panel.pad, y, panel.heroPx, ir, ig, ib, 1.0f, rate,
                                        static_cast<uint32_t>(wcsnlen(rate, 32)));
             (void)AppendClippedText(resources, list, panel.pad, y + panel.heroPx + 4.0f, panel.labelPx, panel.innerW,
-                                    kMuted, kMuted, kMuted, 1.0f, sample.rows[0].name.data(),
-                                    sample.rows[0].nameCharacters);
+                                    kMuted, kMuted, kMuted, 1.0f, row.name.data(), row.nameCharacters);
+            DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden + sample.hiddenCount);
             return S_OK;
         }
         uint32_t columns = 1;
@@ -2579,12 +2741,14 @@ class ViewerWidget final
         const float rowPx = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
         const float trackH = ClampOrdered(rowHeight * 0.18f, 8.0f, 12.0f);
         const float textGap = 6.0f;
-        for (uint32_t index = 0; index < visible; ++index)
+        const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
+        for (uint32_t index = 0; index < slice.count; ++index)
         {
-            const RankedRow& row = sample.rows[index];
+            const RankedRow& row = sample.rows[slice.start + index];
             float cellX = 0.0f;
             float cellY = 0.0f;
-            CellOrigin(panel.pad, y, index, columns, colWidth, rowHeight, row.displayY, columns == 1, cellX, cellY);
+            const float layoutY = slice.start == 0 ? row.displayY : static_cast<float>(index);
+            CellOrigin(panel.pad, y, index, columns, colWidth, rowHeight, layoutY, columns == 1, cellX, cellY);
             const float fill = LogRateFill(static_cast<double>(row.displayPrimary), row.secondary);
             wchar_t rate[32]{};
             FormatRate(rate, 32, row.displayPrimary, row.primaryAvailable);
@@ -2600,9 +2764,7 @@ class ViewerWidget final
             const float trackY = std::min(cellY + 2.0f + rowPx + textGap, cellY + rowHeight - trackH - 2.0f);
             DrawTrack(list, cellX, trackY, colWidth, trackH, fill, row.primaryAvailable, false, 0.0f);
         }
-        const float packedBottom = static_cast<float>(rows) * std::min(rowHeight, rowPx + textGap + trackH + 10.0f);
-        DrawOverflow(resources, list, panel.pad, y + packedBottom, panel.labelPx,
-                     (sample.rowCount - visible) + sample.hiddenCount);
+        DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden + sample.hiddenCount);
         (void)width;
         (void)listHeight;
         return S_OK;
@@ -2716,6 +2878,7 @@ class ViewerWidget final
     [[nodiscard]] HRESULT DrawCpu(ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample,
                                   const PanelMetrics& panel, float width, float height) noexcept
     {
+        (void)width;
         wchar_t value[16]{};
         FormatPercent(value, 16, sample.display[0], sample.available[0]);
         float ir = kTextR;
@@ -2798,8 +2961,7 @@ class ViewerWidget final
         }
         if (sample.heatOverflow > 0)
         {
-            DrawOverflow(resources, list, width - panel.pad - 40.0f, height - panel.pad - panel.labelPx, panel.labelPx,
-                         sample.heatOverflow);
+            DrawOverflow(resources, list, panel, height, panel.labelPx, sample.heatOverflow);
         }
         return S_OK;
     }
@@ -2900,12 +3062,14 @@ class ViewerWidget final
         float cardW = 0.0f;
         FitGridLayout(remaining, panel.innerW, 84.0f, panel.labelPx + 4.0f, 176.0f, sample.rowCount, columns, visible,
                       rows, cardH, listHeight, cardW);
-        for (uint32_t index = 0; index < visible; ++index)
+        const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
+        for (uint32_t index = 0; index < slice.count; ++index)
         {
-            const RankedRow& row = sample.rows[index];
+            const RankedRow& row = sample.rows[slice.start + index];
             float cellX = 0.0f;
             float cellY = 0.0f;
-            CellOrigin(panel.pad, y, index, columns, cardW, cardH, row.displayY, columns == 1, cellX, cellY);
+            const float layoutY = slice.start == 0 ? row.displayY : static_cast<float>(index);
+            CellOrigin(panel.pad, y, index, columns, cardW, cardH, layoutY, columns == 1, cellX, cellY);
             const float fill = std::clamp(row.displayPrimary, 0.0f, 100.0f) / 100.0f;
             const float pad = 8.0f;
             const float trackH = ClampOrdered(cardH * 0.14f, 8.0f, 12.0f);
@@ -2942,7 +3106,7 @@ class ViewerWidget final
             }
             DrawTrack(list, cellX + pad, trackY, cardW - pad * 2.0f, trackH, fill, row.primaryAvailable, false, 0.0f);
         }
-        DrawOverflow(resources, list, panel.pad, y + listHeight, panel.labelPx, sample.rowCount - visible);
+        DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden);
         if (footer > 0.0f)
         {
             wchar_t disk[48]{};
@@ -2964,17 +3128,16 @@ class ViewerWidget final
         float y = panel.contentTop;
         if (sample.rowCount == 0)
         {
+            _pageCount.store(1, std::memory_order_relaxed);
             if (sample.hiddenCount > 0)
             {
-                wchar_t more[32]{};
-                (void)swprintf_s(more, 32, L"+%u software", sample.hiddenCount);
-                return resources.AppendText(list, panel.pad, y, panel.rowPx, kMuted, kMuted, kMuted, 1.0f, more,
-                                            static_cast<uint32_t>(wcsnlen(more, 32)));
+                DrawOverflow(resources, list, panel, height, panel.rowPx, sample.hiddenCount);
+                return S_OK;
             }
             return resources.AppendText(list, panel.pad, y, panel.kpiPx, kMuted, kMuted, kMuted, 1.0f, L"--", 2);
         }
         const float remainingAll = std::max(0.0f, height - panel.pad - y);
-        const float hiddenReserve = sample.hiddenCount > 0 ? panel.labelPx + 4.0f : 0.0f;
+        const float hiddenReserve = panel.labelPx + 4.0f;
         const float remaining = std::max(0.0f, remainingAll - hiddenReserve);
         const float minCard = panel.density == ViewerDensity::Hero ? std::max(remaining, 1.0f) : 56.0f;
         uint32_t visible = 0;
@@ -2986,10 +3149,11 @@ class ViewerWidget final
         const float namePx = TypeFromRow(cardH * 0.42f, panel.rowPx, 32.0f);
         const float detailPx = TypeFromRow(cardH * 0.28f, panel.labelPx, 24.0f);
         const float trackH = std::clamp(cardH * 0.12f, 4.0f, 8.0f);
-        for (uint32_t index = 0; index < visible; ++index)
+        const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
+        for (uint32_t index = 0; index < slice.count; ++index)
         {
-            const RankedRow& row = sample.rows[index];
-            const float cardY = y + row.displayY * cardH;
+            const RankedRow& row = sample.rows[slice.start + index];
+            const float cardY = y + static_cast<float>(index) * cardH;
             (void)AppendClippedText(resources, list, panel.pad, cardY + 4.0f, namePx, panel.innerW, kTextR, kTextG,
                                     kTextB, 1.0f, row.name.data(), row.nameCharacters);
             wchar_t temp[16]{};
@@ -3010,14 +3174,7 @@ class ViewerWidget final
             DrawThermalLevel(list, panel.pad, cardY + cardH - trackH - 4.0f, panel.innerW, trackH, row.displayPrimary,
                              row.primaryAvailable);
         }
-        const uint32_t extra = (sample.rowCount > visible ? sample.rowCount - visible : 0) + sample.hiddenCount;
-        if (extra > 0)
-        {
-            wchar_t more[32]{};
-            (void)swprintf_s(more, 32, sample.hiddenCount > 0 ? L"+%u hidden" : L"+%u", extra);
-            (void)resources.AppendText(list, panel.pad, y + listHeight, panel.labelPx, kMuted, kMuted, kMuted, 1.0f,
-                                       more, static_cast<uint32_t>(wcsnlen(more, 32)));
-        }
+        DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden + sample.hiddenCount);
         (void)width;
         return S_OK;
     }
@@ -3106,12 +3263,14 @@ class ViewerWidget final
         FitGridLayout(remaining, panel.innerW, 84.0f, panel.labelPx + 4.0f, 168.0f, available, columns, visible, rows,
                       cardH, listHeight, cardW);
         visible = std::min(visible, sample.rowCount);
-        for (uint32_t index = 0; index < visible; ++index)
+        const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
+        for (uint32_t index = 0; index < slice.count; ++index)
         {
-            const RankedRow& row = sample.rows[index];
+            const RankedRow& row = sample.rows[slice.start + index];
             float cellX = 0.0f;
             float cellY = 0.0f;
-            CellOrigin(panel.pad, y, index, columns, cardW, cardH, row.displayY, columns == 1, cellX, cellY);
+            CellOrigin(panel.pad, y, index, columns, cardW, cardH,
+                       slice.start == 0 ? row.displayY : static_cast<float>(index), columns == 1, cellX, cellY);
             const float pad = 8.0f;
             const float trackH = ClampOrdered(cardH * 0.14f, 8.0f, 12.0f);
             const float trackY = cellY + cardH - pad - trackH;
@@ -3141,7 +3300,7 @@ class ViewerWidget final
             DrawThermalLevel(list, cellX + pad, trackY, cardW - pad * 2.0f, trackH, row.displayPrimary,
                              row.primaryAvailable);
         }
-        DrawOverflow(resources, list, panel.pad, y + listHeight, panel.labelPx, sample.rowCount - visible);
+        DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden);
         if (fanReserve > 0.0f)
         {
             wchar_t fan[32]{};
@@ -3167,6 +3326,12 @@ class ViewerWidget final
     std::atomic<bool> _visible{false};
     bool _raised = false;
     std::atomic<bool> _gpuHeld{false};
+    std::atomic<uint32_t> _overflowPage{0};
+    std::atomic<uint32_t> _pageCount{1};
+    float _pointerStartX = 0.0f;
+    float _pointerStartY = 0.0f;
+    bool _pointerDown = false;
+    bool _pagePan = false;
     mutable SRWLOCK _lock = SRWLOCK_INIT;
     ViewerSample _sample{};
     std::array<NetIdleWatch, kMaximumRows> _netIdle{};

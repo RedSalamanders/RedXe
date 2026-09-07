@@ -249,12 +249,19 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
 
         const RECT bounds = adaptive ? ToAdaptivePixelBounds(adaptivePlacement, width, height)
                                      : ToPixelBounds(gridPlacement, columns, rows, width, height);
-        const HWND container = CreateWindowExW(
-            WS_EX_NOPARENTNOTIFY, L"STATIC", L"", WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, bounds.left, bounds.top,
-            bounds.right - bounds.left, bounds.bottom - bounds.top, parent, nullptr, nullptr, nullptr);
-        if (!container)
+        // A layered child owns its own DWM surface, so the top-level window needs no redirection bitmap for it and
+        // the container can be dimmed with the Direct3D chrome while another widget is raised.
+        const HWND container =
+            CreateWindowExW(WS_EX_NOPARENTNOTIFY | WS_EX_LAYERED, L"STATIC", L"",
+                            WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, bounds.left, bounds.top,
+                            bounds.right - bounds.left, bounds.bottom - bounds.top, parent, nullptr, nullptr, nullptr);
+        if (!container || !SetLayeredWindowAttributes(container, 0, 255, LWA_ALPHA))
         {
             const HRESULT result = HRESULT_FROM_WIN32(GetLastError());
+            if (container)
+            {
+                DestroyWindow(container);
+            }
             for (uint32_t previous = 0; previous < index; ++previous)
             {
                 if (containers[previous])
@@ -529,12 +536,35 @@ HRESULT DashboardHost::ApplyRaisedNativeLayout(size_t widgetIndex, const RECT& c
     return S_OK;
 }
 
+HRESULT DashboardHost::SetNativeDimAlpha(BYTE dimAlpha, size_t raisedIndex) noexcept
+{
+    if (!_pluginManager)
+    {
+        return E_UNEXPECTED;
+    }
+    const BYTE dimmed = static_cast<BYTE>(255 - dimAlpha);
+    for (size_t index = 0; index < _widgetCount; ++index)
+    {
+        if (!_windowContainers[index])
+        {
+            continue;
+        }
+        const BYTE alpha = index == raisedIndex ? 255 : dimmed;
+        if (!SetLayeredWindowAttributes(_windowContainers[index].get(), 0, alpha, LWA_ALPHA))
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+    }
+    return S_OK;
+}
+
 HRESULT DashboardHost::ClearRaisedNativeLayout(UINT dpi) noexcept
 {
     if (!_pluginManager)
     {
         return E_UNEXPECTED;
     }
+    (void)SetNativeDimAlpha(0, SIZE_MAX);
     if (_raisedNativeIndex == SIZE_MAX)
     {
         return S_OK;

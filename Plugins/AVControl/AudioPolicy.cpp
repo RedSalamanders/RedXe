@@ -24,7 +24,7 @@ interface __declspec(uuid("f8679f50-850a-41cf-9c72-430f290290c8")) __declspec(no
     virtual HRESULT STDMETHODCALLTYPE SetDefaultEndpoint(PCWSTR endpoint, ERole role) = 0;
 };
 constexpr CLSID Client{0x870af99c, 0x171d, 0x4f9e, {0xaf, 0x0d, 0xe6, 0x3d, 0xf4, 0x0c, 0x2b, 0xc9}};
-}
+} // namespace
 bool AudioPolicyAvailable() noexcept
 {
     wil::com_ptr_nothrow<AudioPolicy> policy;
@@ -32,7 +32,8 @@ bool AudioPolicyAvailable() noexcept
 }
 HRESULT SetAudioDefault(PCWSTR endpoint, ERole role) noexcept
 {
-    if (!endpoint || !endpoint[0] || role < eConsole || role >= ERole_enum_count) return E_INVALIDARG;
+    if (!endpoint || !endpoint[0] || role < eConsole || role >= ERole_enum_count)
+        return E_INVALIDARG;
     wil::com_ptr_nothrow<AudioPolicy> policy;
     const HRESULT created = CoCreateInstance(Client, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(policy.put()));
     return FAILED(created) ? created : policy->SetDefaultEndpoint(endpoint, role);

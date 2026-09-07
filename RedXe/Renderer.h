@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AdapterSelection.h"
+#include "HostChrome.h"
 #include "PlugInterfaces/Widget.h"
 
 #include <array>
@@ -51,6 +52,12 @@ class Renderer final
     HRESULT AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept;
     HRESULT SetRaisedOverlay(size_t widgetIndex, const RECT& content, SIZE targetPixels = {}) noexcept;
     void ClearRaisedOverlay() noexcept;
+    // Host chrome (edge bands, raise dim/shadow/close) drawn into the swap chain. Returns true when the state
+    // changed, which is the caller's cue to invalidate exactly one frame.
+    bool SetHostChrome(const HostChromeState& state) noexcept;
+    [[nodiscard]] const HostChromeState& HostChromeStateView() const noexcept;
+    [[nodiscard]] const HostChromeResources& HostChrome() const noexcept;
+    [[nodiscard]] size_t LastFrameChromeQuadCount() const noexcept;
     HRESULT Render(float elapsedSeconds, float deltaSeconds) noexcept;
     // Separate from Render: dirty retained controls may prepare their bounded resources here.
     HRESULT PrepareWidgets(size_t observedWidget = SIZE_MAX, bool* observedChanged = nullptr,
@@ -130,6 +137,9 @@ class Renderer final
     D3D_FEATURE_LEVEL _featureLevel = D3D_FEATURE_LEVEL_11_0;
     size_t _lastFrameWidgetCount = 0;
     size_t _lastFrameSuccessfulWidgetCount = 0;
+    size_t _lastFrameChromeQuadCount = 0;
+    HostChromeResources _hostChrome;
+    HostChromeState _hostChromeState{};
     bool _raisedOverlayActive = false;
     size_t _raisedOverlayIndex = SIZE_MAX;
     RECT _raisedContent{};

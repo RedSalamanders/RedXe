@@ -271,11 +271,41 @@ HRESULT Renderer::SetDpi(UINT dpi) noexcept
         return S_OK;
     }
     _dpi = dpi;
+    if (_device)
+    {
+        // Re-rasterizes the three chrome glyphs for the new DPI; never per frame.
+        (void)_hostChrome.SetDpi(dpi);
+    }
     if (_gpuWidgetsDeviceReady && !_suspended)
     {
         NotifyTargetSizes();
     }
     return S_OK;
+}
+
+bool Renderer::SetHostChrome(const HostChromeState& state) noexcept
+{
+    if (_hostChromeState == state)
+    {
+        return false;
+    }
+    _hostChromeState = state;
+    return true;
+}
+
+const HostChromeState& Renderer::HostChromeStateView() const noexcept
+{
+    return _hostChromeState;
+}
+
+const HostChromeResources& Renderer::HostChrome() const noexcept
+{
+    return _hostChrome;
+}
+
+size_t Renderer::LastFrameChromeQuadCount() const noexcept
+{
+    return _lastFrameChromeQuadCount;
 }
 
 HRESULT Renderer::CreateDeviceResources() noexcept
@@ -302,6 +332,12 @@ HRESULT Renderer::CreateDeviceResources() noexcept
     }
 
     result = NotifyDeviceCreated();
+    if (FAILED(result))
+    {
+        return result;
+    }
+    // Host chrome shares the device generation with the widgets and is rebuilt with them.
+    result = _hostChrome.Initialize(_device.get(), _dpi);
     if (FAILED(result))
     {
         return result;
@@ -924,7 +960,8 @@ HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, u
 {
     if (observedChanged)
         *observedChanged = false;
-    if (changedWidgets) *changedWidgets = 0;
+    if (changedWidgets)
+        *changedWidgets = 0;
     if (_suspended || _occluded)
         return S_FALSE;
     if (!_context || !_dashboardHost || !_gpuWidgetsDeviceReady)
@@ -984,6 +1021,7 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
 {
     _lastFrameWidgetCount = 0;
     _lastFrameSuccessfulWidgetCount = 0;
+    _lastFrameChromeQuadCount = 0;
     if (_suspended)
     {
         return S_OK;
@@ -1065,6 +1103,15 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
             return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
         }
     }
+    // Raise dim and shadow go under the raised draw so plugin pixels stay undimmed; close control and edge bands go
+    // over it. Both phases are host quads in the swap chain, so no child HWND ever sits over the presentation.
+    HRESULT chromeResult = _hostChrome.Draw(_context.get(), _renderTarget.get(), _width, _height, _hostChromeState,
+                                            HostChromePhase::BelowRaised, _lastFrameChromeQuadCount);
+    if (IsDeviceLost(chromeResult))
+    {
+        const HRESULT recoveryResult = RecoverDevice();
+        return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
+    }
     if (_raisedOverlayActive && _raisedOverlayIndex < widgetCount && _raisedViewport.Width >= 1.0f &&
         _raisedViewport.Height >= 1.0f)
     {
@@ -1074,6 +1121,13 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
             const HRESULT recoveryResult = RecoverDevice();
             return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
         }
+    }
+    chromeResult = _hostChrome.Draw(_context.get(), _renderTarget.get(), _width, _height, _hostChromeState,
+                                    HostChromePhase::AboveRaised, _lastFrameChromeQuadCount);
+    if (IsDeviceLost(chromeResult))
+    {
+        const HRESULT recoveryResult = RecoverDevice();
+        return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
     }
 
     if (!_raisedOverlayActive && _transitionDashboardHost && _transitionWidgetsDeviceReady)
@@ -1218,6 +1272,7 @@ void Renderer::ReleaseDeviceResources() noexcept
     }
     NotifyDeviceLost();
 
+    _hostChrome.Release();
     _renderTarget.reset();
     _frameLatencyWaitable.reset();
     _swapChain.reset();

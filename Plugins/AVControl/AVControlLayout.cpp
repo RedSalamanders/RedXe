@@ -4,6 +4,20 @@
 
 namespace AVControl
 {
+namespace
+{
+void FinishLiveLayout(LiveLayout& layout) noexcept
+{
+    for (auto& slider : layout.sliders)
+    {
+        const float leading = (std::min)(108.0f, (std::max)(0.0f, slider.width - 48.0f));
+        slider.x += leading;
+        slider.width -= leading;
+    }
+    layout.showDeviceNames = layout.toggles[0].width >= 96.0f;
+}
+} // namespace
+
 LiveLayout LayoutLive(float width, float height) noexcept
 {
     LiveLayout layout;
@@ -38,6 +52,7 @@ LiveLayout LayoutLive(float width, float height) noexcept
             layout.sliders[i] = layout.levelPanels[i];
         }
         layout.profileSelector = {width - padding - 48, layout.levelPanels[1].y, 48, rowHeight};
+        FinishLiveLayout(layout);
         return layout;
     }
 
@@ -52,7 +67,6 @@ LiveLayout LayoutLive(float width, float height) noexcept
     layout.labelFont = 16;
     layout.stateFont = large ? 36.0f : 24.0f;
     layout.valueFont = large ? 48.0f : 28.0f;
-    layout.showDeviceNames = large || (tall && width >= 480);
     layout.showScope = large;
     float y = padding + 48 + gap;
     if (tall)
@@ -90,6 +104,7 @@ LiveLayout LayoutLive(float width, float height) noexcept
             layout.sliders[i] = {x, top + panelHeight - 48, panelWidth, 48};
         }
     }
+    FinishLiveLayout(layout);
     return layout;
 }
 } // namespace AVControl

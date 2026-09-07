@@ -1,7 +1,9 @@
 #include "AVControlView.h"
 #include "DxUiTextTransport.h"
+#include <cwchar>
 #include <filesystem>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 #include <wil/result.h>
 #include <wincodec.h>
@@ -175,6 +177,17 @@ void Click(AVControl::LiveView& view, AVControl::Rect rect)
     Check(view.Pointer({DxUi::PointerAction::Down, x, y}), "AV pointer down consumed");
     Check(view.Pointer({DxUi::PointerAction::Up, x, y}), "AV pointer up consumed");
 }
+DxUi::Label* FindLabel(DxUi::Control* control, std::wstring_view text)
+{
+    if (!control || !control->IsVisible())
+        return nullptr;
+    if (auto* label = dynamic_cast<DxUi::Label*>(control); label && label->GetText() == text)
+        return label;
+    for (size_t i = 0; i < control->GetLogicalChildCount(); ++i)
+        if (auto* found = FindLabel(control->GetLogicalChild(i), text))
+            return found;
+    return nullptr;
+}
 DxUi::Control* FindAccessible(DxUi::Control* control, std::wstring_view name)
 {
     if (!control || !control->IsVisible())
@@ -217,6 +230,8 @@ uint32_t RunNativeViewTests()
     state.microphone.muted = true;
     state.output.generation = state.microphone.generation = 1;
     state.camera.revision = 1;
+    wcscpy_s(state.output.name.data(), state.output.name.size(), L"Studio monitors");
+    wcscpy_s(state.microphone.name.data(), state.microphone.name.size(), L"USB microphone");
     view.SetState(state, L"Studio", 0);
     wchar_t executable[MAX_PATH]{};
     Check(GetModuleFileNameW(nullptr, executable, MAX_PATH) != 0, "AV artifact location");
@@ -256,9 +271,18 @@ uint32_t RunNativeViewTests()
     }
     gpu.Resize(640, 360);
     Hr(view.Prepare(640, 360, 96), "AV slider fixture prepare");
+    Check(FindLabel(view.Controls().GetRoot(), L"Studio monitors") &&
+              FindLabel(view.Controls().GetRoot(), L"USB microphone"),
+          "mute buttons show the confirmed output and microphone names");
+    auto* outputToggle = dynamic_cast<DxUi::Toggle*>(FindAccessible(view.Controls().GetRoot(), L"av.toggle.Out"));
+    Check(outputToggle && outputToggle->GetAccessibleName().find(L"Studio monitors") != std::wstring_view::npos,
+          "output accessible name includes the selected device");
     auto* microphoneToggle = dynamic_cast<DxUi::Toggle*>(FindAccessible(view.Controls().GetRoot(), L"av.toggle.Mic"));
     Check(microphoneToggle && microphoneToggle->IsChecked(),
           "retained toggle state reports the confirmed microphone mute");
+    if (view.Controls().HasFluentIconFont())
+        Check(FindLabel(view.Controls().GetRoot(), std::wstring(1, L'\uF781')),
+              "muted microphone uses the mic-off glyph");
     const auto beforeAccessibleToggle = commands.count;
     Check(microphoneToggle->OnMnemonic(view.Controls()) && commands.count == beforeAccessibleToggle + 1 &&
               commands.last.device == DeviceKind::Microphone && commands.last.value == 0 &&

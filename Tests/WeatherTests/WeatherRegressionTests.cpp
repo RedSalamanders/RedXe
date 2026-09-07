@@ -97,7 +97,11 @@ HRESULT __stdcall Response(const char* url, uint32_t length, const char** body, 
 
 class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
 {
-    HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork*) noexcept override { return E_ACCESSDENIED; }
+    HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork*) noexcept override
+    {
+        return E_ACCESSDENIED;
+    }
+
   public:
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** object) noexcept override
     {

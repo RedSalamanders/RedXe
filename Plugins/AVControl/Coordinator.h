@@ -1,8 +1,8 @@
 #pragma once
-#include "AVControlBroker.h"
-#include "AVControlView.h"
 #include "../../Common/PlugInterfaces/FactoryImpl.h"
 #include "../../Common/PlugInterfaces/Widget.h"
+#include "AVControlBroker.h"
+#include "AVControlView.h"
 #include <optional>
 
 namespace AVControl
@@ -23,16 +23,38 @@ class Coordinator final : public RedXeComObject<Coordinator, IRedXeControlWork>
     HRESULT Submit(const ViewCommand& command) noexcept;
     HRESULT SubmitProfile(const Profile& profile) noexcept;
     void Refresh() noexcept;
-    [[nodiscard]] const Inventory& Current() const noexcept { return *_current; }
-    [[nodiscard]] uint64_t Revision() const noexcept { return _revision; }
-    [[nodiscard]] uint64_t DeviceRevision() const noexcept { return _deviceRevision; }
+    [[nodiscard]] const Inventory& Current() const noexcept
+    {
+        return *_current;
+    }
+    [[nodiscard]] uint64_t Revision() const noexcept
+    {
+        return _revision;
+    }
+    [[nodiscard]] uint64_t DeviceRevision() const noexcept
+    {
+        return _deviceRevision;
+    }
     [[nodiscard]] uint32_t PendingMask() const noexcept;
-    [[nodiscard]] bool ProfilePending() const noexcept { return _profilePending; }
-    [[nodiscard]] HRESULT LastResult() const noexcept { return _lastResult; }
-    [[nodiscard]] const ApplyOutcome& LastApply() const noexcept { return _lastApply; }
-    [[nodiscard]] IRedXeHost* Host() const noexcept { return _host; }
+    [[nodiscard]] bool ProfilePending() const noexcept
+    {
+        return _profilePending;
+    }
+    [[nodiscard]] HRESULT LastResult() const noexcept
+    {
+        return _lastResult;
+    }
+    [[nodiscard]] const ApplyOutcome& LastApply() const noexcept
+    {
+        return _lastApply;
+    }
+    [[nodiscard]] IRedXeHost* Host() const noexcept
+    {
+        return _host;
+    }
     HRESULT STDMETHODCALLTYPE Run(HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexcept override;
     void STDMETHODCALLTYPE Complete(HRESULT result) noexcept override;
+
   private:
     struct Command final
     {

@@ -423,13 +423,30 @@ void TestWidgetRaisePolicy(bool& success) noexcept
               fullLayout.content.right - fullLayout.content.left == 2560,
           L"full raise fills the client", success);
 
-    wil::unique_hrgn region{CreateRaisedOverlayRegion(2560, 720, half.content, half.close)};
-    Check(region &&
-              !PtInRegion(region.get(), (half.content.left + half.content.right) / 2,
-                          (half.content.top + half.content.bottom) / 2) &&
-              PtInRegion(region.get(), half.close.left + 1, half.close.top + 1) &&
-              PtInRegion(region.get(), half.shadow.left + 1, half.shadow.top + 1),
-          L"overlay region punches a hole over plugin content", success);
+    // The raise dim is drawn as strips around the content, never over it, so plugin pixels stay undimmed.
+    std::array<RECT, 4> strips{};
+    Check(HostChromeDimStrips(2560, 720, RECT{0, 0, 1280, 720}, strips.data(), strips.size()) == 1 &&
+              strips[0].left == 1280 && strips[0].right == 2560 && strips[0].top == 0 && strips[0].bottom == 720,
+          L"a slice at the left edge dims one strip to its right", success);
+    Check(HostChromeDimStrips(2560, 720, RECT{640, 0, 1920, 720}, strips.data(), strips.size()) == 2 &&
+              strips[0].right == 640 && strips[1].left == 1920,
+          L"a centred full-height slice dims one strip on each side", success);
+    Check(HostChromeDimStrips(2560, 720, RECT{0, 0, 2560, 720}, strips.data(), strips.size()) == 0,
+          L"a full-client slice dims nothing", success);
+    Check(HostChromeDimStrips(2560, 720, RECT{100, 100, 200, 200}, strips.data(), strips.size()) == 4 &&
+              strips[2].left == 100 && strips[2].right == 200 && strips[2].bottom == 100 && strips[3].top == 200,
+          L"an inset rectangle dims four strips that never overlap the content", success);
+    Check(HostChromeDimStrips(2560, 720, half.content, strips.data(), 2) == 0 &&
+              HostChromeDimStrips(0, 720, half.content, strips.data(), strips.size()) == 0,
+          L"dim strips reject a short output array and an empty client", success);
+    const size_t halfStrips = HostChromeDimStrips(2560, 720, half.content, strips.data(), strips.size());
+    bool stripsOutsideContent = halfStrips > 0;
+    for (size_t index = 0; index < halfStrips; ++index)
+    {
+        stripsOutsideContent = stripsOutsideContent &&
+                               (strips[index].right <= half.content.left || strips[index].left >= half.content.right);
+    }
+    Check(stripsOutsideContent, L"dim strips around the raised half slice stay outside plugin content", success);
 
     const RECT tiles[] = {{0, 0, 200, 200}, {150, 50, 400, 300}};
     Check(HitTestTopmostWidget(POINT{160, 60}, tiles, 2) == 1 && HitTestTopmostWidget(POINT{10, 10}, tiles, 2) == 0 &&
@@ -550,6 +567,112 @@ void TestWidgetRaiseHost(bool& success) noexcept
     dashboard.Shutdown();
 }
 
+// Host chrome is drawn into the swap chain by the renderer: no chrome HWND, no GDI, one coalesced frame per change.
+void TestHostChromeComposition(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] host chrome composition\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":5},"pages":[{"name":"System","columns":[{"weight":3,"rows":[{"plugin":"builtin.system-pulse"},{"plugin":"builtin.cpu-meter"},{"plugin":"builtin.memory-meter"}]},{"weight":4,"rows":[{"plugin":"builtin.process-viewer"},{"plugin":"builtin.gpu-processes"}]},{"weight":3,"rows":[{"plugin":"builtin.network-meter"},{"plugin":"builtin.storage-meter"}]},{"weight":3,"rows":[{"plugin":"builtin.gpu-meter"},{"plugin":"builtin.thermal-meter"},{"plugin":"builtin.power-meter"}]}]}]})json";
+    AttachedHostWindow window;
+    HRESULT result = window.Initialize(kHostWidth, kHostHeight);
+    AppSettings settings{};
+    if (SUCCEEDED(result))
+    {
+        result = ParseAppSettingsJson(settingsJson, settings);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    DashboardHost dashboard;
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    }
+    Renderer renderer;
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Initialize(window.Get(), true, dashboard);
+    }
+    Check(SUCCEEDED(result), L"host chrome test initializes the hidden WARP host", success);
+    if (FAILED(result))
+    {
+        dashboard.Shutdown();
+        return;
+    }
+    Check(SUCCEEDED(dashboard.SetWidgetsVisible(true)), L"host chrome test shows the System page", success);
+    const HostChromeResources& chrome = renderer.HostChrome();
+    Check(chrome.Ready() && chrome.Dpi() == window.Dpi(),
+          L"the renderer owns a host chrome pipeline rasterized for the window DPI", success);
+    const bool glyphs = chrome.GlyphsAvailable();
+    Check(glyphs || chrome.Font() == FluentIcons::IconFont::TextFallback,
+          L"glyph rasterization succeeds or reports the text fallback", success);
+
+    result = renderer.Render(0.0f, 0.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameChromeQuadCount() == 0,
+          L"a settled page with no raise and no revealed band draws no chrome quad", success);
+    Check(!renderer.SetHostChrome(HostChromeState{}), L"pushing an unchanged chrome state reports no change", success);
+
+    const RECT processTile = dashboard.PixelBoundsAt(3, kHostWidth, kHostHeight);
+    const RaisedLayout layout =
+        MakeRaisedLayout(kHostWidth, kHostHeight, RedXeRaisedExtentHalf, window.Dpi(), &processTile);
+    IRedXeRaisedWidget* raised = dashboard.RaisedWidgetAt(3);
+    Check(raised && SUCCEEDED(raised->SetRaised(TRUE)) && SUCCEEDED(renderer.SetRaisedOverlay(3, layout.content)),
+          L"host chrome test raises Process Viewer to a half slice", success);
+    HostChromeState raisedState{};
+    raisedState.raised = true;
+    raisedState.content = layout.content;
+    raisedState.close = layout.close;
+    raisedState.shadow = layout.shadow;
+    raisedState.dimAlpha = kRaiseOverlayDimAlpha;
+    raisedState.closeHovered = true;
+    Check(renderer.SetHostChrome(raisedState), L"a raised chrome state is reported as a change", success);
+    result = renderer.Render(0.1f, 1.0f / 60.0f);
+    const size_t expectedRaised = HostChromeQuadCount(raisedState, kHostWidth, kHostHeight, glyphs);
+    Check(SUCCEEDED(result) && renderer.LastFrameChromeQuadCount() == expectedRaised && expectedRaised >= 4,
+          L"a raised half slice with close hover draws dim strips, shadow, hover wash, and the close glyph", success);
+    Check(renderer.LastFrameWidgetCount() == 11 && renderer.LastFrameSuccessfulWidgetCount() == 11,
+          L"host chrome never displaces the tile and raised widget draws", success);
+    raisedState.closeHovered = false;
+    Check(renderer.SetHostChrome(raisedState), L"clearing close hover is one chrome change", success);
+    result = renderer.Render(0.2f, 1.0f / 60.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameChromeQuadCount() + 1 == expectedRaised,
+          L"an idle close control drops exactly the hover wash", success);
+    raisedState.dimAlpha = 0;
+    (void)renderer.SetHostChrome(raisedState);
+    result = renderer.Render(0.3f, 1.0f / 60.0f);
+    Check(SUCCEEDED(result) &&
+              renderer.LastFrameChromeQuadCount() == HostChromeQuadCount(raisedState, kHostWidth, kHostHeight, glyphs),
+          L"a raise at zero dim draws only shadow and close", success);
+
+    Check(SUCCEEDED(raised->SetRaised(FALSE)), L"host chrome test restores Process Viewer", success);
+    renderer.ClearRaisedOverlay();
+    HostChromeState bandState{};
+    bandState.bands[1].rect = PageEdgeBandRect(kPageEdgeDirectionNext, kHostWidth, kHostHeight, window.Dpi());
+    bandState.bands[1].direction = kPageEdgeDirectionNext;
+    bandState.bands[1].revealed = true;
+    Check(renderer.SetHostChrome(bandState), L"revealing an edge band is one chrome change", success);
+    result = renderer.Render(0.4f, 1.0f / 60.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameChromeQuadCount() == (glyphs ? 2U : 1U) &&
+              renderer.LastFrameWidgetCount() == 10,
+          L"a revealed edge band draws its wash and chevron over every tile", success);
+    Check(renderer.SetHostChrome(HostChromeState{}), L"hiding the band is one chrome change", success);
+    result = renderer.Render(0.5f, 1.0f / 60.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameChromeQuadCount() == 0, L"hidden chrome draws nothing", success);
+
+    Check(renderer.SetDpi(192) == S_OK && renderer.HostChrome().Dpi() == 192 &&
+              renderer.HostChrome().GlyphsAvailable() == glyphs,
+          L"a DPI change re-rasterizes the chrome glyphs once", success);
+    Check(renderer.SetDpi(192) == S_OK && renderer.HostChrome().Dpi() == 192,
+          L"an unchanged DPI leaves the chrome atlas alone", success);
+    Check(GetWindow(window.Get(), GW_CHILD) == nullptr, L"host chrome creates no child window over the swap chain",
+          success);
+    renderer.Shutdown();
+    Check(!renderer.HostChrome().Ready(), L"shutdown releases the host chrome pipeline", success);
+    dashboard.Shutdown();
+}
+
 void TestWidgetRaiseNative(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] raised native-window overlay\n";
@@ -561,9 +684,13 @@ void TestWidgetRaiseNative(bool& success) noexcept
         return;
     }
 
+    // The native-window example is opt-in and absent from the shipped templates, so this test places it itself in the
+    // former Debug Development layout: Launcher, then Triangle over GDI Orbit, then a double-width Matrix.
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":5},"pages":[{"columns":[{"plugin":"builtin.launcher","shortcuts":[]},{"rows":[{"plugin":"builtin.rotating-triangle"},{"plugin":"builtin.gdi-orbit"}]},{"weight":2,"widget":{"plugin":"builtin.matrix-rain"}}]}]})json";
     PluginManager plugins;
     AppSettings settings{};
-    result = LoadDeployedSettings(kRedXeDebugSettingsFileName, settings);
+    result = ParseAppSettingsJson(settingsJson, settings);
     if (SUCCEEDED(result))
     {
         result = plugins.Initialize(settings);
@@ -579,7 +706,7 @@ void TestWidgetRaiseNative(bool& success) noexcept
         result = renderer.Initialize(window.Get(), true, dashboard);
     }
     Check(SUCCEEDED(result) && dashboard.WindowWidgetAt(2) != nullptr && dashboard.RaisedWidgetAt(2) != nullptr,
-          L"Debug GDI Orbit exposes the raised sibling", success);
+          L"GDI Orbit exposes the raised sibling", success);
     if (FAILED(result))
     {
         return;
@@ -716,14 +843,13 @@ void TestRendererDeviceIdentity(bool& success) noexcept
     Check(waitable != nullptr, L"the swap chain exposes its frame-latency waitable object", success);
     Check(waitable && WaitForSingleObject(waitable, 0) == WAIT_OBJECT_0,
           L"a free back buffer is signaled before the first frame", success);
-    Check(renderer.EnsureDeviceForWindowMonitor() == S_FALSE,
-          L"the adapter re-check keeps a forced WARP device", success);
+    Check(renderer.EnsureDeviceForWindowMonitor() == S_FALSE, L"the adapter re-check keeps a forced WARP device",
+          success);
     result = renderer.Render(0.0f, 0.0f);
     Check(SUCCEEDED(result), L"hidden host presents one frame through the waitable swap chain", success);
     Check(waitable && WaitForSingleObject(waitable, 2000) == WAIT_OBJECT_0,
           L"the waitable object signals again once the presented frame is consumed", success);
-    Check(renderer.FrameLatencyWaitableObject() == waitable,
-          L"the waitable object is stable across frames", success);
+    Check(renderer.FrameLatencyWaitableObject() == waitable, L"the waitable object is stable across frames", success);
     result = dashboard.Resize(kHostWidth / 2, kHostHeight, window.Dpi());
     if (SUCCEEDED(result))
     {
@@ -770,8 +896,6 @@ void TestReleaseHostIntegration(bool& success) noexcept
               L"Release manager stages only the active page and preserves its full-display adaptive instance", success);
         Check(GetModuleHandleW(L"RotatingTriangle.dll") != nullptr,
               L"Release static discovery maps the gallery triangle DLL without creating its page", success);
-        Check(GetModuleHandleW(L"GdiOrbit.dll") != nullptr,
-              L"Release static discovery maps the gallery GDI DLL without creating its page", success);
         Check(GetModuleHandleW(L"ProcessViewer.dll") != nullptr,
               L"Release static discovery maps the process viewer DLL without creating its page", success);
         Check(GetModuleHandleW(L"StudioClock.dll") != nullptr,
@@ -1320,8 +1444,9 @@ void TestProcessViewerSubscription(bool& success) noexcept
         Check(SUCCEEDED(result) && plugins.ProviderCount() == 1 && plugins.WidgetCount() == 2 &&
                   plugins.GpuWidgetAt(0) != nullptr && plugins.GpuWidgetAt(1) != nullptr &&
                   plugins.ScheduledWidgetAt(0) != nullptr && plugins.ScheduledWidgetAt(1) != nullptr &&
+                  plugins.InteractiveWidgetAt(0) != nullptr && plugins.InteractiveWidgetAt(1) != nullptr &&
                   plugins.WindowWidgetAt(0) == nullptr && plugins.WindowWidgetAt(1) == nullptr,
-              L"two Process Viewers share one widget provider as GPU scheduled widgets", success);
+              L"two Process Viewers share one widget provider as GPU scheduled interactive widgets", success);
         if (FAILED(result))
         {
             return;
@@ -1552,8 +1677,8 @@ void TestDebugHostComposition(bool& success) noexcept
     {
         result = plugins.Initialize(settings);
     }
-    Check(SUCCEEDED(result) && plugins.ProviderCount() == 4 && plugins.WidgetCount() == 4,
-          L"Debug composition constructs launcher, triangle, GDI Orbit, and Matrix on the first page", success);
+    Check(SUCCEEDED(result) && plugins.ProviderCount() == 3 && plugins.WidgetCount() == 3,
+          L"Debug composition constructs launcher, triangle, and Matrix on the first page", success);
     if (FAILED(result))
     {
         return;
@@ -1561,25 +1686,19 @@ void TestDebugHostComposition(bool& success) noexcept
 
     DashboardHost dashboard;
     result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
-    Check(SUCCEEDED(result), L"Debug dashboard attaches the native and GPU widgets while hidden", success);
-    Check(dashboard.WindowWidgetAt(2) != nullptr && dashboard.GpuWidgetAt(0) != nullptr &&
-              dashboard.GpuWidgetAt(1) != nullptr && dashboard.GpuWidgetAt(3) != nullptr &&
-              dashboard.InteractiveWidgetAt(0) != nullptr,
-          L"Debug dashboard exposes launcher, triangle, GDI Orbit, and Matrix mechanisms", success);
+    Check(SUCCEEDED(result), L"Debug dashboard attaches the GPU widgets while hidden", success);
+    Check(dashboard.GpuWidgetAt(0) != nullptr && dashboard.GpuWidgetAt(1) != nullptr &&
+              dashboard.GpuWidgetAt(2) != nullptr && dashboard.InteractiveWidgetAt(0) != nullptr &&
+              !dashboard.HasWindowWidgets(),
+          L"Debug dashboard exposes launcher, triangle, and Matrix GPU mechanisms and no native container", success);
     Check(dashboard.PlacementAt(0) == WidgetPlacement{0.0f, 0.0f, 640.0f, 720.0f} &&
-              dashboard.PlacementAt(1) == WidgetPlacement{640.0f, 0.0f, 640.0f, 360.0f} &&
-              dashboard.PlacementAt(2) == WidgetPlacement{640.0f, 360.0f, 640.0f, 360.0f} &&
-              dashboard.PlacementAt(3) == WidgetPlacement{1280.0f, 0.0f, 1280.0f, 720.0f},
-          L"Debug dashboard compiles the nested adaptive layout onto the design canvas", success);
-    HWND gdiContainer = GetWindow(window.Get(), GW_CHILD);
-    RECT gdiBounds{};
-    if (gdiContainer && GetWindowRect(gdiContainer, &gdiBounds))
-    {
-        MapWindowPoints(HWND_DESKTOP, window.Get(), reinterpret_cast<POINT*>(&gdiBounds), 2);
-    }
-    Check(gdiContainer && gdiBounds.left == 640 && gdiBounds.top == 360 && gdiBounds.right == 1280 &&
-              gdiBounds.bottom == 720,
-          L"native GDI container uses the same adaptive bounds", success);
+              dashboard.PlacementAt(1) == WidgetPlacement{640.0f, 0.0f, 640.0f, 720.0f} &&
+              dashboard.PlacementAt(2) == WidgetPlacement{1280.0f, 0.0f, 1280.0f, 720.0f},
+          L"Debug dashboard compiles the adaptive layout onto the design canvas", success);
+    // No shipped page places a native-window widget, so nothing sits over the swap chain and every shipped page
+    // can present with independent flip.
+    Check(GetWindow(window.Get(), GW_CHILD) == nullptr,
+          L"the shipped Debug first page creates no child HWND over the swap chain", success);
     if (FAILED(result))
     {
         return;
@@ -1590,7 +1709,7 @@ void TestDebugHostComposition(bool& success) noexcept
     {
         result = dashboard.SetWidgetsVisible(false);
     }
-    Check(SUCCEEDED(result), L"production host propagates native-widget resume and quiesce transitions", success);
+    Check(SUCCEEDED(result), L"production host propagates widget resume and quiesce transitions", success);
 
     Renderer renderer;
     result = renderer.Initialize(window.Get(), true, dashboard);
@@ -1599,7 +1718,7 @@ void TestDebugHostComposition(bool& success) noexcept
         result = renderer.Render(0.5f, 1.0f / 60.0f);
     }
     Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 3 && renderer.LastFrameSuccessfulWidgetCount() == 3,
-          L"Debug WARP frame renders every GPU widget beside the attached GDI widget", success);
+          L"Debug WARP frame renders every GPU widget of the first page", success);
 
     renderer.Shutdown();
     dashboard.Shutdown();
@@ -1767,9 +1886,8 @@ void TestGpuTargetSizeNotification(bool& success) noexcept
     // Desk Clock is the widget whose resources depend on how highTier it is drawn: its glyph atlas is rasterized at a
     // resolution tier chosen from the reported target size. That makes it the honest end-to-end probe for the
     // callback -- a no-op implementation would leave the tier stuck at 1.
-    constexpr std::string_view settingsJson =
-        R"json({"version":{"major":5},"pages":[{"widgets":[)json"
-        R"json({"plugin":"builtin.desk-clock"}]}]})json";
+    constexpr std::string_view settingsJson = R"json({"version":{"major":5},"pages":[{"widgets":[)json"
+                                              R"json({"plugin":"builtin.desk-clock"}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -1977,10 +2095,9 @@ void TestSharedPluginRuntime(bool& success) noexcept
     // Two pages that both place a System Data viewer. Before the runtime became process scoped, staging the adjacent
     // page built a second PluginHost with its own module map, its own IRedXeDataSource, and its own acquisition
     // thread beside the current one.
-    constexpr std::string_view settingsJson =
-        R"json({"version":{"major":5},"pages":[)json"
-        R"json({"widgets":[{"plugin":"builtin.cpu-meter"}]},)json"
-        R"json({"widgets":[{"plugin":"builtin.memory-meter"}]}]})json";
+    constexpr std::string_view settingsJson = R"json({"version":{"major":5},"pages":[)json"
+                                              R"json({"widgets":[{"plugin":"builtin.cpu-meter"}]},)json"
+                                              R"json({"widgets":[{"plugin":"builtin.memory-meter"}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -2411,11 +2528,10 @@ void TestHostOwnedPlaceholderTiles(bool& success) noexcept
     // it exists for runtime failures such as exhausted memory or subscription slots. What is reachable, and what is
     // covered here, is that a valid page produces no placeholders and that a constructed widget which reports itself
     // unavailable hands its tile to the host.
-    constexpr std::string_view settingsJson =
-        R"json({"version":{"major":5},"pages":[{"widgets":[)json"
-        R"json({"plugin":"builtin.rotating-triangle"},)json"
-        R"json({"plugin":"builtin.cpu-meter"},)json"
-        R"json({"plugin":"builtin.memory-meter"}]}]})json";
+    constexpr std::string_view settingsJson = R"json({"version":{"major":5},"pages":[{"widgets":[)json"
+                                              R"json({"plugin":"builtin.rotating-triangle"},)json"
+                                              R"json({"plugin":"builtin.cpu-meter"},)json"
+                                              R"json({"plugin":"builtin.memory-meter"}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -2494,10 +2610,9 @@ void TestHostOwnedPlaceholderTiles(bool& success) noexcept
 void TestUnmappedCatalogModulePlaceholder(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] unmapped catalogued module placeholder\n";
-    constexpr std::string_view settingsJson =
-        R"json({"version":{"major":5},"pages":[{"widgets":[)json"
-        R"json({"plugin":"builtin.rotating-triangle"},)json"
-        R"json({"plugin":"builtin.launcher","shortcuts":[]}]}]})json";
+    constexpr std::string_view settingsJson = R"json({"version":{"major":5},"pages":[{"widgets":[)json"
+                                              R"json({"plugin":"builtin.rotating-triangle"},)json"
+                                              R"json({"plugin":"builtin.launcher","shortcuts":[]}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -2538,9 +2653,8 @@ void TestUnmappedCatalogModulePlaceholder(bool& success) noexcept
 void TestWeatherPluginConstructs(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] weather plugin DLL constructs\n";
-    constexpr std::string_view settingsJson =
-        R"json({"version":{"major":5},"pages":[{"widgets":[)json"
-        R"json({"plugin":"builtin.weather"}]}]})json";
+    constexpr std::string_view settingsJson = R"json({"version":{"major":5},"pages":[{"widgets":[)json"
+                                              R"json({"plugin":"builtin.weather"}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -2557,9 +2671,8 @@ void TestWeatherPluginConstructs(bool& success) noexcept
 void TestLauncherPluginConstructs(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] launcher plugin DLL constructs\n";
-    constexpr std::string_view settingsJson =
-        R"json({"version":{"major":5},"pages":[{"widgets":[)json"
-        R"json({"plugin":"builtin.launcher","shortcuts":[]}]}]})json";
+    constexpr std::string_view settingsJson = R"json({"version":{"major":5},"pages":[{"widgets":[)json"
+                                              R"json({"plugin":"builtin.launcher","shortcuts":[]}]}]})json";
 
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(settingsJson, settings);
@@ -3847,6 +3960,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestPageSwipePolicy(success);
     TestWidgetRaisePolicy(success);
     TestWidgetRaiseHost(success);
+    TestHostChromeComposition(success);
     TestWidgetRaiseNative(success);
     TestReleaseHostIntegration(success);
     TestStudioClockScheduling(success);

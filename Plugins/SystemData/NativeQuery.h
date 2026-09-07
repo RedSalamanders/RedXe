@@ -13,7 +13,7 @@ constexpr size_t kRedXeNativeImageCharacters = 260;
 // Image names are staged in one shared arena rather than a fixed 260-character slot per row: a per-row slot spends
 // 1 MiB to hold names that average well under 20 characters. The arena is sized for the worst case the row cap can
 // produce at the observed name lengths, and a walk that would overflow it truncates the remaining names rather than
-// the process list.
+// the process list. PID 0 has an empty NT image name and is stored as System Idle Process.
 constexpr size_t kRedXeNativeImageArenaCharacters = 64U * 1024U;
 
 struct RedXeNativeLogicalCpu final

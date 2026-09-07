@@ -6,7 +6,6 @@
   "declare": {
     "Matrix": { "plugin": "builtin.matrix-rain" },
     "Triangle": { "plugin": "builtin.rotating-triangle" },
-    "Orbit": { "plugin": "builtin.gdi-orbit" },
     "StudioClock": { "plugin": "builtin.studio-clock", "externalDotsAlwaysOn": true },
     "DeskClock": { "plugin": "builtin.desk-clock" },
     "Weather": { "plugin": "builtin.weather" },
@@ -28,7 +27,7 @@
     {
       "name": "Plugin Gallery",
       "columns": [
-        { "weight": 2, "rows": ["Triangle", "Orbit"] },
+        { "weight": 2, "widget": "Triangle" },
         {
           "weight": 5,
           "widget": {

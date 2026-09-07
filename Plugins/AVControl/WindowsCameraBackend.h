@@ -20,6 +20,7 @@ class WindowsCameraBackend final
     [[nodiscard]] HANDLE NotificationEvent() const noexcept;
     HRESULT ProcessNotifications() noexcept;
     [[nodiscard]] DWORD WatchdogTimeout() const noexcept;
+
   private:
     struct State;
     std::unique_ptr<State> _state;

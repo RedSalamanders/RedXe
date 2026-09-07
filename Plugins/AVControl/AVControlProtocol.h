@@ -11,9 +11,17 @@ inline constexpr uint32_t BrokerProtocolVersion = 3;
 inline constexpr uint32_t BrokerMagic = 0x56415852;
 enum class BrokerOperation : uint32_t
 {
-    Observe, SetMute, SetLevel, SetDefault, SetCameraSource, SetCameraEnabled, SuspendObservation,
+    Observe,
+    SetMute,
+    SetLevel,
+    SetDefault,
+    SetCameraSource,
+    SetCameraEnabled,
+    SuspendObservation,
     // Available only to an explicitly synthetic helper; never accepted by the hardware backend.
-    FixtureHang, FixtureExit, FixtureMalformedReply
+    FixtureHang,
+    FixtureExit,
+    FixtureMalformedReply
 };
 enum BackendCapability : uint32_t
 {

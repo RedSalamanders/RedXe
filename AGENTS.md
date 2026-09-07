@@ -62,7 +62,10 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
   [`Specs/Plugins/Plugins_API.md`](Specs/Plugins/Plugins_API.md).
 - Adding or removing a settings-visible bundled widget requires one aligned change to `RedXe/BundledPlugins.h`, the
   schema/parser, its plugin contract, real placed examples in both Debug and Release settings templates, and the
-  matching user-guide page under `docs/plugins/`.
+  matching user-guide page under `docs/plugins/`. The only exception is a widget listed in
+  `kRedXeOptInBundledWidgetIds` (today the GdiOrbit native-window example): it stays catalogued, schema-accepted,
+  documented, and covered by `HostPluginTests`, but no shipped page places it because its child HWND forces composed
+  presentation for the whole window.
 - Mandatory performance and resource behavior is owned by
   [`Specs/Core/Core_PerformanceAndResources.md`](Specs/Core/Core_PerformanceAndResources.md).
 - User settings files, schema, cold recovery, and live reload are owned by
@@ -115,7 +118,7 @@ RedXe/
   app.manifest      Per-monitor-v2 DPI and Windows compatibility metadata
 Tests/
   PluginContractTests/ Factory, COM identity, and rendering-IID tests
-  HostPluginTests/     Hidden WARP production host/plugin integration and soak tests
+  HostPluginTests/     Hidden WARP production host/plugin integration and soak tests; embeds a Windows 8+ compatibility manifest so layered native containers are legal
   SettingsTests/       Settings, schema, stamp, watcher, and log-retention tests
   LauncherTests/       Launcher factory, pin fallback, WARP, launch, and drop tests
   WeatherTests/        Weather HTTP heap-body and small-stack overflow regression
@@ -194,17 +197,17 @@ must not write to the user's normal crash directory.
 ## Host chrome iconography
 
 - Every icon in host-drawn chrome comes from `RedXe/FluentIcons.h`. Do not hand-draw arrows, glyphs, or symbols with
-  `Polyline`, `Polygon`, or path geometry: font glyphs are hinted, scale correctly with DPI, and match the Windows 11
-  shell, which hand-drawn shapes do not.
+  quads or path geometry: font glyphs are hinted, scale correctly with DPI, and match the Windows 11 shell, which
+  hand-drawn shapes do not.
 - The font order is Segoe Fluent Icons, then Segoe MDL2 Assets for older builds, then a standard Unicode stand-in in
   the normal UI font. Every glyph constant MUST have a Unicode fallback so chrome never renders a missing-glyph box.
-  `FluentIcons::CreateIconFont` selects the family and reports which glyph set applies; `FluentIcons::SelectGlyph`
-  picks the matching code point.
-- Add new glyphs to `FluentIcons.h` rather than inline in a paint routine, so the icon set stays reviewable in one
-  place.
-- Icon fonts are created per DPI and cached, never per paint:
-  [`Specs/Core/Core_PerformanceAndResources.md`](Specs/Core/Core_PerformanceAndResources.md) forbids creating GDI
-  handles inside a paint callback.
+  `FluentIcons::ResolveIconFamily` selects the family from the DirectWrite system font collection and reports which
+  glyph set applies; `FluentIcons::SelectGlyph` picks the matching code point.
+- Add new glyphs to `FluentIcons.h` and to the `HostChromeGlyph` atlas slots in `RedXe/HostChrome.h` rather than
+  inline in a draw routine, so the icon set stays reviewable in one place.
+- Host chrome is Direct3D: `RedXe/HostChrome.*` rasterizes the glyph atlas with DirectWrite once per DPI and draws
+  every band, dim, shadow, and close quad into the swap chain. There is no chrome HWND and no GDI in the host;
+  [`Specs/Core/Core_PerformanceAndResources.md`](Specs/Core/Core_PerformanceAndResources.md) owns the budget.
 
 ## C++ and Win32 rules
 

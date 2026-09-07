@@ -630,7 +630,8 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     if (!RedXeIsValidMachineId(settings.typeId.utf8.data()) || !RedXeIsValidMachineId(settings.id.utf8.data()) ||
         widgetSlot.widget || widgetSlot.gpuWidget || widgetSlot.preparedGpuWidget || widgetSlot.scheduledWidget ||
         widgetSlot.windowWidget || widgetSlot.raisedWidget || widgetSlot.interactiveWidget ||
-        widgetSlot.keyboardWidget || widgetSlot.textInputWidget || widgetSlot.accessibilityWidget || widgetSlot.networkWidget)
+        widgetSlot.keyboardWidget || widgetSlot.textInputWidget || widgetSlot.accessibilityWidget ||
+        widgetSlot.networkWidget)
     {
         return E_INVALIDARG;
     }
@@ -694,8 +695,10 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
         return textResult;
     if (widgetSlot.textInputWidget && (!widgetSlot.preparedGpuWidget || !widgetSlot.keyboardWidget))
         return E_NOINTERFACE;
-    if (accessibilityResult != S_OK && accessibilityResult != E_NOINTERFACE) return accessibilityResult;
-    if (widgetSlot.accessibilityWidget && (!widgetSlot.preparedGpuWidget || !widgetSlot.keyboardWidget)) return E_NOINTERFACE;
+    if (accessibilityResult != S_OK && accessibilityResult != E_NOINTERFACE)
+        return accessibilityResult;
+    if (widgetSlot.accessibilityWidget && (!widgetSlot.preparedGpuWidget || !widgetSlot.keyboardWidget))
+        return E_NOINTERFACE;
     if (networkResult != S_OK && networkResult != E_NOINTERFACE)
     {
         return networkResult;

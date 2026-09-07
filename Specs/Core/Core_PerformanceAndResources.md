@@ -105,11 +105,20 @@ or state change is pending. Normal operating-system scheduling noise is outside 
 - A plugin that needs a frame for an unpredictable state change calls `IRedXeHost::RequestFrame`, which coalesces one
   invalidation on the UI thread and adds no timer or wake-up of its own. It MUST NOT be used to emulate continuous
   animation, and it never overrides a blocked, hidden, suspended, display-off, or occluded state.
-- Host edge-navigation chrome is event driven. It reveals on pointer entry, hides on pointer leave, and MUST NOT own a
-  timer, a fade, a continuous frame, or any other wake-up. Re-evaluating the chrome with unchanged host state MUST
-  perform no window operations, so it is safe to call from the frame loop. Each band is full client height; only its
-  horizontal placement follows the reachable display edge. GDI wash and icon fonts are created once per DPI, never per
-  paint.
+- Host chrome (the mouse edge bands and the raise overlay's dim, shadow, and close control) is drawn by the renderer
+  into the swap chain as at most eight quads per frame through one shared 64-byte constant buffer, one blend state,
+  and one `R8` glyph atlas of three Fluent glyphs rasterized with DirectWrite at device creation and again only when
+  the DPI changes. No chrome HWND, GDI object, region, brush, or font exists. Edge-navigation chrome is event driven:
+  it reveals on pointer entry, hides on pointer leave, and MUST NOT own a timer, a fade, a continuous frame, or any
+  other wake-up; each reveal, hide, close-hover change, and dim step invalidates exactly one coalesced frame.
+  Re-evaluating the chrome with unchanged host state MUST perform no work, so it is safe to call from the frame loop.
+  Each band is full client height; only its horizontal placement follows the reachable display edge.
+- The top-level window is created with `WS_EX_NOREDIRECTIONBITMAP` and nothing paints it with GDI, so DWM keeps no
+  client-sized redirection surface for it. Host-owned native-widget containers are `WS_EX_LAYERED` children with their
+  own DWM surface; while another widget is raised they carry the dim as window alpha (`255 − dim`) and return to
+  full alpha on dismiss. The hosting process manifest MUST declare a Windows 8 or later `supportedOS`, which is what
+  makes a layered child legal (`UI_XeneonDisplayWindowing.md`). A native child HWND over the swap chain still forces composed presentation for the whole
+  window while it exists, which is why no shipped page places one (`Core_Settings.md` template coverage exception).
 - Resolution-dependent plugin resources are rebuilt on `IRedXeGpuWidget::OnTargetSizeChanged`, never in `Render`. That
   callback is the sanctioned place for rasterization, texture creation, and allocation in a GPU widget, because it is
   event driven: the host reports only an actual change in the largest viewport it will draw that widget at, never a
@@ -166,14 +175,14 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   caller, never blocks on disk, and is forbidden from GPU `Render` and GDI paint. Plugin HTTP bodies that can exceed a
   few kilobytes MUST live on the heap; a 256 KiB automatic array on the network worker overflows the default thread
   stack (`STATUS_STACK_OVERFLOW`).
-- A raised overlay MAY create one host child HWND, one GDI region, and GDI chrome brushes only while a widget is
-  raised. Dismiss MUST destroy that HWND. Raise and restore MAY present for a clamped 160–240 ms ease; that motion is
-  presentation-paced and then idle. Settled raised content follows the same scheduled or continuous policy as
-  the widget's tile; raising MUST NOT add a periodic wake. Close hover is an `InvalidateRect` of overlay chrome, not a
-  frame. While raised, the host keeps submitting GPU work for every
-  current-page widget so dimmed tiles stay live, then submits one extra draw for a raised GPU widget at the overlay
-  slice. The extra draw is required so the focused plugin can show more information without freezing the rest of the
-  dashboard.
+- A raised overlay creates no HWND and no GDI object. Its dim strips and shadow are host quads drawn after the tiles
+  and before the raised widget so plugin pixels stay undimmed; the close control is drawn after the raised widget.
+  Raise and restore MAY present for a clamped 160–240 ms ease; that motion is presentation-paced and then idle.
+  Settled raised content follows the same scheduled or continuous policy as the widget's tile; raising MUST NOT add a
+  periodic wake. Close hover is one coalesced frame that redraws the close quads, never a timer. While raised, the host
+  keeps submitting GPU work for every current-page widget so dimmed tiles stay live, then submits one extra draw for a
+  raised GPU widget at the overlay slice. The extra draw is required so the focused plugin can show more information
+  without freezing the rest of the dashboard.
 
 Measured 2026-09-07 on the reference machine (XENEON EDGE on the AMD iGPU, primary 4K display on an NVIDIA RTX 5080,
 Ryzen 9 9950X3D, one fresh process per row, `D3D11CreateDevice` only): a device on the RTX 5080 adds 37 threads and
@@ -300,6 +309,12 @@ observable resource benefit are not required.
   input MUST NOT contain an any-message redraw proxy.
 - `HostPluginTests` MUST also prove raised-overlay geometry, Process Viewer half-width raise while sibling tiles still
   draw, no continuous wake from that raise, and GdiOrbit container move/restore, using the same hidden WARP host.
+- `HostPluginTests` MUST prove the host chrome contract on the hidden WARP host: a settled page draws zero chrome
+  quads, a raised half slice with close hover draws its dim strips, shadow, hover wash, and glyph (and exactly one
+  quad fewer without hover), a revealed edge band draws its wash and chevron over every tile, hidden chrome draws
+  nothing, an unchanged chrome state reports no change, a DPI change re-rasterizes the glyph atlas once, no child
+  HWND exists over the swap chain, and shutdown releases the pipeline. Dim-strip geometry is proved pure. The
+  shipped Debug first page MUST create no child HWND.
 - `HostPluginTests` MUST prove the adapter-of-output decision table (`RedXeSelectAdapterRecordForMonitor`: the
   hardware adapter owning the monitor wins, software adapters never own a monitor, a null or unmapped monitor keeps
   the default adapter) and, on the hidden WARP host, that the renderer reports a software device identity, exposes a

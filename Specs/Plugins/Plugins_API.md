@@ -471,9 +471,15 @@ render target, viewport placement, device-loss sequence, and presentation.
 
 ## Native-window widget contract
 
-`IRedXeWindowWidget` is the general child-HWND path. The host owns one `WS_CHILD` container for each selected native-window
-widget and passes that borrowed container to `Attach`. The plugin may paint with GDI or create child controls, media
-hosts, or a WebView controller inside it.
+`IRedXeWindowWidget` is the general child-HWND path. The host owns one `WS_CHILD | WS_EX_LAYERED` container for each
+selected native-window widget and passes that borrowed container to `Attach`. A layered child is legal only in a
+process whose manifest declares a Windows 8 or later `supportedOS`; the host and every test binary that hosts
+containers declare it, and `DashboardHost::Initialize` fails with `E_INVALIDARG` when the system rejects the
+container rather than attaching the widget to an unlayered one. The plugin may paint with GDI or create
+child controls, media hosts, or a WebView controller inside it. The mechanism is opt-in with a documented cost: a
+child HWND over the swap chain forces DWM to compose the whole window instead of flipping it independently, so no
+shipped page places a native-window widget and the bundled example (`builtin.gdi-orbit`) is catalogued, documented,
+and test-covered but not placed by the shipped templates.
 
 - `Attach`, `Resize`, and `Detach` run synchronously on the RedXe UI thread.
 - The plugin may retain the container HWND only from successful `Attach` until `Detach` begins. It MUST NOT subclass,
@@ -484,9 +490,10 @@ hosts, or a WebView controller inside it.
   detached. Repeated `Detach` is safe.
 - `Resize` receives the new physical container size and destination-monitor DPI after the host has repositioned the
   container. It performs no continuous work when size and DPI are unchanged.
-- Native children are composed above the parent's D3D surface. They can be ordered relative to other child windows,
-  but cannot be interleaved or alpha-composited with GPU widgets. Effects requiring D3D-layer composition use the GPU
-  mechanism.
+- Native children are composed above the parent's D3D surface through the layered container's own DWM surface. They
+  can be ordered relative to other child windows, but cannot be interleaved with GPU widgets or with host chrome; the
+  host dims the container with window alpha while another widget is raised, and a raised native widget covers the
+  host-drawn close control. Effects requiring D3D-layer composition use the GPU mechanism.
 - Ordinary child-window pointer, keyboard, focus, accessibility, and IME behavior remains inside the widget bounds.
   Global commands and page policy remain host-owned. Interactive WebView security and navigation policy require a
   separate normative contract before a bundled web widget ships.
@@ -737,7 +744,7 @@ rejection, and 2,048-row Release resource measurement are validated by `SystemDa
 `Plugins/ProcessViewer` remains `ProcessViewer.dll` and publishes ten settings-visible plugin IDs, each mapped to one
 widget type. Every widget exposes sibling `IRedXeGpuWidget` and `IRedXeScheduledWidget` interfaces on one controlling
 `IUnknown` and does not set `RedXeWidgetFlagContinuousAnimation`. None of these widgets expose `IRedXeWindowWidget`;
-`GdiOrbit` remains the shipped native-window example. Every viewer also exposes `IRedXeRaisedWidget` so the host can
+`GdiOrbit` remains the bundled native-window example, opt-in and absent from every shipped page. Every viewer also exposes `IRedXeRaisedWidget` so the host can
 ask for 1/4, 1/3, 1/2, or 1/1 before raising a tile that is not already full-client.
 
 | Plugin ID | Type ID | Settings | Datasets |
@@ -770,7 +777,8 @@ the fill uses the same teal / amber / red intent as the KPI text (amber from 70%
 color. Battery charge inverts that mapping so a full pack reads healthy and a low pack alarms. Temperature numerals
 include the `°C` unit. Byte and byte-rate labels use 1000-based units with one fractional digit (`38.6 KB`, `3.7 TB`,
 `1.2 MB/s`); whole `B` and `B/s` stay integer. Process Viewer rows show working set with those units, never an
-unlabeled PID, and right-align working set then CPU percent with a measured gap. Process and GPU-process load bars
+unlabeled PID, and right-align working set then CPU percent with a measured gap. PID 0 is named `System Idle Process`.
+Process and GPU-process load bars
 share CPU Meter logic: heatmap idle gray, `SignalColor`, squared luminance mixed with square-root fill length, and the
 same 8–14 px bar thickness. Network and disk byte-rate bars use a log10 mapping from 1 KB/s to link speed (or 1 GB/s
 when speed is unknown); they MUST NOT normalize to the loudest sibling. Load and capacity tracks sit immediately under
@@ -792,7 +800,9 @@ banded fill (25 / 70 / 85 °C) so a cool sensor does not read as an alarm. CPU h
 and drop the grid when a cell would be smaller than 6 px. Each widget picks a density rung from its inner height
 (hero / compact / standard), keeps type floors of 16 / 18 / 30 / 48 px and a title floor of 26 px that grow with
 leftover tile height among the rows or cards that fit, and omits columns, rows, heatmaps, and sparks that do not fit
-instead of shrinking below those floors. Lists and adapter cards MUST consume the widget rectangle: row or card
+instead of shrinking below those floors. When ranked rows, cards, adapters, or forecast hours/days do not fit, the
+widget draws a bottom-right `+N` caption for the count that remains off-screen and exposes `IRedXeInteractiveWidget`
+so one-finger swipe or wheel pages the remainder. Down returns `S_FALSE` so double-activate raise still works. Lists and adapter cards MUST consume the widget rectangle: row or card
 height is inner height divided by the visible count, not a theoretical maximum budget. An AC-only power tile centers
 `AC` and `no battery`. Ranked-row slide, 320 ms value eases, 60-sample histories, and a brief accent pulse while a
 utilization or capacity KPI remains at or above 85% stay sample-driven. Decorative per-panel glow and idle breathing

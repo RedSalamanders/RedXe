@@ -21,6 +21,7 @@ class CaptureReader final
     // storage is reused. Errors terminate acquisition in the owning backend; no stale output is published.
     HRESULT ReadFrame(std::span<BYTE> output, LONGLONG& timestamp) noexcept;
     [[nodiscard]] bool IsOpen() const noexcept;
+
   private:
     struct State;
     std::unique_ptr<State> _state;

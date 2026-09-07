@@ -509,7 +509,30 @@ void FillExceptions(NtQuerySystemInformationFn query, RedXeNativeCheapSample& sa
 
 // Copies one image name into the walk sample's shared arena and points the row at it. Returns false only when the
 // source string lies outside the queried buffer, which is a malformed record; an arena that is full leaves the row
-// unnamed rather than failing the walk.
+// unnamed rather than failing the walk. PID 0 has an empty NT image name; Task Manager labels it System Idle Process.
+[[nodiscard]] bool CopyFixedImageName(const wchar_t* text, RedXeNativeWalkSample& sample,
+                                      RedXeNativeProcessRow& row) noexcept
+{
+    row.imageCharacters = 0;
+    row.imageOffset = 0;
+    if (!text || text[0] == L'\0')
+    {
+        return true;
+    }
+    const uint32_t characters = static_cast<uint32_t>(wcsnlen(text, kRedXeNativeImageCharacters - 1));
+    if (static_cast<size_t>(sample.imageArenaUsed) + characters + 1 > sample.imageArena.size())
+    {
+        return true;
+    }
+    wchar_t* destination = sample.imageArena.data() + sample.imageArenaUsed;
+    std::wmemcpy(destination, text, characters);
+    destination[characters] = L'\0';
+    row.imageOffset = sample.imageArenaUsed;
+    row.imageCharacters = characters;
+    sample.imageArenaUsed += characters + 1;
+    return true;
+}
+
 [[nodiscard]] bool CopyImageName(const UNICODE_STRING& image, const std::byte* bufferBase, size_t bufferBytes,
                                  RedXeNativeWalkSample& sample, RedXeNativeProcessRow& row) noexcept
 {
@@ -517,7 +540,7 @@ void FillExceptions(NtQuerySystemInformationFn query, RedXeNativeCheapSample& sa
     row.imageOffset = 0;
     if (!image.Buffer || image.Length == 0)
     {
-        return true;
+        return row.processId == 0 ? CopyFixedImageName(L"System Idle Process", sample, row) : true;
     }
     const auto* begin = reinterpret_cast<const std::byte*>(image.Buffer);
     if (begin < bufferBase || begin + image.Length > bufferBase + bufferBytes)

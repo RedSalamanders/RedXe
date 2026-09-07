@@ -1065,8 +1065,8 @@ class LauncherDeviceResources final
         _deviceIdentity = nullptr;
     }
 
-    [[nodiscard]] HRESULT Draw(ID3D11DeviceContext* context, LauncherInstanceGpu& instance,
-                               LauncherConstants constants, const LauncherIconInstance* icons) noexcept
+    [[nodiscard]] HRESULT Draw(ID3D11DeviceContext* context, LauncherInstanceGpu& instance, LauncherConstants constants,
+                               const LauncherIconInstance* icons) noexcept
     {
         if (!context || !_vertexShader || !instance.ConstantBuffer() || !instance.View())
         {
@@ -1489,8 +1489,8 @@ class LauncherWidget final
             }
             if (_pagePan)
             {
-                const bool blocked = LauncherPageSwipeBlocksDirection(deltaX, _pageIndex == 0,
-                                                                     _pageIndex + 1 >= grid.pageCount);
+                const bool blocked =
+                    LauncherPageSwipeBlocksDirection(deltaX, _pageIndex == 0, _pageIndex + 1 >= grid.pageCount);
                 _slidePx = LauncherApplyPageEdgeResistance(deltaX, static_cast<LONG>(_width), blocked);
                 PublishCounts();
                 if (_host)
@@ -1757,8 +1757,7 @@ class LauncherWidget final
         const uint64_t ticks = static_cast<uint64_t>(now.QuadPart);
         if (_pointerLastQpc != 0 && _qpcFrequency != 0 && ticks > _pointerLastQpc)
         {
-            const double seconds =
-                static_cast<double>(ticks - _pointerLastQpc) / static_cast<double>(_qpcFrequency);
+            const double seconds = static_cast<double>(ticks - _pointerLastQpc) / static_cast<double>(_qpcFrequency);
             if (seconds > 0.0 && seconds < 0.05)
             {
                 _velocityPxPerSec = static_cast<float>((x - _pointerLastX) / seconds);

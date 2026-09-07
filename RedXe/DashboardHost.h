@@ -40,6 +40,10 @@ class DashboardHost final
     [[nodiscard]] LONG HorizontalOffset() const noexcept;
     [[nodiscard]] HRESULT ApplyRaisedNativeLayout(size_t widgetIndex, const RECT& content, UINT dpi) noexcept;
     [[nodiscard]] HRESULT ClearRaisedNativeLayout(UINT dpi) noexcept;
+    // Native containers are layered children with their own DWM surface. While another widget is raised they take
+    // the same dim as the Direct3D chrome (alpha 255 - dimAlpha); the raised container and a dim of zero restore full
+    // alpha. `raisedIndex` may be SIZE_MAX.
+    [[nodiscard]] HRESULT SetNativeDimAlpha(BYTE dimAlpha, size_t raisedIndex) noexcept;
     void Shutdown(bool persistCollectedSettings = true) noexcept;
     [[nodiscard]] size_t WidgetCount() const noexcept;
     [[nodiscard]] IRedXeWidget* WidgetAt(size_t index) const noexcept;

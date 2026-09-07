@@ -1,6 +1,6 @@
 #pragma once
-#include "CameraBridgeServer.h"
 #include "../AVControlModel.h"
+#include "CameraBridgeServer.h"
 
 namespace AVControl::Camera
 {
@@ -29,9 +29,13 @@ class CameraController final : private BridgeObserver
     [[nodiscard]] bool RequiresHelper() noexcept;
     // Broker MTA: a physical removal/replacement invalidates even an already-off source's older intents.
     void InvalidateSourceRevision() noexcept;
-    [[nodiscard]] HANDLE ProgressEvent() const noexcept { return _progress.get(); }
+    [[nodiscard]] HANDLE ProgressEvent() const noexcept
+    {
+        return _progress.get();
+    }
     [[nodiscard]] DWORD WatchdogTimeout() const noexcept;
     void Shutdown() noexcept;
+
   private:
     BridgeIdentity _identity;
     std::unique_ptr<CaptureSession> _capture;
