@@ -8,9 +8,11 @@ namespace
 {
 void FinishLiveLayout(LiveLayout& layout) noexcept
 {
-    for (auto& slider : layout.sliders)
+    for (size_t i = 0; i < layout.sliders.size(); ++i)
     {
+        auto& slider = layout.sliders[i];
         const float leading = (std::min)(108.0f, (std::max)(0.0f, slider.width - 48.0f));
+        layout.levelMutes[i] = {slider.x, slider.y, leading, slider.height};
         slider.x += leading;
         slider.width -= leading;
     }
@@ -81,7 +83,7 @@ LiveLayout LayoutLive(float width, float height) noexcept
         {
             const float panelHeight = unit * 2.5f;
             layout.levelPanels[i] = {padding, y, bodyWidth, panelHeight};
-            layout.sliders[i] = {padding, y + panelHeight - 48, bodyWidth, 48};
+            layout.sliders[i] = layout.levelPanels[i];
             y += panelHeight + gap;
         }
     }
@@ -101,7 +103,7 @@ LiveLayout LayoutLive(float width, float height) noexcept
             const float x = padding + (columns ? static_cast<float>(i) * (panelWidth + gap) : 0);
             const float top = y + (columns ? 0 : static_cast<float>(i) * (panelHeight + gap));
             layout.levelPanels[i] = {x, top, panelWidth, panelHeight};
-            layout.sliders[i] = {x, top + panelHeight - 48, panelWidth, 48};
+            layout.sliders[i] = layout.levelPanels[i];
         }
     }
     FinishLiveLayout(layout);

@@ -283,6 +283,22 @@ uint32_t RunNativeViewTests()
     if (view.Controls().HasFluentIconFont())
         Check(FindLabel(view.Controls().GetRoot(), std::wstring(1, L'\uF781')),
               "muted microphone uses the mic-off glyph");
+    Check(!FindLabel(view.Controls().GetRoot(), std::wstring(1, L'\uF403')),
+          "camera never uses the video-off glyph that missing-font boxes");
+    Check(FindLabel(view.Controls().GetRoot(), std::wstring(1, L'\uE714')) ||
+              FindLabel(view.Controls().GetRoot(), L"\U0001F3A5"),
+          "camera keeps a video glyph");
+    state.camera.availability = Availability::Unsupported;
+    state.camera.enabled = false;
+    view.SetState(state, L"Studio", 0);
+    Hr(view.Prepare(640, 360, 96), "prepare camera unavailable");
+    Check(FindLabel(view.Controls().GetRoot(), std::wstring(1, L'\uE714')) ||
+              FindLabel(view.Controls().GetRoot(), L"\U0001F3A5"),
+          "unavailable camera still shows a video glyph");
+    state.camera.availability = Availability::Ready;
+    state.camera.enabled = false;
+    view.SetState(state, L"Studio", 0);
+    Hr(view.Prepare(640, 360, 96), "restore camera ready");
     const auto beforeAccessibleToggle = commands.count;
     Check(microphoneToggle->OnMnemonic(view.Controls()) && commands.count == beforeAccessibleToggle + 1 &&
               commands.last.device == DeviceKind::Microphone && commands.last.value == 0 &&
@@ -300,6 +316,12 @@ uint32_t RunNativeViewTests()
     Check(commands.count == count + 1 && commands.last.kind == ViewCommandKind::SetLevel && commands.last.value >= 70 &&
               commands.last.value <= 80,
           "AV slider commits once on release");
+    Hr(view.Prepare(640, 360, 96), "prepare after slider commit before level-icon mute");
+    count = commands.count;
+    Click(view, view.Layout().levelMutes[1]);
+    Check(commands.count == count + 1 && commands.last.kind == ViewCommandKind::SetMuted &&
+              commands.last.device == DeviceKind::Microphone,
+          "tapping the slider microphone icon sends the same mute command as the device card");
     Hr(view.Prepare(640, 360, 96), "AV next gesture preparation");
     count = commands.count;
     view.Pointer({DxUi::PointerAction::Down, slider.x + slider.width * .2f, y});

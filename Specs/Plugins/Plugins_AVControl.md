@@ -32,14 +32,17 @@ never alter mute. Keyboard ranges retain one-point precision, five-point page st
 The three mute/off controls and both levels remain directly accessible in every supported rectangle. Minimum size
 is 160×180 logical pixels; smaller placements expose unavailable layout instead of clipped controls. Every live hit
 target is at least 48×48 logical pixels. Hit targets do not overlap or extend outside their tile. Mute and camera-off
-buttons use state-specific Fluent glyphs (volume/mute, microphone/mic-off, video/video-off) sized with `IconLarge`
-(32 DIP) or `HeroIcon` (64 DIP) to the card, not the 12 DIP `Icon` role. Level sliders use DxUi's 10 DIP track and
-28 DIP thumb; the full 48 DIP control height is the hit target.
+buttons use state-specific Fluent glyphs (volume/mute, microphone/mic-off) sized to 32 DIP `IconLarge` with 12 DIP
+padding inside the card. Camera always uses the video glyph (`E714`), including unavailable and off, and uses
+disabled text when the row cannot activate. Level sliders use DxUi's 12 DIP track and 48 DIP thumb and occupy the
+full level panel height so the thumb is not a 48 DIP strip at the bottom. The leading icon and level value share a 48 DIP mute hit target that sends the same mute command as the matching
+device card whenever the row is wide enough to keep both that target and the slider at 48 DIP.
 
 Widths below 320 or heights below 300 use the minimal layout: three mute/off targets followed by two compact
 sliders. A quiet, labeled Profile target shares the microphone row; the output slider retains the full row width.
-Both sliders keep a 48-pixel hit height, with compact labels above their tracks inside that area. At 160×180,
-the microphone slider is 92 pixels wide and Profile is 48×48. Profile selection is one tap at every size.
+Both sliders keep at least a 48-pixel hit height by filling their level panel, with compact labels in the leading
+mute target. At 160×180, the microphone level row is 92 pixels
+wide: a leading mute gutter plus a 48-pixel slider. Profile is 48×48. Profile selection is one tap at every size.
 Otherwise widths below 800 with height at least 620 use tall
 rows; widths at least 800 below height 480 use the wide layout; remaining sizes below width 800 or height 480 use
 compact layout; others use the large layout. Definitions remain subordinate to selection. Raised content is at most half the
@@ -49,8 +52,8 @@ client width and full client height. Pixel-to-DIP conversion belongs at the embe
 
 AVControlTests covers strict configuration/roundtrip/failure preservation, Unicode and byte/scalar bounds, profile
 matching across role and mute changes, coherent slider drafts, every reviewed rectangle and one-pixel neighborhoods
-of all density thresholds, mute-button device names at compact size, icon-only names at the 160×180 minimum, and
-mute/off glyph changes.
+of all density thresholds, mute-button device names at compact size, icon-only names at the 160×180 minimum, mute/off glyph changes, a video
+glyph while the camera is unavailable, and slider-leading mute hits.
 Tests use synthetic model state and never change real endpoints, open webcams or write
 normal user settings. Backend, native UI, accessibility, hardware interoperability and resource acceptance remain
 explicit open gates until their implementation and evidence are added.
@@ -133,7 +136,8 @@ Each live view retains three toggle cards and two sliders. Toggle cards show a d
 output, microphone, or camera name, clipped when the label is wider than the card. Mute and camera-off are the
 confirmed button state, not a second On/Muted caption. Unavailable and pending captions replace the name. Tiles
 too narrow for a name keep the icon and put the name in the accessible label. Level rows show an icon, the integer
-level, and the slider, without repeating device titles. The toggle
+level, and the slider, without repeating device titles. Tapping the leading icon or level value sends the same mute
+or unmute command as the matching device card. The toggle
 pattern reports confirmed mute/off state; activation sends a command without flipping that state optimistically.
 A confirmed endpoint change invalidates any stale drag. Changed content is prepared before composition;
 steady composition reuses its surface. Reduced motion is used for these immediate live actions, so the view creates

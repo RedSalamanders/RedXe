@@ -24,23 +24,19 @@ constexpr wchar_t FluentToggleGlyph(size_t index, bool off) noexcept
         return off ? L'\uE74F' : L'\uE767';
     if (index == 1)
         return off ? L'\uF781' : L'\uE720';
-    return off ? L'\uF403' : L'\uE714';
+    return L'\uE714';
 }
 const wchar_t* FallbackToggleGlyph(size_t index, bool off) noexcept
 {
     static constexpr const wchar_t* on[]{L"\U0001F50A", L"\U0001F3A4", L"\U0001F3A5"};
-    static constexpr const wchar_t* muted[]{L"\U0001F507", L"\U0001F3A4", L"\U0001F4F7"};
+    static constexpr const wchar_t* muted[]{L"\U0001F507", L"\U0001F3A4", L"\U0001F3A5"};
     return off ? muted[index] : on[index];
 }
 DxUi::FontRole IconFontRole(bool fluent, float sizeDip) noexcept
 {
     if (!fluent)
         return sizeDip >= 24.0f ? DxUi::FontRole::BodyLarge : DxUi::FontRole::Body;
-    if (sizeDip >= 52.0f)
-        return DxUi::FontRole::HeroIcon;
-    if (sizeDip >= 28.0f)
-        return DxUi::FontRole::IconLarge;
-    return DxUi::FontRole::Icon;
+    return sizeDip >= 28.0f ? DxUi::FontRole::IconLarge : DxUi::FontRole::Icon;
 }
 const wchar_t* AvailabilityText(Availability value) noexcept
 {
@@ -102,6 +98,13 @@ class ConfirmedToggle final : public DxUi::Toggle
     {
         return DxUi::Button::OnMnemonic(host);
     }
+};
+// Leading slider icons must receive the same mute command as the device cards. Labels do not hit-test, so this
+// paints nothing and sits behind the glyph/value as the 48 DIP touch target.
+class LevelMuteButton final : public DxUi::Button
+{
+  public:
+    void Paint(DxUi::ControlHost&) const override {}
 };
 } // namespace
 
@@ -171,6 +174,9 @@ void LiveView::Build()
                                              : L"Controls applications using this output endpoint, preserving mute.");
         _sliders[i]->SetAccessibleAutomationId(i ? L"av.level.microphone" : L"av.level.output");
         _sliders[i]->SetOnChange([this, i](DxUi::SliderChange change) { SliderChanged(i, change); });
+        auto* mute = _levelMutes[i] = root->AddChild<LevelMuteButton>();
+        mute->SetAccessibleAutomationId(i ? L"av.levelMute.microphone" : L"av.levelMute.output");
+        mute->SetOnClick([this, i] { Toggle(i); });
     }
     _view.Controls().SetRoot(std::move(tree));
     _view.Controls().SetOnTabBoundary(
@@ -289,12 +295,13 @@ void LiveView::Arrange()
         _toggleIcons[i]->SetVisible(usable);
         const bool named = usable && _layout.showDeviceNames;
         _toggleNames[i]->SetVisible(named);
-        const float icon = named ? (std::clamp)(r.height - 16.0f, 32.0f, 64.0f)
-                                 : (std::clamp)((std::min)(r.width, r.height) - 12.0f, 32.0f, 64.0f);
+        constexpr float kIconDip = 32.0f;
+        constexpr float kIconPad = 12.0f;
+        const float icon = (std::min)(kIconDip, (std::max)(24.0f, r.height - 2.0f * kIconPad));
         _toggleIcons[i]->SetFontRole(IconFontRole(fluent, icon));
         if (named)
         {
-            const float iconX = r.x + 10;
+            const float iconX = r.x + kIconPad;
             const float iconY = r.y + (r.height - icon) * 0.5f;
             _toggleIcons[i]->SetBounds(D2D1::RectF(iconX, iconY, iconX + icon, iconY + icon));
             _toggleNames[i]->SetBounds(D2D1::RectF(iconX + icon + 8, r.y + 4, r.x + r.width - 10, r.y + r.height - 4));
@@ -313,19 +320,23 @@ void LiveView::Arrange()
         _sliders[i]->SetVisible(usable);
         _sliders[i]->SetBounds(Bounds(_layout.sliders[i]));
         const Rect panel = _layout.levelPanels[i];
+        const Rect mute = _layout.levelMutes[i];
         const Rect slider = _layout.sliders[i];
         _levelCards[i]->SetBounds(Bounds(panel));
         _levelCards[i]->SetVisible(false);
+        _levelMutes[i]->SetVisible(usable && mute.width > 0.0f && mute.height >= 48.0f);
+        _levelMutes[i]->SetBounds(Bounds(mute));
         _levelIcons[i]->SetVisible(usable);
         _levelValues[i]->SetVisible(usable);
-        const float leadingRight = slider.x;
-        const float leading = (std::max)(0.0f, leadingRight - panel.x);
-        const float icon = (std::clamp)(leading * 0.45f, 28.0f, 40.0f);
+        constexpr float kLevelIconDip = 32.0f;
+        const float icon = (std::min)(kLevelIconDip, (std::max)(24.0f, mute.height - 8.0f));
         _levelIcons[i]->SetFontRole(IconFontRole(fluent, icon));
-        const float rowTop = slider.y;
-        const float rowBottom = slider.y + slider.height;
-        _levelIcons[i]->SetBounds(D2D1::RectF(panel.x, rowTop, panel.x + icon, rowBottom));
-        _levelValues[i]->SetBounds(D2D1::RectF(panel.x + icon, rowTop, leadingRight, rowBottom));
+        const float rowTop = mute.y;
+        const float rowBottom = mute.y + mute.height;
+        const float iconX = mute.x + 8.0f;
+        const float iconY = rowTop + (mute.height - icon) * 0.5f;
+        _levelIcons[i]->SetBounds(D2D1::RectF(iconX, iconY, iconX + icon, iconY + icon));
+        _levelValues[i]->SetBounds(D2D1::RectF(iconX + icon, rowTop, slider.x, rowBottom));
         _levelValues[i]->SetFontRole(minimal ? DxUi::FontRole::Small : DxUi::FontRole::BodyLarge);
         _levelValues[i]->SetAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     }
@@ -395,9 +406,12 @@ void LiveView::Refresh()
             swprintf_s(caption, L"%u%s", value, (_pendingMask & (1U << (i + 3))) ? L"…" : L"");
         const auto iconBounds = _levelIcons[i]->GetBounds();
         _levelIcons[i]->SetFontRole(IconFontRole(fluent, iconBounds.bottom - iconBounds.top));
-        _levelIcons[i]->SetText(fluent ? std::wstring(1, FluentToggleGlyph(i, false))
-                                       : std::wstring(FallbackToggleGlyph(i, false)));
+        _levelIcons[i]->SetText(fluent ? std::wstring(1, FluentToggleGlyph(i, endpoint.muted))
+                                       : std::wstring(FallbackToggleGlyph(i, endpoint.muted)));
         _levelValues[i]->SetText(caption);
+        _levelMutes[i]->SetEnabled(enabled);
+        _levelMutes[i]->SetAccessibleName(i ? (endpoint.muted ? L"Unmute microphone" : L"Mute microphone")
+                                            : (endpoint.muted ? L"Unmute output" : L"Mute output"));
         _sliders[i]->SetEnabled(enabled);
         _sliders[i]->SetValue(value);
     }

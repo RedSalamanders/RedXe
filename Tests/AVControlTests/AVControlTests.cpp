@@ -149,6 +149,9 @@ void LayoutTests()
         const LiveLayout layout = LayoutLive(width, height);
         Require(layout.density != Density::Unusable, "supported rectangle has usable density");
         std::vector<Rect> targets(layout.toggles.begin(), layout.toggles.end());
+        for (const auto& mute : layout.levelMutes)
+            if (mute.width >= 48.0f && mute.height >= 48.0f)
+                targets.push_back(mute);
         targets.insert(targets.end(), layout.sliders.begin(), layout.sliders.end());
         targets.push_back(layout.profileSelector);
         for (size_t i = 0; i < targets.size(); ++i)
@@ -191,7 +194,12 @@ void LayoutTests()
             "device names appear on mute buttons once each toggle is at least 96 DIP wide");
     Require(compact.sliders[0].x > compact.levelPanels[0].x + 40 && compact.sliders[0].width >= 48,
             "level sliders keep a 48 DIP track beside a leading icon and value");
-    Require(compact.toggles[0].height >= 64.0f, "compact mute targets leave room for large device icons");
+    Require(compact.levelMutes[0].width >= 48.0f && compact.levelMutes[0].height >= 48.0f &&
+                compact.sliders[0].height >= compact.levelPanels[0].height - 0.01f,
+            "level mute and slider share the full panel height for touch");
+    Require(compact.toggles[0].height >= 48.0f, "compact mute cards stay at least 48 DIP tall");
+    Require(minimum.sliders[1].width >= 48.0f && minimum.levelMutes[1].width > 0.0f,
+            "minimum microphone row keeps a 48 DIP slider and a leading mute gutter");
 }
 } // namespace
 

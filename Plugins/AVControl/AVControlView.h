@@ -117,6 +117,7 @@ class LiveView final
     std::array<DxUi::Toggle*, 3> _toggles{};
     std::array<DxUi::Label*, 3> _toggleIcons{}, _toggleNames{};
     std::array<DxUi::CardPanel*, 2> _levelCards{};
+    std::array<DxUi::Button*, 2> _levelMutes{};
     std::array<DxUi::Label*, 2> _levelIcons{}, _levelValues{};
     std::array<DxUi::Slider*, 2> _sliders{};
     void Build();
