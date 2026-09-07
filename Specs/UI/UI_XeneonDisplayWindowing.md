@@ -76,9 +76,16 @@ the repository test entrypoint MUST validate the version fields without desktop 
 - `WM_PAINT` validates the update region; continuous rendering remains on the idle side of the message loop.
 - The window class MUST NOT request `CS_HREDRAW` or `CS_VREDRAW`; resize rendering is driven by `WM_SIZE` and the
   renderer rather than redundant full-client paint invalidation.
-- The top-level titled and fullscreen window styles MUST include `WS_CLIPCHILDREN`. Direct3D presentation MUST be
-  clipped out of host-owned native-widget child rectangles so GDI, native-control, media, and WebView content remains
-  visible above the swap-chain surface.
+- The top-level titled and fullscreen window styles MUST include `WS_CLIPCHILDREN` and the extended style MUST
+  include `WS_EX_NOREDIRECTIONBITMAP`: the main window never paints with GDI (its chrome is drawn into the swap
+  chain), so DWM keeps no client-sized redirection surface for it. Host-owned native-widget containers are
+  `WS_EX_LAYERED` children with their own DWM surface, so GDI, native-control, media, and WebView content remains
+  visible above the swap chain and can be dimmed with window alpha while another widget is raised. Direct3D
+  presentation MUST still be clipped out of those container rectangles. Windows honors `WS_EX_LAYERED` on a child
+  only for a process whose manifest declares a Windows 8 or later `supportedOS`, so `RedXe/app.manifest` declares
+  Windows 10, every test binary that creates native containers embeds an equivalent compatibility manifest
+  (`Tests/HostPluginTests/HostPluginTests.manifest`), and the self-test creates one layered child and fails when the
+  system rejects it.
 - `Application` MUST subscribe to `GUID_SESSION_DISPLAY_STATUS`. While the session display is powered off, hidden, or
   minimized, it MUST drain pending messages and then block without rendering or presenting. Display-on, show, and
   restore messages resume normal scheduling.
@@ -126,7 +133,8 @@ produce two further `device-created` records with different LUIDs and no visible
 the pure decision table and the hidden WARP identity without a display topology.
 
 The Release missing-display prompt MUST be checked manually when no matching display is active. The hidden self-test
-MUST remain noninteractive in both configurations and MUST verify the top-level `WS_CLIPCHILDREN` style.
+MUST remain noninteractive in both configurations and MUST verify the top-level `WS_CLIPCHILDREN` style and the
+`WS_EX_NOREDIRECTIONBITMAP` extended style.
 
 Native-window composition changes additionally require a live launch with a native widget enabled. The child content
 MUST remain visible and animated while the surrounding Direct3D widgets continue presenting.

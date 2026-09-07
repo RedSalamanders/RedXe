@@ -116,16 +116,13 @@ navigation. This section owns that affordance; it changes nothing about the pan 
   than the monitor it sits on -- the Debug XENEON canvas frequently is -- and hugging the client edge would then place
   the band beyond the side of the screen, where no pointer can reach it. Band width is DPI scaled and clamped so the
   two bands can never meet: a narrow reachable area limits each band to one third of its width.
-- A band exists only while the pointer is inside its zone. It is created on entry and destroyed on exit, in the same
-  way the raised-overlay window exists only while a widget is raised. It MUST NOT be kept alive invisibly: a layered
-  child window at zero alpha is transparent to hit testing and can never receive the hover that would reveal it, so
-  an always-present band would be permanently inert.
+- A band is host chrome drawn by the renderer into the swap chain: it exists as two quads (wash and chevron) only
+  while the pointer is inside its zone and is otherwise nothing at all. No band HWND exists, so there is no layered
+  child to keep alive, hit-test, or stack.
 - Hover is owned by the top-level window, which tests the live cursor position against each zone. Host-owned native
   containers notify the top-level window when the pointer moves over them so that hover can be detected over a
-  native-window widget as well as over a GPU tile. A band HWND created under the cursor often does not receive
-  `WM_SETCURSOR` or `WM_LBUTTONUP` until the mouse moves, so the top-level window MUST apply the hand cursor and MUST
-  commit navigation when the live cursor is inside a navigable zone, even if the band child did not see the click.
-  Native containers stay below the bands (`SWP_NOZORDER` during page offset, overlay and bands `HWND_TOP`).
+  native-window widget as well as over a GPU tile. The top-level window MUST apply the hand cursor and MUST commit
+  navigation when the live cursor is inside a navigable zone on `WM_LBUTTONUP`; it is the only click target.
 - A committed edge-click onto a page that contains a native-window widget MUST complete settle and promote the same
   way a GPU-only page does. Host-owned native children covering the swap chain MUST NOT be treated as DXGI occlusion:
   that report parked the settle and suppressed both bands for the rest of the session on the shipped Release second
@@ -135,26 +132,25 @@ navigation. This section owns that affordance; it changes nothing about the pan 
   or occluded, a widget is raised, a pointer pan is in progress, or a settle or staged transition is in progress.
 - A blocked end has no band. `wrapPages` and the first/last page rule are the same ones the pan path uses, so both
   input paths stop and wrap identically.
-- A band reveals instantly and paints host GDI only: a translucent wash and a chevron pointing in the travel
-  direction. The chevron is a Segoe Fluent Icons glyph from `RedXe/FluentIcons.h`, not a drawn shape, and falls back
-  to Segoe MDL2 Assets and then to a standard Unicode chevron. The icon font is created once per DPI and cached. It MUST NOT add a timer, a continuous frame, or any other wake-up,
-  so a cross-fade is out of contract. The host MUST NOT add Direct3D shaders for this chrome.
+- A band reveals within one coalesced frame as a translucent wash and a chevron pointing in the travel direction,
+  both drawn by the renderer's host chrome pipeline (`RedXe/HostChrome.*`). The chevron is a Segoe Fluent Icons glyph
+  from `RedXe/FluentIcons.h`, not a drawn shape, rasterized into the host glyph atlas with DirectWrite once per DPI,
+  falling back to Segoe MDL2 Assets and then to a standard Unicode chevron. Reveal and hide MUST NOT add a timer, a
+  continuous frame, or any other wake-up, so a cross-fade is out of contract; each change is exactly one frame.
 - Reveal responds to mouse input only. Mouse messages synthesized from a touch or pen contact are ignored so the pan
   path keeps them.
-- Bands sit above host-owned native containers, so they reveal and accept clicks over a native-window widget exactly
-  as over a GPU widget. Pointer messages that land on a band are forwarded to the top-level window, so a pan that
-  begins inside a band behaves like one that begins anywhere else.
+- Bands draw over every GPU tile. A native-window container is a layered child above the swap chain, so a band is
+  drawn beneath it there; hover and click still work over the container because the container forwards pointer
+  movement and releases to the top-level window. No shipped page places a native-window widget.
 - Clicking a revealed band stages the adjacent page, then commits through the same ease-out settle and in-place
   promote a committed pan uses. It MUST NOT recreate the Direct3D device. Unlike a pan there is no follow-finger
   phase, so staging is synchronous at click time and the settle starts from rest, which places its duration at the
-  clamped upper bound of the shared settle policy. The band MUST NOT destroy its HWND from inside its own
-  `WM_LBUTTONUP`; navigation is posted to the top-level window so settle can destroy the band after that WndProc
-  returns.
+  clamped upper bound of the shared settle policy.
 - A navigation click MUST NOT count as part of a double-activate raise gesture. Accepted trade: a revealed band
   consumes the click in its strip, so a widget under a band cannot be double-click-raised there; it stays raisable
   everywhere else in its tile. Band width is a single DPI-scaled constant so this is tunable in one place.
 - Resize, DPI change, settings reload, page promote, raise, dismiss, and every visibility transition re-evaluate both
-  bands. Re-evaluation with unchanged state MUST perform no window operations.
+  bands. Re-evaluation with unchanged state MUST perform no work.
 
 ## Widget raise overlay
 
@@ -168,14 +164,14 @@ tile's column: it grows from the tile's left edge, then shifts left only as need
 NOT shrink either axis below the tile. Other tiles remain in their standard positions, keep rendering and scheduled
 updates, and appear dimmed. A small DPI-scaled close control sits in the top-right of the slice; the plugin occupies
 the full slice, including under that control. The close mark is a Segoe Fluent Icons glyph from `RedXe/FluentIcons.h`,
-with the same MDL2 and Unicode fallback as other host chrome. Host GDI paints a layered dim over everything except the
-slice, a drop shadow along the inner vertical edge, and the close mark. Dim and shadow use distinct cached GDI brushes
-created for the overlay lifetime, not per paint. The overlay window region punches a hole over plugin content so GPU
-pixels or a native child show through at full brightness, then adds the close rectangle back so the mark stays
-clickable. The host MUST NOT add Direct3D shaders for this chrome. The close control MUST show an event-driven GDI
-hover wash and a brighter glyph, plus the hand cursor, while the pointer is inside its rectangle. Hover MUST NOT add
-a timer or a host Present: `InvalidateRect` on the overlay HWND is enough. Leaving the close rectangle restores the
-idle chrome immediately.
+with the same MDL2 and Unicode fallback as other host chrome. The renderer's host chrome pipeline draws the dim as
+strips around the slice (never over it), a drop shadow along the inner vertical edge, and the close mark, all as quads
+in the swap chain: dim and shadow before the raised widget's draw, the close control after it. GPU pixels therefore
+show through at full brightness with no window region, and there is no overlay HWND. A native-window container is a
+layered child that receives the same dim as window alpha while another widget is raised. The close control MUST show
+a hover wash and a brighter glyph, plus the hand cursor, while the pointer is inside its rectangle; that hover change
+invalidates exactly one coalesced frame and MUST NOT add a timer. Leaving the close rectangle restores the idle chrome
+with the next frame.
 
 `SetRaised(TRUE)` runs before the overlay is shown; `SetRaised(FALSE)` runs after a dismiss settle completes, or
 immediately when dismiss cannot animate. Raise and restore interpolate the overlay content rectangle from the tile to
@@ -186,13 +182,15 @@ viewport; native containers follow the interpolated HWND. Close, Escape, and a d
 animate the restore. Resize, DPI change, settings reload, and shutdown snap dismiss with no animation. A tap on the
 dim region MUST NOT dismiss it. A mouse double-click or touch/pen double-tap on the raised plugin content MUST restore
 it, using the same interval and slop as raise. Two- or three-finger page swipe MUST NOT start or continue while a widget is raised. The
-overlay HWND exists only while raised.
+top-level window owns the close control's hover, click, and touch/pen tap.
 
 GPU composition draws every current-page widget at its tile viewport, then draws a raised GPU widget once more at the
 slice. GPU widget geometry MUST follow each actual draw size; the largest-target notification does not replace the
 tile's layout. Hit testing uses the last drawn geometry, so raised input matches the final overlay draw.
 It MUST NOT compose a transition page while raised. A raised window widget moves its host container to the
-slice, stays below the overlay so the close control remains hittable, and MUST NOT hide sibling native containers.
+slice at full alpha and MUST NOT hide sibling native containers; because that container is a child HWND above the
+swap chain it covers the host-drawn close control, so a raised native widget is dismissed by Escape or a
+double-activate on its content.
 Host-owned native containers forward mouse `WM_LBUTTONUP` to the top-level window (screen-converted, ignoring
 pointer-synthesized mouse) so a GDI widget can raise and restore through the same double-activate path as a GPU tile.
 Dismiss restores tile bounds.
@@ -281,13 +279,16 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
   smooth presentation-paced frames only during a split-flap burst, return to a blocked wait at completion, add no
   resources or deadline while inactive, and stop scheduled work in every blocked state.
 - Geometry tests prove raised overlay width fractions, full-height slices, close hit-testing, shadow placement along
-  the inner edge, overlay region holes that keep the close control, double-activate interval/slop, reverse hit-test,
-  rejection of already-full tiles, a quarter System Pulse column, and a stacked clock growing into a full-height
-  slice. Host tests prove the host asks each System Data viewer for its shipped extent, raises Process Viewer to a
-  half-width slice while every GPU tile still draws, restores every GPU tile on dismiss, and moves a GdiOrbit
-  container into overlay content then back to its tile without skipping sibling GPU draws. Geometry tests also prove
-  tile-to-slice interpolation endpoints, ease-out cubic mixing, raise-settle duration clamps, and that the parent
-  edge-click predicate is `ShouldShowEdgeAffordance && PageEdgeBandContains`.
+  the inner edge, dim strips that surround but never overlap the content, double-activate interval/slop, reverse
+  hit-test, rejection of already-full tiles, a quarter System Pulse column, and a stacked clock growing into a
+  full-height slice. Host tests prove the host asks each System Data viewer for its shipped extent, raises Process
+  Viewer to a half-width slice while every GPU tile still draws, restores every GPU tile on dismiss, and moves a
+  GdiOrbit container into overlay content then back to its tile without skipping sibling GPU draws. Host tests also
+  prove the host chrome pipeline: zero chrome quads on a settled page, the raised dim/shadow/close quads with and
+  without hover, a revealed band's wash and chevron over every tile, one re-rasterization per DPI change, and no child
+  HWND over the swap chain. Geometry tests also prove tile-to-slice interpolation endpoints, ease-out cubic mixing,
+  raise-settle duration clamps, and that the parent edge-click predicate is
+  `ShouldShowEdgeAffordance && PageEdgeBandContains`.
 - LauncherTests prove drop of a file and of an `https://` URL reach `OnDrop`, that `iconSize` `huge` paginates eight
   shortcuts on a large tile while `small`, `medium`, `large`, and `automatic` change the per-page count, that a tall
   256×720 tile spreads at most two columns of `small` icons through the height with even gutters of at least 8 DIP

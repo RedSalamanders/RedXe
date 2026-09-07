@@ -92,12 +92,30 @@ constexpr std::string_view kRepresentative = R"json(
     return false;
 }
 
+[[nodiscard]] bool IsOptInBundledWidget(std::string_view pluginId) noexcept
+{
+    for (const char* optIn : kRedXeOptInBundledWidgetIds)
+    {
+        if (SettingsIdEquals(optIn, pluginId))
+            return true;
+    }
+    return false;
+}
+
+// Every bundled widget is placed in both shipped templates, except the catalog's opt-in native-window examples,
+// which stay out of every shipped page (Core_Settings.md) and are covered by HostPluginTests instead.
 [[nodiscard]] bool CoversBundledPluginCatalog(const AppSettings& settings) noexcept
 {
-    if (settings.pluginCount != kRedXeBundledWidgets.size())
+    if (settings.pluginCount != kRedXeBundledWidgets.size() - kRedXeOptInBundledWidgetIds.size())
         return false;
     for (const RedXeBundledWidgetSpec& plugin : kRedXeBundledWidgets)
     {
+        if (IsOptInBundledWidget(plugin.pluginId))
+        {
+            if (FindPluginSettings(settings, plugin.pluginId) || HasWidgetExample(settings, plugin.pluginId))
+                return false;
+            continue;
+        }
         if (!FindPluginSettings(settings, plugin.pluginId) || !HasWidgetExample(settings, plugin.pluginId))
             return false;
     }
@@ -160,7 +178,8 @@ constexpr std::string_view kRepresentative = R"json(
         std::wprintf(L"Deployed templates do not cover the bundled plugin catalog.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    if (debug.dashboard.pageCount != 3 || debug.dashboard.pages[0].widgetCount != 4)
+    // Development page: Launcher, Triangle, Matrix. No shipped page places a native-window widget.
+    if (debug.dashboard.pageCount != 3 || debug.dashboard.pages[0].widgetCount != 3)
     {
         std::wprintf(L"Debug template page count contract failed (%u pages, first widgets %u).\n",
                      debug.dashboard.pageCount, debug.dashboard.pages[0].widgetCount);
@@ -172,9 +191,9 @@ constexpr std::string_view kRepresentative = R"json(
         std::wprintf(L"Debug template first widget is not an adaptive launcher.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    if (debug.dashboard.pages[1].widgetCount != 8 || debug.dashboard.pages[2].widgetCount != 10 ||
+    if (debug.dashboard.pages[1].widgetCount != 7 || debug.dashboard.pages[2].widgetCount != 10 ||
         release.dashboard.pageCount != 3 || release.dashboard.pages[0].widgetCount != 1 ||
-        release.dashboard.pages[1].widgetCount != 8 || release.dashboard.pages[2].widgetCount != 10 ||
+        release.dashboard.pages[1].widgetCount != 7 || release.dashboard.pages[2].widgetCount != 10 ||
         debug.logRetentionDays != 15 || release.logRetentionDays != 15)
     {
         std::wprintf(L"Deployed template page inventory contract failed.\n");
@@ -183,11 +202,9 @@ constexpr std::string_view kRepresentative = R"json(
     const WidgetInstanceSettings& gpu = release.dashboard.pages[2].widgets[7];
     const WidgetInstanceSettings& thermal = release.dashboard.pages[2].widgets[8];
     const WidgetInstanceSettings& power = release.dashboard.pages[2].widgets[9];
-    const auto isRatio = [](const LayoutSplitStep& step, LayoutAxis axis, uint32_t sizeRatio,
-                            uint32_t totalRatio) noexcept
-    {
-        return step.axis == axis && step.sizeRatio == sizeRatio && step.totalRatio == totalRatio;
-    };
+    const auto isRatio =
+        [](const LayoutSplitStep& step, LayoutAxis axis, uint32_t sizeRatio, uint32_t totalRatio) noexcept
+    { return step.axis == axis && step.sizeRatio == sizeRatio && step.totalRatio == totalRatio; };
     if (gpu.pluginId.View() != "builtin.gpu-meter" || thermal.pluginId.View() != "builtin.thermal-meter" ||
         power.pluginId.View() != "builtin.power-meter" || gpu.adaptivePlacement.depth != 2 ||
         thermal.adaptivePlacement.depth != 2 || power.adaptivePlacement.depth != 2 ||
@@ -227,8 +244,10 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     yyjson_val* defs = yyjson_obj_get(root, "$defs");
     yyjson_val* launcherSettings = yyjson_is_obj(defs) ? yyjson_obj_get(defs, "launcherSettings") : nullptr;
-    yyjson_val* launcherProperties = yyjson_is_obj(launcherSettings) ? yyjson_obj_get(launcherSettings, "properties") : nullptr;
-    yyjson_val* shortcuts = yyjson_is_obj(launcherProperties) ? yyjson_obj_get(launcherProperties, "shortcuts") : nullptr;
+    yyjson_val* launcherProperties =
+        yyjson_is_obj(launcherSettings) ? yyjson_obj_get(launcherSettings, "properties") : nullptr;
+    yyjson_val* shortcuts =
+        yyjson_is_obj(launcherProperties) ? yyjson_obj_get(launcherProperties, "shortcuts") : nullptr;
     if (!yyjson_is_uint(yyjson_obj_get(shortcuts, "maxItems")) ||
         yyjson_get_uint(yyjson_obj_get(shortcuts, "maxItems")) != kLauncherMaximumShortcuts)
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -430,7 +449,8 @@ constexpr std::string_view kRepresentative = R"json(
         }
     }
     {
-        std::string thirtyTwo = R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","shortcuts":[)json";
+        std::string thirtyTwo =
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","shortcuts":[)json";
         for (uint32_t index = 0; index < kLauncherMaximumShortcuts; ++index)
         {
             if (index != 0)
@@ -447,7 +467,8 @@ constexpr std::string_view kRepresentative = R"json(
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        std::string thirtyThree = R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","shortcuts":[)json";
+        std::string thirtyThree =
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","shortcuts":[)json";
         for (uint32_t index = 0; index < kLauncherMaximumShortcuts + 1; ++index)
         {
             if (index != 0)
@@ -478,52 +499,80 @@ constexpr std::string_view kRepresentative = R"json(
     }
 
     constexpr std::array<std::string_view, 45> invalid{
-                std::string_view{R"json({"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":4},"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":5,"minor":"0"},"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":5},"unknown":1,"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":5},"version":{"major":5},"pages":[{}]})json"},
-                std::string_view{R"json({version:{major:5},pages:[{}]})json"},
-                std::string_view{R"json({'version':{'major':5},'pages':[{}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"columns":[{"weight":0,"widget":{"plugin":"builtin.gdi-orbit"}}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":["missing"]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"missing.plugin"}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.gdi-orbit","bad":1}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer","topN":0}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer","topN":33}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer","topN":10,"bad":1}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.network-meter","topN":0}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.gpu-processes","topN":17}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","showSeconds":1}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","externalDotsAlwaysOn":1}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","dateFormat":"locale"}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","secondsColor":"#GG0000"}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","unknown":true}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock","flipDurationMilliseconds":249}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock","flipDurationMilliseconds":801}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock","cardColor":"#GG0000"}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock","unknown":true}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.weather","locationMode":"gps"}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.weather","weatherApiKey":"secret"}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.weather","temperatureUnit":"kelvin"}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","shortcuts":[{"target":"example.com"}]}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","shortcuts":[{"target":"C:\\\\Windows\\\\notepad.exe"},{"target":"C:\\\\Windows\\\\write.exe"},{"target":"C:\\\\Windows\\\\regedit.exe"},{"target":"C:\\\\Windows\\\\explorer.exe"},{"target":"C:\\\\Windows\\\\notepad.exe"}]}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","extra":1,"shortcuts":[]}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","iconSize":"jumbo","shortcuts":[]}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","iconSize":"auto"}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"logRetentionDays":0,"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":5},"logRetentionDays":366,"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":5},"logRetentionDays":false,"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":5},"logRetentionDays":-1,"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}}]}}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.gdi-orbit","settings":{}}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"declare":{"X":{"plugin":"builtin.matrix-rain","settings":{"seed":1}}},"pages":[{}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"use":"Missing","seed":1}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","settings":{"shortcuts":[]},"shortcuts":[]}]}]})json"},
-                std::string_view{R"json({"version":{"major":5},"pages":[{"columns":[],"rows":[]}]})json"},
-            };
+        std::string_view{R"json({"pages":[{}]})json"},
+        std::string_view{R"json({"version":{"major":4},"pages":[{}]})json"},
+        std::string_view{R"json({"version":{"major":5,"minor":"0"},"pages":[{}]})json"},
+        std::string_view{R"json({"version":{"major":5},"unknown":1,"pages":[{}]})json"},
+        std::string_view{R"json({"version":{"major":5},"version":{"major":5},"pages":[{}]})json"},
+        std::string_view{R"json({version:{major:5},pages:[{}]})json"},
+        std::string_view{R"json({'version':{'major':5},'pages':[{}]})json"},
+        std::string_view{R"json({"version":{"major":5},"pages":[]})json"},
+        std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"columns":[{"weight":0,"widget":{"plugin":"builtin.gdi-orbit"}}]}]})json"},
+        std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":["missing"]}]})json"},
+        std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"missing.plugin"}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.gdi-orbit","bad":1}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer","topN":0}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer","topN":33}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer","topN":10,"bad":1}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.network-meter","topN":0}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.gpu-processes","topN":17}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","showSeconds":1}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","externalDotsAlwaysOn":1}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","dateFormat":"locale"}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","secondsColor":"#GG0000"}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","unknown":true}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock","flipDurationMilliseconds":249}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock","flipDurationMilliseconds":801}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock","cardColor":"#GG0000"}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock","unknown":true}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.weather","locationMode":"gps"}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.weather","weatherApiKey":"secret"}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.weather","temperatureUnit":"kelvin"}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","shortcuts":[{"target":"example.com"}]}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","shortcuts":[{"target":"C:\\\\Windows\\\\notepad.exe"},{"target":"C:\\\\Windows\\\\write.exe"},{"target":"C:\\\\Windows\\\\regedit.exe"},{"target":"C:\\\\Windows\\\\explorer.exe"},{"target":"C:\\\\Windows\\\\notepad.exe"}]}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","extra":1,"shortcuts":[]}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","iconSize":"jumbo","shortcuts":[]}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","iconSize":"auto"}]}]})json"},
+        std::string_view{R"json({"version":{"major":5},"logRetentionDays":0,"pages":[{}]})json"},
+        std::string_view{R"json({"version":{"major":5},"logRetentionDays":366,"pages":[{}]})json"},
+        std::string_view{R"json({"version":{"major":5},"logRetentionDays":false,"pages":[{}]})json"},
+        std::string_view{R"json({"version":{"major":5},"logRetentionDays":-1,"pages":[{}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}}]}}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.gdi-orbit","settings":{}}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"declare":{"X":{"plugin":"builtin.matrix-rain","settings":{"seed":1}}},"pages":[{}]})json"},
+        std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"use":"Missing","seed":1}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","settings":{"shortcuts":[]},"shortcuts":[]}]}]})json"},
+        std::string_view{R"json({"version":{"major":5},"pages":[{"columns":[],"rows":[]}]})json"},
+    };
     for (size_t index = 0; index < invalid.size(); ++index)
     {
         result = ExpectRejected(invalid[index]);
@@ -705,30 +754,39 @@ constexpr std::string_view kRepresentative = R"json(
     {
         const std::string prefix = R"({"version":{"major":5},"declare":{"AV":{"plugin":"builtin.av-control")";
         const std::string suffix = R"(}},"pages":[{"widgets":["AV",{"use":"AV","profiles":[]}]}]})";
-        const std::string profile = R"({"id":"office","name":"Office","outputId":"opaque-output","microphoneId":"opaque-mic","cameraId":"opaque-camera","audioRoles":"communications","restoreLevels":true,"outputLevel":45,"microphoneLevel":67})";
+        const std::string profile =
+            R"({"id":"office","name":"Office","outputId":"opaque-output","microphoneId":"opaque-mic","cameraId":"opaque-camera","audioRoles":"communications","restoreLevels":true,"outputLevel":45,"microphoneLevel":67})";
         auto settings = std::make_unique<AppSettings>();
         if (FAILED(ParseAppSettingsJson(prefix + R"(,"profiles":[)" + profile + "]" + suffix, *settings)))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         const auto& page = settings->dashboard.pages[0];
-        if (page.widgetCount != 2 || page.widgets[0].privateConfiguration.View().find("opaque-camera") == std::string_view::npos ||
-            page.widgets[1].privateConfiguration.View() != R"({"profiles":[]})" || FAILED(ValidateAppSettings(*settings)))
+        if (page.widgetCount != 2 ||
+            page.widgets[0].privateConfiguration.View().find("opaque-camera") == std::string_view::npos ||
+            page.widgets[1].privateConfiguration.View() != R"({"profiles":[]})" ||
+            FAILED(ValidateAppSettings(*settings)))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         const std::array<std::string, 5> invalid{
-            R"(,"profiles":[{"id":"incomplete"}])",
-            R"(,"profiles":[],"mute":true)",
+            R"(,"profiles":[{"id":"incomplete"}])", R"(,"profiles":[],"mute":true)",
             R"(,"profiles":[)" + profile + "," + profile + "]",
             R"(,"profiles":[)" + profile.substr(0, profile.size() - 1) + R"(,"microphoneLevel":101}])",
             R"(,"profiles":{})"};
         for (const auto& value : invalid)
-            if (SUCCEEDED(ParseAppSettingsJson(prefix + value + suffix, *settings))) return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            if (SUCCEEDED(ParseAppSettingsJson(prefix + value + suffix, *settings)))
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         // A missing profile list selects the declared default; loading either form only builds configuration.
         if (FAILED(ParseAppSettingsJson(prefix + suffix, *settings)) ||
             settings->dashboard.pages[0].widgets[0].privateConfiguration.View() != R"({"profiles":[]})")
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         return S_OK;
     }
-    catch (const std::bad_alloc&) { return E_OUTOFMEMORY; }
-    catch (const std::length_error&) { return E_INVALIDARG; }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (const std::length_error&)
+    {
+        return E_INVALIDARG;
+    }
 }
 
 [[nodiscard]] HRESULT ValidatePersistFormatting() noexcept
@@ -737,9 +795,9 @@ constexpr std::string_view kRepresentative = R"json(
     {
         constexpr std::string_view patch =
             R"json({"shortcuts":[{"target":"C:\\Apps\\éditeur.exe"},{"target":"https://example.com/a?x=1&y=2"}]})json";
-        const std::array<std::string_view, 3> widgets{
-            R"json("Launch")json", R"json({"plugin":"builtin.launcher","shortcuts":[]})json",
-            R"json({"use":"Launch","shortcuts":[]})json"};
+        const std::array<std::string_view, 3> widgets{R"json("Launch")json",
+                                                      R"json({"plugin":"builtin.launcher","shortcuts":[]})json",
+                                                      R"json({"use":"Launch","shortcuts":[]})json"};
         for (const auto widget : widgets)
         {
             const std::string source =
@@ -1327,8 +1385,7 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         if (FAILED(ReadFile(file, afterValidLoad)) || afterValidLoad != afterValidWrite)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
-        constexpr std::string_view persistPatch =
-            R"json({"shortcuts":[{"target":"C:\\Windows\\notepad.exe"}]})json";
+        constexpr std::string_view persistPatch = R"json({"shortcuts":[{"target":"C:\\Windows\\notepad.exe"}]})json";
         const std::string_view instanceId = candidate->dashboard.pages[0].widgets[0].id.View();
         store.SuppressDocumentWrites(true);
         result = store.PersistWidgetSettings(*candidate, instanceId, persistPatch);
@@ -1340,8 +1397,7 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 
         result = store.PersistWidgetSettings(*candidate, instanceId, persistPatch);
         std::string afterExplicitPersist;
-        if (FAILED(result) || FAILED(ReadFile(file, afterExplicitPersist)) ||
-            afterExplicitPersist == afterValidWrite)
+        if (FAILED(result) || FAILED(ReadFile(file, afterExplicitPersist)) || afterExplicitPersist == afterValidWrite)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
         constexpr std::string_view invalid = R"json({"version":{"major":4},"pages":[{}]})json";

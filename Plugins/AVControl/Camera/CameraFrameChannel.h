@@ -29,13 +29,17 @@ class FrameChannel final
     HRESULT Create(PCWSTR ownerSid, bool localTestNamespace = false) noexcept;
     HRESULT Open(const FrameChannelNames& names, bool allowLocalTestNamespace = false) noexcept;
     void Close() noexcept;
-    [[nodiscard]] const FrameChannelNames& Names() const noexcept { return _names; }
+    [[nodiscard]] const FrameChannelNames& Names() const noexcept
+    {
+        return _names;
+    }
     HRESULT State(ChannelState& result) noexcept;
     // Revision changes clear the previous image even if enabled remains true (physical source replacement).
     HRESULT SetGate(ChannelState state) noexcept;
     HRESULT Write(uint64_t revision, std::span<const BYTE> nv12, LONGLONG timestamp) noexcept;
     HRESULT Read(BYTE* bytes, DWORD capacity, LONG pitch, LONGLONG now) noexcept;
     void EndRead() noexcept;
+
   private:
     struct Shared;
     FrameChannelNames _names;

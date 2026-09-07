@@ -1061,8 +1061,8 @@ struct RenderTarget final
         {
             return false;
         }
-        if (cells[index][0] - half < -kEps || cells[index][0] + half > width + kEps ||
-            cells[index][1] - half < -kEps || cells[index][1] + half > contentHeight + kEps)
+        if (cells[index][0] - half < -kEps || cells[index][0] + half > width + kEps || cells[index][1] - half < -kEps ||
+            cells[index][1] + half > contentHeight + kEps)
         {
             return false;
         }
@@ -1100,8 +1100,7 @@ struct RenderTarget final
         {
             return false;
         }
-        if (index > 0 && index % columns != 0 &&
-            cells[index][0] - cells[index - 1][0] + kEps < iconEdge + minGutter)
+        if (index > 0 && index % columns != 0 && cells[index][0] - cells[index - 1][0] + kEps < iconEdge + minGutter)
         {
             return false;
         }
@@ -1232,7 +1231,8 @@ struct RenderTarget final
         std::wprintf(L"Small icons on a tall 256x720 tile clustered instead of spreading with gutters.\n");
         return kTestFailure;
     }
-    const auto thirtyTwoSmall = ComputeLauncherPages(720, 720, 96, kLauncherMaximumShortcuts, 0, LauncherIconSize::Small);
+    const auto thirtyTwoSmall =
+        ComputeLauncherPages(720, 720, 96, kLauncherMaximumShortcuts, 0, LauncherIconSize::Small);
     if (thirtyTwoSmall.pageCount != 1 || thirtyTwoSmall.visibleCount != kLauncherMaximumShortcuts)
     {
         std::wprintf(L"Small icons should fit 32 shortcuts on a large square tile.\n");
@@ -1434,10 +1434,10 @@ struct RenderTarget final
     const float gap = LauncherDipToPixels(kLauncherPageIndicatorDotGapDip, 96);
     const float total = gap * static_cast<float>(diagnostics.pageCount - 1);
     const float dotX = static_cast<float>(160) * 0.5f - total * 0.5f + gap * static_cast<float>(targetPage);
-    const RedXePointerEvent dotDown{sizeof(RedXePointerEvent), 3,      RedXePointerKindTouch,
-                                    RedXePointerPhaseDown,     dotX,   150.0f};
-    const RedXePointerEvent dotUp{sizeof(RedXePointerEvent), 3, RedXePointerKindTouch, RedXePointerPhaseUp, dotX,
-                                  150.0f};
+    const RedXePointerEvent dotDown{sizeof(RedXePointerEvent), 3,    RedXePointerKindTouch,
+                                    RedXePointerPhaseDown,     dotX, 150.0f};
+    const RedXePointerEvent dotUp{sizeof(RedXePointerEvent), 3,    RedXePointerKindTouch,
+                                  RedXePointerPhaseUp,       dotX, 150.0f};
     if (HitLauncherPageDot(dotX, 150.0f, 160, 160, 96, diagnostics.pageCount) != targetPage ||
         interactive->OnPointer(&dotDown) != S_OK || interactive->OnPointer(&dotUp) != S_OK)
     {

@@ -34,8 +34,6 @@ class Application final
     // window widget as well as over a GPU tile. The container cannot forward WM_MOUSEMOVE directly because its
     // coordinates are in the container's client space.
     static constexpr UINT kPageEdgeHoverMessage = WM_APP + 4;
-    // Posted by a band from WM_LBUTTONUP so navigation (and the band's own destroy) run after that WndProc returns.
-    static constexpr UINT kPageEdgeNavigateMessage = WM_APP + 5;
 
     Application(HINSTANCE instance, bool forceWarp) noexcept;
     ~Application();
@@ -56,12 +54,8 @@ class Application final
   private:
     static constexpr wchar_t kWindowClassName[] = L"RedXe.Window";
     static constexpr wchar_t kSettingsDialogClassName[] = L"RedXe.SettingsError";
-    static constexpr wchar_t kRaiseOverlayClassName[] = L"RedXe.RaiseOverlay";
-    static constexpr wchar_t kPageEdgeClassName[] = L"RedXe.PageEdge";
     static LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
     static LRESULT CALLBACK SettingsDialogProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
-    static LRESULT CALLBACK RaiseOverlayProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
-    static LRESULT CALLBACK PageEdgeProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
 
     HRESULT RegisterWindowClass() noexcept;
     HRESULT CreateMainWindow(bool visible, const RECT* targetBounds, bool fullscreen) noexcept;
@@ -76,7 +70,9 @@ class Application final
     [[nodiscard]] bool PageNavigationInProgress() const noexcept;
     [[nodiscard]] bool OverlayMotionInProgress() const noexcept;
     void ResumePageSettleIfNeeded() noexcept;
-    void EnsureRaiseOverlayChrome(UINT dpi) noexcept;
+    // Pushes the current raise (dim, shadow, close, hover) and edge-band state to the renderer's host chrome and
+    // invalidates one frame when it changed. Chrome lives in the swap chain; there is no chrome HWND.
+    void PushHostChrome() noexcept;
     void RefreshScheduledFrameDeadline() noexcept;
     void ClearScheduledFrameDeadline() noexcept;
     bool WaitUntilMessage() noexcept;
@@ -106,8 +102,6 @@ class Application final
     void CompleteRaiseSettle() noexcept;
     void CompleteDismissImmediate() noexcept;
     void SetRaiseCloseHovered(bool hovered) noexcept;
-    LRESULT HandleRaiseOverlayMessage(HWND overlay, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
-    void PaintRaiseOverlay(HWND overlay) noexcept;
     void CancelPageNavigation() noexcept;
     void ReleasePagePointerCaptures(HWND window) noexcept;
     void AdoptPageTouches(const UINT32* ids, const POINT* positions, uint32_t count, bool grabbingSettle) noexcept;
@@ -125,10 +119,6 @@ class Application final
     void ClearPageEdgeHover() noexcept;
     void RefreshPageEdgeAffordances() noexcept;
     void DestroyPageEdgeAffordances() noexcept;
-    [[nodiscard]] size_t PageEdgeIndex(HWND window) const noexcept;
-    LRESULT HandlePageEdgeMessage(HWND edge, size_t index, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
-    void PaintPageEdge(HWND edge, size_t index) noexcept;
-    void EnsurePageEdgeIconFont(UINT dpi) noexcept;
     HRESULT NavigateToAdjacentPage(int direction) noexcept;
     void ApplyPageOffset(LONG offset, LONG clientWidth) noexcept;
     void FlushPendingTransitionStage() noexcept;
@@ -167,32 +157,18 @@ class Application final
 
     HINSTANCE _instance = nullptr;
     wil::unique_hwnd _window;
-    wil::unique_hwnd _raiseOverlay;
-    wil::unique_hbrush _raiseDimBrush;
-    wil::unique_hbrush _raiseShadowBrush;
-    wil::unique_hbrush _raiseCloseHoverBrush;
-    wil::unique_hbrush _pageEdgeWashBrush;
-    wil::unique_hfont _raiseCloseFont;
-    UINT _raiseCloseFontDpi = 0;
-    FluentIcons::IconFont _raiseCloseFontKind = FluentIcons::IconFont::TextFallback;
-    // Index 0 is the previous-page band on the left edge; index 1 is the next-page band on the right edge.
-    std::array<wil::unique_hwnd, 2> _pageEdges;
+    // Index 0 is the previous-page band on the left edge; index 1 is the next-page band on the right edge. The bands
+    // are host chrome drawn into the swap chain; the top-level window owns their hover and click.
     std::array<bool, 2> _pageEdgeRevealed{};
     std::array<RECT, 2> _pageEdgeBands{};
     // Last state the bands were built for. RefreshPageEdgeAffordances is called from the frame loop, so an unchanged
-    // state must perform no window operations at all.
+    // state must perform no work at all.
     PageEdgeState _pageEdgeApplied{};
     bool _pageEdgeMouseTracking = false;
     SIZE _pageEdgeAppliedClient{};
     RECT _pageEdgeAppliedReachable{};
-    // Icon font is created once per DPI, not per paint: Core_PerformanceAndResources.md forbids creating GDI handles
-    // inside a paint callback.
-    wil::unique_hfont _pageEdgeIconFont;
-    UINT _pageEdgeIconFontDpi = 0;
-    FluentIcons::IconFont _pageEdgeIconFontKind = FluentIcons::IconFont::TextFallback;
     UINT _pageEdgeAppliedDpi = 0;
     bool _pageEdgeApplyValid = false;
-    bool _pageEdgeClassRegistered = false;
     HWND _settingsErrorDialog = nullptr;
     wil::unique_hpowernotify _displayPowerNotification;
     std::unique_ptr<PluginManager> _pluginManager;
@@ -257,7 +233,6 @@ class Application final
     UINT64 _raiseSettleStartQpc = 0;
     UINT64 _raiseSettleDurationQpc = 0;
     bool _raiseCloseHovered = false;
-    bool _raiseCloseMouseTracking = false;
     ULONGLONG _activateTick = 0;
     POINT _activatePoint{};
     size_t _activateWidgetIndex = SIZE_MAX;

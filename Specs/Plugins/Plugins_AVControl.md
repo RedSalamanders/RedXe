@@ -1,7 +1,7 @@
 # AV Control
 
 Status: normative implementation contract; feature delivery in progress
-Last reviewed: 2026-09-06
+Last reviewed: 2026-09-07
 
 The active [AV implementation plan](../Plans/WIP/RFC_Plugins_AVControl.md) tracks unfinished integration and release
 gates. The browser mockup and synthetic tests are not evidence of working Windows audio or camera backends.
@@ -31,7 +31,10 @@ never alter mute. Keyboard ranges retain one-point precision, five-point page st
 
 The three mute/off controls and both levels remain directly accessible in every supported rectangle. Minimum size
 is 160×180 logical pixels; smaller placements expose unavailable layout instead of clipped controls. Every live hit
-target is at least 48×48 logical pixels. Hit targets do not overlap or extend outside their tile.
+target is at least 48×48 logical pixels. Hit targets do not overlap or extend outside their tile. Mute and camera-off
+buttons use state-specific Fluent glyphs (volume/mute, microphone/mic-off, video/video-off) sized with `IconLarge`
+(32 DIP) or `HeroIcon` (64 DIP) to the card, not the 12 DIP `Icon` role. Level sliders use DxUi's 10 DIP track and
+28 DIP thumb; the full 48 DIP control height is the hit target.
 
 Widths below 320 or heights below 300 use the minimal layout: three mute/off targets followed by two compact
 sliders. A quiet, labeled Profile target shares the microphone row; the output slider retains the full row width.
@@ -46,7 +49,9 @@ client width and full client height. Pixel-to-DIP conversion belongs at the embe
 
 AVControlTests covers strict configuration/roundtrip/failure preservation, Unicode and byte/scalar bounds, profile
 matching across role and mute changes, coherent slider drafts, every reviewed rectangle and one-pixel neighborhoods
-of all density thresholds. Tests use synthetic model state and never change real endpoints, open webcams or write
+of all density thresholds, mute-button device names at compact size, icon-only names at the 160×180 minimum, and
+mute/off glyph changes.
+Tests use synthetic model state and never change real endpoints, open webcams or write
 normal user settings. Backend, native UI, accessibility, hardware interoperability and resource acceptance remain
 explicit open gates until their implementation and evidence are added.
 
@@ -124,7 +129,11 @@ and CRT. `restore-dxui.ps1` never edits or resets the sibling DxUi checkout.
 Consumer project references preserve Configuration/Platform when built through the RedXe solution; MSBuild's
 default behavior for projects outside the solution would otherwise select Win32.
 
-Each live view retains three toggle cards with separate readable name/state labels and two sliders. The toggle
+Each live view retains three toggle cards and two sliders. Toggle cards show a device icon and the confirmed
+output, microphone, or camera name, clipped when the label is wider than the card. Mute and camera-off are the
+confirmed button state, not a second On/Muted caption. Unavailable and pending captions replace the name. Tiles
+too narrow for a name keep the icon and put the name in the accessible label. Level rows show an icon, the integer
+level, and the slider, without repeating device titles. The toggle
 pattern reports confirmed mute/off state; activation sends a command without flipping that state optimistically.
 A confirmed endpoint change invalidates any stale drag. Changed content is prepared before composition;
 steady composition reuses its surface. Reduced motion is used for these immediate live actions, so the view creates
@@ -133,7 +142,7 @@ no animation-only deadlines. Tile and raised variants share the module's supplie
 Appearance is supplied by the generic host preparation record. Light/dark follows the Windows application theme;
 high contrast uses the supplied system background, foreground, selection, button and disabled colors with opaque
 surfaces. The plugin applies changed palettes only during preparation, reuses clean cached surfaces, and keeps the
-same five controls and 48-DIP targets. Separate toggle labels follow their confirmed button state so an Off accent
+same five controls and 48-DIP targets. Toggle icon and name labels follow their confirmed button state so an Off accent
 does not leave an unreadable foreground. Theme notifications coalesce a host frame and never start polling.
 
 Device/driver calls execute in `AVControlBroker.exe`, never in the UI process. The parent uses one reusable private

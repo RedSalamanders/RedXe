@@ -51,9 +51,12 @@ the user's settings directory. It MUST NOT create or write the diagnostic `Logs`
 Both shipped templates MUST contain three pages: a representative low-resource startup composition, a denser gallery,
 and a `System` page that places one instance of every Process Viewer family widget. Every settings-visible plugin
 compiled into the product MUST have at least one effective widget
-instance in each template; a declaration that is never placed does not count. The host-owned compile-time bundled
+instance in each template; a declaration that is never placed does not count. The one exception is the catalog's
+opt-in list (`kRedXeOptInBundledWidgetIds`, today only the GdiOrbit native-window example): those plugins MUST stay
+schema-accepted and documented but MUST NOT be declared or placed by either template, because a native child HWND
+forces composed presentation for the whole window. The host-owned compile-time bundled
 plugin catalog is the source of truth for this coverage. Automated template validation MUST iterate that catalog and
-fail when either template or the canonical schema omits an entry. Adding or removing a bundled plugin therefore
+fail when either template or the canonical schema omits an entry, or when a template places an opt-in plugin. Adding or removing a bundled plugin therefore
 requires updating the catalog, schema support, and both templates in the same change. Catalog plugin IDs and type IDs
 stay unique; module file names MAY repeat so several settings-visible widgets can share `ProcessViewer.dll`.
 

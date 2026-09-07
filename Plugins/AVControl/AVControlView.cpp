@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cwchar>
+#include <string>
 
 namespace AVControl
 {
@@ -16,6 +17,31 @@ D2D1_RECT_F Bounds(Rect r) noexcept
 }
 constexpr std::array names{L"Output", L"Microphone", L"Camera"};
 constexpr std::array shortNames{L"Out", L"Mic", L"Cam"};
+// Segoe Fluent Icons; Unicode stand-ins when the icon font is missing.
+constexpr wchar_t FluentToggleGlyph(size_t index, bool off) noexcept
+{
+    if (index == 0)
+        return off ? L'\uE74F' : L'\uE767';
+    if (index == 1)
+        return off ? L'\uF781' : L'\uE720';
+    return off ? L'\uF403' : L'\uE714';
+}
+const wchar_t* FallbackToggleGlyph(size_t index, bool off) noexcept
+{
+    static constexpr const wchar_t* on[]{L"\U0001F50A", L"\U0001F3A4", L"\U0001F3A5"};
+    static constexpr const wchar_t* muted[]{L"\U0001F507", L"\U0001F3A4", L"\U0001F4F7"};
+    return off ? muted[index] : on[index];
+}
+DxUi::FontRole IconFontRole(bool fluent, float sizeDip) noexcept
+{
+    if (!fluent)
+        return sizeDip >= 24.0f ? DxUi::FontRole::BodyLarge : DxUi::FontRole::Body;
+    if (sizeDip >= 52.0f)
+        return DxUi::FontRole::HeroIcon;
+    if (sizeDip >= 28.0f)
+        return DxUi::FontRole::IconLarge;
+    return DxUi::FontRole::Icon;
+}
 const wchar_t* AvailabilityText(Availability value) noexcept
 {
     switch (value)
@@ -121,20 +147,20 @@ void LiveView::Build()
         auto* button = _toggles[i] = root->AddChild<ConfirmedToggle>();
         button->SetAccessibleAutomationId(std::wstring(L"av.toggle.") + shortNames[i]);
         button->SetOnClick([this, i] { Toggle(i); });
-        // Separate retained labels give the minimum 48-DIP card two readable lines. Labels do not intercept input.
-        _toggleNames[i] = root->AddChild<DxUi::Label>(shortNames[i]);
-        _toggleStates[i] = root->AddChild<DxUi::Label>(L"Loading");
-        _toggleNames[i]->SetAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        _toggleStates[i]->SetAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        _devices[i] = root->AddChild<DxUi::Label>();
-        _devices[i]->SetAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        _toggleIcons[i] = root->AddChild<DxUi::Label>();
+        _toggleIcons[i]->SetAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        _toggleNames[i] = root->AddChild<DxUi::Label>();
+        _toggleNames[i]->SetAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        _toggleNames[i]->SetMultiline(false);
     }
     for (size_t i = 0; i < _sliders.size(); ++i)
     {
         _levelCards[i] = root->AddChild<DxUi::CardPanel>();
-        _levels[i] = root->AddChild<DxUi::Label>();
+        _levelIcons[i] = root->AddChild<DxUi::Label>();
+        _levelIcons[i]->SetAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         _levelValues[i] = root->AddChild<DxUi::Label>();
-        _levelValues[i]->SetFontRole(DxUi::FontRole::TitleLarge);
+        _levelValues[i]->SetAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        _levelValues[i]->SetMultiline(false);
         _sliders[i] = root->AddChild<DxUi::Slider>();
         _sliders[i]->SetMinimum(0);
         _sliders[i]->SetMaximum(100);
@@ -248,6 +274,7 @@ void LiveView::Arrange()
     _livePanel->SetBounds(D2D1::RectF(0, 0, _width * 96.0f / _dpi, _height * 96.0f / _dpi));
     const bool usable = _layout.density != Density::Unusable;
     const bool minimal = _layout.density == Density::Minimal;
+    const bool fluent = _view.Controls().HasFluentIconFont();
     _heading->SetBounds(Bounds(_layout.header));
     _heading->SetVisible(minimal || !usable);
     _profile->SetBounds(Bounds(_layout.profileSelector));
@@ -259,46 +286,55 @@ void LiveView::Arrange()
         const Rect r = _layout.toggles[i];
         _toggles[i]->SetBounds(Bounds(r));
         _toggles[i]->SetVisible(usable);
-        _toggleNames[i]->SetVisible(usable);
-        _toggleStates[i]->SetVisible(usable);
-        const float middle = r.y + r.height * 0.5f;
-        const bool roomy = r.height >= 120;
-        _toggleNames[i]->SetBounds(
-            D2D1::RectF(r.x + 2, middle - (roomy ? 48 : 22), r.x + r.width - 2, middle - (roomy ? 24 : 0)));
-        _toggleStates[i]->SetBounds(
-            D2D1::RectF(r.x + 2, middle - (roomy ? 24 : 0), r.x + r.width - 2, middle + (roomy ? 30 : 24)));
-        _toggleNames[i]->SetText(minimal || (i == 1 && r.width < 150) ? shortNames[i] : names[i]);
-        _toggleNames[i]->SetFontRole(minimal ? DxUi::FontRole::Body : DxUi::FontRole::BodyLarge);
-        _toggleStates[i]->SetFontRole(roomy            ? DxUi::FontRole::TitleLarge
-                                      : r.height >= 80 ? DxUi::FontRole::Subtitle
-                                                       : DxUi::FontRole::BodyLarge);
-        _devices[i]->SetVisible(usable && _layout.showDeviceNames && roomy);
-        _devices[i]->SetBounds(D2D1::RectF(r.x + 12, middle + 36, r.x + r.width - 12, middle + 60));
+        _toggleIcons[i]->SetVisible(usable);
+        const bool named = usable && _layout.showDeviceNames;
+        _toggleNames[i]->SetVisible(named);
+        const float icon = named ? (std::clamp)(r.height - 16.0f, 32.0f, 64.0f)
+                                 : (std::clamp)((std::min)(r.width, r.height) - 12.0f, 32.0f, 64.0f);
+        _toggleIcons[i]->SetFontRole(IconFontRole(fluent, icon));
+        if (named)
+        {
+            const float iconX = r.x + 10;
+            const float iconY = r.y + (r.height - icon) * 0.5f;
+            _toggleIcons[i]->SetBounds(D2D1::RectF(iconX, iconY, iconX + icon, iconY + icon));
+            _toggleNames[i]->SetBounds(D2D1::RectF(iconX + icon + 8, r.y + 4, r.x + r.width - 10, r.y + r.height - 4));
+            _toggleNames[i]->SetAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            _toggleNames[i]->SetFontRole(minimal ? DxUi::FontRole::Body : DxUi::FontRole::BodyLarge);
+        }
+        else
+        {
+            const float iconX = r.x + (r.width - icon) * 0.5f;
+            const float iconY = r.y + (r.height - icon) * 0.5f;
+            _toggleIcons[i]->SetBounds(D2D1::RectF(iconX, iconY, iconX + icon, iconY + icon));
+        }
     }
     for (size_t i = 0; i < 2; ++i)
     {
         _sliders[i]->SetVisible(usable);
-        _levels[i]->SetVisible(usable);
         _sliders[i]->SetBounds(Bounds(_layout.sliders[i]));
         const Rect panel = _layout.levelPanels[i];
-        const bool roomy = usable && !minimal && panel.height >= 144;
+        const Rect slider = _layout.sliders[i];
         _levelCards[i]->SetBounds(Bounds(panel));
-        _levelCards[i]->SetVisible(roomy);
-        _levelValues[i]->SetVisible(roomy);
-        _levelValues[i]->SetBounds(D2D1::RectF(panel.x + 16, panel.y + 52, panel.x + panel.width - 16, panel.y + 112));
-        _levels[i]->SetFontRole(minimal ? DxUi::FontRole::Small : DxUi::FontRole::BodyLarge);
-        _levels[i]->SetAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-        _levels[i]->SetMultiline(false);
-        _levels[i]->SetBounds(minimal ? D2D1::RectF(panel.x + 2, panel.y, panel.x + panel.width - 2, panel.y + 14)
-                              : roomy
-                                  ? D2D1::RectF(panel.x + 16, panel.y + 12, panel.x + panel.width - 16, panel.y + 44)
-                                  : D2D1::RectF(panel.x, panel.y, panel.x + panel.width, _layout.sliders[i].y));
+        _levelCards[i]->SetVisible(false);
+        _levelIcons[i]->SetVisible(usable);
+        _levelValues[i]->SetVisible(usable);
+        const float leadingRight = slider.x;
+        const float leading = (std::max)(0.0f, leadingRight - panel.x);
+        const float icon = (std::clamp)(leading * 0.45f, 28.0f, 40.0f);
+        _levelIcons[i]->SetFontRole(IconFontRole(fluent, icon));
+        const float rowTop = slider.y;
+        const float rowBottom = slider.y + slider.height;
+        _levelIcons[i]->SetBounds(D2D1::RectF(panel.x, rowTop, panel.x + icon, rowBottom));
+        _levelValues[i]->SetBounds(D2D1::RectF(panel.x + icon, rowTop, leadingRight, rowBottom));
+        _levelValues[i]->SetFontRole(minimal ? DxUi::FontRole::Small : DxUi::FontRole::BodyLarge);
+        _levelValues[i]->SetAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     }
 }
 
 void LiveView::Refresh()
 {
     const bool minimal = _layout.density == Density::Minimal;
+    const bool fluent = _view.Controls().HasFluentIconFont();
     _heading->SetText(_layout.density == Density::Unusable
                           ? L"Increase tile size"
                           : (minimal ? (_profileName[0] ? _profileName.data() : L"Custom") : L"Live controls"));
@@ -317,6 +353,7 @@ void LiveView::Refresh()
                                    : off    ? (i == 2 ? L"Off" : L"Muted")
                                             : L"On";
         const bool pending = (_pendingMask & (1U << i)) != 0;
+        const wchar_t* caption = pending ? L"Wait…" : enabled ? DeviceName(i) : stateText;
         _toggles[i]->SetEnabled(enabled || retry);
         _toggles[i]->SetChecked(enabled && off);
         _toggles[i]->SetPrimary(enabled && off);
@@ -324,40 +361,43 @@ void LiveView::Refresh()
         const auto labelColor = !enabled && !retry ? theme.disabledText
                                 : enabled && off   ? theme.selectionText
                                                    : theme.text;
+        _toggleIcons[i]->SetTextColor(labelColor);
         _toggleNames[i]->SetTextColor(labelColor);
-        _toggleStates[i]->SetTextColor(labelColor);
-        _toggleStates[i]->SetText(pending ? L"Wait…" : minimal && enabled && off ? L"Off" : stateText);
-        _toggles[i]->SetAccessibleName(std::wstring(names[i]) + L", " + stateText +
-                                       (enabled ? (off ? L". Turn on" : L". Turn off")
-                                        : retry ? L". Retry camera"
-                                                : L". Unavailable"));
+        const auto iconBounds = _toggleIcons[i]->GetBounds();
+        _toggleIcons[i]->SetFontRole(IconFontRole(fluent, iconBounds.bottom - iconBounds.top));
+        _toggleIcons[i]->SetText(fluent ? std::wstring(1, FluentToggleGlyph(i, off))
+                                        : std::wstring(FallbackToggleGlyph(i, off)));
+        _toggleNames[i]->SetText(caption);
+        std::wstring accessible = names[i];
+        if (enabled)
+        {
+            accessible += L", ";
+            accessible += DeviceName(i);
+        }
+        accessible += L", ";
+        accessible += stateText;
+        accessible += enabled ? (off ? L". Turn on" : L". Turn off") : retry ? L". Retry camera" : L". Unavailable";
+        _toggles[i]->SetAccessibleName(std::move(accessible));
         _toggles[i]->SetAccessibleHelpText(
             pending ? L"Change pending. Safety off remains available."
             : retry ? L"Resolve camera access or close the other capture app, then activate to retry."
                     : L"");
-        _devices[i]->SetText(i == 2             ? L"RedXe Camera"
-                             : Audio(i).name[0] ? Audio(i).name.data()
-                                                : L"Selected audio device");
     }
     for (size_t i = 0; i < 2; ++i)
     {
         const auto& endpoint = Audio(i);
         const bool enabled = endpoint.availability == Availability::Ready;
         const uint32_t value = _gestures[i].Active() ? _gestures[i].Draft() : endpoint.level;
-        wchar_t caption[96]{};
+        wchar_t caption[16]{};
         if (!enabled)
-            swprintf_s(caption, L"%s%s%s", minimal ? shortNames[i] : names[i], L" · ",
-                       AvailabilityText(endpoint.availability));
+            wcscpy_s(caption, L"—");
         else
-            swprintf_s(caption, L"%s%s%u%%%s",
-                       minimal ? shortNames[i]
-                       : i     ? L"Microphone gain"
-                               : L"Global output volume",
-                       L" · ", value, (_pendingMask & (1U << (i + 3))) ? L" …" : L"");
-        const bool roomy = _levelValues[i]->IsVisible();
-        _levels[i]->SetText(roomy ? (i ? L"Microphone gain" : L"Global output volume") : caption);
-        swprintf_s(caption, L"%u%%%s", value, (_pendingMask & (1U << (i + 3))) ? L" …" : L"");
-        _levelValues[i]->SetText(enabled ? caption : AvailabilityText(endpoint.availability));
+            swprintf_s(caption, L"%u%s", value, (_pendingMask & (1U << (i + 3))) ? L"…" : L"");
+        const auto iconBounds = _levelIcons[i]->GetBounds();
+        _levelIcons[i]->SetFontRole(IconFontRole(fluent, iconBounds.bottom - iconBounds.top));
+        _levelIcons[i]->SetText(fluent ? std::wstring(1, FluentToggleGlyph(i, false))
+                                       : std::wstring(FallbackToggleGlyph(i, false)));
+        _levelValues[i]->SetText(caption);
         _sliders[i]->SetEnabled(enabled);
         _sliders[i]->SetValue(value);
     }
@@ -690,5 +730,20 @@ void LiveView::SliderChanged(size_t index, DxUi::SliderChange change) noexcept
                   endpoint.generation, endpoint.levelRevision, committed});
         }
     }
+}
+
+const wchar_t* LiveView::DeviceName(size_t index) const noexcept
+{
+    if (index == 2)
+    {
+        if (_inventory)
+        {
+            for (uint32_t i = 0; i < _inventory->cameraCount; ++i)
+                if (_inventory->cameras[i].id == _state.camera.sourceId && _inventory->cameras[i].name[0])
+                    return _inventory->cameras[i].name.data();
+        }
+        return L"RedXe Camera";
+    }
+    return Audio(index).name[0] ? Audio(index).name.data() : L"Selected audio device";
 }
 } // namespace AVControl

@@ -35,11 +35,11 @@
       <Optimization>Disabled</Optimization>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\..\RedXe;..\..\Plugins\MatrixRain;..\..\Plugins\ProcessViewer;..\..\Plugins\StudioClock;..\..\Plugins\DeskClock;..\..\Plugins\Launcher;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(IntDir);..\..\RedXe;..\..\Plugins\MatrixRain;..\..\Plugins\ProcessViewer;..\..\Plugins\StudioClock;..\..\Plugins\DeskClock;..\..\Plugins\Launcher;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>d3d11.lib;dxgi.lib;psapi.lib;shell32.lib;ole32.lib;uuid.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;dwrite.lib;psapi.lib;shell32.lib;ole32.lib;uuid.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
@@ -49,15 +49,35 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\..\RedXe;..\..\Plugins\MatrixRain;..\..\Plugins\ProcessViewer;..\..\Plugins\StudioClock;..\..\Plugins\DeskClock;..\..\Plugins\Launcher;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(IntDir);..\..\RedXe;..\..\Plugins\MatrixRain;..\..\Plugins\ProcessViewer;..\..\Plugins\StudioClock;..\..\Plugins\DeskClock;..\..\Plugins\Launcher;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>d3d11.lib;dxgi.lib;psapi.lib;shell32.lib;ole32.lib;uuid.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;dwrite.lib;psapi.lib;shell32.lib;ole32.lib;uuid.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
+  <ItemGroup>
+    <FxCompile Include="..\..\RedXe\HostChromePixel.hlsl">
+      <ShaderType>Pixel</ShaderType><ShaderModel>5.0</ShaderModel><EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError><DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)HostChromePixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)HostChromePixelShader.cso</ObjectFileOutput>
+      <VariableName>g_HostChromePixelShader</VariableName>
+      <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="..\..\RedXe\HostChromeVertex.hlsl">
+      <ShaderType>Vertex</ShaderType><ShaderModel>5.0</ShaderModel><EntryPointName>VertexMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError><DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)HostChromeVertexShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)HostChromeVertexShader.cso</ObjectFileOutput>
+      <VariableName>g_HostChromeVertexShader</VariableName>
+      <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+  </ItemGroup>
   <ItemGroup>
     <ClCompile Include="HostPluginTests.cpp" />
     <ClCompile Include="..\..\RedXe\PluginHost.cpp" />
@@ -65,6 +85,7 @@
     <ClCompile Include="..\..\RedXe\DashboardHost.cpp" />
     <ClCompile Include="..\..\RedXe\PluginManager.cpp" />
     <ClCompile Include="..\..\RedXe\Renderer.cpp" />
+    <ClCompile Include="..\..\RedXe\HostChrome.cpp" />
     <ClCompile Include="..\..\RedXe\Settings.cpp" />
     <ClCompile Include="..\..\Plugins\AVControl\AVControlModel.cpp" />
     <ClCompile Include="..\..\RedXe\SettingsV4.cpp" />
@@ -80,6 +101,7 @@
     <ClInclude Include="..\..\RedXe\PageNavigation.h" />
     <ClInclude Include="..\..\RedXe\PluginManager.h" />
     <ClInclude Include="..\..\RedXe\AdapterSelection.h" />
+    <ClInclude Include="..\..\RedXe\HostChrome.h" />
     <ClInclude Include="..\..\RedXe\Renderer.h" />
     <ClInclude Include="..\..\RedXe\Settings.h" />
     <ClInclude Include="..\..\RedXe\WidgetRaise.h" />
@@ -130,6 +152,9 @@
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Manifest Include="HostPluginTests.manifest" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

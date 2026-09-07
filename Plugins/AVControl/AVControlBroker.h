@@ -24,8 +24,15 @@ class Broker final : public BackendTransport
     [[nodiscard]] bool Running() const noexcept;
     // Stable from the first successful event creation through object destruction, including connection restarts.
     // The coordinator must drain its thread-pool wait before destroying this Broker.
-    [[nodiscard]] HANDLE ChangeEvent() const noexcept { return _changed.get(); }
-    [[nodiscard]] DWORD ProcessId() const noexcept { return _process ? GetProcessId(_process.get()) : 0; }
+    [[nodiscard]] HANDLE ChangeEvent() const noexcept
+    {
+        return _changed.get();
+    }
+    [[nodiscard]] DWORD ProcessId() const noexcept
+    {
+        return _process ? GetProcessId(_process.get()) : 0;
+    }
+
   private:
     wil::unique_handle _job, _process, _mapping;
     wil::unique_event_nothrow _request, _reply, _changed;

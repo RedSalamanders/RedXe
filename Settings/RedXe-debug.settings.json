@@ -4,6 +4,8 @@
   "wrapPages": false,
   "logRetentionDays": 15,
   // Reusable definitions create independent instances wherever they appear.
+  // The bundled native-window example is opt-in: { "plugin": "builtin.gdi-orbit" }. A native child HWND over the
+  // swap chain forces composed presentation for the whole window while it is placed, so no shipped page uses it.
   "declare": {
     "Triangle": { "plugin": "builtin.rotating-triangle" },
     "Matrix": { "plugin": "builtin.matrix-rain" },
@@ -27,16 +29,12 @@
     {
       "id": "development",
       "name": "Development",
-      "columns": [
-        "Launcher",
-        { "rows": ["Triangle", { "plugin": "builtin.gdi-orbit" }] },
-        { "weight": 2, "widget": "Matrix" }
-      ]
+      "columns": ["Launcher", "Triangle", { "weight": 2, "widget": "Matrix" }]
     },
     {
       "name": "Alternate Gallery",
       "columns": [
-        { "weight": 2, "rows": ["Triangle", { "plugin": "builtin.gdi-orbit" }] },
+        { "weight": 2, "widget": "Triangle" },
         {
           "weight": 5,
           "widget": { "use": "Matrix", "seed": 2000, "densityPercent": 80 }

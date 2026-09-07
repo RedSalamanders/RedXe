@@ -44,6 +44,10 @@ their plugin projects.
   HLSL semantics synchronized in the same change. Do not add a runtime `d3dcompiler` dependency for fixed shaders.
 - Query `ID3D11DeviceContext1` when the device is created. Host placeholder tiles fill with `ClearView`; that API is
   not on `ID3D11DeviceContext`.
+- Host chrome (edge bands, raise dim/shadow/close) is `RedXe/HostChrome.*`: one quad pipeline, one 64-byte constant
+  buffer, one `R8` glyph atlas rasterized with DirectWrite per DPI. Draw dim strips and shadow before the raised
+  widget and the close control and bands after it; never create a chrome HWND or GDI object. Add glyphs through
+  `FluentIcons.h` and the `HostChromeGlyph` slots.
 - Preserve the `--warp` path and run `.\test.ps1` after renderer changes.
 
 Rendering happens on the idle side of the UI message loop. Do not move real-time drawing into `WM_PAINT`.

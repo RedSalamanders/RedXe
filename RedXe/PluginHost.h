@@ -1,11 +1,11 @@
 #pragma once
 
 #include "BundledPlugins.h"
+#include "ControlWorkQueue.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
 #include "Settings.h"
-#include "ControlWorkQueue.h"
 
 #include <array>
 #include <atomic>
@@ -85,7 +85,10 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
                                                     uint32_t settingsBytes) noexcept override;
     HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept override;
     HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork* work) noexcept override;
-    void SetControlAccessEnabled(bool enabled) noexcept { _controlAccessEnabled = enabled; }
+    void SetControlAccessEnabled(bool enabled) noexcept
+    {
+        _controlAccessEnabled = enabled;
+    }
     HRESULT STDMETHODCALLTYPE QueueWidgetSettings(const char* instanceId, const char* jsonUtf8,
                                                   uint32_t bytes) noexcept override;
 

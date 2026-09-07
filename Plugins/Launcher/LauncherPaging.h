@@ -222,9 +222,9 @@ inline void LauncherChooseSpreadGrid(uint32_t widthPx, uint32_t heightPx, uint32
     return cellPx > 0.0f ? cellPx : std::min(floorPx, insetLimit);
 }
 
-[[nodiscard]] inline LauncherPageGeometry ComputeLauncherPages(uint32_t widthPx, uint32_t heightPx, UINT dpi,
-                                                               uint32_t shortcutCount, uint32_t requestedPage,
-                                                               LauncherIconSize iconSize = LauncherIconSize::Huge) noexcept
+[[nodiscard]] inline LauncherPageGeometry ComputeLauncherPages(
+    uint32_t widthPx, uint32_t heightPx, UINT dpi, uint32_t shortcutCount, uint32_t requestedPage,
+    LauncherIconSize iconSize = LauncherIconSize::Huge) noexcept
 {
     LauncherPageGeometry geometry{};
     geometry.contentHeightPx = static_cast<float>(heightPx);
@@ -445,8 +445,7 @@ inline void FillLauncherPageCells(uint32_t widthPx, uint32_t heightPx, UINT dpi,
     const uint32_t columns = std::max(1U, pages.columns);
     const uint32_t rows = std::max(1U, pages.rows);
     const float named = pages.iconSizePx > 0.0f ? pages.iconSizePx : pages.cellSizePx;
-    const float icon =
-        LauncherSpreadIconPixels(static_cast<float>(widthPx), contentHeight, columns, rows, named, dpi);
+    const float icon = LauncherSpreadIconPixels(static_cast<float>(widthPx), contentHeight, columns, rows, named, dpi);
     const float half = icon * 0.5f;
     const float gutterX =
         (static_cast<float>(widthPx) - static_cast<float>(columns) * icon) / static_cast<float>(columns + 1U);

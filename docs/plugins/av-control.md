@@ -8,9 +8,9 @@ Plugin id: `builtin.av-control`
 
 ## What it does
 
-Live controls for **output mute**, **microphone mute**, and **camera off**, plus output and microphone levels. Profile selection is one tap at every supported size. **F6** opens profiles from the keyboard.
+Live controls for **output mute**, **microphone mute**, and **camera off**, plus output and microphone levels. The output and microphone buttons show the selected device names; mute also switches the icon (speaker with a slash, mic-off, camera off) and highlights the button. Profile selection is one tap at every supported size. **F6** opens profiles from the keyboard.
 
-Smallest useful tile is 160×180 DIPs; every live target is at least 48×48 DIPs. Displayed mute and level state changes only after Windows confirms the action. Failure stays visible; it is never drawn as a successful mute or profile switch.
+Smallest useful tile is 160×180 DIPs; every live target is at least 48×48 DIPs. Icons scale up with the tile. Volume sliders use a thick, touch-sized track. Displayed mute and level state changes only after Windows confirms the action. Failure stays visible; it is never drawn as a successful mute or profile switch.
 
 Profiles bind an output, a microphone, and a camera. Loading the dashboard does **not** apply hardware from those definitions. You choose a profile to apply it. Levels are 0–100. Mute is independent of level.
 

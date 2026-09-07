@@ -185,6 +185,13 @@ void LayoutTests()
             "below-minimum placements rejected");
     Require(LayoutLive(std::numeric_limits<float>::infinity(), 720).density == Density::Unusable,
             "invalid dimensions rejected");
+    const LiveLayout compact = LayoutLive(640, 360);
+    const LiveLayout minimum = LayoutLive(160, 180);
+    Require(compact.showDeviceNames && !minimum.showDeviceNames,
+            "device names appear on mute buttons once each toggle is at least 96 DIP wide");
+    Require(compact.sliders[0].x > compact.levelPanels[0].x + 40 && compact.sliders[0].width >= 48,
+            "level sliders keep a 48 DIP track beside a leading icon and value");
+    Require(compact.toggles[0].height >= 64.0f, "compact mute targets leave room for large device icons");
 }
 } // namespace
 

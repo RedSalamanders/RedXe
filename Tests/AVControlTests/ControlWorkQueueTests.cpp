@@ -10,7 +10,8 @@ uint32_t queueChecks = 0;
 void Check(bool value, const char* message)
 {
     ++queueChecks;
-    if (!value) throw std::runtime_error(message);
+    if (!value)
+        throw std::runtime_error(message);
 }
 class Work final : public RedXeComObject<Work, IRedXeControlWork>
 {
@@ -28,8 +29,9 @@ class Work final : public RedXeComObject<Work, IRedXeControlWork>
         entered.SetEvent();
         const HANDLE handles[]{cancel, gate.get()};
         const DWORD result = WaitForMultipleObjects(2, handles, FALSE, timeout);
-        return result == WAIT_OBJECT_0 ? HRESULT_FROM_WIN32(ERROR_CANCELLED) :
-               result == WAIT_OBJECT_0 + 1 ? S_OK : HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+        return result == WAIT_OBJECT_0       ? HRESULT_FROM_WIN32(ERROR_CANCELLED)
+               : result == WAIT_OBJECT_0 + 1 ? S_OK
+                                             : HRESULT_FROM_WIN32(ERROR_TIMEOUT);
     }
     void STDMETHODCALLTYPE Complete(HRESULT result) noexcept override
     {
@@ -47,7 +49,7 @@ class Work final : public RedXeComObject<Work, IRedXeControlWork>
     bool completedOnOwner = true;
     HRESULT lastResult = E_PENDING;
 };
-}
+} // namespace
 
 uint32_t RunControlWorkQueueTests()
 {
@@ -61,16 +63,20 @@ uint32_t RunControlWorkQueueTests()
     Check(queue.Start(notify, notification.get()) == S_FALSE, "control worker startup is idempotent");
     Check(queue.Enqueue(nullptr) == E_POINTER, "null control work rejected");
     std::array<wil::com_ptr_nothrow<Work>, ControlWorkQueue::Capacity + 1> work;
-    for (auto& item : work) item.attach(new Work());
+    for (auto& item : work)
+        item.attach(new Work());
     Check(queue.Enqueue(work[0].get()) == S_OK, "first control work accepted");
     Check(WaitForSingleObject(work[0]->entered.get(), 1000) == WAIT_OBJECT_0, "control work reaches worker");
     Check(work[0]->workerThread.load() != GetCurrentThreadId(), "device work does not run on UI thread");
-    Check(work[0]->receivedBudget.load() > 0 && work[0]->receivedBudget.load() <= 3000, "device work receives remaining bounded budget");
+    Check(work[0]->receivedBudget.load() > 0 && work[0]->receivedBudget.load() <= 3000,
+          "device work receives remaining bounded budget");
     for (size_t i = 1; i < ControlWorkQueue::Capacity; ++i)
         Check(queue.Enqueue(work[i].get()) == S_OK, "bounded control slot accepted");
     Check(queue.Enqueue(work.back().get()) == HRESULT_FROM_WIN32(ERROR_BUSY), "queue saturation is explicit");
-    Check(queue.Enqueue(work[0].get()) == S_FALSE && queue.Enqueue(work[0].get()) == S_FALSE, "repeated control work coalesces");
-    for (auto& item : work) item->gate.SetEvent();
+    Check(queue.Enqueue(work[0].get()) == S_FALSE && queue.Enqueue(work[0].get()) == S_FALSE,
+          "repeated control work coalesces");
+    for (auto& item : work)
+        item->gate.SetEvent();
     const ULONGLONG deadline = GetTickCount64() + 3000;
     uint32_t completed = 0;
     while (completed < ControlWorkQueue::Capacity + 1 && GetTickCount64() < deadline)
@@ -78,9 +84,11 @@ uint32_t RunControlWorkQueueTests()
         Check(WaitForSingleObject(notification.get(), 1000) == WAIT_OBJECT_0, "worker posts completion notification");
         queue.DrainCompletions();
         completed = 0;
-        for (const auto& item : work) completed += item->completions;
+        for (const auto& item : work)
+            completed += item->completions;
     }
-    Check(completed == ControlWorkQueue::Capacity + 1 && work[0]->runs.load() == 2, "coalesced work reruns exactly once");
+    Check(completed == ControlWorkQueue::Capacity + 1 && work[0]->runs.load() == 2,
+          "coalesced work reruns exactly once");
     Check(work.back()->runs.load() == 0, "saturated work never executes");
     for (size_t i = 0; i < ControlWorkQueue::Capacity; ++i)
         Check(work[i]->completedOnOwner && work[i]->lastResult == S_OK, "completion is delivered on UI thread");

@@ -25,9 +25,19 @@ class ControlWorkQueue final
     [[nodiscard]] HRESULT Enqueue(IRedXeControlWork* work) noexcept;
     void DrainCompletions() noexcept;
     void Stop() noexcept;
-    [[nodiscard]] bool Running() const noexcept { return _worker.joinable(); }
+    [[nodiscard]] bool Running() const noexcept
+    {
+        return _worker.joinable();
+    }
+
   private:
-    enum class State : uint32_t { Empty, Queued, Running, Complete };
+    enum class State : uint32_t
+    {
+        Empty,
+        Queued,
+        Running,
+        Complete
+    };
     struct Slot final
     {
         wil::com_ptr_nothrow<IRedXeControlWork> work;

@@ -107,8 +107,8 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     // An older queued patch for this instance is delivered first, so it cannot later overwrite this newer edit.
     //
     // UI thread only, synchronous, non-reentrant. Forbidden from device, size, visibility, raise, Render, and
-    // CollectPersistentSettings. Allowed from OnPointer, OnKey/OnCharacter (committed activation), and OnDrop. A null instanceId, a null
-    // JSON pointer, or zero bytes returns E_INVALIDARG.
+    // CollectPersistentSettings. Allowed from OnPointer, OnKey/OnCharacter (committed activation), and OnDrop. A null
+    // instanceId, a null JSON pointer, or zero bytes returns E_INVALIDARG.
     virtual HRESULT STDMETHODCALLTYPE PersistWidgetSettings(const char* instanceId, const char* settingsJsonUtf8,
                                                             uint32_t settingsBytes) noexcept = 0;
 
@@ -125,7 +125,7 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     // Never from Render/paint/device callbacks. Preparation/visibility may schedule observation or cleanup, not
     // implicit device-setting changes. User mutations require explicit committed input.
     // Completion is posted to the UI thread and never invokes the widget recursively. No work starts in self-tests.
-    virtual HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork* work) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork * work) noexcept = 0;
 };
 
 // Optional asynchronous settings delivery for discovered state, including imports during visibility callbacks.

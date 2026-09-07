@@ -1125,11 +1125,12 @@ void PluginHost::AcknowledgeUiInvalidate() noexcept
 
 HRESULT PluginHost::QueueControlWork(IRedXeControlWork* work) noexcept
 {
-    if (!work) return E_POINTER;
-    if (!_controlAccessEnabled) return E_ACCESSDENIED;
-    const HRESULT started = _controlWork.Start([](void* context) noexcept {
-        static_cast<PluginHost*>(context)->RequestUiInvalidate();
-    }, this);
+    if (!work)
+        return E_POINTER;
+    if (!_controlAccessEnabled)
+        return E_ACCESSDENIED;
+    const HRESULT started = _controlWork.Start([](void* context) noexcept
+                                               { static_cast<PluginHost*>(context)->RequestUiInvalidate(); }, this);
     return FAILED(started) ? started : _controlWork.Enqueue(work);
 }
 

@@ -1,7 +1,7 @@
 #pragma once
+#include <Windows.h>
 #include <memory>
 #include <string_view>
-#include <Windows.h>
 
 namespace AVControl::Camera
 {
@@ -19,6 +19,7 @@ class VirtualCameraRoute final
     void Close() noexcept;
     [[nodiscard]] std::wstring_view SymbolicLink() const noexcept;
     [[nodiscard]] std::wstring_view OwnerSid() const noexcept;
+
   private:
     struct State;
     std::unique_ptr<State> _state;

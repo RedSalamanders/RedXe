@@ -1078,6 +1078,7 @@ void Run(bool benchmark, bool domains)
     const uint32_t processIdColumn = FindColumn(*processDescriptor, "processId");
     const uint32_t imageNameColumn = FindColumn(*processDescriptor, "imageName");
     bool foundCurrentProcess = false;
+    bool foundIdleProcess = false;
     for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
     {
         const RedXeDataRow& row = snapshot->rows[rowIndex];
@@ -1085,10 +1086,17 @@ void Run(bool benchmark, bool domains)
         {
             foundCurrentProcess = row.values[imageNameColumn].quality == RedXeDataQualityGood &&
                                   row.values[imageNameColumn].utf16Characters != 0;
-            break;
+        }
+        if (row.values[processIdColumn].uint64Value == 0)
+        {
+            foundIdleProcess = row.values[imageNameColumn].quality == RedXeDataQualityGood &&
+                               row.values[imageNameColumn].utf16Characters == 19 &&
+                               row.values[imageNameColumn].utf16Value &&
+                               std::wcsncmp(row.values[imageNameColumn].utf16Value, L"System Idle Process", 19) == 0;
         }
     }
     Expect(foundCurrentProcess, "process list does not contain the test process");
+    Expect(foundIdleProcess, "PID 0 is named System Idle Process");
     const uint64_t processSequence = snapshot->sequence;
     Expect(CollectOneSnapshot(*source, "process.list", &snapshot) == S_OK && snapshot->sequence > processSequence,
            "process list sequence did not advance");

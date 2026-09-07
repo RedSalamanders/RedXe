@@ -17,6 +17,7 @@ class SafetyState final
   public:
     void Publish(DeviceKind device, bool off) noexcept;
     [[nodiscard]] std::array<uint64_t, 3> Snapshot() const noexcept;
+
   private:
     std::array<std::atomic<uint64_t>, 3> _values{};
 };

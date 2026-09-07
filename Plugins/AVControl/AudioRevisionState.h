@@ -18,10 +18,15 @@ class AudioRevisionState final
     [[nodiscard]] Snapshot Observe(float scalar, bool muted) noexcept
     {
         const auto lock = wil::AcquireSRWLockExclusive(&_lock);
-        if (!std::isfinite(scalar) || scalar < 0 || scalar > 1) return {_levelRevision, _muteRevision};
-        if (!_initialized || scalar != _scalar) ++_levelRevision;
-        if (!_initialized || muted != _muted) ++_muteRevision;
-        _scalar = scalar; _muted = muted; _initialized = true;
+        if (!std::isfinite(scalar) || scalar < 0 || scalar > 1)
+            return {_levelRevision, _muteRevision};
+        if (!_initialized || scalar != _scalar)
+            ++_levelRevision;
+        if (!_initialized || muted != _muted)
+            ++_muteRevision;
+        _scalar = scalar;
+        _muted = muted;
+        _initialized = true;
         return {_levelRevision, _muteRevision};
     }
     [[nodiscard]] Snapshot Current() noexcept
@@ -29,6 +34,7 @@ class AudioRevisionState final
         const auto lock = wil::AcquireSRWLockShared(&_lock);
         return {_levelRevision, _muteRevision};
     }
+
   private:
     SRWLOCK _lock = SRWLOCK_INIT;
     float _scalar = 0;

@@ -1,10 +1,10 @@
 #include "Settings.h"
 
-#include "BundledPlugins.h"
-#include "PlugInterfaces/Factory.h"
 #include "../Plugins/AVControl/AVControlModel.h"
 #include "../Plugins/AVControl/AVControlSettings.h"
 #include "../Plugins/Launcher/LauncherPaging.h"
+#include "BundledPlugins.h"
+#include "PlugInterfaces/Factory.h"
 
 #include <array>
 #include <cctype>
@@ -148,9 +148,7 @@ struct JsonPathBuffer final
         JsonPathBuffer* path = nullptr;
         uint32_t restore = 0;
 
-        Scope(JsonPathBuffer& owner, uint32_t previous) noexcept : path(&owner), restore(previous)
-        {
-        }
+        Scope(JsonPathBuffer& owner, uint32_t previous) noexcept : path(&owner), restore(previous) {}
         Scope(const Scope&) = delete;
         Scope& operator=(const Scope&) = delete;
         Scope(Scope&& other) noexcept : path(other.path), restore(other.restore)
@@ -525,78 +523,52 @@ struct PointerSegment final
 {
     try
     {
-    JsonTextCursor cursor{json};
-    if (json.size() >= 3 && static_cast<unsigned char>(json[0]) == 0xEF &&
-        static_cast<unsigned char>(json[1]) == 0xBB && static_cast<unsigned char>(json[2]) == 0xBF)
-    {
-        cursor.index = 3;
-        cursor.column = 4;
-    }
-    cursor.SkipSpaceAndComments();
-    line = cursor.line;
-    column = cursor.column;
-    offset = cursor.index;
-    std::vector<PointerSegment> segments;
-    if (!ParsePointerSegments(pointer, segments))
-    {
-        return pointer == "$";
-    }
-    if (segments.empty())
-    {
-        return true;
-    }
-    auto locate = [&](auto&& self, size_t segmentIndex) -> bool
-    {
-        if (segmentIndex >= segments.size())
+        JsonTextCursor cursor{json};
+        if (json.size() >= 3 && static_cast<unsigned char>(json[0]) == 0xEF &&
+            static_cast<unsigned char>(json[1]) == 0xBB && static_cast<unsigned char>(json[2]) == 0xBF)
+        {
+            cursor.index = 3;
+            cursor.column = 4;
+        }
+        cursor.SkipSpaceAndComments();
+        line = cursor.line;
+        column = cursor.column;
+        offset = cursor.index;
+        std::vector<PointerSegment> segments;
+        if (!ParsePointerSegments(pointer, segments))
+        {
+            return pointer == "$";
+        }
+        if (segments.empty())
         {
             return true;
         }
-        const PointerSegment& segment = segments[segmentIndex];
-        cursor.SkipSpaceAndComments();
-        if (segment.isIndex)
+        auto locate = [&](auto&& self, size_t segmentIndex) -> bool
         {
-            if (!cursor.Consume('['))
-            {
-                return false;
-            }
-            for (size_t index = 0; index < segment.index; ++index)
-            {
-                if (!cursor.SkipValue())
-                {
-                    return false;
-                }
-                cursor.SkipSpaceAndComments();
-                if (cursor.index < cursor.json.size() && cursor.json[cursor.index] == ',')
-                {
-                    cursor.Advance();
-                }
-            }
-            cursor.SkipSpaceAndComments();
-            line = cursor.line;
-            column = cursor.column;
-            offset = cursor.index;
-            if (segmentIndex + 1 == segments.size())
+            if (segmentIndex >= segments.size())
             {
                 return true;
             }
-            return self(self, segmentIndex + 1);
-        }
-        if (!cursor.Consume('{'))
-        {
-            return false;
-        }
-        for (;;)
-        {
-            std::string key;
-            const uint32_t keyLine = cursor.line;
-            const uint32_t keyColumn = cursor.column;
-            const uint64_t keyOffset = cursor.index;
-            if (!cursor.ReadString(key) || !cursor.Consume(':'))
+            const PointerSegment& segment = segments[segmentIndex];
+            cursor.SkipSpaceAndComments();
+            if (segment.isIndex)
             {
-                return false;
-            }
-            if (key == segment.name)
-            {
+                if (!cursor.Consume('['))
+                {
+                    return false;
+                }
+                for (size_t index = 0; index < segment.index; ++index)
+                {
+                    if (!cursor.SkipValue())
+                    {
+                        return false;
+                    }
+                    cursor.SkipSpaceAndComments();
+                    if (cursor.index < cursor.json.size() && cursor.json[cursor.index] == ',')
+                    {
+                        cursor.Advance();
+                    }
+                }
                 cursor.SkipSpaceAndComments();
                 line = cursor.line;
                 column = cursor.column;
@@ -607,23 +579,49 @@ struct PointerSegment final
                 }
                 return self(self, segmentIndex + 1);
             }
-            (void)keyLine;
-            (void)keyColumn;
-            (void)keyOffset;
-            if (!cursor.SkipValue())
+            if (!cursor.Consume('{'))
             {
                 return false;
             }
-            cursor.SkipSpaceAndComments();
-            if (cursor.index < cursor.json.size() && cursor.json[cursor.index] == ',')
+            for (;;)
             {
-                cursor.Advance();
-                continue;
+                std::string key;
+                const uint32_t keyLine = cursor.line;
+                const uint32_t keyColumn = cursor.column;
+                const uint64_t keyOffset = cursor.index;
+                if (!cursor.ReadString(key) || !cursor.Consume(':'))
+                {
+                    return false;
+                }
+                if (key == segment.name)
+                {
+                    cursor.SkipSpaceAndComments();
+                    line = cursor.line;
+                    column = cursor.column;
+                    offset = cursor.index;
+                    if (segmentIndex + 1 == segments.size())
+                    {
+                        return true;
+                    }
+                    return self(self, segmentIndex + 1);
+                }
+                (void)keyLine;
+                (void)keyColumn;
+                (void)keyOffset;
+                if (!cursor.SkipValue())
+                {
+                    return false;
+                }
+                cursor.SkipSpaceAndComments();
+                if (cursor.index < cursor.json.size() && cursor.json[cursor.index] == ',')
+                {
+                    cursor.Advance();
+                    continue;
+                }
+                return false;
             }
-            return false;
-        }
-    };
-    return locate(locate, 0);
+        };
+        return locate(locate, 0);
     }
     catch (...)
     {
@@ -864,7 +862,8 @@ struct DiagnosticSink final
     return sink.Fail(path.View(), message);
 }
 
-[[nodiscard]] bool RejectColor(DiagnosticSink& sink, JsonPathBuffer& path, yyjson_val* settings, const char* key) noexcept
+[[nodiscard]] bool RejectColor(DiagnosticSink& sink, JsonPathBuffer& path, yyjson_val* settings,
+                               const char* key) noexcept
 {
     const auto scope = path.PushName(key);
     if (ColorIsRgbHex(yyjson_obj_get(settings, key)))
@@ -874,7 +873,8 @@ struct DiagnosticSink final
     return sink.Fail(path.View(), "Color must be a #RRGGBB hex string.");
 }
 
-[[nodiscard]] bool RejectBool(DiagnosticSink& sink, JsonPathBuffer& path, yyjson_val* settings, const char* key) noexcept
+[[nodiscard]] bool RejectBool(DiagnosticSink& sink, JsonPathBuffer& path, yyjson_val* settings,
+                              const char* key) noexcept
 {
     const auto scope = path.PushName(key);
     if (yyjson_is_bool(yyjson_obj_get(settings, key)))
@@ -894,7 +894,8 @@ struct DiagnosticSink final
         return false;
     }
     return yyjson_obj_size(settings) == 10 &&
-           RejectRange(sink, path, settings, "seed", 0, UINT32_MAX, "seed must be an integer from 0 through 4294967295.") &&
+           RejectRange(sink, path, settings, "seed", 0, UINT32_MAX,
+                       "seed must be an integer from 0 through 4294967295.") &&
            RejectRange(sink, path, settings, "glyphHeightDips", 12, 48,
                        "glyphHeightDips must be an integer from 12 through 48.") &&
            RejectRange(sink, path, settings, "densityPercent", 10, 100,
@@ -929,7 +930,8 @@ struct DiagnosticSink final
     return ValidateTopNSettings(settings, 1, 32, sink, path);
 }
 
-[[nodiscard]] bool ValidateStudioClockSettings(yyjson_val* settings, DiagnosticSink& sink, JsonPathBuffer& path) noexcept
+[[nodiscard]] bool ValidateStudioClockSettings(yyjson_val* settings, DiagnosticSink& sink,
+                                               JsonPathBuffer& path) noexcept
 {
     if (!AcceptObjectMembers(sink, path, settings,
                              {"showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor", "showDate",
@@ -938,9 +940,9 @@ struct DiagnosticSink final
         yyjson_obj_size(settings) != 8)
     {
         return yyjson_is_obj(settings) && yyjson_obj_size(settings) != 8 &&
-                       UnknownObjectMember(settings, {"showSecondProgress", "externalDotsAlwaysOn", "showSeconds",
-                                                      "secondsColor", "showDate", "dateFormat", "timeColor",
-                                                      "backgroundColor"}) == nullptr
+                       UnknownObjectMember(settings,
+                                           {"showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor",
+                                            "showDate", "dateFormat", "timeColor", "backgroundColor"}) == nullptr
                    ? sink.Fail(path.View(), "Studio Clock settings must include every required member.")
                    : false;
     }
@@ -963,9 +965,9 @@ struct DiagnosticSink final
 
 [[nodiscard]] bool ValidateDeskClockSettings(yyjson_val* settings, DiagnosticSink& sink, JsonPathBuffer& path) noexcept
 {
-    if (!AcceptObjectMembers(
-            sink, path, settings,
-            {"flipDurationMilliseconds", "backgroundColor", "cardColor", "digitColor", "dateColor"}, false) ||
+    if (!AcceptObjectMembers(sink, path, settings,
+                             {"flipDurationMilliseconds", "backgroundColor", "cardColor", "digitColor", "dateColor"},
+                             false) ||
         yyjson_obj_size(settings) != 5)
     {
         return yyjson_is_obj(settings) && yyjson_obj_size(settings) != 5 &&
@@ -989,8 +991,7 @@ struct DiagnosticSink final
     {
         return true;
     }
-    return sink.Fail(path.View(),
-                     "AV Control settings are invalid. Check profiles, device ids, and field types.");
+    return sink.Fail(path.View(), "AV Control settings are invalid. Check profiles, device ids, and field types.");
 }
 
 [[nodiscard]] bool ValidateWeatherSettings(yyjson_val* settings, DiagnosticSink& sink, JsonPathBuffer& path) noexcept
@@ -1138,8 +1139,9 @@ struct DiagnosticSink final
             if (kind == 0)
             {
                 const auto targetScope = path.PushName("target");
-                return sink.Fail(path.View(), "target must be an absolute Win32 path or a URI with a two-or-more-letter "
-                                              "scheme.");
+                return sink.Fail(path.View(),
+                                 "target must be an absolute Win32 path or a URI with a two-or-more-letter "
+                                 "scheme.");
             }
             yyjson_val* iconValue = yyjson_obj_get(item, "iconPng");
             if (iconValue)
@@ -1304,8 +1306,8 @@ struct DiagnosticSink final
                                : plugin == kDeskClockPlugin                                     ? kDeskClockDefaults
                                : plugin == kWeatherPlugin                                       ? kWeatherDefaults
                                : plugin == kLauncherPlugin                                      ? kLauncherDefaults
-                               : plugin == kAvControlPlugin                                     ? AVControl::DefaultsJson
-                                                                                                : "{}";
+                               : plugin == kAvControlPlugin ? AVControl::DefaultsJson
+                                                            : "{}";
     defaults.reset(yyjson_read(defaultsText, std::strlen(defaultsText), YYJSON_READ_NOFLAG));
     yyjson_val* settingsValue = authoredSettings;
     if (!settingsValue)
@@ -1331,18 +1333,18 @@ struct DiagnosticSink final
     }
     if (!yyjson_is_obj(settingsValue))
         return sink.Fail(path.View(), "Plugin settings must be a JSON object.");
-    const bool validSettings = plugin == kMatrixPlugin          ? ValidateMatrixSettings(settingsValue, sink, path)
-                               : plugin == kProcessViewerPlugin ? ValidateProcessViewerSettings(settingsValue, sink, path)
-                               : plugin == kNetworkMeterPlugin || plugin == kGpuProcessesPlugin
-                                   ? ValidateTopNSettings(settingsValue, 1, 16, sink, path)
-                               : plugin == kStudioClockPlugin ? ValidateStudioClockSettings(settingsValue, sink, path)
-                               : plugin == kDeskClockPlugin   ? ValidateDeskClockSettings(settingsValue, sink, path)
-                               : plugin == kWeatherPlugin     ? ValidateWeatherSettings(settingsValue, sink, path)
-                               : plugin == kLauncherPlugin    ? ValidateLauncherSettings(settingsValue, sink, path)
-                               : plugin == kAvControlPlugin   ? ValidateAvControlSettings(settingsValue, sink, path)
-                             : yyjson_obj_size(settingsValue) == 0
-                                 ? true
-                                 : sink.Fail(path.View(), "This plugin does not accept settings members.");
+    const bool validSettings =
+        plugin == kMatrixPlugin          ? ValidateMatrixSettings(settingsValue, sink, path)
+        : plugin == kProcessViewerPlugin ? ValidateProcessViewerSettings(settingsValue, sink, path)
+        : plugin == kNetworkMeterPlugin || plugin == kGpuProcessesPlugin
+            ? ValidateTopNSettings(settingsValue, 1, 16, sink, path)
+        : plugin == kStudioClockPlugin        ? ValidateStudioClockSettings(settingsValue, sink, path)
+        : plugin == kDeskClockPlugin          ? ValidateDeskClockSettings(settingsValue, sink, path)
+        : plugin == kWeatherPlugin            ? ValidateWeatherSettings(settingsValue, sink, path)
+        : plugin == kLauncherPlugin           ? ValidateLauncherSettings(settingsValue, sink, path)
+        : plugin == kAvControlPlugin          ? ValidateAvControlSettings(settingsValue, sink, path)
+        : yyjson_obj_size(settingsValue) == 0 ? true
+                                              : sink.Fail(path.View(), "This plugin does not accept settings members.");
     if (!validSettings)
         return false;
     if (!CompactObject(settingsValue, widget.privateConfiguration))
@@ -1425,8 +1427,7 @@ struct DiagnosticSink final
 
     unique_mut_doc baseDocument{yyjson_mut_doc_new(nullptr)};
     unique_mut_doc patchDocument{yyjson_mut_doc_new(nullptr)};
-    yyjson_mut_val* base =
-        baseDocument ? CopyObjectSkipping(baseDocument.get(), declaration, {"plugin"}) : nullptr;
+    yyjson_mut_val* base = baseDocument ? CopyObjectSkipping(baseDocument.get(), declaration, {"plugin"}) : nullptr;
     yyjson_mut_val* patch =
         patchDocument ? CopyObjectSkipping(patchDocument.get(), authored, {"use", "plugin"}) : nullptr;
     if (!base || !patch)
@@ -1440,11 +1441,10 @@ struct DiagnosticSink final
     unique_doc baseImmutable{baseJson ? yyjson_read(baseJson.get(), baseBytes, YYJSON_READ_NOFLAG) : nullptr};
     unique_doc patchImmutable{patchJson ? yyjson_read(patchJson.get(), patchBytes, YYJSON_READ_NOFLAG) : nullptr};
     unique_mut_doc resultDocument{yyjson_mut_doc_new(nullptr)};
-    yyjson_mut_val* merged =
-        resultDocument && baseImmutable && patchImmutable
-            ? MergeValue(resultDocument.get(), yyjson_doc_get_root(baseImmutable.get()),
-                         yyjson_doc_get_root(patchImmutable.get()))
-            : nullptr;
+    yyjson_mut_val* merged = resultDocument && baseImmutable && patchImmutable
+                                 ? MergeValue(resultDocument.get(), yyjson_doc_get_root(baseImmutable.get()),
+                                              yyjson_doc_get_root(patchImmutable.get()))
+                                 : nullptr;
     if (!merged)
         return sink.Fail(path.View(), "Widget override could not be merged.");
     yyjson_mut_doc_set_root(resultDocument.get(), merged);
@@ -1497,7 +1497,8 @@ struct DiagnosticSink final
                                    yyjson_obj_get(item, "rows") || yyjson_obj_get(item, "columns"));
 }
 
-[[nodiscard]] bool ReadItemWeight(yyjson_val* item, uint32_t& weight, DiagnosticSink& sink, JsonPathBuffer& path) noexcept
+[[nodiscard]] bool ReadItemWeight(yyjson_val* item, uint32_t& weight, DiagnosticSink& sink,
+                                  JsonPathBuffer& path) noexcept
 {
     weight = 1;
     if (!yyjson_is_obj(item))
@@ -1691,190 +1692,188 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSetting
                                  {"$schema", "version", "wrapPages", "logRetentionDays", "declare", "pages"},
                                  allowUnknown))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-            yyjson_val* schema = yyjson_obj_get(root, "$schema");
-            if (schema && (!yyjson_is_str(schema) || std::string_view(yyjson_get_str(schema), yyjson_get_len(schema)) !=
-                                                         "RedXe.settings.schema.json"))
-            {
-                const auto schemaScope = path.PushName("$schema");
-                return sink.FailHr(path.View(), "When present, $schema must be \"RedXe.settings.schema.json\".");
-            }
+        yyjson_val* schema = yyjson_obj_get(root, "$schema");
+        if (schema && (!yyjson_is_str(schema) || std::string_view(yyjson_get_str(schema), yyjson_get_len(schema)) !=
+                                                     "RedXe.settings.schema.json"))
+        {
+            const auto schemaScope = path.PushName("$schema");
+            return sink.FailHr(path.View(), "When present, $schema must be \"RedXe.settings.schema.json\".");
+        }
 
-            auto parsed = std::make_unique<AppSettings>();
-            parsed->versionMajor = kRedXeSettingsVersionMajor;
-            parsed->versionMinor = static_cast<uint32_t>(fileMinor);
-            parsed->sourceDocument.assign(json);
-            parsed->dashboard.gridColumns = 1;
-            parsed->dashboard.gridRows = 1;
-            yyjson_val* wrap = yyjson_obj_get(root, "wrapPages");
-            if (wrap && !yyjson_is_bool(wrap))
-            {
-                const auto wrapScope = path.PushName("wrapPages");
-                return sink.FailHr(path.View(), "wrapPages must be a boolean.");
-            }
-            parsed->dashboard.wrapPages = wrap && yyjson_get_bool(wrap);
-            yyjson_val* retention = yyjson_obj_get(root, "logRetentionDays");
-            if (retention)
-            {
-                const auto retentionScope = path.PushName("logRetentionDays");
-                if (!yyjson_is_uint(retention))
-                    return sink.FailHr(path.View(), "logRetentionDays must be an integer.");
-                const uint64_t days = yyjson_get_uint(retention);
-                if (days < kRedXeMinimumLogRetentionDays || days > kRedXeMaximumLogRetentionDays)
-                    return sink.FailHr(path.View(), "logRetentionDays must be from 1 through 365.");
-                parsed->logRetentionDays = static_cast<uint32_t>(days);
-            }
-            else
-                parsed->logRetentionDays = kRedXeDefaultLogRetentionDays;
+        auto parsed = std::make_unique<AppSettings>();
+        parsed->versionMajor = kRedXeSettingsVersionMajor;
+        parsed->versionMinor = static_cast<uint32_t>(fileMinor);
+        parsed->sourceDocument.assign(json);
+        parsed->dashboard.gridColumns = 1;
+        parsed->dashboard.gridRows = 1;
+        yyjson_val* wrap = yyjson_obj_get(root, "wrapPages");
+        if (wrap && !yyjson_is_bool(wrap))
+        {
+            const auto wrapScope = path.PushName("wrapPages");
+            return sink.FailHr(path.View(), "wrapPages must be a boolean.");
+        }
+        parsed->dashboard.wrapPages = wrap && yyjson_get_bool(wrap);
+        yyjson_val* retention = yyjson_obj_get(root, "logRetentionDays");
+        if (retention)
+        {
+            const auto retentionScope = path.PushName("logRetentionDays");
+            if (!yyjson_is_uint(retention))
+                return sink.FailHr(path.View(), "logRetentionDays must be an integer.");
+            const uint64_t days = yyjson_get_uint(retention);
+            if (days < kRedXeMinimumLogRetentionDays || days > kRedXeMaximumLogRetentionDays)
+                return sink.FailHr(path.View(), "logRetentionDays must be from 1 through 365.");
+            parsed->logRetentionDays = static_cast<uint32_t>(days);
+        }
+        else
+            parsed->logRetentionDays = kRedXeDefaultLogRetentionDays;
 
-            std::vector<Declaration> declarations;
-            yyjson_val* declarationObject = yyjson_obj_get(root, "declare");
-            if (declarationObject)
+        std::vector<Declaration> declarations;
+        yyjson_val* declarationObject = yyjson_obj_get(root, "declare");
+        if (declarationObject)
+        {
+            const auto declareScope = path.PushName("declare");
+            if (!yyjson_is_obj(declarationObject))
+                return sink.FailHr(path.View(), "declare must be a JSON object.");
+            if (yyjson_obj_size(declarationObject) > kMaximumSettingsDeclarations)
+                return sink.FailHr(path.View(), "declare may contain at most 128 entries.");
+            yyjson_obj_iter iterator = yyjson_obj_iter_with(declarationObject);
+            while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
             {
-                const auto declareScope = path.PushName("declare");
-                if (!yyjson_is_obj(declarationObject))
-                    return sink.FailHr(path.View(), "declare must be a JSON object.");
-                if (yyjson_obj_size(declarationObject) > kMaximumSettingsDeclarations)
-                    return sink.FailHr(path.View(), "declare may contain at most 128 entries.");
-                yyjson_obj_iter iterator = yyjson_obj_iter_with(declarationObject);
-                while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
+                const std::string_view name(yyjson_get_str(key), yyjson_get_len(key));
+                const auto nameScope = path.PushName(name);
+                if (name.empty() || name.size() > kMaximumSettingsTextBytes || Utf8CodePointCount(name) > 128)
+                    return sink.FailHr(path.View(), "A declare name must be 1 through 128 Unicode code points.");
+                yyjson_val* definition = yyjson_obj_iter_get_val(key);
+                if (!yyjson_is_obj(definition))
+                    return sink.FailHr(path.View(), "A declare entry must be a JSON object.");
+                declarations.push_back(Declaration{name, definition});
+            }
+            for (size_t index = 0; index < declarations.size(); ++index)
+            {
+                WidgetInstanceSettings validated{};
+                const auto nameScope = path.PushName(declarations[index].name);
+                if (!ParseFlattenedPluginObject(declarations[index].definition, *parsed, validated,
+                                                static_cast<uint32_t>(index), sink, path))
+                    return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+
+        yyjson_val* pages = yyjson_obj_get(root, "pages");
+        {
+            const auto pagesScope = path.PushName("pages");
+            if (!yyjson_is_arr(pages))
+                return sink.FailHr(path.View(), "pages must be an array.");
+            const size_t pageCount = yyjson_arr_size(pages);
+            if (pageCount == 0)
+                return sink.FailHr(path.View(), "At least one page is required.");
+            if (pageCount > kMaximumDashboardPages)
+                return sink.FailHr(path.View(), "At most 16 pages are allowed.");
+            parsed->dashboard.pages.resize(pageCount);
+            uint32_t instanceCount = 0;
+            for (size_t index = 0; index < pageCount; ++index)
+            {
+                const auto pageScope = path.PushIndex(index);
+                yyjson_val* pageValue = yyjson_arr_get(pages, index);
+                if (!RejectRetiredMembers(sink, path, pageValue))
+                    return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                yyjson_val* widgets = yyjson_obj_get(pageValue, "widgets");
+                yyjson_val* columns = yyjson_obj_get(pageValue, "columns");
+                yyjson_val* rows = yyjson_obj_get(pageValue, "rows");
+                yyjson_val* along = yyjson_obj_get(pageValue, "along");
+                const int shapes = (widgets ? 1 : 0) + (columns ? 1 : 0) + (rows ? 1 : 0);
+                if (shapes > 1)
+                    return sink.FailHr(path.View(), "A page may use only one of widgets, columns, or rows.");
+                if (along && !widgets)
                 {
-                    const std::string_view name(yyjson_get_str(key), yyjson_get_len(key));
-                    const auto nameScope = path.PushName(name);
-                    if (name.empty() || name.size() > kMaximumSettingsTextBytes || Utf8CodePointCount(name) > 128)
-                        return sink.FailHr(path.View(), "A declare name must be 1 through 128 Unicode code points.");
-                    yyjson_val* definition = yyjson_obj_iter_get_val(key);
-                    if (!yyjson_is_obj(definition))
-                        return sink.FailHr(path.View(), "A declare entry must be a JSON object.");
-                    declarations.push_back(Declaration{name, definition});
+                    const auto alongScope = path.PushName("along");
+                    return sink.FailHr(path.View(), "along is valid only with widgets.");
                 }
-                for (size_t index = 0; index < declarations.size(); ++index)
+                if (widgets)
                 {
-                    WidgetInstanceSettings validated{};
-                    const auto nameScope = path.PushName(declarations[index].name);
-                    if (!ParseFlattenedPluginObject(declarations[index].definition, *parsed, validated,
-                                                    static_cast<uint32_t>(index), sink, path))
+                    if (!AcceptObjectMembers(sink, path, pageValue, {"id", "name", "along", "widgets"}, allowUnknown))
                         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
                 }
-            }
-
-            yyjson_val* pages = yyjson_obj_get(root, "pages");
-            {
-                const auto pagesScope = path.PushName("pages");
-                if (!yyjson_is_arr(pages))
-                    return sink.FailHr(path.View(), "pages must be an array.");
-                const size_t pageCount = yyjson_arr_size(pages);
-                if (pageCount == 0)
-                    return sink.FailHr(path.View(), "At least one page is required.");
-                if (pageCount > kMaximumDashboardPages)
-                    return sink.FailHr(path.View(), "At most 16 pages are allowed.");
-                parsed->dashboard.pages.resize(pageCount);
-                uint32_t instanceCount = 0;
-                for (size_t index = 0; index < pageCount; ++index)
+                else if (columns)
                 {
-                    const auto pageScope = path.PushIndex(index);
-                    yyjson_val* pageValue = yyjson_arr_get(pages, index);
-                    if (!RejectRetiredMembers(sink, path, pageValue))
+                    if (!AcceptObjectMembers(sink, path, pageValue, {"id", "name", "columns"}, allowUnknown))
                         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-                    yyjson_val* widgets = yyjson_obj_get(pageValue, "widgets");
-                    yyjson_val* columns = yyjson_obj_get(pageValue, "columns");
-                    yyjson_val* rows = yyjson_obj_get(pageValue, "rows");
-                    yyjson_val* along = yyjson_obj_get(pageValue, "along");
-                    const int shapes = (widgets ? 1 : 0) + (columns ? 1 : 0) + (rows ? 1 : 0);
-                    if (shapes > 1)
-                        return sink.FailHr(path.View(), "A page may use only one of widgets, columns, or rows.");
-                    if (along && !widgets)
+                }
+                else if (rows)
+                {
+                    if (!AcceptObjectMembers(sink, path, pageValue, {"id", "name", "rows"}, allowUnknown))
+                        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                }
+                else if (!AcceptObjectMembers(sink, path, pageValue, {"id", "name"}, allowUnknown))
+                {
+                    return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                }
+                DashboardPageSettings& page = parsed->dashboard.pages[index];
+                yyjson_val* id = yyjson_obj_get(pageValue, "id");
+                yyjson_val* name = yyjson_obj_get(pageValue, "name");
+                std::array<char, 32> generated{};
+                const int generatedLength = sprintf_s(generated.data(), generated.size(), "page.%zu", index + 1);
+                if (id && (!yyjson_is_str(id) ||
+                           !CopyText(std::string_view(yyjson_get_str(id), yyjson_get_len(id)), page.id, true)))
+                {
+                    const auto idScope = path.PushName("id");
+                    return sink.FailHr(path.View(), "id must be a machine-safe string of at most 128 code points.");
+                }
+                if (!id &&
+                    !CopyText(std::string_view(generated.data(), static_cast<size_t>(generatedLength)), page.id, true))
+                    return sink.FailHr(path.View(), "A page id could not be assigned.");
+                if (name && (!yyjson_is_str(name) ||
+                             !CopyText(std::string_view(yyjson_get_str(name), yyjson_get_len(name)), page.name, false)))
+                {
+                    const auto nameScope = path.PushName("name");
+                    return sink.FailHr(path.View(), "name must be a string of 1 through 128 Unicode code points.");
+                }
+                if (!name)
+                {
+                    const int length = sprintf_s(generated.data(), generated.size(), "Page %zu", index + 1);
+                    if (!CopyText(std::string_view(generated.data(), static_cast<size_t>(length)), page.name, false))
+                        return sink.FailHr(path.View(), "A page name could not be assigned.");
+                }
+                uint32_t areaCount = 0;
+                if (widgets)
+                {
+                    LayoutAxis axis = LayoutAxis::LongSide;
+                    if (along)
                     {
                         const auto alongScope = path.PushName("along");
-                        return sink.FailHr(path.View(), "along is valid only with widgets.");
+                        if (!yyjson_is_str(along) ||
+                            (std::string_view(yyjson_get_str(along), yyjson_get_len(along)) != "long-side" &&
+                             std::string_view(yyjson_get_str(along), yyjson_get_len(along)) != "short-side"))
+                            return sink.FailHr(path.View(), "along must be long-side or short-side.");
+                        if (std::string_view(yyjson_get_str(along), yyjson_get_len(along)) == "short-side")
+                            axis = LayoutAxis::ShortSide;
                     }
-                    if (widgets)
-                    {
-                        if (!AcceptObjectMembers(sink, path, pageValue, {"id", "name", "along", "widgets"},
-                                                 allowUnknown))
-                            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-                    }
-                    else if (columns)
-                    {
-                        if (!AcceptObjectMembers(sink, path, pageValue, {"id", "name", "columns"}, allowUnknown))
-                            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-                    }
-                    else if (rows)
-                    {
-                        if (!AcceptObjectMembers(sink, path, pageValue, {"id", "name", "rows"}, allowUnknown))
-                            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-                    }
-                    else if (!AcceptObjectMembers(sink, path, pageValue, {"id", "name"}, allowUnknown))
-                    {
+                    const auto widgetsScope = path.PushName("widgets");
+                    if (!ParseHumanItems(widgets, axis, false, declarations, *parsed, page, {}, 0, areaCount,
+                                         instanceCount, sink, path))
                         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-                    }
-                    DashboardPageSettings& page = parsed->dashboard.pages[index];
-                    yyjson_val* id = yyjson_obj_get(pageValue, "id");
-                    yyjson_val* name = yyjson_obj_get(pageValue, "name");
-                    std::array<char, 32> generated{};
-                    const int generatedLength = sprintf_s(generated.data(), generated.size(), "page.%zu", index + 1);
-                    if (id && (!yyjson_is_str(id) ||
-                               !CopyText(std::string_view(yyjson_get_str(id), yyjson_get_len(id)), page.id, true)))
-                    {
-                        const auto idScope = path.PushName("id");
-                        return sink.FailHr(path.View(), "id must be a machine-safe string of at most 128 code points.");
-                    }
-                    if (!id && !CopyText(std::string_view(generated.data(), static_cast<size_t>(generatedLength)),
-                                         page.id, true))
-                        return sink.FailHr(path.View(), "A page id could not be assigned.");
-                    if (name && (!yyjson_is_str(name) ||
-                                 !CopyText(std::string_view(yyjson_get_str(name), yyjson_get_len(name)), page.name,
-                                           false)))
-                    {
-                        const auto nameScope = path.PushName("name");
-                        return sink.FailHr(path.View(), "name must be a string of 1 through 128 Unicode code points.");
-                    }
-                    if (!name)
-                    {
-                        const int length = sprintf_s(generated.data(), generated.size(), "Page %zu", index + 1);
-                        if (!CopyText(std::string_view(generated.data(), static_cast<size_t>(length)), page.name, false))
-                            return sink.FailHr(path.View(), "A page name could not be assigned.");
-                    }
-                    uint32_t areaCount = 0;
-                    if (widgets)
-                    {
-                        LayoutAxis axis = LayoutAxis::LongSide;
-                        if (along)
-                        {
-                            const auto alongScope = path.PushName("along");
-                            if (!yyjson_is_str(along) ||
-                                (std::string_view(yyjson_get_str(along), yyjson_get_len(along)) != "long-side" &&
-                                 std::string_view(yyjson_get_str(along), yyjson_get_len(along)) != "short-side"))
-                                return sink.FailHr(path.View(), "along must be long-side or short-side.");
-                            if (std::string_view(yyjson_get_str(along), yyjson_get_len(along)) == "short-side")
-                                axis = LayoutAxis::ShortSide;
-                        }
-                        const auto widgetsScope = path.PushName("widgets");
-                        if (!ParseHumanItems(widgets, axis, false, declarations, *parsed, page, {}, 0, areaCount,
-                                             instanceCount, sink, path))
-                            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-                    }
-                    else if (columns)
-                    {
-                        const auto columnsScope = path.PushName("columns");
-                        if (!ParseHumanItems(columns, LayoutAxis::LongSide, true, declarations, *parsed, page, {}, 0,
-                                             areaCount, instanceCount, sink, path))
-                            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-                    }
-                    else if (rows)
-                    {
-                        const auto rowsScope = path.PushName("rows");
-                        if (!ParseHumanItems(rows, LayoutAxis::ShortSide, true, declarations, *parsed, page, {}, 0,
-                                             areaCount, instanceCount, sink, path))
-                            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-                    }
-                    page.widgetCount = static_cast<uint32_t>(page.widgets.size());
                 }
-                parsed->dashboard.pageCount = static_cast<uint32_t>(pageCount);
+                else if (columns)
+                {
+                    const auto columnsScope = path.PushName("columns");
+                    if (!ParseHumanItems(columns, LayoutAxis::LongSide, true, declarations, *parsed, page, {}, 0,
+                                         areaCount, instanceCount, sink, path))
+                        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                }
+                else if (rows)
+                {
+                    const auto rowsScope = path.PushName("rows");
+                    if (!ParseHumanItems(rows, LayoutAxis::ShortSide, true, declarations, *parsed, page, {}, 0,
+                                         areaCount, instanceCount, sink, path))
+                        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                }
+                page.widgetCount = static_cast<uint32_t>(page.widgets.size());
             }
-            parsed->dashboard.activePageIndex = 0;
-            parsed->dashboard.activePageId = parsed->dashboard.pages[0].id;
-            output = std::move(parsed);
-            return S_OK;
+            parsed->dashboard.pageCount = static_cast<uint32_t>(pageCount);
+        }
+        parsed->dashboard.activePageIndex = 0;
+        parsed->dashboard.activePageId = parsed->dashboard.pages[0].id;
+        output = std::move(parsed);
+        return S_OK;
     }
     catch (const std::bad_alloc&)
     {

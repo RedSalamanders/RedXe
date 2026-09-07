@@ -529,11 +529,6 @@ Application::~Application()
     {
         UnregisterClassW(kSettingsDialogClassName, _instance);
         UnregisterClassW(kWindowClassName, _instance);
-        UnregisterClassW(kRaiseOverlayClassName, _instance);
-    }
-    if (_pageEdgeClassRegistered)
-    {
-        UnregisterClassW(kPageEdgeClassName, _instance);
     }
 }
 
@@ -857,12 +852,28 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     const UINT windowDpi = GetDpiForWindow(_window.get());
     const SIZE expectedClientSize = ScaleXeneonClientSize(windowDpi);
     const DWORD windowStyle = static_cast<DWORD>(GetWindowLongPtrW(_window.get(), GWL_STYLE));
-    if (windowDpi == 0 || (windowStyle & WS_CLIPCHILDREN) == 0 || !GetClientRect(_window.get(), &clientBounds) ||
+    const DWORD windowExtendedStyle = static_cast<DWORD>(GetWindowLongPtrW(_window.get(), GWL_EXSTYLE));
+    if (windowDpi == 0 || (windowStyle & WS_CLIPCHILDREN) == 0 ||
+        (windowExtendedStyle & WS_EX_NOREDIRECTIONBITMAP) == 0 || !GetClientRect(_window.get(), &clientBounds) ||
         clientBounds.right - clientBounds.left != expectedClientSize.cx ||
         clientBounds.bottom - clientBounds.top != expectedClientSize.cy)
     {
         OutputDebugStringW(L"The default client area does not match the current monitor DPI.\n");
         return 2;
+    }
+
+    {
+        // Native-widget containers are layered children. Windows honors WS_EX_LAYERED on a child only for processes
+        // whose manifest declares Windows 8 or later, so prove it here rather than at the first native attach.
+        const wil::unique_hwnd layeredProbe(CreateWindowExW(WS_EX_NOPARENTNOTIFY | WS_EX_LAYERED, L"STATIC", L"",
+                                                            WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 0, 1, 1,
+                                                            _window.get(), nullptr, nullptr, nullptr));
+        if (!layeredProbe || !SetLayeredWindowAttributes(layeredProbe.get(), 0, 255, LWA_ALPHA))
+        {
+            OutputDebugStringW(
+                L"Layered child containers are unavailable; the manifest must declare Windows 8 or later.\n");
+            return 2;
+        }
     }
 
     _persistSettingsToDisk = false;
@@ -1014,39 +1025,15 @@ HRESULT Application::RegisterWindowClass() noexcept
         UnregisterClassW(kWindowClassName, _instance);
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    WNDCLASSEXW overlayClass{};
-    overlayClass.cbSize = sizeof(overlayClass);
-    overlayClass.lpfnWndProc = RaiseOverlayProcedure;
-    overlayClass.hInstance = _instance;
-    overlayClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    overlayClass.lpszClassName = kRaiseOverlayClassName;
-    if (!RegisterClassExW(&overlayClass))
-    {
-        UnregisterClassW(kSettingsDialogClassName, _instance);
-        UnregisterClassW(kWindowClassName, _instance);
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    WNDCLASSEXW pageEdgeClass{};
-    pageEdgeClass.cbSize = sizeof(pageEdgeClass);
-    pageEdgeClass.lpfnWndProc = PageEdgeProcedure;
-    pageEdgeClass.hInstance = _instance;
-    pageEdgeClass.hCursor = LoadCursorW(nullptr, IDC_HAND);
-    pageEdgeClass.lpszClassName = kPageEdgeClassName;
-    if (!RegisterClassExW(&pageEdgeClass))
-    {
-        UnregisterClassW(kRaiseOverlayClassName, _instance);
-        UnregisterClassW(kSettingsDialogClassName, _instance);
-        UnregisterClassW(kWindowClassName, _instance);
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    _pageEdgeClassRegistered = true;
     _classRegistered = true;
     return S_OK;
 }
 
 HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bool fullscreen) noexcept
 {
-    constexpr DWORD extendedStyle = WS_EX_APPWINDOW;
+    // No redirection surface: the main window never paints with GDI. Its chrome is drawn into the swap chain and
+    // native-widget containers are layered children with their own surfaces, so DWM keeps no 2560x720 GDI copy.
+    constexpr DWORD extendedStyle = WS_EX_APPWINDOW | WS_EX_NOREDIRECTIONBITMAP;
     const DWORD windowStyle = (fullscreen ? WS_POPUP : WS_OVERLAPPEDWINDOW) | WS_CLIPCHILDREN;
 
     if ((fullscreen && !targetBounds) ||
@@ -1497,29 +1484,40 @@ PageEdgeState Application::CurrentPageEdgeState() const noexcept
     return state;
 }
 
-size_t Application::PageEdgeIndex(HWND window) const noexcept
-{
-    for (size_t index = 0; index < _pageEdges.size(); ++index)
-    {
-        if (_pageEdges[index].get() == window)
-        {
-            return index;
-        }
-    }
-    return _pageEdges.size();
-}
-
 void Application::DestroyPageEdgeAffordances() noexcept
 {
-    _pageEdgeIconFont.reset();
-    _pageEdgeIconFontDpi = 0;
-    for (size_t index = 0; index < _pageEdges.size(); ++index)
+    for (size_t index = 0; index < _pageEdgeBands.size(); ++index)
     {
-        _pageEdges[index].reset();
         _pageEdgeRevealed[index] = false;
         _pageEdgeBands[index] = RECT{};
     }
     _pageEdgeApplyValid = false;
+    PushHostChrome();
+}
+
+void Application::PushHostChrome() noexcept
+{
+    HostChromeState state{};
+    state.raised = _raisedActive;
+    if (_raisedActive)
+    {
+        state.content = _raisedLayout.content;
+        state.close = _raisedLayout.close;
+        state.shadow = _raisedLayout.shadow;
+        state.dimAlpha = _raiseDimAlpha;
+        state.closeHovered = _raiseCloseHovered;
+    }
+    for (size_t index = 0; index < _pageEdgeBands.size(); ++index)
+    {
+        HostChromeEdgeBand& band = state.bands[index];
+        band.rect = _pageEdgeBands[index];
+        band.direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
+        band.revealed = _pageEdgeRevealed[index] && band.rect.right > band.rect.left;
+    }
+    if (_renderer.SetHostChrome(state))
+    {
+        _frameInvalidated = true;
+    }
 }
 
 void Application::RefreshPageEdgeAffordances() noexcept
@@ -1552,7 +1550,7 @@ void Application::RefreshPageEdgeAffordances() noexcept
     _pageEdgeAppliedReachable = reachable;
     _pageEdgeApplyValid = true;
 
-    for (size_t index = 0; index < _pageEdges.size(); ++index)
+    for (size_t index = 0; index < _pageEdgeBands.size(); ++index)
     {
         const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
         const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
@@ -1562,45 +1560,14 @@ void Application::RefreshPageEdgeAffordances() noexcept
         {
             _pageEdgeRevealed[index] = false;
         }
-
-        // The band window exists only while the pointer is inside its zone, the same way the raise overlay HWND
-        // exists only while a widget is raised. It is created opaque: a layered child at zero alpha is transparent to
-        // hit testing, so an always-present invisible band would never receive a mouse message at all.
-        if (!allowed || !_pageEdgeRevealed[index])
+        else if (_pageEdgeRevealed[index])
         {
-            _pageEdges[index].reset();
-            continue;
-        }
-
-        if (!_pageEdges[index])
-        {
-            const HWND edge =
-                CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_NOPARENTNOTIFY | WS_EX_LAYERED, kPageEdgeClassName, L"",
-                                WS_CHILD | WS_CLIPSIBLINGS, band.left, band.top, band.right - band.left,
-                                band.bottom - band.top, _window.get(), nullptr, _instance, this);
-            if (!edge)
-            {
-                _pageEdgeRevealed[index] = false;
-                continue;
-            }
-            _pageEdges[index].reset(edge);
-            (void)SetLayeredWindowAttributes(edge, 0, kPageEdgeRevealedAlpha, LWA_ALPHA);
-            ShowWindow(edge, SW_SHOWNA);
-            // A child created under the cursor does not receive WM_SETCURSOR until the mouse moves, so the parent
-            // still shows IDC_ARROW. Force the hand as soon as the band exists.
+            // The band is host chrome in the swap chain, revealed for exactly one coalesced frame per change. The
+            // top-level window already owns the pointer here, so the hand cursor applies at once.
             SetCursor(LoadCursorW(nullptr, IDC_HAND));
-            // Leave tracking is armed from the band's first WM_MOUSEMOVE, not here. TrackMouseEvent posts
-            // WM_MOUSELEAVE immediately when the cursor is not already inside the window, and a child created under
-            // the cursor has not been hit-tested onto yet, so arming here makes the band destroy itself at once.
         }
-        else if (!EqualRect(&_pageEdgeBands[index], &band))
-        {
-            (void)SetWindowPos(_pageEdges[index].get(), nullptr, band.left, band.top, band.right - band.left,
-                               band.bottom - band.top, SWP_NOACTIVATE | SWP_NOZORDER);
-        }
-        // Bands stay above host-owned native containers so they reveal and accept clicks over a window widget too.
-        (void)SetWindowPos(_pageEdges[index].get(), HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
+    PushHostChrome();
 }
 
 RECT Application::ReachableClientRect() const noexcept
@@ -1676,7 +1643,7 @@ void Application::UpdatePageEdgeHover() noexcept
     const UINT dpi = GetDpiForWindow(_window.get());
 
     bool changed = false;
-    for (size_t index = 0; index < _pageEdges.size(); ++index)
+    for (size_t index = 0; index < _pageEdgeBands.size(); ++index)
     {
         const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
         const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
@@ -1741,143 +1708,6 @@ HRESULT Application::NavigateToAdjacentPage(int direction) noexcept
     BeginPageSettle(PageEdgeSettleTarget(direction, client.right), true);
     RefreshPageEdgeAffordances();
     return S_OK;
-}
-
-LRESULT CALLBACK Application::PageEdgeProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
-{
-    Application* application = reinterpret_cast<Application*>(GetWindowLongPtrW(window, GWLP_USERDATA));
-    if (message == WM_NCCREATE)
-    {
-        const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lParam);
-        application = static_cast<Application*>(create->lpCreateParams);
-        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(application));
-    }
-    if (application)
-    {
-        return application->HandlePageEdgeMessage(window, application->PageEdgeIndex(window), message, wParam, lParam);
-    }
-    return DefWindowProcW(window, message, wParam, lParam);
-}
-
-LRESULT Application::HandlePageEdgeMessage(HWND edge, size_t index, UINT message, WPARAM wParam, LPARAM lParam) noexcept
-{
-    const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
-    switch (message)
-    {
-    case WM_ERASEBKGND:
-        return 1;
-    case WM_SETCURSOR:
-        SetCursor(LoadCursorW(nullptr, IDC_HAND));
-        return TRUE;
-    case WM_PAINT:
-        PaintPageEdge(edge, index);
-        return 0;
-    case WM_MOUSEMOVE:
-    {
-        if (index >= _pageEdges.size())
-        {
-            break;
-        }
-        // The cursor is genuinely inside the band here, so arming leave tracking now cannot fire spuriously.
-        TRACKMOUSEEVENT track{sizeof(TRACKMOUSEEVENT), TME_LEAVE, edge, 0};
-        (void)TrackMouseEvent(&track);
-        UpdatePageEdgeHover();
-        return 0;
-    }
-    case WM_MOUSELEAVE:
-        UpdatePageEdgeHover();
-        return 0;
-    case WM_LBUTTONUP:
-        if (index < _pageEdges.size() && !IsPointerSynthesizedMouseMessage() && _window)
-        {
-            // Navigate after this WndProc returns. Destroying the band here, or from NavigateToAdjacentPage's
-            // affordance refresh, would tear down the HWND that is still dispatching this click.
-            (void)PostMessageW(_window.get(), kPageEdgeNavigateMessage, static_cast<WPARAM>(direction), 0);
-        }
-        return 0;
-    case WM_POINTERDOWN:
-    case WM_POINTERUPDATE:
-    case WM_POINTERUP:
-    case WM_POINTERCAPTURECHANGED:
-        // Touch and pen keep the host pointer contract. One-finger contacts stay with the widget; two or three
-        // fingers start page pan. Forward to the top-level window exactly as host-owned native containers do.
-        if (_window)
-        {
-            return SendMessageW(_window.get(), message, wParam, lParam);
-        }
-        break;
-    case WM_NCDESTROY:
-        SetWindowLongPtrW(edge, GWLP_USERDATA, 0);
-        for (wil::unique_hwnd& candidate : _pageEdges)
-        {
-            if (candidate.get() == edge)
-            {
-                (void)candidate.release();
-            }
-        }
-        break;
-    default:
-        break;
-    }
-    return DefWindowProcW(edge, message, wParam, lParam);
-}
-
-void Application::EnsurePageEdgeIconFont(UINT dpi) noexcept
-{
-    const UINT effectiveDpi = dpi == 0 ? USER_DEFAULT_SCREEN_DPI : dpi;
-    if (_pageEdgeIconFont && _pageEdgeIconFontDpi == effectiveDpi)
-    {
-        return;
-    }
-    FluentIcons::IconFont kind = FluentIcons::IconFont::TextFallback;
-    wil::unique_hfont font{FluentIcons::CreateIconFont(PageEdgeChevronPixelHeight(effectiveDpi), kind)};
-    if (!font)
-    {
-        return;
-    }
-    _pageEdgeIconFont = std::move(font);
-    _pageEdgeIconFontDpi = effectiveDpi;
-    _pageEdgeIconFontKind = kind;
-}
-
-void Application::PaintPageEdge(HWND edge, size_t index) noexcept
-{
-    PAINTSTRUCT paint{};
-    const HDC deviceContext = BeginPaint(edge, &paint);
-    if (!deviceContext)
-    {
-        return;
-    }
-    RECT client{};
-    GetClientRect(edge, &client);
-    if (index < _pageEdges.size())
-    {
-        const UINT dpi = GetDpiForWindow(edge);
-        if (!_pageEdgeWashBrush)
-        {
-            _pageEdgeWashBrush.reset(CreateSolidBrush(RGB(10, 14, 26)));
-        }
-        if (_pageEdgeWashBrush)
-        {
-            FillRect(deviceContext, &client, _pageEdgeWashBrush.get());
-        }
-        EnsurePageEdgeIconFont(dpi);
-        const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
-        const wchar_t glyph = PageEdgeChevronGlyph(direction, _pageEdgeIconFontKind);
-        if (_pageEdgeIconFont && glyph != L'\0')
-        {
-            RECT cell = PageEdgeChevronCell(client, dpi);
-            const HGDIOBJ previousFont = SelectObject(deviceContext, _pageEdgeIconFont.get());
-            const int previousMode = SetBkMode(deviceContext, TRANSPARENT);
-            const COLORREF previousColor = SetTextColor(deviceContext, RGB(228, 236, 248));
-            (void)DrawTextW(deviceContext, &glyph, 1, &cell,
-                            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP | DT_NOPREFIX);
-            (void)SetTextColor(deviceContext, previousColor);
-            (void)SetBkMode(deviceContext, previousMode);
-            SelectObject(deviceContext, previousFont);
-        }
-    }
-    EndPaint(edge, &paint);
 }
 
 void Application::CancelPageNavigation() noexcept
@@ -2344,6 +2174,12 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
     }
     if (_raisedActive)
     {
+        if (havePosition && PointInRectInclusive(_raisedLayout.close, position))
+        {
+            // Touch or pen tap on the host-drawn close control.
+            DismissWidgetRaise(true);
+            return;
+        }
         bool consumed = false;
         if (havePosition)
         {
@@ -2391,6 +2227,12 @@ void Application::OnMouseButtonUp(HWND window, LPARAM lParam) noexcept
         return;
     }
     const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (_raisedActive && !_interactiveOwnsPointer && PointInRectInclusive(_raisedLayout.close, position))
+    {
+        // The close control is host chrome in the swap chain; the top-level window owns its click.
+        DismissWidgetRaise(true);
+        return;
+    }
     if (!_interactiveOwnsPointer && TryNavigateFromPageEdge(window, position))
     {
         CancelInteractivePointer();
@@ -2420,7 +2262,7 @@ bool Application::PointInPageEdgeBand(HWND window, POINT position) const noexcep
     }
     const RECT reachable = ReachableClientRect();
     const UINT dpi = GetDpiForWindow(window);
-    for (size_t index = 0; index < _pageEdges.size(); ++index)
+    for (size_t index = 0; index < _pageEdgeBands.size(); ++index)
     {
         const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
         const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
@@ -2947,7 +2789,7 @@ bool Application::TryNavigateFromPageEdge(HWND window, POINT position) noexcept
     const PageEdgeState state = CurrentPageEdgeState();
     const RECT reachable = ReachableClientRect();
     const UINT dpi = GetDpiForWindow(window);
-    for (size_t index = 0; index < _pageEdges.size(); ++index)
+    for (size_t index = 0; index < _pageEdgeBands.size(); ++index)
     {
         const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
         const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
@@ -3069,16 +2911,6 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
         return result;
     }
 
-    const HWND overlay =
-        CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_NOPARENTNOTIFY | WS_EX_LAYERED, kRaiseOverlayClassName, L"",
-                        WS_CHILD | WS_CLIPSIBLINGS, 0, 0, static_cast<int>(clientWidth), static_cast<int>(clientHeight),
-                        window, nullptr, _instance, this);
-    if (!overlay)
-    {
-        (void)raisedWidget->SetRaised(FALSE);
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    _raiseOverlay.reset(overlay);
     _raiseTile = tile;
     _raiseTargetPixels = SIZE{target.content.right - target.content.left, target.content.bottom - target.content.top};
     _raisedWidgetIndex = widgetIndex;
@@ -3088,8 +2920,6 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
     _activateTick = 0;
     _activateWidgetIndex = SIZE_MAX;
     _raisedLayout = target;
-    EnsureRaiseOverlayChrome(dpi);
-    ShowWindow(overlay, SW_SHOWNA);
 
     result = ApplyRaiseVisual(start, 0);
     if (FAILED(result))
@@ -3109,7 +2939,6 @@ void Application::DismissWidgetRaise(bool animate) noexcept
     const auto refreshEdges = wil::scope_exit([this]() noexcept { RefreshPageEdgeAffordances(); });
     if (!_raisedActive)
     {
-        _raiseOverlay.reset();
         return;
     }
     if (_raiseSettleActive && _raiseDismissing && animate)
@@ -3143,30 +2972,9 @@ HRESULT Application::ApplyRaiseVisual(const RaisedLayout& layout, BYTE dimAlpha)
 {
     _raisedLayout = layout;
     _raiseDimAlpha = dimAlpha;
-    if (!_window || !_raiseOverlay || !_dashboardHost || _raisedWidgetIndex == SIZE_MAX)
+    if (!_window || !_dashboardHost || _raisedWidgetIndex == SIZE_MAX)
     {
         return E_UNEXPECTED;
-    }
-    RECT client{};
-    if (!GetClientRect(_window.get(), &client) || client.right <= 0 || client.bottom <= 0)
-    {
-        return E_UNEXPECTED;
-    }
-    const UINT clientWidth = static_cast<UINT>(client.right);
-    const UINT clientHeight = static_cast<UINT>(client.bottom);
-    const BYTE windowAlpha = dimAlpha == 0 ? 1 : dimAlpha;
-    if (!SetLayeredWindowAttributes(_raiseOverlay.get(), 0, windowAlpha, LWA_ALPHA))
-    {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    const HRGN region = CreateRaisedOverlayRegion(clientWidth, clientHeight, layout.content, layout.close);
-    if (!region || !SetWindowRgn(_raiseOverlay.get(), region, FALSE))
-    {
-        if (region)
-        {
-            DeleteObject(region);
-        }
-        return HRESULT_FROM_WIN32(GetLastError());
     }
     HRESULT result = _renderer.SetRaisedOverlay(_raisedWidgetIndex, layout.content, _raiseTargetPixels);
     if (FAILED(result))
@@ -3182,8 +2990,13 @@ HRESULT Application::ApplyRaiseVisual(const RaisedLayout& layout, BYTE dimAlpha)
             return result;
         }
     }
-    SetWindowPos(_raiseOverlay.get(), HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-    InvalidateRect(_raiseOverlay.get(), nullptr, FALSE);
+    // Native containers dim with the same alpha as the Direct3D chrome; the raised container stays at full alpha.
+    result = _dashboardHost->SetNativeDimAlpha(dimAlpha, _raisedWidgetIndex);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    PushHostChrome();
     _frameInvalidated = true;
     return S_OK;
 }
@@ -3279,7 +3092,6 @@ void Application::CompleteDismissImmediate() noexcept
             (void)_dashboardHost->ClearRaisedNativeLayout(dpi);
         }
     }
-    _raiseOverlay.reset();
     _raisedActive = false;
     _raisedWidgetIndex = SIZE_MAX;
     _raisedLayout = {};
@@ -3291,8 +3103,8 @@ void Application::CompleteDismissImmediate() noexcept
     _raiseSettleFrom = {};
     _raiseSettleTo = {};
     _raiseCloseHovered = false;
-    _raiseCloseMouseTracking = false;
     _frameInvalidated = true;
+    PushHostChrome();
     if (_window && GetFocus() == _window.get() && previousKeyboardWidget != SIZE_MAX)
         (void)FocusKeyboardWidget(previousKeyboardWidget);
 }
@@ -3304,178 +3116,8 @@ void Application::SetRaiseCloseHovered(bool hovered) noexcept
         return;
     }
     _raiseCloseHovered = hovered;
-    if (_raiseOverlay)
-    {
-        InvalidateRect(_raiseOverlay.get(), nullptr, FALSE);
-    }
-}
-
-LRESULT CALLBACK Application::RaiseOverlayProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
-{
-    Application* application = reinterpret_cast<Application*>(GetWindowLongPtrW(window, GWLP_USERDATA));
-    if (message == WM_NCCREATE)
-    {
-        const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lParam);
-        application = static_cast<Application*>(create->lpCreateParams);
-        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(application));
-    }
-    if (application)
-    {
-        return application->HandleRaiseOverlayMessage(window, message, wParam, lParam);
-    }
-    return DefWindowProcW(window, message, wParam, lParam);
-}
-
-LRESULT Application::HandleRaiseOverlayMessage(HWND overlay, UINT message, WPARAM wParam, LPARAM lParam) noexcept
-{
-    switch (message)
-    {
-    case WM_THEMECHANGED:
-    case WM_SYSCOLORCHANGE:
-    case WM_SETTINGCHANGE:
-        RefreshAppearance();
-        break;
-    case WM_ERASEBKGND:
-        return 1;
-    case WM_SETCURSOR:
-        if (LOWORD(lParam) == HTCLIENT)
-        {
-            POINT cursor{};
-            if (GetCursorPos(&cursor) && ScreenToClient(overlay, &cursor) &&
-                PointInRectInclusive(_raisedLayout.close, cursor))
-            {
-                SetCursor(LoadCursorW(nullptr, IDC_HAND));
-                SetRaiseCloseHovered(true);
-            }
-            else
-            {
-                SetCursor(LoadCursorW(nullptr, IDC_ARROW));
-                SetRaiseCloseHovered(false);
-            }
-            return TRUE;
-        }
-        break;
-    case WM_MOUSEMOVE:
-    {
-        if (!_raiseCloseMouseTracking)
-        {
-            TRACKMOUSEEVENT track{sizeof(TRACKMOUSEEVENT), TME_LEAVE, overlay, 0};
-            _raiseCloseMouseTracking = TrackMouseEvent(&track) != FALSE;
-        }
-        const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-        SetRaiseCloseHovered(PointInRectInclusive(_raisedLayout.close, position));
-        return 0;
-    }
-    case WM_MOUSELEAVE:
-        _raiseCloseMouseTracking = false;
-        SetRaiseCloseHovered(false);
-        return 0;
-    case WM_PAINT:
-        PaintRaiseOverlay(overlay);
-        return 0;
-    case WM_LBUTTONUP:
-    {
-        const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-        if (PointInRectInclusive(_raisedLayout.close, position))
-        {
-            DismissWidgetRaise(true);
-        }
-        return 0;
-    }
-    case WM_POINTERUP:
-    {
-        POINT position{};
-        UINT64 qpc = 0;
-        if (TryPointerClientPosition(_window.get(), GET_POINTERID_WPARAM(wParam), position, qpc) &&
-            PointInRectInclusive(_raisedLayout.close, position))
-        {
-            DismissWidgetRaise(true);
-        }
-        return 0;
-    }
-    case WM_NCDESTROY:
-        SetWindowLongPtrW(overlay, GWLP_USERDATA, 0);
-        if (_raiseOverlay.get() == overlay)
-        {
-            (void)_raiseOverlay.release();
-        }
-        break;
-    default:
-        break;
-    }
-    return DefWindowProcW(overlay, message, wParam, lParam);
-}
-
-void Application::EnsureRaiseOverlayChrome(UINT dpi) noexcept
-{
-    const UINT effectiveDpi = dpi == 0 ? USER_DEFAULT_SCREEN_DPI : dpi;
-    if (!_raiseDimBrush)
-    {
-        _raiseDimBrush.reset(CreateSolidBrush(RGB(8, 10, 16)));
-    }
-    if (!_raiseShadowBrush)
-    {
-        _raiseShadowBrush.reset(CreateSolidBrush(RGB(0, 0, 0)));
-    }
-    if (!_raiseCloseHoverBrush)
-    {
-        _raiseCloseHoverBrush.reset(CreateSolidBrush(RGB(52, 62, 84)));
-    }
-    if (_raiseCloseFont && _raiseCloseFontDpi == effectiveDpi)
-    {
-        return;
-    }
-    const LONG closeHeight = std::max(1L, _raisedLayout.close.bottom - _raisedLayout.close.top);
-    FluentIcons::IconFont kind = FluentIcons::IconFont::TextFallback;
-    wil::unique_hfont font{FluentIcons::CreateIconFont(static_cast<int>(closeHeight), kind)};
-    if (!font)
-    {
-        return;
-    }
-    _raiseCloseFont = std::move(font);
-    _raiseCloseFontDpi = effectiveDpi;
-    _raiseCloseFontKind = kind;
-}
-
-void Application::PaintRaiseOverlay(HWND overlay) noexcept
-{
-    PAINTSTRUCT paint{};
-    const HDC deviceContext = BeginPaint(overlay, &paint);
-    if (!deviceContext)
-    {
-        return;
-    }
-    RECT client{};
-    GetClientRect(overlay, &client);
-    EnsureRaiseOverlayChrome(GetDpiForWindow(overlay));
-    if (_raiseDimBrush)
-    {
-        FillRect(deviceContext, &client, _raiseDimBrush.get());
-    }
-    if (_raiseShadowBrush && _raisedLayout.shadow.right > _raisedLayout.shadow.left)
-    {
-        FillRect(deviceContext, &_raisedLayout.shadow, _raiseShadowBrush.get());
-    }
-    const wchar_t glyph =
-        FluentIcons::SelectGlyph(_raiseCloseFontKind, FluentIcons::kClear, FluentIcons::kFallbackClear);
-    if (_raiseCloseFont && glyph != L'\0' && _raisedLayout.close.right > _raisedLayout.close.left)
-    {
-        RECT close = _raisedLayout.close;
-        if (_raiseCloseHovered && _raiseCloseHoverBrush)
-        {
-            FillRect(deviceContext, &close, _raiseCloseHoverBrush.get());
-        }
-        const HGDIOBJ previousFont = SelectObject(deviceContext, _raiseCloseFont.get());
-        const int previousMode = SetBkMode(deviceContext, TRANSPARENT);
-        const COLORREF glyphColor = _raiseCloseHovered ? RGB(255, 255, 255) : RGB(214, 220, 230);
-        const COLORREF previousColor = SetTextColor(deviceContext, glyphColor);
-        (void)DrawTextW(deviceContext, &glyph, 1, &close,
-                        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP | DT_NOPREFIX);
-        (void)SetTextColor(deviceContext, previousColor);
-        (void)SetBkMode(deviceContext, previousMode);
-        SelectObject(deviceContext, previousFont);
-    }
-    EndPaint(overlay, &paint);
+    // The close control is host chrome in the swap chain: one coalesced frame redraws its hover wash and glyph.
+    PushHostChrome();
 }
 
 void Application::OnSettingsChanged() noexcept
@@ -3567,10 +3209,9 @@ void Application::ShowSettingsError(std::wstring_view message) noexcept
         EnableWindow(_window.get(), FALSE);
         if (_accessibility)
             _accessibility->ClearViews();
-        const HWND text = CreateWindowExW(0, L"STATIC", std::wstring(message).c_str(),
-                                          WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX | SS_EDITCONTROL, 24, 20,
-                                          width - 48, 170, _settingsErrorDialog, reinterpret_cast<HMENU>(100),
-                                          _instance, nullptr);
+        const HWND text = CreateWindowExW(
+            0, L"STATIC", std::wstring(message).c_str(), WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX | SS_EDITCONTROL,
+            24, 20, width - 48, 170, _settingsErrorDialog, reinterpret_cast<HMENU>(100), _instance, nullptr);
         const HWND button =
             CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, width - 120, height - 78, 80,
                             28, _settingsErrorDialog, reinterpret_cast<HMENU>(IDOK), _instance, nullptr);
@@ -3997,13 +3638,13 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
                 _pageEdgeMouseTracking = TrackMouseEvent(&track) != FALSE;
             }
             UpdatePageEdgeHover();
+            SetRaiseCloseHovered(
+                _raisedActive &&
+                PointInRectInclusive(_raisedLayout.close, POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}));
         }
         return 0;
     case kPageEdgeHoverMessage:
         UpdatePageEdgeHover();
-        return 0;
-    case kPageEdgeNavigateMessage:
-        (void)NavigateToAdjacentPage(static_cast<int>(wParam));
         return 0;
     case WM_SETCURSOR:
         if (LOWORD(lParam) == HTCLIENT)
@@ -4011,10 +3652,15 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             POINT cursor{};
             if (GetCursorPos(&cursor) && ScreenToClient(window, &cursor))
             {
+                if (_raisedActive && PointInRectInclusive(_raisedLayout.close, cursor))
+                {
+                    SetCursor(LoadCursorW(nullptr, IDC_HAND));
+                    return TRUE;
+                }
                 const PageEdgeState state = CurrentPageEdgeState();
                 const RECT reachable = ReachableClientRect();
                 const UINT dpi = GetDpiForWindow(window);
-                for (size_t index = 0; index < _pageEdges.size(); ++index)
+                for (size_t index = 0; index < _pageEdgeBands.size(); ++index)
                 {
                     const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
                     const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
@@ -4029,8 +3675,10 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         break;
     case WM_MOUSELEAVE:
         _pageEdgeMouseTracking = false;
-        // Entering a band is also a leave for the parent, so re-test the cursor instead of hiding unconditionally.
+        // Entering a native container is also a leave for the parent, so re-test the cursor instead of hiding
+        // unconditionally.
         UpdatePageEdgeHover();
+        SetRaiseCloseHovered(false);
         return 0;
     case WM_CANCELMODE:
     case WM_KILLFOCUS:

@@ -115,11 +115,9 @@ class LiveView final
     DxUi::Label* _profileCaption = nullptr;
     uint64_t _accessibilityIdentity = 0;
     std::array<DxUi::Toggle*, 3> _toggles{};
-    std::array<DxUi::Label*, 3> _toggleNames{}, _toggleStates{};
-    std::array<DxUi::Label*, 3> _devices{};
+    std::array<DxUi::Label*, 3> _toggleIcons{}, _toggleNames{};
     std::array<DxUi::CardPanel*, 2> _levelCards{};
-    std::array<DxUi::Label*, 2> _levels{};
-    std::array<DxUi::Label*, 2> _levelValues{};
+    std::array<DxUi::Label*, 2> _levelIcons{}, _levelValues{};
     std::array<DxUi::Slider*, 2> _sliders{};
     void Build();
     void ApplyTheme();
@@ -132,5 +130,6 @@ class LiveView final
     {
         return index ? _state.microphone : _state.output;
     }
+    [[nodiscard]] const wchar_t* DeviceName(size_t index) const noexcept;
 };
 } // namespace AVControl

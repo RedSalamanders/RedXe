@@ -60,6 +60,14 @@ inline constexpr std::array kRedXeBundledWidgets{
     RedXeBundledWidgetSpec{"builtin.av-control", "av-control"},
 };
 
+// Bundled, settings-visible, documented, and test-covered widgets that no shipped template places. A native-window
+// widget's child HWND sits over the swap chain and forces composed presentation for the whole window while it is
+// placed, so the shipped pages stay HWND-free and the native-window example is opt-in (Core_Settings.md template
+// coverage exception).
+inline constexpr std::array kRedXeOptInBundledWidgetIds{
+    "builtin.gdi-orbit",
+};
+
 template <typename Character>
 consteval bool RedXeBundledTextEquals(const Character* left, const Character* right) noexcept
 {
@@ -92,6 +100,19 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
             {
                 return false;
             }
+        }
+    }
+
+    for (const char* optIn : kRedXeOptInBundledWidgetIds)
+    {
+        bool catalogued = false;
+        for (const RedXeBundledWidgetSpec& widget : kRedXeBundledWidgets)
+        {
+            catalogued = catalogued || RedXeBundledTextEquals(optIn, widget.pluginId);
+        }
+        if (!catalogued)
+        {
+            return false;
         }
     }
 

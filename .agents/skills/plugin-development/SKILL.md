@@ -75,9 +75,10 @@ Preserve these boundaries:
   floor, inset panel chrome 4 px with at least 12 px interior padding, color utilization and temperature values by
   healthy/warn/hot intent, hide network interfaces that stay at 0 B/s for eight samples, display Celsius as `°C`,
   format byte and rate values as one-decimal 1000-based KB/MB/GB/TB (or `/s`), show process working set rather than
-  unlabeled PID, keep storage used/total above a used-percent-sorted capacity track, draw progress troughs near the
+  unlabeled PID (PID 0 is `System Idle Process`), keep storage used/total above a used-percent-sorted capacity track, draw progress troughs near the
   panel with fill matching KPI intent color, sit network and memory bars under their text, keep thermal names above
-  the level track, and join `gpu.process` names from `process.list` without adding a new dataset ID. While
+  the level track, and join `gpu.process` names from `process.list` without adding a new dataset ID. Omitted ranked
+  rows and adapters draw bottom-right `+N` and page with one-finger swipe or wheel. While
   `SetRaised(TRUE)`, System Data viewers use Standard density so overlay content can show every row that `topN` allows.
   Raised System Pulse also fills leftover height with a physical-memory bar and CPU history. Weather follows
   `Specs/Plugins/Plugins_Weather.md`: configured city wins; empty city resolves once in a disposable helper and the
