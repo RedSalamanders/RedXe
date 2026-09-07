@@ -28,6 +28,7 @@ struct LiveLayout final
     Rect profileSelector;
     std::array<Rect, 3> toggles{};
     std::array<Rect, 2> levelPanels{};
+    std::array<Rect, 2> levelMutes{};
     std::array<Rect, 2> sliders{};
     float labelFont = 14;
     float stateFont = 16;
