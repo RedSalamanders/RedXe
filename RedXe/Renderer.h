@@ -1,17 +1,19 @@
 #pragma once
 
+#include "AdapterSelection.h"
 #include "PlugInterfaces/Widget.h"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <d3d11_1.h>
-#include <dxgi1_2.h>
+#include <dxgi1_3.h>
 #include <windows.h>
 
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027 28182)
 #include <wil/com.h>
+#include <wil/resource.h>
 #pragma warning(pop)
 
 class DashboardHost;
@@ -20,6 +22,17 @@ class Renderer final
 {
   public:
     static constexpr UINT kOcclusionStatusMessage = WM_APP + 1;
+
+    // Identity of the live Direct3D device, logged as the `device-created` JSONL record and probed by tests.
+    struct DeviceIdentity final
+    {
+        LUID adapterLuid{};
+        bool warp = false;
+        // True when the adapter was chosen because one of its outputs scans out the window's monitor. False on the
+        // default-adapter fallback (window off every monitor, hidden test window) and on WARP.
+        bool adapterOwnsWindowMonitor = false;
+        std::array<wchar_t, 128> adapterName{};
+    };
 
     Renderer() = default;
     ~Renderer();
@@ -48,6 +61,13 @@ class Renderer final
         _appearance = appearance;
     }
     HRESULT ProbeOcclusion() noexcept;
+    // Rebuilds the device on the adapter that now owns the window's monitor. S_OK after a rebuild, S_FALSE when the
+    // device already sits on that adapter (or the window is off every monitor, or WARP is forced), failure otherwise.
+    HRESULT EnsureDeviceForWindowMonitor() noexcept;
+    [[nodiscard]] DeviceIdentity DeviceInfo() const noexcept;
+    // Frame-latency waitable object of the swap chain (maximum latency one). The UI thread waits on it before
+    // building a frame so Present never blocks; null before device creation.
+    [[nodiscard]] HANDLE FrameLatencyWaitableObject() const noexcept;
     [[nodiscard]] bool IsSuspended() const noexcept;
     [[nodiscard]] bool IsOccluded() const noexcept;
     [[nodiscard]] size_t LastFrameWidgetCount() const noexcept;
@@ -69,6 +89,10 @@ class Renderer final
 
     HRESULT CreateDeviceResources() noexcept;
     HRESULT CreateDevice(bool useWarp) noexcept;
+    // Adapter-of-output lookup for `monitor`: the hardware adapter with an output on that monitor, or ERROR_NOT_FOUND.
+    static HRESULT FindAdapterForMonitor(HMONITOR monitor, wil::com_ptr_nothrow<IDXGIAdapter1>& adapter,
+                                         LUID& adapterLuid) noexcept;
+    void RecordDeviceIdentity(bool warp, bool adapterOwnsWindowMonitor) noexcept;
     HRESULT CreateSwapChain() noexcept;
     HRESULT CreateRenderTarget(UINT width, UINT height) noexcept;
     HRESULT UpdateCachedViewports() noexcept;
@@ -126,6 +150,10 @@ class Renderer final
     wil::com_ptr_nothrow<IDXGIFactory2> _factory;
     wil::com_ptr_nothrow<IDXGISwapChain1> _swapChain;
     wil::com_ptr_nothrow<ID3D11RenderTargetView> _renderTarget;
+    wil::unique_handle _frameLatencyWaitable;
+    DeviceIdentity _deviceInfo{};
+    // Monitor the device was matched against; null on the default-adapter fallback.
+    HMONITOR _deviceMonitor = nullptr;
     DWORD _occlusionStatusCookie = 0;
     bool _occlusionStatusRegistered = false;
 };

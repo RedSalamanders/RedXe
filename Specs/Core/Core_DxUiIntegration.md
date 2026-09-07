@@ -1,7 +1,7 @@
 # DxUi integration
 
 Status: current normative consumer contract
-Last reviewed: 2026-09-06
+Last reviewed: 2026-09-07
 
 This contract owns how RedXe consumes the standalone DxUi library: the exact source pin, restore/build isolation,
 which process modules link `DxUi.lib`, and the COM/POD boundary that keeps DxUi C++ objects inside those modules.
@@ -16,6 +16,13 @@ revision 2, and lock target `["DxUi"]`. `build.ps1` runs `restore-dxui.ps1` for 
 that exact commit under `.build/dependencies/DxUi/source/<commit>` and isolates vcpkg/library outputs under a
 fingerprint that includes commit, API revision, toolset, SDK and CRT. It never checks out, resets, or edits a sibling
 `DxUi` working tree. A mismatched or dirty pin fails the consumer restore.
+
+The pinned library (commit `6051a8cf…`, DxUi branch `perf/embedded-surface-lifetime`) releases the cached surface
+of a hidden or zero-extent `EmbeddedHost`, marks a view dirty only through control invalidation, and bounds its
+solid-brush and configured-text-format caches (256 and 96 entries, reported through `EmbeddedStatistics`). Consumers
+rely on `SetVisible(false)` alone to drop a hidden tile's or an unraised overlay's surface; the next sized `Prepare`
+reallocates exactly one surface. The resource consequences for RedXe are owned by
+[`Core_PerformanceAndResources.md`](Core_PerformanceAndResources.md).
 
 `RedXe`, `AVControl`, and `AVControlTests` import `Build/RedXe.DxUi.props` / `.targets`, which reference
 `src/DxUi.vcxproj` once. Project references keep Configuration/Platform; they do not enumerate library `.cpp` files.

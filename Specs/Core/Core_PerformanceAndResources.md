@@ -50,6 +50,12 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   Per-slot in-flight counters and fixed delivery arrays preserve the 32-subscription bound without heap allocation.
   Widgets MUST be quiescent before GPU teardown. Worker-side GPU lifetime checks and access share the resource lock;
   an atomic ownership flag alone is insufficient to protect a device resource.
+- A DxUi `EmbeddedHost` that is hidden or has zero extent holds no cached surface, and it becomes dirty only through
+  control invalidation, never merely because the host ticked it (library contract at the pinned DxUi commit). AV
+  therefore holds no tile surface while the widget is hidden and no overlay surface while it is not raised; a settled
+  unraised AV widget reports `surfaceBytes` equal to the tile extent × 4, a hidden one reports 0, and showing it again
+  costs exactly one surface allocation. The library bounds its solid-brush cache to 256 entries and its configured
+  text-format cache to 96, reported through `EmbeddedStatistics`.
 - Launcher uses two fixed geometry entries for the tile and overlay. Each entry stores dimensions, paging, `iconSize`,
   and 32 cell rects. Their combined payload plus an 8-byte index preserves both draw geometries and avoids repeated
   grid derivation when settled; alternating WARP draws MUST allocate zero heap memory. Animated overlay sizes recompute
@@ -69,7 +75,20 @@ or state change is pending. Normal operating-system scheduling noise is outside 
 - After `Present` reports occlusion, RedXe must stop frame construction, wait for the DXGI factory's registered
   occlusion-status window message, and use `DXGI_PRESENT_TEST` to detect recovery without presenting content.
   Occlusion polling and periodic timers are prohibited.
-- The single host swap chain uses a maximum frame latency of one so the CPU does not queue unnecessary frames.
+- Adapter of output: the Direct3D device is created on the hardware adapter whose output scans out the monitor the
+  main window sits on, never on the default adapter while a matching output exists. When the window moves to a
+  monitor scanned out by another adapter (move, size/move end, DPI change, or display-topology change), the host
+  rebuilds the device on that adapter through the device-loss path, so widgets see `OnDeviceLost`/`OnDeviceCreated`
+  exactly once. Presentation MUST NOT cross adapters through DWM. A window that sits on no monitor (hidden test host)
+  keeps the default-adapter path, and forced WARP never re-checks. Every device creation logs one `device-created`
+  JSONL record with adapter name, LUID, driver type, and whether that adapter owns the window's monitor; nothing is
+  logged per frame. The selection policy (`RedXeSelectAdapterRecordForMonitor`) is a pure function over flattened
+  adapter/output records so it is testable without a display topology.
+- The single host swap chain is created with `DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT` and a maximum
+  frame latency of one on the swap chain (`ResizeBuffers` keeps the flag). Before building a frame the UI thread waits
+  on the frame-latency waitable object together with the message queue, so a free back buffer is consumed
+  immediately, pending input is dispatched before the frame is built, and `Present` never blocks the UI thread. The
+  idle wait is unchanged: a settled page still blocks on the message queue alone.
 - Static pages must render only after explicit invalidation. Resize, DPI, settings changes that alter the active
   runtime, `WM_PAINT`, show/display recovery, and occlusion/device recovery invalidate one coalesced frame. Mouse,
   cursor, keyboard, native-child timer, and other unrelated dispatched messages MUST NOT cause a host `Present`.
@@ -155,6 +174,19 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   current-page widget so dimmed tiles stay live, then submits one extra draw for a raised GPU widget at the overlay
   slice. The extra draw is required so the focused plugin can show more information without freezing the rest of the
   dashboard.
+
+Measured 2026-09-07 on the reference machine (XENEON EDGE on the AMD iGPU, primary 4K display on an NVIDIA RTX 5080,
+Ryzen 9 9950X3D, one fresh process per row, `D3D11CreateDevice` only): a device on the RTX 5080 adds 37 threads and
+53 MiB of private bytes with 200 MiB of driver images; a device on the AMD iGPU adds 32 threads and 22–26 MiB with
+48 MiB of images; WARP adds no thread and 1.5 MiB. `D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS`
+changes neither driver and is not used. Before the adapter-of-output rule the live Release process created its device
+on the default adapter (the RTX 5080) while the window sat on the AMD-driven XENEON, so it carried both driver stacks
+(147 threads, 153 MiB private bytes after visiting the three shipped pages) and DXGI copied every 2560×720 frame
+across adapters; that is the justification for the rule above. With the rule in place the same Release build launched
+on the XENEON creates its device on the AMD iGPU (`device-created`: LUID 0001C3CC, adapter owns window monitor: yes),
+maps only `amdxx64.dll`, appears on one adapter LUID in the GPU counters, and after 10 s on Matrix Focus holds 40 MiB
+of private bytes, 62 MiB of working set, and 42 threads. Moving the Debug titled window onto the RTX 5080 display and
+back rebuilt the device on each adapter in turn without failure (receipt: `.build/receipts/2026-09-07-adapter-of-output.md`).
 
 The measured baseline System Data source is an accepted bounded local pull source. Its fixed x64 source object is
 786,936 bytes and owns no worker or timer. Three Release row-cap runs of the production per-process row path, using
@@ -268,6 +300,13 @@ observable resource benefit are not required.
   input MUST NOT contain an any-message redraw proxy.
 - `HostPluginTests` MUST also prove raised-overlay geometry, Process Viewer half-width raise while sibling tiles still
   draw, no continuous wake from that raise, and GdiOrbit container move/restore, using the same hidden WARP host.
+- `HostPluginTests` MUST prove the adapter-of-output decision table (`RedXeSelectAdapterRecordForMonitor`: the
+  hardware adapter owning the monitor wins, software adapters never own a monitor, a null or unmapped monitor keeps
+  the default adapter) and, on the hidden WARP host, that the renderer reports a software device identity, exposes a
+  frame-latency waitable object signaled before the first frame and again after a presented frame, keeps it across a
+  resize, and releases it at shutdown. A live launch on the XENEON MUST show one `device-created` record naming the
+  adapter that owns that monitor, and the process MUST appear on exactly one adapter LUID in the `GPU Engine` and
+  `GPU Process Memory` counters.
 - Changes to the acquisition of operating-system visibility, power, or DXGI occlusion signals that are not represented
   by the scheduler decision seam additionally require a live check that inactive windows do not spin and recovery
   resumes rendering.

@@ -632,6 +632,115 @@ void TestWidgetRaiseNative(bool& success) noexcept
     dashboard.Shutdown();
 }
 
+// Adapter-of-output policy: the device must be created on the GPU whose output scans out the window's monitor. The
+// policy is a pure function over flattened DXGI records, so the decision table runs without a display topology.
+void TestAdapterSelectionPolicy(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] adapter-of-output selection policy\n";
+    const HMONITOR xeneon = reinterpret_cast<HMONITOR>(static_cast<uintptr_t>(0x1001));
+    const HMONITOR primary = reinterpret_cast<HMONITOR>(static_cast<uintptr_t>(0x1002));
+    const HMONITOR unmapped = reinterpret_cast<HMONITOR>(static_cast<uintptr_t>(0x1003));
+    const LUID discrete{0x1AE51, 0};
+    const LUID integrated{0x1C3CC, 0};
+    const LUID software{0x1C38F, 0};
+    const std::array<RedXeAdapterOutputRecord, 4> records{{
+        {discrete, primary, false},
+        {integrated, xeneon, false},
+        {software, xeneon, true},
+        {software, primary, true},
+    }};
+    Check(RedXeSelectAdapterRecordForMonitor(records, xeneon) == 1,
+          L"the hardware adapter whose output owns the window's monitor is selected", success);
+    Check(RedXeSelectAdapterRecordForMonitor(records, primary) == 0,
+          L"a monitor on the other adapter selects that adapter", success);
+    Check(RedXeSelectAdapterRecordForMonitor(records, nullptr) == SIZE_MAX,
+          L"a window on no monitor keeps the default adapter", success);
+    Check(RedXeSelectAdapterRecordForMonitor(records, unmapped) == SIZE_MAX,
+          L"a monitor DXGI cannot map keeps the default adapter", success);
+    const std::array<RedXeAdapterOutputRecord, 1> softwareOnly{{{software, xeneon, true}}};
+    Check(RedXeSelectAdapterRecordForMonitor(softwareOnly, xeneon) == SIZE_MAX,
+          L"a software adapter never owns a monitor", success);
+    Check(RedXeSelectAdapterRecordForMonitor({}, xeneon) == SIZE_MAX, L"no outputs selects nothing", success);
+    Check(RedXeSameLuid(discrete, discrete) && !RedXeSameLuid(discrete, integrated) &&
+              !RedXeSameLuid(LUID{1, 2}, LUID{1, 3}),
+          L"adapter identity compares both LUID halves", success);
+}
+
+// The production renderer on the hidden WARP host: device identity is reported, the swap chain owns a frame-latency
+// waitable object (maximum latency one) that is signaled before the first frame and again after a presented frame,
+// and the adapter re-check is a no-op on WARP and on a window that sits on no monitor.
+void TestRendererDeviceIdentity(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] renderer device identity and frame-latency waitable object\n";
+    AttachedHostWindow window;
+    HRESULT result = window.Initialize(kHostWidth, kHostHeight);
+    Check(SUCCEEDED(result), L"hidden host window initializes for the device identity test", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+    PluginManager plugins;
+    AppSettings releaseSettings{};
+    result = LoadDeployedSettings(kRedXeReleaseSettingsFileName, releaseSettings);
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(releaseSettings);
+    }
+    Check(SUCCEEDED(result), L"Release composition initializes for the device identity test", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+    DashboardHost dashboard;
+    result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    Check(SUCCEEDED(result), L"dashboard initializes for the device identity test", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+    Renderer renderer;
+    Check(renderer.FrameLatencyWaitableObject() == nullptr, L"no waitable object exists before device creation",
+          success);
+    result = renderer.Initialize(window.Get(), true, dashboard);
+    Check(SUCCEEDED(result), L"renderer initializes on WARP for the device identity test", success);
+    if (FAILED(result))
+    {
+        dashboard.Shutdown();
+        return;
+    }
+    const Renderer::DeviceIdentity identity = renderer.DeviceInfo();
+    Check(identity.warp && !identity.adapterOwnsWindowMonitor,
+          L"forced WARP reports a software device that owns no window monitor", success);
+    Check(identity.adapterName[0] != L'\0', L"the device identity carries the adapter name", success);
+    const HANDLE waitable = renderer.FrameLatencyWaitableObject();
+    Check(waitable != nullptr, L"the swap chain exposes its frame-latency waitable object", success);
+    Check(waitable && WaitForSingleObject(waitable, 0) == WAIT_OBJECT_0,
+          L"a free back buffer is signaled before the first frame", success);
+    Check(renderer.EnsureDeviceForWindowMonitor() == S_FALSE,
+          L"the adapter re-check keeps a forced WARP device", success);
+    result = renderer.Render(0.0f, 0.0f);
+    Check(SUCCEEDED(result), L"hidden host presents one frame through the waitable swap chain", success);
+    Check(waitable && WaitForSingleObject(waitable, 2000) == WAIT_OBJECT_0,
+          L"the waitable object signals again once the presented frame is consumed", success);
+    Check(renderer.FrameLatencyWaitableObject() == waitable,
+          L"the waitable object is stable across frames", success);
+    result = dashboard.Resize(kHostWidth / 2, kHostHeight, window.Dpi());
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Resize(kHostWidth / 2, kHostHeight);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(1.0f, 1.0f / 60.0f);
+    }
+    Check(SUCCEEDED(result) && renderer.FrameLatencyWaitableObject() != nullptr,
+          L"resizing keeps the waitable swap chain flag", success);
+    renderer.Shutdown();
+    Check(renderer.FrameLatencyWaitableObject() == nullptr && !renderer.DeviceInfo().warp,
+          L"shutdown releases the waitable object and clears the device identity", success);
+    dashboard.Shutdown();
+}
+
 void TestReleaseHostIntegration(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] Release Matrix plugin and production host integration\n";
@@ -3733,6 +3842,8 @@ int wmain(int argumentCount, wchar_t** arguments)
     PluginHost::Instance().SetNetworkAccessEnabled(false);
     PluginHost::Instance().SetControlAccessEnabled(false);
     TestFrameScheduler(success);
+    TestAdapterSelectionPolicy(success);
+    TestRendererDeviceIdentity(success);
     TestPageSwipePolicy(success);
     TestWidgetRaisePolicy(success);
     TestWidgetRaiseHost(success);

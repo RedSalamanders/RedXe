@@ -20,8 +20,15 @@ their plugin projects.
   and never call `Release()` manually. Apply the `wil-raii` skill when ownership changes.
 - Keep device resources and size-dependent resources distinct. A resize replaces the render target; device loss rebuilds
   the device, swap chain, pipeline, buffers, and target as one coherent operation.
-- Use a two-buffer flip-model swap chain. Keep `DXGI_MWA_NO_ALT_ENTER` unless the project adds an explicit fullscreen
-  policy.
+- Create the device on the adapter whose output owns the window's monitor (`RedXe/AdapterSelection.h` policy,
+  `Renderer::FindAdapterForMonitor`), never on the default adapter while a matching output exists; a window on no
+  monitor or forced WARP keeps the default path. Rebuild through `CreateDeviceResources` when the window moves to a
+  monitor of another adapter (`Renderer::EnsureDeviceForWindowMonitor`), and log one `device-created` record per
+  creation.
+- Use a two-buffer flip-model swap chain created with `DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT` and a
+  swap-chain maximum frame latency of one; pass the same flag to `ResizeBuffers`. The UI thread waits on the
+  frame-latency waitable object together with the message queue before building a frame, so `Present` never blocks.
+  Keep `DXGI_MWA_NO_ALT_ENTER` unless the project adds an explicit fullscreen policy.
 - Treat zero width or height as suspended rendering.
 - Handle `DXGI_ERROR_DEVICE_REMOVED`, `DXGI_ERROR_DEVICE_RESET`, and `DXGI_ERROR_DRIVER_INTERNAL_ERROR` by recreating
   resources. Do not log handled occlusion as an error.

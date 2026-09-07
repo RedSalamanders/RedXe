@@ -77,6 +77,9 @@
     <ClInclude Include="PluginManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="AdapterSelection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="Renderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>

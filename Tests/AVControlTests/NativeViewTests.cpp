@@ -300,13 +300,19 @@ uint32_t RunNativeViewTests()
           "AV 1000 steady frames reuse the prepared surface");
     Check(view.Composite(gpu.context.get(), {-80, 0, 640, 360, 0, 1}) == S_OK,
           "AV supports partially offscreen page swipe");
+    Check(steady.surfaceBytes == 640ull * 360 * 4, "AV visible tile holds exactly its extent as surface bytes");
     view.SetVisible(false);
     const auto hidden = view.Statistics();
+    Check(hidden.surfaceBytes == 0, "AV hidden view releases its surface");
     Check(view.Prepare(640, 360, 96) == S_FALSE && !view.Pointer({DxUi::PointerAction::Down, 20, 90}),
           "AV hidden view does no preparation or input");
-    Check(view.Statistics().preparations == hidden.preparations, "AV hidden preparation count unchanged");
+    Check(view.Statistics().preparations == hidden.preparations && view.Statistics().surfaceBytes == 0,
+          "AV hidden preparation count unchanged and no surface is recreated while hidden");
     view.SetVisible(true);
     Hr(view.Prepare(640, 360, 96), "AV visible restore");
+    Check(view.Statistics().surfaceBytes == 640ull * 360 * 4 &&
+              view.Statistics().surfaceAllocations == hidden.surfaceAllocations + 1,
+          "AV visible restore reallocates exactly one surface at the tile extent");
     state.output.availability = Availability::Missing;
     view.SetState(state, L"Custom", 0);
     Hr(view.Prepare(640, 360, 96), "AV missing endpoint state");

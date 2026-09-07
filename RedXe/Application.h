@@ -80,6 +80,12 @@ class Application final
     void RefreshScheduledFrameDeadline() noexcept;
     void ClearScheduledFrameDeadline() noexcept;
     bool WaitUntilMessage() noexcept;
+    // Waits for a free swap-chain back buffer before a frame is built. Returns false when a message arrived first,
+    // so the loop dispatches input before rendering instead of blocking inside Present.
+    bool WaitForFrameLatency() noexcept;
+    // Adapter-of-output: after a move, size/move end, DPI change, or display-topology change, rebuild the device
+    // when the window's monitor is now scanned out by another GPU.
+    void CheckDeviceAdapter() noexcept;
     LRESULT HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
     LRESULT OnSize(HWND window, UINT width, UINT height) noexcept;
     LRESULT OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBounds) noexcept;

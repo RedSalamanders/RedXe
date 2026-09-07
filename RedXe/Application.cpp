@@ -768,6 +768,12 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             continue;
         }
 
+        if (!WaitForFrameLatency())
+        {
+            // Input arrived while a back buffer was still in flight: dispatch it before building the frame.
+            continue;
+        }
+
         const std::chrono::duration<float> elapsed = std::chrono::steady_clock::now() - startTime;
         const float elapsedSeconds = elapsed.count();
         const float deltaSeconds = elapsedSeconds - previousElapsedSeconds;
@@ -3638,6 +3644,51 @@ bool Application::WaitUntilMessage() noexcept
     return false;
 }
 
+bool Application::WaitForFrameLatency() noexcept
+{
+    const HANDLE waitable = _renderer.FrameLatencyWaitableObject();
+    if (!waitable)
+    {
+        return true;
+    }
+    // Handles are checked before the message queue, so a free buffer always wins over pending input; pending input
+    // only defers the frame while the previous one is still being consumed.
+    const DWORD waitResult = MsgWaitForMultipleObjectsEx(1, &waitable, INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    if (waitResult == WAIT_OBJECT_0)
+    {
+        return true;
+    }
+    if (waitResult == WAIT_OBJECT_0 + 1)
+    {
+        return false;
+    }
+    const DWORD error = waitResult == WAIT_FAILED ? GetLastError() : ERROR_INVALID_DATA;
+    _runtimeFailure = error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
+    CloseMainWindow();
+    return false;
+}
+
+void Application::CheckDeviceAdapter() noexcept
+{
+    if (!_rendererReady || !_window)
+    {
+        return;
+    }
+    const HRESULT result = _renderer.EnsureDeviceForWindowMonitor();
+    if (result == S_OK)
+    {
+        ClearScheduledFrameDeadline();
+        _frameInvalidated = true;
+        return;
+    }
+    if (FAILED(result))
+    {
+        _runtimeFailure = result;
+        OutputDebugStringW(L"Direct3D device could not follow the window to its new adapter.\n");
+        PostMessageW(_window.get(), WM_CLOSE, 0, 0);
+    }
+}
+
 bool Application::DashboardRequiresContinuousFrames() const noexcept
 {
     return (_dashboardHost && _dashboardHost->RequiresContinuousFrames()) ||
@@ -3836,7 +3887,15 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case WM_SIZE:
         return OnSize(window, LOWORD(lParam), HIWORD(lParam));
     case WM_DPICHANGED:
-        return OnDpiChanged(window, LOWORD(wParam), reinterpret_cast<const RECT*>(lParam));
+    {
+        const LRESULT dpiResult = OnDpiChanged(window, LOWORD(wParam), reinterpret_cast<const RECT*>(lParam));
+        CheckDeviceAdapter();
+        return dpiResult;
+    }
+    case WM_EXITSIZEMOVE:
+    case WM_DISPLAYCHANGE:
+        CheckDeviceAdapter();
+        break;
     case WM_SHOWWINDOW:
         _windowVisible = wParam != FALSE;
         ClearScheduledFrameDeadline();
@@ -4001,6 +4060,7 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case WM_MOVE:
         if (_textClient)
             RefreshTextServices(true);
+        CheckDeviceAdapter();
         break;
     case WM_KEYDOWN:
         if (ForwardWidgetKey(static_cast<uint32_t>(wParam), true))

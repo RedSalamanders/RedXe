@@ -88,6 +88,14 @@ the repository test entrypoint MUST validate the version fields without desktop 
 - `Renderer` MUST register `Application` for DXGI factory occlusion-status window messages. After presentation reports
   full occlusion, RedXe MUST block until that notification and then issue `DXGI_PRESENT_TEST` without building a
   frame. It resumes rendering only after that test succeeds.
+- Adapter of output: `Renderer` MUST create the Direct3D device on the hardware adapter whose DXGI output scans out
+  the monitor returned by `MonitorFromWindow` for the top-level window, so a XENEON attached to an integrated GPU is
+  driven by that GPU and never through a cross-adapter DWM copy. `Application` MUST re-check that adapter on
+  `WM_MOVE`, `WM_EXITSIZEMOVE`, `WM_DISPLAYCHANGE`, and after `WM_DPICHANGED`; when the window's monitor is now scanned
+  out by another adapter, `Renderer` rebuilds the device on it through the device-loss path. A window on no monitor
+  (the hidden self-test and test hosts) uses the default adapter; forced WARP never re-checks. Each device creation
+  logs one `device-created` record. The policy and its budgets are owned by
+  `Specs/Core/Core_PerformanceAndResources.md`.
 - Escape and `WM_CLOSE` close the application through the HWND owner.
 - Fullscreen selection and DPI policy belong to `Application`; swap-chain sizing and presentation belong to
   `Renderer`.
@@ -109,6 +117,13 @@ onto a native landscape XENEON is green only when the final client rectangle is 
 
 Debug placement changes additionally require a live launch with an active XENEON. The initial outer window origin
 MUST equal the detected XENEON `rcMonitor` origin, and `MonitorFromWindow` MUST resolve the window to that monitor.
+
+Adapter-selection changes additionally require a live launch on a machine whose XENEON is attached to a different
+GPU than the primary display: the `device-created` log record MUST name the adapter that owns the XENEON with
+`adapter owns window monitor: yes`, the process MUST appear on exactly one adapter LUID in the `GPU Engine` and
+`GPU Process Memory` counters, and dragging the Debug titled window onto a monitor of the other GPU and back MUST
+produce two further `device-created` records with different LUIDs and no visible failure. `HostPluginTests` proves
+the pure decision table and the hidden WARP identity without a display topology.
 
 The Release missing-display prompt MUST be checked manually when no matching display is active. The hidden self-test
 MUST remain noninteractive in both configurations and MUST verify the top-level `WS_CLIPCHILDREN` style.

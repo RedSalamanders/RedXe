@@ -221,7 +221,10 @@ publisher signature. Installed-route and distributable-package acceptance remain
 
 The native WARP test generates all ten reviewed size captures below `.build/test-artifacts/AVControl`, exercises
 committed/canceled/external-revision pointer gestures, hidden input, negative viewport origins, and 1,000 composites
-without new preparations or surface allocations. Broker tests cover explicit synthetic inventory, mute-preserving
+without new preparations or surface allocations. It also proves the pinned DxUi surface lifetime from the consumer
+side: a visible tile reports `surfaceBytes` equal to its extent × 4, a hidden view reports 0 and recreates nothing
+while hidden, and showing it again reallocates exactly one surface. The same library rule releases the overlay
+surface whenever the widget is not raised, so a settled unraised widget holds only its tile surface. Broker tests cover explicit synthetic inventory, mute-preserving
 level readback, stale commands, malformed replies, crash, timeout, cancellation, partial startup cleanup and no orphan
 child. Idle synthetic helper CPU must remain below 5 ms over a 120 ms observation. Automated tests never open a real
 camera or change actual audio defaults, levels or mute.

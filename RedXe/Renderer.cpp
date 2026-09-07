@@ -6,7 +6,16 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <span>
 #include <utility> // namespace
+
+namespace
+{
+constexpr UINT kSwapChainFlags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+constexpr size_t kMaximumEnumeratedAdapters = 8;
+constexpr size_t kMaximumEnumeratedOutputs = 32;
+} // namespace
 
 Renderer::~Renderer()
 {
@@ -324,6 +333,105 @@ HRESULT Renderer::CreateDeviceResources() noexcept
     return result;
 }
 
+HRESULT Renderer::FindAdapterForMonitor(HMONITOR monitor, wil::com_ptr_nothrow<IDXGIAdapter1>& adapter,
+                                        LUID& adapterLuid) noexcept
+{
+    adapter.reset();
+    adapterLuid = {};
+    if (!monitor)
+    {
+        return E_INVALIDARG;
+    }
+    wil::com_ptr_nothrow<IDXGIFactory1> factory;
+    const HRESULT factoryResult = CreateDXGIFactory1(IID_PPV_ARGS(factory.put()));
+    if (FAILED(factoryResult))
+    {
+        return factoryResult;
+    }
+
+    // Bounded enumeration; the policy itself is the pure function in AdapterSelection.h, tested without DXGI.
+    std::array<wil::com_ptr_nothrow<IDXGIAdapter1>, kMaximumEnumeratedAdapters> adapters;
+    std::array<RedXeAdapterOutputRecord, kMaximumEnumeratedOutputs> records{};
+    std::array<size_t, kMaximumEnumeratedOutputs> recordAdapters{};
+    size_t recordCount = 0;
+    for (UINT adapterIndex = 0; adapterIndex < adapters.size(); ++adapterIndex)
+    {
+        wil::com_ptr_nothrow<IDXGIAdapter1> candidate;
+        if (factory->EnumAdapters1(adapterIndex, candidate.put()) != S_OK)
+        {
+            break;
+        }
+        DXGI_ADAPTER_DESC1 description{};
+        if (FAILED(candidate->GetDesc1(&description)))
+        {
+            continue;
+        }
+        const bool software = (description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
+        for (UINT outputIndex = 0; recordCount < records.size(); ++outputIndex)
+        {
+            wil::com_ptr_nothrow<IDXGIOutput> output;
+            if (candidate->EnumOutputs(outputIndex, output.put()) != S_OK)
+            {
+                break;
+            }
+            DXGI_OUTPUT_DESC outputDescription{};
+            if (FAILED(output->GetDesc(&outputDescription)))
+            {
+                continue;
+            }
+            records[recordCount] =
+                RedXeAdapterOutputRecord{description.AdapterLuid, outputDescription.Monitor, software};
+            recordAdapters[recordCount] = adapterIndex;
+            ++recordCount;
+        }
+        adapters[adapterIndex] = std::move(candidate);
+    }
+
+    const size_t selected = RedXeSelectAdapterRecordForMonitor(
+        std::span<const RedXeAdapterOutputRecord>(records.data(), recordCount), monitor);
+    if (selected == SIZE_MAX)
+    {
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
+    adapter = adapters[recordAdapters[selected]];
+    adapterLuid = records[selected].adapterLuid;
+    return S_OK;
+}
+
+void Renderer::RecordDeviceIdentity(bool warp, bool adapterOwnsWindowMonitor) noexcept
+{
+    _deviceInfo = {};
+    _deviceInfo.warp = warp;
+    _deviceInfo.adapterOwnsWindowMonitor = adapterOwnsWindowMonitor;
+    wil::com_ptr_nothrow<IDXGIDevice> dxgiDevice;
+    wil::com_ptr_nothrow<IDXGIAdapter> adapter;
+    DXGI_ADAPTER_DESC description{};
+    if (_device && SUCCEEDED(_device.query_to(dxgiDevice.put())) && SUCCEEDED(dxgiDevice->GetAdapter(adapter.put())) &&
+        SUCCEEDED(adapter->GetDesc(&description)))
+    {
+        _deviceInfo.adapterLuid = description.AdapterLuid;
+        static_assert(sizeof(_deviceInfo.adapterName) == sizeof(description.Description));
+        std::memcpy(_deviceInfo.adapterName.data(), description.Description, sizeof(description.Description));
+        _deviceInfo.adapterName.back() = L'\0';
+    }
+
+    // One record per device creation, never per frame: the receipt Core_PerformanceAndResources.md asks for.
+    std::array<char, 128> name{};
+    for (size_t index = 0; index + 1 < name.size() && _deviceInfo.adapterName[index] != L'\0'; ++index)
+    {
+        const wchar_t character = _deviceInfo.adapterName[index];
+        name[index] = character < 0x80 ? static_cast<char>(character) : '?';
+    }
+    std::array<char, 320> message{};
+    (void)std::snprintf(message.data(), message.size(),
+                        "Direct3D device created on %s (LUID %08lX-%08lX, %s, adapter owns window monitor: %s).",
+                        name.data(), static_cast<unsigned long>(_deviceInfo.adapterLuid.HighPart),
+                        static_cast<unsigned long>(_deviceInfo.adapterLuid.LowPart), warp ? "WARP" : "hardware",
+                        adapterOwnsWindowMonitor ? "yes" : "no");
+    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "device-created",
+                       message.data());
+}
+
 HRESULT Renderer::CreateDevice(bool useWarp) noexcept
 {
     UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
@@ -336,14 +444,34 @@ HRESULT Renderer::CreateDevice(bool useWarp) noexcept
         D3D_FEATURE_LEVEL_11_0,
     };
 
+    // Adapter of output: render on the GPU that scans out the window's monitor so presentation never crosses
+    // adapters. A window on no monitor (hidden test host) keeps the default-adapter path.
+    _deviceMonitor = nullptr;
+    wil::com_ptr_nothrow<IDXGIAdapter1> adapter;
+    if (!useWarp)
+    {
+        const HMONITOR monitor = MonitorFromWindow(_window, MONITOR_DEFAULTTONULL);
+        LUID adapterLuid{};
+        if (monitor && SUCCEEDED(FindAdapterForMonitor(monitor, adapter, adapterLuid)))
+        {
+            _deviceMonitor = monitor;
+        }
+        else
+        {
+            adapter.reset();
+        }
+    }
+    const D3D_DRIVER_TYPE driverType =
+        useWarp ? D3D_DRIVER_TYPE_WARP : (adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE);
+
     auto create = [&](UINT requestedFlags) noexcept
     {
         _device.reset();
         _context.reset();
         _context1.reset();
-        return D3D11CreateDevice(nullptr, useWarp ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_HARDWARE, nullptr,
-                                 requestedFlags, featureLevels.data(), static_cast<UINT>(featureLevels.size()),
-                                 D3D11_SDK_VERSION, _device.put(), &_featureLevel, _context.put());
+        return D3D11CreateDevice(adapter.get(), driverType, nullptr, requestedFlags, featureLevels.data(),
+                                 static_cast<UINT>(featureLevels.size()), D3D11_SDK_VERSION, _device.put(),
+                                 &_featureLevel, _context.put());
     };
 
     HRESULT result = create(flags);
@@ -365,20 +493,55 @@ HRESULT Renderer::CreateDevice(bool useWarp) noexcept
         _context1.reset();
         _context.reset();
         _device.reset();
+        return result;
     }
+    RecordDeviceIdentity(useWarp, adapter != nullptr);
     return result;
+}
+
+HRESULT Renderer::EnsureDeviceForWindowMonitor() noexcept
+{
+    if (!_window || !_device || _forceWarp || _deviceInfo.warp)
+    {
+        return S_FALSE;
+    }
+    const HMONITOR monitor = MonitorFromWindow(_window, MONITOR_DEFAULTTONULL);
+    if (!monitor || monitor == _deviceMonitor)
+    {
+        return S_FALSE;
+    }
+    wil::com_ptr_nothrow<IDXGIAdapter1> adapter;
+    LUID adapterLuid{};
+    if (FAILED(FindAdapterForMonitor(monitor, adapter, adapterLuid)))
+    {
+        // DXGI cannot map this monitor to an output (for example a virtual display); keep the current device.
+        return S_FALSE;
+    }
+    if (RedXeSameLuid(adapterLuid, _deviceInfo.adapterLuid))
+    {
+        _deviceMonitor = monitor;
+        return S_FALSE;
+    }
+    // The window moved to a monitor scanned out by another GPU: rebuild on that adapter through the same path device
+    // loss uses, so widgets see OnDeviceLost/OnDeviceCreated exactly once.
+    const HRESULT result = CreateDeviceResources();
+    return FAILED(result) ? result : S_OK;
+}
+
+Renderer::DeviceIdentity Renderer::DeviceInfo() const noexcept
+{
+    return _deviceInfo;
+}
+
+HANDLE Renderer::FrameLatencyWaitableObject() const noexcept
+{
+    return _frameLatencyWaitable.get();
 }
 
 HRESULT Renderer::CreateSwapChain() noexcept
 {
     wil::com_ptr_nothrow<IDXGIDevice1> dxgiDevice;
     HRESULT result = _device.query_to(dxgiDevice.put());
-    if (FAILED(result))
-    {
-        return result;
-    }
-
-    result = dxgiDevice->SetMaximumFrameLatency(1);
     if (FAILED(result))
     {
         return result;
@@ -406,11 +569,31 @@ HRESULT Renderer::CreateSwapChain() noexcept
     description.Scaling = DXGI_SCALING_STRETCH;
     description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     description.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+    description.Flags = kSwapChainFlags;
 
     result = factory->CreateSwapChainForHwnd(_device.get(), _window, &description, nullptr, nullptr, _swapChain.put());
     if (FAILED(result))
     {
         return result;
+    }
+
+    // Maximum frame latency one, enforced by the swap chain's waitable object rather than a blocking Present: the UI
+    // thread waits on this handle before building a frame, so input queued meanwhile is dispatched first.
+    wil::com_ptr_nothrow<IDXGISwapChain2> swapChain2;
+    result = _swapChain.query_to(swapChain2.put());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = swapChain2->SetMaximumFrameLatency(1);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    _frameLatencyWaitable.reset(swapChain2->GetFrameLatencyWaitableObject());
+    if (!_frameLatencyWaitable)
+    {
+        return E_UNEXPECTED;
     }
 
     result = factory->MakeWindowAssociation(_window, DXGI_MWA_NO_ALT_ENTER);
@@ -719,7 +902,7 @@ HRESULT Renderer::Resize(UINT width, UINT height) noexcept
 
     _context->OMSetRenderTargets(0, nullptr, nullptr);
     _renderTarget.reset();
-    const HRESULT result = _swapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
+    const HRESULT result = _swapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, kSwapChainFlags);
     if (IsDeviceLost(result))
     {
         return RecoverDevice();
@@ -1036,11 +1219,14 @@ void Renderer::ReleaseDeviceResources() noexcept
     NotifyDeviceLost();
 
     _renderTarget.reset();
+    _frameLatencyWaitable.reset();
     _swapChain.reset();
     _factory.reset();
     _context1.reset();
     _context.reset();
     _device.reset();
+    _deviceInfo = {};
+    _deviceMonitor = nullptr;
     _width = 0;
     _height = 0;
     _suspended = true;
