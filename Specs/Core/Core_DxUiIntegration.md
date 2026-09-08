@@ -17,12 +17,12 @@ that exact commit under `.build/dependencies/DxUi/source/<commit>` and isolates 
 fingerprint that includes commit, API revision, toolset, SDK and CRT. It never checks out, resets, or edits a sibling
 `DxUi` working tree. A mismatched or dirty pin fails the consumer restore.
 
-The pinned library (commit `e94161d2…`) releases the cached surface
+The pinned library (commit `61fb8272…`) releases the cached surface
 of a hidden or zero-extent `EmbeddedHost`, marks a view dirty only through control invalidation, and bounds its
 solid-brush and configured-text-format caches (256 and 96 entries, reported through `EmbeddedStatistics`).
-Its `Slider` uses a 4 DIP capsule track, a 14 DIP accent-filled thumb with hover/press easing, and a 48 DIP
-pointer band centered on the track so a finger can grab the thumb without seeking. Pointer
-hit-testing stays valid while the cached surface is paint-dirty. Consumers
+Its `Slider` uses a 6 DIP capsule track, a 14 DIP accent-filled inner thumb with a translucent halo (20 / 28 / 36 DIP),
+and an unpainted 48 DIP pointer band centered on the track so a finger can grab the thumb without seeking. Painted
+chrome and hit testing are independent. Pointer hit-testing stays valid while the cached surface is paint-dirty. Consumers
 rely on `SetVisible(false)` alone to drop a hidden tile's or an unraised overlay's surface; the next sized `Prepare`
 reallocates exactly one surface. The resource consequences for RedXe are owned by
 [`Core_PerformanceAndResources.md`](Core_PerformanceAndResources.md).
