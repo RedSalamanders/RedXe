@@ -8,7 +8,7 @@ Plugin id: `builtin.weather`
 
 ## What it does
 
-Current conditions, today, wind, upcoming hours, and the next local days from public forecast sources (MET Norway, with alert feeds where applicable). A notice such as `Rain expected around HH:MM` appears when a wet hour is due within twelve hours.
+Current conditions, today, wind, upcoming hours, and the next local days from public forecast sources (MET Norway, with alert feeds where applicable). A notice such as `Rain expected around HH:MM` appears when a wet hour is due within twelve hours. That notice is a yellow warning banner with a colored weather icon; official alerts use the same banner with a severity-colored warning mark.
 
 A non-empty `location` always wins. City names are looked up once; `lat,lon` is used directly. If lookup of a configured city fails, Weather does not fall back to the PC location.
 

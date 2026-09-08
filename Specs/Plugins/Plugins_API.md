@@ -522,7 +522,8 @@ topmost widget bounds as raise, converts contacts to widget-local pixels, and fo
 consumes the contact and MUST NOT count toward double-activate raise. `S_FALSE` leaves raise and mouse edge-click
 navigation unchanged. The host still forwards later Move/Up of that one-finger contact to the same widget so it can
 start an internal pan after a padding Down. Two- or three-finger host page pan that locks horizontal sends `Cancel`
-and does not launch. Mouse edge-band clicks never reach the widget. While raised, local origin is the overlay content
+and does not launch. A second contact that lifts before that lock MUST NOT cancel a captured slider or drop a pending
+double-activate. Mouse edge-band clicks never reach the widget. While raised, local origin is the overlay content
 rectangle. The host implements `IDropTarget` on the top-level HWND after `OleInitialize`; it parses `CF_HDROP` paths
 and Unicode text that is a full URL into `RedXeDropEvent` and calls `OnDrop`. Native-window children that are not drop
 targets (GdiOrbit) MUST NOT steal GPU-tile drops. Plugins MUST NOT initialize OLE or call `RegisterDragDrop`.
@@ -534,8 +535,9 @@ under the pointer and never changes capture. Non-finite samples and unsupported 
 owned live-control drags, hidden windows and display-off suppress wheel dispatch.
 
 `RedXePointerCapture` on Down transfers that one-finger contact to the widget until Up/Cancel. One finger alone MUST
-NOT steal an active slider gesture. A second or third concurrent touch cancels that capture and starts host page
-navigation. Capture/focus loss, hidden state, page or geometry replacement, resize and DPI change cancel the gesture
+NOT steal an active slider gesture. A second or third concurrent touch may start host page navigation; it cancels that
+capture only when the pan locks horizontally. Explicit OS capture is best-effort; failing `SetPointerCapture` MUST NOT Cancel the widget Down. Hidden
+state, page or geometry replacement, resize, DPI change, and a canceled or out-of-contact pointer cancel the gesture
 before releasing it. `RedXePointerRaise` and `RedXePointerDismiss` are committed-input results; the host applies them
 after dispatch, never by lending its HWND to the plugin. Ordinary consumed contacts retain the existing
 double-activation behavior described above.

@@ -15,12 +15,13 @@ inline constexpr wchar_t kWeatherIconFog = 0xF014;
 inline constexpr wchar_t kWeatherIconStrongWind = 0xF050;
 inline constexpr wchar_t kWeatherIconSunrise = 0xF051;
 inline constexpr wchar_t kWeatherIconSunset = 0xF052;
+inline constexpr wchar_t kWeatherIconStormWarning = 0xF0F0;
 inline constexpr wchar_t kWeatherIconNa = 0xF07B;
 
 inline constexpr wchar_t kWeatherIconGlyphs[] = {
-    kWeatherIconDaySunny,   kWeatherIconDayCloudy, kWeatherIconCloudy,       kWeatherIconRain,
-    kWeatherIconSleet,      kWeatherIconSnow,      kWeatherIconThunderstorm, kWeatherIconFog,
-    kWeatherIconStrongWind, kWeatherIconSunrise,   kWeatherIconSunset,       kWeatherIconNa,
+    kWeatherIconDaySunny, kWeatherIconDayCloudy,    kWeatherIconCloudy, kWeatherIconRain,       kWeatherIconSleet,
+    kWeatherIconSnow,     kWeatherIconThunderstorm, kWeatherIconFog,    kWeatherIconStrongWind, kWeatherIconSunrise,
+    kWeatherIconSunset,   kWeatherIconStormWarning, kWeatherIconNa,
 };
 
 [[nodiscard]] inline wchar_t WeatherIconForCondition(WeatherCondition condition) noexcept

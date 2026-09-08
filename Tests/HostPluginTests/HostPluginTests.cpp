@@ -339,6 +339,9 @@ void TestPageSwipePolicy(bool& success) noexcept
     Check(PageSwipeAcceptsFingerCount(2), L"two fingers may navigate dashboard pages", success);
     Check(PageSwipeAcceptsFingerCount(3), L"three fingers may navigate dashboard pages", success);
     Check(!PageSwipeAcceptsFingerCount(4), L"four fingers do not navigate dashboard pages", success);
+    Check(!PageSwipeStealsWidgetGesture(false), L"an uncommitted two-finger contact does not cancel a widget gesture",
+          success);
+    Check(PageSwipeStealsWidgetGesture(true), L"a locked page pan cancels the widget gesture", success);
 
     Check(PageSwipeLocksHorizontal(20, 4, 16), L"horizontal delta past the threshold locks page navigation", success);
     Check(!PageSwipeLocksHorizontal(10, 4, 16), L"sub-threshold contact does not lock page navigation", success);

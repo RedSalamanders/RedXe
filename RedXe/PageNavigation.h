@@ -25,6 +25,13 @@ inline constexpr uint32_t kPageSwipeMaxFingerCount = 3;
     return fingers >= kPageSwipeMinFingerCount && fingers <= kPageSwipeMaxFingerCount;
 }
 
+// A second or third finger may begin tracking, but it must not cancel a captured widget
+// gesture until the pan locks horizontally. Overlapping double-taps are not a page swipe.
+[[nodiscard]] constexpr bool PageSwipeStealsWidgetGesture(bool panLocked) noexcept
+{
+    return panLocked;
+}
+
 [[nodiscard]] constexpr bool PageSwipeLocksHorizontal(LONG deltaX, LONG deltaY, LONG threshold) noexcept
 {
     const LONG absX = deltaX < 0 ? -deltaX : deltaX;

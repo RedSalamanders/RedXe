@@ -68,14 +68,15 @@ Orientation is runtime state and MUST NOT appear in settings.
 - Dashboard page pan requires **two or three** simultaneous touch contacts. One finger, a pen, and four or more
   fingers MUST NOT start or continue host page navigation. One-finger and pen contacts are forwarded to the topmost
   `IRedXeInteractiveWidget` so a plugin can consume them (AV Control sliders, Launcher internal pages, and similar).
-- A second or third finger cancels an in-progress one-finger widget gesture, including `RedXePointerCapture`, and
-  starts page navigation from the centroid of the participating contacts. One finger alone MUST NOT steal a captured
-  slider or other widget gesture.
+- A second or third finger may begin tracking a page gesture. It MUST NOT cancel an in-progress one-finger widget
+  gesture, including `RedXePointerCapture`, until that pan locks horizontally. Overlapping double-taps that never
+  lock MUST complete the original contact (slider commit or double-activate raise) instead of swallowing it.
+  After a page pan locks, the host sends `Cancel` to the widget that held the first contact and does not treat that
+  contact as a launch. One finger alone MUST NOT steal a captured slider or other widget gesture.
 - Omitted or false `wrapPages` stops at the first and last page. True wraps either end to the opposite end. A blocked
   end follows the pointer with rubber-band resistance and MUST NOT instantiate a neighbor or commit.
 - A page follows the two- or three-finger centroid 1:1 after a horizontal lock. The host MUST NOT capture on contact.
-  Vertical-dominant two- or three-finger movement MUST NOT switch pages. After a page pan locks, the host sends
-  `Cancel` to the widget that held the first contact and does not treat that contact as a launch.
+  Vertical-dominant two- or three-finger movement MUST NOT switch pages.
 - Mouse edge-band clicks never reach the widget. One-finger touch over an edge-band zone is forwarded to the widget;
   only mouse hover/click owns the band.
 - Host-owned native containers forward uncaptured pointer messages to the top-level window so a pan can start over a
@@ -207,9 +208,11 @@ coordinates use the overlay content rectangle as the local origin.
 
 A widget may return `RedXePointerCapture` for a hit-tested Down that requires an uninterrupted one-finger gesture. The host
 then acquires mouse/touch/pen capture, routes matching Move/Up outside the original control, and suppresses one-finger
-page pan, edge navigation and double-activate raise. A second or third concurrent touch cancels that capture and starts
-host page navigation. Other one-finger contacts cannot replace the captured pointer. Capture failure or
-loss, hide, resize, DPI change and cancellation deliver Cancel. The pointer record includes the actual viewport
+page pan, edge navigation and double-activate raise. A second or third concurrent touch may begin tracking a page
+gesture; it cancels that capture only when the pan locks horizontally. Other one-finger contacts cannot replace the captured pointer. Consumed touch Up clears a pending double-activate candidate, matching mouse Up. `WM_POINTERDOWN` already
+implicitly captures that contact to the window; explicit `SetPointerCapture` is best-effort. Capture API failure MUST
+NOT Cancel the widget Down. Hide, resize, DPI change, a canceled/out-of-contact pointer, and cancellation still
+deliver Cancel. Hit-testing uses the digitizer's raw contact point, not the predicted sample. The pointer record includes the actual viewport
 dimensions, DPI and tile/raised view identity so a prepared final layout can map an animated viewport correctly.
 
 The top-level HWND is an OLE drop target after `OleInitialize`. `DragOver` hit-tests a GPU interactive widget and
@@ -264,7 +267,8 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
 - Host tests prove that sliding through a native-window neighbor (GdiOrbit) succeeds at mid-settle and fully off-screen
   offsets, that promote does not mark the swap chain occluded, and that a full-page native child does not freeze
   subsequent frames.
-- Navigation tests cover two- and three-finger eligibility, one-finger exclusion, direction, axis lock, vertical rejection, rubber-band end stops, wrap, distance and flick
+- Navigation tests cover two- and three-finger eligibility, one-finger exclusion, that an uncommitted second contact
+  does not steal a widget gesture, direction, axis lock, vertical rejection, rubber-band end stops, wrap, distance and flick
   commit, settle interpolation, capture loss, deferred adjacent staging, in-place commit without device recreation,
   current-plus-adjacent-only resource lifetime, and that page navigation requires presentation-paced frames even when
   DXGI reports the swap chain occluded.

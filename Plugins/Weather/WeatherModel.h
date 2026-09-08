@@ -143,7 +143,10 @@ bool WeatherCopyNarrow(std::string_view source, char* destination, size_t capaci
 [[nodiscard]] bool WeatherTryAutomaticLocation(wchar_t* name, size_t nameCapacity, char* countryCode,
                                                size_t countryCapacity, double& latitude, double& longitude) noexcept;
 [[nodiscard]] HRESULT WeatherParseLocationForecast(std::string_view json, WeatherSnapshot& snapshot) noexcept;
-// Uses only genuine one-hour forecast periods; zero means there is no upcoming precipitation notice.
+// Uses only genuine one-hour forecast periods; false means there is no upcoming precipitation notice.
+[[nodiscard]] bool WeatherSelectPrecipitationNotice(const WeatherSnapshot& snapshot, uint64_t nowFileTime100ns,
+                                                    uint32_t& hourIndex) noexcept;
+// Zero means there is no upcoming precipitation notice.
 [[nodiscard]] uint32_t WeatherFormatPrecipitationNotice(const WeatherSnapshot& snapshot, uint64_t nowFileTime100ns,
                                                         wchar_t* text, uint32_t capacity) noexcept;
 [[nodiscard]] bool WeatherSameLocalDay(uint64_t first, uint64_t second) noexcept;
