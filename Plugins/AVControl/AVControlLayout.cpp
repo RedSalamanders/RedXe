@@ -15,6 +15,12 @@ void FinishLiveLayout(LiveLayout& layout) noexcept
         layout.levelMutes[i] = {slider.x, slider.y, leading, slider.height};
         slider.x += leading;
         slider.width -= leading;
+        constexpr float kSliderHitHeightDip = 48.0f;
+        if (slider.height > kSliderHitHeightDip)
+        {
+            slider.y += (slider.height - kSliderHitHeightDip) * 0.5f;
+            slider.height = kSliderHitHeightDip;
+        }
     }
     layout.showDeviceNames = layout.toggles[0].width >= 96.0f;
 }

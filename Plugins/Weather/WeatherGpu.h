@@ -12,6 +12,7 @@
 inline constexpr uint32_t kWeatherMaximumQuads = 1024;
 inline constexpr uint32_t kWeatherAtlasSize = 1024;
 inline constexpr uint32_t kWeatherGlyphCell = 48;
+inline constexpr uint32_t kWeatherIconCell = 96;
 inline constexpr uint32_t kWeatherGlyphColumns = kWeatherAtlasSize / kWeatherGlyphCell;
 inline constexpr uint32_t kWeatherGlyphCapacity = kWeatherGlyphColumns * kWeatherGlyphColumns;
 
@@ -136,6 +137,8 @@ class WeatherGpuResources final
                                      float blue, float alpha, const wchar_t* text, uint32_t characters) noexcept;
     [[nodiscard]] HRESULT AppendIcon(WeatherDrawList& list, float x, float y, float size, wchar_t glyph, float red,
                                      float green, float blue, float alpha) noexcept;
+    [[nodiscard]] HRESULT AppendIconFit(WeatherDrawList& list, float x, float y, float width, float height,
+                                        wchar_t glyph, float red, float green, float blue, float alpha) noexcept;
     [[nodiscard]] HRESULT Render(ID3D11DeviceContext* context, float width, float height,
                                  const WeatherDrawList& list) noexcept;
 
@@ -165,6 +168,10 @@ class WeatherGpuResources final
     std::array<wchar_t, kWeatherGlyphCapacity> _glyphCharacters{};
     std::array<float, kWeatherGlyphCapacity> _glyphAdvances{};
     std::array<WeatherGlyphInk, kWeatherGlyphCapacity> _glyphInk{};
+    std::array<uint16_t, kWeatherGlyphCapacity> _glyphAtlasX{};
+    std::array<uint16_t, kWeatherGlyphCapacity> _glyphAtlasY{};
+    std::array<uint16_t, kWeatherGlyphCapacity> _glyphCell{};
+    std::array<uint16_t, kWeatherGlyphCapacity> _glyphLarge{};
     uint32_t _glyphCount = 0;
     uint32_t _staticGlyphCount = 0;
     uint32_t _dynamicCursor = 0;

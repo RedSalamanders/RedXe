@@ -30,17 +30,19 @@ never alter mute. Keyboard ranges retain one-point precision, five-point page st
 ## Responsive live view
 
 The three mute/off controls and both levels remain directly accessible in every supported rectangle. Minimum size
-is 160×180 logical pixels; smaller placements expose unavailable layout instead of clipped controls. Every live hit
-target is at least 48×48 logical pixels. Hit targets do not overlap or extend outside their tile. Mute and camera-off
+is 160×180 logical pixels; smaller placements expose unavailable layout instead of clipped controls. Mute, camera-off
+and Profile hit targets are at least 48×48 logical pixels. Sliders are 48 DIP tall, centered in the level panel, and
+at least 48 DIP wide. Hit targets do not overlap or extend outside their tile. Mute and camera-off
 buttons use state-specific Fluent glyphs (volume/mute, microphone/mic-off) sized to 32 DIP `IconLarge` with 12 DIP
 padding inside the card. Camera always uses the video glyph (`E714`), including unavailable and off, and uses
 disabled text when the row cannot activate. Level sliders use DxUi's 4 DIP track and 14 DIP accent-filled thumb with a
-muted halo, and occupy the full level panel height so the 48 DIP row is the hit target, not a large visual knob. The leading icon and level value share a 48 DIP mute hit target that sends the same mute command as the matching
-device card whenever the row is wide enough to keep both that target and the slider at 48 DIP.
+muted halo. The 48 DIP pointer band is the touch target; it is not the whole level panel. The leading icon and level value share a
+48 DIP mute hit target that sends the same mute command as the matching
+device card whenever the row is wide enough to keep both that target and the slider at 48 DIP wide.
 
 Widths below 320 or heights below 300 use the minimal layout: three mute/off targets followed by two compact
 sliders. A quiet, labeled Profile target shares the microphone row; the output slider retains the full row width.
-Both sliders keep at least a 48-pixel hit height by filling their level panel, with compact labels in the leading
+Both sliders keep a 48 DIP hit height centered in the level panel, with compact labels in the leading
 mute target. At 160×180, the microphone level row is 92 pixels
 wide: a leading mute gutter plus a 48-pixel slider. Profile is 48×48. Profile selection is one tap at every size.
 Otherwise widths below 800 with height at least 620 use tall
@@ -51,7 +53,7 @@ client width and full client height. Pixel-to-DIP conversion belongs at the embe
 ## Validation
 
 AVControlTests covers strict configuration/roundtrip/failure preservation, Unicode and byte/scalar bounds, profile
-matching across role and mute changes, coherent slider drafts, every reviewed rectangle and one-pixel neighborhoods
+matching across role and mute changes, coherent slider drafts, 48 DIP slider bands, every reviewed rectangle and one-pixel neighborhoods
 of all density thresholds, mute-button device names at compact size, icon-only names at the 160×180 minimum, mute/off glyph changes, a video
 glyph while the camera is unavailable, and slider-leading mute hits.
 Tests use synthetic model state and never change real endpoints, open webcams or write

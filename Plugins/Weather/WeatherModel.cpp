@@ -877,14 +877,12 @@ HRESULT WeatherWriteLocationSettings(const WeatherSnapshot& snapshot, char* json
     return S_OK;
 }
 
-uint32_t WeatherFormatPrecipitationNotice(const WeatherSnapshot& snapshot, uint64_t nowFileTime100ns, wchar_t* text,
-                                          uint32_t capacity) noexcept
+bool WeatherSelectPrecipitationNotice(const WeatherSnapshot& snapshot, uint64_t nowFileTime100ns,
+                                      uint32_t& hourIndex) noexcept
 {
-    if (!text || capacity == 0)
-        return 0;
-    text[0] = L'\0';
+    hourIndex = 0;
     if (snapshot.stale)
-        return 0;
+        return false;
     constexpr uint64_t hourTicks = 36000000000ULL;
     for (uint32_t index = 0; index < snapshot.hourlyCount; ++index)
     {
@@ -897,18 +895,32 @@ uint32_t WeatherFormatPrecipitationNotice(const WeatherSnapshot& snapshot, uint6
         // An explicit zero amount beats a broad weather symbol. Missing amounts do not mean zero.
         if (hour.hasPrecipitation ? hour.precipitationMillimeters <= 0.0f : !wetSymbol)
             continue;
-        const wchar_t* kind = hour.condition == WeatherCondition::Snow      ? L"Snow"
-                              : hour.condition == WeatherCondition::Sleet   ? L"Rain / snow"
-                              : hour.condition == WeatherCondition::Thunder ? L"Thundery rain"
-                                                                            : L"Rain";
-        std::array<wchar_t, 8> clock{};
-        (void)WeatherFormatClock(hour.timeFileTime100ns, clock.data(), static_cast<uint32_t>(clock.size()));
-        const int written = hour.timeFileTime100ns <= nowFileTime100ns
-                                ? _snwprintf_s(text, capacity, _TRUNCATE, L"%s forecast this hour", kind)
-                                : _snwprintf_s(text, capacity, _TRUNCATE, L"%s expected around %s", kind, clock.data());
-        return written > 0 ? static_cast<uint32_t>(written) : 0;
+        hourIndex = index;
+        return true;
     }
-    return 0;
+    return false;
+}
+
+uint32_t WeatherFormatPrecipitationNotice(const WeatherSnapshot& snapshot, uint64_t nowFileTime100ns, wchar_t* text,
+                                          uint32_t capacity) noexcept
+{
+    if (!text || capacity == 0)
+        return 0;
+    text[0] = L'\0';
+    uint32_t hourIndex = 0;
+    if (!WeatherSelectPrecipitationNotice(snapshot, nowFileTime100ns, hourIndex))
+        return 0;
+    const auto& hour = snapshot.hourly[hourIndex];
+    const wchar_t* kind = hour.condition == WeatherCondition::Snow      ? L"Snow"
+                          : hour.condition == WeatherCondition::Sleet   ? L"Rain / snow"
+                          : hour.condition == WeatherCondition::Thunder ? L"Thundery rain"
+                                                                        : L"Rain";
+    std::array<wchar_t, 8> clock{};
+    (void)WeatherFormatClock(hour.timeFileTime100ns, clock.data(), static_cast<uint32_t>(clock.size()));
+    const int written = hour.timeFileTime100ns <= nowFileTime100ns
+                            ? _snwprintf_s(text, capacity, _TRUNCATE, L"%s forecast this hour", kind)
+                            : _snwprintf_s(text, capacity, _TRUNCATE, L"%s expected around %s", kind, clock.data());
+    return written > 0 ? static_cast<uint32_t>(written) : 0;
 }
 
 uint32_t WeatherFormatForecastDay(uint64_t fileTime100ns, uint64_t nowFileTime100ns, uint32_t fallbackIndex,

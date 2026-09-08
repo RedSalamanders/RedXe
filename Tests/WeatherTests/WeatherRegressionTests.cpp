@@ -204,6 +204,8 @@ HRESULT ModelTests(uint64_t now)
     std::array<wchar_t, 96> notice{};
     CHECK(WeatherFormatPrecipitationNotice(snapshot, now, notice.data(), 96) > 0);
     CHECK(std::wcsstr(notice.data(), L"Rain expected around") != nullptr);
+    uint32_t noticeHour = 0;
+    CHECK(WeatherSelectPrecipitationNotice(snapshot, now, noticeHour) && noticeHour == 3);
     snapshot.hourly[3].condition = WeatherCondition::Snow;
     CHECK(WeatherFormatPrecipitationNotice(snapshot, now, notice.data(), 96) > 0);
     CHECK(std::wcsstr(notice.data(), L"Snow expected around") != nullptr);

@@ -196,7 +196,8 @@ static_assert(offsetof(RedXePointerEvent, wheelDelta) == 44);
 
 // An interactive widget returns this only for a handled Down that must own the entire one-finger gesture (for
 // example a slider). The host captures that mouse/touch/pen contact and suppresses one-finger page/edge navigation
-// until Up or Cancel. A second or third concurrent touch cancels capture and starts host page navigation. S_OK
+// until Up or Cancel. A second or third concurrent touch may start host page navigation; it cancels capture when
+// that pan locks horizontally. S_OK
 // preserves click-with-possible-raise behavior. Failure to acquire OS capture sends Cancel.
 inline constexpr HRESULT RedXePointerCapture = MAKE_HRESULT(SEVERITY_SUCCESS, FACILITY_ITF, 0x301);
 // Committed Up may request generic raise/dismiss after the host releases gesture capture. These are consumed

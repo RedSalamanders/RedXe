@@ -2,6 +2,7 @@
 #include "AVControlModel.h"
 
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <limits>
 #include <stdexcept>
@@ -152,12 +153,26 @@ void LayoutTests()
         for (const auto& mute : layout.levelMutes)
             if (mute.width >= 48.0f && mute.height >= 48.0f)
                 targets.push_back(mute);
-        targets.insert(targets.end(), layout.sliders.begin(), layout.sliders.end());
         targets.push_back(layout.profileSelector);
+        for (size_t i = 0; i < layout.sliders.size(); ++i)
+        {
+            const Rect& slider = layout.sliders[i];
+            Require(slider.width >= 48.0f && slider.height <= 48.01f && slider.height >= 47.99f,
+                    "level sliders keep a 48 DIP touch pointer band");
+            Require(slider.x >= 0 && slider.y >= 0 && slider.x + slider.width <= width + 0.01f &&
+                        slider.y + slider.height <= height + 0.01f,
+                    "slider lies inside the tile");
+            const float panelMid = layout.levelPanels[i].y + layout.levelPanels[i].height * 0.5f;
+            Require(std::abs((slider.y + slider.height * 0.5f) - panelMid) < 0.02f,
+                    "slider pointer band is centered in the level panel");
+            targets.push_back(slider);
+        }
         for (size_t i = 0; i < targets.size(); ++i)
         {
             const Rect& r = targets[i];
-            Require(r.width >= 48 && r.height >= 48, "every touch target respects 48 logical pixel floor");
+            const bool slider = i >= targets.size() - layout.sliders.size();
+            Require(r.width >= 48 && (slider ? r.height >= 47.99f : r.height >= 48),
+                    "every mute, camera and Profile target respects 48 logical pixel floor");
             Require(r.x >= 0 && r.y >= 0 && r.x + r.width <= width + 0.01f && r.y + r.height <= height + 0.01f,
                     "every target lies inside the tile");
             for (size_t j = 0; j < i; ++j)
@@ -195,8 +210,8 @@ void LayoutTests()
     Require(compact.sliders[0].x > compact.levelPanels[0].x + 40 && compact.sliders[0].width >= 48,
             "level sliders keep a 48 DIP track beside a leading icon and value");
     Require(compact.levelMutes[0].width >= 48.0f && compact.levelMutes[0].height >= 48.0f &&
-                compact.sliders[0].height >= compact.levelPanels[0].height - 0.01f,
-            "level mute and slider share the full panel height for touch");
+                compact.sliders[0].height <= 48.01f && compact.sliders[0].height >= 47.99f,
+            "level mute stays 48 DIP tall while the slider uses a 48 DIP touch pointer band");
     Require(compact.toggles[0].height >= 48.0f, "compact mute cards stay at least 48 DIP tall");
     Require(minimum.sliders[1].width >= 48.0f && minimum.levelMutes[1].width > 0.0f,
             "minimum microphone row keeps a 48 DIP slider and a leading mute gutter");

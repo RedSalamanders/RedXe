@@ -1,7 +1,7 @@
 # Weather widget
 
 Status: current normative product contract
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-08
 Owner: `Plugins/Weather`, `Plugins/WeatherLocation`, and `Tests/WeatherTests`
 
 The native ABI and host services are owned by `Plugins_API.md`. Resource requirements remain owned by
@@ -46,9 +46,11 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
   exact onset times. [MET ForecastJSON](https://api.met.no/doc/ForecastJSON) defines these period semantics.
 - Group days and format clocks using the computer's local civil date/time, including across UTC midnight. The first
   day's min/max covers available samples. Show that range once in Today; daily rows start with a future local day.
-- The location owns its line. The header shows large light-gray temperature, an outline condition icon, and optional
-  sunrise/sunset only when all fit. Today and wind follow. Measured columns stay within the tile; long labels end in
-  an ellipsis without cutting glyphs. Tiny tiles prioritize temperature/condition.
+- The location owns its line. The header shows large light-gray temperature, an outline condition icon centered in
+  the remaining space between that temperature and optional sunrise/sunset, and sunrise/sunset only when all fit. The
+  current-condition icon is a sharp ~80 px mark from a 96 px atlas cell, not stretched across the leftover band.
+  Today and wind follow. Measured columns stay within the tile; long labels end in an ellipsis without cutting glyphs.
+  Tiny tiles prioritize temperature/condition.
 - Upcoming hours use available width for up to 12 chronological columns: time/Now, condition, temperature, and supplied
   positive precipitation. Only unexpired intervals starting within 24 hours qualify. Add the strip when at least
   210 px width and 132 px height remain. Future-day rows use remaining space, up to five normally/eight raised.
@@ -58,7 +60,10 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
 - A separate notice selects the earliest unexpired wet hourly interval starting within 12 hours. Preserve snow,
   sleet and thunder names. Use `Rain expected around HH:MM` or `Snow forecast this hour`, never precise nowcasting.
   Explicit zero amount suppresses a wet symbol; missing amounts may use the symbol. Stale snapshots/expired periods
-  must not produce upcoming notices. Official authority alerts remain separate from forecast notices.
+  must not produce upcoming notices. Official authority alerts remain separate from forecast notices. Each notice or
+  alert that fits paints a tinted banner with a solid leading edge and a leading colored icon badge (severity mark for
+  authority alerts, wet-condition glyph on a yellow warning badge for forecast notices). The banner uses at least 56 px
+  and grows up to 64 px when leftover height cannot fit another complete future-day row.
 - Retain Weather Icons and light Segoe UI. Fit complete measured glyph ink inside atlas cells with filtering padding,
   including oversized icons and accents; reject clipped glyphs. Measurement includes overhang and rendering uses
   cached cropped rectangles. Clear reused atlas cells. Render creates no fonts, textures, heap allocations or I/O.

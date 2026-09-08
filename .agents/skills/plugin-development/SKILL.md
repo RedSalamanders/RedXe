@@ -61,7 +61,7 @@ Preserve these boundaries:
   the HWND, swap chain, or back buffer. Share immutable device resources across compatible instances. Dashboard page
   pan requires two or three simultaneous touch contacts. One-finger and pen contacts are forwarded to
   `IRedXeInteractiveWidget`, including Move/Up after a padding Down that returned `S_FALSE`. A second or third finger
-  cancels an in-progress one-finger `RedXePointerCapture` and starts host paging. Launcher paginates overflow shortcuts
+  may start host paging; `Cancel` is sent when that pan locks horizontally, not on contact. Launcher paginates overflow shortcuts
   and GPU-draws a bottom page-dot strip using the same DIP metrics as `DxUi::PageIndicator` when shortcuts
   overflow the chosen cell (`iconSize` `small`/`medium`/`large`/`huge` = 72/96/144/192 DIP square icon edge and
   pagination cell, closed cap 32 shortcuts, leftover space even gutters of at least 8 DIP between icon edges plus an
@@ -83,7 +83,9 @@ Preserve these boundaries:
   Raised System Pulse also fills leftover height with a physical-memory bar and CPU history. Weather follows
   `Specs/Plugins/Plugins_Weather.md`: configured city wins; empty city resolves once in a disposable helper and the
   host queues a UI-thread save. Location owns a line, Today appears once, and fitting hourly columns, rain/snow
-  notices and future-day rows use remaining space. Fit complete glyph ink, preserve accents/icons, and ellipsize
+  notices and future-day rows use remaining space. Forecast notices and authority alerts use a colored leading icon
+  badge and grow when leftover height cannot fit another day row. The current-condition icon is centered between the
+  temperature and sun times as a sharp ~80 px mark. Fit complete glyph ink, preserve accents/icons, and ellipsize
   labels without overflow. Type remains light Segoe UI.
 - Window widgets receive only a borrowed host-owned child container and own all children, timers, controllers, and GDI
   resources they create. Every widget quiesces visibility-dependent work in `IRedXeWidget::SetVisible(FALSE)`;

@@ -85,9 +85,9 @@ class Application final
     LRESULT HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
     LRESULT OnSize(HWND window, UINT width, UINT height) noexcept;
     LRESULT OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBounds) noexcept;
-    void OnPointerDown(HWND window, WPARAM wParam) noexcept;
-    void OnPointerUpdate(HWND window, WPARAM wParam) noexcept;
-    void OnPointerUp(HWND window, WPARAM wParam) noexcept;
+    void OnPointerDown(HWND window, WPARAM wParam, LPARAM lParam) noexcept;
+    void OnPointerUpdate(HWND window, WPARAM wParam, LPARAM lParam) noexcept;
+    void OnPointerUp(HWND window, WPARAM wParam, LPARAM lParam) noexcept;
     void OnMouseButtonDown(HWND window, LPARAM lParam) noexcept;
     void OnMouseButtonUp(HWND window, LPARAM lParam) noexcept;
     void OnClientActivateAttempt(HWND window, POINT position, ULONGLONG tick) noexcept;
@@ -127,14 +127,16 @@ class Application final
     HRESULT PromoteTransitionPage() noexcept;
     HRESULT StageTransitionPage(int direction) noexcept;
     void ClearTransitionPage() noexcept;
-    [[nodiscard]] bool TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position,
-                                                UINT64& qpc) const noexcept;
+    [[nodiscard]] bool TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position, UINT64& qpc,
+                                                LPARAM lParam) const noexcept;
     [[nodiscard]] bool PointInPageEdgeBand(HWND window, POINT position) const noexcept;
     [[nodiscard]] bool HitInteractiveLocal(POINT client, size_t& widgetIndex, float& localX,
                                            float& localY) const noexcept;
     HRESULT ForwardInteractivePointer(POINT client, uint32_t pointerId, uint32_t kind, uint32_t phase, bool* consumed,
                                       uint32_t modifiers = 0, float wheelDelta = 0) noexcept;
     void CancelInteractivePointer() noexcept;
+    void ClearDoubleActivateCandidate() noexcept;
+    void CompleteInteractivePointerUp(HWND window, POINT position, bool havePosition) noexcept;
     void ClearKeyboardFocus() noexcept;
     void RefreshAppearance() noexcept;
     bool FocusKeyboardWidget(size_t index) noexcept;

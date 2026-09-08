@@ -26,7 +26,7 @@ If RedXe stopped after a crash, the next normal launch may offer to open the loc
 
 ## Pages
 
-Swipe **left** with **two or three fingers** to go forward, **right** to go back. Navigation is always horizontal, including in portrait. One finger stays with the tile (for example AV Control sliders, or Launcher's own pages). A pen does not change dashboard pages.
+Swipe **left** with **two or three fingers** to go forward, **right** to go back. Navigation is always horizontal, including in portrait. One finger stays with the tile (for example AV Control sliders, or Launcher's own pages). A second finger does not steal a slider until the two-finger swipe actually starts (moves sideways). A pen does not change dashboard pages.
 
 With a **mouse**, hover the left or right edge of the window. A chevron appears when that direction has a neighbor. Click it to change page.
 

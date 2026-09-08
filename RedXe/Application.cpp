@@ -42,7 +42,21 @@ constexpr LONG kXeneonEdgeClientHeight = 720;
     {
         return function(window, pointerId);
     }
-    return SetCapture(window) != nullptr;
+    (void)SetCapture(window);
+    return GetCapture() == window;
+}
+
+[[nodiscard]] POINT PointerScreenPixels(const POINTER_INFO& information) noexcept
+{
+    // ptPixelLocation is a predicted point that can miss a 48 DIP control on first contact.
+    return information.ptPixelLocationRaw;
+}
+
+[[nodiscard]] bool PointerStillInContact(UINT32 pointerId) noexcept
+{
+    POINTER_INFO information{};
+    return GetPointerInfo(pointerId, &information) && (information.pointerFlags & POINTER_FLAG_INCONTACT) != 0 &&
+           (information.pointerFlags & POINTER_FLAG_CANCELED) == 0;
 }
 
 void HostReleasePointerCapture(HWND window, UINT32 pointerId) noexcept
@@ -98,7 +112,7 @@ struct TouchContact final
             {
                 continue;
             }
-            POINT position = information.ptPixelLocation;
+            POINT position = PointerScreenPixels(information);
             if (!ScreenToClient(window, &position))
             {
                 continue;
@@ -117,7 +131,7 @@ struct TouchContact final
     {
         return 0;
     }
-    POINT position = information.ptPixelLocation;
+    POINT position = PointerScreenPixels(information);
     if (!ScreenToClient(window, &position))
     {
         return 0;
@@ -1848,33 +1862,34 @@ bool Application::PageTouchesContain(UINT32 pointerId) const noexcept
     return false;
 }
 
-bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position, UINT64& qpc) const noexcept
+bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position, UINT64& qpc,
+                                           LPARAM lParam) const noexcept
 {
     POINTER_INFO information{};
-    if (!GetPointerInfo(pointerId, &information) ||
-        (information.pointerType != PT_TOUCH && information.pointerType != PT_PEN))
+    if (GetPointerInfo(pointerId, &information) &&
+        (information.pointerType == PT_TOUCH || information.pointerType == PT_PEN) &&
+        (information.pointerFlags & POINTER_FLAG_CANCELED) == 0)
     {
-        return false;
+        position = PointerScreenPixels(information);
+        if (ScreenToClient(window, &position))
+        {
+            qpc = information.PerformanceCount;
+            return true;
+        }
     }
-    if ((information.pointerFlags & POINTER_FLAG_CANCELED) != 0)
-    {
-        return false;
-    }
-    position = information.ptPixelLocation;
-    if (!ScreenToClient(window, &position))
-    {
-        return false;
-    }
-    qpc = information.PerformanceCount;
-    return true;
+
+    // WM_POINTER* lParam is physical screen coordinates of the contact.
+    position = POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    qpc = 0;
+    return ScreenToClient(window, &position) != FALSE;
 }
 
-void Application::OnPointerDown(HWND window, WPARAM wParam) noexcept
+void Application::OnPointerDown(HWND window, WPARAM wParam, LPARAM lParam) noexcept
 {
     const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
     POINT position{};
     UINT64 qpc = 0;
-    if (!TryPointerClientPosition(window, pointerId, position, qpc))
+    if (!TryPointerClientPosition(window, pointerId, position, qpc, lParam))
     {
         return;
     }
@@ -1886,7 +1901,6 @@ void Application::OnPointerDown(HWND window, WPARAM wParam) noexcept
 
     if (!_raisedActive && PageSwipeAcceptsFingerCount(touchCount))
     {
-        CancelInteractivePointer();
         std::array<UINT32, kPageSwipeMaxTouches> ids{};
         std::array<POINT, kPageSwipeMaxTouches> points{};
         const uint32_t use = std::min(touchCount, kPageSwipeMaxTouches);
@@ -1933,26 +1947,23 @@ void Application::OnPointerDown(HWND window, WPARAM wParam) noexcept
     (void)consumed;
 }
 
-void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
+void Application::OnPointerUpdate(HWND window, WPARAM wParam, LPARAM lParam) noexcept
 {
     const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
-    if (_interactiveOwnsPointer && !_pagePointerActive)
-    {
-        if (pointerId != _interactivePointerId)
-            return;
-        POINT position{};
-        UINT64 qpc = 0;
-        if (!TryPointerClientPosition(window, pointerId, position, qpc))
-            CancelInteractivePointer();
-        else
-            (void)ForwardInteractivePointer(position, pointerId, _interactivePointerKind, RedXePointerPhaseMove,
-                                            nullptr);
-        return;
-    }
     if (_pagePointerActive)
     {
         if (_pageGestureIgnored || !PageTouchesContain(pointerId))
         {
+            if (_interactiveOwnsPointer && !_pagePanStarted && pointerId == _interactivePointerId)
+            {
+                POINT position{};
+                UINT64 qpc = 0;
+                if (!TryPointerClientPosition(window, pointerId, position, qpc, lParam))
+                    CancelInteractivePointer();
+                else
+                    (void)ForwardInteractivePointer(position, pointerId, _interactivePointerKind, RedXePointerPhaseMove,
+                                                    nullptr);
+            }
             return;
         }
         std::array<TouchContact, 10> contacts{};
@@ -1971,7 +1982,7 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
         }
         POINT position{};
         UINT64 qpc = 0;
-        if (!TryPointerClientPosition(window, pointerId, position, qpc))
+        if (!TryPointerClientPosition(window, pointerId, position, qpc, lParam))
         {
             CancelInteractivePointer();
             CancelPageNavigation();
@@ -1996,10 +2007,20 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
                 _pagePointerActive = false;
                 _pageTouchCount = 0;
                 ResumePageSettleIfNeeded();
+                if (_interactivePointerWidget != SIZE_MAX && pointerId == _interactivePointerId)
+                {
+                    (void)ForwardInteractivePointer(position, pointerId, _interactivePointerKind, RedXePointerPhaseMove,
+                                                    nullptr);
+                }
                 return;
             }
             if (!PageSwipeLocksHorizontal(deltaX, deltaY, threshold))
             {
+                if (_interactivePointerWidget != SIZE_MAX && pointerId == _interactivePointerId)
+                {
+                    (void)ForwardInteractivePointer(position, pointerId, _interactivePointerKind, RedXePointerPhaseMove,
+                                                    nullptr);
+                }
                 return;
             }
             CancelInteractivePointer();
@@ -2059,11 +2080,24 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
         ApplyPageOffset(offset, client.right);
         return;
     }
+    if (_interactiveOwnsPointer)
+    {
+        if (pointerId != _interactivePointerId)
+            return;
+        POINT position{};
+        UINT64 qpc = 0;
+        if (!TryPointerClientPosition(window, pointerId, position, qpc, lParam))
+            CancelInteractivePointer();
+        else
+            (void)ForwardInteractivePointer(position, pointerId, _interactivePointerKind, RedXePointerPhaseMove,
+                                            nullptr);
+        return;
+    }
     if (_raisedActive)
     {
         POINT position{};
         UINT64 qpc = 0;
-        if (TryPointerClientPosition(window, pointerId, position, qpc))
+        if (TryPointerClientPosition(window, pointerId, position, qpc, lParam))
         {
             (void)ForwardInteractivePointer(position, pointerId, PointerKindFromId(pointerId), RedXePointerPhaseMove,
                                             nullptr);
@@ -2073,7 +2107,7 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
 
     POINT position{};
     UINT64 qpc = 0;
-    if (TryPointerClientPosition(window, pointerId, position, qpc))
+    if (TryPointerClientPosition(window, pointerId, position, qpc, lParam))
     {
         const uint32_t kind =
             _interactivePointerWidget != SIZE_MAX ? _interactivePointerKind : PointerKindFromId(pointerId);
@@ -2081,23 +2115,13 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam) noexcept
     }
 }
 
-void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
+void Application::OnPointerUp(HWND window, WPARAM wParam, LPARAM lParam) noexcept
 {
     POINT position{};
     UINT64 qpc = 0;
     const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
-    const bool havePosition = TryPointerClientPosition(window, pointerId, position, qpc);
-    if (_interactiveOwnsPointer && !_pagePointerActive)
-    {
-        if (pointerId != _interactivePointerId)
-            return;
-        if (havePosition)
-            (void)ForwardInteractivePointer(position, _interactivePointerId, _interactivePointerKind,
-                                            RedXePointerPhaseUp, nullptr);
-        else
-            CancelInteractivePointer();
-        return;
-    }
+    const bool havePosition = TryPointerClientPosition(window, pointerId, position, qpc, lParam);
+    const bool liftingInteractive = _interactivePointerWidget != SIZE_MAX && pointerId == _interactivePointerId;
     if (_pagePointerActive && PageTouchesContain(pointerId))
     {
         std::array<TouchContact, 10> contacts{};
@@ -2117,7 +2141,7 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
                 {
                     continue;
                 }
-                POINT tracked = information.ptPixelLocation;
+                POINT tracked = PointerScreenPixels(information);
                 if (!ScreenToClient(window, &tracked))
                 {
                     continue;
@@ -2136,6 +2160,10 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
                 points[index] = contacts[index].client;
             }
             AdoptPageTouches(ids.data(), points.data(), use, false);
+            if (liftingInteractive && !_pagePanStarted)
+            {
+                CompleteInteractivePointerUp(window, position, havePosition);
+            }
             return;
         }
         ReleasePagePointerCaptures(window);
@@ -2150,6 +2178,10 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
             if (_pageCurrentOffset != 0 || _pageTransitionDirection != 0)
             {
                 ResumePageSettleIfNeeded();
+            }
+            if (liftingInteractive)
+            {
+                CompleteInteractivePointerUp(window, position, havePosition);
             }
             return;
         }
@@ -2172,6 +2204,13 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
         BeginPageSettle(target, commit);
         return;
     }
+    if (_interactiveOwnsPointer)
+    {
+        if (pointerId != _interactivePointerId)
+            return;
+        CompleteInteractivePointerUp(window, position, havePosition);
+        return;
+    }
     if (_raisedActive)
     {
         if (havePosition && PointInRectInclusive(_raisedLayout.close, position))
@@ -2186,7 +2225,12 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
             (void)ForwardInteractivePointer(position, pointerId, PointerKindFromId(pointerId), RedXePointerPhaseUp,
                                             &consumed);
         }
-        if (!consumed && havePosition)
+        if (consumed)
+        {
+            ClearDoubleActivateCandidate();
+            return;
+        }
+        if (havePosition)
         {
             OnRaisedContentActivateAttempt(window, position, GetTickCount64());
         }
@@ -2199,7 +2243,12 @@ void Application::OnPointerUp(HWND window, WPARAM wParam) noexcept
             _interactivePointerWidget != SIZE_MAX ? _interactivePointerKind : PointerKindFromId(pointerId);
         (void)ForwardInteractivePointer(position, pointerId, kind, RedXePointerPhaseUp, &consumed);
     }
-    if (!consumed && havePosition)
+    if (consumed)
+    {
+        ClearDoubleActivateCandidate();
+        return;
+    }
+    if (havePosition)
     {
         OnClientActivateAttempt(window, position, GetTickCount64());
     }
@@ -2242,8 +2291,7 @@ void Application::OnMouseButtonUp(HWND window, LPARAM lParam) noexcept
     (void)ForwardInteractivePointer(position, 1, RedXePointerKindMouse, RedXePointerPhaseUp, &consumed);
     if (consumed)
     {
-        _activateTick = 0;
-        _activateWidgetIndex = SIZE_MAX;
+        ClearDoubleActivateCandidate();
         return;
     }
     if (_raisedActive)
@@ -2416,13 +2464,12 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
                 _interactiveOwnsPointer = GetCapture() == _window.get();
             }
             else
-                _interactiveOwnsPointer = HostSetPointerCapture(_window.get(), pointerId);
-            if (!_interactiveOwnsPointer)
             {
-                CancelInteractivePointer();
-                // The canceled Down was still consumed; its later Up must not become a raise gesture.
-                _interactivePointerWidget = index;
-                _interactivePointerConsumed = true;
+                // WM_POINTERDOWN already implicitly captures this contact. Explicit capture is
+                // best-effort so Move continues outside the HWND; failing it must not Cancel the
+                // widget Down (that made the first tap focus-only and dropped slider drags).
+                (void)HostSetPointerCapture(_window.get(), pointerId);
+                _interactiveOwnsPointer = true;
             }
         }
         if (consumed)
@@ -2514,6 +2561,45 @@ void Application::CancelInteractivePointer() noexcept
     }
     _interactivePointerWidget = SIZE_MAX;
     _interactivePointerConsumed = false;
+}
+
+void Application::ClearDoubleActivateCandidate() noexcept
+{
+    _activateTick = 0;
+    _activateWidgetIndex = SIZE_MAX;
+}
+
+void Application::CompleteInteractivePointerUp(HWND window, POINT position, bool havePosition) noexcept
+{
+    if (_interactivePointerWidget == SIZE_MAX)
+    {
+        return;
+    }
+    bool consumed = false;
+    if (havePosition)
+    {
+        (void)ForwardInteractivePointer(position, _interactivePointerId, _interactivePointerKind, RedXePointerPhaseUp,
+                                        &consumed);
+    }
+    else
+    {
+        CancelInteractivePointer();
+    }
+    if (consumed)
+    {
+        ClearDoubleActivateCandidate();
+        return;
+    }
+    if (!havePosition)
+    {
+        return;
+    }
+    if (_raisedActive)
+    {
+        OnRaisedContentActivateAttempt(window, position, GetTickCount64());
+        return;
+    }
+    OnClientActivateAttempt(window, position, GetTickCount64());
 }
 
 void Application::RefreshAppearance() noexcept
@@ -3592,17 +3678,20 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case WM_POINTERACTIVATE:
         return MA_ACTIVATE;
     case WM_POINTERDOWN:
-        OnPointerDown(window, wParam);
+        OnPointerDown(window, wParam, lParam);
         return 0;
     case WM_POINTERUPDATE:
-        OnPointerUpdate(window, wParam);
+        OnPointerUpdate(window, wParam, lParam);
         return _pagePanStarted ? 1 : 0;
     case WM_POINTERUP:
-        OnPointerUp(window, wParam);
+        OnPointerUp(window, wParam, lParam);
         return 0;
     case WM_POINTERCAPTURECHANGED:
-        if (_interactiveOwnsPointer && GET_POINTERID_WPARAM(wParam) == _interactivePointerId)
+        if (_interactivePointerWidget != SIZE_MAX && GET_POINTERID_WPARAM(wParam) == _interactivePointerId &&
+            !PointerStillInContact(GET_POINTERID_WPARAM(wParam)))
+        {
             CancelInteractivePointer();
+        }
         if (PageTouchesContain(GET_POINTERID_WPARAM(wParam)))
         {
             CancelPageNavigation();
