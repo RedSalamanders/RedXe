@@ -1,7 +1,7 @@
 # DxUi integration
 
 Status: current normative consumer contract
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-08
 
 This contract owns how RedXe consumes the standalone DxUi library: the exact source pin, restore/build isolation,
 which process modules link `DxUi.lib`, and the COM/POD boundary that keeps DxUi C++ objects inside those modules.
@@ -17,10 +17,11 @@ that exact commit under `.build/dependencies/DxUi/source/<commit>` and isolates 
 fingerprint that includes commit, API revision, toolset, SDK and CRT. It never checks out, resets, or edits a sibling
 `DxUi` working tree. A mismatched or dirty pin fails the consumer restore.
 
-The pinned library (commit `834ef71a…`) releases the cached surface
+The pinned library (commit `a75119ce…`) releases the cached surface
 of a hidden or zero-extent `EmbeddedHost`, marks a view dirty only through control invalidation, and bounds its
 solid-brush and configured-text-format caches (256 and 96 entries, reported through `EmbeddedStatistics`).
-Its `Slider` uses a 12 DIP track and a 48 DIP thumb. Consumers
+Its `Slider` uses a 4 DIP capsule track and a 14 DIP accent-filled thumb with hover/press easing. Pointer
+hit-testing stays valid while the cached surface is paint-dirty. Consumers
 rely on `SetVisible(false)` alone to drop a hidden tile's or an unraised overlay's surface; the next sized `Prepare`
 reallocates exactly one surface. The resource consequences for RedXe are owned by
 [`Core_PerformanceAndResources.md`](Core_PerformanceAndResources.md).

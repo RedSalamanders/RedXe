@@ -3587,6 +3587,10 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case SettingsWatcher::kSettingsChangedMessage:
         OnSettingsChanged();
         return 0;
+    case WM_MOUSEACTIVATE:
+        return MA_ACTIVATE;
+    case WM_POINTERACTIVATE:
+        return MA_ACTIVATE;
     case WM_POINTERDOWN:
         OnPointerDown(window, wParam);
         return 0;

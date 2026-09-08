@@ -1,7 +1,7 @@
 # AV Control
 
 Status: normative implementation contract; feature delivery in progress
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-08
 
 The active [AV implementation plan](../Plans/WIP/RFC_Plugins_AVControl.md) tracks unfinished integration and release
 gates. The browser mockup and synthetic tests are not evidence of working Windows audio or camera backends.
@@ -34,8 +34,8 @@ is 160×180 logical pixels; smaller placements expose unavailable layout instead
 target is at least 48×48 logical pixels. Hit targets do not overlap or extend outside their tile. Mute and camera-off
 buttons use state-specific Fluent glyphs (volume/mute, microphone/mic-off) sized to 32 DIP `IconLarge` with 12 DIP
 padding inside the card. Camera always uses the video glyph (`E714`), including unavailable and off, and uses
-disabled text when the row cannot activate. Level sliders use DxUi's 12 DIP track and 48 DIP thumb and occupy the
-full level panel height so the thumb is not a 48 DIP strip at the bottom. The leading icon and level value share a 48 DIP mute hit target that sends the same mute command as the matching
+disabled text when the row cannot activate. Level sliders use DxUi's 4 DIP track and 14 DIP accent-filled thumb with a
+muted halo, and occupy the full level panel height so the 48 DIP row is the hit target, not a large visual knob. The leading icon and level value share a 48 DIP mute hit target that sends the same mute command as the matching
 device card whenever the row is wide enough to keep both that target and the slider at 48 DIP.
 
 Widths below 320 or heights below 300 use the minimal layout: three mute/off targets followed by two compact

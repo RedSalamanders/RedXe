@@ -1,7 +1,7 @@
 # RedXe adaptive dashboard and page-navigation contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-08
 Owner: `DashboardHost` layout, active-page composition, page navigation, edge-navigation chrome, host placeholder tiles, and raised overlay chrome
 
 ## Scope
@@ -196,7 +196,9 @@ pointer-synthesized mouse) so a GDI widget can raise and restore through the sam
 Dismiss restores tile bounds.
 
 GPU widgets that expose `IRedXeInteractiveWidget` receive host-forwarded pointer and drop events in widget-local
-pixels. Hit-testing uses the same topmost tile bounds as raise. `OnPointer` returning `S_OK` on Down/Up consumes the
+pixels. Hit-testing uses the same topmost tile bounds as raise. The first mouse or touch contact that activates the
+top-level window is still forwarded: `Application` returns `MA_ACTIVATE` for `WM_MOUSEACTIVATE` and
+`WM_POINTERACTIVATE`. `OnPointer` returning `S_OK` on Down/Up consumes the
 contact for that widget and MUST NOT count toward double-activate raise. `S_FALSE` (padding, empty cell, or empty
 tile) leaves raise and edge-click navigation unchanged. The host still forwards later Move/Up of that one-finger
 contact to the same widget so it can start an internal pan after a padding Down. A two- or three-finger page pan that

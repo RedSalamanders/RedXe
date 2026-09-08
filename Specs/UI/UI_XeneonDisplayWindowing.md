@@ -1,7 +1,7 @@
 # XENEON display and windowing contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-08
 Owner: `Application` process, display-selection, HWND, and DPI behavior
 
 ## Scope
@@ -71,6 +71,8 @@ the repository test entrypoint MUST validate the version fields without desktop 
 
 - `Application` MUST own the top-level HWND with `wil::unique_hwnd` and route messages through the instance bound at
   `WM_NCCREATE`.
+- `WM_MOUSEACTIVATE` and `WM_POINTERACTIVATE` MUST return `MA_ACTIVATE` so the activating mouse or touch contact is
+  delivered to the dashboard. The first tap on an inactive window MUST NOT be eaten.
 - Debug and fallback windows MUST retain standard resize, minimize, maximize, move, and title-bar behavior.
 - `WM_SIZE` with a zero client dimension is suspension, not failure.
 - `WM_PAINT` validates the update region; continuous rendering remains on the idle side of the message loop.
