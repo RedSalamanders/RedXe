@@ -35,8 +35,9 @@ and Profile hit targets are at least 48×48 logical pixels. Sliders are 48 DIP t
 at least 48 DIP wide. Hit targets do not overlap or extend outside their tile. Mute and camera-off
 buttons use state-specific Fluent glyphs (volume/mute, microphone/mic-off) sized to 32 DIP `IconLarge` with 12 DIP
 padding inside the card. Camera always uses the video glyph (`E714`), including unavailable and off, and uses
-disabled text when the row cannot activate. Level sliders use DxUi's 6 DIP track, 14 DIP inner thumb, and translucent
-halo. The 48 DIP pointer band is the unpainted touch target; it is not the whole level panel and is not sized from the halo. The leading icon and level value share a
+disabled text when the row cannot activate. Level sliders use DxUi's 6 DIP track, 20 DIP gray chrome disc, and accent inner thumb
+(6 DIP rest, 16 hover, 12 pressed). The 48 DIP pointer band is the unpainted touch target; it is not the whole level
+panel and is not sized from the chrome disc. The leading icon and level value share a
 48 DIP mute hit target that sends the same mute command as the matching
 device card whenever the row is wide enough to keep both that target and the slider at 48 DIP wide.
 
