@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateSet('Debug', 'Release')][string] $Configuration = 'Debug', [ValidateSet('x64', 'ARM64')][string] $Platform = 'x64')
+param([ValidateSet('Debug', 'Release', 'ASan Debug')][string] $Configuration = 'Debug', [ValidateSet('x64', 'ARM64')][string] $Platform = 'x64')
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -25,8 +25,8 @@ foreach ($name in Get-CameraPackageFiles) {
     $path = Join-Path $source $name
     Check ((Get-CameraBinaryMachine $path) -eq $Platform) 'Package has the intended PE machine.'
     $version = [Diagnostics.FileVersionInfo]::GetVersionInfo($path)
-    Check ($version.IsDebug -eq ($Configuration -eq 'Debug')) 'Debug flag identifies the actual configuration.'
-    if ($Configuration -eq 'Debug') { Reject { Test-CameraBinary $path $Platform } 'Debug camera binaries cannot be installed.' }
+    Check ($version.IsDebug -eq ($Configuration -in @('Debug','ASan Debug'))) 'Debug flag identifies the actual configuration.'
+    if ($Configuration -in @('Debug','ASan Debug')) { Reject { Test-CameraBinary $path $Platform } 'Debug camera binaries cannot be installed.' }
     else { Check ((Test-CameraBinary $path $Platform).Length -eq 64) 'Release package binary passes identity and architecture validation.' }
 }
 if ($Configuration -eq 'Release') {

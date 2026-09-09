@@ -1,8 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='ASan Debug'">
+    <ClCompile>
+      <EnableASAN>true</EnableASAN>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <Optimization>Disabled</Optimization>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <ForcedIncludeFiles>$(MSBuildThisFileDirectory)Common\RequireAddressSanitizer.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <Target Name="ValidateRedXeBuildConfiguration" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(Platform)'!='x64' and '$(Platform)'!='ARM64'" Text="RedXe supports x64 and ARM64." />
+    <Error Condition="'$(Configuration)'!='Debug' and '$(Configuration)'!='Release' and '$(Configuration)'!='ASan Debug'" Text="RedXe supports Debug, Release and ASan Debug." />
+  </Target>
   <PropertyGroup>
-    <RedXeVcpkgRuntimeDir Condition="'$(Configuration)'=='Debug'">$(VcpkgInstalledDir)$(RedXeVcpkgTriplet)\debug\bin\</RedXeVcpkgRuntimeDir>
-    <RedXeVcpkgRuntimeDir Condition="'$(Configuration)'!='Debug'">$(VcpkgInstalledDir)$(RedXeVcpkgTriplet)\bin\</RedXeVcpkgRuntimeDir>
+    <RedXeVcpkgRuntimeDir Condition="('$(Configuration)'=='Debug' or '$(Configuration)'=='ASan Debug')">$(VcpkgInstalledDir)$(RedXeVcpkgTriplet)\debug\bin\</RedXeVcpkgRuntimeDir>
+    <RedXeVcpkgRuntimeDir Condition="'$(Configuration)'=='Release'">$(VcpkgInstalledDir)$(RedXeVcpkgTriplet)\bin\</RedXeVcpkgRuntimeDir>
   </PropertyGroup>
 
   <Target Name="CopyRedXeRuntimeDependencies" AfterTargets="Link"

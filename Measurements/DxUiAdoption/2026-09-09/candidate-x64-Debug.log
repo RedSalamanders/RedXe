@@ -1,0 +1,132 @@
+
+  ╔══════════════════════════════════════════════════════════╗
+  ║        ██████╗ ███████╗██████╗   ██╗  ██╗███████╗        ║
+  ║        ██╔══██╗██╔════╝██╔══██╗  ╚██╗██╔╝██╔════╝        ║
+  ║        ██████╔╝█████╗  ██║  ██║   ╚███╔╝ █████╗          ║
+  ║        ██╔══██╗██╔══╝  ██║  ██║   ██╔██╗ ██╔══╝          ║
+  ║        ██║  ██║███████╗██████╔╝  ██╔╝ ██╗███████╗        ║
+  ║        ╚═╝  ╚═╝╚══════╝╚═════╝   ╚═╝  ╚═╝╚══════╝        ║
+  ╚═══════════ XENEON EDGE // BUILD SIGNAL LOCKED ═══════════╝
+
+Target: x64 | Debug
+
+[1/2] Dependencies
+Installing RedXe dependencies (x64-windows)
+Detecting compiler hash for triplet x64-windows...
+Compiler found: C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe
+The following packages are already installed:
+    curl[core,sspi,ssl]:x64-windows@8.21.0#1
+  * vcpkg-cmake:x64-windows@2024-04-23
+  * vcpkg-cmake-config:x64-windows@2026-07-21
+    wil:x64-windows@1.0.260126.7
+    yyjson[core,writer,reader,non-standard,fast-fp-conv]:x64-windows@0.12.0
+  * zlib:x64-windows@1.3.2#1
+curl is compatible with built-in CMake targets:
+
+    find_package(CURL REQUIRED)
+    target_link_libraries(main PRIVATE CURL::libcurl)
+
+wil provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(wil CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE WIL::WIL)
+
+yyjson provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(yyjson CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE yyjson::yyjson)
+
+yyjson provides pkg-config modules:
+
+  # Fastest JSON library in C
+  yyjson
+
+All requested installations completed successfully in: 252 us
+vcpkg dependencies are ready.
+DxUi pin verified: 8c548fe2de3cdb5af858c457e9bef47d81506878
+Installing DxUi dependencies (x64-windows)
+Detecting compiler hash for triplet x64-windows...
+Compiler found: C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe
+The following packages are already installed:
+  * vcpkg-cmake:x64-windows@2024-04-23
+  * vcpkg-cmake-config:x64-windows@2026-07-21
+    wil:x64-windows@1.0.260126.7
+wil provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(wil CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE WIL::WIL)
+
+All requested installations completed successfully in: 214 us
+vcpkg dependencies are ready.
+DxUi pin is ahead of main; review Z:\src\RedXe\Dependencies\DxUi.lock.json before any change. (Checked 2026-09-09 12:03:57Z)
+DxUi restored at exact pin 8c548fe2de3cdb5af858c457e9bef47d81506878; sibling checkout unchanged.
+
+[2/2] Build
+MSBuild: C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\amd64\MSBuild.exe
+
+  RotatingTriangle.vcxproj -> Z:\src\RedXe\.build\x64\Debug\Plugins\RotatingTriangle.dll
+  AVControlBroker.vcxproj -> Z:\src\RedXe\.build\x64\Debug\Plugins\AVControlBroker.exe
+  SystemData.vcxproj -> Z:\src\RedXe\.build\x64\Debug\Plugins\SystemData.dll
+  SettingsTests.vcxproj -> Z:\src\RedXe\.build\x64\Debug\SettingsTests.exe
+  Launcher.vcxproj -> Z:\src\RedXe\.build\x64\Debug\Plugins\Launcher.dll
+  ProcessViewer.vcxproj -> Z:\src\RedXe\.build\x64\Debug\Plugins\ProcessViewer.dll
+  AVControlCameraSetup.vcxproj -> Z:\src\RedXe\.build\x64\Debug\Plugins\AVControlCameraSetup.exe
+  AVControlCamera.vcxproj -> Z:\src\RedXe\.build\x64\Debug\Plugins\AVControlCamera.dll
+  DeskClock.vcxproj -> Z:\src\RedXe\.build\x64\Debug\Plugins\DeskClock.dll
+  WeatherLocation.vcxproj -> Z:\src\RedXe\.build\x64\Debug\Plugins\WeatherLocation.exe
+  SystemDataPhase0.vcxproj -> Z:\src\RedXe\.build\x64\Debug\SystemDataPhase0.exe
+  StudioClock.vcxproj -> Z:\src\RedXe\.build\x64\Debug\Plugins\StudioClock.dll
+  GdiOrbit.vcxproj -> Z:\src\RedXe\.build\x64\Debug\Plugins\GdiOrbit.dll
+  MatrixRain.vcxproj -> Z:\src\RedXe\.build\x64\Debug\Plugins\MatrixRain.dll
+  SystemDataTests.vcxproj -> Z:\src\RedXe\.build\x64\Debug\SystemDataTests.exe
+  LauncherTests.vcxproj -> Z:\src\RedXe\.build\x64\Debug\LauncherTests.exe
+  DeskClockTests.vcxproj -> Z:\src\RedXe\.build\x64\Debug\DeskClockTests.exe
+  Weather.vcxproj -> Z:\src\RedXe\.build\x64\Debug\Plugins\Weather.dll
+  StudioClockTests.vcxproj -> Z:\src\RedXe\.build\x64\Debug\StudioClockTests.exe
+  PluginContractTests.vcxproj -> Z:\src\RedXe\.build\x64\Debug\PluginContractTests.exe
+  WeatherTests.vcxproj -> Z:\src\RedXe\.build\x64\Debug\WeatherTests.exe
+  DxUi.vcxproj -> Z:\src\RedXe\.build\dependencies\DxUi\e92b95a901926882c927af34820048081d56253593b176a4e70c95e075226657\x64\Debug\DxUi.lib
+  DxUi pin verified: 8c548fe2de3cdb5af858c457e9bef47d81506878
+  AVControl.vcxproj -> Z:\src\RedXe\.build\x64\Debug\Plugins\AVControl.dll
+  DxUi pin verified: 8c548fe2de3cdb5af858c457e9bef47d81506878
+  DxUi pin verified: 8c548fe2de3cdb5af858c457e9bef47d81506878
+  AVControlTests.vcxproj -> Z:\src\RedXe\.build\x64\Debug\AVControlTests.exe
+  RedXe.vcxproj -> Z:\src\RedXe\.build\x64\Debug\RedXe.exe
+  HostPluginTests.vcxproj -> Z:\src\RedXe\.build\x64\Debug\HostPluginTests.exe
+
+Captured log: Z:\src\RedXe\.build\logs\redxe-build-20260909_140357_604-pid108148-c62aadde.log
+Diagnostics: 0 warning(s), 0 error(s)
+DxUi pin verified: 8c548fe2de3cdb5af858c457e9bef47d81506878
+DxUi module provenance: Z:\src\RedXe\.build\x64\Debug\DxUi.provenance.json
+BUILD SIGNAL LOCKED in 00:00:15.717
+Ready: Z:\src\RedXe\.build\x64\Debug\RedXe.exe
+Running exact build-output process preflight tests...
+Build-output process preflight tests passed.
+Build presentation and streaming tests passed.
+PASS provenance rejects wrong repository
+PASS provenance rejects wrong platform
+PASS provenance rejects wrong configuration
+PASS provenance rejects wrong pin
+PASS provenance rejects wrong API
+PASS provenance rejects incomplete module closure
+PASS provenance rejects duplicate module
+PASS provenance rejects changed binary
+Running plugin ABI and rendering-interface contract tests...
+Running AV Control model, input and layout tests...
+PASS CameraPackage: 8 checks (validation only; no installation)
+Running local system-data provider contract tests...
+Running system-data Phase 0 acquisition spikes...
+Running Studio Clock contract, scheduling, WARP, and resource tests...
+Running Desk Clock contract, scheduling, WARP, and resource tests...
+Running Launcher factory, pin fallback, WARP, launch, and drop tests...
+Running Weather HTTP, unit, and label format tests...
+Running settings, schema, stamp, and watcher contract tests...
+Running production host and plugin integration tests...
+Host integration log: Z:\src\RedXe\.build\x64\Debug\HostPluginTests.log
+Running hidden Direct3D 11 WARP smoke test...
+Running isolated fatal-process crash diagnostics test...
+Running isolated stack-overflow crash diagnostics test...
+All tests passed.

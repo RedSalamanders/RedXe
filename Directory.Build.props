@@ -17,6 +17,14 @@
     <VcpkgEnabled>false</VcpkgEnabled>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)'=='ASan Debug'">
+    <EnableASAN>true</EnableASAN>
+    <LinkIncremental>false</LinkIncremental>
+    <!-- One producer for each shared runtime directory, after the full build completes. -->
+    <CopyAsanBinariesToOutDir Condition="'$(MSBuildProjectName)'=='RedXe' or '$(MSBuildProjectName)'=='AVControl'">true</CopyAsanBinariesToOutDir>
+    <CopyAsanBinariesToOutDir Condition="'$(MSBuildProjectName)'!='RedXe' and '$(MSBuildProjectName)'!='AVControl'">false</CopyAsanBinariesToOutDir>
+  </PropertyGroup>
+
   <ItemDefinitionGroup Condition="'$(MSBuildProjectExtension)'=='.vcxproj'">
     <ClCompile>
       <LanguageStandard>stdcpplatest</LanguageStandard>
@@ -34,13 +42,13 @@
     </Link>
   </ItemDefinitionGroup>
 
-  <ItemDefinitionGroup Condition="'$(MSBuildProjectExtension)'=='.vcxproj' and '$(Configuration)'=='Debug'">
+  <ItemDefinitionGroup Condition="'$(MSBuildProjectExtension)'=='.vcxproj' and ('$(Configuration)'=='Debug' or '$(Configuration)'=='ASan Debug')">
     <Link>
       <AdditionalLibraryDirectories>$(VcpkgInstalledDir)$(RedXeVcpkgTriplet)\debug\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
 
-  <ItemDefinitionGroup Condition="'$(MSBuildProjectExtension)'=='.vcxproj' and '$(Configuration)'!='Debug'">
+  <ItemDefinitionGroup Condition="'$(MSBuildProjectExtension)'=='.vcxproj' and '$(Configuration)'=='Release'">
     <Link>
       <AdditionalLibraryDirectories>$(VcpkgInstalledDir)$(RedXeVcpkgTriplet)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>

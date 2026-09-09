@@ -9,7 +9,7 @@ and writes all outputs beneath .build. Interactive builds preserve native MSBuil
 replay colored output while capturing a plain-text log beneath .build/logs.
 
 .PARAMETER Configuration
-Build configuration: Debug or Release.
+Build configuration: Debug, Release or ASan Debug.
 
 .PARAMETER Platform
 Target platform: x64 or ARM64.
@@ -28,7 +28,7 @@ Maximum MSBuild worker count. Zero uses MSBuild's default.
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Debug', 'Release')]
+    [ValidateSet('Debug', 'Release', 'ASan Debug')]
     [string] $Configuration = 'Debug',
 
     [ValidateSet('x64', 'ARM64')]
@@ -116,7 +116,7 @@ $operationStopwatch = [Diagnostics.Stopwatch]::StartNew()
 if (-not $Clean) {
     Write-Host '[1/2] Dependencies' -ForegroundColor Cyan
     & $dependencyInstaller -Platform $Platform
-    & (Join-Path $repoRoot 'restore-dxui.ps1') -Platform $Platform
+    & (Join-Path $repoRoot 'restore-dxui.ps1') -Platform $Platform -MSBuildPath $msbuild -CheckUpdates
     Write-Host ''
 }
 
@@ -175,6 +175,9 @@ if (-not $Clean) {
     if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
         throw "Build succeeded but the expected executable was not found: $executable"
     }
+    Import-Module (Join-Path $repoRoot 'Build/DxUiProvenance.psm1') -Force
+    $provenance=Write-RedXeDxUiProvenance -RepoRoot $repoRoot -Platform $Platform -Configuration $Configuration
+    Write-Host "DxUi module provenance: $provenance" -ForegroundColor DarkGray
     Write-Host "BUILD SIGNAL LOCKED in $duration" -ForegroundColor Green
     Write-Host "Ready: $executable" -ForegroundColor Green
 

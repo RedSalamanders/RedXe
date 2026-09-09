@@ -1,0 +1,60 @@
+name: RedXe validation
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: redxe-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: x64, runner: windows-2025-vs2026, configuration: Debug }
+          - { platform: x64, runner: windows-2025-vs2026, configuration: Release }
+          - { platform: x64, runner: windows-2025-vs2026, configuration: 'ASan Debug' }
+          - { platform: ARM64, runner: windows-11-vs2026-arm, configuration: Debug }
+          - { platform: ARM64, runner: windows-11-vs2026-arm, configuration: Release }
+          - { platform: ARM64, runner: windows-11-vs2026-arm, configuration: 'ASan Debug' }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14'
+      - name: Configure private dependency read access
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.DXUI_READ_TOKEN }}
+        run: |
+          if (-not $env:GH_TOKEN) { throw 'Configure DXUI_READ_TOKEN with read-only Contents and Actions access to RedSalamanders/DxUi.' }
+          gh auth setup-git --hostname github.com
+          if ($LASTEXITCODE -ne 0) { throw 'Private dependency Git authentication is unavailable.' }
+      - name: Build and test the pinned product
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.DXUI_READ_TOKEN }}
+        run: |
+          ./test.ps1 -Configuration '${{ matrix.configuration }}' -Platform '${{ matrix.platform }}'
+          ./validate-skills.ps1
+          $pin=Get-Content Dependencies/DxUi.lock.json -Raw | ConvertFrom-Json
+          python ".build/dependencies/DxUi/source/$($pin.commit)/Tools/validate_build_matrix.py" --root .
+          if ($LASTEXITCODE -ne 0) { throw 'Native project matrix validation failed.' }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: redxe-${{ matrix.platform }}-${{ matrix.configuration }}
+          path: |
+            .build/logs/**
+            .build/reports/**
+            .build/test-artifacts/**
+            .build/${{ matrix.platform }}/${{ matrix.configuration }}/*.log
+            .build/${{ matrix.platform }}/${{ matrix.configuration }}/DxUi.provenance.json
+          retention-days: 14

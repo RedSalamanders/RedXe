@@ -12,7 +12,7 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 - Windows 11 SDK 10.0.26100
 - MSVC in `stdcpplatest` mode
 - Unicode Win32 APIs
-- x64 and ARM64 project configurations
+- Debug, Release and ASan Debug project configurations on x64 and ARM64, including real sanitizer instrumentation
 - Git for the pinned vcpkg bootstrap
 
 ## Canonical project guidance

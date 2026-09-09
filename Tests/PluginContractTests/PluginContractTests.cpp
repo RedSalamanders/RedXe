@@ -1,3 +1,4 @@
+#include "AddressSanitizerProbe.h"
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
@@ -1887,6 +1888,11 @@ struct HeapSnapshot final
 
 int wmain(int argumentCount, wchar_t** arguments)
 {
+    if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--asan-probe")
+    {
+        SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+        return RunAddressSanitizerProbe();
+    }
     if (argumentCount >= 2 && std::wstring_view(arguments[1]) == L"--matrix-benchmark")
     {
         const std::wstring_view mode = argumentCount >= 3 ? std::wstring_view(arguments[2]) : std::wstring_view{};

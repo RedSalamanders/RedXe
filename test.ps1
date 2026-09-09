@@ -15,7 +15,7 @@ touching the user's crash directory. GPU plugins must not load the runtime shade
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Debug', 'Release')]
+    [ValidateSet('Debug', 'Release', 'ASan Debug')]
     [string] $Configuration = 'Debug',
 
     [ValidateSet('x64', 'ARM64')]
@@ -28,6 +28,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSCommandPath
+$nativeArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+if ($Platform -eq 'ARM64' -and $nativeArchitecture -ne 'Arm64') {
+    throw 'ARM64 runtime qualification requires a native ARM64 host; use build.ps1 for cross-compilation.'
+}
 $buildArguments = @{
     Configuration = $Configuration
     Platform = $Platform
@@ -40,6 +44,8 @@ if ($Rebuild) {
 if ($LASTEXITCODE -ne 0) {
     throw "Build entrypoint failed with exit code $LASTEXITCODE."
 }
+Import-Module (Join-Path $repoRoot 'Build/DxUiProvenance.psm1') -Force
+Assert-RedXeDxUiProvenance -OutputRoot (Join-Path $repoRoot ".build/$Platform/$Configuration") -LockFile (Join-Path $repoRoot 'Dependencies/DxUi.lock.json') -Platform $Platform -Configuration $Configuration
 
 $executable = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.exe"
 if ($Platform -ne 'x64' -and $env:PROCESSOR_ARCHITECTURE -eq 'AMD64') {
@@ -55,17 +61,31 @@ if ($executableVersion.FileDescription -ne 'RedXe XENEON dashboard' -or
 
 Write-Host 'Running exact build-output process preflight tests...' -ForegroundColor Cyan
 & (Join-Path $repoRoot 'Tests\BuildProcessTests\BuildProcessTests.ps1')
+& (Join-Path $repoRoot 'Tests\BuildProcessTests\DxUiProvenanceTests.ps1')
 
 $contractTests = Join-Path $repoRoot ".build\$Platform\$Configuration\PluginContractTests.exe"
+if ($Configuration -eq 'ASan Debug') {
+    $probeLog = Join-Path $repoRoot ".build\logs\I19-ASan-probe-$Platform-$([guid]::NewGuid().ToString('N')).log"
+    $previousOptions=$env:ASAN_OPTIONS
+    try {
+        $env:ASAN_OPTIONS='halt_on_error=1:abort_on_error=0:detect_leaks=0'
+        & $contractTests --asan-probe *> $probeLog
+        $probeExit=$LASTEXITCODE
+    } finally { $env:ASAN_OPTIONS=$previousOptions }
+    if ($probeExit -eq 0 -or -not (Select-String -LiteralPath $probeLog -SimpleMatch 'AddressSanitizer: heap-use-after-free')) {
+        throw "ASAN failed to diagnose the isolated deliberate defect: $probeLog"
+    }
+    Write-Host "PASS AddressSanitizer detection probe: $probeLog"
+}
 Write-Host 'Running plugin ABI and rendering-interface contract tests...' -ForegroundColor Cyan
-$contractProcess = Start-Process -FilePath $contractTests -Wait -PassThru
+$contractProcess = Start-Process -WindowStyle Hidden -FilePath $contractTests -Wait -PassThru
 if ($contractProcess.ExitCode -ne 0) {
     throw "Plugin contract tests failed with exit code $($contractProcess.ExitCode)."
 }
 
 $avControlTests = Join-Path $repoRoot ".build\$Platform\$Configuration\AVControlTests.exe"
 Write-Host 'Running AV Control model, input and layout tests...' -ForegroundColor Cyan
-$avControlProcess = Start-Process -FilePath $avControlTests -WindowStyle Hidden -Wait -PassThru
+$avControlProcess = Start-Process -WindowStyle Hidden -FilePath $avControlTests -Wait -PassThru
 if ($avControlProcess.ExitCode -ne 0) {
     throw "AV Control tests failed with exit code $($avControlProcess.ExitCode)."
 }
@@ -73,18 +93,18 @@ if ($avControlProcess.ExitCode -ne 0) {
 
 $systemDataTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SystemDataTests.exe"
 Write-Host 'Running local system-data provider contract tests...' -ForegroundColor Cyan
-$systemDataProcess = Start-Process -FilePath $systemDataTests -Wait -PassThru
+$systemDataProcess = Start-Process -WindowStyle Hidden -FilePath $systemDataTests -Wait -PassThru
 if ($systemDataProcess.ExitCode -ne 0) {
     throw "System-data provider tests failed with exit code $($systemDataProcess.ExitCode)."
 }
 if ($Configuration -eq 'Release' -and $Platform -eq 'x64') {
     Write-Host 'Running Release system-data row-cap resource measurement...' -ForegroundColor Cyan
-    $systemDataBenchmark = Start-Process -FilePath $systemDataTests -ArgumentList '--benchmark' -Wait -PassThru
+    $systemDataBenchmark = Start-Process -WindowStyle Hidden -FilePath $systemDataTests -ArgumentList '--benchmark' -Wait -PassThru
     if ($systemDataBenchmark.ExitCode -ne 0) {
         throw "System-data row-cap measurement failed with exit code $($systemDataBenchmark.ExitCode)."
     }
     Write-Host 'Running Release system-data per-domain measurement...' -ForegroundColor Cyan
-    $systemDataDomains = Start-Process -FilePath $systemDataTests -ArgumentList '--domains' -Wait -PassThru
+    $systemDataDomains = Start-Process -WindowStyle Hidden -FilePath $systemDataTests -ArgumentList '--domains' -Wait -PassThru
     if ($systemDataDomains.ExitCode -ne 0) {
         throw "System-data per-domain measurement failed with exit code $($systemDataDomains.ExitCode)."
     }
@@ -92,42 +112,42 @@ if ($Configuration -eq 'Release' -and $Platform -eq 'x64') {
 
 $systemDataPhase0 = Join-Path $repoRoot ".build\$Platform\$Configuration\SystemDataPhase0.exe"
 Write-Host 'Running system-data Phase 0 acquisition spikes...' -ForegroundColor Cyan
-$systemDataPhase0Process = Start-Process -FilePath $systemDataPhase0 -Wait -PassThru
+$systemDataPhase0Process = Start-Process -WindowStyle Hidden -FilePath $systemDataPhase0 -Wait -PassThru
 if ($systemDataPhase0Process.ExitCode -ne 0) {
     throw "System-data Phase 0 spikes failed with exit code $($systemDataPhase0Process.ExitCode)."
 }
 
 $studioClockTests = Join-Path $repoRoot ".build\$Platform\$Configuration\StudioClockTests.exe"
 Write-Host 'Running Studio Clock contract, scheduling, WARP, and resource tests...' -ForegroundColor Cyan
-$studioClockProcess = Start-Process -FilePath $studioClockTests -Wait -PassThru
+$studioClockProcess = Start-Process -WindowStyle Hidden -FilePath $studioClockTests -Wait -PassThru
 if ($studioClockProcess.ExitCode -ne 0) {
     throw "Studio Clock tests failed with exit code $($studioClockProcess.ExitCode)."
 }
 
 $deskClockTests = Join-Path $repoRoot ".build\$Platform\$Configuration\DeskClockTests.exe"
 Write-Host 'Running Desk Clock contract, scheduling, WARP, and resource tests...' -ForegroundColor Cyan
-$deskClockProcess = Start-Process -FilePath $deskClockTests -Wait -PassThru
+$deskClockProcess = Start-Process -WindowStyle Hidden -FilePath $deskClockTests -Wait -PassThru
 if ($deskClockProcess.ExitCode -ne 0) {
     throw "Desk Clock tests failed with exit code $($deskClockProcess.ExitCode)."
 }
 
 $launcherTests = Join-Path $repoRoot ".build\$Platform\$Configuration\LauncherTests.exe"
 Write-Host 'Running Launcher factory, pin fallback, WARP, launch, and drop tests...' -ForegroundColor Cyan
-$launcherProcess = Start-Process -FilePath $launcherTests -Wait -PassThru
+$launcherProcess = Start-Process -WindowStyle Hidden -FilePath $launcherTests -Wait -PassThru
 if ($launcherProcess.ExitCode -ne 0) {
     throw "Launcher tests failed with exit code $($launcherProcess.ExitCode)."
 }
 
 $weatherTests = Join-Path $repoRoot ".build\$Platform\$Configuration\WeatherTests.exe"
 Write-Host 'Running Weather HTTP, unit, and label format tests...' -ForegroundColor Cyan
-$weatherProcess = Start-Process -FilePath $weatherTests -Wait -PassThru
+$weatherProcess = Start-Process -WindowStyle Hidden -FilePath $weatherTests -Wait -PassThru
 if ($weatherProcess.ExitCode -ne 0) {
     throw "Weather tests failed with exit code $($weatherProcess.ExitCode)."
 }
 
 $settingsTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SettingsTests.exe"
 Write-Host 'Running settings, schema, stamp, and watcher contract tests...' -ForegroundColor Cyan
-$settingsProcess = Start-Process -FilePath $settingsTests -Wait -PassThru
+$settingsProcess = Start-Process -WindowStyle Hidden -FilePath $settingsTests -Wait -PassThru
 if ($settingsProcess.ExitCode -ne 0) {
     throw "Settings tests failed with exit code $($settingsProcess.ExitCode)."
 }
@@ -136,7 +156,7 @@ $hostPluginTests = Join-Path $repoRoot ".build\$Platform\$Configuration\HostPlug
 Write-Host 'Running production host and plugin integration tests...' -ForegroundColor Cyan
 $hostPluginLog = Join-Path $repoRoot ".build\$Platform\$Configuration\HostPluginTests.log"
 $hostPluginErrors = Join-Path $repoRoot ".build\$Platform\$Configuration\HostPluginTests.stderr.log"
-$hostPluginProcess = Start-Process -FilePath $hostPluginTests -WindowStyle Hidden -Wait -PassThru `
+$hostPluginProcess = Start-Process -WindowStyle Hidden -FilePath $hostPluginTests -Wait -PassThru `
     -RedirectStandardOutput $hostPluginLog -RedirectStandardError $hostPluginErrors
 if ($hostPluginProcess.ExitCode -ne 0) {
     Get-Content -LiteralPath $hostPluginLog -Tail 80
@@ -146,7 +166,7 @@ if ($hostPluginProcess.ExitCode -ne 0) {
 Write-Host "Host integration log: $hostPluginLog" -ForegroundColor DarkGray
 
 Write-Host 'Running hidden Direct3D 11 WARP smoke test...' -ForegroundColor Cyan
-$process = Start-Process -FilePath $executable -ArgumentList @('--self-test', '--warp') -Wait -PassThru
+$process = Start-Process -WindowStyle Hidden -FilePath $executable -ArgumentList @('--self-test', '--warp') -Wait -PassThru
 if ($process.ExitCode -ne 0) {
     throw "Smoke test failed with exit code $($process.ExitCode)."
 }
@@ -177,7 +197,7 @@ function Invoke-RedXeCrashTest {
     [void](New-Item -ItemType Directory -Path $crashTestDirectory -Force)
     try {
         $quotedDirectoryArgument = '"--crash-test-directory={0}"' -f $crashTestDirectory
-        $crashProcess = Start-Process -FilePath $executable `
+        $crashProcess = Start-Process -WindowStyle Hidden -FilePath $executable `
             -ArgumentList @($CrashArgument, $quotedDirectoryArgument) -Wait -PassThru
     if ($crashProcess.ExitCode -ne 127) {
         throw "Crash harness returned exit code $($crashProcess.ExitCode); expected 127."
@@ -246,7 +266,7 @@ function Invoke-RedXeCrashTest {
     }
 }
 
-$invalidOverrideProcess = Start-Process -FilePath $executable `
+$invalidOverrideProcess = Start-Process -WindowStyle Hidden -FilePath $executable `
     -ArgumentList @('--crash-test', '--crash-test-directory=relative-path-is-invalid') -Wait -PassThru
 if ($invalidOverrideProcess.ExitCode -ne 2) {
     throw "Invalid crash-directory override returned exit code $($invalidOverrideProcess.ExitCode); expected 2."

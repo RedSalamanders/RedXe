@@ -29,6 +29,7 @@ Windows. Opening `.vsconfig` in Visual Studio offers the required workload. The 
 # Release or ARM64
 .\build.ps1 -Configuration Release
 .\build.ps1 -Platform ARM64
+.\test.ps1 -Configuration 'ASan Debug' # Native sanitizer detection and product regressions
 
 # Rebuild and validate with the software Direct3D driver
 .\build.ps1 -Rebuild

@@ -29,6 +29,17 @@ independently launched or unrelated RedXe process.
 
 ## Output and validation
 
+Every native project and solution mapping supports Debug, Release and ASan Debug on x64 and ARM64.
+ASan Debug uses `/MDd`, disabled optimization, program-database debug information and real AddressSanitizer
+instrumentation in every first-party translation unit; a forced compiler guard rejects unsanitized builds.
+The application and plugin output directories each have one sanitizer-runtime staging producer. The test
+entrypoint requires an isolated use-after-free to produce the sanitizer's diagnostic; an ordinary crash is
+not successful detection. ARM64 runtime tests require native ARM64 execution.
+
+The native CI matrix runs the ordinary product test entrypoint for all six configurations. Private DxUi
+read access is supplied by `DXUI_READ_TOKEN` (Contents and Actions read only); a missing credential is an
+explicit CI setup failure. No token is embedded in the lock, logs, source URLs or shipped provenance.
+
 Build outputs remain under `.build/<Platform>/<Configuration>/`, with intermediates under `.build/Intermediate/`.
 The root `test.ps1` exits zero only after every required assertion has passed. Expected nonzero exits from isolated
 negative-test children must not become the test entrypoint's success exit code.

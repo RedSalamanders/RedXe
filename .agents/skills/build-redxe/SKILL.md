@@ -43,8 +43,9 @@ When diagnosing a failure:
    rendering-IID negotiation, then validates settings parsing, device creation, embedded shader-bytecode loading,
    drawing, and presentation.
    without requiring a hardware GPU.
-5. Build both Debug and Release when changing project properties, manifests, or compiler behavior. Build x64 and ARM64
+5. Build Debug, Release and ASan Debug when changing project properties, manifests, or compiler behavior. Build x64 and ARM64
    when changing vcpkg, platform mapping, or dependency paths.
+   Run ASan Debug tests natively; the deliberate isolated probe must produce an AddressSanitizer diagnostic.
 
 `build.ps1` discovers stable and prerelease Visual Studio instances. Do not hardcode a developer's installation path
 in project files or scripts.

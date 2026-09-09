@@ -1,14 +1,3 @@
 <Project>
   <Import Project="$(DxUiRoot)\Build\DxUi.Consumer.targets" />
-  <PropertyGroup>
-    <ShouldUnsetParentConfigurationAndPlatform>false</ShouldUnsetParentConfigurationAndPlatform>
-  </PropertyGroup>
-  <!-- Referenced external projects have no .sln platform mapping; MSBuild otherwise chooses Win32. -->
-  <ItemGroup>
-    <ProjectReference Update="$(DxUiResolvedRoot)src\DxUi.vcxproj">
-      <SetPlatform>Platform=$(Platform)</SetPlatform>
-      <SetConfiguration>Configuration=$(Configuration)</SetConfiguration>
-      <AdditionalProperties>DxUiOutputRoot=$(DxUiConsumerOutputRoot);Platform=$(Platform);Configuration=$(Configuration)</AdditionalProperties>
-    </ProjectReference>
-  </ItemGroup>
 </Project>
