@@ -2,11 +2,13 @@
 
 ## Progress checklist
 
-- [ ] Requalify the consumer at DxUi 52da33d after its six native configurations passed (34363702073); retain the previous 8c548fe pin for rollback. The full x64 Debug product suite passes; remaining profiles and the fresh native matrix are pending.
+- [ ] Requalify the candidate at DxUi ecad707 after the native module registration correction; retain the green 52da33d product receipts as the previous qualified pin.
+
+- [x] Requalify the consumer at DxUi 52da33d: full local x64 Debug, Release and ASan Debug product suites pass with zero build warnings/errors, and product 1bf6662 passes all six native CI profiles (34368430957), including real ARM64 ASAN detection. The previous 8c548fe pin remains available for rollback; paired resources and hardware/manual gates stay open.
 - [x] Audit current pin d192e474e540adc2656e69b8e8150b0f7a05d63f and the three archive consumers.
 - [x] Unchanged x64 Debug product test.ps1 passes at 75545887d002b5075d170d98b7bfd3a77d8d7f61.
 - [x] Unchanged Release test.ps1 passes at the audited product revision from the isolated Z:\RxI19 checkout.
-- [x] All 25 native projects and the solution build all six configurations with ASAN compiler enforcement; native ARM64 runtime qualification remains open.
+- [x] All 25 native projects and the solution build all six configurations with ASAN compiler enforcement; native ARM64 runtime and detection qualify in the retained six-profile CI receipts.
 - [x] Exact candidate restore, compiler/SDK/flag isolation, advisory check and actual linked-module provenance pass in all six local builds.
 - [x] Provenance tests reject wrong repository/pin/API/profile, incomplete/duplicate module closure and changed binaries.
 - [x] Candidate 8c548fe2de3cdb5af858c457e9bef47d81506878 builds x64 Debug with zero warnings/errors and passes the complete product test.ps1.
@@ -36,7 +38,9 @@ concurrent build activity is not accepted as paired performance evidence.
 
 Six native CI jobs are implemented. Anonymous HTTPS clone and public Actions API access to DxUi were
 verified on 2026-09-09. No custom token or secret is required; the workflow uses the automatic job token
-only for advisory API requests. Native CI at product 2ef0bcb passes all six configurations (34359693390). The 52da33d upgrade requires a fresh consumer matrix.
+only for advisory API requests. Native CI at product 2ef0bcb passes all six configurations (34359693390).
+The 52da33d upgrade is also qualified in all six native configurations at product 1bf6662 (34368430957);
+the retained receipt is `Measurements/DxUiAdoption/2026-09-09/native-ci-1bf6662.json`.
 
 Candidate Debug evidence is retained under `Measurements/DxUiAdoption/2026-09-09/`. Its build took 108 seconds;
 an unchanged repeat took 16 seconds with no native compilation. This is observed warm-build behavior, not a

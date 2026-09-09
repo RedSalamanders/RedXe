@@ -19,7 +19,7 @@ if (-not (Test-Path -LiteralPath $source)) {
         if ($LASTEXITCODE -eq 0) { $cloneFrom = $sibling }
     }
     & git clone --no-checkout --no-hardlinks $cloneFrom $source
-    if ($LASTEXITCODE -ne 0) { throw 'DxUi source restore failed. Authenticate Git access to the private repository and retry.' }
+    if ($LASTEXITCODE -ne 0) { throw 'DxUi source restore failed. Check Git/network access to the public repository and retry; no custom access token is required.' }
     & git -C $source checkout --detach $pin.commit
     if ($LASTEXITCODE -ne 0) { throw 'The exact DxUi source pin could not be checked out.' }
     & git -C $source remote set-url origin "$($pin.repository).git"
