@@ -45,6 +45,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Build entrypoint failed with exit code $LASTEXITCODE."
 }
 Import-Module (Join-Path $repoRoot 'Build/DxUiProvenance.psm1') -Force
+Import-Module (Join-Path $repoRoot 'Build/BuildPresentation.psm1') -Force
 Assert-RedXeDxUiProvenance -OutputRoot (Join-Path $repoRoot ".build/$Platform/$Configuration") -LockFile (Join-Path $repoRoot 'Dependencies/DxUi.lock.json') -Platform $Platform -Configuration $Configuration
 
 $executable = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.exe"
@@ -78,78 +79,78 @@ if ($Configuration -eq 'ASan Debug') {
     Write-Host "PASS AddressSanitizer detection probe: $probeLog"
 }
 Write-Host 'Running plugin ABI and rendering-interface contract tests...' -ForegroundColor Cyan
-$contractProcess = Start-Process -WindowStyle Hidden -FilePath $contractTests -Wait -PassThru
-if ($contractProcess.ExitCode -ne 0) {
-    throw "Plugin contract tests failed with exit code $($contractProcess.ExitCode)."
+$contractProcess = Invoke-RedXeStreamingProcess -FilePath $contractTests -WorkingDirectory $repoRoot -LogPath ($contractTests + '.log')
+if ($contractProcess -ne 0) {
+    throw "Plugin contract tests failed with exit code $($contractProcess)."
 }
 
 $avControlTests = Join-Path $repoRoot ".build\$Platform\$Configuration\AVControlTests.exe"
 Write-Host 'Running AV Control model, input and layout tests...' -ForegroundColor Cyan
-$avControlProcess = Start-Process -WindowStyle Hidden -FilePath $avControlTests -Wait -PassThru
-if ($avControlProcess.ExitCode -ne 0) {
-    throw "AV Control tests failed with exit code $($avControlProcess.ExitCode)."
+$avControlProcess = Invoke-RedXeStreamingProcess -FilePath $avControlTests -WorkingDirectory $repoRoot -LogPath ($avControlTests + '.log')
+if ($avControlProcess -ne 0) {
+    throw "AV Control tests failed with exit code $($avControlProcess)."
 }
 & (Join-Path $repoRoot 'Tests/AVControlTests/CameraPackageTests.ps1') -Configuration $Configuration -Platform $Platform
 
 $systemDataTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SystemDataTests.exe"
 Write-Host 'Running local system-data provider contract tests...' -ForegroundColor Cyan
-$systemDataProcess = Start-Process -WindowStyle Hidden -FilePath $systemDataTests -Wait -PassThru
-if ($systemDataProcess.ExitCode -ne 0) {
-    throw "System-data provider tests failed with exit code $($systemDataProcess.ExitCode)."
+$systemDataProcess = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -LogPath ($systemDataTests + '.log')
+if ($systemDataProcess -ne 0) {
+    throw "System-data provider tests failed with exit code $($systemDataProcess)."
 }
 if ($Configuration -eq 'Release' -and $Platform -eq 'x64') {
     Write-Host 'Running Release system-data row-cap resource measurement...' -ForegroundColor Cyan
-    $systemDataBenchmark = Start-Process -WindowStyle Hidden -FilePath $systemDataTests -ArgumentList '--benchmark' -Wait -PassThru
-    if ($systemDataBenchmark.ExitCode -ne 0) {
-        throw "System-data row-cap measurement failed with exit code $($systemDataBenchmark.ExitCode)."
+    $systemDataBenchmark = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -Arguments @('--benchmark') -LogPath ($systemDataTests + '-benchmark.log')
+    if ($systemDataBenchmark -ne 0) {
+        throw "System-data row-cap measurement failed with exit code $($systemDataBenchmark)."
     }
     Write-Host 'Running Release system-data per-domain measurement...' -ForegroundColor Cyan
-    $systemDataDomains = Start-Process -WindowStyle Hidden -FilePath $systemDataTests -ArgumentList '--domains' -Wait -PassThru
-    if ($systemDataDomains.ExitCode -ne 0) {
-        throw "System-data per-domain measurement failed with exit code $($systemDataDomains.ExitCode)."
+    $systemDataDomains = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -Arguments @('--domains') -LogPath ($systemDataTests + '-domains.log')
+    if ($systemDataDomains -ne 0) {
+        throw "System-data per-domain measurement failed with exit code $($systemDataDomains)."
     }
 }
 
 $systemDataPhase0 = Join-Path $repoRoot ".build\$Platform\$Configuration\SystemDataPhase0.exe"
 Write-Host 'Running system-data Phase 0 acquisition spikes...' -ForegroundColor Cyan
-$systemDataPhase0Process = Start-Process -WindowStyle Hidden -FilePath $systemDataPhase0 -Wait -PassThru
-if ($systemDataPhase0Process.ExitCode -ne 0) {
-    throw "System-data Phase 0 spikes failed with exit code $($systemDataPhase0Process.ExitCode)."
+$systemDataPhase0Process = Invoke-RedXeStreamingProcess -FilePath $systemDataPhase0 -WorkingDirectory $repoRoot -LogPath ($systemDataPhase0 + '.log')
+if ($systemDataPhase0Process -ne 0) {
+    throw "System-data Phase 0 spikes failed with exit code $($systemDataPhase0Process)."
 }
 
 $studioClockTests = Join-Path $repoRoot ".build\$Platform\$Configuration\StudioClockTests.exe"
 Write-Host 'Running Studio Clock contract, scheduling, WARP, and resource tests...' -ForegroundColor Cyan
-$studioClockProcess = Start-Process -WindowStyle Hidden -FilePath $studioClockTests -Wait -PassThru
-if ($studioClockProcess.ExitCode -ne 0) {
-    throw "Studio Clock tests failed with exit code $($studioClockProcess.ExitCode)."
+$studioClockProcess = Invoke-RedXeStreamingProcess -FilePath $studioClockTests -WorkingDirectory $repoRoot -LogPath ($studioClockTests + '.log')
+if ($studioClockProcess -ne 0) {
+    throw "Studio Clock tests failed with exit code $($studioClockProcess)."
 }
 
 $deskClockTests = Join-Path $repoRoot ".build\$Platform\$Configuration\DeskClockTests.exe"
 Write-Host 'Running Desk Clock contract, scheduling, WARP, and resource tests...' -ForegroundColor Cyan
-$deskClockProcess = Start-Process -WindowStyle Hidden -FilePath $deskClockTests -Wait -PassThru
-if ($deskClockProcess.ExitCode -ne 0) {
-    throw "Desk Clock tests failed with exit code $($deskClockProcess.ExitCode)."
+$deskClockProcess = Invoke-RedXeStreamingProcess -FilePath $deskClockTests -WorkingDirectory $repoRoot -LogPath ($deskClockTests + '.log')
+if ($deskClockProcess -ne 0) {
+    throw "Desk Clock tests failed with exit code $($deskClockProcess)."
 }
 
 $launcherTests = Join-Path $repoRoot ".build\$Platform\$Configuration\LauncherTests.exe"
 Write-Host 'Running Launcher factory, pin fallback, WARP, launch, and drop tests...' -ForegroundColor Cyan
-$launcherProcess = Start-Process -WindowStyle Hidden -FilePath $launcherTests -Wait -PassThru
-if ($launcherProcess.ExitCode -ne 0) {
-    throw "Launcher tests failed with exit code $($launcherProcess.ExitCode)."
+$launcherProcess = Invoke-RedXeStreamingProcess -FilePath $launcherTests -WorkingDirectory $repoRoot -LogPath ($launcherTests + '.log')
+if ($launcherProcess -ne 0) {
+    throw "Launcher tests failed with exit code $($launcherProcess)."
 }
 
 $weatherTests = Join-Path $repoRoot ".build\$Platform\$Configuration\WeatherTests.exe"
 Write-Host 'Running Weather HTTP, unit, and label format tests...' -ForegroundColor Cyan
-$weatherProcess = Start-Process -WindowStyle Hidden -FilePath $weatherTests -Wait -PassThru
-if ($weatherProcess.ExitCode -ne 0) {
-    throw "Weather tests failed with exit code $($weatherProcess.ExitCode)."
+$weatherProcess = Invoke-RedXeStreamingProcess -FilePath $weatherTests -WorkingDirectory $repoRoot -LogPath ($weatherTests + '.log')
+if ($weatherProcess -ne 0) {
+    throw "Weather tests failed with exit code $($weatherProcess)."
 }
 
 $settingsTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SettingsTests.exe"
 Write-Host 'Running settings, schema, stamp, and watcher contract tests...' -ForegroundColor Cyan
-$settingsProcess = Start-Process -WindowStyle Hidden -FilePath $settingsTests -Wait -PassThru
-if ($settingsProcess.ExitCode -ne 0) {
-    throw "Settings tests failed with exit code $($settingsProcess.ExitCode)."
+$settingsProcess = Invoke-RedXeStreamingProcess -FilePath $settingsTests -WorkingDirectory $repoRoot -LogPath ($settingsTests + '.log')
+if ($settingsProcess -ne 0) {
+    throw "Settings tests failed with exit code $($settingsProcess)."
 }
 
 $hostPluginTests = Join-Path $repoRoot ".build\$Platform\$Configuration\HostPluginTests.exe"
