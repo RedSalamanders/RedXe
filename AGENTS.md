@@ -21,8 +21,8 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 - `Specs/README.md` defines specification authority and the plan lifecycle.
 - Normative product behavior lives in domain contracts under `Specs/<Domain>/`; read the owning contract before
   changing durable behavior.
-- Repo-scoped skills live in `.agents/skills/` and must pass `.\validate-skills.ps1`, which runs the bundled
-  `quick_validate.py` validator.
+- Repo-scoped skills live in `.agents/skills/` and must pass `.\validate-skills.ps1`, which runs the repository-owned
+  `Build/validate_skills.py` validator. Install `Build/requirements-validation.txt` on a clean Python environment.
 - Keep reusable build entrypoints at the repository root.
 - Generated build products belong under `.build/`; never commit them.
 

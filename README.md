@@ -36,6 +36,7 @@ Windows. Opening `.vsconfig` in Visual Studio offers the required workload. The 
 .\test.ps1
 
 # Validate all repository-local Codex skills
+py -3 -m pip install -r Build/requirements-validation.txt
 .\validate-skills.ps1
 ```
 

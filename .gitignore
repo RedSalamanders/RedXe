@@ -16,8 +16,9 @@ ARM64/
 *.ilk
 *.tlog
 *.lastbuildstate
+__pycache__/
+*.pyc
 
 # Codex projectless scratch/deliverables
 work/
 outputs/
-

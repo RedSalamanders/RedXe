@@ -3,8 +3,8 @@
 Validates every repository-local RedXe skill.
 
 .DESCRIPTION
-Locates the quick validator bundled with the Codex skill-creator skill, then validates each direct child of
-.agents/skills. The command fails immediately when the validator is unavailable or any skill is invalid.
+Runs the repository-owned metadata validator for .agents/skills on local machines and clean CI runners.
+Requires Python and the dependencies in Build/requirements-validation.txt; no Codex installation is needed.
 #>
 [CmdletBinding()]
 param()
@@ -18,20 +18,7 @@ if (-not (Test-Path -LiteralPath $skillRoot -PathType Container)) {
     throw "The repository skill directory was not found: $skillRoot"
 }
 
-$validatorCandidates = @()
-if ($env:CODEX_HOME) {
-    $validatorCandidates += Join-Path $env:CODEX_HOME 'skills\.system\skill-creator\scripts\quick_validate.py'
-}
-if ($env:USERPROFILE) {
-    $validatorCandidates += Join-Path $env:USERPROFILE '.codex\skills\.system\skill-creator\scripts\quick_validate.py'
-}
-
-$validator = $validatorCandidates |
-    Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
-    Select-Object -First 1
-if (-not $validator) {
-    throw 'The bundled skill-creator quick_validate.py script was not found under CODEX_HOME or USERPROFILE.'
-}
+$validator = Join-Path $repoRoot 'Build\validate_skills.py'
 
 $python = Get-Command 'py.exe' -ErrorAction SilentlyContinue
 $pythonUsesLauncher = $null -ne $python
@@ -39,7 +26,7 @@ if (-not $python) {
     $python = Get-Command 'python.exe' -ErrorAction SilentlyContinue
 }
 if (-not $python) {
-    throw 'Python was not found. Install Python or run this command from a Codex environment that provides it.'
+    throw 'Python was not found. Install Python and Build/requirements-validation.txt.'
 }
 
 $skills = Get-ChildItem -LiteralPath $skillRoot -Directory | Sort-Object Name
@@ -47,17 +34,14 @@ if ($skills.Count -eq 0) {
     throw "No repository skills were found under: $skillRoot"
 }
 
-foreach ($skill in $skills) {
-    Write-Host "Validating $($skill.Name)..." -ForegroundColor Cyan
-    if ($pythonUsesLauncher) {
-        & $python.Source -3 $validator $skill.FullName
-    }
-    else {
-        & $python.Source $validator $skill.FullName
-    }
-    if ($LASTEXITCODE -ne 0) {
-        throw "Skill validation failed: $($skill.FullName)"
-    }
+if ($pythonUsesLauncher) {
+    & $python.Source -3 $validator
+}
+else {
+    & $python.Source $validator
+}
+if ($LASTEXITCODE -ne 0) {
+    throw 'Skill validation failed. Check the diagnostics and install Build/requirements-validation.txt if needed.'
 }
 
 Write-Host "Validated $($skills.Count) RedXe skills." -ForegroundColor Green
