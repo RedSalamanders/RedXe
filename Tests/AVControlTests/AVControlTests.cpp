@@ -151,8 +151,7 @@ void LayoutTests()
         Require(layout.density != Density::Unusable, "supported rectangle has usable density");
         std::vector<Rect> targets(layout.toggles.begin(), layout.toggles.end());
         for (const auto& mute : layout.levelMutes)
-            if (mute.width >= 48.0f && mute.height >= 48.0f)
-                targets.push_back(mute);
+            targets.push_back(mute);
         targets.push_back(layout.profileSelector);
         for (size_t i = 0; i < layout.sliders.size(); ++i)
         {
@@ -213,8 +212,8 @@ void LayoutTests()
                 compact.sliders[0].height <= 48.01f && compact.sliders[0].height >= 47.99f,
             "level mute stays 48 DIP tall while the slider uses a 48 DIP touch pointer band");
     Require(compact.toggles[0].height >= 48.0f, "compact mute cards stay at least 48 DIP tall");
-    Require(minimum.sliders[1].width >= 48.0f && minimum.levelMutes[1].width > 0.0f,
-            "minimum microphone row keeps a 48 DIP slider and a leading mute gutter");
+    Require(minimum.sliders[1].width >= 48.0f && minimum.levelMutes[1].width >= 48.0f,
+            "minimum microphone row keeps both slider and mute targets at least 48 DIP wide");
 }
 } // namespace
 

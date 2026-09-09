@@ -44,7 +44,8 @@ LiveLayout LayoutLive(float width, float height) noexcept
 
     if (layout.density == Density::Minimal)
     {
-        constexpr float padding = 8;
+        // At the minimum width, leave room for a 48 DIP mute, slider and Profile target plus their gap.
+        const float padding = (std::min)(8.0f, (width - 152.0f) * 0.5f);
         constexpr float gap = 4;
         const float bodyWidth = width - 2 * padding;
         layout.header = {padding, 0, bodyWidth, 20};

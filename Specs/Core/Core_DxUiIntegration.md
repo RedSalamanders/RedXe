@@ -1,7 +1,7 @@
 # DxUi integration
 
 Status: current normative consumer contract
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-09
 
 This contract owns how RedXe consumes the standalone DxUi library: the exact source pin, restore/build isolation,
 which process modules link `DxUi.lib`, and the COM/POD boundary that keeps DxUi C++ objects inside those modules.
@@ -17,11 +17,13 @@ that exact commit under `.build/dependencies/DxUi/source/<commit>` and isolates 
 fingerprint that includes commit, API revision, toolset, SDK and CRT. It never checks out, resets, or edits a sibling
 `DxUi` working tree. A mismatched or dirty pin fails the consumer restore.
 
-The pinned library (commit `d192e47…`) releases the cached surface
+The pinned library identified by `Dependencies/DxUi.lock.json` releases the cached surface
 of a hidden or zero-extent `EmbeddedHost`, marks a view dirty only through control invalidation, and bounds its
 solid-brush and configured-text-format caches (256 and 96 entries, reported through `EmbeddedStatistics`).
-Its `Slider` uses a 6 DIP capsule track, a fixed 20 DIP gray chrome disc, and an accent inner thumb (6 DIP rest, 16 hover,
-12 pressed). An unpainted 48 DIP pointer band stays centered on the track so a finger can grab the thumb without seeking.
+Its `Slider` uses a 6 DIP capsule track, a fixed 24 DIP gray chrome disc, and an accent inner thumb (14 DIP rest, 20 hover,
+16 pressed). An unpainted 48 DIP pointer band stays centered on the track so a finger can grab the thumb without seeking.
+Acknowledgement through `SetValue` snaps an in-flight displayed value even when the accepted value is unchanged.
+Non-finite numeric configuration is ignored, and range endpoints cannot create an infinite span.
 Painted chrome and hit testing are independent. Pointer hit-testing stays valid while the cached surface is paint-dirty. Consumers
 rely on `SetVisible(false)` alone to drop a hidden tile's or an unraised overlay's surface; the next sized `Prepare`
 reallocates exactly one surface. The resource consequences for RedXe are owned by

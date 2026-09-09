@@ -251,6 +251,15 @@ uint32_t RunNativeViewTests()
     {
         gpu.Resize(size[0], size[1]);
         Hr(view.Prepare(size[0], size[1], 96), "AV responsive native preparation");
+        if (size[0] == 160)
+        {
+            Check(!FindLabel(view.Controls().GetRoot(), std::to_wstring(state.microphone.level)),
+                  "minimum microphone row hides a percentage that would overlap the thumb");
+            const auto* input = dynamic_cast<DxUi::Slider*>(
+                FindAccessible(view.Controls().GetRoot(), L"Microphone gain, Windows input level"));
+            Check(input && input->GetValue() == state.microphone.level,
+                  "minimum microphone slider retains its accessible confirmed value");
+        }
         gpu.Draw(view);
         gpu.Save(artifactRoot / (std::to_wstring(size[0]) + L"x" + std::to_wstring(size[1]) + L".png"));
         Check(view.Prepare(size[0], size[1], 96) == S_FALSE, "AV unchanged preparation is clean");
@@ -336,6 +345,20 @@ uint32_t RunNativeViewTests()
     view.Pointer({DxUi::PointerAction::Up, slider.x + slider.width * .8f, y});
     Check(commands.count == count, "AV external level notification cancels stale draft");
     Hr(view.Prepare(640, 360, 96), "AV confirmed change prepare");
+    const float grabX = slider.x + 12.0f + (slider.width - 24.0f) * state.output.level / 100.0f;
+    Check(view.Pointer({DxUi::PointerAction::Down, grabX + 8.0f, y + 16.0f}),
+          "AV accepts an off-center finger grab without seeking");
+    ++state.microphone.levelRevision;
+    state.microphone.level = 33;
+    view.SetState(state, L"Studio", 0);
+    Hr(view.Prepare(640, 360, 96), "AV unrelated microphone update during output grab");
+    Check(view.Pointer({DxUi::PointerAction::Move, slider.x + slider.width * .75f, y + 16.0f}),
+          "AV output drag survives an unrelated microphone level update");
+    view.Pointer({DxUi::PointerAction::Up, slider.x + slider.width * .75f, y + 16.0f});
+    Check(commands.count == count + 1 && commands.last.kind == ViewCommandKind::SetLevel &&
+              commands.last.device == DeviceKind::Output,
+          "AV preserved output gesture commits exactly once after unrelated input changes");
+    Hr(view.Prepare(640, 360, 96), "AV prepare after unrelated-input regression");
     gpu.Draw(view);
     const auto initial = view.Statistics();
     for (uint32_t i = 0; i < 1000; ++i)

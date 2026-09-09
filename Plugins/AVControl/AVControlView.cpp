@@ -261,10 +261,18 @@ void LiveView::SetVisible(bool visible) noexcept
 }
 void LiveView::SetState(const ConfirmedState& state, std::wstring_view profileName, uint32_t pendingMask) noexcept
 {
-    if (_state.output.id != state.output.id || _state.output.generation != state.output.generation ||
-        _state.output.levelRevision != state.output.levelRevision || _state.microphone.id != state.microphone.id ||
-        _state.microphone.generation != state.microphone.generation ||
-        _state.microphone.levelRevision != state.microphone.levelRevision)
+    const bool outputChanged = _state.output.id != state.output.id ||
+                               _state.output.generation != state.output.generation ||
+                               _state.output.levelRevision != state.output.levelRevision;
+    const bool microphoneChanged = _state.microphone.id != state.microphone.id ||
+                                   _state.microphone.generation != state.microphone.generation ||
+                                   _state.microphone.levelRevision != state.microphone.levelRevision;
+    const auto* captured = _view.Controls().GetCapturedControl();
+    // An unrelated endpoint's level notification must not interrupt the slider under the finger.
+    // Inspect capture, including a thumb grab that has not emitted its first Preview yet.
+    const bool unaffectedSlider =
+        captured && ((captured == _sliders[0] && !outputChanged) || (captured == _sliders[1] && !microphoneChanged));
+    if ((outputChanged || microphoneChanged) && !unaffectedSlider)
         Cancel();
     _state = state;
     const size_t count = (std::min)(profileName.size(), _profileName.size() - 1);
@@ -327,7 +335,6 @@ void LiveView::Arrange()
         _levelMutes[i]->SetVisible(usable && mute.width > 0.0f && mute.height >= 48.0f);
         _levelMutes[i]->SetBounds(Bounds(mute));
         _levelIcons[i]->SetVisible(usable);
-        _levelValues[i]->SetVisible(usable);
         constexpr float kLevelIconDip = 32.0f;
         const float icon = (std::min)(kLevelIconDip, (std::max)(24.0f, mute.height - 8.0f));
         _levelIcons[i]->SetFontRole(IconFontRole(fluent, icon));
@@ -336,6 +343,9 @@ void LiveView::Arrange()
         const float iconX = mute.x + 8.0f;
         const float iconY = rowTop + (mute.height - icon) * 0.5f;
         _levelIcons[i]->SetBounds(D2D1::RectF(iconX, iconY, iconX + icon, iconY + icon));
+        // Preserve the touch targets when the minimum microphone row cannot fit a readable percentage.
+        // The Slider still exposes its confirmed value through RangeValue accessibility.
+        _levelValues[i]->SetVisible(usable && slider.x - (iconX + icon) >= (minimal ? 24.0f : 32.0f));
         _levelValues[i]->SetBounds(D2D1::RectF(iconX + icon, rowTop, slider.x, rowBottom));
         _levelValues[i]->SetFontRole(minimal ? DxUi::FontRole::Small : DxUi::FontRole::BodyLarge);
         _levelValues[i]->SetAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);

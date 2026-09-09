@@ -1,7 +1,7 @@
 # RedXe adaptive dashboard and page-navigation contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-09
 Owner: `DashboardHost` layout, active-page composition, page navigation, edge-navigation chrome, host placeholder tiles, and raised overlay chrome
 
 ## Scope
@@ -214,6 +214,12 @@ implicitly captures that contact to the window; explicit `SetPointerCapture` is 
 NOT Cancel the widget Down. Hide, resize, DPI change, a canceled/out-of-contact pointer, and cancellation still
 deliver Cancel. Hit-testing uses the digitizer's raw contact point, not the predicted sample. The pointer record includes the actual viewport
 dimensions, DPI and tile/raised view identity so a prepared final layout can map an animated viewport correctly.
+
+`WM_POINTERCAPTURECHANGED` terminates the matching gesture even when the last `GetPointerInfo` record still has
+`INCONTACT`. Canceled Down/Update/Up messages are filtered before coordinate fallback and never reach the widget as
+a preview or commit. Failure to retrieve pointer information may fall back to message coordinates; an explicitly
+canceled record MUST NOT. Unrelated pointer IDs cannot cancel the captured widget. `WM_CANCELMODE` also cancels a
+pending page gesture. Automated policy tests cover these message flags; physical-touch acceptance remains separate.
 
 The top-level HWND is an OLE drop target after `OleInitialize`. `DragOver` hit-tests a GPU interactive widget and
 calls `OnDragOver`. `Drop` copies `CF_HDROP` filesystem paths and Unicode text that is a full URL into a bounded
