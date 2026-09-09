@@ -32,5 +32,12 @@ The successful earlier run remains retained alongside this failure, not a flake 
 Repeating the subscription case in one process reproduces the assertion failure.
 The corrected test checks delivery deltas and requires new samples after visibility;
 it retains the hidden drain and object-count assertions. Full x64 Debug passes with
-the repeat. `process-counter-regression.json` binds both logs. Other profiles and
-fresh native CI for the corrected test remain open.
+the repeat. `process-counter-regression.json` binds both logs. Complete local
+Release and ASan Debug suites also pass with the repeat. Product a812cec passes
+all six native profiles in [CI run 34374884161](https://github.com/RedSalamanders/RedXe/actions/runs/34374884161);
+`native-ci-a812cec.json` retains the complete job outcomes.
+
+The new `measure-av-views.ps1` fixture measures the same production AV views against
+the original and candidate pins. Its initial Debug smoke is functional harness
+validation under concurrent builds, not performance acceptance. The original pin also passes that smoke,
+and the complete local AV suite passes Debug/Release/ASan Debug after the harness addition. Matched runs remain pending.

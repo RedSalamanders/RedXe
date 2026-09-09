@@ -11,6 +11,7 @@
 
 uint32_t RunControlWorkQueueTests();
 uint32_t RunNativeViewTests();
+void MeasureNativeViews(const wchar_t* outputPath);
 uint32_t RunBrokerTests();
 uint32_t RunProfileTransactionTests();
 
@@ -258,6 +259,11 @@ int wmain(int argc, wchar_t** argv)
 {
     try
     {
+        if (argc == 3 && std::wstring_view(argv[1]) == L"--measure-native-views")
+        {
+            MeasureNativeViews(argv[2]);
+            return 0;
+        }
         if (argc == 3 && std::wstring_view(argv[1]) == L"--camera-bridge-fixture")
             return RunCameraBridgeChild(argv[2]);
         if (argc == 4 && std::wstring_view(argv[1]) == L"--camera-watchdog-fixture")

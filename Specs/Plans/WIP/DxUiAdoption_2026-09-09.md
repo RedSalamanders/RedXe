@@ -2,9 +2,13 @@
 
 ## Progress checklist
 
-- [x] Candidate at DxUi ecad707 passes all three local x64 product suites with zero warnings/errors. Fresh six-profile CI remains pending.
+- [x] Candidate at DxUi ecad707 passes all three local x64 product suites with zero warnings/errors.
 - [x] Reproduce and fix the cumulative Process Viewer diagnostic assertion exposed in duplicate native CI. Repeating the lifecycle case fails before the fixture correction and the full Debug suite passes afterward; production behavior is unchanged.
-- [ ] Qualify the corrected repeated lifecycle test in the other profiles and fresh native CI.
+- [x] Corrected repeated lifecycle test passes the complete local Debug, Release and ASan Debug suites.
+- [x] Corrected repeated lifecycle test passes all six native CI profiles at a812cec (34374884161).
+- [ ] Run matched AV resource measurements against original pin d192e474 and candidate ecad707. The same
+  two-view fixture is implemented for both source revisions; both Debug smokes and all three local AV suites pass,
+  paired acceptance remains open. CI exercises the fixture on native Debug/Release x64/ARM64 as functional evidence.
 
 - [x] Requalify the consumer at DxUi 52da33d: full local x64 Debug, Release and ASan Debug product suites pass with zero build warnings/errors, and product 1bf6662 passes all six native CI profiles (34368430957), including real ARM64 ASAN detection. The previous 8c548fe pin remains available for rollback; paired resources and hardware/manual gates stay open.
 - [x] Audit current pin d192e474e540adc2656e69b8e8150b0f7a05d63f and the three archive consumers.

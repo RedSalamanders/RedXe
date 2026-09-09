@@ -43,9 +43,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ./test.ps1 -Configuration '${{ matrix.configuration }}' -Platform '${{ matrix.platform }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned product tests failed.' }
           $pin=Get-Content Dependencies/DxUi.lock.json -Raw | ConvertFrom-Json
           python ".build/dependencies/DxUi/source/$($pin.commit)/Tools/validate_build_matrix.py" --root .
           if ($LASTEXITCODE -ne 0) { throw 'Native project matrix validation failed.' }
+      - name: Exercise native AV resource fixture
+        if: matrix.configuration != 'ASan Debug'
+        shell: pwsh
+        run: ./measure-av-views.ps1 -Configuration '${{ matrix.configuration }}' -SkipBuild -OutputPath .build/reports/av-native-views.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

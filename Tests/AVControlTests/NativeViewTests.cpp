@@ -1,10 +1,15 @@
 #include "AVControlView.h"
 #include "DxUiTextTransport.h"
+#include <algorithm>
+#include <chrono>
 #include <cwchar>
 #include <filesystem>
+#include <fstream>
+#include <psapi.h>
 #include <stdexcept>
 #include <string_view>
 #include <vector>
+#include <wil/com.h>
 #include <wil/result.h>
 #include <wincodec.h>
 
@@ -207,6 +212,186 @@ void ClickNamed(AVControl::LiveView& view, std::wstring_view name)
     Click(view, {bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top});
 }
 } // namespace
+
+// This reuses the interaction suite's synthetic view and supplied-device fixture.
+// It measures completed offscreen work, never presented FPS or physical AV devices.
+void MeasureNativeViews(const wchar_t* outputPath)
+{
+    using Clock = std::chrono::steady_clock;
+    constexpr uint32_t frames = 600;
+    constexpr uint32_t rounds = 5;
+    const auto apartment = wil::CoInitializeEx(COINIT_APARTMENTTHREADED);
+    Fixture gpu;
+    gpu.Resize(1280, 720);
+    std::shared_ptr<DxUi::GraphicsDevice> pool;
+    Hr(DxUi::GraphicsDevice::Create(gpu.device.get(), pool), "measurement supplied device");
+    Commands commands;
+    AVControl::LiveView tile, overlay;
+    Hr(tile.Attach(pool, commands.Callbacks()), "measurement tile attachment");
+    Hr(overlay.Attach(pool, commands.Callbacks()), "measurement overlay attachment");
+    const auto detach = wil::scope_exit(
+        [&]
+        {
+            overlay.Detach();
+            tile.Detach();
+        });
+    tile.SetVisible(true);
+    overlay.SetVisible(true);
+    AVControl::ConfirmedState state;
+    Check(state.output.id.Assign("fixture-output") && state.microphone.id.Assign("fixture-mic") &&
+              state.camera.sourceId.Assign("fixture-camera"),
+          "measurement synthetic IDs");
+    state.output.availability = state.microphone.availability = state.camera.availability =
+        AVControl::Availability::Ready;
+    state.output.level = 65;
+    state.microphone.level = 72;
+    state.microphone.muted = true;
+    state.output.generation = state.microphone.generation = 1;
+    state.camera.revision = 1;
+    wcscpy_s(state.output.name.data(), state.output.name.size(), L"Studio monitors");
+    wcscpy_s(state.microphone.name.data(), state.microphone.name.size(), L"USB microphone");
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width = desc.Height = desc.MipLevels = desc.ArraySize = desc.SampleDesc.Count = 1;
+    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    wil::com_ptr_nothrow<ID3D11Texture2D> staging;
+    Hr(gpu.device->CreateTexture2D(&desc, nullptr, staging.put()), "measurement completion pixel");
+    const auto complete = [&]
+    {
+        constexpr D3D11_BOX pixel{0, 0, 0, 1, 1, 1};
+        gpu.context->CopySubresourceRegion(staging.get(), 0, 0, 0, 0, gpu.target.get(), 0, &pixel);
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        Hr(gpu.context->Map(staging.get(), 0, D3D11_MAP_READ, 0, &mapped), "measurement GPU completion");
+        gpu.context->Unmap(staging.get(), 0);
+    };
+    const auto memory = []
+    {
+        PROCESS_MEMORY_COUNTERS_EX result{};
+        result.cb = sizeof(result);
+        Check(K32GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&result),
+                                      sizeof(result)) != FALSE,
+              "measurement process resources");
+        return result;
+    };
+    const auto milliseconds = [](Clock::time_point start)
+    { return std::chrono::duration<double, std::milli>(Clock::now() - start).count(); };
+    std::ofstream output(std::filesystem::path(outputPath), std::ios::binary);
+    Check(bool(output), "measurement output path");
+    output << "{\"fixture\":\"redxe-av-two-views-v1\",\"renderer\":\"WARP\",\"views\":2,\"framesPerRound\":" << frames
+           << ",\"roundCount\":" << rounds << ",\"compiler\":" << _MSC_FULL_VER << ",\"scenarios\":[";
+    bool first = true;
+    for (float dpi : {96.0f, 144.0f, 192.0f})
+    {
+        for (bool dirty : {false, true})
+        {
+            tile.SetState(state, L"Studio", 0);
+            overlay.SetState(state, L"Studio", 0);
+            const auto prepare = [&](uint32_t frame)
+            {
+                if (dirty)
+                {
+                    state.output.level = frame % 101;
+                    tile.SetState(state, L"Studio", 0);
+                    overlay.SetState(state, L"Studio", 0);
+                }
+                Hr(tile.Prepare(640, 360, dpi), "measurement tile preparation");
+                Hr(overlay.Prepare(1280, 720, dpi), "measurement overlay preparation");
+            };
+            const auto draw = [&]
+            {
+                auto* target = gpu.rtv.get();
+                gpu.context->OMSetRenderTargets(1, &target, nullptr);
+                constexpr float background[]{0.035f, 0.04f, 0.055f, 1};
+                gpu.context->ClearRenderTargetView(target, background);
+                Hr(tile.Composite(gpu.context.get(), {0, 0, 640, 360, 0, 1}), "measurement tile composition");
+                Hr(overlay.Composite(gpu.context.get(), {0, 0, 1280, 720, 0, 1}), "measurement overlay composition");
+            };
+            for (uint32_t frame = 0; frame < 120; ++frame)
+            {
+                prepare(frame);
+                draw();
+                complete();
+            }
+            if (!first)
+                output << ',';
+            first = false;
+            output << "{\"dpi\":" << dpi << ",\"name\":\"" << (dirty ? "dirty" : "clean") << "\",\"rounds\":[";
+            for (uint32_t round = 0; round < rounds; ++round)
+            {
+                std::array<double, frames> frameMs{}, prepareMs{}, composeMs{};
+                const auto beforeTile = tile.Statistics();
+                const auto beforeOverlay = overlay.Statistics();
+                const auto beforeMemory = memory();
+                double totalMs = 0;
+                for (uint32_t frame = 0; frame < frames; ++frame)
+                {
+                    const auto start = Clock::now();
+                    prepare(frame);
+                    prepareMs[frame] = milliseconds(start);
+                    const auto compositionStart = Clock::now();
+                    draw();
+                    composeMs[frame] = milliseconds(compositionStart);
+                    complete();
+                    frameMs[frame] = milliseconds(start);
+                    totalMs += frameMs[frame];
+                }
+                const auto afterMemory = memory();
+                const auto afterTile = tile.Statistics();
+                const auto afterOverlay = overlay.Statistics();
+                Check(afterTile.surfaceBytes + afterOverlay.surfaceBytes == 4608000 &&
+                          afterTile.surfaceAllocations == beforeTile.surfaceAllocations &&
+                          afterOverlay.surfaceAllocations == beforeOverlay.surfaceAllocations,
+                      "measurement bounded steady surfaces");
+                if (!dirty)
+                    Check(afterTile.preparations == beforeTile.preparations &&
+                              afterOverlay.preparations == beforeOverlay.preparations,
+                          "measurement clean views do not prepare");
+                std::sort(frameMs.begin(), frameMs.end());
+                std::sort(prepareMs.begin(), prepareMs.end());
+                std::sort(composeMs.begin(), composeMs.end());
+                if (round)
+                    output << ',';
+                output << "{\"completedOffscreenFps\":" << double(frames) * 1000 / totalMs
+                       << ",\"frameP95Ms\":" << frameMs[569] << ",\"prepareP95Ms\":" << prepareMs[569]
+                       << ",\"composeCpuP95Ms\":" << composeMs[569] << ",\"privateBytes\":" << afterMemory.PrivateUsage
+                       << ",\"workingSetBytes\":" << afterMemory.WorkingSetSize << ",\"privateGrowthBytes\":"
+                       << static_cast<int64_t>(afterMemory.PrivateUsage) -
+                              static_cast<int64_t>(beforeMemory.PrivateUsage)
+                       << ",\"surfaceBytes\":" << afterTile.surfaceBytes + afterOverlay.surfaceBytes
+                       << ",\"preparations\":"
+                       << afterTile.preparations - beforeTile.preparations + afterOverlay.preparations -
+                              beforeOverlay.preparations
+                       << ",\"composites\":"
+                       << afterTile.composites - beforeTile.composites + afterOverlay.composites -
+                              beforeOverlay.composites
+                       << '}';
+            }
+            output << "]}";
+        }
+    }
+    tile.SetVisible(false);
+    overlay.SetVisible(false);
+    const auto hiddenTile = tile.Statistics();
+    const auto hiddenOverlay = overlay.Statistics();
+    Check(hiddenTile.surfaceBytes + hiddenOverlay.surfaceBytes == 0, "measurement hidden surfaces release");
+    for (uint32_t frame = 0; frame < frames; ++frame)
+    {
+        Check(tile.Prepare(640, 360, 96) == S_FALSE && overlay.Prepare(1280, 720, 96) == S_FALSE,
+              "measurement hidden preparation skips");
+        Check(tile.Composite(gpu.context.get(), {0, 0, 640, 360, 0, 1}) == S_FALSE &&
+                  overlay.Composite(gpu.context.get(), {0, 0, 1280, 720, 0, 1}) == S_FALSE,
+              "measurement hidden composition skips");
+    }
+    Check(tile.Statistics().preparations == hiddenTile.preparations &&
+              overlay.Statistics().preparations == hiddenOverlay.preparations &&
+              tile.Statistics().composites == hiddenTile.composites &&
+              overlay.Statistics().composites == hiddenOverlay.composites,
+          "measurement hidden counters stay unchanged");
+    output << "],\"hiddenSurfaceBytes\":0,\"hiddenPreparations\":0,\"hiddenComposites\":0}\n";
+    output.close();
+    Check(bool(output), "measurement output complete");
+}
 
 uint32_t RunNativeViewTests()
 {

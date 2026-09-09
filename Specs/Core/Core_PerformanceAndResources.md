@@ -294,6 +294,15 @@ observable resource benefit are not required.
 
 ## Required validation
 
+- `measure-av-views.ps1` measures the production AV `LiveView` with a shared WARP device, synthetic model,
+  640×360 tile and 1280×720 overlay at 96/144/192 DPI. Each clean/dirty scenario has 120 warm-up frames
+  and five rounds of 600 completed frames. Report preparation and CPU composition p95 separately from
+  GPU-completed offscreen throughput, private bytes and working set. Steady surface storage stays at
+  4,608,000 bytes; hiding both views releases it and causes no further preparations or composites.
+  The wrapper records the selected archive from the actual linker record, binary/source hashes, compiler,
+  profile and machine context. Compare identical fixture/product source on the same quiet machine and
+  retain all runs, including baseline-versus-baseline noise checks. These measurements do not establish
+  presented FPS, peak memory, allocation counts, hardware AV or real-client accessibility acceptance.
 - Debug and Release x64 WARP smoke tests must pass.
 - Release ARM64 must compile.
 - The plugin contract test must validate factory behavior, borrowed metadata, rendering-IID negotiation, COM
