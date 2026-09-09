@@ -1,7 +1,7 @@
 # AV Control
 
 Status: normative implementation contract; feature delivery in progress
-Last reviewed: 2026-09-18
+Last reviewed: 2026-10-10
 
 The active [AV implementation plan](../Plans/WIP/RFC_Plugins_AVControl.md) tracks unfinished integration and release
 gates. The browser mockup and synthetic tests are not evidence of working Windows audio or camera backends.
@@ -26,6 +26,8 @@ Slider gestures retain the endpoint ID, generation, level revision and layout re
 only the local draft. Commit publishes at most once and only while those identities/revisions remain coherent.
 Cancel, endpoint replacement, external level change or changed geometry produces no endpoint write. Level changes
 never alter mute. Keyboard ranges retain one-point precision, five-point page steps and clamp at 0–100.
+An update to the other audio endpoint MUST NOT cancel the captured slider, including an off-center thumb grab
+before its first Preview. A change to the captured endpoint still cancels the gesture.
 
 ## Responsive live view
 
@@ -38,14 +40,15 @@ padding inside the card. Camera always uses the video glyph (`E714`), including 
 disabled text when the row cannot activate. Level sliders use DxUi's 6 DIP track, 20 DIP gray chrome disc, and accent inner thumb
 (6 DIP rest, 16 hover, 12 pressed). The 48 DIP pointer band is the unpainted touch target; it is not the whole level
 panel and is not sized from the chrome disc. The leading icon and level value share a
-48 DIP mute hit target that sends the same mute command as the matching
-device card whenever the row is wide enough to keep both that target and the slider at 48 DIP wide.
+mute hit target at least 48 DIP wide that sends the same mute command as the matching device card.
+If the leading gutter cannot fit a readable percentage, hide only that text; the Slider retains its accessible value.
 
 Widths below 320 or heights below 300 use the minimal layout: three mute/off targets followed by two compact
 sliders. A quiet, labeled Profile target shares the microphone row; the output slider retains the full row width.
 Both sliders keep a 48 DIP hit height centered in the level panel, with compact labels in the leading
-mute target. At 160×180, the microphone level row is 92 pixels
-wide: a leading mute gutter plus a 48-pixel slider. Profile is 48×48. Profile selection is one tap at every size.
+mute target. At widths from 160 through 168 DIP, horizontal padding grows from 4 to 8 DIP to preserve all targets.
+At 160×180, the microphone level row is 100 DIP wide: a 52 DIP mute target plus a 48 DIP slider; its cramped numeric
+label is hidden. Profile stays at least 48×48. Profile selection is one tap at every size.
 Otherwise widths below 800 with height at least 620 use tall
 rows; widths at least 800 below height 480 use the wide layout; remaining sizes below width 800 or height 480 use
 compact layout; others use the large layout. Definitions remain subordinate to selection. Raised content is at most half the

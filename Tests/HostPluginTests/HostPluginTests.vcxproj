@@ -117,6 +117,7 @@
     <ClInclude Include="..\..\RedXe\NoticeWindow.h" />
     <ClInclude Include="..\..\RedXe\FrameScheduler.h" />
     <ClInclude Include="..\..\RedXe\PageNavigation.h" />
+    <ClInclude Include="..\..\RedXe\PointerCancellation.h" />
     <ClInclude Include="..\..\RedXe\PluginManager.h" />
     <ClInclude Include="..\..\RedXe\AdapterSelection.h" />
     <ClInclude Include="..\..\RedXe\HostChrome.h" />

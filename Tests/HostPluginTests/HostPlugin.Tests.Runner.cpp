@@ -16,6 +16,7 @@
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PluginHost.h"
 #include "PluginManager.h"
+#include "PointerCancellation.h"
 #include "ProcessViewer.Tests.Contract.h"
 #include "Renderer.h"
 #include "Settings.h"
@@ -2314,6 +2315,20 @@ void TestDockPresentationRebuild(bool& success) noexcept
 
 void TestPageSwipePolicy(bool& success) noexcept
 {
+    const WPARAM contact = MAKEWPARAM(17, POINTER_MESSAGE_FLAG_INCONTACT);
+    const WPARAM canceled = MAKEWPARAM(17, POINTER_MESSAGE_FLAG_CANCELED | POINTER_MESSAGE_FLAG_INCONTACT);
+    Check(!PointerMessageCancelsGesture(WM_POINTERDOWN, contact) &&
+              !PointerMessageCancelsGesture(WM_POINTERUPDATE, contact) &&
+              !PointerMessageCancelsGesture(WM_POINTERUP, MAKEWPARAM(17, 0)),
+          L"ordinary contact and release retain the slider commit path", success);
+    Check(PointerMessageCancelsGesture(WM_POINTERCAPTURECHANGED, contact),
+          L"capture loss cancels even when the last sample still says in contact", success);
+    Check(PointerMessageCancelsGesture(WM_POINTERUP, canceled) &&
+              PointerMessageCancelsGesture(WM_POINTERUPDATE, canceled) &&
+              PointerMessageCancelsGesture(WM_POINTERDOWN, canceled),
+          L"canceled contacts never become slider preview or release commits", success);
+    Check(!PointerMessageCancelsGesture(WM_KEYDOWN, canceled), L"pointer flags do not reinterpret unrelated messages",
+          success);
     std::wcout << L"[ RUN      ] page swipe axis lock, rubber-band, commit, and settle\n";
     Check(!PageSwipeAcceptsFingerCount(0), L"no fingers do not navigate dashboard pages", success);
     Check(!PageSwipeAcceptsFingerCount(1), L"one finger does not navigate dashboard pages", success);

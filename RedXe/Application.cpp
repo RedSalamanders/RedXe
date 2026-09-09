@@ -3,6 +3,7 @@
 #include "Actions/ActionTargets.h"
 #include "HostActionCatalog.h"
 #include "HostActions.h"
+#include "PointerCancellation.h"
 #include <UIAutomation.h>
 
 #include "CrashHandler.h"
@@ -121,13 +122,6 @@ void LayoutNoticeControls(HWND notice) noexcept
 {
     // ptPixelLocation is a predicted point that can miss a 48 DIP control on first contact.
     return information.ptPixelLocationRaw;
-}
-
-[[nodiscard]] bool PointerStillInContact(UINT32 pointerId) noexcept
-{
-    POINTER_INFO information{};
-    return GetPointerInfo(pointerId, &information) && (information.pointerFlags & POINTER_FLAG_INCONTACT) != 0 &&
-           (information.pointerFlags & POINTER_FLAG_CANCELED) == 0;
 }
 
 void HostReleasePointerCapture(HWND window, UINT32 pointerId) noexcept
@@ -4248,10 +4242,11 @@ bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT&
     // A contact that pressed a bar sliding in keeps the shift of that settle (DockPressPoint), so its moves and its
     // release stay on the tile its press reached.
     POINTER_INFO information{};
-    if (GetPointerInfo(pointerId, &information) &&
-        (information.pointerType == PT_TOUCH || information.pointerType == PT_PEN) &&
-        (information.pointerFlags & POINTER_FLAG_CANCELED) == 0)
+    if (GetPointerInfo(pointerId, &information))
     {
+        if ((information.pointerType != PT_TOUCH && information.pointerType != PT_PEN) ||
+            (information.pointerFlags & POINTER_FLAG_CANCELED) != 0)
+            return false;
         position = PointerScreenPixels(information);
         if (ScreenToClient(window, &position))
         {
@@ -4259,6 +4254,7 @@ bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT&
             qpc = information.PerformanceCount;
             return true;
         }
+        return false;
     }
 
     // WM_POINTER* lParam is physical screen coordinates of the contact.
@@ -6188,6 +6184,17 @@ LRESULT CALLBACK Application::SettingsDialogProcedure(HWND window, UINT message,
 
 LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
 {
+    if (PointerMessageCancelsGesture(message, wParam))
+    {
+        const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+        if (_interactivePointerWidget != SIZE_MAX && pointerId == _interactivePointerId)
+            CancelInteractivePointer();
+        if (PageTouchesContain(pointerId))
+            CancelPageNavigation();
+        if (_dockPointerPress.active && _dockPointerPress.pointerId == pointerId)
+            _dockPointerPress = DockPress{};
+        return 0;
+    }
     const auto refreshAccessibility = wil::scope_exit(
         [&]() noexcept
         {
@@ -6454,22 +6461,6 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         }
         return 0;
     }
-    case WM_POINTERCAPTURECHANGED:
-        if (_interactivePointerWidget != SIZE_MAX && GET_POINTERID_WPARAM(wParam) == _interactivePointerId &&
-            !PointerStillInContact(GET_POINTERID_WPARAM(wParam)))
-        {
-            CancelInteractivePointer();
-        }
-        if (PageTouchesContain(GET_POINTERID_WPARAM(wParam)))
-        {
-            CancelPageNavigation();
-        }
-        if (_dockPointerPress.active && _dockPointerPress.pointerId == GET_POINTERID_WPARAM(wParam) &&
-            !PointerStillInContact(GET_POINTERID_WPARAM(wParam)))
-        {
-            _dockPointerPress = DockPress{};
-        }
-        return 0;
     case WM_LBUTTONDOWN:
     {
         const DockInputRoute route = DockRouteInput(DockInput::Press, DockHiddenOrHiding(), _dockSlideActive);
@@ -6635,6 +6626,8 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         }
         return 0;
     case WM_CANCELMODE:
+        CancelPageNavigation();
+        [[fallthrough]];
     case WM_KILLFOCUS:
         CancelInteractivePointer();
         ClearKeyboardFocus();
