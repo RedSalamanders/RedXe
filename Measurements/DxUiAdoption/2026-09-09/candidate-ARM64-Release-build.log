@@ -1,0 +1,199 @@
+
+  ╔══════════════════════════════════════════════════════════╗
+  ║        ██████╗ ███████╗██████╗   ██╗  ██╗███████╗        ║
+  ║        ██╔══██╗██╔════╝██╔══██╗  ╚██╗██╔╝██╔════╝        ║
+  ║        ██████╔╝█████╗  ██║  ██║   ╚███╔╝ █████╗          ║
+  ║        ██╔══██╗██╔══╝  ██║  ██║   ██╔██╗ ██╔══╝          ║
+  ║        ██║  ██║███████╗██████╔╝  ██╔╝ ██╗███████╗        ║
+  ║        ╚═╝  ╚═╝╚══════╝╚═════╝   ╚═╝  ╚═╝╚══════╝        ║
+  ╚═══════════ XENEON EDGE // BUILD SIGNAL LOCKED ═══════════╝
+
+Target: ARM64 | Release
+
+[1/2] Dependencies
+Installing RedXe dependencies (arm64-windows)
+Detecting compiler hash for triplet x64-windows...
+Compiler found: C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe
+Detecting compiler hash for triplet arm64-windows...
+Compiler found: C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231/bin/Hostx64/arm64/cl.exe
+The following packages are already installed:
+    curl[core,sspi,ssl]:arm64-windows@8.21.0#1
+  * vcpkg-cmake:x64-windows@2024-04-23
+  * vcpkg-cmake-config:x64-windows@2026-07-21
+    wil:arm64-windows@1.0.260126.7
+    yyjson[core,writer,reader,non-standard,fast-fp-conv]:arm64-windows@0.12.0
+  * zlib:arm64-windows@1.3.2#1
+curl is compatible with built-in CMake targets:
+
+    find_package(CURL REQUIRED)
+    target_link_libraries(main PRIVATE CURL::libcurl)
+
+wil provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(wil CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE WIL::WIL)
+
+yyjson provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(yyjson CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE yyjson::yyjson)
+
+yyjson provides pkg-config modules:
+
+  # Fastest JSON library in C
+  yyjson
+
+All requested installations completed successfully in: 272 us
+vcpkg dependencies are ready.
+DxUi pin verified: 8c548fe2de3cdb5af858c457e9bef47d81506878
+Installing DxUi dependencies (arm64-windows)
+Detecting compiler hash for triplet x64-windows...
+Compiler found: C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe
+Detecting compiler hash for triplet arm64-windows...
+Compiler found: C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231/bin/Hostx64/arm64/cl.exe
+The following packages are already installed:
+  * vcpkg-cmake:x64-windows@2024-04-23
+  * vcpkg-cmake-config:x64-windows@2026-07-21
+    wil:arm64-windows@1.0.260126.7
+wil provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(wil CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE WIL::WIL)
+
+All requested installations completed successfully in: 194 us
+vcpkg dependencies are ready.
+DxUi pin is ahead of main; review Z:\src\RedXe\Dependencies\DxUi.lock.json before any change. (Checked 2026-09-09 12:10:37Z)
+DxUi restored at exact pin 8c548fe2de3cdb5af858c457e9bef47d81506878; sibling checkout unchanged.
+
+[2/2] Build
+MSBuild: C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\amd64\MSBuild.exe
+
+  AVControlBroker.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\Plugins\AVControlBroker.exe
+  Launcher.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\Plugins\Launcher.dll
+  AVControlCameraSetup.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\Plugins\AVControlCameraSetup.exe
+  WeatherLocation.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\Plugins\WeatherLocation.exe
+  StudioClock.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\Plugins\StudioClock.dll
+  SystemData.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\Plugins\SystemData.dll
+  RotatingTriangle.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\Plugins\RotatingTriangle.dll
+  MatrixRain.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\Plugins\MatrixRain.dll
+  GdiOrbit.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\Plugins\GdiOrbit.dll
+  ProcessViewer.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\Plugins\ProcessViewer.dll
+  SettingsTests.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\SettingsTests.exe
+  DeskClock.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\Plugins\DeskClock.dll
+  AVControlCamera.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\Plugins\AVControlCamera.dll
+  Weather.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\Plugins\Weather.dll
+  SystemDataTests.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\SystemDataTests.exe
+  StudioClockTests.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\StudioClockTests.exe
+  SystemDataPhase0.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\SystemDataPhase0.exe
+  LauncherTests.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\LauncherTests.exe
+  DeskClockTests.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\DeskClockTests.exe
+  WeatherTests.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\WeatherTests.exe
+  compilation header save succeeded; see Z:\src\RedXe\.build\dependencies\DxUi\ef2b6921de9ed824584a5eb6ff4f6d051141486226dd36a0e4924c8e7ae5418c\Intermediate\ARM64\Release\DxUi\DxUiCompositeVS.h
+  compilation object save succeeded; see Z:\src\RedXe\.build\dependencies\DxUi\ef2b6921de9ed824584a5eb6ff4f6d051141486226dd36a0e4924c8e7ae5418c\Intermediate\ARM64\Release\DxUi\DxUiCompositeVS.cso
+  PluginContractTests.cpp
+  compilation header save succeeded; see Z:\src\RedXe\.build\dependencies\DxUi\ef2b6921de9ed824584a5eb6ff4f6d051141486226dd36a0e4924c8e7ae5418c\Intermediate\ARM64\Release\DxUi\DxUiCompositePS.h
+  compilation object save succeeded; see Z:\src\RedXe\.build\dependencies\DxUi\ef2b6921de9ed824584a5eb6ff4f6d051141486226dd36a0e4924c8e7ae5418c\Intermediate\ARM64\Release\DxUi\DxUiCompositePS.cso
+  ControlCatalog.cpp
+  PluginContractTests.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\PluginContractTests.exe
+  NativeMenuInterop.cpp
+  Embedded.cpp
+  FrameRuntime.cpp
+  DxUi.Accessibility.cpp
+  DxUi.ComboBox.cpp
+  DxUi.Controls.cpp
+  DxUi.cpp
+  DxUi.Grid.cpp
+  DxUi.Menu.cpp
+  DxUi.NativeTextInput.cpp
+  DxUi.PointerInput.cpp
+  DxUi.Scrollbar.cpp
+  DxUi.SingleLineTextEditing.cpp
+  DxUi.TextInput.cpp
+  DxUi.TextStoreACP.cpp
+  TextInputServices.cpp
+  TextClipboard.cpp
+  DxUi.Theme.cpp
+  DxUi.Tree.cpp
+  Generating Code...
+  Compiling...
+  DxUi.Typeahead.cpp
+  DxUi.WindowHost.cpp
+  Generating Code...
+  DxUi.vcxproj -> Z:\src\RedXe\.build\dependencies\DxUi\ef2b6921de9ed824584a5eb6ff4f6d051141486226dd36a0e4924c8e7ae5418c\ARM64\Release\DxUi.lib
+  DxUi pin verified: 8c548fe2de3cdb5af858c457e9bef47d81506878
+  AVControl.cpp
+  AVControlModel.cpp
+  AVControlLayout.cpp
+  AVControlView.cpp
+  ProfileControls.cpp
+  AVControlBroker.cpp
+  ProfileTransaction.cpp
+  Coordinator.cpp
+     Creating library Z:\src\RedXe\.build\ARM64\Release\Plugins\AVControl.lib and object Z:\src\RedXe\.build\ARM64\Release\Plugins\AVControl.exp
+  AVControl.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\Plugins\AVControl.dll
+  DxUi pin verified: 8c548fe2de3cdb5af858c457e9bef47d81506878
+  DxUi pin verified: 8c548fe2de3cdb5af858c457e9bef47d81506878
+  AVControlTests.cpp
+  Application.cpp
+  ControlWorkQueueTests.cpp
+  NativeViewTests.cpp
+  TextTransportTests.cpp
+  WidgetTextClient.cpp
+  WidgetTextClientTests.cpp
+  AccessibilityHostTests.cpp
+  AccessibilityHost.cpp
+  CrashHandler.cpp
+  PluginHost.cpp
+  AccessibilityHost.cpp
+  WidgetTextClient.cpp
+  BrokerTests.cpp
+  ProfileTransactionTests.cpp
+  ControlWorkQueue.cpp
+  CoordinatorTests.cpp
+  DashboardHost.cpp
+  InventorySelectionTests.cpp
+  AudioBackendTests.cpp
+  WindowsAudioBackend.cpp
+  AudioPolicy.cpp
+  Main.cpp
+  ModuleTests.cpp
+  CameraMediaTests.cpp
+  CameraBridgeTests.cpp
+  CameraActivationTests.cpp
+  CameraMediaSource.cpp
+  CameraFrameChannel.cpp
+  PluginManager.cpp
+  Renderer.cpp
+  CameraBridge.cpp
+  CameraBridgeServer.cpp
+  CameraCapture.cpp
+  HostChrome.cpp
+  CameraController.cpp
+  ControlWorkQueue.cpp
+  Settings.cpp
+  AVControlModel.cpp
+  AVControlModel.cpp
+  SettingsV4.cpp
+  AVControlLayout.cpp
+  SettingsWatcher.cpp
+  AVControlView.cpp
+  AVControlBroker.cpp
+  ProfileTransaction.cpp
+  ProfileControls.cpp
+  Coordinator.cpp
+  Generating code
+  Finished generating code
+  AVControlTests.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\AVControlTests.exe
+  RedXe.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\RedXe.exe
+  HostPluginTests.cpp
+  HostPluginTests.vcxproj -> Z:\src\RedXe\.build\ARM64\Release\HostPluginTests.exe
+
+Captured log: Z:\src\RedXe\.build\logs\redxe-build-20260909_141037_359-pid112280-cce690e6.log
+Diagnostics: 0 warning(s), 0 error(s)
+DxUi pin verified: 8c548fe2de3cdb5af858c457e9bef47d81506878
+DxUi module provenance: Z:\src\RedXe\.build\ARM64\Release\DxUi.provenance.json
+BUILD SIGNAL LOCKED in 00:01:44.234
+Ready: Z:\src\RedXe\.build\ARM64\Release\RedXe.exe

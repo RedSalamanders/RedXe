@@ -1,0 +1,752 @@
+[ RUN      ] host frame scheduler decisions
+[       OK ] visible continuous host renders
+[       OK ] hidden host waits
+[       OK ] display-off host waits
+[       OK ] minimized host waits
+[       OK ] occluded host waits without a DXGI notification
+[       OK ] occluded host probes only after a DXGI notification
+[       OK ] clean static host waits
+[       OK ] an unrelated message leaves a static host waiting
+[       OK ] invalidated static host renders
+[       OK ] an active page swipe keeps presenting so widget animation continues
+[       OK ] page navigation keeps presenting when DXGI reports the swap chain occluded
+[       OK ] occluded host without page navigation waits
+[       OK ] raise or dismiss settle keeps presenting when DXGI reports the swap chain occluded
+[       OK ] an active raise settle keeps presenting so overlay motion continues
+[       OK ] a settled overlay does not keep a static host presenting
+[ RUN      ] adapter-of-output selection policy
+[       OK ] the hardware adapter whose output owns the window's monitor is selected
+[       OK ] a monitor on the other adapter selects that adapter
+[       OK ] a window on no monitor keeps the default adapter
+[       OK ] a monitor DXGI cannot map keeps the default adapter
+[       OK ] a software adapter never owns a monitor
+[       OK ] no outputs selects nothing
+[       OK ] adapter identity compares both LUID halves
+[ RUN      ] renderer device identity and frame-latency waitable object
+[       OK ] hidden host window initializes for the device identity test
+[       OK ] Release composition initializes for the device identity test
+[       OK ] dashboard initializes for the device identity test
+[       OK ] no waitable object exists before device creation
+[       OK ] renderer initializes on WARP for the device identity test
+[       OK ] forced WARP reports a software device that owns no window monitor
+[       OK ] the device identity carries the adapter name
+[       OK ] the swap chain exposes its frame-latency waitable object
+[       OK ] a free back buffer is signaled before the first frame
+[       OK ] the adapter re-check keeps a forced WARP device
+[       OK ] hidden host presents one frame through the waitable swap chain
+[       OK ] the waitable object signals again once the presented frame is consumed
+[       OK ] the waitable object is stable across frames
+[       OK ] resizing keeps the waitable swap chain flag
+[       OK ] shutdown releases the waitable object and clears the device identity
+[ RUN      ] page swipe axis lock, rubber-band, commit, and settle
+[       OK ] no fingers do not navigate dashboard pages
+[       OK ] one finger does not navigate dashboard pages
+[       OK ] two fingers may navigate dashboard pages
+[       OK ] three fingers may navigate dashboard pages
+[       OK ] four fingers do not navigate dashboard pages
+[       OK ] an uncommitted two-finger contact does not cancel a widget gesture
+[       OK ] a locked page pan cancels the widget gesture
+[       OK ] horizontal delta past the threshold locks page navigation
+[       OK ] sub-threshold contact does not lock page navigation
+[       OK ] a diagonal with larger Y does not lock page navigation
+[       OK ] vertical-dominant movement is rejected for page navigation
+[       OK ] horizontal-dominant movement is not rejected as vertical
+[       OK ] unblocked travel follows the pointer 1:1
+[       OK ] blocked ends rubber-band at one quarter travel
+[       OK ] blocked rubber-band is capped at one eighth of the page
+[       OK ] wrap allows travel off the first page
+[       OK ] no-wrap blocks travel before the first page
+[       OK ] travel of one quarter width commits the page
+[       OK ] a short slow swipe returns to the current page
+[       OK ] a same-direction flick commits below the distance threshold
+[       OK ] a flick at a blocked first page does not commit
+[       OK ] ease-out cubic starts at 0 and ends at 1
+[       OK ] settle interpolation preserves start and end offsets
+[       OK ] settle interpolation uses ease-out cubic
+[       OK ] settle duration stays within the 140-280 ms window
+[ RUN      ] raised overlay geometry, hit-test, and double-activate
+[       OK ] raised extent enumerators are the four client fractions
+[       OK ] raised extents map to 1/4, 1/3, 1/2, and 1/1
+[       OK ] raised chrome scales with DPI
+[       OK ] a full-client tile cannot raise
+[       OK ] raise requires a valid extent and a tile that is not already full-client
+[       OK ] half raise is a full-height half-width slice with a corner close control
+[       OK ] quarter raise is a full-height 1/4-width slice covering the original column
+[       OK ] raising a stacked clock uses a full-height slice instead of a letterboxed card
+[       OK ] close hit-test uses a half-open rectangle
+[       OK ] full raise fills the client
+[       OK ] a slice at the left edge dims one strip to its right
+[       OK ] a centred full-height slice dims one strip on each side
+[       OK ] a full-client slice dims nothing
+[       OK ] an inset rectangle dims four strips that never overlap the content
+[       OK ] dim strips reject a short output array and an empty client
+[       OK ] dim strips around the raised half slice stay outside plugin content
+[       OK ] widget hit-test prefers the later overlapping tile
+[       OK ] double-activate requires the system interval and slop
+[       OK ] raise settle starts from the tile rectangle
+[       OK ] raise interpolation preserves start and end layouts
+[       OK ] raise interpolation uses ease-out cubic
+[       OK ] dim alpha interpolation preserves start and end
+[       OK ] raise settle duration stays within the 160-240 ms window
+[ RUN      ] raised overlay host composition
+[       OK ] System page creates ten raised-capable viewers
+[       OK ] host asks each System viewer for its raised extent
+[       OK ] raised-overlay host initializes a hidden WARP swap chain
+[       OK ] Process Viewer is not already full-client on the System page
+[       OK ] host raises Process Viewer to the plugin-requested half overlay
+[       OK ] raised Process Viewer keeps every tile drawing and draws itself again at overlay content
+[       OK ] raising Process Viewer does not start continuous frames
+[       OK ] settled raised Process Viewer still publishes a scheduled delay
+[       OK ] Process Viewer accepts SetRaised(FALSE)
+[       OK ] native raise layout restores
+[       OK ] dismissing the overlay restores every System Data GPU tile
+[ RUN      ] host chrome composition
+[       OK ] host chrome test initializes the hidden WARP host
+[       OK ] host chrome test shows the System page
+[       OK ] the renderer owns a host chrome pipeline rasterized for the window DPI
+[       OK ] glyph rasterization succeeds or reports the text fallback
+[       OK ] a settled page with no raise and no revealed band draws no chrome quad
+[       OK ] pushing an unchanged chrome state reports no change
+[       OK ] host chrome test raises Process Viewer to a half slice
+[       OK ] a raised chrome state is reported as a change
+[       OK ] a raised half slice with close hover draws dim strips, shadow, hover wash, and the close glyph
+[       OK ] host chrome never displaces the tile and raised widget draws
+[       OK ] clearing close hover is one chrome change
+[       OK ] an idle close control drops exactly the hover wash
+[       OK ] a raise at zero dim draws only shadow and close
+[       OK ] host chrome test restores Process Viewer
+[       OK ] revealing an edge band is one chrome change
+[       OK ] a revealed edge band draws its wash and chevron over every tile
+[       OK ] hiding the band is one chrome change
+[       OK ] hidden chrome draws nothing
+[       OK ] a DPI change re-rasterizes the chrome glyphs once
+[       OK ] an unchanged DPI leaves the chrome atlas alone
+[       OK ] host chrome creates no child window over the swap chain
+[       OK ] shutdown releases the host chrome pipeline
+[ RUN      ] raised native-window overlay
+[       OK ] hidden host window initializes for native raise
+[       OK ] GDI Orbit exposes the raised sibling
+[       OK ] GDI Orbit requests a quarter overlay
+[       OK ] host raises the native GDI Orbit container into overlay content
+[       OK ] raised GDI container matches overlay content
+[       OK ] raising a window widget still draws every GPU tile under the dim
+[       OK ] dismissing GDI Orbit restores tile layout
+[       OK ] native GDI container returns to its adaptive tile
+[       OK ] dismissed Debug page renders every GPU widget again
+[ RUN      ] Release Matrix plugin and production host integration
+[       OK ] hidden 2560x720 host window initializes
+[       OK ] Release plugin composition initializes
+[       OK ] Release composition contains one active-page provider and widget
+[       OK ] Release manager stages only the active page and preserves its full-display adaptive instance
+[       OK ] Release static discovery maps the gallery triangle DLL without creating its page
+[       OK ] Release static discovery maps the process viewer DLL without creating its page
+[       OK ] Release static discovery maps the Studio Clock DLL without creating its page
+[       OK ] Release static discovery maps the Desk Clock DLL without creating its page
+[       OK ] Release static discovery maps the gallery launcher DLL without creating its page
+[       OK ] Release static discovery maps the gallery weather DLL without creating its page
+[       OK ] inactive gallery Studio Clock owns no provider, widget, or device resources
+[       OK ] inactive gallery Desk Clock owns no provider, widget, or device resources
+[       OK ] Matrix lifetime diagnostics export resolves
+[       OK ] Matrix diagnostics rejects a null record
+[       OK ] Matrix diagnostics rejects a short record
+[       OK ] plugin manager owns one Matrix provider/widget before device initialization
+[       OK ] production dashboard host initializes without showing a window
+[       OK ] sole Matrix widget fills the design canvas
+[       OK ] Matrix descriptor makes the host continuous
+[       OK ] scheduled-frame aggregation rejects a null output
+[       OK ] a dashboard without scheduled widgets publishes no deadline
+[       OK ] production renderer initializes a hidden WARP swap chain
+[       OK ] renderer creates exactly one Matrix device-resource set
+[       OK ] hidden production host renders and presents the Matrix widget
+[       OK ] zero-sized host suspends without invoking a widget
+[       OK ] restored host resumes Matrix rendering
+[       OK ] host shutdown releases Matrix device resources before plugin objects
+[       OK ] host transactionally applies changed effective widget settings
+[       OK ] transactional reconfigure leaves one live provider and widget
+[       OK ] invalid plugin references preserve the active page transactionally
+[       OK ] reconfigured Matrix renders through the production host
+[       OK ] Release host teardown leaves no Matrix objects or device-resource sets
+[ RUN      ] Studio Clock scheduled production host integration
+[       OK ] Studio Clock production composition initializes
+[       OK ] Studio Clock deterministic-time export resolves
+[       OK ] Studio Clock manager owns CPU objects before renderer initialization
+[       OK ] invalid Studio Clock live settings preserve the active widget
+[       OK ] valid Studio Clock live settings replace the widget transactionally
+[       OK ] Studio Clock remains a scheduled static widget instead of continuous animation
+[       OK ] Studio Clock publishes the guarded next-second boundary through DashboardHost
+[       OK ] Studio Clock renders configured maximum content within its resource budgets
+[       OK ] an unrelated host frame reuses Studio Clock constants
+[       OK ] a changed wall-clock bucket requests one immediate corrective frame
+[       OK ] the corrective frame establishes a fresh second deadline
+[       OK ] Studio Clock host shutdown releases device resources before plugin CPU objects
+[ RUN      ] Desk Clock scheduled flip production host integration
+[       OK ] Desk Clock production composition initializes
+[       OK ] Desk Clock deterministic test exports resolve
+[       OK ] Desk Clock diagnostics rejects a null record
+[       OK ] Desk Clock diagnostics rejects a short record
+[       OK ] Desk Clock manager owns bounded CPU objects before renderer initialization
+[       OK ] invalid Desk Clock live settings preserve the active widget
+[       OK ] valid Desk Clock live settings replace the widget transactionally
+[       OK ] Desk Clock is scheduled and remains idle between displayed seconds
+[       OK ] an uninitialized Desk Clock requests one immediate bootstrap frame
+[       OK ] Desk Clock renders one static upload and three batched draws at 2560x720
+[       OK ] Desk Clock publishes the exact remaining delay to the next second
+[       OK ] a changed Desk Clock sample requests one immediate corrective frame
+[       OK ] an active half-flap uses one upload and four bounded draws
+[       OK ] Desk Clock requests smooth frames only while its flap moves
+[       OK ] Desk Clock returns to three static draws and a blocked deadline after the flip
+[       OK ] an inactive Desk Clock interval performs no plugin-owned clock work
+[       OK ] Desk Clock host shutdown releases all device resources
+[ RUN      ] Debug multi-plugin production host integration
+[       OK ] Debug hidden host window initializes
+[       OK ] Debug composition constructs launcher, triangle, and Matrix on the first page
+[       OK ] Debug dashboard attaches the GPU widgets while hidden
+[       OK ] Debug dashboard exposes launcher, triangle, and Matrix GPU mechanisms and no native container
+[       OK ] Debug dashboard compiles the adaptive layout onto the design canvas
+[       OK ] the shipped Debug first page creates no child HWND over the swap chain
+[       OK ] production host propagates widget resume and quiesce transitions
+[       OK ] Debug WARP frame renders every GPU widget of the first page
+[ RUN      ] Shared host data-provider lookup
+[       OK ] host data-provider lookup rejects a null output
+[       OK ] host data-provider lookup rejects an invalid ID
+[       OK ] unknown host data-provider lookup clears its output
+[       OK ] repeated host lookup shares one provider runtime
+[       OK ] host data provider exposes its source datasets
+[       OK ] host data-provider lookup rejects a widget-only plugin
+[ RUN      ] Process Viewer data subscription
+[       OK ] Process Viewer isolated composition is parsed
+[       OK ] two Process Viewers share one widget provider as GPU scheduled interactive widgets
+[       OK ] Process Viewer diagnostics export resolves
+[       OK ] Process Viewer diagnostics rejects a null record
+[       OK ] Process Viewer diagnostics rejects a short record
+[       OK ] both Process Viewer subscriptions are inactive until shown
+[       OK ] hidden Process Viewer attaches without requesting GPU frames
+[       OK ] visible Process Viewers receive and bound a shared live process snapshot
+[       OK ] hiding Process Viewers synchronously quiesces both subscriptions
+[       OK ] Process Viewer teardown releases provider, widget, and subscription objects
+[ RUN      ] System Data GPU viewer family
+[       OK ] System page creates ten GPU viewer providers
+[       OK ] every System Data viewer exposes GPU and scheduled interfaces
+[       OK ] System page attaches without continuous animation
+[       OK ] System page initializes a hidden WARP swap chain
+[       OK ] visible System page delivers snapshots on shared ProcessViewer subscriptions
+[       OK ] WARP renders every System Data GPU widget
+[       OK ] System Data widgets rebuild after device loss
+[       OK ] System-page WARP CPU submit stays interactive
+[       -- ] System page WARP mean frame 0.373016 ms
+[       OK ] settled System page publishes a rest interval rather than a 1 ms ease poll
+[       OK ] hiding the System page drains every data subscription
+[ RUN      ] subscription callback drain and slot reuse
+[       OK ] the production data provider is available for drain tests
+[       OK ] the worker enters a controlled callback
+[       OK ] the drain operation starts on a separate thread
+[       OK ] SetActive(FALSE) waits for the in-flight callback
+[       OK ] draining completes promptly after the callback returns
+[       OK ] the callback completes normally and the drain succeeds
+[       OK ] repeated deactivation is idempotent
+[       OK ] a drained subscription can resume delivery
+[       OK ] reactivated delivery drains again
+[       OK ] the worker enters a controlled callback
+[       OK ] the drain operation starts on a separate thread
+[       OK ] Release waits for the in-flight callback
+[       OK ] draining completes promptly after the callback returns
+[       OK ] the callback completes normally and the drain succeeds
+[       OK ] the worker enters a controlled callback
+[       OK ] the drain operation starts on a separate thread
+[       OK ] SetActive(FALSE) waits for the in-flight callback
+[       OK ] draining completes promptly after the callback returns
+[       OK ] the callback completes normally and the drain succeeds
+[       OK ] repeated deactivation is idempotent
+[       OK ] a drained subscription can resume delivery
+[       OK ] reactivated delivery drains again
+[       OK ] the worker enters a controlled callback
+[       OK ] the drain operation starts on a separate thread
+[       OK ] Release waits for the in-flight callback
+[       OK ] draining completes promptly after the callback returns
+[       OK ] the callback completes normally and the drain succeeds
+[ RUN      ] reserved subscription callback drain
+[       OK ] deactivation waits even when the copied callback has not entered yet
+[       OK ] the reserved callback completes before deactivation returns
+[ RUN      ] GPU widget target-size notification
+[       OK ] a Desk Clock page is composed for the size probe
+[       OK ] Desk Clock diagnostics are reachable
+[       OK ] the host reports a target size once device resources exist
+[       OK ] a viewport below the design size keeps the base atlas tier
+[       OK ] rendering frames at an unchanged size reports nothing
+[       OK ] a DPI-only change reports exactly one target notification
+[       OK ] an unchanged DPI does not repeat the notification
+[       OK ] a viewport above the design size rasterizes the atlas at a higher tier
+[       OK ] growing the viewport reports a new target size
+[       OK ] the higher tier costs more coverage memory and stays inside its bound
+[       OK ] shrinking the viewport releases the higher tier
+[       OK ] the widget renders after a tier change
+[ RUN      ] GPU page lifetime and target notification identity
+[       OK ] three pages with data, network, and sized GPU widgets construct
+[       OK ] page lifetime diagnostics are available
+[       OK ] device setup restores a visible primary page
+[       OK ] device setup restores a visible staged page
+[       OK ] replacing a same-sized staged page hides the old page and notifies the new widget
+[       OK ] promotion retains the staged widget's size cache and hides the outgoing page
+[       OK ] adopting an unprepared page quiesces it for device creation and restores visibility
+[       OK ] the adopted page draws every widget
+[       OK ] renderer shutdown quiesces the page before releasing GPU resources
+[       OK ] a fresh WARP device rebuilds and draws both surviving pages
+[       OK ] shutdown drains both the primary and staged pages
+[       OK ] all data and network widget device callbacks run while the widget is quiescent
+[ RUN      ] one process plugin runtime across current and staged pages
+[       OK ] shared-runtime settings and host window are ready
+[       OK ] current page creates its System Data viewer
+[       OK ] staged adjacent page creates its System Data viewer
+[       OK ] staging an adjacent page adds no second acquisition thread
+[       OK ] the shared acquisition worker starts with the first subscription
+[       OK ] repeated provider lookup returns one shared controlling identity
+[ RUN      ] host frame request and widget status reporting
+[       OK ] RequestFrame succeeds and coalesces without a UI target
+[       OK ] a widget can report itself unavailable
+[       OK ] the host records the reported status
+[       OK ] the host copies the reported reason into bounded storage
+[       OK ] a recovered widget clears its unavailable status
+[       OK ] an unreported instance reads back as healthy
+[       OK ] clearing an instance status returns it to healthy
+[       OK ] a stale-sized status record is rejected
+[       OK ] an unknown status value is rejected
+[       OK ] null status arguments are rejected
+[ RUN      ] widget settings persist and collect
+[       OK ] persist without a host handler is rejected
+[       OK ] a null persist instance is rejected
+[       OK ] persist forwards a partial settings object
+[       OK ] host exposes the worker settings queue
+[       OK ] settings queue shares the host COM identity
+[       OK ] worker settings do not persist on the worker
+[       OK ] queued settings commit on the UI thread
+[       OK ] queued settings reject invalid identifiers and oversized JSON
+[       OK ] bounded queue accepts eight instances
+[       OK ] bounded queue accepts eight instances
+[       OK ] bounded queue accepts eight instances
+[       OK ] bounded queue accepts eight instances
+[       OK ] bounded queue accepts eight instances
+[       OK ] bounded queue accepts eight instances
+[       OK ] bounded queue accepts eight instances
+[       OK ] bounded queue accepts eight instances
+[       OK ] full settings queue rejects another instance
+[       OK ] a pending instance can be replaced even when full
+[       OK ] teardown discards the pending settings for that instance
+[       OK ] empty acknowledgement does not repeat settings writes
+[       OK ] an older queued import is applied before a newer interactive save
+[       OK ] a queued import cannot overwrite the newer interactive edit
+[       OK ] a triangle page constructs for collect
+[       OK ] a widget with nothing to save returns S_FALSE
+[ RUN      ] host JSONL plugin log
+[       OK ] a null log record is rejected
+[       OK ] a mismatched log sizeBytes is rejected
+[       OK ] a missing log event id is rejected
+[       OK ] a missing log message is rejected
+[       OK ] an unknown log level is rejected
+[       OK ] log without a directory succeeds and drops the line
+[       OK ] SetLogDirectory starts the JSONL writer
+[       OK ] retention below 1 day is rejected
+[       OK ] retention above 365 days is rejected
+[       OK ] a 15-day retention is accepted
+[       OK ] a valid log record is accepted
+[       OK ] a message requiring escaping or UTF-8 truncation is accepted
+[       OK ] a message requiring escaping or UTF-8 truncation is accepted
+[       OK ] a message requiring escaping or UTF-8 truncation is accepted
+[       OK ] a message requiring escaping or UTF-8 truncation is accepted
+[       OK ] a message requiring escaping or UTF-8 truncation is accepted
+[       OK ] a message requiring escaping or UTF-8 truncation is accepted
+[       OK ] a following record is accepted
+[       OK ] FlushLog waits for the writer to drain
+[       OK ] repeated enqueue/flush boundaries never observe a stale idle signal
+[       OK ] today's UTC log file name can be formatted
+[       OK ] the dated JSONL file can be read after flush
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] truncation preserves the message and complete HRESULT suffix
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] truncation preserves the message and complete HRESULT suffix
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] truncation preserves the message and complete HRESULT suffix
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] truncation preserves the message and complete HRESULT suffix
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] truncation preserves the message and complete HRESULT suffix
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] truncation preserves the message and complete HRESULT suffix
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] each bounded line is independently valid UTF-8 JSON
+[       OK ] escaped records and the following record never merge or disappear
+[       OK ] every flushed batch is present on disk
+[       OK ] opening the log writes a log-open line
+[       OK ] a plugin log line stores event, plugin, instance, level, and HRESULT
+[       OK ] records logged before SetLogDirectory are not written
+[       OK ] dated logs older than retention and legacy undated log files are deleted
+[ RUN      ] host-owned placeholder tiles
+[       OK ] a valid page constructs every authored instance
+[       OK ] a valid page produces no placeholder tiles
+[       OK ] every constructed widget draws before any status is reported
+[       OK ] the host owns exactly the tile whose widget reported unavailable
+[       OK ] the frame draws the healthy widgets and the host draws the failed tile
+[       OK ] a degraded widget keeps its own tile
+[       OK ] a recovered widget takes its tile back
+[       OK ] every widget draws again after recovery
+[ RUN      ] unmapped catalogued module placeholder
+[       OK ] a page initializes when one catalogued module cannot be mapped
+[       OK ] the constructable sibling is not a placeholder
+[       OK ] Launcher constructs when its DLL is present
+[       OK ] hidden host window initializes for an unmapped-module page
+[       OK ] the dashboard hosts a page that includes a placeholder tile
+[ RUN      ] weather plugin DLL constructs
+[       OK ] Weather.dll maps with curl and zlib beside it and constructs a GPU widget
+[ RUN      ] launcher plugin DLL constructs
+[       OK ] Launcher.dll maps and constructs a GPU interactive widget
+[       OK ] an empty launcher has nothing to save
+[       OK ] launcher diagnostics export resolves
+[       OK ] empty launcher SetVisible succeeds
+[       OK ] automated empty launcher does not read the live taskbar
+[ RUN      ] plugin published array schema subset
+[       OK ] a bounded array of closed objects is accepted
+[       OK ] a Matrix-style closed object schema remains valid
+[       OK ] nested arrays are rejected
+[       OK ] published text bounds count Unicode scalars rather than UTF-8 bytes or UTF-16 units
+[       OK ] both published string length bounds are enforced
+[       OK ] published machine identifiers use the fixed ASCII pattern
+[       OK ] unsupported string constraints are rejected even when a defaults array is empty
+[       OK ] A middle page offers both edge affordances.
+[       OK ] The first page drops only the previous-page band.
+[       OK ] The last page drops only the next-page band.
+[       OK ] Wrapping keeps both edge affordances at a document end.
+[       OK ] A single-page document offers no edge affordance.
+[       OK ] A dashboard without a renderer offers no edge affordance.
+[       OK ] A hidden window offers no edge affordance.
+[       OK ] A powered-off display offers no edge affordance.
+[       OK ] A suspended renderer offers no edge affordance.
+[       OK ] An occluded renderer offers no edge affordance.
+[       OK ] A raised widget offers no edge affordance.
+[       OK ] An active pointer pan offers no edge affordance.
+[       OK ] An active settle offers no edge affordance.
+[       OK ] A staged neighbor offers no edge affordance.
+[       OK ] Only the two page-navigation directions select an edge affordance.
+[       OK ] The previous-page band hugs the left edge at full client height.
+[       OK ] The next-page band hugs the right edge at full client height.
+[       OK ] The two bands never meet on a wide client.
+[       OK ] Band width scales with the destination-monitor DPI.
+[       OK ] A narrow client clamps each band to a third of the client width.
+[       OK ] A zero client produces no band.
+[       OK ] An invalid direction produces no band.
+[       OK ] Band hit testing is inclusive at the near edge and exclusive at the far edge.
+[       OK ] A parent edge click navigates only when the zone is live and the point is inside the band.
+[       OK ] A parent edge click does not navigate while a widget is raised.
+[       OK ] The chevron uses the Fluent chevron glyph for each travel direction.
+[       OK ] Segoe MDL2 Assets shares the Fluent chevron code points.
+[       OK ] Without an icon font the chevron falls back to a standard Unicode glyph.
+[       OK ] An invalid direction produces no chevron glyph.
+[       OK ] The chevron cell stays inside its band.
+[       OK ] The chevron cell is centred in its band.
+[       OK ] The chevron scales with the destination-monitor DPI.
+[       OK ] An empty band produces no chevron cell.
+[       OK ] A client inside one work area is entirely reachable.
+[       OK ] A client wider than its single display is reachable only to the display edge.
+[       OK ] A window straddling two displays stays reachable across both.
+[       OK ] Straddling bands sit at the outer edges, not at the monitor seam.
+[       OK ] Absent display information leaves the whole client reachable.
+[       OK ] A client disjoint from every work area keeps its bands rather than losing them.
+[       OK ] A work-area taskbar does not shorten the band; width still clips to the display.
+[       OK ] The next-page band runs from the top of the client to the bottom.
+[       OK ] A fully reachable client places bands exactly at the client edges.
+[       OK ] An off-screen client edge moves the next-page band to the reachable edge.
+[       OK ] Clipping one side leaves the opposite band where it was.
+[       OK ] A reachable area offset from the client origin places the previous-page band at its left edge.
+[       OK ] A reachable area offset from the client origin places the next-page band at its right edge.
+[       OK ] An empty reachable area produces no band.
+[       OK ] An edge click settles to the committed-swipe offset for its direction.
+[       OK ] Edge settle targets agree with the swipe direction convention.
+[       OK ] A degenerate edge settle target is zero.
+[       OK ] An edge click settles with the shared ease-out at its clamped upper bound.
+[ RUN      ] non-divisible dashboard grid edges
+[       OK ] adaptive uneven-ratio dashboard initializes
+[       OK ] landscape long-side regions share one exact physical edge without gaps or overlap
+[       OK ] portrait reflows the same long-side split vertically without reparsing
+[       OK ] D3D viewports use the same adaptive physical edges
+[       OK ] direct manipulation renders only the current and staged adjacent pages
+[ RUN      ] in-place swipe commit keeps the Direct3D device
+[       OK ] first-page swipe host initializes one GPU widget
+[       OK ] direct manipulation renders the current page and staged neighbor
+[       OK ] commit promotes the staged neighbor without recreating the device
+[ RUN      ] swipe keeps drawing partially visible GPU widgets
+[       OK ] a right-swipe places the previous Matrix page partly on-screen from the left
+[       OK ] the current clocks keep their full width and slide partly past the right edge
+[       OK ] Matrix Rain and both clocks still draw when they are not completely on-screen
+[       OK ] a left-swipe leaves the left clock only partly visible
+[       OK ] Studio Clock and Desk Clock still draw when their tiles are not completely on-screen
+[ RUN      ] live settings reload keeps the current page
+[       OK ] a freshly parsed document starts on the first page
+[       OK ] the runtime can leave the first page
+[       OK ] a live parse still defaults to the first page
+[       OK ] reload keeps the second page when it still exists
+[       OK ] a reload that keeps page two stages the native-window neighbour, not the first-page GPU widget
+[ RUN      ] failed adopt restores the previous dashboard
+[       OK ] transactional-adopt host stages a neighbor
+[       OK ] zero-sized resize suspends the renderer
+[       OK ] adopt fails while the swap chain is zero-sized
+[       OK ] a failed adopt still draws the original page after the incoming host is destroyed
+[ RUN      ] native-window neighbor swipe layout and occlusion
+[       OK ] the neighbor page hosts a native-window widget
+[       OK ] RefreshLayout succeeds at every settle offset through a native neighbor
+[       OK ] a full-page native widget does not mark the swap chain occluded
+HostPluginTests passed.

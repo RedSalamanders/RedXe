@@ -1,0 +1,33 @@
+{
+  "completedAt": "2026-09-09T12:23:45.6214402Z",
+  "method": "Extract previous validated package after candidate tests; run AV, host/plugin and WARP application checks from the extracted directory.",
+  "baseline": {
+    "productCommit": "75545887d002b5075d170d98b7bfd3a77d8d7f61",
+    "dxUiCommit": "d192e474e540adc2656e69b8e8150b0f7a05d63f",
+    "platform": "x64",
+    "configuration": "Release",
+    "packageSha256": "24032D34254409B37FA4B72B25B4F5CA09021EC7E4212EF64B4952A93191BD45",
+    "testLogSha256": "F221C1F6A9477B08889102E4AECE20DB42CD94D0C8564237A25403B09FB81DF6"
+  },
+  "tests": [
+    {
+      "log": "rollback-AVControlTests.log",
+      "moduleSha256": "6B0CD9520DE6C851F33FB1C54ECB94346F3CE932A02D145A0ADC34AC2D354996",
+      "exitCode": 0,
+      "test": "AVControlTests"
+    },
+    {
+      "log": "rollback-HostPluginTests.log",
+      "moduleSha256": "0441F53D36A507E9F7DC45BAF56F9CE76755F38A1A701688F4E44EF3A1A3A59F",
+      "exitCode": 0,
+      "test": "HostPluginTests"
+    },
+    {
+      "log": "rollback-RedXe.log",
+      "moduleSha256": "E695F1A92352786C385F1B1F4594FE6269B1DEF71039AB8D5FBC6222C885BFA5",
+      "exitCode": 0,
+      "test": "RedXe"
+    }
+  ],
+  "candidateDxUi": "8c548fe2de3cdb5af858c457e9bef47d81506878"
+}

@@ -1,0 +1,363 @@
+
+  ╔══════════════════════════════════════════════════════════╗
+  ║        ██████╗ ███████╗██████╗   ██╗  ██╗███████╗        ║
+  ║        ██╔══██╗██╔════╝██╔══██╗  ╚██╗██╔╝██╔════╝        ║
+  ║        ██████╔╝█████╗  ██║  ██║   ╚███╔╝ █████╗          ║
+  ║        ██╔══██╗██╔══╝  ██║  ██║   ██╔██╗ ██╔══╝          ║
+  ║        ██║  ██║███████╗██████╔╝  ██╔╝ ██╗███████╗        ║
+  ║        ╚═╝  ╚═╝╚══════╝╚═════╝   ╚═╝  ╚═╝╚══════╝        ║
+  ╚═══════════ XENEON EDGE // BUILD SIGNAL LOCKED ═══════════╝
+
+Target: x64 | Release
+
+[1/2] Dependencies
+Installing RedXe dependencies (x64-windows)
+Detecting compiler hash for triplet x64-windows...
+Compiler found: C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe
+The following packages are already installed:
+    curl[core,sspi,ssl]:x64-windows@8.21.0#1
+  * vcpkg-cmake:x64-windows@2024-04-23
+  * vcpkg-cmake-config:x64-windows@2026-07-21
+    wil:x64-windows@1.0.260126.7
+    yyjson[core,writer,reader,non-standard,fast-fp-conv]:x64-windows@0.12.0
+  * zlib:x64-windows@1.3.2#1
+curl is compatible with built-in CMake targets:
+
+    find_package(CURL REQUIRED)
+    target_link_libraries(main PRIVATE CURL::libcurl)
+
+wil provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(wil CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE WIL::WIL)
+
+yyjson provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(yyjson CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE yyjson::yyjson)
+
+yyjson provides pkg-config modules:
+
+  # Fastest JSON library in C
+  yyjson
+
+All requested installations completed successfully in: 266 us
+vcpkg dependencies are ready.
+Cloning into 'Z:\RxI19\.build\dependencies\DxUi\source\8c548fe2de3cdb5af858c457e9bef47d81506878'...
+HEAD is now at 8c548fe Fix native CI runtime staging and consumer test exit status
+DxUi pin verified: 8c548fe2de3cdb5af858c457e9bef47d81506878
+Cloning pinned vcpkg tooling into Z:\RxI19\.build\dependencies\DxUi\e92b95a901926882c927af34820048081d56253593b176a4e70c95e075226657\vcpkg-tool
+Cloning into 'Z:\RxI19\.build\dependencies\DxUi\e92b95a901926882c927af34820048081d56253593b176a4e70c95e075226657\vcpkg-tool'...
+Updating files:   0% (1/14285)
+Updating files:   1% (143/14285)
+Updating files:   2% (286/14285)
+Updating files:   3% (429/14285)
+Updating files:   4% (572/14285)
+Updating files:   5% (715/14285)
+Updating files:   6% (858/14285)
+Updating files:   7% (1000/14285)
+Updating files:   8% (1143/14285)
+Updating files:   9% (1286/14285)
+Updating files:  10% (1429/14285)
+Updating files:  11% (1572/14285)
+Updating files:  12% (1715/14285)
+Updating files:  13% (1858/14285)
+Updating files:  14% (2000/14285)
+Updating files:  15% (2143/14285)
+Updating files:  16% (2286/14285)
+Updating files:  17% (2429/14285)
+Updating files:  18% (2572/14285)
+Updating files:  19% (2715/14285)
+Updating files:  20% (2857/14285)
+Updating files:  21% (3000/14285)
+Updating files:  22% (3143/14285)
+Updating files:  23% (3286/14285)
+Updating files:  24% (3429/14285)
+Updating files:  25% (3572/14285)
+Updating files:  26% (3715/14285)
+Updating files:  27% (3857/14285)
+Updating files:  28% (4000/14285)
+Updating files:  29% (4143/14285)
+Updating files:  30% (4286/14285)
+Updating files:  31% (4429/14285)
+Updating files:  32% (4572/14285)
+Updating files:  33% (4715/14285)
+Updating files:  34% (4857/14285)
+Updating files:  35% (5000/14285)
+Updating files:  36% (5143/14285)
+Updating files:  36% (5152/14285)
+Updating files:  37% (5286/14285)
+Updating files:  38% (5429/14285)
+Updating files:  39% (5572/14285)
+Updating files:  40% (5714/14285)
+Updating files:  41% (5857/14285)
+Updating files:  42% (6000/14285)
+Updating files:  43% (6143/14285)
+Updating files:  44% (6286/14285)
+Updating files:  45% (6429/14285)
+Updating files:  46% (6572/14285)
+Updating files:  47% (6714/14285)
+Updating files:  48% (6857/14285)
+Updating files:  49% (7000/14285)
+Updating files:  50% (7143/14285)
+Updating files:  51% (7286/14285)
+Updating files:  52% (7429/14285)
+Updating files:  53% (7572/14285)
+Updating files:  54% (7714/14285)
+Updating files:  55% (7857/14285)
+Updating files:  56% (8000/14285)
+Updating files:  57% (8143/14285)
+Updating files:  58% (8286/14285)
+Updating files:  59% (8429/14285)
+Updating files:  60% (8571/14285)
+Updating files:  61% (8714/14285)
+Updating files:  62% (8857/14285)
+Updating files:  63% (9000/14285)
+Updating files:  64% (9143/14285)
+Updating files:  65% (9286/14285)
+Updating files:  66% (9429/14285)
+Updating files:  67% (9571/14285)
+Updating files:  68% (9714/14285)
+Updating files:  69% (9857/14285)
+Updating files:  70% (10000/14285)
+Updating files:  71% (10143/14285)
+Updating files:  72% (10286/14285)
+Updating files:  73% (10429/14285)
+Updating files:  74% (10571/14285)
+Updating files:  75% (10714/14285)
+Updating files:  76% (10857/14285)
+Updating files:  77% (11000/14285)
+Updating files:  78% (11143/14285)
+Updating files:  79% (11286/14285)
+Updating files:  80% (11428/14285)
+Updating files:  81% (11571/14285)
+Updating files:  82% (11714/14285)
+Updating files:  82% (11755/14285)
+Updating files:  83% (11857/14285)
+Updating files:  84% (12000/14285)
+Updating files:  85% (12143/14285)
+Updating files:  86% (12286/14285)
+Updating files:  87% (12428/14285)
+Updating files:  88% (12571/14285)
+Updating files:  89% (12714/14285)
+Updating files:  90% (12857/14285)
+Updating files:  91% (13000/14285)
+Updating files:  92% (13143/14285)
+Updating files:  93% (13286/14285)
+Updating files:  94% (13428/14285)
+Updating files:  95% (13571/14285)
+Updating files:  96% (13714/14285)
+Updating files:  97% (13857/14285)
+Updating files:  98% (14000/14285)
+Updating files:  99% (14143/14285)
+Updating files: 100% (14285/14285)
+Updating files: 100% (14285/14285), done.
+Selecting pinned vcpkg commit 9e593bb18ea69cc5095e012465dcd675a822ed0d
+From https://github.com/microsoft/vcpkg
+ * branch                9e593bb18ea69cc5095e012465dcd675a822ed0d -> FETCH_HEAD
+HEAD is now at 9e593bb18 Release vcpkg-tool 2026-07-27. (#53109)
+Bootstrapping vcpkg...
+Downloading https://github.com/microsoft/vcpkg-tool/releases/download/2026-07-27/vcpkg.exe -> Z:\RxI19\.build\dependencies\DxUi\e92b95a901926882c927af34820048081d56253593b176a4e70c95e075226657\vcpkg-tool\vcpkg.exe... done.
+Validating signature... done.
+
+vcpkg package management program version 2026-07-27-98d7cb0cf1f4686a3e43aa5672b6230c1d56bce8
+
+See LICENSE.txt for license information.
+Installing DxUi dependencies (x64-windows)
+A suitable version of cmake was not found (required v4.4.0).
+Downloading https://github.com/Kitware/CMake/releases/download/v4.4.0/cmake-4.4.0-windows-x86_64.zip -> cmake-4.4.0-windows-x86_64.zip
+Successfully downloaded cmake-4.4.0-windows-x86_64.zip
+Extracting cmake...
+Detecting compiler hash for triplet x64-windows...
+Compiler found: C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe
+The following packages will be built and installed:
+  * vcpkg-cmake:x64-windows@2024-04-23
+  * vcpkg-cmake-config:x64-windows@2026-07-21
+    wil:x64-windows@1.0.260126.7
+Additional packages (*) will be modified to complete this operation.
+Restored 3 package(s) from C:\Users\eric\AppData\Local\vcpkg\archives in 45.1 ms. Use --debug to see more details.
+Installing 1/3 vcpkg-cmake-config:x64-windows@2026-07-21...
+vcpkg-cmake-config:x64-windows@2026-07-21 package ABI: cb76730c1288d930ad2de79595bc1472916522211336c1f5fda34df8dc43d649
+Elapsed time to handle vcpkg-cmake-config:x64-windows: 6 ms
+Installing 2/3 vcpkg-cmake:x64-windows@2024-04-23...
+vcpkg-cmake:x64-windows@2024-04-23 package ABI: 0f1629f7cb558556c5bbfc8e37842b26ff18d41ca97b934fc4febede65626e30
+Elapsed time to handle vcpkg-cmake:x64-windows: 3.3 ms
+Installing 3/3 wil:x64-windows@1.0.260126.7...
+wil:x64-windows@1.0.260126.7 package ABI: 30202e281ea7bf48b4f780f4de7557080f2e638f06b85cfbde3113a6256858a1
+Elapsed time to handle wil:x64-windows: 9.27 ms
+Installed contents are licensed to you by owners. Microsoft is not responsible for, nor does it grant any licenses to, third-party packages.
+Packages installed in this vcpkg installation declare the following licenses:
+MIT
+wil provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(wil CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE WIL::WIL)
+
+All requested installations completed successfully in: 19.7 ms
+vcpkg dependencies are ready.
+DxUi pin is ahead of main; review Z:\RxI19\Dependencies\DxUi.lock.json before any change. (Checked 2026-09-09 12:06:20Z)
+DxUi restored at exact pin 8c548fe2de3cdb5af858c457e9bef47d81506878; sibling checkout unchanged.
+
+[2/2] Build
+MSBuild: C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\amd64\MSBuild.exe
+
+  SystemData.vcxproj -> Z:\RxI19\.build\x64\Release\Plugins\SystemData.dll
+  AVControlBroker.vcxproj -> Z:\RxI19\.build\x64\Release\Plugins\AVControlBroker.exe
+  MatrixRain.vcxproj -> Z:\RxI19\.build\x64\Release\Plugins\MatrixRain.dll
+  StudioClock.vcxproj -> Z:\RxI19\.build\x64\Release\Plugins\StudioClock.dll
+  ProcessViewer.vcxproj -> Z:\RxI19\.build\x64\Release\Plugins\ProcessViewer.dll
+  AVControlCameraSetup.vcxproj -> Z:\RxI19\.build\x64\Release\Plugins\AVControlCameraSetup.exe
+  GdiOrbit.vcxproj -> Z:\RxI19\.build\x64\Release\Plugins\GdiOrbit.dll
+  Launcher.vcxproj -> Z:\RxI19\.build\x64\Release\Plugins\Launcher.dll
+  RotatingTriangle.vcxproj -> Z:\RxI19\.build\x64\Release\Plugins\RotatingTriangle.dll
+  DeskClock.vcxproj -> Z:\RxI19\.build\x64\Release\Plugins\DeskClock.dll
+  AVControlCamera.vcxproj -> Z:\RxI19\.build\x64\Release\Plugins\AVControlCamera.dll
+  SettingsTests.vcxproj -> Z:\RxI19\.build\x64\Release\SettingsTests.exe
+  SystemDataPhase0.vcxproj -> Z:\RxI19\.build\x64\Release\SystemDataPhase0.exe
+  SystemDataTests.vcxproj -> Z:\RxI19\.build\x64\Release\SystemDataTests.exe
+  WeatherLocation.vcxproj -> Z:\RxI19\.build\x64\Release\Plugins\WeatherLocation.exe
+  DeskClockTests.vcxproj -> Z:\RxI19\.build\x64\Release\DeskClockTests.exe
+  LauncherTests.vcxproj -> Z:\RxI19\.build\x64\Release\LauncherTests.exe
+  StudioClockTests.vcxproj -> Z:\RxI19\.build\x64\Release\StudioClockTests.exe
+  Weather.vcxproj -> Z:\RxI19\.build\x64\Release\Plugins\Weather.dll
+  PluginContractTests.cpp
+  WeatherTests.vcxproj -> Z:\RxI19\.build\x64\Release\WeatherTests.exe
+  compilation header save succeeded; see Z:\RxI19\.build\dependencies\DxUi\e92b95a901926882c927af34820048081d56253593b176a4e70c95e075226657\Intermediate\x64\Release\DxUi\DxUiCompositeVS.h
+  compilation object save succeeded; see Z:\RxI19\.build\dependencies\DxUi\e92b95a901926882c927af34820048081d56253593b176a4e70c95e075226657\Intermediate\x64\Release\DxUi\DxUiCompositeVS.cso
+  compilation header save succeeded; see Z:\RxI19\.build\dependencies\DxUi\e92b95a901926882c927af34820048081d56253593b176a4e70c95e075226657\Intermediate\x64\Release\DxUi\DxUiCompositePS.h
+  compilation object save succeeded; see Z:\RxI19\.build\dependencies\DxUi\e92b95a901926882c927af34820048081d56253593b176a4e70c95e075226657\Intermediate\x64\Release\DxUi\DxUiCompositePS.cso
+  ControlCatalog.cpp
+  PluginContractTests.vcxproj -> Z:\RxI19\.build\x64\Release\PluginContractTests.exe
+  NativeMenuInterop.cpp
+  Embedded.cpp
+  FrameRuntime.cpp
+  DxUi.Accessibility.cpp
+  DxUi.ComboBox.cpp
+  DxUi.Controls.cpp
+  DxUi.cpp
+  DxUi.Grid.cpp
+  DxUi.Menu.cpp
+  DxUi.NativeTextInput.cpp
+  DxUi.PointerInput.cpp
+  DxUi.Scrollbar.cpp
+  DxUi.SingleLineTextEditing.cpp
+  DxUi.TextInput.cpp
+  DxUi.TextStoreACP.cpp
+  TextInputServices.cpp
+  TextClipboard.cpp
+  DxUi.Theme.cpp
+  DxUi.Tree.cpp
+  Generating Code...
+  Compiling...
+  DxUi.Typeahead.cpp
+  DxUi.WindowHost.cpp
+  Generating Code...
+  DxUi.vcxproj -> Z:\RxI19\.build\dependencies\DxUi\e92b95a901926882c927af34820048081d56253593b176a4e70c95e075226657\x64\Release\DxUi.lib
+  DxUi pin verified: 8c548fe2de3cdb5af858c457e9bef47d81506878
+  AVControl.cpp
+  AVControlModel.cpp
+  AVControlLayout.cpp
+  AVControlView.cpp
+  ProfileControls.cpp
+  AVControlBroker.cpp
+  ProfileTransaction.cpp
+  Coordinator.cpp
+     Creating library Z:\RxI19\.build\x64\Release\Plugins\AVControl.lib and object Z:\RxI19\.build\x64\Release\Plugins\AVControl.exp
+  AVControl.vcxproj -> Z:\RxI19\.build\x64\Release\Plugins\AVControl.dll
+  DxUi pin verified: 8c548fe2de3cdb5af858c457e9bef47d81506878
+  DxUi pin verified: 8c548fe2de3cdb5af858c457e9bef47d81506878
+  Application.cpp
+  WidgetTextClient.cpp
+  AccessibilityHost.cpp
+  CrashHandler.cpp
+  PluginHost.cpp
+  ControlWorkQueue.cpp
+  DashboardHost.cpp
+  Main.cpp
+  PluginManager.cpp
+  Renderer.cpp
+  HostChrome.cpp
+  Settings.cpp
+  AVControlModel.cpp
+  SettingsV4.cpp
+  AVControlTests.cpp
+  ControlWorkQueueTests.cpp
+  NativeViewTests.cpp
+  TextTransportTests.cpp
+  WidgetTextClientTests.cpp
+  AccessibilityHostTests.cpp
+  AccessibilityHost.cpp
+  WidgetTextClient.cpp
+  BrokerTests.cpp
+  ProfileTransactionTests.cpp
+  CoordinatorTests.cpp
+  InventorySelectionTests.cpp
+  AudioBackendTests.cpp
+  WindowsAudioBackend.cpp
+  AudioPolicy.cpp
+  ModuleTests.cpp
+  CameraMediaTests.cpp
+  CameraBridgeTests.cpp
+  CameraActivationTests.cpp
+  SettingsWatcher.cpp
+  CameraMediaSource.cpp
+  CameraFrameChannel.cpp
+  CameraBridge.cpp
+  CameraBridgeServer.cpp
+  CameraCapture.cpp
+  CameraController.cpp
+  ControlWorkQueue.cpp
+  AVControlModel.cpp
+  AVControlLayout.cpp
+  AVControlView.cpp
+  AVControlBroker.cpp
+  ProfileTransaction.cpp
+  ProfileControls.cpp
+  Coordinator.cpp
+  Generating code
+  1224 of 4357 functions (28.1%) were compiled, the rest were copied from previous compilation.
+    0 functions were new in current compilation
+    98 functions had inline decision re-evaluated but remain unchanged
+  Finished generating code
+  AVControlTests.vcxproj -> Z:\RxI19\.build\x64\Release\AVControlTests.exe
+  RedXe.vcxproj -> Z:\RxI19\.build\x64\Release\RedXe.exe
+  HostPluginTests.vcxproj -> Z:\RxI19\.build\x64\Release\HostPluginTests.exe
+
+Captured log: Z:\RxI19\.build\logs\redxe-build-20260909_140620_395-pid61792-76e12424.log
+Diagnostics: 0 warning(s), 0 error(s)
+DxUi pin verified: 8c548fe2de3cdb5af858c457e9bef47d81506878
+DxUi module provenance: Z:\RxI19\.build\x64\Release\DxUi.provenance.json
+BUILD SIGNAL LOCKED in 00:02:14.441
+Ready: Z:\RxI19\.build\x64\Release\RedXe.exe
+Running exact build-output process preflight tests...
+Build-output process preflight tests passed.
+Build presentation and streaming tests passed.
+PASS provenance rejects wrong repository
+PASS provenance rejects wrong platform
+PASS provenance rejects wrong configuration
+PASS provenance rejects wrong pin
+PASS provenance rejects wrong API
+PASS provenance rejects incomplete module closure
+PASS provenance rejects duplicate module
+PASS provenance rejects changed binary
+Running plugin ABI and rendering-interface contract tests...
+Running AV Control model, input and layout tests...
+PASS CameraPackage: 12 checks (validation only; no installation)
+Running local system-data provider contract tests...
+Running Release system-data row-cap resource measurement...
+Running Release system-data per-domain measurement...
+Running system-data Phase 0 acquisition spikes...
+Running Studio Clock contract, scheduling, WARP, and resource tests...
+Running Desk Clock contract, scheduling, WARP, and resource tests...
+Running Launcher factory, pin fallback, WARP, launch, and drop tests...
+Running Weather HTTP, unit, and label format tests...
+Running settings, schema, stamp, and watcher contract tests...
+Running production host and plugin integration tests...
+Host integration log: Z:\RxI19\.build\x64\Release\HostPluginTests.log
+Running hidden Direct3D 11 WARP smoke test...
+Running isolated fatal-process crash diagnostics test...
+Running isolated stack-overflow crash diagnostics test...
+All tests passed.

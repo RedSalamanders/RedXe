@@ -36,9 +36,10 @@ The application and plugin output directories each have one sanitizer-runtime st
 entrypoint requires an isolated use-after-free to produce the sanitizer's diagnostic; an ordinary crash is
 not successful detection. ARM64 runtime tests require native ARM64 execution.
 
-The native CI matrix runs the ordinary product test entrypoint for all six configurations. Private DxUi
-read access is supplied by `DXUI_READ_TOKEN` (Contents and Actions read only); a missing credential is an
-explicit CI setup failure. No token is embedded in the lock, logs, source URLs or shipped provenance.
+The native CI matrix runs the ordinary product test entrypoint for all six configurations. DxUi is public:
+HTTPS source restore requires no personal token or repository/organization secret. The advisory API check
+uses the automatic read-only job token in CI and works anonymously locally. API unavailability or rate
+limiting produces an advisory notice and leaves the exact pin unchanged.
 
 Build outputs remain under `.build/<Platform>/<Configuration>/`, with intermediates under `.build/Intermediate/`.
 The root `test.ps1` exits zero only after every required assertion has passed. Expected nonzero exits from isolated
@@ -64,3 +65,12 @@ Changes to this contract require:
 .\build.ps1 -Configuration Release -Platform ARM64
 .\validate-skills.ps1
 ```
+
+
+## Public DxUi access in CI
+
+`RedSalamanders/DxUi` is public. Anonymous HTTPS Git access and public Actions API reads were verified
+on 2026-09-09. Both consumers can restore their exact pin without configuring a secret. Sharing an
+organization does not add any setup requirement. CI may use its automatic `github.token` for API rate
+limits; this is provided by GitHub and is not a personal access token. Source URLs, logs and shipped
+provenance contain no credentials. The existing advisory lookup also works without authentication.

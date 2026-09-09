@@ -507,7 +507,7 @@ RFC and mockup, not application code or current normative host behavior.
 
 ### Shared-library bootstrap update, 2026-09-05
 
-The approved private DxUi repository now exists on `main`, with independent Foundation builds, library contracts,
+The approved public DxUi repository now exists on `main`, with independent Foundation builds, library contracts,
 agent guidance, skills and an adoption plan. Its [hosted validation](https://github.com/RedSalamanders/DxUi/actions/runs/33958577659)
 passed Linux validators and native x64/ARM64 Debug/Release tests. RedXe's unchanged `validate-skills.ps1` also
 passed all ten skills in the normal user context; the earlier sandbox Python/PyYAML block is resolved.

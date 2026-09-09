@@ -5,11 +5,13 @@
 - [x] Audit current pin d192e474e540adc2656e69b8e8150b0f7a05d63f and the three archive consumers.
 - [x] Unchanged x64 Debug product test.ps1 passes at 75545887d002b5075d170d98b7bfd3a77d8d7f61.
 - [x] Unchanged Release test.ps1 passes at the audited product revision from the isolated Z:\RxI19 checkout.
-- [ ] All 25 native projects and the solution support six configurations with real ASAN instrumentation.
-- [ ] Exact candidate restore, compiler/SDK/flag isolation, advisory check and actual linked-module provenance pass.
+- [x] All 25 native projects and the solution build all six configurations with ASAN compiler enforcement; native ARM64 runtime qualification remains open.
+- [x] Exact candidate restore, compiler/SDK/flag isolation, advisory check and actual linked-module provenance pass in all six local builds.
 - [x] Provenance tests reject wrong repository/pin/API/profile, incomplete/duplicate module closure and changed binaries.
 - [x] Candidate 8c548fe2de3cdb5af858c457e9bef47d81506878 builds x64 Debug with zero warnings/errors and passes the complete product test.ps1.
-- [ ] Candidate product tests, paired resources, native x64/ARM64 CI and rollback pass.
+- [x] Candidate complete x64 Debug, Release and ASan Debug suites pass, including deliberate sanitizer fault detection.
+- [x] Retained prior Release package passes AV Control, host/plugin integration and hidden WARP application checks after the candidate qualification.
+- [ ] Paired resources and native x64/ARM64 CI pass; public dependency access verified; CI execution remains pending.
 - [ ] Normative specs, user-facing compatibility notes and I19 checklist reconciled.
 
 Status: ACTIVE. Implements RedXe's C1/C3/C6 slice of RedSalamander I19, authorized 2026-09-09.
@@ -30,12 +32,13 @@ failure. The short checkout `Z:\RxI19` completed the unchanged Release suite; it
 `.build/logs/I19-baseline-Release-20260909-134952.log`. Baseline test logs establish their actual tested configuration;
 concurrent build activity is not accepted as paired performance evidence.
 
-Six native CI jobs are implemented. Private DxUi access needs the repository/organization `DXUI_READ_TOKEN`
-secret; no repository secret was visible during setup. This is a pending environment gate, not a passed CI result.
+Six native CI jobs are implemented. Anonymous HTTPS clone and public Actions API access to DxUi were
+verified on 2026-09-09. No custom token or secret is required; the workflow uses the automatic job token
+only for advisory API requests. Native CI execution remains open.
 
 Candidate Debug evidence is retained under `Measurements/DxUiAdoption/2026-09-09/`. Its build took 108 seconds;
 an unchanged repeat took 16 seconds with no native compilation. This is observed warm-build behavior, not a
 matched cold-build speed comparison. The first test attempt exposed duplicate hidden-window arguments in the
 updated runner; those were removed, and the full rerun passed. Native product behavior was unchanged by that fix.
 The prior Release output was archived with its PDBs and hash in the local `RedXe-I19-baseline-20260909`
-temporary directory before replacing the short checkout. Rollback execution and paired resources remain open.
+temporary directory before replacing the short checkout. The retained package was hash-verified and extracted into a new directory after candidate tests. AV Control, host/plugin and hidden WARP application checks all passed from that directory. The rollback receipt and logs are retained alongside all six candidate build/provenance receipts. Paired resources and native CI remain open.
