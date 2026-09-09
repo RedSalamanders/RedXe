@@ -1144,10 +1144,12 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     five seconds per collection.
 16. Verify `IRedXeHost::GetDataProvider` output validation, unknown and non-data plugin rejection, stable provider
     identity, dataset discovery, and shared module loading. Verify two Process Viewer instances share one widget
-    provider and host data provider while retaining distinct inactive-until-visible subscriptions, then receive
+      provider and host data provider while retaining distinct inactive-until-visible subscriptions, then receive
     bounded live process delivery as GPU scheduled widgets, request zero continuous frames, drain on hide, and fully
     tear down through settings and host integration tests. The hidden interval MUST exceed the two-second dataset
-    cadence without another delivered sample. Verify the ten System Data viewer IDs enumerate from `ProcessViewer.dll`,
+      cadence without another delivered sample. Cumulative diagnostic counters must be compared with their
+      pre-creation values; repeat the subscription scenario in-process after a delivered sample to cover module reuse.
+      Verify the ten System Data viewer IDs enumerate from `ProcessViewer.dll`,
     reject factory creation without a host, and that a ten-widget System page attaches as GPU+scheduled widgets,
     renders on hidden WARP, rebuilds after device loss, stays non-continuous, and drains every subscription when hidden.
 17. Verify Studio Clock defaults and normalized effective settings, every visibility toggle, all date formats, color

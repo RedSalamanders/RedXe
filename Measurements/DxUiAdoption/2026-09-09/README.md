@@ -23,3 +23,14 @@ These runs validate the recorded behavior and static archive identity. Concurren
 means their timings are not matched performance acceptance. DxUi is public; the consumer needs
 no private-read token or custom secret. Real IME, screen-reader, touch and AV hardware qualification remain with the existing
 AV release gates; this adoption does not certify them.
+
+The ecad707 candidate passes complete local x64 Debug, Release and ASan Debug
+product suites with zero build warnings/errors. The duplicate PR run at the earlier
+1bf6662 product revision (34368436753) exposed a Process Viewer test assumption:
+its process-lifetime delivery counter need not start at zero after previous hosts.
+The successful earlier run remains retained alongside this failure, not a flake waiver.
+Repeating the subscription case in one process reproduces the assertion failure.
+The corrected test checks delivery deltas and requires new samples after visibility;
+it retains the hidden drain and object-count assertions. Full x64 Debug passes with
+the repeat. `process-counter-regression.json` binds both logs. Other profiles and
+fresh native CI for the corrected test remain open.

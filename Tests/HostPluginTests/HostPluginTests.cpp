@@ -1440,6 +1440,18 @@ void TestProcessViewerSubscription(bool& success) noexcept
         return;
     }
 
+    // Diagnostics survive earlier plugin-manager instances in this process.
+    // Compare delivery with the pre-creation count, including on the repeated run.
+    ProcessViewerTestDiagnostics beforeCreation{};
+    if (GetProcessViewerDiagnosticsFunction())
+    {
+        result = ReadProcessViewerDiagnostics(beforeCreation);
+        Check(SUCCEEDED(result), L"Process Viewer pre-creation diagnostics resolve", success);
+        if (FAILED(result))
+        {
+            return;
+        }
+    }
     ProcessViewerGetTestDiagnosticsFn getDiagnostics = nullptr;
     {
         PluginManager plugins;
@@ -1470,7 +1482,7 @@ void TestProcessViewerSubscription(bool& success) noexcept
         result = ReadProcessViewerDiagnostics(diagnostics);
         Check(SUCCEEDED(result) && diagnostics.liveProviderCount == 1 && diagnostics.liveWidgetCount == 2 &&
                   diagnostics.liveSubscriptionCount == 2 && diagnostics.configuredTopN == 10 &&
-                  diagnostics.sampleCount == 0,
+                  diagnostics.sampleCount == beforeCreation.sampleCount,
               L"both Process Viewer subscriptions are inactive until shown", success);
 
         DashboardHost dashboard;
@@ -1490,13 +1502,15 @@ void TestProcessViewerSubscription(bool& success) noexcept
         {
             window.PumpMessages();
             result = ReadProcessViewerDiagnostics(diagnostics);
-            if (FAILED(result) || (diagnostics.sampleCount > 0 && diagnostics.lastPublishedRowCount > 0))
+            if (FAILED(result) ||
+                (diagnostics.sampleCount > beforeCreation.sampleCount && diagnostics.lastPublishedRowCount > 0))
             {
                 break;
             }
             (void)MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
         }
-        Check(SUCCEEDED(result) && diagnostics.sampleCount > 0 && diagnostics.lastPublishedRowCount > 0 &&
+        Check(SUCCEEDED(result) && diagnostics.sampleCount > beforeCreation.sampleCount &&
+                  diagnostics.lastPublishedRowCount > 0 &&
                   diagnostics.lastPublishedRowCount <= diagnostics.configuredTopN,
               L"visible Process Viewers receive and bound a shared live process snapshot", success);
 
@@ -3971,6 +3985,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestDebugHostComposition(success);
     TestDataProviderLookup(success);
     TestProcessViewerSubscription(success);
+    TestProcessViewerSubscription(success); // Repeat with nonzero process-lifetime diagnostics.
     TestSystemDataViewers(success);
     TestSubscriptionDrain(success);
     TestReservedSubscriptionDrain(success);

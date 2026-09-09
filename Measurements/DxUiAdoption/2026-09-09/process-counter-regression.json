@@ -1,0 +1,25 @@
+{
+  "scenario": "Repeat Process Viewer subscription lifecycle within one process",
+  "dxUiCommit": "ecad70704fd5e46672586ddbe4ddfeb5db01d1a4",
+  "platform": "x64",
+  "configuration": "Debug",
+  "change": "Test compares cumulative sample delivery to pre-creation count instead of assuming zero; no product implementation change",
+  "runs": [
+    {
+      "path": "Z:\\src\\RedXe\\.build\\logs\\I19-process-counter-witness.log",
+      "sha256": "a5d3f9533420fd372d91c8db7afc06dc4eebfc1b38b11fe5a2af7f6d8eba6d5b",
+      "bytes": 51033,
+      "failedAssertions": [
+        "[  FAILED  ] both Process Viewer subscriptions are inactive until shown"
+      ],
+      "passed": false
+    },
+    {
+      "path": "Z:\\src\\RedXe\\.build\\logs\\I19-process-counter-after-Debug.log",
+      "sha256": "f37dd80745efb019df7bc84d8fd0e2c7cf65303d690d6f8932f7dc616512f5a1",
+      "bytes": 16728,
+      "failedAssertions": [],
+      "passed": true
+    }
+  ]
+}
