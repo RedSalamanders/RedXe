@@ -811,8 +811,14 @@ void RunAcceleratorChecks(IRedXeDataSource& source, const RedXeDataSetDescriptor
     Expect(posture.values[enabledColumn].uint64Value <= 1 && posture.values[hvciColumn].uint64Value <= 1,
            "security posture flags are not 0/1 values");
     const uint64_t options = posture.values[optionsColumn].uint64Value;
-    // Every bit RedXe names lives in the low sixteen; a value outside that range means the record was misread.
-    Expect(options != 0 && (options >> 16U) == 0, "security posture code-integrity options are not a known bitmask");
+    // Windows returns a ULONG bitmask. Zero is valid when the flags are disabled, and newer
+    // systems may define bits RedXe does not name. Validate width and our decoded fields instead.
+    Expect(posture.values[optionsColumn].quality == RedXeDataQualityGood && (options >> 32U) == 0,
+           "security posture code-integrity options are not an available 32-bit record");
+    Expect(posture.values[enabledColumn].uint64Value == ((options & 0x01U) != 0 ? 1U : 0U),
+           "security posture code-integrity enabled flag disagrees with the raw record");
+    Expect(posture.values[hvciColumn].uint64Value == ((options & 0x400U) != 0 ? 1U : 0U),
+           "security posture memory-integrity enabled flag disagrees with the raw record");
     // These are configuration flags, not counters: a second read must return exactly the same value.
     const uint64_t firstOptions = options;
     Expect(CollectOneSnapshot(source, "security.posture", &snapshot) == S_OK && snapshot && snapshot->rowCount == 1,

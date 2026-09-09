@@ -1189,3 +1189,8 @@ Scheduler tests must prove
 that hidden, minimized,
 suspended, display-off, and occluded states select an event-blocked action. Contract tests must confirm that loading
 the GPU plugins does not load `d3dcompiler_47.dll`.
+
+Security-posture validation treats `codeIntegrityOptions` as the complete unsigned 32-bit Windows record.
+Zero is valid when no flags are enabled; unknown bits do not invalidate the snapshot. Tests require available
+raw data and compare the published code-integrity and memory-integrity booleans with their documented bits.
+See Microsoft's [SYSTEM_CODEINTEGRITY_INFORMATION contract](https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntquerysysteminformation#system_codeintegrity_information).
