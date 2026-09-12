@@ -49,6 +49,8 @@ product branch, builds and runs the product suite, then submits its ordinary PR.
 and tested in DxUi before updating the consumer pin and repeating product tests. Consumer CI runs the six native
 configurations using public HTTPS dependency access. No PAT or organization secret is required. The automatic job
 token supplies advisory GitHub API rate allowance. Library success alone does not qualify this product.
+Pull requests run one six-profile matrix for each update; feature-branch pushes do not start a duplicate matrix.
+Pushes to main and explicit workflow dispatch retain their validation entrypoints.
 CI validates repository skill metadata with the repository-owned validator and pinned Python dependency before
 building. Clean runners require no developer-specific Codex installation or home-directory scripts.
 

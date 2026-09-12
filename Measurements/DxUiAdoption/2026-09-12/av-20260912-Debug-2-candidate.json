@@ -1,0 +1,494 @@
+{
+  "fixture": "redxe-av-two-views-v1",
+  "renderer": "WARP",
+  "views": 2,
+  "framesPerRound": 600,
+  "roundCount": 5,
+  "compiler": 195136256,
+  "scenarios": [
+    {
+      "dpi": 96,
+      "name": "clean",
+      "rounds": [
+        {
+          "completedOffscreenFps": 1913.54,
+          "frameP95Ms": 0.6294,
+          "prepareP95Ms": 0.0018,
+          "composeCpuP95Ms": 0.0284,
+          "privateBytes": 25141248,
+          "workingSetBytes": 38436864,
+          "privateGrowthBytes": -1585152,
+          "surfaceBytes": 4608000,
+          "preparations": 0,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 1887.37,
+          "frameP95Ms": 0.6474,
+          "prepareP95Ms": 0.0019,
+          "composeCpuP95Ms": 0.0269,
+          "privateBytes": 26083328,
+          "workingSetBytes": 46309376,
+          "privateGrowthBytes": 942080,
+          "surfaceBytes": 4608000,
+          "preparations": 0,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 1966.69,
+          "frameP95Ms": 0.6127,
+          "prepareP95Ms": 0.0017,
+          "composeCpuP95Ms": 0.0269,
+          "privateBytes": 25214976,
+          "workingSetBytes": 46301184,
+          "privateGrowthBytes": -868352,
+          "surfaceBytes": 4608000,
+          "preparations": 0,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 1851.77,
+          "frameP95Ms": 0.6677,
+          "prepareP95Ms": 0.0021,
+          "composeCpuP95Ms": 0.0327,
+          "privateBytes": 26144768,
+          "workingSetBytes": 46383104,
+          "privateGrowthBytes": 929792,
+          "surfaceBytes": 4608000,
+          "preparations": 0,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 1794.39,
+          "frameP95Ms": 0.6748,
+          "prepareP95Ms": 0.0023,
+          "composeCpuP95Ms": 0.0346,
+          "privateBytes": 26144768,
+          "workingSetBytes": 46387200,
+          "privateGrowthBytes": 0,
+          "surfaceBytes": 4608000,
+          "preparations": 0,
+          "composites": 1200
+        }
+      ]
+    },
+    {
+      "dpi": 96,
+      "name": "dirty",
+      "rounds": [
+        {
+          "completedOffscreenFps": 502.721,
+          "frameP95Ms": 2.4714,
+          "prepareP95Ms": 1.668,
+          "composeCpuP95Ms": 0.0754,
+          "privateBytes": 35065856,
+          "workingSetBytes": 49557504,
+          "privateGrowthBytes": 3534848,
+          "surfaceBytes": 4608000,
+          "preparations": 1200,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 480.068,
+          "frameP95Ms": 2.5023,
+          "prepareP95Ms": 1.6746,
+          "composeCpuP95Ms": 0.0731,
+          "privateBytes": 36057088,
+          "workingSetBytes": 50012160,
+          "privateGrowthBytes": 991232,
+          "surfaceBytes": 4608000,
+          "preparations": 1200,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 471.546,
+          "frameP95Ms": 2.6097,
+          "prepareP95Ms": 1.7936,
+          "composeCpuP95Ms": 0.0703,
+          "privateBytes": 37249024,
+          "workingSetBytes": 50098176,
+          "privateGrowthBytes": 1191936,
+          "surfaceBytes": 4608000,
+          "preparations": 1200,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 475.313,
+          "frameP95Ms": 2.6316,
+          "prepareP95Ms": 1.7836,
+          "composeCpuP95Ms": 0.074,
+          "privateBytes": 37588992,
+          "workingSetBytes": 50151424,
+          "privateGrowthBytes": 339968,
+          "surfaceBytes": 4608000,
+          "preparations": 1200,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 536.12,
+          "frameP95Ms": 2.2313,
+          "prepareP95Ms": 1.5082,
+          "composeCpuP95Ms": 0.0602,
+          "privateBytes": 34594816,
+          "workingSetBytes": 49840128,
+          "privateGrowthBytes": -2994176,
+          "surfaceBytes": 4608000,
+          "preparations": 1200,
+          "composites": 1200
+        }
+      ]
+    },
+    {
+      "dpi": 144,
+      "name": "clean",
+      "rounds": [
+        {
+          "completedOffscreenFps": 1524.21,
+          "frameP95Ms": 0.8022,
+          "prepareP95Ms": 0.0039,
+          "composeCpuP95Ms": 0.0549,
+          "privateBytes": 32075776,
+          "workingSetBytes": 50085888,
+          "privateGrowthBytes": 1908736,
+          "surfaceBytes": 4608000,
+          "preparations": 0,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 1829.94,
+          "frameP95Ms": 0.6463,
+          "prepareP95Ms": 0.0024,
+          "composeCpuP95Ms": 0.0362,
+          "privateBytes": 32075776,
+          "workingSetBytes": 50089984,
+          "privateGrowthBytes": 0,
+          "surfaceBytes": 4608000,
+          "preparations": 0,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 1695.33,
+          "frameP95Ms": 0.7425,
+          "prepareP95Ms": 0.0031,
+          "composeCpuP95Ms": 0.0469,
+          "privateBytes": 32075776,
+          "workingSetBytes": 50094080,
+          "privateGrowthBytes": 0,
+          "surfaceBytes": 4608000,
+          "preparations": 0,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 1637.12,
+          "frameP95Ms": 0.7488,
+          "prepareP95Ms": 0.0033,
+          "composeCpuP95Ms": 0.0444,
+          "privateBytes": 32075776,
+          "workingSetBytes": 50143232,
+          "privateGrowthBytes": 0,
+          "surfaceBytes": 4608000,
+          "preparations": 0,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 1704.2,
+          "frameP95Ms": 0.7226,
+          "prepareP95Ms": 0.0028,
+          "composeCpuP95Ms": 0.0454,
+          "privateBytes": 32112640,
+          "workingSetBytes": 50171904,
+          "privateGrowthBytes": 36864,
+          "surfaceBytes": 4608000,
+          "preparations": 0,
+          "composites": 1200
+        }
+      ]
+    },
+    {
+      "dpi": 144,
+      "name": "dirty",
+      "rounds": [
+        {
+          "completedOffscreenFps": 522.315,
+          "frameP95Ms": 2.3471,
+          "prepareP95Ms": 1.5554,
+          "composeCpuP95Ms": 0.0623,
+          "privateBytes": 36966400,
+          "workingSetBytes": 50601984,
+          "privateGrowthBytes": -3084288,
+          "surfaceBytes": 4608000,
+          "preparations": 1200,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 517.985,
+          "frameP95Ms": 2.3166,
+          "prepareP95Ms": 1.5087,
+          "composeCpuP95Ms": 0.0583,
+          "privateBytes": 39186432,
+          "workingSetBytes": 51064832,
+          "privateGrowthBytes": 2220032,
+          "surfaceBytes": 4608000,
+          "preparations": 1200,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 502.787,
+          "frameP95Ms": 2.3693,
+          "prepareP95Ms": 1.5463,
+          "composeCpuP95Ms": 0.0568,
+          "privateBytes": 40308736,
+          "workingSetBytes": 51425280,
+          "privateGrowthBytes": 1122304,
+          "surfaceBytes": 4608000,
+          "preparations": 1200,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 530.226,
+          "frameP95Ms": 2.2378,
+          "prepareP95Ms": 1.3996,
+          "composeCpuP95Ms": 0.0537,
+          "privateBytes": 40181760,
+          "workingSetBytes": 51392512,
+          "privateGrowthBytes": -126976,
+          "surfaceBytes": 4608000,
+          "preparations": 1200,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 524.92,
+          "frameP95Ms": 2.2799,
+          "prepareP95Ms": 1.4721,
+          "composeCpuP95Ms": 0.0549,
+          "privateBytes": 39452672,
+          "workingSetBytes": 51429376,
+          "privateGrowthBytes": -729088,
+          "surfaceBytes": 4608000,
+          "preparations": 1200,
+          "composites": 1200
+        }
+      ]
+    },
+    {
+      "dpi": 192,
+      "name": "clean",
+      "rounds": [
+        {
+          "completedOffscreenFps": 1947.22,
+          "frameP95Ms": 0.651,
+          "prepareP95Ms": 0.002,
+          "composeCpuP95Ms": 0.0342,
+          "privateBytes": 31109120,
+          "workingSetBytes": 50806784,
+          "privateGrowthBytes": 348160,
+          "surfaceBytes": 4608000,
+          "preparations": 0,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 1856.8,
+          "frameP95Ms": 0.6764,
+          "prepareP95Ms": 0.0026,
+          "composeCpuP95Ms": 0.0402,
+          "privateBytes": 30662656,
+          "workingSetBytes": 50565120,
+          "privateGrowthBytes": -446464,
+          "surfaceBytes": 4608000,
+          "preparations": 0,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 1824.11,
+          "frameP95Ms": 0.7051,
+          "prepareP95Ms": 0.0025,
+          "composeCpuP95Ms": 0.0401,
+          "privateBytes": 30695424,
+          "workingSetBytes": 50593792,
+          "privateGrowthBytes": 32768,
+          "surfaceBytes": 4608000,
+          "preparations": 0,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 1734.63,
+          "frameP95Ms": 0.7575,
+          "prepareP95Ms": 0.0029,
+          "composeCpuP95Ms": 0.0428,
+          "privateBytes": 30695424,
+          "workingSetBytes": 50597888,
+          "privateGrowthBytes": 0,
+          "surfaceBytes": 4608000,
+          "preparations": 0,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 1766.73,
+          "frameP95Ms": 0.711,
+          "prepareP95Ms": 0.0025,
+          "composeCpuP95Ms": 0.0411,
+          "privateBytes": 30728192,
+          "workingSetBytes": 50606080,
+          "privateGrowthBytes": 32768,
+          "surfaceBytes": 4608000,
+          "preparations": 0,
+          "composites": 1200
+        }
+      ]
+    },
+    {
+      "dpi": 192,
+      "name": "dirty",
+      "rounds": [
+        {
+          "completedOffscreenFps": 551.716,
+          "frameP95Ms": 2.1827,
+          "prepareP95Ms": 1.3868,
+          "composeCpuP95Ms": 0.0476,
+          "privateBytes": 42127360,
+          "workingSetBytes": 51965952,
+          "privateGrowthBytes": 663552,
+          "surfaceBytes": 4608000,
+          "preparations": 1200,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 470.748,
+          "frameP95Ms": 2.5908,
+          "prepareP95Ms": 1.7255,
+          "composeCpuP95Ms": 0.0694,
+          "privateBytes": 40943616,
+          "workingSetBytes": 52326400,
+          "privateGrowthBytes": -1183744,
+          "surfaceBytes": 4608000,
+          "preparations": 1200,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 509.081,
+          "frameP95Ms": 2.352,
+          "prepareP95Ms": 1.5172,
+          "composeCpuP95Ms": 0.0631,
+          "privateBytes": 38789120,
+          "workingSetBytes": 52146176,
+          "privateGrowthBytes": -2154496,
+          "surfaceBytes": 4608000,
+          "preparations": 1200,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 505.344,
+          "frameP95Ms": 2.3664,
+          "prepareP95Ms": 1.5894,
+          "composeCpuP95Ms": 0.0567,
+          "privateBytes": 40730624,
+          "workingSetBytes": 52412416,
+          "privateGrowthBytes": 1941504,
+          "surfaceBytes": 4608000,
+          "preparations": 1200,
+          "composites": 1200
+        },
+        {
+          "completedOffscreenFps": 504.25,
+          "frameP95Ms": 2.3341,
+          "prepareP95Ms": 1.5595,
+          "composeCpuP95Ms": 0.0587,
+          "privateBytes": 41009152,
+          "workingSetBytes": 52183040,
+          "privateGrowthBytes": 278528,
+          "surfaceBytes": 4608000,
+          "preparations": 1200,
+          "composites": 1200
+        }
+      ]
+    }
+  ],
+  "hiddenSurfaceBytes": 0,
+  "hiddenPreparations": 0,
+  "hiddenComposites": 0,
+  "metadata": {
+    "productCommit": "80b02a358add4d5c2e6cff7c7a0276d653d95119",
+    "productStatus": [
+      " M .github/workflows/ci.yml",
+      " M Common/PlugInterfaces/Data.h",
+      " M Measurements/DxUiAdoption/2026-09-09/README.md",
+      " M Specs/Core/Core_DxUiIntegration.md",
+      " M Specs/Plans/WIP/DxUiAdoption_2026-09-09.md",
+      "?? Measurements/DxUiAdoption/2026-09-09/native-ci-80b02a3-billing-block.json"
+    ],
+    "dxUiCommit": "ecad70704fd5e46672586ddbe4ddfeb5db01d1a4",
+    "platform": "x64",
+    "configuration": "Debug",
+    "machine": "SINON",
+    "cpu": {
+      "Name": "AMD Ryzen 9 9950X3D 16-Core Processor          ",
+      "NumberOfCores": 16,
+      "NumberOfLogicalProcessors": 32
+    },
+    "operatingSystem": {
+      "Version": "10.0.26200",
+      "BuildNumber": "26200"
+    },
+    "warpVersion": "10.0.26100.9278 (WinBuild.160101.0800)",
+    "powerPolicy": "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)",
+    "fixtureInputs": {
+      "Tests/AVControlTests/AVControlTests.cpp": "9e48ec3fa6656f317446b490310e244f9bfc71bdd93ac74924d6ebc588be4de5",
+      "Tests/AVControlTests/NativeViewTests.cpp": "ddf1e73056d4fa8e0ee13813cc36e3a245653ee5254be749da2f3153b33bffb2"
+    },
+    "productionInputs": {
+      "Plugins/AVControl/AccessibilitySite.h": "baff7d9c56eec0e9fa03602ec9261c246983442c801b12edaee53f743cea96e9",
+      "Plugins/AVControl/AudioPolicy.cpp": "103055964bf1373ce24221d36fbebfdaa6bbf07031cc376a7c3941da693868c2",
+      "Plugins/AVControl/AudioRevisionState.h": "c0bbdcfbf0f03c7f3cd8206c0a5cee8f4ec652a3154fc82c1fbb708734e35b15",
+      "Plugins/AVControl/AVControl.cpp": "96399dd673c0d1ee3a75b597472cb87b0f2543a333f1c138ab8a8784c7b8d557",
+      "Plugins/AVControl/AVControlBroker.cpp": "a239756c9eb181b9e2f2a0a257cf1744b23a10aaf1076b052289878a078f71ee",
+      "Plugins/AVControl/AVControlBroker.h": "cf56178695bab0f49d776afd2e2bdc5a2285aa8cb1ba4087a6c79df0c1ba29c6",
+      "Plugins/AVControl/AVControlLayout.cpp": "24706b434592a55ae049207af3c31af5ef524d3436f36291d00577cc65ed1f4d",
+      "Plugins/AVControl/AVControlLayout.h": "3382cfcf82b4f695bc1e7e9350b4442fda95da16dca6ab1e274e3905882e6ed3",
+      "Plugins/AVControl/AVControlModel.cpp": "9f6877287f90dbcde979448cae3f326cc1f25e6c000e3b19b9fec7f720fd4ba5",
+      "Plugins/AVControl/AVControlModel.h": "59ac77e6460cd74429b9ecac47acea0fb519edca15462773fa49afed71d5acad",
+      "Plugins/AVControl/AVControlProtocol.h": "3c74fe19ae746e5722d52e035074d6281e6ab1e4100536defd02bc9a2f937f4f",
+      "Plugins/AVControl/AVControlProtocolValidation.h": "3ab240e914910daa646179738772c40e2c2105bc922fadf52a74c3f9e6a8747d",
+      "Plugins/AVControl/AVControlSettings.h": "d515f9cefb13b0608cd7c5b4b600eb25614a22c2a86e048a7acc522823ffcb5b",
+      "Plugins/AVControl/AVControlTestContract.h": "a4f80c38ae185a3aa50c185e7f9a4bbd1989db9f187f1de285586ee24f2df02d",
+      "Plugins/AVControl/AVControlView.cpp": "020b0544cd8177eb58cbd7c0d7c90b405bfc636c91b1e2b0556c856a35a78dfd",
+      "Plugins/AVControl/AVControlView.h": "969abf43f4326931e93fb4f77e35e2a9dfd72380f4e8875860e83667cbbcfd20",
+      "Plugins/AVControl/BrokerMain.cpp": "45e9449d17fe667c97549706dcc9a3ad6e2297806c467202528a0270a19c8d3e",
+      "Plugins/AVControl/Camera/CameraActivation.cpp": "613868dd22d74caf40373f5bbeffdbc1f6dcf7e65fbecebdd8fb27e5fe9db7ac",
+      "Plugins/AVControl/Camera/CameraActivation.h": "ee0e6ec9ea27c14c94ada681fc980a92f54710cbf593ee699d42e5817e56ae22",
+      "Plugins/AVControl/Camera/CameraBridge.cpp": "de02035b6ee6701a3582f6394c3218ab31e60660b9c414feecc968f4dc309dae",
+      "Plugins/AVControl/Camera/CameraBridge.h": "a44712103fd75906731b88381482e50620291dd1b34d4a881d559e0017fb3170",
+      "Plugins/AVControl/Camera/CameraBridgeServer.cpp": "a0d084b43e6beb80ba6ad2b497658cecf4a6ceb6990b5cc24ac00c20f8af62d8",
+      "Plugins/AVControl/Camera/CameraBridgeServer.h": "55bac41de071c234a61e9c251d4ab76a7a39dde43fe25f7f1ef3737282ed4324",
+      "Plugins/AVControl/Camera/CameraCapture.cpp": "e00b2acec9e46804747f32791c41c268c25190228c1e00c46224856e411ac7a0",
+      "Plugins/AVControl/Camera/CameraCapture.h": "62370d3bee0e22dc8a7b522fb14fce0754b22dbf9f66cab8597c1d69e465402d",
+      "Plugins/AVControl/Camera/CameraController.cpp": "0f760d45b10514aea8bbca482d8059c1ca81d8cfafa252c38e05804e0a1b0b12",
+      "Plugins/AVControl/Camera/CameraController.h": "2c9ddd56ff055ec09e18ee7804fd1a9994f6bcfb5fb872074ad7aece38c909d4",
+      "Plugins/AVControl/Camera/CameraDll.cpp": "a618c717824861e0cddd7428e16255806830b7c1d5701cb2b03b5f2d43862049",
+      "Plugins/AVControl/Camera/CameraFrameChannel.cpp": "0b439d4455777bdc31bcc613e92ec54af6be0079cf6fda09b1c4253cde1f038d",
+      "Plugins/AVControl/Camera/CameraFrameChannel.h": "336f433ae6047c736816b02c88c9e7f26af989f0c7509b5179f51e7d31549c50",
+      "Plugins/AVControl/Camera/CameraMediaSource.cpp": "75c7e089ecdcec62cde61b03245b91ce06697e3fdc046ce33e8824444caed39e",
+      "Plugins/AVControl/Camera/CameraMediaSource.h": "bfe0586888de6418ae2fa9b404985362c3c117c450fae43e4d2b5ab7a67985ed",
+      "Plugins/AVControl/Camera/CameraRegistration.cpp": "ecc8f103f0debda64b98ca6b7230d40dce31e2cef014b034e2504e2ac1f41621",
+      "Plugins/AVControl/Camera/CameraRegistration.h": "994fd640c71ff23f3fab058d89dc3cbea06082b39bdd4e30dc7848a1453b891c",
+      "Plugins/AVControl/Camera/CameraSetup.cpp": "7d8a3eb6198c8bdd4ce688e7f332de5afb603d8058dff320465878edba464940",
+      "Plugins/AVControl/Coordinator.cpp": "7cbb5d4c5cfd500f73fe0a945937fe52309f26b05187524c9555cdff36992325",
+      "Plugins/AVControl/Coordinator.h": "a6d5be38c9a983e2f39fdfda45ae0b883d626d4f821c2b95f3b172c264b85bae",
+      "Plugins/AVControl/InventorySelection.h": "98cad3c259654745155316771c4535a77a9cae588a9b47e8192cefdca19e792b",
+      "Plugins/AVControl/ProfileControls.cpp": "4e2b3276ab29c7c2d63e91b2296931948cb325f472b6d3884c0c292beb68c43a",
+      "Plugins/AVControl/ProfileControls.h": "7e46604151dd3a5bdaf010668795917d862740b1ebe2ac2cc7bf62c127399dce",
+      "Plugins/AVControl/ProfileTransaction.cpp": "35aaad42f1248983a20eae34a697eb3ba18c0456d6502c360a410730073e3149",
+      "Plugins/AVControl/ProfileTransaction.h": "369907ad81c7046b21c36764fe54b195e4c8908e3b415ffd83d7336249eb6297",
+      "Plugins/AVControl/WindowsAudioBackend.cpp": "b3610ff33856fb446ba7b96748ab1f9bdfa2d7e85b18e3cdb8f122f75f68dcb9",
+      "Plugins/AVControl/WindowsAudioBackend.h": "b5ff4086708a2db2b2b3d0468ae3d45a042b371a4c026114cc07403d5eb20b6f",
+      "Plugins/AVControl/WindowsCameraBackend.cpp": "b8d9bf80541ac3950a4f6bb05fecf6e8f486d5c2b9ed6dd61ec345662d6d371a",
+      "Plugins/AVControl/WindowsCameraBackend.h": "758adce56bdc0c47f29ed7dbbbc87818b8f73bfebee8e3217c2bddf99f3947ad"
+    },
+    "binaryInputs": {
+      ".build/x64/Debug/AVControlTests.exe": "c2774925f7664680a24b874db7a1144f87939d0c56938e3ce894ccd5e07e3b61",
+      ".build/dependencies/DxUi/028f4ccbba73a58fcb8d1a4d6b6fb442a8c9f888b051abdac716692d0f968ac8/x64/Debug/DxUi.lib": "2463271998d62dceb2d1ec42df5eb251fd21a7334047a1c4e6479e7f4ff465ab"
+    },
+    "wrapperSha256": "2ad6e08450d474b370acc08fa51e63f3d40381b17a16fdfb9043cfbc23aa5d1b",
+    "startedUtc": "2026-09-12T08:23:26.7084673Z",
+    "completedUtc": "2026-09-12T08:23:51.8374337Z"
+  }
+}

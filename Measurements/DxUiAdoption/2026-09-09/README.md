@@ -40,4 +40,10 @@ all six native profiles in [CI run 34374884161](https://github.com/RedSalamander
 The new `measure-av-views.ps1` fixture measures the same production AV views against
 the original and candidate pins. Its initial Debug smoke is functional harness
 validation under concurrent builds, not performance acceptance. The original pin also passes that smoke,
-and the complete local AV suite passes Debug/Release/ASan Debug after the harness addition. Matched runs remain pending.
+and the complete local AV suite passes Debug/Release/ASan Debug after the harness addition.
+Eight [matched runs on September 12](../2026-09-12/README.md) now verify source identity and
+surface/hidden-work assertions. Timing acceptance remains open; all raw results and repeat comparisons are retained.
+
+The subsequent 80b02a3 CI jobs did not start. GitHub's annotation in
+`native-ci-80b02a3-billing-block.json` reports an account payment/spending-limit restriction;
+it is an infrastructure block, not a compiler or test result. The preceding a812cec six-profile receipt remains retained.
