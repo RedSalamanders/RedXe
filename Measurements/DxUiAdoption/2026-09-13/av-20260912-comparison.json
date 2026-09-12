@@ -1,0 +1,2281 @@
+{
+  "method": "Each comparison uses per-scenario medians of five 600-frame rounds. ABBA order; A/A and B/B retained. Descriptive results, no automatic acceptance.",
+  "profiles": {
+    "Debug": {
+      "identityMatched": true,
+      "hiddenResourcesZero": true,
+      "comparisons": [
+        {
+          "label": "A1/B1",
+          "before": "av-20260912-Debug-1-A1.json",
+          "after": "av-20260912-Debug-2-B1.json",
+          "scenarios": [
+            {
+              "name": "clean",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 939.174,
+                  "after": 938.312,
+                  "changePercent": -0.09178277933588053
+                },
+                "frameP95Ms": {
+                  "before": 1.1144,
+                  "after": 1.1128,
+                  "changePercent": -0.1435750179468842
+                },
+                "prepareP95Ms": {
+                  "before": 0.001,
+                  "after": 0.0009,
+                  "changePercent": -10.000000000000009
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0141,
+                  "after": 0.0117,
+                  "changePercent": -17.021276595744673
+                },
+                "privateBytes": {
+                  "before": 21200896,
+                  "after": 22003712,
+                  "changePercent": 3.7867078825347678
+                },
+                "workingSetBytes": {
+                  "before": 33591296,
+                  "after": 42541056,
+                  "changePercent": 26.643092305816364
+                },
+                "privateGrowthBytes": {
+                  "before": 368640,
+                  "after": -651264,
+                  "changePercent": -276.6666666666667
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 537.392,
+                  "after": 529.844,
+                  "changePercent": -1.4045612885937975
+                },
+                "frameP95Ms": {
+                  "before": 2.0457,
+                  "after": 2.1017,
+                  "changePercent": 2.7374492838637243
+                },
+                "prepareP95Ms": {
+                  "before": 0.8659,
+                  "after": 0.8877,
+                  "changePercent": 2.5176117334565262
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.029,
+                  "after": 0.0283,
+                  "changePercent": -2.4137931034482807
+                },
+                "privateBytes": {
+                  "before": 29245440,
+                  "after": 30408704,
+                  "changePercent": 3.977591036414574
+                },
+                "workingSetBytes": {
+                  "before": 36225024,
+                  "after": 45494272,
+                  "changePercent": 25.58796924468567
+                },
+                "privateGrowthBytes": {
+                  "before": 131072,
+                  "after": 724992,
+                  "changePercent": 453.125
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 939.53,
+                  "after": 935.015,
+                  "changePercent": -0.4805594286504955
+                },
+                "frameP95Ms": {
+                  "before": 1.1189,
+                  "after": 1.1274,
+                  "changePercent": 0.7596746804897636
+                },
+                "prepareP95Ms": {
+                  "before": 0.0015,
+                  "after": 0.0015,
+                  "changePercent": 0.0
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0203,
+                  "after": 0.0207,
+                  "changePercent": 1.9704433497536922
+                },
+                "privateBytes": {
+                  "before": 24580096,
+                  "after": 24604672,
+                  "changePercent": 0.09998333611065391
+                },
+                "workingSetBytes": {
+                  "before": 35860480,
+                  "after": 44904448,
+                  "changePercent": 25.219874357509987
+                },
+                "privateGrowthBytes": {
+                  "before": 86016,
+                  "after": -110592,
+                  "changePercent": -228.57142857142856
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 542.311,
+                  "after": 541.869,
+                  "changePercent": -0.08150304898849603
+                },
+                "frameP95Ms": {
+                  "before": 2.0191,
+                  "after": 2.0261,
+                  "changePercent": 0.34668911891437837
+                },
+                "prepareP95Ms": {
+                  "before": 0.8358,
+                  "after": 0.8393,
+                  "changePercent": 0.41876046901172526
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0274,
+                  "after": 0.0279,
+                  "changePercent": 1.8248175182481674
+                },
+                "privateBytes": {
+                  "before": 29790208,
+                  "after": 30003200,
+                  "changePercent": 0.7149731885054411
+                },
+                "workingSetBytes": {
+                  "before": 36868096,
+                  "after": 45826048,
+                  "changePercent": 24.29730029996666
+                },
+                "privateGrowthBytes": {
+                  "before": -73728,
+                  "after": -57344,
+                  "changePercent": -22.22222222222222
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 939.262,
+                  "after": 940.896,
+                  "changePercent": 0.1739663693410387
+                },
+                "frameP95Ms": {
+                  "before": 1.1102,
+                  "after": 1.1046,
+                  "changePercent": -0.5044136191677207
+                },
+                "prepareP95Ms": {
+                  "before": 0.0014,
+                  "after": 0.0014,
+                  "changePercent": 0.0
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0193,
+                  "after": 0.0205,
+                  "changePercent": 6.217616580310881
+                },
+                "privateBytes": {
+                  "before": 24477696,
+                  "after": 24760320,
+                  "changePercent": 1.1546184738955745
+                },
+                "workingSetBytes": {
+                  "before": 36114432,
+                  "after": 45150208,
+                  "changePercent": 25.019848020868785
+                },
+                "privateGrowthBytes": {
+                  "before": 0,
+                  "after": 0,
+                  "changePercent": null
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 531.894,
+                  "after": 534.659,
+                  "changePercent": 0.519840419331663
+                },
+                "frameP95Ms": {
+                  "before": 2.0779,
+                  "after": 2.0424,
+                  "changePercent": -1.7084556523413008
+                },
+                "prepareP95Ms": {
+                  "before": 0.8616,
+                  "after": 0.8498,
+                  "changePercent": -1.3695450324976877
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0299,
+                  "after": 0.027,
+                  "changePercent": -9.6989966555184
+                },
+                "privateBytes": {
+                  "before": 30064640,
+                  "after": 30117888,
+                  "changePercent": 0.1771117166212477
+                },
+                "workingSetBytes": {
+                  "before": 37658624,
+                  "after": 46534656,
+                  "changePercent": 23.56971938220578
+                },
+                "privateGrowthBytes": {
+                  "before": -135168,
+                  "after": 450560,
+                  "changePercent": -433.33333333333337
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "label": "A2/B2",
+          "before": "av-20260912-Debug-4-A2.json",
+          "after": "av-20260912-Debug-3-B2.json",
+          "scenarios": [
+            {
+              "name": "clean",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 939.864,
+                  "after": 942.032,
+                  "changePercent": 0.230671671646121
+                },
+                "frameP95Ms": {
+                  "before": 1.1038,
+                  "after": 1.0992,
+                  "changePercent": -0.4167421634354018
+                },
+                "prepareP95Ms": {
+                  "before": 0.0009,
+                  "after": 0.0007,
+                  "changePercent": -22.22222222222222
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.014,
+                  "after": 0.0118,
+                  "changePercent": -15.714285714285714
+                },
+                "privateBytes": {
+                  "before": 21635072,
+                  "after": 21630976,
+                  "changePercent": -0.018932222642942254
+                },
+                "workingSetBytes": {
+                  "before": 33562624,
+                  "after": 33497088,
+                  "changePercent": -0.1952648279228697
+                },
+                "privateGrowthBytes": {
+                  "before": -458752,
+                  "after": 0,
+                  "changePercent": -100.0
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 537.372,
+                  "after": 539.313,
+                  "changePercent": 0.36120229561644734
+                },
+                "frameP95Ms": {
+                  "before": 2.0415,
+                  "after": 2.0269,
+                  "changePercent": -0.7151604212588869
+                },
+                "prepareP95Ms": {
+                  "before": 0.8688,
+                  "after": 0.8567,
+                  "changePercent": -1.3927255985267006
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0298,
+                  "after": 0.0277,
+                  "changePercent": -7.046979865771819
+                },
+                "privateBytes": {
+                  "before": 29675520,
+                  "after": 29519872,
+                  "changePercent": -0.5244996549344405
+                },
+                "workingSetBytes": {
+                  "before": 36683776,
+                  "after": 36450304,
+                  "changePercent": -0.6364448414470703
+                },
+                "privateGrowthBytes": {
+                  "before": 843776,
+                  "after": 409600,
+                  "changePercent": -51.45631067961165
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 943.672,
+                  "after": 941.852,
+                  "changePercent": -0.19286362210598762
+                },
+                "frameP95Ms": {
+                  "before": 1.0968,
+                  "after": 1.1058,
+                  "changePercent": 0.820568927789922
+                },
+                "prepareP95Ms": {
+                  "before": 0.0014,
+                  "after": 0.0014,
+                  "changePercent": 0.0
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0198,
+                  "after": 0.02,
+                  "changePercent": 1.0101010101009944
+                },
+                "privateBytes": {
+                  "before": 24899584,
+                  "after": 26210304,
+                  "changePercent": 5.264023688106589
+                },
+                "workingSetBytes": {
+                  "before": 36401152,
+                  "after": 36323328,
+                  "changePercent": -0.21379543152919567
+                },
+                "privateGrowthBytes": {
+                  "before": -135168,
+                  "after": 94208,
+                  "changePercent": -169.6969696969697
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 546.252,
+                  "after": 538.665,
+                  "changePercent": -1.3889193998374405
+                },
+                "frameP95Ms": {
+                  "before": 1.9883,
+                  "after": 2.0616,
+                  "changePercent": 3.6865664135190768
+                },
+                "prepareP95Ms": {
+                  "before": 0.8283,
+                  "after": 0.8505,
+                  "changePercent": 2.680188337558853
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0255,
+                  "after": 0.0263,
+                  "changePercent": 3.1372549019607954
+                },
+                "privateBytes": {
+                  "before": 30187520,
+                  "after": 30306304,
+                  "changePercent": 0.3934871099050108
+                },
+                "workingSetBytes": {
+                  "before": 37273600,
+                  "after": 37126144,
+                  "changePercent": -0.39560439560439864
+                },
+                "privateGrowthBytes": {
+                  "before": -20480,
+                  "after": -65536,
+                  "changePercent": 220.00000000000003
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 940.814,
+                  "after": 936.154,
+                  "changePercent": -0.4953157584814849
+                },
+                "frameP95Ms": {
+                  "before": 1.104,
+                  "after": 1.1403,
+                  "changePercent": 3.2880434782608603
+                },
+                "prepareP95Ms": {
+                  "before": 0.0014,
+                  "after": 0.0015,
+                  "changePercent": 7.14285714285714
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.02,
+                  "after": 0.021,
+                  "changePercent": 5.000000000000004
+                },
+                "privateBytes": {
+                  "before": 26730496,
+                  "after": 25014272,
+                  "changePercent": -6.420471958320562
+                },
+                "workingSetBytes": {
+                  "before": 36773888,
+                  "after": 36679680,
+                  "changePercent": -0.2561817776787656
+                },
+                "privateGrowthBytes": {
+                  "before": 0,
+                  "after": -65536,
+                  "changePercent": null
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 531.84,
+                  "after": 529.987,
+                  "changePercent": -0.34841305655837207
+                },
+                "frameP95Ms": {
+                  "before": 2.0594,
+                  "after": 2.084,
+                  "changePercent": 1.1945226765077255
+                },
+                "prepareP95Ms": {
+                  "before": 0.8559,
+                  "after": 0.853,
+                  "changePercent": -0.3388246290454533
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0285,
+                  "after": 0.0278,
+                  "changePercent": -2.4561403508772006
+                },
+                "privateBytes": {
+                  "before": 30306304,
+                  "after": 31117312,
+                  "changePercent": 2.6760373023381634
+                },
+                "workingSetBytes": {
+                  "before": 38035456,
+                  "after": 37994496,
+                  "changePercent": -0.10768899418479583
+                },
+                "privateGrowthBytes": {
+                  "before": -45056,
+                  "after": 708608,
+                  "changePercent": -1672.7272727272727
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "label": "A1/A2",
+          "before": "av-20260912-Debug-1-A1.json",
+          "after": "av-20260912-Debug-4-A2.json",
+          "scenarios": [
+            {
+              "name": "clean",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 939.174,
+                  "after": 939.864,
+                  "changePercent": 0.07346881408556438
+                },
+                "frameP95Ms": {
+                  "before": 1.1144,
+                  "after": 1.1038,
+                  "changePercent": -0.9511844938980718
+                },
+                "prepareP95Ms": {
+                  "before": 0.001,
+                  "after": 0.0009,
+                  "changePercent": -10.000000000000009
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0141,
+                  "after": 0.014,
+                  "changePercent": -0.7092198581560294
+                },
+                "privateBytes": {
+                  "before": 21200896,
+                  "after": 21635072,
+                  "changePercent": 2.0479134466769633
+                },
+                "workingSetBytes": {
+                  "before": 33591296,
+                  "after": 33562624,
+                  "changePercent": -0.0853554444579907
+                },
+                "privateGrowthBytes": {
+                  "before": 368640,
+                  "after": -458752,
+                  "changePercent": -224.44444444444446
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 537.392,
+                  "after": 537.372,
+                  "changePercent": -0.003721678030210729
+                },
+                "frameP95Ms": {
+                  "before": 2.0457,
+                  "after": 2.0415,
+                  "changePercent": -0.20530869628977433
+                },
+                "prepareP95Ms": {
+                  "before": 0.8659,
+                  "after": 0.8688,
+                  "changePercent": 0.33491165261578804
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.029,
+                  "after": 0.0298,
+                  "changePercent": 2.758620689655178
+                },
+                "privateBytes": {
+                  "before": 29245440,
+                  "after": 29675520,
+                  "changePercent": 1.4705882352941124
+                },
+                "workingSetBytes": {
+                  "before": 36225024,
+                  "after": 36683776,
+                  "changePercent": 1.2663952962460368
+                },
+                "privateGrowthBytes": {
+                  "before": 131072,
+                  "after": 843776,
+                  "changePercent": 543.75
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 939.53,
+                  "after": 943.672,
+                  "changePercent": 0.44085872723595987
+                },
+                "frameP95Ms": {
+                  "before": 1.1189,
+                  "after": 1.0968,
+                  "changePercent": -1.9751541692733965
+                },
+                "prepareP95Ms": {
+                  "before": 0.0015,
+                  "after": 0.0014,
+                  "changePercent": -6.666666666666665
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0203,
+                  "after": 0.0198,
+                  "changePercent": -2.463054187192104
+                },
+                "privateBytes": {
+                  "before": 24580096,
+                  "after": 24899584,
+                  "changePercent": 1.2997833694384342
+                },
+                "workingSetBytes": {
+                  "before": 35860480,
+                  "after": 36401152,
+                  "changePercent": 1.5077098800685418
+                },
+                "privateGrowthBytes": {
+                  "before": 86016,
+                  "after": -135168,
+                  "changePercent": -257.1428571428571
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 542.311,
+                  "after": 546.252,
+                  "changePercent": 0.7267047874743415
+                },
+                "frameP95Ms": {
+                  "before": 2.0191,
+                  "after": 1.9883,
+                  "changePercent": -1.5254321232232138
+                },
+                "prepareP95Ms": {
+                  "before": 0.8358,
+                  "after": 0.8283,
+                  "changePercent": -0.8973438621679763
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0274,
+                  "after": 0.0255,
+                  "changePercent": -6.934306569343073
+                },
+                "privateBytes": {
+                  "before": 29790208,
+                  "after": 30187520,
+                  "changePercent": 1.333699986250525
+                },
+                "workingSetBytes": {
+                  "before": 36868096,
+                  "after": 37273600,
+                  "changePercent": 1.0998777913565183
+                },
+                "privateGrowthBytes": {
+                  "before": -73728,
+                  "after": -20480,
+                  "changePercent": -72.22222222222221
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 939.262,
+                  "after": 940.814,
+                  "changePercent": 0.16523611090408785
+                },
+                "frameP95Ms": {
+                  "before": 1.1102,
+                  "after": 1.104,
+                  "changePercent": -0.5584579355071173
+                },
+                "prepareP95Ms": {
+                  "before": 0.0014,
+                  "after": 0.0014,
+                  "changePercent": 0.0
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0193,
+                  "after": 0.02,
+                  "changePercent": 3.626943005181338
+                },
+                "privateBytes": {
+                  "before": 24477696,
+                  "after": 26730496,
+                  "changePercent": 9.20348058902276
+                },
+                "workingSetBytes": {
+                  "before": 36114432,
+                  "after": 36773888,
+                  "changePercent": 1.826017919927403
+                },
+                "privateGrowthBytes": {
+                  "before": 0,
+                  "after": 0,
+                  "changePercent": null
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 531.894,
+                  "after": 531.84,
+                  "changePercent": -0.010152398786222872
+                },
+                "frameP95Ms": {
+                  "before": 2.0779,
+                  "after": 2.0594,
+                  "changePercent": -0.8903219596708145
+                },
+                "prepareP95Ms": {
+                  "before": 0.8616,
+                  "after": 0.8559,
+                  "changePercent": -0.6615598885793883
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0299,
+                  "after": 0.0285,
+                  "changePercent": -4.682274247491636
+                },
+                "privateBytes": {
+                  "before": 30064640,
+                  "after": 30306304,
+                  "changePercent": 0.8038147138964558
+                },
+                "workingSetBytes": {
+                  "before": 37658624,
+                  "after": 38035456,
+                  "changePercent": 1.0006525995214233
+                },
+                "privateGrowthBytes": {
+                  "before": -135168,
+                  "after": -45056,
+                  "changePercent": -66.66666666666667
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "label": "B1/B2",
+          "before": "av-20260912-Debug-2-B1.json",
+          "after": "av-20260912-Debug-3-B2.json",
+          "scenarios": [
+            {
+              "name": "clean",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 938.312,
+                  "after": 942.032,
+                  "changePercent": 0.39645661570990587
+                },
+                "frameP95Ms": {
+                  "before": 1.1128,
+                  "after": 1.0992,
+                  "changePercent": -1.2221423436376777
+                },
+                "prepareP95Ms": {
+                  "before": 0.0009,
+                  "after": 0.0007,
+                  "changePercent": -22.22222222222222
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0117,
+                  "after": 0.0118,
+                  "changePercent": 0.8547008547008517
+                },
+                "privateBytes": {
+                  "before": 22003712,
+                  "after": 21630976,
+                  "changePercent": -1.6939687267311987
+                },
+                "workingSetBytes": {
+                  "before": 42541056,
+                  "after": 33497088,
+                  "changePercent": -21.25938763720393
+                },
+                "privateGrowthBytes": {
+                  "before": -651264,
+                  "after": 0,
+                  "changePercent": -100.0
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 529.844,
+                  "after": 539.313,
+                  "changePercent": 1.787129796694864
+                },
+                "frameP95Ms": {
+                  "before": 2.1017,
+                  "after": 2.0269,
+                  "changePercent": -3.5590236475234405
+                },
+                "prepareP95Ms": {
+                  "before": 0.8877,
+                  "after": 0.8567,
+                  "changePercent": -3.492170778416137
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0283,
+                  "after": 0.0277,
+                  "changePercent": -2.1201413427561877
+                },
+                "privateBytes": {
+                  "before": 30408704,
+                  "after": 29519872,
+                  "changePercent": -2.922952586206895
+                },
+                "workingSetBytes": {
+                  "before": 45494272,
+                  "after": 36450304,
+                  "changePercent": -19.879355361483753
+                },
+                "privateGrowthBytes": {
+                  "before": 724992,
+                  "after": 409600,
+                  "changePercent": -43.50282485875706
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 935.015,
+                  "after": 941.852,
+                  "changePercent": 0.7312182157505509
+                },
+                "frameP95Ms": {
+                  "before": 1.1274,
+                  "after": 1.1058,
+                  "changePercent": -1.915912719531676
+                },
+                "prepareP95Ms": {
+                  "before": 0.0015,
+                  "after": 0.0014,
+                  "changePercent": -6.666666666666665
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0207,
+                  "after": 0.02,
+                  "changePercent": -3.3816425120772875
+                },
+                "privateBytes": {
+                  "before": 24604672,
+                  "after": 26210304,
+                  "changePercent": 6.525719993341106
+                },
+                "workingSetBytes": {
+                  "before": 44904448,
+                  "after": 36323328,
+                  "changePercent": -19.109732737389397
+                },
+                "privateGrowthBytes": {
+                  "before": -110592,
+                  "after": 94208,
+                  "changePercent": -185.1851851851852
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 541.869,
+                  "after": 538.665,
+                  "changePercent": -0.5912868239371649
+                },
+                "frameP95Ms": {
+                  "before": 2.0261,
+                  "after": 2.0616,
+                  "changePercent": 1.7521346429100193
+                },
+                "prepareP95Ms": {
+                  "before": 0.8393,
+                  "after": 0.8505,
+                  "changePercent": 1.334445371142623
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0279,
+                  "after": 0.0263,
+                  "changePercent": -5.734767025089605
+                },
+                "privateBytes": {
+                  "before": 30003200,
+                  "after": 30306304,
+                  "changePercent": 1.0102389078498364
+                },
+                "workingSetBytes": {
+                  "before": 45826048,
+                  "after": 37126144,
+                  "changePercent": -18.984626385412938
+                },
+                "privateGrowthBytes": {
+                  "before": -57344,
+                  "after": -65536,
+                  "changePercent": 14.28571428571428
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 940.896,
+                  "after": 936.154,
+                  "changePercent": -0.5039876883311201
+                },
+                "frameP95Ms": {
+                  "before": 1.1046,
+                  "after": 1.1403,
+                  "changePercent": 3.23193916349811
+                },
+                "prepareP95Ms": {
+                  "before": 0.0014,
+                  "after": 0.0015,
+                  "changePercent": 7.14285714285714
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0205,
+                  "after": 0.021,
+                  "changePercent": 2.4390243902439046
+                },
+                "privateBytes": {
+                  "before": 24760320,
+                  "after": 25014272,
+                  "changePercent": 1.025641025641022
+                },
+                "workingSetBytes": {
+                  "before": 45150208,
+                  "after": 36679680,
+                  "changePercent": -18.760772929329583
+                },
+                "privateGrowthBytes": {
+                  "before": 0,
+                  "after": -65536,
+                  "changePercent": null
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 534.659,
+                  "after": 529.987,
+                  "changePercent": -0.8738279912991365
+                },
+                "frameP95Ms": {
+                  "before": 2.0424,
+                  "after": 2.084,
+                  "changePercent": 2.0368194281237706
+                },
+                "prepareP95Ms": {
+                  "before": 0.8498,
+                  "after": 0.853,
+                  "changePercent": 0.37655919039774055
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.027,
+                  "after": 0.0278,
+                  "changePercent": 2.9629629629629672
+                },
+                "privateBytes": {
+                  "before": 30117888,
+                  "after": 31117312,
+                  "changePercent": 3.31837345301238
+                },
+                "workingSetBytes": {
+                  "before": 46534656,
+                  "after": 37994496,
+                  "changePercent": -18.352257723791922
+                },
+                "privateGrowthBytes": {
+                  "before": 450560,
+                  "after": 708608,
+                  "changePercent": 57.27272727272727
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "Release": {
+      "identityMatched": true,
+      "hiddenResourcesZero": true,
+      "comparisons": [
+        {
+          "label": "A1/B1",
+          "before": "av-20260912-Release-1-A1.json",
+          "after": "av-20260912-Release-2-B1.json",
+          "scenarios": [
+            {
+              "name": "clean",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 938.587,
+                  "after": 939.145,
+                  "changePercent": 0.059451068467808454
+                },
+                "frameP95Ms": {
+                  "before": 1.1248,
+                  "after": 1.1061,
+                  "changePercent": -1.6625177809388325
+                },
+                "prepareP95Ms": {
+                  "before": 0.0003,
+                  "after": 0.0003,
+                  "changePercent": 0.0
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0123,
+                  "after": 0.0118,
+                  "changePercent": -4.0650406504065035
+                },
+                "privateBytes": {
+                  "before": 18620416,
+                  "after": 18489344,
+                  "changePercent": -0.7039155301363786
+                },
+                "workingSetBytes": {
+                  "before": 30572544,
+                  "after": 31354880,
+                  "changePercent": 2.558949624866025
+                },
+                "privateGrowthBytes": {
+                  "before": 0,
+                  "after": 0,
+                  "changePercent": null
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 591.127,
+                  "after": 580.751,
+                  "changePercent": -1.755291164166073
+                },
+                "frameP95Ms": {
+                  "before": 1.8468,
+                  "after": 1.8679,
+                  "changePercent": 1.1425167857916252
+                },
+                "prepareP95Ms": {
+                  "before": 0.687,
+                  "after": 0.7152,
+                  "changePercent": 4.104803493449771
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0253,
+                  "after": 0.0305,
+                  "changePercent": 20.553359683794458
+                },
+                "privateBytes": {
+                  "before": 26075136,
+                  "after": 26030080,
+                  "changePercent": -0.172792962613888
+                },
+                "workingSetBytes": {
+                  "before": 33251328,
+                  "after": 33972224,
+                  "changePercent": 2.1680216802167918
+                },
+                "privateGrowthBytes": {
+                  "before": 217088,
+                  "after": 614400,
+                  "changePercent": 183.01886792452828
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 937.222,
+                  "after": 938.845,
+                  "changePercent": 0.173171351077972
+                },
+                "frameP95Ms": {
+                  "before": 1.1538,
+                  "after": 1.1107,
+                  "changePercent": -3.7354827526434375
+                },
+                "prepareP95Ms": {
+                  "before": 0.0005,
+                  "after": 0.0005,
+                  "changePercent": 0.0
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0182,
+                  "after": 0.0186,
+                  "changePercent": 2.19780219780219
+                },
+                "privateBytes": {
+                  "before": 21270528,
+                  "after": 21229568,
+                  "changePercent": -0.1925669170036559
+                },
+                "workingSetBytes": {
+                  "before": 32841728,
+                  "after": 33660928,
+                  "changePercent": 2.494387627837358
+                },
+                "privateGrowthBytes": {
+                  "before": -90112,
+                  "after": 0,
+                  "changePercent": -100.0
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 583.983,
+                  "after": 581.51,
+                  "changePercent": -0.4234712311830924
+                },
+                "frameP95Ms": {
+                  "before": 1.8887,
+                  "after": 1.8769,
+                  "changePercent": -0.6247683591888653
+                },
+                "prepareP95Ms": {
+                  "before": 0.6769,
+                  "after": 0.6834,
+                  "changePercent": 0.9602600088639557
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0235,
+                  "after": 0.0273,
+                  "changePercent": 16.170212765957448
+                },
+                "privateBytes": {
+                  "before": 26693632,
+                  "after": 26271744,
+                  "changePercent": -1.5804818167868606
+                },
+                "workingSetBytes": {
+                  "before": 33763328,
+                  "after": 34410496,
+                  "changePercent": 1.9167778721339346
+                },
+                "privateGrowthBytes": {
+                  "before": -12288,
+                  "after": 299008,
+                  "changePercent": -2533.333333333333
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 941.288,
+                  "after": 942.475,
+                  "changePercent": 0.1261038066989073
+                },
+                "frameP95Ms": {
+                  "before": 1.1005,
+                  "after": 1.0996,
+                  "changePercent": -0.0817810086324533
+                },
+                "prepareP95Ms": {
+                  "before": 0.0005,
+                  "after": 0.0005,
+                  "changePercent": 0.0
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0177,
+                  "after": 0.0183,
+                  "changePercent": 3.3898305084745672
+                },
+                "privateBytes": {
+                  "before": 21368832,
+                  "after": 21151744,
+                  "changePercent": -1.0159095265478202
+                },
+                "workingSetBytes": {
+                  "before": 33107968,
+                  "after": 33759232,
+                  "changePercent": 1.9670914264505734
+                },
+                "privateGrowthBytes": {
+                  "before": 0,
+                  "after": 0,
+                  "changePercent": null
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 577.884,
+                  "after": 572.021,
+                  "changePercent": -1.0145634764070377
+                },
+                "frameP95Ms": {
+                  "before": 1.8646,
+                  "after": 1.8933,
+                  "changePercent": 1.5392041188458716
+                },
+                "prepareP95Ms": {
+                  "before": 0.6856,
+                  "after": 0.706,
+                  "changePercent": 2.975495915986004
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0245,
+                  "after": 0.0277,
+                  "changePercent": 13.061224489795919
+                },
+                "privateBytes": {
+                  "before": 26812416,
+                  "after": 27123712,
+                  "changePercent": 1.1610143599144473
+                },
+                "workingSetBytes": {
+                  "before": 34344960,
+                  "after": 35184640,
+                  "changePercent": 2.444841979725698
+                },
+                "privateGrowthBytes": {
+                  "before": 290816,
+                  "after": 413696,
+                  "changePercent": 42.253521126760575
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "label": "A2/B2",
+          "before": "av-20260912-Release-4-A2.json",
+          "after": "av-20260912-Release-3-B2.json",
+          "scenarios": [
+            {
+              "name": "clean",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 940.272,
+                  "after": 937.87,
+                  "changePercent": -0.25545799513332357
+                },
+                "frameP95Ms": {
+                  "before": 1.1287,
+                  "after": 1.1201,
+                  "changePercent": -0.7619385133339152
+                },
+                "prepareP95Ms": {
+                  "before": 0.0003,
+                  "after": 0.0003,
+                  "changePercent": 0.0
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0102,
+                  "after": 0.0116,
+                  "changePercent": 13.725490196078404
+                },
+                "privateBytes": {
+                  "before": 17469440,
+                  "after": 18616320,
+                  "changePercent": 6.565064478311844
+                },
+                "workingSetBytes": {
+                  "before": 30273536,
+                  "after": 30740480,
+                  "changePercent": 1.5424164524421524
+                },
+                "privateGrowthBytes": {
+                  "before": -933888,
+                  "after": 0,
+                  "changePercent": -100.0
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 592.504,
+                  "after": 583.402,
+                  "changePercent": -1.5361921607280227
+                },
+                "frameP95Ms": {
+                  "before": 1.851,
+                  "after": 1.8876,
+                  "changePercent": 1.9773095623986991
+                },
+                "prepareP95Ms": {
+                  "before": 0.695,
+                  "after": 0.6875,
+                  "changePercent": -1.0791366906474753
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0243,
+                  "after": 0.0269,
+                  "changePercent": 10.699588477366273
+                },
+                "privateBytes": {
+                  "before": 26345472,
+                  "after": 26218496,
+                  "changePercent": -0.4819651741293507
+                },
+                "workingSetBytes": {
+                  "before": 33435648,
+                  "after": 33312768,
+                  "changePercent": -0.367511944138188
+                },
+                "privateGrowthBytes": {
+                  "before": 245760,
+                  "after": 241664,
+                  "changePercent": -1.6666666666666718
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 942.083,
+                  "after": 931.989,
+                  "changePercent": -1.071455487467654
+                },
+                "frameP95Ms": {
+                  "before": 1.1019,
+                  "after": 1.1348,
+                  "changePercent": 2.9857518831109875
+                },
+                "prepareP95Ms": {
+                  "before": 0.0004,
+                  "after": 0.0005,
+                  "changePercent": 25.0
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0184,
+                  "after": 0.0179,
+                  "changePercent": -2.717391304347827
+                },
+                "privateBytes": {
+                  "before": 21704704,
+                  "after": 21180416,
+                  "changePercent": -2.4155501037931737
+                },
+                "workingSetBytes": {
+                  "before": 33099776,
+                  "after": 32890880,
+                  "changePercent": -0.631110011137237
+                },
+                "privateGrowthBytes": {
+                  "before": 0,
+                  "after": 0,
+                  "changePercent": null
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 586.621,
+                  "after": 576.34,
+                  "changePercent": -1.7525796042078157
+                },
+                "frameP95Ms": {
+                  "before": 1.877,
+                  "after": 1.9201,
+                  "changePercent": 2.2962173681406517
+                },
+                "prepareP95Ms": {
+                  "before": 0.659,
+                  "after": 0.6954,
+                  "changePercent": 5.523520485584221
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0259,
+                  "after": 0.0246,
+                  "changePercent": -5.019305019305021
+                },
+                "privateBytes": {
+                  "before": 26796032,
+                  "after": 26734592,
+                  "changePercent": -0.22928767960868068
+                },
+                "workingSetBytes": {
+                  "before": 34152448,
+                  "after": 34033664,
+                  "changePercent": -0.3478052290717182
+                },
+                "privateGrowthBytes": {
+                  "before": 65536,
+                  "after": -20480,
+                  "changePercent": -131.25
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 939.412,
+                  "after": 932.64,
+                  "changePercent": -0.7208764631492892
+                },
+                "frameP95Ms": {
+                  "before": 1.1096,
+                  "after": 1.1453,
+                  "changePercent": 3.217375630857977
+                },
+                "prepareP95Ms": {
+                  "before": 0.0005,
+                  "after": 0.0005,
+                  "changePercent": 0.0
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0179,
+                  "after": 0.0177,
+                  "changePercent": -1.1173184357541888
+                },
+                "privateBytes": {
+                  "before": 21409792,
+                  "after": 21594112,
+                  "changePercent": 0.8609144824947457
+                },
+                "workingSetBytes": {
+                  "before": 33296384,
+                  "after": 33366016,
+                  "changePercent": 0.20912781399926583
+                },
+                "privateGrowthBytes": {
+                  "before": 0,
+                  "after": 36864,
+                  "changePercent": null
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 574.354,
+                  "after": 574.363,
+                  "changePercent": 0.001566977856870544
+                },
+                "frameP95Ms": {
+                  "before": 1.9049,
+                  "after": 1.8949,
+                  "changePercent": -0.5249619402593275
+                },
+                "prepareP95Ms": {
+                  "before": 0.6813,
+                  "after": 0.6855,
+                  "changePercent": 0.6164685160722216
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0234,
+                  "after": 0.0246,
+                  "changePercent": 5.128205128205132
+                },
+                "privateBytes": {
+                  "before": 26705920,
+                  "after": 26914816,
+                  "changePercent": 0.7822085889570563
+                },
+                "workingSetBytes": {
+                  "before": 34426880,
+                  "after": 34586624,
+                  "changePercent": 0.46400951814395963
+                },
+                "privateGrowthBytes": {
+                  "before": 49152,
+                  "after": 61440,
+                  "changePercent": 25.0
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "label": "A1/A2",
+          "before": "av-20260912-Release-1-A1.json",
+          "after": "av-20260912-Release-4-A2.json",
+          "scenarios": [
+            {
+              "name": "clean",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 938.587,
+                  "after": 940.272,
+                  "changePercent": 0.17952517987145367
+                },
+                "frameP95Ms": {
+                  "before": 1.1248,
+                  "after": 1.1287,
+                  "changePercent": 0.3467283072546179
+                },
+                "prepareP95Ms": {
+                  "before": 0.0003,
+                  "after": 0.0003,
+                  "changePercent": 0.0
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0123,
+                  "after": 0.0102,
+                  "changePercent": -17.07317073170731
+                },
+                "privateBytes": {
+                  "before": 18620416,
+                  "after": 17469440,
+                  "changePercent": -6.181258249010124
+                },
+                "workingSetBytes": {
+                  "before": 30572544,
+                  "after": 30273536,
+                  "changePercent": -0.9780278670953879
+                },
+                "privateGrowthBytes": {
+                  "before": 0,
+                  "after": -933888,
+                  "changePercent": null
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 591.127,
+                  "after": 592.504,
+                  "changePercent": 0.23294486633160805
+                },
+                "frameP95Ms": {
+                  "before": 1.8468,
+                  "after": 1.851,
+                  "changePercent": 0.227420402858991
+                },
+                "prepareP95Ms": {
+                  "before": 0.687,
+                  "after": 0.695,
+                  "changePercent": 1.1644832605531175
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0253,
+                  "after": 0.0243,
+                  "changePercent": -3.9525691699604737
+                },
+                "privateBytes": {
+                  "before": 26075136,
+                  "after": 26345472,
+                  "changePercent": 1.036757775683328
+                },
+                "workingSetBytes": {
+                  "before": 33251328,
+                  "after": 33435648,
+                  "changePercent": 0.5543237250554389
+                },
+                "privateGrowthBytes": {
+                  "before": 217088,
+                  "after": 245760,
+                  "changePercent": 13.207547169811317
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 937.222,
+                  "after": 942.083,
+                  "changePercent": 0.5186604667837491
+                },
+                "frameP95Ms": {
+                  "before": 1.1538,
+                  "after": 1.1019,
+                  "changePercent": -4.498179927197077
+                },
+                "prepareP95Ms": {
+                  "before": 0.0005,
+                  "after": 0.0004,
+                  "changePercent": -19.999999999999996
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0182,
+                  "after": 0.0184,
+                  "changePercent": 1.098901098901095
+                },
+                "privateBytes": {
+                  "before": 21270528,
+                  "after": 21704704,
+                  "changePercent": 2.0412093202387904
+                },
+                "workingSetBytes": {
+                  "before": 32841728,
+                  "after": 33099776,
+                  "changePercent": 0.7857321027687769
+                },
+                "privateGrowthBytes": {
+                  "before": -90112,
+                  "after": 0,
+                  "changePercent": -100.0
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 583.983,
+                  "after": 586.621,
+                  "changePercent": 0.45172547831016097
+                },
+                "frameP95Ms": {
+                  "before": 1.8887,
+                  "after": 1.877,
+                  "changePercent": -0.6194737120770899
+                },
+                "prepareP95Ms": {
+                  "before": 0.6769,
+                  "after": 0.659,
+                  "changePercent": -2.6444083321022216
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0235,
+                  "after": 0.0259,
+                  "changePercent": 10.212765957446802
+                },
+                "privateBytes": {
+                  "before": 26693632,
+                  "after": 26796032,
+                  "changePercent": 0.3836120914531227
+                },
+                "workingSetBytes": {
+                  "before": 33763328,
+                  "after": 34152448,
+                  "changePercent": 1.1524930243843157
+                },
+                "privateGrowthBytes": {
+                  "before": -12288,
+                  "after": 65536,
+                  "changePercent": -633.3333333333333
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 941.288,
+                  "after": 939.412,
+                  "changePercent": -0.1993013827861323
+                },
+                "frameP95Ms": {
+                  "before": 1.1005,
+                  "after": 1.1096,
+                  "changePercent": 0.8268968650613218
+                },
+                "prepareP95Ms": {
+                  "before": 0.0005,
+                  "after": 0.0005,
+                  "changePercent": 0.0
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0177,
+                  "after": 0.0179,
+                  "changePercent": 1.1299435028248483
+                },
+                "privateBytes": {
+                  "before": 21368832,
+                  "after": 21409792,
+                  "changePercent": 0.1916810427448734
+                },
+                "workingSetBytes": {
+                  "before": 33107968,
+                  "after": 33296384,
+                  "changePercent": 0.569095632809602
+                },
+                "privateGrowthBytes": {
+                  "before": 0,
+                  "after": 0,
+                  "changePercent": null
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 577.884,
+                  "after": 574.354,
+                  "changePercent": -0.6108492361788787
+                },
+                "frameP95Ms": {
+                  "before": 1.8646,
+                  "after": 1.9049,
+                  "changePercent": 2.1613214630483712
+                },
+                "prepareP95Ms": {
+                  "before": 0.6856,
+                  "after": 0.6813,
+                  "changePercent": -0.6271878646441076
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0245,
+                  "after": 0.0234,
+                  "changePercent": -4.489795918367346
+                },
+                "privateBytes": {
+                  "before": 26812416,
+                  "after": 26705920,
+                  "changePercent": -0.3971891231286273
+                },
+                "workingSetBytes": {
+                  "before": 34344960,
+                  "after": 34426880,
+                  "changePercent": 0.23852116875373586
+                },
+                "privateGrowthBytes": {
+                  "before": 290816,
+                  "after": 49152,
+                  "changePercent": -83.09859154929578
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "label": "B1/B2",
+          "before": "av-20260912-Release-2-B1.json",
+          "after": "av-20260912-Release-3-B2.json",
+          "scenarios": [
+            {
+              "name": "clean",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 939.145,
+                  "after": 937.87,
+                  "changePercent": -0.1357617833241953
+                },
+                "frameP95Ms": {
+                  "before": 1.1061,
+                  "after": 1.1201,
+                  "changePercent": 1.2657083446343087
+                },
+                "prepareP95Ms": {
+                  "before": 0.0003,
+                  "after": 0.0003,
+                  "changePercent": 0.0
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0118,
+                  "after": 0.0116,
+                  "changePercent": -1.6949152542372947
+                },
+                "privateBytes": {
+                  "before": 18489344,
+                  "after": 18616320,
+                  "changePercent": 0.6867523260965847
+                },
+                "workingSetBytes": {
+                  "before": 31354880,
+                  "after": 30740480,
+                  "changePercent": -1.9595035924232507
+                },
+                "privateGrowthBytes": {
+                  "before": 0,
+                  "after": 0,
+                  "changePercent": null
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 96,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 580.751,
+                  "after": 583.402,
+                  "changePercent": 0.4564779053329415
+                },
+                "frameP95Ms": {
+                  "before": 1.8679,
+                  "after": 1.8876,
+                  "changePercent": 1.0546603137213006
+                },
+                "prepareP95Ms": {
+                  "before": 0.7152,
+                  "after": 0.6875,
+                  "changePercent": -3.8730425055928386
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0305,
+                  "after": 0.0269,
+                  "changePercent": -11.803278688524587
+                },
+                "privateBytes": {
+                  "before": 26030080,
+                  "after": 26218496,
+                  "changePercent": 0.7238394964594885
+                },
+                "workingSetBytes": {
+                  "before": 33972224,
+                  "after": 33312768,
+                  "changePercent": -1.9411622859898725
+                },
+                "privateGrowthBytes": {
+                  "before": 614400,
+                  "after": 241664,
+                  "changePercent": -60.66666666666667
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 938.845,
+                  "after": 931.989,
+                  "changePercent": -0.7302589884379151
+                },
+                "frameP95Ms": {
+                  "before": 1.1107,
+                  "after": 1.1348,
+                  "changePercent": 2.169802827046019
+                },
+                "prepareP95Ms": {
+                  "before": 0.0005,
+                  "after": 0.0005,
+                  "changePercent": 0.0
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0186,
+                  "after": 0.0179,
+                  "changePercent": -3.7634408602150504
+                },
+                "privateBytes": {
+                  "before": 21229568,
+                  "after": 21180416,
+                  "changePercent": -0.23152614316033215
+                },
+                "workingSetBytes": {
+                  "before": 33660928,
+                  "after": 32890880,
+                  "changePercent": -2.287661231443172
+                },
+                "privateGrowthBytes": {
+                  "before": 0,
+                  "after": 0,
+                  "changePercent": null
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 144,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 581.51,
+                  "after": 576.34,
+                  "changePercent": -0.8890646764457943
+                },
+                "frameP95Ms": {
+                  "before": 1.8769,
+                  "after": 1.9201,
+                  "changePercent": 2.30166764345463
+                },
+                "prepareP95Ms": {
+                  "before": 0.6834,
+                  "after": 0.6954,
+                  "changePercent": 1.7559262510974616
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0273,
+                  "after": 0.0246,
+                  "changePercent": -9.890109890109889
+                },
+                "privateBytes": {
+                  "before": 26271744,
+                  "after": 26734592,
+                  "changePercent": 1.7617711256626034
+                },
+                "workingSetBytes": {
+                  "before": 34410496,
+                  "after": 34033664,
+                  "changePercent": -1.0951077252708052
+                },
+                "privateGrowthBytes": {
+                  "before": 299008,
+                  "after": -20480,
+                  "changePercent": -106.84931506849315
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "clean",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 942.475,
+                  "after": 932.64,
+                  "changePercent": -1.0435290060744395
+                },
+                "frameP95Ms": {
+                  "before": 1.0996,
+                  "after": 1.1453,
+                  "changePercent": 4.156056747908332
+                },
+                "prepareP95Ms": {
+                  "before": 0.0005,
+                  "after": 0.0005,
+                  "changePercent": 0.0
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0183,
+                  "after": 0.0177,
+                  "changePercent": -3.2786885245901676
+                },
+                "privateBytes": {
+                  "before": 21151744,
+                  "after": 21594112,
+                  "changePercent": 2.091402013942689
+                },
+                "workingSetBytes": {
+                  "before": 33759232,
+                  "after": 33366016,
+                  "changePercent": -1.1647658335355526
+                },
+                "privateGrowthBytes": {
+                  "before": 0,
+                  "after": 36864,
+                  "changePercent": null
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            },
+            {
+              "name": "dirty",
+              "dpi": 192,
+              "metrics": {
+                "completedOffscreenFps": {
+                  "before": 572.021,
+                  "after": 574.363,
+                  "changePercent": 0.4094255280837844
+                },
+                "frameP95Ms": {
+                  "before": 1.8933,
+                  "after": 1.8949,
+                  "changePercent": 0.08450853007975212
+                },
+                "prepareP95Ms": {
+                  "before": 0.706,
+                  "after": 0.6855,
+                  "changePercent": -2.9036827195467407
+                },
+                "composeCpuP95Ms": {
+                  "before": 0.0277,
+                  "after": 0.0246,
+                  "changePercent": -11.191335740072194
+                },
+                "privateBytes": {
+                  "before": 27123712,
+                  "after": 26914816,
+                  "changePercent": -0.7701600724856594
+                },
+                "workingSetBytes": {
+                  "before": 35184640,
+                  "after": 34586624,
+                  "changePercent": -1.6996507566938268
+                },
+                "privateGrowthBytes": {
+                  "before": 413696,
+                  "after": 61440,
+                  "changePercent": -85.14851485148515
+                },
+                "surfaceBytes": {
+                  "before": 4608000,
+                  "after": 4608000,
+                  "changePercent": 0.0
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

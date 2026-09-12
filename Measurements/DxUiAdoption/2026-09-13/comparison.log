@@ -1,0 +1,56 @@
+Debug A1/B1
+  96 clean: completedOffscreenFps=-0.1%, frameP95Ms=-0.1%, privateBytes=+3.8%, workingSetBytes=+26.6%
+  96 dirty: completedOffscreenFps=-1.4%, frameP95Ms=+2.7%, privateBytes=+4.0%, workingSetBytes=+25.6%
+  144 clean: completedOffscreenFps=-0.5%, frameP95Ms=+0.8%, privateBytes=+0.1%, workingSetBytes=+25.2%
+  144 dirty: completedOffscreenFps=-0.1%, frameP95Ms=+0.3%, privateBytes=+0.7%, workingSetBytes=+24.3%
+  192 clean: completedOffscreenFps=+0.2%, frameP95Ms=-0.5%, privateBytes=+1.2%, workingSetBytes=+25.0%
+  192 dirty: completedOffscreenFps=+0.5%, frameP95Ms=-1.7%, privateBytes=+0.2%, workingSetBytes=+23.6%
+Debug A2/B2
+  96 clean: completedOffscreenFps=+0.2%, frameP95Ms=-0.4%, privateBytes=-0.0%, workingSetBytes=-0.2%
+  96 dirty: completedOffscreenFps=+0.4%, frameP95Ms=-0.7%, privateBytes=-0.5%, workingSetBytes=-0.6%
+  144 clean: completedOffscreenFps=-0.2%, frameP95Ms=+0.8%, privateBytes=+5.3%, workingSetBytes=-0.2%
+  144 dirty: completedOffscreenFps=-1.4%, frameP95Ms=+3.7%, privateBytes=+0.4%, workingSetBytes=-0.4%
+  192 clean: completedOffscreenFps=-0.5%, frameP95Ms=+3.3%, privateBytes=-6.4%, workingSetBytes=-0.3%
+  192 dirty: completedOffscreenFps=-0.3%, frameP95Ms=+1.2%, privateBytes=+2.7%, workingSetBytes=-0.1%
+Debug A1/A2
+  96 clean: completedOffscreenFps=+0.1%, frameP95Ms=-1.0%, privateBytes=+2.0%, workingSetBytes=-0.1%
+  96 dirty: completedOffscreenFps=-0.0%, frameP95Ms=-0.2%, privateBytes=+1.5%, workingSetBytes=+1.3%
+  144 clean: completedOffscreenFps=+0.4%, frameP95Ms=-2.0%, privateBytes=+1.3%, workingSetBytes=+1.5%
+  144 dirty: completedOffscreenFps=+0.7%, frameP95Ms=-1.5%, privateBytes=+1.3%, workingSetBytes=+1.1%
+  192 clean: completedOffscreenFps=+0.2%, frameP95Ms=-0.6%, privateBytes=+9.2%, workingSetBytes=+1.8%
+  192 dirty: completedOffscreenFps=-0.0%, frameP95Ms=-0.9%, privateBytes=+0.8%, workingSetBytes=+1.0%
+Debug B1/B2
+  96 clean: completedOffscreenFps=+0.4%, frameP95Ms=-1.2%, privateBytes=-1.7%, workingSetBytes=-21.3%
+  96 dirty: completedOffscreenFps=+1.8%, frameP95Ms=-3.6%, privateBytes=-2.9%, workingSetBytes=-19.9%
+  144 clean: completedOffscreenFps=+0.7%, frameP95Ms=-1.9%, privateBytes=+6.5%, workingSetBytes=-19.1%
+  144 dirty: completedOffscreenFps=-0.6%, frameP95Ms=+1.8%, privateBytes=+1.0%, workingSetBytes=-19.0%
+  192 clean: completedOffscreenFps=-0.5%, frameP95Ms=+3.2%, privateBytes=+1.0%, workingSetBytes=-18.8%
+  192 dirty: completedOffscreenFps=-0.9%, frameP95Ms=+2.0%, privateBytes=+3.3%, workingSetBytes=-18.4%
+Release A1/B1
+  96 clean: completedOffscreenFps=+0.1%, frameP95Ms=-1.7%, privateBytes=-0.7%, workingSetBytes=+2.6%
+  96 dirty: completedOffscreenFps=-1.8%, frameP95Ms=+1.1%, privateBytes=-0.2%, workingSetBytes=+2.2%
+  144 clean: completedOffscreenFps=+0.2%, frameP95Ms=-3.7%, privateBytes=-0.2%, workingSetBytes=+2.5%
+  144 dirty: completedOffscreenFps=-0.4%, frameP95Ms=-0.6%, privateBytes=-1.6%, workingSetBytes=+1.9%
+  192 clean: completedOffscreenFps=+0.1%, frameP95Ms=-0.1%, privateBytes=-1.0%, workingSetBytes=+2.0%
+  192 dirty: completedOffscreenFps=-1.0%, frameP95Ms=+1.5%, privateBytes=+1.2%, workingSetBytes=+2.4%
+Release A2/B2
+  96 clean: completedOffscreenFps=-0.3%, frameP95Ms=-0.8%, privateBytes=+6.6%, workingSetBytes=+1.5%
+  96 dirty: completedOffscreenFps=-1.5%, frameP95Ms=+2.0%, privateBytes=-0.5%, workingSetBytes=-0.4%
+  144 clean: completedOffscreenFps=-1.1%, frameP95Ms=+3.0%, privateBytes=-2.4%, workingSetBytes=-0.6%
+  144 dirty: completedOffscreenFps=-1.8%, frameP95Ms=+2.3%, privateBytes=-0.2%, workingSetBytes=-0.3%
+  192 clean: completedOffscreenFps=-0.7%, frameP95Ms=+3.2%, privateBytes=+0.9%, workingSetBytes=+0.2%
+  192 dirty: completedOffscreenFps=+0.0%, frameP95Ms=-0.5%, privateBytes=+0.8%, workingSetBytes=+0.5%
+Release A1/A2
+  96 clean: completedOffscreenFps=+0.2%, frameP95Ms=+0.3%, privateBytes=-6.2%, workingSetBytes=-1.0%
+  96 dirty: completedOffscreenFps=+0.2%, frameP95Ms=+0.2%, privateBytes=+1.0%, workingSetBytes=+0.6%
+  144 clean: completedOffscreenFps=+0.5%, frameP95Ms=-4.5%, privateBytes=+2.0%, workingSetBytes=+0.8%
+  144 dirty: completedOffscreenFps=+0.5%, frameP95Ms=-0.6%, privateBytes=+0.4%, workingSetBytes=+1.2%
+  192 clean: completedOffscreenFps=-0.2%, frameP95Ms=+0.8%, privateBytes=+0.2%, workingSetBytes=+0.6%
+  192 dirty: completedOffscreenFps=-0.6%, frameP95Ms=+2.2%, privateBytes=-0.4%, workingSetBytes=+0.2%
+Release B1/B2
+  96 clean: completedOffscreenFps=-0.1%, frameP95Ms=+1.3%, privateBytes=+0.7%, workingSetBytes=-2.0%
+  96 dirty: completedOffscreenFps=+0.5%, frameP95Ms=+1.1%, privateBytes=+0.7%, workingSetBytes=-1.9%
+  144 clean: completedOffscreenFps=-0.7%, frameP95Ms=+2.2%, privateBytes=-0.2%, workingSetBytes=-2.3%
+  144 dirty: completedOffscreenFps=-0.9%, frameP95Ms=+2.3%, privateBytes=+1.8%, workingSetBytes=-1.1%
+  192 clean: completedOffscreenFps=-1.0%, frameP95Ms=+4.2%, privateBytes=+2.1%, workingSetBytes=-1.2%
+  192 dirty: completedOffscreenFps=+0.4%, frameP95Ms=+0.1%, privateBytes=-0.8%, workingSetBytes=-1.7%

@@ -6,16 +6,22 @@
 - [x] Reproduce and fix the cumulative Process Viewer diagnostic assertion exposed in duplicate native CI. Repeating the lifecycle case fails before the fixture correction and the full Debug suite passes afterward; production behavior is unchanged.
 - [x] Corrected repeated lifecycle test passes the complete local Debug, Release and ASan Debug suites.
 - [x] Corrected repeated lifecycle test passes all six native CI profiles at a812cec (34374884161).
-- [ ] [blocked] Native CI for the new resource fixture at 80b02a3 was denied before any step ran because
-  GitHub reports an account payment/spending-limit restriction (34377362060 / 34377358597). Await organization
-  billing resolution; no dependency-read secret is needed. This does not erase the green a812cec product matrix.
+- [x] Retain the native CI attempts for the new resource fixture at 80b02a3 that were denied before any
+  step ran (34377362060 / 34377358597). The user requested local validation instead; do not wait for billing
+  resolution or launch CI during this pass. This does not erase the green historical a812cec product matrix.
 - [x] Remove duplicate feature-branch push matrices. PR updates retain all six native jobs; main pushes and manual
   dispatch remain supported. The two earlier duplicate runs are retained as evidence, not a requirement to spend twice.
 - [x] Run four matched AV measurements per Debug/Release profile against original pin d192e474 and candidate
   ecad707 in ABBA order on September 12. Fixture/product source identity and surface/hidden-work assertions pass;
   all eight receipts and A/A, B/B comparisons are retained under `Measurements/DxUiAdoption/2026-09-12`.
-- [ ] Resolve timing acceptance: Release dirty-view throughput at 144/192 DPI is 11.9–14.4% lower in the candidate
-  pairs, while large baseline-only timing shifts also remain. Investigate without relaxing thresholds or rebaselining.
+- [x] Repeat eight matched AV runs locally on September 13 with identical fixture/product inputs and processor
+  affinity mask 255. The earlier 11.9–14.4% Release dirty-throughput loss does not recur: all Release candidate
+  scenarios range from -1.76% to +0.17%. Surface storage and hidden work are unchanged. Raw receipts, A/A and B/B
+  comparisons, the incomplete first attempt and its subsequent Debug rebuild are retained in
+  [the local record](../../../Measurements/DxUiAdoption/2026-09-13/README.md).
+- [ ] Resolve performance acceptance: Release dirty composition still costs an extra 2.6–5.2 microseconds
+  at 96 DPI in both pairs; other component timings and process memory vary. Developer advice on the measured
+  tradeoffs is pending. No threshold or baseline is waived or replaced.
 
 - [x] Requalify the consumer at DxUi 52da33d: full local x64 Debug, Release and ASan Debug product suites pass with zero build warnings/errors, and product 1bf6662 passes all six native CI profiles (34368430957), including real ARM64 ASAN detection. The previous 8c548fe pin remains available for rollback; paired resources and hardware/manual gates stay open.
 - [x] Audit current pin d192e474e540adc2656e69b8e8150b0f7a05d63f and the three archive consumers.

@@ -1,0 +1,16 @@
+{
+  "status": "incomplete-candidate-debug-output-missing",
+  "startedUtc": "2026-09-12T22:34:54.6198687Z",
+  "affinityMask": 255,
+  "profiles": [
+    "Debug",
+    "Release"
+  ],
+  "sequence": "A1 B1 B2 A2",
+  "baseline": "d192e474",
+  "candidate": "ecad707",
+  "fixture": "redxe-av-two-views-v1",
+  "framesPerRound": 600,
+  "rounds": 5,
+  "failure": "Candidate Debug AVControlTests.exe and its linker tlog are absent. Baseline A1 is retained; no paired acceptance."
+}
