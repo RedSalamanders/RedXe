@@ -201,9 +201,9 @@ try {
         'DxUi update available: pinned 13788e95f1c9, available b129956d01b7. ' +
         'https://github.com/RedSalamanders/DxUi/compare/test . Update Z:\fixture\Dependencies\DxUi.lock.json ' +
         'on a branch and run the product regressions.')
-    if ($formattedDxUiAdvisory -notmatch [regex]::Escape("`nTo evaluate this candidate: update ") -or
-        $formattedDxUiAdvisory -notmatch [regex]::Escape('on a branch, then run .\test.ps1.')) {
-        throw "DxUi update advisory omitted the separate RedXe evaluation instruction: $formattedDxUiAdvisory"
+    if ($formattedDxUiAdvisory -notmatch [regex]::Escape("`nTo upgrade and run local validation: .\Update-DxUi.ps1") -or
+        $formattedDxUiAdvisory -notmatch [regex]::Escape('To upgrade only after equivalent product validation passed elsewhere: .\Update-DxUi.ps1 -UpdateOnly')) {
+        throw "DxUi update advisory omitted a RedXe upgrade instruction: $formattedDxUiAdvisory"
     }
 
     $diagnosticLogPath = Join-Path $presentationTestRoot 'diagnostics.log'

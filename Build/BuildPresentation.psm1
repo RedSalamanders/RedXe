@@ -325,9 +325,8 @@ function Format-RedXeDxUiUpdateNotice {
     }
 
     if ($Notice -like 'DxUi update available:*') {
-        return ($Notice -replace ' \. Update ', ".`nTo evaluate this candidate: update ") -replace `
-            'on a branch and run the product regressions\.',
-            'on a branch, then run .\test.ps1.'
+        $summary = $Notice -replace ' \. Update .* on a branch and run the product regressions\.$', ''
+        return "$summary.`nTo upgrade and run local validation: .\Update-DxUi.ps1`nTo upgrade only after equivalent product validation passed elsewhere: .\Update-DxUi.ps1 -UpdateOnly"
     }
 
     return $Notice
