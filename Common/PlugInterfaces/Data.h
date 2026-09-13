@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <unknwn.h>
+
 #include <windows.h>
 
 // Every sizeBytes field must equal the current record's sizeof value. Each record below is pinned with a size
