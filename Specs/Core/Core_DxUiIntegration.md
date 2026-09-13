@@ -44,11 +44,11 @@ not a separate release or qualification system.
 ## Manual update loop
 
 The root build requests one bounded advisory about newer main with successful DxUi CI. A newer main commit without a
-successful completed validation is red; a validated available update is yellow. The color presents the pinned helper's
-read-only decision and never edits the lock; an unavailable network/read credential cannot fail a valid pinned build.
-A maintainer changes the exact lock on a product branch, builds and runs the product suite, then submits its ordinary
-PR. A shared-control regression is fixed and tested in DxUi before updating the consumer pin and repeating product
-tests. Consumer CI runs the six native
+successful completed validation is red; a validated available update is yellow and prints its lock-file action plus
+`test.ps1` command on a separate yellow line. The color presents the pinned helper's read-only decision and never
+edits the lock; an unavailable network/read credential cannot fail a valid pinned build. A maintainer changes the
+exact lock on a product branch, builds and runs the product suite, then submits its ordinary PR. A shared-control
+regression is fixed and tested in DxUi before updating the consumer pin and repeating product tests. Consumer CI runs the six native
 configurations using public HTTPS dependency access. No PAT or organization secret is required. The automatic job
 token supplies advisory GitHub API rate allowance. Library success alone does not qualify this product.
 Pull requests run one six-profile matrix for each update; feature-branch pushes do not start a duplicate matrix.

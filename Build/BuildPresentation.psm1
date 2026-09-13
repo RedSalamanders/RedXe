@@ -313,6 +313,26 @@ function Get-RedXeDxUiUpdateNoticeForegroundColor {
     return 'DarkYellow'
 }
 
+function Format-RedXeDxUiUpdateNotice {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [string] $Notice
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Notice)) {
+        return $null
+    }
+
+    if ($Notice -like 'DxUi update available:*') {
+        return ($Notice -replace ' \. Update ', ".`nTo evaluate this candidate: update ") -replace `
+            'on a branch and run the product regressions\.',
+            'on a branch, then run .\test.ps1.'
+    }
+
+    return $Notice
+}
+
 function Write-RedXeBuildStreamingLine {
     [CmdletBinding()]
     param(
@@ -581,6 +601,7 @@ Export-ModuleMember -Function @(
     'Write-RedXeBuildBanner',
     'Get-RedXeBuildLineForegroundColor',
     'Get-RedXeDxUiUpdateNoticeForegroundColor',
+    'Format-RedXeDxUiUpdateNotice',
     'Write-RedXeBuildStreamingLine',
     'Get-RedXeBuildDiagnosticSummary',
     'Write-RedXeBuildDiagnosticSummary',

@@ -197,6 +197,15 @@ try {
         }
     }
 
+    $formattedDxUiAdvisory = Format-RedXeDxUiUpdateNotice -Notice (
+        'DxUi update available: pinned 13788e95f1c9, available b129956d01b7. ' +
+        'https://github.com/RedSalamanders/DxUi/compare/test . Update Z:\fixture\Dependencies\DxUi.lock.json ' +
+        'on a branch and run the product regressions.')
+    if ($formattedDxUiAdvisory -notmatch [regex]::Escape("`nTo evaluate this candidate: update ") -or
+        $formattedDxUiAdvisory -notmatch [regex]::Escape('on a branch, then run .\test.ps1.')) {
+        throw "DxUi update advisory omitted the separate RedXe evaluation instruction: $formattedDxUiAdvisory"
+    }
+
     $diagnosticLogPath = Join-Path $presentationTestRoot 'diagnostics.log'
     @'
 Z:\src\RedXe\Renderer.cpp(10,5): warning C4100: unreferenced parameter [Z:\src\RedXe\RedXe\RedXe.vcxproj]

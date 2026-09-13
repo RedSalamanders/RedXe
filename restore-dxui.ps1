@@ -60,7 +60,7 @@ if ($CheckUpdates) {
     Import-Module (Join-Path $source 'Tools/ConsumerUpdate.psm1') -Force
     Import-Module (Join-Path $PSScriptRoot 'Build/BuildPresentation.psm1') -Force
     # The pinned DxUi helper owns the read-only update decision. RedXe owns only
-    # the interactive severity color for the notice it has already selected.
+    # the interactive severity color and product regression command for its notice.
     foreach ($record in @(Show-DxUiUpdateNotice -LockFile $pinPath 6>&1)) {
         $notice = if ($record -is [Management.Automation.InformationRecord]) {
             [string] $record.MessageData
@@ -70,7 +70,7 @@ if ($CheckUpdates) {
         }
         $foregroundColor = Get-RedXeDxUiUpdateNoticeForegroundColor -Notice $notice
         if ($foregroundColor) {
-            Write-Host $notice -ForegroundColor $foregroundColor
+            Write-Host (Format-RedXeDxUiUpdateNotice -Notice $notice) -ForegroundColor $foregroundColor
         }
     }
 }
