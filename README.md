@@ -35,6 +35,12 @@ Windows. Opening `.vsconfig` in Visual Studio offers the required workload. The 
 .\build.ps1 -Rebuild
 .\test.ps1
 
+# Adopt the latest DxUi main commit after its DxUi CI is green, then run RedXe validation
+.\Update-DxUi.ps1
+
+# Change only the pin when RedXe validation already passed in another environment
+.\Update-DxUi.ps1 -UpdateOnly
+
 # Validate all repository-local Codex skills
 py -3 -m pip install -r Build/requirements-validation.txt
 .\validate-skills.ps1
@@ -120,6 +126,7 @@ Tests/                 ABI, settings, and production host/plugin tests
 Build/                 Exact-output build-process safety helper
 build.ps1             Build, clean, rebuild, and optionally run
 test.ps1              GPU-independent contract, host/plugin, and runtime tests
+Update-DxUi.ps1       Update the validated DxUi pin, optionally without local validation
 format.ps1            clang-format entrypoint
 validate-skills.ps1   Validate every repository-local skill
 Directory.Build.props Shared MSBuild output and compiler defaults

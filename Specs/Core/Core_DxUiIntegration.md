@@ -51,6 +51,10 @@ exact lock on a product branch, builds and runs the product suite, then submits 
 regression is fixed and tested in DxUi before updating the consumer pin and repeating product tests. Consumer CI runs the six native
 configurations using public HTTPS dependency access. No PAT or organization secret is required. The automatic job
 token supplies advisory GitHub API rate allowance. Library success alone does not qualify this product.
+`Update-DxUi.ps1` selects only a current `main` commit with successful completed DxUi CI, atomically changes the
+lock, and runs `test.ps1`; `Update-DxUi.ps1 -UpdateOnly` skips that local product suite only when equivalent product
+validation was completed elsewhere. Neither mode auto-commits, and a local validation failure leaves the changed lock
+on the branch for diagnosis.
 Pull requests run one six-profile matrix for each update; feature-branch pushes do not start a duplicate matrix.
 Pushes to main and explicit workflow dispatch retain their validation entrypoints.
 CI validates repository skill metadata with the repository-owned validator and pinned Python dependency before

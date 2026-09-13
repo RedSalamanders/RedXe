@@ -63,6 +63,7 @@ if ($executableVersion.FileDescription -ne 'RedXe XENEON dashboard' -or
 Write-Host 'Running exact build-output process preflight tests...' -ForegroundColor Cyan
 & (Join-Path $repoRoot 'Tests\BuildProcessTests\BuildProcessTests.ps1')
 & (Join-Path $repoRoot 'Tests\BuildProcessTests\DxUiProvenanceTests.ps1')
+& (Join-Path $repoRoot 'Tests\BuildProcessTests\DxUiUpdateTests.ps1')
 
 $contractTests = Join-Path $repoRoot ".build\$Platform\$Configuration\PluginContractTests.exe"
 if ($Configuration -eq 'ASan Debug') {
