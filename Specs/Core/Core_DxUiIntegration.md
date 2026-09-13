@@ -1,7 +1,7 @@
 # DxUi integration
 
 Status: current normative consumer contract
-Last reviewed: 2026-09-09
+Last reviewed: 2026-09-13
 
 This contract owns how RedXe consumes the standalone DxUi library: the exact source pin, restore/build isolation,
 which process modules link `DxUi.lib`, and the COM/POD boundary that keeps DxUi C++ objects inside those modules.
@@ -43,10 +43,12 @@ not a separate release or qualification system.
 
 ## Manual update loop
 
-The root build requests one bounded advisory about newer main with successful DxUi CI. It never edits the lock and
-an unavailable network/read credential cannot fail a valid pinned build. A maintainer changes the exact lock on a
-product branch, builds and runs the product suite, then submits its ordinary PR. A shared-control regression is fixed
-and tested in DxUi before updating the consumer pin and repeating product tests. Consumer CI runs the six native
+The root build requests one bounded advisory about newer main with successful DxUi CI. A newer main commit without a
+successful completed validation is red; a validated available update is yellow. The color presents the pinned helper's
+read-only decision and never edits the lock; an unavailable network/read credential cannot fail a valid pinned build.
+A maintainer changes the exact lock on a product branch, builds and runs the product suite, then submits its ordinary
+PR. A shared-control regression is fixed and tested in DxUi before updating the consumer pin and repeating product
+tests. Consumer CI runs the six native
 configurations using public HTTPS dependency access. No PAT or organization secret is required. The automatic job
 token supplies advisory GitHub API rate allowance. Library success alone does not qualify this product.
 Pull requests run one six-profile matrix for each update; feature-branch pushes do not start a duplicate matrix.

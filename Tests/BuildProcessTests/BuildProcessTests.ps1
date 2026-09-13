@@ -184,6 +184,19 @@ try {
         }
     }
 
+    $dxUiAdvisoryColorCases = @(
+        @{ Notice = 'DxUi main b129956d01b7 has no successful completed validation; keep pinned 13788e95f1c9.'; Expected = 'Red' },
+        @{ Notice = 'DxUi update available: pinned 13788e95f1c9, available b129956d01b7.'; Expected = 'Yellow' },
+        @{ Notice = 'DxUi update check unavailable: GitHub API rate limit exceeded.'; Expected = 'DarkYellow' },
+        @{ Notice = ''; Expected = $null }
+    )
+    foreach ($case in $dxUiAdvisoryColorCases) {
+        $actual = Get-RedXeDxUiUpdateNoticeForegroundColor -Notice $case.Notice
+        if ($actual -ne $case.Expected) {
+            throw "Unexpected DxUi advisory color '$actual' for '$($case.Notice)'; expected '$($case.Expected)'."
+        }
+    }
+
     $diagnosticLogPath = Join-Path $presentationTestRoot 'diagnostics.log'
     @'
 Z:\src\RedXe\Renderer.cpp(10,5): warning C4100: unreferenced parameter [Z:\src\RedXe\RedXe\RedXe.vcxproj]

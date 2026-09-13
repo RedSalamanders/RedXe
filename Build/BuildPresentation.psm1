@@ -292,6 +292,27 @@ function Get-RedXeBuildLineForegroundColor {
     return $null
 }
 
+function Get-RedXeDxUiUpdateNoticeForegroundColor {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [string] $Notice
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Notice)) {
+        return $null
+    }
+
+    if ($Notice -like 'DxUi main * has no successful completed validation;*') {
+        return 'Red'
+    }
+    if ($Notice -like 'DxUi update available:*') {
+        return 'Yellow'
+    }
+
+    return 'DarkYellow'
+}
+
 function Write-RedXeBuildStreamingLine {
     [CmdletBinding()]
     param(
@@ -559,6 +580,7 @@ Export-ModuleMember -Function @(
     'Get-RedXeBuildInvocationPlan',
     'Write-RedXeBuildBanner',
     'Get-RedXeBuildLineForegroundColor',
+    'Get-RedXeDxUiUpdateNoticeForegroundColor',
     'Write-RedXeBuildStreamingLine',
     'Get-RedXeBuildDiagnosticSummary',
     'Write-RedXeBuildDiagnosticSummary',
