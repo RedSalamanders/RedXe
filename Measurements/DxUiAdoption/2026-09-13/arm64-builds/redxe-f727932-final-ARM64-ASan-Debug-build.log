@@ -1,0 +1,317 @@
+
+  ╔══════════════════════════════════════════════════════════╗
+  ║        ██████╗ ███████╗██████╗   ██╗  ██╗███████╗        ║
+  ║        ██╔══██╗██╔════╝██╔══██╗  ╚██╗██╔╝██╔════╝        ║
+  ║        ██████╔╝█████╗  ██║  ██║   ╚███╔╝ █████╗          ║
+  ║        ██╔══██╗██╔══╝  ██║  ██║   ██╔██╗ ██╔══╝          ║
+  ║        ██║  ██║███████╗██████╔╝  ██╔╝ ██╗███████╗        ║
+  ║        ╚═╝  ╚═╝╚══════╝╚═════╝   ╚═╝  ╚═╝╚══════╝        ║
+  ╚═══════════ XENEON EDGE // BUILD SIGNAL LOCKED ═══════════╝
+
+Target: ARM64 | ASan Debug
+
+[1/2] Dependencies
+Installing RedXe dependencies (arm64-windows)
+Detecting compiler hash for triplet x64-windows...
+Compiler found: C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe
+Detecting compiler hash for triplet arm64-windows...
+Compiler found: C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231/bin/Hostx64/arm64/cl.exe
+The following packages are already installed:
+    curl[core,sspi,ssl]:arm64-windows@8.21.0#1
+  * vcpkg-cmake:x64-windows@2024-04-23
+  * vcpkg-cmake-config:x64-windows@2026-07-21
+    wil:arm64-windows@1.0.260126.7
+    yyjson[core,writer,reader,non-standard,fast-fp-conv]:arm64-windows@0.12.0
+  * zlib:arm64-windows@1.3.2#1
+curl is compatible with built-in CMake targets:
+
+    find_package(CURL REQUIRED)
+    target_link_libraries(main PRIVATE CURL::libcurl)
+
+wil provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(wil CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE WIL::WIL)
+
+yyjson provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(yyjson CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE yyjson::yyjson)
+
+yyjson provides pkg-config modules:
+
+  # Fastest JSON library in C
+  yyjson
+
+All requested installations completed successfully in: 335 us
+vcpkg dependencies are ready.
+DxUi pin verified: ecad70704fd5e46672586ddbe4ddfeb5db01d1a4
+Installing DxUi dependencies (arm64-windows)
+Detecting compiler hash for triplet x64-windows...
+Compiler found: C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe
+Detecting compiler hash for triplet arm64-windows...
+Compiler found: C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231/bin/Hostx64/arm64/cl.exe
+The following packages are already installed:
+  * vcpkg-cmake:x64-windows@2024-04-23
+  * vcpkg-cmake-config:x64-windows@2026-07-21
+    wil:arm64-windows@1.0.260126.7
+wil provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(wil CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE WIL::WIL)
+
+All requested installations completed successfully in: 131 us
+vcpkg dependencies are ready.
+DxUi pin is ahead of main; review Z:\RxI19Final\Dependencies\DxUi.lock.json before any change. (Checked 2026-09-13 00:35:20Z)
+DxUi restored at exact pin ecad70704fd5e46672586ddbe4ddfeb5db01d1a4; sibling checkout unchanged.
+
+[2/2] Build
+MSBuild: C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\amd64\MSBuild.exe
+
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\RotatingTriangle\RotatingTrianglePixelShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\RotatingTriangle\RotatingTrianglePixelShader.cso
+  BrokerMain.cpp
+  WindowsAudioBackend.cpp
+  AudioPolicy.cpp
+  WindowsCameraBackend.cpp
+  CameraRegistration.cpp
+  CameraCapture.cpp
+  CameraController.cpp
+  CameraBridge.cpp
+  CameraBridgeServer.cpp
+  CameraFrameChannel.cpp
+  CameraSetup.cpp
+  CameraRegistration.cpp
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\RotatingTriangle\RotatingTriangleVertexShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\RotatingTriangle\RotatingTriangleVertexShader.cso
+  RotatingTriangle.cpp
+     Creating library Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\RotatingTriangle.lib and object Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\RotatingTriangle.exp
+  RotatingTriangle.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\RotatingTriangle.dll
+  AVControlCameraSetup.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\AVControlCameraSetup.exe
+  CameraDll.cpp
+  CameraActivation.cpp
+  CameraMediaSource.cpp
+  CameraFrameChannel.cpp
+  CameraBridge.cpp
+  GdiOrbit.cpp
+  AVControlBroker.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\AVControlBroker.exe
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\MatrixRain\MatrixRainBackgroundPixelShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\MatrixRain\MatrixRainBackgroundPixelShader.cso
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\MatrixRain\MatrixRainBackgroundVertexShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\MatrixRain\MatrixRainBackgroundVertexShader.cso
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\MatrixRain\MatrixRainGlyphPixelShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\MatrixRain\MatrixRainGlyphPixelShader.cso
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\MatrixRain\MatrixRainGlyphVertexShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\MatrixRain\MatrixRainGlyphVertexShader.cso
+  MatrixRain.cpp
+     Creating library Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\GdiOrbit.lib and object Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\GdiOrbit.exp
+  GdiOrbit.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\GdiOrbit.dll
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\ProcessViewer\ViewerPixelShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\ProcessViewer\ViewerPixelShader.cso
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\ProcessViewer\ViewerVertexShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\ProcessViewer\ViewerVertexShader.cso
+     Creating library Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\AVControlCamera.lib and object Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\AVControlCamera.exp
+  ProcessViewer.cpp
+  ViewerGpu.cpp
+  AVControlCamera.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\AVControlCamera.dll
+  compilation header save succeeded; see Z:\RxI19Final\.build\dependencies\DxUi\947bea9ce44d454b0f1a2f65c8ca9e3218d7a170a7721cb50ea04d67adbb0093\Intermediate\ARM64\ASan Debug\DxUi\DxUiCompositeVS.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\dependencies\DxUi\947bea9ce44d454b0f1a2f65c8ca9e3218d7a170a7721cb50ea04d67adbb0093\Intermediate\ARM64\ASan Debug\DxUi\DxUiCompositeVS.cso
+  compilation header save succeeded; see Z:\RxI19Final\.build\dependencies\DxUi\947bea9ce44d454b0f1a2f65c8ca9e3218d7a170a7721cb50ea04d67adbb0093\Intermediate\ARM64\ASan Debug\DxUi\DxUiCompositePS.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\dependencies\DxUi\947bea9ce44d454b0f1a2f65c8ca9e3218d7a170a7721cb50ea04d67adbb0093\Intermediate\ARM64\ASan Debug\DxUi\DxUiCompositePS.cso
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\StudioClock\StudioClockBackgroundPixelShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\StudioClock\StudioClockBackgroundPixelShader.cso
+  ControlCatalog.cpp
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\StudioClock\StudioClockBackgroundVertexShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\StudioClock\StudioClockBackgroundVertexShader.cso
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\StudioClock\StudioClockDotPixelShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\StudioClock\StudioClockDotPixelShader.cso
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\StudioClock\StudioClockDotVertexShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\StudioClock\StudioClockDotVertexShader.cso
+  StudioClock.cpp
+     Creating library Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\ProcessViewer.lib and object Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\ProcessViewer.exp
+  ProcessViewer.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\ProcessViewer.dll
+     Creating library Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\MatrixRain.lib and object Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\MatrixRain.exp
+     Creating library Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\StudioClock.lib and object Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\StudioClock.exp
+  MatrixRain.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\MatrixRain.dll
+  StudioClock.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\StudioClock.dll
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\DeskClock\DeskClockBackgroundPixelShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\DeskClock\DeskClockBackgroundPixelShader.cso
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\DeskClock\DeskClockBackgroundVertexShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\DeskClock\DeskClockBackgroundVertexShader.cso
+  Main.cpp
+  LocationPolicy.cpp
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\DeskClock\DeskClockPixelShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\DeskClock\DeskClockPixelShader.cso
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\DeskClock\DeskClockVertexShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\DeskClock\DeskClockVertexShader.cso
+  DeskClock.cpp
+  NativeMenuInterop.cpp
+     Creating library Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\DeskClock.lib and object Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\DeskClock.exp
+  DeskClock.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\DeskClock.dll
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\Launcher\LauncherPixelShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\Launcher\LauncherPixelShader.cso
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\Launcher\LauncherVertexShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\Launcher\LauncherVertexShader.cso
+  Launcher.cpp
+  Embedded.cpp
+     Creating library Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\Launcher.lib and object Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\Launcher.exp
+  Launcher.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\Launcher.dll
+  WeatherLocation.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\WeatherLocation.exe
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\Weather\WeatherPixelShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\Weather\WeatherPixelShader.cso
+  GpuQuery.cpp
+  NativeQuery.cpp
+  NetStorage.cpp
+  PowerSensors.cpp
+  SystemData.cpp
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\Weather\WeatherVertexShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\Weather\WeatherVertexShader.cso
+  Weather.cpp
+  WeatherGpu.cpp
+  WeatherHttp.cpp
+  WeatherModel.cpp
+  WeatherLocation.cpp
+  FrameRuntime.cpp
+  DxUi.Accessibility.cpp
+     Creating library Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\Weather.lib and object Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\Weather.exp
+  Weather.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\Weather.dll
+  SettingsTests.cpp
+  Settings.cpp
+  AVControlModel.cpp
+  SettingsV4.cpp
+  SettingsWatcher.cpp
+  SettingsTests.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\SettingsTests.exe
+  PluginContractTests.cpp
+  DxUi.ComboBox.cpp
+  PluginContractTests.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\PluginContractTests.exe
+  StudioClockTests.cpp
+     Creating library Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\SystemData.lib and object Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\SystemData.exp
+  SystemData.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\SystemData.dll
+  DeskClockTests.cpp
+  DxUi.Controls.cpp
+  StudioClockTests.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\StudioClockTests.exe
+  SystemDataPhase0.cpp
+  SystemDataPhase0Surfaces.cpp
+  DeskClockTests.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\DeskClockTests.exe
+  SystemDataTests.cpp
+  SystemDataPhase0.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\SystemDataPhase0.exe
+  WeatherTests.cpp
+  WeatherRegressionTests.cpp
+  WeatherLocationTests.cpp
+  LocationPolicy.cpp
+  WeatherModel.cpp
+  DxUi.cpp
+  SystemDataTests.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\SystemDataTests.exe
+  LauncherTests.cpp
+  WeatherTests.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\WeatherTests.exe
+  LauncherTests.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\LauncherTests.exe
+  DxUi.Grid.cpp
+  DxUi.Menu.cpp
+  DxUi.NativeTextInput.cpp
+  DxUi.PointerInput.cpp
+  DxUi.Scrollbar.cpp
+  DxUi.SingleLineTextEditing.cpp
+  DxUi.TextInput.cpp
+  DxUi.TextStoreACP.cpp
+  TextInputServices.cpp
+  TextClipboard.cpp
+  DxUi.Theme.cpp
+  DxUi.Tree.cpp
+  Generating Code...
+  Compiling...
+  DxUi.Typeahead.cpp
+  DxUi.WindowHost.cpp
+  Generating Code...
+  DxUi.vcxproj -> Z:\RxI19Final\.build\dependencies\DxUi\947bea9ce44d454b0f1a2f65c8ca9e3218d7a170a7721cb50ea04d67adbb0093\ARM64\ASan Debug\DxUi.lib
+  DxUi pin verified: ecad70704fd5e46672586ddbe4ddfeb5db01d1a4
+  AVControl.cpp
+  AVControlModel.cpp
+  AVControlLayout.cpp
+  AVControlView.cpp
+  ProfileControls.cpp
+  AVControlBroker.cpp
+  ProfileTransaction.cpp
+  Coordinator.cpp
+     Creating library Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\AVControl.lib and object Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\AVControl.exp
+  AVControl.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\Plugins\AVControl.dll
+  DxUi pin verified: ecad70704fd5e46672586ddbe4ddfeb5db01d1a4
+  DxUi pin verified: ecad70704fd5e46672586ddbe4ddfeb5db01d1a4
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\RedXe\HostChromePixelShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\RedXe\HostChromePixelShader.cso
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\RedXe\HostChromeVertexShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\RedXe\HostChromeVertexShader.cso
+  AVControlTests.cpp
+  Application.cpp
+  WidgetTextClient.cpp
+  AccessibilityHost.cpp
+  CrashHandler.cpp
+  PluginHost.cpp
+  ControlWorkQueueTests.cpp
+  NativeViewTests.cpp
+  TextTransportTests.cpp
+  WidgetTextClientTests.cpp
+  ControlWorkQueue.cpp
+  DashboardHost.cpp
+  AccessibilityHostTests.cpp
+  Main.cpp
+  PluginManager.cpp
+  AccessibilityHost.cpp
+  WidgetTextClient.cpp
+  Renderer.cpp
+  BrokerTests.cpp
+  HostChrome.cpp
+  Settings.cpp
+  ProfileTransactionTests.cpp
+  CoordinatorTests.cpp
+  InventorySelectionTests.cpp
+  AudioBackendTests.cpp
+  WindowsAudioBackend.cpp
+  AVControlModel.cpp
+  SettingsV4.cpp
+  AudioPolicy.cpp
+  ModuleTests.cpp
+  CameraMediaTests.cpp
+  CameraBridgeTests.cpp
+  CameraActivationTests.cpp
+  SettingsWatcher.cpp
+  CameraMediaSource.cpp
+  CameraFrameChannel.cpp
+  CameraBridge.cpp
+  CameraBridgeServer.cpp
+  CameraCapture.cpp
+  CameraController.cpp
+  ControlWorkQueue.cpp
+  AVControlModel.cpp
+  AVControlLayout.cpp
+  AVControlView.cpp
+  AVControlBroker.cpp
+  ProfileTransaction.cpp
+  ProfileControls.cpp
+  Coordinator.cpp
+  RedXe.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\RedXe.exe
+  AVControlTests.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\AVControlTests.exe
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\HostPluginTests\HostChromePixelShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\HostPluginTests\HostChromePixelShader.cso
+  compilation header save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\HostPluginTests\HostChromeVertexShader.h
+  compilation object save succeeded; see Z:\RxI19Final\.build\Intermediate\ARM64\ASan Debug\HostPluginTests\HostChromeVertexShader.cso
+  HostPluginTests.cpp
+  PluginHost.cpp
+  ControlWorkQueue.cpp
+  DashboardHost.cpp
+  PluginManager.cpp
+  Renderer.cpp
+  HostChrome.cpp
+  Settings.cpp
+  AVControlModel.cpp
+  SettingsV4.cpp
+  HostPluginTests.vcxproj -> Z:\RxI19Final\.build\ARM64\ASan Debug\HostPluginTests.exe
+
+Captured log: Z:\RxI19Final\.build\logs\redxe-build-20260913_023520_639-pid94612-730c4bbc.log
+Diagnostics: 0 warning(s), 0 error(s)
+DxUi pin verified: ecad70704fd5e46672586ddbe4ddfeb5db01d1a4
+DxUi module provenance: Z:\RxI19Final\.build\ARM64\ASan Debug\DxUi.provenance.json
+BUILD SIGNAL LOCKED in 00:01:08.371
+Ready: Z:\RxI19Final\.build\ARM64\ASan Debug\RedXe.exe

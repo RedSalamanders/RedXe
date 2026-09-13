@@ -1,0 +1,38 @@
+[
+  {
+    "file": "redxe-f727932-final-ARM64-Debug-build.log",
+    "source": "Z:\\RedSalamander.Perf\\evidence\\I19-20260909\\redxe-f727932-final-ARM64-Debug-build.log",
+    "bytes": 30986,
+    "sha256": "308178dd88d6d8001d0b29cf8e2abf98e379ab488191c5e6db9171887e98a528"
+  },
+  {
+    "file": "redxe-f727932-final-ARM64-Debug-provenance.json",
+    "source": "Z:\\RedSalamander.Perf\\evidence\\I19-20260909\\redxe-f727932-final-ARM64-Debug-provenance.json",
+    "bytes": 2096,
+    "sha256": "4e8f91dd8bbcdb6e1cd1b862d12b0784f186e5d6cd632d6db821699d00be9882"
+  },
+  {
+    "file": "redxe-f727932-final-ARM64-Release-build.log",
+    "source": "Z:\\RedSalamander.Perf\\evidence\\I19-20260909\\redxe-f727932-final-ARM64-Release-build.log",
+    "bytes": 18542,
+    "sha256": "9d5b56d5c0fc40545d91c71de626287959d648ec0e3ec2c361e915899d55988b"
+  },
+  {
+    "file": "redxe-f727932-final-ARM64-Release-provenance.json",
+    "source": "Z:\\RedSalamander.Perf\\evidence\\I19-20260909\\redxe-f727932-final-ARM64-Release-provenance.json",
+    "bytes": 2098,
+    "sha256": "eefa2295aeee87624ba06199d02d03d472e32918e1bfc38e902d765e6c9295d2"
+  },
+  {
+    "file": "redxe-f727932-final-ARM64-ASan-Debug-build.log",
+    "source": "Z:\\RedSalamander.Perf\\evidence\\I19-20260909\\redxe-f727932-final-ARM64-ASan-Debug-build.log",
+    "bytes": 18804,
+    "sha256": "cc68abf96f16b4c384b0fa164d20c730d4c4e142e0d5fdefdd3a6894af633dfb"
+  },
+  {
+    "file": "redxe-f727932-final-ARM64-ASan-Debug-provenance.json",
+    "source": "Z:\\RedSalamander.Perf\\evidence\\I19-20260909\\redxe-f727932-final-ARM64-ASan-Debug-provenance.json",
+    "bytes": 2101,
+    "sha256": "bcb38d65742f8cf7080cc16bbd7cfd996cd3af2c9fd1a51985c728b497f80268"
+  }
+]

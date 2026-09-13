@@ -19,6 +19,10 @@
   scenarios range from -1.76% to +0.17%. Surface storage and hidden work are unchanged. Raw receipts, A/A and B/B
   comparisons, the incomplete first attempt and its subsequent Debug rebuild are retained in
   [the local record](../../../Measurements/DxUiAdoption/2026-09-13/README.md).
+- [x] Cross-build frozen `f727932` locally in ARM64 Debug, Release and ASan Debug, with zero warnings
+  and errors. All three archive consumers per profile match their actual module bytes and DxUi pin.
+  Retain the [six build/provenance receipts](../../../Measurements/DxUiAdoption/2026-09-13/arm64-builds/README.md).
+  This qualifies the new fixture's compilation; native ARM64 runtime on this revision remains unverified.
 - [ ] Resolve performance acceptance: Release dirty composition still costs an extra 2.6–5.2 microseconds
   at 96 DPI in both pairs; other component timings and process memory vary. Developer advice on the measured
   tradeoffs is pending. No threshold or baseline is waived or replaced.
