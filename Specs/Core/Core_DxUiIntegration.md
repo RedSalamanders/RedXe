@@ -83,8 +83,10 @@ record. `Common/DxUiTextTransport.h` converts between those records and DxUi sna
 
 Synthetic host/plugin tests, WARP composition, and the relocated DxUi consumer check establish the pin and adapters.
 They do not establish a real IME session, a screen-reader pass, physical touch, displayed-frame resource acceptance,
-or AV hardware backends. Those remain AV release gates. Library matched-performance archives that flagged investigation
-bands stay open in the AV plan; they are not waived by this contract.
+or AV hardware backends. Those remain AV release gates. The user accepted the bounded I19
+offscreen adoption costs under the resource contract; original investigation-band failures
+remain evidence. That decision does not qualify the AV plan's broader real-client text/UIA,
+hardware or presented-frame resource gates.
 
 Native test executables run through the existing streaming-process runner, which captures standard output and
 standard error in per-executable logs alongside the build output. CI retains these logs on failure; a child test
