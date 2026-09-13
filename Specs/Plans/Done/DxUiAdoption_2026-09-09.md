@@ -1,6 +1,45 @@
 # DxUi adoption and build matrix (I19 consumer slice)
 
+## Completion checklist
+
+Status: **DONE, 2026-09-13**, for the implemented consumer adoption and accepted local
+qualification scope. ARM64 and ASan follow-up is explicitly deferred by the user;
+AV hardware and real-client acceptance retain their existing AV owner.
+
+- [x] Consume canonical `DxUi.lib` through exact-pin restore and isolated build imports.
+- [x] Preserve Slider behavior, host scheduling and module-local C++ ownership across the COM/POD ABI.
+- [x] Support Debug, Release and ASan Debug for x64/ARM64; retain historical build/runtime receipts.
+- [x] Pass the corrected local x64 product suites and module-provenance checks.
+- [x] Retain the prior package and successful rollback smoke.
+- [x] Implement advisory updates and the manual upgrade/fix/retest loop, using public dependency access.
+- [x] Retain matched resources and the user's explicit acceptance on 2026-09-13.
+  Release dirty composition adds 2.6-5.2 microseconds at 96 DPI; completed throughput
+  varies from -1.76% to +0.17%. Surface/hidden-work budgets and all thresholds stay unchanged.
+- [x] Persist the accepted trade-off and remaining capability boundaries in the integration/resource contracts.
+- [x] Transfer further ARM64 and ASan qualification to the user-owned cross-product follow-up,
+  `Specs/Plans/WIP/DxUi_DeferredPlatformQualification_2026-09-13.md` in RedSalamander.
+- [x] Review end-user documentation: this closeout changes dependency, validation and governance
+  records only; it introduces no new visible user flow or gallery change.
+
+The native source tested locally is `f727932`; the selected library pin is `ecad707`.
+The current documentation closeout changes no compiled inputs. No hosted CI is used.
+Publishing/merging a consumer release remains a separate action; this record does not
+claim that RedSalamander's ongoing final Full suite or product merge is complete.
+
+## Historical implementation and qualification record
+
+The dated progress below is retained as history. Former open wording is superseded
+by the completion scope above and the current domain contracts.
+
 ## Progress checklist
+
+Current closeout scope (2026-09-13): the user deferred ARM64 and ASan to later
+personal qualification and requested completion of the remaining I19 work.
+RedSalamander owns the cross-product deferral in
+`Specs/Plans/WIP/DxUi_DeferredPlatformQualification_2026-09-13.md`.
+Existing RedXe x64 product and paired resource evidence remains applicable;
+no new native code is changed by this documentation closeout.
+The measured resource trade-off has been presented for the remaining developer decision.
 
 - [x] Candidate at DxUi ecad707 passes all three local x64 product suites with zero warnings/errors.
 - [x] Reproduce and fix the cumulative Process Viewer diagnostic assertion exposed in duplicate native CI. Repeating the lifecycle case fails before the fixture correction and the full Debug suite passes afterward; production behavior is unchanged.
@@ -41,7 +80,7 @@
 - [ ] Paired product resource acceptance remains open.
 - [ ] Normative specs, user-facing compatibility notes and I19 checklist reconciled.
 
-Status: ACTIVE. Implements RedXe's C1/C3/C6 slice of RedSalamander I19, authorized 2026-09-09.
+Historical status: ACTIVE. Implements RedXe's C1/C3/C6 slice of RedSalamander I19, authorized 2026-09-09.
 The cross-repository checklist remains in RedSalamander's
 `Specs/Plans/WIP/DxUi_SharedLibraryAdoptionAndReleasePlan_2026-09-09.md`.
 Owning contracts: [DxUi integration](../../Core/Core_DxUiIntegration.md),

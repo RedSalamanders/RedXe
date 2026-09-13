@@ -294,6 +294,17 @@ observable resource benefit are not required.
 
 ## Required validation
 
+The user accepted the I19 static-library adoption trade-off on 2026-09-13.
+The [matched AV record](../../Measurements/DxUiAdoption/2026-09-13/README.md) is the
+accepted measured envelope: Release dirty composition adds 2.6-5.2 microseconds at
+96 DPI, while completed offscreen throughput across the Release scenarios ranges
+from -1.76% to +0.17%. Surface storage and hidden work remain unchanged. The cost is
+accepted for the canonical library and corrected module ownership; it is not a
+zero-regression claim or permission for further growth. Preserve the original
+comparisons and baseline variation, and retain existing thresholds. Hardware AV,
+presented-frame latency, real-client accessibility and long-run memory acceptance
+remain with the AV owner.
+
 - `measure-av-views.ps1` measures the production AV `LiveView` with a shared WARP device, synthetic model,
   640×360 tile and 1280×720 overlay at 96/144/192 DPI. Each clean/dirty scenario has 120 warm-up frames
   and five rounds of 600 completed frames. Report preparation and CPU composition p95 separately from

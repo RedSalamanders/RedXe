@@ -7,7 +7,7 @@ This contract owns how RedXe consumes the standalone DxUi library: the exact sou
 which process modules link `DxUi.lib`, and the COM/POD boundary that keeps DxUi C++ objects inside those modules.
 Library behavior remains in DxUi's own contracts. AV audio/camera backends, real IME/touch/screen-reader acceptance,
 and matched text/UIA performance remain in [`Plugins_AVControl.md`](../Plugins/Plugins_AVControl.md) and the active
-[AV plan](../Plans/WIP/RFC_Plugins_AVControl.md). RedSalamander migration is owned by its active I19 plan.
+[AV plan](../Plans/WIP/RFC_Plugins_AVControl.md). RedSalamander owns its I19 migration and release decision.
 
 ## Pin and restore
 
@@ -57,7 +57,10 @@ building. Clean runners require no developer-specific Codex installation or home
 Rollback reverts the complete product adoption change, including adapter/build changes, and rebuilds/tests that
 previous source revision. Retain the previously qualified product package; a pin-only edit cannot restore an older
 library that predates required integration helpers. Current candidate qualification and rollback evidence are tracked
-in the [adoption plan](../Plans/WIP/DxUiAdoption_2026-09-09.md).
+in the [completed adoption record](../Plans/Done/DxUiAdoption_2026-09-09.md).
+The user deferred further ARM64 and ASan qualification on 2026-09-13; the cross-product
+follow-up is `Specs/Plans/WIP/DxUi_DeferredPlatformQualification_2026-09-13.md` in
+RedSalamander. That deferral is not a runtime pass or a change to the supported matrix.
 
 ## Module ownership
 
