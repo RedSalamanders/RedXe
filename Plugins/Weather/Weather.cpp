@@ -338,9 +338,38 @@ void DrawNoticeBanner(WeatherGpuResources& resources, WeatherDrawList& list, flo
     else
         DrawConditionIcon(resources, list, badgeX, badgeY, badge, condition, onBadge);
     const float textX = badgeX + badge + 14.0f;
+    const float textW = std::max(1.0f, left + width - textX - 14.0f);
     const float textH = std::min(height - 12.0f, width >= 400.0f ? 36.0f : 28.0f);
-    AppendTextFit(resources, list, textX, y + (height - textH) * 0.5f, std::max(1.0f, left + width - textX - 14.0f),
-                  textH, text, 1.0f, 1.0f, 1.0f, 1.0f);
+    const uint32_t count = WideCount(text);
+    if (resources.MeasureText(text, count, textH) <= textW + 0.05f)
+    {
+        AppendTextFit(resources, list, textX, y + (height - textH) * 0.5f, textW, textH, text, 1.0f, 1.0f, 1.0f, 1.0f);
+        return;
+    }
+    // A message that does not fit one line wraps once at a word boundary before the tail is ellipsized.
+    constexpr float lineGap = 2.0f;
+    const float lineH = std::min(textH, (height - 8.0f - lineGap) * 0.5f);
+    uint32_t split = 0;
+    if (lineH >= 18.0f)
+    {
+        for (uint32_t index = 1; index + 1 < count; ++index)
+        {
+            if (text[index] != L' ')
+                continue;
+            if (resources.MeasureText(text, index, lineH) > textW + 0.05f)
+                break;
+            split = index;
+        }
+    }
+    if (split == 0)
+    {
+        AppendTextFit(resources, list, textX, y + (height - textH) * 0.5f, textW, textH, text, 1.0f, 1.0f, 1.0f, 1.0f);
+        return;
+    }
+    const float top = y + (height - 2.0f * lineH - lineGap) * 0.5f;
+    AppendTextLeft(resources, list, textX, top, lineH, 1.0f, 1.0f, 1.0f, 1.0f, text, split);
+    AppendTextFit(resources, list, textX, top + lineH + lineGap, textW, lineH, text + split + 1, 1.0f, 1.0f, 1.0f,
+                  1.0f);
 }
 
 void ReportStatus(IRedXeHost* host, const char* instanceId, uint32_t status, const wchar_t* reason) noexcept
@@ -1093,7 +1122,7 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         }
         y += metaH + 6.0f;
         constexpr float footerH = 18.0f;
-        const float contentBottom = bottom - footerH - 8.0f;
+        const float contentBottom = bottom - footerH - 12.0f;
         constexpr uint64_t hourTicks = 36000000000ULL;
         std::array<uint32_t, kWeatherHourlyCount> upcoming{};
         uint32_t upcomingCount = 0;
@@ -1101,9 +1130,17 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
             if (snapshot.hourly[index].timeFileTime100ns + hourTicks > now &&
                 snapshot.hourly[index].timeFileTime100ns < now + 24 * hourTicks)
                 upcoming[upcomingCount++] = index;
-        constexpr float hourlyHeight = 132.0f;
-        constexpr float hoursBlock = hourlyHeight;
+        // Block sizes below are the 1.0 stretch. Leftover height grows the hourly body (bounded by its column width
+        // so every temperature stays complete) and then the day rows, instead of leaving the tile bottom empty.
+        constexpr float hoursHeadingH = 26.0f;
+        constexpr float hoursBodyH = 106.0f;
+        constexpr float hoursBlock = hoursHeadingH + hoursBodyH;
+        constexpr float hoursColumnMin = 76.0f;
+        constexpr float daysHeadingH = 28.0f;
+        constexpr float maxStretch = 1.5f;
         const bool canHours = upcomingCount > 0 && available >= 210.0f;
+        const uint32_t columnsFit = std::max(
+            1u, std::min({std::max(1u, upcomingCount), 12U, static_cast<uint32_t>(available / hoursColumnMin)}));
         uint32_t eligibleDays = 0;
         for (uint32_t index = 0; index < snapshot.dailyCount; ++index)
         {
@@ -1111,8 +1148,7 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
             if (day.dayFileTime100ns > now && !WeatherSameLocalDay(day.dayFileTime100ns, now))
                 ++eligibleDays;
         }
-        const float rowH = width >= 400.0f ? 32.0f : 30.0f;
-        const uint32_t dayCap = raised ? 8U : 5U;
+        const float rowBaseH = width >= 400.0f ? 32.0f : 30.0f;
         const bool haveAlert = snapshot.alertCount > 0;
         uint32_t noticeHour = 0;
         const bool haveNoticeHour = WeatherSelectPrecipitationNotice(snapshot, now, noticeHour);
@@ -1131,14 +1167,28 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         const float noticeMinCost = static_cast<float>(noticeRows) * (noticeMin + noticeGap);
         const bool showHours = canHours && leftover - noticeMinCost >= hoursBlock;
         const float hoursCost = showHours ? hoursBlock : 0.0f;
-        float dayBudget = leftover - noticeMinCost - hoursCost;
+        const float dayBudget = leftover - noticeMinCost - hoursCost;
         uint32_t daysFit = 0;
-        if (dayBudget >= 28.0f + rowH)
-            daysFit = std::min(dayCap, static_cast<uint32_t>((dayBudget - 28.0f) / rowH));
-        const float daysCost = daysFit > 0 ? 28.0f + static_cast<float>(daysFit) * rowH : 0.0f;
-        const float slack = std::max(0.0f, leftover - noticeMinCost - hoursCost - daysCost);
-        const float extraNotice = noticeRows > 0 ? slack / static_cast<float>(noticeRows) : 0.0f;
-        const float noticeH = std::min(noticeMax, noticeMin + extraNotice);
+        if (dayBudget >= daysHeadingH + rowBaseH)
+            daysFit = std::min(eligibleDays, static_cast<uint32_t>((dayBudget - daysHeadingH) / rowBaseH));
+        const float daysCost = daysFit > 0 ? daysHeadingH + static_cast<float>(daysFit) * rowBaseH : 0.0f;
+        float slack = std::max(0.0f, leftover - noticeMinCost - hoursCost - daysCost);
+        const float extraNotice =
+            noticeRows > 0 ? std::min(noticeMax - noticeMin, slack / static_cast<float>(noticeRows)) : 0.0f;
+        const float noticeH = noticeMin + extraNotice;
+        slack -= extraNotice * static_cast<float>(noticeRows);
+        float hoursStretch = 1.0f;
+        if (showHours)
+        {
+            const float columnWidth = available / static_cast<float>(columnsFit);
+            hoursStretch =
+                std::clamp(std::min(1.0f + slack / hoursBodyH, columnWidth / hoursColumnMin), 1.0f, maxStretch);
+            slack -= (hoursStretch - 1.0f) * hoursBodyH;
+        }
+        float rowStretch = 1.0f;
+        if (daysFit > 0)
+            rowStretch = std::clamp(1.0f + slack / (static_cast<float>(daysFit) * rowBaseH), 1.0f, maxStretch);
+        const float rowH = rowBaseH * rowStretch;
         if (haveAlert && leftover >= noticeMin)
         {
             DrawNoticeBanner(resources, list, left, y, available, noticeH, alertColor, WeatherCondition::Unknown, true,
@@ -1158,9 +1208,8 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         if (showHours)
         {
             AppendTextFit(resources, list, left, y, available, 22.0f, L"Upcoming hours", 0.65f);
-            y += 26.0f;
-            const uint32_t columnsFit =
-                std::max(1u, std::min({upcomingCount, 12U, static_cast<uint32_t>(available / 76.0f)}));
+            y += hoursHeadingH;
+            const float s = hoursStretch;
             hourPages = (upcomingCount + columnsFit - 1) / columnsFit;
             uint32_t page = _overflowPage.load(std::memory_order_relaxed);
             if (hourPages > 1)
@@ -1192,10 +1241,11 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
                     AppendTextFit(resources, list, x + std::max(0.0f, (columnWidth - measured) * 0.5f), textY,
                                   std::min(columnWidth, measured), size, text, alpha);
                 };
-                centered(time.data(), y, 22.0f, 0.75f);
-                DrawConditionIcon(resources, list, x + (columnWidth - 34.0f) * 0.5f, y + 24.0f, 34.0f, hour.condition,
-                                  MixIconColor(hour.condition));
-                centered(value.data(), y + 60.0f, 27.0f, 1.0f);
+                centered(time.data(), y, 22.0f * s, 0.75f);
+                const float hourIcon = 34.0f * s;
+                DrawConditionIcon(resources, list, x + (columnWidth - hourIcon) * 0.5f, y + 24.0f * s, hourIcon,
+                                  hour.condition, MixIconColor(hour.condition));
+                centered(value.data(), y + 60.0f * s, 27.0f * s, 1.0f);
                 if (hour.hasPrecipitation && hour.precipitationMillimeters > 0.0f)
                 {
                     if (hour.precipitationMillimeters < 0.1f)
@@ -1203,20 +1253,20 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
                     else
                         (void)swprintf_s(amount.data(), amount.size(), L"%.1f mm",
                                          static_cast<double>(hour.precipitationMillimeters));
-                    centered(amount.data(), y + 87.0f, 18.0f, 0.65f);
+                    centered(amount.data(), y + 87.0f * s, 18.0f * s, 0.65f);
                 }
             }
             gLastHourlyDrawn.store(columns, std::memory_order_relaxed);
-            y += hourlyHeight - 26.0f;
+            y += hoursBodyH * s;
         }
 
         const float rowText = rowH - 6.0f;
         uint32_t drawn = 0;
         bool heading = false;
         uint32_t skipped = 0;
-        if (hourPages <= 1)
+        if (hourPages <= 1 && daysFit > 0)
         {
-            const uint32_t dayPages = eligibleDays == 0 ? 1u : (eligibleDays + dayCap - 1) / dayCap;
+            const uint32_t dayPages = (eligibleDays + daysFit - 1) / daysFit;
             uint32_t page = _overflowPage.load(std::memory_order_relaxed);
             if (page >= dayPages)
             {
@@ -1225,22 +1275,22 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
             }
             _pageCount.store((std::max)(_pageCount.load(std::memory_order_relaxed), dayPages),
                              std::memory_order_relaxed);
-            skipped = page * dayCap;
+            skipped = page * daysFit;
         }
         uint32_t seenEligible = 0;
-        for (uint32_t index = 0; index < snapshot.dailyCount && drawn < dayCap; ++index)
+        for (uint32_t index = 0; index < snapshot.dailyCount && drawn < daysFit; ++index)
         {
             const auto& day = snapshot.daily[index];
             if (day.dayFileTime100ns <= now || WeatherSameLocalDay(day.dayFileTime100ns, now))
                 continue;
             if (seenEligible++ < skipped)
                 continue;
-            if (contentBottom - y < rowH + (heading ? 0.0f : 28.0f))
+            if (contentBottom - y < rowH + (heading ? 0.0f : daysHeadingH) - 0.5f)
                 break;
             if (!heading)
             {
                 AppendTextFit(resources, list, left, y, available, 22.0f, L"Next days", 0.65f);
-                y += 28.0f;
+                y += daysHeadingH;
                 heading = true;
             }
             std::array<wchar_t, 32> label{};

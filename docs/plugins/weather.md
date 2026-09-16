@@ -14,7 +14,7 @@ A non-empty `location` always wins. City names are looked up once; `lat,lon` is 
 
 An empty `location` may use a one-shot Windows location helper. That helper never shows a permission prompt or changes Windows settings. If every source fails, set a city yourself.
 
-The chosen city (or coordinates) is saved for later runs. Hours or days that do not fit show `+N` at the bottom right; swipe or scroll to see them. Double-click or double-tap raises the widget for a taller daily list.
+The chosen city (or coordinates) is saved for later runs. The tile fills its height: as many upcoming days as fit are listed, and on a larger tile the hourly strip and the day rows grow with the space. Hours or days that still do not fit show `+N` at the bottom right; swipe or scroll to see them. Double-click or double-tap raises the widget for a taller daily list.
 
 ## Parameters
 
