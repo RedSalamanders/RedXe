@@ -188,6 +188,8 @@ class WeatherGpuResources final
 void WeatherGpuRelease() noexcept;
 // Hero glyphs whose kWeatherIconCell twin linked in the shared atlas; test diagnostics only.
 [[nodiscard]] uint32_t WeatherGpuHeroTwinCount() noexcept;
+// kWeatherIconGlyphs entries that own both a 48 px cell and a 96 px twin in the shared atlas; test diagnostics only.
+[[nodiscard]] uint32_t WeatherGpuIconCellCount() noexcept;
 // Worker callers hold WeatherGpuLock across the instance ownership check, this lookup, and resource use.
 [[nodiscard]] WeatherGpuResources* WeatherGpuGet() noexcept;
 void WeatherGpuLock() noexcept;

@@ -1,6 +1,7 @@
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"
 #include "WeatherGpu.h"
+#include "WeatherIcons.h"
 #include "WeatherModel.h"
 #include "WeatherTestContract.h"
 
@@ -348,6 +349,8 @@ HRESULT RenderTests(HMODULE module, RedXeCreateFn create, uint64_t now, bool str
         WeatherTestDiagnostics atlas{sizeof(atlas)};
         CHECK(diagnostics(&atlas) == S_OK);
         CHECK(atlas.heroTwinCells == static_cast<uint32_t>(std::size(kWeatherHeroGlyphs)));
+        // Every catalogued Weather Icons glyph owns its 48 px cell and 96 px twin, so no icon falls back to text.
+        CHECK(atlas.iconCells == static_cast<uint32_t>(std::size(kWeatherIconGlyphs)));
     }
     const auto detach = wil::scope_exit(
         [&]() noexcept
@@ -360,16 +363,33 @@ HRESULT RenderTests(HMODULE module, RedXeCreateFn create, uint64_t now, bool str
         uint32_t width, height;
         bool raised;
         const wchar_t* file;
+        bool alert = false;
     };
     constexpr Size sizes[]{{766, 622, false, L"Weather-standard.png"},
                            {160, 72, false, L"Weather-tiny.png"},
                            {320, 180, false, L"Weather-compact.png"},
                            {280, 500, false, L"Weather-narrow.png"},
+                           {510, 703, false, L"Weather-portrait.png"},
                            {1200, 800, true, L"Weather-raised.png"},
                            {400, 240, false, nullptr},
-                           {960, 540, false, nullptr}};
+                           {960, 540, false, nullptr},
+                           {766, 622, false, L"Weather-alert.png", true}};
+    // An authority alert paints the severity banner with the storm-warning mark; applied last so the earlier layouts
+    // keep the forecast notice alone.
+    constexpr char alerts[] =
+        R"({"warnings":[{"headline":"Orange warning for wind","awareness_level":"3; orange; Moderate","onset":"2026-09-05T06:00:00Z","expires":"2026-09-06T06:00:00Z"}]})";
+    WeatherTestSnapshot alerted = snapshot;
+    alerted.meteoAlarmJson = alerts;
+    alerted.meteoAlarmBytes = static_cast<uint32_t>(std::strlen(alerts));
     for (const auto& size : sizes)
     {
+        if (size.alert)
+        {
+            if (stress)
+                continue;
+            CHECK(fixture(&alerted) == S_OK);
+            CHECK(network->RunNetworkWork(cancel.get(), &delay) == S_OK);
+        }
         const RedXeGpuTargetSizeContext targetSize{sizeof(targetSize), size.width, size.height, 144};
         CHECK(gpu->OnTargetSizeChanged(&targetSize) == S_OK);
         CHECK(raised->SetRaised(size.raised) == S_OK);
@@ -415,8 +435,14 @@ HRESULT RenderTests(HMODULE module, RedXeCreateFn create, uint64_t now, bool str
                       stress ? (size.width == 766 ? L"Weather-long-location.png" : nullptr) : size.file) == S_OK);
         if (size.width >= 700 && size.height >= 500)
             CHECK(info.hourlyDrawn >= 8 && info.dailyDrawn >= 2 && info.precipitationNotice);
-        if (size.width == 766)
+        if (size.width == 766 && !size.alert)
             CHECK(info.dailyDrawn >= 4);
+        if (size.alert)
+            CHECK(info.alertCount == 1);
+        if (size.width == 510) // Portrait tile: day rows use the leftover height instead of a fixed five-row cap.
+            CHECK(info.hourlyDrawn == 6 && info.dailyDrawn >= 7);
+        if (size.raised)
+            CHECK(info.dailyDrawn == 8);
         if (size.width == 160)
             CHECK(info.hourlyDrawn == 0 && info.dailyDrawn == 0);
     }

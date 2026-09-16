@@ -15,7 +15,8 @@ inline constexpr wchar_t kWeatherIconFog = 0xF014;
 inline constexpr wchar_t kWeatherIconStrongWind = 0xF050;
 inline constexpr wchar_t kWeatherIconSunrise = 0xF051;
 inline constexpr wchar_t kWeatherIconSunset = 0xF052;
-inline constexpr wchar_t kWeatherIconStormWarning = 0xF0F0;
+// wi-storm-warning flag. The bundled 2.0.10 cmap ends at U+F0EB; the storm-warning entry is U+F0CE, not U+F0F0.
+inline constexpr wchar_t kWeatherIconStormWarning = 0xF0CE;
 inline constexpr wchar_t kWeatherIconNa = 0xF07B;
 
 inline constexpr wchar_t kWeatherIconGlyphs[] = {

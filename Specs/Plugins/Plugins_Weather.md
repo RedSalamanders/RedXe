@@ -1,7 +1,7 @@
 # Weather widget
 
 Status: current normative product contract
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-16
 Owner: `Plugins/Weather`, `Plugins/WeatherLocation`, and `Tests/WeatherTests`
 
 The native ABI and host services are owned by `Plugins_API.md`. Resource requirements remain owned by
@@ -72,12 +72,19 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
   current-condition icon is a sharp ~80 px mark from a 96 px atlas cell, not stretched across the leftover band.
   Today and wind follow. Measured columns stay within the tile; long labels end in an ellipsis without cutting glyphs.
   Tiny tiles prioritize temperature/condition.
-- Upcoming hours use available width for up to 12 chronological columns: time/Now, condition, temperature, and supplied
-  positive precipitation. Only unexpired intervals starting within 24 hours qualify. Add the strip when at least
-  210 px width and 132 px height remain. Future-day rows use remaining space, up to five normally/eight raised.
-  Hours or days that do not fit draw a bottom-right `+N` count; one-finger swipe or wheel pages them. The widget
-  exposes `IRedXeInteractiveWidget` for that paging and returns `S_FALSE` on Down so raise still works.
-  Reserve attribution space and omit unavailable/non-fitting content without shrinking body type below its floor.
+- Upcoming hours use available width for up to 12 chronological columns of at least 76 px: time/Now, condition,
+  temperature, and supplied positive precipitation. Only unexpired intervals starting within 24 hours qualify. Add
+  the strip when at least 210 px width and 132 px height remain. Future-day rows then take every complete row that
+  fits, up to all eligible days. Hours or days that do not fit draw a bottom-right `+N` count; one-finger swipe or
+  wheel pages them, using the fitted row count as the day page size. The widget exposes `IRedXeInteractiveWidget`
+  for that paging and returns `S_FALSE` on Down so raise still works.
+- Height left after the notices, the hour strip and the day rows MUST NOT stay empty above the attribution: notices
+  grow to their 64 px maximum first, then the hour body (time, icon, temperature, amount) scales up uniformly to at
+  most 1.5x and never beyond its column width divided by 76 px so every temperature stays complete, then the day rows
+  scale their height, text and icon the same way to at most 1.5x. Base sizes are the floor; nothing shrinks below
+  them. Reserve attribution space and omit unavailable/non-fitting content without shrinking body type below its
+  floor. A notice or alert title that does not fit one line wraps once at a word boundary (when two lines of at
+  least 18 px fit the banner) before the tail is ellipsized.
 - A separate notice selects the earliest unexpired wet hourly interval starting within 12 hours. Preserve snow,
   sleet and thunder names. Use `Rain expected around HH:MM` or `Snow forecast this hour`, never precise nowcasting.
   Explicit zero amount suppresses a wet symbol; missing amounts may use the symbol. Stale snapshots/expired periods
@@ -92,7 +99,9 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
   `C`, `F`) also own a 96 px twin cell in the atlas's reserved bottom rows; drawing switches to the twin above ~1.1x
   the small cell so the hero temperature is as sharp as the icon beside it. A text twin is an exact 2x raster that
   reuses the small cell's normalized advance and ink, so measurement never depends on which cell draws; a twin whose
-  ink does not fit that rectangle is skipped rather than clipped. WeatherTests verify every hero glyph links its twin.
+  ink does not fit that rectangle is skipped rather than clipped. WeatherTests verify every hero glyph links its twin
+  and every catalogued Weather Icons code point owns both cells, so no icon (including the alert badge's
+  `wi-storm-warning` mark) falls back to text.
 
 ## Status and color
 
@@ -124,7 +133,7 @@ Nominatim, MeteoAlarm, or NWS calls are manual-only and MUST NOT be a CI pass co
 snapshot reports `Degraded` and keeps the temperature, while a widget that never drew reports `Unavailable`.
 HostPluginTests MUST prove the network lane: offline activation never calls `RunNetworkWork` and starts no thread,
 deactivation cancels and drains an in-flight call, and disabling access joins the worker.
-WARP must render production tiny/compact/narrow/
-standard/raised layouts, Fahrenheit and long accented names. Readback must contain lit pixels and submitted quads
-must fit the tile. Debug steady renders allocate nothing. Save PNG previews under `.build/` for inspection. Run Debug
+WARP must render production tiny/compact/narrow/portrait (510x703)/standard/raised layouts, Fahrenheit, long accented
+names, and a standard layout with an authority alert banner. Readback must contain lit pixels and submitted quads must
+fit the tile. Debug steady renders allocate nothing. Save PNG previews under `.build/` for inspection. Run Debug
 and Release x64 `test.ps1 -Rebuild`, an ARM64 build, formatting and skill validation before closeout.

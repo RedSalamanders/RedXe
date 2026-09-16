@@ -1528,6 +1528,7 @@ extern "C" HRESULT __stdcall RedXeWeatherGetTestDiagnostics(WeatherTestDiagnosti
     diagnostics->precipitationNotice = gLastPrecipitationNotice.load(std::memory_order_relaxed);
     diagnostics->locationHelperRuns = gLocationHelperRuns.load(std::memory_order_relaxed);
     diagnostics->heroTwinCells = WeatherGpuHeroTwinCount();
+    diagnostics->iconCells = WeatherGpuIconCellCount();
     diagnostics->lastTemperatureCelsius = gLastTemperature.load(std::memory_order_relaxed);
     AcquireSRWLockShared(&gLastLocationLock);
     WeatherCopyWide(gLastLocation.data(), diagnostics->lastLocation, 64);

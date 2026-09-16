@@ -26,6 +26,7 @@ struct WeatherTestDiagnostics final
     BOOL precipitationNotice;
     uint32_t locationHelperRuns;
     uint32_t heroTwinCells;
+    uint32_t iconCells;
 };
 
 struct WeatherTestSnapshot final

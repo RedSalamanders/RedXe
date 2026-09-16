@@ -49,6 +49,7 @@ std::atomic<uint32_t> g_mapCount{0};
 std::atomic<uint32_t> g_drawCount{0};
 std::atomic<uint32_t> g_typographyCount{0};
 std::atomic<uint32_t> g_heroTwinCount{0};
+std::atomic<uint32_t> g_iconCellCount{0};
 
 [[nodiscard]] HRESULT CreateWeatherFontFace(IDWriteFactory& factory,
                                             wil::com_ptr_nothrow<IDWriteFontFace>& face) noexcept
@@ -593,6 +594,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
         place(slot, atlasX, atlasY, kWeatherGlyphCell);
         ++_glyphCount;
     }
+    uint32_t iconCells = 0;
     uint32_t largeIndex = 0;
     const auto largeCellOrigin = [](uint32_t index, uint32_t& x, uint32_t& y) noexcept
     {
@@ -646,6 +648,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
                     place(largeSlot, largeX, largeY, kWeatherIconCell);
                     _glyphLarge[slot] = static_cast<uint16_t>(largeSlot);
                     ++_glyphCount;
+                    ++iconCells;
                 }
             }
         }
@@ -690,6 +693,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
         ++heroLinked;
     }
     g_heroTwinCount.store(heroLinked, std::memory_order_relaxed);
+    g_iconCellCount.store(iconCells, std::memory_order_relaxed);
     _staticGlyphCount = _glyphCount;
     _dynamicCursor = _glyphCount;
     _atlasDirty = true;
@@ -1007,6 +1011,11 @@ void WeatherGpuRelease() noexcept
 uint32_t WeatherGpuHeroTwinCount() noexcept
 {
     return g_heroTwinCount.load(std::memory_order_relaxed);
+}
+
+uint32_t WeatherGpuIconCellCount() noexcept
+{
+    return g_iconCellCount.load(std::memory_order_relaxed);
 }
 
 WeatherGpuResources* WeatherGpuGet() noexcept
