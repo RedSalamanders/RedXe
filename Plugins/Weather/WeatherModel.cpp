@@ -271,6 +271,14 @@ WeatherAlertRegion WeatherAlertRegionFromCountry(std::string_view countryCode) n
     {
         return WeatherAlertRegion::UnitedStates;
     }
+    if (EqualsIgnoreCase(countryCode, "CA"))
+    {
+        return WeatherAlertRegion::Canada;
+    }
+    if (EqualsIgnoreCase(countryCode, "HK"))
+    {
+        return WeatherAlertRegion::HongKong;
+    }
     for (const char (&code)[3] : kEuropeIso2)
     {
         if (EqualsIgnoreCase(countryCode, code))
@@ -652,6 +660,7 @@ HRESULT WeatherParseMeteoAlarm(std::string_view json, WeatherSnapshot& snapshot)
         return S_FALSE;
     }
     snapshot.alertCount = 0;
+    snapshot.alertProvider = WeatherAlertProvider::MeteoAlarm;
     const size_t count = yyjson_arr_size(warnings);
     for (size_t index = 0; index < count && snapshot.alertCount < snapshot.alerts.size(); ++index)
     {
@@ -701,6 +710,7 @@ HRESULT WeatherParseNwsAlerts(std::string_view json, WeatherSnapshot& snapshot) 
         return S_FALSE;
     }
     snapshot.alertCount = 0;
+    snapshot.alertProvider = WeatherAlertProvider::NationalWeatherService;
     const size_t count = yyjson_arr_size(features);
     for (size_t index = 0; index < count && snapshot.alertCount < snapshot.alerts.size(); ++index)
     {
@@ -730,6 +740,280 @@ HRESULT WeatherParseNwsAlerts(std::string_view json, WeatherSnapshot& snapshot) 
                  SeverityFromText(JsonString(yyjson_obj_get(properties, "severity"))), start, expiry);
     }
     return S_OK;
+}
+
+namespace
+{
+[[nodiscard]] bool ContainsIgnoreCase(std::string_view text, std::string_view needle) noexcept
+{
+    if (needle.empty() || text.size() < needle.size())
+    {
+        return false;
+    }
+    for (size_t offset = 0; offset + needle.size() <= text.size(); ++offset)
+    {
+        if (EqualsIgnoreCase(text.substr(offset, needle.size()), needle))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// ECCC classifies by alert_type (warning, watch, advisory, statement); risk-based products also carry a colour.
+[[nodiscard]] WeatherAlertSeverity EnvironmentCanadaSeverity(std::string_view riskColour, std::string_view alertType,
+                                                             std::string_view alertName) noexcept
+{
+    if (!riskColour.empty())
+    {
+        return SeverityFromText(riskColour);
+    }
+    if (EqualsIgnoreCase(alertType, "warning"))
+    {
+        return ContainsIgnoreCase(alertName, "tornado") ? WeatherAlertSeverity::Red : WeatherAlertSeverity::Orange;
+    }
+    if (alertType.empty())
+    {
+        return WeatherAlertSeverity::None;
+    }
+    return WeatherAlertSeverity::Yellow;
+}
+
+// Hong Kong Observatory statement codes. Signals that stop work or transport (No. 8 and above, black rain, tsunami)
+// are red; the next tier down (No. 3, red rain, landslip, flooding, red fire) is orange; the rest are yellow.
+[[nodiscard]] WeatherAlertSeverity HongKongSeverity(std::string_view code) noexcept
+{
+    if (code.empty())
+    {
+        return WeatherAlertSeverity::None;
+    }
+    if (EqualsIgnoreCase(code, "WRAINB") || EqualsIgnoreCase(code, "WTMW") || EqualsIgnoreCase(code, "TC9") ||
+        EqualsIgnoreCase(code, "TC10") || (code.size() >= 3 && EqualsIgnoreCase(code.substr(0, 3), "TC8")))
+    {
+        return WeatherAlertSeverity::Red;
+    }
+    if (EqualsIgnoreCase(code, "WRAINR") || EqualsIgnoreCase(code, "TC3") || EqualsIgnoreCase(code, "WL") ||
+        EqualsIgnoreCase(code, "WFNTSA") || EqualsIgnoreCase(code, "WFIRER"))
+    {
+        return WeatherAlertSeverity::Orange;
+    }
+    return WeatherAlertSeverity::Yellow;
+}
+
+// The summary names generic statements ("Rainstorm Warning Signal"); the code carries the tier the banner must show.
+[[nodiscard]] std::string_view HongKongTitle(std::string_view code, std::string_view name) noexcept
+{
+    if (EqualsIgnoreCase(code, "WRAINA"))
+        return "Amber Rainstorm Warning";
+    if (EqualsIgnoreCase(code, "WRAINR"))
+        return "Red Rainstorm Warning";
+    if (EqualsIgnoreCase(code, "WRAINB"))
+        return "Black Rainstorm Warning";
+    if (EqualsIgnoreCase(code, "WFIREY"))
+        return "Yellow Fire Danger Warning";
+    if (EqualsIgnoreCase(code, "WFIRER"))
+        return "Red Fire Danger Warning";
+    if (EqualsIgnoreCase(code, "TC1"))
+        return "Tropical Cyclone Signal No. 1";
+    if (EqualsIgnoreCase(code, "TC3"))
+        return "Tropical Cyclone Signal No. 3";
+    if (code.size() >= 3 && EqualsIgnoreCase(code.substr(0, 3), "TC8"))
+        return "Tropical Cyclone Signal No. 8";
+    if (EqualsIgnoreCase(code, "TC9"))
+        return "Tropical Cyclone Signal No. 9";
+    if (EqualsIgnoreCase(code, "TC10"))
+        return "Tropical Cyclone Signal No. 10";
+    return name.empty() ? code : name;
+}
+} // namespace
+
+HRESULT WeatherParseEnvironmentCanadaAlerts(std::string_view json, WeatherSnapshot& snapshot) noexcept
+{
+    unique_doc document = ParseJsonCopy(json);
+    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    yyjson_val* features = yyjson_is_obj(root) ? yyjson_obj_get(root, "features") : nullptr;
+    if (!yyjson_is_arr(features))
+    {
+        return S_FALSE;
+    }
+    snapshot.alertCount = 0;
+    snapshot.alertProvider = WeatherAlertProvider::EnvironmentCanada;
+    const size_t count = yyjson_arr_size(features);
+    for (size_t index = 0; index < count && snapshot.alertCount < snapshot.alerts.size(); ++index)
+    {
+        yyjson_val* feature = yyjson_arr_get(features, index);
+        yyjson_val* properties = yyjson_is_obj(feature) ? yyjson_obj_get(feature, "properties") : nullptr;
+        if (!yyjson_is_obj(properties))
+        {
+            continue;
+        }
+        if (EqualsIgnoreCase(JsonString(yyjson_obj_get(properties, "status_en")), "ended") ||
+            EqualsIgnoreCase(JsonString(yyjson_obj_get(properties, "display_status")), "hidden"))
+        {
+            continue;
+        }
+        const std::string_view alertType = JsonString(yyjson_obj_get(properties, "alert_type"));
+        std::string_view title = JsonString(yyjson_obj_get(properties, "alert_name_en"));
+        if (title.empty())
+        {
+            title = JsonString(yyjson_obj_get(properties, "alert_short_name_en"));
+        }
+        // The feed lower-cases names ("special weather statement"); the banner starts with a capital.
+        char titleBuffer[kWeatherMaximumAlertTitleCharacters]{};
+        const size_t titleBytes = std::min(title.size(), sizeof(titleBuffer) - 1);
+        std::memcpy(titleBuffer, title.data(), titleBytes);
+        if (titleBytes > 0 && titleBuffer[0] >= 'a' && titleBuffer[0] <= 'z')
+        {
+            titleBuffer[0] = static_cast<char>(titleBuffer[0] - 'a' + 'A');
+        }
+        uint64_t start = 0;
+        uint64_t expiry = 0;
+        if (!WeatherParseIso8601Utc(JsonString(yyjson_obj_get(properties, "validity_datetime")), start))
+        {
+            (void)WeatherParseIso8601Utc(JsonString(yyjson_obj_get(properties, "publication_datetime")), start);
+        }
+        if (!WeatherParseIso8601Utc(JsonString(yyjson_obj_get(properties, "event_end_datetime")), expiry))
+        {
+            (void)WeatherParseIso8601Utc(JsonString(yyjson_obj_get(properties, "expiration_datetime")), expiry);
+        }
+        AddAlert(snapshot, std::string_view(titleBuffer, titleBytes),
+                 JsonString(yyjson_obj_get(properties, "alert_text_en")), std::string_view{}, "Environment Canada",
+                 EnvironmentCanadaSeverity(JsonString(yyjson_obj_get(properties, "risk_colour_en")), alertType, title),
+                 start, expiry);
+    }
+    return S_OK;
+}
+
+HRESULT WeatherParseHongKongWarnings(std::string_view json, WeatherSnapshot& snapshot) noexcept
+{
+    unique_doc document = ParseJsonCopy(json);
+    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    if (!yyjson_is_obj(root))
+    {
+        return S_FALSE;
+    }
+    snapshot.alertCount = 0;
+    snapshot.alertProvider = WeatherAlertProvider::HongKongObservatory;
+    yyjson_obj_iter iterator{};
+    if (!yyjson_obj_iter_init(root, &iterator))
+    {
+        return S_OK;
+    }
+    for (yyjson_val* key = yyjson_obj_iter_next(&iterator);
+         key != nullptr && snapshot.alertCount < snapshot.alerts.size(); key = yyjson_obj_iter_next(&iterator))
+    {
+        yyjson_val* statement = yyjson_obj_iter_get_val(key);
+        if (!yyjson_is_obj(statement))
+        {
+            continue;
+        }
+        if (EqualsIgnoreCase(JsonString(yyjson_obj_get(statement, "actionCode")), "CANCEL"))
+        {
+            continue;
+        }
+        std::string_view code = JsonString(yyjson_obj_get(statement, "code"));
+        if (code.empty())
+        {
+            code = JsonString(key);
+        }
+        uint64_t start = 0;
+        uint64_t expiry = 0;
+        (void)WeatherParseIso8601Utc(JsonString(yyjson_obj_get(statement, "issueTime")), start);
+        (void)WeatherParseIso8601Utc(JsonString(yyjson_obj_get(statement, "expireTime")), expiry);
+        AddAlert(snapshot, HongKongTitle(code, JsonString(yyjson_obj_get(statement, "name"))), std::string_view{},
+                 std::string_view{}, "Hong Kong Observatory", HongKongSeverity(code), start, expiry);
+    }
+    return S_OK;
+}
+
+HRESULT WeatherParseAlerts(WeatherAlertRegion region, std::string_view json, WeatherSnapshot& snapshot) noexcept
+{
+    switch (region)
+    {
+    case WeatherAlertRegion::Europe:
+        return WeatherParseMeteoAlarm(json, snapshot);
+    case WeatherAlertRegion::UnitedStates:
+        return WeatherParseNwsAlerts(json, snapshot);
+    case WeatherAlertRegion::Canada:
+        return WeatherParseEnvironmentCanadaAlerts(json, snapshot);
+    case WeatherAlertRegion::HongKong:
+        return WeatherParseHongKongWarnings(json, snapshot);
+    default:
+        return S_FALSE;
+    }
+}
+
+HRESULT WeatherBuildAlertUrl(WeatherAlertRegion region, std::string_view countryCode, double latitude, double longitude,
+                             char* url, uint32_t capacity) noexcept
+{
+    if (!url || capacity == 0)
+    {
+        return E_POINTER;
+    }
+    url[0] = '\0';
+    if (!std::isfinite(latitude) || !std::isfinite(longitude))
+    {
+        return E_INVALIDARG;
+    }
+    int written = -1;
+    switch (region)
+    {
+    case WeatherAlertRegion::Europe:
+    {
+        if (countryCode.empty() || countryCode.size() > 3)
+        {
+            return S_FALSE;
+        }
+        char lower[4]{};
+        for (size_t index = 0; index < countryCode.size(); ++index)
+        {
+            lower[index] = static_cast<char>(std::tolower(static_cast<unsigned char>(countryCode[index])));
+        }
+        written = snprintf(url, capacity, "https://feeds.meteoalarm.org/api/v1/warnings/feeds-%s", lower);
+        break;
+    }
+    case WeatherAlertRegion::UnitedStates:
+        written = snprintf(url, capacity, "https://api.weather.gov/alerts/active?point=%.4f,%.4f", latitude, longitude);
+        break;
+    case WeatherAlertRegion::Canada:
+        // WMS 1.3.0 GetFeatureInfo on the experimental Current-Alerts layer: EPSG:4326 lists latitude first, and the
+        // centre pixel of a 0.02 degree box is the point. FEATURE_COUNT bounds the polygons in the reply.
+        written = snprintf(url, capacity,
+                           "https://geo.weather.gc.ca/geomet?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo"
+                           "&LAYERS=Current-Alerts&QUERY_LAYERS=Current-Alerts&INFO_FORMAT=application/json"
+                           "&CRS=EPSG:4326&BBOX=%.4f,%.4f,%.4f,%.4f&WIDTH=101&HEIGHT=101&I=50&J=50&FEATURE_COUNT=6",
+                           latitude - 0.01, longitude - 0.01, latitude + 0.01, longitude + 0.01);
+        break;
+    case WeatherAlertRegion::HongKong:
+        written = snprintf(url, capacity,
+                           "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=warnsum&lang=en");
+        break;
+    default:
+        return S_FALSE;
+    }
+    if (written <= 0 || static_cast<uint32_t>(written) >= capacity)
+    {
+        url[0] = '\0';
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    }
+    return S_OK;
+}
+
+const wchar_t* WeatherAlertProviderName(WeatherAlertProvider provider) noexcept
+{
+    switch (provider)
+    {
+    case WeatherAlertProvider::MeteoAlarm:
+        return L"MeteoAlarm";
+    case WeatherAlertProvider::NationalWeatherService:
+        return L"NWS";
+    case WeatherAlertProvider::EnvironmentCanada:
+        return L"Environment Canada";
+    case WeatherAlertProvider::HongKongObservatory:
+        return L"Hong Kong Observatory";
+    default:
+        return L"";
+    }
 }
 
 uint32_t WeatherFormatTemperature(float celsius, WeatherTemperatureUnit unit, wchar_t* text, uint32_t capacity) noexcept

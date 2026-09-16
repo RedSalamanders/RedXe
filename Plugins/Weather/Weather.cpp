@@ -94,6 +94,7 @@ std::atomic<uint32_t> gTestHelperMode{0};
 std::atomic<uint32_t> gLocationHelperRuns{0};
 std::array<wchar_t, 64> gLastLocation{};
 SRWLOCK gLastLocationLock = SRWLOCK_INIT;
+std::array<wchar_t, 64> gLastAttribution{}; // Protected by gLastLocationLock; test diagnostics only.
 std::atomic<bool> gUseTestSnapshot{false};
 WeatherSnapshot gTestSnapshot{};
 SRWLOCK gTestSnapshotLock = SRWLOCK_INIT;
@@ -873,37 +874,15 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
             (void)WeatherParseSunrise(WeatherHttpBody(http), snapshot);
         }
 
+        // At most one alert document per refresh, chosen by the reverse-geocoded country (Plugins_Weather.md).
         const WeatherAlertRegion region = WeatherAlertRegionFromCountry(snapshot.countryCode.data());
-        if (region == WeatherAlertRegion::UnitedStates)
+        std::array<char, kWeatherMaximumUrlBytes> alertUrl{};
+        if (WeatherBuildAlertUrl(region, snapshot.countryCode.data(), snapshot.latitude, snapshot.longitude,
+                                 alertUrl.data(), static_cast<uint32_t>(alertUrl.size())) == S_OK &&
+            SUCCEEDED(WeatherHttpGet(alertUrl.data(), cancelEvent, http)))
         {
-            std::array<char, kWeatherMaximumUrlBytes> nwsUrl{};
-            sprintf_s(nwsUrl.data(), nwsUrl.size(), "https://api.weather.gov/alerts/active?point=%.4f,%.4f",
-                      snapshot.latitude, snapshot.longitude);
-            if (SUCCEEDED(WeatherHttpGet(nwsUrl.data(), cancelEvent, http)))
-            {
-                delay = std::max(delay, http.expiresDelayMilliseconds);
-                (void)WeatherParseNwsAlerts(WeatherHttpBody(http), snapshot);
-            }
-        }
-        else if (region == WeatherAlertRegion::Europe && snapshot.countryCode[0] != '\0')
-        {
-            std::array<char, 8> lower{};
-            WeatherCopyNarrow(snapshot.countryCode.data(), lower.data(), lower.size());
-            for (char& value : lower)
-            {
-                if (value >= 'A' && value <= 'Z')
-                {
-                    value = static_cast<char>(value - 'A' + 'a');
-                }
-            }
-            std::array<char, kWeatherMaximumUrlBytes> meteoUrl{};
-            sprintf_s(meteoUrl.data(), meteoUrl.size(), "https://feeds.meteoalarm.org/api/v1/warnings/feeds-%s",
-                      lower.data());
-            if (SUCCEEDED(WeatherHttpGet(meteoUrl.data(), cancelEvent, http)))
-            {
-                delay = std::max(delay, http.expiresDelayMilliseconds);
-                (void)WeatherParseMeteoAlarm(WeatherHttpBody(http), snapshot);
-            }
+            delay = std::max(delay, http.expiresDelayMilliseconds);
+            (void)WeatherParseAlerts(region, WeatherHttpBody(http), snapshot);
         }
         return ApplySnapshot(snapshot, L"", false);
     }
@@ -1312,19 +1291,30 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         {
             hidden += eligibleDays - skipped - drawn;
         }
-        const wchar_t* attribution = snapshot.stale ? L"MET Norway  |  Cached forecast" : L"MET Norway";
+        // Forecast source, then the body whose alerts are on screen, then the cached-forecast state. All ASCII, so
+        // the static atlas already holds every glyph.
+        const wchar_t* body = snapshot.alertCount > 0 ? WeatherAlertProviderName(snapshot.alertProvider) : L"";
+        std::array<wchar_t, 64> attribution{};
+        (void)swprintf_s(attribution.data(), attribution.size(), L"MET Norway%s%s%s", body[0] != L'\0' ? L"  |  " : L"",
+                         body, snapshot.stale ? L"  |  Cached forecast" : L"");
+        if (gTestNow.load(std::memory_order_relaxed) != 0)
+        {
+            AcquireSRWLockExclusive(&gLastLocationLock);
+            gLastAttribution = attribution;
+            ReleaseSRWLockExclusive(&gLastLocationLock);
+        }
         if (hidden > 0)
         {
             wchar_t extra[16]{};
             (void)swprintf_s(extra, 16, L"+%u", hidden);
             const float extraW = resources.MeasureText(extra, WideCount(extra), footerH);
             AppendTextFit(resources, list, left, bottom - footerH, std::max(0.0f, available - extraW - 12.0f), footerH,
-                          attribution, 0.5f);
+                          attribution.data(), 0.5f);
             AppendTextFit(resources, list, right - extraW, bottom - footerH, extraW, footerH, extra, 0.65f);
         }
         else
         {
-            AppendTextFit(resources, list, left, bottom - footerH, available, footerH, attribution, 0.5f);
+            AppendTextFit(resources, list, left, bottom - footerH, available, footerH, attribution.data(), 0.5f);
         }
         return S_OK;
     }
@@ -1532,6 +1522,7 @@ extern "C" HRESULT __stdcall RedXeWeatherGetTestDiagnostics(WeatherTestDiagnosti
     diagnostics->lastTemperatureCelsius = gLastTemperature.load(std::memory_order_relaxed);
     AcquireSRWLockShared(&gLastLocationLock);
     WeatherCopyWide(gLastLocation.data(), diagnostics->lastLocation, 64);
+    WeatherCopyWide(gLastAttribution.data(), diagnostics->lastAttribution, 64);
     ReleaseSRWLockShared(&gLastLocationLock);
     return S_OK;
 }
@@ -1567,6 +1558,15 @@ extern "C" HRESULT __stdcall RedXeWeatherApplyTestSnapshot(const WeatherTestSnap
     else if (snapshot->meteoAlarmJson && snapshot->meteoAlarmBytes != 0)
     {
         (void)WeatherParseMeteoAlarm(std::string_view(snapshot->meteoAlarmJson, snapshot->meteoAlarmBytes), parsed);
+    }
+    else if (snapshot->environmentCanadaJson && snapshot->environmentCanadaBytes != 0)
+    {
+        (void)WeatherParseEnvironmentCanadaAlerts(
+            std::string_view(snapshot->environmentCanadaJson, snapshot->environmentCanadaBytes), parsed);
+    }
+    else if (snapshot->hongKongJson && snapshot->hongKongBytes != 0)
+    {
+        (void)WeatherParseHongKongWarnings(std::string_view(snapshot->hongKongJson, snapshot->hongKongBytes), parsed);
     }
     AcquireSRWLockExclusive(&gTestSnapshotLock);
     gTestSnapshot = parsed;
@@ -1613,19 +1613,29 @@ extern "C" HRESULT __stdcall RedXeWeatherParseTestForecast(const char* json, uin
     return result;
 }
 
-extern "C" HRESULT __stdcall RedXeWeatherParseTestAlerts(const char* json, uint32_t bytes, BOOL unitedStates,
-                                                         uint32_t* alertCount, uint32_t* highestSeverity) noexcept
+extern "C" HRESULT __stdcall RedXeWeatherParseTestAlerts(const char* json, uint32_t bytes, uint32_t region,
+                                                         uint32_t* alertCount, uint32_t* highestSeverity,
+                                                         uint32_t* provider) noexcept
 {
-    if (!json || !alertCount || !highestSeverity)
+    if (!json || !alertCount || !highestSeverity || !provider)
     {
         return E_POINTER;
     }
     WeatherSnapshot snapshot{};
-    const HRESULT result = unitedStates ? WeatherParseNwsAlerts(std::string_view(json, bytes), snapshot)
-                                        : WeatherParseMeteoAlarm(std::string_view(json, bytes), snapshot);
+    const HRESULT result =
+        WeatherParseAlerts(static_cast<WeatherAlertRegion>(region), std::string_view(json, bytes), snapshot);
     *alertCount = snapshot.alertCount;
     *highestSeverity = static_cast<uint32_t>(WeatherHighestAlertSeverity(snapshot));
+    *provider = static_cast<uint32_t>(snapshot.alertProvider);
     return result;
+}
+
+extern "C" HRESULT __stdcall RedXeWeatherBuildTestAlertUrl(uint32_t region, const char* country, double latitude,
+                                                           double longitude, char* url, uint32_t capacity) noexcept
+{
+    return WeatherBuildAlertUrl(static_cast<WeatherAlertRegion>(region),
+                                country ? std::string_view(country) : std::string_view{}, latitude, longitude, url,
+                                capacity);
 }
 
 extern "C" HRESULT __stdcall RedXeWeatherFormatTestUnits(float celsius, float metersPerSecond, BOOL fahrenheit,

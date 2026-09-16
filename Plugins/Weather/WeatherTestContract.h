@@ -27,6 +27,7 @@ struct WeatherTestDiagnostics final
     uint32_t locationHelperRuns;
     uint32_t heroTwinCells;
     uint32_t iconCells;
+    wchar_t lastAttribution[64]; // Footer text of the last test-time render.
 };
 
 struct WeatherTestSnapshot final
@@ -42,6 +43,10 @@ struct WeatherTestSnapshot final
     uint32_t meteoAlarmBytes;
     const char* nwsJson;
     uint32_t nwsBytes;
+    const char* environmentCanadaJson;
+    uint32_t environmentCanadaBytes;
+    const char* hongKongJson;
+    uint32_t hongKongBytes;
 };
 
 #if defined(REDXE_PLUGIN_EXPORTS)
@@ -58,8 +63,14 @@ extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherParseTestForecas
                                                                                   float* temperatureCelsius,
                                                                                   uint32_t* dailyCount) noexcept;
 extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherParseTestAlerts(const char* json, uint32_t bytes,
-                                                                                BOOL unitedStates, uint32_t* alertCount,
-                                                                                uint32_t* highestSeverity) noexcept;
+                                                                                uint32_t region, uint32_t* alertCount,
+                                                                                uint32_t* highestSeverity,
+                                                                                uint32_t* provider) noexcept;
+// region is a WeatherAlertRegion value; S_FALSE for a region without a provider.
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherBuildTestAlertUrl(uint32_t region, const char* country,
+                                                                                  double latitude, double longitude,
+                                                                                  char* url,
+                                                                                  uint32_t capacity) noexcept;
 extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherFormatTestUnits(
     float celsius, float metersPerSecond, BOOL fahrenheit, BOOL milesPerHour, wchar_t* temperature,
     uint32_t temperatureCapacity, wchar_t* wind, uint32_t windCapacity) noexcept;
@@ -97,6 +108,7 @@ inline constexpr char kWeatherGetTestDiagnosticsExport[] = "RedXeWeatherGetTestD
 inline constexpr char kWeatherApplyTestSnapshotExport[] = "RedXeWeatherApplyTestSnapshot";
 inline constexpr char kWeatherParseTestForecastExport[] = "RedXeWeatherParseTestForecast";
 inline constexpr char kWeatherParseTestAlertsExport[] = "RedXeWeatherParseTestAlerts";
+inline constexpr char kWeatherBuildTestAlertUrlExport[] = "RedXeWeatherBuildTestAlertUrl";
 inline constexpr char kWeatherFormatTestUnitsExport[] = "RedXeWeatherFormatTestUnits";
 inline constexpr char kWeatherFormatTestClockAndDayExport[] = "RedXeWeatherFormatTestClockAndDay";
 inline constexpr char kWeatherParseTestIso8601Export[] = "RedXeWeatherParseTestIso8601";

@@ -42,11 +42,26 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
 ## Providers and transport
 
 - Every adapter is keyless. Forecast comes from MET Norway Locationforecast 2.0 `compact`, sun times from MET Norway
-  Sunrise 3.0, geocoding and reverse geocoding from Nominatim, European alerts from MeteoAlarm public feeds, and
-  United States alerts from the National Weather Service API. No adapter that needs an account, token, or API key
-  ships (Météo-France Vigilance, WeatherAPI.com, OpenWeather, and the hosted Open-Meteo endpoint are out), and no
-  IP-geolocation service is called. Outside Europe and the United States the widget shows the forecast without
-  alerts. Further providers are a `DECISION` in `Specs/Plans/WIP/RFC_Plugins_WeatherProvidersAndRegionalAlerts.md`.
+  Sunrise 3.0, and geocoding and reverse geocoding from Nominatim. No adapter that needs an account, token, or API
+  key ships (Météo-France Vigilance, WeatherAPI.com, OpenWeather, Met Office DataHub, and the hosted Open-Meteo
+  endpoint, whose free tier is non-commercial only, are out), and no IP-geolocation service is called.
+- Official early warnings come from exactly one keyless document per refresh, routed by the reverse-geocoded
+  ISO 3166-1 alpha-2 country (`WeatherAlertRegionFromCountry`, `WeatherBuildAlertUrl`, `WeatherParseAlerts`):
+
+  | Region (countries) | Body | Document | Severity |
+  | --- | --- | --- | --- |
+  | Europe (EUMETNET members, including GB/UK, NO, CH, IS, TR, UA) | MeteoAlarm | `feeds.meteoalarm.org/api/v1/warnings/feeds-{cc}` (JSON, CC BY 4.0) | `awareness_level` colour or CAP `severity` |
+  | United States, PR, GU, VI | National Weather Service | `api.weather.gov/alerts/active?point=lat,lon` (GeoJSON, User-Agent required) | CAP `severity`: Extreme/Severe red, Moderate orange, else yellow |
+  | Canada | Environment and Climate Change Canada | MSC GeoMet WMS 1.3.0 `GetFeatureInfo` on the experimental `Current-Alerts` layer at the centre pixel of a 0.02° box, `INFO_FORMAT=application/json`, `FEATURE_COUNT=6` | `risk_colour_en` when present; else warning orange (tornado red), watch/advisory/statement yellow; `status_en: ended` and `display_status: hidden` skipped; lower-case names gain a capital |
+  | Hong Kong | Hong Kong Observatory | Open Data `weather.php?dataType=warnsum&lang=en` (JSON object keyed by statement; `{}` when nothing is in force) | by code: black rain, No. 8–10, tsunami red; red rain, No. 3, landslip, northern NT flooding, red fire orange; else yellow; `actionCode: CANCEL` skipped; titles carry the tier (`Black Rainstorm Warning`, `Tropical Cyclone Signal No. 8`) |
+
+  Every other country shows the forecast without alerts and stays `Ok`. Each parser resets the alert list, records
+  the body in `WeatherSnapshot::alertProvider`, keeps at most eight bounded alerts, and maps into the closed
+  yellow/orange/red set; an alert without a severity is dropped. FTP-only (Australia's BOM), directory-traversal
+  (ECCC Datamart CAP), oversized rolling feeds (SAWS 298 KiB RSS), unstable or base64-laden documents (INMET), and
+  sources needing a sub-national code the reverse geocode does not supply (JMA prefectures) are recorded as
+  rejected in `Specs/Plans/Done/RFC_Plugins_WeatherProvidersAndRegionalAlerts.md`; a CAP/Atom XML reader ships only
+  with a consumer that fits the one-document, 256 KiB model.
 - One `RunNetworkWork` cycle on the host network lane (`Plugins_API.md`) performs geocoding if still needed, then
   forecast, then sunrise, then at most one alert document, in that order. The next run waits for the longest
   `Cache-Control: max-age` among those responses, clamped to 5–60 minutes with a 15-minute default. Inactive widgets
@@ -114,8 +129,11 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
   Condition color tints only Weather Icons strokes and precipitation cues, by intent: clear `#E8C36A`, partly cloudy
   `#C8C4B8`, cloudy `#A8B0B8`, rain and sleet `#5AA0D4`, snow `#D0E4F0`, thunder `#F0A030`, fog and wind `#8A949C`.
   Alert severity paints the banner, its leading edge, and the warning mark: yellow `#E0C040`, orange `#F07A20`,
-  red `#E03838`; a wet-hour notice uses the yellow badge. The footer attribution `MET Norway` is drawn at Standard
-  density and above; alert banners carry the alert title, and the issuing authority is retained in the snapshot.
+  red `#E03838`; a wet-hour notice uses the yellow badge. The footer attribution is drawn at Standard density and
+  above and composes `MET Norway`, then `  |  ` plus the alert body while its alerts are on screen (`MeteoAlarm`,
+  `NWS`, `Environment Canada`, `Hong Kong Observatory`), then `  |  Cached forecast` when stale; it is ASCII, so the
+  static atlas already holds its glyphs. Alert banners carry the alert title, and the issuing authority is retained
+  in the snapshot.
 
 ## Validation
 
@@ -127,7 +145,12 @@ Cover each fallback source succeeding, short-circuit ordering, access/timeout/AP
 outputs, absent/default positions, invalid coordinates, negative/missing/excessive accuracy, stale/future timestamps,
 and inclusive freshness/accuracy bounds. Use deterministic helper processes for fallback-to-persistence integration.
 Every automated run is offline: fixtures answer through the test response hook, never curl, and live MET Norway,
-Nominatim, MeteoAlarm, or NWS calls are manual-only and MUST NOT be a CI pass condition. WeatherTests MUST fail if
+Nominatim, MeteoAlarm, NWS, ECCC GeoMet, or HKO calls are manual-only and MUST NOT be a CI pass condition.
+WeatherTests MUST cover country routing for every region and an unrouted country, each alert parser with trimmed
+live fixtures (severity tiers, skipped cancelled/ended/hidden entries, empty and non-JSON documents, recorded
+body), the one-URL-per-region builder (lower-cased MeteoAlarm country, NWS point, GeoMet bounding box and feature
+count, HKO constant, `S_FALSE` without a provider, insufficient buffer), and the footer attribution with and
+without alerts. WeatherTests MUST fail if
 `Weather.dll` loads `Windows.Devices.Geolocation.dll` or `locationapi.dll`, and MUST prove a cancelled
 `WeatherHttpGet` on a 192 KiB stack returns `ERROR_CANCELLED`. They MUST prove a failed refresh after a drawn
 snapshot reports `Degraded` and keeps the temperature, while a widget that never drew reports `Unavailable`.

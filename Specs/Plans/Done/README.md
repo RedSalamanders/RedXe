@@ -1,5 +1,6 @@
 # Completed plan history
 
+- [`RFC_Plugins_WeatherProvidersAndRegionalAlerts.md`](RFC_Plugins_WeatherProvidersAndRegionalAlerts.md) — completed 2026-09-16 (keyless early-warning routing by country: Canada via ECCC GeoMet `Current-Alerts`, Hong Kong via HKO `warnsum`, `WeatherAlertProvider` footer attribution; CAP reader, JMA, INMET, SAWS, BOM, WMO hub and a second forecast source recorded as deferred with evidence).
 - [`DashboardBackground_2026-09-16.md`](DashboardBackground_2026-09-16.md) — completed 2026-09-16 (one document `backgroundColor` for the host canvas and every widget; host-reserved per-widget override; `RedXeFactoryOptions::backgroundColor`).
 - [`WeatherPlugin_2026-09-04.md`](WeatherPlugin_2026-09-04.md) — completed 2026-09-16 (host-owned serial network lane, `IRedXeNetworkWidget`, keyless MET Norway/MeteoAlarm/NWS weather widget with plugin-owned curl, disposable location helper, 48/96 px glyph atlas, cached-forecast status).
 - [`RFC_Core_SettingsHumanAuthoring_2026-09-07.md`](RFC_Core_SettingsHumanAuthoring_2026-09-07.md) — completed 2026-09-07 (settings major 5 human authoring; v4 is an incompatible reset).

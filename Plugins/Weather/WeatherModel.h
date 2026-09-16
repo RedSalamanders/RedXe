@@ -38,11 +38,25 @@ enum class WeatherAlertSeverity : uint32_t
     Red,
 };
 
+// Early-warning routing key, chosen from the reverse-geocoded ISO 3166-1 alpha-2 country. Each region maps to
+// exactly one keyless alert document per refresh; None shows the forecast without official alerts.
 enum class WeatherAlertRegion : uint32_t
 {
     None = 0,
     Europe,
     UnitedStates,
+    Canada,
+    HongKong,
+};
+
+// The body whose document produced the alerts in a snapshot; drawn in the attribution while alerts are shown.
+enum class WeatherAlertProvider : uint32_t
+{
+    None = 0,
+    MeteoAlarm,
+    NationalWeatherService,
+    EnvironmentCanada,
+    HongKongObservatory,
 };
 
 enum class WeatherLocationMode : uint32_t
@@ -115,6 +129,7 @@ struct WeatherSnapshot final
     uint32_t hourlyCount = 0;
     uint32_t dailyCount = 0;
     uint32_t alertCount = 0;
+    WeatherAlertProvider alertProvider = WeatherAlertProvider::None;
     bool hasCoordinates = false;
     bool regionCoordinates = false;
     bool stale = false;
@@ -158,6 +173,20 @@ bool WeatherCopyNarrow(std::string_view source, char* destination, size_t capaci
 [[nodiscard]] HRESULT WeatherParseNominatim(std::string_view json, WeatherSnapshot& snapshot) noexcept;
 [[nodiscard]] HRESULT WeatherParseMeteoAlarm(std::string_view json, WeatherSnapshot& snapshot) noexcept;
 [[nodiscard]] HRESULT WeatherParseNwsAlerts(std::string_view json, WeatherSnapshot& snapshot) noexcept;
+// ECCC MSC GeoMet `Current-Alerts` GetFeatureInfo GeoJSON at one point.
+[[nodiscard]] HRESULT WeatherParseEnvironmentCanadaAlerts(std::string_view json, WeatherSnapshot& snapshot) noexcept;
+// Hong Kong Observatory Open Data `warnsum` (warnings in force keyed by statement code; `{}` when none).
+[[nodiscard]] HRESULT WeatherParseHongKongWarnings(std::string_view json, WeatherSnapshot& snapshot) noexcept;
+// Dispatches to the region's parser; S_FALSE for a region without a provider. Every parser resets alertCount, sets
+// alertProvider, and keeps at most kWeatherAlertCount bounded copies.
+[[nodiscard]] HRESULT WeatherParseAlerts(WeatherAlertRegion region, std::string_view json,
+                                         WeatherSnapshot& snapshot) noexcept;
+// Builds the one alert document URL for a region at the coordinates; S_FALSE when the region has no provider. Never
+// performs I/O.
+[[nodiscard]] HRESULT WeatherBuildAlertUrl(WeatherAlertRegion region, std::string_view countryCode, double latitude,
+                                           double longitude, char* url, uint32_t capacity) noexcept;
+// Attribution name of the alert body, or an empty string for None.
+[[nodiscard]] const wchar_t* WeatherAlertProviderName(WeatherAlertProvider provider) noexcept;
 [[nodiscard]] uint32_t WeatherFormatTemperature(float celsius, WeatherTemperatureUnit unit, wchar_t* text,
                                                 uint32_t capacity) noexcept;
 [[nodiscard]] uint32_t WeatherFormatTemperatureRange(float minimumCelsius, float maximumCelsius,

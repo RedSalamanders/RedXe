@@ -304,6 +304,153 @@ HRESULT SavePng(ID3D11Device& device, ID3D11DeviceContext& context, ID3D11Textur
     return S_OK;
 }
 
+// Country routing, every keyless alert document parser, severity tiers, and the one-URL-per-region builder. Offline:
+// the fixtures are trimmed live responses captured on 2026-09-16.
+HRESULT AlertProviderTests()
+{
+    struct Route
+    {
+        const char* country;
+        WeatherAlertRegion region;
+    };
+    constexpr Route routes[]{{"FR", WeatherAlertRegion::Europe},       {"gb", WeatherAlertRegion::Europe},
+                             {"UK", WeatherAlertRegion::Europe},       {"NO", WeatherAlertRegion::Europe},
+                             {"US", WeatherAlertRegion::UnitedStates}, {"pr", WeatherAlertRegion::UnitedStates},
+                             {"CA", WeatherAlertRegion::Canada},       {"ca", WeatherAlertRegion::Canada},
+                             {"HK", WeatherAlertRegion::HongKong},     {"JP", WeatherAlertRegion::None},
+                             {"AU", WeatherAlertRegion::None},         {"BR", WeatherAlertRegion::None},
+                             {"ZA", WeatherAlertRegion::None},         {"", WeatherAlertRegion::None}};
+    for (const auto& route : routes)
+        CHECK(WeatherAlertRegionFromCountry(route.country) == route.region);
+
+    const auto parse = [](WeatherAlertRegion region, std::string_view json, WeatherSnapshot& out) noexcept
+    {
+        out = WeatherSnapshot{};
+        return WeatherParseAlerts(region, json, out);
+    };
+    WeatherSnapshot snapshot{};
+
+    // Environment Canada: a statement is yellow, a warning orange, a tornado warning red, a risk colour wins, ended
+    // and hidden features are skipped, and the lower-case feed name gains a capital.
+    constexpr char canada[] =
+        R"({"type":"FeatureCollection","name":"Current-Alerts","features":[)"
+        R"({"type":"Feature","properties":{"id":"1","alert_code":"SPS","alert_type":"statement","alert_name_en":"special weather statement","alert_text_en":"A fall storm featuring strong winds is expected.","publication_datetime":"2026-09-16T18:55:06.911Z","expiration_datetime":"2026-09-17T10:55:06.911Z","validity_datetime":"2026-09-19T09:00:00.000Z","event_end_datetime":"2026-09-20T06:00:00.000Z","feature_name_en":"St. John's and vicinity","province":"NL","status_en":"issued","display_status":"visible","risk_colour_en":""},"geometry":{"type":"Polygon","coordinates":[[[-52.9,47.4],[-52.5,47.4],[-52.5,47.8],[-52.9,47.4]]]}},)"
+        R"({"type":"Feature","properties":{"id":"2","alert_code":"WND","alert_type":"warning","alert_name_en":"wind warning","status_en":"issued","display_status":"visible","risk_colour_en":""}},)"
+        R"({"type":"Feature","properties":{"id":"3","alert_code":"TO","alert_type":"warning","alert_name_en":"tornado warning","status_en":"ended","display_status":"visible"}},)"
+        R"({"type":"Feature","properties":{"id":"4","alert_code":"HW","alert_type":"warning","alert_name_en":"heat warning","status_en":"issued","display_status":"hidden"}}]})";
+    CHECK(parse(WeatherAlertRegion::Canada, canada, snapshot) == S_OK);
+    CHECK(snapshot.alertCount == 2 && snapshot.alertProvider == WeatherAlertProvider::EnvironmentCanada);
+    CHECK(std::wcscmp(snapshot.alerts[0].title.data(), L"Special weather statement") == 0);
+    CHECK(snapshot.alerts[0].severity == WeatherAlertSeverity::Yellow);
+    CHECK(std::wcscmp(snapshot.alerts[0].authority.data(), L"Environment Canada") == 0);
+    CHECK(snapshot.alerts[0].startFileTime100ns != 0 && snapshot.alerts[0].expiryFileTime100ns != 0);
+    CHECK(std::wcscmp(snapshot.alerts[1].title.data(), L"Wind warning") == 0);
+    CHECK(snapshot.alerts[1].severity == WeatherAlertSeverity::Orange);
+    CHECK(WeatherHighestAlertSeverity(snapshot) == WeatherAlertSeverity::Orange);
+    CHECK(
+        parse(
+            WeatherAlertRegion::Canada,
+            R"({"features":[{"properties":{"alert_type":"warning","alert_name_en":"tornado warning","status_en":"issued"}}]})",
+            snapshot) == S_OK &&
+        snapshot.alertCount == 1 && snapshot.alerts[0].severity == WeatherAlertSeverity::Red);
+    CHECK(
+        parse(
+            WeatherAlertRegion::Canada,
+            R"({"features":[{"properties":{"alert_type":"advisory","alert_name_en":"fog advisory","risk_colour_en":"Red"}}]})",
+            snapshot) == S_OK &&
+        snapshot.alertCount == 1 && snapshot.alerts[0].severity == WeatherAlertSeverity::Red);
+    CHECK(parse(WeatherAlertRegion::Canada, R"({"type":"FeatureCollection","features":[]})", snapshot) == S_OK &&
+          snapshot.alertCount == 0 && snapshot.alertProvider == WeatherAlertProvider::EnvironmentCanada);
+    CHECK(parse(WeatherAlertRegion::Canada, R"(<ServiceExceptionReport/>)", snapshot) == S_FALSE &&
+          snapshot.alertCount == 0);
+
+    // Hong Kong Observatory: statements in force keyed by code; the tier comes from the code, cancellations drop.
+    constexpr char hongKong[] =
+        R"({"WRAIN":{"name":"Rainstorm Warning Signal","code":"WRAINB","actionCode":"ISSUE","issueTime":"2026-09-16T11:45:00+08:00","expireTime":"2026-09-16T14:00:00+08:00"},)"
+        R"("WTCSGNL":{"name":"Tropical Cyclone Warning Signal","code":"TC8NE","actionCode":"ISSUE","issueTime":"2026-09-16T09:40:00+08:00","type":"No. 8 Northeast Gale or Storm Signal"},)"
+        R"("WFROST":{"name":"Frost Warning","code":"WFROST","actionCode":"CANCEL","issueTime":"2026-09-16T06:00:00+08:00"},)"
+        R"("WTS":{"name":"Thunderstorm Warning","code":"WTS","actionCode":"EXTEND","issueTime":"2026-09-16T10:00:00+08:00","expireTime":"2026-09-16T13:00:00+08:00"}})";
+    CHECK(parse(WeatherAlertRegion::HongKong, hongKong, snapshot) == S_OK);
+    CHECK(snapshot.alertCount == 3 && snapshot.alertProvider == WeatherAlertProvider::HongKongObservatory);
+    CHECK(std::wcscmp(snapshot.alerts[0].title.data(), L"Black Rainstorm Warning") == 0);
+    CHECK(snapshot.alerts[0].severity == WeatherAlertSeverity::Red);
+    CHECK(std::wcscmp(snapshot.alerts[1].title.data(), L"Tropical Cyclone Signal No. 8") == 0);
+    CHECK(snapshot.alerts[1].severity == WeatherAlertSeverity::Red);
+    CHECK(std::wcscmp(snapshot.alerts[2].title.data(), L"Thunderstorm Warning") == 0);
+    CHECK(snapshot.alerts[2].severity == WeatherAlertSeverity::Yellow);
+    CHECK(std::wcscmp(snapshot.alerts[2].authority.data(), L"Hong Kong Observatory") == 0);
+    uint64_t issued = 0;
+    CHECK(WeatherParseIso8601Utc("2026-09-16T11:45:00+08:00", issued) &&
+          snapshot.alerts[0].startFileTime100ns == issued);
+    CHECK(
+        parse(
+            WeatherAlertRegion::HongKong,
+            R"({"WTCSGNL":{"name":"Tropical Cyclone Warning Signal","code":"TC3","actionCode":"ISSUE"},"WL":{"name":"Landslip Warning","code":"WL","actionCode":"ISSUE"},"WFIRE":{"name":"Fire Danger Warning","code":"WFIREY","actionCode":"ISSUE"}})",
+            snapshot) == S_OK &&
+        snapshot.alertCount == 3);
+    CHECK(std::wcscmp(snapshot.alerts[0].title.data(), L"Tropical Cyclone Signal No. 3") == 0 &&
+          snapshot.alerts[0].severity == WeatherAlertSeverity::Orange);
+    CHECK(snapshot.alerts[1].severity == WeatherAlertSeverity::Orange);
+    CHECK(std::wcscmp(snapshot.alerts[2].title.data(), L"Yellow Fire Danger Warning") == 0 &&
+          snapshot.alerts[2].severity == WeatherAlertSeverity::Yellow);
+    CHECK(parse(WeatherAlertRegion::HongKong, "{}", snapshot) == S_OK && snapshot.alertCount == 0 &&
+          snapshot.alertProvider == WeatherAlertProvider::HongKongObservatory);
+    CHECK(parse(WeatherAlertRegion::HongKong, "[]", snapshot) == S_FALSE && snapshot.alertCount == 0);
+
+    // The shipped European and US parsers record their body too, and the awareness/severity vocabularies map.
+    CHECK(
+        parse(
+            WeatherAlertRegion::Europe,
+            R"({"warnings":[{"headline":"Red warning for rain","awareness_level":"4; red; Severe","onset":"2026-09-05T06:00:00Z","expires":"2026-09-06T06:00:00Z"},{"event":"Yellow warning for fog","awareness_level":"2; yellow; Moderate"}]})",
+            snapshot) == S_OK);
+    CHECK(snapshot.alertCount == 2 && snapshot.alertProvider == WeatherAlertProvider::MeteoAlarm);
+    CHECK(snapshot.alerts[0].severity == WeatherAlertSeverity::Red &&
+          snapshot.alerts[1].severity == WeatherAlertSeverity::Yellow);
+    CHECK(std::wcscmp(snapshot.alerts[0].authority.data(), L"MeteoAlarm") == 0);
+    CHECK(
+        parse(
+            WeatherAlertRegion::UnitedStates,
+            R"({"features":[{"properties":{"event":"Tornado Warning","severity":"Extreme","senderName":"NWS Norman OK"}},{"properties":{"headline":"Heat Advisory","severity":"Moderate"}},{"properties":{"headline":"Special Weather Statement","severity":"Minor"}}]})",
+            snapshot) == S_OK);
+    CHECK(snapshot.alertCount == 3 && snapshot.alertProvider == WeatherAlertProvider::NationalWeatherService);
+    CHECK(snapshot.alerts[0].severity == WeatherAlertSeverity::Red &&
+          snapshot.alerts[1].severity == WeatherAlertSeverity::Orange &&
+          snapshot.alerts[2].severity == WeatherAlertSeverity::Yellow);
+    CHECK(std::wcscmp(snapshot.alerts[0].authority.data(), L"NWS Norman OK") == 0);
+    CHECK(parse(WeatherAlertRegion::None, "{}", snapshot) == S_FALSE && snapshot.alertCount == 0 &&
+          snapshot.alertProvider == WeatherAlertProvider::None);
+
+    // Exactly one document URL per region; none for an unrouted country. No I/O.
+    std::array<char, kWeatherMaximumUrlBytes> url{};
+    CHECK(WeatherBuildAlertUrl(WeatherAlertRegion::Europe, "FR", 48.8566, 2.3522, url.data(),
+                               static_cast<uint32_t>(url.size())) == S_OK);
+    CHECK(std::strcmp(url.data(), "https://feeds.meteoalarm.org/api/v1/warnings/feeds-fr") == 0);
+    CHECK(WeatherBuildAlertUrl(WeatherAlertRegion::UnitedStates, "US", 35.2226, -97.4395, url.data(),
+                               static_cast<uint32_t>(url.size())) == S_OK);
+    CHECK(std::strcmp(url.data(), "https://api.weather.gov/alerts/active?point=35.2226,-97.4395") == 0);
+    CHECK(WeatherBuildAlertUrl(WeatherAlertRegion::Canada, "CA", 47.5615, -52.7126, url.data(),
+                               static_cast<uint32_t>(url.size())) == S_OK);
+    CHECK(std::strstr(url.data(), "https://geo.weather.gc.ca/geomet?") == url.data());
+    CHECK(std::strstr(url.data(), "LAYERS=Current-Alerts&QUERY_LAYERS=Current-Alerts") != nullptr);
+    CHECK(std::strstr(url.data(), "INFO_FORMAT=application/json") != nullptr);
+    CHECK(std::strstr(url.data(), "BBOX=47.5515,-52.7226,47.5715,-52.7026") != nullptr);
+    CHECK(std::strstr(url.data(), "FEATURE_COUNT=6") != nullptr);
+    CHECK(WeatherBuildAlertUrl(WeatherAlertRegion::HongKong, "HK", 22.3, 114.17, url.data(),
+                               static_cast<uint32_t>(url.size())) == S_OK);
+    CHECK(std::strcmp(url.data(),
+                      "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=warnsum&lang=en") == 0);
+    CHECK(WeatherBuildAlertUrl(WeatherAlertRegion::None, "JP", 35.68, 139.69, url.data(),
+                               static_cast<uint32_t>(url.size())) == S_FALSE &&
+          url[0] == '\0');
+    CHECK(WeatherBuildAlertUrl(WeatherAlertRegion::Europe, "", 48.0, 2.0, url.data(),
+                               static_cast<uint32_t>(url.size())) == S_FALSE);
+    CHECK(WeatherBuildAlertUrl(WeatherAlertRegion::Canada, "CA", 47.0, -52.0, url.data(), 40) ==
+          HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER));
+    CHECK(std::wcscmp(WeatherAlertProviderName(WeatherAlertProvider::EnvironmentCanada), L"Environment Canada") == 0);
+    CHECK(WeatherAlertProviderName(WeatherAlertProvider::None)[0] == L'\0');
+    return S_OK;
+}
+
 HRESULT RenderTests(HMODULE module, RedXeCreateFn create, uint64_t now, bool stress = false)
 {
     const auto fixture = Resolve<WeatherApplyTestSnapshotFn>(module, kWeatherApplyTestSnapshotExport);
@@ -437,8 +584,10 @@ HRESULT RenderTests(HMODULE module, RedXeCreateFn create, uint64_t now, bool str
             CHECK(info.hourlyDrawn >= 8 && info.dailyDrawn >= 2 && info.precipitationNotice);
         if (size.width == 766 && !size.alert)
             CHECK(info.dailyDrawn >= 4);
-        if (size.alert)
-            CHECK(info.alertCount == 1);
+        if (size.alert) // The footer names the body whose alerts are on screen.
+            CHECK(info.alertCount == 1 && std::wcscmp(info.lastAttribution, L"MET Norway  |  MeteoAlarm") == 0);
+        else if (size.width >= 700)
+            CHECK(std::wcscmp(info.lastAttribution, L"MET Norway") == 0);
         if (size.width == 510) // Portrait tile: day rows use the leftover height instead of a fixed five-row cap.
             CHECK(info.hourlyDrawn == 6 && info.dailyDrawn >= 7);
         if (size.raised)
@@ -592,6 +741,7 @@ HRESULT RunWeatherRegressionTests(HMODULE module)
     const auto resetTime = wil::scope_exit([&]() noexcept { time(0); });
     gForecast = Forecast(now);
     CHECK(ModelTests(now) == S_OK);
+    CHECK(AlertProviderTests() == S_OK);
     CHECK(RunWeatherLocationPolicyTests() == S_OK);
     CHECK(RenderTests(module, create, now) == S_OK);
     CHECK(RenderTests(module, create, now, true) == S_OK);

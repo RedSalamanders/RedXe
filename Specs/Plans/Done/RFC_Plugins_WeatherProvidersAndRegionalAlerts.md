@@ -1,8 +1,11 @@
 # RFC: other forecast providers and regional early-warning providers for the Weather widget
 
-Status: `DECISION`
+Status: `DONE` (decided and shipped 2026-09-16; see "Decisions" and "Outcome")
 Created: 2026-09-16
 Owner: `Plugins/Weather`, `Tests/WeatherTests`, and the settings chain when a provider becomes user-selectable
+
+Sections up to "Candidate providers" describe the pipeline as it was when the RFC was written; the current
+contract, including the Canada and Hong Kong routes and the composed attribution, is `Plugins_Weather.md`.
 
 ## Purpose
 
@@ -67,7 +70,8 @@ MET Norway is global, so a second forecast provider is about redundancy or a bet
 4. Extend `WeatherTestSnapshot` with a fixture slot and `RedXeWeatherApplyTestSnapshot` with its branch; add a
    fixture and parser test to `WeatherRegressionTests.cpp` covering units, missing precipitation, six-hour
    exclusion, and local-day grouping exactly as the MET fixture does.
-5. Add the attribution string (decision D3) and pre-rasterize it in `RasterizeGlyphs`.
+5. Add the attribution string (decision D3). ASCII names need no pre-rasterization: the static atlas already
+   holds every printable ASCII glyph; only a non-ASCII name would need `RasterizeGlyphs`.
 6. If the provider is user-selectable, run the settings chain: `kSettingsSchema`/`kSettingsDefaults` and
    `WeatherReadConfiguration` in the plugin, `Specs/Settings.schema.json`, both `Settings/` templates,
    `Core_Settings.md`, `SettingsTests`, and `docs/plugins/weather.md`. Unknown keys reject the document, so the
@@ -87,9 +91,12 @@ MET Norway is global, so a second forecast provider is about redundancy or a bet
 3. Add the fetch branch to `FetchLive` after the sunrise request, respecting `Expires` when present.
 4. Add a fixture slot to `WeatherTestSnapshot`, a `RedXeWeatherParseTestAlerts` mode (or a new export), and
    tests for severity mapping, expiry, empty documents, and the region routing of every ISO code added.
-5. Add the authority attribution and its pre-rasterized glyphs.
+5. Add the body to `WeatherAlertProvider` and `WeatherAlertProviderName` (ASCII, see above).
 6. Record the provider, its terms, and its region in `Plugins_Weather.md`; add the user-visible coverage change
    to `docs/plugins/weather.md`.
+
+As shipped, steps 1–3 are `WeatherAlertRegionFromCountry`, `WeatherBuildAlertUrl`, and `WeatherParseAlerts` in
+`WeatherModel.cpp`; `FetchLive` calls exactly those three, so a new region never touches `Weather.cpp`.
 
 ## Candidate providers by region
 
@@ -116,49 +123,51 @@ MUST be confirmed before any implementation starts.
 | --- | --- | --- | --- | --- | --- | --- |
 | Europe (EUMETNET members, incl. UK, NO, CH, IS, UA, TR) | MeteoAlarm (shipped) | `feeds.meteoalarm.org/api/v1/warnings/feeds-{country}`; Atom per country `feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-{country}` | JSON (API) or Atom+CAP | none | CC BY 4.0, "Data provided by EUMETNET members". RSS feeds deprecated 2026-01-14. `api.meteoalarm.org` hosts the API portal. | 2026-09-16 |
 | United States, PR, GU, VI | NWS alerts (shipped) | `api.weather.gov/alerts/active?point={lat},{lon}` | GeoJSON with CAP fields | none; User-Agent | Public domain | 2026-09-16 |
-| Canada | ECCC MSC Datamart CAP | `dd.weather.gc.ca/today/alerts/cap/{YYYYMMDD}/{OFFICE}/{hh}/*.cap` (`LAND`/`WATR` for tornado and severe-thunderstorm); AMQP push exists | CAP 1.2 XML, directory listings | none | Needs directory traversal (date/office/hour) plus polygon or CLC-code matching against the coordinates. A per-region RSS on `weather.gc.ca` also exists (`verify` the URL form). | 2026-09-16 (layout), matching `verify` |
-| Japan | JMA bosai warning | `www.jma.go.jp/bosai/warning/data/warning/{areaCode}.json` (`130000` = Tokyo) | JSON, Japanese text, numeric warning codes | none | Live response verified. Needs prefecture area code from the reverse-geocoded `state`; codes in `bosai/common/const/area.json`. No published terms for automated use. | 2026-09-16 |
-| Hong Kong | HKO Open Data | `data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=warnsum&lang=en` | JSON (`{}` when nothing is active) | none | Documented open data; single territory, no coordinates needed | 2026-09-16 |
-| Australia | Bureau of Meteorology | CAP-AU XML and warning products on anonymous FTP `ftp.bom.gov.au` (`/anon/gen/fwo/`) | CAP-AU XML | none (anonymous FTP; Registered User Services for SLAs) | **`www.bom.gov.au` blocks automated HTTP (WAF, 403)**; the HTTPS curl in `Weather.dll` cannot use FTP today. Candidate only if transport decision D4 is reopened. | 2026-09-16 |
-| Brazil | INMET Alert-AS | `alertas2.inmet.gov.br` RSS/CAP; a JSON `apiprevmet3.inmet.gov.br/avisos/ativos` is reported | CAP XML / JSON | none | Verify both endpoints and terms | verify |
-| South Africa | SAWS CAP | `caps.weathersa.co.za` | CAP XML | none | Verify | verify |
+| Canada (**shipped**) | ECCC MSC GeoMet, layer `Current-Alerts` (titled "[experimental]") | WMS 1.3.0 `GetFeatureInfo` at `geo.weather.gc.ca/geomet`, `INFO_FORMAT=application/json`, `CRS=EPSG:4326` (latitude first), a 0.02° box with `WIDTH=HEIGHT=101`, `I=J=50`, `FEATURE_COUNT=6` | GeoJSON FeatureCollection; properties `alert_type` (warning/watch/advisory/statement), `alert_name_en`, `alert_text_en`, `publication/expiration/validity/event_end_datetime`, `status_en`, `display_status`, `risk_colour_en`, `feature_name_en`, `province`, plus the polygon (~4 KB per feature) | none | Live query verified at St. John's NL (one special weather statement); empty `features` elsewhere. The Datamart CAP directory tree (`dd.weather.gc.ca/today/alerts/cap/{YYYYMMDD}/{OFFICE}/{hh}/`) was rejected: it needs date/office/hour traversal and polygon matching, several documents per refresh. | 2026-09-16 |
+| Japan | JMA bosai warning | `www.jma.go.jp/bosai/warning/data/warning/{areaCode}.json` (`130000` = Tokyo, 14 KB) | JSON, Japanese text, numeric warning codes with `status` 発表/継続/解除 | none | Live response verified. Deferred: warnings are per sub-prefectural area (Tokyo's Izu islands share `130000` with the city), so a correct route needs the JMA class-20 municipality code from the reverse-geocoded Japanese name and a code→English table; no published terms for automated use. | 2026-09-16 |
+| Hong Kong (**shipped**) | HKO Open Data | `data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=warnsum&lang=en` | JSON object keyed by statement (`WFIRE`, `WFROST`, `WHOT`, `WCOLD`, `WMSGNL`, `WRAIN`, `WFNTSA`, `WL`, `WTCSGNL`, `WTMW`, `WTS`) with `name`, `code`, `actionCode` (ISSUE/REISSUE/CANCEL/EXTEND/UPDATE), `issueTime`, `updateTime`, optional `expireTime`/`type`; `{}` when nothing is in force | none | Documented in the HKO Open Data API PDF (v1.12/1.13); live `{}` verified; single territory, no coordinates needed | 2026-09-16 |
+| Australia | Bureau of Meteorology | CAP-AU XML and warning products on anonymous FTP `ftp.bom.gov.au` (`/anon/gen/fwo/`) | CAP-AU XML | none (anonymous FTP; Registered User Services for SLAs) | **`www.bom.gov.au` blocks automated HTTP (WAF, 403)**; the HTTPS curl in `Weather.dll` cannot use FTP (D4). Rejected. | 2026-09-16 |
+| Brazil | INMET | `apiprevmet3.inmet.gov.br/avisos/ativos` (JSON `hoje`/`futuro`/`passado` with `descricao`, `severidade`, `aviso_cor`, `estados`, `geocodes`, polygon, base64 `icone`); `alertas2.inmet.gov.br` RSS/CAP | JSON / CAP XML | none | Rejected for now: one fetch returned the full document, the next two reset the connection (`ECONNRESET`, curl `000`), and every alert embeds a polygon and a base64 icon, so the body does not fit 256 KiB reliably. Municipality matching would use Nominatim `ISO3166-2-lvl4` (`BR-SP`). | 2026-09-16 |
+| South Africa | SAWS | `caps.weathersa.co.za/Home/RssFeed` (RSS 2.0, `Public Domain`) linking one CAP XML per item | RSS + CAP XML | none | Rejected for now: the feed is a rolling list of 435 items and 298 KiB (over the 256 KiB bound), carries no expiry or severity in the RSS, and needs one CAP fetch per item; province is only the file-name prefix (`WC_`, `KZN_`). | 2026-09-16 |
 | New Zealand | MetService | No documented public API; CAP reaches aggregators | — | — | Prefer the global aggregator row | verify |
-| India, Africa, rest of Asia-Pacific, Latin America | National services via the WMO Alert Hub / SWIC (Alert-Hub.Org "Filtered Alert Hub") | Aggregated CAP feeds of the WMO Register of Alerting Authorities; source list at `alert-hub.s3.amazonaws.com/cap-sources.html` (JavaScript-rendered) | Atom + CAP 1.2 | none stated | The consumer feed URL, filtering by area, and the terms are not published on the static pages fetched on 2026-09-16; confirm with WMO/Alert-Hub.Org before relying on it. One aggregator would cover every remaining region with a single CAP reader. | partially, feed URL `verify` |
+| India, Africa, rest of Asia-Pacific, Latin America | National services via the WMO Alert Hub / SWIC (Alert-Hub.Org "Filtered Alert Hub") | Aggregated CAP feeds of the WMO Register of Alerting Authorities; source list at `alert-hub.s3.amazonaws.com/cap-sources.html` (JavaScript-rendered) | Atom + CAP 1.2 | none stated | The consumer feed URL, filtering by area, and the terms are not published on the static pages fetched on 2026-09-16 (`severeweather.wmo.int/feeds.html` renders an empty table without JavaScript; a guessed `v2/json` path is 404). Confirm with WMO/Alert-Hub.Org before relying on it. One aggregator would cover every remaining region with a single CAP reader. | partially, feed URL `verify` |
 
 Any region with no row keeps today's behavior: forecast only, no alert banner, status `Ok` rather than
 `Degraded`.
 
-## Decisions required before the first new provider
+## Decisions (recorded 2026-09-16)
 
-| ID | Decision | Options | Recommendation |
-| --- | --- | --- | --- |
-| D1 | CAP/Atom XML reading | (a) JSON-only sources forever; (b) a bounded forward-scanning CAP reader in `WeatherModel.cpp` (no DOM, no MSXML, extracts `event`, `headline`, `severity`, `onset`, `expires`, `areaDesc`, `senderName` from each `<info>`); (c) MSXML/XmlLite | (b). XmlLite is a pull parser and light, but a scanner over the 256 KiB bound with entity decoding for the handful of CAP fields keeps the DLL dependency-free and testable with fixtures. Canada, BOM, INMET, SAWS and the WMO hub all need it; MeteoAlarm JSON and NWS GeoJSON do not. |
-| D2 | Sub-national routing key | (a) country code only; (b) also keep the reverse-geocoded `state`/`province` and a per-provider code table; (c) point-in-polygon against the alert geometry | (b) for JMA and Canadian offices; (c) only where the feed already returns a per-point query (NWS does). Nominatim `zoom=10` already returns the address block; store one extra bounded string. |
-| D3 | Provider identity on the snapshot | (a) attribution literal per branch; (b) `WeatherForecastProvider` and `WeatherAlertProvider` enums on `WeatherSnapshot` with a static attribution table | (b). The footer composes `MET Norway  |  MeteoAlarm` style attribution from the table, and `RasterizeGlyphs` pre-rasterizes every table entry once. |
-| D4 | Transport | (a) HTTPS only (current); (b) enable `CURLPROTO_FTP` for BOM | (a). FTP adds a second protocol surface and passive-mode firewall behavior to a dashboard widget for one country; wait for BOM's CAP over HTTPS or the WMO hub. |
-| D5 | User selection | (a) automatic by region only; (b) `forecastProvider` and `alertProvider` settings keys with `auto` default | (a) first. Add (b) only when two providers cover the same place (for example NWS versus MET Norway in the US), and then through the full settings chain. |
-| D6 | Open-Meteo eligibility | Depends on whether RedXe's distribution is non-commercial | Keep excluded until the answer is recorded here; the hosted free endpoint is otherwise the simplest global second source. |
-| D7 | Per-provider refresh | Providers without `Expires` | Use the 15-minute default; never poll a warning feed faster than 5 minutes (`kWeatherMinimumRefreshMilliseconds`). |
-
-## Workstreams once decided
-
-| ID | Item | Pass condition |
+| ID | Decision | Outcome |
 | --- | --- | --- |
-| P1 | D3 provider enums, attribution table, pre-rasterized glyphs | WeatherTests: footer text per provider combination; WARP first frame after a snapshot shows no missing glyph. |
-| P2 | D1 bounded CAP reader with entity decoding and truncation | Fixture tests: MeteoAlarm Atom, NWS CAP, Canadian CAP, a 256 KiB truncated body, malformed markup; zero heap allocation beyond the response body. |
-| P3 | First new early-warning region (recommended: Canada via Datamart CAP, or the WMO hub if its feed terms are confirmed) | Region routing tests for every ISO code; severity mapping; `hourly`/`daily` unchanged; live check manual-only. |
-| P4 | First additional forecast provider only if D6 or a national need is recorded | Parser fixture tests mirroring the MET coverage list in `Plugins_Weather.md`. |
-| P5 | Closeout: `Plugins_Weather.md` provider table, `docs/plugins/weather.md` coverage sentence, this RFC moved to Done | Spec names every provider, its terms, its region, and its attribution. |
+| D1 | CAP/Atom XML reading | **Deferred with the consumer.** No CAP source verified today fits the one-document, 256 KiB model (SAWS 298 KiB rolling RSS plus one CAP per item; Datamart directory traversal; BOM FTP; WMO hub feed unpublished). When one does, ship a bounded forward-scanning reader (no DOM, no MSXML) in `WeatherModel.cpp` in the same change, with truncated-body and malformed-markup fixtures. Not built speculatively. |
+| D2 | Sub-national routing key | **Country code only**, plus per-point queries where the feed answers per point (NWS `point=`, GeoMet `GetFeatureInfo`). A state/province key is added only with the first provider that needs it (JMA, INMET). |
+| D3 | Provider identity on the snapshot | **`WeatherAlertProvider` on `WeatherSnapshot`**, set by every parser; `WeatherAlertProviderName` composes the footer. A forecast-provider enum is not added while MET Norway is the only forecast source. Names are ASCII, so no pre-rasterization was needed. |
+| D4 | Transport | **HTTPS only.** BOM stays out. |
+| D5 | User selection | **Automatic by region only.** No new settings keys; the settings chain is untouched. |
+| D6 | Open-Meteo eligibility | **Excluded** until RedXe's distribution is recorded as non-commercial; nothing else needs a second forecast source. |
+| D7 | Per-provider refresh | Providers without `Expires` (HKO, GeoMet) use the 15-minute default; the 5-minute floor stands. |
 
-## Validation
+## Outcome
 
-Same as the weather plan: `.\format.ps1`, `.\test.ps1 -Configuration Debug -Platform x64 -Rebuild`,
-`.\test.ps1 -Configuration Release -Platform x64 -Rebuild`, `.\build.ps1 -Configuration Release -Platform ARM64`,
-`.\validate-skills.ps1`. Automated runs MUST NOT contact any provider; every new parser is exercised through
-`WeatherTestSnapshot` fixtures, and `HostPluginTests` MUST still observe zero sockets from the gallery Weather tile.
+Shipped on 2026-09-16 in `Plugins/Weather` and `Tests/WeatherTests`:
 
-## Exit criteria
+- `WeatherAlertRegion::Canada` and `::HongKong`; `WeatherBuildAlertUrl` and `WeatherParseAlerts` centralize the
+  one-document-per-region rule, and `FetchLive` calls only those.
+- `WeatherParseEnvironmentCanadaAlerts` (GeoMet `Current-Alerts` GeoJSON; risk colour, then warning/watch/advisory/
+  statement tiers, tornado warnings red, ended/hidden skipped, capitalised names) and `WeatherParseHongKongWarnings`
+  (`warnsum`; tier and title from the statement code, cancellations skipped).
+- `WeatherAlertProvider` recorded by all four parsers; the footer composes `MET Norway  |  <body>` while that body's
+  alerts are on screen, then `  |  Cached forecast`.
+- Offline coverage: routing for every region and unrouted countries, all four parsers on trimmed live fixtures,
+  severity tiers, URL builder bounds, fixture slots for the new documents, and the footer attribution asserted
+  through the WARP diagnostics. Live GeoMet and HKO calls were made by hand on 2026-09-16 only.
 
-This RFC closes when D1–D7 are recorded as decisions, at least P1–P3 have shipped with their tests, the durable
-provider rules live in `Plugins_Weather.md`, `docs/plugins/weather.md` names the covered regions, and this file is
-moved to `Specs/Plans/Done/` with its index row removed.
+Not shipped, by decision: a CAP reader (D1), JMA (needs sub-prefectural routing), INMET (unstable, oversized), SAWS
+(oversized rolling feed), BOM (FTP), the WMO hub (feed terms unpublished), and any second forecast provider. Each is
+recorded above with the evidence, so the next region starts from the recipe rather than from research.
+
+## Validation performed
+
+`WeatherTests` Debug and Release x64 (parsers, routing, URLs, WARP attribution), `Weather.dll` and `WeatherTests`
+built for ARM64 Release, per-file clang-format, and `validate-skills.ps1`. `test.ps1` as a whole was blocked at
+the time by another in-flight change to `IRedXeHost` outside this plugin; the weather executables were run directly.
