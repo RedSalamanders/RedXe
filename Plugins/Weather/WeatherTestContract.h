@@ -25,6 +25,7 @@ struct WeatherTestDiagnostics final
     uint32_t overflowingQuads;
     BOOL precipitationNotice;
     uint32_t locationHelperRuns;
+    uint32_t heroTwinCells;
 };
 
 struct WeatherTestSnapshot final

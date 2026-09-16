@@ -1,11 +1,13 @@
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"
+#include "WeatherGpu.h"
 #include "WeatherModel.h"
 #include "WeatherTestContract.h"
 
 #include <atomic>
 #include <cstdio>
 #include <d3d11.h>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <wincodec.h>
@@ -26,6 +28,7 @@ std::string gForecast;
 std::string gPlace = R"({"lat":"48.8566","lon":"2.3522","address":{"city":"Paris","country_code":"fr"}})";
 uint32_t gGeocodes = 0;
 uint32_t gForecastRequests = 0;
+bool gFailForecast = false;
 DWORD gRenderThread = 0;
 uint32_t gAllocations = 0;
 
@@ -86,6 +89,8 @@ HRESULT __stdcall Response(const char* url, uint32_t length, const char** body, 
     else if (request.find("locationforecast") != std::string_view::npos)
     {
         ++gForecastRequests;
+        if (gFailForecast)
+            return E_FAIL;
         text = &gForecast;
     }
     if (!text)
@@ -338,6 +343,12 @@ HRESULT RenderTests(HMODULE module, RedXeCreateFn create, uint64_t now, bool str
                                       0, D3D11_SDK_VERSION, device.put(), &level, context.put())));
     const RedXeGpuDeviceContext created{sizeof(created), device.get(), DXGI_FORMAT_B8G8R8A8_UNORM, level};
     CHECK(gpu->OnDeviceCreated(&created) == S_OK); // Atlas creation rejects every clipped glyph, including all icons.
+    {
+        // Every hero temperature glyph links its sharp 96 px twin cell, so the header never upscales 48 px text.
+        WeatherTestDiagnostics atlas{sizeof(atlas)};
+        CHECK(diagnostics(&atlas) == S_OK);
+        CHECK(atlas.heroTwinCells == static_cast<uint32_t>(std::size(kWeatherHeroGlyphs)));
+    }
     const auto detach = wil::scope_exit(
         [&]() noexcept
         {
@@ -450,6 +461,16 @@ HRESULT LocationTests(HMODULE module, RedXeCreateFn create)
         CHECK(gGeocodes == 1 && gForecastRequests == 2);
         CHECK(diagnostics(&after) == S_OK);
         CHECK(after.locationHelperRuns - before.locationHelperRuns == (discover ? 1U : 0U));
+        // A failed refresh keeps the cached forecast on screen as Degraded instead of handing the tile to the host;
+        // the next successful run clears it.
+        gFailForecast = true;
+        CHECK(FAILED(network->RunNetworkWork(cancel.get(), &delay)));
+        gFailForecast = false;
+        WeatherTestDiagnostics cached{sizeof(cached)};
+        CHECK(diagnostics(&cached) == S_OK && cached.lastStatus == RedXeWidgetStatusDegraded &&
+              cached.lastTemperatureCelsius == after.lastTemperatureCelsius);
+        CHECK(network->RunNetworkWork(cancel.get(), &delay) == S_OK);
+        CHECK(diagnostics(&cached) == S_OK && cached.lastStatus == RedXeWidgetStatusOk);
         host.failPersist = discover;
         host.Drain();
         CHECK(scheduled->GetNextFrameDelayMilliseconds(&delay) == S_OK);
@@ -517,6 +538,7 @@ HRESULT LocationTests(HMODULE module, RedXeCreateFn create)
     CHECK(FAILED(deniedNetwork->RunNetworkWork(cancel.get(), &delay)));
     CHECK(FAILED(deniedNetwork->RunNetworkWork(cancel.get(), &delay)));
     CHECK(diagnostics(&after) == S_OK && after.locationHelperRuns == before.locationHelperRuns + 1);
+    CHECK(after.lastStatus == RedXeWidgetStatusUnavailable); // Nothing was ever drawn, so the host takes the tile.
     CHECK(deniedHost.pendingBytes == 0 && deniedHost.persistCalls == 0);
     return S_OK;
 }

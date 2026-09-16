@@ -27,11 +27,19 @@ constexpr wchar_t kStaticExtraGlyphs[] = {0x00B0};
 constexpr uint32_t kStaticExtraCount =
     static_cast<uint32_t>(sizeof(kStaticExtraGlyphs) / sizeof(kStaticExtraGlyphs[0]));
 constexpr uint32_t kStaticReservedCount = kStaticGlyphCount + kStaticExtraCount;
-constexpr uint32_t kLargeIconReserveY = kWeatherAtlasSize - kWeatherIconCell * 2;
+constexpr uint32_t kHeroGlyphCount = static_cast<uint32_t>(sizeof(kWeatherHeroGlyphs) / sizeof(kWeatherHeroGlyphs[0]));
+constexpr uint32_t kIconGlyphCount = static_cast<uint32_t>(sizeof(kWeatherIconGlyphs) / sizeof(kWeatherIconGlyphs[0]));
+// The bottom rows of the atlas hold every 96 px cell: condition icons first, then hero glyphs.
+constexpr uint32_t kLargeCellColumns = kWeatherAtlasSize / kWeatherIconCell;
+constexpr uint32_t kLargeCellRows = 3;
+constexpr uint32_t kLargeCellCapacity = kLargeCellColumns * kLargeCellRows;
+constexpr uint32_t kLargeCellReserveY = kWeatherAtlasSize - kWeatherIconCell * kLargeCellRows;
 constexpr uint32_t kMissingGlyph = 0xFFFFFFFFu;
-static_assert(kStaticReservedCount + 2 * (sizeof(kWeatherIconGlyphs) / sizeof(kWeatherIconGlyphs[0])) <
-              (kLargeIconReserveY / kWeatherGlyphCell) * kWeatherGlyphColumns);
-static_assert(sizeof(kWeatherIconGlyphs) / sizeof(kWeatherIconGlyphs[0]) <= (kWeatherAtlasSize / kWeatherIconCell) * 2);
+// Every large twin consumes a slot index, and slot indices map onto 48 px cell positions above the reserve.
+static_assert(kStaticReservedCount + 2 * kIconGlyphCount + kHeroGlyphCount <
+              (kLargeCellReserveY / kWeatherGlyphCell) * kWeatherGlyphColumns);
+static_assert(kIconGlyphCount + kHeroGlyphCount <= kLargeCellCapacity);
+static_assert(kLargeCellCapacity <= kWeatherGlyphCapacity);
 
 SRWLOCK g_gpuLock = SRWLOCK_INIT;
 WeatherGpuResources g_resources;
@@ -40,6 +48,7 @@ std::atomic<uint32_t> g_liveResourceSets{0};
 std::atomic<uint32_t> g_mapCount{0};
 std::atomic<uint32_t> g_drawCount{0};
 std::atomic<uint32_t> g_typographyCount{0};
+std::atomic<uint32_t> g_heroTwinCount{0};
 
 [[nodiscard]] HRESULT CreateWeatherFontFace(IDWriteFactory& factory,
                                             wil::com_ptr_nothrow<IDWriteFontFace>& face) noexcept
@@ -247,13 +256,16 @@ struct DirectWriteSession final
     {
         return E_UNEXPECTED;
     }
+    // Text cells scale from the 48 px base so a 96 px twin is an exact 2x raster with the same normalized metrics.
+    const float textScale = cellF / static_cast<float>(kWeatherGlyphCell);
     float emSize = centerInCell ? cellF * 0.78f
-                                : std::min(kGlyphEmSize, (cellF - 4.0f) * fontMetrics.designUnitsPerEm /
-                                                             (fontMetrics.ascent + fontMetrics.descent));
+                                : textScale * std::min(kGlyphEmSize, (static_cast<float>(kWeatherGlyphCell) - 4.0f) *
+                                                                         fontMetrics.designUnitsPerEm /
+                                                                         (fontMetrics.ascent + fontMetrics.descent));
     const float designScale = emSize / static_cast<float>(fontMetrics.designUnitsPerEm);
     float pixelAdvance = static_cast<float>(glyphMetrics.advanceWidth) * designScale;
     advance = centerInCell ? 1.0f : pixelAdvance / cellF;
-    float baselineX = 3.0f;
+    float baselineX = 3.0f * textScale;
     const float ascent = static_cast<float>(fontMetrics.ascent) * designScale;
     const float descent = static_cast<float>(fontMetrics.descent) * designScale;
     float baselineY = (cellF - ascent - descent) * 0.5f + ascent;
@@ -544,7 +556,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
         const uint32_t slot = _glyphCount;
         const uint32_t atlasX = (slot % kWeatherGlyphColumns) * kWeatherGlyphCell;
         const uint32_t atlasY = (slot / kWeatherGlyphColumns) * kWeatherGlyphCell;
-        if (atlasY + kWeatherGlyphCell > kLargeIconReserveY)
+        if (atlasY + kWeatherGlyphCell > kLargeCellReserveY)
         {
             return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
         }
@@ -565,7 +577,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
         const uint32_t slot = _glyphCount;
         const uint32_t atlasX = (slot % kWeatherGlyphColumns) * kWeatherGlyphCell;
         const uint32_t atlasY = (slot / kWeatherGlyphColumns) * kWeatherGlyphCell;
-        if (atlasY + kWeatherGlyphCell > kLargeIconReserveY)
+        if (atlasY + kWeatherGlyphCell > kLargeCellReserveY)
         {
             return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
         }
@@ -581,17 +593,20 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
         place(slot, atlasX, atlasY, kWeatherGlyphCell);
         ++_glyphCount;
     }
+    uint32_t largeIndex = 0;
+    const auto largeCellOrigin = [](uint32_t index, uint32_t& x, uint32_t& y) noexcept
+    {
+        x = (index % kLargeCellColumns) * kWeatherIconCell;
+        y = kLargeCellReserveY + (index / kLargeCellColumns) * kWeatherIconCell;
+    };
     if (session.iconFace)
     {
-        uint32_t iconIndex = 0;
-        constexpr uint32_t kIconColumns = kWeatherAtlasSize / kWeatherIconCell;
-        constexpr uint32_t kIconOriginY = kLargeIconReserveY;
         for (wchar_t glyph : kWeatherIconGlyphs)
         {
             const uint32_t slot = _glyphCount;
             const uint32_t atlasX = (slot % kWeatherGlyphColumns) * kWeatherGlyphCell;
             const uint32_t atlasY = (slot / kWeatherGlyphColumns) * kWeatherGlyphCell;
-            if (atlasY + kWeatherGlyphCell > kLargeIconReserveY)
+            if (atlasY + kWeatherGlyphCell > kLargeCellReserveY)
             {
                 return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
             }
@@ -610,11 +625,12 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
             _glyphAdvances[slot] = advance;
             place(slot, atlasX, atlasY, kWeatherGlyphCell);
             ++_glyphCount;
-            if (iconIndex < kIconColumns * 2)
+            if (largeIndex < kLargeCellCapacity)
             {
                 const uint32_t largeSlot = _glyphCount;
-                const uint32_t largeX = (iconIndex % kIconColumns) * kWeatherIconCell;
-                const uint32_t largeY = kIconOriginY + (iconIndex / kIconColumns) * kWeatherIconCell;
+                uint32_t largeX = 0;
+                uint32_t largeY = 0;
+                largeCellOrigin(largeIndex++, largeX, largeY);
                 float largeAdvance = 1.0f;
                 result =
                     RasterizeIntoAtlas(*session.factory, *session.iconFace, glyph, largeX, largeY, kWeatherIconCell,
@@ -631,15 +647,65 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
                     _glyphLarge[slot] = static_cast<uint16_t>(largeSlot);
                     ++_glyphCount;
                 }
-                ++iconIndex;
             }
         }
     }
+    // Hero glyphs already own a static 48 px cell; add the 96 px twin that AppendText picks above ~1.1x that cell.
+    uint32_t heroLinked = 0;
+    for (wchar_t glyph : kWeatherHeroGlyphs)
+    {
+        const uint32_t slot = FindGlyph(glyph);
+        if (slot == kMissingGlyph || _glyphInk[slot].width <= 0.0f || largeIndex >= kLargeCellCapacity)
+        {
+            continue;
+        }
+        const uint32_t largeSlot = _glyphCount;
+        uint32_t largeX = 0;
+        uint32_t largeY = 0;
+        largeCellOrigin(largeIndex++, largeX, largeY);
+        float largeAdvance = 0.5f;
+        WeatherGlyphInk largeInk{};
+        result = RasterizeIntoAtlas(*session.factory, *session.face, glyph, largeX, largeY, kWeatherIconCell,
+                                    _atlasPixels.data(), largeAdvance, false, largeInk);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        // The twin reuses the small cell's normalized advance and ink so MeasureText is slot-independent. Its own ink
+        // (an exact 2x raster rounded outward, inside the small cell's doubled padding) must sit within that
+        // rectangle; otherwise keep drawing this glyph from the small cell.
+        const WeatherGlyphInk& ink = _glyphInk[slot];
+        if (largeInk.width <= 0.0f || largeInk.left < ink.left || largeInk.top < ink.top ||
+            largeInk.left + largeInk.width > ink.left + ink.width ||
+            largeInk.top + largeInk.height > ink.top + ink.height)
+        {
+            continue;
+        }
+        _glyphCharacters[largeSlot] = 0;
+        _glyphAdvances[largeSlot] = _glyphAdvances[slot];
+        _glyphInk[largeSlot] = ink;
+        place(largeSlot, largeX, largeY, kWeatherIconCell);
+        _glyphLarge[slot] = static_cast<uint16_t>(largeSlot);
+        ++_glyphCount;
+        ++heroLinked;
+    }
+    g_heroTwinCount.store(heroLinked, std::memory_order_relaxed);
     _staticGlyphCount = _glyphCount;
     _dynamicCursor = _glyphCount;
     _atlasDirty = true;
     g_typographyCount.fetch_add(1, std::memory_order_relaxed);
     return S_OK;
+}
+
+uint32_t WeatherGpuResources::ResolveLargeSlot(uint32_t slot, float extent) const noexcept
+{
+    const uint16_t large = _glyphLarge[slot];
+    if (large != 0 && extent > static_cast<float>(_glyphCell[slot]) * 1.1f && large < _glyphCount &&
+        _glyphCell[large] != 0)
+    {
+        return large;
+    }
+    return slot;
 }
 
 uint32_t WeatherGpuResources::FindGlyph(wchar_t character) const noexcept
@@ -711,7 +777,7 @@ HRESULT WeatherGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t characte
         const uint32_t slot = _dynamicCursor++;
         const uint32_t atlasX = (slot % kWeatherGlyphColumns) * kWeatherGlyphCell;
         const uint32_t atlasY = (slot / kWeatherGlyphColumns) * kWeatherGlyphCell;
-        if (atlasY + kWeatherGlyphCell > kLargeIconReserveY)
+        if (atlasY + kWeatherGlyphCell > kLargeCellReserveY)
         {
             --_dynamicCursor;
             break;
@@ -778,14 +844,17 @@ HRESULT WeatherGpuResources::AppendText(WeatherDrawList& list, float x, float y,
         {
             break;
         }
+        // A large twin shares the small cell's normalized metrics, so this pick never changes measured layout.
         const uint32_t slot = FindGlyph(character);
         const float advance = (slot == kMissingGlyph ? 0.45f : _glyphAdvances[slot]) * height;
         if (slot != kMissingGlyph)
         {
-            const auto& ink = _glyphInk[slot];
-            const float cellPx = static_cast<float>(_glyphCell[slot] != 0 ? _glyphCell[slot] : kWeatherGlyphCell);
-            const float u0 = (static_cast<float>(_glyphAtlasX[slot]) + ink.left * cellPx) * inverseAtlas;
-            const float v0 = (static_cast<float>(_glyphAtlasY[slot]) + ink.top * cellPx) * inverseAtlas;
+            const uint32_t drawSlot = ResolveLargeSlot(slot, height);
+            const auto& ink = _glyphInk[drawSlot];
+            const float cellPx =
+                static_cast<float>(_glyphCell[drawSlot] != 0 ? _glyphCell[drawSlot] : kWeatherGlyphCell);
+            const float u0 = (static_cast<float>(_glyphAtlasX[drawSlot]) + ink.left * cellPx) * inverseAtlas;
+            const float v0 = (static_cast<float>(_glyphAtlasY[drawSlot]) + ink.top * cellPx) * inverseAtlas;
             if (!list.Add(WeatherQuadKindGlyph, pen + ink.left * height, y + ink.top * height, ink.width * height,
                           ink.height * height, red, green, blue, alpha, 0.0f, 0.0f, u0, v0,
                           u0 + ink.width * cellPx * inverseAtlas, v0 + ink.height * cellPx * inverseAtlas))
@@ -816,12 +885,7 @@ HRESULT WeatherGpuResources::AppendIconFit(WeatherDrawList& list, float x, float
     {
         return S_FALSE;
     }
-    const uint16_t large = _glyphLarge[slot];
-    if (large != 0 && std::max(width, height) > static_cast<float>(_glyphCell[slot]) * 1.1f && large < _glyphCount &&
-        _glyphCell[large] != 0)
-    {
-        slot = large;
-    }
+    slot = ResolveLargeSlot(slot, std::max(width, height));
     const auto& ink = _glyphInk[slot];
     if (ink.width <= 0.0f || ink.height <= 0.0f)
     {
@@ -938,6 +1002,11 @@ void WeatherGpuRelease() noexcept
         }
     }
     ReleaseSRWLockExclusive(&g_gpuLock);
+}
+
+uint32_t WeatherGpuHeroTwinCount() noexcept
+{
+    return g_heroTwinCount.load(std::memory_order_relaxed);
 }
 
 WeatherGpuResources* WeatherGpuGet() noexcept

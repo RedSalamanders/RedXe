@@ -737,13 +737,13 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
                 const HRESULT fetch = WeatherHttpGet(url.data(), cancelEvent, http);
                 if (FAILED(fetch))
                 {
-                    ReportStatus(_host, _instanceId.data(), RedXeWidgetStatusUnavailable, L"Location lookup failed.");
+                    ReportFetchFailure(L"Location lookup failed.");
                     return fetch;
                 }
                 delay = std::max(delay, http.expiresDelayMilliseconds);
                 if (FAILED(WeatherParseNominatim(WeatherHttpBody(http), snapshot)))
                 {
-                    ReportStatus(_host, _instanceId.data(), RedXeWidgetStatusUnavailable, L"Location was not found.");
+                    ReportFetchFailure(L"Location was not found.");
                     return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
                 }
             }
@@ -765,8 +765,7 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
             }
             if (FAILED(_locationResult))
             {
-                ReportStatus(_host, _instanceId.data(), RedXeWidgetStatusUnavailable,
-                             L"Location unavailable. Enter a city in widget settings.");
+                ReportFetchFailure(L"Location unavailable. Enter a city in widget settings.");
                 return _locationResult;
             }
             snapshot.hasCoordinates = true;
@@ -825,14 +824,14 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         HRESULT fetch = WeatherHttpGet(forecastUrl.data(), cancelEvent, http);
         if (FAILED(fetch))
         {
-            ReportStatus(_host, _instanceId.data(), RedXeWidgetStatusUnavailable, L"Forecast request failed.");
+            ReportFetchFailure(L"Forecast request failed.");
             return fetch;
         }
         delay = std::max(delay, http.expiresDelayMilliseconds);
         fetch = WeatherParseLocationForecast(WeatherHttpBody(http), snapshot);
         if (FAILED(fetch))
         {
-            ReportStatus(_host, _instanceId.data(), RedXeWidgetStatusUnavailable, L"Forecast data was unusable.");
+            ReportFetchFailure(L"Forecast data was unusable.");
             return fetch;
         }
 
@@ -899,6 +898,18 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         const uint32_t status = degraded || snapshot.stale ? RedXeWidgetStatusDegraded : RedXeWidgetStatusOk;
         ReportStatus(_host, _instanceId.data(), status, reason && reason[0] != L'\0' ? reason : nullptr);
         return S_OK;
+    }
+
+    // A failed refresh keeps the last good snapshot on screen as a cached forecast (Degraded). The tile only hands
+    // itself to the host placeholder (Unavailable) while nothing has ever been drawn.
+    void ReportFetchFailure(const wchar_t* reason) noexcept
+    {
+        AcquireSRWLockExclusive(&_lock);
+        const bool cached = _hasSnapshot;
+        _snapshot.stale = cached;
+        ReleaseSRWLockExclusive(&_lock);
+        ReportStatus(_host, _instanceId.data(), cached ? RedXeWidgetStatusDegraded : RedXeWidgetStatusUnavailable,
+                     reason);
     }
 
     void RasterizeGlyphs() noexcept
@@ -1464,6 +1475,7 @@ extern "C" HRESULT __stdcall RedXeWeatherGetTestDiagnostics(WeatherTestDiagnosti
     diagnostics->overflowingQuads = gLastOverflowCount.load(std::memory_order_relaxed);
     diagnostics->precipitationNotice = gLastPrecipitationNotice.load(std::memory_order_relaxed);
     diagnostics->locationHelperRuns = gLocationHelperRuns.load(std::memory_order_relaxed);
+    diagnostics->heroTwinCells = WeatherGpuHeroTwinCount();
     diagnostics->lastTemperatureCelsius = gLastTemperature.load(std::memory_order_relaxed);
     AcquireSRWLockShared(&gLastLocationLock);
     WeatherCopyWide(gLastLocation.data(), diagnostics->lastLocation, 64);

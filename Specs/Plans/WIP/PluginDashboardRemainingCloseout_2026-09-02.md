@@ -70,8 +70,9 @@ Decide provider isolation and push/network-provider policy. Local `IRedXeDataSou
 batching, and `builtin.system-data` are already shipped.
 
 Outbound HTTP for bundled widgets is no longer decided from this file.
-[`WeatherPlugin_2026-09-04.md`](WeatherPlugin_2026-09-04.md) owns the host network lane (schedule, cancel, shutdown),
-plugin-owned curl in `Weather.dll`, and the weather widget. Push providers and a network `IRedXeDataSource` remain
+The host network lane (schedule, cancel, shutdown), plugin-owned curl in `Weather.dll`, and the weather widget landed
+through [`../Done/WeatherPlugin_2026-09-04.md`](../Done/WeatherPlugin_2026-09-04.md) and are owned by
+`Specs/Plugins/Plugins_API.md` and `Specs/Plugins/Plugins_Weather.md`. Push providers and a network `IRedXeDataSource` remain
 open here.
 
 ### 2. Host-owned primitive batching

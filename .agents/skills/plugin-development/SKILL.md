@@ -6,8 +6,9 @@ description: Implement or revise RedXe native plugin interfaces, factory exports
 # RedXe plugin development
 
 Read `Specs/Plugins/Plugins_API.md` before changing shipped plugin behavior. Read
-[`Specs/Plans/WIP/WeatherPlugin_2026-09-04.md`](../../Specs/Plans/WIP/WeatherPlugin_2026-09-04.md) when work concerns
-the host network lane, plugin-owned curl, or the weather widget. Read
+[`Specs/Plugins/Plugins_Weather.md`](../../Specs/Plugins/Plugins_Weather.md) when work concerns the host network
+lane, plugin-owned curl, or the weather widget; the rationale is historical in
+[`Specs/Plans/Done/WeatherPlugin_2026-09-04.md`](../../Specs/Plans/Done/WeatherPlugin_2026-09-04.md). Read
 [`Specs/Plans/WIP/PluginDashboardRemainingCloseout_2026-09-02.md`](../../Specs/Plans/WIP/PluginDashboardRemainingCloseout_2026-09-02.md)
 only when work concerns remaining closeout: push providers, network `IRedXeDataSource` datasets, host-owned primitive
 batching, settings migration beyond version 5 reset, interactive WebView policy, or System Data follow-on hosts. Read

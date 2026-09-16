@@ -18,6 +18,7 @@
 #include <tlhelp32.h>
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -2685,6 +2686,97 @@ void TestWeatherPluginConstructs(bool& success) noexcept
           L"Weather.dll maps with curl and zlib beside it and constructs a GPU widget", success);
 }
 
+// Stub network widget that stays inside RunNetworkWork until the host signals its cancel event.
+class BlockingNetworkStub final : public IRedXeNetworkWidget
+{
+  public:
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
+    {
+        if (!result)
+        {
+            return E_POINTER;
+        }
+        *result = nullptr;
+        if (interfaceId == IID_IUnknown || interfaceId == __uuidof(IRedXeNetworkWidget))
+        {
+            *result = static_cast<IRedXeNetworkWidget*>(this);
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return 1;
+    }
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        return 1;
+    }
+    HRESULT STDMETHODCALLTYPE RunNetworkWork(HANDLE cancelEvent, uint32_t* nextDelayMilliseconds) noexcept override
+    {
+        if (!nextDelayMilliseconds)
+        {
+            return E_POINTER;
+        }
+        *nextDelayMilliseconds = 0;
+        calls.fetch_add(1, std::memory_order_relaxed);
+        inside.store(true, std::memory_order_release);
+        SetEvent(entered.get());
+        cancelled = WaitForSingleObject(cancelEvent, 5'000) == WAIT_OBJECT_0;
+        inside.store(false, std::memory_order_release);
+        *nextDelayMilliseconds = 1'000;
+        return S_OK;
+    }
+
+    wil::unique_event_nothrow entered;
+    std::atomic<uint32_t> calls{0};
+    std::atomic<bool> inside{false};
+    bool cancelled = false;
+};
+
+void TestNetworkLane(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] host network lane offline, drain, and join\n";
+    PluginHost& host = PluginHost::Instance();
+    BlockingNetworkStub stub;
+    if (FAILED(stub.entered.create(wil::EventOptions::ManualReset)))
+    {
+        Check(false, L"network stub event creates", success);
+        return;
+    }
+    const DWORD threadsBefore = CountProcessThreads();
+    Check(!host.NetworkAccessEnabled() && !host.NetworkWorkerRunning(),
+          L"automated host starts with network access disabled and no network worker", success);
+    Check(SUCCEEDED(host.RegisterNetworkWidget(&stub)), L"network stub registers", success);
+
+    // Offline: activation is a no-op. No worker thread starts and the plugin is never called.
+    host.SetNetworkWidgetActive(&stub, true);
+    Sleep(50);
+    Check(!host.NetworkWorkerRunning() && stub.calls.load(std::memory_order_relaxed) == 0 &&
+              CountProcessThreads() <= threadsBefore,
+          L"offline activation never calls RunNetworkWork and starts no thread", success);
+
+    // Enabled: the lazy serial worker starts and runs the widget once it is active.
+    host.SetNetworkAccessEnabled(true);
+    host.SetNetworkWidgetActive(&stub, true);
+    const bool entered = WaitForSingleObject(stub.entered.get(), 5'000) == WAIT_OBJECT_0;
+    Check(entered && host.NetworkWorkerRunning() && stub.calls.load(std::memory_order_relaxed) == 1,
+          L"enabling network access starts one worker that calls RunNetworkWork", success);
+
+    // Hide: deactivation cancels and drains before returning, so the call is no longer inside the plugin.
+    host.SetNetworkWidgetActive(&stub, false);
+    Check(entered && !stub.inside.load(std::memory_order_acquire) && stub.cancelled,
+          L"deactivating a widget cancels and drains its in-flight RunNetworkWork", success);
+    Sleep(50);
+    Check(stub.calls.load(std::memory_order_relaxed) == 1, L"an inactive widget is not run again", success);
+
+    // Shutdown path: disabling access cancels queued widgets, waits for idle, and joins the worker.
+    host.SetNetworkAccessEnabled(false);
+    Check(!host.NetworkWorkerRunning() && !host.NetworkAccessEnabled(), L"disabling network access joins the worker",
+          success);
+    host.UnregisterNetworkWidget(&stub);
+}
+
 void TestLauncherPluginConstructs(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] launcher plugin DLL constructs\n";
@@ -3998,6 +4090,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestHostOwnedPlaceholderTiles(success);
     TestUnmappedCatalogModulePlaceholder(success);
     TestWeatherPluginConstructs(success);
+    TestNetworkLane(success);
     TestLauncherPluginConstructs(success);
     TestPublishedArraySchema(success);
     TestPageEdgeAffordancePolicy(success);

@@ -41,7 +41,8 @@ Coordinate, do not fork:
 
 - [`RFC_Plugins_AVControl.md`](RFC_Plugins_AVControl.md) still owns real IME/AT, G1 audio, G2 camera, and matched
   text/UIA performance. This plan only accounts AV's retained surfaces, coordinator, and helper-process cost.
-- [`WeatherPlugin_2026-09-04.md`](WeatherPlugin_2026-09-04.md) still owns the network lane and forecast fetch.
+- The network lane and forecast fetch are owned by `Specs/Plugins/Plugins_API.md` and `Specs/Plugins/Plugins_Weather.md`
+  (landed via [`../Done/WeatherPlugin_2026-09-04.md`](../Done/WeatherPlugin_2026-09-04.md)).
 - [`PluginDashboardRemainingCloseout_2026-09-02.md`](PluginDashboardRemainingCloseout_2026-09-02.md) still owns
   leftover architecture gates. Do not open host primitive batching from this file.
 - [`PluginBoundaryHardening_2026-09-03.md`](PluginBoundaryHardening_2026-09-03.md) already made `PluginHost`

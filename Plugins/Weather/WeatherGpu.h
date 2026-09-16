@@ -15,6 +15,10 @@ inline constexpr uint32_t kWeatherGlyphCell = 48;
 inline constexpr uint32_t kWeatherIconCell = 96;
 inline constexpr uint32_t kWeatherGlyphColumns = kWeatherAtlasSize / kWeatherGlyphCell;
 inline constexpr uint32_t kWeatherGlyphCapacity = kWeatherGlyphColumns * kWeatherGlyphColumns;
+// Header temperature glyphs (WeatherFormatTemperature: %.0f digits, sign, degree, C/F). Each also gets a
+// kWeatherIconCell twin so the hero row draws as sharp as the condition icon beside it.
+inline constexpr wchar_t kWeatherHeroGlyphs[] = {L'0', L'1', L'2', L'3', L'4',   L'5', L'6',
+                                                 L'7', L'8', L'9', L'-', 0x00B0, L'C', L'F'};
 
 enum WeatherQuadKind : uint32_t
 {
@@ -150,6 +154,8 @@ class WeatherGpuResources final
 
     [[nodiscard]] HRESULT BuildStaticAtlas() noexcept;
     [[nodiscard]] uint32_t FindGlyph(wchar_t character) const noexcept;
+    // Returns the 96 px twin of a glyph slot when the drawn extent exceeds ~1.1x its 48 px cell, else the slot.
+    [[nodiscard]] uint32_t ResolveLargeSlot(uint32_t slot, float extent) const noexcept;
     void UploadAtlas() noexcept;
 
     ID3D11Device* _deviceIdentity = nullptr;
@@ -180,6 +186,8 @@ class WeatherGpuResources final
 
 [[nodiscard]] HRESULT WeatherGpuAcquire(ID3D11Device* device) noexcept;
 void WeatherGpuRelease() noexcept;
+// Hero glyphs whose kWeatherIconCell twin linked in the shared atlas; test diagnostics only.
+[[nodiscard]] uint32_t WeatherGpuHeroTwinCount() noexcept;
 // Worker callers hold WeatherGpuLock across the instance ownership check, this lookup, and resource use.
 [[nodiscard]] WeatherGpuResources* WeatherGpuGet() noexcept;
 void WeatherGpuLock() noexcept;

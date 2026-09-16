@@ -226,6 +226,19 @@ object it was supplied to.
   motion, and rather than returning a short `IRedXeScheduledWidget` delay purely to be polled.
 - `RequestFrame` is the only host service a sink may call from inside `OnDataSnapshot` besides `Log`. `RunNetworkWork`
   MAY call `RequestFrame` and `Log` and MUST NOT call `PersistWidgetSettings`.
+- The **network lane** is host-owned scheduling for plugin-owned HTTP. There is no host HTTP ABI: the HTTP client,
+  its cache, and its user agent live in the plugin module (`Weather.dll` links curl with Schannel; `RedXe.exe` MUST
+  NOT link curl), so those resources map only when such a widget exists. `PluginHost` owns exactly one serial network
+  worker, distinct from the acquisition worker and the control lane. It starts lazily when a visible network widget
+  first needs a run, keeps at most one `RunNetworkWork` in flight and eight registered widgets, blocks on events
+  while idle, hidden, or shutting down, and never polls. The host calls `RunNetworkWork` only for a visible widget
+  and only while network access is enabled; `S_OK` schedules the returned delay, `S_FALSE` parks the widget until
+  it is activated again, and a failure retries after one minute. Deactivating a widget (hide, detach) signals the
+  borrowed cancel event and waits for the in-flight call to return before `SetVisible(FALSE)` reaches the widget;
+  runtime shutdown cancels every widget, waits for idle, and joins the worker before optional module shutdown.
+  `--self-test` and `HostPluginTests` disable network access before any widget is created, so the host never calls
+  `RunNetworkWork` and never starts the worker there; interactive RedXe leaves it enabled. Live endpoints are
+  manual-only and MUST NOT be a CI pass condition.
 - `QueueControlWork` is a UI-thread service for bounded local device work. Its lazy process-wide MTA lane retains
   at most 16 distinct `IRedXeControlWork` objects and coalesces repeated submission into one rerun (`S_FALSE`);
   saturation returns `ERROR_BUSY` without accepting work. `Run` receives a borrowed cancellation event and the
@@ -1109,7 +1122,9 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     within 64 bytes and that a cancelled `WeatherHttpGet` on a 192 KiB reserved stack returns `ERROR_CANCELLED` without
     overflowing. HTTP response bodies are 256 KiB heap buffers; they MUST NOT be automatic arrays on the network worker.
     `weathericons-regular-webfont.ttf` MUST sit beside `Weather.dll` so DirectWrite can atlas-rasterize Weather Icons
-    glyphs; `Render` stays allocation-free.
+    glyphs; `Render` stays allocation-free. Host tests MUST prove the network lane with a stub widget: while access
+    is disabled, activation never calls `RunNetworkWork` and starts no thread; once enabled, one worker runs it,
+    deactivation cancels and drains the in-flight call before returning, and disabling access joins the worker.
 12d. Host tests MUST prove that `PersistWidgetSettings` without a host handler returns `E_UNEXPECTED`, that a handler
     receives a partial settings object, and that a constructed widget with nothing to save returns `S_FALSE` from
     `CollectPersistentSettings`. Settings tests MUST prove a partial merge keeps unspecified members and rejects

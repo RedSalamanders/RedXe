@@ -1,7 +1,8 @@
-# Weather plugin and host-owned network lane
+# Done: Weather plugin and host-owned network lane
 
-Status: `ACTIVE`
+Status: `COMPLETE`
 Created: 2026-09-04
+Completed: 2026-09-16
 Owner: plugin host network lane, bundled Direct3D weather widget, and settings coverage
 
 ## Goal
@@ -12,7 +13,7 @@ plan decides host-owned network **scheduling**, cancellation, and shutdown so th
 thread and never performs network I/O from `Render`.
 
 This is the dated implementation plan required by architecture gate 1 in
-[`PluginDashboardRemainingCloseout_2026-09-02.md`](PluginDashboardRemainingCloseout_2026-09-02.md) for **outbound HTTP
+[`../WIP/PluginDashboardRemainingCloseout_2026-09-02.md`](../WIP/PluginDashboardRemainingCloseout_2026-09-02.md) for **outbound HTTP
 used by bundled widgets**. It does not close that gate for push providers, schema-selected sources, or a general
 network `IRedXeDataSource`.
 
@@ -23,11 +24,11 @@ Owning contracts (updated at closeout, not by this file alone):
 
 Historical context:
 
-- [`../Done/RFC_Plugins_XeneonDashboardArchitecture.md`](../Done/RFC_Plugins_XeneonDashboardArchitecture.md) — local
+- [`../Done/RFC_Plugins_XeneonDashboardArchitecture.md`](RFC_Plugins_XeneonDashboardArchitecture.md) — local
   pull is the shipped data mechanism; network policy was deferred.
-- [`../Done/SystemDataPlugin_2026-08-31.md`](../Done/SystemDataPlugin_2026-08-31.md) — host-owned acquisition worker,
+- [`../Done/SystemDataPlugin_2026-08-31.md`](SystemDataPlugin_2026-08-31.md) — host-owned acquisition worker,
   no plugin threads, `CollectSnapshots` is synchronous and local.
-- [`../Done/SystemDataViewers_2026-09-02.md`](../Done/SystemDataViewers_2026-09-02.md) — GPU scheduled widgets, adaptive
+- [`../Done/SystemDataViewers_2026-09-02.md`](SystemDataViewers_2026-09-02.md) — GPU scheduled widgets, adaptive
   density, sample-driven `RequestFrame`, condition color by intent.
 
 ## Scope
@@ -263,3 +264,22 @@ Live MET Norway / MeteoAlarm / Nominatim / NWS calls are manual-only and MUST NO
 This plan is complete when H1–H4 and W1–W5 pass, the listed validation is green, every durable requirement lives in
 the owning domain specs, this file is moved to `Specs/Plans/Done/`, and its WIP index row is removed. Architecture
 gate 1 remains open for push providers and network `IRedXeDataSource` datasets.
+
+## Closeout
+
+Completed 2026-09-16. H1–H4 and W1–W5 landed; Debug and Release x64 `test.ps1 -Rebuild`, an ARM64 Release build,
+formatting, and skill validation were green at closeout. Durable requirements now live in the domain specs:
+
+- `Plugins_API.md` — `IRedXeNetworkWidget`, the host network lane (one lazy serial worker, single in-flight call,
+  eight slots, cancel-and-drain on deactivation, join at shutdown, offline switch for `--self-test` and host tests,
+  no host HTTP ABI, curl only in `Weather.dll`), and the host-test proof of that lane.
+- `Plugins_Weather.md` — keyless providers and request order, plugin-owned transport bounds, location and
+  persistence, forecast composition, the 48/96 px glyph atlas rule, status (`Initializing`/`Ok`/`Degraded` cached
+  forecast/`Unavailable`), condition and alert colors, and the offline validation contract.
+- `Core_PerformanceAndResources.md` — heap response bodies on the network worker and the disposable location helper.
+- `Core_Settings.md` and `Specs/Settings.schema.json` — the closed `builtin.weather` object.
+
+Two follow-ons stay open elsewhere: further providers and regional alerts are the `DECISION` RFC
+[`../WIP/RFC_Plugins_WeatherProvidersAndRegionalAlerts.md`](../WIP/RFC_Plugins_WeatherProvidersAndRegionalAlerts.md),
+and process-once `curl_global_init` becomes a host concern only when a second curl plugin ships (architecture gate 1
+in [`../WIP/PluginDashboardRemainingCloseout_2026-09-02.md`](../WIP/PluginDashboardRemainingCloseout_2026-09-02.md)).

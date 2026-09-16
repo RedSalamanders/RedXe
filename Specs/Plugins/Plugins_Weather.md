@@ -39,6 +39,27 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
   page teardown/exit. The plugin never writes settings files. Configured locations and units are never overwritten.
   Defaults remain empty/automatic, Celsius and km/h; machine-specific Paris belongs only in the user's settings.
 
+## Providers and transport
+
+- Every adapter is keyless. Forecast comes from MET Norway Locationforecast 2.0 `compact`, sun times from MET Norway
+  Sunrise 3.0, geocoding and reverse geocoding from Nominatim, European alerts from MeteoAlarm public feeds, and
+  United States alerts from the National Weather Service API. No adapter that needs an account, token, or API key
+  ships (Météo-France Vigilance, WeatherAPI.com, OpenWeather, and the hosted Open-Meteo endpoint are out), and no
+  IP-geolocation service is called. Outside Europe and the United States the widget shows the forecast without
+  alerts. Further providers are a `DECISION` in `Specs/Plans/WIP/RFC_Plugins_WeatherProvidersAndRegionalAlerts.md`.
+- One `RunNetworkWork` cycle on the host network lane (`Plugins_API.md`) performs geocoding if still needed, then
+  forecast, then sunrise, then at most one alert document, in that order. The next run waits for the longest
+  `Cache-Control: max-age` among those responses, clamped to 5–60 minutes with a 15-minute default. Inactive widgets
+  are never queued.
+- The plugin owns its HTTP client: `Weather.dll` links libcurl with Schannel and sends the user agent
+  `RedXe/0.1.0 (XENEON EDGE dashboard weather; +https://api.met.no/doc/TermsOfService)`. It keeps a bounded cache of
+  eight entries that revalidates with `If-None-Match` / `If-Modified-Since` and treats `304` as a cache hit. URLs are
+  at most 2048 bytes, response bodies are 256 KiB heap buffers, and requests time out after 10 s (30 s maximum). A
+  signaled cancel event returns promptly with `ERROR_CANCELLED`; the call never blocks inside curl after cancel.
+- Internal storage is SI (°C, m/s, mm, FILETIME); °F, km/h, and mph exist only in display strings. Strings are
+  bounded UTF-16 copies: 24 hourly entries, nine daily entries, eight alerts with title, severity, start, expiry,
+  description, instructions, and issuing authority.
+
 ## Forecast and composition
 
 - Keep 24 genuine one-hour entries and nine daily entries. A six-hour period MUST NOT masquerade as hourly data.
@@ -67,6 +88,25 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
 - Retain Weather Icons and light Segoe UI. Fit complete measured glyph ink inside atlas cells with filtering padding,
   including oversized icons and accents; reject clipped glyphs. Measurement includes overhang and rendering uses
   cached cropped rectangles. Clear reused atlas cells. Render creates no fonts, textures, heap allocations or I/O.
+- Text rasterizes once into 48 px cells. Condition icons and the header temperature glyphs (digits, sign, degree,
+  `C`, `F`) also own a 96 px twin cell in the atlas's reserved bottom rows; drawing switches to the twin above ~1.1x
+  the small cell so the hero temperature is as sharp as the icon beside it. A text twin is an exact 2x raster that
+  reuses the small cell's normalized advance and ink, so measurement never depends on which cell draws; a twin whose
+  ink does not fit that rectangle is skipped rather than clipped. WeatherTests verify every hero glyph links its twin.
+
+## Status and color
+
+- The widget reports `Initializing` until its first usable snapshot, `Ok` after a complete refresh, and `Degraded`
+  when a refresh fails after a snapshot was drawn: the last snapshot stays on screen with the attribution
+  `MET Norway  |  Cached forecast`, and the next successful run clears it. `Unavailable` is reported only while
+  nothing has ever been drawn (no coordinates, failed city lookup, or failed first forecast); it hands the tile to
+  the host placeholder per `Plugins_API.md`.
+- Type stays light gray: hero temperature, location, ranges, wind, and forecast labels never take condition color.
+  Condition color tints only Weather Icons strokes and precipitation cues, by intent: clear `#E8C36A`, partly cloudy
+  `#C8C4B8`, cloudy `#A8B0B8`, rain and sleet `#5AA0D4`, snow `#D0E4F0`, thunder `#F0A030`, fog and wind `#8A949C`.
+  Alert severity paints the banner, its leading edge, and the warning mark: yellow `#E0C040`, orange `#F07A20`,
+  red `#E03838`; a wet-hour notice uses the yellow badge. The footer attribution `MET Norway` is drawn at Standard
+  density and above; alert banners carry the alert title, and the issuing authority is retained in the snapshot.
 
 ## Validation
 
@@ -77,6 +117,13 @@ failed discovery without relaunch, helper cancellation/timeout/isolation, and pe
 Cover each fallback source succeeding, short-circuit ordering, access/timeout/API-unavailable errors, partial failed
 outputs, absent/default positions, invalid coordinates, negative/missing/excessive accuracy, stale/future timestamps,
 and inclusive freshness/accuracy bounds. Use deterministic helper processes for fallback-to-persistence integration.
+Every automated run is offline: fixtures answer through the test response hook, never curl, and live MET Norway,
+Nominatim, MeteoAlarm, or NWS calls are manual-only and MUST NOT be a CI pass condition. WeatherTests MUST fail if
+`Weather.dll` loads `Windows.Devices.Geolocation.dll` or `locationapi.dll`, and MUST prove a cancelled
+`WeatherHttpGet` on a 192 KiB stack returns `ERROR_CANCELLED`. They MUST prove a failed refresh after a drawn
+snapshot reports `Degraded` and keeps the temperature, while a widget that never drew reports `Unavailable`.
+HostPluginTests MUST prove the network lane: offline activation never calls `RunNetworkWork` and starts no thread,
+deactivation cancels and drains an in-flight call, and disabling access joins the worker.
 WARP must render production tiny/compact/narrow/
 standard/raised layouts, Fahrenheit and long accented names. Readback must contain lit pixels and submitted quads
 must fit the tile. Debug steady renders allocate nothing. Save PNG previews under `.build/` for inspection. Run Debug
