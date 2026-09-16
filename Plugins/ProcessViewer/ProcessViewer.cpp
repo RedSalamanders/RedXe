@@ -44,9 +44,8 @@ constexpr uint32_t kMaximumRows = 32;
 constexpr uint32_t kSparkCapacity = 60;
 constexpr uint32_t kHeatCapacity = 64;
 
-constexpr float kPanelR = 17.0f / 255.0f;
-constexpr float kPanelG = 17.0f / 255.0f;
-constexpr float kPanelB = 17.0f / 255.0f;
+// The panel fill is the host-resolved dashboard background (RedXeFactoryOptions::backgroundColor); see
+// ViewerPanelColor.
 constexpr float kTrackR = 0.10f;
 constexpr float kTrackG = 0.10f;
 constexpr float kTrackB = 0.11f;
@@ -268,6 +267,20 @@ std::atomic<uint32_t> g_configuredTopN{0};
     }
     topN = parsed;
     return S_OK;
+}
+
+struct ViewerPanelColor final
+{
+    float r = 0.0f;
+    float g = 0.0f;
+    float b = 0.0f;
+};
+
+[[nodiscard]] ViewerPanelColor PanelColorFromOptions(const RedXeFactoryOptions* options) noexcept
+{
+    const uint32_t rgb = RedXeBackgroundRgb(options);
+    return {static_cast<float>((rgb >> 16U) & 0xFFU) / 255.0f, static_cast<float>((rgb >> 8U) & 0xFFU) / 255.0f,
+            static_cast<float>(rgb & 0xFFU) / 255.0f};
 }
 
 [[nodiscard]] bool SnapshotMatches(const RedXeDataSnapshot* snapshot, const char* dataSetId,
@@ -1023,8 +1036,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 {
   public:
     ViewerWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, ViewerKind kind, uint32_t topN,
-                 IRedXeHost* host) noexcept
-        : _providerOwner(std::move(providerOwner)), _kind(kind), _topN(topN), _host(host)
+                 ViewerPanelColor panelColor, IRedXeHost* host) noexcept
+        : _providerOwner(std::move(providerOwner)), _kind(kind), _topN(topN), _panelColor(panelColor), _host(host)
     {
         g_liveWidgetCount.fetch_add(1, std::memory_order_relaxed);
         if (kind == ViewerKind::ProcessViewer)
@@ -2331,7 +2344,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         const PanelMetrics panel = MakePanel(width, height);
         const float chromeW = std::max(1.0f, width - kPanelInset * 2.0f);
         const float chromeH = std::max(1.0f, height - kPanelInset * 2.0f);
-        (void)list.AddFill(kPanelInset, kPanelInset, chromeW, chromeH, kPanelR, kPanelG, kPanelB, 1.0f, panel.radius);
+        (void)list.AddFill(kPanelInset, kPanelInset, chromeW, chromeH, _panelColor.r, _panelColor.g, _panelColor.b,
+                           1.0f, panel.radius);
         (void)list.AddStroke(kPanelInset + 0.5f, kPanelInset + 0.5f, chromeW - 1.0f, chromeH - 1.0f, kHairline,
                              kHairline, kHairline, 0.9f, panel.radius, 1.0f);
         if (pulse > 0.0f)
@@ -3321,6 +3335,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     uint32_t _subscriptionCount = 0;
     ViewerKind _kind;
     uint32_t _topN;
+    ViewerPanelColor _panelColor;
     uint32_t _restDelay = 1000;
     IRedXeHost* _host = nullptr;
     std::atomic<bool> _visible{false};
@@ -3352,8 +3367,8 @@ class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetP
 {
   public:
     ViewerProvider(wil::com_ptr_nothrow<IRedXeDataProvider>&& dataProvider, ViewerKind kind, uint32_t topN,
-                   IRedXeHost* host) noexcept
-        : _dataProvider(std::move(dataProvider)), _kind(kind), _topN(topN), _host(host)
+                   ViewerPanelColor panelColor, IRedXeHost* host) noexcept
+        : _dataProvider(std::move(dataProvider)), _kind(kind), _topN(topN), _panelColor(panelColor), _host(host)
     {
         const ViewerCatalogEntry& entry = Catalog(kind);
         _types[0] = RedXeWidgetTypeDescriptor{
@@ -3420,7 +3435,7 @@ class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetP
         {
             return result;
         }
-        auto* created = new (std::nothrow) ViewerWidget(std::move(providerOwner), _kind, _topN, _host);
+        auto* created = new (std::nothrow) ViewerWidget(std::move(providerOwner), _kind, _topN, _panelColor, _host);
         if (!created)
         {
             return E_OUTOFMEMORY;
@@ -3439,6 +3454,7 @@ class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetP
     wil::com_ptr_nothrow<IRedXeDataProvider> _dataProvider;
     ViewerKind _kind;
     uint32_t _topN;
+    ViewerPanelColor _panelColor;
     IRedXeHost* _host = nullptr;
     std::array<RedXeWidgetTypeDescriptor, 1> _types{};
 };
@@ -3480,7 +3496,8 @@ HRESULT CreateViewerProviderFor(ViewerKind kind, REFIID interfaceId, const RedXe
     {
         return configurationResult;
     }
-    auto* provider = new (std::nothrow) ViewerProvider(std::move(dataProvider), kind, topN, host);
+    auto* provider =
+        new (std::nothrow) ViewerProvider(std::move(dataProvider), kind, topN, PanelColorFromOptions(options), host);
     if (!provider)
     {
         return E_OUTOFMEMORY;

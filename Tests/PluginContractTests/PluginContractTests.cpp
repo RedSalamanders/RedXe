@@ -74,7 +74,7 @@ constexpr char kMatrixPluginId[] = "builtin.matrix-rain";
 constexpr char kMatrixWidgetTypeId[] = "matrix-rain";
 constexpr char kProcessViewerPluginId[] = "builtin.process-viewer";
 constexpr std::string_view kDefaultMatrixConfiguration =
-    R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35})json";
+    R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","glowPercent":35})json";
 
 #if defined(_DEBUG)
 std::atomic<uint64_t> gMatrixRenderAllocationCount{0};
@@ -709,8 +709,10 @@ struct MatrixRenderTarget final
     return S_OK;
 }
 
+// backgroundColor is the host-resolved dashboard background (opaque ARGB) the provider paints behind the rain.
 [[nodiscard]] HRESULT CreateMatrixProvider(RedXeCreateFn create, std::string_view configuration,
-                                           wil::com_ptr_nothrow<IRedXeWidgetProvider>& provider) noexcept
+                                           wil::com_ptr_nothrow<IRedXeWidgetProvider>& provider,
+                                           uint32_t backgroundColor = 0xFF010502) noexcept
 {
     if (!create || provider)
     {
@@ -725,6 +727,7 @@ struct MatrixRenderTarget final
         options.sizeBytes = sizeof(options);
         options.configurationJsonUtf8 = envelope.data();
         options.configurationBytes = static_cast<uint32_t>(envelope.size());
+        options.backgroundColor = backgroundColor;
         void* object = nullptr;
         const HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object);
         if (FAILED(result))
@@ -943,7 +946,7 @@ struct MatrixRenderTarget final
         Mutation{"\"mutationPerSecond\":8", "\"mutationPerSecond\":31"},
         Mutation{"\"headColor\":\"#D8FFE5\"", "\"headColor\":\"D8FFE5\""},
         Mutation{"\"trailColor\":\"#00E65C\"", "\"trailColor\":\"#00E65G\""},
-        Mutation{"\"backgroundColor\":\"#010502\"", "\"backgroundColor\":\"#01050\""},
+        Mutation{"\"trailColor\":\"#00E65C\"", "\"trailColor\":\"#00E65C\",\"backgroundColor\":\"#010502\""},
         Mutation{"\"glowPercent\":35", "\"glowPercent\":101"},
         Mutation{"\"seed\":1999", "\"seed\":1999,\"seed\":1"},
         Mutation{"\"glowPercent\":35", "\"glowPercent\":35,\"unknown\":1"},
@@ -982,10 +985,10 @@ struct MatrixRenderTarget final
     }
 
     constexpr std::array<std::string_view, 4> invalidNormalizedConfigurations{
-        R"json({"plugin":{"unexpected":1},"instance":{"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35}})json",
+        R"json({"plugin":{"unexpected":1},"instance":{"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","glowPercent":35}})json",
         R"json({"plugin":{},"instance":{}})json",
-        R"json({"plugin":{},"instance":{"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35},"unknown":1})json",
-        R"json({"instance":{"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35}})json",
+        R"json({"plugin":{},"instance":{"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","glowPercent":35},"unknown":1})json",
+        R"json({"instance":{"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","glowPercent":35}})json",
     };
     for (const std::string_view invalid : invalidNormalizedConfigurations)
     {
@@ -1128,16 +1131,11 @@ struct MatrixRenderTarget final
 
     try
     {
+        // The background arrives through the factory options rather than the borrowed JSON; both are copied
+        // before RedXeCreate returns, so wiping the JSON afterwards must not disturb the rendered color.
         std::string borrowed(kDefaultMatrixConfiguration);
-        const std::string_view oldColor = "#010502";
-        const size_t colorOffset = borrowed.find(oldColor);
-        if (colorOffset == std::string::npos)
-        {
-            return E_UNEXPECTED;
-        }
-        borrowed.replace(colorOffset, oldColor.size(), "#7A1133");
         wil::com_ptr_nothrow<IRedXeWidgetProvider> borrowedProvider;
-        result = CreateMatrixProvider(create, borrowed, borrowedProvider);
+        result = CreateMatrixProvider(create, borrowed, borrowedProvider, 0xFF7A1133);
         if (FAILED(result))
         {
             return result;
@@ -1172,8 +1170,8 @@ struct MatrixRenderTarget final
     }
 
     constexpr std::array<std::string_view, 2> limitConfigurations{
-        R"json({"seed":0,"glyphHeightDips":12,"densityPercent":10,"speedPercent":25,"trailLengthGlyphs":6,"mutationPerSecond":0,"headColor":"#000000","trailColor":"#000000","backgroundColor":"#000000","glowPercent":0})json",
-        R"json({"seed":4294967295,"glyphHeightDips":48,"densityPercent":100,"speedPercent":300,"trailLengthGlyphs":48,"mutationPerSecond":30,"headColor":"#FFFFFF","trailColor":"#FFFFFF","backgroundColor":"#FFFFFF","glowPercent":100})json",
+        R"json({"seed":0,"glyphHeightDips":12,"densityPercent":10,"speedPercent":25,"trailLengthGlyphs":6,"mutationPerSecond":0,"headColor":"#000000","trailColor":"#000000","glowPercent":0})json",
+        R"json({"seed":4294967295,"glyphHeightDips":48,"densityPercent":100,"speedPercent":300,"trailLengthGlyphs":48,"mutationPerSecond":30,"headColor":"#FFFFFF","trailColor":"#FFFFFF","glowPercent":100})json",
     };
     for (const std::string_view configuration : limitConfigurations)
     {

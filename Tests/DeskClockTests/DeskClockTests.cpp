@@ -29,7 +29,7 @@ namespace
 constexpr char kPluginId[] = "builtin.desk-clock";
 constexpr char kWidgetTypeId[] = "desk-clock";
 constexpr std::string_view kDefaultConfiguration =
-    R"json({"flipDurationMilliseconds":420,"backgroundColor":"#000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json";
+    R"json({"flipDurationMilliseconds":420,"cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json";
 constexpr HRESULT kTestFailure = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
 std::atomic<uint64_t> gRenderAllocations{0};
@@ -480,14 +480,15 @@ struct PixelBounds final
         return kTestFailure;
     }
 
+    // backgroundColor is host-owned: the plugin rejects it like any other unknown member.
     constexpr std::array<std::string_view, 7> invalidConfigurations{
         R"json({})json",
-        R"json({"flipDurationMilliseconds":249,"backgroundColor":"#000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json",
-        R"json({"flipDurationMilliseconds":801,"backgroundColor":"#000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json",
-        R"json({"flipDurationMilliseconds":420,"backgroundColor":"000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json",
-        R"json({"flipDurationMilliseconds":420,"backgroundColor":"#000000","cardColor":"#FF3B4G","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json",
-        R"json({"flipDurationMilliseconds":420,"backgroundColor":"#000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8","unknown":1})json",
-        R"json({"flipDurationMilliseconds":420,"flipDurationMilliseconds":421,"backgroundColor":"#000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json",
+        R"json({"flipDurationMilliseconds":249,"cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json",
+        R"json({"flipDurationMilliseconds":801,"cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json",
+        R"json({"flipDurationMilliseconds":420,"backgroundColor":"#000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json",
+        R"json({"flipDurationMilliseconds":420,"cardColor":"#FF3B4G","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json",
+        R"json({"flipDurationMilliseconds":420,"cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8","unknown":1})json",
+        R"json({"flipDurationMilliseconds":420,"flipDurationMilliseconds":421,"cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json",
     };
     for (const std::string_view invalid : invalidConfigurations)
     {
@@ -499,7 +500,7 @@ struct PixelBounds final
         }
     }
     constexpr std::string_view invalidPluginConfiguration =
-        R"json({"plugin":{"bad":1},"instance":{"flipDurationMilliseconds":420,"backgroundColor":"#000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"}})json";
+        R"json({"plugin":{"bad":1},"instance":{"flipDurationMilliseconds":420,"cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"}})json";
     options.configurationJsonUtf8 = invalidPluginConfiguration.data();
     options.configurationBytes = static_cast<uint32_t>(invalidPluginConfiguration.size());
     object = reinterpret_cast<void*>(1);
@@ -520,8 +521,8 @@ struct PixelBounds final
 
     constexpr std::array<std::string_view, 3> validConfigurations{
         kDefaultConfiguration,
-        R"json({"flipDurationMilliseconds":250,"backgroundColor":"#aBcDeF","cardColor":"#000000","digitColor":"#123456","dateColor":"#ffffff"})json",
-        R"json({"flipDurationMilliseconds":800,"backgroundColor":"#FFFFFF","cardColor":"#ABCDEF","digitColor":"#000000","dateColor":"#102030"})json",
+        R"json({"flipDurationMilliseconds":250,"cardColor":"#000000","digitColor":"#123456","dateColor":"#ffffff"})json",
+        R"json({"flipDurationMilliseconds":800,"cardColor":"#ABCDEF","digitColor":"#000000","dateColor":"#102030"})json",
     };
     for (const std::string_view valid : validConfigurations)
     {

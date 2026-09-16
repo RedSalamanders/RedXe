@@ -356,8 +356,8 @@ template <size_t Count>
 [[nodiscard]] bool IsValidMatrixPrivate(yyjson_val* object) noexcept
 {
     constexpr std::array keys{
-        "seed",      "glyphHeightDips", "densityPercent",  "speedPercent", "trailLengthGlyphs", "mutationPerSecond",
-        "headColor", "trailColor",      "backgroundColor", "glowPercent",
+        "seed",      "glyphHeightDips", "densityPercent", "speedPercent", "trailLengthGlyphs", "mutationPerSecond",
+        "headColor", "trailColor",      "glowPercent",
     };
     uint32_t value = 0;
     return HasExactKeys(object, keys) && ReadUnsigned(object, "seed", 0, UINT32_MAX, value) &&
@@ -366,15 +366,14 @@ template <size_t Count>
            ReadUnsigned(object, "speedPercent", 25, 300, value) &&
            ReadUnsigned(object, "trailLengthGlyphs", 6, 48, value) &&
            ReadUnsigned(object, "mutationPerSecond", 0, 30, value) && IsColor(object, "headColor") &&
-           IsColor(object, "trailColor") && IsColor(object, "backgroundColor") &&
-           ReadUnsigned(object, "glowPercent", 0, 100, value);
+           IsColor(object, "trailColor") && ReadUnsigned(object, "glowPercent", 0, 100, value);
 }
 
 [[nodiscard]] bool IsValidStudioClockPrivate(yyjson_val* object) noexcept
 {
     constexpr std::array keys{
         "showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor",
-        "showDate",           "dateFormat",           "timeColor",   "backgroundColor",
+        "showDate",           "dateFormat",           "timeColor",
     };
     yyjson_val* dateFormatValue = yyjson_obj_get(object, "dateFormat");
     const char* dateFormat = yyjson_is_str(dateFormatValue) ? yyjson_get_str(dateFormatValue) : nullptr;
@@ -385,18 +384,20 @@ template <size_t Count>
            yyjson_is_bool(yyjson_obj_get(object, "externalDotsAlwaysOn")) &&
            yyjson_is_bool(yyjson_obj_get(object, "showSeconds")) &&
            yyjson_is_bool(yyjson_obj_get(object, "showDate")) && validDateFormat && IsColor(object, "secondsColor") &&
-           IsColor(object, "timeColor") && IsColor(object, "backgroundColor");
+           IsColor(object, "timeColor");
 }
 
 [[nodiscard]] bool IsValidDeskClockPrivate(yyjson_val* object) noexcept
 {
     constexpr std::array keys{
-        "flipDurationMilliseconds", "backgroundColor", "cardColor", "digitColor", "dateColor",
+        "flipDurationMilliseconds",
+        "cardColor",
+        "digitColor",
+        "dateColor",
     };
     uint32_t duration = 0;
     return HasExactKeys(object, keys) && ReadUnsigned(object, "flipDurationMilliseconds", 250, 800, duration) &&
-           IsColor(object, "backgroundColor") && IsColor(object, "cardColor") && IsColor(object, "digitColor") &&
-           IsColor(object, "dateColor");
+           IsColor(object, "cardColor") && IsColor(object, "digitColor") && IsColor(object, "dateColor");
 }
 
 [[nodiscard]] bool IsValidWeatherPrivate(yyjson_val* object) noexcept
@@ -1075,12 +1076,19 @@ template <size_t Count>
     {
         return false;
     }
+    // plugin, use, and backgroundColor are host-owned widget keys: a plugin persist replaces only the plugin's
+    // flattened members around them.
+    const auto hostOwned = [](const char* name) noexcept
+    {
+        return name && (std::strcmp(name, "plugin") == 0 || std::strcmp(name, "use") == 0 ||
+                        std::strcmp(name, "backgroundColor") == 0);
+    };
     std::vector<std::string> remove;
     yyjson_mut_obj_iter iterator = yyjson_mut_obj_iter_with(widget);
     while (yyjson_mut_val* key = yyjson_mut_obj_iter_next(&iterator))
     {
         const char* name = yyjson_mut_get_str(key);
-        if (name && std::strcmp(name, "plugin") != 0 && std::strcmp(name, "use") != 0)
+        if (name && !hostOwned(name))
         {
             remove.emplace_back(name);
         }
@@ -1093,7 +1101,7 @@ template <size_t Count>
     while (yyjson_mut_val* key = yyjson_mut_obj_iter_next(&settingsIterator))
     {
         const char* name = yyjson_mut_get_str(key);
-        if (!name || std::strcmp(name, "plugin") == 0 || std::strcmp(name, "use") == 0)
+        if (!name || hostOwned(name))
         {
             continue;
         }
@@ -1399,7 +1407,7 @@ HRESULT PreserveActiveDashboardPage(const AppSettings& previous, AppSettings& ca
 bool ActiveDashboardRuntimeEquals(const AppSettings& left, const AppSettings& right) noexcept
 {
     if (left.dashboard.gridColumns != right.dashboard.gridColumns ||
-        left.dashboard.gridRows != right.dashboard.gridRows)
+        left.dashboard.gridRows != right.dashboard.gridRows || left.backgroundRgb != right.backgroundRgb)
     {
         return false;
     }

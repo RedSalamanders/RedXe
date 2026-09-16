@@ -810,6 +810,16 @@ bool DashboardHost::HasWindowWidgets() const noexcept
     return false;
 }
 
+uint32_t DashboardHost::BackgroundRgb() const noexcept
+{
+    return _pluginManager ? _pluginManager->BackgroundRgb() : kRedXeDefaultBackgroundRgb;
+}
+
+uint32_t DashboardHost::WidgetBackgroundRgbAt(size_t index) const noexcept
+{
+    return _pluginManager && index < _widgetCount ? _pluginManager->WidgetBackgroundRgbAt(index) : BackgroundRgb();
+}
+
 bool DashboardHost::RequiresPlaceholderAt(size_t index) const noexcept
 {
     if (!_pluginManager || index >= _widgetCount)

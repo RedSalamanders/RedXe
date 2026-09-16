@@ -110,6 +110,8 @@ class Renderer final
     // Fills one tile with the host placeholder wash. Used when a widget instance failed to construct or reported
     // itself unavailable, so a failed tile reads as failed instead of stale or blank.
     void DrawPlaceholder(const D3D11_VIEWPORT& viewport) noexcept;
+    // Fills one tile with its own background before Render when the instance overrides the document color.
+    void FillTileBackground(const DashboardHost& dashboard, size_t index, const D3D11_VIEWPORT& viewport) noexcept;
 #if defined(_DEBUG)
     // Bounded check of the pipeline-state contract Widget.h states: the host binds only render target and viewport,
     // so a widget that leaves scissor clipping enabled silently breaks whichever sibling draws next.

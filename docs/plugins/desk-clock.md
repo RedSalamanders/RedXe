@@ -12,12 +12,11 @@ Local 24-hour `HH:MM:SS` on six flip cards, plus a compact English date (`Mon 6 
 
 ## Parameters
 
-Omitted keys take these defaults. Colors are `#RRGGBB`. Unknown keys reject the document.
+Omitted keys take these defaults. Colors are `#RRGGBB`. Unknown keys reject the document. The tile background is the dashboard `backgroundColor`; to change it for this widget only, put `backgroundColor` on the widget object (see [usage](../usage.md#background-color)).
 
 | Parameter | Type | Range | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `flipDurationMilliseconds` | integer | 250–800 | `420` | How long a digit flip lasts |
-| `backgroundColor` | string | `#RRGGBB` | `#000000` | Opaque background |
 | `cardColor` | string | `#RRGGBB` | `#FF3B43` | Card faces |
 | `digitColor` | string | `#RRGGBB` | `#FFFFFF` | Time digits |
 | `dateColor` | string | `#RRGGBB` | `#D8D8D8` | Date line |

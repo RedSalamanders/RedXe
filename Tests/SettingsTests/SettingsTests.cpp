@@ -199,6 +199,13 @@ constexpr std::string_view kRepresentative = R"json(
         std::wprintf(L"Deployed template page inventory contract failed.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
+    if (debug.backgroundRgb != kRedXeDefaultBackgroundRgb || release.backgroundRgb != kRedXeDefaultBackgroundRgb ||
+        debug.sourceDocument.find("\"backgroundColor\"") == std::string::npos ||
+        release.sourceDocument.find("\"backgroundColor\"") == std::string::npos)
+    {
+        std::wprintf(L"Deployed templates must author the document backgroundColor explicitly.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
     const WidgetInstanceSettings& gpu = release.dashboard.pages[2].widgets[7];
     const WidgetInstanceSettings& thermal = release.dashboard.pages[2].widgets[8];
     const WidgetInstanceSettings& power = release.dashboard.pages[2].widgets[9];
@@ -242,7 +249,40 @@ constexpr std::string_view kRepresentative = R"json(
         !yyjson_is_uint(yyjson_obj_get(retention, "default")) ||
         yyjson_get_uint(yyjson_obj_get(retention, "default")) != kRedXeDefaultLogRetentionDays)
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    yyjson_val* rootBackground = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "backgroundColor") : nullptr;
+    if (!yyjson_is_obj(rootBackground) || !yyjson_is_str(yyjson_obj_get(rootBackground, "default")) ||
+        std::string_view(yyjson_get_str(yyjson_obj_get(rootBackground, "default"))) != "#000000")
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     yyjson_val* defs = yyjson_obj_get(root, "$defs");
+    yyjson_val* widgetDefinition = yyjson_is_obj(defs) ? yyjson_obj_get(defs, "widgetDefinition") : nullptr;
+    yyjson_val* variants = yyjson_is_obj(widgetDefinition) ? yyjson_obj_get(widgetDefinition, "oneOf") : nullptr;
+    if (!yyjson_is_arr(variants))
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    {
+        size_t variantIndex = 0;
+        size_t variantMax = 0;
+        yyjson_val* variant = nullptr;
+        yyjson_arr_foreach(variants, variantIndex, variantMax, variant)
+        {
+            yyjson_val* variantProperties = yyjson_is_obj(variant) ? yyjson_obj_get(variant, "properties") : nullptr;
+            if (!yyjson_is_obj(variantProperties) || !yyjson_obj_get(variantProperties, "backgroundColor"))
+            {
+                std::wprintf(L"Every widget object variant must accept the host backgroundColor key.\n");
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+    }
+    for (const char* pluginDefinition : {"matrixSettings", "studioClockSettings", "deskClockSettings"})
+    {
+        yyjson_val* definition = yyjson_is_obj(defs) ? yyjson_obj_get(defs, pluginDefinition) : nullptr;
+        yyjson_val* definitionProperties =
+            yyjson_is_obj(definition) ? yyjson_obj_get(definition, "properties") : nullptr;
+        if (!yyjson_is_obj(definitionProperties) || yyjson_obj_get(definitionProperties, "backgroundColor"))
+        {
+            std::wprintf(L"Plugin settings definitions must not own backgroundColor.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
     yyjson_val* launcherSettings = yyjson_is_obj(defs) ? yyjson_obj_get(defs, "launcherSettings") : nullptr;
     yyjson_val* launcherProperties =
         yyjson_is_obj(launcherSettings) ? yyjson_obj_get(launcherSettings, "properties") : nullptr;
@@ -363,16 +403,24 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
+    // backgroundColor is a host-reserved widget key: it lifts onto the typed instance and never enters the plugin
+    // settings object, so the plugin defaults merge and validators stay unaware of it.
     constexpr std::string_view studioClockSettings =
         R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock"},{"plugin":"builtin.studio-clock","showDate":true,"backgroundColor":"#010203"}]}]})json";
     AppSettings studioClock{};
     if (FAILED(ParseAppSettingsJson(studioClockSettings, studioClock)) ||
         studioClock.dashboard.pages[0].widgets[0].privateConfiguration.View() !=
-            R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","backgroundColor":"#111111"})json" ||
+            R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616"})json" ||
+        studioClock.dashboard.pages[0].widgets[0].overridesBackground ||
         studioClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"showDate\":true") ==
             std::string_view::npos ||
-        studioClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"backgroundColor\":\"#010203\"") ==
-            std::string_view::npos)
+        studioClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("backgroundColor") !=
+            std::string_view::npos ||
+        !studioClock.dashboard.pages[0].widgets[1].overridesBackground ||
+        studioClock.dashboard.pages[0].widgets[1].backgroundRgb != 0x010203 ||
+        EffectiveWidgetBackgroundRgb(studioClock, studioClock.dashboard.pages[0].widgets[0]) !=
+            kRedXeDefaultBackgroundRgb ||
+        EffectiveWidgetBackgroundRgb(studioClock, studioClock.dashboard.pages[0].widgets[1]) != 0x010203)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -382,12 +430,62 @@ constexpr std::string_view kRepresentative = R"json(
     AppSettings deskClock{};
     if (FAILED(ParseAppSettingsJson(deskClockSettings, deskClock)) ||
         deskClock.dashboard.pages[0].widgets[0].privateConfiguration.View() !=
-            R"json({"flipDurationMilliseconds":420,"backgroundColor":"#000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json" ||
+            R"json({"flipDurationMilliseconds":420,"cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json" ||
         deskClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"flipDurationMilliseconds\":250") ==
             std::string_view::npos ||
-        deskClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"backgroundColor\":\"#010203\"") ==
+        deskClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("backgroundColor") !=
+            std::string_view::npos ||
+        !deskClock.dashboard.pages[0].widgets[1].overridesBackground ||
+        deskClock.dashboard.pages[0].widgets[1].backgroundRgb != 0x010203)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    // The document color feeds every plugin, including ones with closed empty settings, and a declare-level
+    // override flows through use-objects (which may override it again or remove it with null).
+    constexpr std::string_view backgroundSettings =
+        R"json({"version":{"major":5},"backgroundColor":"#0a0B0c","declare":{"Cpu":{"plugin":"builtin.cpu-meter","backgroundColor":"#101010"}},"pages":[{"widgets":["Cpu",{"use":"Cpu","backgroundColor":"#202020"},{"use":"Cpu","backgroundColor":null},{"plugin":"builtin.weather","backgroundColor":"#303030"},{"plugin":"builtin.rotating-triangle"}]}]})json";
+    AppSettings background{};
+    if (FAILED(ParseAppSettingsJson(backgroundSettings, background)) || background.backgroundRgb != 0x0A0B0C ||
+        background.dashboard.pages[0].widgetCount != 5 ||
+        EffectiveWidgetBackgroundRgb(background, background.dashboard.pages[0].widgets[0]) != 0x101010 ||
+        EffectiveWidgetBackgroundRgb(background, background.dashboard.pages[0].widgets[1]) != 0x202020 ||
+        background.dashboard.pages[0].widgets[2].overridesBackground ||
+        EffectiveWidgetBackgroundRgb(background, background.dashboard.pages[0].widgets[2]) != 0x0A0B0C ||
+        EffectiveWidgetBackgroundRgb(background, background.dashboard.pages[0].widgets[3]) != 0x303030 ||
+        background.dashboard.pages[0].widgets[3].privateConfiguration.View().find("backgroundColor") !=
+            std::string_view::npos ||
+        background.dashboard.pages[0].widgets[0].privateConfiguration.View() != "{}" ||
+        background.dashboard.pages[0].widgets[4].overridesBackground ||
+        EffectiveWidgetBackgroundRgb(background, background.dashboard.pages[0].widgets[4]) != 0x0A0B0C)
+    {
+        std::wprintf(L"Document and per-widget backgroundColor did not resolve as expected.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    AppSettings backgroundChanged = background;
+    backgroundChanged.backgroundRgb = 0x000000;
+    if (ActiveDashboardRuntimeEquals(background, backgroundChanged))
+    {
+        std::wprintf(L"A document backgroundColor change must be a runtime change.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    // A plugin persist rewrites only the plugin's flattened keys; the host-owned override on the widget object stays.
+    if (FAILED(PatchWidgetInstanceSettings(background, background.dashboard.pages[0].widgets[3].id.View(),
+                                           R"json({"location":"Paris"})json")) ||
+        !background.dashboard.pages[0].widgets[3].overridesBackground ||
+        SUCCEEDED(PatchWidgetInstanceSettings(background, background.dashboard.pages[0].widgets[3].id.View(),
+                                              R"json({"backgroundColor":"#404040"})json")))
+    {
+        std::wprintf(L"Persist did not preserve the widget backgroundColor override.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    AppSettings persisted{};
+    if (FAILED(ParseAppSettingsJson(background.sourceDocument, persisted)) ||
+        EffectiveWidgetBackgroundRgb(persisted, persisted.dashboard.pages[0].widgets[3]) != 0x303030 ||
+        persisted.dashboard.pages[0].widgets[3].privateConfiguration.View().find("\"location\":\"Paris\"") ==
             std::string_view::npos)
     {
+        std::wprintf(L"The persisted document lost the widget backgroundColor override.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
@@ -498,7 +596,7 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    constexpr std::array<std::string_view, 45> invalid{
+    constexpr std::array<std::string_view, 51> invalid{
         std::string_view{R"json({"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":4},"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":5,"minor":"0"},"pages":[{}]})json"},
@@ -558,6 +656,15 @@ constexpr std::string_view kRepresentative = R"json(
             R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","iconSize":"jumbo","shortcuts":[]}]}]})json"},
         std::string_view{
             R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","iconSize":"auto"}]}]})json"},
+        std::string_view{R"json({"version":{"major":5},"backgroundColor":"#12345","pages":[{}]})json"},
+        std::string_view{R"json({"version":{"major":5},"backgroundColor":"123456","pages":[{}]})json"},
+        std::string_view{R"json({"version":{"major":5},"backgroundColor":1,"pages":[{}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.cpu-meter","backgroundColor":"#GG0000"}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","backgroundColor":7}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"declare":{"X":{"plugin":"builtin.matrix-rain","backgroundColor":"black"}},"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":5},"logRetentionDays":0,"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":5},"logRetentionDays":366,"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":5},"logRetentionDays":false,"pages":[{}]})json"},

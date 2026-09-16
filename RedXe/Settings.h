@@ -23,6 +23,8 @@ inline constexpr uint32_t kRedXeDefaultLogRetentionDays = 15;
 inline constexpr uint32_t kRedXeMinimumLogRetentionDays = 1;
 inline constexpr uint32_t kRedXeMaximumLogRetentionDays = 365;
 inline constexpr size_t kRedXeLogFileNameCapacity = 64;
+// Document-level dashboard background when the file omits backgroundColor, as 0xRRGGBB.
+inline constexpr uint32_t kRedXeDefaultBackgroundRgb = 0x000000;
 #if defined(_DEBUG)
 inline constexpr wchar_t kRedXeLogFileNamePrefix[] = L"RedXe-debug-";
 #else
@@ -199,6 +201,10 @@ struct WidgetInstanceSettings final
     WidgetGridPlacement placement;
     AdaptiveWidgetPlacement adaptivePlacement;
     bool usesAdaptivePlacement = false;
+    // Host-reserved widget key: this instance paints backgroundRgb instead of the document background. It is never
+    // part of privateConfiguration, so plugin persist cannot copy the document color into the instance.
+    bool overridesBackground = false;
+    uint32_t backgroundRgb = kRedXeDefaultBackgroundRgb;
     JsonObjectSettings privateConfiguration;
 
     bool operator==(const WidgetInstanceSettings&) const noexcept = default;
@@ -232,6 +238,7 @@ struct AppSettings final
     uint32_t versionMajor = kRedXeSettingsVersionMajor;
     uint32_t versionMinor = kRedXeSettingsVersionMinor;
     uint32_t logRetentionDays = kRedXeDefaultLogRetentionDays;
+    uint32_t backgroundRgb = kRedXeDefaultBackgroundRgb;
     std::string sourceDocument;
     std::vector<PluginSettings> plugins;
     uint32_t pluginCount = 0;
@@ -283,6 +290,12 @@ enum class SettingsReloadStatus : std::uint8_t
 [[nodiscard]] HRESULT MoveDashboardPage(AppSettings& settings, int direction) noexcept;
 [[nodiscard]] HRESULT PreserveActiveDashboardPage(const AppSettings& previous, AppSettings& candidate) noexcept;
 [[nodiscard]] bool ActiveDashboardRuntimeEquals(const AppSettings& left, const AppSettings& right) noexcept;
+// The 0xRRGGBB background one widget instance paints: its own override, else the document background.
+[[nodiscard]] inline uint32_t EffectiveWidgetBackgroundRgb(const AppSettings& settings,
+                                                           const WidgetInstanceSettings& widget) noexcept
+{
+    return widget.overridesBackground ? widget.backgroundRgb : settings.backgroundRgb;
+}
 [[nodiscard]] HRESULT SetJsonObjectSettings(std::string_view json, JsonObjectSettings& settings) noexcept;
 [[nodiscard]] HRESULT ValidateAppSettings(const AppSettings& settings) noexcept;
 [[nodiscard]] HRESULT ParseAppSettingsJson(std::string_view json, AppSettings& settings) noexcept;

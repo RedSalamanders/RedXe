@@ -119,9 +119,11 @@ class Widget final
 {
   public:
     Widget(wil::com_ptr_nothrow<IRedXeWidgetProvider> owner, wil::com_ptr_nothrow<Coordinator> runtime,
-           const Configuration& configuration, const char* instance)
+           const Configuration& configuration, const char* instance, uint32_t backgroundRgb)
         : _provider(std::move(owner)), _runtime(std::move(runtime)), _configuration(configuration), _instance(instance)
     {
+        _tile.SetBackground(backgroundRgb);
+        _overlay.SetBackground(backgroundRgb);
     }
     ~Widget()
     {
@@ -561,8 +563,8 @@ class Widget final
 class Provider final : public RedXeComObject<Provider, IRedXeWidgetProvider>
 {
   public:
-    Provider(wil::com_ptr_nothrow<Coordinator> runtime, const Configuration& configuration)
-        : _runtime(std::move(runtime)), _configuration(configuration)
+    Provider(wil::com_ptr_nothrow<Coordinator> runtime, const Configuration& configuration, uint32_t backgroundRgb)
+        : _runtime(std::move(runtime)), _configuration(configuration), _backgroundRgb(backgroundRgb)
     {
         ++providerCount;
     }
@@ -597,7 +599,7 @@ class Provider final : public RedXeComObject<Provider, IRedXeWidgetProvider>
         {
             wil::com_ptr_nothrow<IRedXeWidgetProvider> owner(this);
             wil::com_ptr_nothrow<Widget> created;
-            created.attach(new Widget(std::move(owner), _runtime, _configuration, instance));
+            created.attach(new Widget(std::move(owner), _runtime, _configuration, instance, _backgroundRgb));
             RETURN_IF_FAILED(created->Initialize());
             *widget = created.detach();
             return S_OK;
@@ -611,6 +613,7 @@ class Provider final : public RedXeComObject<Provider, IRedXeWidgetProvider>
   private:
     wil::com_ptr_nothrow<Coordinator> _runtime;
     Configuration _configuration;
+    uint32_t _backgroundRgb;
 };
 HRESULT CreateProvider(REFIID iid, const RedXeFactoryOptions* options, IRedXeHost* host, void** result) noexcept
 {
@@ -620,7 +623,7 @@ HRESULT CreateProvider(REFIID iid, const RedXeFactoryOptions* options, IRedXeHos
     RETURN_IF_FAILED(ReadConfiguration(options, configuration));
     wil::com_ptr_nothrow<Coordinator> runtime;
     RETURN_IF_FAILED(GetCoordinator(host, runtime));
-    auto* provider = new (std::nothrow) Provider(std::move(runtime), configuration);
+    auto* provider = new (std::nothrow) Provider(std::move(runtime), configuration, RedXeBackgroundRgb(options));
     if (!provider)
         return E_OUTOFMEMORY;
     *result = static_cast<IRedXeWidgetProvider*>(provider);

@@ -1172,8 +1172,12 @@ class LauncherWidget final
 {
   public:
     LauncherWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, LauncherDeviceResources& resources,
-                   IRedXeHost* host, const char* instanceId, const LauncherConfiguration& configuration) noexcept
-        : _providerOwner(std::move(providerOwner)), _resources(&resources), _host(host)
+                   IRedXeHost* host, const char* instanceId, const LauncherConfiguration& configuration,
+                   uint32_t backgroundRgb) noexcept
+        : _providerOwner(std::move(providerOwner)), _resources(&resources), _host(host),
+          _background{static_cast<float>((backgroundRgb >> 16U) & 0xFFU) / 255.0f,
+                      static_cast<float>((backgroundRgb >> 8U) & 0xFFU) / 255.0f,
+                      static_cast<float>(backgroundRgb & 0xFFU) / 255.0f, 1.0f}
     {
         CopyConfigurationIdentity(configuration, _authored);
         CopyNarrow(instanceId ? std::string_view(instanceId) : std::string_view{}, _instanceId, std::size(_instanceId));
@@ -1349,10 +1353,7 @@ class LauncherWidget final
         constants.viewportWidth = static_cast<float>(widget.widthPixels);
         constants.viewportHeight = static_cast<float>(widget.heightPixels);
         constants.hint = (_display.count == 0) ? 1.0f : 0.0f;
-        constants.background[0] = 0.07f;
-        constants.background[1] = 0.07f;
-        constants.background[2] = 0.08f;
-        constants.background[3] = 1.0f;
+        std::copy(_background.begin(), _background.end(), constants.background);
         constants.hintColor[0] = 0.55f;
         constants.hintColor[1] = 0.58f;
         constants.hintColor[2] = 0.62f;
@@ -2016,6 +2017,8 @@ class LauncherWidget final
     LauncherInstanceGpu _gpu;
     ID3D11Device* _device = nullptr;
     IRedXeHost* _host = nullptr;
+    // Host-resolved dashboard background (RedXeFactoryOptions::backgroundColor) as the tile fill.
+    std::array<float, 4> _background{0.0f, 0.0f, 0.0f, 1.0f};
     char _instanceId[kInstanceIdCapacity]{};
     LauncherConfiguration _authored{};
     LauncherConfiguration _display{};
@@ -2071,7 +2074,8 @@ class LauncherWidget final
 class LauncherProvider final : public RedXeComObject<LauncherProvider, IRedXeWidgetProvider>
 {
   public:
-    LauncherProvider(const LauncherConfiguration& configuration, IRedXeHost* host) noexcept : _host(host)
+    LauncherProvider(const LauncherConfiguration& configuration, uint32_t backgroundRgb, IRedXeHost* host) noexcept
+        : _backgroundRgb(backgroundRgb), _host(host)
     {
         CopyConfigurationIdentity(configuration, _configuration);
     }
@@ -2121,8 +2125,8 @@ class LauncherProvider final : public RedXeComObject<LauncherProvider, IRedXeWid
         {
             return result;
         }
-        auto* created =
-            new (std::nothrow) LauncherWidget(std::move(providerOwner), _resources, _host, instanceId, _configuration);
+        auto* created = new (std::nothrow)
+            LauncherWidget(std::move(providerOwner), _resources, _host, instanceId, _configuration, _backgroundRgb);
         if (!created)
         {
             return E_OUTOFMEMORY;
@@ -2134,6 +2138,7 @@ class LauncherProvider final : public RedXeComObject<LauncherProvider, IRedXeWid
   private:
     LauncherConfiguration _configuration;
     LauncherDeviceResources _resources;
+    uint32_t _backgroundRgb;
     IRedXeHost* _host = nullptr;
 };
 
@@ -2155,7 +2160,7 @@ HRESULT CreateLauncherProvider(REFIID interfaceId, const RedXeFactoryOptions* op
     {
         return parsed;
     }
-    auto* provider = new (std::nothrow) LauncherProvider(configuration, host);
+    auto* provider = new (std::nothrow) LauncherProvider(configuration, RedXeBackgroundRgb(options), host);
     if (!provider)
     {
         return E_OUTOFMEMORY;

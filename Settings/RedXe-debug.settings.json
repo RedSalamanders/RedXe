@@ -3,6 +3,7 @@
   "version": { "major": 5, "minor": 0 },
   "wrapPages": false,
   "logRetentionDays": 15,
+  "backgroundColor": "#000000",
   // Reusable definitions create independent instances wherever they appear.
   // The bundled native-window example is opt-in: { "plugin": "builtin.gdi-orbit" }. A native child HWND over the
   // swap chain forces composed presentation for the whole window while it is placed, so no shipped page uses it.

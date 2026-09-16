@@ -41,7 +41,7 @@ static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeRaisedWidget>);
 constexpr char kPluginId[] = "builtin.studio-clock";
 constexpr char kWidgetTypeId[] = "studio-clock";
 constexpr std::string_view kDefaults =
-    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","backgroundColor":"#111111"})json";
+    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616"})json";
 
 void Expect(bool condition, const char* message)
 {
@@ -83,8 +83,7 @@ struct Exports final
 [[nodiscard]] std::string Configuration(bool showProgress, bool showSeconds, bool showDate,
                                         bool externalDotsAlwaysOn = true, std::string_view dateFormat = "dd-mm-yyyy",
                                         std::string_view secondsColor = "#FF1616",
-                                        std::string_view timeColor = "#FF1616",
-                                        std::string_view backgroundColor = "#111111")
+                                        std::string_view timeColor = "#FF1616")
 {
     std::string result;
     result.reserve(256);
@@ -94,13 +93,14 @@ struct Exports final
     result.append(",\"secondsColor\":\"").append(secondsColor).append("\"");
     result.append(",\"showDate\":").append(showDate ? "true" : "false");
     result.append(",\"dateFormat\":\"").append(dateFormat).append("\"");
-    result.append(",\"timeColor\":\"").append(timeColor).append("\"");
-    result.append(",\"backgroundColor\":\"").append(backgroundColor).append("\"}");
+    result.append(",\"timeColor\":\"").append(timeColor).append("\"}");
     return result;
 }
 
+// backgroundColor is the host-resolved dashboard background (opaque ARGB); the plugin no longer owns a setting for it.
 [[nodiscard]] HRESULT TryCreateProvider(RedXeCreateFn create, std::string_view configuration,
-                                        wil::com_ptr_nothrow<IRedXeWidgetProvider>& provider) noexcept
+                                        wil::com_ptr_nothrow<IRedXeWidgetProvider>& provider,
+                                        uint32_t backgroundColor = 0xFF111111) noexcept
 {
     provider.reset();
     std::string envelope;
@@ -113,6 +113,7 @@ struct Exports final
         options.sizeBytes = sizeof(options);
         options.configurationJsonUtf8 = configuration.data();
         options.configurationBytes = static_cast<uint32_t>(configuration.size());
+        options.backgroundColor = backgroundColor;
         void* object = nullptr;
         const HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kPluginId, &object);
         if (SUCCEEDED(result))
@@ -483,8 +484,7 @@ void ValidateFactoryAndSettings(const Exports& exports)
     constexpr std::array dateFormats{"dd-mm-yyyy", "mm-dd-yyyy", "yyyy-mm-dd"};
     for (const char* dateFormat : dateFormats)
     {
-        const std::string configuration =
-            Configuration(true, true, true, true, dateFormat, "#aBc123", "#012aBC", "#DeF456");
+        const std::string configuration = Configuration(true, true, true, true, dateFormat, "#aBc123", "#012aBC");
         provider.reset();
         Expect(TryCreateProvider(exports.create, configuration, provider) == S_OK && provider,
                "Studio Clock rejected a valid date format or mixed-case color");
@@ -503,7 +503,7 @@ void ValidateFactoryAndSettings(const Exports& exports)
         Mutation{"\"showDate\":false", "\"showDate\":null"},
         Mutation{"\"dateFormat\":\"dd-mm-yyyy\"", "\"dateFormat\":\"locale\""},
         Mutation{"\"timeColor\":\"#FF1616\"", "\"timeColor\":\"#FF161G\""},
-        Mutation{"\"backgroundColor\":\"#111111\"", "\"backgroundColor\":\"#11111\""},
+        Mutation{"\"timeColor\":\"#FF1616\"", "\"timeColor\":\"#FF1616\",\"backgroundColor\":\"#111111\""},
         Mutation{"\"showSeconds\":true", "\"showSeconds\":true,\"showSeconds\":false"},
         Mutation{"\"showDate\":false", "\"showDate\":false,\"unknown\":1"},
     };
@@ -719,9 +719,9 @@ void ValidateRendering(const Exports& exports)
     Expect(recreatedPixels == pixels, "Studio Clock pixels changed across device recreation");
     created.gpu->OnDeviceLost();
 
-    const std::string colorful = Configuration(true, true, true, true, "dd-mm-yyyy", "#11EE44", "#2244FF", "#050607");
+    const std::string colorful = Configuration(true, true, true, true, "dd-mm-yyyy", "#11EE44", "#2244FF");
     wil::com_ptr_nothrow<IRedXeWidgetProvider> colorfulProvider;
-    Expect(TryCreateProvider(exports.create, colorful, colorfulProvider) == S_OK,
+    Expect(TryCreateProvider(exports.create, colorful, colorfulProvider, 0xFF050607) == S_OK,
            "Studio Clock colorful provider failed");
     WidgetInterfaces colorfulWidget = CreateWidget(*colorfulProvider, "studio.color");
     Expect(colorfulWidget.gpu->OnDeviceCreated(&deviceContext) == S_OK, "Studio Clock colorful device failed");
@@ -731,7 +731,7 @@ void ValidateRendering(const Exports& exports)
     Expect(diagnostics.lastInstanceCount == 402 && diagnostics.lastDrawCount == 2 && diagnostics.lastMapCount == 1,
            "Studio Clock maximum-content render budgets are wrong");
     Expect(PixelAt(pixels, target.width, 4, 4) == std::array<std::uint8_t, 4>{0x05, 0x06, 0x07, 0xFF},
-           "Studio Clock configured background color is wrong");
+           "Studio Clock host-supplied background color is wrong");
     const ClockLayout colorfulLayout = LayoutFor(target.width, target.height, true);
     const float primaryDotX = colorfulLayout.originX + 0.215f * colorfulLayout.square;
     const float primaryDotY = colorfulLayout.originY + 0.4116f * colorfulLayout.square;

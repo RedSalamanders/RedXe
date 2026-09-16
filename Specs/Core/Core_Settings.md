@@ -1,7 +1,7 @@
 # RedXe settings contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-16
 Owner: `SettingsStore`, `SettingsWatcher`, and UI-thread application orchestration
 
 ## Scope
@@ -73,6 +73,7 @@ The root members are:
 | `version` | Yes | Object with required `major` and optional `minor`; omitted minor is zero. |
 | `wrapPages` | No | Omitted or false stops at page ends; true wraps. |
 | `logRetentionDays` | No | Integer 1–365. Omitted is 15. How many UTC days of dated JSONL files to keep. |
+| `backgroundColor` | No | Exact `#RRGGBB`. Omitted is `#000000`. The dashboard background: the host canvas clear color and the background every widget paints unless its widget object overrides it (see below). |
 | `declare` | No | Reusable widget definitions keyed by authored names. |
 | `pages` | Yes | One through sixteen ordered pages. |
 
@@ -107,10 +108,22 @@ A widget value is exactly one of:
    optional `plugin` merge onto the declaration (absent inherit, objects merge, scalars replace, arrays replace, null
    removes). `plugin` on a use-object swaps the plugin. The result MUST contain one valid plugin and settings object.
 
-Reserved host keys on a widget object are `plugin` and `use`. `weight`, `widget`, `rows`, `columns`, and `along` are
-reserved on split items as specified below. Flattened keys become the settings object, then existing plugin
-validators run (including launcher `iconSize`). After parse, typed `privateConfiguration` remains the compact plugin
-object (for example launcher `{shortcuts, iconSize}`) even when the file stored flattened keys.
+Reserved host keys on a widget object are `plugin`, `use`, and `backgroundColor`. `weight`, `widget`, `rows`,
+`columns`, and `along` are reserved on split items as specified below. Flattened keys become the settings object,
+then existing plugin validators run (including launcher `iconSize`). After parse, typed `privateConfiguration`
+remains the compact plugin object (for example launcher `{shortcuts, iconSize}`) even when the file stored flattened
+keys.
+
+`backgroundColor` on a widget object (a declare entry, a flattened plugin object, or a use-object) is accepted for
+every catalogued plugin. It is an exact `#RRGGBB` string; any other value rejects the complete candidate. It
+participates in declare/use merging like any flattened key (a use-object may replace it or remove it with `null`),
+and is then lifted onto the typed instance before plugin defaults merge and plugin validators run. It MUST NOT enter
+`privateConfiguration`, a plugin settings contract, or a factory configuration object: the host resolves each
+instance's effective background (its own override, else the document `backgroundColor`) and supplies it to the
+plugin through `RedXeFactoryOptions::backgroundColor`. Widget persist (`ApplyFlattenedSettings`) MUST preserve the
+widget object's `backgroundColor` beside `plugin` / `use`, and a plugin persist that names `backgroundColor` is an
+unknown member and MUST be rejected. A change to the document `backgroundColor` is a runtime change that rebuilds
+the active page. Both shipped templates MUST author the document `backgroundColor` explicitly.
 
 Each appearance creates an independent runtime widget instance.
 
@@ -137,17 +150,21 @@ and default 8. System Pulse, CPU Meter, Memory Meter, Storage Meter, GPU Meter, 
 closed empty objects `{}`. Unknown members and out-of-range `topN` values reject the complete candidate.
 
 Studio Clock settings are the closed object `showSecondProgress`, `externalDotsAlwaysOn`, `showSeconds`,
-`secondsColor`, `showDate`, `dateFormat`, `timeColor`, and `backgroundColor`. Defaults are respectively `true`, `true`,
-`true`, `#FF1616`, `false`, `dd-mm-yyyy`, `#FF1616`, and `#111111`. Colors are exact `#RRGGBB`; date format is one of
-`dd-mm-yyyy`, `mm-dd-yyyy`, and `yyyy-mm-dd`. The host merges omitted members from these defaults before static
-validation and provider creation. Unknown members, malformed booleans/colors, or another date format reject the
-complete candidate.
+`secondsColor`, `showDate`, `dateFormat`, and `timeColor`. Defaults are respectively `true`, `true`, `true`,
+`#FF1616`, `false`, `dd-mm-yyyy`, and `#FF1616`. Colors are exact `#RRGGBB`; date format is one of `dd-mm-yyyy`,
+`mm-dd-yyyy`, and `yyyy-mm-dd`. The host merges omitted members from these defaults before static validation and
+provider creation. Unknown members (including `backgroundColor`, which is host-owned), malformed booleans/colors, or
+another date format reject the complete candidate.
 
-Desk Clock settings are the closed object `flipDurationMilliseconds`, `backgroundColor`, `cardColor`, `digitColor`,
-and `dateColor`. Defaults are respectively `420`, `#000000`, `#FF3B43`, `#FFFFFF`, and `#D8D8D8`. Duration is an
-integer from 250 through 800 and colors are exact `#RRGGBB` strings with case-insensitive hexadecimal digits. The host
-merges omitted members from these defaults before static validation and provider creation. Unknown members,
+Desk Clock settings are the closed object `flipDurationMilliseconds`, `cardColor`, `digitColor`, and `dateColor`.
+Defaults are respectively `420`, `#FF3B43`, `#FFFFFF`, and `#D8D8D8`. Duration is an integer from 250 through 800 and
+colors are exact `#RRGGBB` strings with case-insensitive hexadecimal digits. The host merges omitted members from
+these defaults before static validation and provider creation. Unknown members (including `backgroundColor`),
 non-integer or out-of-range duration, and malformed colors reject the complete candidate.
+
+Matrix Rain settings are the closed object `seed`, `glyphHeightDips`, `densityPercent`, `speedPercent`,
+`trailLengthGlyphs`, `mutationPerSecond`, `headColor`, `trailColor`, and `glowPercent`; the rain falls over the
+host-resolved dashboard background. `backgroundColor` is not a Matrix Rain member.
 
 Launcher settings are the closed object `shortcuts` plus optional `iconSize`. `shortcuts` is an array of 0 through 32
 closed items. Each item has required `target` (UTF-8 string, 1 through 512 bytes) and optional `iconPng` (UTF-8 string,
@@ -304,6 +321,13 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   `Logs` sibling of `Settings`, omitted `logRetentionDays` is 15, and values outside 1–365 are rejected.
 - Parser tests prove that `PreserveActiveDashboardPage` follows an authored page id across a reorder, keeps a
   generated `page.N` index when that page remains, and falls back to the first page when the current page is gone.
+- Settings tests prove the document `backgroundColor` default and rejection of malformed values at the root and on
+  widget objects, that a widget `backgroundColor` lifts onto the typed instance for closed-empty and settings-bearing
+  plugins alike without entering `privateConfiguration`, that declare/use merging and `null` removal apply to it,
+  that it survives a plugin persist and is rejected as a plugin persist member, that both templates author it, that
+  the schema accepts it on every widget object variant and on no plugin settings definition, and that a document
+  color change is a runtime change. Host tests prove `PluginManager` resolves each tile's color, keys the per-pass
+  provider cache on it, and that the renderer clears with the document color and fills overridden tiles.
 - Debug and Release x64 tests, Release ARM64 compilation, formatting, skill validation, and `git diff --check` pass.
 
 ## Implementation anchors

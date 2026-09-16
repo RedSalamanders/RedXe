@@ -12,7 +12,7 @@ A local 24-hour `HH:MM` LED-style clock with an always-lit colon. Optional secon
 
 ## Parameters
 
-Omitted keys take these defaults. Colors are `#RRGGBB`. Unknown keys reject the document.
+Omitted keys take these defaults. Colors are `#RRGGBB`. Unknown keys reject the document. The tile background is the dashboard `backgroundColor`; to change it for this widget only, put `backgroundColor` on the widget object (see [usage](../usage.md#background-color)).
 
 | Parameter | Type | Values | Default | Meaning |
 | --- | --- | --- | --- | --- |
@@ -23,7 +23,6 @@ Omitted keys take these defaults. Colors are `#RRGGBB`. Unknown keys reject the 
 | `showDate` | boolean | | `false` | Gregorian local date under the clock |
 | `dateFormat` | string | `dd-mm-yyyy`, `mm-dd-yyyy`, `yyyy-mm-dd` | `dd-mm-yyyy` | Date order when `showDate` is true |
 | `timeColor` | string | `#RRGGBB` | `#FF1616` | Main time (and date) |
-| `backgroundColor` | string | `#RRGGBB` | `#111111` | Opaque background |
 
 ```json
 {

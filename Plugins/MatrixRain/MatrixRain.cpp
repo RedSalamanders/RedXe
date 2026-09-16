@@ -30,9 +30,9 @@ namespace
 constexpr char kPluginId[] = "builtin.matrix-rain";
 constexpr char kWidgetTypeId[] = "matrix-rain";
 constexpr char kSettingsSchema[] =
-    R"json({"type":"object","additionalProperties":false,"properties":{"seed":{"type":"integer","minimum":0,"maximum":4294967295},"glyphHeightDips":{"type":"integer","minimum":12,"maximum":48},"densityPercent":{"type":"integer","minimum":10,"maximum":100},"speedPercent":{"type":"integer","minimum":25,"maximum":300},"trailLengthGlyphs":{"type":"integer","minimum":6,"maximum":48},"mutationPerSecond":{"type":"integer","minimum":0,"maximum":30},"headColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"trailColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"backgroundColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"glowPercent":{"type":"integer","minimum":0,"maximum":100}}})json";
+    R"json({"type":"object","additionalProperties":false,"properties":{"seed":{"type":"integer","minimum":0,"maximum":4294967295},"glyphHeightDips":{"type":"integer","minimum":12,"maximum":48},"densityPercent":{"type":"integer","minimum":10,"maximum":100},"speedPercent":{"type":"integer","minimum":25,"maximum":300},"trailLengthGlyphs":{"type":"integer","minimum":6,"maximum":48},"mutationPerSecond":{"type":"integer","minimum":0,"maximum":30},"headColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"trailColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"glowPercent":{"type":"integer","minimum":0,"maximum":100}}})json";
 constexpr char kSettingsDefaults[] =
-    R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35})json";
+    R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","glowPercent":35})json";
 constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
@@ -75,7 +75,8 @@ struct MatrixRainConfiguration final
     uint32_t mutationPerSecond = 8;
     uint32_t headColor = 0xD8FFE5;
     uint32_t trailColor = 0x00E65C;
-    uint32_t backgroundColor = 0x010502;
+    // Host-resolved dashboard background from RedXeFactoryOptions, never a settings member of this plugin.
+    uint32_t backgroundColor = kRedXeDefaultBackgroundColor & 0x00FFFFFFu;
     uint32_t glowPercent = 35;
 };
 
@@ -89,11 +90,10 @@ enum ConfigurationMember : uint32_t
     ConfigurationMutation = 1U << 5U,
     ConfigurationHeadColor = 1U << 6U,
     ConfigurationTrailColor = 1U << 7U,
-    ConfigurationBackgroundColor = 1U << 8U,
-    ConfigurationGlow = 1U << 9U,
+    ConfigurationGlow = 1U << 8U,
 };
 
-inline constexpr uint32_t kAllConfigurationMembers = (1U << 10U) - 1U;
+inline constexpr uint32_t kAllConfigurationMembers = (1U << 9U) - 1U;
 
 std::atomic<uint32_t> gLiveProviderCount{0};
 std::atomic<uint32_t> gLiveWidgetCount{0};
@@ -242,7 +242,6 @@ class JsonCursor final
         std::pair<std::string_view, uint32_t>{"mutationPerSecond", ConfigurationMutation},
         std::pair<std::string_view, uint32_t>{"headColor", ConfigurationHeadColor},
         std::pair<std::string_view, uint32_t>{"trailColor", ConfigurationTrailColor},
-        std::pair<std::string_view, uint32_t>{"backgroundColor", ConfigurationBackgroundColor},
         std::pair<std::string_view, uint32_t>{"glowPercent", ConfigurationGlow},
     };
     for (const auto& member : members)
@@ -336,12 +335,6 @@ class JsonCursor final
             break;
         case ConfigurationTrailColor:
             if (!cursor.ReadString(text) || !ParseColor(text, parsed.trailColor))
-            {
-                return false;
-            }
-            break;
-        case ConfigurationBackgroundColor:
-            if (!cursor.ReadString(text) || !ParseColor(text, parsed.backgroundColor))
             {
                 return false;
             }
@@ -446,6 +439,7 @@ class JsonCursor final
     {
         return E_INVALIDARG;
     }
+    configuration.backgroundColor = RedXeBackgroundRgb(options);
 
     const char* json = options->configurationJsonUtf8;
     const uint32_t bytes = options->configurationBytes;
@@ -463,6 +457,7 @@ class JsonCursor final
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
+    parsed.backgroundColor = configuration.backgroundColor;
     configuration = parsed;
     return S_OK;
 }

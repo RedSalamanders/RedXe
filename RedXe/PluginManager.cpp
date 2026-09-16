@@ -581,7 +581,8 @@ PluginManager::~PluginManager()
 }
 
 HRESULT PluginManager::CreateBundledProvider(const char* pluginId, const char* configurationJson,
-                                             uint32_t configurationBytes, IRedXeWidgetProvider** provider) noexcept
+                                             uint32_t configurationBytes, uint32_t backgroundRgb,
+                                             IRedXeWidgetProvider** provider) noexcept
 {
     if (!provider)
     {
@@ -608,6 +609,7 @@ HRESULT PluginManager::CreateBundledProvider(const char* pluginId, const char* c
 #endif
     options.configurationJsonUtf8 = configurationJson;
     options.configurationBytes = configurationBytes;
+    options.backgroundColor = 0xFF000000u | (backgroundRgb & 0x00FFFFFFu);
 
     void* providerObject = nullptr;
     result = module.create(__uuidof(IRedXeWidgetProvider), &options, PluginHost::Instance().Interface(), pluginId,
@@ -625,7 +627,7 @@ HRESULT PluginManager::CreateBundledProvider(const char* pluginId, const char* c
 }
 
 HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, const WidgetInstanceSettings& settings,
-                                            WidgetSlot& widgetSlot) noexcept
+                                            uint32_t backgroundRgb, WidgetSlot& widgetSlot) noexcept
 {
     if (!RedXeIsValidMachineId(settings.typeId.utf8.data()) || !RedXeIsValidMachineId(settings.id.utf8.data()) ||
         widgetSlot.widget || widgetSlot.gpuWidget || widgetSlot.preparedGpuWidget || widgetSlot.scheduledWidget ||
@@ -724,18 +726,20 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     widgetSlot.placement = settings.placement;
     widgetSlot.adaptivePlacement = settings.adaptivePlacement;
     widgetSlot.usesAdaptivePlacement = settings.usesAdaptivePlacement;
+    widgetSlot.backgroundRgb = backgroundRgb;
     widgetSlot.flags = widgetType->flags;
     return S_OK;
 }
 
 void PluginManager::MakePlaceholder(WidgetSlot& widgetSlot, const WidgetInstanceSettings& settings,
-                                    HRESULT failure) noexcept
+                                    uint32_t backgroundRgb, HRESULT failure) noexcept
 {
     widgetSlot = WidgetSlot{};
     widgetSlot.instanceId = settings.id;
     widgetSlot.placement = settings.placement;
     widgetSlot.adaptivePlacement = settings.adaptivePlacement;
     widgetSlot.usesAdaptivePlacement = settings.usesAdaptivePlacement;
+    widgetSlot.backgroundRgb = backgroundRgb;
     widgetSlot.flags = RedXeWidgetFlagNone;
     widgetSlot.placeholder = true;
     widgetSlot.failure = FAILED(failure) ? failure : E_FAIL;
@@ -877,12 +881,14 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
         {
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
         }
+        const uint32_t backgroundRgb = EffectiveWidgetBackgroundRgb(settings, instance);
 
         size_t providerIndex = providerCount;
         for (size_t candidate = 0; candidate < providerCount; ++candidate)
         {
             const ProviderBuildKey& key = providerKeys[candidate];
             if (key.pluginId == pluginSpec->pluginId && key.configurationBytes == configurationBytes &&
+                key.backgroundRgb == backgroundRgb &&
                 std::memcmp(key.configuration.data(), configuration.data(), configurationBytes) == 0)
             {
                 providerIndex = candidate;
@@ -897,26 +903,27 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
                 return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
             }
             result = CreateBundledProvider(pluginSpec->pluginId, configuration.data(), configurationBytes,
-                                           providers[providerCount].provider.put());
+                                           backgroundRgb, providers[providerCount].provider.put());
             if (FAILED(result))
             {
                 // Runtime construction failure is isolated to this instance. The document is already validated, so a
                 // provider that cannot be built must not take the rest of the page or startup down with it.
-                MakePlaceholder(widgets[index], instance, result);
+                MakePlaceholder(widgets[index], instance, backgroundRgb, result);
                 ++widgetCount;
                 continue;
             }
             ProviderBuildKey& key = providerKeys[providerCount];
             key.configuration = configuration;
             key.configurationBytes = configurationBytes;
+            key.backgroundRgb = backgroundRgb;
             key.pluginId = pluginSpec->pluginId;
             ++providerCount;
         }
 
-        result = CreateWidgetInstance(*providers[providerIndex].provider, instance, widgets[index]);
+        result = CreateWidgetInstance(*providers[providerIndex].provider, instance, backgroundRgb, widgets[index]);
         if (FAILED(result))
         {
-            MakePlaceholder(widgets[index], instance, result);
+            MakePlaceholder(widgets[index], instance, backgroundRgb, result);
         }
         else
         {
@@ -952,6 +959,7 @@ HRESULT PluginManager::Initialize(const AppSettings& settings) noexcept
     _widgetCount = widgetCount;
     _gridColumns = settings.dashboard.gridColumns;
     _gridRows = settings.dashboard.gridRows;
+    _backgroundRgb = settings.backgroundRgb;
     _initialized = true;
     return S_OK;
 }
@@ -980,6 +988,7 @@ HRESULT PluginManager::Reconfigure(const AppSettings& settings) noexcept
     _providerCount = providerCount;
     _gridColumns = settings.dashboard.gridColumns;
     _gridRows = settings.dashboard.gridRows;
+    _backgroundRgb = settings.backgroundRgb;
     return S_OK;
 }
 
@@ -1078,6 +1087,16 @@ bool PluginManager::UsesAdaptivePlacementAt(size_t index) const noexcept
 const char* PluginManager::WidgetInstanceIdAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].instanceId.utf8.data() : nullptr;
+}
+
+uint32_t PluginManager::BackgroundRgb() const noexcept
+{
+    return _initialized ? _backgroundRgb : kRedXeDefaultBackgroundRgb;
+}
+
+uint32_t PluginManager::WidgetBackgroundRgbAt(size_t index) const noexcept
+{
+    return index < _widgetCount ? _widgets[index].backgroundRgb : BackgroundRgb();
 }
 
 uint32_t PluginManager::GridColumns() const noexcept

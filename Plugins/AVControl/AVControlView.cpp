@@ -198,11 +198,24 @@ void LiveView::SetAppearance(const RedXeAppearance& appearance) noexcept
     _modelDirty = true;
     _view.MarkDirty();
 }
+void LiveView::SetBackground(uint32_t rgb) noexcept
+{
+    rgb &= 0x00FFFFFFu;
+    if (_backgroundRgb == rgb)
+        return;
+    _backgroundRgb = rgb;
+    _themeDirty = true;
+    _view.MarkDirty();
+}
 void LiveView::ApplyTheme()
 {
     auto theme = DxUi::MakeDefaultThemePalette((_appearance.flags & RedXeAppearanceDark) != 0);
     theme.reducedMotion = true; // Live acknowledgements never add animation-only frames.
     theme.highContrast = (_appearance.flags & RedXeAppearanceHighContrast) != 0;
+    // The opaque view surface is the dashboard background so the AV tile matches its neighbours; cards and
+    // controls keep the palette's raised surfaces. High contrast keeps the system window color below.
+    theme.windowBackground = D2D1::ColorF(((_backgroundRgb >> 16) & 255) / 255.0f,
+                                          ((_backgroundRgb >> 8) & 255) / 255.0f, (_backgroundRgb & 255) / 255.0f);
     if (theme.highContrast)
     {
         const auto color = [](uint32_t argb) noexcept

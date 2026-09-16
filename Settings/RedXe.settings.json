@@ -3,6 +3,7 @@
   "version": { "major": 5 },
   "wrapPages": false,
   "logRetentionDays": 15,
+  "backgroundColor": "#000000",
   "declare": {
     "Matrix": { "plugin": "builtin.matrix-rain" },
     "Triangle": { "plugin": "builtin.rotating-triangle" },

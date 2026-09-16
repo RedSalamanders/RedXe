@@ -42,13 +42,13 @@ constexpr char kWeatherPlugin[] = "builtin.weather";
 constexpr char kLauncherPlugin[] = "builtin.launcher";
 constexpr char kAvControlPlugin[] = "builtin.av-control";
 constexpr char kMatrixDefaults[] =
-    R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35})json";
+    R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","glowPercent":35})json";
 constexpr char kProcessViewerDefaults[] = R"json({"topN":10})json";
 constexpr char kRankedViewerDefaults[] = R"json({"topN":8})json";
 constexpr char kStudioClockDefaults[] =
-    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","backgroundColor":"#111111"})json";
+    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616"})json";
 constexpr char kDeskClockDefaults[] =
-    R"json({"flipDurationMilliseconds":420,"backgroundColor":"#000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json";
+    R"json({"flipDurationMilliseconds":420,"cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json";
 constexpr char kWeatherDefaults[] =
     R"json({"locationMode":"automatic","location":"","temperatureUnit":"celsius","windUnit":"kmh"})json";
 constexpr char kLauncherDefaults[] = R"json({"shortcuts":[],"iconSize":"huge"})json";
@@ -850,6 +850,49 @@ struct DiagnosticSink final
     return true;
 }
 
+[[nodiscard]] bool ParseRgbHex(yyjson_val* value, uint32_t& rgb) noexcept
+{
+    if (!ColorIsRgbHex(value))
+    {
+        return false;
+    }
+    const char* text = yyjson_get_str(value);
+    uint32_t parsed = 0;
+    for (size_t index = 1; index < 7; ++index)
+    {
+        const char digit = text[index];
+        const uint32_t nibble = digit >= '0' && digit <= '9'   ? static_cast<uint32_t>(digit - '0')
+                                : digit >= 'a' && digit <= 'f' ? static_cast<uint32_t>(digit - 'a' + 10)
+                                                               : static_cast<uint32_t>(digit - 'A' + 10);
+        parsed = (parsed << 4U) | nibble;
+    }
+    rgb = parsed;
+    return true;
+}
+
+// backgroundColor is host-owned on every widget object: it is validated and lifted onto the typed instance here
+// and never reaches a plugin validator, plugin defaults merge, or privateConfiguration.
+[[nodiscard]] bool LiftWidgetBackground(yyjson_val* authored, WidgetInstanceSettings& widget, DiagnosticSink& sink,
+                                        JsonPathBuffer& path) noexcept
+{
+    widget.overridesBackground = false;
+    widget.backgroundRgb = kRedXeDefaultBackgroundRgb;
+    yyjson_val* value = yyjson_is_obj(authored) ? yyjson_obj_get(authored, "backgroundColor") : nullptr;
+    if (!value)
+    {
+        return true;
+    }
+    uint32_t rgb = 0;
+    if (!ParseRgbHex(value, rgb))
+    {
+        const auto scope = path.PushName("backgroundColor");
+        return sink.Fail(path.View(), "Color must be a #RRGGBB hex string.");
+    }
+    widget.overridesBackground = true;
+    widget.backgroundRgb = rgb;
+    return true;
+}
+
 [[nodiscard]] bool RejectRange(DiagnosticSink& sink, JsonPathBuffer& path, yyjson_val* settings, const char* key,
                                uint64_t minimum, uint64_t maximum, const char* message) noexcept
 {
@@ -888,12 +931,12 @@ struct DiagnosticSink final
 {
     if (!AcceptObjectMembers(sink, path, settings,
                              {"seed", "glyphHeightDips", "densityPercent", "speedPercent", "trailLengthGlyphs",
-                              "mutationPerSecond", "headColor", "trailColor", "backgroundColor", "glowPercent"},
+                              "mutationPerSecond", "headColor", "trailColor", "glowPercent"},
                              false))
     {
         return false;
     }
-    return yyjson_obj_size(settings) == 10 &&
+    return yyjson_obj_size(settings) == 9 &&
            RejectRange(sink, path, settings, "seed", 0, UINT32_MAX,
                        "seed must be an integer from 0 through 4294967295.") &&
            RejectRange(sink, path, settings, "glyphHeightDips", 12, 48,
@@ -908,8 +951,7 @@ struct DiagnosticSink final
                        "mutationPerSecond must be an integer from 0 through 30.") &&
            RejectRange(sink, path, settings, "glowPercent", 0, 100,
                        "glowPercent must be an integer from 0 through 100.") &&
-           RejectColor(sink, path, settings, "headColor") && RejectColor(sink, path, settings, "trailColor") &&
-           RejectColor(sink, path, settings, "backgroundColor");
+           RejectColor(sink, path, settings, "headColor") && RejectColor(sink, path, settings, "trailColor");
 }
 
 [[nodiscard]] bool ValidateTopNSettings(yyjson_val* settings, uint32_t minimum, uint32_t maximum, DiagnosticSink& sink,
@@ -935,14 +977,13 @@ struct DiagnosticSink final
 {
     if (!AcceptObjectMembers(sink, path, settings,
                              {"showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor", "showDate",
-                              "dateFormat", "timeColor", "backgroundColor"},
+                              "dateFormat", "timeColor"},
                              false) ||
-        yyjson_obj_size(settings) != 8)
+        yyjson_obj_size(settings) != 7)
     {
-        return yyjson_is_obj(settings) && yyjson_obj_size(settings) != 8 &&
-                       UnknownObjectMember(settings,
-                                           {"showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor",
-                                            "showDate", "dateFormat", "timeColor", "backgroundColor"}) == nullptr
+        return yyjson_is_obj(settings) && yyjson_obj_size(settings) != 7 &&
+                       UnknownObjectMember(settings, {"showSecondProgress", "externalDotsAlwaysOn", "showSeconds",
+                                                      "secondsColor", "showDate", "dateFormat", "timeColor"}) == nullptr
                    ? sink.Fail(path.View(), "Studio Clock settings must include every required member.")
                    : false;
     }
@@ -959,27 +1000,25 @@ struct DiagnosticSink final
     return RejectBool(sink, path, settings, "showSecondProgress") &&
            RejectBool(sink, path, settings, "externalDotsAlwaysOn") &&
            RejectBool(sink, path, settings, "showSeconds") && RejectBool(sink, path, settings, "showDate") &&
-           RejectColor(sink, path, settings, "secondsColor") && RejectColor(sink, path, settings, "timeColor") &&
-           RejectColor(sink, path, settings, "backgroundColor");
+           RejectColor(sink, path, settings, "secondsColor") && RejectColor(sink, path, settings, "timeColor");
 }
 
 [[nodiscard]] bool ValidateDeskClockSettings(yyjson_val* settings, DiagnosticSink& sink, JsonPathBuffer& path) noexcept
 {
-    if (!AcceptObjectMembers(sink, path, settings,
-                             {"flipDurationMilliseconds", "backgroundColor", "cardColor", "digitColor", "dateColor"},
+    if (!AcceptObjectMembers(sink, path, settings, {"flipDurationMilliseconds", "cardColor", "digitColor", "dateColor"},
                              false) ||
-        yyjson_obj_size(settings) != 5)
+        yyjson_obj_size(settings) != 4)
     {
-        return yyjson_is_obj(settings) && yyjson_obj_size(settings) != 5 &&
-                       UnknownObjectMember(settings, {"flipDurationMilliseconds", "backgroundColor", "cardColor",
-                                                      "digitColor", "dateColor"}) == nullptr
+        return yyjson_is_obj(settings) && yyjson_obj_size(settings) != 4 &&
+                       UnknownObjectMember(
+                           settings, {"flipDurationMilliseconds", "cardColor", "digitColor", "dateColor"}) == nullptr
                    ? sink.Fail(path.View(), "Desk Clock settings must include every required member.")
                    : false;
     }
     return RejectRange(sink, path, settings, "flipDurationMilliseconds", 250, 800,
                        "flipDurationMilliseconds must be an integer from 250 through 800.") &&
-           RejectColor(sink, path, settings, "backgroundColor") && RejectColor(sink, path, settings, "cardColor") &&
-           RejectColor(sink, path, settings, "digitColor") && RejectColor(sink, path, settings, "dateColor");
+           RejectColor(sink, path, settings, "cardColor") && RejectColor(sink, path, settings, "digitColor") &&
+           RejectColor(sink, path, settings, "dateColor");
 }
 
 [[nodiscard]] bool ValidateAvControlSettings(yyjson_val* settings, DiagnosticSink& sink, JsonPathBuffer& path) noexcept
@@ -1294,6 +1333,29 @@ struct DiagnosticSink final
     const int written = sprintf_s(instance.data(), instance.size(), "widget.%u", instanceIndex + 1);
     if (written <= 0 || !CopyText(std::string_view(instance.data(), static_cast<size_t>(written)), widget.id, true))
         return sink.Fail(path.View(), "A widget instance id could not be assigned.");
+
+    if (!LiftWidgetBackground(authoredSettings, widget, sink, path))
+        return false;
+    unique_mut_doc pluginKeysDocument;
+    unique_json pluginKeysJson;
+    unique_doc pluginKeysImmutable;
+    if (widget.overridesBackground)
+    {
+        pluginKeysDocument.reset(yyjson_mut_doc_new(nullptr));
+        yyjson_mut_val* pluginKeys =
+            pluginKeysDocument ? CopyObjectSkipping(pluginKeysDocument.get(), authoredSettings, {"backgroundColor"})
+                               : nullptr;
+        if (!pluginKeys)
+            return sink.Fail(path.View(), "Widget settings could not be copied.");
+        yyjson_mut_doc_set_root(pluginKeysDocument.get(), pluginKeys);
+        size_t pluginKeysBytes = 0;
+        pluginKeysJson.reset(yyjson_mut_write(pluginKeysDocument.get(), YYJSON_WRITE_NOFLAG, &pluginKeysBytes));
+        pluginKeysImmutable.reset(
+            pluginKeysJson ? yyjson_read(pluginKeysJson.get(), pluginKeysBytes, YYJSON_READ_NOFLAG) : nullptr);
+        authoredSettings = pluginKeysImmutable ? yyjson_doc_get_root(pluginKeysImmutable.get()) : nullptr;
+        if (!authoredSettings)
+            return sink.Fail(path.View(), "Widget settings could not be copied.");
+    }
 
     unique_doc defaults;
     unique_mut_doc effectiveDocument;
@@ -1688,9 +1750,10 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSetting
             }
         }
         const bool allowUnknown = fileMinor > kRedXeSettingsVersionMinor;
-        if (!AcceptObjectMembers(sink, path, root,
-                                 {"$schema", "version", "wrapPages", "logRetentionDays", "declare", "pages"},
-                                 allowUnknown))
+        if (!AcceptObjectMembers(
+                sink, path, root,
+                {"$schema", "version", "wrapPages", "logRetentionDays", "backgroundColor", "declare", "pages"},
+                allowUnknown))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         yyjson_val* schema = yyjson_obj_get(root, "$schema");
         if (schema && (!yyjson_is_str(schema) || std::string_view(yyjson_get_str(schema), yyjson_get_len(schema)) !=
@@ -1726,6 +1789,13 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSetting
         }
         else
             parsed->logRetentionDays = kRedXeDefaultLogRetentionDays;
+        yyjson_val* background = yyjson_obj_get(root, "backgroundColor");
+        parsed->backgroundRgb = kRedXeDefaultBackgroundRgb;
+        if (background && !ParseRgbHex(background, parsed->backgroundRgb))
+        {
+            const auto backgroundScope = path.PushName("backgroundColor");
+            return sink.FailHr(path.View(), "backgroundColor must be a #RRGGBB hex string.");
+        }
 
         std::vector<Declaration> declarations;
         yyjson_val* declarationObject = yyjson_obj_get(root, "declare");

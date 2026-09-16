@@ -1,7 +1,7 @@
 # RedXe plugin API contract
 
 Status: current normative contract
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-16
 
 ## Purpose and scope
 
@@ -199,8 +199,15 @@ plugin factory behavior.
 - A null or empty plugin ID returns `E_INVALIDARG`.
 - Unknown non-empty IDs return `HRESULT_FROM_WIN32(ERROR_NOT_FOUND)`.
 - A present `RedXeFactoryOptions` requires its exact current size; smaller and larger records return `E_INVALIDARG`.
-  The current record contains `debugLevel`, a borrowed `configurationJsonUtf8` pointer, and `configurationBytes`.
-  Configuration length excludes a terminator and MUST NOT exceed 8192 bytes.
+  The current 24-byte record contains `debugLevel`, a borrowed `configurationJsonUtf8` pointer, `configurationBytes`,
+  and `backgroundColor` at offset 20. Configuration length excludes a terminator and MUST NOT exceed 8192 bytes.
+- `backgroundColor` is the dashboard background the host resolved for the widget instances this provider builds, as
+  opaque ARGB (`0xFFRRGGBB`, the `RedXeAppearance` convention): the document `backgroundColor`, or that instance's
+  own override (`Specs/Core/Core_Settings.md`). `RedXeBackgroundRgb` in `Factory.h` yields the `0xRRGGBB` value a
+  plugin's own color pipeline expects. A widget that paints an opaque background MUST paint this color and MUST NOT
+  compile in its own; a widget that paints nothing behind its content needs nothing, because the host canvas already
+  carries it. The host builds one provider per distinct (plugin, configuration, background) per staging pass. No
+  plugin settings contract, defaults object, or factory configuration envelope contains `backgroundColor`.
 - A null configuration pointer with zero bytes selects plugin defaults. Every other null/length mismatch returns
   `E_INVALIDARG`. Plugins that consume configuration JSON MUST parse and copy it before `RedXeCreate` returns;
   no plugin retains the borrowed pointer.
@@ -465,6 +472,9 @@ GPU vtables.
   Direct3D clips to the target. A GPU widget MUST still draw and MUST NOT treat a finite negative origin as invalid.
   The host MUST invoke `Render` for every positive-size viewport on the current and staged pages and MUST NOT shrink
   the viewport to the visible intersection.
+- Before the first widget of a frame the host clears the whole target with the document `backgroundColor`. Before a
+  widget whose resolved background differs from the document color, the host fills that widget's viewport with its
+  color through `ID3D11DeviceContext1::ClearView`; tiles that share the document color get no extra fill.
 - Before every callback the host binds exactly two things: its render target through `OMSetRenderTargets` and the
   widget's viewport through `RSSetViewports`. Nothing else is reset between widgets. Blend, depth-stencil, and
   rasterizer state, the scissor rectangle and `ScissorEnable`, input layout, primitive topology, shaders, shader
@@ -784,8 +794,8 @@ percentage descending with working-set and PID tie-breakers, and caches at most 
 storage.
 
 The family presents ranked lists, capacity bars, KPI tiles, adapter cards, heatmaps, and sparklines rather than raw
-tables. Visual language is a near-black panel (`#111111`) with a muted hairline, inset 4 px from the widget rectangle
-so adjacent tiles and the window edge keep a small gap. Interior padding is at least 12 px. Accent red (`#FF1616`) is
+tables. Visual language is a panel in the host-resolved dashboard background with a muted hairline, inset 4 px from
+the widget rectangle so adjacent tiles and the window edge keep a small gap. Interior padding is at least 12 px. Accent red (`#FF1616`) is
 a high-band signal, not a fill. Progress troughs sit close to the panel so they do not read as a second grey surface;
 the fill uses the same teal / amber / red intent as the KPI text (amber from 70% or 70 °C, accent red from 85% or
 85 °C). Capacity tracks stay linear 0–100. Numeric utilization, capacity, and temperature values use that intent
@@ -856,15 +866,15 @@ Studio Clock publishes and consumes this complete effective settings object:
   "secondsColor": "#FF1616",
   "showDate": false,
   "dateFormat": "dd-mm-yyyy",
-  "timeColor": "#FF1616",
-  "backgroundColor": "#111111"
+  "timeColor": "#FF1616"
 }
 ```
 
 The schema is closed. Colors are exact `#RRGGBB` strings with case-insensitive hexadecimal digits; supported date
 orders are `dd-mm-yyyy`, `mm-dd-yyyy`, and `yyyy-mm-dd`. The host merges defaults before factory creation. The plugin
-strictly rejects missing effective members, duplicate or unknown members, malformed booleans, colors, and date
-formats, converts values once during provider creation, and retains no borrowed JSON.
+strictly rejects missing effective members, duplicate or unknown members (including `backgroundColor`), malformed
+booleans, colors, and date formats, converts values once during provider creation, and retains no borrowed JSON. Its
+opaque background is `RedXeFactoryOptions::backgroundColor`.
 
 The clock displays zero-padded local 24-hour `HH:MM` with an always-lit colon. Optional zero-padded seconds and the
 clockwise progress ring use `secondsColor`. The ring contains 60 ordinary second positions and one companion at every
@@ -909,7 +919,6 @@ Desk Clock publishes and consumes this complete effective settings object:
 ```json
 {
   "flipDurationMilliseconds": 420,
-  "backgroundColor": "#000000",
   "cardColor": "#FF3B43",
   "digitColor": "#FFFFFF",
   "dateColor": "#D8D8D8"
@@ -918,9 +927,9 @@ Desk Clock publishes and consumes this complete effective settings object:
 
 The schema is closed. `flipDurationMilliseconds` is an integer from 250 through 800. Colors are exact `#RRGGBB`
 strings with case-insensitive hexadecimal digits. The host merges defaults before factory creation; the plugin accepts
-only the normalized factory envelope and strictly rejects missing,
-duplicate, unknown, malformed, or out-of-range members, converts settings once during provider creation, and retains
-no borrowed JSON.
+only the normalized factory envelope and strictly rejects missing, duplicate, unknown (including `backgroundColor`),
+malformed, or out-of-range members, converts settings once during provider creation, and retains no borrowed JSON.
+Its opaque background is `RedXeFactoryOptions::backgroundColor`.
 
 The clock renders zero-padded local 24-hour `HH:MM:SS` as six slim warm-red rounded cards on an opaque background,
 with tight within-pair spacing, wider separator gaps, small fixed colon dots, subtle centered hinge seams, and clean

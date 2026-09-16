@@ -129,6 +129,8 @@ struct WeatherConfiguration final
     WeatherTemperatureUnit temperatureUnit = WeatherTemperatureUnit::Celsius;
     WeatherWindUnit windUnit = WeatherWindUnit::KilometersPerHour;
     std::array<char, 129> location{};
+    // Host-resolved dashboard background (RedXeFactoryOptions::backgroundColor); the panel fill, not a settings key.
+    WeatherRgb panelColor{0.0f, 0.0f, 0.0f};
 };
 
 bool WeatherCopyWide(std::wstring_view source, wchar_t* destination, size_t capacity) noexcept;

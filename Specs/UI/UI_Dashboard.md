@@ -1,7 +1,7 @@
 # RedXe adaptive dashboard and page-navigation contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-16
 Owner: `DashboardHost` layout, active-page composition, page navigation, edge-navigation chrome, host placeholder tiles, and raised overlay chrome
 
 ## Scope
@@ -221,6 +221,16 @@ calls `OnDragOver`. `Drop` copies `CF_HDROP` filesystem paths and Unicode text t
 (GdiOrbit) MUST NOT steal drops destined for a GPU tile. `Application` revokes the drop target before destroying the
 HWND and calls `OleUninitialize` after dashboard teardown. Plugins MUST NOT initialize or uninitialize COM/OLE and
 MUST NOT call `RegisterDragDrop`.
+
+## Dashboard background
+
+The canvas behind every page is the document `backgroundColor` (`Specs/Core/Core_Settings.md`; omitted is
+`#000000`). The renderer clears the swap chain with it every frame, every bundled widget paints it wherever it paints
+an opaque background, and the AV Control theme window surface takes it outside high contrast, so tiles on one page
+share one background by default. A widget object's own `backgroundColor` overrides it for that instance only: the
+host fills that tile with the override before the widget draws and builds the widget's provider with the same color,
+so the override is uniform whether or not the plugin paints anything behind its content. A change to the document
+color rebuilds the active page like any other runtime settings change.
 
 ## Host-owned placeholder tiles
 

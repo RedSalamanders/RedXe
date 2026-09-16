@@ -1005,7 +1005,7 @@ void TestReleaseHostIntegration(bool& success) noexcept
 
         AppSettings changed = releaseSettings;
         constexpr std::string_view changedMatrix =
-            R"json({"seed":2000,"glyphHeightDips":18,"densityPercent":80,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","backgroundColor":"#010502","glowPercent":35})json";
+            R"json({"seed":2000,"glyphHeightDips":18,"densityPercent":80,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","glowPercent":35})json";
         result = SetJsonObjectSettings(changedMatrix, changed.dashboard.pages[0].widgets[0].privateConfiguration);
         if (SUCCEEDED(result))
         {
@@ -1056,7 +1056,7 @@ void TestStudioClockScheduling(bool& success) noexcept
     constexpr std::string_view settingsJson =
         R"json({"version":{"major":5},"pages":[{"name":"Clock","widgets":[{"plugin":"builtin.studio-clock"}]}]})json";
     constexpr std::string_view changedConfiguration =
-        R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#00EE44","showDate":true,"dateFormat":"yyyy-mm-dd","timeColor":"#E0E0FF","backgroundColor":"#050607"})json";
+        R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#00EE44","showDate":true,"dateFormat":"yyyy-mm-dd","timeColor":"#E0E0FF"})json";
 
     AttachedHostWindow window;
     HRESULT result = window.Initialize(kHostWidth, kHostHeight);
@@ -1195,7 +1195,7 @@ void TestDeskClockScheduling(bool& success) noexcept
     constexpr std::string_view settingsJson =
         R"json({"version":{"major":5},"pages":[{"name":"Clock","widgets":[{"plugin":"builtin.desk-clock"}]}]})json";
     constexpr std::string_view changedConfiguration =
-        R"json({"flipDurationMilliseconds":300,"backgroundColor":"#050607","cardColor":"#D02030","digitColor":"#F0F0FF","dateColor":"#C0C0D0"})json";
+        R"json({"flipDurationMilliseconds":300,"cardColor":"#D02030","digitColor":"#F0F0FF","dateColor":"#C0C0D0"})json";
 
     AttachedHostWindow window;
     HRESULT result = window.Initialize(kHostWidth, kHostHeight);
@@ -2623,6 +2623,72 @@ void TestHostOwnedPlaceholderTiles(bool& success) noexcept
     result = renderer.Render(0.2f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 3,
           L"every widget draws again after recovery", success);
+}
+
+void TestDashboardBackground(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dashboard background resolution ";
+    // The document color is the canvas clear and the color every provider is built with; a widget object's own
+    // backgroundColor overrides it for that instance only, whatever plugin it is and however it paints.
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":5},"backgroundColor":"#102030",)json"
+        R"json("declare":{"Cpu":{"plugin":"builtin.cpu-meter","backgroundColor":"#405060"}},)json"
+        R"json("pages":[{"widgets":[)json"
+        R"json({"plugin":"builtin.rotating-triangle"},)json"
+        R"json("Cpu",)json"
+        R"json({"use":"Cpu","backgroundColor":null},)json"
+        R"json({"plugin":"builtin.memory-meter","backgroundColor":"#708090"}]}]})json";
+
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, settings);
+    AttachedHostWindow window;
+    if (SUCCEEDED(result))
+    {
+        result = window.Initialize(kHostWidth, kHostHeight);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    Check(SUCCEEDED(result) && plugins.WidgetCount() == 4, L"a page with background overrides constructs", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+    Check(plugins.BackgroundRgb() == 0x102030 && plugins.WidgetBackgroundRgbAt(0) == 0x102030 &&
+              plugins.WidgetBackgroundRgbAt(1) == 0x405060 && plugins.WidgetBackgroundRgbAt(2) == 0x102030 &&
+              plugins.WidgetBackgroundRgbAt(3) == 0x708090 && plugins.WidgetBackgroundRgbAt(4) == 0x102030,
+          L"each tile resolves its own override or the document background", success);
+    // Two cpu-meter instances with identical plugin settings but different backgrounds need different providers.
+    Check(plugins.ProviderCount() == 4, L"the provider cache keys on the resolved background", success);
+
+    DashboardHost dashboard;
+    result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
+    Renderer renderer;
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Initialize(window.Get(), true, dashboard);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(0.0f, 1.0f / 60.0f);
+    }
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 4 &&
+              dashboard.BackgroundRgb() == 0x102030 && dashboard.WidgetBackgroundRgbAt(1) == 0x405060 &&
+              dashboard.WidgetBackgroundRgbAt(2) == 0x102030,
+          L"the renderer clears with the document background and fills overridden tiles", success);
+
+    renderer.Shutdown();
+    dashboard.Shutdown();
+    AppSettings recolored = settings;
+    recolored.backgroundRgb = 0x000000;
+    Check(!ActiveDashboardRuntimeEquals(settings, recolored), L"changing the document background rebuilds the page",
+          success);
+    result = plugins.Reconfigure(recolored);
+    Check(SUCCEEDED(result) && plugins.BackgroundRgb() == 0x000000 && plugins.WidgetBackgroundRgbAt(0) == 0x000000 &&
+              plugins.WidgetBackgroundRgbAt(1) == 0x405060,
+          L"reconfigure re-resolves every tile against the new document background", success);
 }
 
 void TestUnmappedCatalogModulePlaceholder(bool& success) noexcept
@@ -4088,6 +4154,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestWidgetSettingsPersist(success);
     TestHostJsonlLog(success);
     TestHostOwnedPlaceholderTiles(success);
+    TestDashboardBackground(success);
     TestUnmappedCatalogModulePlaceholder(success);
     TestWeatherPluginConstructs(success);
     TestNetworkLane(success);

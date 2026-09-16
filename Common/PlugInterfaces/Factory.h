@@ -19,18 +19,32 @@ enum RedXePluginCapabilities : uint32_t
 };
 
 // Current factory input; sizeBytes must equal sizeof(RedXeFactoryOptions).
+//
+// backgroundColor is the dashboard background the host resolved for the widget instances this provider builds:
+// the document-level color, or that instance's own override. Opaque ARGB (0xFFRRGGBB, the RedXeAppearance
+// convention). The host clears its canvas with the document color and fills an overridden tile before Render, so a
+// widget that paints its own opaque background MUST paint this color, never a compiled-in one.
 struct RedXeFactoryOptions final
 {
     uint32_t sizeBytes;
     uint32_t debugLevel;
     const char* configurationJsonUtf8;
     uint32_t configurationBytes;
+    uint32_t backgroundColor;
 };
 
 inline constexpr uint32_t kRedXeMaximumFactoryConfigurationBytes = 8192;
+inline constexpr uint32_t kRedXeDefaultBackgroundColor = 0xFF000000;
 static_assert(sizeof(RedXeFactoryOptions) == 24);
 static_assert(offsetof(RedXeFactoryOptions, configurationJsonUtf8) == 8);
 static_assert(offsetof(RedXeFactoryOptions, configurationBytes) == 16);
+static_assert(offsetof(RedXeFactoryOptions, backgroundColor) == 20);
+
+// The 0xRRGGBB value a plugin's own color pipeline expects from an opaque ARGB factory color.
+[[nodiscard]] constexpr uint32_t RedXeBackgroundRgb(const RedXeFactoryOptions* options) noexcept
+{
+    return options ? (options->backgroundColor & 0x00FFFFFFu) : (kRedXeDefaultBackgroundColor & 0x00FFFFFFu);
+}
 
 // Module-owned metadata for one logical plugin.
 struct RedXePluginMetadata final

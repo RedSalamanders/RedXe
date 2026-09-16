@@ -14,7 +14,7 @@ Only one live Matrix Rain widget is allowed per configured provider.
 
 ## Parameters
 
-All members are optional in the file; omitted keys take these defaults. Unknown keys reject the document. Colors are `#RRGGBB`.
+All members are optional in the file; omitted keys take these defaults. Unknown keys reject the document. Colors are `#RRGGBB`. The rain falls over the dashboard `backgroundColor`; to change it for this widget only, put `backgroundColor` on the widget object (see [usage](../usage.md#background-color)).
 
 | Parameter | Type | Range | Default | Meaning |
 | --- | --- | --- | --- | --- |
@@ -26,7 +26,6 @@ All members are optional in the file; omitted keys take these defaults. Unknown 
 | `mutationPerSecond` | integer | 0–30 | `8` | Glyph changes per second |
 | `headColor` | string | `#RRGGBB` | `#D8FFE5` | Leading glyph |
 | `trailColor` | string | `#RRGGBB` | `#00E65C` | Trail |
-| `backgroundColor` | string | `#RRGGBB` | `#010502` | Opaque background |
 | `glowPercent` | integer | 0–100 | `35` | Head glow |
 
 ```json

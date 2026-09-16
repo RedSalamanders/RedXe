@@ -57,6 +57,7 @@ Host fields you typically edit:
 | --- | --- | --- |
 | `wrapPages` | `false` | Wrap page navigation at the ends |
 | `logRetentionDays` | `15` | UTC days of JSONL logs to keep (1–365) under `%LocalAppData%\RedXe\Logs\` |
+| `backgroundColor` | `#000000` | Background of the whole dashboard: the canvas and every widget tile (`#RRGGBB`) |
 | `declare` | shipped names | Reusable widget definitions (`plugin` plus flattened keys) |
 | `pages` | 1–16 | Ordered pages. Optional `name` is the label; omitted names display as `Page N` |
 
@@ -85,5 +86,28 @@ A page uses exactly one of `widgets`, `columns`, or `rows` (or none, for a blank
 ```
 
 Widgets are named in `declare` and referenced by that name, written as a `builtin.*` plugin id, written inline as `{ "plugin": "...", ...keys }`, or reused with `{ "use": "<name>", ...keys }`. Extra keys on a use-object merge: objects merge, scalars and arrays replace. Do not nest a `settings` object and do not write `layout` / `areas`.
+
+## Background color
+
+Every tile shares the document `backgroundColor` (default `#000000`), so a page reads as one surface. Change it at the root of the file to recolor the whole dashboard:
+
+```json
+{
+  "version": { "major": 5 },
+  "backgroundColor": "#101418",
+  "pages": [{ "widgets": ["Matrix"] }]
+}
+```
+
+To give one widget its own background, put `backgroundColor` on that widget object. It works for every widget, in `declare`, inline, or on a use-object (`null` on a use-object goes back to the document color):
+
+```json
+{
+  "declare": { "Clock": { "plugin": "builtin.studio-clock", "backgroundColor": "#111111" } },
+  "pages": [
+    { "widgets": ["Clock", { "use": "Clock", "backgroundColor": null }, { "plugin": "builtin.weather", "backgroundColor": "#0A0A0A" }] }
+  ]
+}
+```
 
 Every settings-visible widget is documented under [plugins](plugins/README.md).

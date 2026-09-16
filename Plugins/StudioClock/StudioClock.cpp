@@ -29,9 +29,9 @@ namespace
 constexpr char kPluginId[] = "builtin.studio-clock";
 constexpr char kWidgetTypeId[] = "studio-clock";
 constexpr char kSettingsSchema[] =
-    R"json({"type":"object","additionalProperties":false,"properties":{"showSecondProgress":{"type":"boolean"},"externalDotsAlwaysOn":{"type":"boolean"},"showSeconds":{"type":"boolean"},"secondsColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"showDate":{"type":"boolean"},"dateFormat":{"type":"string","enum":["dd-mm-yyyy","mm-dd-yyyy","yyyy-mm-dd"]},"timeColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"backgroundColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"}}})json";
+    R"json({"type":"object","additionalProperties":false,"properties":{"showSecondProgress":{"type":"boolean"},"externalDotsAlwaysOn":{"type":"boolean"},"showSeconds":{"type":"boolean"},"secondsColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"showDate":{"type":"boolean"},"dateFormat":{"type":"string","enum":["dd-mm-yyyy","mm-dd-yyyy","yyyy-mm-dd"]},"timeColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"}}})json";
 constexpr char kSettingsDefaults[] =
-    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","backgroundColor":"#111111"})json";
+    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616"})json";
 constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
@@ -102,7 +102,8 @@ struct StudioClockConfiguration final
     bool showDate = false;
     DateFormat dateFormat = DateFormat::DayMonthYear;
     uint32_t timeColor = 0xFF1616;
-    uint32_t backgroundColor = 0x111111;
+    // Host-resolved dashboard background from RedXeFactoryOptions, never a settings member of this plugin.
+    uint32_t backgroundColor = kRedXeDefaultBackgroundColor & 0x00FFFFFFu;
 };
 
 enum ConfigurationMember : uint32_t
@@ -114,10 +115,9 @@ enum ConfigurationMember : uint32_t
     ConfigurationShowDate = 1U << 4U,
     ConfigurationDateFormat = 1U << 5U,
     ConfigurationTimeColor = 1U << 6U,
-    ConfigurationBackgroundColor = 1U << 7U,
 };
 
-inline constexpr uint32_t kAllConfigurationMembers = (1U << 8U) - 1U;
+inline constexpr uint32_t kAllConfigurationMembers = (1U << 7U) - 1U;
 
 std::atomic<uint32_t> gLiveProviderCount{0};
 std::atomic<uint32_t> gLiveWidgetCount{0};
@@ -263,7 +263,6 @@ class JsonCursor final
         std::pair<std::string_view, uint32_t>{"showDate", ConfigurationShowDate},
         std::pair<std::string_view, uint32_t>{"dateFormat", ConfigurationDateFormat},
         std::pair<std::string_view, uint32_t>{"timeColor", ConfigurationTimeColor},
-        std::pair<std::string_view, uint32_t>{"backgroundColor", ConfigurationBackgroundColor},
     };
     for (const auto& member : members)
     {
@@ -352,10 +351,6 @@ class JsonCursor final
             break;
         case ConfigurationTimeColor:
             if (!cursor.ReadString(text) || !ParseColor(text, parsed.timeColor))
-                return false;
-            break;
-        case ConfigurationBackgroundColor:
-            if (!cursor.ReadString(text) || !ParseColor(text, parsed.backgroundColor))
                 return false;
             break;
         default:
@@ -449,6 +444,7 @@ class JsonCursor final
     {
         return E_INVALIDARG;
     }
+    configuration.backgroundColor = RedXeBackgroundRgb(options);
     const char* json = options->configurationJsonUtf8;
     const uint32_t bytes = options->configurationBytes;
     if (!json && bytes == 0)
@@ -466,6 +462,7 @@ class JsonCursor final
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
+    parsed.backgroundColor = configuration.backgroundColor;
     configuration = parsed;
     return S_OK;
 }

@@ -1,5 +1,6 @@
 # Completed plan history
 
+- [`DashboardBackground_2026-09-16.md`](DashboardBackground_2026-09-16.md) — completed 2026-09-16 (one document `backgroundColor` for the host canvas and every widget; host-reserved per-widget override; `RedXeFactoryOptions::backgroundColor`).
 - [`WeatherPlugin_2026-09-04.md`](WeatherPlugin_2026-09-04.md) — completed 2026-09-16 (host-owned serial network lane, `IRedXeNetworkWidget`, keyless MET Norway/MeteoAlarm/NWS weather widget with plugin-owned curl, disposable location helper, 48/96 px glyph atlas, cached-forecast status).
 - [`RFC_Core_SettingsHumanAuthoring_2026-09-07.md`](RFC_Core_SettingsHumanAuthoring_2026-09-07.md) — completed 2026-09-07 (settings major 5 human authoring; v4 is an incompatible reset).
 - [`RFC_Core_DxUiSharedProject.md`](RFC_Core_DxUiSharedProject.md) — completed 2026-09-06 (library extraction and synthetic RedXe pin/adapters; remaining AV gates stay on the HOLD AV RFC).

@@ -74,8 +74,8 @@ constexpr std::array kWidgetTypes{
 class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget, IRedXeWindowWidget, IRedXeRaisedWidget>
 {
   public:
-    explicit GdiOrbitWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner) noexcept
-        : _providerOwner(std::move(providerOwner))
+    GdiOrbitWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, COLORREF background) noexcept
+        : _providerOwner(std::move(providerOwner)), _background(background)
     {
     }
 
@@ -326,7 +326,7 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
 
         if (_dpi != dpi || !_backgroundBrush)
         {
-            _backgroundBrush.reset(CreateSolidBrush(RGB(7, 10, 18)));
+            _backgroundBrush.reset(CreateSolidBrush(_background));
             _panelBrush.reset(CreateSolidBrush(RGB(15, 18, 28)));
             _redBrush.reset(CreateSolidBrush(RGB(222, 42, 54)));
             _cyanBrush.reset(CreateSolidBrush(RGB(52, 202, 208)));
@@ -488,6 +488,8 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
     }
 
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _providerOwner;
+    // Host-resolved dashboard background (RedXeFactoryOptions::backgroundColor) as a COLORREF for the GDI fill.
+    COLORREF _background = RGB(0, 0, 0);
     HWND _container = nullptr;
     wil::unique_hwnd _window;
     wil::unique_hdc _memoryDc;
@@ -540,6 +542,8 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
 class GdiOrbitProvider final : public RedXeComObject<GdiOrbitProvider, IRedXeWidgetProvider>
 {
   public:
+    explicit GdiOrbitProvider(COLORREF background) noexcept : _background(background) {}
+
     HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
                                              uint32_t* count) noexcept override
     {
@@ -584,7 +588,7 @@ class GdiOrbitProvider final : public RedXeComObject<GdiOrbitProvider, IRedXeWid
             return result;
         }
 
-        auto* created = new (std::nothrow) GdiOrbitWidget(std::move(providerOwner));
+        auto* created = new (std::nothrow) GdiOrbitWidget(std::move(providerOwner), _background);
         if (!created)
         {
             return E_OUTOFMEMORY;
@@ -594,6 +598,7 @@ class GdiOrbitProvider final : public RedXeComObject<GdiOrbitProvider, IRedXeWid
     }
 
   private:
+    COLORREF _background;
 };
 
 HRESULT CreateGdiOrbitProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*,
@@ -610,7 +615,10 @@ HRESULT CreateGdiOrbitProvider(REFIID interfaceId, const RedXeFactoryOptions* op
         return configurationResult;
     }
 
-    auto* provider = new (std::nothrow) GdiOrbitProvider();
+    const uint32_t rgb = RedXeBackgroundRgb(options);
+    auto* provider = new (std::nothrow)
+        GdiOrbitProvider(RGB(static_cast<BYTE>((rgb >> 16U) & 0xFFU), static_cast<BYTE>((rgb >> 8U) & 0xFFU),
+                             static_cast<BYTE>(rgb & 0xFFU)));
     if (!provider)
     {
         return E_OUTOFMEMORY;

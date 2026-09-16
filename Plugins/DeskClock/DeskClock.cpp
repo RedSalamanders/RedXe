@@ -33,9 +33,9 @@ namespace
 constexpr char kPluginId[] = "builtin.desk-clock";
 constexpr char kWidgetTypeId[] = "desk-clock";
 constexpr char kSettingsSchema[] =
-    R"json({"type":"object","additionalProperties":false,"properties":{"flipDurationMilliseconds":{"type":"integer","minimum":250,"maximum":800},"backgroundColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"cardColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"digitColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"dateColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"}}})json";
+    R"json({"type":"object","additionalProperties":false,"properties":{"flipDurationMilliseconds":{"type":"integer","minimum":250,"maximum":800},"cardColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"digitColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"dateColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"}}})json";
 constexpr char kSettingsDefaults[] =
-    R"json({"flipDurationMilliseconds":420,"backgroundColor":"#000000","cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json";
+    R"json({"flipDurationMilliseconds":420,"cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json";
 constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
@@ -70,7 +70,8 @@ constexpr std::array kWidgetTypes{
 struct DeskClockConfiguration final
 {
     uint32_t flipDurationMilliseconds = 420;
-    uint32_t backgroundColor = 0x000000;
+    // Host-resolved dashboard background from RedXeFactoryOptions, never a settings member of this plugin.
+    uint32_t backgroundColor = kRedXeDefaultBackgroundColor & 0x00FFFFFFu;
     uint32_t cardColor = 0xFF3B43;
     uint32_t digitColor = 0xFFFFFF;
     uint32_t dateColor = 0xD8D8D8;
@@ -79,13 +80,12 @@ struct DeskClockConfiguration final
 enum ConfigurationMember : uint32_t
 {
     ConfigurationDuration = 1U << 0U,
-    ConfigurationBackground = 1U << 1U,
-    ConfigurationCard = 1U << 2U,
-    ConfigurationDigit = 1U << 3U,
-    ConfigurationDate = 1U << 4U,
+    ConfigurationCard = 1U << 1U,
+    ConfigurationDigit = 1U << 2U,
+    ConfigurationDate = 1U << 3U,
 };
 
-inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
+inline constexpr uint32_t kAllConfigurationMembers = (1U << 4U) - 1U;
 inline constexpr uint32_t kDateGlyphCapacity = 10;
 inline constexpr uint32_t kNoGlyph = std::numeric_limits<uint32_t>::max();
 inline constexpr uint32_t kTimeGlyphCount = 10;
@@ -345,10 +345,6 @@ class JsonCursor final
     {
         return ConfigurationDuration;
     }
-    if (key == "backgroundColor")
-    {
-        return ConfigurationBackground;
-    }
     if (key == "cardColor")
     {
         return ConfigurationCard;
@@ -396,12 +392,6 @@ class JsonCursor final
                 return false;
             }
             parsed.flipDurationMilliseconds = number;
-            break;
-        case ConfigurationBackground:
-            if (!cursor.ReadString(text) || !ParseColor(text, parsed.backgroundColor))
-            {
-                return false;
-            }
             break;
         case ConfigurationCard:
             if (!cursor.ReadString(text) || !ParseColor(text, parsed.cardColor))
@@ -509,6 +499,7 @@ class JsonCursor final
     {
         return E_INVALIDARG;
     }
+    configuration.backgroundColor = RedXeBackgroundRgb(options);
     const char* json = options->configurationJsonUtf8;
     const uint32_t bytes = options->configurationBytes;
     if (!json && bytes == 0)
@@ -525,6 +516,7 @@ class JsonCursor final
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
+    parsed.backgroundColor = configuration.backgroundColor;
     configuration = parsed;
     return S_OK;
 }

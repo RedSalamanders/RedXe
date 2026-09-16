@@ -12,6 +12,13 @@
 
 namespace
 {
+// Float clear color for a 0xRRGGBB document value.
+[[nodiscard]] constexpr std::array<float, 4> RgbToClearColor(uint32_t rgb) noexcept
+{
+    return {static_cast<float>((rgb >> 16U) & 0xFFU) / 255.0f, static_cast<float>((rgb >> 8U) & 0xFFU) / 255.0f,
+            static_cast<float>(rgb & 0xFFU) / 255.0f, 1.0f};
+}
+
 constexpr UINT kSwapChainFlags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 constexpr size_t kMaximumEnumeratedAdapters = 8;
 constexpr size_t kMaximumEnumeratedOutputs = 32;
@@ -710,6 +717,21 @@ void Renderer::DrawPlaceholder(const D3D11_VIEWPORT& viewport) noexcept
     _context1->ClearView(_renderTarget.get(), placeholderColor.data(), &rect, 1);
 }
 
+void Renderer::FillTileBackground(const DashboardHost& dashboard, size_t index, const D3D11_VIEWPORT& viewport) noexcept
+{
+    const uint32_t rgb = dashboard.WidgetBackgroundRgbAt(index);
+    if (rgb == dashboard.BackgroundRgb() || !_context1 || !_renderTarget || viewport.Width < 1.0f ||
+        viewport.Height < 1.0f)
+    {
+        return;
+    }
+    const std::array<float, 4> color = RgbToClearColor(rgb);
+    const D3D11_RECT rect{static_cast<LONG>(viewport.TopLeftX), static_cast<LONG>(viewport.TopLeftY),
+                          static_cast<LONG>(viewport.TopLeftX + viewport.Width),
+                          static_cast<LONG>(viewport.TopLeftY + viewport.Height)};
+    _context1->ClearView(_renderTarget.get(), color.data(), &rect, 1);
+}
+
 void Renderer::ResetTargetSizes() noexcept
 {
     _widgetTargetSizes = {};
@@ -1032,7 +1054,7 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
         return E_UNEXPECTED;
     }
 
-    constexpr std::array clearColor{0.025f, 0.035f, 0.075f, 1.0f};
+    const std::array<float, 4> clearColor = RgbToClearColor(_dashboardHost->BackgroundRgb());
     ID3D11RenderTargetView* renderTargets[] = {_renderTarget.get()};
     _context->OMSetRenderTargets(1, renderTargets, nullptr);
     _context->ClearRenderTargetView(_renderTarget.get(), clearColor.data());
@@ -1068,6 +1090,7 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
         };
 
         ++_lastFrameWidgetCount;
+        FillTileBackground(*_dashboardHost, index, viewport);
         _context->OMSetRenderTargets(1, renderTargets, nullptr);
         _context->RSSetViewports(1, &viewport);
         const HRESULT widgetResult = widget->Render(&gpuFrame);
@@ -1153,6 +1176,7 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
                                                       deltaSeconds};
             const RedXeGpuFrameContext gpuFrame{sizeof(RedXeGpuFrameContext), &widgetFrame, _context.get(), viewport};
             ++_lastFrameWidgetCount;
+            FillTileBackground(*_transitionDashboardHost, index, viewport);
             _context->OMSetRenderTargets(1, renderTargets, nullptr);
             _context->RSSetViewports(1, &viewport);
             const HRESULT widgetResult = widget->Render(&gpuFrame);

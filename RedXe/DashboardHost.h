@@ -64,6 +64,9 @@ class DashboardHost final
     // True when the host owns this tile's pixels: the instance failed to construct, or it reported itself
     // unavailable through IRedXeHost::ReportWidgetStatus.
     [[nodiscard]] bool RequiresPlaceholderAt(size_t index) const noexcept;
+    // Document background (0xRRGGBB) for the canvas clear, and the color one tile paints when it differs.
+    [[nodiscard]] uint32_t BackgroundRgb() const noexcept;
+    [[nodiscard]] uint32_t WidgetBackgroundRgbAt(size_t index) const noexcept;
     [[nodiscard]] HRESULT GetNextFrameDelayMilliseconds(uint32_t* delayMilliseconds) const noexcept;
 
   private:

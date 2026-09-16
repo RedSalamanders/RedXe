@@ -42,6 +42,8 @@ class LiveView final
     void SetVisible(bool visible) noexcept;
     void SetState(const ConfirmedState& state, std::wstring_view profileName, uint32_t pendingMask) noexcept;
     void SetAppearance(const RedXeAppearance& appearance) noexcept;
+    // Host-resolved dashboard background (0xRRGGBB) that becomes the theme window surface outside high contrast.
+    void SetBackground(uint32_t rgb) noexcept;
     HRESULT Prepare(uint32_t width, uint32_t height, float dpi) noexcept;
     HRESULT Composite(ID3D11DeviceContext* context, const D3D11_VIEWPORT& viewport) noexcept;
     bool Pointer(const DxUi::PointerEvent& event) noexcept;
@@ -97,6 +99,7 @@ class LiveView final
     uint64_t _layoutRevision = 0;
     bool _modelDirty = true;
     RedXeAppearance _appearance;
+    uint32_t _backgroundRgb = 0;
     bool _themeDirty = true;
     bool _ready = false;
     bool _visible = false;

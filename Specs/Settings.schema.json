@@ -10,6 +10,11 @@
     "version": { "$ref": "#/$defs/version" },
     "wrapPages": { "type": "boolean", "default": false },
     "logRetentionDays": { "type": "integer", "minimum": 1, "maximum": 365, "default": 15 },
+    "backgroundColor": {
+      "$ref": "#/$defs/color",
+      "default": "#000000",
+      "description": "Dashboard background: the host canvas and the background every widget paints unless a widget object overrides it."
+    },
     "declare": {
       "type": "object",
       "maxProperties": 128,
@@ -33,6 +38,11 @@
         "minor": { "type": "integer", "minimum": 0, "default": 0 }
       }
     },
+    "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+    "widgetBackground": {
+      "$ref": "#/$defs/color",
+      "description": "Host-reserved widget key: this instance paints this background instead of the document backgroundColor."
+    },
     "matrixSettings": {
       "type": "object",
       "additionalProperties": false,
@@ -45,7 +55,6 @@
         "mutationPerSecond": { "type": "integer", "minimum": 0, "maximum": 30, "default": 8 },
         "headColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#D8FFE5" },
         "trailColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#00E65C" },
-        "backgroundColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#010502" },
         "glowPercent": { "type": "integer", "minimum": 0, "maximum": 100, "default": 35 }
       }
     },
@@ -76,8 +85,7 @@
           "enum": ["dd-mm-yyyy", "mm-dd-yyyy", "yyyy-mm-dd"],
           "default": "dd-mm-yyyy"
         },
-        "timeColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#FF1616" },
-        "backgroundColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#111111" }
+        "timeColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#FF1616" }
       }
     },
     "weatherSettings": {
@@ -196,7 +204,6 @@
       "additionalProperties": false,
       "properties": {
         "flipDurationMilliseconds": { "type": "integer", "minimum": 250, "maximum": 800, "default": 420 },
-        "backgroundColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#000000" },
         "cardColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#FF3B43" },
         "digitColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#FFFFFF" },
         "dateColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#D8D8D8" }
@@ -232,7 +239,8 @@
           "additionalProperties": false,
           "required": ["plugin"],
           "properties": {
-            "plugin": { "enum": ["builtin.rotating-triangle", "builtin.gdi-orbit", "builtin.system-pulse", "builtin.cpu-meter", "builtin.memory-meter", "builtin.storage-meter", "builtin.gpu-meter", "builtin.power-meter", "builtin.thermal-meter"] }
+            "plugin": { "enum": ["builtin.rotating-triangle", "builtin.gdi-orbit", "builtin.system-pulse", "builtin.cpu-meter", "builtin.memory-meter", "builtin.storage-meter", "builtin.gpu-meter", "builtin.power-meter", "builtin.thermal-meter"] },
+            "backgroundColor": { "$ref": "#/$defs/widgetBackground" }
           }
         },
         {
@@ -241,6 +249,7 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "const": "builtin.matrix-rain" },
+            "backgroundColor": { "$ref": "#/$defs/widgetBackground" },
             "seed": { "$ref": "#/$defs/matrixSettings/properties/seed" },
             "glyphHeightDips": { "$ref": "#/$defs/matrixSettings/properties/glyphHeightDips" },
             "densityPercent": { "$ref": "#/$defs/matrixSettings/properties/densityPercent" },
@@ -249,7 +258,6 @@
             "mutationPerSecond": { "$ref": "#/$defs/matrixSettings/properties/mutationPerSecond" },
             "headColor": { "$ref": "#/$defs/matrixSettings/properties/headColor" },
             "trailColor": { "$ref": "#/$defs/matrixSettings/properties/trailColor" },
-            "backgroundColor": { "$ref": "#/$defs/matrixSettings/properties/backgroundColor" },
             "glowPercent": { "$ref": "#/$defs/matrixSettings/properties/glowPercent" }
           }
         },
@@ -259,6 +267,7 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "const": "builtin.process-viewer" },
+            "backgroundColor": { "$ref": "#/$defs/widgetBackground" },
             "topN": { "$ref": "#/$defs/processViewerSettings/properties/topN" }
           }
         },
@@ -268,6 +277,7 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "enum": ["builtin.network-meter", "builtin.gpu-processes"] },
+            "backgroundColor": { "$ref": "#/$defs/widgetBackground" },
             "topN": { "$ref": "#/$defs/rankedViewerSettings/properties/topN" }
           }
         },
@@ -277,14 +287,14 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "const": "builtin.studio-clock" },
+            "backgroundColor": { "$ref": "#/$defs/widgetBackground" },
             "showSecondProgress": { "$ref": "#/$defs/studioClockSettings/properties/showSecondProgress" },
             "externalDotsAlwaysOn": { "$ref": "#/$defs/studioClockSettings/properties/externalDotsAlwaysOn" },
             "showSeconds": { "$ref": "#/$defs/studioClockSettings/properties/showSeconds" },
             "secondsColor": { "$ref": "#/$defs/studioClockSettings/properties/secondsColor" },
             "showDate": { "$ref": "#/$defs/studioClockSettings/properties/showDate" },
             "dateFormat": { "$ref": "#/$defs/studioClockSettings/properties/dateFormat" },
-            "timeColor": { "$ref": "#/$defs/studioClockSettings/properties/timeColor" },
-            "backgroundColor": { "$ref": "#/$defs/studioClockSettings/properties/backgroundColor" }
+            "timeColor": { "$ref": "#/$defs/studioClockSettings/properties/timeColor" }
           }
         },
         {
@@ -293,8 +303,8 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "const": "builtin.desk-clock" },
+            "backgroundColor": { "$ref": "#/$defs/widgetBackground" },
             "flipDurationMilliseconds": { "$ref": "#/$defs/deskClockSettings/properties/flipDurationMilliseconds" },
-            "backgroundColor": { "$ref": "#/$defs/deskClockSettings/properties/backgroundColor" },
             "cardColor": { "$ref": "#/$defs/deskClockSettings/properties/cardColor" },
             "digitColor": { "$ref": "#/$defs/deskClockSettings/properties/digitColor" },
             "dateColor": { "$ref": "#/$defs/deskClockSettings/properties/dateColor" }
@@ -306,6 +316,7 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "const": "builtin.weather" },
+            "backgroundColor": { "$ref": "#/$defs/widgetBackground" },
             "locationMode": { "$ref": "#/$defs/weatherSettings/properties/locationMode" },
             "location": { "$ref": "#/$defs/weatherSettings/properties/location" },
             "temperatureUnit": { "$ref": "#/$defs/weatherSettings/properties/temperatureUnit" },
@@ -318,6 +329,7 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "const": "builtin.launcher" },
+            "backgroundColor": { "$ref": "#/$defs/widgetBackground" },
             "iconSize": { "$ref": "#/$defs/launcherSettings/properties/iconSize" },
             "shortcuts": { "$ref": "#/$defs/launcherSettings/properties/shortcuts" }
           }
@@ -328,6 +340,7 @@
           "required": ["plugin"],
           "properties": {
             "plugin": { "const": "builtin.av-control" },
+            "backgroundColor": { "$ref": "#/$defs/widgetBackground" },
             "profiles": { "$ref": "#/$defs/avControlSettings/properties/profiles" }
           }
         }
@@ -348,7 +361,7 @@
         "mutationPerSecond": { "$ref": "#/$defs/matrixSettings/properties/mutationPerSecond" },
         "headColor": { "$ref": "#/$defs/matrixSettings/properties/headColor" },
         "trailColor": { "$ref": "#/$defs/matrixSettings/properties/trailColor" },
-        "backgroundColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "backgroundColor": { "$ref": "#/$defs/widgetBackground" },
         "glowPercent": { "$ref": "#/$defs/matrixSettings/properties/glowPercent" },
         "topN": { "type": "integer", "minimum": 1, "maximum": 32 },
         "showSecondProgress": { "type": "boolean" },

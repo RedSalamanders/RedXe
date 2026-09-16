@@ -55,6 +55,10 @@ class PluginManager final
     [[nodiscard]] AdaptiveWidgetPlacement AdaptivePlacementAt(size_t index) const noexcept;
     [[nodiscard]] bool UsesAdaptivePlacementAt(size_t index) const noexcept;
     [[nodiscard]] const char* WidgetInstanceIdAt(size_t index) const noexcept;
+    // Document background (0xRRGGBB) the renderer clears with, and the color each tile paints: the document color
+    // unless that instance authored its own backgroundColor.
+    [[nodiscard]] uint32_t BackgroundRgb() const noexcept;
+    [[nodiscard]] uint32_t WidgetBackgroundRgbAt(size_t index) const noexcept;
     [[nodiscard]] uint32_t GridColumns() const noexcept;
     [[nodiscard]] uint32_t GridRows() const noexcept;
 
@@ -76,6 +80,7 @@ class PluginManager final
         WidgetGridPlacement placement;
         AdaptiveWidgetPlacement adaptivePlacement;
         bool usesAdaptivePlacement = false;
+        uint32_t backgroundRgb = kRedXeDefaultBackgroundRgb;
         uint32_t flags = RedXeWidgetFlagNone;
         // A placeholder slot holds no plugin object. It records why creation failed so the host can draw and report a
         // failed tile instead of failing the whole page.
@@ -92,14 +97,16 @@ class PluginManager final
     {
         std::array<char, kFactoryConfigurationCapacity> configuration{};
         uint32_t configurationBytes = 0;
+        uint32_t backgroundRgb = kRedXeDefaultBackgroundRgb;
         const char* pluginId = nullptr;
     };
 
     [[nodiscard]] HRESULT CreateBundledProvider(const char* pluginId, const char* configurationJson,
-                                                uint32_t configurationBytes, IRedXeWidgetProvider** provider) noexcept;
+                                                uint32_t configurationBytes, uint32_t backgroundRgb,
+                                                IRedXeWidgetProvider** provider) noexcept;
     [[nodiscard]] HRESULT CreateWidgetInstance(IRedXeWidgetProvider& provider, const WidgetInstanceSettings& settings,
-                                               WidgetSlot& widgetSlot) noexcept;
-    static void MakePlaceholder(WidgetSlot& widgetSlot, const WidgetInstanceSettings& settings,
+                                               uint32_t backgroundRgb, WidgetSlot& widgetSlot) noexcept;
+    static void MakePlaceholder(WidgetSlot& widgetSlot, const WidgetInstanceSettings& settings, uint32_t backgroundRgb,
                                 HRESULT failure) noexcept;
     void ClearWidgetStatuses() noexcept;
     void ReleaseWidgets() noexcept;
@@ -118,5 +125,6 @@ class PluginManager final
     size_t _widgetCount = 0;
     uint32_t _gridColumns = 0;
     uint32_t _gridRows = 0;
+    uint32_t _backgroundRgb = kRedXeDefaultBackgroundRgb;
     bool _initialized = false;
 };

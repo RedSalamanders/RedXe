@@ -36,9 +36,6 @@ constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
 };
-constexpr float kPanelR = 10.0f / 255.0f;
-constexpr float kPanelG = 10.0f / 255.0f;
-constexpr float kPanelB = 10.0f / 255.0f;
 constexpr float kTextR = 0.90f;
 constexpr float kTextG = 0.90f;
 constexpr float kTextB = 0.92f;
@@ -950,7 +947,8 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         gLastPrecipitationNotice.store(false, std::memory_order_relaxed);
         _pageCount.store(1, std::memory_order_relaxed);
         const float inset = kPanelInset;
-        (void)list.AddFill(inset, inset, width - 2 * inset, height - 2 * inset, kPanelR, kPanelG, kPanelB, 1.0f, 10.0f);
+        (void)list.AddFill(inset, inset, width - 2 * inset, height - 2 * inset, _configuration.panelColor.red,
+                           _configuration.panelColor.green, _configuration.panelColor.blue, 1.0f, 10.0f);
         if (width < 48.0f || height < 40.0f)
             return S_OK;
         const auto severity = WeatherHighestAlertSeverity(snapshot);
@@ -1411,6 +1409,10 @@ HRESULT CreateWeatherProvider(REFIID interfaceId, const RedXeFactoryOptions* opt
         {
             return parsed;
         }
+        const uint32_t rgb = RedXeBackgroundRgb(options);
+        configuration.panelColor = {static_cast<float>((rgb >> 16U) & 0xFFU) / 255.0f,
+                                    static_cast<float>((rgb >> 8U) & 0xFFU) / 255.0f,
+                                    static_cast<float>(rgb & 0xFFU) / 255.0f};
     }
     auto* provider = new (std::nothrow) WeatherProvider(configuration, host);
     if (!provider)
