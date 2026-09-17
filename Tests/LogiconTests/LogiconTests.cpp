@@ -2,6 +2,7 @@
 // the shared settings model, key-face composition and JPEG round trips, the device session driven by the synthetic
 // keypad, and the shipped DLL's factory, contract, service lifetime, device lane, and test exports.
 
+#include "Actions/ActionTargets.h"
 #include "LogiconDevice.h"
 #include "LogiconFaces.h"
 #include "LogiconProtocol.h"
@@ -275,22 +276,23 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
         {"page":0,"slot":0,"action":"page.previous","label":"Prev","icon":"ChevronLeft"},
         {"page":0,"slot":1,"action":"page.next","label":"Next","icon":"ChevronRight","color":"#1E88E5"},
         {"page":1,"slot":4,"action":"widget.toggle","target":"System/2","label":"Pulse"},
-        {"page":1,"slot":5,"action":"launch","target":"C:\\Tools\\Code.exe","icon":"png:C:\\Icons\\code.png"},
+        {"page":1,"slot":5,"action":"system.launch","target":"C:\\Tools\\Code.exe","icon":"png:C:\\Icons\\code.png"},
         {"page":3,"slot":8,"face":"clock"},
-        {"slot":7,"action":"keys","target":"mute","label":"Mute","icon":"Mute"}
+        {"slot":7,"action":"keys.media","target":"mute","label":"Mute","icon":"Mute"},
+        {"slot":6,"action":"logicon.keyPage.next","label":"More"}
       ]})json";
     LOGICON_CHECK(SUCCEEDED(ParseSettingsJson(authored, settings, diagnostic.data(), diagnostic.size())),
                   "authored settings parse");
     LOGICON_CHECK(settings.brightness == 40 && !settings.restoreLogoOnExit &&
-                      settings.pageButtons == PageButtons::DashboardPages && settings.keyCount == 6 &&
+                      settings.pageButtons == PageButtons::DashboardPages && settings.keyCount == 7 &&
                       settings.KeyPageCount() == 4,
                   "authored scalar values and page count");
     const KeyBinding* next = settings.Find(0, 1);
-    LOGICON_CHECK(next && next->action == KeyAction::PageNext && next->hasColor && next->colorRgb == 0x1E88E5 &&
-                      next->Label() == "Next" && next->Icon() == "ChevronRight",
+    LOGICON_CHECK(next && next->Action() == "page.next" && next->hasColor && next->colorRgb == 0x1E88E5 &&
+                      next->Label() == "Next" && next->Icon() == "ChevronRight" && next->valid && !next->IsLocal(),
                   "binding fields");
     const KeyBinding* toggle = settings.Find(1, 4);
-    LOGICON_CHECK(toggle && toggle->action == KeyAction::WidgetToggle && TargetIsValid(*toggle), "widget target");
+    LOGICON_CHECK(toggle && toggle->Action() == "widget.toggle" && toggle->Target() == "System/2", "widget target");
     std::string_view pageId;
     uint32_t ordinal = 0;
     LOGICON_CHECK(ParseWidgetTarget(toggle->Target(), pageId, ordinal) && pageId == "System" && ordinal == 2,
@@ -300,20 +302,28 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
                       !ParseWidgetTarget("1000", pageId, ordinal),
                   "invalid widget targets");
     const KeyBinding* launch = settings.Find(1, 5);
-    LOGICON_CHECK(launch && TargetIsValid(*launch) && launch->Icon().starts_with("png:"), "launch target");
+    LOGICON_CHECK(launch && launch->Action() == "system.launch" && launch->Icon().starts_with("png:"), "launch target");
     const KeyBinding* mute = settings.Find(0, 7);
-    LOGICON_CHECK(mute && mute->page == 0 && mute->action == KeyAction::Keys && TargetIsValid(*mute),
+    LOGICON_CHECK(mute && mute->page == 0 && mute->Action() == "keys.media" && mute->Target() == "mute",
                   "omitted page defaults to 0");
+    const KeyBinding* local = settings.Find(0, 6);
+    LOGICON_CHECK(local && local->IsLocal() && local->Action() == "logicon.keyPage.next",
+                  "the published logicon namespace is local to the service");
     LOGICON_CHECK(settings.Find(2, 0) == nullptr, "blank slot");
-    LOGICON_CHECK(!settings.UsesSystemFaces() && settings.dialpad.dial == DialAction::None &&
-                      settings.dialpad.roller == DialAction::None && settings.dialpad.buttonCount == 0,
+    LOGICON_CHECK(!settings.UsesSystemFaces() && settings.dialpad.turnCount == 0 && settings.dialpad.buttonCount == 0 &&
+                      !settings.dialpad.Turn(kControlDial, kDirectionForward),
                   "no system faces and an unbound dialpad when the document has neither");
 
     // System faces and the dialpad object.
     constexpr std::string_view dialpadAuthored =
         R"json({"keys":[{"slot":0,"face":"cpu"},{"slot":1,"face":"memory","label":"RAM"},{"slot":2,"face":"gpu"}],
-      "dialpad":{"dial":"page","roller":"volume","buttons":[
-        {"button":0,"action":"page.previous"},{"button":3,"action":"launch","target":"https://example.org"},
+      "dialpad":{"turns":[
+        {"control":"dial","direction":"cw","action":"page.next"},
+        {"control":"dial","direction":"ccw","action":"page.previous"},
+        {"control":"roller","direction":"up","action":"keys.media","target":"volume-up"},
+        {"control":"roller","direction":"down","action":"logicon.brightness","target":"-5"}],
+      "buttons":[
+        {"button":0,"action":"page.previous"},{"button":3,"action":"system.launch","target":"https://example.org"},
         {"button":2}]}})json";
     LOGICON_CHECK(SUCCEEDED(ParseSettingsJson(dialpadAuthored, settings, diagnostic.data(), diagnostic.size())),
                   "system faces and dialpad parse");
@@ -321,41 +331,32 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
                       settings.Find(0, 1)->face == KeyFace::Memory && settings.Find(0, 2)->face == KeyFace::Gpu &&
                       IsSystemFace(KeyFace::Gpu) && !IsSystemFace(KeyFace::Clock),
                   "system face names");
-    LOGICON_CHECK(settings.dialpad.dial == DialAction::Page && settings.dialpad.roller == DialAction::Volume &&
-                      settings.dialpad.buttonCount == 3,
-                  "dial actions");
+    const KeyBinding* clockwise = settings.dialpad.Turn(kControlDial, kDirectionForward);
+    const KeyBinding* rollerDown = settings.dialpad.Turn(kControlRoller, kDirectionBackward);
+    LOGICON_CHECK(settings.dialpad.turnCount == 4 && clockwise && clockwise->Action() == "page.next" && rollerDown &&
+                      rollerDown->Action() == "logicon.brightness" && rollerDown->Target() == "-5" &&
+                      rollerDown->IsLocal() && settings.dialpad.buttonCount == 3,
+                  "turn bindings by control and direction");
     const KeyBinding* back = settings.dialpad.Button(0);
     const KeyBinding* button7 = settings.dialpad.Button(3);
-    LOGICON_CHECK(back && back->action == KeyAction::PagePrevious && button7 && button7->action == KeyAction::Launch &&
-                      TargetIsValid(*button7) && settings.dialpad.Button(2) &&
-                      settings.dialpad.Button(2)->action == KeyAction::None && !settings.dialpad.Button(1),
+    LOGICON_CHECK(back && back->Action() == "page.previous" && button7 && button7->Action() == "system.launch" &&
+                      settings.dialpad.Button(2) && !settings.dialpad.Button(2)->HasAction() &&
+                      !settings.dialpad.Button(1),
                   "dial button bindings by button index");
-    LOGICON_CHECK(std::string_view(DialActionName(DialAction::Brightness)) == "brightness" &&
+    LOGICON_CHECK(std::string_view(ControlName(kControlRoller)) == "roller" &&
+                      std::string_view(DirectionName(kControlDial, kDirectionBackward)) == "ccw" &&
+                      std::string_view(DirectionName(kControlRoller, kDirectionForward)) == "up" &&
                       std::string_view(FaceName(KeyFace::Memory)) == "memory",
                   "enum names round-trip");
 
-    KeyBinding probe{};
-    probe.action = KeyAction::Launch;
-    const auto setTarget = [&probe](const char* text) noexcept
-    {
-        probe.target.fill('\0');
-        strcpy_s(probe.target.data(), probe.target.size(), text);
-        probe.targetBytes = static_cast<uint32_t>(std::strlen(text));
-    };
-    setTarget("notepad.exe");
-    LOGICON_CHECK(!TargetIsValid(probe), "relative launch target is invalid");
-    setTarget("https://example.org");
-    LOGICON_CHECK(TargetIsValid(probe), "URI launch target is valid");
-    setTarget("\\\\server\\share\\tool.exe");
-    LOGICON_CHECK(TargetIsValid(probe), "UNC launch target is valid");
-    probe.action = KeyAction::Keys;
-    setTarget("volume-up");
-    LOGICON_CHECK(TargetIsValid(probe), "media key name is valid");
-    setTarget("alt-f4");
-    LOGICON_CHECK(!TargetIsValid(probe), "arbitrary key name is invalid");
-    probe.action = KeyAction::PageGoTo;
-    setTarget("");
-    LOGICON_CHECK(!TargetIsValid(probe), "page.goto needs a page id");
+    // Target grammars are the host's shared parsers; the model only checks the action-name grammar.
+    LOGICON_CHECK(RedXeActions::IsPathOrUri("https://example.org") &&
+                      RedXeActions::IsPathOrUri("\\\\server\\share\\x") && !RedXeActions::IsPathOrUri("notepad.exe"),
+                  "shared launch target grammar");
+    LOGICON_CHECK(RedXeIsActionNameSyntax("zoom.mute") && RedXeIsActionNameSyntax("logicon.keyPage.goto") &&
+                      !RedXeIsActionNameSyntax("launch") && !RedXeIsActionNameSyntax("Page.next") &&
+                      !RedXeIsActionNameSyntax("page..next") && !RedXeIsActionNameSyntax("page.next."),
+                  "action-name grammar");
 
     // Rejections.
     LOGICON_CHECK(
@@ -370,9 +371,20 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0},{"slot":0}]})json", settings, diagnostic.data(),
                                            diagnostic.size())),
                   "duplicate slot rejected");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"dial":"scroll"}})json", settings, diagnostic.data(),
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"turns":[{"control":"dial","direction":"up"}]}})json",
+                                           settings, diagnostic.data(), diagnostic.size())),
+                  "a roller direction on the dial is rejected");
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"dial":"page"}})json", settings, diagnostic.data(),
                                            diagnostic.size())),
-                  "unknown dial action rejected");
+                  "the dial preset member no longer exists");
+    LOGICON_CHECK(
+        FAILED(ParseSettingsJson(
+            R"json({"dialpad":{"turns":[{"control":"dial","direction":"cw"},{"control":"dial","direction":"cw"}]}})json",
+            settings, diagnostic.data(), diagnostic.size())),
+        "duplicate turn rejected");
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0,"action":"launch"}]})json", settings,
+                                           diagnostic.data(), diagnostic.size())),
+                  "the former launch name is not an action name");
     LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"buttons":[{"button":4}]}})json", settings,
                                            diagnostic.data(), diagnostic.size())),
                   "dial button 4 rejected");
@@ -1065,27 +1077,63 @@ class TestHost final : public IRedXeHost
     {
         return E_ACCESSDENIED;
     }
-    HRESULT STDMETHODCALLTYPE RequestHostAction(const RedXeHostActionRequest* request) noexcept override
+    HRESULT STDMETHODCALLTYPE RequestAction(const RedXeActionRequest* request) noexcept override
     {
-        if (!request || request->sizeBytes != sizeof(RedXeHostActionRequest))
+        if (!request || request->sizeBytes != sizeof(RedXeActionRequest) || !request->actionUtf8)
         {
             return E_INVALIDARG;
         }
-        actions.fetch_add(1, std::memory_order_relaxed);
-        lastAction.store(request->action, std::memory_order_relaxed);
-        if (request->targetUtf8)
         {
-            strncpy_s(lastTarget, request->targetUtf8, _TRUNCATE);
+            const auto guard = wil::AcquireSRWLockExclusive(&actionLock);
+            strncpy_s(lastActionName, request->actionUtf8, _TRUNCATE);
+            lastTarget[0] = '\0';
+            if (request->targetUtf8)
+            {
+                strncpy_s(lastTarget, request->targetUtf8, _TRUNCATE);
+            }
         }
+        actions.fetch_add(1, std::memory_order_relaxed);
         return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE ExecuteAction(const RedXeActionRequest* request) noexcept override
+    {
+        return RequestAction(request);
+    }
+    // Every name resolves and every target is accepted, except the one name tests use to prove the invalid face.
+    HRESULT STDMETHODCALLTYPE ValidateAction(const RedXeActionRequest* request,
+                                             const RedXeActionDescriptor** descriptor) noexcept override
+    {
+        if (descriptor)
+        {
+            *descriptor = nullptr;
+        }
+        if (!request || request->sizeBytes != sizeof(RedXeActionRequest) || !request->actionUtf8)
+        {
+            return E_INVALIDARG;
+        }
+        validations.fetch_add(1, std::memory_order_relaxed);
+        return std::strcmp(request->actionUtf8, "system.nonexistent") == 0 ? HRESULT_FROM_WIN32(ERROR_NOT_FOUND) : S_OK;
+    }
+    // The last action name the service requested, copied under the host lock.
+    bool LastActionIs(const char* name) noexcept
+    {
+        const auto guard = wil::AcquireSRWLockShared(&actionLock);
+        return std::strcmp(lastActionName, name) == 0;
+    }
+    bool LastTargetIs(const char* target) noexcept
+    {
+        const auto guard = wil::AcquireSRWLockShared(&actionLock);
+        return std::strcmp(lastTarget, target) == 0;
     }
 
     std::atomic<uint32_t> frames{0};
     std::atomic<uint32_t> logs{0};
     std::atomic<uint32_t> actions{0};
-    std::atomic<uint32_t> lastAction{0};
+    std::atomic<uint32_t> validations{0};
+    SRWLOCK actionLock = SRWLOCK_INIT;
+    char lastActionName[65]{};
     std::atomic<uint32_t> providerLookups{0};
-    char lastTarget[64]{};
+    char lastTarget[513]{};
     FakeSystemData systemData;
 };
 
@@ -1130,8 +1178,8 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     uint32_t count = 0;
     LOGICON_CHECK(SUCCEEDED(enumerate(&metadata, &count)) && metadata && count >= 1, "metadata enumerates");
     LOGICON_CHECK(RedXeAsciiEqualsIgnoreCase(metadata[0].id, Logicon::kPluginId) &&
-                      metadata[0].capabilities == RedXePluginCapabilityService,
-                  "builtin.logicon is a service plugin");
+                      metadata[0].capabilities == (RedXePluginCapabilityService | RedXePluginCapabilityActions),
+                  "builtin.logicon is a service plugin that publishes actions");
     LOGICON_CHECK(count == 2 && RedXeAsciiEqualsIgnoreCase(metadata[1].id, Logicon::kMonitorPluginId) &&
                       metadata[1].capabilities == RedXePluginCapabilityWidgetProvider,
                   "the monitor tile is catalogued in every build");
@@ -1184,8 +1232,8 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     constexpr char envelope[] =
         R"json({"plugin":{},"instance":{"brightness":60,"restoreLogoOnExit":true,"pageButtons":"keyPages","keys":[)json"
         R"json({"page":0,"slot":0,"action":"page.next","label":"Next","icon":"ChevronRight"},)json"
-        R"json({"page":0,"slot":1,"action":"launch","target":"https://example.org","label":"Web"},)json"
-        R"json({"page":0,"slot":2,"action":"keyPage.next","label":"More"},)json"
+        R"json({"page":0,"slot":1,"action":"system.launch","target":"https://example.org","label":"Web"},)json"
+        R"json({"page":0,"slot":2,"action":"logicon.keyPage.next","label":"More"},)json"
         R"json({"page":1,"slot":0,"action":"widget.toggle","target":"0","label":"Toggle"},)json"
         R"json({"page":0,"slot":8,"face":"pageIndicator"}]}})json";
     RedXeFactoryOptions options{};
@@ -1289,13 +1337,11 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     LOGICON_CHECK(SUCCEEDED(inject(0, 0, TRUE)) && SUCCEEDED(inject(0, 0, FALSE)), "inject key 1 press");
     LOGICON_CHECK(
         WaitUntil([&]() noexcept { return host.actions.load(std::memory_order_relaxed) > actionsBefore; }, 2000) &&
-            host.lastAction.load(std::memory_order_relaxed) == RedXeHostActionPageNext,
+            host.LastActionIs("page.next"),
         "key 1 requested page.next");
     LOGICON_CHECK(SUCCEEDED(inject(0, 1, TRUE)) && SUCCEEDED(inject(0, 1, FALSE)), "inject key 2 press");
-    LOGICON_CHECK(WaitUntil([&]() noexcept
-                            { return host.lastAction.load(std::memory_order_relaxed) == RedXeHostActionLaunch; },
-                            2000) &&
-                      std::strcmp(host.lastTarget, "https://example.org") == 0,
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return host.LastActionIs("system.launch"); }, 2000) &&
+                      host.LastTargetIs("https://example.org"),
                   "key 2 requested launch with its target");
     LOGICON_CHECK(SUCCEEDED(inject(0, 2, TRUE)) && SUCCEEDED(inject(0, 2, FALSE)), "inject key 3 press");
     LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.keyPage == 1; }, 2000),
@@ -1338,7 +1384,7 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
                   "raw reports queued");
     LOGICON_CHECK(
         WaitUntil([&]() noexcept { return host.actions.load(std::memory_order_relaxed) > actionsBeforeRaw; }, 2000) &&
-            host.lastAction.load(std::memory_order_relaxed) == RedXeHostActionPageNext,
+            host.LastActionIs("page.next"),
         "raw key 1 report requested page.next");
 
     // Face overrides and brightness from the monitor/test surface.
@@ -1377,7 +1423,7 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
                   "no provider lookup before a system face is bound");
     constexpr char systemApply[] =
         R"json({"keys":[{"slot":0,"face":"cpu"},{"slot":1,"face":"memory"},{"slot":2,"face":"gpu"}],
-      "dialpad":{"dial":"page","roller":"volume","buttons":[{"button":1,"action":"page.next"}]}})json";
+      "dialpad":{"turns":[{"control":"dial","direction":"cw","action":"page.next"}],"buttons":[{"button":1,"action":"page.next"}]}})json";
     LOGICON_CHECK(SUCCEEDED(service->ApplySettings(systemApply, static_cast<uint32_t>(sizeof(systemApply) - 1))),
                   "system faces apply");
     LOGICON_CHECK(host.providerLookups.load(std::memory_order_relaxed) == 1 &&
@@ -1405,7 +1451,7 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     LOGICON_CHECK(SUCCEEDED(inject(2, 1, TRUE)) && SUCCEEDED(inject(2, 1, FALSE)), "inject dialpad Forward");
     LOGICON_CHECK(
         WaitUntil([&]() noexcept { return host.actions.load(std::memory_order_relaxed) > actionsBeforeDial; }, 2000) &&
-            host.lastAction.load(std::memory_order_relaxed) == RedXeHostActionPageNext,
+            host.LastActionIs("page.next"),
         "dialpad Forward requested page.next");
     LOGICON_CHECK(SUCCEEDED(service->ApplySettings(applied, static_cast<uint32_t>(sizeof(applied) - 1))),
                   "settings without system faces apply");

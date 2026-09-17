@@ -85,7 +85,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>d3d11.lib;dxgi.lib;dwrite.lib;ole32.lib;shell32.lib;uuid.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;dwrite.lib;ole32.lib;shell32.lib;uuid.lib;powrprof.lib;advapi32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -102,7 +102,7 @@
       <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>d3d11.lib;dxgi.lib;dwrite.lib;ole32.lib;shell32.lib;uuid.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;dwrite.lib;ole32.lib;shell32.lib;uuid.lib;powrprof.lib;advapi32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -144,6 +144,11 @@
     <ClCompile Include="Settings.cpp" />
     <ClCompile Include="..\Plugins\AVControl\AVControlModel.cpp" />
     <ClCompile Include="..\Plugins\Logicon\LogiconSettings.cpp" />
+    <ClCompile Include="..\Plugins\Actions\Zoom\ZoomSettings.cpp" />
+    <ClCompile Include="..\Common\Actions\ActionTargets.cpp" />
+    <ClCompile Include="..\Common\Actions\WindowSelector.cpp" />
+    <ClCompile Include="HostActionCatalog.cpp" />
+    <ClCompile Include="HostActions.cpp" />
     <ClCompile Include="SettingsV4.cpp" />
     <ClCompile Include="SettingsWatcher.cpp" />
     <ClCompile Include="..\Common\WindowCapture.cpp" />
@@ -243,6 +248,11 @@
     </ProjectReference>
     <ProjectReference Include="..\Plugins\Logicon\Logicon.vcxproj">
       <Project>{7D2B9C41-3E58-4A0F-9B6C-1F4E8A2D5C73}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\Plugins\Actions\Zoom\Zoom.vcxproj">
+      <Project>{A3F6C2D8-7B14-4E9A-9C5D-2E8F4B7A1D63}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>

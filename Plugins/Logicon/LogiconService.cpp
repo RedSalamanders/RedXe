@@ -1,5 +1,7 @@
 #include "LogiconService.h"
 
+#include "Actions/ActionTargets.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -148,10 +150,43 @@ HRESULT LogiconService::ParseConfiguration(const char* jsonUtf8, uint32_t bytes)
             result);
         return result;
     }
+    ValidateBindings(parsed);
     const auto guard = wil::AcquireSRWLockExclusive(&_lock);
     _settings = parsed;
     ++_settingsGeneration;
     return S_OK;
+}
+
+void LogiconService::ValidateBindings(Settings& settings) noexcept
+{
+    // UI thread. The host resolves every name (default namespaces and registered publishers, mapping a publisher
+    // on first use) and checks the target against its descriptor; the lane only reads the result.
+    const auto validate = [this](KeyBinding& binding) noexcept
+    {
+        if (!binding.HasAction())
+        {
+            binding.valid = true;
+            return;
+        }
+        RedXeActionRequest request{};
+        request.sizeBytes = sizeof(request);
+        request.actionUtf8 = binding.action.data();
+        request.targetUtf8 = binding.targetBytes != 0 ? binding.target.data() : nullptr;
+        request.sourcePluginId = kPluginId;
+        binding.valid = _host && SUCCEEDED(_host->ValidateAction(&request, nullptr));
+    };
+    for (uint32_t index = 0; index < settings.keyCount; ++index)
+    {
+        validate(settings.keys[index]);
+    }
+    for (uint32_t index = 0; index < settings.dialpad.buttonCount; ++index)
+    {
+        validate(settings.dialpad.buttons[index]);
+    }
+    for (uint32_t index = 0; index < settings.dialpad.turnCount; ++index)
+    {
+        validate(settings.dialpad.turns[index]);
+    }
 }
 
 HRESULT LogiconService::Start(const RedXeServiceStartContext* context) noexcept
@@ -243,6 +278,7 @@ HRESULT LogiconService::ApplySettings(const char* settingsJsonUtf8, uint32_t set
         Log(RedXeLogLevelWarning, "settings-rejected", diagnostic.data(), result);
         return result;
     }
+    ValidateBindings(parsed);
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
         _settings = parsed;
@@ -427,59 +463,25 @@ HRESULT LogiconService::InjectSyntheticReport(const uint8_t* report, uint32_t by
     return _synthetic.InjectReport(report, bytes);
 }
 
-void LogiconService::RequestAction(uint32_t action, int32_t argument, const char* target) noexcept
+void LogiconService::RequestNamed(const char* action, const char* target) noexcept
 {
-    RedXeHostActionRequest request{};
+    RedXeActionRequest request{};
     request.sizeBytes = sizeof(request);
-    request.action = action;
-    request.argument = argument;
+    request.actionUtf8 = action;
     request.targetUtf8 = target && target[0] != '\0' ? target : nullptr;
-    const HRESULT result = _host ? _host->RequestHostAction(&request) : E_POINTER;
+    request.sourcePluginId = kPluginId;
+    const HRESULT result = _host ? _host->RequestAction(&request) : E_POINTER;
     const auto guard = wil::AcquireSRWLockExclusive(&_lock);
     if (SUCCEEDED(result))
     {
         ++_actionsRequested;
-        _lastAction = action;
+        strncpy_s(_lastAction.data(), _lastAction.size(), action, _TRUNCATE);
     }
 }
 
-void LogiconService::SendMediaKey(MediaKey key) noexcept
+void LogiconService::RequestAction(const KeyBinding& binding) noexcept
 {
-    if (!_deviceAccess.load(std::memory_order_acquire))
-    {
-        return;
-    }
-    WORD virtualKey = 0;
-    switch (key)
-    {
-    case MediaKey::VolumeUp:
-        virtualKey = VK_VOLUME_UP;
-        break;
-    case MediaKey::VolumeDown:
-        virtualKey = VK_VOLUME_DOWN;
-        break;
-    case MediaKey::Mute:
-        virtualKey = VK_VOLUME_MUTE;
-        break;
-    case MediaKey::PlayPause:
-        virtualKey = VK_MEDIA_PLAY_PAUSE;
-        break;
-    case MediaKey::NextTrack:
-        virtualKey = VK_MEDIA_NEXT_TRACK;
-        break;
-    case MediaKey::PreviousTrack:
-        virtualKey = VK_MEDIA_PREV_TRACK;
-        break;
-    default:
-        return;
-    }
-    INPUT inputs[2]{};
-    inputs[0].type = INPUT_KEYBOARD;
-    inputs[0].ki.wVk = virtualKey;
-    inputs[1].type = INPUT_KEYBOARD;
-    inputs[1].ki.wVk = virtualKey;
-    inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
-    (void)SendInput(2, inputs, sizeof(INPUT));
+    RequestNamed(binding.action.data(), binding.target.data());
 }
 
 void LogiconService::ChangeKeyPage(int direction) noexcept
@@ -495,6 +497,50 @@ void LogiconService::ChangeKeyPage(int direction) noexcept
     _keyPage = next;
 }
 
+void LogiconService::ExecuteLocal(std::string_view verb, std::string_view target) noexcept
+{
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+        ++_localExecuted;
+    }
+    if (verb == "keyPage.next")
+    {
+        ChangeKeyPage(1);
+    }
+    else if (verb == "keyPage.previous")
+    {
+        ChangeKeyPage(-1);
+    }
+    else if (verb == "keyPage.goto")
+    {
+        int32_t page = 0;
+        if (RedXeActions::ParseInteger(target, 0, static_cast<int32_t>(kMaximumKeyPages) - 1, page))
+        {
+            const uint32_t next = std::min(static_cast<uint32_t>(page), _laneSettings.KeyPageCount() - 1U);
+            if (next != _laneKeyPage)
+            {
+                _laneKeyPage = next;
+                const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+                _keyPage = next;
+            }
+        }
+    }
+    else if (verb == "brightness")
+    {
+        RedXeActions::Delta delta{};
+        if (RedXeActions::ParseDelta(target, static_cast<int32_t>(kMinimumBrightness),
+                                     static_cast<int32_t>(kMaximumBrightness), delta))
+        {
+            const uint32_t current = _brightnessOverride != 0 ? _brightnessOverride : _laneSettings.brightness;
+            const int next =
+                delta.relative ? std::clamp(static_cast<int>(current) + delta.value,
+                                            static_cast<int>(kMinimumBrightness), static_cast<int>(kMaximumBrightness))
+                               : delta.value;
+            _brightnessOverride = static_cast<uint32_t>(next);
+        }
+    }
+}
+
 void LogiconService::DispatchSlot(uint32_t slot) noexcept
 {
     DispatchBinding(_laneSettings.Find(_laneKeyPage, slot));
@@ -508,58 +554,24 @@ void LogiconService::DispatchDialButton(uint32_t button) noexcept
 
 void LogiconService::DispatchBinding(const KeyBinding* binding) noexcept
 {
-    if (!binding || !TargetIsValid(*binding))
+    if (!binding || !binding->HasAction() || !binding->valid)
     {
         return;
     }
-    switch (binding->action)
+    if (binding->IsLocal())
     {
-    case KeyAction::PageNext:
-        RequestAction(RedXeHostActionPageNext, 0, nullptr);
-        break;
-    case KeyAction::PagePrevious:
-        RequestAction(RedXeHostActionPagePrevious, 0, nullptr);
-        break;
-    case KeyAction::PageGoTo:
-        RequestAction(RedXeHostActionPageGoTo, -1, binding->target.data());
-        break;
-    case KeyAction::WidgetRaise:
-        RequestAction(RedXeHostActionWidgetRaise, -1, binding->target.data());
-        break;
-    case KeyAction::WidgetDismiss:
-        RequestAction(RedXeHostActionWidgetDismiss, 0, nullptr);
-        break;
-    case KeyAction::WidgetToggle:
-        RequestAction(RedXeHostActionWidgetToggle, -1, binding->target.data());
-        break;
-    case KeyAction::Launch:
-        RequestAction(RedXeHostActionLaunch, 0, binding->target.data());
-        break;
-    case KeyAction::Keys:
-    {
-        MediaKey key = MediaKey::None;
-        if (MediaKeyFromName(binding->Target(), key))
-        {
-            SendMediaKey(key);
-        }
-        break;
+        // Our own namespace needs no host round trip: the lane is already the executor.
+        ExecuteLocal(binding->Action().substr(sizeof(kActionNamespace)), binding->Target());
+        return;
     }
-    case KeyAction::KeyPageNext:
-        ChangeKeyPage(1);
-        break;
-    case KeyAction::KeyPagePrevious:
-        ChangeKeyPage(-1);
-        break;
-    default:
-        break;
-    }
+    RequestAction(*binding);
 }
 
 void LogiconService::DispatchPageButton(uint32_t button) noexcept
 {
     if (_laneSettings.pageButtons == PageButtons::DashboardPages)
     {
-        RequestAction(button == 0 ? RedXeHostActionPagePrevious : RedXeHostActionPageNext, 0, nullptr);
+        RequestNamed(button == 0 ? "page.previous" : "page.next", nullptr);
         return;
     }
     ChangeKeyPage(button == 0 ? -1 : 1);
@@ -591,7 +603,7 @@ void LogiconService::DispatchEdges(const ControlEdges& edges) noexcept
     }
 }
 
-void LogiconService::DispatchWheel(DialAction action, int32_t& accumulator, int32_t deltaRaw) noexcept
+void LogiconService::DispatchWheel(uint8_t control, int32_t& accumulator, int32_t deltaRaw) noexcept
 {
     accumulator += deltaRaw;
     // One step per detent in either direction; the remainder carries over to the next packet.
@@ -601,29 +613,37 @@ void LogiconService::DispatchWheel(DialAction action, int32_t& accumulator, int3
         const int direction = accumulator > 0 ? 1 : -1;
         accumulator -= direction * static_cast<int32_t>(kWheelDetentUnits);
         ++_wheelSteps;
-        switch (action)
+        DispatchBinding(_laneSettings.dialpad.Turn(control, direction > 0 ? kDirectionForward : kDirectionBackward));
+    }
+}
+
+HRESULT LogiconService::Execute(const RedXeActionRequest* request) noexcept
+{
+    if (!request)
+    {
+        return E_POINTER;
+    }
+    if (request->sizeBytes != sizeof(RedXeActionRequest) || !request->actionUtf8 ||
+        !RedXeActionInNamespace(request->actionUtf8, kActionNamespace))
+    {
+        return E_INVALIDARG;
+    }
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+        if (_pendingLocalCount >= _pendingLocal.size())
         {
-        case DialAction::Volume:
-            SendMediaKey(direction > 0 ? MediaKey::VolumeUp : MediaKey::VolumeDown);
-            break;
-        case DialAction::Page:
-            RequestAction(direction > 0 ? RedXeHostActionPageNext : RedXeHostActionPagePrevious, 0, nullptr);
-            break;
-        case DialAction::KeyPage:
-            ChangeKeyPage(direction);
-            break;
-        case DialAction::Brightness:
-        {
-            const uint32_t current = _brightnessOverride != 0 ? _brightnessOverride : _laneSettings.brightness;
-            const int next = std::clamp(static_cast<int>(current) + direction * static_cast<int>(kWheelBrightnessStep),
-                                        static_cast<int>(kMinimumBrightness), static_cast<int>(kMaximumBrightness));
-            _brightnessOverride = static_cast<uint32_t>(next);
-            break;
+            return HRESULT_FROM_WIN32(ERROR_BUSY);
         }
-        default:
-            break;
+        LocalRequest& pending = _pendingLocal[_pendingLocalCount++];
+        pending = LocalRequest{};
+        strncpy_s(pending.action.data(), pending.action.size(), request->actionUtf8, _TRUNCATE);
+        if (request->targetUtf8)
+        {
+            strncpy_s(pending.target.data(), pending.target.size(), request->targetUtf8, _TRUNCATE);
         }
     }
+    WakeLane();
+    return S_FALSE;
 }
 
 bool LogiconService::ClockFaceVisible() const noexcept
@@ -844,15 +864,14 @@ uint64_t LogiconService::SlotSignature(uint32_t slot, const KeyBinding* binding,
     {
         return hash;
     }
-    HashValue(hash, binding->action);
+    Hash(hash, binding->action.data(), binding->actionBytes);
     HashValue(hash, binding->face);
     HashValue(hash, binding->hasColor);
     HashValue(hash, binding->colorRgb);
     Hash(hash, binding->target.data(), binding->targetBytes);
     Hash(hash, binding->label.data(), binding->labelBytes);
     Hash(hash, binding->icon.data(), binding->iconBytes);
-    const bool valid = TargetIsValid(*binding);
-    HashValue(hash, valid);
+    HashValue(hash, binding->valid);
     if (binding->face == KeyFace::Clock)
     {
         HashValue(hash, minuteOfDay);
@@ -875,8 +894,8 @@ uint64_t LogiconService::SlotSignature(uint32_t slot, const KeyBinding* binding,
     {
         HashValue(hash, _laneSystem.gpuPercent);
     }
-    if (binding->action == KeyAction::WidgetRaise || binding->action == KeyAction::WidgetToggle ||
-        binding->action == KeyAction::PageGoTo)
+    const std::string_view actionName = binding->Action();
+    if (actionName == "widget.raise" || actionName == "widget.toggle" || actionName == "page.goto")
     {
         HashValue(hash, host.flags & RedXeHostStateRaised);
         HashValue(hash, host.raisedWidgetOrdinal);
@@ -919,7 +938,7 @@ HRESULT LogiconService::ComposeSlot(uint32_t slot, const KeyBinding* binding, co
         {
             spec.backgroundRgb = binding->colorRgb;
         }
-        spec.invalid = !TargetIsValid(*binding);
+        spec.invalid = binding->HasAction() && !binding->valid;
         spec.labelLength = Utf8ToWide(binding->Label(), label.data(), static_cast<uint32_t>(label.size()));
         spec.label = label.data();
         const std::string_view icon = binding->Icon();
@@ -992,7 +1011,8 @@ HRESULT LogiconService::ComposeSlot(uint32_t slot, const KeyBinding* binding, co
         }
         if (!spec.invalid)
         {
-            if (binding->action == KeyAction::WidgetRaise || binding->action == KeyAction::WidgetToggle)
+            const std::string_view actionName = binding->Action();
+            if (actionName == "widget.raise" || actionName == "widget.toggle")
             {
                 std::string_view pageId;
                 uint32_t ordinal = 0;
@@ -1003,8 +1023,7 @@ HRESULT LogiconService::ComposeSlot(uint32_t slot, const KeyBinding* binding, co
                     spec.accentRing = true;
                 }
             }
-            else if (binding->action == KeyAction::PageGoTo &&
-                     binding->Target() == std::string_view(host.pageId.data()))
+            else if (actionName == "page.goto" && binding->Target() == std::string_view(host.pageId.data()))
             {
                 spec.accentRing = true;
             }
@@ -1206,6 +1225,7 @@ void LogiconService::FillSnapshot() noexcept
     snapshot.faceGeneration = _faceGeneration;
     snapshot.facesWritten = _facesWritten;
     snapshot.actionsRequested = _actionsRequested;
+    snapshot.localExecuted = _localExecuted;
     snapshot.lastAction = _lastAction;
     snapshot.connectAttempts = _connectAttempts;
     snapshot.lastFailure = _lastConnectFailure;
@@ -1217,9 +1237,9 @@ void LogiconService::FillSnapshot() noexcept
     {
         const KeyBinding* binding = _laneSettings.Find(_laneKeyPage, slot);
         snapshot.bound[slot] = binding != nullptr;
-        snapshot.actions[slot] = binding ? binding->action : KeyAction::None;
+        snapshot.actions[slot] = binding ? binding->action : ActionName{};
         snapshot.faces[slot] = binding ? binding->face : KeyFace::None;
-        snapshot.invalid[slot] = binding && !TargetIsValid(*binding);
+        snapshot.invalid[slot] = binding && binding->HasAction() && !binding->valid;
     }
     snapshot.traceCount = _session.CopyTrace(snapshot.trace.data(), static_cast<uint32_t>(snapshot.trace.size()));
     DialpadSnapshot& dialpad = snapshot.dialpad;
@@ -1235,8 +1255,14 @@ void LogiconService::FillSnapshot() noexcept
     dialpad.features = _dialpad.Features();
     dialpad.counters = _dialpad.Counters();
     dialpad.wheels = _wheels.State();
-    dialpad.dialAction = _laneSettings.dialpad.dial;
-    dialpad.rollerAction = _laneSettings.dialpad.roller;
+    for (uint8_t control = 0; control < 2; ++control)
+    {
+        for (uint8_t direction = 0; direction < 2; ++direction)
+        {
+            const KeyBinding* turn = _laneSettings.dialpad.Turn(control, direction);
+            dialpad.turns[control * 2U + direction] = turn ? turn->action : ActionName{};
+        }
+    }
     dialpad.traceCount = _dialpad.CopyTrace(dialpad.trace.data(), static_cast<uint32_t>(dialpad.trace.size()));
     snapshot.systemFeed = _systemFeedActive;
     snapshot.system = _systemValues;
@@ -1347,6 +1373,8 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
         std::array<InjectedControl, kMaximumInjectedControls> injected{};
         uint32_t injectedCount = 0;
         uint32_t brightnessRequest = 0;
+        std::array<LocalRequest, kMaximumLocalRequests> pendingLocal{};
+        uint32_t pendingLocalCount = 0;
         {
             const auto guard = wil::AcquireSRWLockExclusive(&_lock);
             if (_laneSettingsGeneration != _settingsGeneration)
@@ -1388,6 +1416,9 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
             _injectedCount = 0;
             brightnessRequest = _brightnessRequest;
             _brightnessRequest = 0;
+            pendingLocal = _pendingLocal;
+            pendingLocalCount = _pendingLocalCount;
+            _pendingLocalCount = 0;
         }
 
         if (hotplug.TakeChange())
@@ -1442,6 +1473,14 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
         if (brightnessRequest != 0)
         {
             _brightnessOverride = brightnessRequest;
+        }
+        for (uint32_t index = 0; index < pendingLocalCount; ++index)
+        {
+            // Requests for our namespace from other owners (a Launcher shortcut bound to logicon.keyPage.goto).
+            const uint32_t previousPage = _laneKeyPage;
+            const std::string_view name{pendingLocal[index].action.data()};
+            ExecuteLocal(name.substr(sizeof(kActionNamespace)), std::string_view{pendingLocal[index].target.data()});
+            laneFacesDirty = laneFacesDirty || previousPage != _laneKeyPage;
         }
         const uint32_t brightness = _brightnessOverride != 0 ? _brightnessOverride : _laneSettings.brightness;
         if (_session.Connected() && brightness != _appliedBrightness)
@@ -1531,8 +1570,8 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
             {
                 const WheelDeltas deltas = _wheels.TakeDeltas();
                 const uint32_t previousPage = _laneKeyPage;
-                DispatchWheel(_laneSettings.dialpad.dial, _dialAccumulator, deltas.dial);
-                DispatchWheel(_laneSettings.dialpad.roller, _rollerAccumulator, deltas.roller);
+                DispatchWheel(kControlDial, _dialAccumulator, deltas.dial);
+                DispatchWheel(kControlRoller, _rollerAccumulator, deltas.roller);
                 laneFacesDirty = laneFacesDirty || previousPage != _laneKeyPage;
             }
         }

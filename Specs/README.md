@@ -1,7 +1,7 @@
 # RedXe specification authority and workflow
 
 Status: current normative repository policy
-Last reviewed: 2026-09-06
+Last reviewed: 2026-09-17
 
 ## Purpose
 
@@ -80,8 +80,9 @@ durable.
 | Native plugins and generic widgets | [`Plugins/Plugins_API.md`](Plugins/Plugins_API.md) |
 | AV controls, profiles and camera route | [`Plugins/Plugins_AVControl.md`](Plugins/Plugins_AVControl.md) |
 | Logicon keypad and dialpad service, key faces, and Debug monitor | [`Plugins/Plugins_Logicon.md`](Plugins/Plugins_Logicon.md) |
+| Action bindings, default and published namespaces, the publication ABI, and the host action runtime | [`Plugins/Plugins_Actions.md`](Plugins/Plugins_Actions.md) |
+| Zoom service, sign-in, and the `zoom` namespace | [`Plugins/Plugins_Zoom.md`](Plugins/Plugins_Zoom.md) |
 | DxUi pin, restore, and host/plugin adapters | [`Core/Core_DxUiIntegration.md`](Core/Core_DxUiIntegration.md) |
-| End-user guide | [`../docs/README.md`](../docs/README.md) |
 | End-user guide | [`../docs/README.md`](../docs/README.md) |
 
 The canonical user JSON schema is [`Settings.schema.json`](Settings.schema.json). The build copies it beside deployed

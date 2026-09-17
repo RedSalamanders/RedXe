@@ -41,7 +41,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>d3d11.lib;dxgi.lib;dwrite.lib;psapi.lib;shell32.lib;ole32.lib;uuid.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;dwrite.lib;psapi.lib;shell32.lib;ole32.lib;uuid.lib;powrprof.lib;advapi32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
@@ -57,7 +57,7 @@
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>d3d11.lib;dxgi.lib;dwrite.lib;psapi.lib;shell32.lib;ole32.lib;uuid.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;dwrite.lib;psapi.lib;shell32.lib;ole32.lib;uuid.lib;powrprof.lib;advapi32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -91,6 +91,11 @@
     <ClCompile Include="..\..\RedXe\Settings.cpp" />
     <ClCompile Include="..\..\Plugins\AVControl\AVControlModel.cpp" />
     <ClCompile Include="..\..\Plugins\Logicon\LogiconSettings.cpp" />
+    <ClCompile Include="..\..\Plugins\Actions\Zoom\ZoomSettings.cpp" />
+    <ClCompile Include="..\..\Common\Actions\ActionTargets.cpp" />
+    <ClCompile Include="..\..\Common\Actions\WindowSelector.cpp" />
+    <ClCompile Include="..\..\RedXe\HostActionCatalog.cpp" />
+    <ClCompile Include="..\..\RedXe\HostActions.cpp" />
     <ClCompile Include="..\..\RedXe\SettingsV4.cpp" />
     <ClCompile Include="..\..\Common\WindowCapture.cpp" />
   </ItemGroup>

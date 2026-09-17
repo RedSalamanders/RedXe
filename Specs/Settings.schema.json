@@ -197,10 +197,10 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["target"],
             "properties": {
-              "target": { "type": "string", "minLength": 1, "maxLength": 512 },
-              "iconPng": { "type": "string", "maxLength": 260 }
+              "action": { "$ref": "#/$defs/actionName", "description": "Omitted means system.launch. Any other action requires icon." },
+              "target": { "$ref": "#/$defs/actionTarget", "description": "Required for system.launch; its grammar depends on the action." },
+              "icon": { "$ref": "#/$defs/bindingIcon" }
             }
           }
         }
@@ -217,6 +217,18 @@
       }
     },
     "weight": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 1 },
+    "actionName": {
+      "type": "string",
+      "pattern": "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*){1,3}$",
+      "maxLength": 64,
+      "description": "<namespace>.<verb>: page.*, widget.*, redxe.*, system.*, keys.*, mouse.* (host), logicon.* and zoom.* (published). See docs/actions.md."
+    },
+    "actionTarget": { "type": "string", "maxLength": 512 },
+    "bindingIcon": {
+      "type": "string",
+      "maxLength": 260,
+      "description": "A Segoe Fluent Icons glyph name such as Home, or png:<absolute path>."
+    },
     "logiconKey": {
       "type": "object",
       "additionalProperties": false,
@@ -224,35 +236,53 @@
       "properties": {
         "page": { "type": "integer", "minimum": 0, "maximum": 3, "default": 0 },
         "slot": { "type": "integer", "minimum": 0, "maximum": 8 },
-        "action": {
-          "enum": ["none", "page.next", "page.previous", "page.goto", "widget.raise", "widget.dismiss", "widget.toggle", "launch", "keys", "keyPage.next", "keyPage.previous"],
-          "default": "none"
-        },
-        "target": { "type": "string", "maxLength": 512 },
+        "action": { "$ref": "#/$defs/actionName" },
+        "target": { "$ref": "#/$defs/actionTarget" },
         "label": { "type": "string", "maxLength": 16 },
-        "icon": { "type": "string", "maxLength": 260 },
+        "icon": { "$ref": "#/$defs/bindingIcon" },
         "color": { "$ref": "#/$defs/color" },
         "face": { "enum": ["none", "clock", "pageIndicator", "cpu", "memory", "gpu"], "default": "none" }
       }
     },
-    "logiconDialAction": { "enum": ["none", "volume", "page", "keyPage", "brightness"], "default": "none" },
     "logiconDialButton": {
       "type": "object",
       "additionalProperties": false,
       "required": ["button"],
       "properties": {
         "button": { "type": "integer", "minimum": 0, "maximum": 3 },
-        "action": { "$ref": "#/$defs/logiconKey/properties/action" },
-        "target": { "type": "string", "maxLength": 512 }
+        "action": { "$ref": "#/$defs/actionName" },
+        "target": { "$ref": "#/$defs/actionTarget" }
+      }
+    },
+    "logiconTurn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["control", "direction"],
+      "properties": {
+        "control": { "enum": ["dial", "roller"] },
+        "direction": { "enum": ["cw", "ccw", "up", "down"], "description": "cw/ccw for the dial, up/down for the roller." },
+        "action": { "$ref": "#/$defs/actionName" },
+        "target": { "$ref": "#/$defs/actionTarget" }
       }
     },
     "logiconDialpad": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "dial": { "$ref": "#/$defs/logiconDialAction" },
-        "roller": { "$ref": "#/$defs/logiconDialAction" },
+        "turns": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/logiconTurn" } },
         "buttons": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/logiconDialButton" } }
+      }
+    },
+    "zoomSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientId"],
+      "properties": {
+        "clientId": { "type": "string", "minLength": 1, "maxLength": 128, "description": "The Zoom Marketplace General app's client id (Plugin SDK enabled). Never a secret." },
+        "redirectPort": { "type": "integer", "minimum": 1024, "maximum": 65535, "default": 48123, "description": "Loopback port of the OAuth redirect URL http://127.0.0.1:<port>/redirect registered in the Marketplace app." },
+        "domain": { "type": "string", "minLength": 1, "maxLength": 128, "default": "zoom.us" },
+        "displayName": { "type": "string", "maxLength": 128, "default": "" },
+        "autoConnect": { "type": "boolean", "default": false, "description": "true connects to the Zoom client at start when a credential exists; false connects at the first zoom.* action." }
       }
     },
     "logiconSettings": {
@@ -279,6 +309,19 @@
             "pageButtons": { "$ref": "#/$defs/logiconSettings/properties/pageButtons" },
             "keys": { "$ref": "#/$defs/logiconSettings/properties/keys" },
             "dialpad": { "$ref": "#/$defs/logiconSettings/properties/dialpad" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plugin", "clientId"],
+          "properties": {
+            "plugin": { "const": "builtin.zoom" },
+            "clientId": { "$ref": "#/$defs/zoomSettings/properties/clientId" },
+            "redirectPort": { "$ref": "#/$defs/zoomSettings/properties/redirectPort" },
+            "domain": { "$ref": "#/$defs/zoomSettings/properties/domain" },
+            "displayName": { "$ref": "#/$defs/zoomSettings/properties/displayName" },
+            "autoConnect": { "$ref": "#/$defs/zoomSettings/properties/autoConnect" }
           }
         }
       ]

@@ -8,5 +8,6 @@ This folder is the **user guide**. Product requirements live in `Specs/`; those 
 | --- | --- |
 | [Global usage](usage.md) | Window, pages, navigation, raise, settings file, prompts |
 | [Widgets](plugins/README.md) | One page per bundled widget: screenshot path and parameters |
+| [Actions](actions.md) | Everything a Logicon key, dialpad turn, or Launcher tile can do: `page.*`, `widget.*`, `redxe.*`, `system.*`, `keys.*`, `mouse.*`, `logicon.*`, `zoom.*` |
 
 Edit the JSON settings file while RedXe is running; a valid save applies immediately. See [Global usage](usage.md#settings-file).

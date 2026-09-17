@@ -133,17 +133,21 @@ Each appearance creates an independent runtime widget instance.
 
 `services` is optional and has at most 8 members. A member name follows the declaration-name rules. Every value is a
 flattened plugin object naming a catalogued **service** plugin (`RedXe/BundledPlugins.h` `kRedXeBundledServices`,
-today `builtin.logicon`) plus that plugin's settings keys on the same object; `use`, nested `settings`, and the
+today `builtin.logicon` and `builtin.zoom`) plus that plugin's settings keys on the same object; `use`, nested `settings`, and the
 reserved widget keys are rejected. A widget plugin ID, an unknown plugin ID, or the same service plugin configured
 twice rejects the complete candidate. The host merges the plugin's published defaults under the authored keys, then
-validates the effective object with the plugin's shared model (for Logicon, `Plugins/Logicon/LogiconSettings.cpp`,
-compiled into the host); a model rejection is a document error on the authored path. The effective compact object is
+validates the effective object with the plugin's shared model (`Plugins/Logicon/LogiconSettings.cpp` and
+`Plugins/Actions/Zoom/ZoomSettings.cpp`, compiled into the host); a model rejection is a document error on the
+authored path. Every `action` member the model accepts (Logicon keys, dialpad buttons and turns) is additionally
+checked against the action-name grammar, the default and registered namespaces, and the default verbs
+(`RedXe/HostActionCatalog.cpp` `IsKnownActionName`); an unsatisfied target is not a document error
+(`Specs/Plugins/Plugins_Actions.md`). The effective compact object is
 stored per service and reaches the plugin as the `instance` member of the ordinary factory envelope.
 
 Services are not widgets: they are never placed, never counted as referenced widget plugins, own no instance ID, and
 persist nothing. A service settings change on a live reload re-applies only that service; adding or removing a member
-starts or stops it without rebuilding the dashboard. `Specs/Plugins/Plugins_API.md` owns the service lifetime and
-`Specs/Plugins/Plugins_Logicon.md` owns the Logicon members.
+starts or stops it without rebuilding the dashboard. `Specs/Plugins/Plugins_API.md` owns the service lifetime, `Specs/Plugins/Plugins_Logicon.md` the Logicon members,
+and `Specs/Plugins/Plugins_Zoom.md` the Zoom members.
 
 Every authored settings object, effective settings object, plugin schema, and plugin defaults object MUST have a
 compact representation no larger than 4096 bytes.
@@ -185,12 +189,14 @@ Matrix Rain settings are the closed object `seed`, `glyphHeightDips`, `densityPe
 host-resolved dashboard background. `backgroundColor` is not a Matrix Rain member.
 
 Launcher settings are the closed object `shortcuts` plus optional `iconSize`. `shortcuts` is an array of 0 through 32
-closed items. Each item has required `target` (UTF-8 string, 1 through 512 bytes) and optional `iconPng` (UTF-8 string,
-0 through 260 bytes). `target` is an absolute Win32 path or a URI with an alphabetic scheme of at least two characters
-followed by `:`. `iconSize` is `"small"`, `"medium"`, `"large"`, `"huge"`, or `"automatic"`; omitted values merge to `"huge"`. Defaults are
-`{"shortcuts":[],"iconSize":"huge"}`. Unknown members, non-arrays, extra item members, empty or relative targets,
-schemeless host names, overlong strings, duplicate targets, unknown `iconSize` values, and more than 32 items reject
-the complete candidate. An empty authored list is
+closed binding items (`Specs/Plugins/Plugins_Actions.md`): optional `action` (an action name; omitted means
+`system.launch`), `target` (UTF-8 string, at most 512 bytes; required and non-empty for `system.launch`), and
+optional `icon` (a Segoe Fluent Icons glyph name or `png:<absolute path>`, at most 260 bytes; required for any other
+action). `iconSize` is `"small"`, `"medium"`, `"large"`, `"huge"`, or `"automatic"`; omitted values merge to `"huge"`.
+Defaults are `{"shortcuts":[],"iconSize":"huge"}`. Unknown members, non-arrays, extra item members (including the
+former `iconPng`), an unknown `action`, an empty launch target, a non-launch item without `icon`, overlong strings,
+duplicate shortcuts, unknown `iconSize` values, and more than 32 items reject the complete candidate. A launch target
+that is not an absolute Win32 path or a URI is accepted; the widget draws it as a warning tile. An empty authored list is
 valid: on first population, the widget imports up to 32 taskbar pins that fit the 4096-byte settings cap, shows
 them and queues them for persistence as editable shortcuts. Each placement saves its own flattened keys; shared
 declarations remain unchanged. Once populated, configured shortcuts are authoritative and are not reimported from
@@ -314,16 +320,18 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   Network Meter and GPU Processes `topN` values outside 1 through 16, and malformed Studio
   Clock booleans including `externalDotsAlwaysOn`, colors, date formats, and unknown members. They also reject Desk
   Clock duration and color failures and verify its complete merged defaults and valid partial overrides. They also
-  reject Launcher shortcut failures (schemeless host names, unknown members, duplicate targets, unknown `iconSize`)
-  and verify empty-list defaults plus a valid persist merge of a `shortcuts` array. Settings tests prove a live
+  reject Launcher shortcut failures (unknown members, `iconPng`, an unknown `action`, a non-launch item without
+  `icon`, duplicate shortcuts, unknown `iconSize`), accept a schemeless launch target, and verify empty-list
+  defaults plus a valid persist merge of a `shortcuts` array. Settings tests prove a live
   `TryLoadChanged` of a valid or invalid file does not mutate those bytes, and that persist writes remain opt-in.
   Persist of an instance on a `widgets` / `columns` / `rows` page MUST leave sibling human syntax intact and MUST NOT
   rewrite the page to `layout`.
 - Tests cover merge rules, plugin replacement, minor compatibility, and compatible unknown-field preservation.
 - Tests accept a `services` member with defaults merged and the plugin model applied, prove it adds no referenced
   widget plugin, and reject a widget plugin as a service, an unknown service plugin, a duplicated service plugin,
-  plugin-model failures (`slot` 9, `brightness` 0, unknown members), a non-object `services`, a string member, and
-  `use`. Both shipped templates MUST carry minor 1 and configure every catalogued service.
+  plugin-model failures (`slot` 9, `brightness` 0, unknown members), an unknown or malformed `action` name, a
+  non-object `services`, a string member, and `use`. Both shipped templates MUST carry minor 1 and configure every
+  catalogued service.
 - Tests prove a partial widget persist merge keeps unspecified members and rejects unknown plugin members.
 - Tests prove compact/idempotent formatting, inline small objects and long single-path records, multiline sections
   and arrays, fewer lines than fully expanded output, escaped/Unicode paths, named/inline/use-object widget round

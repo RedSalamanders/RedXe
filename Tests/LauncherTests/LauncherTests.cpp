@@ -87,9 +87,22 @@ class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
     {
         return E_ACCESSDENIED;
     }
-    HRESULT STDMETHODCALLTYPE RequestHostAction(const RedXeHostActionRequest*) noexcept override
+    HRESULT STDMETHODCALLTYPE RequestAction(const RedXeActionRequest*) noexcept override
     {
         return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE ExecuteAction(const RedXeActionRequest*) noexcept override
+    {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE ValidateAction(const RedXeActionRequest*,
+                                             const RedXeActionDescriptor** descriptor) noexcept override
+    {
+        if (descriptor)
+        {
+            *descriptor = nullptr;
+        }
+        return S_OK;
     }
 
   public:
@@ -494,9 +507,11 @@ struct RenderTarget final
     {
         return kTestFailure;
     }
+    // An unsatisfied launch target is a warning tile, not a rejection, and unknown names are the host's call
+    // (SettingsTests); a non-launch action without an icon and the former iconPng member are structural rejections.
     if (FAILED(ExpectReject(create, R"json({"shortcuts":[{"target":""}]})json")) ||
-        FAILED(ExpectReject(create, R"json({"shortcuts":[{"target":"example.com"}]})json")) ||
-        FAILED(ExpectReject(create, R"json({"shortcuts":[{"target":"Docs\\file.txt"}]})json")) ||
+        FAILED(ExpectReject(create, R"json({"shortcuts":[{"action":"page.next"}]})json")) ||
+        FAILED(ExpectReject(create, R"json({"shortcuts":[{"target":"C:\\x.exe","iconPng":"C:\\i.png"}]})json")) ||
         FAILED(ExpectReject(create, R"json({"extra":1,"shortcuts":[]})json")) ||
         FAILED(ExpectReject(create, R"json({"shortcuts":[{"target":"C:\\Windows\\notepad.exe","nope":1}]})json")) ||
         FAILED(ExpectReject(create, MakeShortcutListJson(kLauncherMaximumShortcuts + 1))) ||
@@ -827,7 +842,7 @@ struct RenderTarget final
     {
         return E_FAIL;
     }
-    std::string escaped = R"json({"shortcuts":[{"target":"C:\\Windows\\System32\\notepad.exe","iconPng":")json";
+    std::string escaped = R"json({"shortcuts":[{"target":"C:\\Windows\\System32\\notepad.exe","icon":"png:)json";
     for (const char* cursor = pngUtf8; *cursor != '\0'; ++cursor)
     {
         if (*cursor == '\\' || *cursor == '"')

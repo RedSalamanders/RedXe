@@ -70,6 +70,7 @@
     <ClCompile Include="..\..\Plugins\Logicon\LogiconSettings.cpp" />
     <ClCompile Include="..\..\Plugins\Logicon\LogiconSynthetic.cpp" />
     <ClCompile Include="..\..\Plugins\Logicon\LogiconSystemData.cpp" />
+    <ClCompile Include="..\..\Common\Actions\ActionTargets.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Plugins\Logicon\LogiconTestContract.h" />

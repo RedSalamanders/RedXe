@@ -40,7 +40,7 @@ enum RedXeHostStateFlags : uint32_t
     RedXeHostStateRaised = 1U << 0U,
     // The dashboard window is visible and its display is powered on.
     RedXeHostStateVisible = 1U << 1U,
-    // A page swipe or raise settle is in progress; host actions are dropped until it completes.
+    // A page swipe or raise settle is in progress; page and widget actions are dropped until it completes.
     RedXeHostStateBusy = 1U << 2U,
 };
 
@@ -66,8 +66,9 @@ static_assert(offsetof(RedXeHostState, pageName) == 24);
 static_assert(offsetof(RedXeHostState, widgetCount) == 32);
 
 // Headless plugin service. Every call runs synchronously on the RedXe UI thread and is non-reentrant. A service
-// MUST NOT call back into the host from inside these calls except IRedXeHost::RequestHostAction, RequestFrame, and
-// Log. Start and Stop are idempotent. A failed Start leaves the object created so a later ApplySettings can retry.
+// MUST NOT call back into the host from inside these calls except IRedXeHost::RequestAction, RequestFrame, Log, and
+// ValidateAction (from Start and ApplySettings only). Start and Stop are idempotent. A failed Start leaves the object
+// created so a later ApplySettings can retry.
 //
 // The host calls Start after the first successful settings apply and before the first dashboard page is staged,
 // ApplySettings whenever a live reload changes this service's effective settings object, OnHostState whenever the
@@ -90,7 +91,7 @@ interface __declspec(uuid("9D7C1E52-4B8A-4F6E-A1C3-7E2F5B9D0A64")) __declspec(no
 //
 // Inside the call the service owns device discovery, handles, overlapped I/O, and hotplug registration. It MUST
 // block only in a wait on stopEvent, wakeEvent, and its own I/O events; it MUST NOT poll, sleep-loop, touch
-// Direct3D, wait on the UI thread, create a thread, or re-enter the host except through RequestHostAction,
+// Direct3D, wait on the UI thread, create a thread, or re-enter the host except through RequestAction,
 // RequestFrame, and Log. When stopEvent is signaled it MUST cancel outstanding I/O (CancelIoEx) and return within
 // kRedXeDeviceWorkerDrainMilliseconds; the host logs an overrun once and continues shutdown. Both events are host
 // owned: the service MAY signal wakeEvent from any thread while the call is running (for example after

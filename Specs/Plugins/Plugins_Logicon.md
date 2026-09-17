@@ -4,8 +4,9 @@ Status: current normative product contract
 Last reviewed: 2026-09-17
 Owner: `Plugins/Logicon`, `Tests/LogiconTests`, the `services` root of `../Core/Core_Settings.md`
 
-The service ABI, device lane, host action queue, and developer-only widget class are owned by
-[`Plugins_API.md`](Plugins_API.md). Resource bounds remain owned by
+The service ABI, device lane, and developer-only widget class are owned by [`Plugins_API.md`](Plugins_API.md); the
+binding shape, the action catalog, publication, and the host action ring by
+[`Plugins_Actions.md`](Plugins_Actions.md). Resource bounds remain owned by
 [`../Core/Core_PerformanceAndResources.md`](../Core/Core_PerformanceAndResources.md); settings storage and merging
 by [`../Core/Core_Settings.md`](../Core/Core_Settings.md).
 
@@ -13,9 +14,10 @@ by [`../Core/Core_Settings.md`](../Core/Core_Settings.md).
 
 `builtin.logicon` is a headless service that drives the Logitech MX Creative Console **keypad** (USB, VID `0x046D`,
 PID `0xC354`): it paints the nine LCD key faces, sets panel brightness, reads the nine keys and the two page buttons,
-and turns presses into host actions or media keys. It also drives the MX Creative **Dialpad** (Bluetooth LE, PID
-`0xBC00`): its bound buttons through HID++ diversion and its dial and roller through Raw Input, each turned into a
-host action, a media key, a key-page change, or a brightness change per detent. Release builds run it without any
+and turns presses into named actions ([`Plugins_Actions.md`](Plugins_Actions.md)). It also drives the MX Creative
+**Dialpad** (Bluetooth LE, PID `0xBC00`): its bound buttons through HID++ diversion and its dial and roller through
+Raw Input, each turned into one action per detent. The service publishes the `logicon` action namespace (key pages
+and brightness) and executes it on its own lane. Release builds run it without any
 tile. Debug builds also ship `builtin.logicon-monitor`, the developer tile that shows and drives the same service.
 
 ## Settings (service object)
@@ -24,22 +26,30 @@ tile. Debug builds also ship `builtin.logicon-monitor`, the developer tile that 
 | --- | --- | --- |
 | `brightness` | `70` | Integer 1–100 sent through HID++ `0x8040` at connect and whenever it changes. 0 is never sent (it resets the device). |
 | `restoreLogoOnExit` | `true` | On stop or removal the service restores the page buttons' original reporting flags; when true it also sends the feature-report reset so the panel shows the Logi splash. |
-| `pageButtons` | `keyPages` | `keyPages`: the physical `<`/`>` buttons cycle Logicon key pages. `dashboardPages`: they request `PagePrevious`/`PageNext` host actions. |
+| `pageButtons` | `keyPages` | `keyPages`: the physical `<`/`>` buttons cycle Logicon key pages. `dashboardPages`: they request `page.previous`/`page.next`. |
 | `keys` | `[]` | Flat array of at most 36 bindings. |
-| `dialpad` | `{"dial":"none","roller":"none","buttons":[]}` | Closed object: `dial` and `roller` take `none`, `volume`, `page`, `keyPage`, or `brightness`; `buttons` is an array of at most four closed objects with a required `button` 0–3 (Back, Forward, Button 6, Button 7) plus the key `action`/`target` members only (no face, label, icon, or color). Two entries for one button reject the document. |
+| `dialpad` | `{"turns":[],"buttons":[]}` | Closed object. `turns` is an array of at most four closed objects with required `control` (`dial` or `roller`) and `direction` (`cw` / `ccw` for the dial, `up` / `down` for the roller; a mismatch rejects the document) plus the binding core `action`/`target`; two entries for one `(control, direction)` reject the document, and a direction without an entry does nothing. `buttons` is an array of at most four closed objects with a required `button` 0–3 (Back, Forward, Button 6, Button 7) plus `action`/`target` only (no face, label, icon, or color). Two entries for one button reject the document. |
 
 Each binding is a closed object: `page` 0–3 (default 0), required `slot` 0–8 (reading order, top-left first),
 `action`, `target` (≤ 512 bytes), `label` (≤ 16 code points, one ellipsized line), `icon` (≤ 260 bytes), `color`
 (`#RRGGBB` background), and `face`. Two bindings for the same `(page, slot)` reject the document. The key-page count is
 the highest bound `page` plus one; runtime key-page selection is never persisted.
 
-Actions: `none`, `page.next`, `page.previous`, `page.goto` (target = page id), `widget.raise` and `widget.toggle`
-(target = `"<pageId>/<ordinal>"` or `"<ordinal>"` on the current page), `widget.dismiss`, `launch` (target = an
-absolute Win32 path, a UNC path, or a URI with an alphabetic scheme of at least two characters), `keys` (target =
-one of `volume-up`, `volume-down`, `mute`, `play-pause`, `next-track`, `previous-track`, injected with `SendInput`),
-`keyPage.next`, and `keyPage.previous`. Structural errors reject the document; a target that does not satisfy its
-action is accepted, drawn as a red `!` face, and never dispatched. Media keys are never injected while device access
-is disabled (`--self-test`, host tests).
+`action` is `none` or any action name (`Plugins_Actions.md`): a default namespace (`page.*`, `widget.*`, `redxe.*`,
+`system.*`, `keys.*`, `mouse.*`) or a registered published one (`logicon.*`, `zoom.*`); `target` is that action's
+argument (at most 512 bytes). The document parser rejects a name outside the grammar, an unregistered namespace, or an
+unknown default verb; the service validates every binding through `IRedXeHost::ValidateAction` at create, `Start`, and
+`ApplySettings` and keeps the result, so a target that does not satisfy its action, an unknown published verb, or an
+unavailable publisher is accepted, drawn as a red `!` face, and never dispatched. Valid bindings are dispatched from
+the lane through `IRedXeHost::RequestAction`, except the service's own namespace, which runs on the lane without a
+host round trip. The service injects no input itself: `keys.media` and every other injecting action are host-native
+and are counted, not performed, while device access is disabled (`--self-test`, host tests).
+
+Published namespace `logicon` (`RedXeGetActionContract` for `builtin.logicon`, sibling `IRedXeActionPack` on the
+service object, every action `Deferred`): `logicon.keyPage.next` and `logicon.keyPage.previous` (no target),
+`logicon.keyPage.goto` (integer 0–3), and `logicon.brightness` (delta 1–100: `n`, `+n`, or `-n`, applied within 1–100
+until the next settings apply). `Execute` copies the request into one of four pending slots, wakes the lane, and
+returns `S_FALSE`; a full set returns `ERROR_BUSY`.
 
 Faces: `none` draws the `icon` (a Segoe Fluent Icons glyph name such as `ChevronRight`, `Home`, `Play`, `Mute`, or
 `png:<absolute path>` decoded through WIC and fitted to 72 px) above the `label`; an unknown glyph name draws the
@@ -52,10 +62,9 @@ the first row) from `builtin.system-data`. Bindings whose target names the curre
 whose target is the current page, draw an accent ring. A blank slot shows the dashboard background. Icons and labels
 are near-white on the binding `color` or the dashboard background.
 
-Dialpad: one detent of the dial or the roller (120 raw units; a remainder carries to the next packet) runs its
-action once per detent in the turn's direction — `volume` sends `volume-up`/`volume-down`, `page` requests
-`PageNext`/`PagePrevious`, `keyPage` moves one key page, `brightness` changes the keypad brightness by 5 within
-1–100 until the next settings apply. A bound button runs its binding exactly like a key on press; an entry with no
+Dialpad: one detent of the dial or the roller (120 raw units; a remainder carries to the next packet) runs the
+`turns` binding of that control and direction once per detent, exactly like a key press. A bound button runs its
+binding exactly like a key on press; an entry with no
 `action` only silences the button. Only bound buttons are diverted; an unbound button keeps its native mouse or
 keyboard meaning. The dial and the roller are not diverted: the desktop still receives them as wheels.
 
@@ -140,8 +149,9 @@ receiver child with a HID++ device index other than `0xFF`) is not driven.
   released. The sink runs on the acquisition worker, reduces the snapshot to three rounded integers under its own
   lock, and wakes the lane only when one changed; the lane recomposes only the faces whose value changed. A missing
   provider or data set logs `system-data-unavailable` once and the faces show `--`.
-- Key presses call `IRedXeHost::RequestHostAction` from the lane; the host executes on the UI thread. A press during
-  a swipe or raise settle is dropped by the host, not queued.
+- Key presses, button presses, and detents call `IRedXeHost::RequestAction` from the lane; the host executes on the
+  UI thread. A `page.*` or `widget.*` request during a swipe or raise settle is refused by the host, not queued;
+  `logicon.*` requests are executed on the lane itself.
 - Diagnostics (`IRedXeHost::Log`, never per report): `lane-started`, `lane-stopped`, `device-connected` (feature
   indexes and collection count), `device-disconnected`, `connect-failed` (once per distinct failure until success),
   `dialpad-connected` (its `0x1B04` index, collection count, whether the wheels are read), `dialpad-disconnected`,
@@ -153,7 +163,7 @@ receiver child with a HID++ device index other than `0xFF`) is not driven.
 `builtin.logicon-monitor` (`Plugins/Logicon/LogiconMonitor.cpp`) is a Direct3D, prepared, interactive tile with a
 closed empty settings object. It shows the nine key faces exactly as composed for the keypad (the 434×434 surface as
 one texture), a highlight around every held key, red and blue outlines for invalid and overridden slots, the slot
-number and action of every key, both page buttons with their held state, the connection (`usb`, `synthetic`,
+number and action name of every key, both page buttons with their held state, the connection (`usb`, `synthetic`,
 `disconnected`), device access, feature indexes, port count, key page, brightness, faces written, in/out report
 counts, image count, HID++ errors, the last host state, the last action, the Options+ warning or last failure, a
 dialpad section (connection and `0x1B04` index or the last failure, the dial and the roller as detents with their
@@ -177,18 +187,21 @@ cleared by a new settings object. Release builds keep the tile catalogued but re
   and `setBrightness(70)` against the reference writes; error, ack, key, and page-button parsing; key geometry;
   `VlpPacketCount` for 0, 1, 4075, 4076, and 20000 bytes; the first-packet header and every continuation of a
   20000-byte stream; defer and out-of-panel rejection; the settings model's defaults, authored values, key pages,
-  target validity, and rejections including 37 keys; the face renderer's compose, ellipsis, accent ring, invalid
+  action names (`none` clearing, grammar), `dialpad.turns` (control/direction pairing, duplicates), and rejections
+  including 37 keys and the former `launch`/`keys`/`dial`/`roller` names; the face renderer's compose, ellipsis, accent ring, invalid
   face, JPEG markers, WIC round trips at 118×118 and 434×434, and strided sub-rectangle encoding; the device session
   over the synthetic keypad (feature resolution, diversion, brightness, image reassembly, press edges across one
   drain, restore, splash reset); the dialpad (the captured button event and its mask, raw-input name matching in
   both spellings, wheel and button folding, listener start/stop, and the session over the synthetic dialpad:
   `0x1B04` at `0x0A`, four diversions, button edges apart from page buttons, restore); and the shipped DLL's
   metadata, contract, monitor provider (constructs in Debug, refuses in Release), service creation and rejection,
-  identity, lane start and drain, host state, synthetic connect, faces, actions from injected and raw presses, key
-  pages, a dialpad button binding, System Data faces through a fake provider (lookup only once a face is bound,
+  identity, lane start and drain, host state, synthetic connect, faces, actions from injected and raw presses reaching the fake host's `RequestAction`,
+  bindings validated through the fake host's `ValidateAction`, key pages and brightness through the published
+  `logicon.*` actions executed locally, a dialpad button binding and dial/roller `turns` bindings, System Data faces through a fake provider (lookup only once a face is bound,
   three one-second subscriptions, a pushed value reaching the face, pause without faces, release on stop),
   overrides, brightness, settings apply, and release.
-- `HostPluginTests`: the action ring and the service lifetime (`Plugins_API.md` item 20). `SettingsTests`: the
+- `HostPluginTests`: the action ring, the `logicon` contract, and the service lifetime (`Plugins_API.md` items 20
+  and 21). `SettingsTests`: the
   `services` grammar and both templates. `--self-test` starts the service with device access disabled and renders the
   Debug `logicon` page under WARP.
 - Hardware validation (a receipt under `.build/receipts/`, never `docs/`): plug and unplug while running, sleep and

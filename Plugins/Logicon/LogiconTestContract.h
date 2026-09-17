@@ -31,7 +31,8 @@ struct RedXeLogiconTestDiagnostics final
     uint32_t faceGeneration;
     uint32_t facesWritten;
     uint32_t actionsRequested;
-    uint32_t lastAction;
+    // Requests for the published "logicon" namespace executed on the lane (IRedXeActionPack).
+    uint32_t localExecuted;
     uint32_t syntheticImages;
     uint32_t syntheticCommands;
     uint32_t syntheticBrightness;
@@ -57,9 +58,11 @@ struct RedXeLogiconTestDiagnostics final
     int32_t cpuPercent;
     int32_t memoryPercent;
     int32_t gpuPercent;
+    // The last action name the service asked the host to perform (empty until one was requested).
+    char lastAction[65];
 };
 
-static_assert(sizeof(RedXeLogiconTestDiagnostics) == 152);
+static_assert(sizeof(RedXeLogiconTestDiagnostics) == 220);
 
 extern "C"
 {

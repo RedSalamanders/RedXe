@@ -414,33 +414,12 @@ void AppendChip(ViewerGpuResources& gpu, ViewerDrawList& list, const Metrics& me
                          characters);
 }
 
-const wchar_t* ActionLabel(KeyAction action) noexcept
+// The verb part of an action name (after the namespace), or an empty label for an unbound slot. Names are ASCII.
+[[nodiscard]] const char* ActionLabel(const ActionName& action) noexcept
 {
-    switch (action)
-    {
-    case KeyAction::PageNext:
-        return L"page>";
-    case KeyAction::PagePrevious:
-        return L"<page";
-    case KeyAction::PageGoTo:
-        return L"goto";
-    case KeyAction::WidgetRaise:
-        return L"raise";
-    case KeyAction::WidgetDismiss:
-        return L"dismiss";
-    case KeyAction::WidgetToggle:
-        return L"toggle";
-    case KeyAction::Launch:
-        return L"launch";
-    case KeyAction::Keys:
-        return L"keys";
-    case KeyAction::KeyPageNext:
-        return L"kp>";
-    case KeyAction::KeyPagePrevious:
-        return L"<kp";
-    default:
-        return L"";
-    }
+    const char* name = action.data();
+    const char* dot = std::strchr(name, '.');
+    return dot ? dot + 1 : name;
 }
 
 class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, IRedXeGpuWidget, IRedXePreparedGpuWidget,
@@ -778,7 +757,7 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             {
                 (void)_list.AddStroke(key.x, key.y, key.width, key.height, 0.3f, 0.7f, 1.0f, 0.9f, 4.0f, 2.0f);
             }
-            (void)swprintf_s(text.data(), text.size(), L"%u %s", slot + 1U, ActionLabel(snapshot.actions[slot]));
+            (void)swprintf_s(text.data(), text.size(), L"%u %S", slot + 1U, ActionLabel(snapshot.actions[slot]));
             const uint32_t characters = static_cast<uint32_t>(wcsnlen_s(text.data(), text.size()));
             (void)gpu.EnsureGlyphs(text.data(), characters);
             const float labelWidth = gpu.MeasureText(text.data(), characters, metrics.keyLabel);
@@ -815,10 +794,10 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
                          snapshot.counters.reportsIn, snapshot.counters.reportsOut, snapshot.counters.commandErrors,
                          snapshot.counters.lastHidppError);
         AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), kTextPrimary, kTextPrimary, kTextPrimary);
-        (void)swprintf_s(text.data(), text.size(), L"host %u/%u %s%s · actions %u (last %u)",
+        (void)swprintf_s(text.data(), text.size(), L"host %u/%u %s%s · actions %u (last %S)",
                          snapshot.host.pageIndex + 1U, snapshot.host.pageCount, snapshot.host.pageName.data(),
                          (snapshot.host.flags & RedXeHostStateRaised) != 0 ? L" [raised]" : L"",
-                         snapshot.actionsRequested, snapshot.lastAction);
+                         snapshot.actionsRequested, snapshot.lastAction.data());
         AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), kTextPrimary, kTextPrimary, kTextPrimary);
         if (snapshot.competingWriter)
         {
@@ -884,13 +863,13 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         if (dialpad.wheelsListening)
         {
             // Detents = raw / kWheelDetentUnits; the raw sum and the action bound to each wheel stay visible.
-            (void)swprintf_s(text.data(), text.size(), L"dial %+d (raw %+d, %u ev) -> %S · steps %u",
+            (void)swprintf_s(text.data(), text.size(), L"dial %+d (raw %+d, %u ev) -> %S / %S · steps %u",
                              wheels.dialRaw / static_cast<int32_t>(kWheelDetentUnits), wheels.dialRaw,
-                             wheels.dialEvents, DialActionName(dialpad.dialAction), dialpad.wheelSteps);
+                             wheels.dialEvents, dialpad.turns[0].data(), dialpad.turns[1].data(), dialpad.wheelSteps);
             AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), kTextPrimary, kTextPrimary, kTextPrimary);
-            (void)swprintf_s(text.data(), text.size(), L"roller %+d (raw %+d, %u ev) -> %S",
+            (void)swprintf_s(text.data(), text.size(), L"roller %+d (raw %+d, %u ev) -> %S / %S",
                              wheels.rollerRaw / static_cast<int32_t>(kWheelDetentUnits), wheels.rollerRaw,
-                             wheels.rollerEvents, DialActionName(dialpad.rollerAction));
+                             wheels.rollerEvents, dialpad.turns[2].data(), dialpad.turns[3].data());
             AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), kTextPrimary, kTextPrimary, kTextPrimary);
         }
         else

@@ -101,25 +101,34 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 ```text
 Common/PlugInterfaces/
   Factory.*        Current factory ABI, shared factory implementation, and the RedXeComObject mixin
-  Host.h           Host-service COM root: data providers, frame requests, widget status, settings persist, JSONL log, and host actions
+  Host.h           Host-service COM root: data providers, frame requests, widget status, settings persist, JSONL log, and named actions (request, execute, validate)
   Widget.h         Complete generic, GPU, scheduled, child-window, raised-overlay, interactive, and network widget ABI
   Data.h           Complete source, provider, snapshot, sink, and subscription ABI
   Service.h        Headless service ABI: start/apply/host-state/stop and the host-owned device lane worker
+  Action.h         Action publication ABI: descriptors, namespaces, RedXeGetActionContract, IRedXeActionPack, name grammar
+Common/Actions/
+  ActionTargets.*  Shared target grammars (paths, chords, points, monitors, windows, meetings) compiled into the host and every publisher
+  WindowSelector.* Top-level window selection and foregrounding
+  FluentGlyphNames.h, GlyphIcon.*  Segoe Fluent Icons name table and DirectWrite glyph rasterization shared by Logicon faces and Launcher tiles
 Plugins/
   RotatingTriangle/ First bundled widget-provider DLL
   GdiOrbit/         Double-buffered GDI window-widget DLL
   MatrixRain/       Production low-resource Direct3D digital-rain DLL
   ProcessViewer/    System Data GPU viewers sharing one Direct3D DLL
-  Launcher/         GPU shortcut launcher with jumbo icons, taskbar-pin fallback, and shell launch
+  Launcher/         GPU shortcut launcher with jumbo icons, glyph tiles, taskbar-pin fallback, and action bindings
   Weather/          GPU weather widget with host-owned network lane
   AVControl/        DxUi retained controls, isolated audio/camera helper, profiles and virtual-camera source
-  Logicon/          Headless MX Creative Console keypad and dialpad service (HID++ and Raw Input over the device lane, key faces) plus the Debug monitor tile and the Probe tool
+  Logicon/          Headless MX Creative Console keypad and dialpad service (HID++ and Raw Input over the device lane, key faces, the `logicon` action namespace) plus the Debug monitor tile and the Probe tool
+  Actions/Zoom/     zoom.action.dll: headless Zoom service (OAuth PKCE, Plugin SDK session on the device lane) publishing the `zoom` action namespace; the first dedicated action DLL
 RedXe/
   Main.cpp          Process setup and command-line modes
   Application.*     Win32 window and message-loop lifetime
   CrashHandler.*    Fatal-process front door, local minidumps/call stacks, and prior-crash notice
   PluginHost.*      Process plugin runtime: module store, data providers, workers, JSONL log, and settings persist
   PluginManager.*   Widget providers and instance lifetime
+  HostActionCatalog.* Hardcoded default action namespaces (page, widget, redxe, system, keys, mouse) and name checks
+  HostActions.*     Win32 execution of the system, keys, and mouse namespaces; counters for automated hosts
+  BundledPlugins.h  Compile-time module, widget, service, and action-namespace catalogs
   DashboardHost.*   Widget placement, frame-scheduling policy, and collect-on-exit
   Renderer.*        Direct3D 11 host resources, widget callbacks, placeholder tiles, and frames
   Settings.*        Typed yyjson persistence, paths, recovery, stamps, and persist merge
@@ -134,6 +143,9 @@ Tests/
   WeatherTests/        Weather HTTP heap-body and small-stack overflow regression
   AVControlTests/      Synthetic AV/IPC/MF faults, native controls, camera packaging and bounded control work
   LogiconTests/        HID++ framing, image stream, settings model, faces, synthetic keypad and dialpad sessions, raw-input helpers, and the shipped service DLL
+  ZoomTests/           Zoom settings model, PKCE material, loopback listener, and the shipped service DLL over the synthetic session
+ThirdParty/
+  ZoomPluginSdk/    Developer import of the Zoom Plugin SDK for Windows (never committed): import script and README
 Settings/
   RedXe-debug.settings.json  Shipped Debug default
   RedXe.settings.json        Shipped Release default

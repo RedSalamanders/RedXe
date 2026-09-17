@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Action.h"
 #include "Host.h"
 
 #include <cstddef>
@@ -18,6 +19,9 @@ enum RedXePluginCapabilities : uint32_t
     RedXePluginCapabilityDataSource = 1U << 1U,
     // The plugin creates an IRedXeService (Service.h): a headless object the host starts without a placed widget.
     RedXePluginCapabilityService = 1U << 2U,
+    // The plugin publishes action namespaces (Action.h): RedXeGetActionContract answers for its id and the host
+    // executes them through IRedXeActionPack (created through RedXeCreate, or queried on its service object).
+    RedXePluginCapabilityActions = 1U << 3U,
 };
 
 // Current factory input; sizeBytes must equal sizeof(RedXeFactoryOptions).

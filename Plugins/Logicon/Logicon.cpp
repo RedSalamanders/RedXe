@@ -10,6 +10,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <iterator>
 #include <new>
 
 #pragma warning(push)
@@ -39,7 +41,7 @@ constexpr std::array kMetadata{
         L"Drives the Logitech MX Creative Console: keypad faces and keys, the dialpad, and dashboard actions.",
         L"RedXe",
         L"1.0.0",
-        RedXePluginCapabilityService,
+        RedXePluginCapabilityService | RedXePluginCapabilityActions,
     },
     RedXePluginMetadata{
         sizeof(RedXePluginMetadata),
@@ -57,9 +59,30 @@ constexpr std::array kSettingsContracts{
     RedXeSettingsContractEntry{Logicon::kMonitorPluginId, &kMonitorContract},
 };
 
+// The published "logicon" namespace: key pages and keypad brightness, executed on the service lane.
+constexpr std::array kLogiconActions{
+    RedXeActionDescriptor{sizeof(RedXeActionDescriptor), RedXeActionFlagDeferred, "logicon.keyPage.next",
+                          L"Next key page", L"", RedXeActionTargetNone, 0, 0, nullptr},
+    RedXeActionDescriptor{sizeof(RedXeActionDescriptor), RedXeActionFlagDeferred, "logicon.keyPage.previous",
+                          L"Previous key page", L"", RedXeActionTargetNone, 0, 0, nullptr},
+    RedXeActionDescriptor{sizeof(RedXeActionDescriptor), RedXeActionFlagDeferred, "logicon.keyPage.goto",
+                          L"Go to key page", L"0 through 3", RedXeActionTargetInteger, 0, 3, nullptr},
+    RedXeActionDescriptor{sizeof(RedXeActionDescriptor), RedXeActionFlagDeferred, "logicon.brightness",
+                          L"Keypad brightness", L"1 through 100, +n, or -n", RedXeActionTargetDelta, 1, 100, nullptr},
+};
+
+constexpr std::array kLogiconNamespaces{
+    RedXeActionNamespace{sizeof(RedXeActionNamespace), static_cast<uint32_t>(kLogiconActions.size()),
+                         Logicon::kActionNamespace, kLogiconActions.data()},
+};
+
+constexpr RedXeActionContract kLogiconActionContract{
+    sizeof(RedXeActionContract), static_cast<uint32_t>(kLogiconNamespaces.size()), kLogiconNamespaces.data()};
+
 HRESULT CreateLogiconService(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
                              void** result) noexcept
 {
+    // The service object also carries IRedXeActionPack, but the host obtains that on the started object.
     if (interfaceId != __uuidof(IRedXeService))
     {
         return E_NOINTERFACE;
@@ -120,6 +143,21 @@ extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId
         kSettingsContracts.data(), static_cast<uint32_t>(kSettingsContracts.size()), pluginId, contract);
 }
 
+extern "C" HRESULT __stdcall RedXeGetActionContract(const char* pluginId, const RedXeActionContract** contract) noexcept
+{
+    if (!contract)
+    {
+        return E_POINTER;
+    }
+    *contract = nullptr;
+    if (!RedXeAsciiEqualsIgnoreCase(pluginId, Logicon::kPluginId))
+    {
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
+    *contract = &kLogiconActionContract;
+    return S_OK;
+}
+
 extern "C" HRESULT __stdcall RedXeLogiconGetTestDiagnostics(RedXeLogiconTestDiagnostics* diagnostics) noexcept
 {
     if (!diagnostics)
@@ -156,7 +194,8 @@ extern "C" HRESULT __stdcall RedXeLogiconGetTestDiagnostics(RedXeLogiconTestDiag
     out.faceGeneration = snapshot.faceGeneration;
     out.facesWritten = snapshot.facesWritten;
     out.actionsRequested = snapshot.actionsRequested;
-    out.lastAction = snapshot.lastAction;
+    out.localExecuted = snapshot.localExecuted;
+    strncpy_s(out.lastAction, std::size(out.lastAction), snapshot.lastAction.data(), _TRUNCATE);
     out.hostPageIndex = snapshot.host.pageIndex;
     out.hostPageCount = snapshot.host.pageCount;
     out.hostFlags = snapshot.host.flags;

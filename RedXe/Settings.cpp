@@ -1,8 +1,10 @@
 #include "Settings.h"
 
 #include "../Plugins/AVControl/AVControlModel.h"
+#include "../Plugins/Launcher/LauncherBindings.h"
 #include "../Plugins/Launcher/LauncherPaging.h"
 #include "BundledPlugins.h"
+#include "HostActionCatalog.h"
 #include "PlugInterfaces/Factory.h"
 
 #include <array>
@@ -497,58 +499,6 @@ template <size_t Count>
     return document && IsValidDeskClockPrivate(yyjson_doc_get_root(document.get()));
 }
 
-[[nodiscard]] int ClassifyLauncherTarget(std::string_view target) noexcept
-{
-    if (target.empty() || target.size() > 512)
-    {
-        return 0;
-    }
-    if (target.size() >= 3 && ((target[0] >= 'A' && target[0] <= 'Z') || (target[0] >= 'a' && target[0] <= 'z')) &&
-        target[1] == ':' && (target[2] == '\\' || target[2] == '/'))
-    {
-        return 1;
-    }
-    if (target.size() >= 2 && target[0] == '\\' && target[1] == '\\')
-    {
-        return 1;
-    }
-    if (target.size() < 3 || !std::isalpha(static_cast<unsigned char>(target[0])))
-    {
-        return 0;
-    }
-    size_t index = 1;
-    while (index < target.size())
-    {
-        const unsigned char value = static_cast<unsigned char>(target[index]);
-        if (!(std::isalnum(value) || value == '+' || value == '.' || value == '-'))
-        {
-            break;
-        }
-        ++index;
-    }
-    return (index >= 2 && index < target.size() && target[index] == ':') ? 2 : 0;
-}
-
-[[nodiscard]] bool LauncherTargetsEqual(std::string_view left, std::string_view right, int kind) noexcept
-{
-    if (kind == 2)
-    {
-        return left == right;
-    }
-    std::array<wchar_t, 513> leftWide{};
-    std::array<wchar_t, 513> rightWide{};
-    const int leftCount = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, left.data(), static_cast<int>(left.size()),
-                                              leftWide.data(), static_cast<int>(leftWide.size() - 1));
-    const int rightCount =
-        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, right.data(), static_cast<int>(right.size()),
-                            rightWide.data(), static_cast<int>(rightWide.size() - 1));
-    if (leftCount <= 0 || rightCount <= 0)
-    {
-        return left == right;
-    }
-    return CompareStringOrdinal(leftWide.data(), leftCount, rightWide.data(), rightCount, TRUE) == CSTR_EQUAL;
-}
-
 [[nodiscard]] bool IsValidLauncherIconSize(yyjson_val* iconSize) noexcept
 {
     if (!iconSize)
@@ -588,57 +538,24 @@ template <size_t Count>
         return false;
     }
     const size_t count = yyjson_arr_size(shortcuts);
-    std::array<std::string_view, kLauncherMaximumShortcuts> seen{};
-    std::array<int, kLauncherMaximumShortcuts> kinds{};
+    std::array<Launcher::ShortcutItem, kLauncherMaximumShortcuts> seen{};
     for (size_t index = 0; index < count; ++index)
     {
-        yyjson_val* item = yyjson_arr_get(shortcuts, index);
-        if (!yyjson_is_obj(item))
+        Launcher::ShortcutItem parsed{};
+        const char* error = nullptr;
+        if (!Launcher::ParseShortcutItem(yyjson_arr_get(shortcuts, index), &HostActionCatalog::IsKnownActionName,
+                                         parsed, &error))
         {
             return false;
-        }
-        yyjson_obj_iter iterator = yyjson_obj_iter_with(item);
-        while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
-        {
-            const char* text = yyjson_get_str(key);
-            if (!text || (std::strcmp(text, "target") != 0 && std::strcmp(text, "iconPng") != 0))
-            {
-                return false;
-            }
-        }
-        yyjson_val* targetValue = yyjson_obj_get(item, "target");
-        if (!yyjson_is_str(targetValue) || yyjson_get_len(targetValue) == 0 || yyjson_get_len(targetValue) > 512)
-        {
-            return false;
-        }
-        const std::string_view target(yyjson_get_str(targetValue), yyjson_get_len(targetValue));
-        const int kind = ClassifyLauncherTarget(target);
-        if (kind == 0)
-        {
-            return false;
-        }
-        yyjson_val* iconValue = yyjson_obj_get(item, "iconPng");
-        if (iconValue)
-        {
-            if (!yyjson_is_str(iconValue) || yyjson_get_len(iconValue) > 260)
-            {
-                return false;
-            }
-            const std::string_view icon(yyjson_get_str(iconValue), yyjson_get_len(iconValue));
-            if (!icon.empty() && ClassifyLauncherTarget(icon) != 1)
-            {
-                return false;
-            }
         }
         for (size_t previous = 0; previous < index; ++previous)
         {
-            if (kinds[previous] == kind && LauncherTargetsEqual(seen[previous], target, kind))
+            if (Launcher::ShortcutsEqual(seen[previous].action, seen[previous].target, parsed.action, parsed.target))
             {
                 return false;
             }
         }
-        seen[index] = target;
-        kinds[index] = kind;
+        seen[index] = parsed;
     }
     return true;
 }
@@ -2216,6 +2133,12 @@ void SettingsStore::MarkApplied(const SettingsFileStamp& stamp) noexcept
 void SettingsStore::MarkRejected(const SettingsFileStamp& stamp) noexcept
 {
     _lastRejectedStamp = stamp;
+}
+
+void SettingsStore::ForgetStamps() noexcept
+{
+    _lastAppliedStamp.reset();
+    _lastRejectedStamp.reset();
 }
 
 void SettingsStore::SuppressDocumentWrites(bool suppress) noexcept

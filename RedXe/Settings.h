@@ -345,6 +345,9 @@ class SettingsStore final
                                          SettingsReloadStatus& status) noexcept;
     void MarkApplied(const SettingsFileStamp& stamp) noexcept;
     void MarkRejected(const SettingsFileStamp& stamp) noexcept;
+    // Forgets the applied and rejected stamps so the next TryLoadChanged re-reads the file even when it did not
+    // change (redxe.settings.reload).
+    void ForgetStamps() noexcept;
     void SuppressDocumentWrites(bool suppress) noexcept;
 
     [[nodiscard]] const std::wstring& SettingsPath() const noexcept;

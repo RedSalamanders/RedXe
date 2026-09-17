@@ -22,3 +22,6 @@ __pycache__/
 # Codex projectless scratch/deliverables
 work/
 outputs/
+
+# Zoom Plugin SDK packages (licensed by Zoom; import with ThirdParty/ZoomPluginSdk/Import-ZoomSdk.ps1)
+zoom-plugin-sdk-windows-*.zip

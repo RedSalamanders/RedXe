@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <thread>
 
 #pragma warning(push)
@@ -77,14 +78,39 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
                                                uint32_t settingsBytes) noexcept;
     void SetSettingsPersistHandler(SettingsPersistHandler handler, void* context) noexcept;
 
-    // Host actions requested by plugins (IRedXeHost::RequestHostAction). The handler runs on the UI thread from
-    // DrainHostActions; target is a bounded copy that is valid for the call only.
-    using HostActionHandler = void (*)(void* context, uint32_t action, int32_t argument,
-                                       const char* targetUtf8) noexcept;
-    void SetHostActionHandler(HostActionHandler handler, void* context) noexcept;
-    // UI thread: invokes the handler for every queued action in submission order, outside any lock.
+    // Named actions (Action.h). Application registers the handler that executes the page, widget, and redxe
+    // namespaces itself; PluginHost executes the other default namespaces (HostActions) and every published one.
+    // The handler runs on the UI thread from DrainHostActions or ExecuteAction; strings are bounded copies valid
+    // for the call only. `completed` runs after every drained action (executed or dropped) so Application can
+    // publish host state once.
+    using HostActionHandler = HRESULT (*)(void* context, const char* actionUtf8, const char* targetUtf8) noexcept;
+    using HostActionCompleted = void (*)(void* context) noexcept;
+    void SetHostActionHandler(HostActionHandler handler, HostActionCompleted completed, void* context) noexcept;
+    // UI thread: executes every queued action in submission order, outside any lock.
     void DrainHostActions() noexcept;
     [[nodiscard]] uint32_t PendingHostActionCount() const noexcept;
+
+    // Action publishers (Action.h): the namespace registry in BundledPlugins.h resolved against the contracts of
+    // mapped modules. A collision, an unregistered namespace, a registered plugin that does not publish its
+    // namespace, or a publisher that cannot be loaded produces one Error log line and one bounded notice line;
+    // Application shows the notices in its settings-error dialog. UI thread only.
+    static constexpr size_t kMaximumActionNotices = 8;
+    static constexpr size_t kActionNoticeCharacters = 256;
+    // Copies every current notice line (newline separated) into text; returns the number of lines.
+    [[nodiscard]] uint32_t CopyActionNotices(wchar_t* text, size_t capacity) const noexcept;
+    // Increments whenever a notice is added or cleared, so callers can detect new notices cheaply.
+    [[nodiscard]] uint32_t ActionNoticeGeneration() const noexcept;
+    // Clears the "unavailable" mark of every publisher so a repaired deployment retries once (settings apply).
+    void ResetActionPublishers() noexcept;
+    // Test surface: the state of one registered namespace.
+    enum class ActionPublisherState : uint8_t
+    {
+        Unresolved = 0,
+        Ready,
+        Missing,
+        Unavailable,
+    };
+    [[nodiscard]] ActionPublisherState ActionPublisherStateOf(const char* actionNamespace) const noexcept;
 
     // Headless services (Service.h). All calls run on the UI thread. StartServices creates and starts every
     // service the document configures; ApplyServiceSettings starts, stops, or re-applies services after a live
@@ -113,7 +139,10 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
                                                     uint32_t settingsBytes) noexcept override;
     HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept override;
     HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork* work) noexcept override;
-    HRESULT STDMETHODCALLTYPE RequestHostAction(const RedXeHostActionRequest* request) noexcept override;
+    HRESULT STDMETHODCALLTYPE RequestAction(const RedXeActionRequest* request) noexcept override;
+    HRESULT STDMETHODCALLTYPE ExecuteAction(const RedXeActionRequest* request) noexcept override;
+    HRESULT STDMETHODCALLTYPE ValidateAction(const RedXeActionRequest* request,
+                                             const RedXeActionDescriptor** descriptor) noexcept override;
     void SetControlAccessEnabled(bool enabled) noexcept
     {
         _controlAccessEnabled = enabled;
@@ -171,8 +200,28 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         RedXeCreateFn create = nullptr;
         RedXeEnumeratePluginsFn enumerate = nullptr;
         RedXeGetPluginSettingsContractFn getSettingsContract = nullptr;
+        RedXeGetActionContractFn getActionContract = nullptr;
         RedXePluginShutdownFn shutdown = nullptr;
         uint32_t capabilities = RedXePluginCapabilityNone;
+    };
+
+    // One registered action namespace (kRedXeBundledActionNamespaces) and what the host learned about it.
+    struct PublisherSlot final
+    {
+        const RedXeBundledActionNamespaceSpec* spec = nullptr;
+        // Borrowed from the publishing module; valid while it stays mapped (modules never unmap before teardown).
+        const RedXeActionNamespace* contract = nullptr;
+        // Executor for a dedicated action DLL or a widget provider. A service publisher's executor is queried on
+        // its started service object instead and never retained here.
+        wil::com_ptr_nothrow<IRedXeActionPack> executor;
+        ActionPublisherState state = ActionPublisherState::Unresolved;
+        bool noticeShown = false;
+    };
+
+    struct ActionNotice final
+    {
+        std::array<wchar_t, kActionNoticeCharacters> text{};
+        bool used = false;
     };
 
     struct DataSetRuntime final
@@ -229,9 +278,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
 
     struct HostActionSlot final
     {
-        uint32_t action = RedXeHostActionNone;
-        int32_t argument = 0;
-        std::array<char, kRedXeMaximumHostActionTargetBytes + 1> target{};
+        std::array<char, kRedXeMaximumActionNameBytes + 1> action{};
+        std::array<char, kRedXeMaximumActionTargetBytes + 1> target{};
         bool used = false;
     };
 
@@ -278,6 +326,20 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     void PurgeExpiredLogs() noexcept;
     [[nodiscard]] HRESULT EnqueueLogLine(const char* line, uint32_t bytes) noexcept;
     void RequestHostActionDrain() noexcept;
+    // Executes one action now on the UI thread: application namespaces through the handler, system/keys/mouse
+    // through HostActions, published namespaces through their executor. Logs a Debug line on failure.
+    [[nodiscard]] HRESULT ExecuteNow(const char* actionUtf8, const char* targetUtf8) noexcept;
+    // Reads and registers the action contract of one plugin id whose module just mapped.
+    void ReadActionContract(ModuleSlot& slot, const char* pluginId) noexcept;
+    [[nodiscard]] PublisherSlot* FindPublisher(std::string_view actionNamespace) noexcept;
+    // Maps the publisher's module if needed so its contract is known; sets the slot state.
+    [[nodiscard]] HRESULT EnsurePublisherContract(PublisherSlot& slot) noexcept;
+    // The executor for a publisher: the started service object, or a created (retained) pack object.
+    [[nodiscard]] HRESULT EnsurePublisherExecutor(PublisherSlot& slot, IRedXeActionPack** executor) noexcept;
+    [[nodiscard]] const RedXeActionDescriptor* FindPublishedAction(const PublisherSlot& slot,
+                                                                   std::string_view actionName) const noexcept;
+    void AddActionNotice(const wchar_t* text) noexcept;
+    void ReleaseActionExecutors() noexcept;
     [[nodiscard]] HRESULT CreateService(ServiceSlot& slot, const ServiceSettings& settings) noexcept;
     [[nodiscard]] HRESULT StartService(ServiceSlot& slot) noexcept;
     void StopService(ServiceSlot& slot) noexcept;
@@ -330,7 +392,11 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     mutable SRWLOCK _hostActionLock = SRWLOCK_INIT;
     std::atomic<uint32_t> _pendingHostActionPost{0};
     HostActionHandler _hostActionHandler = nullptr;
+    HostActionCompleted _hostActionCompleted = nullptr;
     void* _hostActionContext = nullptr;
+    std::array<PublisherSlot, kRedXeBundledActionNamespaces.size()> _publishers;
+    std::array<ActionNotice, kMaximumActionNotices> _actionNotices{};
+    uint32_t _actionNoticeGeneration = 0;
     std::array<ServiceSlot, kRedXeBundledServices.size()> _services;
     std::atomic<bool> _deviceAccessEnabled{true};
     bool _shutdown = false;

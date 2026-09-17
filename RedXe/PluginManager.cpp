@@ -59,6 +59,9 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
     return nullptr;
 }
 
+// The third fixed pattern the subset accepts: an action name (PlugInterfaces/Action.h).
+constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*){1,3}$";
+
 [[nodiscard]] bool IsHexColor(yyjson_val* value) noexcept
 {
     const char* text = yyjson_is_str(value) ? yyjson_get_str(value) : nullptr;
@@ -253,6 +256,15 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
         const std::string_view expression{yyjson_get_str(pattern), yyjson_get_len(pattern)};
         if (expression == "^#[0-9A-Fa-f]{6}$")
             return IsHexColor(value);
+        if (expression == kActionNamePattern)
+        {
+            // An action name (Action.h grammar); whether it resolves is the host validator's job.
+            std::array<char, kRedXeMaximumActionNameBytes + 1> terminated{};
+            if (text.size() > kRedXeMaximumActionNameBytes)
+                return false;
+            std::memcpy(terminated.data(), text.data(), text.size());
+            return RedXeIsActionNameSyntax(terminated.data());
+        }
         if (expression != "^[A-Za-z0-9_-]+$" || text.empty())
             return false;
         for (unsigned char byte : text)
@@ -381,7 +393,8 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
             if (!yyjson_is_str(pattern))
                 return false;
             const std::string_view expression{yyjson_get_str(pattern), yyjson_get_len(pattern)};
-            if (expression != "^#[0-9A-Fa-f]{6}$" && expression != "^[A-Za-z0-9_-]+$")
+            if (expression != "^#[0-9A-Fa-f]{6}$" && expression != "^[A-Za-z0-9_-]+$" &&
+                expression != kActionNamePattern)
                 return false;
         }
         yyjson_val* values = yyjson_obj_get(schema, "enum");

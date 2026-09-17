@@ -46,6 +46,7 @@ inline constexpr std::array kRedXeBundledPlugins{
     RedXeBundledPluginSpec{"builtin.system-data", L"SystemData.dll"},
     RedXeBundledPluginSpec{"builtin.logicon", L"Logicon.dll"},
     RedXeBundledPluginSpec{"builtin.logicon-monitor", L"Logicon.dll"},
+    RedXeBundledPluginSpec{"builtin.zoom", L"zoom.action.dll"},
 };
 
 inline constexpr std::array kRedXeBundledWidgets{
@@ -73,7 +74,25 @@ inline constexpr std::array kRedXeBundledWidgets{
 // Headless service plugins the host may start from the `services` settings root. Each is created once per process.
 inline constexpr std::array kRedXeBundledServices{
     RedXeBundledServiceSpec{"builtin.logicon"},
+    RedXeBundledServiceSpec{"builtin.zoom"},
 };
+
+// Registers which plugin id publishes which action namespace (Common/PlugInterfaces/Action.h). The default
+// namespaces (page, widget, redxe, system, keys, mouse) are hardcoded in RedXe/HostActionCatalog.h and are never
+// registered here. A module whose action contract names a namespace this table assigns to another plugin id, or
+// one it does not list, is a collision the host refuses and shows to the user.
+struct RedXeBundledActionNamespaceSpec final
+{
+    const char* actionNamespace;
+    const char* pluginId;
+};
+
+inline constexpr std::array kRedXeBundledActionNamespaces{
+    RedXeBundledActionNamespaceSpec{"logicon", "builtin.logicon"},
+    RedXeBundledActionNamespaceSpec{"zoom", "builtin.zoom"},
+};
+
+inline constexpr std::array kRedXeDefaultActionNamespaceNames{"page", "widget", "redxe", "system", "keys", "mouse"};
 
 // Bundled, settings-visible, documented, and test-covered widgets that no shipped template places. A native-window
 // widget's child HWND sits over the swap chain and forces composed presentation for the whole window while it is
@@ -179,6 +198,49 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
         for (size_t previous = 0; previous < index; ++previous)
         {
             if (RedXeBundledTextEquals(service.pluginId, kRedXeBundledServices[previous].pluginId))
+            {
+                return false;
+            }
+        }
+    }
+
+    for (size_t index = 0; index < kRedXeBundledActionNamespaces.size(); ++index)
+    {
+        const RedXeBundledActionNamespaceSpec& entry = kRedXeBundledActionNamespaces[index];
+        if (!entry.actionNamespace || entry.actionNamespace[0] < 'a' || entry.actionNamespace[0] > 'z' ||
+            !entry.pluginId)
+        {
+            return false;
+        }
+        for (size_t position = 0; entry.actionNamespace[position] != '\0'; ++position)
+        {
+            const char character = entry.actionNamespace[position];
+            const bool allowed = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+                                 (character >= '0' && character <= '9');
+            if (!allowed || position >= 31)
+            {
+                return false;
+            }
+        }
+        for (const char* reserved : kRedXeDefaultActionNamespaceNames)
+        {
+            if (RedXeBundledTextEquals(entry.actionNamespace, reserved))
+            {
+                return false;
+            }
+        }
+        bool foundPlugin = false;
+        for (const RedXeBundledPluginSpec& plugin : kRedXeBundledPlugins)
+        {
+            foundPlugin = foundPlugin || RedXeBundledTextEquals(entry.pluginId, plugin.pluginId);
+        }
+        if (!foundPlugin)
+        {
+            return false;
+        }
+        for (size_t previous = 0; previous < index; ++previous)
+        {
+            if (RedXeBundledTextEquals(entry.actionNamespace, kRedXeBundledActionNamespaces[previous].actionNamespace))
             {
                 return false;
             }

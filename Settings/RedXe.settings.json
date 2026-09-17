@@ -16,21 +16,32 @@
         { "slot": 0, "action": "page.previous", "label": "Previous", "icon": "ChevronLeft" },
         { "slot": 1, "face": "pageIndicator" },
         { "slot": 2, "action": "page.next", "label": "Next", "icon": "ChevronRight" },
-        { "slot": 3, "action": "keys", "target": "mute", "label": "Mute", "icon": "Mute" },
-        { "slot": 4, "action": "keys", "target": "play-pause", "label": "Play", "icon": "Play" },
+        { "slot": 3, "action": "keys.media", "target": "mute", "label": "Mute", "icon": "Mute" },
+        { "slot": 4, "action": "keys.media", "target": "play-pause", "label": "Play", "icon": "Play" },
         { "slot": 5, "action": "widget.dismiss", "label": "Close", "icon": "BackToWindow" },
-        { "slot": 6, "action": "keys", "target": "volume-down", "label": "Vol -", "icon": "Volume" },
+        { "slot": 6, "action": "keys.media", "target": "volume-down", "label": "Vol -", "icon": "Volume" },
         { "slot": 7, "face": "clock" },
-        { "slot": 8, "action": "keys", "target": "volume-up", "label": "Vol +", "icon": "Volume" }
+        { "slot": 8, "action": "keys.media", "target": "volume-up", "label": "Vol +", "icon": "Volume" }
       ],
       "dialpad": {
-        "dial": "page",
-        "roller": "none",
+        "turns": [
+          { "control": "dial", "direction": "cw", "action": "page.next" },
+          { "control": "dial", "direction": "ccw", "action": "page.previous" }
+        ],
         "buttons": [
           { "button": 2, "action": "widget.dismiss" },
-          { "button": 3, "action": "keys", "target": "mute" }
+          { "button": 3, "action": "keys.media", "target": "mute" }
         ]
       }
+    },
+    // Zoom drives the Zoom Workplace client through the Zoom Plugin SDK (see docs/plugins/zoom.md). Replace the
+    // placeholder with your Marketplace app's client id and bind zoom.signIn to a key to sign in; until then the
+    // service stays idle.
+    "Zoom": {
+      "plugin": "builtin.zoom",
+      "clientId": "replace-with-your-marketplace-client-id",
+      "redirectPort": 48123,
+      "autoConnect": false
     }
   },
   "declare": {

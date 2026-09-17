@@ -10,7 +10,7 @@ Read `Specs/Plugins/Plugins_API.md` before changing shipped plugin behavior. Rea
 lane, plugin-owned curl, or the weather widget; the rationale is historical in
 [`Specs/Plans/Done/WeatherPlugin_2026-09-04.md`](../../Specs/Plans/Done/WeatherPlugin_2026-09-04.md). Read
 [`Specs/Plugins/Plugins_Logicon.md`](../../Specs/Plugins/Plugins_Logicon.md) when work concerns a headless service
-(`Common/PlugInterfaces/Service.h`), the host-owned device lane, `IRedXeHost::RequestHostAction`, the `services`
+(`Common/PlugInterfaces/Service.h`), the host-owned device lane, `IRedXeHost::RequestAction` / `ExecuteAction` / `ValidateAction` and `IRedXeActionPack` (`Specs/Plugins/Plugins_Actions.md`), the `services`
 settings root, or the MX Creative Console keypad and dialpad; the rationale is historical in
 [`Specs/Plans/Done/LogiconPlugin_2026-09-16.md`](../../Specs/Plans/Done/LogiconPlugin_2026-09-16.md). Read
 [`Specs/Plans/WIP/PluginDashboardRemainingCloseout_2026-09-02.md`](../../Specs/Plans/WIP/PluginDashboardRemainingCloseout_2026-09-02.md)

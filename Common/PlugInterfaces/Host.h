@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Action.h"
 #include "Data.h"
 
 #include <cstddef>
@@ -71,47 +72,6 @@ static_assert(offsetof(RedXeLogRecord, eventId) == 24);
 static_assert(offsetof(RedXeLogRecord, messageUtf8) == 32);
 static_assert(offsetof(RedXeLogRecord, code) == 40);
 
-// A dashboard operation a plugin asks the host to perform. The host executes it on the UI thread outside input and
-// render dispatch; the request itself never runs plugin or host UI code on the caller's thread.
-enum RedXeHostAction : uint32_t
-{
-    RedXeHostActionNone = 0,
-    // Slide to the next / previous dashboard page, honoring wrapPages.
-    RedXeHostActionPageNext = 1,
-    RedXeHostActionPagePrevious = 2,
-    // Go to the page named by targetUtf8 (authored or generated page id), or by zero-based argument when the
-    // target is null.
-    RedXeHostActionPageGoTo = 3,
-    // Raise the widget at zero-based argument ordinal on the current page (authored order). A target of the form
-    // "<pageId>/<ordinal>" is accepted only when <pageId> is the current page.
-    RedXeHostActionWidgetRaise = 4,
-    // Dismiss the raised widget, if any. argument and target are ignored.
-    RedXeHostActionWidgetDismiss = 5,
-    // Raise the addressed widget, or dismiss it when it is the one already raised.
-    RedXeHostActionWidgetToggle = 6,
-    // Launch targetUtf8 through the shell: an absolute Win32 path or a URI with an alphabetic scheme of at least
-    // two characters. Relative paths and schemeless names are rejected with E_INVALIDARG.
-    RedXeHostActionLaunch = 7,
-};
-
-inline constexpr uint32_t kRedXeMaximumHostActionTargetBytes = 512;
-
-// Borrowed request for IRedXeHost::RequestHostAction. The host copies every field synchronously and retains no
-// pointer. sizeBytes must equal sizeof.
-struct RedXeHostActionRequest final
-{
-    uint32_t sizeBytes;
-    uint32_t action;
-    int32_t argument;
-    uint32_t reserved;
-    // Optional borrowed UTF-8 target of at most kRedXeMaximumHostActionTargetBytes bytes excluding the terminator.
-    // Null when the action takes no target.
-    const char* targetUtf8;
-};
-
-static_assert(sizeof(RedXeHostActionRequest) == 24);
-static_assert(offsetof(RedXeHostActionRequest, targetUtf8) == 16);
-
 // Services supplied to plugins by the RedXe host.
 //
 // Threading and reentrancy: GetDataProvider and ReportWidgetStatus are synchronous and non-reentrant, and run on the
@@ -168,13 +128,31 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     // Completion is posted to the UI thread and never invokes the widget recursively. No work starts in self-tests.
     virtual HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork * work) noexcept = 0;
 
-    // Asks the host to perform one dashboard action (page navigation, raise/dismiss, launch). Safe from any thread,
-    // including a service's device lane; allocation-free and never blocking. The host copies the record into a
-    // bounded 16-slot ring, coalesces an identical pending action, and posts one coalesced UI message. ERROR_BUSY
-    // means the ring is full and nothing was accepted. A null record, a mismatched sizeBytes, an unknown action, or
-    // an overlong target returns E_POINTER / E_INVALIDARG. The action itself runs later on the UI thread; a request
-    // that arrives during a page swipe, raise settle, or settings error is dropped, never queued.
-    virtual HRESULT STDMETHODCALLTYPE RequestHostAction(const RedXeHostActionRequest* request) noexcept = 0;
+    // Asks the host to perform one named action (Action.h) later on the UI thread. Safe from any thread, including a
+    // service's device lane; allocation-free and never blocking. The host copies the record into a bounded 16-slot
+    // ring, coalesces an identical pending (action, target) pair (S_FALSE), and posts one coalesced UI message.
+    // ERROR_BUSY means the ring is full and nothing was accepted. A null record, a mismatched sizeBytes, a name
+    // outside the grammar or outside a default or registered namespace, or an overlong target returns E_POINTER /
+    // E_INVALIDARG. The action itself runs later on the UI thread: a page or widget action that arrives during a
+    // page swipe, raise settle, or settings error is dropped, never queued; every other namespace still executes.
+    virtual HRESULT STDMETHODCALLTYPE RequestAction(const RedXeActionRequest* request) noexcept = 0;
+
+    // Performs one named action now. UI thread only, synchronous, non-reentrant. Allowed from OnPointer (committed
+    // activation), OnKey/OnCharacter, and OnDrop; forbidden from device, size, visibility, raise, Render, Prepare,
+    // and every worker callback. Returns S_OK when done, S_FALSE when the executor deferred it to a host-owned lane,
+    // or the failure (ERROR_BUSY for a page or widget action during a swipe or settle, ERROR_NOT_FOUND for an
+    // unknown action, E_INVALIDARG for an unsatisfied target). Never queued, coalesced, or dropped.
+    virtual HRESULT STDMETHODCALLTYPE ExecuteAction(const RedXeActionRequest* request) noexcept = 0;
+
+    // Resolves an action name and checks its target against the owning descriptor without executing anything.
+    // Returns S_OK when the action exists and the target satisfies its grammar, ERROR_NOT_FOUND when the name is
+    // not a default action and no registered publisher provides it, E_INVALIDARG when the target does not satisfy
+    // the descriptor, or ERROR_NOT_READY when the publisher could not be loaded (its bindings are disabled). The
+    // optional descriptor output borrows the owning record; null when the action is unknown. UI thread only: a
+    // registered publisher's module may be mapped on first use. Allowed from Start, ApplySettings, factory create,
+    // and settings application; a service validates its bindings there and keeps the result for its lane.
+    virtual HRESULT STDMETHODCALLTYPE ValidateAction(const RedXeActionRequest* request,
+                                                     const RedXeActionDescriptor** descriptor) noexcept = 0;
 };
 
 // Optional asynchronous settings delivery for discovered state, including imports during visibility callbacks.

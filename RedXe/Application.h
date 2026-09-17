@@ -172,15 +172,20 @@ class Application final
                                        uint32_t settingsBytes) noexcept;
     static HRESULT SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8,
                                         uint32_t settingsBytes) noexcept;
-    // Host actions requested by plugins through IRedXeHost::RequestHostAction, drained on the UI thread outside
-    // input and render dispatch. A request during a swipe, raise settle, or settings error is dropped.
-    static void HostActionThunk(void* context, uint32_t action, int32_t argument, const char* targetUtf8) noexcept;
-    void HandleHostAction(uint32_t action, int32_t argument, const char* targetUtf8) noexcept;
+    // The page, widget, and redxe action namespaces (HostActionCatalog.h), executed on the UI thread outside input
+    // and render dispatch from the host-action drain or IRedXeHost::ExecuteAction. A page or widget action during
+    // a swipe, raise settle, or settings error returns ERROR_BUSY / E_NOT_VALID_STATE and is dropped.
+    static HRESULT HostActionThunk(void* context, const char* actionUtf8, const char* targetUtf8) noexcept;
+    static void HostActionCompletedThunk(void* context) noexcept;
+    HRESULT HandleHostAction(std::string_view action, std::string_view target) noexcept;
+    // Shows the host's action publisher notices (namespace collisions, missing or unloadable publishers) in the
+    // settings-error dialog once per change; the dashboard stays active.
+    void ShowActionNotices() noexcept;
     // Slides directly to a non-adjacent page: stages it as the transition page and settles once.
     HRESULT NavigateToPage(uint32_t pageIndex) noexcept;
-    HRESULT LaunchHostTarget(const char* targetUtf8) noexcept;
     // Fans the current page, raise, visibility, and busy state out to started services (IRedXeService::OnHostState).
     void PublishHostState() noexcept;
+    uint32_t _shownActionNoticeGeneration = 0;
 
     HINSTANCE _instance = nullptr;
     wil::unique_hwnd _window;

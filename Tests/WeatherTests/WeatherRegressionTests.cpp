@@ -107,9 +107,22 @@ class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
     {
         return E_ACCESSDENIED;
     }
-    HRESULT STDMETHODCALLTYPE RequestHostAction(const RedXeHostActionRequest*) noexcept override
+    HRESULT STDMETHODCALLTYPE RequestAction(const RedXeActionRequest*) noexcept override
     {
         return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE ExecuteAction(const RedXeActionRequest*) noexcept override
+    {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE ValidateAction(const RedXeActionRequest*,
+                                             const RedXeActionDescriptor** descriptor) noexcept override
+    {
+        if (descriptor)
+        {
+            *descriptor = nullptr;
+        }
+        return S_OK;
     }
 
   public:

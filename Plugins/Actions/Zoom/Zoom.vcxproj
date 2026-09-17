@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|ARM64"><Configuration>Debug</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64"><Configuration>Release</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="ASan Debug|x64"><Configuration>ASan Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="ASan Debug|ARM64"><Configuration>ASan Debug</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{A3F6C2D8-7B14-4E9A-9C5D-2E8F4B7A1D63}</ProjectGuid>
+    <RootNamespace>Zoom</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries Condition="('$(Configuration)'=='Debug' or '$(Configuration)'=='ASan Debug')">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
+            Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <!-- Written by ThirdParty\ZoomPluginSdk\Import-ZoomSdk.ps1 from the developer-downloaded package (x64 only):
+         defines ZOOM_PLUGIN_SDK_AVAILABLE, adds export_h to the includes, links zToolSuiteIPCProxy.lib delay-loaded,
+         and copies the runtime beside RedXe.exe. Absent, the DLL builds with the synthetic session only. -->
+    <Import Project="$(MSBuildThisFileDirectory)..\..\..\ThirdParty\ZoomPluginSdk\ZoomSdk.props"
+            Condition="'$(Platform)'=='x64' and exists('$(MSBuildThisFileDirectory)..\..\..\ThirdParty\ZoomPluginSdk\ZoomSdk.props')" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <!-- The first published-namespace DLL: <namespace>.action.dll. -->
+    <TargetName>zoom.action</TargetName>
+    <OutDir>$(RedXeBuildRoot)$(Platform)\$(Configuration)\Plugins\</OutDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="('$(Configuration)'=='Debug' or '$(Configuration)'=='ASan Debug')">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>ws2_32.lib;winhttp.lib;bcrypt.lib;advapi32.lib;ole32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>ws2_32.lib;winhttp.lib;bcrypt.lib;advapi32.lib;ole32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="Zoom.cpp" />
+    <ClCompile Include="ZoomAuth.cpp" />
+    <ClCompile Include="ZoomSdkSession.cpp" />
+    <ClCompile Include="ZoomService.cpp" />
+    <ClCompile Include="ZoomSettings.cpp" />
+    <ClCompile Include="ZoomSynthetic.cpp" />
+    <ClCompile Include="..\..\..\Common\Actions\ActionTargets.cpp" />
+    <ClCompile Include="..\..\..\Common\Actions\WindowSelector.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="ZoomAuth.h" />
+    <ClInclude Include="ZoomService.h" />
+    <ClInclude Include="ZoomSession.h" />
+    <ClInclude Include="ZoomSettings.h" />
+    <ClInclude Include="ZoomSynthetic.h" />
+    <ClInclude Include="ZoomTestContract.h" />
+    <ClInclude Include="..\..\..\Common\Actions\ActionTargets.h" />
+    <ClInclude Include="..\..\..\Common\Actions\WindowSelector.h" />
+    <ClInclude Include="..\..\..\Common\PlugInterfaces\Action.h" />
+    <ClInclude Include="..\..\..\Common\PlugInterfaces\Factory.h" />
+    <ClInclude Include="..\..\..\Common\PlugInterfaces\FactoryImpl.h" />
+    <ClInclude Include="..\..\..\Common\PlugInterfaces\Host.h" />
+    <ClInclude Include="..\..\..\Common\PlugInterfaces\Service.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>

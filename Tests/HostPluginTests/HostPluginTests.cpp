@@ -3,6 +3,7 @@
 #include "DashboardHost.h"
 #include "DeskClockTestContract.h"
 #include "FrameScheduler.h"
+#include "HostActions.h"
 #include "LauncherTestContract.h"
 #include "MatrixRainTestContract.h"
 #include "PageEdgeAffordance.h"
@@ -2979,23 +2980,29 @@ void TestNetworkLane(bool& success) noexcept
 
 struct HostActionRecord final
 {
-    std::vector<uint32_t> actions;
-    std::vector<int32_t> arguments;
+    std::vector<std::string> actions;
     std::vector<std::string> targets;
+    uint32_t completed = 0;
+    HRESULT result = S_OK;
 };
 
-void RecordHostAction(void* context, uint32_t action, int32_t argument, const char* targetUtf8) noexcept
+HRESULT RecordHostAction(void* context, const char* actionUtf8, const char* targetUtf8) noexcept
 {
     auto* record = static_cast<HostActionRecord*>(context);
     try
     {
-        record->actions.push_back(action);
-        record->arguments.push_back(argument);
+        record->actions.emplace_back(actionUtf8 ? actionUtf8 : "");
         record->targets.emplace_back(targetUtf8 ? targetUtf8 : "");
     }
     catch (...)
     {
     }
+    return record->result;
+}
+
+void RecordHostActionCompleted(void* context) noexcept
+{
+    ++static_cast<HostActionRecord*>(context)->completed;
 }
 
 void TestHostActionQueue(bool& success) noexcept
@@ -3003,58 +3010,180 @@ void TestHostActionQueue(bool& success) noexcept
     std::wcout << L"[ RUN      ] host action ring: validation, coalescing, bounds, ordered drain\n";
     PluginHost& host = PluginHost::Instance();
     HostActionRecord record;
-    host.SetHostActionHandler(&RecordHostAction, &record);
+    host.SetHostActionHandler(&RecordHostAction, &RecordHostActionCompleted, &record);
     host.DrainHostActions();
 
-    RedXeHostActionRequest request{};
-    Check(host.RequestHostAction(nullptr) == E_POINTER, L"a null request returns E_POINTER", success);
-    Check(host.RequestHostAction(&request) == E_INVALIDARG, L"a zero sizeBytes request is rejected", success);
+    RedXeActionRequest request{};
+    Check(host.RequestAction(nullptr) == E_POINTER, L"a null request returns E_POINTER", success);
+    Check(host.RequestAction(&request) == E_INVALIDARG, L"a zero sizeBytes request is rejected", success);
     request.sizeBytes = sizeof(request);
-    request.action = RedXeHostActionNone;
-    Check(host.RequestHostAction(&request) == E_INVALIDARG, L"action None is rejected", success);
-    request.action = RedXeHostActionLaunch + 1;
-    Check(host.RequestHostAction(&request) == E_INVALIDARG, L"an unknown action is rejected", success);
-    std::string overlong(kRedXeMaximumHostActionTargetBytes + 1, 'x');
-    request.action = RedXeHostActionLaunch;
+    Check(host.RequestAction(&request) == E_INVALIDARG, L"a null action name is rejected", success);
+    request.actionUtf8 = "none";
+    Check(host.RequestAction(&request) == E_INVALIDARG, L"a name outside the grammar is rejected", success);
+    request.actionUtf8 = "nowhere.next";
+    Check(host.RequestAction(&request) == E_INVALIDARG, L"an unregistered namespace is rejected", success);
+    request.actionUtf8 = "logicon.keyPage.next";
+    Check(host.RequestAction(&request) == S_OK, L"a registered published namespace queues", success);
+    host.DrainHostActions();
+    record.actions.clear();
+    record.targets.clear();
+    std::string overlong(kRedXeMaximumActionTargetBytes + 1, 'x');
+    request.actionUtf8 = "system.launch";
     request.targetUtf8 = overlong.c_str();
-    Check(host.RequestHostAction(&request) == E_INVALIDARG, L"a 513-byte target is rejected", success);
+    Check(host.RequestAction(&request) == E_INVALIDARG, L"a 513-byte target is rejected", success);
 
-    request.action = RedXeHostActionPageNext;
+    request.actionUtf8 = "page.next";
     request.targetUtf8 = nullptr;
-    Check(host.RequestHostAction(&request) == S_OK && host.PendingHostActionCount() == 1, L"a page action queues",
-          success);
-    Check(host.RequestHostAction(&request) == S_FALSE && host.PendingHostActionCount() == 1,
+    Check(host.RequestAction(&request) == S_OK && host.PendingHostActionCount() == 1, L"a page action queues", success);
+    Check(host.RequestAction(&request) == S_FALSE && host.PendingHostActionCount() == 1,
           L"an identical pending action coalesces", success);
-    request.action = RedXeHostActionWidgetToggle;
-    request.argument = 2;
+    request.actionUtf8 = "widget.toggle";
     request.targetUtf8 = "system/2";
-    Check(host.RequestHostAction(&request) == S_OK && host.PendingHostActionCount() == 2,
+    Check(host.RequestAction(&request) == S_OK && host.PendingHostActionCount() == 2,
           L"a distinct action with a target queues behind it", success);
-    request.argument = 3;
-    Check(host.RequestHostAction(&request) == S_OK && host.PendingHostActionCount() == 3,
-          L"a different argument is a distinct action", success);
-    for (int32_t argument = 10; host.PendingHostActionCount() < 16; ++argument)
+    request.targetUtf8 = "system/3";
+    Check(host.RequestAction(&request) == S_OK && host.PendingHostActionCount() == 3,
+          L"a different target is a distinct action", success);
+    std::array<char, 16> targetText{};
+    for (int32_t ordinal = 10; host.PendingHostActionCount() < 16; ++ordinal)
     {
-        request.argument = argument;
-        if (FAILED(host.RequestHostAction(&request)))
+        (void)sprintf_s(targetText.data(), targetText.size(), "%d", ordinal);
+        request.targetUtf8 = targetText.data();
+        if (FAILED(host.RequestAction(&request)))
         {
             break;
         }
     }
     Check(host.PendingHostActionCount() == 16, L"the ring holds sixteen distinct actions", success);
-    request.argument = 99;
-    Check(host.RequestHostAction(&request) == HRESULT_FROM_WIN32(ERROR_BUSY) && host.PendingHostActionCount() == 16,
+    request.targetUtf8 = "99";
+    Check(host.RequestAction(&request) == HRESULT_FROM_WIN32(ERROR_BUSY) && host.PendingHostActionCount() == 16,
           L"a full ring returns ERROR_BUSY without accepting the request", success);
 
     host.DrainHostActions();
-    Check(host.PendingHostActionCount() == 0 && record.actions.size() == 16 &&
-              record.actions[0] == RedXeHostActionPageNext && record.targets[0].empty() &&
-              record.actions[1] == RedXeHostActionWidgetToggle && record.arguments[1] == 2 &&
-              record.targets[1] == "system/2" && record.arguments[2] == 3 && record.arguments[15] == 22,
-          L"drain delivers every queued action once, in submission order, with its copied target", success);
+    Check(host.PendingHostActionCount() == 0 && record.actions.size() == 16 && record.actions[0] == "page.next" &&
+              record.targets[0].empty() && record.actions[1] == "widget.toggle" && record.targets[1] == "system/2" &&
+              record.targets[2] == "system/3" && record.targets[15] == "22" && record.completed == 17,
+          L"drain delivers every queued action once, in submission order, with its copied target, and completes each",
+          success);
     host.DrainHostActions();
     Check(record.actions.size() == 16, L"a second drain delivers nothing", success);
-    host.SetHostActionHandler(nullptr, nullptr);
+
+    // ExecuteAction runs now, on this thread, and returns the handler's result.
+    record.result = HRESULT_FROM_WIN32(ERROR_BUSY);
+    request.actionUtf8 = "page.first";
+    request.targetUtf8 = nullptr;
+    Check(host.ExecuteAction(&request) == HRESULT_FROM_WIN32(ERROR_BUSY) && record.actions.size() == 17 &&
+              record.actions[16] == "page.first" && host.PendingHostActionCount() == 0,
+          L"ExecuteAction is synchronous and returns the application's result", success);
+    record.result = S_OK;
+    host.SetHostActionHandler(nullptr, nullptr, nullptr);
+}
+
+void TestActionValidation(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] action validation: default catalog, target grammars, registry, publishers\n";
+    PluginHost& host = PluginHost::Instance();
+    const RedXeActionDescriptor* descriptor = nullptr;
+    RedXeActionRequest request{};
+    request.sizeBytes = sizeof(request);
+    request.actionUtf8 = "page.goto";
+    request.targetUtf8 = "system";
+    Check(host.ValidateAction(&request, &descriptor) == S_OK && descriptor && descriptor->name &&
+              std::strcmp(descriptor->name, "page.goto") == 0 && descriptor->targetKind == RedXeActionTargetPageRef,
+          L"a default action validates with its descriptor", success);
+    request.actionUtf8 = "page.nowhere";
+    Check(host.ValidateAction(&request, &descriptor) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) && !descriptor,
+          L"an unknown verb in a default namespace is not found", success);
+    request.actionUtf8 = "system.launch";
+    request.targetUtf8 = "notepad.exe";
+    Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a relative launch target is invalid", success);
+    request.targetUtf8 = "C:\\Tools\\Code.exe";
+    Check(host.ValidateAction(&request, nullptr) == S_OK, L"an absolute launch target is valid", success);
+    request.actionUtf8 = "system.shutdown";
+    request.targetUtf8 = nullptr;
+    Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a destructive action needs its confirming target",
+          success);
+    request.targetUtf8 = "now";
+    Check(host.ValidateAction(&request, nullptr) == S_OK, L"\"now\" confirms a destructive action", success);
+    request.targetUtf8 = "30";
+    Check(host.ValidateAction(&request, nullptr) == S_OK, L"a delay confirms a shutdown", success);
+    request.actionUtf8 = "keys.press";
+    request.targetUtf8 = "Ctrl+Shift+Esc,Win+D";
+    Check(host.ValidateAction(&request, nullptr) == S_OK, L"a chord sequence validates", success);
+    request.targetUtf8 = "Hyper+Q";
+    Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"an unknown modifier is invalid", success);
+    request.actionUtf8 = "keys.down";
+    request.targetUtf8 = "Ctrl+A,Ctrl+B";
+    Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"keys.down takes exactly one chord", success);
+    request.actionUtf8 = "mouse.move";
+    request.targetUtf8 = "center@xeneon";
+    Check(host.ValidateAction(&request, nullptr) == S_OK, L"a monitor-relative point validates", success);
+    request.targetUtf8 = "+10,20";
+    Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a half-relative point is invalid", success);
+    request.actionUtf8 = "system.power.plan";
+    request.targetUtf8 = "highPerformance";
+    Check(host.ValidateAction(&request, nullptr) == S_OK, L"a named power plan validates", success);
+    request.targetUtf8 = "turbo";
+    Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"an unknown power plan is invalid", success);
+    request.actionUtf8 = "nowhere.next";
+    request.targetUtf8 = nullptr;
+    Check(host.ValidateAction(&request, nullptr) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND),
+          L"an unregistered namespace is not found", success);
+
+    // Registered publishers: mapping Logicon.dll reads its contract; the zoom contract comes from zoom.action.dll.
+    request.actionUtf8 = "logicon.keyPage.goto";
+    request.targetUtf8 = "2";
+    Check(host.ValidateAction(&request, &descriptor) == S_OK && descriptor &&
+              host.ActionPublisherStateOf("logicon") == PluginHost::ActionPublisherState::Ready,
+          L"a published Logicon action validates after its module maps", success);
+    request.targetUtf8 = "7";
+    Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a published target outside its bounds is invalid",
+          success);
+    request.actionUtf8 = "logicon.nowhere";
+    Check(host.ValidateAction(&request, nullptr) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND),
+          L"an unknown published verb is not found", success);
+    request.actionUtf8 = "zoom.mute";
+    request.targetUtf8 = "toggle";
+    Check(host.ValidateAction(&request, &descriptor) == S_OK && descriptor &&
+              (descriptor->flags & RedXeActionFlagDeferred) != 0 &&
+              host.ActionPublisherStateOf("zoom") == PluginHost::ActionPublisherState::Ready,
+          L"the Zoom contract registers from zoom.action.dll", success);
+    request.actionUtf8 = "zoom.share";
+    request.targetUtf8 = "app@exe:Zoom.exe";
+    Check(host.ValidateAction(&request, nullptr) == S_OK, L"a window suffix is accepted where the descriptor allows it",
+          success);
+    request.actionUtf8 = "zoom.join";
+    request.targetUtf8 = "https://zoom.us/j/1234567890?pwd=abc";
+    Check(host.ValidateAction(&request, nullptr) == S_OK, L"a meeting URL validates", success);
+    request.targetUtf8 = "12";
+    Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a short meeting id is invalid", success);
+    std::array<wchar_t, 2048> notices{};
+    Check(host.CopyActionNotices(notices.data(), notices.size()) == 0,
+          L"the bundled publishers register without a collision notice", success);
+
+    // Default namespaces execute inside the host; with device access disabled they count and act on nothing.
+    host.SetDeviceAccessEnabled(false);
+    HostActions::ResetCounters();
+    request.actionUtf8 = "keys.media";
+    request.targetUtf8 = "volume-up";
+    Check(host.ExecuteAction(&request) == S_OK, L"a keys action executes", success);
+    request.actionUtf8 = "system.launch";
+    request.targetUtf8 = "https://example.org";
+    Check(host.ExecuteAction(&request) == S_OK, L"a launch executes", success);
+    request.actionUtf8 = "mouse.scroll";
+    request.targetUtf8 = "+3";
+    Check(host.ExecuteAction(&request) == S_OK, L"a mouse action executes", success);
+    request.actionUtf8 = "system.shutdown";
+    request.targetUtf8 = "now";
+    Check(host.ExecuteAction(&request) == S_OK, L"a confirmed shutdown counts without acting", success);
+    request.targetUtf8 = nullptr;
+    Check(host.ExecuteAction(&request) == E_INVALIDARG, L"an unconfirmed shutdown is refused before execution",
+          success);
+    const HostActions::Counters counters = HostActions::CopyCounters();
+    Check(counters.executed == 4 && counters.injectedInputs == 3 && counters.launches == 1 &&
+              counters.powerRequests == 1 && std::strcmp(counters.lastAction.data(), "system.shutdown") == 0,
+          L"automated hosts count injected inputs, launches, and power requests without performing them", success);
+    host.SetDeviceAccessEnabled(true);
 }
 
 void TestServiceLifetime(bool& success) noexcept
@@ -4487,6 +4616,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestWeatherPluginConstructs(success);
     TestNetworkLane(success);
     TestHostActionQueue(success);
+    TestActionValidation(success);
     TestServiceLifetime(success);
     TestLauncherPluginConstructs(success);
     TestPublishedArraySchema(success);

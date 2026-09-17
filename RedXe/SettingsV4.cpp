@@ -2,9 +2,12 @@
 
 #include "../Plugins/AVControl/AVControlModel.h"
 #include "../Plugins/AVControl/AVControlSettings.h"
+#include "../Plugins/Actions/Zoom/ZoomSettings.h"
+#include "../Plugins/Launcher/LauncherBindings.h"
 #include "../Plugins/Launcher/LauncherPaging.h"
 #include "../Plugins/Logicon/LogiconSettings.h"
 #include "BundledPlugins.h"
+#include "HostActionCatalog.h"
 #include "PlugInterfaces/Factory.h"
 
 #include <array>
@@ -1077,58 +1080,6 @@ struct DiagnosticSink final
     return true;
 }
 
-[[nodiscard]] int ClassifyLauncherTarget(std::string_view target) noexcept
-{
-    if (target.empty() || target.size() > 512)
-    {
-        return 0;
-    }
-    if (target.size() >= 3 && ((target[0] >= 'A' && target[0] <= 'Z') || (target[0] >= 'a' && target[0] <= 'z')) &&
-        target[1] == ':' && (target[2] == '\\' || target[2] == '/'))
-    {
-        return 1;
-    }
-    if (target.size() >= 2 && target[0] == '\\' && target[1] == '\\')
-    {
-        return 1;
-    }
-    if (target.size() < 3 || !std::isalpha(static_cast<unsigned char>(target[0])))
-    {
-        return 0;
-    }
-    size_t index = 1;
-    while (index < target.size())
-    {
-        const unsigned char value = static_cast<unsigned char>(target[index]);
-        if (!(std::isalnum(value) || value == '+' || value == '.' || value == '-'))
-        {
-            break;
-        }
-        ++index;
-    }
-    return (index >= 2 && index < target.size() && target[index] == ':') ? 2 : 0;
-}
-
-[[nodiscard]] bool LauncherTargetsEqual(std::string_view left, std::string_view right, int kind) noexcept
-{
-    if (kind == 2)
-    {
-        return left == right;
-    }
-    std::array<wchar_t, 513> leftWide{};
-    std::array<wchar_t, 513> rightWide{};
-    const int leftCount = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, left.data(), static_cast<int>(left.size()),
-                                              leftWide.data(), static_cast<int>(leftWide.size() - 1));
-    const int rightCount =
-        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, right.data(), static_cast<int>(right.size()),
-                            rightWide.data(), static_cast<int>(rightWide.size() - 1));
-    if (leftCount <= 0 || rightCount <= 0)
-    {
-        return left == right;
-    }
-    return CompareStringOrdinal(leftWide.data(), leftCount, rightWide.data(), rightCount, TRUE) == CSTR_EQUAL;
-}
-
 [[nodiscard]] bool ValidateLauncherSettings(yyjson_val* settings, DiagnosticSink& sink, JsonPathBuffer& path) noexcept
 {
     if (!AcceptObjectMembers(sink, path, settings, {"shortcuts", "iconSize"}, false))
@@ -1158,55 +1109,27 @@ struct DiagnosticSink final
             return sink.Fail(path.View(), "Launcher supports at most 32 shortcuts.");
         }
         const size_t count = yyjson_arr_size(shortcuts);
-        std::array<std::string_view, kLauncherMaximumShortcuts> seen{};
-        std::array<int, kLauncherMaximumShortcuts> kinds{};
+        std::array<Launcher::ShortcutItem, kLauncherMaximumShortcuts> seen{};
         for (size_t index = 0; index < count; ++index)
         {
             const auto itemScope = path.PushIndex(index);
             yyjson_val* item = yyjson_arr_get(shortcuts, index);
-            if (!AcceptObjectMembers(sink, path, item, {"target", "iconPng"}, false))
+            Launcher::ShortcutItem parsed{};
+            const char* error = nullptr;
+            if (!Launcher::ParseShortcutItem(item, &HostActionCatalog::IsKnownActionName, parsed, &error))
             {
-                return false;
-            }
-            yyjson_val* targetValue = yyjson_obj_get(item, "target");
-            if (!yyjson_is_str(targetValue) || yyjson_get_len(targetValue) == 0 || yyjson_get_len(targetValue) > 512)
-            {
-                const auto targetScope = path.PushName("target");
-                return sink.Fail(path.View(), "target must be a string of 1 through 512 bytes.");
-            }
-            const std::string_view target(yyjson_get_str(targetValue), yyjson_get_len(targetValue));
-            const int kind = ClassifyLauncherTarget(target);
-            if (kind == 0)
-            {
-                const auto targetScope = path.PushName("target");
-                return sink.Fail(path.View(),
-                                 "target must be an absolute Win32 path or a URI with a two-or-more-letter "
-                                 "scheme.");
-            }
-            yyjson_val* iconValue = yyjson_obj_get(item, "iconPng");
-            if (iconValue)
-            {
-                const auto iconScope = path.PushName("iconPng");
-                if (!yyjson_is_str(iconValue) || yyjson_get_len(iconValue) > 260)
-                {
-                    return sink.Fail(path.View(), "iconPng must be a string of at most 260 bytes.");
-                }
-                const std::string_view icon(yyjson_get_str(iconValue), yyjson_get_len(iconValue));
-                if (!icon.empty() && ClassifyLauncherTarget(icon) != 1)
-                {
-                    return sink.Fail(path.View(), "iconPng must be an absolute Win32 path.");
-                }
+                return sink.Fail(path.View(), error ? error : "shortcuts item is invalid.");
             }
             for (size_t previous = 0; previous < index; ++previous)
             {
-                if (kinds[previous] == kind && LauncherTargetsEqual(seen[previous], target, kind))
+                if (Launcher::ShortcutsEqual(seen[previous].action, seen[previous].target, parsed.action,
+                                             parsed.target))
                 {
                     const auto targetScope = path.PushName("target");
-                    return sink.Fail(path.View(), "Duplicate shortcut target.");
+                    return sink.Fail(path.View(), "Duplicate shortcut.");
                 }
             }
-            seen[index] = target;
-            kinds[index] = kind;
+            seen[index] = parsed;
         }
     }
     return true;
@@ -1504,8 +1427,9 @@ struct DiagnosticSink final
     if (!authored)
         return sink.Fail(path.View(), "Service settings could not be copied.");
 
-    unique_doc defaults{
-        yyjson_read(Logicon::kSettingsDefaults, std::strlen(Logicon::kSettingsDefaults), YYJSON_READ_NOFLAG)};
+    const bool isZoom = SettingsIdEquals(spec->pluginId, Zoom::kPluginId);
+    const char* defaultsJson = isZoom ? Zoom::kSettingsDefaults : Logicon::kSettingsDefaults;
+    unique_doc defaults{yyjson_read(defaultsJson, std::strlen(defaultsJson), YYJSON_READ_NOFLAG)};
     unique_mut_doc effectiveDocument{yyjson_mut_doc_new(nullptr)};
     yyjson_mut_val* merged = effectiveDocument && defaults
                                  ? MergeValue(effectiveDocument.get(), yyjson_doc_get_root(defaults.get()), authored)
@@ -1521,10 +1445,38 @@ struct DiagnosticSink final
     if (!yyjson_is_obj(effective))
         return sink.Fail(path.View(), "Service settings must be a JSON object.");
 
-    Logicon::Settings model{};
     std::array<char, 160> diagnostic{};
-    if (FAILED(Logicon::ParseSettings(effective, model, diagnostic.data(), diagnostic.size())))
-        return sink.Fail(path.View(), diagnostic.data());
+    if (isZoom)
+    {
+        Zoom::Settings model{};
+        if (FAILED(Zoom::ParseSettings(effective, model, diagnostic.data(), diagnostic.size())))
+            return sink.Fail(path.View(), diagnostic.data());
+    }
+    else
+    {
+        Logicon::Settings model{};
+        if (FAILED(Logicon::ParseSettings(effective, model, diagnostic.data(), diagnostic.size())))
+            return sink.Fail(path.View(), diagnostic.data());
+        // The shared model checks the binding grammar; the host also knows which names resolve today.
+        for (uint32_t index = 0; index < model.keyCount; ++index)
+        {
+            const Logicon::KeyBinding& binding = model.keys[index];
+            if (binding.HasAction() && !HostActionCatalog::IsKnownActionName(binding.Action()))
+                return sink.Fail(path.View(), "keys[].action is not a known action name.");
+        }
+        for (uint32_t index = 0; index < model.dialpad.buttonCount; ++index)
+        {
+            const Logicon::KeyBinding& binding = model.dialpad.buttons[index];
+            if (binding.HasAction() && !HostActionCatalog::IsKnownActionName(binding.Action()))
+                return sink.Fail(path.View(), "dialpad.buttons[].action is not a known action name.");
+        }
+        for (uint32_t index = 0; index < model.dialpad.turnCount; ++index)
+        {
+            const Logicon::KeyBinding& binding = model.dialpad.turns[index];
+            if (binding.HasAction() && !HostActionCatalog::IsKnownActionName(binding.Action()))
+                return sink.Fail(path.View(), "dialpad.turns[].action is not a known action name.");
+        }
+    }
 
     ServiceSettings service{};
     if (!CopyText(name, service.name, false) || !CopyText(spec->pluginId, service.pluginId, true))

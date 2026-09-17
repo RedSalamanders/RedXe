@@ -10,26 +10,6 @@ namespace Logicon
 {
 namespace
 {
-struct NamedAction final
-{
-    const char* name;
-    KeyAction action;
-};
-
-constexpr NamedAction kActions[] = {
-    {"none", KeyAction::None},
-    {"page.next", KeyAction::PageNext},
-    {"page.previous", KeyAction::PagePrevious},
-    {"page.goto", KeyAction::PageGoTo},
-    {"widget.raise", KeyAction::WidgetRaise},
-    {"widget.dismiss", KeyAction::WidgetDismiss},
-    {"widget.toggle", KeyAction::WidgetToggle},
-    {"launch", KeyAction::Launch},
-    {"keys", KeyAction::Keys},
-    {"keyPage.next", KeyAction::KeyPageNext},
-    {"keyPage.previous", KeyAction::KeyPagePrevious},
-};
-
 struct NamedFace final
 {
     const char* name;
@@ -39,32 +19,6 @@ struct NamedFace final
 constexpr NamedFace kFaces[] = {
     {"none", KeyFace::None}, {"clock", KeyFace::Clock},   {"pageIndicator", KeyFace::PageIndicator},
     {"cpu", KeyFace::Cpu},   {"memory", KeyFace::Memory}, {"gpu", KeyFace::Gpu},
-};
-
-struct NamedDialAction final
-{
-    const char* name;
-    DialAction action;
-};
-
-constexpr NamedDialAction kDialActions[] = {
-    {"none", DialAction::None},       {"volume", DialAction::Volume},         {"page", DialAction::Page},
-    {"keyPage", DialAction::KeyPage}, {"brightness", DialAction::Brightness},
-};
-
-struct NamedMediaKey final
-{
-    const char* name;
-    MediaKey key;
-};
-
-constexpr NamedMediaKey kMediaKeys[] = {
-    {"volume-up", MediaKey::VolumeUp},
-    {"volume-down", MediaKey::VolumeDown},
-    {"mute", MediaKey::Mute},
-    {"play-pause", MediaKey::PlayPause},
-    {"next-track", MediaKey::NextTrack},
-    {"previous-track", MediaKey::PreviousTrack},
 };
 
 void WriteDiagnostic(char* diagnostic, size_t capacity, const char* text) noexcept
@@ -152,6 +106,27 @@ template <size_t Capacity>
     return true;
 }
 
+// "none" clears the action; anything else must satisfy the action-name grammar.
+[[nodiscard]] bool ParseAction(yyjson_val* value, KeyBinding& binding) noexcept
+{
+    if (!yyjson_is_str(value))
+    {
+        return false;
+    }
+    const std::string_view name = StringOf(value);
+    if (name == "none")
+    {
+        binding.action.fill('\0');
+        binding.actionBytes = 0;
+        return true;
+    }
+    if (!CopyBounded(name, binding.action, binding.actionBytes, kMaximumActionBytes))
+    {
+        return false;
+    }
+    return RedXeIsActionNameSyntax(binding.action.data());
+}
+
 [[nodiscard]] HRESULT ParseKey(yyjson_val* item, KeyBinding& binding, char* diagnostic, size_t capacity) noexcept
 {
     if (!yyjson_is_obj(item))
@@ -184,9 +159,9 @@ template <size_t Capacity>
         }
         else if (name == "action")
         {
-            if (!yyjson_is_str(value) || !ActionFromName(StringOf(value), binding.action))
+            if (!ParseAction(value, binding))
             {
-                return Fail(diagnostic, capacity, "keys[].action is not a known action name.");
+                return Fail(diagnostic, capacity, "keys[].action is not an action name such as page.next.");
             }
         }
         else if (name == "face")
@@ -240,20 +215,26 @@ template <size_t Capacity>
     return S_OK;
 }
 
-[[nodiscard]] HRESULT ParseDialButton(yyjson_val* item, KeyBinding& binding, char* diagnostic, size_t capacity) noexcept
+// One dialpad button ({button, action, target}) or one turn ({control, direction, action, target}).
+[[nodiscard]] HRESULT ParseDialBinding(yyjson_val* item, bool turn, KeyBinding& binding, char* diagnostic,
+                                       size_t capacity) noexcept
 {
     if (!yyjson_is_obj(item))
     {
-        return Fail(diagnostic, capacity, "dialpad.buttons items must be objects.");
+        return Fail(diagnostic, capacity,
+                    turn ? "dialpad.turns items must be objects." : "dialpad.buttons items must be objects.");
     }
     binding = KeyBinding{};
     bool sawButton = false;
+    bool sawControl = false;
+    bool sawDirection = false;
+    std::string_view directionName;
     yyjson_obj_iter iterator = yyjson_obj_iter_with(item);
     while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
     {
         const std::string_view name = StringOf(key);
         yyjson_val* value = yyjson_obj_iter_get_val(key);
-        if (name == "button")
+        if (!turn && name == "button")
         {
             if (!yyjson_is_uint(value) || yyjson_get_uint(value) >= kDialpadButtons)
             {
@@ -262,11 +243,43 @@ template <size_t Capacity>
             binding.slot = static_cast<uint8_t>(yyjson_get_uint(value));
             sawButton = true;
         }
+        else if (turn && name == "control")
+        {
+            if (!yyjson_is_str(value))
+            {
+                return Fail(diagnostic, capacity, "dialpad.turns[].control must be dial or roller.");
+            }
+            const std::string_view control = StringOf(value);
+            if (control == "dial")
+            {
+                binding.control = kControlDial;
+            }
+            else if (control == "roller")
+            {
+                binding.control = kControlRoller;
+            }
+            else
+            {
+                return Fail(diagnostic, capacity, "dialpad.turns[].control must be dial or roller.");
+            }
+            sawControl = true;
+        }
+        else if (turn && name == "direction")
+        {
+            if (!yyjson_is_str(value))
+            {
+                return Fail(diagnostic, capacity, "dialpad.turns[].direction must be cw, ccw, up, or down.");
+            }
+            directionName = StringOf(value);
+            sawDirection = true;
+        }
         else if (name == "action")
         {
-            if (!yyjson_is_str(value) || !ActionFromName(StringOf(value), binding.action))
+            if (!ParseAction(value, binding))
             {
-                return Fail(diagnostic, capacity, "dialpad.buttons[].action is not a known action name.");
+                return Fail(diagnostic, capacity,
+                            turn ? "dialpad.turns[].action is not an action name such as page.next."
+                                 : "dialpad.buttons[].action is not an action name such as page.next.");
             }
         }
         else if (name == "target")
@@ -274,17 +287,51 @@ template <size_t Capacity>
             if (!yyjson_is_str(value) ||
                 !CopyBounded(StringOf(value), binding.target, binding.targetBytes, kMaximumTargetBytes))
             {
-                return Fail(diagnostic, capacity, "dialpad.buttons[].target must be a string of at most 512 bytes.");
+                return Fail(diagnostic, capacity,
+                            turn ? "dialpad.turns[].target must be a string of at most 512 bytes."
+                                 : "dialpad.buttons[].target must be a string of at most 512 bytes.");
             }
         }
         else
         {
-            return Fail(diagnostic, capacity, "dialpad.buttons[] contains an unknown member.");
+            return Fail(diagnostic, capacity,
+                        turn ? "dialpad.turns[] contains an unknown member."
+                             : "dialpad.buttons[] contains an unknown member.");
         }
     }
-    if (!sawButton)
+    if (!turn && !sawButton)
     {
         return Fail(diagnostic, capacity, "dialpad.buttons[].button is required.");
+    }
+    if (turn)
+    {
+        if (!sawControl || !sawDirection)
+        {
+            return Fail(diagnostic, capacity, "dialpad.turns[] requires control and direction.");
+        }
+        // The dial turns cw / ccw; the roller moves up / down. A direction from the other control is rejected so a
+        // document cannot describe a turn that does not exist.
+        if (binding.control == kControlDial && directionName == "cw")
+        {
+            binding.direction = kDirectionForward;
+        }
+        else if (binding.control == kControlDial && directionName == "ccw")
+        {
+            binding.direction = kDirectionBackward;
+        }
+        else if (binding.control == kControlRoller && directionName == "up")
+        {
+            binding.direction = kDirectionForward;
+        }
+        else if (binding.control == kControlRoller && directionName == "down")
+        {
+            binding.direction = kDirectionBackward;
+        }
+        else
+        {
+            return Fail(diagnostic, capacity,
+                        "dialpad.turns[].direction must be cw or ccw for the dial and up or down for the roller.");
+        }
     }
     return S_OK;
 }
@@ -302,43 +349,45 @@ template <size_t Capacity>
     {
         const std::string_view name = StringOf(key);
         yyjson_val* value = yyjson_obj_iter_get_val(key);
-        if (name == "dial" || name == "roller")
+        if (name == "buttons" || name == "turns")
         {
-            DialAction& action = name == "dial" ? dialpad.dial : dialpad.roller;
-            if (!yyjson_is_str(value) || !DialActionFromName(StringOf(value), action))
-            {
-                return Fail(diagnostic, capacity,
-                            "dialpad.dial and dialpad.roller must be none, volume, page, keyPage, or brightness.");
-            }
-        }
-        else if (name == "buttons")
-        {
+            const bool turns = name == "turns";
             if (!yyjson_is_arr(value))
             {
-                return Fail(diagnostic, capacity, "dialpad.buttons must be an array.");
+                return Fail(diagnostic, capacity,
+                            turns ? "dialpad.turns must be an array." : "dialpad.buttons must be an array.");
             }
             const size_t count = yyjson_arr_size(value);
-            if (count > kDialpadButtons)
+            if (count > (turns ? kDialpadTurns : kDialpadButtons))
             {
-                return Fail(diagnostic, capacity, "dialpad.buttons may contain at most 4 entries.");
+                return Fail(diagnostic, capacity,
+                            turns ? "dialpad.turns may contain at most 4 entries."
+                                  : "dialpad.buttons may contain at most 4 entries.");
             }
             for (size_t index = 0; index < count; ++index)
             {
-                KeyBinding& binding = dialpad.buttons[index];
-                const HRESULT parsed = ParseDialButton(yyjson_arr_get(value, index), binding, diagnostic, capacity);
+                KeyBinding& binding = turns ? dialpad.turns[index] : dialpad.buttons[index];
+                const HRESULT parsed =
+                    ParseDialBinding(yyjson_arr_get(value, index), turns, binding, diagnostic, capacity);
                 if (FAILED(parsed))
                 {
                     return parsed;
                 }
                 for (size_t previous = 0; previous < index; ++previous)
                 {
-                    if (dialpad.buttons[previous].slot == binding.slot)
+                    const KeyBinding& earlier = turns ? dialpad.turns[previous] : dialpad.buttons[previous];
+                    const bool duplicate =
+                        turns ? (earlier.control == binding.control && earlier.direction == binding.direction)
+                              : earlier.slot == binding.slot;
+                    if (duplicate)
                     {
-                        return Fail(diagnostic, capacity, "dialpad.buttons[] binds the same button twice.");
+                        return Fail(diagnostic, capacity,
+                                    turns ? "dialpad.turns[] binds the same control and direction twice."
+                                          : "dialpad.buttons[] binds the same button twice.");
                     }
                 }
             }
-            dialpad.buttonCount = static_cast<uint32_t>(count);
+            (turns ? dialpad.turnCount : dialpad.buttonCount) = static_cast<uint32_t>(count);
         }
         else
         {
@@ -356,6 +405,18 @@ const KeyBinding* DialpadSettings::Button(uint32_t button) const noexcept
         if (buttons[index].slot == button)
         {
             return &buttons[index];
+        }
+    }
+    return nullptr;
+}
+
+const KeyBinding* DialpadSettings::Turn(uint8_t control, uint8_t direction) const noexcept
+{
+    for (uint32_t index = 0; index < turnCount && index < turns.size(); ++index)
+    {
+        if (turns[index].control == control && turns[index].direction == direction)
+        {
+            return &turns[index];
         }
     }
     return nullptr;
@@ -507,31 +568,6 @@ HRESULT ParseSettingsJson(std::string_view json, Settings& settings, char* diagn
     return result;
 }
 
-const char* ActionName(KeyAction action) noexcept
-{
-    for (const NamedAction& candidate : kActions)
-    {
-        if (candidate.action == action)
-        {
-            return candidate.name;
-        }
-    }
-    return "none";
-}
-
-bool ActionFromName(std::string_view name, KeyAction& action) noexcept
-{
-    for (const NamedAction& candidate : kActions)
-    {
-        if (name == candidate.name)
-        {
-            action = candidate.action;
-            return true;
-        }
-    }
-    return false;
-}
-
 const char* FaceName(KeyFace face) noexcept
 {
     for (const NamedFace& candidate : kFaces)
@@ -557,54 +593,18 @@ bool FaceFromName(std::string_view name, KeyFace& face) noexcept
     return false;
 }
 
-bool MediaKeyFromName(std::string_view name, MediaKey& key) noexcept
+const char* ControlName(uint8_t control) noexcept
 {
-    for (const NamedMediaKey& candidate : kMediaKeys)
-    {
-        if (name == candidate.name)
-        {
-            key = candidate.key;
-            return true;
-        }
-    }
-    return false;
+    return control == kControlRoller ? "roller" : "dial";
 }
 
-const char* MediaKeyName(MediaKey key) noexcept
+const char* DirectionName(uint8_t control, uint8_t direction) noexcept
 {
-    for (const NamedMediaKey& candidate : kMediaKeys)
+    if (control == kControlRoller)
     {
-        if (candidate.key == key)
-        {
-            return candidate.name;
-        }
+        return direction == kDirectionBackward ? "down" : "up";
     }
-    return "";
-}
-
-const char* DialActionName(DialAction action) noexcept
-{
-    for (const NamedDialAction& candidate : kDialActions)
-    {
-        if (candidate.action == action)
-        {
-            return candidate.name;
-        }
-    }
-    return "none";
-}
-
-bool DialActionFromName(std::string_view name, DialAction& action) noexcept
-{
-    for (const NamedDialAction& candidate : kDialActions)
-    {
-        if (name == candidate.name)
-        {
-            action = candidate.action;
-            return true;
-        }
-    }
-    return false;
+    return direction == kDirectionBackward ? "ccw" : "cw";
 }
 
 bool ParseWidgetTarget(std::string_view target, std::string_view& pageId, uint32_t& ordinal) noexcept
@@ -647,49 +647,4 @@ bool ParseWidgetTarget(std::string_view target, std::string_view& pageId, uint32
     return true;
 }
 
-bool TargetIsValid(const KeyBinding& binding) noexcept
-{
-    const std::string_view target = binding.Target();
-    switch (binding.action)
-    {
-    case KeyAction::Launch:
-    {
-        if (target.size() < 3)
-        {
-            return false;
-        }
-        // Absolute Win32 path: drive letter, colon, separator.
-        const bool drivePath = ((target[0] >= 'A' && target[0] <= 'Z') || (target[0] >= 'a' && target[0] <= 'z')) &&
-                               target[1] == ':' && (target[2] == '\\' || target[2] == '/');
-        if (drivePath || target.starts_with("\\\\"))
-        {
-            return true;
-        }
-        // URI: alphabetic scheme of at least two characters followed by ':'.
-        size_t scheme = 0;
-        while (scheme < target.size() &&
-               ((target[scheme] >= 'A' && target[scheme] <= 'Z') || (target[scheme] >= 'a' && target[scheme] <= 'z')))
-        {
-            ++scheme;
-        }
-        return scheme >= 2 && scheme < target.size() && target[scheme] == ':';
-    }
-    case KeyAction::Keys:
-    {
-        MediaKey key = MediaKey::None;
-        return MediaKeyFromName(target, key);
-    }
-    case KeyAction::PageGoTo:
-        return !target.empty();
-    case KeyAction::WidgetRaise:
-    case KeyAction::WidgetToggle:
-    {
-        std::string_view pageId;
-        uint32_t ordinal = 0;
-        return ParseWidgetTarget(target, pageId, ordinal);
-    }
-    default:
-        return true;
-    }
-}
 } // namespace Logicon

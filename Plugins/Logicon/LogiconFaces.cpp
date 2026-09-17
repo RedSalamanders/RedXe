@@ -1,5 +1,7 @@
 #include "LogiconFaces.h"
 
+#include "Actions/FluentGlyphNames.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -18,36 +20,6 @@ constexpr float kFaceSizeF = static_cast<float>(kFaceSize);
 constexpr float kLabelMaxWidth = kFaceSizeF - 10.0f;
 constexpr wchar_t kEllipsis = L'\x2026';
 constexpr uint32_t kMaximumRunGlyphs = kMaximumFaceLabelCharacters + 1;
-
-struct NamedGlyph final
-{
-    const char* name;
-    wchar_t glyph;
-};
-
-// Segoe Fluent Icons private-use code points, written as escapes so they survive every editor.
-constexpr NamedGlyph kGlyphs[] = {
-    {"ChevronLeft", L'\xE76B'}, {"ChevronRight", L'\xE76C'}, {"ChevronUp", L'\xE70E'}, {"ChevronDown", L'\xE70D'},
-    {"Back", L'\xE72B'},        {"Forward", L'\xE72A'},      {"Home", L'\xE80F'},      {"Settings", L'\xE713'},
-    {"Play", L'\xE768'},        {"Pause", L'\xE769'},        {"Stop", L'\xE71A'},      {"Next", L'\xE893'},
-    {"Previous", L'\xE892'},    {"Volume", L'\xE767'},       {"Mute", L'\xE74F'},      {"Microphone", L'\xE720'},
-    {"Camera", L'\xE722'},      {"Video", L'\xE714'},        {"Search", L'\xE721'},    {"Refresh", L'\xE72C'},
-    {"Sync", L'\xE895'},        {"Add", L'\xE710'},          {"Remove", L'\xE738'},    {"Cancel", L'\xE711'},
-    {"Accept", L'\xE8FB'},      {"Pin", L'\xE718'},          {"Folder", L'\xE8B7'},    {"Document", L'\xE8A5'},
-    {"Link", L'\xE71B'},        {"Lock", L'\xE72E'},         {"Power", L'\xE7E8'},     {"Brightness", L'\xE706'},
-    {"Keyboard", L'\xE765'},    {"Mouse", L'\xE962'},        {"Globe", L'\xE774'},     {"Mail", L'\xE715'},
-    {"Calendar", L'\xE787'},    {"Clock", L'\xE823'},        {"Info", L'\xE946'},      {"Warning", L'\xE7BA'},
-    {"Error", L'\xEA39'},       {"Help", L'\xE897'},         {"Star", L'\xE734'},      {"Heart", L'\xEB51'},
-    {"FullScreen", L'\xE740'},  {"BackToWindow", L'\xE73F'}, {"Save", L'\xE74E'},      {"Share", L'\xE72D'},
-    {"Copy", L'\xE8C8'},        {"Undo", L'\xE7A7'},         {"Redo", L'\xE7A6'},      {"Diagnostic", L'\xE9D9'},
-    {"AllApps", L'\xE71D'},     {"Map", L'\xE707'},          {"Music", L'\xE8D6'},     {"Photo", L'\xE91B'},
-    {"Headphone", L'\xE7F6'},   {"Phone", L'\xE717'},        {"Print", L'\xE749'},     {"Tag", L'\xE8EC'},
-    {"Bookmarks", L'\xE8A4'},   {"Repair", L'\xE90F'},       {"Cloud", L'\xE753'},     {"Download", L'\xE896'},
-    {"Upload", L'\xE898'},      {"Delete", L'\xE74D'},       {"Edit", L'\xE70F'},      {"Filter", L'\xE71C'},
-    {"Zoom", L'\xE71E'},        {"ZoomOut", L'\xE71F'},      {"View", L'\xE890'},      {"List", L'\xEA37'},
-    {"Emoji", L'\xE76E'},       {"Game", L'\xE7FC'},         {"Tv", L'\xE7F4'},        {"Devices", L'\xE772'},
-    {"Bluetooth", L'\xE702'},   {"Wifi", L'\xE701'},         {"Lightbulb", L'\xEA80'}, {"Dashboard", L'\xF246'},
-};
 
 [[nodiscard]] uint8_t Channel(uint32_t rgb, uint32_t shift) noexcept
 {
@@ -119,28 +91,17 @@ void FillRect(uint32_t* bgra, int left, int top, int right, int bottom, uint32_t
 
 wchar_t FluentGlyphFromName(const char* name, uint32_t bytes) noexcept
 {
-    if (!name || bytes == 0)
-    {
-        return 0;
-    }
-    for (const NamedGlyph& candidate : kGlyphs)
-    {
-        if (std::strlen(candidate.name) == bytes && std::memcmp(candidate.name, name, bytes) == 0)
-        {
-            return candidate.glyph;
-        }
-    }
-    return 0;
+    return name && bytes != 0 ? RedXeActions::FluentGlyphFromName(std::string_view(name, bytes)) : 0;
 }
 
 uint32_t FluentGlyphNameCount() noexcept
 {
-    return static_cast<uint32_t>(sizeof(kGlyphs) / sizeof(kGlyphs[0]));
+    return RedXeActions::FluentGlyphNameCount();
 }
 
 const char* FluentGlyphNameAt(uint32_t index) noexcept
 {
-    return index < FluentGlyphNameCount() ? kGlyphs[index].name : nullptr;
+    return RedXeActions::FluentGlyphNameAt(index);
 }
 
 FaceRenderer::~FaceRenderer()

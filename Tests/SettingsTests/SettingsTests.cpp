@@ -226,7 +226,7 @@ constexpr std::string_view kRepresentative = R"json(
     const ServiceSettings* releaseLogicon = FindServiceSettings(release, "builtin.logicon");
     if (!debugLogicon || !releaseLogicon || debug.versionMinor != 1 || release.versionMinor != 1 ||
         debugLogicon->name.View() != "Logicon" ||
-        debugLogicon->privateConfiguration.View().find("\"keyPage.next\"") == std::string_view::npos ||
+        debugLogicon->privateConfiguration.View().find("\"logicon.keyPage.next\"") == std::string_view::npos ||
         releaseLogicon->privateConfiguration.View().find("\"dashboardPages\"") == std::string_view::npos)
     {
         std::wprintf(L"Deployed templates do not configure the Logicon service as expected.\n");
@@ -378,18 +378,27 @@ constexpr std::string_view kRepresentative = R"json(
     // plugin's shared model, never counted as a widget plugin.
     constexpr std::string_view servicesDocument = R"json({
       "version":{"major":5,"minor":1},
-      "services":{"Keypad":{"plugin":"builtin.logicon","brightness":40,"keys":[{"slot":0,"action":"page.next"}]}},
+      "services":{
+        "Keypad":{"plugin":"builtin.logicon","brightness":40,"keys":[
+          {"slot":0,"action":"page.next"},
+          {"slot":1,"action":"system.launch","target":"not-a-path"},
+          {"slot":2,"action":"zoom.mute","target":"toggle"}],
+          "dialpad":{"turns":[{"control":"roller","direction":"up","action":"logicon.brightness","target":"+5"}]}},
+        "Meet":{"plugin":"builtin.zoom","clientId":"abc"}},
       "pages":[{"widgets":[{"plugin":"builtin.gdi-orbit"}]}]
     })json";
     AppSettings services{};
-    if (FAILED(ParseAppSettingsJson(servicesDocument, services)) || services.serviceCount != 1 ||
-        services.services.size() != 1 || services.services[0].name.View() != "Keypad" ||
+    if (FAILED(ParseAppSettingsJson(servicesDocument, services)) || services.serviceCount != 2 ||
+        services.services.size() != 2 || services.services[0].name.View() != "Keypad" ||
         services.services[0].pluginId.View() != "builtin.logicon" || services.pluginCount != 1 ||
         services.services[0].privateConfiguration.View().find("\"brightness\":40") == std::string_view::npos ||
         services.services[0].privateConfiguration.View().find("\"restoreLogoOnExit\":true") == std::string_view::npos ||
         services.services[0].privateConfiguration.View().find("\"page.next\"") == std::string_view::npos ||
-        !FindServiceSettings(services, "builtin.logicon") || FindServiceSettings(services, "builtin.launcher") ||
-        FAILED(ValidateAppSettings(services)))
+        services.services[0].privateConfiguration.View().find("\"not-a-path\"") == std::string_view::npos ||
+        services.services[1].pluginId.View() != "builtin.zoom" ||
+        services.services[1].privateConfiguration.View().find("\"redirectPort\":48123") == std::string_view::npos ||
+        !FindServiceSettings(services, "builtin.logicon") || !FindServiceSettings(services, "builtin.zoom") ||
+        FindServiceSettings(services, "builtin.launcher") || FAILED(ValidateAppSettings(services)))
     {
         std::wprintf(L"The services root did not parse as expected.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -408,6 +417,15 @@ constexpr std::string_view kRepresentative = R"json(
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","keys":[{"slot":9}]}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","brightness":0}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","extra":true}},"pages":[{}]})json",
+        // Action names: the former bare names, an unknown default verb, and an unregistered namespace are document
+        // errors; an unsatisfied target is not (Plugins_Actions.md).
+        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","keys":[{"slot":0,"action":"launch","target":"C:\\x.exe"}]}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","keys":[{"slot":0,"action":"page.nowhere"}]}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"turns":[{"control":"dial","direction":"cw","action":"nowhere.go"}]}}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"dial":"page"}}},"pages":[{}]})json",
+        // Zoom model rejections.
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","redirectPort":80}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","clientSecret":"x"}},"pages":[{}]})json",
         // Shape errors.
         R"json({"version":{"major":5},"services":[],"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":"builtin.logicon"},"pages":[{}]})json",
@@ -673,8 +691,25 @@ constexpr std::string_view kRepresentative = R"json(
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    if (SUCCEEDED(PatchWidgetInstanceSettings(launcher, launcher.dashboard.pages[0].widgets[0].id.View(),
-                                              R"json({"shortcuts":[{"target":"example.com"}]})json")))
+    // An unsatisfied launch target is a runtime warning tile, not a document error; an unknown action name and a
+    // non-launch action without an icon are structural errors.
+    if (FAILED(PatchWidgetInstanceSettings(launcher, launcher.dashboard.pages[0].widgets[0].id.View(),
+                                           R"json({"shortcuts":[{"target":"example.com"}]})json")) ||
+        FAILED(PatchWidgetInstanceSettings(launcher, launcher.dashboard.pages[0].widgets[0].id.View(),
+                                           R"json({"shortcuts":[{"action":"page.next","icon":"Home"}]})json")) ||
+        launcher.dashboard.pages[0].widgets[0].privateConfiguration.View().find("\"action\":\"page.next\"") ==
+            std::string_view::npos)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    if (SUCCEEDED(PatchWidgetInstanceSettings(
+            launcher, launcher.dashboard.pages[0].widgets[0].id.View(),
+            R"json({"shortcuts":[{"action":"nowhere.go","target":"x","icon":"Home"}]})json")) ||
+        SUCCEEDED(PatchWidgetInstanceSettings(launcher, launcher.dashboard.pages[0].widgets[0].id.View(),
+                                              R"json({"shortcuts":[{"action":"page.next"}]})json")) ||
+        SUCCEEDED(
+            PatchWidgetInstanceSettings(launcher, launcher.dashboard.pages[0].widgets[0].id.View(),
+                                        R"json({"shortcuts":[{"target":"C:\\x.exe","iconPng":"C:\\i.png"}]})json")))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -730,7 +765,7 @@ constexpr std::string_view kRepresentative = R"json(
         std::string_view{
             R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.weather","temperatureUnit":"kelvin"}]}]})json"},
         std::string_view{
-            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","shortcuts":[{"target":"example.com"}]}]}]})json"},
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","shortcuts":[{"action":"nowhere.go","target":"x","icon":"Home"}]}]}]})json"},
         std::string_view{
             R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","shortcuts":[{"target":"C:\\\\Windows\\\\notepad.exe"},{"target":"C:\\\\Windows\\\\write.exe"},{"target":"C:\\\\Windows\\\\regedit.exe"},{"target":"C:\\\\Windows\\\\explorer.exe"},{"target":"C:\\\\Windows\\\\notepad.exe"}]}]}]})json"},
         std::string_view{

@@ -71,6 +71,7 @@
     <ClCompile Include="LogiconSettings.cpp" />
     <ClCompile Include="LogiconSynthetic.cpp" />
     <ClCompile Include="LogiconSystemData.cpp" />
+    <ClCompile Include="..\..\Common\Actions\ActionTargets.cpp" />
     <!-- The monitor tile and the shared quad/glyph renderer exist only in Debug builds; Release keeps the type
          catalogued through a provider that refuses every instance. -->
     <ClCompile Include="LogiconMonitor.cpp" Condition="'$(Configuration)'!='Release'" />

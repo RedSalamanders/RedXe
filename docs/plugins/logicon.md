@@ -18,7 +18,7 @@ Quit **Logi Options+** first (or remove the keypad from its profile). Both progr
 
 Unplugging and replugging the keypad is fine: the faces come back by themselves. On exit RedXe restores the keypad's own button behavior and, by default, its start-up logo.
 
-The MX Creative **Dialpad** works too when it is paired over Bluetooth: turning the dial or the roller can flip dashboard pages, change the volume, switch key pages, or dim the keypad, and each of its four buttons can do anything a key can. Buttons you do not bind keep their normal meaning (Back, Forward, …), and the dial and roller keep scrolling whatever is under the mouse pointer while they drive RedXe. A dialpad paired through a Logi Bolt receiver is not read.
+The MX Creative **Dialpad** works too when it is paired over Bluetooth: turning the dial or the roller can run any action per notch (flip dashboard pages, change the volume, switch key pages, dim the keypad, …), and each of its four buttons can do anything a key can. Buttons you do not bind keep their normal meaning (Back, Forward, …), and the dial and roller keep scrolling whatever is under the mouse pointer while they drive RedXe. A dialpad paired through a Logi Bolt receiver is not read.
 
 Keys can also show live numbers: the CPU, memory, or GPU load, taken from the System Data plugin once a second.
 
@@ -40,34 +40,29 @@ Each `keys` entry:
 | --- | --- | --- | --- | --- |
 | `page` | integer | 0–3 | `0` | Key page this entry belongs to (up to four pages of nine keys) |
 | `slot` | integer | 0–8 | required | Key position, left to right then top to bottom |
-| `action` | string | see below | `none` | What a press does |
-| `target` | string | ≤ 512 bytes | `""` | Argument for the action |
+| `action` | string | any [action](../actions.md) | `none` | What a press does |
+| `target` | string | ≤ 512 bytes | `""` | Argument for the action ([grammar per action](../actions.md)) |
 | `label` | string | ≤ 16 characters | `""` | Text under the icon |
 | `icon` | string | glyph name or `png:<absolute path>` | `""` | Picture on the key |
 | `color` | string | `#RRGGBB` | dashboard background | Key background |
 | `face` | string | `none`, `clock`, `pageIndicator`, `cpu`, `memory`, `gpu` | `none` | A live face instead of a static icon: the time, the page number, or a load percentage (label defaults to `CPU`, `MEM`, `GPU`) |
 
-Actions and their `target`:
+Every action in [Actions](../actions.md) can be bound to a key. The ones the keypad itself provides:
 
 | `action` | `target` | Effect |
 | --- | --- | --- |
-| `page.next` / `page.previous` | none | Slide to the next / previous dashboard page |
-| `page.goto` | a page `id` from `pages` | Jump to that page |
-| `widget.raise` / `widget.toggle` | `"<ordinal>"` or `"<pageId>/<ordinal>"` (0-based position on the current page) | Raise that widget; `toggle` dismisses it when it is already raised |
-| `widget.dismiss` | none | Close the raised widget |
-| `launch` | `C:\...`, `\\server\share\...`, or `https://...` | Open it with the shell |
-| `keys` | `volume-up`, `volume-down`, `mute`, `play-pause`, `next-track`, `previous-track` | Send that media key |
-| `keyPage.next` / `keyPage.previous` | none | Switch to the next / previous key page |
+| `logicon.keyPage.next` / `logicon.keyPage.previous` | none | Switch to the next / previous key page |
+| `logicon.keyPage.goto` | `0`–`3` | Select a key page |
+| `logicon.brightness` | `1`–`100`, `+n`, or `-n` | Keypad brightness until the next settings change |
 
 The `dialpad` object:
 
 | Key | Type | Values | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `dial` | string | `none`, `volume`, `page`, `keyPage`, `brightness` | `none` | One notch of the big dial: volume up/down, next/previous dashboard page, next/previous key page, or keypad brightness ±5 |
-| `roller` | string | same values | `none` | One notch of the small roller |
+| `turns` | array | up to 4 objects | `[]` | What one notch of the dial (`cw` / `ccw`) or the roller (`up` / `down`) does |
 | `buttons` | array | up to 4 objects | `[]` | Bindings for Back (`0`), Forward (`1`), Button 6 (`2`), Button 7 (`3`) |
 
-Each `buttons` entry has a required `button` (0–3) and the same `action` and `target` as a key. A bound button is taken over by RedXe (an entry with no `action` silences it); an unbound one keeps its normal meaning.
+Each `turns` entry has a required `control` (`dial` or `roller`) and `direction` (`cw` or `ccw` for the dial, `up` or `down` for the roller) plus the same `action` and `target` as a key; one notch runs the binding once. A direction without an entry does nothing. Each `buttons` entry has a required `button` (0–3) and the same `action` and `target` as a key. A bound button is taken over by RedXe (an entry with no `action` silences it); an unbound one keeps its normal meaning.
 
 Icons are Segoe Fluent Icons glyph names: `ChevronLeft`, `ChevronRight`, `Back`, `Forward`, `Home`, `Settings`, `Play`, `Pause`, `Stop`, `Next`, `Previous`, `Volume`, `Mute`, `Microphone`, `Camera`, `Video`, `Search`, `Refresh`, `Sync`, `Add`, `Remove`, `Cancel`, `Accept`, `Pin`, `Folder`, `Document`, `Link`, `Lock`, `Power`, `Brightness`, `Keyboard`, `Mouse`, `Globe`, `Mail`, `Calendar`, `Clock`, `Info`, `Warning`, `Error`, `Help`, `Star`, `Heart`, `FullScreen`, `BackToWindow`, `Save`, `Share`, `Copy`, `Undo`, `Redo`, `Diagnostic`, `AllApps`, `Map`, `Music`, `Photo`, `Headphone`, `Phone`, `Print`, `Tag`, `Bookmarks`, `Repair`, `Cloud`, `Download`, `Upload`, `Delete`, `Edit`, `Filter`, `Zoom`, `ZoomOut`, `View`, `List`, `Emoji`, `Game`, `Tv`, `Devices`, `Bluetooth`, `Wifi`, `Lightbulb`, `Dashboard`. A `png:` icon is scaled to fit 72 px. A key whose `target` does not fit its action shows a red `!` and does nothing.
 
@@ -81,18 +76,22 @@ Icons are Segoe Fluent Icons glyph names: `ChevronLeft`, `ChevronRight`, `Back`,
       { "slot": 0, "action": "page.previous", "label": "Previous", "icon": "ChevronLeft" },
       { "slot": 1, "face": "pageIndicator" },
       { "slot": 2, "action": "page.next", "label": "Next", "icon": "ChevronRight" },
-      { "slot": 3, "action": "keys", "target": "mute", "label": "Mute", "icon": "Mute" },
-      { "slot": 4, "action": "launch", "target": "https://example.org", "label": "Web", "icon": "Globe" },
+      { "slot": 3, "action": "keys.media", "target": "mute", "label": "Mute", "icon": "Mute" },
+      { "slot": 4, "action": "system.launch", "target": "https://example.org", "label": "Web", "icon": "Globe" },
       { "slot": 5, "action": "widget.toggle", "target": "0", "label": "Widget 1", "icon": "FullScreen" },
       { "slot": 7, "face": "clock" },
-      { "slot": 8, "action": "keyPage.next", "label": "More", "icon": "Music", "color": "#1F3A5F" },
-      { "page": 1, "slot": 1, "action": "keys", "target": "play-pause", "label": "Play", "icon": "Play" },
+      { "slot": 8, "action": "logicon.keyPage.next", "label": "More", "icon": "Music", "color": "#1F3A5F" },
+      { "page": 1, "slot": 1, "action": "keys.media", "target": "play-pause", "label": "Play", "icon": "Play" },
       { "page": 1, "slot": 6, "face": "cpu" },
-      { "page": 1, "slot": 8, "action": "keyPage.previous", "label": "Back", "icon": "Back" }
+      { "page": 1, "slot": 8, "action": "logicon.keyPage.previous", "label": "Back", "icon": "Back" }
     ],
     "dialpad": {
-      "dial": "page",
-      "roller": "volume",
+      "turns": [
+        { "control": "dial", "direction": "cw", "action": "page.next" },
+        { "control": "dial", "direction": "ccw", "action": "page.previous" },
+        { "control": "roller", "direction": "up", "action": "keys.media", "target": "volume-up" },
+        { "control": "roller", "direction": "down", "action": "keys.media", "target": "volume-down" }
+      ],
       "buttons": [
         { "button": 0, "action": "page.previous" },
         { "button": 1, "action": "page.next" },

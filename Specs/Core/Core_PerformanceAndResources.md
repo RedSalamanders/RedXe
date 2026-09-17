@@ -42,6 +42,12 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   in a separately owned helper process. Shutdown signals cancellation, joins bounded work, suppresses UI completions
   and releases references before unloading modules. Hidden AV display observation is suspended independently from
   an armed camera route; that route captures only while consumer sample requests maintain a 250-ms demand lease.
+- Named actions (`Specs/Plugins/Plugins_Actions.md`) use one static 16-slot ring drained by one posted message; every
+  host-native action and every publisher `Execute` returns within 20 ms on the UI thread without waiting, pumping,
+  or showing UI, and defers longer work to the control lane or the publisher's own device lane through bounded
+  slots. Input injection batches at most 32 `INPUT`s per call and never sleeps; validation maps only the publisher
+  modules a document binds, at the same moment as their settings contracts; between executions a dedicated action
+  DLL owns no thread, timer, window, or hook.
 - RedXe and plugins must share immutable device resources across compatible widget instances and minimize dynamic
   uploads, state changes, render-target switches, and draw calls without restricting what a GPU widget may render.
 - Derived display state such as DPI, design-canvas transforms, and widget viewports must be cached and recomputed only

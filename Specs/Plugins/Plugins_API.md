@@ -81,7 +81,7 @@ The mandatory requirements in `Specs/Core/Core_PerformanceAndResources.md` apply
 
 | Header | Interface | IID | Purpose |
 | --- | --- | --- | --- |
-| `Host.h` | `IRedXeHost` | `052F039E-794D-4221-9CF2-28B9208F446F` | Host services: data-provider lookup, frame requests, widget status, settings persist, and JSONL log |
+| `Host.h` | `IRedXeHost` | `052F039E-794D-4221-9CF2-28B9208F446F` | Host services: data-provider lookup, frame requests, widget status, settings persist, JSONL log, and named actions (request, execute, validate) |
 | `Widget.h` | `IRedXeWidget` | `62DB9FB4-AF7B-47C0-BBF9-B7D5CA535502` | Generic widget identity, visibility, and collect-on-exit |
 | `Widget.h` | `IRedXeWidgetProvider` | `231AC0E8-1204-4BFF-BCEA-7CACF11F439D` | Type enumeration and instance creation |
 | `Widget.h` | `IRedXeGpuWidget` | `355C7084-286B-409F-9FD3-A7695DEF2A33` | Direct3D 11 rendering mechanism |
@@ -98,7 +98,7 @@ The mandatory requirements in `Specs/Core/Core_PerformanceAndResources.md` apply
 | `Data.h` | `IRedXeDataSource` | `C3A81F6E-2D47-4B90-A1E5-6F8C9D0B3E21` | Plugin-side typed, bounded pull snapshots |
 | `Data.h` | `IRedXeDataProvider` | `9EAE20F1-36A8-48A8-B451-F60401A898CD` | Host-side dataset discovery and subscription |
 | `Data.h` | `IRedXeDataSink` | `F9834987-EBC6-411E-9F28-A49E4DBB49D9` | Synchronous borrowed-snapshot delivery on the host worker |
-| `Data.h` | `IRedXeDataSubscription` | `B8912B7D-89AD-4830-9CFB-73F4E72027FB` | Active/inactive subscription lifetime and callback drain |
+$1| `Action.h` | `IRedXeActionPack` | `3C7A9E10-5B2D-4F81-9A6E-0D4C8B2F7E51` | Executor for the action namespaces a plugin id publishes (`Plugins_Actions.md`) |
 
 The GPU and native-window interfaces are independent mechanisms. The host selects GPU when an instance exposes both;
 otherwise it uses the one supported mechanism. An instance exposing neither is rejected with
@@ -176,7 +176,9 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
 - RedXe loads DLLs by absolute path using
   `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32`; it never searches the working directory.
 - `RedXeCreate` and `RedXeEnumeratePlugins` are required. Every settings-visible plugin MUST also export
-  `RedXeGetPluginSettingsContract`. `RedXePluginShutdown` is optional because most modules need no global shutdown.
+  `RedXeGetPluginSettingsContract`; every plugin id that advertises `RedXePluginCapabilityActions` MUST also export
+  `RedXeGetActionContract` and answer for that id ([`Plugins_Actions.md`](Plugins_Actions.md)). `RedXePluginShutdown`
+  is optional because most modules need no global shutdown.
 - A plugin MAY additionally export a bounded test-support surface. It is present in Release because the required
   Release validation drives it, so it is part of the shipped export set rather than a debug-only convenience. Each
   such export MUST be declared in that plugin's `*TestContract.h` behind a single `REDXE_*_TEST_API` macro, never as a
@@ -187,9 +189,13 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   `RedXeWeatherProbeHttpGetOnSmallStack`, `RedXeWeatherBuildTestLocationSearchUrl`,
   `RedXeAVControlUseSyntheticBackend` and `RedXeAVControlTestSnapshot`, and the Logicon surface
   `RedXeLogiconGetTestDiagnostics`, `RedXeLogiconUseSyntheticDevice`, `RedXeLogiconInjectControl`,
-  `RedXeLogiconInjectSyntheticReport`, `RedXeLogiconSetFaceOverride`, and `RedXeLogiconSetBrightness`. AV synthetic
+  `RedXeLogiconInjectSyntheticReport`, `RedXeLogiconSetFaceOverride`, and `RedXeLogiconSetBrightness`, and the Zoom
+  surface `RedXeZoomGetTestDiagnostics`, `RedXeZoomUseSyntheticSession`, `RedXeZoomSeedCredential`,
+  `RedXeZoomSyntheticSetHost`, `RedXeZoomSyntheticDropConnection`, `RedXeZoomSyntheticCounters`, and
+  `RedXeZoomStoredCredential`. AV synthetic
   mode is accepted only before providers exist and is never exposed as a user setting or environment toggle; the
-  Logicon synthetic keypad is selected only through its export or the Debug monitor tile, never by a setting.
+  Logicon synthetic keypad and the Zoom synthetic session are selected only through their exports (or, for Logicon,
+  the Debug monitor tile), never by a setting.
 - Every factory call names one non-empty plugin ID. Null and empty IDs are invalid, including in single-plugin DLLs.
 - Factory, enumeration, widget creation, device notification, GPU rendering, native-window lifecycle, host-service,
   data-source, provider, and data-sink calls are synchronous and non-reentrant. Widget visibility, collect-on-exit,
@@ -265,20 +271,16 @@ object it was supplied to.
   a frame or queue another unit. Shutdown signals cancellation, drains the worker, suppresses completions and
   releases retained references on the UI thread before module shutdown. Self-tests reject device work explicitly.
   Committed input may enqueue mutations. Preparation and visibility changes may enqueue observation/cleanup only.
-- `RequestHostAction` asks the host to perform one dashboard action: `PageNext`, `PagePrevious`, `PageGoTo` (page id
-  in `targetUtf8`, or a zero-based index in `argument` when the target is null), `WidgetRaise`, `WidgetDismiss`,
-  `WidgetToggle` (a zero-based ordinal on the current page in `argument`, or `"<pageId>/<ordinal>"` / `"<ordinal>"`
-  in `targetUtf8`; a page id other than the current page is dropped), and `Launch` (an absolute Win32 path or a URI
-  with an alphabetic scheme of at least two characters; anything else returns `E_INVALIDARG` from the drain, never
-  reaches the shell). It is safe from any thread, including a service's device lane, allocation-free, and never
-  blocks: the host copies the record into a 16-slot ring, coalesces an identical pending request (`S_FALSE`), returns
-  `ERROR_BUSY` when the ring is full, and posts one coalesced UI message (`WM_APP + 5`). `Application` drains the
-  ring on the UI thread outside input and render dispatch, executing each action through the same paths as a click
-  or edge band (`NavigateToAdjacentPage`, a direct stage-and-settle for `PageGoTo`, `TryRaiseWidgetAt`,
-  `DismissWidgetRaise`, and the Launcher `ShellExecuteExW` policy). A request that arrives during a page swipe, a
-  raise settle, or while the settings error dialog is up is dropped with a Debug log line, never queued for later.
-  A null record, a mismatched `sizeBytes`, an unknown action, or a target above 512 bytes returns `E_POINTER` /
-  `E_INVALIDARG`. Every executed or dropped action is followed by one host-state publication to started services.
+- `RequestAction`, `ExecuteAction`, and `ValidateAction` are the named-action services
+  ([`Plugins_Actions.md`](Plugins_Actions.md)): `RequestAction` is safe from any thread including a service's device
+  lane, allocation-free, never blocking (16-slot ring, identical pending request coalesced to `S_FALSE`, full ring
+  `ERROR_BUSY`, one coalesced `WM_APP + 5` post, drained on the UI thread outside input and render dispatch);
+  `ExecuteAction` is UI-thread only, synchronous, non-reentrant, allowed from `OnPointer` (committed activation),
+  `OnKey` / `OnCharacter`, and `OnDrop`, and never queued or dropped; `ValidateAction` resolves a name and checks its
+  target without executing anything and may map a registered publisher's module on first use. A `page.*` or
+  `widget.*` action that arrives during a page swipe, a raise settle, or while the settings error dialog is up is
+  refused (`ERROR_BUSY`) rather than queued; every other namespace still executes. Every drained action is followed by
+  one host-state publication to started services.
 - `ReportWidgetStatus` records the condition of one widget instance, named by the instance ID the host passed to
   `CreateWidget`. Status is one of `RedXeWidgetStatusOk`, `Initializing`, `Degraded`, or `Unavailable`, with an
   optional borrowed UTF-16 reason the host copies into bounded storage and truncates. Repeat reports are idempotent;
@@ -336,8 +338,9 @@ requested plugin ID. The record and its UTF-8 strings remain valid while the mod
 - The host validates a bounded subset of that syntax, not the whole draft. The supported subset is exactly:
   `"object"` with `properties`, `additionalProperties`, and `required`; `"array"` with `items`, `minItems`, and
   `maxItems` where `items` is one closed `"object"` (nested arrays are forbidden); `"integer"` and `"number"` with
-  `minimum` and `maximum`; `"string"` with `enum`, Unicode-scalar `minLength`/`maxLength`, and either fixed `pattern`
-  `^#[0-9A-Fa-f]{6}$` or `^[A-Za-z0-9_-]+$`; and `"boolean"`.
+  `minimum` and `maximum`; `"string"` with `enum`, Unicode-scalar `minLength`/`maxLength`, and one of the three fixed
+  `pattern`s `^#[0-9A-Fa-f]{6}$`, `^[A-Za-z0-9_-]+$`, or the action-name pattern
+  `^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*){1,3}$` (validated with `RedXeIsActionNameSyntax`); and `"boolean"`.
   `$ref`, composition keywords, and any other `pattern` are rejected rather than silently accepted, so a plugin cannot
   publish a constraint the host does not enforce. A plugin schema MUST stay inside this subset.
 - The host parses each referenced plugin's schema once per staging pass, not once per widget appearance.
@@ -350,23 +353,29 @@ requested plugin ID. The record and its UTF-8 strings remain valid while the mod
   Power Meter, and Thermal Meter publish closed empty-object schemas and `{}` defaults. Studio Clock publishes its
   complete closed boolean, color, and date-format schema and defaults. Desk Clock publishes its complete closed duration
   and color schema and defaults. Weather publishes its closed location and unit schema and defaults. Launcher publishes
-  a closed `shortcuts` array of 0 through 32 objects with required `target` and optional `iconPng`, plus optional
+  a closed `shortcuts` array of 0 through 32 objects with optional `action` (the action-name pattern), `target`, and
+  `icon`, plus optional
   `iconSize` (`small`, `medium`, `large`, `huge`, or `automatic`, default `huge`), default
   `{"shortcuts":[],"iconSize":"huge"}`.
 
 The metadata capability surface advertises factory-created plugin services through
-`RedXePluginCapabilityWidgetProvider`, `RedXePluginCapabilityDataSource`, and `RedXePluginCapabilityService`.
+`RedXePluginCapabilityWidgetProvider`, `RedXePluginCapabilityDataSource`, `RedXePluginCapabilityService`, and
+`RedXePluginCapabilityActions` (the id publishes action namespaces and answers `RedXeGetActionContract`).
 Rendering mechanisms are discovered on widget instances by IID, not by a capability or rendering-path enum.
 
 Logicon publishes its closed service schema (`brightness` 1–100, `restoreLogoOnExit`, `pageButtons`
-`keyPages`/`dashboardPages`, and a flat `keys` array of at most 36 closed objects with `page` 0–3, required `slot`
-0–8, `action`, `target`, `label`, `icon`, `color`, and `face`) and defaults
-`{"brightness":70,"restoreLogoOnExit":true,"pageButtons":"keyPages","keys":[]}`; the Logicon Monitor publishes a
-closed empty object. `Specs/Plugins/Plugins_Logicon.md` owns the member semantics.
+`keyPages`/`dashboardPages`, a flat `keys` array of at most 36 closed objects with `page` 0–3, required `slot`
+0–8, `action` (the action-name pattern), `target`, `label`, `icon`, `color`, and `face`, and a closed `dialpad`
+object with `turns` and `buttons` arrays) and defaults
+`{"brightness":70,"restoreLogoOnExit":true,"pageButtons":"keyPages","keys":[],"dialpad":{"turns":[],"buttons":[]}}`;
+the Logicon Monitor publishes a closed empty object. `Specs/Plugins/Plugins_Logicon.md` owns the member semantics.
+Zoom publishes its closed service schema (`clientId`, `redirectPort`, `domain`, `displayName`, `autoConnect`) and
+defaults; `Specs/Plugins/Plugins_Zoom.md` owns the member semantics.
 
 ## Service contract
 
-A service is a plugin object the host runs without a placed widget. `Plugins/Logicon` is the first one.
+A service is a plugin object the host runs without a placed widget. `Plugins/Logicon` and `Plugins/Actions/Zoom` are
+the shipped ones; both also publish an action namespace (`Plugins_Actions.md`).
 
 - A DLL advertises `RedXePluginCapabilityService` and creates the object through
   `RedXeCreate(IID_IRedXeService, …)` with the same compact `{"plugin":{},"instance":<effective-settings>}` envelope
@@ -385,21 +394,21 @@ A service is a plugin object the host runs without a placed widget. `Plugins/Log
   before `PluginHost::ShutdownProcessRuntime`; `PluginHost::Shutdown` repeats it as an idempotent safety net before
   providers, workers, and modules go. `Start` and `Stop` are idempotent; a failed `Start` logs
   `service-start-failed` once and keeps the object so a later `ApplySettings` can retry. A service MUST NOT call
-  back into the host from these calls except `RequestHostAction`, `RequestFrame`, `Log`, and — from `Start`,
-  `ApplySettings`, and `Stop` only, on the UI thread — `GetDataProvider` with the provider's `GetDataSets`,
+  back into the host from these calls except `RequestAction`, `RequestFrame`, `Log`, and — from `Start`,
+  `ApplySettings`, and `Stop` only, on the UI thread — `ValidateAction` and `GetDataProvider` with the provider's `GetDataSets`,
   `Subscribe`, and `IRedXeDataSubscription::SetActive`, under the same sink rules as a widget. A service MUST
   release every subscription in `Stop` (which drains its sink callbacks) so the host holds no reference to it
   afterwards, and its device lane MUST NOT touch subscriptions.
 - `RedXeServiceFlagDeviceAccessDisabled` is set by `--self-test` and by HostPluginTests before `StartServices`. A
-  service that receives it MUST NOT open a hardware device, register hotplug notifications, or inject input; it still
-  parses settings, keeps model state, and accepts host actions and its test contract.
+  service that receives it MUST NOT open a hardware device, register hotplug notifications, open a network or IPC
+  connection, or inject input; it still parses settings, keeps model state, and accepts actions and its test contract.
 - The **device lane** is the host-owned thread `Core_PerformanceAndResources.md` reserves for device I/O. When a
   started service exposes `IRedXeDeviceWorker`, `PluginHost` creates one `std::jthread` for it (at most
   `kRedXeMaximumDeviceWorkers`, 4; more return `ERROR_TOO_MANY_NAMES` and log `device-lane-failed`), initializes an
   MTA apartment, and calls `RunDeviceWork(stopEvent, wakeEvent)` exactly once. Inside that call the plugin owns
   discovery, handles, overlapped I/O, and hotplug registration and blocks only in a wait on the two host events and
   its own I/O events; it MUST NOT poll, sleep-loop, touch Direct3D, wait on the UI thread, create a thread, or
-  re-enter the host except through `RequestHostAction`, `RequestFrame`, and `Log`. A lane that needs Raw Input (a
+  re-enter the host except through `RequestAction`, `RequestFrame`, and `Log`. A lane that needs Raw Input (a
   device Windows opens exclusively, such as a mouse collection) MAY own one hidden, never-shown top-level window on
   the lane thread, registered with `RIDEV_INPUTSINK`, and then waits with `MsgWaitForMultipleObjectsEx` and drains
   its queue on the same thread; it MUST unregister the sink and destroy the window before returning, and it MUST
@@ -726,10 +735,16 @@ already fills the client MUST NOT raise.
 `Plugins/Logicon` exposes service plugin ID `builtin.logicon` (`RedXePluginCapabilityService`, `IRedXeService` plus
 `IRedXeDeviceWorker`) and the developer-only widget plugin ID `builtin.logicon-monitor` (type `logicon-monitor`,
 Direct3D, interactive, prepared). The service drives the Logitech MX Creative Console keypad over HID++ from its
-device lane and turns key presses into host actions; the monitor is the Debug view of that service. Behavior,
+device lane and turns key presses and dialpad detents into named actions (`Plugins_Actions.md`), publishing the
+`logicon` namespace itself; the monitor is the Debug view of that service. Behavior,
 protocol, faces, and validation are owned by [`Plugins_Logicon.md`](Plugins_Logicon.md). `Logicon.dll` imports
 `hid.dll`, `cfgmgr32.dll`, `windowscodecs.dll`, `ole32.dll`, and `yyjson.dll` (copied beside it); Debug builds also
-import `d3d11.dll` and compile `ProcessViewer/ViewerGpu.cpp` with its shaders for the tile.
+$1
+`Plugins/Actions/Zoom` builds `zoom.action.dll`, the first dedicated action DLL: service plugin ID `builtin.zoom`
+(`RedXePluginCapabilityService | RedXePluginCapabilityActions`, `IRedXeService` plus `IRedXeDeviceWorker` plus
+`IRedXeActionPack`) publishing the `zoom` namespace over the Zoom Plugin SDK for Windows. Behavior, sign-in, the SDK
+import, and validation are owned by [`Plugins_Zoom.md`](Plugins_Zoom.md). It imports `bcrypt.dll`, `winhttp.dll`,
+`ws2_32.dll`, `advapi32.dll`, and `yyjson.dll` (copied beside it).
 
 `Plugins/RotatingTriangle` exposes settings-visible plugin ID `builtin.rotating-triangle`, internally maps it to type
 ID `rotating-triangle`, publishes closed `{}` settings and defaults, and exposes sibling `IRedXeGpuWidget` and
@@ -1089,14 +1104,19 @@ places it as the left leaf so page-1 widget count stays 4. Both shipped gallerie
 7). It is not on the System page. Shipped examples use `{"shortcuts":[]}`.
 
 Launcher settings are the closed object `shortcuts` plus optional `iconSize`. `shortcuts` is an array of 0 through 32
-items. Each item is a closed object with required `target` (UTF-8, 1 through 512 bytes) and optional `iconPng` (UTF-8,
-0 through 260 bytes, absolute PNG path). `target` is either an absolute Win32 filesystem path (`C:\...` or
-`\\server\share\...`) or a URI with an alphabetic scheme of at least two characters followed by `:`. `iconSize` is
+items. Each item is a closed binding object (`Plugins_Actions.md`): optional `action` (default `system.launch`, which
+is what a taskbar import writes), `target` (UTF-8, at most 512 bytes; required and non-empty for `system.launch`),
+and optional `icon` (a Segoe Fluent Icons glyph name or `png:<absolute path>`, at most 260 bytes; required for any
+action other than `system.launch`, which has no file to extract an icon from). `Plugins/Launcher/LauncherBindings.h`
+(`ParseShortcutItem`) is the single validator of that shape for the DLL and the host. `iconSize` is
 `"small"` (72 DIP), `"medium"` (96 DIP), `"large"` (144 DIP), `"huge"` (fixed 192 DIP jumbo cell; default), or
-`"automatic"` (start at huge and shrink toward small). Relative paths, empty
-targets, schemeless host names, unknown members, unknown `iconSize` values, nested arrays, and more than 32 items
-reject the complete candidate. Duplicate `target` values (case-insensitive Win32 path compare, exact URL compare)
-reject the document. Compact settings remain ≤ 4096 bytes.
+`"automatic"` (start at huge and shrink toward small). Unknown members, an unknown `action`, an empty launch target,
+a non-launch item without `icon`, overlong strings, unknown `iconSize` values, nested arrays, and more than 32 items
+reject the complete candidate. Duplicate shortcuts (equal actions and, for a launch path, a case-insensitive Win32
+path compare, else an exact compare) reject the document. A launch `target` that is not an absolute Win32 path
+(`C:\\...` or `\\\\server\\share\\...`) or a URI with an alphabetic scheme of at least two characters, or any
+target `IRedXeHost::ValidateAction` refuses, is accepted and drawn as the `Warning` glyph tile that does nothing when
+clicked. Compact settings remain ≤ 4096 bytes.
 
 When the authored list is empty, `SetVisible(TRUE)` enumerates up to 32 `.lnk` files in the current user's pinned
 taskbar folder (`FOLDERID_UserPinned` + `\TaskBar`, then the roaming Quick Launch `User Pinned\TaskBar` fallback),
@@ -1110,9 +1130,12 @@ and authoritative on subsequent creation. An empty/unavailable folder causes no 
 `REDXE_AUTOMATED_HOST=1` and MUST NOT read the live taskbar; tests inject a pin directory through
 `RedXeLauncherSetTestPinDirectory`. `nullptr` restores live enumeration; an empty string means no pins.
 
-Launch uses `ShellExecuteExW` only, on the UI thread: `lpVerb` is null (the default verb), `fMask` is
-`SEE_MASK_FLAG_NO_UI` only, `hwnd` is null, and the call does not wait. Automated hosts count launches and MUST NOT
-call `ShellExecuteExW`. Icon extraction is off `Render`: PNG via WIC (PNG container only, long edge capped at 256),
+A committed tap calls `IRedXeHost::ExecuteAction` with the item's binding on the UI thread and plays the launch
+motion for every action; a failed result reports `RedXeWidgetStatusDegraded` "Launch failed". `system.launch` is
+the host's `ShellExecuteExW` policy (`Plugins_Actions.md`); Launcher itself never calls the shell. Automated hosts
+count launches and MUST NOT reach `ShellExecuteExW`. Icon extraction is off `Render`: a glyph `icon` is rasterized
+through DirectWrite (`Common/Actions/GlyphIcon.cpp`) into the same 256×256 slice a shell icon fills, an invalid
+binding draws the `Warning` glyph, `png:` via WIC (PNG container only, long edge capped at 256),
 else `IExtractIconW` 256, else `IShellItemImageFactory::GetImage` 256 with `SIIGBF_BIGGERSIZEOK`, else
 `SHGFI_SYSICONINDEX` plus `IImageList::GetIcon` from `SHIL_JUMBO` then XL/LARGE/SMALL. Never `SHGFI_ICON`. Jumbo
 padding is trimmed. Device loss keeps CPU BGRA and re-uploads without a second shell extract.
@@ -1284,8 +1307,9 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     compiler, WIC, and loose font/image assets, five-minute scheduled production-host soak, and complete teardown
     through `DeskClockTests`,
     `SettingsTests`, and `HostPluginTests`.
-19. Verify Launcher factory/settings rejection (unknown members, 33 items, empty target, relative path, schemeless
-    host name, overlong string), injected pin-directory fallback, automated empty list without live taskbar reads,
+19. Verify Launcher factory/settings rejection (unknown members, 33 items, empty launch target, `iconPng`, a
+    non-launch item without `icon`, overlong string), the warning tile for a relative or schemeless launch target,
+    a glyph-icon non-launch item dispatched through `ExecuteAction`, injected pin-directory fallback, automated empty list without live taskbar reads,
     jumbo-or-PNG extraction, WARP two-draw icon grid, device-loss re-upload without a second extract, launch counting
     with zero `ShellExecuteExW`, imported-pin persistence/recreation, queue/commit failure and collect fallback,
     drop append/cap/rollback, overflow paging with a bottom page-dot strip, named `iconSize` spread-grid layout
@@ -1299,11 +1323,17 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     service creation with a valid and an invalid envelope, `Start` with device access disabled opens no device, the
     lane reports running and returns within 1.5 s of `stopEvent`, host state reaches the lane, the synthetic keypad
     connects and receives faces, brightness, page-button diversion, and the splash reset on stop, injected and raw
-    key presses request the bound host actions, key pages change on `keyPage.*` and page buttons, `ApplySettings`
+    key presses request the bound actions through `RequestAction`, key pages change on `logicon.keyPage.*` and page
+    buttons, dialpad turns dispatch their `turns` bindings, `ApplySettings`
     re-applies and rejects without stopping, the monitor provider constructs in Debug and refuses in Release, and
-    `--self-test` starts every configured service. `PluginHost` tests MUST cover the action ring's bounds, coalescing,
-    and `ERROR_BUSY`, and the services' catalog validation. `SettingsTests` MUST cover the `services` grammar and
-    rejections and both templates' Logicon objects. Plugins_Logicon.md owns the protocol and face vectors.
+    `--self-test` starts every configured service. `PluginHost` tests MUST cover the named action ring's bounds,
+    coalescing, and `ERROR_BUSY`, and the services' catalog validation. `SettingsTests` MUST cover the `services`
+    grammar and rejections and both templates' Logicon and Zoom objects. Plugins_Logicon.md owns the protocol and
+    face vectors.
+
+21. Verify the action contract, registry, validation, and execution through `HostPluginTests` and the Zoom service
+    through `ZoomTests` as [`Plugins_Actions.md`](Plugins_Actions.md) and [`Plugins_Zoom.md`](Plugins_Zoom.md)
+    require; `HostPluginTests` MUST map every catalogued module and prove no action namespace collides.
 
 The automated Debug host composition must contain the GPU launcher, one rotating-triangle GPU fixture, the GDI
 fixture, and Matrix Rain. The automated

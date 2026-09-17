@@ -154,6 +154,13 @@ if ($logiconProcess -ne 0) {
     throw "Logicon tests failed with exit code $($logiconProcess)."
 }
 
+$zoomTests = Join-Path $repoRoot ".build\$Platform\$Configuration\ZoomTests.exe"
+Write-Host 'Running Zoom settings, OAuth material, loopback listener, and module tests...' -ForegroundColor Cyan
+$zoomProcess = Invoke-RedXeStreamingProcess -FilePath $zoomTests -WorkingDirectory $repoRoot -LogPath ($zoomTests + '.log')
+if ($zoomProcess -ne 0) {
+    throw "Zoom tests failed with exit code $($zoomProcess)."
+}
+
 $settingsTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SettingsTests.exe"
 Write-Host 'Running settings, schema, stamp, and watcher contract tests...' -ForegroundColor Cyan
 $settingsProcess = Invoke-RedXeStreamingProcess -FilePath $settingsTests -WorkingDirectory $repoRoot -LogPath ($settingsTests + '.log')

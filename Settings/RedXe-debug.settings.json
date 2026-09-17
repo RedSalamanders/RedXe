@@ -21,27 +21,39 @@
         { "page": 0, "slot": 5, "action": "widget.dismiss", "label": "Close", "icon": "BackToWindow" },
         { "page": 0, "slot": 6, "action": "page.goto", "target": "development", "label": "Dev", "icon": "Home" },
         { "page": 0, "slot": 7, "face": "clock" },
-        { "page": 0, "slot": 8, "action": "keyPage.next", "label": "Media", "icon": "Music", "color": "#1F3A5F" },
-        { "page": 1, "slot": 0, "action": "keys", "target": "previous-track", "label": "Prev", "icon": "Previous" },
-        { "page": 1, "slot": 1, "action": "keys", "target": "play-pause", "label": "Play", "icon": "Play" },
-        { "page": 1, "slot": 2, "action": "keys", "target": "next-track", "label": "Next", "icon": "Next" },
-        { "page": 1, "slot": 3, "action": "keys", "target": "volume-down", "label": "Vol -", "icon": "Volume" },
-        { "page": 1, "slot": 4, "action": "keys", "target": "mute", "label": "Mute", "icon": "Mute" },
-        { "page": 1, "slot": 5, "action": "keys", "target": "volume-up", "label": "Vol +", "icon": "Volume" },
+        { "page": 0, "slot": 8, "action": "logicon.keyPage.next", "label": "Media", "icon": "Music", "color": "#1F3A5F" },
+        { "page": 1, "slot": 0, "action": "keys.media", "target": "previous-track", "label": "Prev", "icon": "Previous" },
+        { "page": 1, "slot": 1, "action": "keys.media", "target": "play-pause", "label": "Play", "icon": "Play" },
+        { "page": 1, "slot": 2, "action": "keys.media", "target": "next-track", "label": "Next", "icon": "Next" },
+        { "page": 1, "slot": 3, "action": "keys.media", "target": "volume-down", "label": "Vol -", "icon": "Volume" },
+        { "page": 1, "slot": 4, "action": "keys.media", "target": "mute", "label": "Mute", "icon": "Mute" },
+        { "page": 1, "slot": 5, "action": "keys.media", "target": "volume-up", "label": "Vol +", "icon": "Volume" },
         { "page": 1, "slot": 6, "face": "cpu" },
         { "page": 1, "slot": 7, "face": "memory", "label": "RAM" },
-        { "page": 1, "slot": 8, "action": "keyPage.previous", "label": "Back", "icon": "Back", "color": "#1F3A5F" }
+        { "page": 1, "slot": 8, "action": "logicon.keyPage.previous", "label": "Back", "icon": "Back", "color": "#1F3A5F" }
       ],
       "dialpad": {
-        "dial": "page",
-        "roller": "brightness",
+        "turns": [
+          { "control": "dial", "direction": "cw", "action": "page.next" },
+          { "control": "dial", "direction": "ccw", "action": "page.previous" },
+          { "control": "roller", "direction": "up", "action": "logicon.brightness", "target": "+5" },
+          { "control": "roller", "direction": "down", "action": "logicon.brightness", "target": "-5" }
+        ],
         "buttons": [
           { "button": 0, "action": "page.previous" },
           { "button": 1, "action": "page.next" },
-          { "button": 2, "action": "widget.dismiss" },
-          { "button": 3, "action": "keyPage.next" }
+          { "button": 2, "action": "zoom.mute", "target": "toggle" },
+          { "button": 3, "action": "logicon.keyPage.next" }
         ]
       }
+    },
+    // Zoom drives the Zoom Workplace client through the Zoom Plugin SDK (see docs/plugins/zoom.md). Replace the
+    // placeholder with your Marketplace app's client id and bind zoom.signIn to a key to sign in.
+    "Zoom": {
+      "plugin": "builtin.zoom",
+      "clientId": "replace-with-your-marketplace-client-id",
+      "redirectPort": 48123,
+      "autoConnect": false
     }
   },
   // Reusable definitions create independent instances wherever they appear.

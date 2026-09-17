@@ -1,5 +1,8 @@
 #include "PluginHost.h"
 
+#include "Actions/ActionTargets.h"
+#include "HostActionCatalog.h"
+#include "HostActions.h"
 #include "PlugInterfaces/FactoryImpl.h"
 #include "Settings.h"
 
@@ -303,7 +306,7 @@ size_t AppendLogEscaped(char* destination, size_t capacity, size_t used, const c
         if (candidate.sizeBytes != sizeof(RedXePluginMetadata) || !RedXeIsValidMachineId(candidate.id) ||
             !candidate.displayName || !candidate.description || !candidate.author || !candidate.version ||
             (candidate.capabilities & ~(RedXePluginCapabilityWidgetProvider | RedXePluginCapabilityDataSource |
-                                        RedXePluginCapabilityService)) != 0)
+                                        RedXePluginCapabilityService | RedXePluginCapabilityActions)) != 0)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -492,6 +495,9 @@ void PluginHost::Shutdown() noexcept
         _pendingHostActionPost.store(0, std::memory_order_release);
     }
     _controlWork.Stop();
+    // Executors go after the control lane has drained so no deferred action can still reference a pack object.
+    ReleaseActionExecutors();
+    HostActions::ReleaseHeld(DeviceAccessEnabled());
     StopNetworkService();
     AcquireSRWLockExclusive(&_widgetStatusLock);
     for (WidgetStatusSlot& slot : _widgetStatus)
@@ -1044,9 +1050,11 @@ HRESULT PluginHost::LoadModule(const RedXeBundledPluginSpec& spec, ModuleSlot& s
     slot.enumerate = enumerate;
     slot.getSettingsContract =
         ResolveFunction<RedXeGetPluginSettingsContractFn>(module.get(), kRedXeGetPluginSettingsContractExport);
+    slot.getActionContract = ResolveFunction<RedXeGetActionContractFn>(module.get(), kRedXeGetActionContractExport);
     slot.shutdown = ResolveFunction<RedXePluginShutdownFn>(module.get(), kRedXePluginShutdownExport);
     slot.capabilities = capabilities;
     slot.module = std::move(module);
+    ReadActionContract(slot, spec.pluginId);
     return S_OK;
 }
 
@@ -1073,8 +1081,10 @@ HRESULT PluginHost::AttachSharedModule(const ModuleSlot& owner, const char* plug
     slot.create = owner.create;
     slot.enumerate = owner.enumerate;
     slot.getSettingsContract = owner.getSettingsContract;
+    slot.getActionContract = owner.getActionContract;
     slot.shutdown = owner.shutdown;
     slot.capabilities = capabilities;
+    ReadActionContract(slot, pluginId);
     return S_OK;
 }
 
@@ -1364,31 +1374,494 @@ HRESULT PluginHost::RequestFrame() noexcept
     return S_OK;
 }
 
-void PluginHost::SetHostActionHandler(HostActionHandler handler, void* context) noexcept
+void PluginHost::SetHostActionHandler(HostActionHandler handler, HostActionCompleted completed, void* context) noexcept
 {
     _hostActionHandler = handler;
+    _hostActionCompleted = completed;
     _hostActionContext = context;
 }
 
-HRESULT PluginHost::RequestHostAction(const RedXeHostActionRequest* request) noexcept
+namespace
 {
+// Bounds and grammar shared by RequestAction, ExecuteAction, and ValidateAction. Returns the action and target
+// lengths through the outputs.
+[[nodiscard]] HRESULT CheckActionRequest(const RedXeActionRequest* request, size_t& actionBytes,
+                                         size_t& targetBytes) noexcept
+{
+    actionBytes = 0;
+    targetBytes = 0;
     if (!request)
     {
         return E_POINTER;
     }
-    if (request->sizeBytes != sizeof(RedXeHostActionRequest) || request->action == RedXeHostActionNone ||
-        request->action > RedXeHostActionLaunch)
+    if (request->sizeBytes != sizeof(RedXeActionRequest) || !request->actionUtf8 ||
+        !RedXeIsActionNameSyntax(request->actionUtf8))
     {
         return E_INVALIDARG;
     }
-    size_t targetBytes = 0;
+    actionBytes = strnlen_s(request->actionUtf8, kRedXeMaximumActionNameBytes + 1);
     if (request->targetUtf8)
     {
-        targetBytes = strnlen_s(request->targetUtf8, kRedXeMaximumHostActionTargetBytes + 1);
-        if (targetBytes > kRedXeMaximumHostActionTargetBytes)
+        targetBytes = strnlen_s(request->targetUtf8, kRedXeMaximumActionTargetBytes + 1);
+        if (targetBytes > kRedXeMaximumActionTargetBytes)
         {
             return E_INVALIDARG;
         }
+    }
+    return S_OK;
+}
+
+[[nodiscard]] bool IsRegisteredNamespace(std::string_view actionNamespace) noexcept
+{
+    for (const RedXeBundledActionNamespaceSpec& entry : kRedXeBundledActionNamespaces)
+    {
+        if (actionNamespace == entry.actionNamespace)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void FormatNotice(wchar_t* text, size_t capacity, const wchar_t* format, const char* first,
+                  const char* second = nullptr) noexcept
+{
+    std::array<wchar_t, 129> wideFirst{};
+    std::array<wchar_t, 129> wideSecond{};
+    (void)MultiByteToWideChar(CP_UTF8, 0, first ? first : "", -1, wideFirst.data(), static_cast<int>(wideFirst.size()));
+    (void)MultiByteToWideChar(CP_UTF8, 0, second ? second : "", -1, wideSecond.data(),
+                              static_cast<int>(wideSecond.size()));
+    (void)StringCchPrintfW(text, capacity, format, wideFirst.data(), wideSecond.data());
+}
+} // namespace
+
+PluginHost::PublisherSlot* PluginHost::FindPublisher(std::string_view actionNamespace) noexcept
+{
+    for (size_t index = 0; index < kRedXeBundledActionNamespaces.size(); ++index)
+    {
+        if (actionNamespace == kRedXeBundledActionNamespaces[index].actionNamespace)
+        {
+            PublisherSlot& slot = _publishers[index];
+            slot.spec = &kRedXeBundledActionNamespaces[index];
+            return &slot;
+        }
+    }
+    return nullptr;
+}
+
+void PluginHost::AddActionNotice(const wchar_t* text) noexcept
+{
+    if (!text || text[0] == L'\0')
+    {
+        return;
+    }
+    for (ActionNotice& notice : _actionNotices)
+    {
+        if (notice.used && wcscmp(notice.text.data(), text) == 0)
+        {
+            return;
+        }
+    }
+    for (ActionNotice& notice : _actionNotices)
+    {
+        if (!notice.used)
+        {
+            wcsncpy_s(notice.text.data(), notice.text.size(), text, _TRUNCATE);
+            notice.used = true;
+            ++_actionNoticeGeneration;
+            return;
+        }
+    }
+}
+
+uint32_t PluginHost::CopyActionNotices(wchar_t* text, size_t capacity) const noexcept
+{
+    if (text && capacity != 0)
+    {
+        text[0] = L'\0';
+    }
+    uint32_t count = 0;
+    for (const ActionNotice& notice : _actionNotices)
+    {
+        if (!notice.used)
+        {
+            continue;
+        }
+        if (text && capacity != 0)
+        {
+            if (count != 0)
+            {
+                (void)StringCchCatW(text, capacity, L"\n");
+            }
+            (void)StringCchCatW(text, capacity, notice.text.data());
+        }
+        ++count;
+    }
+    return count;
+}
+
+uint32_t PluginHost::ActionNoticeGeneration() const noexcept
+{
+    return _actionNoticeGeneration;
+}
+
+void PluginHost::ResetActionPublishers() noexcept
+{
+    for (PublisherSlot& slot : _publishers)
+    {
+        if (slot.state == ActionPublisherState::Unavailable)
+        {
+            slot.state = ActionPublisherState::Unresolved;
+            slot.noticeShown = false;
+        }
+    }
+    bool cleared = false;
+    for (ActionNotice& notice : _actionNotices)
+    {
+        cleared = cleared || notice.used;
+        notice = ActionNotice{};
+    }
+    if (cleared)
+    {
+        ++_actionNoticeGeneration;
+    }
+}
+
+PluginHost::ActionPublisherState PluginHost::ActionPublisherStateOf(const char* actionNamespace) const noexcept
+{
+    for (size_t index = 0; index < kRedXeBundledActionNamespaces.size(); ++index)
+    {
+        if (actionNamespace && std::strcmp(actionNamespace, kRedXeBundledActionNamespaces[index].actionNamespace) == 0)
+        {
+            return _publishers[index].state;
+        }
+    }
+    return ActionPublisherState::Unresolved;
+}
+
+void PluginHost::ReadActionContract(ModuleSlot& slot, const char* pluginId) noexcept
+{
+    if ((slot.capabilities & RedXePluginCapabilityActions) == 0)
+    {
+        // A registered plugin id without the capability cannot provide its namespace.
+        for (PublisherSlot& publisher : _publishers)
+        {
+            const size_t index = static_cast<size_t>(&publisher - _publishers.data());
+            const RedXeBundledActionNamespaceSpec& spec = kRedXeBundledActionNamespaces[index];
+            if (RedXeAsciiEqualsIgnoreCase(spec.pluginId, pluginId) && publisher.state != ActionPublisherState::Missing)
+            {
+                publisher.spec = &spec;
+                publisher.state = ActionPublisherState::Missing;
+                std::array<wchar_t, kActionNoticeCharacters> text{};
+                FormatNotice(text.data(), text.size(),
+                             L"Action namespace \"%s\" is not provided by %s; its bindings are disabled.",
+                             spec.actionNamespace, pluginId);
+                AddActionNotice(text.data());
+                (void)RedXeHostLog(Interface(), RedXeLogLevelError, pluginId, nullptr, "action-namespace-missing",
+                                   "the registered plugin does not advertise the actions capability.");
+            }
+        }
+        return;
+    }
+    const RedXeActionContract* contract = nullptr;
+    const HRESULT result =
+        slot.getActionContract ? slot.getActionContract(pluginId, &contract) : HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    bool valid = SUCCEEDED(result) && contract && contract->sizeBytes == sizeof(RedXeActionContract) &&
+                 contract->namespaceCount >= 1 && contract->namespaceCount <= kRedXeMaximumActionNamespacesPerPlugin &&
+                 contract->namespaces;
+    for (uint32_t space = 0; valid && space < contract->namespaceCount; ++space)
+    {
+        const RedXeActionNamespace& entry = contract->namespaces[space];
+        valid = entry.sizeBytes == sizeof(RedXeActionNamespace) && entry.name && entry.name[0] >= 'a' &&
+                entry.name[0] <= 'z' &&
+                strnlen_s(entry.name, kRedXeMaximumActionNamespaceBytes + 1) <= kRedXeMaximumActionNamespaceBytes &&
+                entry.actionCount >= 1 && entry.actionCount <= kRedXeMaximumActionsPerNamespace && entry.actions;
+        for (uint32_t index = 0; valid && index < entry.actionCount; ++index)
+        {
+            const RedXeActionDescriptor& descriptor = entry.actions[index];
+            valid = descriptor.sizeBytes == sizeof(RedXeActionDescriptor) && descriptor.name &&
+                    RedXeIsActionNameSyntax(descriptor.name) && RedXeActionInNamespace(descriptor.name, entry.name) &&
+                    descriptor.displayName && descriptor.targetSyntax &&
+                    descriptor.targetKind <= RedXeActionTargetNowOrSeconds &&
+                    (descriptor.targetKind != RedXeActionTargetEnum || descriptor.targetOptions) &&
+                    descriptor.targetMinimum <= descriptor.targetMaximum;
+            for (uint32_t previous = 0; valid && previous < index; ++previous)
+            {
+                valid = std::strcmp(entry.actions[previous].name, descriptor.name) != 0;
+            }
+        }
+    }
+    if (!valid)
+    {
+        (void)RedXeHostLog(Interface(), RedXeLogLevelError, pluginId, nullptr, "action-contract-invalid",
+                           "the module's action contract is malformed; its namespaces are unavailable.",
+                           FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+        for (size_t index = 0; index < kRedXeBundledActionNamespaces.size(); ++index)
+        {
+            const RedXeBundledActionNamespaceSpec& spec = kRedXeBundledActionNamespaces[index];
+            if (RedXeAsciiEqualsIgnoreCase(spec.pluginId, pluginId))
+            {
+                _publishers[index].spec = &spec;
+                _publishers[index].state = ActionPublisherState::Unavailable;
+                std::array<wchar_t, kActionNoticeCharacters> text{};
+                FormatNotice(text.data(), text.size(),
+                             L"Actions \"%s.*\" are unavailable: %s published an invalid contract.",
+                             spec.actionNamespace, pluginId);
+                AddActionNotice(text.data());
+            }
+        }
+        return;
+    }
+    for (uint32_t space = 0; space < contract->namespaceCount; ++space)
+    {
+        const RedXeActionNamespace& entry = contract->namespaces[space];
+        std::array<wchar_t, kActionNoticeCharacters> text{};
+        if (HostActionCatalog::IsDefaultNamespace(entry.name))
+        {
+            FormatNotice(text.data(), text.size(),
+                         L"Action namespace \"%s\" is published by both RedXe and %s; only RedXe is used.", entry.name,
+                         pluginId);
+            AddActionNotice(text.data());
+            (void)RedXeHostLog(Interface(), RedXeLogLevelError, pluginId, nullptr, "action-namespace-collision",
+                               "the module publishes a default namespace; the publication is refused.");
+            continue;
+        }
+        PublisherSlot* publisher = FindPublisher(entry.name);
+        if (!publisher)
+        {
+            FormatNotice(text.data(), text.size(), L"Action namespace \"%s\" from %s is not registered and is ignored.",
+                         entry.name, pluginId);
+            AddActionNotice(text.data());
+            (void)RedXeHostLog(Interface(), RedXeLogLevelError, pluginId, nullptr, "action-namespace-unregistered",
+                               "the module publishes a namespace the catalog does not register.");
+            continue;
+        }
+        if (!RedXeAsciiEqualsIgnoreCase(publisher->spec->pluginId, pluginId))
+        {
+            FormatNotice(text.data(), text.size(),
+                         L"Action namespace \"%s\" is published by both %s and another module; only the registered "
+                         L"publisher is used.",
+                         entry.name, pluginId);
+            AddActionNotice(text.data());
+            (void)RedXeHostLog(Interface(), RedXeLogLevelError, pluginId, nullptr, "action-namespace-collision",
+                               "the module publishes a namespace registered to another plugin id.");
+            continue;
+        }
+        publisher->contract = &entry;
+        publisher->state = ActionPublisherState::Ready;
+    }
+    for (size_t index = 0; index < kRedXeBundledActionNamespaces.size(); ++index)
+    {
+        const RedXeBundledActionNamespaceSpec& spec = kRedXeBundledActionNamespaces[index];
+        PublisherSlot& publisher = _publishers[index];
+        if (RedXeAsciiEqualsIgnoreCase(spec.pluginId, pluginId) && publisher.state != ActionPublisherState::Ready)
+        {
+            publisher.spec = &spec;
+            publisher.state = ActionPublisherState::Missing;
+            std::array<wchar_t, kActionNoticeCharacters> text{};
+            FormatNotice(text.data(), text.size(),
+                         L"Action namespace \"%s\" is not provided by %s; its bindings are disabled.",
+                         spec.actionNamespace, pluginId);
+            AddActionNotice(text.data());
+            (void)RedXeHostLog(Interface(), RedXeLogLevelError, pluginId, nullptr, "action-namespace-missing",
+                               "the registered plugin's contract does not publish its namespace.");
+        }
+    }
+    (void)RedXeHostLog(Interface(), RedXeLogLevelInfo, pluginId, nullptr, "action-contract-loaded",
+                       "action contract read and registered.");
+}
+
+HRESULT PluginHost::EnsurePublisherContract(PublisherSlot& slot) noexcept
+{
+    switch (slot.state)
+    {
+    case ActionPublisherState::Ready:
+        return S_OK;
+    case ActionPublisherState::Missing:
+        return HRESULT_FROM_WIN32(ERROR_NOT_READY);
+    case ActionPublisherState::Unavailable:
+        return HRESULT_FROM_WIN32(ERROR_NOT_READY);
+    default:
+        break;
+    }
+    ModuleView module{};
+    const HRESULT mapped = GetPluginModule(slot.spec->pluginId, RedXePluginCapabilityNone, &module);
+    if (FAILED(mapped))
+    {
+        slot.state = ActionPublisherState::Unavailable;
+        std::array<wchar_t, kActionNoticeCharacters> text{};
+        FormatNotice(text.data(), text.size(), L"Actions \"%s.*\" are unavailable: %s could not be loaded.",
+                     slot.spec->actionNamespace, slot.spec->pluginId);
+        AddActionNotice(text.data());
+        (void)RedXeHostLog(Interface(), RedXeLogLevelError, slot.spec->pluginId, nullptr,
+                           "action-publisher-unavailable", "the publishing module could not be mapped.", mapped);
+        return HRESULT_FROM_WIN32(ERROR_NOT_READY);
+    }
+    // Mapping read the contract; the slot is Ready, Missing, or Unavailable now.
+    return slot.state == ActionPublisherState::Ready ? S_OK : HRESULT_FROM_WIN32(ERROR_NOT_READY);
+}
+
+const RedXeActionDescriptor* PluginHost::FindPublishedAction(const PublisherSlot& slot,
+                                                             std::string_view actionName) const noexcept
+{
+    if (!slot.contract)
+    {
+        return nullptr;
+    }
+    for (uint32_t index = 0; index < slot.contract->actionCount; ++index)
+    {
+        if (actionName == slot.contract->actions[index].name)
+        {
+            return &slot.contract->actions[index];
+        }
+    }
+    return nullptr;
+}
+
+HRESULT PluginHost::EnsurePublisherExecutor(PublisherSlot& slot, IRedXeActionPack** executor) noexcept
+{
+    *executor = nullptr;
+    const HRESULT contract = EnsurePublisherContract(slot);
+    if (FAILED(contract))
+    {
+        return contract;
+    }
+    // A service publisher executes on its started service object; it is never retained here so a stopped service
+    // cannot be executed through a stale reference.
+    for (const RedXeBundledServiceSpec& service : kRedXeBundledServices)
+    {
+        if (RedXeAsciiEqualsIgnoreCase(service.pluginId, slot.spec->pluginId))
+        {
+            IRedXeService* started = ServiceFor(slot.spec->pluginId);
+            if (!started)
+            {
+                return HRESULT_FROM_WIN32(ERROR_NOT_READY);
+            }
+            wil::com_ptr_nothrow<IRedXeActionPack> pack;
+            const HRESULT queried = started->QueryInterface(__uuidof(IRedXeActionPack), pack.put_void());
+            if (FAILED(queried) || !pack)
+            {
+                return E_NOINTERFACE;
+            }
+            *executor = pack.detach();
+            return S_OK;
+        }
+    }
+    if (!slot.executor)
+    {
+        ModuleView module{};
+        const HRESULT mapped = GetPluginModule(slot.spec->pluginId, RedXePluginCapabilityActions, &module);
+        if (FAILED(mapped))
+        {
+            return mapped;
+        }
+        static constexpr char kEnvelope[] = R"({"plugin":{},"instance":{}})";
+        RedXeFactoryOptions options{};
+        options.sizeBytes = sizeof(options);
+#if defined(_DEBUG)
+        options.debugLevel = 1;
+#endif
+        options.configurationJsonUtf8 = kEnvelope;
+        options.configurationBytes = static_cast<uint32_t>(sizeof(kEnvelope) - 1);
+        options.backgroundColor = kRedXeDefaultBackgroundColor;
+        void* object = nullptr;
+        const HRESULT created =
+            module.create(__uuidof(IRedXeActionPack), &options, Interface(), slot.spec->pluginId, &object);
+        if (FAILED(created) || !object)
+        {
+            slot.state = ActionPublisherState::Unavailable;
+            std::array<wchar_t, kActionNoticeCharacters> text{};
+            FormatNotice(text.data(), text.size(),
+                         L"Actions \"%s.*\" are unavailable: %s could not create its executor.",
+                         slot.spec->actionNamespace, slot.spec->pluginId);
+            AddActionNotice(text.data());
+            (void)RedXeHostLog(Interface(), RedXeLogLevelError, slot.spec->pluginId, nullptr,
+                               "action-publisher-unavailable", "IRedXeActionPack creation failed.",
+                               FAILED(created) ? created : E_UNEXPECTED);
+            return HRESULT_FROM_WIN32(ERROR_NOT_READY);
+        }
+        slot.executor.attach(static_cast<IRedXeActionPack*>(object));
+    }
+    slot.executor.copy_to(executor);
+    return S_OK;
+}
+
+void PluginHost::ReleaseActionExecutors() noexcept
+{
+    for (PublisherSlot& slot : _publishers)
+    {
+        slot.executor.reset();
+        slot.contract = nullptr;
+        slot.state = ActionPublisherState::Unresolved;
+        slot.noticeShown = false;
+    }
+}
+
+HRESULT PluginHost::ValidateAction(const RedXeActionRequest* request, const RedXeActionDescriptor** descriptor) noexcept
+{
+    if (descriptor)
+    {
+        *descriptor = nullptr;
+    }
+    size_t actionBytes = 0;
+    size_t targetBytes = 0;
+    const HRESULT checked = CheckActionRequest(request, actionBytes, targetBytes);
+    if (FAILED(checked))
+    {
+        return checked;
+    }
+    const std::string_view action{request->actionUtf8, actionBytes};
+    const std::string_view target =
+        request->targetUtf8 ? std::string_view{request->targetUtf8, targetBytes} : std::string_view{};
+    const std::string_view space = HostActionCatalog::NamespaceOf(action);
+    const RedXeActionDescriptor* found = nullptr;
+    if (HostActionCatalog::IsDefaultNamespace(space))
+    {
+        found = HostActionCatalog::Find(action);
+    }
+    else
+    {
+        PublisherSlot* publisher = FindPublisher(space);
+        if (!publisher)
+        {
+            return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+        }
+        const HRESULT contract = EnsurePublisherContract(*publisher);
+        if (FAILED(contract))
+        {
+            return contract;
+        }
+        found = FindPublishedAction(*publisher, action);
+    }
+    if (!found)
+    {
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
+    HRESULT result = RedXeActions::ValidateTarget(*found, target);
+    if (SUCCEEDED(result) && HostActionCatalog::IsDefaultNamespace(space))
+    {
+        result = HostActions::ValidateExtra(*found, target);
+    }
+    if (descriptor)
+    {
+        *descriptor = found;
+    }
+    return result;
+}
+
+HRESULT PluginHost::RequestAction(const RedXeActionRequest* request) noexcept
+{
+    size_t actionBytes = 0;
+    size_t targetBytes = 0;
+    const HRESULT checked = CheckActionRequest(request, actionBytes, targetBytes);
+    if (FAILED(checked))
+    {
+        return checked;
+    }
+    const std::string_view space = HostActionCatalog::NamespaceOf(std::string_view{request->actionUtf8, actionBytes});
+    if (!HostActionCatalog::IsDefaultNamespace(space) && !IsRegisteredNamespace(space))
+    {
+        return E_INVALIDARG;
     }
     if (_shutdown)
     {
@@ -1401,7 +1874,7 @@ HRESULT PluginHost::RequestHostAction(const RedXeHostActionRequest* request) noe
         for (size_t offset = 0; offset < _hostActionCount; ++offset)
         {
             const HostActionSlot& pending = _hostActions[(_hostActionHead + offset) % kHostActionRingSlots];
-            if (pending.used && pending.action == request->action && pending.argument == request->argument &&
+            if (pending.used && std::strncmp(pending.action.data(), request->actionUtf8, pending.action.size()) == 0 &&
                 strnlen_s(pending.target.data(), pending.target.size()) == targetBytes &&
                 (targetBytes == 0 || std::memcmp(pending.target.data(), request->targetUtf8, targetBytes) == 0))
             {
@@ -1414,8 +1887,7 @@ HRESULT PluginHost::RequestHostAction(const RedXeHostActionRequest* request) noe
         }
         HostActionSlot& slot = _hostActions[(_hostActionHead + _hostActionCount) % kHostActionRingSlots];
         slot = HostActionSlot{};
-        slot.action = request->action;
-        slot.argument = request->argument;
+        std::memcpy(slot.action.data(), request->actionUtf8, actionBytes);
         if (targetBytes != 0)
         {
             std::memcpy(slot.target.data(), request->targetUtf8, targetBytes);
@@ -1425,6 +1897,91 @@ HRESULT PluginHost::RequestHostAction(const RedXeHostActionRequest* request) noe
     }
     RequestHostActionDrain();
     return S_OK;
+}
+
+HRESULT PluginHost::ExecuteAction(const RedXeActionRequest* request) noexcept
+{
+    size_t actionBytes = 0;
+    size_t targetBytes = 0;
+    const HRESULT checked = CheckActionRequest(request, actionBytes, targetBytes);
+    if (FAILED(checked))
+    {
+        return checked;
+    }
+    if (_shutdown)
+    {
+        return E_UNEXPECTED;
+    }
+    std::array<char, kRedXeMaximumActionNameBytes + 1> action{};
+    std::array<char, kRedXeMaximumActionTargetBytes + 1> target{};
+    std::memcpy(action.data(), request->actionUtf8, actionBytes);
+    if (targetBytes != 0)
+    {
+        std::memcpy(target.data(), request->targetUtf8, targetBytes);
+    }
+    return ExecuteNow(action.data(), target.data());
+}
+
+HRESULT PluginHost::ExecuteNow(const char* actionUtf8, const char* targetUtf8) noexcept
+{
+    const std::string_view action{actionUtf8};
+    const std::string_view target{targetUtf8 ? targetUtf8 : ""};
+    const std::string_view space = HostActionCatalog::NamespaceOf(action);
+    HRESULT result = S_OK;
+    if (HostActionCatalog::IsApplicationNamespace(action))
+    {
+        result =
+            _hostActionHandler ? _hostActionHandler(_hostActionContext, actionUtf8, target.data()) : E_NOT_VALID_STATE;
+    }
+    else if (HostActionCatalog::IsDefaultNamespace(space))
+    {
+        const RedXeActionDescriptor* descriptor = HostActionCatalog::Find(action);
+        result = descriptor ? RedXeActions::ValidateTarget(*descriptor, target) : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+        if (SUCCEEDED(result))
+        {
+            result = HostActions::ValidateExtra(*descriptor, target);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = HostActions::Execute(*descriptor, target, DeviceAccessEnabled());
+        }
+    }
+    else
+    {
+        PublisherSlot* publisher = FindPublisher(space);
+        if (!publisher)
+        {
+            result = HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+        }
+        else
+        {
+            wil::com_ptr_nothrow<IRedXeActionPack> executor;
+            result = EnsurePublisherExecutor(*publisher, executor.put());
+            if (SUCCEEDED(result))
+            {
+                const RedXeActionDescriptor* descriptor = FindPublishedAction(*publisher, action);
+                result = descriptor ? RedXeActions::ValidateTarget(*descriptor, target)
+                                    : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+                if (SUCCEEDED(result))
+                {
+                    RedXeActionRequest request{};
+                    request.sizeBytes = sizeof(request);
+                    request.flags =
+                        DeviceAccessEnabled() ? RedXeActionRequestFlagNone : RedXeActionRequestFlagDeviceAccessDisabled;
+                    request.actionUtf8 = actionUtf8;
+                    request.targetUtf8 = target.empty() ? nullptr : target.data();
+                    result = executor->Execute(&request);
+                }
+            }
+        }
+    }
+    if (FAILED(result))
+    {
+        std::array<char, kRedXeMaximumLogMessageBytes> message{};
+        (void)StringCchPrintfA(message.data(), message.size(), "action \"%s\" was not performed.", actionUtf8);
+        (void)RedXeHostLog(Interface(), RedXeLogLevelDebug, "host", nullptr, "action-failed", message.data(), result);
+    }
+    return result;
 }
 
 void PluginHost::RequestHostActionDrain() noexcept
@@ -1467,9 +2024,13 @@ void PluginHost::DrainHostActions() noexcept
             _hostActionHead = (_hostActionHead + 1) % kHostActionRingSlots;
             --_hostActionCount;
         }
-        if (_hostActionHandler && action.used)
+        if (action.used)
         {
-            _hostActionHandler(_hostActionContext, action.action, action.argument, action.target.data());
+            (void)ExecuteNow(action.action.data(), action.target.data());
+            if (_hostActionCompleted)
+            {
+                _hostActionCompleted(_hostActionContext);
+            }
         }
     }
 }
@@ -2683,6 +3244,7 @@ void PluginHost::ShutdownModules() noexcept
         }
         slot.shutdown = nullptr;
         slot.getSettingsContract = nullptr;
+        slot.getActionContract = nullptr;
         slot.enumerate = nullptr;
         slot.create = nullptr;
         slot.capabilities = RedXePluginCapabilityNone;

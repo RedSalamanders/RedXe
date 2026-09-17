@@ -10,6 +10,7 @@
 #include "LogiconSettings.h"
 #include "LogiconSynthetic.h"
 #include "LogiconSystemData.h"
+#include "PlugInterfaces/Action.h"
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PlugInterfaces/Service.h"
 
@@ -27,7 +28,9 @@ inline constexpr uint32_t kMaximumInjectedControls = 16;
 inline constexpr uint32_t kReconnectBackoffSteps = 4;
 // Raw Input reports classic wheels in WHEEL_DELTA units: one detent of the dial or the roller is 120.
 inline constexpr uint32_t kWheelDetentUnits = 120;
-inline constexpr uint32_t kWheelBrightnessStep = 5;
+// Requests for the published "logicon" namespace arriving from other owners through IRedXeActionPack::Execute.
+inline constexpr uint32_t kMaximumLocalRequests = 4;
+using ActionName = std::array<char, kMaximumActionBytes + 1>;
 
 enum class OverrideKind : uint8_t
 {
@@ -86,8 +89,8 @@ struct DialpadSnapshot final
     DeviceFeatures features{};
     DeviceCounters counters{};
     WheelState wheels{};
-    DialAction dialAction = DialAction::None;
-    DialAction rollerAction = DialAction::None;
+    // The action bound to each turn, indexed control * 2 + direction; empty when the turn does nothing.
+    std::array<ActionName, kDialpadTurns> turns{};
     std::array<TraceEntry, kTraceSlots> trace{};
     uint32_t traceCount = 0;
 };
@@ -111,13 +114,14 @@ struct MonitorSnapshot final
     uint32_t faceGeneration = 0;
     uint32_t facesWritten = 0;
     uint32_t actionsRequested = 0;
-    uint32_t lastAction = 0;
+    uint32_t localExecuted = 0;
+    ActionName lastAction{};
     uint32_t connectAttempts = 0;
     HRESULT lastFailure = S_OK;
     DeviceFeatures features{};
     DeviceCounters counters{};
     HostStateCopy host{};
-    std::array<KeyAction, kKeyCount> actions{};
+    std::array<ActionName, kKeyCount> actions{};
     std::array<KeyFace, kKeyCount> faces{};
     std::array<bool, kKeyCount> bound{};
     std::array<bool, kKeyCount> invalid{};
@@ -130,7 +134,7 @@ struct MonitorSnapshot final
     SystemValues system{};
 };
 
-class LogiconService final : public RedXeComObject<LogiconService, IRedXeService, IRedXeDeviceWorker>,
+class LogiconService final : public RedXeComObject<LogiconService, IRedXeService, IRedXeDeviceWorker, IRedXeActionPack>,
                              public SystemValuesListener
 {
   public:
@@ -151,6 +155,10 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
 
     // IRedXeDeviceWorker (device lane).
     HRESULT STDMETHODCALLTYPE RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexcept override;
+
+    // IRedXeActionPack (UI thread): the published "logicon" namespace. Copies the request into a bounded slot,
+    // wakes the lane, and returns S_FALSE; the lane runs it exactly like a key binding would.
+    HRESULT STDMETHODCALLTYPE Execute(const RedXeActionRequest* request) noexcept override;
 
     // Monitor and test surface; any thread.
     void CopyMonitorSnapshot(MonitorSnapshot& snapshot) const noexcept;
@@ -190,11 +198,16 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
     void DispatchBinding(const KeyBinding* binding) noexcept;
     void DispatchPageButton(uint32_t button) noexcept;
     // Folds raw wheel units into detents and runs the action once per detent.
-    void DispatchWheel(DialAction action, int32_t& accumulator, int32_t deltaRaw) noexcept;
+    void DispatchWheel(uint8_t control, int32_t& accumulator, int32_t deltaRaw) noexcept;
     // UI thread: subscribes, activates, pauses, or drops the System Data feed to match the settings.
     void UpdateSystemFeed() noexcept;
-    void RequestAction(uint32_t action, int32_t argument, const char* target) noexcept;
-    void SendMediaKey(MediaKey key) noexcept;
+    // Forwards a binding to the host (IRedXeHost::RequestAction) from the lane.
+    void RequestAction(const KeyBinding& binding) noexcept;
+    void RequestNamed(const char* action, const char* target) noexcept;
+    // Runs one "logicon" verb on the lane: keyPage.next, keyPage.previous, keyPage.goto, brightness.
+    void ExecuteLocal(std::string_view verb, std::string_view target) noexcept;
+    // UI thread: asks the host to resolve every binding's action and target and records the result in valid.
+    void ValidateBindings(Settings& settings) noexcept;
     void ChangeKeyPage(int direction) noexcept;
     [[nodiscard]] uint64_t SlotSignature(uint32_t slot, const KeyBinding* binding, const FaceOverride& override,
                                          const HostStateCopy& host, uint32_t minuteOfDay) noexcept;
@@ -235,7 +248,15 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
     uint32_t _faceGeneration = 0;
     uint32_t _facesWritten = 0;
     uint32_t _actionsRequested = 0;
-    uint32_t _lastAction = 0;
+    uint32_t _localExecuted = 0;
+    ActionName _lastAction{};
+    struct LocalRequest final
+    {
+        ActionName action{};
+        std::array<char, kMaximumTargetBytes + 1> target{};
+    };
+    std::array<LocalRequest, kMaximumLocalRequests> _pendingLocal{};
+    uint32_t _pendingLocalCount = 0;
     SystemValues _systemValues{};
     uint32_t _systemGeneration = 0;
     bool _systemFeedActive = false;

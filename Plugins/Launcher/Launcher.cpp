@@ -3,6 +3,10 @@
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
 
+#include "Actions/ActionTargets.h"
+#include "Actions/FluentGlyphNames.h"
+#include "Actions/GlyphIcon.h"
+#include "LauncherBindings.h"
 #include "LauncherPaging.h"
 #include "LauncherPixelShader.h"
 #include "LauncherTestContract.h"
@@ -41,7 +45,7 @@ namespace
 constexpr char kPluginId[] = "builtin.launcher";
 constexpr char kWidgetTypeId[] = "launcher";
 constexpr char kSettingsSchema[] =
-    R"json({"type":"object","additionalProperties":false,"properties":{"shortcuts":{"type":"array","minItems":0,"maxItems":32,"items":{"type":"object","additionalProperties":false,"properties":{"target":{"type":"string"},"iconPng":{"type":"string"}},"required":["target"]}},"iconSize":{"type":"string","enum":["small","medium","large","huge","automatic"]}}})json";
+    R"json({"type":"object","additionalProperties":false,"properties":{"shortcuts":{"type":"array","minItems":0,"maxItems":32,"items":{"type":"object","additionalProperties":false,"properties":{"action":{"type":"string","pattern":"^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*){1,3}$"},"target":{"type":"string","maxLength":512},"icon":{"type":"string","maxLength":260}}}},"iconSize":{"type":"string","enum":["small","medium","large","huge","automatic"]}}})json";
 constexpr char kSettingsDefaults[] = R"json({"shortcuts":[],"iconSize":"huge"})json";
 constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
@@ -233,9 +237,15 @@ bool CopyWide(const wchar_t* source, wchar_t* destination, size_t capacity) noex
 struct ShortcutRecord final
 {
     wchar_t target[kTargetCapacity]{};
-    wchar_t iconPng[kIconPngCapacity]{};
+    // A Segoe Fluent Icons glyph name or "png:<absolute path>".
+    char icon[kIconPngCapacity]{};
     char targetUtf8[kTargetCapacity]{};
+    char actionUtf8[kRedXeMaximumActionNameBytes + 1]{"system.launch"};
+    // 0 unsatisfied launch target, 1 path, 2 URI, 3 an action other than system.launch.
     int kind = 0;
+    // Whether the host resolved the action and accepted its target (IRedXeHost::ValidateAction); an invalid
+    // shortcut draws the warning glyph and a tap does nothing.
+    bool valid = true;
     std::unique_ptr<uint8_t[]> bgra;
     uint32_t sourceEdge = 0;
 };
@@ -563,16 +573,53 @@ static_assert(sizeof(LauncherIconInstance) == 32);
     return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
 
+[[nodiscard]] HRESULT ExtractFromGlyph(wchar_t glyph, ShortcutRecord& record) noexcept
+{
+    record.bgra.reset(new (std::nothrow) uint8_t[kIconEdge * kIconEdge * 4]);
+    if (!record.bgra)
+    {
+        return E_OUTOFMEMORY;
+    }
+    const HRESULT result =
+        RedXeActions::RasterizeFluentGlyph(glyph, kIconEdge, reinterpret_cast<uint32_t*>(record.bgra.get()));
+    if (FAILED(result))
+    {
+        record.bgra.reset();
+        return result;
+    }
+    record.sourceEdge = kIconEdge;
+    return S_OK;
+}
+
 HRESULT ExtractShortcutIcon(ShortcutRecord& record) noexcept
 {
     record.bgra.reset();
     record.sourceEdge = 0;
-    if (record.iconPng[0] != L'\0')
+    if (!record.valid || record.kind == 0)
     {
-        if (SUCCEEDED(ExtractFromPng(record.iconPng, record)))
+        // The host refused the action or its target: the tile shows the Warning glyph and never dispatches.
+        return ExtractFromGlyph(L'\xE7BA', record);
+    }
+    const std::string_view icon{record.icon};
+    if (icon.starts_with("png:"))
+    {
+        std::array<wchar_t, kIconPngCapacity> path{};
+        if (Utf8ToWide(icon.substr(4), path.data(), path.size()) && SUCCEEDED(ExtractFromPng(path.data(), record)))
         {
             return S_OK;
         }
+    }
+    else if (!icon.empty())
+    {
+        const wchar_t glyph = RedXeActions::FluentGlyphFromName(icon);
+        if (SUCCEEDED(ExtractFromGlyph(glyph != 0 ? glyph : L'\xE897', record)))
+        {
+            return S_OK;
+        }
+    }
+    if (record.kind == 3)
+    {
+        return ExtractFromGlyph(L'\xE897', record);
     }
     if (record.target[0] == L'\0')
     {
@@ -725,64 +772,26 @@ void ResolvePinDirectory(wchar_t* directory, size_t capacity) noexcept
         {
             return false;
         }
-        yyjson_obj_iter itemIterator = yyjson_obj_iter_with(item);
-        bool sawTarget = false;
-        while (yyjson_val* key = yyjson_obj_iter_next(&itemIterator))
-        {
-            const std::string_view name{yyjson_get_str(key), yyjson_get_len(key)};
-            if (name != "target" && name != "iconPng")
-            {
-                return false;
-            }
-            sawTarget = sawTarget || name == "target";
-        }
-        yyjson_val* targetValue = yyjson_obj_get(item, "target");
-        yyjson_val* iconValue = yyjson_obj_get(item, "iconPng");
-        if (!sawTarget || !yyjson_is_str(targetValue))
-        {
-            return false;
-        }
-        const std::string_view target{yyjson_get_str(targetValue), yyjson_get_len(targetValue)};
-        const int kind = ClassifyTarget(target);
-        if (kind == 0)
+        Launcher::ShortcutItem parsed{};
+        const char* error = nullptr;
+        if (!Launcher::ParseShortcutItem(item, nullptr, parsed, &error))
         {
             return false;
         }
         ShortcutRecord& record = configuration.items[configuration.count];
         record = ShortcutRecord{};
-        if (!CopyNarrow(target, record.targetUtf8, std::size(record.targetUtf8)) ||
-            !Utf8ToWide(target, record.target, std::size(record.target)))
+        if (!CopyNarrow(parsed.action, record.actionUtf8, std::size(record.actionUtf8)) ||
+            !CopyNarrow(parsed.target, record.targetUtf8, std::size(record.targetUtf8)) ||
+            !Utf8ToWide(parsed.target, record.target, std::size(record.target)) ||
+            !CopyNarrow(parsed.icon, record.icon, std::size(record.icon)))
         {
             return false;
         }
-        record.kind = kind;
-        if (iconValue)
-        {
-            if (!yyjson_is_str(iconValue) || yyjson_get_len(iconValue) > 260)
-            {
-                return false;
-            }
-            const std::string_view icon{yyjson_get_str(iconValue), yyjson_get_len(iconValue)};
-            if (!icon.empty() && ClassifyTarget(icon) != 1)
-            {
-                return false;
-            }
-            if (!Utf8ToWide(icon, record.iconPng, std::size(record.iconPng)))
-            {
-                return false;
-            }
-        }
+        record.kind = parsed.action == Launcher::kDefaultAction ? ClassifyTarget(parsed.target) : 3;
         for (uint32_t existing = 0; existing < configuration.count; ++existing)
         {
-            if (kind == 2)
-            {
-                if (std::strcmp(configuration.items[existing].targetUtf8, record.targetUtf8) == 0)
-                {
-                    return false;
-                }
-            }
-            else if (CompareStringOrdinal(configuration.items[existing].target, -1, record.target, -1, TRUE) ==
-                     CSTR_EQUAL)
+            const ShortcutRecord& other = configuration.items[existing];
+            if (Launcher::ShortcutsEqual(other.actionUtf8, other.targetUtf8, record.actionUtf8, record.targetUtf8))
             {
                 return false;
             }
@@ -1151,8 +1160,10 @@ class LauncherDeviceResources final
 void CopyShortcutIdentity(const ShortcutRecord& source, ShortcutRecord& destination) noexcept
 {
     destination.kind = source.kind;
+    destination.valid = source.valid;
     CopyWide(source.target, destination.target, std::size(destination.target));
-    CopyWide(source.iconPng, destination.iconPng, std::size(destination.iconPng));
+    CopyNarrow(source.icon, destination.icon, std::size(destination.icon));
+    CopyNarrow(source.actionUtf8, destination.actionUtf8, std::size(destination.actionUtf8));
     CopyNarrow(source.targetUtf8, destination.targetUtf8, std::size(destination.targetUtf8));
 }
 
@@ -1180,6 +1191,7 @@ class LauncherWidget final
                       static_cast<float>(backgroundRgb & 0xFFU) / 255.0f, 1.0f}
     {
         CopyConfigurationIdentity(configuration, _authored);
+        ValidateShortcuts(_authored);
         CopyNarrow(instanceId ? std::string_view(instanceId) : std::string_view{}, _instanceId, std::size(_instanceId));
         LARGE_INTEGER frequency{};
         if (QueryPerformanceFrequency(&frequency) && frequency.QuadPart > 0)
@@ -1604,18 +1616,13 @@ class LauncherWidget final
             {
                 continue;
             }
+            ValidateShortcut(record);
             bool duplicate = false;
             for (uint32_t existing = 0; existing < _authored.count; ++existing)
             {
-                if (record.kind == 2)
-                {
-                    duplicate = std::strcmp(_authored.items[existing].targetUtf8, record.targetUtf8) == 0;
-                }
-                else
-                {
-                    duplicate = CompareStringOrdinal(_authored.items[existing].target, -1, record.target, -1, TRUE) ==
-                                CSTR_EQUAL;
-                }
+                duplicate =
+                    Launcher::ShortcutsEqual(_authored.items[existing].actionUtf8, _authored.items[existing].targetUtf8,
+                                             record.actionUtf8, record.targetUtf8);
                 if (duplicate)
                 {
                     break;
@@ -1902,42 +1909,33 @@ class LauncherWidget final
             return;
         }
         const ShortcutRecord& item = _display.items[index];
+        if (!item.valid || item.kind == 0)
+        {
+            return;
+        }
         gLaunchCount.fetch_add(1, std::memory_order_relaxed);
         gLastLaunchKind.store(static_cast<uint32_t>(item.kind), std::memory_order_relaxed);
         gLastShellMask.store(SEE_MASK_FLAG_NO_UI, std::memory_order_relaxed);
         gLastVerbWasNull.store(1, std::memory_order_relaxed);
         gLastShow.store(SW_SHOWNORMAL, std::memory_order_relaxed);
-        if (!IsAutomatedHost())
+        if (_host)
         {
-            SHELLEXECUTEINFOW info{};
-            info.cbSize = sizeof(info);
-            info.fMask = SEE_MASK_FLAG_NO_UI;
-            info.lpFile = item.target;
-            info.nShow = SW_SHOWNORMAL;
-            std::array<wchar_t, kTargetCapacity> directory{};
-            if (item.kind == 1)
+            // Every shortcut is a named action the host performs now; system.launch keeps the file's directory as
+            // working directory inside the host's own launch policy.
+            RedXeActionRequest request{};
+            request.sizeBytes = sizeof(request);
+            request.actionUtf8 = item.actionUtf8;
+            request.targetUtf8 = item.targetUtf8[0] != '\0' ? item.targetUtf8 : nullptr;
+            request.sourcePluginId = kPluginId;
+            const HRESULT executed = _host->ExecuteAction(&request);
+            if (SUCCEEDED(executed))
             {
-                const DWORD attributes = GetFileAttributesW(item.target);
-                if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
+                if (item.kind != 3 && !IsAutomatedHost())
                 {
-                    CopyWide(item.target, directory.data(), directory.size());
-                    wchar_t* slash = std::wcsrchr(directory.data(), L'\\');
-                    if (!slash)
-                    {
-                        slash = std::wcsrchr(directory.data(), L'/');
-                    }
-                    if (slash)
-                    {
-                        *slash = L'\0';
-                        info.lpDirectory = directory.data();
-                    }
+                    gShellExecuteCount.fetch_add(1, std::memory_order_relaxed);
                 }
             }
-            if (ShellExecuteExW(&info))
-            {
-                gShellExecuteCount.fetch_add(1, std::memory_order_relaxed);
-            }
-            else if (_host)
+            else
             {
                 const RedXeWidgetStatusReport report{sizeof(RedXeWidgetStatusReport), RedXeWidgetStatusDegraded,
                                                      L"Launch failed"};
@@ -1977,14 +1975,15 @@ class LauncherWidget final
             {
                 return E_OUTOFMEMORY;
             }
-            if (_authored.items[index].iconPng[0] != L'\0')
+            if (std::strcmp(_authored.items[index].actionUtf8, Launcher::kDefaultAction) != 0 &&
+                !yyjson_mut_obj_add_strcpy(document.get(), item, "action", _authored.items[index].actionUtf8))
             {
-                std::array<char, kIconPngCapacity> iconUtf8{};
-                if (!WideToUtf8(_authored.items[index].iconPng, iconUtf8.data(), iconUtf8.size()) ||
-                    !yyjson_mut_obj_add_strcpy(document.get(), item, "iconPng", iconUtf8.data()))
-                {
-                    return E_OUTOFMEMORY;
-                }
+                return E_OUTOFMEMORY;
+            }
+            if (_authored.items[index].icon[0] != '\0' &&
+                !yyjson_mut_obj_add_strcpy(document.get(), item, "icon", _authored.items[index].icon))
+            {
+                return E_OUTOFMEMORY;
             }
             if (!yyjson_mut_arr_add_val(array, item))
             {
@@ -2010,6 +2009,36 @@ class LauncherWidget final
         jsonUtf8[length] = '\0';
         written = static_cast<uint32_t>(length);
         return S_OK;
+    }
+
+    // UI thread: the host resolves the action (default namespaces and registered publishers) and checks the
+    // target against its descriptor; the result decides between the icon and the warning tile.
+    void ValidateShortcut(ShortcutRecord& record) noexcept
+    {
+        if (record.kind == 0)
+        {
+            record.valid = false;
+            return;
+        }
+        if (!_host)
+        {
+            record.valid = true;
+            return;
+        }
+        RedXeActionRequest request{};
+        request.sizeBytes = sizeof(request);
+        request.actionUtf8 = record.actionUtf8;
+        request.targetUtf8 = record.targetUtf8[0] != '\0' ? record.targetUtf8 : nullptr;
+        request.sourcePluginId = kPluginId;
+        record.valid = SUCCEEDED(_host->ValidateAction(&request, nullptr));
+    }
+
+    void ValidateShortcuts(LauncherConfiguration& configuration) noexcept
+    {
+        for (uint32_t index = 0; index < configuration.count; ++index)
+        {
+            ValidateShortcut(configuration.items[index]);
+        }
     }
 
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _providerOwner;
