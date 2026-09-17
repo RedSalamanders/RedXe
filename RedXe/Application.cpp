@@ -11,6 +11,7 @@
 #include "TextInputValidation.h"
 #include "WidgetRaise.h"
 #include "WidgetTextClient.h"
+#include "WindowCapture.h"
 #include "resource.h"
 
 #include <algorithm>
@@ -715,6 +716,11 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         if (_raiseSettleActive)
         {
             TickRaiseSettle();
+        }
+        if (_screenshot.pending && TickScreenshot())
+        {
+            CloseMainWindow();
+            continue;
         }
 
         if (!_renderer.IsOccluded())
@@ -1465,6 +1471,84 @@ void Application::BeginPageSettle(LONG targetOffset, bool commit) noexcept
         _pageSettleDurationQpc = _qpcFrequency / 10ULL;
     }
     _frameInvalidated = true;
+}
+
+void Application::RequestScreenshot(std::wstring_view pngPath, std::wstring_view pageId, uint32_t delayMilliseconds,
+                                    uint32_t widgetOrdinal) noexcept
+{
+    _screenshot = ScreenshotRequest{};
+    _screenshot.widgetOrdinal = widgetOrdinal;
+    _screenshot.path.assign(pngPath);
+    if (!pageId.empty())
+    {
+        const int bytes = WideCharToMultiByte(CP_UTF8, 0, pageId.data(), static_cast<int>(pageId.size()), nullptr, 0,
+                                              nullptr, nullptr);
+        if (bytes > 0)
+        {
+            _screenshot.pageIdUtf8.resize(static_cast<size_t>(bytes));
+            (void)WideCharToMultiByte(CP_UTF8, 0, pageId.data(), static_cast<int>(pageId.size()),
+                                      _screenshot.pageIdUtf8.data(), bytes, nullptr, nullptr);
+        }
+    }
+    _screenshot.delayMilliseconds = delayMilliseconds;
+    _screenshot.pending = true;
+}
+
+bool Application::TickScreenshot() noexcept
+{
+    if (!_screenshot.pending || !_window)
+    {
+        return false;
+    }
+    const ULONGLONG now = GetTickCount64();
+    if (!_screenshot.navigated)
+    {
+        // Jump only once the first page is live and no swipe or raise is settling; the wait starts after the jump
+        // so the target page (and the services reacting to it) has the whole delay to settle.
+        if (!_rendererReady || _pageSettleActive || _raiseSettleActive)
+        {
+            return false;
+        }
+        if (!_screenshot.pageIdUtf8.empty())
+        {
+            HandleHostAction(RedXeHostActionPageGoTo, -1, _screenshot.pageIdUtf8.c_str());
+        }
+        _screenshot.navigated = true;
+        _screenshot.dueTick = now + _screenshot.delayMilliseconds;
+        // A timer wakes the idle frame loop when the delay elapses; its message needs no handler.
+        (void)SetTimer(_window.get(), kScreenshotTimerId, std::max<UINT>(_screenshot.delayMilliseconds, 1U), nullptr);
+        return false;
+    }
+    if (now < _screenshot.dueTick || _pageSettleActive || _raiseSettleActive)
+    {
+        return false;
+    }
+    (void)KillTimer(_window.get(), kScreenshotTimerId);
+    // A widget ordinal crops to that tile's pixel bounds on the page now shown, the way the docs show one tile.
+    RECT crop{};
+    const RECT* cropPointer = nullptr;
+    RECT client{};
+    if (_screenshot.widgetOrdinal != UINT32_MAX && _dashboardHost && GetClientRect(_window.get(), &client) &&
+        client.right > 0 && client.bottom > 0)
+    {
+        if (_screenshot.widgetOrdinal >= _dashboardHost->WidgetCount())
+        {
+            _screenshot.result = HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+            _screenshot.pending = false;
+            OutputDebugStringW(L"Screenshot widget ordinal is out of range for the captured page.\n");
+            return true;
+        }
+        crop = _dashboardHost->PixelBoundsAt(_screenshot.widgetOrdinal, static_cast<UINT>(client.right),
+                                             static_cast<UINT>(client.bottom));
+        cropPointer = &crop;
+    }
+    _screenshot.result = RedXe::SaveWindowScreenshot(_window.get(), _screenshot.path.c_str(), cropPointer);
+    _screenshot.pending = false;
+    if (FAILED(_screenshot.result))
+    {
+        OutputDebugStringW(L"Screenshot capture failed.\n");
+    }
+    return true;
 }
 
 void Application::TickPageSettle() noexcept

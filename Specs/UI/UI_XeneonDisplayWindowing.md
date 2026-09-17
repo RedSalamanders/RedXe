@@ -53,6 +53,7 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 | Release with active XENEON | Create a `WS_POPUP` borderless window using the detected XENEON monitor's exact `rcMonitor` bounds. |
 | Release without active XENEON | Show the missing-display Yes/No warning. Yes creates the standard titled fallback window; No exits successfully without creating the main window. |
 | Self-test | Skip display discovery and prompts, create the titled window hidden, validate its DPI-adjusted client dimensions, render one frame, and exit. |
+| Screenshot (`--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]`) | Run exactly as the configuration above prescribes (same discovery, placement, services, and frame loop), jump to the named page through the host `PageGoTo` action once the renderer is live and no settle runs, wait the delay (default 3000 ms, 1–120000) with the frame loop idle-waiting as usual, capture the main window through `Common/WindowCapture.cpp` (Windows.Graphics.Capture of an owned, visible window; a widget ordinal crops to that tile's `PixelBoundsAt` in client space, mapped through the DWM extended frame bounds), then close. Exit 0 with the PNG written, 8 when the capture failed (no modal prompt). It MUST NOT activate, move, or resize the window, move the cursor, or send input. |
 
 Debug and Release display discovery MUST inspect active display paths through
 `QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS)`. A target friendly name containing `XENEON` or `CORSAIR`, compared
@@ -137,6 +138,12 @@ the pure decision table and the hidden WARP identity without a display topology.
 The Release missing-display prompt MUST be checked manually when no matching display is active. The hidden self-test
 MUST remain noninteractive in both configurations and MUST verify the top-level `WS_CLIPCHILDREN` style and the
 `WS_EX_NOREDIRECTIONBITMAP` extended style.
+
+`HostPluginTests` MUST prove the capture helper without a dashboard: a solid-color popup this process owns, shown
+without activation for the capture, yields a PNG of its size and color; a client-space crop yields exactly that
+rectangle; a hidden window, a window of another process, and a crop outside the client area are refused. Every
+picture under `docs/screenshots/` MUST come from `--screenshot` (a live Debug build, one tile through `--widget`),
+never from a desktop screenshot tool.
 
 Native-window composition changes additionally require a live launch with a native widget enabled. The child content
 MUST remain visible and animated while the surrounding Direct3D widgets continue presenting.

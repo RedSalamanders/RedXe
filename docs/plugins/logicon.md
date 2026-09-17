@@ -8,7 +8,7 @@ Debug tile id: `builtin.logicon-monitor` (developer builds only)
 
 ![Logicon Monitor](../screenshots/logicon-monitor.png)
 
-The picture shows the Debug monitor tile; in a normal build there is nothing to see on the dashboard. What you see is the keypad itself: nine key faces, the two page buttons, and the dashboard reacting to them.
+The picture shows the Debug monitor tile with a keypad on USB and a dialpad over Bluetooth; in a normal build there is nothing to see on the dashboard. On the left are the nine key faces exactly as the keypad shows them and the two page buttons; on the right the connection state, the tap modes, the dialpad's dial, roller, and four buttons with what they are bound to, and the last HID++ frames.
 
 ## What it does
 

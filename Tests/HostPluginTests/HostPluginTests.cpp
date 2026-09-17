@@ -15,6 +15,7 @@
 #include "Settings.h"
 #include "StudioClockTestContract.h"
 #include "WidgetRaise.h"
+#include "WindowCapture.h"
 
 #include <tlhelp32.h>
 
@@ -36,10 +37,12 @@
 
 #include <ole2.h>
 #include <psapi.h>
+#include <wincodec.h>
 #include <windows.h>
 
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027 28182)
+#include <wil/com.h>
 #include <wil/resource.h>
 #pragma warning(pop)
 
@@ -797,6 +800,135 @@ void TestAdapterSelectionPolicy(bool& success) noexcept
     Check(RedXeSameLuid(discrete, discrete) && !RedXeSameLuid(discrete, integrated) &&
               !RedXeSameLuid(LUID{1, 2}, LUID{1, 3}),
           L"adapter identity compares both LUID halves", success);
+}
+
+// Reads one pixel of a PNG through WIC (0xAARRGGBB) so a capture can be checked without a second decoder.
+[[nodiscard]] HRESULT ReadPngPixel(const wchar_t* path, UINT x, UINT y, UINT& width, UINT& height,
+                                   uint32_t& pixel) noexcept
+{
+    wil::com_ptr_nothrow<IWICImagingFactory> factory;
+    HRESULT result =
+        CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.put()));
+    wil::com_ptr_nothrow<IWICBitmapDecoder> decoder;
+    if (SUCCEEDED(result))
+    {
+        result = factory->CreateDecoderFromFilename(path, nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand,
+                                                    decoder.put());
+    }
+    wil::com_ptr_nothrow<IWICBitmapFrameDecode> frame;
+    if (SUCCEEDED(result))
+    {
+        result = decoder->GetFrame(0, frame.put());
+    }
+    wil::com_ptr_nothrow<IWICFormatConverter> converter;
+    if (SUCCEEDED(result))
+    {
+        result = factory->CreateFormatConverter(converter.put());
+    }
+    if (SUCCEEDED(result))
+    {
+        result = converter->Initialize(frame.get(), GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0.0,
+                                       WICBitmapPaletteTypeCustom);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = converter->GetSize(&width, &height);
+    }
+    if (SUCCEEDED(result))
+    {
+        if (x >= width || y >= height)
+        {
+            return E_INVALIDARG;
+        }
+        const WICRect rect{static_cast<INT>(x), static_cast<INT>(y), 1, 1};
+        result = converter->CopyPixels(&rect, 4, 4, reinterpret_cast<BYTE*>(&pixel));
+    }
+    return result;
+}
+
+// Windows.Graphics.Capture of a window this process owns, the path `--screenshot` and documentation captures use:
+// a visible off-screen popup painted one solid color captures at its size with that color, hidden and foreign
+// windows are refused, and a client-space crop yields exactly the requested rectangle.
+void TestWindowCapture(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] window capture through Windows.Graphics.Capture\n";
+    constexpr wchar_t kClassName[] = L"RedXe.CaptureTest";
+    constexpr COLORREF kFill = RGB(0x20, 0x90, 0xE0);
+    WNDCLASSEXW windowClass{};
+    windowClass.cbSize = sizeof(windowClass);
+    windowClass.lpfnWndProc = [](HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept -> LRESULT
+    {
+        if (message == WM_PAINT)
+        {
+            PAINTSTRUCT paint{};
+            const HDC context = BeginPaint(window, &paint);
+            const HBRUSH brush = CreateSolidBrush(kFill);
+            RECT client{};
+            GetClientRect(window, &client);
+            FillRect(context, &client, brush);
+            DeleteObject(brush);
+            EndPaint(window, &paint);
+            return 0;
+        }
+        return DefWindowProcW(window, message, wParam, lParam);
+    };
+    windowClass.hInstance = GetModuleHandleW(nullptr);
+    windowClass.lpszClassName = kClassName;
+    (void)RegisterClassExW(&windowClass);
+    constexpr int kWidth = 96;
+    constexpr int kHeight = 64;
+    // On-screen for the few milliseconds of the capture (DWM composes nothing for an off-screen window), but never
+    // activated and never on the taskbar, so no focus or desktop state changes.
+    wil::unique_hwnd window{CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW, kClassName, L"RedXe capture test",
+                                            WS_POPUP, 0, 0, kWidth, kHeight, nullptr, nullptr,
+                                            GetModuleHandleW(nullptr), nullptr)};
+    Check(window != nullptr, L"capture test window created", success);
+    if (!window)
+    {
+        return;
+    }
+    const std::filesystem::path directory = std::filesystem::temp_directory_path() / L"RedXeCaptureTest";
+    std::error_code error;
+    std::filesystem::create_directories(directory, error);
+    const std::filesystem::path full = directory / L"full.png";
+    const std::filesystem::path cropped = directory / L"cropped.png";
+    Check(RedXe::SaveWindowScreenshot(window.get(), full.c_str()) == E_INVALIDARG, L"a hidden window is refused",
+          success);
+    ShowWindow(window.get(), SW_SHOWNOACTIVATE);
+    UpdateWindow(window.get());
+    MSG message{};
+    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
+    {
+        DispatchMessageW(&message);
+    }
+    Check(RedXe::SaveWindowScreenshot(GetDesktopWindow(), full.c_str()) == E_INVALIDARG,
+          L"a window of another process is refused", success);
+    HRESULT result = RedXe::SaveWindowScreenshot(window.get(), full.c_str());
+    Check(SUCCEEDED(result), L"the visible window captures", success);
+    UINT width = 0;
+    UINT height = 0;
+    uint32_t pixel = 0;
+    if (SUCCEEDED(result))
+    {
+        result = ReadPngPixel(full.c_str(), kWidth / 2, kHeight / 2, width, height, pixel);
+        Check(SUCCEEDED(result) && width == kWidth && height == kHeight, L"the capture has the window's size", success);
+        Check((pixel & 0x00FFFFFFU) == 0x002090E0U, L"the capture holds the painted color", success);
+    }
+    const RECT crop{8, 4, 40, 20};
+    result = RedXe::SaveWindowScreenshot(window.get(), cropped.c_str(), &crop);
+    Check(SUCCEEDED(result), L"a client-space crop captures", success);
+    if (SUCCEEDED(result))
+    {
+        result = ReadPngPixel(cropped.c_str(), 0, 0, width, height, pixel);
+        Check(SUCCEEDED(result) && width == 32 && height == 16 && (pixel & 0x00FFFFFFU) == 0x002090E0U,
+              L"the crop is 32x16 of the painted color", success);
+    }
+    const RECT outside{kWidth + 10, kHeight + 10, kWidth + 20, kHeight + 20};
+    Check(RedXe::SaveWindowScreenshot(window.get(), cropped.c_str(), &outside) == E_INVALIDARG,
+          L"a crop outside the client area is refused", success);
+    window.reset();
+    std::filesystem::remove_all(directory, error);
+    (void)UnregisterClassW(kClassName, GetModuleHandleW(nullptr));
 }
 
 // The production renderer on the hidden WARP host: device identity is reported, the swap chain owns a frame-latency
@@ -4327,6 +4459,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestFrameScheduler(success);
     TestAdapterSelectionPolicy(success);
     TestRendererDeviceIdentity(success);
+    TestWindowCapture(success);
     TestPageSwipePolicy(success);
     TestWidgetRaisePolicy(success);
     TestWidgetRaiseHost(success);

@@ -11,6 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <windows.h>
 
@@ -50,6 +51,16 @@ class Application final
     // Hidden startup validation for `--self-test`. It shares this class's startup steps but never enters the
     // frame loop, so Run itself carries no test branches.
     int RunSelfTest(std::wstring_view settingsPath = {}) noexcept;
+
+    // Documentation capture for `--screenshot`: Run shows the dashboard normally, jumps to pageId (empty = the
+    // start page) once the renderer is live, waits delayMilliseconds for widgets and services to settle, captures
+    // its own window through Windows.Graphics.Capture into pngPath, and closes. ScreenshotResult reports it.
+    void RequestScreenshot(std::wstring_view pngPath, std::wstring_view pageId, uint32_t delayMilliseconds,
+                           uint32_t widgetOrdinal) noexcept;
+    [[nodiscard]] HRESULT ScreenshotResult() const noexcept
+    {
+        return _screenshot.result;
+    }
 
   private:
     static constexpr wchar_t kWindowClassName[] = L"RedXe.Window";
@@ -124,6 +135,9 @@ class Application final
     void FlushPendingTransitionStage() noexcept;
     void BeginPageSettle(LONG targetOffset, bool commit) noexcept;
     void TickPageSettle() noexcept;
+    // Advances a `--screenshot` request from the frame loop: jump, wait, capture. Returns true once the capture
+    // has run (successfully or not) so the loop closes the window.
+    [[nodiscard]] bool TickScreenshot() noexcept;
     HRESULT PromoteTransitionPage() noexcept;
     // Stages the adjacent page in `direction`, or, when targetPageIndex is supplied, that page directly (a host
     // action jump); the direction then only decides which side the staged page slides in from.
@@ -193,6 +207,21 @@ class Application final
     std::unique_ptr<AppSettings> _transitionSettings;
     std::unique_ptr<PluginManager> _transitionPluginManager;
     std::unique_ptr<DashboardHost> _transitionDashboardHost;
+    struct ScreenshotRequest final
+    {
+        std::wstring path;
+        std::string pageIdUtf8;
+        uint32_t delayMilliseconds = 3000;
+        // Crop to this widget ordinal on the captured page; UINT32_MAX captures the whole window.
+        uint32_t widgetOrdinal = UINT32_MAX;
+        bool pending = false;
+        bool navigated = false;
+        ULONGLONG dueTick = 0;
+        HRESULT result = S_OK;
+    };
+    static constexpr UINT_PTR kScreenshotTimerId = 0x5C5;
+
+    ScreenshotRequest _screenshot{};
     bool _forceWarp = false;
     bool _classRegistered = false;
     bool _rendererReady = false;

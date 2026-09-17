@@ -29,8 +29,10 @@ spec completely before changing its behavior. For display, window, fullscreen, f
 5. Run the domain spec's validation plus the relevant repo skill's checks.
 6. Before closeout, move every lasting discovery into the authoritative spec. If the finished change impacts an
    end-user scenario, update `docs/` in the same closeout: global usage and/or the affected plugin page, including the
-   screenshot when appearance or interaction changed. `docs/` MUST NOT receive measurement receipts, checkpoints, or
-   generated reports. Move a completed WIP plan to Done and remove its active index row.
+   screenshot when appearance or interaction changed. Screenshots come from the application itself:
+   `RedXe.exe --screenshot <png> --page <id> --widget <ordinal> [--after <ms>]` on a Debug build with a portable
+   `--settings` scene (see `docs/usage.md`), never from a desktop screenshot tool or Computer Use. `docs/` MUST NOT
+   receive measurement receipts, checkpoints, or generated reports. Move a completed WIP plan to Done and remove its active index row.
 
 Use normative language only for observable requirements, ownership boundaries, compatibility constraints, and
 required validation. Keep rationale concise and avoid copying exact schemas, dependency versions, or generated data

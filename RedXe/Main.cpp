@@ -2,6 +2,7 @@
 #include "CrashHandler.h"
 #include "PluginHost.h"
 
+#include <cwchar>
 #include <memory>
 #include <new>
 #include <shellapi.h>
@@ -48,6 +49,26 @@ bool HasArgument(wchar_t* const* arguments, int argumentCount, std::wstring_view
             return false;
         }
         selectedPath = arguments[++index];
+    }
+    return true;
+}
+
+// One optional `<switch> <value>` pair; false when the switch repeats or lacks its value.
+[[nodiscard]] bool GetValueArgument(wchar_t* const* arguments, int argumentCount, std::wstring_view expected,
+                                    std::wstring_view& value) noexcept
+{
+    value = {};
+    for (int index = 1; index < argumentCount; ++index)
+    {
+        if (std::wstring_view{arguments[index]} != expected)
+        {
+            continue;
+        }
+        if (!value.empty() || index + 1 >= argumentCount || arguments[index + 1][0] == L'\0')
+        {
+            return false;
+        }
+        value = arguments[++index];
     }
     return true;
 }
@@ -103,6 +124,49 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
                     MB_OK | MB_ICONERROR);
         return 2;
     }
+    // Documentation capture: --screenshot <png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>] runs
+    // the dashboard, jumps to the page, waits, captures its own window (or one tile), and exits (0 on success, 8
+    // when the capture failed).
+    std::wstring_view screenshotPath;
+    std::wstring_view screenshotPage;
+    std::wstring_view screenshotWidget;
+    std::wstring_view screenshotDelay;
+    if (!GetValueArgument(arguments.get(), argumentCount, L"--screenshot", screenshotPath) ||
+        !GetValueArgument(arguments.get(), argumentCount, L"--page", screenshotPage) ||
+        !GetValueArgument(arguments.get(), argumentCount, L"--widget", screenshotWidget) ||
+        !GetValueArgument(arguments.get(), argumentCount, L"--after", screenshotDelay))
+    {
+        MessageBoxW(nullptr,
+                    L"Use --screenshot <file.png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>].",
+                    L"RedXe", MB_OK | MB_ICONERROR);
+        return 2;
+    }
+    uint32_t screenshotDelayMilliseconds = 3000;
+    uint32_t screenshotWidgetOrdinal = UINT32_MAX;
+    if (!screenshotDelay.empty())
+    {
+        wchar_t* end = nullptr;
+        const unsigned long parsed = std::wcstoul(screenshotDelay.data(), &end, 10);
+        if (!end || *end != L'\0' || parsed == 0 || parsed > 120'000UL)
+        {
+            MessageBoxW(nullptr, L"--after takes a delay of 1 through 120000 milliseconds.", L"RedXe",
+                        MB_OK | MB_ICONERROR);
+            return 2;
+        }
+        screenshotDelayMilliseconds = static_cast<uint32_t>(parsed);
+    }
+    if (!screenshotWidget.empty())
+    {
+        wchar_t* end = nullptr;
+        const unsigned long parsed = std::wcstoul(screenshotWidget.data(), &end, 10);
+        if (!end || *end != L'\0' || parsed >= 1024UL)
+        {
+            MessageBoxW(nullptr, L"--widget takes the 0-based ordinal of a widget on the captured page.", L"RedXe",
+                        MB_OK | MB_ICONERROR);
+            return 2;
+        }
+        screenshotWidgetOrdinal = static_cast<uint32_t>(parsed);
+    }
     if (crashTest || stackOverflowCrashTest)
     {
         if (ConfigureCrashTestDirectoryOverride(arguments.get(), argumentCount) ==
@@ -131,7 +195,16 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             {
                 PluginHost::Instance().SetNetworkAccessEnabled(false);
             }
+            if (!screenshotPath.empty() && !selfTest)
+            {
+                application->RequestScreenshot(screenshotPath, screenshotPage, screenshotDelayMilliseconds,
+                                               screenshotWidgetOrdinal);
+            }
             exitCode = selfTest ? application->RunSelfTest(settingsPath) : application->Run(showCommand, settingsPath);
+            if (!screenshotPath.empty() && !selfTest && exitCode == 0 && FAILED(application->ScreenshotResult()))
+            {
+                exitCode = 8;
+            }
         }
     }
 
@@ -159,6 +232,10 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         case 7:
             message = L"RedXe could not watch its settings file. See the debugger output.";
             break;
+        case 8:
+            // A capture run is scripted; its failure is an exit code, never a modal prompt.
+            OutputDebugStringW(L"RedXe could not capture the screenshot.\n");
+            return exitCode;
         default:
             break;
         }

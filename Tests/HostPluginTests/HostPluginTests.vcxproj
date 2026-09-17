@@ -92,6 +92,7 @@
     <ClCompile Include="..\..\Plugins\AVControl\AVControlModel.cpp" />
     <ClCompile Include="..\..\Plugins\Logicon\LogiconSettings.cpp" />
     <ClCompile Include="..\..\RedXe\SettingsV4.cpp" />
+    <ClCompile Include="..\..\Common\WindowCapture.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Plugins\DeskClock\DeskClockTestContract.h" />

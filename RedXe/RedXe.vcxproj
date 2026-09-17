@@ -110,6 +110,7 @@
     <ClInclude Include="..\Common\PlugInterfaces\Data.h" />
     <ClInclude Include="..\Common\PlugInterfaces\Host.h" />
     <ClInclude Include="..\Common\PlugInterfaces\Widget.h" />
+    <ClInclude Include="..\Common\WindowCapture.h" />
     <ClInclude Include="Application.h" />
     <ClInclude Include="WidgetTextClient.h" />
     <ClInclude Include="AccessibilityHost.h" />
@@ -145,6 +146,7 @@
     <ClCompile Include="..\Plugins\Logicon\LogiconSettings.cpp" />
     <ClCompile Include="SettingsV4.cpp" />
     <ClCompile Include="SettingsWatcher.cpp" />
+    <ClCompile Include="..\Common\WindowCapture.cpp" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="HostChromePixel.hlsl">
