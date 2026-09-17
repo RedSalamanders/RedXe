@@ -62,6 +62,7 @@
     <ClCompile Include="SettingsTests.cpp" />
     <ClCompile Include="..\..\RedXe\Settings.cpp" />
     <ClCompile Include="..\..\Plugins\AVControl\AVControlModel.cpp" />
+    <ClCompile Include="..\..\Plugins\Logicon\LogiconSettings.cpp" />
     <ClCompile Include="..\..\RedXe\SettingsV4.cpp" />
     <ClCompile Include="..\..\RedXe\SettingsWatcher.cpp" />
   </ItemGroup>

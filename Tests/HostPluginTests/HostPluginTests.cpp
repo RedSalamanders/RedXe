@@ -1,3 +1,4 @@
+#include "../../Plugins/Logicon/LogiconTestContract.h"
 #include "../../Plugins/Weather/WeatherTestContract.h"
 #include "DashboardHost.h"
 #include "DeskClockTestContract.h"
@@ -30,6 +31,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
 #include <yyjson.h>
 
 #include <ole2.h>
@@ -2843,6 +2845,199 @@ void TestNetworkLane(bool& success) noexcept
     host.UnregisterNetworkWidget(&stub);
 }
 
+struct HostActionRecord final
+{
+    std::vector<uint32_t> actions;
+    std::vector<int32_t> arguments;
+    std::vector<std::string> targets;
+};
+
+void RecordHostAction(void* context, uint32_t action, int32_t argument, const char* targetUtf8) noexcept
+{
+    auto* record = static_cast<HostActionRecord*>(context);
+    try
+    {
+        record->actions.push_back(action);
+        record->arguments.push_back(argument);
+        record->targets.emplace_back(targetUtf8 ? targetUtf8 : "");
+    }
+    catch (...)
+    {
+    }
+}
+
+void TestHostActionQueue(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] host action ring: validation, coalescing, bounds, ordered drain\n";
+    PluginHost& host = PluginHost::Instance();
+    HostActionRecord record;
+    host.SetHostActionHandler(&RecordHostAction, &record);
+    host.DrainHostActions();
+
+    RedXeHostActionRequest request{};
+    Check(host.RequestHostAction(nullptr) == E_POINTER, L"a null request returns E_POINTER", success);
+    Check(host.RequestHostAction(&request) == E_INVALIDARG, L"a zero sizeBytes request is rejected", success);
+    request.sizeBytes = sizeof(request);
+    request.action = RedXeHostActionNone;
+    Check(host.RequestHostAction(&request) == E_INVALIDARG, L"action None is rejected", success);
+    request.action = RedXeHostActionLaunch + 1;
+    Check(host.RequestHostAction(&request) == E_INVALIDARG, L"an unknown action is rejected", success);
+    std::string overlong(kRedXeMaximumHostActionTargetBytes + 1, 'x');
+    request.action = RedXeHostActionLaunch;
+    request.targetUtf8 = overlong.c_str();
+    Check(host.RequestHostAction(&request) == E_INVALIDARG, L"a 513-byte target is rejected", success);
+
+    request.action = RedXeHostActionPageNext;
+    request.targetUtf8 = nullptr;
+    Check(host.RequestHostAction(&request) == S_OK && host.PendingHostActionCount() == 1, L"a page action queues",
+          success);
+    Check(host.RequestHostAction(&request) == S_FALSE && host.PendingHostActionCount() == 1,
+          L"an identical pending action coalesces", success);
+    request.action = RedXeHostActionWidgetToggle;
+    request.argument = 2;
+    request.targetUtf8 = "system/2";
+    Check(host.RequestHostAction(&request) == S_OK && host.PendingHostActionCount() == 2,
+          L"a distinct action with a target queues behind it", success);
+    request.argument = 3;
+    Check(host.RequestHostAction(&request) == S_OK && host.PendingHostActionCount() == 3,
+          L"a different argument is a distinct action", success);
+    for (int32_t argument = 10; host.PendingHostActionCount() < 16; ++argument)
+    {
+        request.argument = argument;
+        if (FAILED(host.RequestHostAction(&request)))
+        {
+            break;
+        }
+    }
+    Check(host.PendingHostActionCount() == 16, L"the ring holds sixteen distinct actions", success);
+    request.argument = 99;
+    Check(host.RequestHostAction(&request) == HRESULT_FROM_WIN32(ERROR_BUSY) && host.PendingHostActionCount() == 16,
+          L"a full ring returns ERROR_BUSY without accepting the request", success);
+
+    host.DrainHostActions();
+    Check(host.PendingHostActionCount() == 0 && record.actions.size() == 16 &&
+              record.actions[0] == RedXeHostActionPageNext && record.targets[0].empty() &&
+              record.actions[1] == RedXeHostActionWidgetToggle && record.arguments[1] == 2 &&
+              record.targets[1] == "system/2" && record.arguments[2] == 3 && record.arguments[15] == 22,
+          L"drain delivers every queued action once, in submission order, with its copied target", success);
+    host.DrainHostActions();
+    Check(record.actions.size() == 16, L"a second drain delivers nothing", success);
+    host.SetHostActionHandler(nullptr, nullptr);
+}
+
+void TestServiceLifetime(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] service lifetime: start, device lane, host state, settings apply, stop\n";
+    PluginHost& host = PluginHost::Instance();
+    host.SetDeviceAccessEnabled(false);
+    Check(!host.DeviceAccessEnabled() && host.StartedServiceCount() == 0 && host.RunningDeviceWorkerCount() == 0,
+          L"the automated host starts with device access disabled and no service", success);
+
+    constexpr std::string_view withService = R"json({"version":{"major":5,"minor":1},
+      "services":{"Keypad":{"plugin":"builtin.logicon","brightness":35,"keys":[{"slot":0,"action":"page.next"}]}},
+      "pages":[{"widgets":[{"plugin":"builtin.rotating-triangle"}]}]})json";
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(withService, settings);
+    Check(SUCCEEDED(result) && settings.serviceCount == 1, L"a document with the Logicon service parses", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+    const DWORD threadsBefore = CountProcessThreads();
+    result = host.StartServices(settings);
+    Check(SUCCEEDED(result) && host.StartedServiceCount() == 1 && host.ServiceFor("builtin.logicon") != nullptr &&
+              host.ServiceFor("builtin.launcher") == nullptr,
+          L"StartServices creates and starts the configured service", success);
+    Check(host.RunningDeviceWorkerCount() == 1 && CountProcessThreads() >= threadsBefore + 1,
+          L"a started service with a device worker owns exactly one lane thread", success);
+    Check(SUCCEEDED(host.StartServices(settings)) && host.StartedServiceCount() == 1 &&
+              host.RunningDeviceWorkerCount() == 1,
+          L"StartServices is idempotent", success);
+
+    const HMODULE module = GetModuleHandleW(L"Logicon.dll");
+    const auto diagnostics =
+        module ? ResolveFunction<RedXeLogiconGetTestDiagnosticsFn>(module, kRedXeLogiconGetTestDiagnosticsExport)
+               : nullptr;
+    RedXeLogiconTestDiagnostics report{};
+    report.sizeBytes = sizeof(report);
+    bool laneRunning = false;
+    for (int attempt = 0; attempt < 100 && diagnostics; ++attempt)
+    {
+        if (SUCCEEDED(diagnostics(&report)) && report.laneRunning == 1)
+        {
+            laneRunning = true;
+            break;
+        }
+        Sleep(20);
+    }
+    Check(diagnostics != nullptr && laneRunning && report.deviceAccess == 0 && report.connected == 0 &&
+              report.brightness == 35,
+          L"the lane runs without device access, opens nothing, and carries the configured settings", success);
+
+    RedXeHostState state{};
+    state.sizeBytes = sizeof(state);
+    state.pageIndex = 2;
+    state.pageCount = 5;
+    state.pageId = "system";
+    state.pageName = L"System";
+    state.flags = RedXeHostStateVisible;
+    host.PublishHostState(state);
+    bool statePublished = false;
+    for (int attempt = 0; attempt < 100 && diagnostics; ++attempt)
+    {
+        if (SUCCEEDED(diagnostics(&report)) && report.hostPageIndex == 2 && report.hostPageCount == 5)
+        {
+            statePublished = true;
+            break;
+        }
+        Sleep(20);
+    }
+    Check(statePublished, L"PublishHostState reaches the started service", success);
+
+    // A reload with the same effective object re-applies nothing; a changed object re-applies.
+    Check(SUCCEEDED(host.ApplyServiceSettings(settings)) && host.StartedServiceCount() == 1,
+          L"ApplyServiceSettings with an unchanged object keeps the service running", success);
+    constexpr std::string_view changed = R"json({"version":{"major":5,"minor":1},
+      "services":{"Keypad":{"plugin":"builtin.logicon","brightness":80}},
+      "pages":[{"widgets":[{"plugin":"builtin.rotating-triangle"}]}]})json";
+    AppSettings changedSettings{};
+    result = ParseAppSettingsJson(changed, changedSettings);
+    Check(SUCCEEDED(result) && SUCCEEDED(host.ApplyServiceSettings(changedSettings)),
+          L"ApplyServiceSettings with a changed object succeeds", success);
+    bool reapplied = false;
+    for (int attempt = 0; attempt < 100 && diagnostics; ++attempt)
+    {
+        if (SUCCEEDED(diagnostics(&report)) && report.brightness == 80)
+        {
+            reapplied = true;
+            break;
+        }
+        Sleep(20);
+    }
+    Check(reapplied, L"the changed settings object reached the lane", success);
+
+    // Removing the service from the document stops and releases it; the lane drains inside its budget.
+    constexpr std::string_view without =
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.rotating-triangle"}]}]})json";
+    AppSettings withoutSettings{};
+    result = ParseAppSettingsJson(without, withoutSettings);
+    const ULONGLONG stopStarted = GetTickCount64();
+    Check(SUCCEEDED(result) && SUCCEEDED(host.ApplyServiceSettings(withoutSettings)) &&
+              host.StartedServiceCount() == 0 && host.RunningDeviceWorkerCount() == 0 &&
+              host.ServiceFor("builtin.logicon") == nullptr && GetTickCount64() - stopStarted < 2'000,
+          L"a reload without the service stops it and joins its lane within budget", success);
+    Check(diagnostics && diagnostics(&report) == HRESULT_FROM_WIN32(ERROR_NOT_READY),
+          L"the stopped service object is released", success);
+
+    // Start again and stop through StopServices, the shutdown path.
+    Check(SUCCEEDED(host.StartServices(settings)) && host.StartedServiceCount() == 1, L"the service restarts", success);
+    host.StopServices();
+    Check(host.StartedServiceCount() == 0 && host.RunningDeviceWorkerCount() == 0,
+          L"StopServices stops every service and joins every lane", success);
+    host.StopServices();
+    Check(host.StartedServiceCount() == 0, L"StopServices is idempotent", success);
+}
+
 void TestLauncherPluginConstructs(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] launcher plugin DLL constructs\n";
@@ -4158,6 +4353,8 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestUnmappedCatalogModulePlaceholder(success);
     TestWeatherPluginConstructs(success);
     TestNetworkLane(success);
+    TestHostActionQueue(success);
+    TestServiceLifetime(success);
     TestLauncherPluginConstructs(success);
     TestPublishedArraySchema(success);
     TestPageEdgeAffordancePolicy(success);

@@ -16,6 +16,8 @@ enum RedXePluginCapabilities : uint32_t
     RedXePluginCapabilityNone = 0,
     RedXePluginCapabilityWidgetProvider = 1U << 0U,
     RedXePluginCapabilityDataSource = 1U << 1U,
+    // The plugin creates an IRedXeService (Service.h): a headless object the host starts without a placed widget.
+    RedXePluginCapabilityService = 1U << 2U,
 };
 
 // Current factory input; sizeBytes must equal sizeof(RedXeFactoryOptions).

@@ -60,7 +60,7 @@ constexpr size_t kMaximumSettingsBytes = 1024U * 1024U;
 [[nodiscard]] bool IsStructuredJsonSection(std::string_view key) noexcept
 {
     return key == "\"declare\"" || key == "\"pages\"" || key == "\"widgets\"" || key == "\"columns\"" ||
-           key == "\"rows\"" || key == "\"shortcuts\"";
+           key == "\"rows\"" || key == "\"shortcuts\"" || key == "\"services\"" || key == "\"keys\"";
 }
 
 [[nodiscard]] bool FitsInlineJson(std::string_view json, size_t begin, size_t column) noexcept
@@ -1495,6 +1495,37 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
         }
     }
 
+    if (settings.serviceCount > kMaximumSettingsServices || settings.services.size() != settings.serviceCount)
+    {
+        return E_INVALIDARG;
+    }
+    for (uint32_t index = 0; index < settings.serviceCount; ++index)
+    {
+        const ServiceSettings& service = settings.services[index];
+        if (!IsValidStoredText(service.name, false) || !IsValidStoredText(service.pluginId, true) ||
+            !ParseStoredObject(service.privateConfiguration))
+        {
+            return E_INVALIDARG;
+        }
+        bool catalogued = false;
+        for (const RedXeBundledServiceSpec& candidate : kRedXeBundledServices)
+        {
+            catalogued = catalogued || SettingsIdEquals(candidate.pluginId, service.pluginId.View());
+        }
+        if (!catalogued)
+        {
+            return E_INVALIDARG;
+        }
+        for (uint32_t previous = 0; previous < index; ++previous)
+        {
+            if (settings.services[previous].name.View() == service.name.View() ||
+                SettingsIdEquals(settings.services[previous].pluginId.View(), service.pluginId.View()))
+            {
+                return HRESULT_FROM_WIN32(ERROR_DUP_NAME);
+            }
+        }
+    }
+
     bool activeFound = false;
     for (uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
     {
@@ -1708,6 +1739,40 @@ HRESULT SerializeFactoryConfigurationJson(const PluginSettings& plugin, const Wi
     }
     jsonBytes = static_cast<uint32_t>(written);
     return S_OK;
+}
+
+HRESULT SerializeServiceConfigurationJson(const ServiceSettings& service,
+                                          std::array<char, kFactoryConfigurationCapacity>& json,
+                                          uint32_t& jsonBytes) noexcept
+{
+    json.fill('\0');
+    jsonBytes = 0;
+    if (service.privateConfiguration.bytes == 0 || service.privateConfiguration.bytes > kPrivateConfigurationCapacity)
+    {
+        return E_INVALIDARG;
+    }
+    const int written =
+        sprintf_s(json.data(), json.size(), "{\"plugin\":{},\"instance\":%.*s}",
+                  static_cast<int>(service.privateConfiguration.bytes), service.privateConfiguration.utf8.data());
+    if (written <= 0 || static_cast<size_t>(written) >= json.size())
+    {
+        json.fill('\0');
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    }
+    jsonBytes = static_cast<uint32_t>(written);
+    return S_OK;
+}
+
+const ServiceSettings* FindServiceSettings(const AppSettings& settings, std::string_view pluginId) noexcept
+{
+    for (uint32_t index = 0; index < settings.serviceCount && index < settings.services.size(); ++index)
+    {
+        if (SettingsIdEquals(settings.services[index].pluginId.View(), pluginId))
+        {
+            return &settings.services[index];
+        }
+    }
+    return nullptr;
 }
 
 HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view instanceId,

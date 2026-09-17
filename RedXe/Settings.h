@@ -13,7 +13,8 @@
 #include <windows.h>
 
 inline constexpr uint32_t kRedXeSettingsVersionMajor = 5;
-inline constexpr uint32_t kRedXeSettingsVersionMinor = 0;
+// Minor 1 added the optional additive `services` root member (headless service plugins such as Logicon).
+inline constexpr uint32_t kRedXeSettingsVersionMinor = 1;
 // Removed with the v3 parser; retained temporarily so the transition remains buildable between slices.
 inline constexpr wchar_t kRedXeDebugSettingsFileName[] = L"RedXe-debug.settings.json";
 inline constexpr wchar_t kRedXeReleaseSettingsFileName[] = L"RedXe.settings.json";
@@ -114,6 +115,7 @@ inline constexpr wchar_t kRedXeLogFileNamePrefix[] = L"RedXe-";
 }
 
 inline constexpr size_t kMaximumSettingsPlugins = 64;
+inline constexpr size_t kMaximumSettingsServices = 8;
 inline constexpr size_t kMaximumDashboardPages = 16;
 inline constexpr size_t kMaximumWidgetsPerPage = 32;
 inline constexpr size_t kMaximumSettingsDeclarations = 128;
@@ -233,6 +235,17 @@ struct DashboardSettings final
     bool operator==(const DashboardSettings&) const noexcept = default;
 };
 
+// One configured headless service from the `services` root: the authored member name, the catalogued service plugin,
+// and its complete effective settings object (defaults merged, validated, compact).
+struct ServiceSettings final
+{
+    SettingsText name;
+    SettingsText pluginId;
+    JsonObjectSettings privateConfiguration;
+
+    bool operator==(const ServiceSettings&) const noexcept = default;
+};
+
 struct AppSettings final
 {
     uint32_t versionMajor = kRedXeSettingsVersionMajor;
@@ -242,6 +255,8 @@ struct AppSettings final
     std::string sourceDocument;
     std::vector<PluginSettings> plugins;
     uint32_t pluginCount = 0;
+    std::vector<ServiceSettings> services;
+    uint32_t serviceCount = 0;
     DashboardSettings dashboard;
 
     bool operator==(const AppSettings&) const noexcept = default;
@@ -311,6 +326,12 @@ enum class SettingsReloadStatus : std::uint8_t
                                                         const WidgetInstanceSettings& instance,
                                                         std::array<char, kFactoryConfigurationCapacity>& json,
                                                         uint32_t& jsonBytes) noexcept;
+// The same compact {"plugin":{},"instance":<effective-settings>} envelope for a configured service.
+[[nodiscard]] HRESULT SerializeServiceConfigurationJson(const ServiceSettings& service,
+                                                        std::array<char, kFactoryConfigurationCapacity>& json,
+                                                        uint32_t& jsonBytes) noexcept;
+[[nodiscard]] const ServiceSettings* FindServiceSettings(const AppSettings& settings,
+                                                         std::string_view pluginId) noexcept;
 [[nodiscard]] HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view instanceId,
                                                   std::string_view settingsJson) noexcept;
 

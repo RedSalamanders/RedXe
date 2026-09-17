@@ -93,6 +93,8 @@ The mandatory requirements in `Specs/Core/Core_PerformanceAndResources.md` apply
 | `Widget.h` | `IRedXeAccessibilityWidget` | `B8FA0B10-EE1D-44E8-8070-A7B80EEA7D4E` | Optional prepared UIA fragment connection |
 | `Widget.h` | `IRedXeAccessibilitySite` | `3C430805-12D0-49B0-AAB8-7C07F3909164` | Application-owned navigation, focus and deferred-action site |
 | `Widget.h` | `IRedXeNetworkWidget` | `3F8C1A70-9B24-4E61-A7D2-5C0E8B4F1D93` | Optional host-scheduled plugin-owned HTTP work |
+| `Service.h` | `IRedXeService` | `9D7C1E52-4B8A-4F6E-A1C3-7E2F5B9D0A64` | Headless service started without a placed widget: start, settings apply, host state, stop |
+| `Service.h` | `IRedXeDeviceWorker` | `5A3E8C41-2D97-4B6F-9E15-C7D0F2A8B3E6` | Optional host-owned device lane thread for a service |
 | `Data.h` | `IRedXeDataSource` | `C3A81F6E-2D47-4B90-A1E5-6F8C9D0B3E21` | Plugin-side typed, bounded pull snapshots |
 | `Data.h` | `IRedXeDataProvider` | `9EAE20F1-36A8-48A8-B451-F60401A898CD` | Host-side dataset discovery and subscription |
 | `Data.h` | `IRedXeDataSink` | `F9834987-EBC6-411E-9F28-A49E4DBB49D9` | Synchronous borrowed-snapshot delivery on the host worker |
@@ -118,6 +120,10 @@ RedXe is pre-production: `IRedXeHost` and `IRedXeWidget` vtables MAY grow when a
 is added. Rebuild every source-coordinated consumer together. Do not add a sibling `QueryInterface` only to avoid
 growing those vtables. Rendering and work mechanisms stay sibling IIDs so adding one never changes an existing
 widget vtable. There is no `IRedXeSettingsEditor`. Widget settings persist is a host service on `IRedXeHost`.
+
+`Service.h` owns the headless service declarations. `IRedXeService` and `IRedXeDeviceWorker` are direct `IUnknown`
+children like every other mechanism; a service object exposes both as siblings with one controlling identity. Neither
+`Widget.h` nor `Data.h` declares service behavior.
 
 `IRedXeWidget` carries `SetVisible` and `CollectPersistentSettings`. A widget implementation exposes that interface
 and each supported rendering or work mechanism as sibling COM interfaces on one object. `QueryInterface(IID_IUnknown)`
@@ -179,13 +185,17 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   `RedXeProcessViewerGetTestDiagnostics`, `RedXeStudioClockGetTestDiagnostics`, `RedXeStudioClockSetTestTime`,
   `RedXeDeskClockGetTestDiagnostics`, `RedXeDeskClockSetTestTime`, `RedXeWeatherGetTestDiagnostics`, and
   `RedXeWeatherProbeHttpGetOnSmallStack`, `RedXeWeatherBuildTestLocationSearchUrl`,
-  `RedXeAVControlUseSyntheticBackend` and `RedXeAVControlTestSnapshot`. AV synthetic mode is accepted only before
-  providers exist and is never exposed as a user setting or environment toggle.
+  `RedXeAVControlUseSyntheticBackend` and `RedXeAVControlTestSnapshot`, and the Logicon surface
+  `RedXeLogiconGetTestDiagnostics`, `RedXeLogiconUseSyntheticDevice`, `RedXeLogiconInjectControl`,
+  `RedXeLogiconInjectSyntheticReport`, `RedXeLogiconSetFaceOverride`, and `RedXeLogiconSetBrightness`. AV synthetic
+  mode is accepted only before providers exist and is never exposed as a user setting or environment toggle; the
+  Logicon synthetic keypad is selected only through its export or the Debug monitor tile, never by a setting.
 - Every factory call names one non-empty plugin ID. Null and empty IDs are invalid, including in single-plugin DLLs.
 - Factory, enumeration, widget creation, device notification, GPU rendering, native-window lifecycle, host-service,
   data-source, provider, and data-sink calls are synchronous and non-reentrant. Widget visibility, collect-on-exit,
-  persist, native-window, pointer, and drop calls run on the RedXe UI thread; data-sink callbacks run only on the host
-  acquisition worker; `IRedXeNetworkWidget::RunNetworkWork` runs only on the host network worker.
+  persist, native-window, pointer, drop, and every `IRedXeService` call run on the RedXe UI thread; data-sink
+  callbacks run only on the host acquisition worker; `IRedXeNetworkWidget::RunNetworkWork` runs only on the host
+  network worker; `IRedXeDeviceWorker::RunDeviceWork` runs only on that service's host-owned device lane.
 - Rendering interfaces and generic widgets are released before providers, optional shutdown, and process teardown.
 - Modules remain mapped until process teardown. Exceptions must not cross ABI or Win32 boundaries.
 
@@ -255,6 +265,20 @@ object it was supplied to.
   a frame or queue another unit. Shutdown signals cancellation, drains the worker, suppresses completions and
   releases retained references on the UI thread before module shutdown. Self-tests reject device work explicitly.
   Committed input may enqueue mutations. Preparation and visibility changes may enqueue observation/cleanup only.
+- `RequestHostAction` asks the host to perform one dashboard action: `PageNext`, `PagePrevious`, `PageGoTo` (page id
+  in `targetUtf8`, or a zero-based index in `argument` when the target is null), `WidgetRaise`, `WidgetDismiss`,
+  `WidgetToggle` (a zero-based ordinal on the current page in `argument`, or `"<pageId>/<ordinal>"` / `"<ordinal>"`
+  in `targetUtf8`; a page id other than the current page is dropped), and `Launch` (an absolute Win32 path or a URI
+  with an alphabetic scheme of at least two characters; anything else returns `E_INVALIDARG` from the drain, never
+  reaches the shell). It is safe from any thread, including a service's device lane, allocation-free, and never
+  blocks: the host copies the record into a 16-slot ring, coalesces an identical pending request (`S_FALSE`), returns
+  `ERROR_BUSY` when the ring is full, and posts one coalesced UI message (`WM_APP + 5`). `Application` drains the
+  ring on the UI thread outside input and render dispatch, executing each action through the same paths as a click
+  or edge band (`NavigateToAdjacentPage`, a direct stage-and-settle for `PageGoTo`, `TryRaiseWidgetAt`,
+  `DismissWidgetRaise`, and the Launcher `ShellExecuteExW` policy). A request that arrives during a page swipe, a
+  raise settle, or while the settings error dialog is up is dropped with a Debug log line, never queued for later.
+  A null record, a mismatched `sizeBytes`, an unknown action, or a target above 512 bytes returns `E_POINTER` /
+  `E_INVALIDARG`. Every executed or dropped action is followed by one host-state publication to started services.
 - `ReportWidgetStatus` records the condition of one widget instance, named by the instance ID the host passed to
   `CreateWidget`. Status is one of `RedXeWidgetStatusOk`, `Initializing`, `Degraded`, or `Unavailable`, with an
   optional borrowed UTF-16 reason the host copies into bounded storage and truncates. Repeat reports are idempotent;
@@ -331,8 +355,66 @@ requested plugin ID. The record and its UTF-8 strings remain valid while the mod
   `{"shortcuts":[],"iconSize":"huge"}`.
 
 The metadata capability surface advertises factory-created plugin services through
-`RedXePluginCapabilityWidgetProvider` and `RedXePluginCapabilityDataSource`. Rendering mechanisms are discovered on
-widget instances by IID, not by a capability or rendering-path enum.
+`RedXePluginCapabilityWidgetProvider`, `RedXePluginCapabilityDataSource`, and `RedXePluginCapabilityService`.
+Rendering mechanisms are discovered on widget instances by IID, not by a capability or rendering-path enum.
+
+Logicon publishes its closed service schema (`brightness` 1–100, `restoreLogoOnExit`, `pageButtons`
+`keyPages`/`dashboardPages`, and a flat `keys` array of at most 36 closed objects with `page` 0–3, required `slot`
+0–8, `action`, `target`, `label`, `icon`, `color`, and `face`) and defaults
+`{"brightness":70,"restoreLogoOnExit":true,"pageButtons":"keyPages","keys":[]}`; the Logicon Monitor publishes a
+closed empty object. `Specs/Plugins/Plugins_Logicon.md` owns the member semantics.
+
+## Service contract
+
+A service is a plugin object the host runs without a placed widget. `Plugins/Logicon` is the first one.
+
+- A DLL advertises `RedXePluginCapabilityService` and creates the object through
+  `RedXeCreate(IID_IRedXeService, …)` with the same compact `{"plugin":{},"instance":<effective-settings>}` envelope
+  a provider receives. The effective object comes from the `services` settings root (`Core_Settings.md`); a plugin
+  that rejects it fails creation, and the host logs `create-failed` without aborting startup.
+- `RedXe/BundledPlugins.h` catalogs services in `kRedXeBundledServices`. A service plugin ID is never also a widget
+  plugin ID; the compile-time catalog check enforces that and rejects duplicates. `PluginHost` owns one slot per
+  catalogued service, creates at most one object per plugin ID per process, and releases it at `StopServices`.
+- Lifetime runs on the UI thread. `Start` follows the first successful settings apply and the first live dashboard
+  page (`Application::Run` and `RunSelfTest`), before the window is shown. `ApplySettings` runs on a live reload
+  whose effective object for that service changed, including a reload that leaves the active dashboard untouched; a
+  reload that removes the service stops and releases it, and one that adds it creates and starts it. `OnHostState`
+  runs after `Start`, after every promoted page, raise start, dismiss completion, visibility change, settings apply,
+  and drained host action, carrying page index/count/id/name, widget count, the raised ordinal, and the
+  `Visible`/`Raised`/`Busy` flags. `Stop` runs from `CloseMainWindow` after every dashboard host is shut down and
+  before `PluginHost::ShutdownProcessRuntime`; `PluginHost::Shutdown` repeats it as an idempotent safety net before
+  providers, workers, and modules go. `Start` and `Stop` are idempotent; a failed `Start` logs
+  `service-start-failed` once and keeps the object so a later `ApplySettings` can retry. A service MUST NOT call
+  back into the host from these calls except `RequestHostAction`, `RequestFrame`, `Log`, and — from `Start`,
+  `ApplySettings`, and `Stop` only, on the UI thread — `GetDataProvider` with the provider's `GetDataSets`,
+  `Subscribe`, and `IRedXeDataSubscription::SetActive`, under the same sink rules as a widget. A service MUST
+  release every subscription in `Stop` (which drains its sink callbacks) so the host holds no reference to it
+  afterwards, and its device lane MUST NOT touch subscriptions.
+- `RedXeServiceFlagDeviceAccessDisabled` is set by `--self-test` and by HostPluginTests before `StartServices`. A
+  service that receives it MUST NOT open a hardware device, register hotplug notifications, or inject input; it still
+  parses settings, keeps model state, and accepts host actions and its test contract.
+- The **device lane** is the host-owned thread `Core_PerformanceAndResources.md` reserves for device I/O. When a
+  started service exposes `IRedXeDeviceWorker`, `PluginHost` creates one `std::jthread` for it (at most
+  `kRedXeMaximumDeviceWorkers`, 4; more return `ERROR_TOO_MANY_NAMES` and log `device-lane-failed`), initializes an
+  MTA apartment, and calls `RunDeviceWork(stopEvent, wakeEvent)` exactly once. Inside that call the plugin owns
+  discovery, handles, overlapped I/O, and hotplug registration and blocks only in a wait on the two host events and
+  its own I/O events; it MUST NOT poll, sleep-loop, touch Direct3D, wait on the UI thread, create a thread, or
+  re-enter the host except through `RequestHostAction`, `RequestFrame`, and `Log`. A lane that needs Raw Input (a
+  device Windows opens exclusively, such as a mouse collection) MAY own one hidden, never-shown top-level window on
+  the lane thread, registered with `RIDEV_INPUTSINK`, and then waits with `MsgWaitForMultipleObjectsEx` and drains
+  its queue on the same thread; it MUST unregister the sink and destroy the window before returning, and it MUST
+  NOT register a usage another plugin's lane registers (raw-input registration is per process; today only Logicon
+  registers `usage page 1 / usage 2`). The service MAY signal `wakeEvent`
+  from any thread while the call runs and MUST NOT touch either handle after it returns. `StopDeviceLane` signals
+  `stopEvent`, waits `kRedXeDeviceWorkerDrainMilliseconds` (3000) for the thread, joins it, and closes the events; an
+  overrun logs `device-lane-drain-timeout` once, detaches the thread, and leaks the two event handles so a late wait
+  inside the plugin still sees valid objects. Shutdown continues either way. `RedXeDataSetFlagDeviceLane` for data
+  sources remains unimplemented.
+- **Developer-only widgets** (`kRedXeDebugOnlyBundledWidgetIds`, today `builtin.logicon-monitor`) stay catalogued and
+  schema-accepted in every build so both shipped templates parse everywhere. Only the Debug template places them, and
+  only Debug builds of their DLL construct them: a Release build publishes the metadata and contract, lists the type,
+  and returns `ERROR_NOT_SUPPORTED` from `CreateWidget`, which the host turns into its placeholder tile. Their
+  `docs/plugins/` coverage lives on the owning service's page.
 
 ## Data discovery and delivery
 
@@ -640,6 +722,14 @@ already fills the client MUST NOT raise.
   teardown.
 
 ## Bundled plugins
+
+`Plugins/Logicon` exposes service plugin ID `builtin.logicon` (`RedXePluginCapabilityService`, `IRedXeService` plus
+`IRedXeDeviceWorker`) and the developer-only widget plugin ID `builtin.logicon-monitor` (type `logicon-monitor`,
+Direct3D, interactive, prepared). The service drives the Logitech MX Creative Console keypad over HID++ from its
+device lane and turns key presses into host actions; the monitor is the Debug view of that service. Behavior,
+protocol, faces, and validation are owned by [`Plugins_Logicon.md`](Plugins_Logicon.md). `Logicon.dll` imports
+`hid.dll`, `cfgmgr32.dll`, `windowscodecs.dll`, `ole32.dll`, and `yyjson.dll` (copied beside it); Debug builds also
+import `d3d11.dll` and compile `ProcessViewer/ViewerGpu.cpp` with its shaders for the tile.
 
 `Plugins/RotatingTriangle` exposes settings-visible plugin ID `builtin.rotating-triangle`, internally maps it to type
 ID `rotating-triangle`, publishes closed `{}` settings and defaults, and exposes sibling `IRedXeGpuWidget` and
@@ -1205,12 +1295,24 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     `LauncherTests`, `SettingsTests`, and `HostPluginTests`. WARP pixel and hit-target tests MUST alternate tile and
     overlay sizes after one largest-size notification and verify zero allocations on those cached draws.
 
+20. Verify the service contract and the device lane through `LogiconTests` (no hardware) and `HostPluginTests`:
+    service creation with a valid and an invalid envelope, `Start` with device access disabled opens no device, the
+    lane reports running and returns within 1.5 s of `stopEvent`, host state reaches the lane, the synthetic keypad
+    connects and receives faces, brightness, page-button diversion, and the splash reset on stop, injected and raw
+    key presses request the bound host actions, key pages change on `keyPage.*` and page buttons, `ApplySettings`
+    re-applies and rejects without stopping, the monitor provider constructs in Debug and refuses in Release, and
+    `--self-test` starts every configured service. `PluginHost` tests MUST cover the action ring's bounds, coalescing,
+    and `ERROR_BUSY`, and the services' catalog validation. `SettingsTests` MUST cover the `services` grammar and
+    rejections and both templates' Logicon objects. Plugins_Logicon.md owns the protocol and face vectors.
+
 The automated Debug host composition must contain the GPU launcher, one rotating-triangle GPU fixture, the GDI
 fixture, and Matrix Rain. The automated
-Release first-page composition must contain one full-canvas Matrix widget. The second page of each shipped template
+Release first-page composition must contain one full-canvas Matrix widget. The Debug template's second page is
+`logicon` and places the developer-only Logicon Monitor beside a Studio Clock. The gallery page of each shipped template
 must demonstrate every settings-visible plugin in the compile-time bundled widget projection, including Process Viewer,
-Studio Clock, Desk Clock, Weather, and Launcher. The third page of each shipped template is named `System` and MUST place one instance of
-every Process Viewer family widget.
+Studio Clock, Desk Clock, Weather, and Launcher, except the developer-only widgets, which only the Debug template places.
+The `System` page of each shipped template MUST place one instance of every Process Viewer family widget. Both
+templates configure every catalogued service under `services`.
 Scheduler tests must prove
 that hidden, minimized,
 suspended, display-off, and occluded states select an event-blocked action. Contract tests must confirm that loading

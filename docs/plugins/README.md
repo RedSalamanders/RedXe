@@ -22,5 +22,8 @@ Each bundled widget has a settings `plugin` id, a screenshot, and a parameter ta
 | [Thermal Meter](thermal-meter.md) | `builtin.thermal-meter` | None |
 | [Rotating Triangle](rotating-triangle.md) | `builtin.rotating-triangle` | None |
 | [GDI Orbit](gdi-orbit.md) | `builtin.gdi-orbit` | None |
+| [Logicon](logicon.md) | `builtin.logicon` (service) / `builtin.logicon-monitor` (Debug tile) | Brightness, page buttons, key faces and actions, dialpad bindings, System Data faces |
 
 `builtin.system-data` is the shared metrics source behind the System widgets. It is not a dashboard tile.
+`builtin.logicon` is a background service configured under `services`; it drives a Logitech MX Creative Console
+keypad and dialpad and has no tile of its own outside developer builds.

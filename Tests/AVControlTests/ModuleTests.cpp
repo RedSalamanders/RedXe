@@ -72,6 +72,10 @@ class Host final : public RedXeComObject<Host, IRedXeHost>
         pending = work;
         return S_OK;
     }
+    HRESULT STDMETHODCALLTYPE RequestHostAction(const RedXeHostActionRequest*) noexcept override
+    {
+        return E_NOTIMPL;
+    }
     void Drain() noexcept
     {
         for (uint32_t i = 0; i < 16 && pending; ++i)

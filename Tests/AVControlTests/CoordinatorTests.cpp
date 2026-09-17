@@ -53,6 +53,10 @@ class Host final : public RedXeComObject<Host, IRedXeHost>
         pending = work;
         return S_OK;
     }
+    HRESULT STDMETHODCALLTYPE RequestHostAction(const RedXeHostActionRequest*) noexcept override
+    {
+        return E_NOTIMPL;
+    }
     void RunNext()
     {
         Check(bool(pending), "coordinator queued one bounded work object");

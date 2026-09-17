@@ -1,13 +1,54 @@
 {
   "$schema": "RedXe.settings.schema.json",
-  "version": { "major": 5, "minor": 0 },
+  "version": { "major": 5, "minor": 1 },
   "wrapPages": false,
   "logRetentionDays": 15,
   "backgroundColor": "#000000",
+  // Headless services start with the dashboard. Logicon drives a Logitech MX Creative Console keypad when one is
+  // plugged in (quit Logi Options+ first); the Debug-only Logicon Monitor tile below shows and drives it.
+  "services": {
+    "Logicon": {
+      "plugin": "builtin.logicon",
+      "brightness": 70,
+      "restoreLogoOnExit": true,
+      "pageButtons": "keyPages",
+      "keys": [
+        { "page": 0, "slot": 0, "action": "page.previous", "label": "Previous", "icon": "ChevronLeft" },
+        { "page": 0, "slot": 1, "face": "pageIndicator" },
+        { "page": 0, "slot": 2, "action": "page.next", "label": "Next", "icon": "ChevronRight" },
+        { "page": 0, "slot": 3, "action": "widget.toggle", "target": "0", "label": "Widget 1", "icon": "FullScreen" },
+        { "page": 0, "slot": 4, "action": "widget.toggle", "target": "1", "label": "Widget 2", "icon": "FullScreen" },
+        { "page": 0, "slot": 5, "action": "widget.dismiss", "label": "Close", "icon": "BackToWindow" },
+        { "page": 0, "slot": 6, "action": "page.goto", "target": "development", "label": "Dev", "icon": "Home" },
+        { "page": 0, "slot": 7, "face": "clock" },
+        { "page": 0, "slot": 8, "action": "keyPage.next", "label": "Media", "icon": "Music", "color": "#1F3A5F" },
+        { "page": 1, "slot": 0, "action": "keys", "target": "previous-track", "label": "Prev", "icon": "Previous" },
+        { "page": 1, "slot": 1, "action": "keys", "target": "play-pause", "label": "Play", "icon": "Play" },
+        { "page": 1, "slot": 2, "action": "keys", "target": "next-track", "label": "Next", "icon": "Next" },
+        { "page": 1, "slot": 3, "action": "keys", "target": "volume-down", "label": "Vol -", "icon": "Volume" },
+        { "page": 1, "slot": 4, "action": "keys", "target": "mute", "label": "Mute", "icon": "Mute" },
+        { "page": 1, "slot": 5, "action": "keys", "target": "volume-up", "label": "Vol +", "icon": "Volume" },
+        { "page": 1, "slot": 6, "face": "cpu" },
+        { "page": 1, "slot": 7, "face": "memory", "label": "RAM" },
+        { "page": 1, "slot": 8, "action": "keyPage.previous", "label": "Back", "icon": "Back", "color": "#1F3A5F" }
+      ],
+      "dialpad": {
+        "dial": "page",
+        "roller": "brightness",
+        "buttons": [
+          { "button": 0, "action": "page.previous" },
+          { "button": 1, "action": "page.next" },
+          { "button": 2, "action": "widget.dismiss" },
+          { "button": 3, "action": "keyPage.next" }
+        ]
+      }
+    }
+  },
   // Reusable definitions create independent instances wherever they appear.
   // The bundled native-window example is opt-in: { "plugin": "builtin.gdi-orbit" }. A native child HWND over the
   // swap chain forces composed presentation for the whole window while it is placed, so no shipped page uses it.
   "declare": {
+    "LogiconMonitor": { "plugin": "builtin.logicon-monitor" },
     "Triangle": { "plugin": "builtin.rotating-triangle" },
     "Matrix": { "plugin": "builtin.matrix-rain" },
     "StudioClock": { "plugin": "builtin.studio-clock", "externalDotsAlwaysOn": true },
@@ -31,6 +72,11 @@
       "id": "development",
       "name": "Development",
       "columns": ["Launcher", "Triangle", { "weight": 2, "widget": "Matrix" }]
+    },
+    {
+      "id": "logicon",
+      "name": "Logicon",
+      "columns": [{ "weight": 3, "widget": "LogiconMonitor" }, { "weight": 1, "widget": "StudioClock" }]
     },
     {
       "name": "Alternate Gallery",

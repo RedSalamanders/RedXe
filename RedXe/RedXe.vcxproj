@@ -142,6 +142,7 @@
     <ClCompile Include="HostChrome.cpp" />
     <ClCompile Include="Settings.cpp" />
     <ClCompile Include="..\Plugins\AVControl\AVControlModel.cpp" />
+    <ClCompile Include="..\Plugins\Logicon\LogiconSettings.cpp" />
     <ClCompile Include="SettingsV4.cpp" />
     <ClCompile Include="SettingsWatcher.cpp" />
   </ItemGroup>
@@ -235,6 +236,11 @@
     </ProjectReference>
     <ProjectReference Include="..\Plugins\SystemData\SystemData.vcxproj">
       <Project>{B8571A4E-A8C8-4A68-A99C-80F0505F0E5F}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\Plugins\Logicon\Logicon.vcxproj">
+      <Project>{7D2B9C41-3E58-4A0F-9B6C-1F4E8A2D5C73}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>

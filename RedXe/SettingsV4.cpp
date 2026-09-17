@@ -3,6 +3,7 @@
 #include "../Plugins/AVControl/AVControlModel.h"
 #include "../Plugins/AVControl/AVControlSettings.h"
 #include "../Plugins/Launcher/LauncherPaging.h"
+#include "../Plugins/Logicon/LogiconSettings.h"
 #include "BundledPlugins.h"
 #include "PlugInterfaces/Factory.h"
 
@@ -1444,6 +1445,97 @@ struct DiagnosticSink final
     return authored && ParsePluginInstance(plugin, authored, settings, widget, instanceIndex, sink, path);
 }
 
+// One `services` member: a flattened plugin object naming a catalogued service plugin. The effective object is the
+// plugin's defaults merged with the authored keys, validated by the plugin's shared model, and stored compact.
+[[nodiscard]] bool ParseServiceEntry(std::string_view name, yyjson_val* definition, AppSettings& settings,
+                                     DiagnosticSink& sink, JsonPathBuffer& path) noexcept
+{
+    if (!yyjson_is_obj(definition))
+        return sink.Fail(path.View(), "A services entry must be a JSON object.");
+    if (!RejectRetiredMembers(sink, path, definition) || !RejectReservedSplitMembers(sink, path, definition))
+        return false;
+    if (yyjson_obj_get(definition, "use"))
+    {
+        const auto scope = path.PushName("use");
+        return sink.Fail(path.View(), "A services entry names its plugin directly; use is not accepted here.");
+    }
+    yyjson_val* pluginValue = yyjson_obj_get(definition, "plugin");
+    if (!yyjson_is_str(pluginValue))
+    {
+        const auto scope = path.PushName("plugin");
+        return sink.Fail(path.View(), "plugin must be a string.");
+    }
+    const std::string_view plugin(yyjson_get_str(pluginValue), yyjson_get_len(pluginValue));
+    const RedXeBundledServiceSpec* spec = nullptr;
+    for (const RedXeBundledServiceSpec& candidate : kRedXeBundledServices)
+    {
+        if (SettingsIdEquals(candidate.pluginId, plugin))
+            spec = &candidate;
+    }
+    if (!spec)
+    {
+        const auto scope = path.PushName("plugin");
+        std::string message = "Unknown service plugin \"";
+        message.append(plugin);
+        message += "\". This build only starts catalogued service plugins.";
+        return sink.Fail(path.View(), message);
+    }
+    if (settings.serviceCount >= kMaximumSettingsServices)
+        return sink.Fail(path.View(), "services may contain at most 8 entries.");
+    for (uint32_t index = 0; index < settings.serviceCount; ++index)
+    {
+        if (SettingsIdEquals(settings.services[index].pluginId.View(), spec->pluginId))
+        {
+            const auto scope = path.PushName("plugin");
+            return sink.Fail(path.View(), "A service plugin may be configured only once.");
+        }
+    }
+
+    unique_mut_doc extracted{yyjson_mut_doc_new(nullptr)};
+    yyjson_mut_val* keys = extracted ? CopyObjectSkipping(extracted.get(), definition, {"plugin"}) : nullptr;
+    if (!keys)
+        return sink.Fail(path.View(), "Service settings could not be copied.");
+    yyjson_mut_doc_set_root(extracted.get(), keys);
+    size_t authoredBytes = 0;
+    unique_json authoredJson{yyjson_mut_write(extracted.get(), YYJSON_WRITE_NOFLAG, &authoredBytes)};
+    unique_doc authoredImmutable{authoredJson ? yyjson_read(authoredJson.get(), authoredBytes, YYJSON_READ_NOFLAG)
+                                              : nullptr};
+    yyjson_val* authored = authoredImmutable ? yyjson_doc_get_root(authoredImmutable.get()) : nullptr;
+    if (!authored)
+        return sink.Fail(path.View(), "Service settings could not be copied.");
+
+    unique_doc defaults{
+        yyjson_read(Logicon::kSettingsDefaults, std::strlen(Logicon::kSettingsDefaults), YYJSON_READ_NOFLAG)};
+    unique_mut_doc effectiveDocument{yyjson_mut_doc_new(nullptr)};
+    yyjson_mut_val* merged = effectiveDocument && defaults
+                                 ? MergeValue(effectiveDocument.get(), yyjson_doc_get_root(defaults.get()), authored)
+                                 : nullptr;
+    if (!merged)
+        return sink.Fail(path.View(), "Service settings could not be merged with defaults.");
+    yyjson_mut_doc_set_root(effectiveDocument.get(), merged);
+    size_t effectiveBytes = 0;
+    unique_json effectiveJson{yyjson_mut_write(effectiveDocument.get(), YYJSON_WRITE_NOFLAG, &effectiveBytes)};
+    unique_doc effectiveImmutable{effectiveJson ? yyjson_read(effectiveJson.get(), effectiveBytes, YYJSON_READ_NOFLAG)
+                                                : nullptr};
+    yyjson_val* effective = effectiveImmutable ? yyjson_doc_get_root(effectiveImmutable.get()) : nullptr;
+    if (!yyjson_is_obj(effective))
+        return sink.Fail(path.View(), "Service settings must be a JSON object.");
+
+    Logicon::Settings model{};
+    std::array<char, 160> diagnostic{};
+    if (FAILED(Logicon::ParseSettings(effective, model, diagnostic.data(), diagnostic.size())))
+        return sink.Fail(path.View(), diagnostic.data());
+
+    ServiceSettings service{};
+    if (!CopyText(name, service.name, false) || !CopyText(spec->pluginId, service.pluginId, true))
+        return sink.Fail(path.View(), "A services member name must be 1 through 128 Unicode code points.");
+    if (!CompactObject(effective, service.privateConfiguration))
+        return sink.Fail(path.View(), "Service settings exceed the 4096-byte compact limit.");
+    settings.services.push_back(service);
+    settings.serviceCount = static_cast<uint32_t>(settings.services.size());
+    return true;
+}
+
 [[nodiscard]] bool ParseFlattenedUseObject(yyjson_val* authored, const std::vector<Declaration>& declarations,
                                            AppSettings& settings, WidgetInstanceSettings& widget,
                                            uint32_t instanceIndex, DiagnosticSink& sink, JsonPathBuffer& path) noexcept
@@ -1750,10 +1842,10 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSetting
             }
         }
         const bool allowUnknown = fileMinor > kRedXeSettingsVersionMinor;
-        if (!AcceptObjectMembers(
-                sink, path, root,
-                {"$schema", "version", "wrapPages", "logRetentionDays", "backgroundColor", "declare", "pages"},
-                allowUnknown))
+        if (!AcceptObjectMembers(sink, path, root,
+                                 {"$schema", "version", "wrapPages", "logRetentionDays", "backgroundColor", "declare",
+                                  "services", "pages"},
+                                 allowUnknown))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         yyjson_val* schema = yyjson_obj_get(root, "$schema");
         if (schema && (!yyjson_is_str(schema) || std::string_view(yyjson_get_str(schema), yyjson_get_len(schema)) !=
@@ -1824,6 +1916,26 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSetting
                 const auto nameScope = path.PushName(declarations[index].name);
                 if (!ParseFlattenedPluginObject(declarations[index].definition, *parsed, validated,
                                                 static_cast<uint32_t>(index), sink, path))
+                    return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+
+        yyjson_val* servicesObject = yyjson_obj_get(root, "services");
+        if (servicesObject)
+        {
+            const auto servicesScope = path.PushName("services");
+            if (!yyjson_is_obj(servicesObject))
+                return sink.FailHr(path.View(), "services must be a JSON object.");
+            if (yyjson_obj_size(servicesObject) > kMaximumSettingsServices)
+                return sink.FailHr(path.View(), "services may contain at most 8 entries.");
+            yyjson_obj_iter iterator = yyjson_obj_iter_with(servicesObject);
+            while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
+            {
+                const std::string_view name(yyjson_get_str(key), yyjson_get_len(key));
+                const auto nameScope = path.PushName(name);
+                if (name.empty() || name.size() > kMaximumSettingsTextBytes || Utf8CodePointCount(name) > 128)
+                    return sink.FailHr(path.View(), "A services name must be 1 through 128 Unicode code points.");
+                if (!ParseServiceEntry(name, yyjson_obj_iter_get_val(key), *parsed, sink, path))
                     return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
         }

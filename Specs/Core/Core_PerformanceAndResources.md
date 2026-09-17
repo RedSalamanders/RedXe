@@ -164,9 +164,21 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   lowest useful rate, coalesce subscriptions for the same provider and dataset into one sample, batch every unique due
   dataset from one source into a single `CollectSnapshots` call, and keep bounded history. A failed batch MUST NOT keep
   rate-history mutations from datasets collected before the failure. Multiple providers must not
-  create one worker per provider. Busy-waiting is prohibited. Sources MUST NOT create acquisition threads. A dedicated
-  device-I/O lane is optional and host-owned; it MUST NOT ship until timeout, cancellation, and teardown drain are
-  bounded.
+  create one worker per provider. Busy-waiting is prohibited. Sources MUST NOT create acquisition threads. The
+  dedicated device-I/O lane is host-owned (`PluginHost` service slots, `Specs/Plugins/Plugins_API.md` service
+  contract): one thread per started service that exposes `IRedXeDeviceWorker`, at most four, created at service start
+  and joined at stop. Its bounds are normative: the plugin blocks only in one wait on the host stop and wake events
+  and its own overlapped-I/O events (a message-aware wait when the lane owns a hidden Raw Input sink window, whose
+  queue it drains on the same thread), every device command and write carries a 1 s timeout followed by `CancelIoEx`,
+  hotplug arrival is a CfgMgr32 notification that sets the wake event rather than a poll, a failed open retries at
+  most four times with doubling delays from 1 s and then waits for the next arrival, and stop drains within 3 s or
+  the host logs one `device-lane-drain-timeout`, detaches the thread, and continues shutdown. Idle cost with a
+  connected keypad is zero wake-ups (a connected dialpad adds one Raw Input packet per wheel or button event, none
+  while idle); the lane owns at most one 434×434 BGRA compose surface, one 128 KiB JPEG buffer, one 4095-byte
+  report buffer, and the key faces' signatures while a device or a monitor tile needs faces, and releases the
+  surfaces at stop. A service's System Data faces ride the shared acquisition worker at the shortest requested
+  interval (Logicon: 1 s for three data sets, only while such a face is bound) and never render there.
+  `RedXeDataSetFlagDeviceLane` for data sources remains unimplemented.
 - Logging and diagnostics must not format or emit per-frame success messages. `IRedXeHost::Log` copies a bounded
   record into a 32-slot 1024-byte ring and wakes one event-blocked writer. The writer appends JSONL under the settings
   sibling `Logs` directory using a UTC-dated file (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`) and

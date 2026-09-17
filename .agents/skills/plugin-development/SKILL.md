@@ -9,6 +9,10 @@ Read `Specs/Plugins/Plugins_API.md` before changing shipped plugin behavior. Rea
 [`Specs/Plugins/Plugins_Weather.md`](../../Specs/Plugins/Plugins_Weather.md) when work concerns the host network
 lane, plugin-owned curl, or the weather widget; the rationale is historical in
 [`Specs/Plans/Done/WeatherPlugin_2026-09-04.md`](../../Specs/Plans/Done/WeatherPlugin_2026-09-04.md). Read
+[`Specs/Plugins/Plugins_Logicon.md`](../../Specs/Plugins/Plugins_Logicon.md) when work concerns a headless service
+(`Common/PlugInterfaces/Service.h`), the host-owned device lane, `IRedXeHost::RequestHostAction`, the `services`
+settings root, or the MX Creative Console keypad and dialpad; the rationale is historical in
+[`Specs/Plans/Done/LogiconPlugin_2026-09-16.md`](../../Specs/Plans/Done/LogiconPlugin_2026-09-16.md). Read
 [`Specs/Plans/WIP/PluginDashboardRemainingCloseout_2026-09-02.md`](../../Specs/Plans/WIP/PluginDashboardRemainingCloseout_2026-09-02.md)
 only when work concerns remaining closeout: push providers, network `IRedXeDataSource` datasets, host-owned primitive
 batching, settings migration beyond version 5 reset, interactive WebView policy, or System Data follow-on hosts. Read

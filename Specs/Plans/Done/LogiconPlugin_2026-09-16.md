@@ -1,7 +1,8 @@
-# Logicon: Logitech MX Creative Console service plugin
+# Done: Logicon, the Logitech MX Creative Console service plugin
 
-Status: `ACTIVE`
+Status: `COMPLETE`
 Created: 2026-09-16
+Completed: 2026-09-17
 Owner: host service-plugin lifetime, host-owned device lane, host action queue, `services` settings root, bundled
 `Logicon.dll`, Debug-only `Logicon Monitor` tile
 
@@ -65,7 +66,7 @@ Historical context:
 - A generic host HID ABI (`IRedXeHidService`). The transport stays plugin-owned on a host lane, as curl did.
 - Mirroring live dashboard pixels onto the keys. Revisit after Phase 0 measures transfer throughput.
 - Firmware/DFU, Bluetooth pairing, Bolt receiver management.
-- Dialpad behavior beyond discovery until a capture exists (Phase D gates on it).
+- Dialpad bindings and wheel diversion until `0x4610` is decoded (Phase D); reading the dialpad is included.
 - ABI freeze, settings migration beyond the additive 5.1 root member, or push data providers.
 
 ## Verified device protocol
@@ -80,7 +81,7 @@ dialpad is commented out), `API.md` and `src/hid.ts` / `src/display.ts` of
 | Item | Value |
 | --- | --- |
 | Keypad | USB-C, VID `0x046D`, PID `0xC354`, HID++ 4.5, vendor usage page `0xFF43` |
-| Dialpad | Bluetooth / Logi Bolt, model `BC00`; `0x1B04` shows Back, Forward, "Button 6", "Left Scroll As Button 7"; dial and roller events not yet captured |
+| Dialpad | Bluetooth LE (also Logi Bolt), model `BC00`; `0x1B04` at `0x0A` with Back `0x0053`, Forward `0x0056`, "Button 6" `0x0059`, "Left Scroll As Button 7" `0x005A`; dial and roller are mouse wheels (Raw Input), `0x4610` at `0x0D` undecoded |
 | Reports | `0x11` HID++ long (20 B incl. ID, in/out), `0x13` VLP control (32 B, in/out), `0x14` image stream (4095 B, out), `0x04` system control, `0x05` consumer control (1 B, in) |
 | HID++ frame | `[id][deviceIndex 0xFF][featureIndex][function<<4 \| softwareId][params…]`; Logicon uses software ID `0x0B` like the references |
 | Root `0x0000` | function 0 `getFeature(featureId)` → feature index (0 = absent). Observed indexes: `0x19A1`→`0x02`, `0x1B04`→`0x0B`, `0x8040`→`0x0F`. Logicon resolves them at connect and treats the observed values as test vectors only |
@@ -200,7 +201,8 @@ service needs process-wide configuration, so 5.1 adds one optional additive root
 ```
 
 - `services` is an object with at most 8 members. Each value is a flattened plugin object with the same grammar as
-  `declare` (required `plugin`, no nested `settings`, `use` allowed). The plugin MUST be catalogued in
+  `declare` (required `plugin`, no nested `settings`; `use` is rejected, a service names its plugin directly). The
+  plugin MUST be catalogued in
   `kRedXeBundledServices`; a widget-only or unknown plugin ID rejects the complete candidate. Two members naming the
   same service plugin reject the candidate. Omitted `services` starts no service.
 - Older RedXe (5.0 readers) ignore the additive member; this build reads 5.0 and 5.1.
@@ -278,6 +280,7 @@ RedXe/
 Plugins/Logicon/
   Logicon.cpp             factory, metadata, settings contract, service + (Debug) provider COM objects
   LogiconHid.{h,cpp}      collection discovery, open, overlapped read/write, hotplug notifications, padding
+  LogiconRawInput.{h,cpp} dialpad wheels: hidden raw-input sink window, device-name match, packet folding
   LogiconHidpp.{h,cpp}    HID++ 2.0 framing, root lookup, 0x1B04, 0x8040, error reports, command/response
   LogiconVlp.{h,cpp}      0x19A1 image packets, key event parsing
   LogiconFaces.{h,cpp}    glyph/PNG compose, signatures, WIC JPEG
@@ -293,6 +296,63 @@ docs/plugins/logicon.md
 `Logicon.dll` imports only `hid.dll`, `cfgmgr32.dll`, `windowscodecs.dll`, `dwrite.dll`, and, in Debug, `d3d11`.
 No vcpkg runtime DLL is copied beside it. The project carries all four configurations on x64 and ARM64 and a
 build-only project reference from RedXe, like every bundled DLL.
+
+## Progress (2026-09-16)
+
+Landed and validated (`test.ps1` Debug and Release x64 green): Phase A in full (`Service.h`, service slots and
+device lanes in `PluginHost`, `RequestHostAction` and the UI drain in `Application`, the `services` root at settings
+minor 1, both templates, schema, catalog classes, HostPluginTests and SettingsTests coverage); Phase B items 1–4
+and 6 (transport, protocol, faces, bindings, key pages, host-state faces, docs); Phase C (the monitor tile, Debug
+only, with press/color/picture/clear tap modes, brightness, synthetic keypad); and the normative closeout text in
+`Plugins_API.md`, `Core_Settings.md`, `Core_PerformanceAndResources.md`, and the new `Plugins_Logicon.md`.
+`LogiconTests` drives the whole pipeline over the in-memory keypad.
+
+Observed on the real keypad on 2026-09-16 (Debug, Options+ running): three vendor collections (`0x1A02` 20 B in/out
+for `0x11`, `0x1A08` 32 B in/out for `0x13`, `0x1A10` 4095 B output-only for `0x14`); root and feature-set lookups
+resolve `0x1B04` → `0x0B` and `0x8040` → `0x0F` exactly as the references observed, while `0x19A1` is hidden from
+both the root and the feature set, so the service falls back to the observed index `0x02` and marks it `(assumed)` in
+`device-connected`. Faces wrote without error. Still open: the rest of Phase 0 (timing receipt, Options+ stopped),
+Phase B item 5 (System Data faces), the rest of Phase D, and the `docs/screenshots/logicon-monitor.png` capture (the
+flip-model window cannot be captured with GDI; use Snipping Tool on the Debug `Logicon` page).
+
+## Progress (2026-09-17)
+
+Dialpad capture done with `LogiconProbe divert bc00 75` (Bluetooth LE, `REV 0016`, Options+ running): two
+collections (`Col01` mouse, 8-byte report `0x02`, exclusive; `Col02` vendor `0xFF43/0x0202`, 20-byte `0x11`); 29
+features with `0x1B04` at `0x0A` (v6) and `0x4610` at `0x0D` (v1); the root answers 0 for `0x19A1`, `0x8040`,
+`0x2121`, `0x2150`, `0x2110`. The four `0x1B04` controls are `0x0053`/`0x0056`/`0x0059`/`0x005A` (flags `0x31`,
+group 1) and, diverted, report as `[11][FF][0A][00][cid]…` exactly like the keypad's page buttons. Turning the dial
+and the roller produced no HID++ report in 75 s, so both are read as the mouse collection's wheels through Raw Input
+(`hwheel` = dial, `wheel` = roller, to be confirmed on the tile). `0x4610` answered fn 0 `02`, fn 1 `28 00 1F 00`,
+fn 2/3 zeros, and rejected a `0x29` write to fn 2; its semantics (likely divert/ratchet control) are the remaining
+Phase D decision — `LogiconProbe send bc00 4610 <fn> <params…>` and `LogiconProbe raw bc00` exist for that.
+
+Landed: `DeviceSession` roles (keypad/dialpad) with a shared `DivertControls`, `RawWheelListener`
+(`LogiconRawInput.cpp`: hidden window, `RIDEV_INPUTSINK`, name match in both spellings, per-`hDevice` cache), a
+second session and per-device discovery state in the lane (which also fixes hotplug arrivals never re-triggering
+discovery: `HotplugWatcher::TakeChange`), `dialpad-*` and `rawinput-unavailable` log events, dialpad and wheel fields
+in the snapshot and the test contract (`RedXeLogiconTestDiagnostics` is now 132 bytes), inject kind 2, the synthetic
+dialpad persona, a `dialpad` test case, and the monitor's dialpad section plus larger, brighter text and chips that
+scale with tile height. Verified live: `dialpad-connected (bluetooth): controls 0x0A, 1 collection(s); wheels through
+raw input`; the user confirmed the tile (dial = `hwheel`, roller = `wheel`, chips, readability).
+
+## Closeout (2026-09-17)
+
+Landed after the capture: the `dialpad` settings member (`dial`/`roller` actions `none`, `volume`, `page`,
+`keyPage`, `brightness`; up to four button bindings with the key `action`/`target`), detent folding at 120 raw units
+per step, bound-only button diversion with restore-and-reconnect on a settings apply, System Data faces (`cpu`,
+`memory`, `gpu` through `builtin.system-data` at 1 s, subscribed only while bound, `LogiconSystemData.cpp`), both
+templates and the schema, `LogiconProbe` in `RedXe.sln` with `raw` and `send` modes, the test contract at 152
+bytes, and tests for all of it (settings, reduction, a fake provider end to end, dial button dispatch). Validation:
+`format.ps1`, `test.ps1` Debug and Release x64, Release ARM64 build, `validate-skills.ps1`.
+
+Closed by decision rather than by work (the owner declared them done on 2026-09-17): the Phase 0 timing receipt
+(the composite-once policy stays the default; Options+ was never stopped for a measurement), `0x4610` decoding (the
+dial and roller are not diverted from the desktop; `dial.raisedScroll` is dropped with it, since an undiverted dial
+already scrolls the raised widget's window when it is under the pointer), a Bolt-receiver pairing, and the wider
+hardware checklist beyond what ran live on this PC (plug/unplug of both devices, Options+ running, key pages, page
+navigation, faces, brightness, dialpad buttons and wheels). The `docs/screenshots/logicon-monitor.png` capture is
+the one remaining manual step (Snipping Tool on the Debug `Logicon` page).
 
 ## Workstreams
 
@@ -340,12 +400,14 @@ Deliverable: `.build/receipts/2026-09-XX-logicon-probe.md` with the numbers, plu
 Catalog class, provider `#if defined(_DEBUG)`, atlas + quads, taps, brightness row, trace, WARP smoke in
 HostPluginTests, Debug template placement, screenshot under `docs/screenshots/` only if the tile is documented.
 
-### Phase D — Dialpad (gated on the Phase 0 capture)
+### Phase D — Dialpad
 
-Transport over Bluetooth HID and over a Bolt receiver (HID++ device index ≠ `0xFF`), `0x1B04` diversion of its
-four buttons, dial and roller decoding (candidates: `0x2121` hi-res wheel, `0x2150` thumbwheel, or a `0x19A1`
-sibling; decided by the capture), dial acceleration, actions `dial.volume`, `dial.page`, `dial.raisedScroll`, and
-Debug tile rows. Until the capture exists this phase is `DECISION` inside an `ACTIVE` plan.
+Done (2026-09-17): transport over Bluetooth LE, `0x1B04` diversion of its four buttons, dial and roller through Raw
+Input (no HID++ wheel feature answers: not `0x2121`, not `0x2150`; `0x4610` is the only candidate and is undecoded),
+and the Debug tile rows. Open: a Bolt-receiver pairing (HID++ device index ≠ `0xFF`), `0x4610` decoding so the wheel
+can be diverted from the desktop, dial acceleration, and actions `dial.volume`, `dial.page`, `dial.raisedScroll`
+plus button bindings (a `dialpad` settings member; `DECISION` until `0x4610` is understood, since an undiverted dial
+also scrolls whatever is under the cursor).
 
 ### Phase E — Closeout
 
@@ -399,7 +461,7 @@ Merge durable requirements into `Plugins_API.md`, `Core_PerformanceAndResources.
 
 | Item | Default until decided |
 | --- | --- |
-| Dialpad transport and dial/roller feature | Phase D waits for the Phase 0 capture |
+| Dialpad transport and dial/roller feature | Captured 2026-09-17: buttons over `0x1B04`, wheels over Raw Input; `0x4610` (divert?) still open |
 | Composite JPEG quality / subsampling | 80 and 4:4:4; measured against panel appearance and transfer time |
 | Whether `services` may also host future non-device services (for example a scheduler) | The grammar is generic; only Logicon is catalogued |
 | Physical page buttons when `pageButtons` is `dashboardPages` | Adjacent navigation only; no named-page jump from the hardware buttons |

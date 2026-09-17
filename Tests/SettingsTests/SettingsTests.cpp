@@ -102,21 +102,40 @@ constexpr std::string_view kRepresentative = R"json(
     return false;
 }
 
-// Every bundled widget is placed in both shipped templates, except the catalog's opt-in native-window examples,
-// which stay out of every shipped page (Core_Settings.md) and are covered by HostPluginTests instead.
-[[nodiscard]] bool CoversBundledPluginCatalog(const AppSettings& settings) noexcept
+[[nodiscard]] bool IsDebugOnlyBundledWidget(std::string_view pluginId) noexcept
 {
-    if (settings.pluginCount != kRedXeBundledWidgets.size() - kRedXeOptInBundledWidgetIds.size())
+    for (const char* debugOnly : kRedXeDebugOnlyBundledWidgetIds)
+    {
+        if (SettingsIdEquals(debugOnly, pluginId))
+            return true;
+    }
+    return false;
+}
+
+// Every bundled widget is placed in both shipped templates, except the catalog's opt-in native-window examples,
+// which stay out of every shipped page (Core_Settings.md) and are covered by HostPluginTests instead, and the
+// Debug-only widgets, which only the Debug template places. Every catalogued service is configured by both.
+[[nodiscard]] bool CoversBundledPluginCatalog(const AppSettings& settings, bool debugTemplate) noexcept
+{
+    const size_t debugOnlyExcluded = debugTemplate ? 0 : kRedXeDebugOnlyBundledWidgetIds.size();
+    if (settings.pluginCount != kRedXeBundledWidgets.size() - kRedXeOptInBundledWidgetIds.size() - debugOnlyExcluded)
         return false;
     for (const RedXeBundledWidgetSpec& plugin : kRedXeBundledWidgets)
     {
-        if (IsOptInBundledWidget(plugin.pluginId))
+        if (IsOptInBundledWidget(plugin.pluginId) || (!debugTemplate && IsDebugOnlyBundledWidget(plugin.pluginId)))
         {
             if (FindPluginSettings(settings, plugin.pluginId) || HasWidgetExample(settings, plugin.pluginId))
                 return false;
             continue;
         }
         if (!FindPluginSettings(settings, plugin.pluginId) || !HasWidgetExample(settings, plugin.pluginId))
+            return false;
+    }
+    if (settings.serviceCount != kRedXeBundledServices.size())
+        return false;
+    for (const RedXeBundledServiceSpec& service : kRedXeBundledServices)
+    {
+        if (!FindServiceSettings(settings, service.pluginId))
             return false;
     }
     return true;
@@ -173,13 +192,14 @@ constexpr std::string_view kRepresentative = R"json(
         std::wprintf(L"Deployed settings templates did not load.\n");
         return result;
     }
-    if (!CoversBundledPluginCatalog(debug) || !CoversBundledPluginCatalog(release))
+    if (!CoversBundledPluginCatalog(debug, true) || !CoversBundledPluginCatalog(release, false))
     {
         std::wprintf(L"Deployed templates do not cover the bundled plugin catalog.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    // Development page: Launcher, Triangle, Matrix. No shipped page places a native-window widget.
-    if (debug.dashboard.pageCount != 3 || debug.dashboard.pages[0].widgetCount != 3)
+    // Development page: Launcher, Triangle, Matrix. The Debug template adds a Logicon page for the developer-only
+    // monitor tile. No shipped page places a native-window widget.
+    if (debug.dashboard.pageCount != 4 || debug.dashboard.pages[0].widgetCount != 3)
     {
         std::wprintf(L"Debug template page count contract failed (%u pages, first widgets %u).\n",
                      debug.dashboard.pageCount, debug.dashboard.pages[0].widgetCount);
@@ -191,12 +211,25 @@ constexpr std::string_view kRepresentative = R"json(
         std::wprintf(L"Debug template first widget is not an adaptive launcher.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    if (debug.dashboard.pages[1].widgetCount != 7 || debug.dashboard.pages[2].widgetCount != 10 ||
+    if (debug.dashboard.pages[1].widgetCount != 2 || debug.dashboard.pages[1].id.View() != "logicon" ||
+        debug.dashboard.pages[1].widgets[0].pluginId.View() != "builtin.logicon-monitor" ||
+        debug.dashboard.pages[2].widgetCount != 7 || debug.dashboard.pages[3].widgetCount != 10 ||
         release.dashboard.pageCount != 3 || release.dashboard.pages[0].widgetCount != 1 ||
         release.dashboard.pages[1].widgetCount != 7 || release.dashboard.pages[2].widgetCount != 10 ||
         debug.logRetentionDays != 15 || release.logRetentionDays != 15)
     {
         std::wprintf(L"Deployed template page inventory contract failed.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    // Both templates configure the Logicon service (settings minor 1) with a page-navigation key layout.
+    const ServiceSettings* debugLogicon = FindServiceSettings(debug, "builtin.logicon");
+    const ServiceSettings* releaseLogicon = FindServiceSettings(release, "builtin.logicon");
+    if (!debugLogicon || !releaseLogicon || debug.versionMinor != 1 || release.versionMinor != 1 ||
+        debugLogicon->name.View() != "Logicon" ||
+        debugLogicon->privateConfiguration.View().find("\"keyPage.next\"") == std::string_view::npos ||
+        releaseLogicon->privateConfiguration.View().find("\"dashboardPages\"") == std::string_view::npos)
+    {
+        std::wprintf(L"Deployed templates do not configure the Logicon service as expected.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     if (debug.backgroundRgb != kRedXeDefaultBackgroundRgb || release.backgroundRgb != kRedXeDefaultBackgroundRgb ||
@@ -339,6 +372,56 @@ constexpr std::string_view kRepresentative = R"json(
     if (FAILED(ParseAppSettingsJson(retentionDocument, retention)) || retention.logRetentionDays != 30)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    // services (minor 1): a flattened plugin object per catalogued service, defaults merged, validated by the
+    // plugin's shared model, never counted as a widget plugin.
+    constexpr std::string_view servicesDocument = R"json({
+      "version":{"major":5,"minor":1},
+      "services":{"Keypad":{"plugin":"builtin.logicon","brightness":40,"keys":[{"slot":0,"action":"page.next"}]}},
+      "pages":[{"widgets":[{"plugin":"builtin.gdi-orbit"}]}]
+    })json";
+    AppSettings services{};
+    if (FAILED(ParseAppSettingsJson(servicesDocument, services)) || services.serviceCount != 1 ||
+        services.services.size() != 1 || services.services[0].name.View() != "Keypad" ||
+        services.services[0].pluginId.View() != "builtin.logicon" || services.pluginCount != 1 ||
+        services.services[0].privateConfiguration.View().find("\"brightness\":40") == std::string_view::npos ||
+        services.services[0].privateConfiguration.View().find("\"restoreLogoOnExit\":true") == std::string_view::npos ||
+        services.services[0].privateConfiguration.View().find("\"page.next\"") == std::string_view::npos ||
+        !FindServiceSettings(services, "builtin.logicon") || FindServiceSettings(services, "builtin.launcher") ||
+        FAILED(ValidateAppSettings(services)))
+    {
+        std::wprintf(L"The services root did not parse as expected.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    AppSettings noServices{};
+    if (FAILED(ParseAppSettingsJson(retentionDocument, noServices)) || noServices.serviceCount != 0)
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    const std::string_view rejectedServices[] = {
+        // A widget plugin is not a service.
+        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.launcher"}},"pages":[{}]})json",
+        // Unknown service plugin.
+        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.nope"}},"pages":[{}]})json",
+        // The same service twice.
+        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon"},"B":{"plugin":"builtin.logicon"}},"pages":[{}]})json",
+        // Plugin-model rejections surface as document errors.
+        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","keys":[{"slot":9}]}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","brightness":0}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","extra":true}},"pages":[{}]})json",
+        // Shape errors.
+        R"json({"version":{"major":5},"services":[],"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"A":"builtin.logicon"},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"A":{"use":"X"}},"pages":[{}]})json",
+    };
+    for (const std::string_view rejected : rejectedServices)
+    {
+        AppSettings ignored{};
+        if (SUCCEEDED(ParseAppSettingsJson(rejected, ignored)))
+        {
+            std::wprintf(L"A malformed services document was accepted: %.*S\n", static_cast<int>(rejected.size()),
+                         rejected.data());
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
     }
 
     constexpr std::string_view authoredPages = R"json({
@@ -690,9 +773,9 @@ constexpr std::string_view kRepresentative = R"json(
     }
 
     constexpr std::string_view newerMinor =
-        R"json({"version":{"major":5,"minor":1},"futureRoot":true,"pages":[{"futurePage":1}]})json";
+        R"json({"version":{"major":5,"minor":2},"futureRoot":true,"pages":[{"futurePage":1}]})json";
     if (FAILED(ParseAppSettingsJson(newerMinor, parsed)) || parsed.dashboard.pageCount != 1 ||
-        parsed.versionMinor != 1 || parsed.sourceDocument.find("futureRoot") == std::string::npos)
+        parsed.versionMinor != 2 || parsed.sourceDocument.find("futureRoot") == std::string::npos)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -908,14 +991,14 @@ constexpr std::string_view kRepresentative = R"json(
         for (const auto widget : widgets)
         {
             const std::string source =
-                R"json({"version":{"major":5,"minor":1},"futureRoot":{"label":"keep\nthis","quoted":"\"{}[],:\\","list":[[],{},true,false,null,1.25e-4,-2]},"declare":{"Launch":{"plugin":"builtin.launcher"}},"pages":[{"widgets":[)json" +
+                R"json({"version":{"major":5,"minor":2},"futureRoot":{"label":"keep\nthis","quoted":"\"{}[],:\\","list":[[],{},true,false,null,1.25e-4,-2]},"declare":{"Launch":{"plugin":"builtin.launcher"}},"pages":[{"widgets":[)json" +
                 std::string(widget) + R"json(]}]})json";
             auto settings = std::make_unique<AppSettings>();
             if (FAILED(ParseAppSettingsJson(source, *settings)))
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             const auto id = settings->dashboard.pages[0].widgets[0].id;
             if (FAILED(PatchWidgetInstanceSettings(*settings, id.View(), patch)) ||
-                settings->sourceDocument.find("\n  \"version\": { \"major\": 5, \"minor\": 1 }") == std::string::npos ||
+                settings->sourceDocument.find("\n  \"version\": { \"major\": 5, \"minor\": 2 }") == std::string::npos ||
                 settings->sourceDocument.find("\"Launch\": { \"plugin\": \"builtin.launcher\" }") ==
                     std::string::npos ||
                 settings->sourceDocument.find("\"layout\"") != std::string::npos ||
@@ -1006,7 +1089,7 @@ constexpr std::string_view kRepresentative = R"json(
 
         // A compact accepted document must not be written as an oversized, subsequently unreadable pretty document.
         std::string large =
-            R"json({"version":{"major":5,"minor":1},"pages":[{"widgets":[{"plugin":"builtin.launcher"}]}],"futurePadding":")json";
+            R"json({"version":{"major":5,"minor":2},"pages":[{"widgets":[{"plugin":"builtin.launcher"}]}],"futurePadding":")json";
         large.append(1024U * 1024U - large.size() - 2, 'x');
         large += "\"}";
         auto settings = std::make_unique<AppSettings>();

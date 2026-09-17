@@ -90,6 +90,7 @@
     <ClCompile Include="..\..\RedXe\HostChrome.cpp" />
     <ClCompile Include="..\..\RedXe\Settings.cpp" />
     <ClCompile Include="..\..\Plugins\AVControl\AVControlModel.cpp" />
+    <ClCompile Include="..\..\Plugins\Logicon\LogiconSettings.cpp" />
     <ClCompile Include="..\..\RedXe\SettingsV4.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -146,6 +147,11 @@
     </ProjectReference>
     <ProjectReference Include="..\..\Plugins\Launcher\Launcher.vcxproj">
       <Project>{B4E91C27-8F3A-4D6E-9C11-A7D25E84F019}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Plugins\Logicon\Logicon.vcxproj">
+      <Project>{7D2B9C41-3E58-4A0F-9B6C-1F4E8A2D5C73}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>

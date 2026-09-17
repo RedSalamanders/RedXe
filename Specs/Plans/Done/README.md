@@ -1,5 +1,6 @@
 # Completed plan history
 
+- [`LogiconPlugin_2026-09-16.md`](LogiconPlugin_2026-09-16.md) — completed 2026-09-17 (service plugins without a tile, host-owned device lane, `IRedXeHost::RequestHostAction`, the `services` settings root, the Logicon MX Creative Console keypad and dialpad driver with System Data faces, and the Debug-only monitor tile; `0x4610` dial diversion, a Bolt pairing, and the timing receipt closed by decision).
 - [`RFC_Plugins_WeatherProvidersAndRegionalAlerts.md`](RFC_Plugins_WeatherProvidersAndRegionalAlerts.md) — completed 2026-09-16 (keyless early-warning routing by country: Canada via ECCC GeoMet `Current-Alerts`, Hong Kong via HKO `warnsum`, `WeatherAlertProvider` footer attribution; CAP reader, JMA, INMET, SAWS, BOM, WMO hub and a second forecast source recorded as deferred with evidence).
 - [`DashboardBackground_2026-09-16.md`](DashboardBackground_2026-09-16.md) — completed 2026-09-16 (one document `backgroundColor` for the host canvas and every widget; host-reserved per-widget override; `RedXeFactoryOptions::backgroundColor`).
 - [`WeatherPlugin_2026-09-04.md`](WeatherPlugin_2026-09-04.md) — completed 2026-09-16 (host-owned serial network lane, `IRedXeNetworkWidget`, keyless MET Norway/MeteoAlarm/NWS weather widget with plugin-owned curl, disposable location helper, 48/96 px glyph atlas, cached-forecast status).

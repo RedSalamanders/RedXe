@@ -147,6 +147,13 @@ if ($weatherProcess -ne 0) {
     throw "Weather tests failed with exit code $($weatherProcess)."
 }
 
+$logiconTests = Join-Path $repoRoot ".build\$Platform\$Configuration\LogiconTests.exe"
+Write-Host 'Running Logicon protocol, settings, face, device, and module tests...' -ForegroundColor Cyan
+$logiconProcess = Invoke-RedXeStreamingProcess -FilePath $logiconTests -WorkingDirectory $repoRoot -LogPath ($logiconTests + '.log')
+if ($logiconProcess -ne 0) {
+    throw "Logicon tests failed with exit code $($logiconProcess)."
+}
+
 $settingsTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SettingsTests.exe"
 Write-Host 'Running settings, schema, stamp, and watcher contract tests...' -ForegroundColor Cyan
 $settingsProcess = Invoke-RedXeStreamingProcess -FilePath $settingsTests -WorkingDirectory $repoRoot -LogPath ($settingsTests + '.log')

@@ -107,6 +107,10 @@ class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
     {
         return E_ACCESSDENIED;
     }
+    HRESULT STDMETHODCALLTYPE RequestHostAction(const RedXeHostActionRequest*) noexcept override
+    {
+        return E_NOTIMPL;
+    }
 
   public:
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** object) noexcept override

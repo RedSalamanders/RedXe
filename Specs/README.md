@@ -79,6 +79,7 @@ durable.
 | UI, display, windowing, and DPI | [`UI/UI_XeneonDisplayWindowing.md`](UI/UI_XeneonDisplayWindowing.md) |
 | Native plugins and generic widgets | [`Plugins/Plugins_API.md`](Plugins/Plugins_API.md) |
 | AV controls, profiles and camera route | [`Plugins/Plugins_AVControl.md`](Plugins/Plugins_AVControl.md) |
+| Logicon keypad and dialpad service, key faces, and Debug monitor | [`Plugins/Plugins_Logicon.md`](Plugins/Plugins_Logicon.md) |
 | DxUi pin, restore, and host/plugin adapters | [`Core/Core_DxUiIntegration.md`](Core/Core_DxUiIntegration.md) |
 | End-user guide | [`../docs/README.md`](../docs/README.md) |
 | End-user guide | [`../docs/README.md`](../docs/README.md) |

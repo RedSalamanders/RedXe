@@ -65,7 +65,10 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
   matching user-guide page under `docs/plugins/`. The only exception is a widget listed in
   `kRedXeOptInBundledWidgetIds` (today the GdiOrbit native-window example): it stays catalogued, schema-accepted,
   documented, and covered by `HostPluginTests`, but no shipped page places it because its child HWND forces composed
-  presentation for the whole window.
+  presentation for the whole window. A widget listed in `kRedXeDebugOnlyBundledWidgetIds` (today the Logicon
+  monitor) is placed only by the Debug template and constructed only by Debug builds; Release refuses the instance.
+  Adding a service plugin requires `kRedXeBundledServices`, the `services` parser and schema, both templates, its
+  plugin contract, and the `docs/plugins/` page in the same change.
 - Mandatory performance and resource behavior is owned by
   [`Specs/Core/Core_PerformanceAndResources.md`](Specs/Core/Core_PerformanceAndResources.md).
 - User settings files, schema, cold recovery, and live reload are owned by
@@ -93,9 +96,10 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 ```text
 Common/PlugInterfaces/
   Factory.*        Current factory ABI, shared factory implementation, and the RedXeComObject mixin
-  Host.h           Host-service COM root: data providers, frame requests, widget status, settings persist, and JSONL log
+  Host.h           Host-service COM root: data providers, frame requests, widget status, settings persist, JSONL log, and host actions
   Widget.h         Complete generic, GPU, scheduled, child-window, raised-overlay, interactive, and network widget ABI
   Data.h           Complete source, provider, snapshot, sink, and subscription ABI
+  Service.h        Headless service ABI: start/apply/host-state/stop and the host-owned device lane worker
 Plugins/
   RotatingTriangle/ First bundled widget-provider DLL
   GdiOrbit/         Double-buffered GDI window-widget DLL
@@ -104,6 +108,7 @@ Plugins/
   Launcher/         GPU shortcut launcher with jumbo icons, taskbar-pin fallback, and shell launch
   Weather/          GPU weather widget with host-owned network lane
   AVControl/        DxUi retained controls, isolated audio/camera helper, profiles and virtual-camera source
+  Logicon/          Headless MX Creative Console keypad and dialpad service (HID++ and Raw Input over the device lane, key faces) plus the Debug monitor tile and the Probe tool
 RedXe/
   Main.cpp          Process setup and command-line modes
   Application.*     Win32 window and message-loop lifetime
@@ -123,6 +128,7 @@ Tests/
   LauncherTests/       Launcher factory, pin fallback, WARP, launch, and drop tests
   WeatherTests/        Weather HTTP heap-body and small-stack overflow regression
   AVControlTests/      Synthetic AV/IPC/MF faults, native controls, camera packaging and bounded control work
+  LogiconTests/        HID++ framing, image stream, settings model, faces, synthetic keypad and dialpad sessions, raw-input helpers, and the shipped service DLL
 Settings/
   RedXe-debug.settings.json  Shipped Debug default
   RedXe.settings.json        Shipped Release default
@@ -149,8 +155,12 @@ Keep the boundary explicit:
 - `SettingsWatcher` owns one event-blocked directory watcher and only posts a coalesced UI message; settings and
   dashboard mutation remain on `Application`'s UI thread.
 - `PluginHost` is process scoped. One instance owns every mapped module, every data source, the single acquisition
-  worker, the optional network worker, and the JSONL log writer for the whole application, including the dashboard
-  page staged during a swipe. Optional `RedXePluginShutdown` runs once per module at process teardown.
+  worker, the optional network worker, the started services with their device-lane threads, the host action ring,
+  and the JSONL log writer for the whole application, including the dashboard page staged during a swipe. Optional
+  `RedXePluginShutdown` runs once per module at process teardown.
+- A service (`Service.h`) runs without a placed widget: `Application` starts it after the first page is live, feeds it
+  host state, drains its host actions on the UI thread, and stops it before the process runtime shuts down. A
+  service's device I/O runs only on its host-owned lane, never on a plugin-created thread.
 - `PluginManager` borrows that runtime and owns only provider/widget COM references for one page. A per-instance
   construction failure becomes a host-drawn placeholder tile; it does not fail the page.
 - `DashboardHost` owns design-canvas placements, native child containers, and frame-scheduling policy.

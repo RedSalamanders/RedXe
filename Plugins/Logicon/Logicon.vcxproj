@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|ARM64"><Configuration>Debug</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64"><Configuration>Release</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="ASan Debug|x64"><Configuration>ASan Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="ASan Debug|ARM64"><Configuration>ASan Debug</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{7D2B9C41-3E58-4A0F-9B6C-1F4E8A2D5C73}</ProjectGuid>
+    <RootNamespace>Logicon</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries Condition="('$(Configuration)'=='Debug' or '$(Configuration)'=='ASan Debug')">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
+            Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <OutDir>$(RedXeBuildRoot)$(Platform)\$(Configuration)\Plugins\</OutDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="('$(Configuration)'=='Debug' or '$(Configuration)'=='ASan Debug')">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>hid.lib;cfgmgr32.lib;windowscodecs.lib;ole32.lib;d3d11.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>hid.lib;cfgmgr32.lib;windowscodecs.lib;ole32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="Logicon.cpp" />
+    <ClCompile Include="LogiconDevice.cpp" />
+    <ClCompile Include="LogiconFaces.cpp" />
+    <ClCompile Include="LogiconHid.cpp" />
+    <ClCompile Include="LogiconProtocol.cpp" />
+    <ClCompile Include="LogiconRawInput.cpp" />
+    <ClCompile Include="LogiconService.cpp" />
+    <ClCompile Include="LogiconSettings.cpp" />
+    <ClCompile Include="LogiconSynthetic.cpp" />
+    <ClCompile Include="LogiconSystemData.cpp" />
+    <!-- The monitor tile and the shared quad/glyph renderer exist only in Debug builds; Release keeps the type
+         catalogued through a provider that refuses every instance. -->
+    <ClCompile Include="LogiconMonitor.cpp" Condition="'$(Configuration)'!='Release'" />
+    <ClCompile Include="..\ProcessViewer\ViewerGpu.cpp" Condition="'$(Configuration)'!='Release'" />
+    <ClCompile Include="LogiconMonitorStub.cpp" Condition="'$(Configuration)'=='Release'" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(Configuration)'!='Release'">
+    <FxCompile Include="LogiconMonitorPixel.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)LogiconMonitorPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)LogiconMonitorPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_LogiconMonitorPixelShader</VariableName>
+      <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="LogiconMonitorVertex.hlsl">
+      <ShaderType>Vertex</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>VertexMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)LogiconMonitorVertexShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)LogiconMonitorVertexShader.cso</ObjectFileOutput>
+      <VariableName>g_LogiconMonitorVertexShader</VariableName>
+      <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="..\ProcessViewer\ViewerPixel.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ViewerPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ViewerPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ViewerPixelShader</VariableName>
+      <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="..\ProcessViewer\ViewerVertex.hlsl">
+      <ShaderType>Vertex</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>VertexMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ViewerVertexShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ViewerVertexShader.cso</ObjectFileOutput>
+      <VariableName>g_ViewerVertexShader</VariableName>
+      <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="LogiconDevice.h" />
+    <ClInclude Include="LogiconFaces.h" />
+    <ClInclude Include="LogiconHid.h" />
+    <ClInclude Include="LogiconMonitor.h" />
+    <ClInclude Include="LogiconProtocol.h" />
+    <ClInclude Include="LogiconRawInput.h" />
+    <ClInclude Include="LogiconService.h" />
+    <ClInclude Include="LogiconSettings.h" />
+    <ClInclude Include="LogiconSynthetic.h" />
+    <ClInclude Include="LogiconSystemData.h" />
+    <ClInclude Include="LogiconTestContract.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\Service.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>

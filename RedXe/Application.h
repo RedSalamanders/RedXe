@@ -125,7 +125,9 @@ class Application final
     void BeginPageSettle(LONG targetOffset, bool commit) noexcept;
     void TickPageSettle() noexcept;
     HRESULT PromoteTransitionPage() noexcept;
-    HRESULT StageTransitionPage(int direction) noexcept;
+    // Stages the adjacent page in `direction`, or, when targetPageIndex is supplied, that page directly (a host
+    // action jump); the direction then only decides which side the staged page slides in from.
+    HRESULT StageTransitionPage(int direction, const uint32_t* targetPageIndex = nullptr) noexcept;
     void ClearTransitionPage() noexcept;
     [[nodiscard]] bool TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position, UINT64& qpc,
                                                 LPARAM lParam) const noexcept;
@@ -156,6 +158,15 @@ class Application final
                                        uint32_t settingsBytes) noexcept;
     static HRESULT SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8,
                                         uint32_t settingsBytes) noexcept;
+    // Host actions requested by plugins through IRedXeHost::RequestHostAction, drained on the UI thread outside
+    // input and render dispatch. A request during a swipe, raise settle, or settings error is dropped.
+    static void HostActionThunk(void* context, uint32_t action, int32_t argument, const char* targetUtf8) noexcept;
+    void HandleHostAction(uint32_t action, int32_t argument, const char* targetUtf8) noexcept;
+    // Slides directly to a non-adjacent page: stages it as the transition page and settles once.
+    HRESULT NavigateToPage(uint32_t pageIndex) noexcept;
+    HRESULT LaunchHostTarget(const char* targetUtf8) noexcept;
+    // Fans the current page, raise, visibility, and busy state out to started services (IRedXeService::OnHostState).
+    void PublishHostState() noexcept;
 
     HINSTANCE _instance = nullptr;
     wil::unique_hwnd _window;

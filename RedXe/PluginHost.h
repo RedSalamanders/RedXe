@@ -4,6 +4,7 @@
 #include "ControlWorkQueue.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
+#include "PlugInterfaces/Service.h"
 #include "PlugInterfaces/Widget.h"
 #include "Settings.h"
 
@@ -54,6 +55,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     PluginHost& operator=(PluginHost&&) = delete;
 
     static constexpr UINT kDataSnapshotInvalidateMessage = WM_APP + 3;
+    // Posted once per batch of queued host actions; the UI thread drains them with DrainHostActions.
+    static constexpr UINT kHostActionMessage = WM_APP + 5;
 
     [[nodiscard]] IRedXeHost* Interface() noexcept;
     [[nodiscard]] HRESULT GetPluginModule(const char* pluginId, uint32_t requiredCapabilities,
@@ -74,6 +77,31 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
                                                uint32_t settingsBytes) noexcept;
     void SetSettingsPersistHandler(SettingsPersistHandler handler, void* context) noexcept;
 
+    // Host actions requested by plugins (IRedXeHost::RequestHostAction). The handler runs on the UI thread from
+    // DrainHostActions; target is a bounded copy that is valid for the call only.
+    using HostActionHandler = void (*)(void* context, uint32_t action, int32_t argument,
+                                       const char* targetUtf8) noexcept;
+    void SetHostActionHandler(HostActionHandler handler, void* context) noexcept;
+    // UI thread: invokes the handler for every queued action in submission order, outside any lock.
+    void DrainHostActions() noexcept;
+    [[nodiscard]] uint32_t PendingHostActionCount() const noexcept;
+
+    // Headless services (Service.h). All calls run on the UI thread. StartServices creates and starts every
+    // service the document configures; ApplyServiceSettings starts, stops, or re-applies services after a live
+    // reload; PublishHostState fans one state record out to started services; StopServices signals every device
+    // lane, waits at most kRedXeDeviceWorkerDrainMilliseconds per lane, and calls Stop. Interactive RedXe leaves
+    // device access enabled; --self-test and host tests disable it before StartServices.
+    [[nodiscard]] HRESULT StartServices(const AppSettings& settings) noexcept;
+    [[nodiscard]] HRESULT ApplyServiceSettings(const AppSettings& settings) noexcept;
+    void PublishHostState(const RedXeHostState& state) noexcept;
+    void StopServices() noexcept;
+    void SetDeviceAccessEnabled(bool enabled) noexcept;
+    [[nodiscard]] bool DeviceAccessEnabled() const noexcept;
+    [[nodiscard]] uint32_t StartedServiceCount() const noexcept;
+    [[nodiscard]] uint32_t RunningDeviceWorkerCount() const noexcept;
+    // The started service for one catalogued plugin ID, or null. Borrowed; UI thread only.
+    [[nodiscard]] IRedXeService* ServiceFor(const char* pluginId) const noexcept;
+
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override;
     ULONG STDMETHODCALLTYPE AddRef() noexcept override;
     ULONG STDMETHODCALLTYPE Release() noexcept override;
@@ -85,6 +113,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
                                                     uint32_t settingsBytes) noexcept override;
     HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept override;
     HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork* work) noexcept override;
+    HRESULT STDMETHODCALLTYPE RequestHostAction(const RedXeHostActionRequest* request) noexcept override;
     void SetControlAccessEnabled(bool enabled) noexcept
     {
         _controlAccessEnabled = enabled;
@@ -121,6 +150,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     static constexpr size_t kMaximumNetworkWidgets = 8;
     static constexpr size_t kLogRingSlots = 32;
     static constexpr size_t kLogLineCapacity = 1024;
+    static constexpr size_t kHostActionRingSlots = 16;
 
     class DataProvider;
     class Subscription;
@@ -197,6 +227,29 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         uint32_t bytes = 0;
     };
 
+    struct HostActionSlot final
+    {
+        uint32_t action = RedXeHostActionNone;
+        int32_t argument = 0;
+        std::array<char, kRedXeMaximumHostActionTargetBytes + 1> target{};
+        bool used = false;
+    };
+
+    struct ServiceSlot final
+    {
+        const RedXeBundledServiceSpec* spec = nullptr;
+        wil::com_ptr_nothrow<IRedXeService> service;
+        wil::com_ptr_nothrow<IRedXeDeviceWorker> worker;
+        std::jthread lane;
+        wil::unique_event_nothrow stopEvent;
+        wil::unique_event_nothrow wakeEvent;
+        // The effective compact settings object the service was last given, so a live reload re-applies only when
+        // the object actually changed.
+        JsonObjectSettings settings;
+        bool started = false;
+        bool laneRunning = false;
+    };
+
     [[nodiscard]] HRESULT LoadModule(const RedXeBundledPluginSpec& spec, ModuleSlot& slot) noexcept;
     [[nodiscard]] HRESULT BindModule(const RedXeBundledPluginSpec& spec, ModuleSlot& slot) noexcept;
     [[nodiscard]] HRESULT AttachSharedModule(const ModuleSlot& owner, const char* pluginId, ModuleSlot& slot) noexcept;
@@ -224,6 +277,13 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] HRESULT EnsureCurrentLogFile() noexcept;
     void PurgeExpiredLogs() noexcept;
     [[nodiscard]] HRESULT EnqueueLogLine(const char* line, uint32_t bytes) noexcept;
+    void RequestHostActionDrain() noexcept;
+    [[nodiscard]] HRESULT CreateService(ServiceSlot& slot, const ServiceSettings& settings) noexcept;
+    [[nodiscard]] HRESULT StartService(ServiceSlot& slot) noexcept;
+    void StopService(ServiceSlot& slot) noexcept;
+    [[nodiscard]] HRESULT StartDeviceLane(ServiceSlot& slot) noexcept;
+    void StopDeviceLane(ServiceSlot& slot) noexcept;
+    void DeviceLane(ServiceSlot& slot) noexcept;
 
     std::atomic<ULONG> _references{1};
     std::array<ModuleSlot, kRedXeBundledPlugins.size()> _modules;
@@ -264,5 +324,14 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     SRWLOCK _logLock = SRWLOCK_INIT;
     std::atomic<uint32_t> _logQueued{0};
     std::atomic<uint32_t> _logRetentionDays{kRedXeDefaultLogRetentionDays};
+    std::array<HostActionSlot, kHostActionRingSlots> _hostActions{};
+    size_t _hostActionHead = 0;
+    size_t _hostActionCount = 0;
+    mutable SRWLOCK _hostActionLock = SRWLOCK_INIT;
+    std::atomic<uint32_t> _pendingHostActionPost{0};
+    HostActionHandler _hostActionHandler = nullptr;
+    void* _hostActionContext = nullptr;
+    std::array<ServiceSlot, kRedXeBundledServices.size()> _services;
+    std::atomic<bool> _deviceAccessEnabled{true};
     bool _shutdown = false;
 };

@@ -655,6 +655,10 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         OutputDebugStringW(L"Dashboard or renderer initialization failed.\n");
         return 5;
     }
+    // Services start after the first page is live: a failed service logs and never blocks startup.
+    PluginHost::Instance().SetHostActionHandler(&Application::HostActionThunk, this);
+    (void)PluginHost::Instance().StartServices(*_settings);
+    PublishHostState();
 
     ShowWindow(_window.get(), showCommand);
     UpdateWindow(_window.get());
@@ -830,6 +834,9 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
 {
     PluginHost::Instance().SetNetworkAccessEnabled(false);
     PluginHost::Instance().SetControlAccessEnabled(false);
+    // Services start in self-test too, but with device access disabled: no HID handle, hotplug registration, or
+    // injected input, so the validation stays hardware-independent.
+    PluginHost::Instance().SetDeviceAccessEnabled(false);
     if (!_pluginManager || !_dashboardHost)
     {
         OutputDebugStringW(L"Dashboard host allocation failed.\n");
@@ -947,6 +954,14 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         OutputDebugStringW(L"Dashboard or renderer initialization failed.\n");
         return 5;
     }
+    PluginHost::Instance().SetHostActionHandler(&Application::HostActionThunk, this);
+    result = PluginHost::Instance().StartServices(*_settings);
+    if (FAILED(result))
+    {
+        OutputDebugStringW(L"A configured service failed to start with device access disabled.\n");
+        return 5;
+    }
+    PublishHostState();
 
     const size_t expectedGpuWidgetCount = CountGpuWidgets(*_pluginManager);
     result = _renderer.PrepareWidgets();
@@ -1189,6 +1204,8 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     {
         _settings = std::move(settings);
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
+        (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
+        PublishHostState();
         return S_OK;
     }
 
@@ -1205,6 +1222,8 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     {
         _settings = std::move(settings);
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
+        (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
+        PublishHostState();
         return S_OK;
     }
 
@@ -1223,13 +1242,19 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     return applyResult;
 }
 
-HRESULT Application::StageTransitionPage(int direction) noexcept
+HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPageIndex) noexcept
 {
     if (!_settings || !_rendererReady || !_window || (direction != -1 && direction != 1))
     {
         return E_INVALIDARG;
     }
-    if (_pageTransitionDirection == direction && _transitionDashboardHost)
+    if (targetPageIndex && (*targetPageIndex >= _settings->dashboard.pageCount ||
+                            *targetPageIndex == _settings->dashboard.activePageIndex))
+    {
+        return E_INVALIDARG;
+    }
+    if (_pageTransitionDirection == direction && _transitionDashboardHost && _transitionSettings &&
+        (!targetPageIndex || _transitionSettings->dashboard.activePageIndex == *targetPageIndex))
     {
         return S_OK;
     }
@@ -1239,7 +1264,16 @@ HRESULT Application::StageTransitionPage(int direction) noexcept
     {
         return E_OUTOFMEMORY;
     }
-    HRESULT result = MoveDashboardPage(*settings, direction);
+    HRESULT result = S_OK;
+    if (targetPageIndex)
+    {
+        settings->dashboard.activePageIndex = *targetPageIndex;
+        settings->dashboard.activePageId = settings->dashboard.pages[*targetPageIndex].id;
+    }
+    else
+    {
+        result = MoveDashboardPage(*settings, direction);
+    }
     if (FAILED(result))
     {
         return result;
@@ -1378,6 +1412,7 @@ HRESULT Application::PromoteTransitionPage() noexcept
         result = UpdateDashboardVisibility();
     }
     _frameInvalidated = true;
+    PublishHostState();
     return result;
 }
 
@@ -1722,6 +1757,253 @@ HRESULT Application::NavigateToAdjacentPage(int direction) noexcept
     BeginPageSettle(PageEdgeSettleTarget(direction, client.right), true);
     RefreshPageEdgeAffordances();
     return S_OK;
+}
+
+HRESULT Application::NavigateToPage(uint32_t pageIndex) noexcept
+{
+    if (!_window || !_rendererReady || !_settings || _raisedActive || _pageSettleActive || _pagePointerActive)
+    {
+        return E_UNEXPECTED;
+    }
+    if (pageIndex >= _settings->dashboard.pageCount)
+    {
+        return E_INVALIDARG;
+    }
+    if (pageIndex == _settings->dashboard.activePageIndex)
+    {
+        return S_FALSE;
+    }
+    RECT client{};
+    if (!GetClientRect(_window.get(), &client) || client.right <= 0)
+    {
+        return E_UNEXPECTED;
+    }
+    const int direction =
+        pageIndex > _settings->dashboard.activePageIndex ? kPageEdgeDirectionNext : kPageEdgeDirectionPrevious;
+    const HRESULT staged = StageTransitionPage(direction, &pageIndex);
+    if (FAILED(staged))
+    {
+        return staged;
+    }
+    ApplyPageOffset(0, client.right);
+    _pageVelocityPxPerSec = 0.0f;
+    _activateTick = 0;
+    _activateWidgetIndex = SIZE_MAX;
+    BeginPageSettle(PageEdgeSettleTarget(direction, client.right), true);
+    RefreshPageEdgeAffordances();
+    return S_OK;
+}
+
+void Application::HostActionThunk(void* context, uint32_t action, int32_t argument, const char* targetUtf8) noexcept
+{
+    if (context)
+    {
+        static_cast<Application*>(context)->HandleHostAction(action, argument, targetUtf8);
+    }
+}
+
+HRESULT Application::LaunchHostTarget(const char* targetUtf8) noexcept
+{
+    if (!targetUtf8 || targetUtf8[0] == '\0')
+    {
+        return E_INVALIDARG;
+    }
+    const std::string_view target{targetUtf8};
+    // Launcher's target policy: an absolute Win32 path, or a URI with an alphabetic scheme of at least two
+    // characters. Relative paths and schemeless names never reach the shell.
+    const bool drivePath = target.size() >= 3 &&
+                           ((target[0] >= 'A' && target[0] <= 'Z') || (target[0] >= 'a' && target[0] <= 'z')) &&
+                           target[1] == ':' && (target[2] == '\\' || target[2] == '/');
+    size_t scheme = 0;
+    while (scheme < target.size() &&
+           ((target[scheme] >= 'A' && target[scheme] <= 'Z') || (target[scheme] >= 'a' && target[scheme] <= 'z')))
+    {
+        ++scheme;
+    }
+    const bool uri = scheme >= 2 && scheme < target.size() && target[scheme] == ':';
+    if (!drivePath && !target.starts_with("\\\\") && !uri)
+    {
+        return E_INVALIDARG;
+    }
+    std::array<wchar_t, kRedXeMaximumHostActionTargetBytes + 1> wide{};
+    const int converted =
+        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, targetUtf8, -1, wide.data(), static_cast<int>(wide.size()));
+    if (converted <= 0)
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    SHELLEXECUTEINFOW info{};
+    info.cbSize = sizeof(info);
+    info.fMask = SEE_MASK_FLAG_NO_UI;
+    info.lpFile = wide.data();
+    info.nShow = SW_SHOWNORMAL;
+    if (!ShellExecuteExW(&info))
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    return S_OK;
+}
+
+void Application::HandleHostAction(uint32_t action, int32_t argument, const char* targetUtf8) noexcept
+{
+    if (!_window || !_rendererReady || !_settings || _settingsErrorDialog)
+    {
+        return;
+    }
+    const bool busy = _pageSettleActive || _pagePointerActive || OverlayMotionInProgress();
+    HRESULT result = S_OK;
+    switch (action)
+    {
+    case RedXeHostActionPageNext:
+    case RedXeHostActionPagePrevious:
+        if (busy || _raisedActive)
+        {
+            result = HRESULT_FROM_WIN32(ERROR_BUSY);
+            break;
+        }
+        result = NavigateToAdjacentPage(action == RedXeHostActionPageNext ? kPageEdgeDirectionNext
+                                                                          : kPageEdgeDirectionPrevious);
+        break;
+    case RedXeHostActionPageGoTo:
+    {
+        if (busy || _raisedActive)
+        {
+            result = HRESULT_FROM_WIN32(ERROR_BUSY);
+            break;
+        }
+        uint32_t pageIndex = UINT32_MAX;
+        if (targetUtf8 && targetUtf8[0] != '\0')
+        {
+            for (uint32_t index = 0; index < _settings->dashboard.pageCount; ++index)
+            {
+                if (SettingsIdEquals(_settings->dashboard.pages[index].id.View(), targetUtf8))
+                {
+                    pageIndex = index;
+                    break;
+                }
+            }
+        }
+        else if (argument >= 0)
+        {
+            pageIndex = static_cast<uint32_t>(argument);
+        }
+        result = pageIndex == UINT32_MAX ? HRESULT_FROM_WIN32(ERROR_NOT_FOUND) : NavigateToPage(pageIndex);
+        break;
+    }
+    case RedXeHostActionWidgetRaise:
+    case RedXeHostActionWidgetToggle:
+    {
+        if (busy)
+        {
+            result = HRESULT_FROM_WIN32(ERROR_BUSY);
+            break;
+        }
+        uint32_t ordinal = argument >= 0 ? static_cast<uint32_t>(argument) : UINT32_MAX;
+        if (targetUtf8 && targetUtf8[0] != '\0')
+        {
+            const std::string_view target{targetUtf8};
+            std::string_view pageId = target;
+            std::string_view number = target;
+            const size_t separator = target.rfind('/');
+            if (separator != std::string_view::npos)
+            {
+                pageId = target.substr(0, separator);
+                number = target.substr(separator + 1);
+                const DashboardPageSettings* page = FindActiveDashboardPage(*_settings);
+                if (!page || !SettingsIdEquals(page->id.View(), pageId))
+                {
+                    result = HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+                    break;
+                }
+            }
+            ordinal = 0;
+            for (const char character : number)
+            {
+                if (character < '0' || character > '9' || number.size() > 3)
+                {
+                    ordinal = UINT32_MAX;
+                    break;
+                }
+                ordinal = ordinal * 10U + static_cast<uint32_t>(character - '0');
+            }
+        }
+        if (ordinal == UINT32_MAX || !_dashboardHost || ordinal >= _dashboardHost->WidgetCount())
+        {
+            result = HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+            break;
+        }
+        if (_raisedActive)
+        {
+            if (action == RedXeHostActionWidgetToggle && _raisedWidgetIndex == ordinal)
+            {
+                DismissWidgetRaise(true);
+                result = S_OK;
+            }
+            else
+            {
+                result = HRESULT_FROM_WIN32(ERROR_BUSY);
+            }
+            break;
+        }
+        result = TryRaiseWidgetAt(_window.get(), ordinal);
+        break;
+    }
+    case RedXeHostActionWidgetDismiss:
+        if (_raisedActive && !busy)
+        {
+            DismissWidgetRaise(true);
+        }
+        break;
+    case RedXeHostActionLaunch:
+        result = LaunchHostTarget(targetUtf8);
+        break;
+    default:
+        result = E_INVALIDARG;
+        break;
+    }
+    if (FAILED(result))
+    {
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelDebug, "host", nullptr,
+                           "host-action-dropped", "a plugin host action was not performed.", result);
+    }
+    PublishHostState();
+}
+
+void Application::PublishHostState() noexcept
+{
+    if (!_settings || PluginHost::Instance().StartedServiceCount() == 0)
+    {
+        return;
+    }
+    const DashboardPageSettings* page = FindActiveDashboardPage(*_settings);
+    RedXeHostState state{};
+    state.sizeBytes = sizeof(state);
+    state.pageIndex = _settings->dashboard.activePageIndex;
+    state.pageCount = _settings->dashboard.pageCount;
+    state.pageId = page ? page->id.utf8.data() : "";
+    std::array<wchar_t, kMaximumSettingsTextBytes + 1> pageName{};
+    if (page)
+    {
+        (void)MultiByteToWideChar(CP_UTF8, 0, page->name.utf8.data(), static_cast<int>(page->name.bytes),
+                                  pageName.data(), static_cast<int>(pageName.size() - 1));
+    }
+    state.pageName = pageName.data();
+    state.widgetCount = _dashboardHost ? static_cast<uint32_t>(_dashboardHost->WidgetCount()) : 0;
+    state.flags = RedXeHostStateNone;
+    if (_raisedActive)
+    {
+        state.flags |= RedXeHostStateRaised;
+        state.raisedWidgetOrdinal = static_cast<uint32_t>(_raisedWidgetIndex);
+    }
+    if (_windowVisible && _displayPoweredOn)
+    {
+        state.flags |= RedXeHostStateVisible;
+    }
+    if (_pageSettleActive || _pagePointerActive || OverlayMotionInProgress())
+    {
+        state.flags |= RedXeHostStateBusy;
+    }
+    PluginHost::Instance().PublishHostState(state);
 }
 
 void Application::CancelPageNavigation() noexcept
@@ -3017,6 +3299,7 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
     BeginRaiseSettle(start, target, 0, kRaiseOverlayDimAlpha, false);
     (void)FocusKeyboardWidget(widgetIndex);
     RefreshPageEdgeAffordances();
+    PublishHostState();
     return S_OK;
 }
 
@@ -3193,6 +3476,7 @@ void Application::CompleteDismissImmediate() noexcept
     PushHostChrome();
     if (_window && GetFocus() == _window.get() && previousKeyboardWidget != SIZE_MAX)
         (void)FocusKeyboardWidget(previousKeyboardWidget);
+    PublishHostState();
 }
 
 void Application::SetRaiseCloseHovered(bool hovered) noexcept
@@ -3506,6 +3790,7 @@ HRESULT Application::UpdateDashboardVisibility() noexcept
     {
         result = _transitionDashboardHost->SetWidgetsVisible(visible);
     }
+    PublishHostState();
     return result;
 }
 
@@ -3537,6 +3822,9 @@ void Application::CloseMainWindow() noexcept
     {
         _dashboardHost->Shutdown();
     }
+    // Widgets are gone; services stop now so their device lanes drain before the process runtime tears down.
+    PluginHost::Instance().StopServices();
+    PluginHost::Instance().SetHostActionHandler(nullptr, nullptr);
     PluginHost::Instance().SetSettingsPersistHandler(nullptr, nullptr);
     _window.reset();
 }
@@ -3669,6 +3957,9 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case PluginHost::kDataSnapshotInvalidateMessage:
         PluginHost::Instance().AcknowledgeUiInvalidate();
         _frameInvalidated = true;
+        return 0;
+    case PluginHost::kHostActionMessage:
+        PluginHost::Instance().DrainHostActions();
         return 0;
     case SettingsWatcher::kSettingsChangedMessage:
         OnSettingsChanged();

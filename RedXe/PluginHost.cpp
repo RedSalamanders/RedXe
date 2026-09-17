@@ -10,6 +10,7 @@
 #include <cwchar>
 #include <memory>
 #include <new>
+#include <objbase.h>
 #include <shlobj.h>
 #include <strsafe.h>
 #include <utility>
@@ -301,7 +302,8 @@ size_t AppendLogEscaped(char* destination, size_t capacity, size_t used, const c
         const RedXePluginMetadata& candidate = metadata[index];
         if (candidate.sizeBytes != sizeof(RedXePluginMetadata) || !RedXeIsValidMachineId(candidate.id) ||
             !candidate.displayName || !candidate.description || !candidate.author || !candidate.version ||
-            (candidate.capabilities & ~(RedXePluginCapabilityWidgetProvider | RedXePluginCapabilityDataSource)) != 0)
+            (candidate.capabilities & ~(RedXePluginCapabilityWidgetProvider | RedXePluginCapabilityDataSource |
+                                        RedXePluginCapabilityService)) != 0)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -478,6 +480,17 @@ void PluginHost::ShutdownProcessRuntime() noexcept
 void PluginHost::Shutdown() noexcept
 {
     SetUiInvalidateTarget(nullptr);
+    // Services go first: a stopped service releases its device lane and any provider subscription before the
+    // acquisition worker and providers below are torn down.
+    StopServices();
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_hostActionLock);
+        for (HostActionSlot& slot : _hostActions)
+            slot = HostActionSlot{};
+        _hostActionHead = 0;
+        _hostActionCount = 0;
+        _pendingHostActionPost.store(0, std::memory_order_release);
+    }
     _controlWork.Stop();
     StopNetworkService();
     AcquireSRWLockExclusive(&_widgetStatusLock);
@@ -1349,6 +1362,452 @@ HRESULT PluginHost::RequestFrame() noexcept
     // decides whether a blocked or occluded host renders.
     RequestUiInvalidate();
     return S_OK;
+}
+
+void PluginHost::SetHostActionHandler(HostActionHandler handler, void* context) noexcept
+{
+    _hostActionHandler = handler;
+    _hostActionContext = context;
+}
+
+HRESULT PluginHost::RequestHostAction(const RedXeHostActionRequest* request) noexcept
+{
+    if (!request)
+    {
+        return E_POINTER;
+    }
+    if (request->sizeBytes != sizeof(RedXeHostActionRequest) || request->action == RedXeHostActionNone ||
+        request->action > RedXeHostActionLaunch)
+    {
+        return E_INVALIDARG;
+    }
+    size_t targetBytes = 0;
+    if (request->targetUtf8)
+    {
+        targetBytes = strnlen_s(request->targetUtf8, kRedXeMaximumHostActionTargetBytes + 1);
+        if (targetBytes > kRedXeMaximumHostActionTargetBytes)
+        {
+            return E_INVALIDARG;
+        }
+    }
+    if (_shutdown)
+    {
+        return E_UNEXPECTED;
+    }
+
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_hostActionLock);
+        // Coalesce an identical pending request: a key held down or a repeated dial tick must not stack up.
+        for (size_t offset = 0; offset < _hostActionCount; ++offset)
+        {
+            const HostActionSlot& pending = _hostActions[(_hostActionHead + offset) % kHostActionRingSlots];
+            if (pending.used && pending.action == request->action && pending.argument == request->argument &&
+                strnlen_s(pending.target.data(), pending.target.size()) == targetBytes &&
+                (targetBytes == 0 || std::memcmp(pending.target.data(), request->targetUtf8, targetBytes) == 0))
+            {
+                return S_FALSE;
+            }
+        }
+        if (_hostActionCount >= kHostActionRingSlots)
+        {
+            return HRESULT_FROM_WIN32(ERROR_BUSY);
+        }
+        HostActionSlot& slot = _hostActions[(_hostActionHead + _hostActionCount) % kHostActionRingSlots];
+        slot = HostActionSlot{};
+        slot.action = request->action;
+        slot.argument = request->argument;
+        if (targetBytes != 0)
+        {
+            std::memcpy(slot.target.data(), request->targetUtf8, targetBytes);
+        }
+        slot.used = true;
+        ++_hostActionCount;
+    }
+    RequestHostActionDrain();
+    return S_OK;
+}
+
+void PluginHost::RequestHostActionDrain() noexcept
+{
+    const HWND window = _uiWindow.load(std::memory_order_acquire);
+    if (!window)
+    {
+        return;
+    }
+    if (_pendingHostActionPost.exchange(1, std::memory_order_acq_rel) != 0)
+    {
+        return;
+    }
+    if (!PostMessageW(window, kHostActionMessage, 0, 0))
+    {
+        _pendingHostActionPost.store(0, std::memory_order_release);
+    }
+}
+
+uint32_t PluginHost::PendingHostActionCount() const noexcept
+{
+    const auto guard = wil::AcquireSRWLockShared(&_hostActionLock);
+    return static_cast<uint32_t>(_hostActionCount);
+}
+
+void PluginHost::DrainHostActions() noexcept
+{
+    _pendingHostActionPost.store(0, std::memory_order_release);
+    for (;;)
+    {
+        HostActionSlot action{};
+        {
+            const auto guard = wil::AcquireSRWLockExclusive(&_hostActionLock);
+            if (_hostActionCount == 0)
+            {
+                return;
+            }
+            action = _hostActions[_hostActionHead];
+            _hostActions[_hostActionHead] = HostActionSlot{};
+            _hostActionHead = (_hostActionHead + 1) % kHostActionRingSlots;
+            --_hostActionCount;
+        }
+        if (_hostActionHandler && action.used)
+        {
+            _hostActionHandler(_hostActionContext, action.action, action.argument, action.target.data());
+        }
+    }
+}
+
+void PluginHost::SetDeviceAccessEnabled(bool enabled) noexcept
+{
+    _deviceAccessEnabled.store(enabled, std::memory_order_release);
+}
+
+bool PluginHost::DeviceAccessEnabled() const noexcept
+{
+    return _deviceAccessEnabled.load(std::memory_order_acquire);
+}
+
+uint32_t PluginHost::StartedServiceCount() const noexcept
+{
+    uint32_t count = 0;
+    for (const ServiceSlot& slot : _services)
+    {
+        count += slot.started ? 1U : 0U;
+    }
+    return count;
+}
+
+uint32_t PluginHost::RunningDeviceWorkerCount() const noexcept
+{
+    uint32_t count = 0;
+    for (const ServiceSlot& slot : _services)
+    {
+        count += slot.lane.joinable() ? 1U : 0U;
+    }
+    return count;
+}
+
+IRedXeService* PluginHost::ServiceFor(const char* pluginId) const noexcept
+{
+    if (!RedXeIsValidMachineId(pluginId))
+    {
+        return nullptr;
+    }
+    for (const ServiceSlot& slot : _services)
+    {
+        if (slot.spec && slot.started && RedXeAsciiEqualsIgnoreCase(slot.spec->pluginId, pluginId))
+        {
+            return slot.service.get();
+        }
+    }
+    return nullptr;
+}
+
+HRESULT PluginHost::CreateService(ServiceSlot& slot, const ServiceSettings& settings) noexcept
+{
+    if (!slot.spec || slot.service)
+    {
+        return E_UNEXPECTED;
+    }
+    ModuleView module{};
+    HRESULT result = GetPluginModule(slot.spec->pluginId, RedXePluginCapabilityService, &module);
+    if (FAILED(result))
+    {
+        (void)RedXeHostLog(Interface(), RedXeLogLevelError, slot.spec->pluginId, nullptr, "module-map-failed",
+                           "catalogued service DLL could not be mapped.", result);
+        return result;
+    }
+
+    std::array<char, kFactoryConfigurationCapacity> configuration{};
+    uint32_t configurationBytes = 0;
+    result = SerializeServiceConfigurationJson(settings, configuration, configurationBytes);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    RedXeFactoryOptions options{};
+    options.sizeBytes = sizeof(options);
+#if defined(_DEBUG)
+    options.debugLevel = 1;
+#endif
+    options.configurationJsonUtf8 = configuration.data();
+    options.configurationBytes = configurationBytes;
+    options.backgroundColor = kRedXeDefaultBackgroundColor;
+
+    void* serviceObject = nullptr;
+    result = module.create(__uuidof(IRedXeService), &options, Interface(), slot.spec->pluginId, &serviceObject);
+    if (FAILED(result) || !serviceObject)
+    {
+        return FAILED(result) ? result : E_UNEXPECTED;
+    }
+    slot.service.attach(static_cast<IRedXeService*>(serviceObject));
+    (void)slot.service.query_to(slot.worker.put());
+    slot.settings = settings.privateConfiguration;
+    return S_OK;
+}
+
+HRESULT PluginHost::StartService(ServiceSlot& slot) noexcept
+{
+    if (!slot.service)
+    {
+        return E_UNEXPECTED;
+    }
+    if (slot.started)
+    {
+        return S_OK;
+    }
+    RedXeServiceStartContext context{};
+    context.sizeBytes = sizeof(context);
+    context.flags = DeviceAccessEnabled() ? RedXeServiceFlagNone : RedXeServiceFlagDeviceAccessDisabled;
+    const HRESULT started = slot.service->Start(&context);
+    if (FAILED(started))
+    {
+        (void)RedXeHostLog(Interface(), RedXeLogLevelError, slot.spec->pluginId, nullptr, "service-start-failed",
+                           "service Start failed; it stays created for a later settings apply.", started);
+        return started;
+    }
+    slot.started = true;
+    (void)RedXeHostLog(Interface(), RedXeLogLevelInfo, slot.spec->pluginId, nullptr, "service-started",
+                       "service started.");
+    const HRESULT lane = StartDeviceLane(slot);
+    if (FAILED(lane))
+    {
+        (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, slot.spec->pluginId, nullptr, "device-lane-failed",
+                           "service device lane could not be started.", lane);
+    }
+    return S_OK;
+}
+
+void PluginHost::StopService(ServiceSlot& slot) noexcept
+{
+    StopDeviceLane(slot);
+    if (slot.service && slot.started)
+    {
+        const HRESULT stopped = slot.service->Stop();
+        (void)RedXeHostLog(Interface(), FAILED(stopped) ? RedXeLogLevelWarning : RedXeLogLevelInfo,
+                           slot.spec ? slot.spec->pluginId : nullptr, nullptr, "service-stopped", "service stopped.",
+                           stopped);
+    }
+    slot.started = false;
+    slot.worker.reset();
+    slot.service.reset();
+    slot.settings = JsonObjectSettings{};
+}
+
+HRESULT PluginHost::StartDeviceLane(ServiceSlot& slot) noexcept
+{
+    if (!slot.worker || slot.lane.joinable())
+    {
+        return S_FALSE;
+    }
+    uint32_t running = 0;
+    for (const ServiceSlot& candidate : _services)
+    {
+        running += candidate.lane.joinable() ? 1U : 0U;
+    }
+    if (running >= kRedXeMaximumDeviceWorkers)
+    {
+        return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
+    }
+    slot.stopEvent.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    slot.wakeEvent.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
+    if (!slot.stopEvent || !slot.wakeEvent)
+    {
+        const DWORD error = GetLastError();
+        slot.wakeEvent.reset();
+        slot.stopEvent.reset();
+        return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
+    }
+    try
+    {
+        slot.lane = std::jthread([this, &slot](std::stop_token) noexcept { DeviceLane(slot); });
+    }
+    catch (const std::bad_alloc&)
+    {
+        slot.wakeEvent.reset();
+        slot.stopEvent.reset();
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        slot.wakeEvent.reset();
+        slot.stopEvent.reset();
+        return E_FAIL;
+    }
+    return S_OK;
+}
+
+void PluginHost::DeviceLane(ServiceSlot& slot) noexcept
+{
+    // WIC, CfgMgr32 notifications, and any other COM the service uses on this lane need an MTA apartment.
+    const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED | COINIT_DISABLE_OLE1DDE);
+    const HRESULT result = slot.worker->RunDeviceWork(slot.stopEvent.get(), slot.wakeEvent.get());
+    if (FAILED(result))
+    {
+        (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, slot.spec ? slot.spec->pluginId : nullptr, nullptr,
+                           "device-lane-failed", "RunDeviceWork returned a failure.", result);
+    }
+    if (SUCCEEDED(apartment))
+    {
+        CoUninitialize();
+    }
+}
+
+void PluginHost::StopDeviceLane(ServiceSlot& slot) noexcept
+{
+    if (!slot.lane.joinable())
+    {
+        slot.wakeEvent.reset();
+        slot.stopEvent.reset();
+        return;
+    }
+    if (slot.stopEvent)
+    {
+        SetEvent(slot.stopEvent.get());
+    }
+    const DWORD waited = WaitForSingleObject(slot.lane.native_handle(), kRedXeDeviceWorkerDrainMilliseconds);
+    if (waited == WAIT_OBJECT_0)
+    {
+        slot.lane.join();
+        slot.lane = std::jthread{};
+        slot.wakeEvent.reset();
+        slot.stopEvent.reset();
+        return;
+    }
+    // The lane overran its drain budget. Detach it and keep the event handles alive so a late wait inside the
+    // plugin still sees valid objects; the process is shutting down or the service is being retired, and the
+    // overrun is the diagnostic.
+    (void)RedXeHostLog(Interface(), RedXeLogLevelError, slot.spec ? slot.spec->pluginId : nullptr, nullptr,
+                       "device-lane-drain-timeout", "device lane did not return within the drain budget.");
+    slot.lane.detach();
+    slot.lane = std::jthread{};
+    (void)slot.wakeEvent.release();
+    (void)slot.stopEvent.release();
+}
+
+HRESULT PluginHost::StartServices(const AppSettings& settings) noexcept
+{
+    if (_shutdown)
+    {
+        return E_UNEXPECTED;
+    }
+    HRESULT first = S_OK;
+    for (size_t index = 0; index < _services.size(); ++index)
+    {
+        ServiceSlot& slot = _services[index];
+        slot.spec = &kRedXeBundledServices[index];
+        const ServiceSettings* configured = FindServiceSettings(settings, slot.spec->pluginId);
+        if (!configured)
+        {
+            continue;
+        }
+        HRESULT result = slot.service ? S_OK : CreateService(slot, *configured);
+        if (SUCCEEDED(result))
+        {
+            result = StartService(slot);
+        }
+        if (FAILED(result) && SUCCEEDED(first))
+        {
+            first = result;
+        }
+    }
+    return first;
+}
+
+HRESULT PluginHost::ApplyServiceSettings(const AppSettings& settings) noexcept
+{
+    if (_shutdown)
+    {
+        return E_UNEXPECTED;
+    }
+    HRESULT first = S_OK;
+    for (size_t index = 0; index < _services.size(); ++index)
+    {
+        ServiceSlot& slot = _services[index];
+        slot.spec = &kRedXeBundledServices[index];
+        const ServiceSettings* configured = FindServiceSettings(settings, slot.spec->pluginId);
+        if (!configured)
+        {
+            if (slot.service)
+            {
+                StopService(slot);
+            }
+            continue;
+        }
+        if (!slot.service)
+        {
+            HRESULT result = CreateService(slot, *configured);
+            if (SUCCEEDED(result))
+            {
+                result = StartService(slot);
+            }
+            if (FAILED(result) && SUCCEEDED(first))
+            {
+                first = result;
+            }
+            continue;
+        }
+        if (configured->privateConfiguration == slot.settings && slot.started)
+        {
+            continue;
+        }
+        slot.settings = configured->privateConfiguration;
+        HRESULT result = slot.service->ApplySettings(slot.settings.utf8.data(), slot.settings.bytes);
+        if (FAILED(result))
+        {
+            (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, slot.spec->pluginId, nullptr,
+                               "service-settings-rejected", "service rejected its effective settings.", result);
+        }
+        if (!slot.started)
+        {
+            result = StartService(slot);
+        }
+        if (FAILED(result) && SUCCEEDED(first))
+        {
+            first = result;
+        }
+    }
+    return first;
+}
+
+void PluginHost::PublishHostState(const RedXeHostState& state) noexcept
+{
+    if (state.sizeBytes != sizeof(RedXeHostState))
+    {
+        return;
+    }
+    for (ServiceSlot& slot : _services)
+    {
+        if (slot.service && slot.started)
+        {
+            (void)slot.service->OnHostState(&state);
+        }
+    }
+}
+
+void PluginHost::StopServices() noexcept
+{
+    for (size_t index = _services.size(); index > 0; --index)
+    {
+        StopService(_services[index - 1]);
+    }
 }
 
 HRESULT PluginHost::ReportWidgetStatus(const char* instanceId, const RedXeWidgetStatusReport* report) noexcept

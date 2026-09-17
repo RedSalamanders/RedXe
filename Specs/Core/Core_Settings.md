@@ -75,9 +75,11 @@ The root members are:
 | `logRetentionDays` | No | Integer 1–365. Omitted is 15. How many UTC days of dated JSONL files to keep. |
 | `backgroundColor` | No | Exact `#RRGGBB`. Omitted is `#000000`. The dashboard background: the host canvas clear color and the background every widget paints unless its widget object overrides it (see below). |
 | `declare` | No | Reusable widget definitions keyed by authored names. |
+| `services` | No | Headless service plugins the host starts at launch, keyed by authored names (minor 1). |
 | `pages` | Yes | One through sixteen ordered pages. |
 
-Version 5 begins at major 5, minor 0. This build reads major 5 only. Missing, malformed, or different-major versions
+Version 5 begins at major 5, minor 0. Minor 1 adds the optional additive `services` member; this build reads and
+writes minor 1 and accepts minor 0 documents unchanged. This build reads major 5 only. Missing, malformed, or different-major versions
 (including 4) are errors (`ERROR_INVALID_DATA`) with a diagnostic on `$.version.major`. RedXe MUST NOT convert a
 version 4 layout tree. A newer RedXe accepts older minors of major 5 and supplies documented defaults. An older RedXe
 accepts a newer minor of the same major, validates the shape it understands, and silently ignores additive unknown
@@ -126,6 +128,22 @@ unknown member and MUST be rejected. A change to the document `backgroundColor` 
 the active page. Both shipped templates MUST author the document `backgroundColor` explicitly.
 
 Each appearance creates an independent runtime widget instance.
+
+### Services
+
+`services` is optional and has at most 8 members. A member name follows the declaration-name rules. Every value is a
+flattened plugin object naming a catalogued **service** plugin (`RedXe/BundledPlugins.h` `kRedXeBundledServices`,
+today `builtin.logicon`) plus that plugin's settings keys on the same object; `use`, nested `settings`, and the
+reserved widget keys are rejected. A widget plugin ID, an unknown plugin ID, or the same service plugin configured
+twice rejects the complete candidate. The host merges the plugin's published defaults under the authored keys, then
+validates the effective object with the plugin's shared model (for Logicon, `Plugins/Logicon/LogiconSettings.cpp`,
+compiled into the host); a model rejection is a document error on the authored path. The effective compact object is
+stored per service and reaches the plugin as the `instance` member of the ordinary factory envelope.
+
+Services are not widgets: they are never placed, never counted as referenced widget plugins, own no instance ID, and
+persist nothing. A service settings change on a live reload re-applies only that service; adding or removing a member
+starts or stops it without rebuilding the dashboard. `Specs/Plugins/Plugins_API.md` owns the service lifetime and
+`Specs/Plugins/Plugins_Logicon.md` owns the Logicon members.
 
 Every authored settings object, effective settings object, plugin schema, and plugin defaults object MUST have a
 compact representation no larger than 4096 bytes.
@@ -275,7 +293,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 
 ## Resource requirements and bounds
 
-- Pages: 16; widgets: 32 per page and 512 per document; declarations: 128; unique referenced plugins: 64.
+- Pages: 16; widgets: 32 per page and 512 per document; declarations: 128; unique referenced plugins: 64;
+  services: 8.
 - Layout: 127 areas per page and 8 container levels; declaration/page names: 128 Unicode code points.
 - Live reload holds at most the authoritative document and one candidate. Full documents and schemas use bounded heap
   storage, never large UI-thread stack values.
@@ -301,6 +320,10 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   Persist of an instance on a `widgets` / `columns` / `rows` page MUST leave sibling human syntax intact and MUST NOT
   rewrite the page to `layout`.
 - Tests cover merge rules, plugin replacement, minor compatibility, and compatible unknown-field preservation.
+- Tests accept a `services` member with defaults merged and the plugin model applied, prove it adds no referenced
+  widget plugin, and reject a widget plugin as a service, an unknown service plugin, a duplicated service plugin,
+  plugin-model failures (`slot` 9, `brightness` 0, unknown members), a non-object `services`, a string member, and
+  `use`. Both shipped templates MUST carry minor 1 and configure every catalogued service.
 - Tests prove a partial widget persist merge keeps unspecified members and rejects unknown plugin members.
 - Tests prove compact/idempotent formatting, inline small objects and long single-path records, multiline sections
   and arrays, fewer lines than fully expanded output, escaped/Unicode paths, named/inline/use-object widget round

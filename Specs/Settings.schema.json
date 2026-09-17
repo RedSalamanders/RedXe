@@ -21,6 +21,13 @@
       "propertyNames": { "minLength": 1, "maxLength": 128 },
       "additionalProperties": { "$ref": "#/$defs/widgetDefinition" }
     },
+    "services": {
+      "type": "object",
+      "maxProperties": 8,
+      "propertyNames": { "minLength": 1, "maxLength": 128 },
+      "additionalProperties": { "$ref": "#/$defs/serviceDefinition" },
+      "description": "Headless service plugins the host starts at launch (settings minor 1). Each catalogued service plugin may appear once."
+    },
     "pages": {
       "type": "array",
       "minItems": 1,
@@ -210,6 +217,72 @@
       }
     },
     "weight": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 1 },
+    "logiconKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slot"],
+      "properties": {
+        "page": { "type": "integer", "minimum": 0, "maximum": 3, "default": 0 },
+        "slot": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "action": {
+          "enum": ["none", "page.next", "page.previous", "page.goto", "widget.raise", "widget.dismiss", "widget.toggle", "launch", "keys", "keyPage.next", "keyPage.previous"],
+          "default": "none"
+        },
+        "target": { "type": "string", "maxLength": 512 },
+        "label": { "type": "string", "maxLength": 16 },
+        "icon": { "type": "string", "maxLength": 260 },
+        "color": { "$ref": "#/$defs/color" },
+        "face": { "enum": ["none", "clock", "pageIndicator", "cpu", "memory", "gpu"], "default": "none" }
+      }
+    },
+    "logiconDialAction": { "enum": ["none", "volume", "page", "keyPage", "brightness"], "default": "none" },
+    "logiconDialButton": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["button"],
+      "properties": {
+        "button": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "action": { "$ref": "#/$defs/logiconKey/properties/action" },
+        "target": { "type": "string", "maxLength": 512 }
+      }
+    },
+    "logiconDialpad": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dial": { "$ref": "#/$defs/logiconDialAction" },
+        "roller": { "$ref": "#/$defs/logiconDialAction" },
+        "buttons": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/logiconDialButton" } }
+      }
+    },
+    "logiconSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "brightness": { "type": "integer", "minimum": 1, "maximum": 100, "default": 70 },
+        "restoreLogoOnExit": { "type": "boolean", "default": true },
+        "pageButtons": { "enum": ["keyPages", "dashboardPages"], "default": "keyPages" },
+        "keys": { "type": "array", "maxItems": 36, "items": { "$ref": "#/$defs/logiconKey" } },
+        "dialpad": { "$ref": "#/$defs/logiconDialpad" }
+      }
+    },
+    "serviceDefinition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plugin"],
+          "properties": {
+            "plugin": { "const": "builtin.logicon" },
+            "brightness": { "$ref": "#/$defs/logiconSettings/properties/brightness" },
+            "restoreLogoOnExit": { "$ref": "#/$defs/logiconSettings/properties/restoreLogoOnExit" },
+            "pageButtons": { "$ref": "#/$defs/logiconSettings/properties/pageButtons" },
+            "keys": { "$ref": "#/$defs/logiconSettings/properties/keys" },
+            "dialpad": { "$ref": "#/$defs/logiconSettings/properties/dialpad" }
+          }
+        }
+      ]
+    },
     "pluginId": {
       "enum": [
         "builtin.rotating-triangle",
@@ -229,7 +302,8 @@
         "builtin.gpu-meter",
         "builtin.gpu-processes",
         "builtin.power-meter",
-        "builtin.thermal-meter"
+        "builtin.thermal-meter",
+        "builtin.logicon-monitor"
       ]
     },
     "widgetDefinition": {
@@ -239,7 +313,7 @@
           "additionalProperties": false,
           "required": ["plugin"],
           "properties": {
-            "plugin": { "enum": ["builtin.rotating-triangle", "builtin.gdi-orbit", "builtin.system-pulse", "builtin.cpu-meter", "builtin.memory-meter", "builtin.storage-meter", "builtin.gpu-meter", "builtin.power-meter", "builtin.thermal-meter"] },
+            "plugin": { "enum": ["builtin.rotating-triangle", "builtin.gdi-orbit", "builtin.system-pulse", "builtin.cpu-meter", "builtin.memory-meter", "builtin.storage-meter", "builtin.gpu-meter", "builtin.power-meter", "builtin.thermal-meter", "builtin.logicon-monitor"] },
             "backgroundColor": { "$ref": "#/$defs/widgetBackground" }
           }
         },
