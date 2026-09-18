@@ -6,6 +6,7 @@
 #include "Renderer.h"
 #include "Settings.h"
 #include "SettingsWatcher.h"
+#include "WheelNavigation.h"
 #include "WidgetRaise.h"
 
 #include <array>
@@ -101,6 +102,10 @@ class Application final
     void OnPointerUp(HWND window, WPARAM wParam, LPARAM lParam) noexcept;
     void OnMouseButtonDown(HWND window, LPARAM lParam) noexcept;
     void OnMouseButtonUp(HWND window, LPARAM lParam) noexcept;
+    // WM_MOUSEWHEEL / WM_MOUSEHWHEEL. The first sample of a wheel sequence goes to the interactive widget under the
+    // pointer; its answer latches the sequence to that widget or to the host, which turns each whole detent into one
+    // adjacent-page navigation (WheelNavigation.h).
+    void OnMouseWheel(HWND window, WPARAM wParam, LPARAM lParam, WheelAxis axis) noexcept;
     void OnClientActivateAttempt(HWND window, POINT position, ULONGLONG tick) noexcept;
     void OnRaisedContentActivateAttempt(HWND window, POINT position, ULONGLONG tick) noexcept;
     [[nodiscard]] bool TryNavigateFromPageEdge(HWND window, POINT position) noexcept;
@@ -148,8 +153,13 @@ class Application final
     [[nodiscard]] bool PointInPageEdgeBand(HWND window, POINT position) const noexcept;
     [[nodiscard]] bool HitInteractiveLocal(POINT client, size_t& widgetIndex, float& localX,
                                            float& localY) const noexcept;
+    // Widget-local pixels of a client point for a known slot: the overlay content rectangle while that widget is
+    // raised, otherwise its current tile bounds.
+    void WidgetLocalPoint(size_t widgetIndex, POINT client, float& localX, float& localY) const noexcept;
+    // targetWidget bypasses hit testing for a wheel sample that belongs to an already latched widget.
     HRESULT ForwardInteractivePointer(POINT client, uint32_t pointerId, uint32_t kind, uint32_t phase, bool* consumed,
-                                      uint32_t modifiers = 0, float wheelDelta = 0) noexcept;
+                                      uint32_t modifiers = 0, float wheelDelta = 0,
+                                      size_t targetWidget = SIZE_MAX) noexcept;
     void CancelInteractivePointer() noexcept;
     void ClearDoubleActivateCandidate() noexcept;
     void CompleteInteractivePointerUp(HWND window, POINT position, bool havePosition) noexcept;
@@ -283,6 +293,7 @@ class Application final
     ULONGLONG _activateTick = 0;
     POINT _activatePoint{};
     size_t _activateWidgetIndex = SIZE_MAX;
+    WheelNavigator _wheel{};
     size_t _interactivePointerWidget = SIZE_MAX;
     bool _interactivePointerConsumed = false;
     bool _interactiveOwnsPointer = false;

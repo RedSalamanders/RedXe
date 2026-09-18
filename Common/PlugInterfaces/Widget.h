@@ -170,8 +170,15 @@ enum RedXePointerPhase : uint32_t
     RedXePointerPhaseMove = 1,
     RedXePointerPhaseUp = 2,
     RedXePointerPhaseCancel = 3,
-    // Independent vertical wheel sample. It neither starts nor ends gesture capture. Unhandled samples return S_FALSE.
+    // Independent wheel samples. They neither start nor end gesture capture. wheelDelta keeps the Win32 sign: a
+    // vertical sample is positive for wheel up and negative for wheel down; a horizontal sample is positive for tilt
+    // right. S_OK consumes the sample; S_FALSE hands it to the host, which navigates dashboard pages with it (wheel
+    // down or tilt right advances). A widget that shows a page control keeps every sample on an axis it pages,
+    // including at its first or last page, so the dashboard never changes page under a paging tile; it answers
+    // S_FALSE on a single page or for an axis it does not use. The host decides the owner of a wheel sequence from
+    // its first sample and keeps later samples with that owner until the user pauses.
     RedXePointerPhaseWheel = 4,
+    RedXePointerPhaseHorizontalWheel = 5,
 };
 
 struct RedXePointerEvent final
@@ -187,7 +194,9 @@ struct RedXePointerEvent final
     uint32_t heightPixels = 0;
     uint32_t dpi = 96;
     uint32_t modifiers = 0;
-    float wheelDelta = 0; // Win32 wheel units: one detent is WHEEL_DELTA (120); high-resolution fractions are retained.
+    // Win32 wheel units for the Wheel and HorizontalWheel phases: one detent is WHEEL_DELTA (120); high-resolution
+    // fractions are retained. Zero for every other phase.
+    float wheelDelta = 0;
 };
 
 static_assert(sizeof(RedXePointerEvent) == 48);

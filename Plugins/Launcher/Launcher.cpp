@@ -11,6 +11,7 @@
 #include "LauncherPixelShader.h"
 #include "LauncherTestContract.h"
 #include "LauncherVertexShader.h"
+#include "WheelDetent.h"
 
 #include <algorithm>
 #include <array>
@@ -266,7 +267,12 @@ struct alignas(16) LauncherConstants final
     float background[4];
     float hintColor[4];
     uint32_t iconCount;
+    // {pageCount, selected page, 0}: the page-dot strip is drawn by the background pass when pageCount >= 2.
     uint32_t pad[3];
+    // Dot layout in pixels from the shared page control: {first centre x, centre y, gap, dot radius}.
+    float pageDots[4];
+    // {selected dot radius, 0, 0, 0}.
+    float pageDotRadii[4];
 };
 
 struct alignas(16) LauncherIconInstance final
@@ -275,7 +281,7 @@ struct alignas(16) LauncherIconInstance final
     float motion[4];
 };
 
-static_assert(sizeof(LauncherConstants) == 64);
+static_assert(sizeof(LauncherConstants) == 96);
 static_assert(sizeof(LauncherIconInstance) == 32);
 
 [[nodiscard]] HRESULT CopyWicToBgra(IWICBitmapSource* source, ShortcutRecord& record) noexcept
@@ -1422,9 +1428,15 @@ class LauncherWidget final
             appendPage(_pageIndex - 1, slide - static_cast<float>(_width));
         }
         constants.iconCount = drawn;
-        constants.pad[0] = grid.pageCount;
-        constants.pad[1] = grid.pageIndex;
-        constants.pad[2] = _dpi;
+        const RedXePageIndicatorLayout dots = LauncherPageDots(_width, _height, _dpi, grid.pageCount, grid.pageIndex);
+        constants.pad[0] = dots.pageCount;
+        constants.pad[1] = dots.selected;
+        constants.pad[2] = 0;
+        constants.pageDots[0] = dots.firstCenterX;
+        constants.pageDots[1] = dots.centerY;
+        constants.pageDots[2] = dots.gap;
+        constants.pageDots[3] = dots.radius;
+        constants.pageDotRadii[0] = dots.selectedRadius;
         if ((_settleActive || _pagePan || _launchActive) && _host)
         {
             (void)_host->RequestFrame();
@@ -1442,8 +1454,14 @@ class LauncherWidget final
         {
             return E_INVALIDARG;
         }
-        if (event->phase == RedXePointerPhaseWheel)
+        if (event->phase == RedXePointerPhaseWheel || event->phase == RedXePointerPhaseHorizontalWheel)
+        {
+            return OnWheel(*event);
+        }
+        if (event->phase > RedXePointerPhaseHorizontalWheel)
+        {
             return S_FALSE;
+        }
         if (event->phase == RedXePointerPhaseCancel)
         {
             _pointerDown = false;
@@ -1751,11 +1769,41 @@ class LauncherWidget final
             return;
         }
         const LONG width = static_cast<LONG>(_width);
-        const LONG delta = static_cast<LONG>(_pageIndex) - static_cast<LONG>(page);
+        // Same convention as a committed swipe: the new page starts one width toward the side it comes from
+        // (positive when moving forward, so it enters from the right) and settles to 0 while the old page, drawn one
+        // width behind it, leaves the other way.
+        const LONG delta = static_cast<LONG>(page) - static_cast<LONG>(_pageIndex);
         _pageIndex = page;
         _slidePx = delta * width;
         ComputeGrid();
         StartPageSettle(0);
+    }
+
+    // Wheel down or tilt right advances one launcher page per whole detent, wheel up or tilt left returns. A
+    // launcher that shows its page dots keeps every wheel sample, including at either end and during a one-finger
+    // drag, so the dashboard never changes page under it; a single-page launcher declines the sample so the host
+    // can change dashboard pages with it.
+    HRESULT OnWheel(const RedXePointerEvent& event) noexcept
+    {
+        const auto& grid = _grids[_activeGrid];
+        const float units = event.phase == RedXePointerPhaseWheel ? -event.wheelDelta : event.wheelDelta;
+        if (grid.pageCount <= 1 || !std::isfinite(units) || units == 0.0f)
+        {
+            _wheelDetent.Clear();
+            return S_FALSE;
+        }
+        const bool forward = units > 0.0f;
+        if (_pointerDown || (forward && _pageIndex + 1 >= grid.pageCount) || (!forward && _pageIndex == 0))
+        {
+            _wheelDetent.Clear();
+            return S_OK;
+        }
+        if (_wheelDetent.Accumulate(units) != 0)
+        {
+            // One page per notch; a surplus from a fast spin is dropped, never banked.
+            AnimateToPage(forward ? _pageIndex + 1 : _pageIndex - 1);
+        }
+        return S_OK;
     }
 
     void UpdatePagePanVelocity(float x) noexcept
@@ -2077,6 +2125,7 @@ class LauncherWidget final
     uint32_t _hoverIndex = kMaximumShortcuts;
     uint32_t _pageIndex = 0;
     uint32_t _dotDown = UINT32_MAX;
+    RedXeWheelDetent _wheelDetent{};
     LONG _slidePx = 0;
     LONG _settleStartPx = 0;
     LONG _settleTargetPx = 0;

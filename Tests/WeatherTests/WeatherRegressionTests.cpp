@@ -495,8 +495,9 @@ HRESULT RenderTests(HMODULE module, RedXeCreateFn create, uint64_t now, bool str
     wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
     wil::com_ptr_nothrow<IRedXeNetworkWidget> network;
     wil::com_ptr_nothrow<IRedXeRaisedWidget> raised;
+    wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
     CHECK(SUCCEEDED(widget.query_to(gpu.put())) && SUCCEEDED(widget.query_to(network.put())) &&
-          SUCCEEDED(widget.query_to(raised.put())));
+          SUCCEEDED(widget.query_to(raised.put())) && SUCCEEDED(widget.query_to(interactive.put())));
     wil::unique_handle cancel{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
     CHECK(cancel);
     uint32_t delay = 0;
@@ -607,6 +608,32 @@ HRESULT RenderTests(HMODULE module, RedXeCreateFn create, uint64_t now, bool str
             CHECK(std::wcscmp(info.lastAttribution, L"MET Norway") == 0);
         if (size.width == 510) // Portrait tile: day rows use the leftover height instead of a fixed five-row cap.
             CHECK(info.hourlyDrawn == 6 && info.dailyDrawn >= 7);
+        if (size.width == 280)
+        {
+            // The narrow tile pages its hour strip, so the footer carries the shared page control: a tap on the
+            // second dot goes to page two and the next frame draws it selected; the first dot returns.
+            CHECK(info.pageCount > 1 && info.pageDotGap > 0.0f && info.pageIndex == 0);
+            RedXePointerEvent tap{sizeof(RedXePointerEvent),
+                                  5,
+                                  RedXePointerKindTouch,
+                                  RedXePointerPhaseDown,
+                                  info.pageDotFirstX + info.pageDotGap,
+                                  info.pageDotY,
+                                  0,
+                                  size.width,
+                                  size.height,
+                                  144};
+            CHECK(interactive->OnPointer(&tap) == S_FALSE);
+            tap.phase = RedXePointerPhaseUp;
+            CHECK(interactive->OnPointer(&tap) == S_OK);
+            CHECK(gpu->Render(&frame) == S_OK && diagnostics(&info) == S_OK && info.pageIndex == 1);
+            tap.phase = RedXePointerPhaseDown;
+            tap.x = info.pageDotFirstX;
+            CHECK(interactive->OnPointer(&tap) == S_FALSE);
+            tap.phase = RedXePointerPhaseUp;
+            CHECK(interactive->OnPointer(&tap) == S_OK);
+            CHECK(gpu->Render(&frame) == S_OK && diagnostics(&info) == S_OK && info.pageIndex == 0);
+        }
         if (size.raised)
             CHECK(info.dailyDrawn == 8);
         if (size.width == 160)

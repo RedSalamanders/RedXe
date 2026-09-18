@@ -1,7 +1,7 @@
 # Weather widget
 
 Status: current normative product contract
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-18
 Owner: `Plugins/Weather`, `Plugins/WeatherLocation`, and `Tests/WeatherTests`
 
 The native ABI and host services are owned by `Plugins_API.md`. Resource requirements remain owned by
@@ -90,9 +90,16 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
 - Upcoming hours use available width for up to 12 chronological columns of at least 76 px: time/Now, condition,
   temperature, and supplied positive precipitation. Only unexpired intervals starting within 24 hours qualify. Add
   the strip when at least 210 px width and 132 px height remain. Future-day rows then take every complete row that
-  fits, up to all eligible days. Hours or days that do not fit draw a bottom-right `+N` count; one-finger swipe or
-  wheel pages them, using the fitted row count as the day page size. The widget exposes `IRedXeInteractiveWidget`
-  for that paging and returns `S_FALSE` on Down so raise still works.
+  fits, up to all eligible days. Hours or days that do not fit are paged, using the fitted column count as the hour
+  page size and the fitted row count as the day page size (days page only while the hour strip is on one page).
+  The footer carries the shared page control (`Common/PageIndicator.h`, DxUi::PageIndicator metrics) right-aligned
+  in the attribution row, one dot per page; a tap on a dot goes to that page, and one-finger swipe or wheel pages
+  too. Days that no page reaches (the hour strip is paging, or no day row fits) keep a `+N` count left of the dots,
+  and the attribution takes the width that remains. Wheel down pages forward one page per whole detent
+  (`RedXeWheelDetent`); with more than one page the widget keeps every vertical wheel sample, including at its
+  first and last page, so the dashboard never changes page under it, while a single page and every horizontal
+  sample return `S_FALSE` so the host can change dashboard pages. The widget exposes `IRedXeInteractiveWidget` for
+  that paging and returns `S_FALSE` on Down so raise still works.
 - Height left after the notices, the hour strip and the day rows MUST NOT stay empty above the attribution: notices
   grow to their 64 px maximum first, then the hour body (time, icon, temperature, amount) scales up uniformly to at
   most 1.5x and never beyond its column width divided by 76 px so every temperature stays complete, then the day rows
@@ -157,6 +164,9 @@ snapshot reports `Degraded` and keeps the temperature, while a widget that never
 HostPluginTests MUST prove the network lane: offline activation never calls `RunNetworkWork` and starts no thread,
 deactivation cancels and drains an in-flight call, and disabling access joins the worker.
 WARP must render production tiny/compact/narrow/portrait (510x703)/standard/raised layouts, Fahrenheit, long accented
-names, and a standard layout with an authority alert banner. Readback must contain lit pixels and submitted quads must
+names, and a standard layout with an authority alert banner. The narrow (280x500) layout MUST report more than one
+page and a drawn page-control layout through the test diagnostics, and a Down/Up on its second dot MUST page it
+forward (`S_FALSE` on Down, `S_OK` on Up) and a tap on the first dot back, each visible in the next render's
+diagnostics. Readback must contain lit pixels and submitted quads must
 fit the tile. Debug steady renders allocate nothing. Save PNG previews under `.build/` for inspection. Run Debug
 and Release x64 `test.ps1 -Rebuild`, an ARM64 build, formatting and skill validation before closeout.

@@ -113,6 +113,8 @@
     <ClInclude Include="..\..\RedXe\HostChrome.h" />
     <ClInclude Include="..\..\RedXe\Renderer.h" />
     <ClInclude Include="..\..\RedXe\Settings.h" />
+    <ClInclude Include="..\..\Common\PageIndicator.h" />
+    <ClInclude Include="..\..\RedXe\WheelNavigation.h" />
     <ClInclude Include="..\..\RedXe\WidgetRaise.h" />
   </ItemGroup>
   <ItemGroup>

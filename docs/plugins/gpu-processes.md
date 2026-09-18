@@ -8,7 +8,7 @@ Plugin id: `builtin.gpu-processes`
 
 ## What it does
 
-Ranks processes by GPU engine use and joins image names from the process list. Same visual language as Process Viewer, including `+N` overflow paging. Double-click or double-tap raises it to half the window.
+Ranks processes by GPU engine use and joins image names from the process list. Same visual language as Process Viewer, including the page dots when more processes exist than fit. Double-click or double-tap raises it to half the window.
 
 ## Parameters
 

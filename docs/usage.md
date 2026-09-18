@@ -34,6 +34,10 @@ Swipe **left** with **two or three fingers** to go forward, **right** to go back
 
 With a **mouse**, hover the left or right edge of the window. A chevron appears when that direction has a neighbor. Click it to change page.
 
+The **mouse wheel** changes pages too: roll **down** (or tilt the wheel **right**, or two-finger swipe right on a precision touchpad) to go forward, **up** or **left** to go back. One notch is one page. A tile that shows page dots keeps the wheel for itself — Launcher pages its icons, Process Viewer and the other System Data meters page their extra rows, Weather pages its forecast hours or days — and at its last page a further notch simply does nothing; the dashboard never changes page under it. To change the dashboard page with the wheel, point at a tile without page dots (a clock, Matrix Rain, a list that fits) or use the edge chevrons.
+
+Every tile with pages of its own shows the same **page control**: a row of dots, one per page, with the current page brighter and larger. Tap a dot to jump to that page, or swipe with one finger, or use the wheel. A `+N` mark, where one still appears, counts items that are not on any page (idle network adapters, sensors that do not fit a very small tile).
+
 By default you stop at the first and last page. Set `"wrapPages": true` in settings to wrap from either end.
 
 Double-click or double-tap a tile that does not already fill the window to **raise** it. Close, Escape, or a second double-activate restores it. You cannot swipe dashboard pages while a widget is raised.

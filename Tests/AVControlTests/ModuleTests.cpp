@@ -270,6 +270,21 @@ uint32_t RunModuleTests()
         return input->OnPointer(&event);
     };
     Check(click(layout.toggles[0]) == S_OK, "DLL output mute handles committed touch");
+    {
+        // Vertical wheel samples reach DxUi (declined here: the tile has nothing scrollable under this point);
+        // horizontal ones are declined outright so the host may change dashboard pages, and an unknown phase is
+        // still rejected.
+        RedXePointerEvent wheel{
+            sizeof(RedXePointerEvent), 1, RedXePointerKindMouse, RedXePointerPhaseWheel, 8.0f, 8.0f, 0, 640U, 360U, 96};
+        wheel.wheelDelta = -120.0f;
+        const HRESULT vertical = input->OnPointer(&wheel);
+        wheel.phase = RedXePointerPhaseHorizontalWheel;
+        const HRESULT horizontal = input->OnPointer(&wheel);
+        wheel.phase = RedXePointerPhaseHorizontalWheel + 1;
+        const HRESULT unknown = input->OnPointer(&wheel);
+        Check((vertical == S_OK || vertical == S_FALSE) && horizontal == S_FALSE && unknown == E_INVALIDARG,
+              "DLL declines horizontal wheel samples and rejects phases past the horizontal wheel");
+    }
     Check(snapshot(state.get(), sizeof(*state)) == S_OK && !state->state.output.muted,
           "DLL never presents intent as confirmed device state");
     host.Drain();

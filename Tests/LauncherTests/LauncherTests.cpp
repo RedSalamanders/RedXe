@@ -1475,6 +1475,69 @@ struct RenderTarget final
         std::wprintf(L"Launcher page swipe launched a shortcut.\n");
         return kTestFailure;
     }
+    if (targetPage != 0)
+    {
+        std::wprintf(L"Launcher page-dot test did not return to the first page as expected.\n");
+        return kTestFailure;
+    }
+    if (diagnostics.pageSlidePx >= 0)
+    {
+        std::wprintf(L"Launcher page-dot slide toward an earlier page should enter from the left.\n");
+        return kTestFailure;
+    }
+    Sleep(300);
+    result = RenderFrame(*gpu, target, 1.2f, 1.0f / 60.0f, 0.0f, 160, 160);
+    result = getDiagnostics(&diagnostics);
+    if (FAILED(result) || diagnostics.pageIndex != 0 || diagnostics.pageSlidePx != 0 || diagnostics.pageSettling != 0)
+    {
+        std::wprintf(L"Launcher page-dot tap did not settle on the first page.\n");
+        return kTestFailure;
+    }
+
+    // Mouse wheel: a paged launcher keeps wheel-up at its first page (consumed, nothing moves, so the dashboard
+    // never changes page under it), fractions accumulate to one notch, one notch pages forward with the slide
+    // entering from the right, and tilt left pages back with the slide entering from the left.
+    RedXePointerEvent wheel{sizeof(RedXePointerEvent), 4, RedXePointerKindMouse, RedXePointerPhaseWheel, 80.0f, 80.0f};
+    wheel.wheelDelta = 120.0f;
+    if (interactive->OnPointer(&wheel) != S_OK || FAILED(getDiagnostics(&diagnostics)) || diagnostics.pageIndex != 0)
+    {
+        std::wprintf(L"Launcher did not keep wheel-up at its first page without moving.\n");
+        return kTestFailure;
+    }
+    wheel.wheelDelta = -40.0f;
+    if (interactive->OnPointer(&wheel) != S_OK || FAILED(getDiagnostics(&diagnostics)) || diagnostics.pageIndex != 0)
+    {
+        std::wprintf(L"Launcher did not accept a fractional wheel-down sample without paging.\n");
+        return kTestFailure;
+    }
+    wheel.wheelDelta = -80.0f;
+    if (interactive->OnPointer(&wheel) != S_OK || FAILED(getDiagnostics(&diagnostics)) || diagnostics.pageIndex != 1 ||
+        diagnostics.pageSlidePx <= 0)
+    {
+        std::wprintf(
+            L"Launcher did not page forward on a whole wheel detent with the slide entering from the right.\n");
+        return kTestFailure;
+    }
+    Sleep(300);
+    result = RenderFrame(*gpu, target, 1.8f, 1.0f / 60.0f, 0.0f, 160, 160);
+    wheel.phase = RedXePointerPhaseHorizontalWheel;
+    wheel.wheelDelta = -120.0f;
+    if (interactive->OnPointer(&wheel) != S_OK || FAILED(getDiagnostics(&diagnostics)) || diagnostics.pageIndex != 0 ||
+        diagnostics.pageSlidePx >= 0)
+    {
+        std::wprintf(L"Launcher did not page back on tilt-left with the slide entering from the left.\n");
+        return kTestFailure;
+    }
+    if (interactive->OnPointer(&wheel) != S_OK || FAILED(getDiagnostics(&diagnostics)) || diagnostics.pageIndex != 0)
+    {
+        std::wprintf(L"Launcher did not keep tilt-left at its first page without moving.\n");
+        return kTestFailure;
+    }
+    if (diagnostics.launchCount != launchesBefore)
+    {
+        std::wprintf(L"Launcher wheel paging launched a shortcut.\n");
+        return kTestFailure;
+    }
     return S_OK;
 }
 

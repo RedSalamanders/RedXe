@@ -66,7 +66,13 @@ Preserve these boundaries:
   the HWND, swap chain, or back buffer. Share immutable device resources across compatible instances. Dashboard page
   pan requires two or three simultaneous touch contacts. One-finger and pen contacts are forwarded to
   `IRedXeInteractiveWidget`, including Move/Up after a padding Down that returned `S_FALSE`. A second or third finger
-  may start host paging; `Cancel` is sent when that pan locks horizontally, not on contact. Launcher paginates overflow shortcuts
+  may start host paging; `Cancel` is sent when that pan locks horizontally, not on contact. Mouse wheel samples
+  arrive as `RedXePointerPhaseWheel` (vertical) and `RedXePointerPhaseHorizontalWheel` with Win32 `wheelDelta`
+  (120 per notch, fractions from touchpads). Answer `S_OK` for every sample on an axis the widget pages while it has more than one page (bounds included)
+  and `S_FALSE` when it has no use for it (a single page, an axis it does not scroll): the first sample of a
+  wheel sequence decides whether the widget keeps the sequence or the host turns each notch into a dashboard page
+  change. Step paged content once per whole detent with `Common/WheelDetent.h` (`RedXeWheelDetent`), forward on
+  wheel down or tilt right. Launcher paginates overflow shortcuts
   and GPU-draws a bottom page-dot strip using the same DIP metrics as `DxUi::PageIndicator` when shortcuts
   overflow the chosen cell (`iconSize` `small`/`medium`/`large`/`huge` = 72/96/144/192 DIP square icon edge and
   pagination cell, closed cap 32 shortcuts, leftover space even gutters of at least 8 DIP between icon edges plus an
@@ -83,7 +89,11 @@ Preserve these boundaries:
   unlabeled PID (PID 0 is `System Idle Process`), keep storage used/total above a used-percent-sorted capacity track, draw progress troughs near the
   panel with fill matching KPI intent color, sit network and memory bars under their text, keep thermal names above
   the level track, and join `gpu.process` names from `process.list` without adding a new dataset ID. Omitted ranked
-  rows and adapters draw bottom-right `+N` and page with one-finger swipe or wheel. While
+  rows and adapters page with one-finger swipe, wheel (kept at either end while pages exist, so the dashboard never changes page under a paging tile; declined only with one page so the host can change dashboard
+  pages), or a tap on the shared page control: every widget with internal pages draws the dot strip from
+  `Common/PageIndicator.h` (`RedXePageIndicatorInStrip` for the layout, `RedXePageIndicatorHit` on Up against the
+  layout the last frame drew) with the DxUi::PageIndicator metrics; a `+N` caption is only for items no page
+  reaches. While
   `SetRaised(TRUE)`, System Data viewers use Standard density so overlay content can show every row that `topN` allows.
   Raised System Pulse also fills leftover height with a physical-memory bar and CPU history. Weather follows
   `Specs/Plugins/Plugins_Weather.md`: configured city wins; empty city resolves once in a disposable helper and the

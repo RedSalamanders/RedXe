@@ -56,6 +56,12 @@
     <ClInclude Include="Application.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="WheelNavigation.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Common\WheelDetent.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="BundledPlugins.h">
       <Filter>Header Files</Filter>
     </ClInclude>

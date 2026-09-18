@@ -18,7 +18,7 @@ Quit **Logi Options+** first (or remove the keypad from its profile). Both progr
 
 Unplugging and replugging the keypad is fine: the faces come back by themselves. On exit RedXe restores the keypad's own button behavior and, by default, its start-up logo.
 
-The MX Creative **Dialpad** works too when it is paired over Bluetooth: turning the dial or the roller can run any action per notch (flip dashboard pages, change the volume, switch key pages, dim the keypad, …), and each of its four buttons can do anything a key can. Buttons you do not bind keep their normal meaning (Back, Forward, …), and the dial and roller keep scrolling whatever is under the mouse pointer while they drive RedXe. A dialpad paired through a Logi Bolt receiver is not read.
+The MX Creative **Dialpad** works too when it is paired over Bluetooth: turning the dial or the roller can run any action per notch (flip dashboard pages, change the volume, switch key pages, dim the keypad, …), and each of its four buttons can do anything a key can. Buttons you do not bind keep their normal meaning (Back, Forward, …), and the dial and roller keep scrolling whatever is under the mouse pointer while they drive RedXe (over the RedXe window itself they act as a horizontal and a vertical mouse wheel, which also change dashboard pages; a notch that is both bound to `page.next` and received as a wheel moves one page, not two). A dialpad paired through a Logi Bolt receiver is not read.
 
 Keys can also show live numbers: the CPU, memory, or GPU load, taken from the System Data plugin once a second.
 

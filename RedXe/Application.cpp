@@ -1211,6 +1211,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     PluginHost::Instance().ResetActionPublishers();
     DismissWidgetRaise(false);
     CancelPageNavigation();
+    _wheel.Reset();
     if (*settings == *_settings)
     {
         return S_FALSE;
@@ -1412,6 +1413,8 @@ HRESULT Application::PromoteTransitionPage() noexcept
     _pageTransitionDirection = 0;
     _pageStagePendingDirection = 0;
     _pageCurrentOffset = 0;
+    // Widget slots now belong to the new page; a wheel sequence latched to a slot on the old page must not reach it.
+    _wheel.ReleaseWidget();
     if (_dashboardHost)
     {
         (void)_dashboardHost->SetHorizontalOffset(0);
@@ -2759,7 +2762,8 @@ bool Application::PointInPageEdgeBand(HWND window, POINT position) const noexcep
 }
 
 HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId, uint32_t kind, uint32_t phase,
-                                               bool* consumed, uint32_t modifiers, float wheelDelta) noexcept
+                                               bool* consumed, uint32_t modifiers, float wheelDelta,
+                                               size_t targetWidget) noexcept
 {
     const auto refreshText = wil::scope_exit(
         [this, phase]() noexcept
@@ -2852,23 +2856,18 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
     if ((phase == RedXePointerPhaseMove || phase == RedXePointerPhaseUp) && _interactivePointerWidget != SIZE_MAX)
     {
         index = _interactivePointerWidget;
-        RECT bounds{};
-        if (_raisedActive && index == _raisedWidgetIndex)
-        {
-            bounds = _raisedLayout.content;
-        }
-        else if (_window)
-        {
-            RECT clientRect{};
-            if (GetClientRect(_window.get(), &clientRect) && clientRect.right > 0 && clientRect.bottom > 0)
-            {
-                bounds = _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(clientRect.right),
-                                                       static_cast<UINT>(clientRect.bottom));
-            }
-        }
-        localX = static_cast<float>(client.x - bounds.left);
-        localY = static_cast<float>(client.y - bounds.top);
+        WidgetLocalPoint(index, client, localX, localY);
         haveLocal = true;
+    }
+    else if (targetWidget != SIZE_MAX && (phase == RedXePointerPhaseWheel || phase == RedXePointerPhaseHorizontalWheel))
+    {
+        // A latched wheel sequence stays with its widget even when the pointer has drifted off the tile.
+        index = targetWidget;
+        haveLocal = index < _dashboardHost->WidgetCount();
+        if (haveLocal)
+        {
+            WidgetLocalPoint(index, client, localX, localY);
+        }
     }
     else
     {
@@ -2938,6 +2937,84 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
     return result;
 }
 
+void Application::WidgetLocalPoint(size_t widgetIndex, POINT client, float& localX, float& localY) const noexcept
+{
+    RECT bounds{};
+    if (_raisedActive && widgetIndex == _raisedWidgetIndex)
+    {
+        bounds = _raisedLayout.content;
+    }
+    else if (_window && _dashboardHost)
+    {
+        RECT clientRect{};
+        if (GetClientRect(_window.get(), &clientRect) && clientRect.right > 0 && clientRect.bottom > 0)
+        {
+            bounds = _dashboardHost->PixelBoundsAt(widgetIndex, static_cast<UINT>(clientRect.right),
+                                                   static_cast<UINT>(clientRect.bottom));
+        }
+    }
+    localX = static_cast<float>(client.x - bounds.left);
+    localY = static_cast<float>(client.y - bounds.top);
+}
+
+void Application::OnMouseWheel(HWND window, WPARAM wParam, LPARAM lParam, WheelAxis axis) noexcept
+{
+    if (!_windowVisible || !_displayPoweredOn || _interactiveOwnsPointer || _pagePanStarted)
+    {
+        _wheel.ClearAccumulation();
+        return;
+    }
+    // Wheel messages carry screen coordinates, whichever window had focus when they were generated.
+    POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (!ScreenToClient(window, &point))
+    {
+        return;
+    }
+    const float delta = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam));
+    const uint32_t modifiers = GET_KEYSTATE_WPARAM(wParam);
+    const uint32_t phase = axis == WheelAxis::Vertical ? RedXePointerPhaseWheel : RedXePointerPhaseHorizontalWheel;
+
+    const WheelOwner owner = _wheel.Begin(GetTickCount64());
+    if (owner == WheelOwner::Widget)
+    {
+        (void)ForwardInteractivePointer(point, 1, RedXePointerKindMouse, phase, nullptr, modifiers, delta,
+                                        _wheel.widgetIndex);
+        return;
+    }
+    if (owner == WheelOwner::None)
+    {
+        // First sample of a sequence: the topmost interactive widget under the pointer decides who owns the rest.
+        size_t index = SIZE_MAX;
+        float localX = 0.0f;
+        float localY = 0.0f;
+        bool consumed = false;
+        if (HitInteractiveLocal(point, index, localX, localY))
+        {
+            (void)ForwardInteractivePointer(point, 1, RedXePointerKindMouse, phase, &consumed, modifiers, delta, index);
+        }
+        _wheel.Latch(index, consumed);
+        if (consumed)
+        {
+            // Delivered once; the widget owns the rest of the sequence.
+            return;
+        }
+    }
+
+    // Host-owned sequence: one page per whole detent through the same staging, settle, and suppression table as an
+    // edge-band click. Nothing accumulates while navigation is impossible, so a spin during a settle or a raise
+    // cannot bank pages that play back later.
+    if (PageNavigationInProgress() || _raisedActive)
+    {
+        _wheel.ClearAccumulation();
+        return;
+    }
+    const int direction = _wheel.Accumulate(axis, delta);
+    if (direction != 0)
+    {
+        (void)NavigateToAdjacentPage(direction);
+    }
+}
+
 bool Application::HitInteractiveLocal(POINT client, size_t& widgetIndex, float& localX, float& localY) const noexcept
 {
     widgetIndex = SIZE_MAX;
@@ -2988,6 +3065,9 @@ bool Application::HitInteractiveLocal(POINT client, size_t& widgetIndex, float& 
 
 void Application::CancelInteractivePointer() noexcept
 {
+    // Every reason to cancel a contact (hide, resize, DPI, capture or focus loss, cancel mode) also ends a wheel
+    // sequence: the next sample is offered to the widget under the pointer afresh.
+    _wheel.Reset();
     if (_interactivePointerWidget != SIZE_MAX)
     {
         bool consumed = false;
@@ -3441,6 +3521,7 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
         _accessibility->ClearViews();
     _activateTick = 0;
     _activateWidgetIndex = SIZE_MAX;
+    _wheel.Reset();
     _raisedLayout = target;
 
     result = ApplyRaiseVisual(start, 0);
@@ -3468,6 +3549,7 @@ void Application::DismissWidgetRaise(bool animate) noexcept
     {
         return;
     }
+    _wheel.Reset();
     if (!animate || !_window || !_qpcFrequency)
     {
         CompleteDismissImmediate();
@@ -4150,19 +4232,11 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         OnMouseButtonUp(window, lParam);
         return 0;
     case WM_MOUSEWHEEL:
-    {
-        if (!_windowVisible || !_displayPoweredOn || _interactiveOwnsPointer || _pagePanStarted)
-            return 0;
-        POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-        bool consumed = false;
-        if (ScreenToClient(window, &point))
-            (void)ForwardInteractivePointer(point, 1, RedXePointerKindMouse, RedXePointerPhaseWheel, &consumed,
-                                            GET_KEYSTATE_WPARAM(wParam),
-                                            static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam)));
-        if (consumed)
-            return 0;
-        break;
-    }
+        OnMouseWheel(window, wParam, lParam, WheelAxis::Vertical);
+        return 0;
+    case WM_MOUSEHWHEEL:
+        OnMouseWheel(window, wParam, lParam, WheelAxis::Horizontal);
+        return 0;
     case WM_MOUSEMOVE:
         // The top-level window owns edge-band hover: a band is created only while the pointer is inside its zone.
         if (!IsPointerSynthesizedMouseMessage())

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "PageIndicator.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -7,16 +9,17 @@
 #include <string_view>
 #include <windows.h>
 
-// DIP metrics match DxUi::PageIndicator so GPU-drawn launcher dots align with the shared control.
+// The page-dot strip is the shared page control (Common/PageIndicator.h): DxUi::PageIndicator metrics, drawn by the
+// launcher shader from the layout Launcher computes on the CPU.
 inline constexpr float kLauncherSmallCellDip = 72.0f;
 inline constexpr float kLauncherMediumCellDip = 96.0f;
 inline constexpr float kLauncherLargeCellDip = 144.0f;
 inline constexpr float kLauncherHugeCellDip = 192.0f;
 inline constexpr float kLauncherAutomaticFloorDip = kLauncherSmallCellDip;
-inline constexpr float kLauncherPageIndicatorHeightDip = 20.0f;
-inline constexpr float kLauncherPageIndicatorDotRadiusDip = 3.0f;
-inline constexpr float kLauncherPageIndicatorSelectedRadiusDip = 4.0f;
-inline constexpr float kLauncherPageIndicatorDotGapDip = 14.0f;
+inline constexpr float kLauncherPageIndicatorHeightDip = kRedXePageIndicatorHeightDip;
+inline constexpr float kLauncherPageIndicatorDotRadiusDip = kRedXePageIndicatorDotRadiusDip;
+inline constexpr float kLauncherPageIndicatorSelectedRadiusDip = kRedXePageIndicatorSelectedRadiusDip;
+inline constexpr float kLauncherPageIndicatorDotGapDip = kRedXePageIndicatorDotGapDip;
 inline constexpr float kLauncherIconInnerGutterDip = 4.0f;
 // Minimum gap between neighboring icon edges, DPI-scaled. Matching inset from the tile edge and page-dot strip.
 inline constexpr float kLauncherMinGutterDip = 8.0f;
@@ -267,39 +270,23 @@ inline void LauncherChooseSpreadGrid(uint32_t widthPx, uint32_t heightPx, uint32
     return geometry;
 }
 
+// The launcher's dot strip: the shared page control laid along the bottom of the tile, centred.
+[[nodiscard]] inline RedXePageIndicatorLayout LauncherPageDots(uint32_t widthPx, uint32_t heightPx, UINT dpi,
+                                                               uint32_t pageCount, uint32_t pageIndex) noexcept
+{
+    if (widthPx == 0 || heightPx == 0)
+    {
+        return RedXePageIndicatorLayout{};
+    }
+    const float strip = LauncherDipToPixels(kLauncherPageIndicatorHeightDip, dpi);
+    return RedXePageIndicatorInStrip(0.0f, static_cast<float>(heightPx) - strip, static_cast<float>(widthPx), strip,
+                                     dpi, pageCount, pageIndex, RedXePageIndicatorAlign::Center);
+}
+
 [[nodiscard]] inline uint32_t HitLauncherPageDot(float x, float y, uint32_t widthPx, uint32_t heightPx, UINT dpi,
                                                  uint32_t pageCount) noexcept
 {
-    if (pageCount < 2 || widthPx == 0 || heightPx == 0)
-    {
-        return UINT32_MAX;
-    }
-    const float radius = LauncherDipToPixels(kLauncherPageIndicatorSelectedRadiusDip, dpi);
-    const float gap = LauncherDipToPixels(kLauncherPageIndicatorDotGapDip, dpi);
-    const float strip = LauncherDipToPixels(kLauncherPageIndicatorHeightDip, dpi);
-    const float originY = static_cast<float>(heightPx) - strip * 0.5f;
-    if (y < originY - strip * 0.5f || y > static_cast<float>(heightPx))
-    {
-        return UINT32_MAX;
-    }
-    const float total = gap * static_cast<float>(pageCount - 1);
-    const float originX = static_cast<float>(widthPx) * 0.5f - total * 0.5f;
-    const float limit = gap * 0.5f;
-    uint32_t hit = UINT32_MAX;
-    float best = limit;
-    for (uint32_t index = 0; index < pageCount; ++index)
-    {
-        const float cx = originX + gap * static_cast<float>(index);
-        const float dx = x - cx;
-        const float dy = y - originY;
-        const float distance = std::sqrt(dx * dx + dy * dy);
-        if (distance <= (std::max)(limit, radius * 2.0f) && distance <= best)
-        {
-            best = distance;
-            hit = index;
-        }
-    }
-    return hit;
+    return RedXePageIndicatorHit(LauncherPageDots(widthPx, heightPx, dpi, pageCount, 0), x, y);
 }
 
 [[nodiscard]] inline LONG LauncherPageSwipeThresholdPixels(UINT dpi) noexcept

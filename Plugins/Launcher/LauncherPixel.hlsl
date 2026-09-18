@@ -6,7 +6,9 @@ cbuffer LauncherConstants : register(b0)
     float4 backgroundColor;
     float4 hintColor;
     uint iconCount;
-    uint3 iconPad;
+    uint3 iconPad;      // page count, selected page, unused
+    float4 pageDots;    // first dot centre x, centre y, gap, dot radius (pixels, from the shared page control)
+    float4 pageDotRadii; // selected dot radius
 };
 
 Texture2DArray icons : register(t0);
@@ -39,14 +41,6 @@ float4 PixelMain(PixelInput input) : SV_Target
             const float2 pixel = input.uv * max(viewportSize, float2(1.0f, 1.0f));
             const uint pages = iconPad.x;
             const uint selected = iconPad.y;
-            const float scale = max(float(iconPad.z), 96.0f) / 96.0f;
-            const float radius = 3.0f * scale;
-            const float selectedRadius = 4.0f * scale;
-            const float gap = 14.0f * scale;
-            const float strip = 20.0f * scale;
-            const float total = gap * float(pages - 1);
-            const float originX = viewportSize.x * 0.5f - total * 0.5f;
-            const float originY = viewportSize.y - strip * 0.5f;
             [loop]
             for (uint i = 0; i < 32; ++i)
             {
@@ -54,8 +48,8 @@ float4 PixelMain(PixelInput input) : SV_Target
                 {
                     break;
                 }
-                const float2 center = float2(originX + gap * float(i), originY);
-                const float r = (i == selected) ? selectedRadius : radius;
+                const float2 center = float2(pageDots.x + pageDots.z * float(i), pageDots.y);
+                const float r = (i == selected) ? pageDotRadii.x : pageDots.w;
                 const float d = length(pixel - center);
                 if (d < r)
                 {

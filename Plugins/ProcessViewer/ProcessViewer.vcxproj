@@ -93,7 +93,9 @@
   <ItemGroup>
     <ClInclude Include="ProcessViewerTestContract.h" />
     <ClInclude Include="ViewerGpu.h" />
+    <ClInclude Include="..\..\Common\PageIndicator.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Data.h" />
+    <ClInclude Include="..\..\Common\WheelDetent.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />

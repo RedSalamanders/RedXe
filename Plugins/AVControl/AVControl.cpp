@@ -285,10 +285,14 @@ class Widget final
     {
         if (!event)
             return E_POINTER;
-        if (event->sizeBytes != sizeof(*event) || event->viewId > 1 || event->phase > RedXePointerPhaseWheel ||
-            !std::isfinite(event->x) || !std::isfinite(event->y) || !std::isfinite(event->wheelDelta))
+        if (event->sizeBytes != sizeof(*event) || event->viewId > 1 ||
+            event->phase > RedXePointerPhaseHorizontalWheel || !std::isfinite(event->x) || !std::isfinite(event->y) ||
+            !std::isfinite(event->wheelDelta))
             return E_INVALIDARG;
         if (!_visible || !_pool)
+            return S_FALSE;
+        // DxUi has no horizontal wheel; declining leaves the sample to host page navigation.
+        if (event->phase == RedXePointerPhaseHorizontalWheel)
             return S_FALSE;
         _action = S_OK;
         constexpr std::array actions{DxUi::PointerAction::Down, DxUi::PointerAction::Move, DxUi::PointerAction::Up,

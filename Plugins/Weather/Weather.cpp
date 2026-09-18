@@ -1,4 +1,5 @@
 #define REDXE_PLUGIN_EXPORTS
+#include "PageIndicator.h"
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
@@ -8,6 +9,7 @@
 #include "WeatherLocation.h"
 #include "WeatherModel.h"
 #include "WeatherTestContract.h"
+#include "WheelDetent.h"
 
 #include <algorithm>
 #include <array>
@@ -89,6 +91,12 @@ std::atomic<uint32_t> gLastHourlyDrawn{0};
 std::atomic<uint32_t> gLastDailyDrawn{0};
 std::atomic<uint32_t> gLastOverflowCount{0};
 std::atomic<bool> gLastPrecipitationNotice{false};
+// Last frame's paging and where its page-control dots sit, so a test can tap one without reproducing the layout.
+std::atomic<uint32_t> gLastPageCount{1};
+std::atomic<uint32_t> gLastPageIndex{0};
+std::atomic<float> gLastPageDotFirstX{0.0f};
+std::atomic<float> gLastPageDotY{0.0f};
+std::atomic<float> gLastPageDotGap{0.0f};
 std::atomic<uint64_t> gTestNow{0};
 std::atomic<uint32_t> gTestHelperMode{0};
 std::atomic<uint32_t> gLocationHelperRuns{0};
@@ -470,27 +478,34 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         }
         if (event->phase == RedXePointerPhaseWheel)
         {
-            if (pageCount <= 1 || event->wheelDelta == 0.0f)
+            // Wheel down pages the overflow forward, one page per whole detent. A widget that shows a page control
+            // keeps every wheel sample, including at either end, so the dashboard never changes page under a
+            // paging tile; only a single-page tile declines the sample for host page navigation.
+            const uint32_t page = _overflowPage.load(std::memory_order_relaxed);
+            const bool forward = event->wheelDelta < 0.0f;
+            if (pageCount <= 1 || !std::isfinite(event->wheelDelta) || event->wheelDelta == 0.0f)
             {
+                _wheelDetent.Clear();
                 return S_FALSE;
             }
-            uint32_t page = _overflowPage.load(std::memory_order_relaxed);
-            if (event->wheelDelta < 0.0f)
+            if (_pointerDown || (forward && page + 1 >= pageCount) || (!forward && page == 0))
             {
-                if (page + 1 < pageCount)
+                _wheelDetent.Clear();
+                return S_OK;
+            }
+            if (_wheelDetent.Accumulate(event->wheelDelta) != 0)
+            {
+                _overflowPage.store(forward ? page + 1 : page - 1, std::memory_order_relaxed);
+                if (_host)
                 {
-                    _overflowPage.store(page + 1, std::memory_order_relaxed);
+                    (void)_host->RequestFrame();
                 }
             }
-            else if (page > 0)
-            {
-                _overflowPage.store(page - 1, std::memory_order_relaxed);
-            }
-            if (_host)
-            {
-                (void)_host->RequestFrame();
-            }
             return S_OK;
+        }
+        if (event->phase == RedXePointerPhaseHorizontalWheel)
+        {
+            return S_FALSE;
         }
         if (event->phase == RedXePointerPhaseDown)
         {
@@ -518,10 +533,25 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         if (event->phase == RedXePointerPhaseUp)
         {
             const bool panned = _pagePan;
+            const bool wasDown = _pointerDown;
             const float dx = event->x - _pointerStartX;
             const float dy = event->y - _pointerStartY;
             _pointerDown = false;
             _pagePan = false;
+            if (!panned && wasDown && pageCount > 1)
+            {
+                // A tap on the page control goes to that page; the dots are the ones the last frame drew.
+                const uint32_t dot = RedXePageIndicatorHit(_lastDots, event->x, event->y);
+                if (dot != UINT32_MAX && RedXePageIndicatorHit(_lastDots, _pointerStartX, _pointerStartY) == dot)
+                {
+                    _overflowPage.store(dot, std::memory_order_relaxed);
+                    if (_host)
+                    {
+                        (void)_host->RequestFrame();
+                    }
+                    return S_OK;
+                }
+            }
             if (!panned || pageCount <= 1)
             {
                 return S_FALSE;
@@ -633,7 +663,7 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         WeatherDrawList list;
         WeatherGpuLock();
         HRESULT result = BuildScene(*resources, list, snapshot, hasSnapshot, static_cast<float>(frame.widthPixels),
-                                    static_cast<float>(frame.heightPixels));
+                                    static_cast<float>(frame.heightPixels), frame.dpi);
         if (SUCCEEDED(result))
         {
             uint32_t overflow = 0;
@@ -947,13 +977,23 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
     }
 
     [[nodiscard]] HRESULT BuildScene(WeatherGpuResources& resources, WeatherDrawList& list,
-                                     const WeatherSnapshot& snapshot, bool hasSnapshot, float width,
-                                     float height) noexcept
+                                     const WeatherSnapshot& snapshot, bool hasSnapshot, float width, float height,
+                                     uint32_t dpi) noexcept
     {
         gLastHourlyDrawn.store(0, std::memory_order_relaxed);
         gLastDailyDrawn.store(0, std::memory_order_relaxed);
         gLastPrecipitationNotice.store(false, std::memory_order_relaxed);
         _pageCount.store(1, std::memory_order_relaxed);
+        _lastDots = RedXePageIndicatorLayout{};
+        const auto publishDots = wil::scope_exit(
+            [this]() noexcept
+            {
+                gLastPageCount.store(_pageCount.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                gLastPageIndex.store(_overflowPage.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                gLastPageDotFirstX.store(_lastDots.firstCenterX, std::memory_order_relaxed);
+                gLastPageDotY.store(_lastDots.centerY, std::memory_order_relaxed);
+                gLastPageDotGap.store(_lastDots.gap, std::memory_order_relaxed);
+            });
         const float inset = kPanelInset;
         (void)list.AddFill(inset, inset, width - 2 * inset, height - 2 * inset, _configuration.panelColor.red,
                            _configuration.panelColor.green, _configuration.panelColor.blue, 1.0f, 10.0f);
@@ -1202,7 +1242,6 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
             }
             const uint32_t hourStart = hourPages > 1 ? page * columnsFit : 0;
             const uint32_t columns = std::min(columnsFit, upcomingCount - hourStart);
-            hidden += upcomingCount - hourStart - columns;
             const float columnWidth = available / static_cast<float>(columns);
             for (uint32_t column = 0; column < columns; ++column)
             {
@@ -1287,7 +1326,10 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
             ++drawn;
         }
         gLastDailyDrawn.store(drawn, std::memory_order_relaxed);
-        if (eligibleDays > skipped + drawn)
+        // Hours and days on later pages are reached through the page control below. Days that no page reaches
+        // (the hour strip is paging, or no day row fits) keep the `+N` caption.
+        const bool daysPaged = hourPages <= 1 && daysFit > 0;
+        if (!daysPaged && eligibleDays > skipped + drawn)
         {
             hidden += eligibleDays - skipped - drawn;
         }
@@ -1303,19 +1345,35 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
             gLastAttribution = attribution;
             ReleaseSRWLockExclusive(&gLastLocationLock);
         }
+        // Footer, right to left: the page control (one dot per hour or day page, right-aligned so the attribution
+        // keeps the left), an optional `+N` for unreachable days, then the attribution in what is left.
+        _lastDots = RedXePageIndicatorInStrip(
+            left, bottom - footerH, available, footerH, dpi, _pageCount.load(std::memory_order_relaxed),
+            _overflowPage.load(std::memory_order_relaxed), RedXePageIndicatorAlign::Right);
+        float footerRight = right;
+        if (_lastDots.pageCount >= 2)
+        {
+            for (uint32_t index = 0; index < _lastDots.pageCount; ++index)
+            {
+                const bool selected = index == _lastDots.selected;
+                const float r = selected ? _lastDots.selectedRadius : _lastDots.radius;
+                (void)list.AddFill(_lastDots.CenterX(index) - r, _lastDots.centerY - r, r * 2.0f, r * 2.0f,
+                                   selected ? kRedXePageIndicatorSelectedRed : kRedXePageIndicatorDotRed,
+                                   selected ? kRedXePageIndicatorSelectedGreen : kRedXePageIndicatorDotGreen,
+                                   selected ? kRedXePageIndicatorSelectedBlue : kRedXePageIndicatorDotBlue, 1.0f, r);
+            }
+            footerRight = _lastDots.Left() - 12.0f;
+        }
         if (hidden > 0)
         {
             wchar_t extra[16]{};
             (void)swprintf_s(extra, 16, L"+%u", hidden);
             const float extraW = resources.MeasureText(extra, WideCount(extra), footerH);
-            AppendTextFit(resources, list, left, bottom - footerH, std::max(0.0f, available - extraW - 12.0f), footerH,
-                          attribution.data(), 0.5f);
-            AppendTextFit(resources, list, right - extraW, bottom - footerH, extraW, footerH, extra, 0.65f);
+            AppendTextFit(resources, list, footerRight - extraW, bottom - footerH, extraW, footerH, extra, 0.65f);
+            footerRight -= extraW + 12.0f;
         }
-        else
-        {
-            AppendTextFit(resources, list, left, bottom - footerH, available, footerH, attribution.data(), 0.5f);
-        }
+        AppendTextFit(resources, list, left, bottom - footerH, std::max(0.0f, footerRight - left), footerH,
+                      attribution.data(), 0.5f);
         return S_OK;
     }
 
@@ -1342,6 +1400,9 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
     std::atomic<bool> _gpuHeld{false};
     std::atomic<uint32_t> _overflowPage{0};
     std::atomic<uint32_t> _pageCount{1};
+    RedXeWheelDetent _wheelDetent{};
+    // UI-thread only: the page-control dots the last frame drew, hit-tested by OnPointer.
+    RedXePageIndicatorLayout _lastDots{};
     float _pointerStartX = 0.0f;
     float _pointerStartY = 0.0f;
     bool _pointerDown = false;
@@ -1524,6 +1585,11 @@ extern "C" HRESULT __stdcall RedXeWeatherGetTestDiagnostics(WeatherTestDiagnosti
     WeatherCopyWide(gLastLocation.data(), diagnostics->lastLocation, 64);
     WeatherCopyWide(gLastAttribution.data(), diagnostics->lastAttribution, 64);
     ReleaseSRWLockShared(&gLastLocationLock);
+    diagnostics->pageCount = gLastPageCount.load(std::memory_order_relaxed);
+    diagnostics->pageIndex = gLastPageIndex.load(std::memory_order_relaxed);
+    diagnostics->pageDotFirstX = gLastPageDotFirstX.load(std::memory_order_relaxed);
+    diagnostics->pageDotY = gLastPageDotY.load(std::memory_order_relaxed);
+    diagnostics->pageDotGap = gLastPageDotGap.load(std::memory_order_relaxed);
     return S_OK;
 }
 

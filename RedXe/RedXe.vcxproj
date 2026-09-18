@@ -110,6 +110,7 @@
     <ClInclude Include="..\Common\PlugInterfaces\Data.h" />
     <ClInclude Include="..\Common\PlugInterfaces\Host.h" />
     <ClInclude Include="..\Common\PlugInterfaces\Widget.h" />
+    <ClInclude Include="..\Common\WheelDetent.h" />
     <ClInclude Include="..\Common\WindowCapture.h" />
     <ClInclude Include="Application.h" />
     <ClInclude Include="WidgetTextClient.h" />
@@ -127,6 +128,7 @@
     <ClInclude Include="resource.h" />
     <ClInclude Include="Settings.h" />
       <ClInclude Include="SettingsWatcher.h" />
+    <ClInclude Include="WheelNavigation.h" />
     <ClInclude Include="WidgetRaise.h" />
   </ItemGroup>
   <ItemGroup>

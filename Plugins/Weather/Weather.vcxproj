@@ -102,7 +102,9 @@
     <ClInclude Include="WeatherTestContract.h" />
     <None Include="Fonts\weathericons-regular-webfont.ttf" />
     <None Include="Fonts\OFL.txt" />
+    <ClInclude Include="..\..\Common\PageIndicator.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
+    <ClInclude Include="..\..\Common\WheelDetent.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h" />

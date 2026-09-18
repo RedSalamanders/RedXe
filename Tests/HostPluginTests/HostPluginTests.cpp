@@ -7,6 +7,7 @@
 #include "LauncherTestContract.h"
 #include "MatrixRainTestContract.h"
 #include "PageEdgeAffordance.h"
+#include "PageIndicator.h"
 #include "PageNavigation.h"
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PluginHost.h"
@@ -15,6 +16,7 @@
 #include "Renderer.h"
 #include "Settings.h"
 #include "StudioClockTestContract.h"
+#include "WheelNavigation.h"
 #include "WidgetRaise.h"
 #include "WindowCapture.h"
 
@@ -1680,7 +1682,7 @@ void TestSystemDataViewers(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] System Data GPU viewer family\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":5},"pages":[{"name":"System","columns":[{"weight":3,"rows":[{"plugin":"builtin.system-pulse"},{"plugin":"builtin.cpu-meter"},{"plugin":"builtin.memory-meter"}]},{"weight":4,"rows":[{"plugin":"builtin.process-viewer"},{"plugin":"builtin.gpu-processes"}]},{"weight":3,"rows":[{"plugin":"builtin.network-meter"},{"plugin":"builtin.storage-meter"}]},{"weight":3,"rows":[{"plugin":"builtin.gpu-meter"},{"plugin":"builtin.thermal-meter"},{"plugin":"builtin.power-meter"}]}]}]})json";
+        R"json({"version":{"major":5},"declare":{"Processes":{"plugin":"builtin.process-viewer","topN":32}},"pages":[{"name":"System","columns":[{"weight":3,"rows":[{"plugin":"builtin.system-pulse"},{"plugin":"builtin.cpu-meter"},{"plugin":"builtin.memory-meter"}]},{"weight":4,"rows":["Processes",{"plugin":"builtin.gpu-processes"}]},{"weight":3,"rows":[{"plugin":"builtin.network-meter"},{"plugin":"builtin.storage-meter"}]},{"weight":3,"rows":[{"plugin":"builtin.gpu-meter"},{"plugin":"builtin.thermal-meter"},{"plugin":"builtin.power-meter"}]}]}]})json";
 
     AttachedHostWindow window;
     HRESULT result = window.Initialize(kHostWidth, kHostHeight);
@@ -1694,6 +1696,7 @@ void TestSystemDataViewers(bool& success) noexcept
     {
         result = plugins.Initialize(settings);
     }
+    // topN 32 makes Process Viewer overflow its half-height tile, which the page-control checks below rely on.
     Check(SUCCEEDED(result) && plugins.ProviderCount() == 10 && plugins.WidgetCount() == 10,
           L"System page creates ten GPU viewer providers", success);
     if (FAILED(result))
@@ -1757,6 +1760,104 @@ void TestSystemDataViewers(bool& success) noexcept
     }
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 10,
           L"WARP renders every System Data GPU widget", success);
+
+    // A horizontal wheel sample is never used by a viewer: every one declines it for host page navigation.
+    bool declinedHorizontal = true;
+    for (size_t index = 0; index < plugins.WidgetCount(); ++index)
+    {
+        IRedXeInteractiveWidget* interactive = plugins.InteractiveWidgetAt(index);
+        if (!interactive)
+        {
+            continue;
+        }
+        RedXePointerEvent wheel{sizeof(RedXePointerEvent),        1,    RedXePointerKindMouse,
+                                RedXePointerPhaseHorizontalWheel, 8.0f, 8.0f};
+        wheel.wheelDelta = -120.0f;
+        declinedHorizontal = declinedHorizontal && interactive->OnPointer(&wheel) == S_FALSE;
+    }
+    Check(declinedHorizontal, L"System Data viewers decline every horizontal wheel sample", success);
+
+    // Process Viewer (slot 3, topN 32) overflows its half-height tile once its 32-row snapshot has arrived (the
+    // sample counter above is process-wide, so wait for this widget's rows), then draws the shared page control;
+    // tapping its second dot moves to page two and the next frame draws that page selected.
+    const ULONGLONG rowsDeadline = GetTickCount64() + 8000;
+    result = ReadProcessViewerDiagnostics(diagnostics);
+    while (SUCCEEDED(result) && diagnostics.lastPublishedRowCount < 32 && GetTickCount64() < rowsDeadline)
+    {
+        window.PumpMessages();
+        (void)MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+        result = ReadProcessViewerDiagnostics(diagnostics);
+    }
+    for (uint32_t frame = 0; frame < 2 && SUCCEEDED(result); ++frame)
+    {
+        result = renderer.Render(0.8f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ReadProcessViewerDiagnostics(diagnostics);
+    }
+    std::wcout << L"[       -- ] Process Viewer topN " << diagnostics.configuredTopN << L" rows "
+               << diagnostics.lastPublishedRowCount << L" pages " << diagnostics.pageCount << L" dots at ("
+               << diagnostics.pageDotFirstX << L", " << diagnostics.pageDotY << L") gap " << diagnostics.pageDotGap
+               << L'\n';
+    Check(SUCCEEDED(result) && diagnostics.lastPublishedRowCount == 32 && diagnostics.pageCount > 1 &&
+              diagnostics.pageDotGap > 0.0f && diagnostics.pageIndex == 0,
+          L"an overflowing Process Viewer draws page-control dots on its first page", success);
+    if (IRedXeInteractiveWidget* processViewer = plugins.InteractiveWidgetAt(3);
+        SUCCEEDED(result) && processViewer && diagnostics.pageCount > 1 && diagnostics.pageDotGap > 0.0f)
+    {
+        const RECT tile = dashboard.PixelBoundsAt(3, kHostWidth, kHostHeight);
+        RedXePointerEvent tap{sizeof(RedXePointerEvent),
+                              7,
+                              RedXePointerKindTouch,
+                              RedXePointerPhaseDown,
+                              diagnostics.pageDotFirstX + diagnostics.pageDotGap,
+                              diagnostics.pageDotY,
+                              0,
+                              static_cast<uint32_t>(tile.right - tile.left),
+                              static_cast<uint32_t>(tile.bottom - tile.top),
+                              window.Dpi()};
+        const HRESULT down = processViewer->OnPointer(&tap);
+        tap.phase = RedXePointerPhaseUp;
+        const HRESULT up = processViewer->OnPointer(&tap);
+        HRESULT rendered = S_OK;
+        for (uint32_t frame = 0; frame < 2 && SUCCEEDED(rendered); ++frame)
+        {
+            rendered = renderer.Render(1.0f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+        }
+        result = ReadProcessViewerDiagnostics(diagnostics);
+        Check(down == S_FALSE && up == S_OK && SUCCEEDED(rendered) && SUCCEEDED(result) && diagnostics.pageIndex == 1,
+              L"a tap on the second page dot pages the Process Viewer forward (Down stays S_FALSE for raise)", success);
+        tap.phase = RedXePointerPhaseDown;
+        tap.x = diagnostics.pageDotFirstX;
+        (void)processViewer->OnPointer(&tap);
+        tap.phase = RedXePointerPhaseUp;
+        const HRESULT back = processViewer->OnPointer(&tap);
+        rendered = renderer.Render(1.1f, 1.0f / 60.0f);
+        result = ReadProcessViewerDiagnostics(diagnostics);
+        Check(back == S_OK && SUCCEEDED(rendered) && SUCCEEDED(result) && diagnostics.pageIndex == 0,
+              L"a tap on the first page dot returns to page one", success);
+
+        // With a page control showing, the wheel stays with the viewer even at its first page: consumed, nothing
+        // moves, and the dashboard never changes page under it. Wheel-down then pages it; wheel-up at page one again.
+        RedXePointerEvent wheel{sizeof(RedXePointerEvent), 1,    RedXePointerKindMouse,
+                                RedXePointerPhaseWheel,    8.0f, 8.0f};
+        wheel.wheelDelta = 120.0f;
+        const HRESULT upAtFirst = processViewer->OnPointer(&wheel);
+        wheel.wheelDelta = -120.0f;
+        const HRESULT wheelDown = processViewer->OnPointer(&wheel);
+        rendered = renderer.Render(1.2f, 1.0f / 60.0f);
+        result = ReadProcessViewerDiagnostics(diagnostics);
+        Check(upAtFirst == S_OK && wheelDown == S_OK && SUCCEEDED(rendered) && SUCCEEDED(result) &&
+                  diagnostics.pageIndex == 1,
+              L"a paged viewer keeps wheel-up at its first page and pages forward on wheel-down", success);
+        wheel.wheelDelta = 120.0f;
+        (void)processViewer->OnPointer(&wheel);
+        rendered = renderer.Render(1.3f, 1.0f / 60.0f);
+        result = ReadProcessViewerDiagnostics(diagnostics);
+        Check(SUCCEEDED(rendered) && SUCCEEDED(result) && diagnostics.pageIndex == 0,
+              L"wheel-up returns the viewer to its first page", success);
+    }
 
     renderer.Shutdown();
     if (SUCCEEDED(result))
@@ -2869,6 +2970,74 @@ void TestUnmappedCatalogModulePlaceholder(bool& success) noexcept
           L"the dashboard hosts a page that includes a placeholder tile", success);
 }
 
+// A tile too short for a full row plus the page-control strip still draws the strip (rows shrink to fit above it):
+// 144 px tall on a 720 px host leaves Process Viewer 66 px of content, one row less than a row plus the strip.
+void TestShortTilePageControl(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] short tile keeps its page control\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":5},"declare":{"Processes":{"plugin":"builtin.process-viewer","topN":32},"Matrix":{"plugin":"builtin.matrix-rain"}},"pages":[{"rows":[{"weight":10,"widget":"Processes"},{"weight":40,"widget":"Matrix"}]}]})json";
+
+    AttachedHostWindow window;
+    HRESULT result = window.Initialize(kHostWidth, kHostHeight);
+    AppSettings settings{};
+    if (SUCCEEDED(result))
+    {
+        result = ParseAppSettingsJson(settingsJson, settings);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    DashboardHost dashboard;
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    }
+    Renderer renderer;
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Initialize(window.Get(), true, dashboard);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.SetWidgetsVisible(true);
+    }
+    Check(SUCCEEDED(result) && plugins.WidgetCount() == 2, L"short Process Viewer tile initializes on WARP", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+    // The row counter is process-wide (earlier tests already published 32 rows), so wait on this widget's own
+    // frames: render until a frame reports its overflow pages.
+    ProcessViewerTestDiagnostics diagnostics{};
+    const ULONGLONG deadline = GetTickCount64() + 8000;
+    uint32_t frame = 0;
+    do
+    {
+        window.PumpMessages();
+        (void)MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+        result = renderer.Render(static_cast<float>(frame++) / 60.0f, 1.0f / 60.0f);
+        if (SUCCEEDED(result))
+        {
+            result = ReadProcessViewerDiagnostics(diagnostics);
+        }
+    } while (SUCCEEDED(result) && diagnostics.pageCount < 2 && GetTickCount64() < deadline);
+    const RECT tile = dashboard.PixelBoundsAt(0, kHostWidth, kHostHeight);
+    std::wcout << L"[       -- ] short tile " << (tile.right - tile.left) << L"x" << (tile.bottom - tile.top)
+               << L" render 0x" << std::hex << static_cast<unsigned long>(result) << std::dec << L" drew "
+               << renderer.LastFrameSuccessfulWidgetCount() << L" rows " << diagnostics.lastPublishedRowCount
+               << L" pages " << diagnostics.pageCount << L" dots at (" << diagnostics.pageDotFirstX << L", "
+               << diagnostics.pageDotY << L") gap " << diagnostics.pageDotGap << L'\n';
+    Check(SUCCEEDED(result) && diagnostics.pageCount > 1 && diagnostics.pageDotGap > 0.0f &&
+              diagnostics.pageDotY > 0.0f && diagnostics.pageDotY < static_cast<float>(tile.bottom - tile.top),
+          L"a short overflowing tile still draws its page control inside the tile", success);
+    (void)dashboard.SetWidgetsVisible(false);
+    renderer.Shutdown();
+    dashboard.Shutdown();
+}
+
 void TestWeatherPluginConstructs(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] weather plugin DLL constructs\n";
@@ -2885,6 +3054,20 @@ void TestWeatherPluginConstructs(bool& success) noexcept
     Check(SUCCEEDED(result) && plugins.WidgetCount() == 1 && !plugins.IsPlaceholderAt(0) &&
               plugins.GpuWidgetAt(0) != nullptr,
           L"Weather.dll maps with curl and zlib beside it and constructs a GPU widget", success);
+    if (IRedXeInteractiveWidget* interactive = SUCCEEDED(result) ? plugins.InteractiveWidgetAt(0) : nullptr)
+    {
+        // Without a forecast there is one overflow page, so every wheel sample is handed back to the host.
+        RedXePointerEvent wheel{sizeof(RedXePointerEvent), 1,    RedXePointerKindMouse,
+                                RedXePointerPhaseWheel,    8.0f, 8.0f};
+        wheel.wheelDelta = -120.0f;
+        const HRESULT down = interactive->OnPointer(&wheel);
+        wheel.wheelDelta = 120.0f;
+        const HRESULT up = interactive->OnPointer(&wheel);
+        wheel.phase = RedXePointerPhaseHorizontalWheel;
+        const HRESULT tilt = interactive->OnPointer(&wheel);
+        Check(down == S_FALSE && up == S_FALSE && tilt == S_FALSE,
+              L"a single-page Weather tile declines wheel samples so the host can change dashboard pages", success);
+    }
 }
 
 // Stub network widget that stays inside RunNetworkWork until the host signals its cancel event.
@@ -3627,6 +3810,134 @@ void TestPageEdgeAffordanceGeometry(bool& success) noexcept
     // A click starts from rest, so the settle uses the clamped upper bound of the shared duration policy.
     Check(PageSettleDurationMilliseconds(PageEdgeSettleTarget(kPageEdgeDirectionNext, 2560), 0.0f) == 280,
           L"An edge click settles with the shared ease-out at its clamped upper bound.", success);
+}
+
+void TestWheelNavigationPolicy(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] mouse wheel sequence policy\n";
+
+    // Detents: fractions sum to whole notches per axis, a reversal drops the remainder, junk completes nothing.
+    RedXeWheelDetent detent{};
+    Check(detent.Accumulate(120.0f) == 1 && detent.remainder == 0.0f, L"one classic notch is one detent", success);
+    Check(detent.Accumulate(-300.0f) == -2 && detent.remainder == -60.0f,
+          L"a fast spin reports every whole detent and keeps the fraction", success);
+    Check(detent.Accumulate(40.0f) == 0 && detent.remainder == 40.0f,
+          L"a direction reversal discards the opposite remainder", success);
+    Check(detent.Accumulate(40.0f) == 0 && detent.Accumulate(40.0f) == 1 && detent.remainder == 0.0f,
+          L"precision-wheel fractions step once per whole detent", success);
+    Check(detent.Accumulate(0.0f) == 0 && detent.Accumulate(std::numeric_limits<float>::quiet_NaN()) == 0 &&
+              detent.remainder == 0.0f,
+          L"zero and non-finite samples complete nothing", success);
+
+    // Direction mapping: wheel down and tilt right both advance, like swipe-left.
+    Check(WheelNavigationUnits(WheelAxis::Vertical, -120.0f) > 0.0f &&
+              WheelNavigationUnits(WheelAxis::Vertical, 120.0f) < 0.0f &&
+              WheelNavigationUnits(WheelAxis::Horizontal, 120.0f) > 0.0f &&
+              WheelNavigationUnits(WheelAxis::Horizontal, -120.0f) < 0.0f,
+          L"wheel down and tilt right travel toward the next page", success);
+
+    // A sequence whose first sample the widget consumed stays with that widget until the user pauses, even when the
+    // widget later declines (a paged widget at its bound).
+    WheelNavigator wheel{};
+    Check(wheel.Begin(1000) == WheelOwner::None, L"the first sample of a sequence has no owner", success);
+    wheel.Latch(3, true);
+    Check(wheel.owner == WheelOwner::Widget && wheel.widgetIndex == 3, L"a consumed first sample latches the widget",
+          success);
+    Check(wheel.Begin(1200) == WheelOwner::Widget, L"a sample inside the gap stays with the latched widget", success);
+    wheel.Latch(5, false);
+    Check(wheel.owner == WheelOwner::Widget && wheel.widgetIndex == 3,
+          L"a later declined sample does not hand a widget-owned sequence to the host", success);
+    Check(wheel.Begin(1200 + kWheelSequenceGapMilliseconds) == WheelOwner::None,
+          L"a pause of the gap length ends the sequence", success);
+
+    // A declined first sample gives the sequence to the host; later samples are not offered to widgets.
+    wheel.Latch(SIZE_MAX, false);
+    Check(wheel.owner == WheelOwner::Host && wheel.widgetIndex == SIZE_MAX, L"a declined first sample latches the host",
+          success);
+    wheel.Latch(2, true);
+    Check(wheel.owner == WheelOwner::Host, L"a host-owned sequence is not taken over by a widget", success);
+    Check(wheel.Accumulate(WheelAxis::Vertical, -40.0f) == 0 && wheel.Accumulate(WheelAxis::Vertical, -40.0f) == 0,
+          L"fractions below a detent navigate nowhere", success);
+    Check(wheel.Accumulate(WheelAxis::Vertical, -40.0f) == kPageEdgeDirectionNext,
+          L"a whole detent of wheel-down advances one page", success);
+    Check(wheel.Accumulate(WheelAxis::Vertical, -240.0f) == kPageEdgeDirectionNext &&
+              wheel.detents[0].remainder == 0.0f && wheel.detents[1].remainder == 0.0f,
+          L"a fast spin navigates once per sample and banks no surplus", success);
+    Check(wheel.Accumulate(WheelAxis::Vertical, 120.0f) == kPageEdgeDirectionPrevious, L"wheel-up returns one page",
+          success);
+    Check(wheel.Accumulate(WheelAxis::Horizontal, 120.0f) == kPageEdgeDirectionNext &&
+              wheel.Accumulate(WheelAxis::Horizontal, -120.0f) == kPageEdgeDirectionPrevious,
+          L"tilt right advances and tilt left returns", success);
+    Check(wheel.Accumulate(WheelAxis::Horizontal, 60.0f) == 0 && wheel.Accumulate(WheelAxis::Vertical, -60.0f) == 0,
+          L"axes accumulate independently", success);
+    wheel.ClearAccumulation();
+    Check(wheel.Accumulate(WheelAxis::Horizontal, 60.0f) == 0 && wheel.Accumulate(WheelAxis::Vertical, -60.0f) == 0,
+          L"a refusal drops partial travel on both axes", success);
+    Check(wheel.Begin(1700 + kWheelSequenceGapMilliseconds - 1) == WheelOwner::Host,
+          L"samples inside the gap keep the host owner", success);
+
+    // Page promote releases only a widget latch; a host-owned spin keeps flipping pages.
+    wheel.ReleaseWidget();
+    Check(wheel.owner == WheelOwner::Host && wheel.inSequence, L"a promote keeps a host-owned sequence", success);
+    wheel.Reset();
+    wheel.Latch(1, true);
+    Check(wheel.owner == WheelOwner::Widget, L"reset then latch starts a widget sequence", success);
+    wheel.ReleaseWidget();
+    Check(wheel.owner == WheelOwner::None && !wheel.inSequence && wheel.widgetIndex == SIZE_MAX,
+          L"a promote ends a widget-owned sequence", success);
+}
+
+void TestPageIndicatorGeometry(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] shared page control geometry\n";
+
+    // Nominal metrics at 96 DPI, centred in a 400 px strip: five dots, 14 px apart, 3 / 4 px radii.
+    const RedXePageIndicatorLayout centred =
+        RedXePageIndicatorInStrip(0.0f, 100.0f, 400.0f, 20.0f, 96, 5, 2, RedXePageIndicatorAlign::Center);
+    Check(centred.pageCount == 5 && centred.selected == 2 && centred.gap == 14.0f && centred.radius == 3.0f &&
+              centred.selectedRadius == 4.0f && centred.centerY == 110.0f && centred.Width() == 64.0f &&
+              std::fabs(centred.firstCenterX - (200.0f - 32.0f + 4.0f)) < 0.01f &&
+              std::fabs(centred.CenterX(4) - (200.0f + 32.0f - 4.0f)) < 0.01f,
+          L"five dots centre in the strip with DxUi::PageIndicator metrics", success);
+
+    // DPI scales every metric; right alignment ends the block at the strip's right edge.
+    const RedXePageIndicatorLayout right =
+        RedXePageIndicatorInStrip(10.0f, 0.0f, 300.0f, 18.0f, 192, 3, 7, RedXePageIndicatorAlign::Right);
+    Check(right.gap == 28.0f && right.radius == 6.0f && right.selectedRadius == 8.0f && right.selected == 2 &&
+              std::fabs(right.CenterX(2) + right.selectedRadius - 310.0f) < 0.01f &&
+              std::fabs(right.Left() - (310.0f - right.Width())) < 0.01f,
+          L"metrics scale with DPI, a past-the-end selection clamps, and right alignment hugs the edge", success);
+
+    // A strip too narrow for the nominal gap shrinks it so every dot stays inside, never below two selected radii.
+    const RedXePageIndicatorLayout squeezed =
+        RedXePageIndicatorInStrip(0.0f, 0.0f, 100.0f, 20.0f, 96, 12, 0, RedXePageIndicatorAlign::Center);
+    Check(squeezed.pageCount == 12 && squeezed.gap < 14.0f && squeezed.gap >= 8.0f && squeezed.Left() >= -0.01f &&
+              squeezed.CenterX(11) + squeezed.selectedRadius <= 100.01f,
+          L"a narrow strip closes the gap so the block fits", success);
+    const RedXePageIndicatorLayout crowded =
+        RedXePageIndicatorInStrip(0.0f, 0.0f, 40.0f, 20.0f, 96, 32, 0, RedXePageIndicatorAlign::Center);
+    Check(crowded.pageCount == 32 && crowded.gap == 8.0f, L"the gap never drops below two selected radii", success);
+
+    // Nothing to draw: one page, too many pages, an empty strip.
+    Check(RedXePageIndicatorInStrip(0.0f, 0.0f, 400.0f, 20.0f, 96, 1, 0, RedXePageIndicatorAlign::Center).pageCount ==
+                  0 &&
+              RedXePageIndicatorInStrip(0.0f, 0.0f, 400.0f, 20.0f, 96, 33, 0, RedXePageIndicatorAlign::Center)
+                      .pageCount == 0 &&
+              RedXePageIndicatorInStrip(0.0f, 0.0f, 0.0f, 20.0f, 96, 3, 0, RedXePageIndicatorAlign::Center).pageCount ==
+                  0 &&
+              RedXePageIndicatorWidthPixels(1, 96) == 0.0f && RedXePageIndicatorWidthPixels(5, 96) == 64.0f,
+          L"a single page, more than 32 pages, or no strip draws no control", success);
+
+    // Hit testing: the whole strip height is a target, the nearest dot within half a gap wins, outside misses.
+    Check(RedXePageIndicatorHit(centred, centred.CenterX(3), 101.0f) == 3 &&
+              RedXePageIndicatorHit(centred, centred.CenterX(3) + 6.0f, 119.0f) == 3 &&
+              RedXePageIndicatorHit(centred, centred.CenterX(3) + 8.0f, 110.0f) == 4 &&
+              RedXePageIndicatorHit(centred, centred.CenterX(0) - 7.0f, 110.0f) == 0 &&
+              RedXePageIndicatorHit(centred, centred.CenterX(0) - 9.0f, 110.0f) == UINT32_MAX &&
+              RedXePageIndicatorHit(centred, centred.CenterX(2), 99.0f) == UINT32_MAX &&
+              RedXePageIndicatorHit(centred, centred.CenterX(2), 121.0f) == UINT32_MAX &&
+              RedXePageIndicatorHit(RedXePageIndicatorLayout{}, 0.0f, 0.0f) == UINT32_MAX,
+          L"taps anywhere in the strip land on the nearest dot within half a gap", success);
 }
 
 void TestNonDivisibleGridEdges(bool& success) noexcept
@@ -4613,6 +4924,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestHostOwnedPlaceholderTiles(success);
     TestDashboardBackground(success);
     TestUnmappedCatalogModulePlaceholder(success);
+    TestShortTilePageControl(success);
     TestWeatherPluginConstructs(success);
     TestNetworkLane(success);
     TestHostActionQueue(success);
@@ -4622,6 +4934,8 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestPublishedArraySchema(success);
     TestPageEdgeAffordancePolicy(success);
     TestPageEdgeAffordanceGeometry(success);
+    TestWheelNavigationPolicy(success);
+    TestPageIndicatorGeometry(success);
     TestNonDivisibleGridEdges(success);
     TestPromoteStagedDashboard(success);
     TestSwipeRendersPartiallyOffscreenGpuWidgets(success);

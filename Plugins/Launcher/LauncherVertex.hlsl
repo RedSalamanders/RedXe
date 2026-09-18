@@ -7,6 +7,8 @@ cbuffer LauncherConstants : register(b0)
     float4 hintColor;
     uint iconCount;
     uint3 iconPad;
+    float4 pageDots;
+    float4 pageDotRadii;
 };
 
 struct LauncherIconInstance

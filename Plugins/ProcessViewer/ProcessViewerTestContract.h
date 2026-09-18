@@ -14,6 +14,13 @@ struct ProcessViewerTestDiagnostics final
     uint32_t lastPublishedRowCount;
     uint32_t configuredTopN;
     uint32_t deviceCallbacksWhileVisible;
+    // Process Viewer overflow paging as of its last tile frame: page count, current page, and the page-control
+    // dot layout in widget pixels (first dot centre, strip centre y, centre gap; zero when no dots were drawn).
+    uint32_t pageCount;
+    uint32_t pageIndex;
+    float pageDotFirstX;
+    float pageDotY;
+    float pageDotGap;
 };
 
 #if defined(REDXE_PLUGIN_EXPORTS)

@@ -1,7 +1,7 @@
 # AV Control
 
 Status: normative implementation contract; feature delivery in progress
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-18
 
 The active [AV implementation plan](../Plans/WIP/RFC_Plugins_AVControl.md) tracks unfinished integration and release
 gates. The browser mockup and synthetic tests are not evidence of working Windows audio or camera backends.
@@ -109,9 +109,15 @@ actual installed workflow, failures/rollback, package distribution and capture-c
 The host forwards vertical wheel input to the topmost interactive view at the pointer, using widget-local physical
 coordinates, Win32 wheel units and the final view ID. A wheel sample never starts or terminates pointer capture and
 is suppressed during an owned slider drag or a two- or three-finger host page pan. Unsupported widgets return
-`S_FALSE`. Paged profile, editor, and camera-setup surfaces host `DxUi::PageIndicator` at the bottom when more than
-one page is visible. The strip uses the control's 20 DIP height, does not scroll, and reports `Page N of M`. One-finger
-contacts remain with the widget so sliders and the indicator stay usable.
+`S_FALSE`. AV Control answers `S_OK` only when a DxUi control under the pointer consumed the vertical sample and
+returns `S_FALSE` for every horizontal wheel sample (`RedXePointerPhaseHorizontalWheel`; DxUi has no horizontal
+wheel), so an unused notch changes dashboard pages as `Specs/UI/UI_Dashboard.md` describes; a phase past the
+horizontal wheel is rejected with `E_INVALIDARG`. Paged profile, editor, and camera-setup surfaces host
+`DxUi::PageIndicator` at the bottom when more than one page is visible. The strip uses the control's 20 DIP height,
+does not scroll, and reports `Page N of M`. Its metrics (20 DIP strip, 3 / 4 DIP dot radii, 14 DIP gap) are the
+ones `Common/PageIndicator.h` gives every other paged bundled widget, so AV Control's pages read as the same control
+as Launcher, the System Data viewers, and Weather. One-finger contacts remain with the widget so sliders and the
+indicator stay usable.
 
 Audio callbacks track exact scalar changes, including changes back before the next observation, separately from
 mute revisions. All admitted audio endpoints have bounded subscriptions, including profile destinations and

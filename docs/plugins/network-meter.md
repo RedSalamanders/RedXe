@@ -8,7 +8,7 @@ Plugin id: `builtin.network-meter`
 
 ## What it does
 
-Aggregate throughput plus per-interface rates. Interfaces that stay at 0 B/s for eight samples drop out as idle overflow and return on the first non-zero sample. Extra interfaces show as `+N` at the bottom right; swipe or scroll to page them. Byte rates use 1000-based units (`KB/s`, `MB/s`). Double-click or double-tap raises it to half the window.
+Aggregate throughput plus per-interface rates. Interfaces that stay at 0 B/s for eight samples drop out as idle overflow and return on the first non-zero sample. When active interfaces do not fit, a row of page dots appears at the bottom; tap a dot, swipe, or scroll to page them. Idle interfaces are counted as `+N` at the bottom right rather than paged. Byte rates use 1000-based units (`KB/s`, `MB/s`). Double-click or double-tap raises it to half the window.
 
 ## Parameters
 

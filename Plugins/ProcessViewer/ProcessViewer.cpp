@@ -1,10 +1,12 @@
 #define REDXE_PLUGIN_EXPORTS
+#include "PageIndicator.h"
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
 #include "ProcessViewerTestContract.h"
 #include "ViewerGpu.h"
+#include "WheelDetent.h"
 
 #include <algorithm>
 #include <array>
@@ -223,6 +225,13 @@ std::atomic<uint32_t> g_paintCount{0};
 std::atomic<uint32_t> g_deviceCallbacksWhileVisible{0};
 std::atomic<uint32_t> g_lastPublishedRowCount{0};
 std::atomic<uint32_t> g_configuredTopN{0};
+// Last Process Viewer tile frame: its overflow pages and where its page-control dots were drawn, so a test can tap
+// one without reproducing the layout.
+std::atomic<uint32_t> g_lastPageCount{1};
+std::atomic<uint32_t> g_lastPageIndex{0};
+std::atomic<float> g_lastPageDotFirstX{0.0f};
+std::atomic<float> g_lastPageDotY{0.0f};
+std::atomic<float> g_lastPageDotGap{0.0f};
 
 [[nodiscard]] const ViewerCatalogEntry& Catalog(ViewerKind kind) noexcept
 {
@@ -623,17 +632,27 @@ void IntentThermalTextColor(float celsius, bool available, float& red, float& gr
     return ClampOrdered(rowHeight * 0.62f, floorPx, ceilingPx);
 }
 
+// A list that overflows always reserves the page-control strip when at least six tenths of a row can still sit
+// above it (the same floor FitVisibleCount uses for a lone row); on such a short tile the rows shrink to fit above
+// the strip rather than the strip disappearing, because a widget that pages MUST show its page control.
+[[nodiscard]] bool CanReserveOverflowStrip(float innerHeight, float rowMin, float overflowReserve) noexcept
+{
+    return overflowReserve > 0.0f && innerHeight - overflowReserve >= rowMin * 0.6f;
+}
+
 void FitListLayout(float innerHeight, float rowMin, float overflowReserve, uint32_t available, uint32_t& visible,
                    float& rowHeight, float& listHeight) noexcept
 {
     visible = FitVisibleCount(innerHeight, rowMin, available);
     listHeight = innerHeight;
-    if (available > visible && overflowReserve > 0.0f && innerHeight > rowMin + overflowReserve)
+    float rowFloor = rowMin;
+    if (available > visible && CanReserveOverflowStrip(innerHeight, rowMin, overflowReserve))
     {
         listHeight = innerHeight - overflowReserve;
         visible = FitVisibleCount(listHeight, rowMin, available);
+        rowFloor = std::min(rowMin, listHeight);
     }
-    rowHeight = FittedRowHeight(listHeight, visible == 0 ? 1 : visible, rowMin);
+    rowHeight = FittedRowHeight(listHeight, visible == 0 ? 1 : visible, rowFloor);
 }
 
 [[nodiscard]] uint32_t GridColumns(float innerWidth, float minColWidth) noexcept
@@ -651,15 +670,17 @@ void FitGridLayout(float innerHeight, float innerWidth, float rowMin, float over
     uint32_t rowBudget = FitVisibleCount(innerHeight, rowMin, (available + columns - 1) / columns);
     listHeight = innerHeight;
     uint32_t capacity = rowBudget * columns;
-    if (available > capacity && overflowReserve > 0.0f && innerHeight > rowMin + overflowReserve)
+    float rowFloor = rowMin;
+    if (available > capacity && CanReserveOverflowStrip(innerHeight, rowMin, overflowReserve))
     {
         listHeight = innerHeight - overflowReserve;
         rowBudget = FitVisibleCount(listHeight, rowMin, (available + columns - 1) / columns);
         capacity = rowBudget * columns;
+        rowFloor = std::min(rowMin, listHeight);
     }
     visible = available == 0 ? 0 : std::min(available, std::max(1u, capacity));
     rows = std::max(1u, visible == 0 ? 1u : (visible + columns - 1) / columns);
-    rowHeight = FittedRowHeight(listHeight, rows, rowMin);
+    rowHeight = FittedRowHeight(listHeight, rows, rowFloor);
 }
 
 struct OverflowSlice final
@@ -1200,27 +1221,34 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         }
         if (event->phase == RedXePointerPhaseWheel)
         {
-            if (pageCount <= 1 || event->wheelDelta == 0.0f)
+            // Wheel down pages the overflow forward, one page per whole detent. A widget that shows a page control
+            // keeps every wheel sample, including at either end, so the dashboard never changes page under a
+            // paging tile; only a single-page tile declines the sample for host page navigation.
+            const uint32_t page = _overflowPage.load(std::memory_order_relaxed);
+            const bool forward = event->wheelDelta < 0.0f;
+            if (pageCount <= 1 || !std::isfinite(event->wheelDelta) || event->wheelDelta == 0.0f)
             {
+                _wheelDetent.Clear();
                 return S_FALSE;
             }
-            uint32_t page = _overflowPage.load(std::memory_order_relaxed);
-            if (event->wheelDelta < 0.0f)
+            if (_pointerDown || (forward && page + 1 >= pageCount) || (!forward && page == 0))
             {
-                if (page + 1 < pageCount)
+                _wheelDetent.Clear();
+                return S_OK;
+            }
+            if (_wheelDetent.Accumulate(event->wheelDelta) != 0)
+            {
+                _overflowPage.store(forward ? page + 1 : page - 1, std::memory_order_relaxed);
+                if (_host)
                 {
-                    _overflowPage.store(page + 1, std::memory_order_relaxed);
+                    (void)_host->RequestFrame();
                 }
             }
-            else if (page > 0)
-            {
-                _overflowPage.store(page - 1, std::memory_order_relaxed);
-            }
-            if (_host)
-            {
-                (void)_host->RequestFrame();
-            }
             return S_OK;
+        }
+        if (event->phase == RedXePointerPhaseHorizontalWheel)
+        {
+            return S_FALSE;
         }
         if (event->phase == RedXePointerPhaseDown)
         {
@@ -1248,10 +1276,25 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         if (event->phase == RedXePointerPhaseUp)
         {
             const bool panned = _pagePan;
+            const bool wasDown = _pointerDown;
             const float dx = event->x - _pointerStartX;
             const float dy = event->y - _pointerStartY;
             _pointerDown = false;
             _pagePan = false;
+            if (!panned && wasDown && pageCount > 1)
+            {
+                // A tap on the page control goes to that page; the dots are the ones the last frame drew.
+                const uint32_t dot = RedXePageIndicatorHit(_lastDots, event->x, event->y);
+                if (dot != UINT32_MAX && RedXePageIndicatorHit(_lastDots, _pointerStartX, _pointerStartY) == dot)
+                {
+                    _overflowPage.store(dot, std::memory_order_relaxed);
+                    if (_host)
+                    {
+                        (void)_host->RequestFrame();
+                    }
+                    return S_OK;
+                }
+            }
             if (!panned || pageCount <= 1)
             {
                 return S_FALSE;
@@ -1393,7 +1436,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         ViewerDrawList list;
         ViewerGpuLock();
         HRESULT result = BuildScene(*resources, list, sample, static_cast<float>(frame.widthPixels),
-                                    static_cast<float>(frame.heightPixels), pulse);
+                                    static_cast<float>(frame.heightPixels), frame.dpi, pulse);
         if (SUCCEEDED(result))
         {
             result = resources->Render(context->deviceContext, static_cast<float>(frame.widthPixels),
@@ -2313,13 +2356,19 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         float heroPx = kHeroFloorPx;
         float titlePx = kTitleFloorPx;
         float rowMin = kRowMinFloorPx;
+        // Height of the shared page control strip (Common/PageIndicator.h) that a paged list reserves below its
+        // last row; the dots are drawn there, centred, and non-pageable `+N` captions keep the right end.
+        float pageStripPx = kRedXePageIndicatorHeightDip;
+        uint32_t dpi = 96;
         ViewerDensity density = ViewerDensity::Standard;
         bool showTitle = true;
     };
 
-    [[nodiscard]] PanelMetrics MakePanel(float width, float height) const noexcept
+    [[nodiscard]] PanelMetrics MakePanel(float width, float height, uint32_t dpi) const noexcept
     {
         PanelMetrics metrics;
+        metrics.dpi = dpi == 0 ? 96U : dpi;
+        metrics.pageStripPx = RedXePageIndicatorHeightPixels(metrics.dpi);
         metrics.pad = std::clamp(std::min(width, height) * 0.04f, kPadFloorPx, 18.0f);
         const float scale = std::clamp(std::min(width, height) / 220.0f, 1.0f, 1.85f);
         const float titleScale = std::clamp(width / 280.0f, 1.0f, 1.85f);
@@ -2338,10 +2387,71 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         return metrics;
     }
 
-    [[nodiscard]] HRESULT BuildScene(ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample,
-                                     float width, float height, float pulse) noexcept
+    // Records where a paged list left its page-control strip: directly below the rows it fitted, above any footer.
+    // A list that fitted every row reserves nothing and draws no dots.
+    void NotePageStrip(float listTop, float listHeight, float innerHeight) noexcept
     {
-        const PanelMetrics panel = MakePanel(width, height);
+        _pageStripReserved = listHeight + 0.5f < innerHeight;
+        _pageStripTop = listTop + listHeight;
+    }
+
+    // The shared page control for this frame: one dot per overflow page in the reserved strip, the current page's
+    // dot larger and brighter. Hero tiles have no strip (their `+N` caption stays), a single page draws nothing,
+    // and a tile too short even for a shrunken row plus the strip falls back to the `+N` caption.
+    void DrawPageDots(ViewerGpuResources& resources, ViewerDrawList& list, const PanelMetrics& panel,
+                      float height) noexcept
+    {
+        _lastDots = RedXePageIndicatorLayout{};
+        const uint32_t pages = _pageCount.load(std::memory_order_relaxed);
+        if (pages < 2 || panel.density == ViewerDensity::Hero)
+        {
+            return;
+        }
+        if (!_pageStripReserved)
+        {
+            DrawOverflow(resources, list, panel, height, panel.labelPx, _lastHidden);
+            return;
+        }
+        _lastDots =
+            RedXePageIndicatorInStrip(panel.pad, _pageStripTop, panel.innerW, panel.pageStripPx, panel.dpi, pages,
+                                      _overflowPage.load(std::memory_order_relaxed), RedXePageIndicatorAlign::Center);
+        for (uint32_t index = 0; index < _lastDots.pageCount; ++index)
+        {
+            const bool selected = index == _lastDots.selected;
+            const float r = selected ? _lastDots.selectedRadius : _lastDots.radius;
+            (void)list.AddFill(_lastDots.CenterX(index) - r, _lastDots.centerY - r, r * 2.0f, r * 2.0f,
+                               selected ? kRedXePageIndicatorSelectedRed : kRedXePageIndicatorDotRed,
+                               selected ? kRedXePageIndicatorSelectedGreen : kRedXePageIndicatorDotGreen,
+                               selected ? kRedXePageIndicatorSelectedBlue : kRedXePageIndicatorDotBlue, 1.0f, r);
+        }
+    }
+
+    [[nodiscard]] HRESULT BuildScene(ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample,
+                                     float width, float height, uint32_t dpi, float pulse) noexcept
+    {
+        const PanelMetrics panel = MakePanel(width, height, dpi);
+        _pageStripReserved = false;
+        _pageStripTop = 0.0f;
+        _lastHidden = 0;
+        const HRESULT drawn = DrawKind(resources, list, sample, panel, width, height, pulse);
+        if (SUCCEEDED(drawn))
+        {
+            DrawPageDots(resources, list, panel, height);
+        }
+        if (_kind == ViewerKind::ProcessViewer)
+        {
+            g_lastPageCount.store(_pageCount.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            g_lastPageIndex.store(_overflowPage.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            g_lastPageDotFirstX.store(_lastDots.firstCenterX, std::memory_order_relaxed);
+            g_lastPageDotY.store(_lastDots.centerY, std::memory_order_relaxed);
+            g_lastPageDotGap.store(_lastDots.gap, std::memory_order_relaxed);
+        }
+        return drawn;
+    }
+
+    [[nodiscard]] HRESULT DrawKind(ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample,
+                                   const PanelMetrics& panel, float width, float height, float pulse) noexcept
+    {
         const float chromeW = std::max(1.0f, width - kPanelInset * 2.0f);
         const float chromeH = std::max(1.0f, height - kPanelInset * 2.0f);
         (void)list.AddFill(kPanelInset, kPanelInset, chromeW, chromeH, _panelColor.r, _panelColor.g, _panelColor.b,
@@ -2514,6 +2624,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             slice = MakeOverflowSlice(total, pageSize, page);
         }
         _pageCount.store(slice.pageCount == 0 ? 1u : slice.pageCount, std::memory_order_relaxed);
+        _lastHidden = slice.hidden;
         return slice;
     }
 
@@ -2570,7 +2681,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         const float rowMin = std::max(panel.rowMin, 36.0f);
         auto layout = [&](float minCol) noexcept
         {
-            FitGridLayout(panel.innerH, panel.innerW, rowMin, panel.labelPx + 4.0f, minCol, sample.rowCount, columns,
+            FitGridLayout(panel.innerH, panel.innerW, rowMin, panel.pageStripPx, minCol, sample.rowCount, columns,
                           visible, rows, rowHeight, listHeight, colWidth);
         };
         layout(300.0f);
@@ -2583,6 +2694,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             rowPx = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
         }
         const float trackH = ClampOrdered(rowHeight * 0.22f, 8.0f, 14.0f);
+        NotePageStrip(y0, listHeight, panel.innerH);
         const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
         for (uint32_t index = 0; index < slice.count; ++index)
         {
@@ -2613,8 +2725,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             (void)resources.AppendText(list, cpuX, cellY + 2.0f, rowPx, ir, ig, ib, 1.0f, cpu,
                                        static_cast<uint32_t>(wcsnlen(cpu, 16)));
         }
-        DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden);
         (void)width;
+        (void)height;
         return S_OK;
     }
 
@@ -2654,7 +2766,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         const float rowMin = std::max(panel.rowMin, 36.0f);
         auto layout = [&](float minCol) noexcept
         {
-            FitGridLayout(panel.innerH, panel.innerW, rowMin, panel.labelPx + 4.0f, minCol, sample.rowCount, columns,
+            FitGridLayout(panel.innerH, panel.innerW, rowMin, panel.pageStripPx, minCol, sample.rowCount, columns,
                           visible, rows, rowHeight, listHeight, colWidth);
         };
         layout(280.0f);
@@ -2668,6 +2780,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         }
         const float trackH = ClampOrdered(rowHeight * 0.22f, 8.0f, 14.0f);
         const bool showEngine = columns == 1 && colWidth >= gpuReserve + 160.0f;
+        NotePageStrip(y0, listHeight, panel.innerH);
         const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
         for (uint32_t index = 0; index < slice.count; ++index)
         {
@@ -2699,8 +2812,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             (void)resources.AppendText(list, gpuX, cellY + 2.0f, rowPx, ir, ig, ib, 1.0f, gpu,
                                        static_cast<uint32_t>(wcsnlen(gpu, 16)));
         }
-        DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden);
         (void)width;
+        (void)height;
         return S_OK;
     }
 
@@ -2750,11 +2863,12 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         float rowHeight = 0.0f;
         float listHeight = 0.0f;
         float colWidth = 0.0f;
-        FitGridLayout(remaining, panel.innerW, panel.rowMin, panel.labelPx + 4.0f, 240.0f, sample.rowCount, columns,
+        FitGridLayout(remaining, panel.innerW, panel.rowMin, panel.pageStripPx, 240.0f, sample.rowCount, columns,
                       visible, rows, rowHeight, listHeight, colWidth);
         const float rowPx = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
         const float trackH = ClampOrdered(rowHeight * 0.18f, 8.0f, 12.0f);
         const float textGap = 6.0f;
+        NotePageStrip(y, listHeight, remaining);
         const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
         for (uint32_t index = 0; index < slice.count; ++index)
         {
@@ -2778,9 +2892,9 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             const float trackY = std::min(cellY + 2.0f + rowPx + textGap, cellY + rowHeight - trackH - 2.0f);
             DrawTrack(list, cellX, trackY, colWidth, trackH, fill, row.primaryAvailable, false, 0.0f);
         }
-        DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden + sample.hiddenCount);
+        // Idle adapters are not on any page; their count keeps the caption at the strip's right end.
+        DrawOverflow(resources, list, panel, height, panel.labelPx, sample.hiddenCount);
         (void)width;
-        (void)listHeight;
         return S_OK;
     }
 
@@ -3074,8 +3188,9 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         float cardH = 0.0f;
         float listHeight = 0.0f;
         float cardW = 0.0f;
-        FitGridLayout(remaining, panel.innerW, 84.0f, panel.labelPx + 4.0f, 176.0f, sample.rowCount, columns, visible,
+        FitGridLayout(remaining, panel.innerW, 84.0f, panel.pageStripPx, 176.0f, sample.rowCount, columns, visible,
                       rows, cardH, listHeight, cardW);
+        NotePageStrip(y, listHeight, remaining);
         const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
         for (uint32_t index = 0; index < slice.count; ++index)
         {
@@ -3120,7 +3235,6 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             }
             DrawTrack(list, cellX + pad, trackY, cardW - pad * 2.0f, trackH, fill, row.primaryAvailable, false, 0.0f);
         }
-        DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden);
         if (footer > 0.0f)
         {
             wchar_t disk[48]{};
@@ -3151,13 +3265,20 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             return resources.AppendText(list, panel.pad, y, panel.kpiPx, kMuted, kMuted, kMuted, 1.0f, L"--", 2);
         }
         const float remainingAll = std::max(0.0f, height - panel.pad - y);
-        const float hiddenReserve = panel.labelPx + 4.0f;
-        const float remaining = std::max(0.0f, remainingAll - hiddenReserve);
-        const float minCard = panel.density == ViewerDensity::Hero ? std::max(remaining, 1.0f) : 56.0f;
+        // Adapters that page reserve the page-control strip below the cards; the `+N` caption for non-graphics
+        // adapters shares that strip. Only a list that does not page reserves a caption band of its own.
+        const float minCard = panel.density == ViewerDensity::Hero ? std::max(remainingAll, 1.0f) : 56.0f;
         uint32_t visible = 0;
         float cardH = 0.0f;
         float listHeight = 0.0f;
-        FitListLayout(remaining, minCard, panel.labelPx + 4.0f, sample.rowCount, visible, cardH, listHeight);
+        float remaining = remainingAll;
+        FitListLayout(remaining, minCard, panel.pageStripPx, sample.rowCount, visible, cardH, listHeight);
+        if (listHeight + 0.5f >= remainingAll && sample.hiddenCount > 0)
+        {
+            remaining = std::max(0.0f, remainingAll - (panel.labelPx + 4.0f));
+            FitListLayout(remaining, minCard, panel.pageStripPx, sample.rowCount, visible, cardH, listHeight);
+        }
+        NotePageStrip(y, listHeight, remaining);
         visible = std::max(1u, visible);
         cardH = listHeight / static_cast<float>(visible);
         const float namePx = TypeFromRow(cardH * 0.42f, panel.rowPx, 32.0f);
@@ -3188,7 +3309,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             DrawThermalLevel(list, panel.pad, cardY + cardH - trackH - 4.0f, panel.innerW, trackH, row.displayPrimary,
                              row.primaryAvailable);
         }
-        DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden + sample.hiddenCount);
+        // Adapters that are not graphics devices are on no page; their count keeps the caption.
+        DrawOverflow(resources, list, panel, height, panel.labelPx, sample.hiddenCount);
         (void)width;
         return S_OK;
     }
@@ -3274,9 +3396,10 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         float cardH = 0.0f;
         float listHeight = 0.0f;
         float cardW = 0.0f;
-        FitGridLayout(remaining, panel.innerW, 84.0f, panel.labelPx + 4.0f, 168.0f, available, columns, visible, rows,
+        FitGridLayout(remaining, panel.innerW, 84.0f, panel.pageStripPx, 168.0f, available, columns, visible, rows,
                       cardH, listHeight, cardW);
         visible = std::min(visible, sample.rowCount);
+        NotePageStrip(y, listHeight, remaining);
         const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
         for (uint32_t index = 0; index < slice.count; ++index)
         {
@@ -3314,7 +3437,11 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             DrawThermalLevel(list, cellX + pad, trackY, cardW - pad * 2.0f, trackH, row.displayPrimary,
                              row.primaryAvailable);
         }
-        DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden);
+        if (panel.density == ViewerDensity::Hero)
+        {
+            // A hero tile has no room for the page-control strip; the caption still says what is off-screen.
+            DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden);
+        }
         if (fanReserve > 0.0f)
         {
             wchar_t fan[32]{};
@@ -3343,6 +3470,13 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     std::atomic<bool> _gpuHeld{false};
     std::atomic<uint32_t> _overflowPage{0};
     std::atomic<uint32_t> _pageCount{1};
+    RedXeWheelDetent _wheelDetent{};
+    // UI-thread only: the page-control strip of the frame being built and the dots the last frame drew, which
+    // OnPointer hit-tests so a tap lands on exactly what is on screen.
+    bool _pageStripReserved = false;
+    float _pageStripTop = 0.0f;
+    uint32_t _lastHidden = 0;
+    RedXePageIndicatorLayout _lastDots{};
     float _pointerStartX = 0.0f;
     float _pointerStartY = 0.0f;
     bool _pointerDown = false;
@@ -3600,5 +3734,10 @@ extern "C" HRESULT __stdcall RedXeProcessViewerGetTestDiagnostics(ProcessViewerT
     diagnostics->lastPublishedRowCount = g_lastPublishedRowCount.load(std::memory_order_relaxed);
     diagnostics->configuredTopN = g_configuredTopN.load(std::memory_order_relaxed);
     diagnostics->deviceCallbacksWhileVisible = g_deviceCallbacksWhileVisible.load(std::memory_order_relaxed);
+    diagnostics->pageCount = g_lastPageCount.load(std::memory_order_relaxed);
+    diagnostics->pageIndex = g_lastPageIndex.load(std::memory_order_relaxed);
+    diagnostics->pageDotFirstX = g_lastPageDotFirstX.load(std::memory_order_relaxed);
+    diagnostics->pageDotY = g_lastPageDotY.load(std::memory_order_relaxed);
+    diagnostics->pageDotGap = g_lastPageDotGap.load(std::memory_order_relaxed);
     return S_OK;
 }

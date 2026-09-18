@@ -23,5 +23,6 @@
     <ClInclude Include="..\..\RedXe\PluginHost.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\RedXe\Renderer.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\RedXe\Settings.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\RedXe\WheelNavigation.h"><Filter>Header Files</Filter></ClInclude>
   </ItemGroup>
 </Project>

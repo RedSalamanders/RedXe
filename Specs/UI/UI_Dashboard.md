@@ -1,14 +1,14 @@
 # RedXe adaptive dashboard and page-navigation contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-18
 Owner: `DashboardHost` layout, active-page composition, page navigation, edge-navigation chrome, host placeholder tiles, and raised overlay chrome
 
 ## Scope
 
 This specification owns ordered pages, responsive layout compilation, runtime orientation reflow, widget geometry,
-horizontal two- or three-finger touch navigation, mouse edge navigation, host-owned placeholder tiles, and the host
-raised-overlay chrome. Settings syntax belongs to `Specs/Core/Core_Settings.md`; plugin identities and
+horizontal two- or three-finger touch navigation, mouse edge navigation, mouse wheel navigation, host-owned
+placeholder tiles, and the host raised-overlay chrome. Settings syntax belongs to `Specs/Core/Core_Settings.md`; plugin identities and
 rendering mechanisms belong to `Specs/Plugins/Plugins_API.md`; display/DPI policy belongs to
 `Specs/UI/UI_XeneonDisplayWindowing.md`.
 
@@ -152,6 +152,45 @@ navigation. This section owns that affordance; it changes nothing about the pan 
   everywhere else in its tile. Band width is a single DPI-scaled constant so this is tunable in one place.
 - Resize, DPI change, settings reload, page promote, raise, dismiss, and every visibility transition re-evaluate both
   bands. Re-evaluation with unchanged state MUST perform no work.
+
+## Mouse wheel navigation
+
+The top-level window receives every mouse wheel sample: vertical `WM_MOUSEWHEEL` and horizontal `WM_MOUSEHWHEEL`,
+whichever window had focus, because Windows delivers wheel input to the window under the pointer and a host-owned
+native container passes it up through `DefWindowProc`. A sample is offered to the widget under the pointer first;
+a sample the widget does not use changes the dashboard page. This section owns that routing; the plugin-side
+contract (`RedXePointerPhaseWheel`, `RedXePointerPhaseHorizontalWheel`, `S_OK` versus `S_FALSE`) is owned by
+`Specs/Plugins/Plugins_API.md`.
+
+- A **wheel sequence** is a run of samples with less than 500 ms (`kWheelSequenceGapMilliseconds`) between
+  consecutive samples on either axis. The **first** sample of a sequence is hit-tested like a click, converted to
+  widget-local pixels, and forwarded to the topmost `IRedXeInteractiveWidget` under the pointer (the raised widget's
+  overlay content while raised). Its answer latches the owner of the whole sequence: `S_OK` gives every later sample
+  of the sequence to that widget, whether or not it consumes them, and the host MUST NOT navigate; `S_FALSE`, a
+  failure, or no interactive widget under the pointer gives the sequence to the host, which MUST NOT offer later
+  samples to any widget. A pause of the gap length ends the sequence and the next sample is offered to the widget
+  again. A widget that shows a page control keeps every sample on the axis it pages, including at its first and
+  last page (`Specs/Plugins/Plugins_API.md`), so the dashboard never changes page under a paging tile; the wheel
+  changes dashboard pages over tiles that do not page (clocks, Matrix Rain, a single-page list) and the edge bands
+  remain for the rest. A host-owned sequence keeps navigating after a promote; a widget-owned sequence ends on
+  promote because its slot belongs to the old page.
+- A host-owned sample accumulates per axis in Win32 wheel units toward the next page: wheel **down** (negative
+  `WHEEL_DELTA`) and tilt **right** (positive) advance, wheel up and tilt left return, matching swipe-left. One whole
+  `WHEEL_DELTA` (120) commits exactly one adjacent-page navigation and clears both axes, so a classic wheel navigates
+  on every notch and a precision wheel or touchpad needs one notch's worth of travel. A direction reversal discards
+  the remainder. Nothing is queued: a sample that arrives during a settle, a pan, a staged transition, or while a
+  widget is raised is dropped and clears the accumulator, so a fast spin cannot bank pages that play back later.
+- Navigation goes through the same staging, ease-out settle, and in-place promote as an edge-band click and uses the
+  same suppression table: it MUST NOT navigate in any state where `ShouldShowEdgeAffordance` refuses that direction
+  (renderer not ready, hidden, display off, suspended, occluded, raised, pan, settle, staged neighbour, single page,
+  or a blocked end without `wrapPages`). A wheel sample is never a double-activate candidate.
+- Samples are dropped, without accumulation, while the window is hidden, the display is off, a widget owns a
+  captured drag (`RedXePointerCapture`), or a two- or three-finger page pan is in progress.
+- Modifier keys are forwarded to the widget in `modifiers` and do not change host routing.
+- Hide, resize, DPI change, settings apply, raise, dismiss, and capture or focus loss end the sequence outright.
+- There is no wheel setting: direction and sensitivity are fixed and `Core_Settings.md` is unaffected.
+- The wheel path adds no timer, wake-up, or allocation; the sequence gap is measured between the tick counts at
+  which consecutive samples are handled.
 
 ## Widget raise overlay
 
@@ -322,6 +361,26 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
   swipe in the same direction.
 - Edge-navigation policy tests cover every row of the suppression rule, both non-wrapping ends, wrapping, a
   single-page document, and rejection of any direction other than previous and next.
+- Wheel policy tests (`WheelNavigation.h`, `WheelDetent.h`) cover whole-detent stepping from fractions, a
+  reversal discarding the remainder, zero and non-finite samples, the direction mapping of both axes, a consumed
+  first sample latching the widget so a later declined sample does not reach the host, a declined first sample
+  latching the host so a later consumed answer does not steal the sequence, the sequence gap, one navigation per
+  notch with no banked surplus, per-axis accumulation, clearing on refusal, and a promote releasing only a widget
+  latch. Host tests prove that a single-page Weather tile and every System Data viewer at its first page decline
+  wheel-up and every horizontal sample. `LauncherTests` prove wheel-up at the first launcher page is declined, a
+  fractional sample is accepted without paging, a whole detent pages forward with the slide entering from the right,
+  tilt-left pages back with the slide entering from the left and is declined at the first page, and a dot tap slides
+  the same way. `AVControlTests` prove a horizontal sample is declined and a phase past it is rejected. The
+  end-to-end routing lives in `Application.cpp`, which `HostPluginTests` does not compile; it is validated on the
+  live window by posting `WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL` to the Debug build under `--screenshot`: one wheel-down
+  notch over a non-interactive page captures the next page, wheel-up at the first page without `wrapPages` captures
+  the same page, two tilt-right notches 700 ms apart capture the third page, and three notches 40 ms apart capture
+  only the second. Over an eight-page Launcher tile (`--widget 0` crop) one notch captures its second icon page
+  and not its third (the first sample is delivered once), two notches 400 ms apart capture its third page with the
+  dashboard page unchanged (the sequence stays with the widget). Over a four-page Thermal Meter tile with a second
+  dashboard page available, one wheel-up notch at its first page and six notches 700 ms apart past its last page
+  both capture the same dashboard page (the tile keeps the wheel and sits on its last page), while one notch over
+  the Matrix tile captures the next dashboard page.
 - Host tests prove that a valid page produces no placeholder tiles, that a widget reporting unavailable hands exactly
   its own tile to the host while siblings keep drawing and the frame still composes, that recovery restores it, and
   that a catalogued plugin whose module cannot be mapped becomes a placeholder without aborting the page. The renderer
@@ -333,7 +392,9 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
   `wrapPages`, that a revealed band shows the hand cursor and a click changes page even if the mouse has not moved
   since the band appeared, that double-click raise still works outside the bands, that double-click or double-tap on
   raised content restores the tile, that the close control hover-washes, and that raise and restore ease rather than
-  jump.
+  jump. With a wheel it SHOULD verify that a notch over a clock changes page, that over a Process Viewer with page
+  dots the wheel pages its overflow and never changes the dashboard page, not even past either end, that a tilt
+  wheel and a precision touchpad navigate, and that a Logicon dialpad dial (`hwheel`) over the window changes page.
 
 ## Implementation anchors
 
@@ -353,7 +414,9 @@ tests exercise the production root and AV DLL; real assistive-technology validat
 - Geometry and native containers: `RedXe/DashboardHost.*`
 - Pointer policy, settle, and commit math: `RedXe/PageNavigation.h`
 - Mouse edge band geometry and reveal policy: `RedXe/PageEdgeAffordance.h`
-- Page orchestration, double-activate, and overlay HWND: `RedXe/Application.*`
+- Mouse wheel sequence owner, gap, and detent accumulation: `RedXe/WheelNavigation.h` over `Common/WheelDetent.h`
+  (the detent helper is shared with the bundled paged widgets)
+- Page orchestration, double-activate, wheel routing (`OnMouseWheel`), and overlay HWND: `RedXe/Application.*`
 - GPU transition composition: `RedXe/Renderer.*`
 - Raised overlay math: `RedXe/WidgetRaise.h`
 - Tests: `Tests/SettingsTests/`, `Tests/HostPluginTests/`

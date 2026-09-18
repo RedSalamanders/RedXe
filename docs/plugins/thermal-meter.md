@@ -8,7 +8,7 @@ Plugin id: `builtin.thermal-meter`
 
 ## What it does
 
-Temperature and fan cards. Labels are COOL / OK / WARM / HOT from 25 / 70 / 85 °C. Numerals include `°C`. Extra sensors show as `+N` at the bottom right; swipe or scroll to page them. Double-click or double-tap raises it to half the window.
+Temperature and fan cards. Labels are COOL / OK / WARM / HOT from 25 / 70 / 85 °C. Numerals include `°C`. When sensors do not fit, a row of page dots appears at the bottom; tap a dot, swipe, or scroll to page them (a very small tile shows one sensor and counts the rest as `+N`). Double-click or double-tap raises it to half the window.
 
 ## Parameters
 

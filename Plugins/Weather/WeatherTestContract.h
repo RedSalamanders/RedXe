@@ -28,6 +28,13 @@ struct WeatherTestDiagnostics final
     uint32_t heroTwinCells;
     uint32_t iconCells;
     wchar_t lastAttribution[64]; // Footer text of the last test-time render.
+    // Paging as of the last render: page count, current page, and the footer page-control dot layout in widget
+    // pixels (first dot centre, strip centre y, centre gap; zero when no dots were drawn).
+    uint32_t pageCount;
+    uint32_t pageIndex;
+    float pageDotFirstX;
+    float pageDotY;
+    float pageDotGap;
 };
 
 struct WeatherTestSnapshot final

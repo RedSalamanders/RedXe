@@ -1,7 +1,7 @@
 # RedXe plugin API contract
 
 Status: current normative contract
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-18
 
 ## Purpose and scope
 
@@ -642,11 +642,35 @@ rectangle. The host implements `IDropTarget` on the top-level HWND after `OleIni
 and Unicode text that is a full URL into `RedXeDropEvent` and calls `OnDrop`. Native-window children that are not drop
 targets (GdiOrbit) MUST NOT steal GPU-tile drops. Plugins MUST NOT initialize OLE or call `RegisterDragDrop`.
 
-The current pointer record is 48 bytes and carries view identity, modifiers and vertical wheel delta. View 0 means
+The current pointer record is 48 bytes and carries view identity, modifiers and wheel delta. View 0 means
 the tile; view 1 means the raised layout. Coordinates are widget-local physical pixels and convert to DIP exactly
-once inside an embedded adapter. Wheel delta retains Win32 wheel units; it targets the topmost interactive view
-under the pointer and never changes capture. Non-finite samples and unsupported phases are rejected. Page pans,
+once inside an embedded adapter. Two phases carry a wheel sample: `RedXePointerPhaseWheel` (vertical, positive is
+wheel up) and `RedXePointerPhaseHorizontalWheel` (positive is tilt right). `wheelDelta` retains Win32 wheel units
+(one notch is `WHEEL_DELTA`, 120; precision wheels and touchpads deliver fractions) and is zero for every other
+phase. A wheel sample never changes capture. Non-finite samples and unsupported phases are rejected. Page pans,
 owned live-control drags, hidden windows and display-off suppress wheel dispatch.
+
+The answer to a wheel sample decides who owns the rest of that wheel sequence (`Specs/UI/UI_Dashboard.md`, *Mouse
+wheel navigation*): the host offers the first sample of a sequence to the topmost interactive view under the
+pointer; `S_OK` keeps every later sample of the sequence with that widget and stops the host from navigating, while
+`S_FALSE` hands the sequence to the host, which then changes dashboard pages with it (wheel down or tilt right
+advances) and offers no later sample to any widget until the user pauses for 500 ms. A widget that shows a page
+control MUST answer `S_OK` for every sample on an axis it pages, including at its first and last page and during
+its own drag, so the dashboard never changes page under a paging tile; it answers `S_FALSE` when it has no use
+for that sample: a single page, or an axis it does not scroll. A paged widget SHOULD step once per whole detent
+through the shared `Common/WheelDetent.h` accumulator (`RedXeWheelDetent`), answering `S_OK` for the fractions
+that lead up to a step, so touchpads do not race through its pages; wheel down and tilt right SHOULD move forward,
+matching the dashboard. Bundled behaviour: Launcher pages on both axes; the System Data viewers and Weather page
+their overflow on the vertical axis and decline the horizontal one; AV Control forwards vertical samples to DxUi
+and declines horizontal ones; the Logicon monitor declines both.
+
+A widget with internal pages MUST present them through the shared page control: one dot per page, the current
+page's dot larger and brighter, with the `DxUi::PageIndicator` metrics (20 DIP strip, 3 / 4 DIP radii, 14 DIP gap)
+that `Common/PageIndicator.h` lays out and hit-tests, so Launcher, the System Data viewers, Weather, and the DxUi
+control in AV Control read as one control. A tap on a dot goes to that page and is consumed. A `+N` caption is not
+a page control; it remains only for items no page reaches (or where the strip cannot fit, a hero tile). A widget
+draws the dots from the layout it hit-tests, so what is drawn is what is tapped; a strip narrower than the block
+shrinks the gap rather than dropping dots (never below two selected radii), and no bundled widget pages beyond 32.
 
 `RedXePointerCapture` on Down transfers that one-finger contact to the widget until Up/Cancel. One finger alone MUST
 NOT steal an active slider gesture. A second or third concurrent touch may start host page navigation; it cancels that
@@ -931,8 +955,19 @@ and drop the grid when a cell would be smaller than 6 px. Each widget picks a de
 (hero / compact / standard), keeps type floors of 16 / 18 / 30 / 48 px and a title floor of 26 px that grow with
 leftover tile height among the rows or cards that fit, and omits columns, rows, heatmaps, and sparks that do not fit
 instead of shrinking below those floors. When ranked rows, cards, adapters, or forecast hours/days do not fit, the
-widget draws a bottom-right `+N` caption for the count that remains off-screen and exposes `IRedXeInteractiveWidget`
-so one-finger swipe or wheel pages the remainder. Down returns `S_FALSE` so double-activate raise still works. Lists and adapter cards MUST consume the widget rectangle: row or card
+widget pages the remainder and exposes `IRedXeInteractiveWidget` so one-finger swipe, wheel, or a tap on the page
+control pages it. A paged list reserves the shared page-control strip (`Common/PageIndicator.h`, 20 DIP) directly
+below the rows it fitted and above any footer, and draws one dot per page there, centred, the current page's dot
+larger and brighter — the same control Launcher draws and AV Control hosts as `DxUi::PageIndicator`. The strip is
+reserved whenever the list overflows and at least six tenths of a row still fits above it; on such a short tile the
+rows shrink to fit above the strip rather than the strip disappearing (a paging tile MUST show its page control),
+and the `+N` caption for items no page reaches shares the strip's band. A tap on a dot (Down and Up on the same
+dot, `S_OK` on Up) goes to that page. Items that no page reaches keep the bottom-right `+N` caption: idle network
+adapters, non-graphics adapters, CPU heat cells beyond the grid, a hero tile, which has no room for the strip and
+keeps `+N` for its remaining rows, and a tile too short for even a shrunken row plus the strip. Wheel down pages
+forward one page per whole detent; a viewer with more than one page keeps every vertical wheel sample, including at
+its first and last page, so the dashboard never changes page under it, while a single-page viewer and every
+horizontal sample return `S_FALSE` so the host can change dashboard pages. Down returns `S_FALSE` so double-activate raise still works. Lists and adapter cards MUST consume the widget rectangle: row or card
 height is inner height divided by the visible count, not a theoretical maximum budget. An AC-only power tile centers
 `AC` and `no battery`. Ranked-row slide, 320 ms value eases, 60-sample histories, and a brief accent pulse while a
 utilization or capacity KPI remains at or above 85% stay sample-driven. Decorative per-panel glow and idle breathing
@@ -1142,7 +1177,8 @@ padding is trimmed. Device loss keeps CPU BGRA and re-uploads without a second s
 
 Shared device resources live once per provider: embedded Shader Model 5.0 blobs, textured-quad pipeline, sampler, and
 immutable blend/rasterizer/depth state. Each instance owns a 32-slice 256×256 `Texture2DArray` (8 MiB BGRA) for jumbo
-icons, one 64-byte dynamic constant buffer (viewport, hint, page-dot globals, and `iconCount`), and one 32-slot
+icons, one 96-byte dynamic constant buffer (viewport, hint, `iconCount`, page count and selection, and the page-dot
+pixel layout), and one 32-slot
 dynamic structured buffer of instance rects and motion (32 bytes each). `Render` is allocation-free: it maps those
 existing buffers with `WRITE_DISCARD` and issues at most two draws (background plus instanced icons). Instance rects
 MUST NOT live in the constant buffer. Device loss keeps CPU BGRA and re-uploads the texture array without a second
@@ -1151,9 +1187,11 @@ launcher page. The tile and overlay therefore reuse distinct layouts, and pointe
 drawn layout (the overlay draw is last while raised). A largest-target notification MUST NOT displace or clip icons in
 the original tile.
 A swipe viewport keeps the widget's full size and may have a negative origin; `Render` must still draw. When more
-shortcuts exist than fit at the chosen cell size, Launcher paginates them and GPU-draws a bottom page-dot strip
-using the same DIP metrics as `DxUi::PageIndicator` (20 DIP strip, 3/4 DIP radii, 14 DIP gap). The strip is reserved
-only when `pageCount > 1`; a single page uses the full tile height. Fixed `iconSize` values keep one square icon edge
+shortcuts exist than fit at the chosen cell size, Launcher paginates them and GPU-draws the shared page control
+(`Common/PageIndicator.h`: the `DxUi::PageIndicator` metrics, 20 DIP strip, 3/4 DIP radii, 14 DIP gap) along the
+bottom of the tile, centred; the shader draws the dots from the pixel layout Launcher computes on the CPU, and the
+same layout hit-tests dot taps. The strip is reserved only when `pageCount > 1`; a single page uses the full tile
+height. Fixed `iconSize` values keep one square icon edge
 and pagination quantum: `small` 72 DIP, `medium` 96 DIP, `large` 144 DIP, `huge` 192 DIP jumbo. The extracted 256 px
 texture MUST NOT dictate layout or half-extents. Named `iconSize` is the minimum cell used to decide pagination
 (`count > columns * rows` at that DIP, including gutters). When fewer icons occupy the tile than that minimum cell
@@ -1173,7 +1211,12 @@ tap on a dot changes the launcher page and MUST NOT launch. A swipe follows the 
 and draws the outgoing and incoming icon pages in the existing instanced draw by sliding instance-rect x positions; dots
 stay pinned to the bottom strip. On release, a short ease-out cubic settle (140–280 ms, presentation-paced
 `RequestFrame` from `Render`) commits when distance or flick matches the host page-pan thresholds, otherwise snaps
-back. A dot tap MUST slide to that page rather than teleport. Fewer than two launcher pages paint no dots.
+back. A dot tap MUST slide to that page rather than teleport, in the same direction a swipe to it would: the
+target page enters from the right when moving forward and from the left when moving back. A mouse wheel pages the
+same way, one launcher page per whole detent on either axis (wheel down or tilt right forward; a fraction is
+accepted without paging). A launcher with page dots keeps every wheel sample, including at its first or last page
+and during a one-finger drag, so the dashboard never changes page under it; a single-page launcher returns
+`S_FALSE` so the host can change dashboard pages with it. Fewer than two launcher pages paint no dots.
 A committed click starts a bounded 3D launch motion of at most 400 ms via `RequestFrame` from `Render` only; idle with a static
 grid owns no wake-up. Page-slide settle uses the same `RequestFrame` rule and MUST NOT add a timer thread. `RequestFrame` MUST NOT be called from `SetVisible` or `OnDeviceCreated`. `OnDrop` and
 `OnPointer` (committed click) MAY call `RequestFrame` and `PersistWidgetSettings`. `CollectPersistentSettings` returns
@@ -1289,6 +1332,16 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
       Verify the ten System Data viewer IDs enumerate from `ProcessViewer.dll`,
     reject factory creation without a host, and that a ten-widget System page attaches as GPU+scheduled widgets,
     renders on hidden WARP, rebuilds after device loss, stays non-continuous, and drains every subscription when hidden.
+    On that page a Process Viewer with `topN` 32 MUST report more than one overflow page and a drawn page-control
+    layout through its test diagnostics, and a Down/Up on its second dot MUST page it forward (`S_FALSE` on Down,
+    `S_OK` on Up) and a tap on the first dot back, each visible in the next frame's diagnostics; that viewer MUST
+    keep wheel-up at its first page (`S_OK`, no movement) and page forward on wheel-down, and every viewer MUST
+    decline every horizontal wheel sample. A Process Viewer tile 144 px tall on the 720 px host (one row less than
+    a row plus the strip) MUST still report its overflow pages and a dot layout inside the tile. `HostPluginTests`
+    MUST also prove the
+    shared page-control geometry (`Common/PageIndicator.h`): DxUi::PageIndicator metrics at 96 DPI, DPI scaling,
+    right alignment, gap shrink on a narrow strip with the two-selected-radii floor, no control for one page, more
+    than 32 pages, or an empty strip, and strip-height taps landing on the nearest dot within half a gap.
 17. Verify Studio Clock defaults and normalized effective settings, every visibility toggle, all date formats, color
     validation, controlling-IUnknown identity, guarded second/minute delays, non-continuous host scheduling,
     transactional reconfiguration, inactive-gallery absence, ordinary 00/01/30/59 ring states, 12 default-always-lit
@@ -1315,7 +1368,10 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     drop append/cap/rollback, overflow paging with a bottom page-dot strip, named `iconSize` spread-grid layout
     (uniform half-extents, even gutters of at least 8 DIP between icon edges and 8 DIP edge inset, no mid-tile cluster
     when leftover space exists, no clip except page-slide), one-finger follow-finger page swipe with
-    settle (no launch), page-dot tap animation, and ordering of an older queued import before a newer interactive save, through
+    settle (no launch), page-dot tap animation entering from the correct side, wheel paging (kept without moving
+    at the first page, fractions accepted without paging, a whole detent pages forward from the right, tilt-left
+    pages back from the left and is kept at the first page, no launch), and ordering of an older queued import
+    before a newer interactive save, through
     `LauncherTests`, `SettingsTests`, and `HostPluginTests`. WARP pixel and hit-target tests MUST alternate tile and
     overlay sizes after one largest-size notification and verify zero allocations on those cached draws.
 
