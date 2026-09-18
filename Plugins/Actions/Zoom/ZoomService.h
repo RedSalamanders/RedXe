@@ -9,6 +9,7 @@
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PlugInterfaces/Service.h"
 #include "ZoomAuth.h"
+#include "ZoomLocal.h"
 #include "ZoomSession.h"
 #include "ZoomSettings.h"
 
@@ -49,6 +50,10 @@ struct ServiceSnapshot final
     uint32_t reconnects = 0;
     uint32_t signIns = 0;
     uint32_t listenerPort = 0;
+    // Local path: requests served through the client's accessible meeting controls, and toolbar reads.
+    bool localMode = false;
+    uint32_t localRequests = 0;
+    uint32_t stateReads = 0;
     HRESULT lastFailure = S_OK;
     ActionName lastAction{};
 };
@@ -85,6 +90,8 @@ class ZoomService final : public RedXeComObject<ZoomService, IRedXeService, IRed
     [[nodiscard]] SyntheticSession* Synthetic() noexcept;
     void SetCredentialStore(ICredentialStore* store) noexcept;
     void SetTokenTransport(ITokenTransport* transport) noexcept;
+    // Test surface: the window the local path treats as the Zoom meeting window (null restores discovery).
+    void SetMeetingWindowOverride(HWND window) noexcept;
     [[nodiscard]] bool Started() const noexcept;
 
     // Module singleton for the test contract; borrowed, may be null.
@@ -103,6 +110,20 @@ class ZoomService final : public RedXeComObject<ZoomService, IRedXeService, IRed
     void StepConnection(uint64_t now) noexcept;
     void HandleRequest(const PendingRequest& request, uint64_t now) noexcept;
     [[nodiscard]] HRESULT RunVerb(std::string_view verb, std::string_view target) noexcept;
+    // The local path (ZoomLocal.h): why it is taken, and one verb through it.
+    enum class Route : uint8_t
+    {
+        Sdk = 0,
+        Wait,
+        Local,
+        Refuse,
+    };
+    [[nodiscard]] Route ChooseRoute(const char** reason) noexcept;
+    [[nodiscard]] bool EnsureCredentialChecked() noexcept;
+    [[nodiscard]] HRESULT RequestHostAction(const char* action, const char* target) noexcept;
+    [[nodiscard]] HRESULT RunLocalVerb(std::string_view verb, std::string_view target) noexcept;
+    [[nodiscard]] HRESULT RunFocus() noexcept;
+    void RunLocalRequest(const PendingRequest& request, const char* reason) noexcept;
     void BeginSignIn(uint64_t now) noexcept;
     void StepSignIn(uint64_t now) noexcept;
     void CompleteSignIn(std::string_view code) noexcept;
@@ -161,5 +182,12 @@ class ZoomService final : public RedXeComObject<ZoomService, IRedXeService, IRed
     uint64_t _deferredDeadline = 0;
     bool _signedOutLogged = false;
     bool _sdkUnavailableLogged = false;
+    // Local path state (lane-owned): the SDK refused this account, the mode was announced, the last toolbar read.
+    bool _sdkRefused = false;
+    bool _localModeLogged = false;
+    bool _stateUnknownLogged = false;
+    bool _localActive = false;
+    SessionSnapshot _localState{};
+    std::atomic<HWND> _meetingWindowOverride{nullptr};
 };
 } // namespace Zoom

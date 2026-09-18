@@ -742,8 +742,8 @@ protocol, faces, and validation are owned by [`Plugins_Logicon.md`](Plugins_Logi
 $1
 `Plugins/Actions/Zoom` builds `zoom.action.dll`, the first dedicated action DLL: service plugin ID `builtin.zoom`
 (`RedXePluginCapabilityService | RedXePluginCapabilityActions`, `IRedXeService` plus `IRedXeDeviceWorker` plus
-`IRedXeActionPack`) publishing the `zoom` namespace over the Zoom Plugin SDK for Windows. Behavior, sign-in, the SDK
-import, and validation are owned by [`Plugins_Zoom.md`](Plugins_Zoom.md). It imports `bcrypt.dll`, `winhttp.dll`,
+`IRedXeActionPack`) publishing the `zoom` namespace over the Zoom Plugin SDK for Windows, or over the client's own meeting
+toolbar read and pressed through its MSAA accessibility objects when the SDK cannot serve. Behavior, sign-in, the SDK import, and validation are owned by [`Plugins_Zoom.md`](Plugins_Zoom.md). It imports `bcrypt.dll`, `winhttp.dll`,
 `ws2_32.dll`, `advapi32.dll`, and `yyjson.dll` (copied beside it).
 
 `Plugins/RotatingTriangle` exposes settings-visible plugin ID `builtin.rotating-triangle`, internally maps it to type

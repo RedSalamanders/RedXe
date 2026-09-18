@@ -98,24 +98,27 @@ A `@<monitor>` is `primary`, `xeneon` (the monitor RedXe sits on), a 1-based mon
 
 ### `zoom.*` — the Zoom service
 
-See [Zoom](plugins/zoom.md) for setup. Every `zoom.*` action needs the Zoom service configured and a completed `zoom.signIn`.
+See [Zoom](plugins/zoom.md) for setup. With a Zoom sign-in (`zoom.signIn`) every action below runs through the Zoom
+Plugin SDK; without one — or on a corporate account that does not allow the RedXe app — the actions marked † still work through
+the Zoom client's own meeting toolbar, pressed through Windows' accessibility interface (state read from the
+button names); the others do nothing.
 
 | `action` | `target` | Effect |
 | --- | --- | --- |
 | `zoom.signIn` | none | Open the browser to sign in to Zoom and remember the sign-in |
 | `zoom.signOut` | `now` | Forget the sign-in |
-| `zoom.join` | a meeting link, or `<meeting id>[:<passcode>]` | Join |
-| `zoom.start` | your PMI, or empty | Start a meeting |
-| `zoom.leave`, `zoom.end` | `now` | Leave, or end for everyone (host) |
+| `zoom.join` † | a meeting link, or `<meeting id>[:<passcode>]` | Join |
+| `zoom.start` † | your PMI, or empty (SDK only) | Start a meeting |
+| `zoom.leave` †, `zoom.end` | `now` | Leave, or end for everyone (host) |
 | `zoom.audio` | `join`, `leave` | Join / leave computer audio |
-| `zoom.mute`, `zoom.video`, `zoom.raiseHand` | `on`, `off`, `toggle` | Your microphone, camera, and hand |
-| `zoom.share` | `monitor`, `monitor@<monitor>`, `app@exe:<name.exe>`, `pause`, `resume`, `stop` | Screen sharing |
-| `zoom.record` | `local.start`, `local.stop`, `cloud.start`, `cloud.stop`, `pause`, `resume` | Recording |
+| `zoom.mute` †, `zoom.video` †, `zoom.raiseHand` † | `on`, `off`, `toggle` | Your microphone, camera, and hand |
+| `zoom.share` † (start only) | `monitor`, `monitor@<monitor>`, `app@exe:<name.exe>`, `pause`, `resume`, `stop` | Screen sharing |
+| `zoom.record` † (start only) | `local.start`, `local.stop`, `cloud.start`, `cloud.stop`, `pause`, `resume` | Recording |
 | `zoom.reaction` | `thumbsUp`, `clap`, `heart`, `joy`, `openMouth`, `tada` | Send a reaction |
 | `zoom.chat.send` | text | Send a chat message to everyone |
 | `zoom.captions` | `on`, `off` | Captions |
 | `zoom.participants.muteAll`, `zoom.participants.admitAll` | none | Host controls |
-| `zoom.focus` | none | Bring the Zoom window to the front |
+| `zoom.focus` † | none | Bring the Zoom window to the front (works without a sign-in) |
 
 ## When something is wrong
 

@@ -50,6 +50,10 @@ HRESULT ParseSettings(yyjson_val* object, Settings& settings, char* diagnostic, 
     settings = Settings{};
     std::memcpy(settings.domain.data(), kDefaultDomain, sizeof(kDefaultDomain));
     settings.domainBytes = static_cast<uint32_t>(sizeof(kDefaultDomain) - 1);
+    for (size_t index = 0; index < kLabelDefaults.size(); ++index)
+    {
+        strncpy_s(settings.labels[index].data(), settings.labels[index].size(), kLabelDefaults[index], _TRUNCATE);
+    }
     if (!yyjson_is_obj(object))
     {
         return Fail(diagnostic, diagnosticCapacity, "Zoom settings must be a JSON object.");
@@ -99,14 +103,64 @@ HRESULT ParseSettings(yyjson_val* object, Settings& settings, char* diagnostic, 
             }
             settings.autoConnect = yyjson_get_bool(value);
         }
+        else if (name == "mode")
+        {
+            const std::string_view mode = yyjson_is_str(value)
+                                              ? std::string_view(yyjson_get_str(value), yyjson_get_len(value))
+                                              : std::string_view{};
+            if (mode == "auto")
+            {
+                settings.mode = Mode::Auto;
+            }
+            else if (mode == "sdk")
+            {
+                settings.mode = Mode::Sdk;
+            }
+            else if (mode == "local")
+            {
+                settings.mode = Mode::Local;
+            }
+            else
+            {
+                return Fail(diagnostic, diagnosticCapacity, "mode must be auto, sdk, or local.");
+            }
+        }
+        else if (name == "labels")
+        {
+            if (!yyjson_is_obj(value))
+            {
+                return Fail(diagnostic, diagnosticCapacity, "labels must be an object.");
+            }
+            yyjson_obj_iter labelIterator = yyjson_obj_iter_with(value);
+            while (yyjson_val* labelKey = yyjson_obj_iter_next(&labelIterator))
+            {
+                const std::string_view labelName(yyjson_get_str(labelKey), yyjson_get_len(labelKey));
+                yyjson_val* labelValue = yyjson_obj_iter_get_val(labelKey);
+                size_t index = 0;
+                while (index < kLabelNames.size() && labelName != kLabelNames[index])
+                {
+                    ++index;
+                }
+                if (index == kLabelNames.size())
+                {
+                    return Fail(diagnostic, diagnosticCapacity, "labels contain an unknown member.");
+                }
+                uint32_t bytes = 0;
+                if (!CopyString(labelValue, settings.labels[index], bytes, kMaximumLabelBytes, false))
+                {
+                    return Fail(diagnostic, diagnosticCapacity, "a label must be a string of 1 through 64 bytes.");
+                }
+            }
+        }
         else
         {
             return Fail(diagnostic, diagnosticCapacity, "Zoom settings contain an unknown member.");
         }
     }
-    if (!sawClientId || settings.clientIdBytes == 0)
+    if (settings.mode != Mode::Local && (!sawClientId || settings.clientIdBytes == 0))
     {
-        return Fail(diagnostic, diagnosticCapacity, "clientId is required: the Marketplace app's client id.");
+        return Fail(diagnostic, diagnosticCapacity,
+                    "clientId is required: the Marketplace app's client id (or set mode to local).");
     }
     return S_OK;
 }

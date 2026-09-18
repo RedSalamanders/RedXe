@@ -34,12 +34,11 @@
         ]
       }
     },
-    // Zoom drives the Zoom Workplace client through the Zoom Plugin SDK (see docs/plugins/zoom.md). Replace the
-    // placeholder with your Marketplace app's client id and bind zoom.signIn to a key to sign in; until then the
-    // service stays idle.
+    // Zoom drives the Zoom Workplace client through the Zoom Plugin SDK (see docs/plugins/zoom.md). clientId is the
+    // RedXe Marketplace app (a public PKCE client id, never a secret); bind zoom.signIn to a key to sign in.
     "Zoom": {
       "plugin": "builtin.zoom",
-      "clientId": "replace-with-your-marketplace-client-id",
+      "clientId": "sHVWQENoR4qrpuBPgsFsPw",
       "redirectPort": 48123,
       "autoConnect": false
     }

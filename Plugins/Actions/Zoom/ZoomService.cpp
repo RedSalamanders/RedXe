@@ -42,6 +42,24 @@ ZoomService* g_current = nullptr;
     }
     return true;
 }
+
+// Drains the lane thread's message queue (the SDK proxy's window lives there). Bounded per wake so a flood can
+// never starve the stop event; whatever remains re-signals the next MsgWaitForMultipleObjectsEx.
+void PumpLaneMessages() noexcept
+{
+    constexpr uint32_t kMaximumMessagesPerWake = 256;
+    MSG message{};
+    for (uint32_t drained = 0; drained < kMaximumMessagesPerWake && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE);
+         ++drained)
+    {
+        if (message.message == WM_QUIT)
+        {
+            break;
+        }
+        (void)TranslateMessage(&message);
+        (void)DispatchMessageW(&message);
+    }
+}
 } // namespace
 
 ZoomService* ZoomService::Current() noexcept
@@ -240,6 +258,11 @@ void ZoomService::SetCredentialStore(ICredentialStore* store) noexcept
     _injectedStore = store;
 }
 
+void ZoomService::SetMeetingWindowOverride(HWND window) noexcept
+{
+    _meetingWindowOverride.store(window, std::memory_order_release);
+}
+
 void ZoomService::SetTokenTransport(ITokenTransport* transport) noexcept
 {
     const auto guard = wil::AcquireSRWLockExclusive(&_lock);
@@ -264,6 +287,15 @@ void ZoomService::PublishSnapshot() noexcept
     _snapshot.signingIn = _signingIn;
     _snapshot.listenerPort = _listener.Running() ? _listener.Port() : 0;
     _snapshot.session = _session ? _session->Snapshot() : SessionSnapshot{};
+    if (_localActive)
+    {
+        // The local path knows the meeting only through the window it found and the toolbar it read; the
+        // session's own connection state and counters are untouched.
+        _snapshot.session.meeting = _localState.meeting;
+        _snapshot.session.audioMuted = _localState.audioMuted;
+        _snapshot.session.videoOn = _localState.videoOn;
+        _snapshot.session.handRaised = _localState.handRaised;
+    }
 }
 
 void ZoomService::AdoptSettings() noexcept
@@ -291,6 +323,9 @@ void ZoomService::AdoptSettings() noexcept
     // was signed out is picked up without a restart.
     _credentialChecked = false;
     _signedOutLogged = false;
+    _sdkRefused = false;
+    _localModeLogged = false;
+    _stateUnknownLogged = false;
     if (_laneSettings.autoConnect)
     {
         _wantConnected = true;
@@ -335,15 +370,7 @@ bool ZoomService::RefreshAccessToken() noexcept
     {
         return false;
     }
-    if (!_credentialChecked)
-    {
-        _credentialChecked = true;
-        uint32_t bytes = 0;
-        const HRESULT read =
-            _store->Read(_laneSettings.ClientId(), _tokens.refreshToken.data(), _tokens.refreshToken.size(), bytes);
-        _tokens.refreshBytes = SUCCEEDED(read) && read != S_FALSE ? bytes : 0;
-        _credentialPresent = _tokens.refreshBytes != 0;
-    }
+    (void)EnsureCredentialChecked();
     if (_tokens.refreshBytes == 0)
     {
         return false;
@@ -448,6 +475,8 @@ void ZoomService::StepConnection(uint64_t now) noexcept
             DisconnectSession();
             _tokens.accessBytes = 0;
             _wantConnected = false;
+            // Until the settings change or a new sign-in, the SDK cannot serve this account.
+            _sdkRefused = true;
         }
         return;
     }
@@ -527,14 +556,9 @@ void ZoomService::BeginSignIn(uint64_t now) noexcept
         ++_snapshot.signIns;
     }
     // The browser opens through the host's own launch action; the lane never calls the shell itself.
-    if (_deviceAccess.load(std::memory_order_acquire) && _host)
+    if (_deviceAccess.load(std::memory_order_acquire))
     {
-        RedXeActionRequest launch{};
-        launch.sizeBytes = sizeof(launch);
-        launch.actionUtf8 = "system.launch";
-        launch.targetUtf8 = url.data();
-        launch.sourcePluginId = kPluginId;
-        (void)_host->RequestAction(&launch);
+        (void)RequestHostAction("system.launch", url.data());
     }
     Log(RedXeLogLevelInfo, "zoom-sign-in-started", "waiting for the browser to redirect back to RedXe.");
 }
@@ -568,6 +592,7 @@ void ZoomService::CompleteSignIn(std::string_view code) noexcept
     _credentialPresent = true;
     _credentialChecked = true;
     _signedOutLogged = false;
+    _sdkRefused = false;
     DisconnectSession();
     _wantConnected = true;
     _reconnectDue = 0;
@@ -723,24 +748,279 @@ HRESULT ZoomService::RunVerb(std::string_view verb, std::string_view target) noe
     {
         return _session->AdmitAll();
     }
-    if (verb == "focus")
+    return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+}
+
+HRESULT ZoomService::RunFocus() noexcept
+{
+    const bool deviceAccess = _deviceAccess.load(std::memory_order_acquire);
+    if (!deviceAccess)
     {
-        RedXeActions::WindowSelector window{};
-        window.kind = RedXeActions::WindowSelector::Kind::Executable;
-        window.value = "Zoom.exe";
+        return S_OK;
+    }
+    // The meeting window when there is one, else the client's main window.
+    HWND window = Local::FindMeetingWindow();
+    if (!window)
+    {
+        RedXeActions::WindowSelector selector{};
+        selector.kind = RedXeActions::WindowSelector::Kind::Executable;
+        selector.value = Local::kZoomExecutable;
         RedXeActions::SelectedWindows selected{};
-        const bool deviceAccess = _deviceAccess.load(std::memory_order_acquire);
-        if (!deviceAccess)
-        {
-            return S_OK;
-        }
-        if (!RedXeActions::SelectWindows(window, false, selected))
+        if (!RedXeActions::SelectWindows(selector, false, selected))
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         }
-        return RedXeActions::BringToForeground(selected.windows[0], true);
+        window = selected.windows[0];
     }
-    return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    return RedXeActions::BringToForeground(window, true);
+}
+
+ZoomService::Route ZoomService::ChooseRoute(const char** reason) noexcept
+{
+    *reason = nullptr;
+    if (_laneSettings.mode == Mode::Local)
+    {
+        *reason = "mode is local: the Zoom client's own meeting controls are driven through its accessibility tree.";
+        return Route::Local;
+    }
+    if (_session && _sessionInitialized)
+    {
+        const SessionSnapshot state = _session->Snapshot();
+        if (state.auth == AuthState::Authenticated && state.ipc == IpcState::Connected)
+        {
+            return Route::Sdk;
+        }
+    }
+    const bool signedOut = !EnsureCredentialChecked();
+    if (_laneSettings.mode == Mode::Sdk)
+    {
+        if (signedOut)
+        {
+            if (!_signedOutLogged)
+            {
+                _signedOutLogged = true;
+                Log(RedXeLogLevelWarning, "zoom-signed-out", "no Zoom credential; bind zoom.signIn to sign in.");
+            }
+            return Route::Refuse;
+        }
+        return Route::Wait;
+    }
+    // Auto: the SDK when it can serve, else the local path, without waiting on something that cannot happen.
+    if (!_session || (!SdkSessionAvailable() && !_synthetic))
+    {
+        *reason = "no Zoom Plugin SDK session in this build; the client's meeting controls are driven locally.";
+        return Route::Local;
+    }
+    if (_sdkRefused)
+    {
+        *reason = "the Zoom account refused the Marketplace app; the client's meeting controls are driven locally.";
+        return Route::Local;
+    }
+    if (signedOut)
+    {
+        *reason = "no Zoom credential; the client's meeting controls are driven locally until zoom.signIn.";
+        return Route::Local;
+    }
+    return Route::Wait;
+}
+
+bool ZoomService::EnsureCredentialChecked() noexcept
+{
+    if (!_credentialChecked && _store)
+    {
+        _credentialChecked = true;
+        uint32_t bytes = 0;
+        const HRESULT read =
+            _store->Read(_laneSettings.ClientId(), _tokens.refreshToken.data(), _tokens.refreshToken.size(), bytes);
+        _tokens.refreshBytes = SUCCEEDED(read) && read != S_FALSE ? bytes : 0;
+        _credentialPresent = _tokens.refreshBytes != 0;
+    }
+    return _credentialPresent;
+}
+
+void ZoomService::RunLocalRequest(const PendingRequest& request, const char* reason) noexcept
+{
+    const std::string_view action{request.action.data()};
+    const std::string_view target{request.target.data()};
+    const std::string_view verb = action.substr(sizeof(kActionNamespace));
+    if (!_localModeLogged)
+    {
+        _localModeLogged = true;
+        Log(RedXeLogLevelInfo, "zoom-local-mode", reason ? reason : "local mode.");
+    }
+    _localActive = true;
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+        _snapshot.localMode = true;
+        ++_snapshot.localRequests;
+    }
+    const HRESULT result = RunLocalVerb(verb, target);
+    // The state this request read is published before its counter moves, so a reader that sees the count also
+    // sees the state.
+    PublishSnapshot();
+    if (FAILED(result))
+    {
+        NoteFailure(result);
+        Log(RedXeLogLevelDebug, "zoom-action-failed", "a zoom action has no local path or could not be performed.",
+            result);
+        return;
+    }
+    const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+    ++_snapshot.requestsExecuted;
+}
+
+HRESULT ZoomService::RunLocalVerb(std::string_view verb, std::string_view target) noexcept
+{
+    const bool deviceAccess = _deviceAccess.load(std::memory_order_acquire);
+    if (verb == "join" || verb == "start")
+    {
+        // The Zoom client's own URL handler joins; starting without a number has no local path.
+        RedXeActions::Meeting meeting{};
+        if (!RedXeActions::ParseMeeting(target, meeting))
+        {
+            return verb == "join" ? E_INVALIDARG : E_NOTIMPL;
+        }
+        std::array<char, 640> uri{};
+        if (!Local::BuildJoinUri(meeting.number, meeting.passcode, uri.data(), uri.size()))
+        {
+            return E_INVALIDARG;
+        }
+        return RequestHostAction("system.launch", uri.data());
+    }
+    // The toolbar button a verb presses; verbs without one have no local path.
+    Label pressLabel = Label::Count;
+    Label alternateLabel = Label::Count;
+    if (verb == "mute")
+    {
+        pressLabel = Label::Muted;
+        alternateLabel = Label::Unmuted;
+    }
+    else if (verb == "video")
+    {
+        pressLabel = Label::VideoOn;
+        alternateLabel = Label::VideoOff;
+    }
+    else if (verb == "raiseHand")
+    {
+        pressLabel = Label::HandRaised;
+        alternateLabel = Label::HandLowered;
+    }
+    else if (verb == "share" &&
+             (target == "monitor" || target.starts_with("monitor@") || target == "app" || target.starts_with("app@")))
+    {
+        // Opens Zoom's own share picker; the monitor or window choice is made there.
+        pressLabel = Label::Share;
+    }
+    else if (verb == "record" && (target == "local.start" || target == "cloud.start"))
+    {
+        pressLabel = Label::Record;
+    }
+    else if (verb == "leave")
+    {
+        // A participant has Leave; a host has End (Zoom then asks whether to end or leave).
+        pressLabel = Label::Leave;
+        alternateLabel = Label::End;
+    }
+    else
+    {
+        return E_NOTIMPL;
+    }
+    const HWND override = _meetingWindowOverride.load(std::memory_order_acquire);
+    const HWND window = override ? override : (deviceAccess ? Local::FindMeetingWindow() : nullptr);
+    if (!window)
+    {
+        // Not in a meeting (or an automated host without a window).
+        _localState = SessionSnapshot{};
+        return E_NOT_VALID_STATE;
+    }
+    _localState.meeting = MeetingState::InMeeting;
+    Local::Toolbar toolbar{};
+    const HRESULT read = Local::ReadToolbar(window, toolbar);
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+        ++_snapshot.stateReads;
+    }
+    Local::MeetingState state{};
+    Local::ReadState(toolbar, _laneSettings, state);
+    if (SUCCEEDED(read))
+    {
+        _localState.audioMuted = state.muted == Local::Tri::Yes;
+        _localState.videoOn = state.videoOn == Local::Tri::Yes;
+        _localState.handRaised = state.handRaised == Local::Tri::Yes;
+    }
+    bool wanted = false;
+    if (Local::WantsState(verb, target, wanted))
+    {
+        const Local::Tri current = Local::StateFor(verb, state);
+        if (FAILED(read) || current == Local::Tri::Unknown)
+        {
+            if (!_stateUnknownLogged)
+            {
+                _stateUnknownLogged = true;
+                Log(RedXeLogLevelWarning, "zoom-state-unknown",
+                    "the meeting toolbar's state could not be read (check the labels setting); bind toggle instead "
+                    "of on/off.",
+                    FAILED(read) ? read : S_OK);
+            }
+            return E_NOT_VALID_STATE;
+        }
+        if ((current == Local::Tri::Yes) == wanted)
+        {
+            return S_OK;
+        }
+    }
+    uint32_t index = Local::FindButton(toolbar, _laneSettings.LabelText(pressLabel));
+    if (index == UINT32_MAX && alternateLabel != Label::Count)
+    {
+        index = Local::FindButton(toolbar, _laneSettings.LabelText(alternateLabel));
+    }
+    if (index == UINT32_MAX)
+    {
+        if (!_stateUnknownLogged)
+        {
+            _stateUnknownLogged = true;
+            Log(RedXeLogLevelWarning, "zoom-state-unknown",
+                "no meeting toolbar button matched the labels setting for this action.", FAILED(read) ? read : S_OK);
+        }
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
+    if (!deviceAccess && !override)
+    {
+        return S_OK;
+    }
+    const HRESULT pressed = Local::Press(toolbar, index);
+    if (SUCCEEDED(pressed) && Local::WantsState(verb, target, wanted))
+    {
+        // What the state should be now; the next request re-reads the toolbar.
+        if (verb == "mute")
+        {
+            _localState.audioMuted = wanted;
+        }
+        else if (verb == "video")
+        {
+            _localState.videoOn = wanted;
+        }
+        else if (verb == "raiseHand")
+        {
+            _localState.handRaised = wanted;
+        }
+    }
+    return pressed;
+}
+
+HRESULT ZoomService::RequestHostAction(const char* action, const char* target) noexcept
+{
+    if (!_host)
+    {
+        return E_NOT_VALID_STATE;
+    }
+    RedXeActionRequest request{};
+    request.sizeBytes = sizeof(request);
+    request.actionUtf8 = action;
+    request.targetUtf8 = target;
+    request.sourcePluginId = kPluginId;
+    const HRESULT requested = _host->RequestAction(&request);
+    return FAILED(requested) ? requested : S_OK;
 }
 
 void ZoomService::HandleRequest(const PendingRequest& request, uint64_t now) noexcept
@@ -774,33 +1054,50 @@ void ZoomService::HandleRequest(const PendingRequest& request, uint64_t now) noe
         }
         return;
     }
+    if (verb == "focus")
+    {
+        // Fronting the Zoom window needs no session in any mode.
+        const HRESULT focused = RunFocus();
+        if (FAILED(focused))
+        {
+            NoteFailure(focused);
+            return;
+        }
+        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+        ++_snapshot.requestsExecuted;
+        return;
+    }
+    const char* reason = nullptr;
+    const Route route = ChooseRoute(&reason);
+    if (route == Route::Local)
+    {
+        RunLocalRequest(request, reason);
+        return;
+    }
+    if (route == Route::Refuse)
+    {
+        NoteFailure(E_NOT_VALID_STATE);
+        return;
+    }
     if (!_session)
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
         ++_snapshot.requestsDropped;
         return;
     }
-    // Everything else needs an authenticated, connected session; the newest request waits for it.
-    const SessionSnapshot state = _session->Snapshot();
-    const bool connected =
-        _sessionInitialized && state.auth == AuthState::Authenticated && state.ipc == IpcState::Connected;
-    if (!connected)
+    if (route == Route::Wait)
     {
-        if (!_credentialPresent && _credentialChecked)
-        {
-            if (!_signedOutLogged)
-            {
-                _signedOutLogged = true;
-                Log(RedXeLogLevelWarning, "zoom-signed-out", "no Zoom credential; bind zoom.signIn to sign in.");
-            }
-            NoteFailure(E_NOT_VALID_STATE);
-            return;
-        }
+        // The newest request waits for the session to connect; in auto mode the wait ends on the local path.
         _wantConnected = true;
         _deferred = request;
         _deferredPending = true;
         _deferredDeadline = now + kDeferredRequestMilliseconds;
         return;
+    }
+    _localActive = false;
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+        _snapshot.localMode = false;
     }
     const HRESULT result = RunVerb(verb, target);
     if (FAILED(result))
@@ -858,7 +1155,11 @@ HRESULT ZoomService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexcept
             timeout = std::min(timeout, static_cast<DWORD>(std::max<uint64_t>(
                                             1, _deferredDeadline > before ? _deferredDeadline - before : 1)));
         }
-        const DWORD waited = WaitForMultipleObjects(handleCount, handles.data(), FALSE, timeout);
+        // The SDK proxy owns a message window on this thread (created by InitZMToolSuite) and delivers its
+        // listener callbacks and completions through it, so the lane waits on its queue as well and drains it
+        // after every wake. The synthetic session posts nothing; the drain is then empty.
+        const DWORD waited =
+            MsgWaitForMultipleObjectsEx(handleCount, handles.data(), timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
         if (waited == WAIT_OBJECT_0)
         {
             break;
@@ -869,6 +1170,7 @@ HRESULT ZoomService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexcept
                 HRESULT_FROM_WIN32(GetLastError()));
             break;
         }
+        PumpLaneMessages();
         const uint64_t now = GetTickCount64();
         AdoptSettings();
         EnsureSession();
@@ -898,7 +1200,15 @@ HRESULT ZoomService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexcept
             else if (now >= _deferredDeadline || !_wantConnected)
             {
                 _deferredPending = false;
-                NoteFailure(E_NOT_VALID_STATE);
+                if (_laneSettings.mode == Mode::Auto)
+                {
+                    RunLocalRequest(_deferred, "the Zoom Plugin SDK session did not connect; the client's meeting "
+                                               "controls are driven locally.");
+                }
+                else
+                {
+                    NoteFailure(E_NOT_VALID_STATE);
+                }
             }
         }
         PublishSnapshot();

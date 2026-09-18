@@ -30,7 +30,16 @@
         { "page": 1, "slot": 5, "action": "keys.media", "target": "volume-up", "label": "Vol +", "icon": "Volume" },
         { "page": 1, "slot": 6, "face": "cpu" },
         { "page": 1, "slot": 7, "face": "memory", "label": "RAM" },
-        { "page": 1, "slot": 8, "action": "logicon.keyPage.previous", "label": "Back", "icon": "Back", "color": "#1F3A5F" }
+        { "page": 1, "slot": 8, "action": "logicon.keyPage.next", "label": "Zoom", "icon": "Video", "color": "#1F3A5F" },
+        { "page": 2, "slot": 0, "action": "zoom.signIn", "label": "Sign in", "icon": "Accept" },
+        { "page": 2, "slot": 1, "action": "zoom.mute", "target": "toggle", "label": "Mic", "icon": "Microphone" },
+        { "page": 2, "slot": 2, "action": "zoom.video", "target": "toggle", "label": "Cam", "icon": "Camera" },
+        { "page": 2, "slot": 3, "action": "zoom.raiseHand", "target": "toggle", "label": "Hand", "icon": "Emoji" },
+        { "page": 2, "slot": 4, "action": "zoom.reaction", "target": "thumbsUp", "label": "Thumbs", "icon": "Star" },
+        { "page": 2, "slot": 5, "action": "zoom.focus", "label": "Zoom", "icon": "Video" },
+        { "page": 2, "slot": 6, "action": "zoom.leave", "target": "now", "label": "Leave", "icon": "Cancel", "color": "#7A1E1E" },
+        { "page": 2, "slot": 7, "action": "zoom.signOut", "target": "now", "label": "Sign out", "icon": "Lock" },
+        { "page": 2, "slot": 8, "action": "logicon.keyPage.goto", "target": "0", "label": "Home", "icon": "Home", "color": "#1F3A5F" }
       ],
       "dialpad": {
         "turns": [
@@ -47,11 +56,11 @@
         ]
       }
     },
-    // Zoom drives the Zoom Workplace client through the Zoom Plugin SDK (see docs/plugins/zoom.md). Replace the
-    // placeholder with your Marketplace app's client id and bind zoom.signIn to a key to sign in.
+    // Zoom drives the Zoom Workplace client through the Zoom Plugin SDK (see docs/plugins/zoom.md). clientId is the
+    // RedXe Marketplace app (a public PKCE client id, never a secret); bind zoom.signIn to a key to sign in.
     "Zoom": {
       "plugin": "builtin.zoom",
-      "clientId": "replace-with-your-marketplace-client-id",
+      "clientId": "sHVWQENoR4qrpuBPgsFsPw",
       "redirectPort": 48123,
       "autoConnect": false
     }

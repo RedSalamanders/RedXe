@@ -250,6 +250,9 @@ extern "C" HRESULT __stdcall RedXeZoomGetTestDiagnostics(RedXeZoomTestDiagnostic
     out.listenerPort = snapshot.listenerPort;
     out.sessionSubmissions = snapshot.session.submissions;
     out.sessionCompletions = snapshot.session.completions;
+    out.localMode = snapshot.localMode ? 1U : 0U;
+    out.localRequests = snapshot.localRequests;
+    out.stateReads = snapshot.stateReads;
     out.lastFailure = static_cast<int32_t>(snapshot.lastFailure);
     strncpy_s(out.lastAction, std::size(out.lastAction), snapshot.lastAction.data(), _TRUNCATE);
     return S_OK;
@@ -321,6 +324,17 @@ extern "C" HRESULT __stdcall RedXeZoomSyntheticCounters(uint64_t* meetingNumber,
     *meetingNumber = synthetic->LastMeetingNumber();
     *reaction = synthetic->LastReaction();
     *chatMessages = synthetic->ChatMessages();
+    return S_OK;
+}
+
+extern "C" HRESULT __stdcall RedXeZoomSetMeetingWindow(HWND window) noexcept
+{
+    Zoom::ZoomService* service = Zoom::ZoomService::Current();
+    if (!service)
+    {
+        return HRESULT_FROM_WIN32(ERROR_NOT_READY);
+    }
+    service->SetMeetingWindowOverride(window);
     return S_OK;
 }
 

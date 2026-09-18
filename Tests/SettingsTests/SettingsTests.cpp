@@ -384,7 +384,7 @@ constexpr std::string_view kRepresentative = R"json(
           {"slot":1,"action":"system.launch","target":"not-a-path"},
           {"slot":2,"action":"zoom.mute","target":"toggle"}],
           "dialpad":{"turns":[{"control":"roller","direction":"up","action":"logicon.brightness","target":"+5"}]}},
-        "Meet":{"plugin":"builtin.zoom","clientId":"abc"}},
+        "Meet":{"plugin":"builtin.zoom","mode":"local","labels":{"muted":"actuellement coupé"}}},
       "pages":[{"widgets":[{"plugin":"builtin.gdi-orbit"}]}]
     })json";
     AppSettings services{};
@@ -397,6 +397,8 @@ constexpr std::string_view kRepresentative = R"json(
         services.services[0].privateConfiguration.View().find("\"not-a-path\"") == std::string_view::npos ||
         services.services[1].pluginId.View() != "builtin.zoom" ||
         services.services[1].privateConfiguration.View().find("\"redirectPort\":48123") == std::string_view::npos ||
+        services.services[1].privateConfiguration.View().find("\"unmuted\":\"currently unmuted\"") ==
+            std::string_view::npos ||
         !FindServiceSettings(services, "builtin.logicon") || !FindServiceSettings(services, "builtin.zoom") ||
         FindServiceSettings(services, "builtin.launcher") || FAILED(ValidateAppSettings(services)))
     {
@@ -426,6 +428,9 @@ constexpr std::string_view kRepresentative = R"json(
         // Zoom model rejections.
         R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","redirectPort":80}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","clientSecret":"x"}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","mode":"keys"}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","mode":"auto"}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","labels":{"mute":"x"}}},"pages":[{}]})json",
         // Shape errors.
         R"json({"version":{"major":5},"services":[],"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":"builtin.logicon"},"pages":[{}]})json",

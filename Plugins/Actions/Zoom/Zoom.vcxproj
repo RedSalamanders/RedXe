@@ -49,7 +49,7 @@
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>ws2_32.lib;winhttp.lib;bcrypt.lib;advapi32.lib;ole32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ws2_32.lib;winhttp.lib;bcrypt.lib;advapi32.lib;ole32.lib;oleaut32.lib;oleacc.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
@@ -64,7 +64,7 @@
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>ws2_32.lib;winhttp.lib;bcrypt.lib;advapi32.lib;ole32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ws2_32.lib;winhttp.lib;bcrypt.lib;advapi32.lib;ole32.lib;oleaut32.lib;oleacc.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -73,6 +73,7 @@
     <ClCompile Include="ZoomSdkSession.cpp" />
     <ClCompile Include="ZoomService.cpp" />
     <ClCompile Include="ZoomSettings.cpp" />
+    <ClCompile Include="ZoomLocal.cpp" />
     <ClCompile Include="ZoomSynthetic.cpp" />
     <ClCompile Include="..\..\..\Common\Actions\ActionTargets.cpp" />
     <ClCompile Include="..\..\..\Common\Actions\WindowSelector.cpp" />
@@ -82,6 +83,7 @@
     <ClInclude Include="ZoomService.h" />
     <ClInclude Include="ZoomSession.h" />
     <ClInclude Include="ZoomSettings.h" />
+    <ClInclude Include="ZoomLocal.h" />
     <ClInclude Include="ZoomSynthetic.h" />
     <ClInclude Include="ZoomTestContract.h" />
     <ClInclude Include="..\..\..\Common\Actions\ActionTargets.h" />

@@ -12,10 +12,11 @@ zoom-plugin-sdk-windows-<version>.zip, extract it, and run:
 The script verifies the layout Zoom documents (<arch>\export_h, <arch>\lib\zToolSuiteIPCProxy.lib,
 <arch>\bin\zToolSuiteIPCProxy.dll), copies the x64 headers, import library, and runtime under this directory, and
 writes ZoomSdk.props, which Zoom.vcxproj imports when present: it defines ZOOM_PLUGIN_SDK_AVAILABLE, adds export_h to
-the includes, links the import library delay-loaded, and copies the bin runtime beside RedXe.exe after the build.
+the includes, links the import library delay-loaded, and copies the bin runtime to <Plugins>\ZoomSdk\ after the
+build (never beside RedXe.exe: the package carries its own CRT copies that must not shadow the process runtime).
 
-After importing, pin the SDK adapter (Plugins\Actions\Zoom\ZoomSdkSession.cpp, every ZOOM_SDK_PIN marker) against
-the package headers; the build fails at those markers until that is done, so a half-pinned adapter never ships.
+Plugins\Actions\Zoom\ZoomSdkSession.cpp is pinned against this package version (7.1.0.2020); importing another
+version needs -Force and a review of that adapter against the new export_h.
 
 .PARAMETER PackageRoot
 The extracted package directory (the one containing x64\ and x86\).
@@ -50,7 +51,7 @@ New-Item -ItemType Directory -Force (Join-Path $target 'lib') | Out-Null
 New-Item -ItemType Directory -Force (Join-Path $target 'bin') | Out-Null
 Copy-Item -Recurse -Force (Join-Path $source 'export_h\*') (Join-Path $target 'export_h')
 Copy-Item -Force (Join-Path $source 'lib\zToolSuiteIPCProxy.lib') (Join-Path $target 'lib')
-Copy-Item -Recurse -Force (Join-Path $source 'bin\*') (Join-Path $target 'bin')
+Copy-Item -Recurse -Force (Join-Path $source 'bin\*') (Join-Path $target 'bin') -Exclude '*.7z'
 
 $props = @"
 <?xml version="1.0" encoding="utf-8"?>
@@ -61,7 +62,7 @@ $props = @"
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <PreprocessorDefinitions>ZOOM_PLUGIN_SDK_AVAILABLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>ZOOM_PLUGIN_SDK_AVAILABLE;WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>`$(ZoomSdkRoot)export_h;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
@@ -72,11 +73,11 @@ $props = @"
   </ItemDefinitionGroup>
   <Target Name="CopyZoomSdkRuntime" AfterTargets="Build">
     <ItemGroup>
-      <ZoomSdkRuntime Include="`$(ZoomSdkRoot)bin\**\*" />
+      <ZoomSdkRuntime Include="`$(ZoomSdkRoot)bin\**\*" Exclude="`$(ZoomSdkRoot)bin\**\*.7z" />
     </ItemGroup>
-    <Copy SourceFiles="@(ZoomSdkRuntime)" DestinationFolder="`$(OutDir)..\%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(ZoomSdkRuntime)" DestinationFolder="`$(OutDir)ZoomSdk\%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
 </Project>
 "@
 Set-Content -Path (Join-Path $here 'ZoomSdk.props') -Value $props -Encoding UTF8
-Write-Host "Imported the Zoom Plugin SDK ($leaf) for x64. Pin ZoomSdkSession.cpp against x64\export_h, then rebuild."
+Write-Host "Imported the Zoom Plugin SDK ($leaf) for x64; rebuild to link zoom.action.dll against it."

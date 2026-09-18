@@ -780,10 +780,17 @@ Deviations from the text above, all recorded in the owning contracts:
 - **D9, platform.** `zoom.action.dll` builds on ARM64 too (synthetic session only, like an x64 build without the
   SDK import) so both templates parse and start every catalogued service on every platform; the SDK props are
   imported on x64 only.
-- **SDK adapter unpinned.** The Zoom Plugin SDK package cannot be downloaded in the build environment (Marketplace
-  login), so `ZoomSdkSession.cpp` is a scaffold gated by `ZOOM_PLUGIN_SDK_AVAILABLE` whose `ZOOM_SDK_PIN` markers
-  fail the build until pinned against the package headers; phase 2 starts with that pinning and a live receipt.
+- **SDK runtime placement.** The package ships its own CRT copies, so the runtime is deployed to `<Plugins>\ZoomSdk\`
+  and mapped through a delay-load hook with `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR`, not copied beside `RedXe.exe` as
+  written above. The lane pumps the proxy's message queue because `InitZMToolSuite` binds its window to the calling
+  thread. The adapter was pinned against 7.1.0.2020 on 2026-09-17 (see `Plugins_Zoom.md` and the live receipt).
 - **Not published in phase 1:** `system.eject`, `system.notify`, `widget.command`; they wait for phases 3–4.
+- **Local path (D11, 2026-09-18).** `Plugins_Zoom.md` "Routing and the local path": `mode`, the route table, the
+  MSAA toolbar read and press with the `labels` members, the `zoommtg://` join, and `ZoomTests.exe --live --local`
+  as the manual check against the running client without any Marketplace app (passed 9/9 against Zoom Workplace
+  7.1.5). The first cut of D11 injected Zoom's keyboard shortcuts with a UI Automation state read; the live meeting
+  showed Zoom exposes its toolbar only through MSAA and honours `accDoDefaultAction`, which presses the button
+  without a keystroke or a focus change, so the shortcut injection and the `globalShortcuts` member were dropped.
 
 ## Decisions (taken 2026-09-17 as proposed; D9 amended per the phase 1 outcome)
 
@@ -799,11 +806,15 @@ Deviations from the text above, all recorded in the owning contracts:
 | D8 | Zoom is a service (`builtin.zoom`, `services` root, own lane) that also publishes `zoom`, rather than a stateless action DLL. | Service. The SDK session, callbacks, sign-in listener, and client id need the service contract's lane and settings. |
 | D9 | The Zoom SDK package is developer-imported (not committed), x64 only, delay-loaded, with the Zoom project failing alone when it is absent. | Yes; ARM64 ships without `zoom.action.dll`. |
 | D10 | OAuth tokens live in Windows Credential Manager; the loopback redirect port is a settings member with default `48123`. | Yes. |
+| D11 | When the SDK cannot serve (no credential, the account refuses the app, no SDK in the build), `zoom.*` falls back to the Zoom client's own meeting toolbar, read and pressed through its MSAA accessibility objects; `mode` (`auto`/`sdk`/`local`) and `labels` are settings members. Taken 2026-09-18 after the corporate-account question. | Fallback inside the Zoom service (option a); device-level mute stays phase 3 (`audio.action.dll`). |
 
 ## Non-goals
 
 - A user-installed or document-named publisher path; publishers are bundled and catalogued like every other plugin.
 - Hold, repeat, or long-press semantics on bindings; owners dispatch on the press edge as today.
-- Driving Zoom through injected shortcuts, `zoommtg://`, or UI Automation; the SDK is the only path.
+- ~~Driving Zoom through injected shortcuts, `zoommtg://`, or UI Automation; the SDK is the only path.~~ Reversed by
+  D11 (2026-09-18): the SDK needs a Marketplace app the account must allow, which a managed corporate account
+  typically refuses, so the service falls back to the client's own meeting toolbar (read and pressed through its
+  MSAA accessibility objects) and the `zoommtg://` join URI.
 - Global hotkeys owned by RedXe (`RegisterHotKey`); actions are triggered by bindings, not by the keyboard.
 - Terminating processes, editing HKLM, elevation, or anything that bypasses a Windows consent prompt.

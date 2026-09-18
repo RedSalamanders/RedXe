@@ -178,6 +178,20 @@ HRESULT BringToForeground(HWND window, bool deviceAccess) noexcept
         (void)ShowWindowAsync(window, SW_RESTORE);
     }
     (void)SetForegroundWindow(window);
-    return GetForegroundWindow() == window ? S_OK : E_ACCESSDENIED;
+    // An application may answer by activating another of its windows (Zoom fronts its toolbar window with the
+    // meeting); the request is honored when the foreground now belongs to the same process.
+    const HWND foreground = GetForegroundWindow();
+    if (foreground == window)
+    {
+        return S_OK;
+    }
+    DWORD targetProcess = 0;
+    DWORD foregroundProcess = 0;
+    (void)GetWindowThreadProcessId(window, &targetProcess);
+    if (foreground)
+    {
+        (void)GetWindowThreadProcessId(foreground, &foregroundProcess);
+    }
+    return targetProcess != 0 && targetProcess == foregroundProcess ? S_OK : E_ACCESSDENIED;
 }
 } // namespace RedXeActions

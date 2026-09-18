@@ -45,11 +45,16 @@ struct RedXeZoomTestDiagnostics final
     uint32_t listenerPort;
     uint32_t sessionSubmissions;
     uint32_t sessionCompletions;
+    // Local path: whether the last request went through the client's accessible meeting controls, how many did,
+    // and how many toolbar reads ran.
+    uint32_t localMode;
+    uint32_t localRequests;
+    uint32_t stateReads;
     int32_t lastFailure;
     char lastAction[65];
 };
 
-static_assert(sizeof(RedXeZoomTestDiagnostics) == 184);
+static_assert(sizeof(RedXeZoomTestDiagnostics) == 196);
 
 extern "C"
 {
@@ -69,6 +74,9 @@ extern "C"
                                                                      uint32_t* chatMessages) noexcept;
     // The refresh token the in-memory store holds (empty when none), for asserting sign-in and sign-out.
     REDXE_ZOOM_TEST_API HRESULT __stdcall RedXeZoomStoredCredential(char* refreshToken, uint32_t capacity) noexcept;
+    // The window the local path treats as the Zoom meeting window (null restores discovery), so tests drive the
+    // local route and the accessible toolbar read against a window of their own.
+    REDXE_ZOOM_TEST_API HRESULT __stdcall RedXeZoomSetMeetingWindow(HWND window) noexcept;
 }
 
 using RedXeZoomGetTestDiagnosticsFn = decltype(&RedXeZoomGetTestDiagnostics);
@@ -78,6 +86,7 @@ using RedXeZoomSyntheticSetHostFn = decltype(&RedXeZoomSyntheticSetHost);
 using RedXeZoomSyntheticDropConnectionFn = decltype(&RedXeZoomSyntheticDropConnection);
 using RedXeZoomSyntheticCountersFn = decltype(&RedXeZoomSyntheticCounters);
 using RedXeZoomStoredCredentialFn = decltype(&RedXeZoomStoredCredential);
+using RedXeZoomSetMeetingWindowFn = decltype(&RedXeZoomSetMeetingWindow);
 
 inline constexpr char kRedXeZoomGetTestDiagnosticsExport[] = "RedXeZoomGetTestDiagnostics";
 inline constexpr char kRedXeZoomUseSyntheticSessionExport[] = "RedXeZoomUseSyntheticSession";
@@ -86,5 +95,6 @@ inline constexpr char kRedXeZoomSyntheticSetHostExport[] = "RedXeZoomSyntheticSe
 inline constexpr char kRedXeZoomSyntheticDropConnectionExport[] = "RedXeZoomSyntheticDropConnection";
 inline constexpr char kRedXeZoomSyntheticCountersExport[] = "RedXeZoomSyntheticCounters";
 inline constexpr char kRedXeZoomStoredCredentialExport[] = "RedXeZoomStoredCredential";
+inline constexpr char kRedXeZoomSetMeetingWindowExport[] = "RedXeZoomSetMeetingWindow";
 
 #undef REDXE_ZOOM_TEST_API
