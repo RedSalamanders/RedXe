@@ -73,7 +73,7 @@ constexpr uint32_t kThreadColumnCount = 12;
 constexpr uint32_t kNetworkInterfaceColumnCount = 22;
 constexpr uint32_t kNetworkProtocolColumnCount = 11;
 constexpr uint32_t kStorageDiskColumnCount = 16;
-constexpr uint32_t kStorageVolumeColumnCount = 7;
+constexpr uint32_t kStorageVolumeColumnCount = 8;
 constexpr uint32_t kGpuAdapterColumnCount = 22;
 constexpr uint32_t kGpuEngineColumnCount = 9;
 constexpr uint32_t kGpuProcessColumnCount = 6;
@@ -506,6 +506,8 @@ constexpr std::array kStorageVolumeColumns{
                               RedXeDataValueTypeUInt64},
     RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "firstDiskNumber", L"Disk", nullptr,
                               RedXeDataValueTypeUInt64},
+    // The name Explorer shows before "(X:)": the volume label, else a drive-type stand-in such as "Local Disk".
+    RedXeDataColumnDescriptor{sizeof(RedXeDataColumnDescriptor), "label", L"Label", nullptr, RedXeDataValueTypeUtf16},
 };
 static_assert(kStorageVolumeColumns.size() == kStorageVolumeColumnCount);
 
@@ -2523,6 +2525,8 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
             values[5] = UInt64Value(row.extentCount, RedXeDataQualityGood);
             values[6] =
                 UInt64Value(row.firstDiskNumber, row.hasFirstDisk ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
+            values[7] = Utf16Value(row.label, Utf16Length(row.label),
+                                   row.label[0] != L'\0' ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
             _storageVolumeRows[index] = RedXeDataRow{sizeof(RedXeDataRow), values, kStorageVolumeColumnCount};
         }
         _storageVolumeSnapshot = RedXeDataSnapshot{

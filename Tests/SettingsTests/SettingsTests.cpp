@@ -559,11 +559,15 @@ constexpr std::string_view kRepresentative = R"json(
     }
 
     constexpr std::string_view processViewerSettings =
-        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer"},{"plugin":"builtin.process-viewer","topN":7}]}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer"},{"plugin":"builtin.process-viewer","topN":7},{"plugin":"builtin.process-viewer","hideIdle":false}]}]})json";
     AppSettings processViewer{};
     if (FAILED(ParseAppSettingsJson(processViewerSettings, processViewer)) ||
-        processViewer.dashboard.pages[0].widgets[0].privateConfiguration.View() != R"json({"topN":10})json" ||
-        processViewer.dashboard.pages[0].widgets[1].privateConfiguration.View() != R"json({"topN":7})json")
+        processViewer.dashboard.pages[0].widgets[0].privateConfiguration.View() !=
+            R"json({"topN":10,"hideIdle":true})json" ||
+        processViewer.dashboard.pages[0].widgets[1].privateConfiguration.View() !=
+            R"json({"hideIdle":true,"topN":7})json" ||
+        processViewer.dashboard.pages[0].widgets[2].privateConfiguration.View() !=
+            R"json({"topN":10,"hideIdle":false})json")
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -805,7 +809,7 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    constexpr std::array<std::string_view, 59> invalid{
+    constexpr std::array<std::string_view, 60> invalid{
         std::string_view{R"json({"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":4},"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":5,"minor":"0"},"pages":[{}]})json"},
@@ -827,6 +831,8 @@ constexpr std::string_view kRepresentative = R"json(
             R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer","topN":33}]}]})json"},
         std::string_view{
             R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer","topN":10,"bad":1}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.process-viewer","hideIdle":1}]}]})json"},
         std::string_view{
             R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.network-meter","topN":0}]}]})json"},
         std::string_view{

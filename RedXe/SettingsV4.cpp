@@ -49,7 +49,7 @@ constexpr char kLauncherPlugin[] = "builtin.launcher";
 constexpr char kAvControlPlugin[] = "builtin.av-control";
 constexpr char kMatrixDefaults[] =
     R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#F6FFF6","trailColor":"#33FF33","glowPercent":35})json";
-constexpr char kProcessViewerDefaults[] = R"json({"topN":10})json";
+constexpr char kProcessViewerDefaults[] = R"json({"topN":10,"hideIdle":true})json";
 constexpr char kRankedViewerDefaults[] = R"json({"topN":8})json";
 constexpr char kStudioClockDefaults[] =
     R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616"})json";
@@ -975,7 +975,12 @@ struct DiagnosticSink final
 [[nodiscard]] bool ValidateProcessViewerSettings(yyjson_val* settings, DiagnosticSink& sink,
                                                  JsonPathBuffer& path) noexcept
 {
-    return ValidateTopNSettings(settings, 1, 32, sink, path);
+    if (!AcceptObjectMembers(sink, path, settings, {"topN", "hideIdle"}, false))
+    {
+        return false;
+    }
+    return RejectRange(sink, path, settings, "topN", 1, 32, "topN must be an integer from 1 through 32.") &&
+           RejectBool(sink, path, settings, "hideIdle");
 }
 
 [[nodiscard]] bool ValidateStudioClockSettings(yyjson_val* settings, DiagnosticSink& sink,

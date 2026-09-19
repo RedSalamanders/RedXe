@@ -32,9 +32,11 @@ namespace
 constexpr char kSystemDataPluginId[] = "builtin.system-data";
 constexpr char kEmptySchema[] = R"json({"type":"object","additionalProperties":false})json";
 constexpr char kEmptyDefaults[] = R"json({})json";
+// Process Viewer: `topN` rows and `hideIdle`, which leaves PID 0 (System Idle Process) out of the ranking; its CPU
+// figure is the share of the machine doing nothing, not a load.
 constexpr char kTopN32Schema[] =
-    R"json({"type":"object","additionalProperties":false,"required":["topN"],"properties":{"topN":{"type":"integer","minimum":1,"maximum":32}}})json";
-constexpr char kTopN32Defaults[] = R"json({"topN":10})json";
+    R"json({"type":"object","additionalProperties":false,"required":["topN"],"properties":{"topN":{"type":"integer","minimum":1,"maximum":32},"hideIdle":{"type":"boolean"}}})json";
+constexpr char kTopN32Defaults[] = R"json({"topN":10,"hideIdle":true})json";
 constexpr char kTopN16Schema[] =
     R"json({"type":"object","additionalProperties":false,"required":["topN"],"properties":{"topN":{"type":"integer","minimum":1,"maximum":16}}})json";
 constexpr char kTopN16Defaults[] = R"json({"topN":8})json";
@@ -181,10 +183,11 @@ constexpr std::array kCatalog{
                        L"Top interface rates and protocol KPIs.", L"Network Meter",
                        L"Active NICs with a recency-faded throughput history; idle zero-rate adapters stay hidden.",
                        "network.interface", "network.protocol", 1000, 1000, 16, 8, 960.0f, 540.0f, 160.0f, 72.0f},
-    ViewerCatalogEntry{ViewerKind::StorageMeter, "builtin.storage-meter", "storage-meter", L"Storage Meter",
-                       L"Volume capacity and disk activity.", L"Storage Meter",
-                       L"Volume cards sorted by used percent; used/total stays above the capacity track.",
-                       "storage.volume", "storage.disk", 5000, 1000, 0, 0, 960.0f, 540.0f, 160.0f, 72.0f},
+    ViewerCatalogEntry{
+        ViewerKind::StorageMeter, "builtin.storage-meter", "storage-meter", L"Storage Meter",
+        L"Volume capacity and disk activity.", L"Storage Meter",
+        L"Volume cards in drive-letter order, named as Explorer names them; used/total above the capacity track.",
+        "storage.volume", "storage.disk", 5000, 1000, 0, 0, 960.0f, 540.0f, 160.0f, 72.0f},
     ViewerCatalogEntry{ViewerKind::GpuMeter, "builtin.gpu-meter", "gpu-meter", L"GPU Meter",
                        L"Adapter cards from DXGI and D3DKMT sensors.", L"GPU Meter",
                        L"Discrete GPU first; software adapters collapsed.", "gpu.adapter", nullptr, 1000, 0, 0, 0,
@@ -238,10 +241,15 @@ std::atomic<float> g_lastPageDotGap{0.0f};
     return kCatalog[static_cast<size_t>(kind)];
 }
 
-[[nodiscard]] HRESULT ReadTopN(const RedXeFactoryOptions* options, uint32_t maximum, uint32_t fallback,
-                               uint32_t& topN) noexcept
+// The ranked viewers' settings: `topN`, and for the Process Viewer `hideIdle`. The host hands the plugin the compact
+// normalized envelope `{"plugin":{},"instance":{...}}` whose instance members are scalars in either order (defaults
+// first, then authored keys), so this walks the members rather than matching one fixed string. `topN` is required;
+// a member outside the schema, a duplicate, or a malformed value rejects the configuration.
+[[nodiscard]] HRESULT ReadRankedOptions(const RedXeFactoryOptions* options, uint32_t maximum, uint32_t fallback,
+                                        bool acceptHideIdle, uint32_t& topN, bool& hideIdle) noexcept
 {
     topN = fallback;
+    hideIdle = acceptHideIdle;
     if (!options)
     {
         return S_OK;
@@ -259,23 +267,59 @@ std::atomic<float> g_lastPageDotGap{0.0f};
     {
         return E_INVALIDARG;
     }
-    constexpr std::string_view prefix = R"json({"plugin":{},"instance":{"topN":)json";
+    constexpr std::string_view prefix = R"json({"plugin":{},"instance":{)json";
     constexpr std::string_view suffix = "}}";
     const std::string_view json(options->configurationJsonUtf8, options->configurationBytes);
-    if (!json.starts_with(prefix) || !json.ends_with(suffix) || json.size() <= prefix.size() + suffix.size())
+    if (!json.starts_with(prefix) || !json.ends_with(suffix) || json.size() < prefix.size() + suffix.size())
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    const std::string_view number = json.substr(prefix.size(), json.size() - prefix.size() - suffix.size());
-    uint32_t parsed = 0;
-    const auto parsedResult = std::from_chars(number.data(), number.data() + number.size(), parsed);
-    if (parsedResult.ec != std::errc{} || parsedResult.ptr != number.data() + number.size() || parsed == 0 ||
-        parsed > maximum)
+    std::string_view members = json.substr(prefix.size(), json.size() - prefix.size() - suffix.size());
+    constexpr HRESULT invalid = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    bool sawTopN = false;
+    bool sawHideIdle = false;
+    while (!members.empty())
     {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        const size_t comma = members.find(',');
+        const std::string_view member = members.substr(0, comma);
+        members = comma == std::string_view::npos ? std::string_view{} : members.substr(comma + 1);
+        constexpr std::string_view topNKey = R"json("topN":)json";
+        constexpr std::string_view hideIdleKey = R"json("hideIdle":)json";
+        if (member.starts_with(topNKey) && !sawTopN)
+        {
+            const std::string_view number = member.substr(topNKey.size());
+            uint32_t parsed = 0;
+            const auto parsedResult = std::from_chars(number.data(), number.data() + number.size(), parsed);
+            if (number.empty() || parsedResult.ec != std::errc{} || parsedResult.ptr != number.data() + number.size() ||
+                parsed == 0 || parsed > maximum)
+            {
+                return invalid;
+            }
+            topN = parsed;
+            sawTopN = true;
+            continue;
+        }
+        if (acceptHideIdle && member.starts_with(hideIdleKey) && !sawHideIdle)
+        {
+            const std::string_view value = member.substr(hideIdleKey.size());
+            if (value == "true")
+            {
+                hideIdle = true;
+            }
+            else if (value == "false")
+            {
+                hideIdle = false;
+            }
+            else
+            {
+                return invalid;
+            }
+            sawHideIdle = true;
+            continue;
+        }
+        return invalid;
     }
-    topN = parsed;
-    return S_OK;
+    return sawTopN ? S_OK : invalid;
 }
 
 struct ViewerPanelColor final
@@ -1057,8 +1101,9 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 {
   public:
     ViewerWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, ViewerKind kind, uint32_t topN,
-                 ViewerPanelColor panelColor, IRedXeHost* host) noexcept
-        : _providerOwner(std::move(providerOwner)), _kind(kind), _topN(topN), _panelColor(panelColor), _host(host)
+                 bool hideIdle, ViewerPanelColor panelColor, IRedXeHost* host) noexcept
+        : _providerOwner(std::move(providerOwner)), _kind(kind), _topN(topN), _hideIdle(hideIdle),
+          _panelColor(panelColor), _host(host)
     {
         g_liveWidgetCount.fetch_add(1, std::memory_order_relaxed);
         if (kind == ViewerKind::ProcessViewer)
@@ -1618,6 +1663,11 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             {
                 continue;
             }
+            if (_hideIdle && values[0].uint64Value == 0)
+            {
+                // PID 0 is the System Idle Process: its CPU share is the machine doing nothing.
+                continue;
+            }
             RankedRow row{};
             row.identity = values[0].uint64Value;
             row.pid = values[0].uint64Value;
@@ -1647,6 +1697,13 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     void InsertBounded(ViewerSample& sample, RankedRow candidate, uint32_t limit) noexcept
     {
+        InsertBoundedBy(sample, candidate, limit, RankByPrimary);
+    }
+
+    // Keeps the `limit` rows that rank first under `before`, in rank order.
+    template <typename Before>
+    static void InsertBoundedBy(ViewerSample& sample, RankedRow candidate, uint32_t limit, Before before) noexcept
+    {
         if (limit == 0)
         {
             return;
@@ -1655,7 +1712,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             sample.rows[sample.rowCount++] = candidate;
         }
-        else if (!RankByPrimary(candidate, sample.rows[sample.rowCount - 1]))
+        else if (!before(candidate, sample.rows[sample.rowCount - 1]))
         {
             return;
         }
@@ -1663,11 +1720,59 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             sample.rows[sample.rowCount - 1] = candidate;
         }
-        for (uint32_t index = sample.rowCount - 1;
-             index > 0 && RankByPrimary(sample.rows[index], sample.rows[index - 1]); --index)
+        for (uint32_t index = sample.rowCount - 1; index > 0 && before(sample.rows[index], sample.rows[index - 1]);
+             --index)
         {
             std::swap(sample.rows[index], sample.rows[index - 1]);
         }
+    }
+
+    // Volumes in drive-letter order, the way Explorer lists them: lettered mounts ("E:\") first, alphabetically and
+    // without regard to case, then mount folders (unmounted volumes never reach the ranking).
+    static bool RankByMount(const RankedRow& left, const RankedRow& right) noexcept
+    {
+        const auto rank = [](const RankedRow& row) noexcept -> int
+        {
+            if (row.detailCharacters >= 2 && row.detail[1] == L':')
+            {
+                return 0;
+            }
+            return row.detailCharacters > 0 && row.detail[0] != L'\\' ? 1 : 2;
+        };
+        const int leftRank = rank(left);
+        const int rightRank = rank(right);
+        if (leftRank != rightRank)
+        {
+            return leftRank < rightRank;
+        }
+        const int order = _wcsnicmp(left.detail.data(), right.detail.data(), left.detail.size());
+        if (order != 0)
+        {
+            return order < 0;
+        }
+        return left.identity < right.identity;
+    }
+
+    // "Label (E:)": the provider's label column ahead of the mount without its trailing backslash. A volume with no
+    // mount path (a GUID path) or no label keeps the mount as its name.
+    static void ExplorerVolumeName(RankedRow& row, const RedXeDataValue& label) noexcept
+    {
+        if (label.valueType != RedXeDataValueTypeUtf16 || label.quality != RedXeDataQualityGood || !label.utf16Value ||
+            label.utf16Characters == 0 || row.nameCharacters == 0 || row.name[0] == L'\\')
+        {
+            return;
+        }
+        std::array<wchar_t, kMaximumNameCharacters + 1> mount = row.name;
+        uint32_t mountCharacters = row.nameCharacters;
+        if (mountCharacters > 1 && mount[mountCharacters - 1] == L'\\')
+        {
+            mount[--mountCharacters] = L'\0';
+        }
+        const uint32_t labelCharacters = std::min(label.utf16Characters, kMaximumNameCharacters);
+        const int written = _snwprintf_s(row.name.data(), row.name.size(), _TRUNCATE, L"%.*s (%s)",
+                                         static_cast<int>(labelCharacters), label.utf16Value, mount.data());
+        row.nameCharacters = written < 0 ? static_cast<uint32_t>(wcsnlen(row.name.data(), kMaximumNameCharacters))
+                                         : static_cast<uint32_t>(written);
     }
 
     static void PreserveRowMotion(const ViewerSample& previous, ViewerSample& next) noexcept
@@ -1977,7 +2082,23 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                 continue;
             }
             RankedRow row{};
+            // The mount ("E:\") is the identity and the sort key; the card reads the way Explorer names the drive,
+            // "Label (E:)", from the provider's label column (its own label or a drive-type stand-in) when present.
+            // A volume with no mount path at all (recovery and EFI partitions, known only by their GUID path) is
+            // left out, as Explorer leaves it out.
             CopyName(row.name, row.nameCharacters, values[1], L"Volume");
+            if (row.nameCharacters == 0 || row.name[0] == L'\\')
+            {
+                continue;
+            }
+            row.identity = HashUtf16(row.name.data(), row.nameCharacters);
+            CopyDetail(row.detail, row.detailCharacters, values[1], L"");
+            const RedXeDataValue* labelValue =
+                snapshot->columnCount >= 8 ? RowValues(snapshot->rows[rowIndex], 8) : nullptr;
+            if (labelValue)
+            {
+                ExplorerVolumeName(row, labelValue[7]);
+            }
             uint64_t total = 0;
             uint64_t freeBytes = 0;
             row.primaryAvailable = TakeU64(values[3], total) && TakeU64(values[4], freeBytes) && total > 0;
@@ -1987,8 +2108,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                               : 0.0f;
             row.secondary = total;
             row.pid = total - std::min(freeBytes, total);
-            row.identity = HashUtf16(row.name.data(), row.nameCharacters);
-            InsertBounded(next, row, limit);
+            InsertBoundedBy(next, row, limit, RankByMount);
         }
         PreserveRowMotion(_sample, next);
         _sample.rowCount = next.rowCount;
@@ -2572,8 +2692,24 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         (void)list.AddFill(x, y, fillWidth, height, red, green, blue, 1.0f, height * 0.5f);
     }
 
-    void DrawCpuTrack(ViewerDrawList& list, float x, float y, float width, float height, float percent,
-                      bool available) noexcept
+    // The System Idle Process (PID 0) reads in the OK colour whatever its percent: that figure is the share of the
+    // machine doing nothing, so 92 % is good news, not a red number.
+    static void ProcessPercentColor(const RankedRow& row, float& red, float& green, float& blue) noexcept
+    {
+        if (row.pid == 0 && row.primaryAvailable)
+        {
+            red = kOkR;
+            green = kOkG;
+            blue = kOkB;
+            return;
+        }
+        IntentTextColor(row.displayPrimary / 100.0f, row.primaryAvailable, red, green, blue);
+    }
+
+    // `calm` draws the bar in the OK colour whatever the percent: the System Idle Process is the share of the machine
+    // doing nothing, so its 92 % is good news, not a red bar.
+    void DrawCpuTrack(ViewerDrawList& list, float x, float y, float width, float height, float percent, bool available,
+                      bool calm = false) noexcept
     {
         (void)list.AddFill(x, y, width, height, kTroughR, kTroughG, kTroughB, 1.0f, height * 0.5f);
         if (!available)
@@ -2587,10 +2723,13 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         }
         const float lum = CpuHeatLuminance(t);
         const float mix = std::max(lum, std::sqrt(t));
-        float red = kFillR;
-        float green = kFillG;
-        float blue = kFillB;
-        SignalColor(t, red, green, blue);
+        float red = kOkR;
+        float green = kOkG;
+        float blue = kOkB;
+        if (!calm)
+        {
+            SignalColor(t, red, green, blue);
+        }
         red = Lerp(kHeatIdle, red, mix);
         green = Lerp(kHeatIdle, green, mix);
         blue = Lerp(kHeatIdle, blue, mix);
@@ -2663,7 +2802,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             float ir = kTextR;
             float ig = kTextG;
             float ib = kTextB;
-            IntentTextColor(row.displayPrimary / 100.0f, row.primaryAvailable, ir, ig, ib);
+            ProcessPercentColor(row, ir, ig, ib);
             (void)resources.AppendText(list, panel.pad, y0, panel.heroPx, ir, ig, ib, 1.0f, cpu,
                                        static_cast<uint32_t>(wcsnlen(cpu, 16)));
             (void)AppendClippedText(resources, list, panel.pad, y0 + panel.heroPx + 4.0f, panel.labelPx, panel.innerW,
@@ -2704,7 +2843,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             const float layoutY = slice.start == 0 ? row.displayY : static_cast<float>(index);
             CellOrigin(panel.pad, y0, index, columns, colWidth, rowHeight, layoutY, columns == 1, cellX, cellY);
             const float trackY = std::min(cellY + 2.0f + rowPx + 4.0f, cellY + rowHeight - trackH - 2.0f);
-            DrawCpuTrack(list, cellX, trackY, colWidth, trackH, row.displayPrimary, row.primaryAvailable);
+            DrawCpuTrack(list, cellX, trackY, colWidth, trackH, row.displayPrimary, row.primaryAvailable, row.pid == 0);
             wchar_t ws[16]{};
             FormatBytes(ws, 16, row.secondary, true);
             wchar_t cpu[16]{};
@@ -2721,7 +2860,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             float ir = kTextR;
             float ig = kTextG;
             float ib = kTextB;
-            IntentTextColor(row.displayPrimary / 100.0f, row.primaryAvailable, ir, ig, ib);
+            ProcessPercentColor(row, ir, ig, ib);
             (void)resources.AppendText(list, cpuX, cellY + 2.0f, rowPx, ir, ig, ib, 1.0f, cpu,
                                        static_cast<uint32_t>(wcsnlen(cpu, 16)));
         }
@@ -3462,6 +3601,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     uint32_t _subscriptionCount = 0;
     ViewerKind _kind;
     uint32_t _topN;
+    bool _hideIdle;
     ViewerPanelColor _panelColor;
     uint32_t _restDelay = 1000;
     IRedXeHost* _host = nullptr;
@@ -3501,8 +3641,9 @@ class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetP
 {
   public:
     ViewerProvider(wil::com_ptr_nothrow<IRedXeDataProvider>&& dataProvider, ViewerKind kind, uint32_t topN,
-                   ViewerPanelColor panelColor, IRedXeHost* host) noexcept
-        : _dataProvider(std::move(dataProvider)), _kind(kind), _topN(topN), _panelColor(panelColor), _host(host)
+                   bool hideIdle, ViewerPanelColor panelColor, IRedXeHost* host) noexcept
+        : _dataProvider(std::move(dataProvider)), _kind(kind), _topN(topN), _hideIdle(hideIdle),
+          _panelColor(panelColor), _host(host)
     {
         const ViewerCatalogEntry& entry = Catalog(kind);
         _types[0] = RedXeWidgetTypeDescriptor{
@@ -3569,7 +3710,8 @@ class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetP
         {
             return result;
         }
-        auto* created = new (std::nothrow) ViewerWidget(std::move(providerOwner), _kind, _topN, _panelColor, _host);
+        auto* created =
+            new (std::nothrow) ViewerWidget(std::move(providerOwner), _kind, _topN, _hideIdle, _panelColor, _host);
         if (!created)
         {
             return E_OUTOFMEMORY;
@@ -3588,6 +3730,7 @@ class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetP
     wil::com_ptr_nothrow<IRedXeDataProvider> _dataProvider;
     ViewerKind _kind;
     uint32_t _topN;
+    bool _hideIdle;
     ViewerPanelColor _panelColor;
     IRedXeHost* _host = nullptr;
     std::array<RedXeWidgetTypeDescriptor, 1> _types{};
@@ -3611,6 +3754,7 @@ HRESULT CreateViewerProviderFor(ViewerKind kind, REFIID interfaceId, const RedXe
     }
     const ViewerCatalogEntry& entry = Catalog(kind);
     uint32_t topN = entry.topNDefault;
+    bool hideIdle = false;
     HRESULT configurationResult = S_OK;
     if (entry.topNMax == 0)
     {
@@ -3618,7 +3762,8 @@ HRESULT CreateViewerProviderFor(ViewerKind kind, REFIID interfaceId, const RedXe
     }
     else
     {
-        configurationResult = ReadTopN(options, entry.topNMax, entry.topNDefault, topN);
+        configurationResult = ReadRankedOptions(options, entry.topNMax, entry.topNDefault,
+                                                kind == ViewerKind::ProcessViewer, topN, hideIdle);
     }
     if (FAILED(configurationResult))
     {
@@ -3630,8 +3775,8 @@ HRESULT CreateViewerProviderFor(ViewerKind kind, REFIID interfaceId, const RedXe
     {
         return configurationResult;
     }
-    auto* provider =
-        new (std::nothrow) ViewerProvider(std::move(dataProvider), kind, topN, PanelColorFromOptions(options), host);
+    auto* provider = new (std::nothrow)
+        ViewerProvider(std::move(dataProvider), kind, topN, hideIdle, PanelColorFromOptions(options), host);
     if (!provider)
     {
         return E_OUTOFMEMORY;

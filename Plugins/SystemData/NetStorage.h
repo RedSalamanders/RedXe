@@ -25,6 +25,8 @@ constexpr size_t kRedXeDiskNameCharacters = 64;
 constexpr size_t kRedXeVolumeGuidCharacters = 64;
 constexpr size_t kRedXeVolumeMountCharacters = 260;
 constexpr size_t kRedXeFileSystemCharacters = 32;
+// A volume label is at most 32 characters on NTFS and 11 on FAT; Explorer's stand-in names ("Local Disk") fit too.
+constexpr size_t kRedXeVolumeLabelCharacters = 64;
 constexpr uint32_t kRedXeNetworkProtocolCount = 6;
 
 struct RedXeNetworkInterfaceRow final
@@ -117,6 +119,9 @@ struct RedXeStorageVolumeRow final
     wchar_t volumeGuid[kRedXeVolumeGuidCharacters]{};
     wchar_t displayName[kRedXeVolumeMountCharacters]{};
     wchar_t fileSystem[kRedXeFileSystemCharacters]{};
+    // The label Explorer shows before "(X:)": the volume's own label, else its drive-type stand-in ("Local Disk",
+    // "USB Drive", "CD Drive", "Network Drive"); empty for a volume with neither.
+    wchar_t label[kRedXeVolumeLabelCharacters]{};
     uint64_t totalBytes = 0;
     uint64_t freeBytes = 0;
     uint64_t extentCount = 0;

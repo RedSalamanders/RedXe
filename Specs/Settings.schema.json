@@ -107,7 +107,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "topN": { "type": "integer", "minimum": 1, "maximum": 32, "default": 10 }
+        "topN": { "type": "integer", "minimum": 1, "maximum": 32, "default": 10 },
+        "hideIdle": {
+          "type": "boolean",
+          "default": true,
+          "description": "Leave PID 0 (System Idle Process) out of the ranking; its CPU share is the machine doing nothing."
+        }
       }
     },
     "studioClockSettings": {
@@ -507,7 +512,8 @@
           "properties": {
             "plugin": { "const": "builtin.process-viewer" },
             "backgroundColor": { "$ref": "#/$defs/widgetBackground" },
-            "topN": { "$ref": "#/$defs/processViewerSettings/properties/topN" }
+            "topN": { "$ref": "#/$defs/processViewerSettings/properties/topN" },
+            "hideIdle": { "$ref": "#/$defs/processViewerSettings/properties/hideIdle" }
           }
         },
         {
@@ -608,6 +614,7 @@
         "shuffle": { "$ref": "#/$defs/shadersSettings/properties/shuffle" },
         "renderScalePercent": { "$ref": "#/$defs/shadersSettings/properties/renderScalePercent" },
         "topN": { "type": "integer", "minimum": 1, "maximum": 32 },
+        "hideIdle": { "type": "boolean" },
         "showSecondProgress": { "type": "boolean" },
         "externalDotsAlwaysOn": { "type": "boolean" },
         "showSeconds": { "type": "boolean" },

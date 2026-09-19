@@ -920,10 +920,36 @@ void RedXeNetStorageSampleVolumes(RedXeNetStorageState& state) noexcept
         }
 
         wchar_t fileSystem[kRedXeFileSystemCharacters]{};
-        if (GetVolumeInformationW(volumeName, nullptr, 0, nullptr, nullptr, nullptr, fileSystem,
-                                  static_cast<DWORD>(std::size(fileSystem))) != FALSE)
+        wchar_t label[kRedXeVolumeLabelCharacters]{};
+        if (GetVolumeInformationW(volumeName, label, static_cast<DWORD>(std::size(label)), nullptr, nullptr, nullptr,
+                                  fileSystem, static_cast<DWORD>(std::size(fileSystem))) != FALSE)
         {
             CopyWide(row.fileSystem, std::size(row.fileSystem), fileSystem);
+            CopyWide(row.label, std::size(row.label), label);
+        }
+        if (row.label[0] == L'\0')
+        {
+            // No label: the stand-in Explorer shows for the drive type, so the card still reads "Local Disk (C:)".
+            switch (GetDriveTypeW(spacePath))
+            {
+            case DRIVE_FIXED:
+                CopyWide(row.label, std::size(row.label), L"Local Disk");
+                break;
+            case DRIVE_REMOVABLE:
+                CopyWide(row.label, std::size(row.label), L"USB Drive");
+                break;
+            case DRIVE_CDROM:
+                CopyWide(row.label, std::size(row.label), L"CD Drive");
+                break;
+            case DRIVE_REMOTE:
+                CopyWide(row.label, std::size(row.label), L"Network Drive");
+                break;
+            case DRIVE_RAMDISK:
+                CopyWide(row.label, std::size(row.label), L"RAM Disk");
+                break;
+            default:
+                break;
+            }
         }
 
         wchar_t openPath[kRedXeVolumeGuidCharacters]{};

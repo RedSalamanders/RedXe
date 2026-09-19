@@ -493,9 +493,10 @@ template <size_t Count>
 {
     unique_yyjson_doc document = ParseStoredObject(settings);
     yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
-    constexpr std::array keys{"topN"};
+    constexpr std::array keys{"topN", "hideIdle"};
     uint32_t topN = 0;
-    return root && HasExactKeys(root, keys) && ReadUnsigned(root, "topN", 1, 32, topN);
+    return root && HasExactKeys(root, keys) && ReadUnsigned(root, "topN", 1, 32, topN) &&
+           yyjson_is_bool(yyjson_obj_get(root, "hideIdle"));
 }
 
 [[nodiscard]] bool IsRankedViewerPrivate(const JsonObjectSettings& settings) noexcept

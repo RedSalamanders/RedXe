@@ -194,9 +194,10 @@ RedXe validates host structure, resolves declarations and flattened use-objects,
 once, and validates every effective widget on every page. Inactive pages create no runtime widget resources. Contract
 or settings failure rejects the complete candidate. ABI details are normative in `Specs/Plugins/Plugins_API.md`.
 
-Process Viewer settings are `{ "topN": <integer> }`. `topN` is required after default resolution, ranges from 1
-through 32, and defaults to 10. Unknown members, non-integers, and values outside the range reject the complete
-candidate.
+Process Viewer settings are `{ "topN": <integer>, "hideIdle": <boolean> }`. `topN` is required after default
+resolution, ranges from 1 through 32, and defaults to 10. `hideIdle` defaults to `true` and leaves PID 0 (the System
+Idle Process) out of the ranking. Unknown members, non-integers, non-booleans, and values outside the range reject the
+complete candidate.
 
 Network Meter and GPU Processes settings are the same closed `{ "topN": <integer> }` object with range 1 through 16
 and default 8. System Pulse, CPU Meter, Memory Meter, Storage Meter, GPU Meter, Power Meter, and Thermal Meter publish

@@ -348,8 +348,9 @@ requested plugin ID. The record and its UTF-8 strings remain valid while the mod
 - The host copies or parses borrowed strings synchronously and never frees them.
 - Rotating Triangle and GDI Orbit publish closed empty-object schemas and `{}` defaults. Matrix Rain publishes its
   complete closed schema, ranges, color syntax, and runtime defaults. Process Viewer publishes a closed object with
-  required integer `topN` from 1 through 32 and default 10. Network Meter and GPU Processes publish the same closed
-  `topN` object with range 1 through 16 and default 8. System Pulse, CPU Meter, Memory Meter, Storage Meter, GPU Meter,
+  required integer `topN` from 1 through 32 and default 10 plus boolean `hideIdle`, default `true`. Network Meter and
+  GPU Processes publish the closed `topN` object with range 1 through 16 and default 8. System Pulse, CPU Meter,
+  Memory Meter, Storage Meter, GPU Meter,
   Power Meter, and Thermal Meter publish closed empty-object schemas and `{}` defaults. Studio Clock publishes its
   complete closed boolean, color, and date-format schema and defaults. Desk Clock publishes its complete closed duration
   and color schema and defaults. 5H4D3R5 publishes its closed mode/shader enum, interval, shuffle, and render-scale
@@ -977,7 +978,7 @@ ask for 1/4, 1/3, 1/2, or 1/1 before raising a tile that is not already full-cli
 
 | Plugin ID | Type ID | Settings | Datasets |
 | --- | --- | --- | --- |
-| `builtin.process-viewer` | `process-viewer` | `topN` 1–32, default 10 | `process.list` (2 s) |
+| `builtin.process-viewer` | `process-viewer` | `topN` 1–32, default 10; `hideIdle`, default `true` | `process.list` (2 s) |
 | `builtin.system-pulse` | `system-pulse` | `{}` | `system.summary` (1 s) |
 | `builtin.cpu-meter` | `cpu-meter` | `{}` | `cpu.summary` + `cpu.logical` (1 s) |
 | `builtin.memory-meter` | `memory-meter` | `{}` | `memory.summary` (1 s) |
@@ -994,7 +995,12 @@ under the host cap of 32. Widgets MAY share one host provider; identical dataset
 subscribes to `process.list` so image names can join on PID; that subscription coalesces with Process Viewer and does
 not raise the unique-dataset count. Process Viewer keeps the leading `process.list` columns, ranks available CPU
 percentage descending with working-set and PID tie-breakers, and caches at most `topN` rows with bounded process-name
-storage.
+storage. PID 0 (the System Idle Process) is left out while `hideIdle` is `true` (the default); when listed, its CPU
+percent and bar read in the OK colour whatever the value, never the warning or high band, because that figure is the
+share of the machine doing nothing. Storage Meter lists volumes in drive-letter order (lettered mounts alphabetically,
+then mount folders; a volume with no mount path is left out, as Explorer leaves it out), never by used percent, and names each card the way Explorer does,
+`Label (E:)`, from the `storage.volume` `label` column (the volume label or a drive-type stand-in) ahead of the mount
+without its trailing backslash.
 
 The family presents ranked lists, capacity bars, KPI tiles, adapter cards, heatmaps, and sparklines rather than raw
 tables. Visual language is a panel in the host-resolved dashboard background with a muted hairline, inset 4 px from
@@ -1015,8 +1021,8 @@ widget rectangle is wide enough for two packed columns, ranked process, GPU proc
 lists MUST split into a two-column grid instead of stretching a single row across empty width. A process or GPU-process
 grid MUST drop back to one column when name plus right-aligned stats no longer fit at the grown type size. System
 Pulse places the CPU numeral on the left and packs RAM, process, thread, handle, core, uptime, and commit chips into
-two columns when width allows. Storage volumes are ranked by used percent then size, render as cards with used/total
-bytes, an OK/HIGH/FULL band, and a thick horizontal capacity track that MUST sit below that text. Thermal cards lead
+two columns when width allows. Storage volumes are listed in drive-letter order under their Explorer names, render as
+cards with used/total bytes, an OK/HIGH/FULL band, and a thick horizontal capacity track that MUST sit below that text. Thermal cards lead
 with the `°C` numeral, label COOL / OK / WARM / HOT from the 25 / 70 / 85 °C bands, draw a horizontal level with ticks
 at 70 °C and 85 °C, and keep the sensor name above that level with a gap. CPU Meter places a recency-faded,
 right-aligned history beside the core heatmap. That history uses stacked translucent bars, a brighter live-edge cap,
