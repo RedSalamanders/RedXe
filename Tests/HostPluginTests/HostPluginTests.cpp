@@ -446,6 +446,32 @@ void TestDockPlacement(bool& success) noexcept
               accentLeft.left == 4 && accentLeft.right == 6 && accentRight.left == 0 && accentRight.right == 2,
           L"the accent line sits on the desktop-facing side of the strip", success);
 
+    // Drag-to-resize: the grip band hugs the inner edge, and the dragged thickness is the distance from the outer
+    // edge in DIPs, clamped to the settings range and to half the monitor.
+    const RECT bandBottom = DockResizeBandRect(2560, 180, DockEdge::Bottom, 6);
+    const RECT bandTop = DockResizeBandRect(2560, 180, DockEdge::Top, 6);
+    const RECT bandLeft = DockResizeBandRect(240, 1392, DockEdge::Left, 6);
+    const RECT bandRight = DockResizeBandRect(240, 1392, DockEdge::Right, 6);
+    Check(bandBottom.top == 0 && bandBottom.bottom == 6 && bandBottom.right == 2560 && bandTop.top == 174 &&
+              bandTop.bottom == 180 && bandLeft.left == 234 && bandLeft.right == 240 && bandRight.left == 0 &&
+              bandRight.right == 6 && bandRight.bottom == 1392,
+          L"the resize band sits on the desktop-facing edge of every dock", success);
+    const RECT thinBand = DockResizeBandRect(2560, 8, DockEdge::Bottom, 6);
+    const RECT noBand = DockResizeBandRect(2560, 180, DockEdge::None, 6);
+    Check(thinBand.bottom == 4 && noBand.right == noBand.left, L"a thin bar halves the band and no edge means no band",
+          success);
+    Check(DockThicknessFromDrag(fullBottom, monitor, DockEdge::Bottom, POINT{100, 1292}, 96) == 100 &&
+              DockThicknessFromDrag(fullBottom, monitor, DockEdge::Bottom, POINT{100, 1242}, 144) == 100 &&
+              DockThicknessFromDrag(fullTop, monitor, DockEdge::Top, POINT{100, 250}, 96) == 250 &&
+              DockThicknessFromDrag(fullLeft, monitor, DockEdge::Left, POINT{300, 10}, 96) == 300 &&
+              DockThicknessFromDrag(fullRight, monitor, DockEdge::Right, POINT{2260, 10}, 96) == 300,
+          L"a dragged edge measures the thickness from the outer edge at the monitor DPI", success);
+    Check(DockThicknessFromDrag(fullBottom, monitor, DockEdge::Bottom, POINT{100, 1500}, 96) ==
+                  kDockMinimumThicknessDips &&
+              DockThicknessFromDrag(fullBottom, monitor, DockEdge::Bottom, POINT{100, -500}, 96) == 720 &&
+              DockThicknessFromDrag(fullBottom, monitor, DockEdge::Bottom, POINT{100, -500}, 192) == 360,
+          L"a drag past the outer edge clamps to the minimum and one into the desktop to half the monitor", success);
+
     // MINMAXINFO: the strip is the minimum for autohide, the full bar for fixed, the monitor the maximum.
     MINMAXINFO autohideInfo{};
     DockMinMaxInfo(monitor, DockEdge::Bottom, 4, true, fullBottom, autohideInfo);

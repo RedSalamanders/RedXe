@@ -9,6 +9,7 @@
 #include "MatrixRainGlyphVertexShader.h"
 #include "MatrixRainTestContract.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cmath>
@@ -488,6 +489,11 @@ struct GridCache final
     uint32_t instanceCount = 0;
     uint32_t permutationMultiplier = 0;
     uint32_t permutationOffset = 0;
+    // Trail length and off-screen cycle padding actually streamed, in glyphs. A tile shorter than the configured
+    // trail (a dock bar, a small gallery tile) would otherwise show mostly dim tails with the bright head below the
+    // tile, so both shrink with the visible row count.
+    uint32_t trailLength = 0;
+    uint32_t cyclePadding = 0;
     float cellWidth = 0.0f;
     float cellHeight = 0.0f;
     float horizontalMargin = 0.0f;
@@ -734,7 +740,7 @@ class MatrixRainDeviceResources final
         const MatrixRainConstants constants{
             {frame.widthPixels, frame.heightPixels, _configuration.seed, _grid.rows},
             {_grid.columns, _grid.activeColumns, _grid.permutationMultiplier, _grid.permutationOffset},
-            {_configuration.trailLengthGlyphs, _configuration.mutationPerSecond, 8, 8},
+            {_grid.trailLength, _configuration.mutationPerSecond, _grid.cyclePadding, 8},
             {_grid.cellWidth, _grid.cellHeight, frame.elapsedSeconds,
              7.2f * static_cast<float>(_configuration.speedPercent) / 100.0f},
             {_headColor[0], _headColor[1], _headColor[2], _headColor[3]},
@@ -826,6 +832,14 @@ class MatrixRainDeviceResources final
         const uint32_t maximumActive = grid.rows == 0 ? 0 : static_cast<uint32_t>(kMaximumGlyphInstances / grid.rows);
         grid.activeColumns = static_cast<uint32_t>(desiredActive > maximumActive ? maximumActive : desiredActive);
         grid.instanceCount = grid.activeColumns * grid.rows;
+
+        // `rows` counts the partial bottom row and one spare; the visible rows are one fewer. Keep the trail to two
+        // thirds of them (at least four glyphs) and the off-screen padding to a third (two through eight), so a
+        // stream's head crosses a short tile for most of its cycle instead of hanging below it.
+        const uint32_t visibleRows = grid.rows > 1 ? grid.rows - 1 : 1;
+        const uint32_t trailCap = std::max(4U, visibleRows * 2U / 3U);
+        grid.trailLength = std::min(_configuration.trailLengthGlyphs, trailCap);
+        grid.cyclePadding = std::clamp(visibleRows / 3U, 2U, 8U);
 
         if (grid.columns > 1)
         {

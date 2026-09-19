@@ -1178,6 +1178,40 @@ constexpr std::string_view kRepresentative = R"json(
         std::wprintf(L"The --dock* merge did not replace exactly the named members.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
+
+    // A dragged edge persists as dock.thickness: an existing member is replaced, a missing object is created and
+    // the document moves to minor 2, and the result parses back to the same value.
+    AppSettings dragged{};
+    if (FAILED(ParseAppSettingsJson(full, dragged)) || FAILED(PatchDockThickness(dragged, 96)) ||
+        dragged.dock.thicknessDips != 96 || dragged.sourceDocument.find("\"thickness\": 96") == std::string::npos ||
+        dragged.sourceDocument.find("\"thickness\": 240") != std::string::npos)
+    {
+        std::wprintf(L"PatchDockThickness did not replace the existing thickness.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    AppSettings reparsed{};
+    if (FAILED(ParseAppSettingsJson(dragged.sourceDocument, reparsed)) || reparsed.dock.thicknessDips != 96 ||
+        reparsed.dock.edge != DockEdge::Left || reparsed.dock.mode != DockMode::Autohide)
+    {
+        std::wprintf(L"The patched document does not parse back to the dragged thickness.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    AppSettings created{};
+    if (FAILED(ParseAppSettingsJson(olderMinor, created)) || FAILED(PatchDockThickness(created, 300)) ||
+        created.dock.thicknessDips != 300 || created.sourceDocument.find("\"dock\"") == std::string::npos ||
+        created.sourceDocument.find("\"minor\": 2") == std::string::npos ||
+        FAILED(ParseAppSettingsJson(created.sourceDocument, reparsed)) || reparsed.dock.thicknessDips != 300 ||
+        reparsed.versionMinor != 2 || reparsed.dock.edge != DockEdge::None)
+    {
+        std::wprintf(L"PatchDockThickness did not create the dock object on a minor 1 document.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    if (SUCCEEDED(PatchDockThickness(created, 31)) || SUCCEEDED(PatchDockThickness(created, 1081)) ||
+        created.dock.thicknessDips != 300)
+    {
+        std::wprintf(L"PatchDockThickness accepted an out-of-range thickness.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
     return S_OK;
 }
 

@@ -51,7 +51,7 @@ GlyphOutput VertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instanc
 
     const float baseTrailLength = float(stream.x);
     const float trailLength = baseTrailLength * lerp(0.72f, 1.28f, UnitFloat(Hash(streamHash ^ 0xB5297A4DU)));
-    const float cycleLength = float(rowCount) + trailLength + 8.0f;
+    const float cycleLength = float(rowCount) + trailLength + float(stream.z);
     const float speed = geometryAndTime.w * lerp(0.68f, 1.42f, UnitFloat(Hash(streamHash ^ 0x68E31DA4U)));
     const float phase = UnitFloat(Hash(streamHash ^ 0x1B56C4E9U)) * cycleLength;
     const float headRow = fmod(geometryAndTime.z * speed + phase, cycleLength) - trailLength;

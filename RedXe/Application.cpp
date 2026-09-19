@@ -1665,13 +1665,147 @@ void Application::KillDockTimer() noexcept
     _dockTimerArmed = false;
 }
 
+RECT Application::DockResizeBand() const noexcept
+{
+    if (!_dockActive || DockHidden() || _dockFullRect.right <= _dockFullRect.left)
+    {
+        return RECT{};
+    }
+    return DockResizeBandRect(_dockFullRect.right - _dockFullRect.left, _dockFullRect.bottom - _dockFullRect.top,
+                              _dock.edge, PageEdgeDipPixels(kDockResizeBandDips, _dockDpi));
+}
+
+bool Application::PointInDockResizeBand(POINT client) const noexcept
+{
+    const RECT band = DockResizeBand();
+    return band.right > band.left && band.bottom > band.top && PtInRect(&band, client);
+}
+
+void Application::BeginDockResize(HWND window) noexcept
+{
+    if (_dockResizeDrag || !_dockActive)
+    {
+        return;
+    }
+    CancelInteractivePointer();
+    ClearPageEdgeHover();
+    _dockResizeDrag = true;
+    _dockResizeGrabPx = 0;
+    POINT cursor{};
+    if (GetCursorPos(&cursor))
+    {
+        switch (_dock.edge)
+        {
+        case DockEdge::Top:
+            _dockResizeGrabPx = _dockFullRect.bottom - cursor.y;
+            break;
+        case DockEdge::Bottom:
+            _dockResizeGrabPx = cursor.y - _dockFullRect.top;
+            break;
+        case DockEdge::Left:
+            _dockResizeGrabPx = _dockFullRect.right - cursor.x;
+            break;
+        case DockEdge::Right:
+            _dockResizeGrabPx = cursor.x - _dockFullRect.left;
+            break;
+        default:
+            break;
+        }
+    }
+    (void)SetCapture(window);
+    EvaluateDockHolds();
+}
+
+void Application::UpdateDockResize() noexcept
+{
+    POINT cursor{};
+    if (!_dockResizeDrag || !_window || !GetCursorPos(&cursor))
+    {
+        return;
+    }
+    // The inner edge stays where it was under the pointer at the press.
+    switch (_dock.edge)
+    {
+    case DockEdge::Top:
+        cursor.y += _dockResizeGrabPx;
+        break;
+    case DockEdge::Bottom:
+        cursor.y -= _dockResizeGrabPx;
+        break;
+    case DockEdge::Left:
+        cursor.x += _dockResizeGrabPx;
+        break;
+    case DockEdge::Right:
+        cursor.x -= _dockResizeGrabPx;
+        break;
+    default:
+        break;
+    }
+    const uint32_t thickness = DockThicknessFromDrag(_dockFullRect, _dockMonitorRect, _dock.edge, cursor, _dockDpi);
+    if (thickness == _dock.thicknessDips)
+    {
+        return;
+    }
+    // Live preview: the window and dashboard follow the pointer with the outer edge fixed. The shell reservation
+    // waits for the release so the desktop is not re-laid out on every mouse move.
+    _dock.thicknessDips = thickness;
+    bool clamped = false;
+    const LONG thicknessPx =
+        DockClampThickness(DockThicknessPixels(thickness, _dockDpi), _dockMonitorRect, _dock.edge, clamped);
+    _dockFullRect = DockTrimToThickness(_dockFullRect, _dock.edge, thicknessPx);
+    _dockResizing = true;
+    (void)SetWindowPos(_window.get(), nullptr, _dockFullRect.left, _dockFullRect.top,
+                       _dockFullRect.right - _dockFullRect.left, _dockFullRect.bottom - _dockFullRect.top,
+                       SWP_NOACTIVATE | SWP_NOZORDER);
+    _dockResizing = false;
+    if (const HRESULT result = ResizeDockDashboard(); FAILED(result))
+    {
+        RecordRuntimeFailure(result, "resize-failed");
+        PostMessageW(_window.get(), WM_CLOSE, 0, 0);
+        return;
+    }
+    RefreshPageEdgeAffordances();
+    PushHostChrome();
+}
+
+void Application::EndDockResize() noexcept
+{
+    if (!_dockResizeDrag)
+    {
+        return;
+    }
+    _dockResizeDrag = false;
+    if (GetCapture() == _window.get())
+    {
+        (void)ReleaseCapture();
+    }
+    // The dragged size replaces a --dock-thickness pin for the rest of the run, is committed to the shell, and is
+    // written to the settings file so it survives the next launch.
+    _dockOverrides.hasThickness = false;
+    (void)PlaceDock(true);
+    if (_settings)
+    {
+        const HRESULT persisted = _persistSettingsToDisk
+                                      ? _settingsStore.PersistDockThickness(*_settings, _dock.thicknessDips)
+                                      : PatchDockThickness(*_settings, _dock.thicknessDips);
+        if (FAILED(persisted))
+        {
+            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                               "dock-thickness-persist-failed",
+                               "The dragged dock thickness could not be written to the settings file.", persisted);
+        }
+    }
+    EvaluateDockHolds();
+}
+
 DockHolds Application::CurrentDockHolds() const noexcept
 {
     DockHolds holds{};
     holds.pointerInside = _dockPointerInside;
     holds.windowActive = _windowActive;
     holds.captureActive = _pagePointerActive || _pagePanStarted || _pageSettleActive || _pageTransitionDirection != 0 ||
-                          _pageStagePendingDirection != 0 || _interactiveOwnsPointer || _raiseSettleActive;
+                          _pageStagePendingDirection != 0 || _interactiveOwnsPointer || _raiseSettleActive ||
+                          _dockResizeDrag;
     holds.widgetRaised = _raisedActive;
     holds.dialogShown = _settingsErrorDialog != nullptr;
     holds.pinned = _screenshot.pending;
@@ -4713,6 +4847,14 @@ void Application::CloseMainWindow() noexcept
     }
     _pageEdgeMouseTracking = false;
     DestroyPageEdgeAffordances();
+    if (_dockResizeDrag)
+    {
+        _dockResizeDrag = false;
+        if (_window && GetCapture() == _window.get())
+        {
+            (void)ReleaseCapture();
+        }
+    }
     KillDockTimer();
     UnregisterDockAppBar();
     _settingsWatcher.Stop();
@@ -4967,9 +5109,21 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             OnDockEvent(DockRevealEvent::TouchOnStrip);
             return 0;
         }
+        if (!IsPointerSynthesizedMouseMessage() &&
+            PointInDockResizeBand(POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}))
+        {
+            BeginDockResize(window);
+            return 0;
+        }
         OnMouseButtonDown(window, lParam);
         return 0;
     case WM_LBUTTONUP:
+        if (_dockResizeDrag)
+        {
+            UpdateDockResize();
+            EndDockResize();
+            return 0;
+        }
         if (DockHidden())
         {
             return 0;
@@ -4986,6 +5140,11 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         // The top-level window owns edge-band hover: a band is created only while the pointer is inside its zone.
         if (!IsPointerSynthesizedMouseMessage())
         {
+            if (_dockResizeDrag)
+            {
+                UpdateDockResize();
+                return 0;
+            }
             if (!_pageEdgeMouseTracking)
             {
                 TRACKMOUSEEVENT track{sizeof(TRACKMOUSEEVENT), TME_LEAVE, window, 0};
@@ -5023,6 +5182,11 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             POINT cursor{};
             if (GetCursorPos(&cursor) && ScreenToClient(window, &cursor))
             {
+                if (_dockResizeDrag || PointInDockResizeBand(cursor))
+                {
+                    SetCursor(LoadCursorW(nullptr, DockEdgeIsHorizontal(_dock.edge) ? IDC_SIZENS : IDC_SIZEWE));
+                    return TRUE;
+                }
                 if (_raisedActive && PointInRectInclusive(_raisedLayout.close, cursor))
                 {
                     SetCursor(LoadCursorW(nullptr, IDC_HAND));
@@ -5077,6 +5241,11 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         ClearKeyboardFocus();
         break;
     case WM_CAPTURECHANGED:
+        if (_dockResizeDrag && reinterpret_cast<HWND>(lParam) != window)
+        {
+            // Capture taken away mid-drag (Alt+Tab, a modal): keep the size reached so far and commit it.
+            EndDockResize();
+        }
         if (_interactiveOwnsPointer && _interactivePointerKind == RedXePointerKindMouse &&
             reinterpret_cast<HWND>(lParam) != window)
             CancelInteractivePointer();

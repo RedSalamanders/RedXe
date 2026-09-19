@@ -1812,6 +1812,78 @@ HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view inst
     return S_OK;
 }
 
+HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept
+{
+    if (thicknessDips < kDockMinimumThicknessDips || thicknessDips > kDockMaximumThicknessDips)
+    {
+        return E_INVALIDARG;
+    }
+    settings.dock.thicknessDips = thicknessDips;
+    if (settings.sourceDocument.empty())
+    {
+        return S_OK;
+    }
+    unique_yyjson_doc source;
+    try
+    {
+        std::vector<char> mutableSource(settings.sourceDocument.begin(), settings.sourceDocument.end());
+        yyjson_read_err error{};
+        source.reset(yyjson_read_opts(mutableSource.data(), mutableSource.size(),
+                                      YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS, nullptr, &error));
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+    unique_mut_doc mutableDocument{yyjson_mut_doc_new(nullptr)};
+    yyjson_mut_val* mutableRoot = mutableDocument && source
+                                      ? yyjson_val_mut_copy(mutableDocument.get(), yyjson_doc_get_root(source.get()))
+                                      : nullptr;
+    if (!mutableRoot || !yyjson_mut_is_obj(mutableRoot))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    yyjson_mut_doc_set_root(mutableDocument.get(), mutableRoot);
+    // The member is additive at minor 2; an older document that gains it moves to that minor.
+    if (yyjson_mut_val* version = yyjson_mut_obj_get(mutableRoot, "version"); yyjson_mut_is_obj(version))
+    {
+        yyjson_mut_val* minor = yyjson_mut_obj_get(version, "minor");
+        if (!minor || (yyjson_mut_is_uint(minor) && yyjson_mut_get_uint(minor) < 2))
+        {
+            if (!yyjson_mut_obj_put(version, yyjson_mut_str(mutableDocument.get(), "minor"),
+                                    yyjson_mut_uint(mutableDocument.get(), 2)))
+            {
+                return E_OUTOFMEMORY;
+            }
+        }
+    }
+    yyjson_mut_val* dock = yyjson_mut_obj_get(mutableRoot, "dock");
+    if (!yyjson_mut_is_obj(dock))
+    {
+        dock = yyjson_mut_obj(mutableDocument.get());
+        if (!dock || !yyjson_mut_obj_put(mutableRoot, yyjson_mut_str(mutableDocument.get(), "dock"), dock))
+        {
+            return E_OUTOFMEMORY;
+        }
+    }
+    if (!yyjson_mut_obj_put(dock, yyjson_mut_str(mutableDocument.get(), "thickness"),
+                            yyjson_mut_uint(mutableDocument.get(), thicknessDips)))
+    {
+        return E_OUTOFMEMORY;
+    }
+    size_t length = 0;
+    unique_malloc_string written{yyjson_mut_write(mutableDocument.get(), YYJSON_WRITE_NOFLAG, &length)};
+    if (!written || length == 0)
+    {
+        return E_OUTOFMEMORY;
+    }
+    return FormatCompactSettingsJson(std::string_view(written.get(), length), settings.sourceDocument);
+}
+
 HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexcept
 {
     std::vector<char> bytes;
@@ -2207,6 +2279,30 @@ HRESULT SettingsStore::PersistPatchedDocument(const AppSettings& settings) noexc
     }
     _lastAppliedStamp = stamp;
     return S_OK;
+}
+
+HRESULT SettingsStore::PersistDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept
+{
+    const uint32_t previousThickness = settings.dock.thicknessDips;
+    try
+    {
+        std::string previousSource = settings.sourceDocument;
+        HRESULT result = PatchDockThickness(settings, thicknessDips);
+        if (SUCCEEDED(result) && !_selfTest && !_suppressDocumentWrites)
+        {
+            result = PersistPatchedDocument(settings);
+        }
+        if (FAILED(result))
+        {
+            settings.dock.thicknessDips = previousThickness;
+            settings.sourceDocument = std::move(previousSource);
+        }
+        return result;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
 }
 
 HRESULT SettingsStore::PersistWidgetSettings(AppSettings& settings, std::string_view instanceId,

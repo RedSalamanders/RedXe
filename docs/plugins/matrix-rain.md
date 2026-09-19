@@ -22,7 +22,7 @@ All members are optional in the file; omitted keys take these defaults. Unknown 
 | `glyphHeightDips` | integer | 12–48 | `18` | Glyph size in DIPs |
 | `densityPercent` | integer | 10–100 | `70` | How many columns are active |
 | `speedPercent` | integer | 25–300 | `100` | Fall speed |
-| `trailLengthGlyphs` | integer | 6–48 | `18` | Trail length |
+| `trailLengthGlyphs` | integer | 6–48 | `18` | Trail length. In a tile shorter than the trail (a dock bar, a small tile) the trail shortens to two thirds of the visible rows so the bright heads stay on screen |
 | `mutationPerSecond` | integer | 0–30 | `8` | Glyph changes per second |
 | `headColor` | string | `#RRGGBB` | `#D8FFE5` | Leading glyph |
 | `trailColor` | string | `#RRGGBB` | `#00E65C` | Trail |

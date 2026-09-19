@@ -69,6 +69,7 @@ A switch overrides that one setting for the run, even when you edit the file whi
 Good to know:
 
 - The bar has no taskbar button and does not take the focus when it starts. To quit, click or tap the bar and press **Escape**, or bind `redxe.quit`.
+- **Resize by dragging**: point at the bar's inner edge (the side facing the desktop; the cursor becomes a resize arrow), press, and drag. The bar follows the mouse; when you release, the reserved area follows and the new `thickness` is written to the settings file, so it survives the next start. Works in `fixed` and `autohide` (the bar stays open while you drag); a `--dock-thickness` switch is replaced by the dragged value for that run.
 - **Autohide**: rest the mouse on the thin strip at the screen edge and the bar slides back; it collapses again shortly after the pointer leaves and nothing else holds it (a raised widget, a swipe, a text field with the focus, the settings-error dialog). A click or a touch on the strip reveals at once, and a Logicon key or a Launcher tile bound to `redxe.dock.show`, `hide`, or `toggle` does too. If the taskbar sits on the same edge, the strip is just above the taskbar, so aim for that line or use another edge.
 - With `reserveWorkArea` off, or in `autohide`, the bar never covers the taskbar; it hugs the edge of the free area.
 - A full-screen game or video on that monitor pushes the bar beneath it; it returns when you leave full screen.

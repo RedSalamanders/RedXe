@@ -111,6 +111,15 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
   `HWND_BOTTOM` and the clearing notification restores `HWND_TOPMOST`.
 - `--screenshot` captures the dock like any window; an autohide dock is held revealed for the whole run (a pending
   capture is a hold), so the PNG shows the bar.
+- Drag-to-resize: the inner edge of a revealed bar (the side facing the desktop) is a host-owned grip band
+  `kDockResizeBandDips` (6) deep (`DockResizeBandRect`); it shows the size cursor, and a mouse press there captures
+  the pointer and drags the thickness (`DockThicknessFromDrag`: the distance from the outer edge in DIPs at the
+  monitor DPI, keeping the offset under the pointer, clamped to 32–1080 and half the monitor). During the drag the
+  window and dashboard follow the pointer live with the outer edge fixed and the shell reservation untouched; the
+  release (or a lost capture) commits through `PlaceDock`, replaces a `--dock-thickness` pin for the run, and
+  persists `dock.thickness` into the settings document (`SettingsStore::PersistDockThickness`, which creates the
+  `dock` object and raises `version.minor` to 2 when needed; a failed write is one Warning record,
+  `dock-thickness-persist-failed`). A drag is a hold for an autohide bar. Touch and pen do not resize.
 
 ### Monitor and placement
 
@@ -266,18 +275,21 @@ require a live inactive/resume check.
 
 Dock changes MUST keep the pure tables green: `HostPluginTests` proves the placement rectangles for every edge
 (reserving proposal and shell re-trim, overlay against a work area with a taskbar or another bar, negative
-coordinates), the thickness scaling and clamp, the hidden strip, the grip and its accent for every edge, MINMAXINFO,
-monitor selection for every selector kind with the primary fallback, every autohide state-machine row including zero
-delays and hold precedence, the scheduler row that a hidden dock waits after its one grip frame, and a dock-kind
-swap chain (`DXGI_SCALING_NONE`) presenting a tile frame and a grip frame while the client is smaller than the back
-buffer; `SettingsTests` proves the `dock` member, its rejections, minor 2, the `--dock*` grammar with its errors, and
-the merge precedence. Live, on the machine's topology: a reserving bar shrinks `rcWork` by exactly its thickness
-while it runs and restores it on exit; an overlay bar leaves `rcWork` alone and sits against the work-area edge; a
-side bar on a monitor with a bottom taskbar ends above the taskbar; an autohide bar collapses to its strip after the
-hide delay, reveals after the dwell when the real cursor rests on the strip, hides after the pointer leaves, and
-reveals at once on a click; `--screenshot` of an autohide bar yields the full bar; a live reload re-places thickness,
-mode, and edge changes and logs `dock-restart-required` for `none`. The 2026-09-19 closeout recorded all of these on
-a 3840×2160 150 % primary plus a 2560×720 150 % XENEON with bottom taskbars.
+coordinates), the thickness scaling and clamp, the hidden strip, the grip and its accent for every edge, the resize
+band for every edge and the dragged thickness (outer-edge distance, DPI, both clamps), MINMAXINFO, monitor selection
+for every selector kind with the primary fallback, every autohide state-machine row including zero delays and hold
+precedence, the scheduler row that a hidden dock waits after its one grip frame, and a dock-kind swap chain
+(`DXGI_SCALING_NONE`) presenting a tile frame and a grip frame while the client is smaller than the back buffer;
+`SettingsTests` proves the `dock` member, its rejections, minor 2, the `--dock*` grammar with its errors, the merge
+precedence, and `PatchDockThickness` (replace, create with the minor bump, range, re-parse). Live, on the machine's
+topology: a reserving bar shrinks `rcWork` by exactly its thickness while it runs and restores it on exit; an overlay
+bar leaves `rcWork` alone and sits against the work-area edge; a side bar on a monitor with a bottom taskbar ends
+above the taskbar; an autohide bar collapses to its strip after the hide delay, reveals after the dwell when the real
+cursor rests on the strip, hides after the pointer leaves, and reveals at once on a click; `--screenshot` of an
+autohide bar yields the full bar; a live reload re-places thickness, mode, and edge changes and logs
+`dock-restart-required` for `none`; a real mouse drag on the inner edge grows the bar live, commits the reservation
+on release, and writes `dock.thickness` to the file. The 2026-09-19 closeout recorded all of these on a 3840×2160
+150 % primary plus a 2560×720 150 % XENEON with bottom taskbars.
 
 ## Implementation and validation anchors
 

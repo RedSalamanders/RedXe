@@ -232,6 +232,67 @@ inline constexpr std::string_view kDockDefaultMonitor = "primary";
     return rect;
 }
 
+// Drag-to-resize: the inner edge of the bar (the side facing the desktop) is a grip band; dragging it changes the
+// thickness and the result is persisted as `dock.thickness`. The band is host-owned like the page edge bands, so a
+// widget under it cannot be clicked there.
+inline constexpr int kDockResizeBandDips = 6;
+
+// The band in client coordinates of the full bar, or an empty rectangle when the client is too thin to hold it.
+[[nodiscard]] constexpr RECT DockResizeBandRect(LONG clientWidth, LONG clientHeight, DockEdge edge,
+                                                LONG bandPx) noexcept
+{
+    if (clientWidth <= 0 || clientHeight <= 0 || bandPx <= 0 || edge == DockEdge::None)
+    {
+        return RECT{};
+    }
+    const LONG band = std::min(bandPx, DockEdgeIsHorizontal(edge) ? clientHeight / 2 : clientWidth / 2);
+    switch (edge)
+    {
+    case DockEdge::Top:
+        return RECT{0, clientHeight - band, clientWidth, clientHeight};
+    case DockEdge::Bottom:
+        return RECT{0, 0, clientWidth, band};
+    case DockEdge::Left:
+        return RECT{clientWidth - band, 0, clientWidth, clientHeight};
+    case DockEdge::Right:
+        return RECT{0, 0, band, clientHeight};
+    default:
+        return RECT{};
+    }
+}
+
+// Thickness in DIPs for a cursor at `screenPoint` while dragging the inner edge of `full` (screen coordinates), the
+// outer edge staying put: the distance from the outer edge, converted from pixels at `dpi`, clamped to the settings
+// range and to half of the monitor's cross dimension.
+[[nodiscard]] inline uint32_t DockThicknessFromDrag(const RECT& full, const RECT& monitor, DockEdge edge,
+                                                    POINT screenPoint, UINT dpi) noexcept
+{
+    LONG pixels = 0;
+    switch (edge)
+    {
+    case DockEdge::Top:
+        pixels = screenPoint.y - full.top;
+        break;
+    case DockEdge::Bottom:
+        pixels = full.bottom - screenPoint.y;
+        break;
+    case DockEdge::Left:
+        pixels = screenPoint.x - full.left;
+        break;
+    case DockEdge::Right:
+        pixels = full.right - screenPoint.x;
+        break;
+    default:
+        return kDockDefaultThicknessDips;
+    }
+    bool clamped = false;
+    pixels = DockClampThickness(std::max(1L, pixels), monitor, edge, clamped);
+    const int scaleDpi = dpi == 0 ? USER_DEFAULT_SCREEN_DPI : static_cast<int>(dpi);
+    const LONG dips = MulDiv(pixels, USER_DEFAULT_SCREEN_DPI, scaleDpi);
+    return static_cast<uint32_t>(
+        std::clamp(dips, static_cast<LONG>(kDockMinimumThicknessDips), static_cast<LONG>(kDockMaximumThicknessDips)));
+}
+
 // MINMAXINFO for the dock window. Windows applies ptMinTrackSize to SetWindowPos as well as to user tracking, so the
 // titled window's 480×320 minimum would refuse the peek strip; the dock answers with the strip as its minimum and
 // the monitor as its maximum.

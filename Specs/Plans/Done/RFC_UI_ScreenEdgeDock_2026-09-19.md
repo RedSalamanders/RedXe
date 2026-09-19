@@ -524,3 +524,9 @@ touches those paths.
 
 Not built: the phase 3 slide animation (open question b) and a tray icon (open question c); both stay as they were
 described here. Open question (a) kept 180 DIPs as the default thickness.
+
+Same-day follow-up after first use of a top autohide bar: the bar's inner edge became a drag-to-resize grip (live
+window and dashboard resize, shell reservation and `dock.thickness` persisted on release; `DockResizeBandRect`,
+`DockThicknessFromDrag`, `PatchDockThickness`), and Matrix Rain shortens its streamed trail and cycle padding in
+tiles shorter than the trail so a 270-pixel bar shows heads crossing instead of dim tails; the 2560×720 look is
+unchanged.

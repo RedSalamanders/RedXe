@@ -108,6 +108,13 @@ class Application final
         return _dockActive && _dock.mode == DockMode::Autohide && DockStateShowsStrip(_dockReveal);
     }
     void OnDockEvent(DockRevealEvent event) noexcept;
+    // Drag-to-resize on the bar's inner edge (DockPlacement.h `DockResizeBandRect`): the window and dashboard follow
+    // the pointer live; the shell reservation and the settings file (`dock.thickness`) update on release.
+    [[nodiscard]] RECT DockResizeBand() const noexcept;
+    [[nodiscard]] bool PointInDockResizeBand(POINT client) const noexcept;
+    void BeginDockResize(HWND window) noexcept;
+    void UpdateDockResize() noexcept;
+    void EndDockResize() noexcept;
     void EvaluateDockHolds() noexcept;
     [[nodiscard]] DockHolds CurrentDockHolds() const noexcept;
     void ApplyDockRevealState(DockRevealState state) noexcept;
@@ -309,6 +316,9 @@ class Application final
     bool _dockPointerInside = false;
     bool _dockPinnedByAction = false;
     bool _dockTimerArmed = false;
+    bool _dockResizeDrag = false;
+    // Distance from the inner edge to the pointer at the press, so the edge keeps its offset under the pointer.
+    LONG _dockResizeGrabPx = 0;
     bool _windowActive = false;
     bool _forceWarp = false;
     bool _classRegistered = false;

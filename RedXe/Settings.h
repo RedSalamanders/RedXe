@@ -364,6 +364,9 @@ enum class SettingsReloadStatus : std::uint8_t
                                                          std::string_view pluginId) noexcept;
 [[nodiscard]] HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view instanceId,
                                                   std::string_view settingsJson) noexcept;
+// Sets `dock.thickness` in the typed settings and the retained source document (creating `dock`, and raising
+// `version.minor` to 2 when lower); a dragged bar edge persists through this. The formatting contract applies.
+[[nodiscard]] HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept;
 
 class SettingsStore final
 {
@@ -390,6 +393,8 @@ class SettingsStore final
     [[nodiscard]] HRESULT PersistPatchedDocument(const AppSettings& settings) noexcept;
     [[nodiscard]] HRESULT PersistWidgetSettings(AppSettings& settings, std::string_view instanceId,
                                                 std::string_view settingsJson) noexcept;
+    // PatchDockThickness plus the atomic document write; rolls both back on failure.
+    [[nodiscard]] HRESULT PersistDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept;
 
   private:
     std::wstring _settingsPath;
