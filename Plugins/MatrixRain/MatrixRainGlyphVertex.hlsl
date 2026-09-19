@@ -76,8 +76,9 @@ GlyphOutput VertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instanc
     GlyphOutput output;
     output.position = float4(pixelX * (2.0f / float(targetAndSeed.x)) - 1.0f,
                              1.0f - pixelY * (2.0f / float(targetAndSeed.y)), 0.0f, 1.0f);
-    const float2 atlasPixel = float2(float(glyphX * 16U), float(glyphY * 16U)) + 0.5f + corner * 15.0f;
-    output.atlasUv = atlasPixel * (1.0f / 128.0f);
+    // 24 x 48 texel cells in a 192 x 384 atlas (GenerateGlyphAtlas.ps1); sample texel centres across the whole cell.
+    const float2 atlasPixel = float2(float(glyphX * 24U), float(glyphY * 48U)) + 0.5f + corner * float2(23.0f, 47.0f);
+    output.atlasUv = atlasPixel * float2(1.0f / 192.0f, 1.0f / 384.0f);
     output.trailIntensity = trailIntensity;
     output.headIntensity = headIntensity;
     return output;

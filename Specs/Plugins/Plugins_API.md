@@ -809,15 +809,17 @@ duplicate, unknown, and out-of-range members, copies normalized numeric settings
 borrowed JSON. A live page or settings change creates required providers and widgets transactionally; successfully
 mapped modules remain loaded.
 
-The plugin owns an original generated 128×128 `R8_UNORM` signed-distance-field atlas, four build-time Shader Model 5.0
-shader blobs, one dynamic 128-byte constant buffer, and its immutable pipeline states. It loads no font, DirectWrite,
-WIC, runtime HLSL compiler, loose glyph asset, timer, worker, or HWND. Grid values are cached until viewport or DPI
-changes, and configured colors are converted to float vectors once during provider construction rather than on every
-frame. Stream phase, speed, trail length, column permutation, and mutation are deterministic functions of the
-configured seed and frame time. In a tile shorter than the configured trail (a dock bar, a small gallery tile) the
-streamed trail length shrinks to two thirds of the visible rows (at least four glyphs) and the off-screen cycle
-padding to a third of them (two through eight), so the bright head crosses the tile for most of each cycle instead
-of hanging below it; both are grid-cache values, recomputed only with the grid.
+The plugin owns an original generated 192×384 `R8_UNORM` signed-distance-field atlas (64 vector-stroke glyphs in
+24×48 texel cells, an exact distance field so diagonals stay straight at any size; the pixel shader thresholds it
+over about one screen pixel through `fwidth`), four build-time Shader Model 5.0 shader blobs, one dynamic 128-byte
+constant buffer, and its immutable pipeline states. It loads no font, DirectWrite, WIC, runtime HLSL compiler, loose
+glyph asset, timer, worker, or HWND. Grid values are cached until viewport or DPI changes, and configured colors are
+converted to float vectors once during provider construction rather than on every frame. Stream phase, speed, trail
+length, column permutation, and mutation are deterministic functions of the configured seed and frame time. In a tile
+shorter than the configured trail (a dock bar, a small gallery tile) the streamed trail length shrinks to two thirds
+of the visible rows (at least four glyphs) and the off-screen cycle padding to a third of them (two through eight),
+so the bright head crosses the tile for most of each cycle instead of hanging below it; both are grid-cache values,
+recomputed only with the grid.
 
 Each non-zero visible Matrix frame performs one map/unmap, one opaque background draw, and one alpha-blended instanced
 glyph draw. The CPU performs no per-column or per-glyph simulation. Submitted glyphs are bounded at 65,536; density

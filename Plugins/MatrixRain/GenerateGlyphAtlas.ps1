@@ -1,6 +1,12 @@
 <#!
 .SYNOPSIS
 Regenerates the original RedXe 64-glyph signed-distance-field atlas header.
+
+.DESCRIPTION
+Each glyph is a small set of vector strokes (round-capped segments) in a 1 x 2 design cell, rasterized as an exact
+signed distance field into a 24 x 48 texel cell, 8 x 8 cells in a 192 x 384 R8_UNORM atlas. Vector strokes keep
+diagonals straight and corners crisp at any glyph size; the pixel shader thresholds the field with a screen-space
+width, so the glyphs stay smooth from a 12-DIP tile glyph to a raised 48-DIP one.
 #>
 [CmdletBinding()]
 param()
@@ -9,59 +15,93 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $glyphCount = 64
-$cellSize = 16
+$cellWidth = 24
+$cellHeight = 48
 $atlasColumns = 8
-$atlasSize = $cellSize * $atlasColumns
-$atlas = [byte[]]::new($atlasSize * $atlasSize)
+$atlasRows = 8
+$atlasWidth = $cellWidth * $atlasColumns
+$atlasHeight = $cellHeight * $atlasRows
+$unitPixels = [double]$cellWidth          # design unit: the cell is 1 x 2 units
+$strokeRadius = 0.10                      # units; 2.4 px in the atlas, about 2.8 px at a 27 px glyph
+$encodeScale = 28.0                       # 255 / encodeScale px of spread around the edge (about +-4.5 px)
+$atlas = [byte[]]::new($atlasWidth * $atlasHeight)
 
-function Test-GlyphPixel {
-    param([int] $Glyph, [int] $X, [int] $Y)
+# Stroke palette: segments in design units (x 0..1, y 0..2). Katakana-like bars, stems, and diagonals.
+$palette = @(
+    @(0.16, 0.22, 0.84, 0.22),   # 0  top bar
+    @(0.16, 1.00, 0.84, 1.00),   # 1  middle bar
+    @(0.16, 1.78, 0.84, 1.78),   # 2  bottom bar
+    @(0.18, 0.22, 0.18, 1.78),   # 3  left stem
+    @(0.82, 0.22, 0.82, 1.78),   # 4  right stem
+    @(0.50, 0.22, 0.50, 1.78),   # 5  spine
+    @(0.16, 1.78, 0.84, 0.22),   # 6  forward diagonal
+    @(0.16, 0.22, 0.84, 1.78),   # 7  backward diagonal
+    @(0.18, 0.22, 0.18, 1.00),   # 8  upper-left half stem
+    @(0.82, 1.00, 0.82, 1.78),   # 9  lower-right half stem
+    @(0.18, 1.00, 0.18, 1.78),   # 10 lower-left half stem
+    @(0.82, 0.22, 0.82, 1.00),   # 11 upper-right half stem
+    @(0.72, 0.22, 0.24, 1.05),   # 12 upper sweep
+    @(0.48, 0.98, 0.84, 1.78),   # 13 lower sweep
+    @(0.82, 0.22, 0.82, 0.58),   # 14 top-right hook
+    @(0.34, 1.00, 0.66, 1.00)    # 15 short middle bar
+)
 
-    $top = (($Glyph -band 0x01) -ne 0) -and $Y -eq 1 -and $X -ge 1 -and $X -le 6
-    $middle = (($Glyph -band 0x02) -ne 0) -and ($Y -eq 3 -or $Y -eq 4) -and $X -ge 1 -and $X -le 6
-    $bottom = (($Glyph -band 0x04) -ne 0) -and $Y -eq 6 -and $X -ge 1 -and $X -le 6
-    $left = (($Glyph -band 0x08) -ne 0) -and $X -eq 1 -and $Y -ge 1 -and $Y -le 6
-    $right = (($Glyph -band 0x10) -ne 0) -and $X -eq 6 -and $Y -ge 1 -and $Y -le 6
-    $forward = (($Glyph -band 0x20) -ne 0) -and ($X + $Y -eq 7 -or $X + $Y -eq 8) -and $X -ge 1 -and $X -le 6
-    $backward = (($Glyph * 13 + 7) -band 0x08) -ne 0 -and ($X -eq $Y -or $X + 1 -eq $Y) -and $X -ge 1 -and $X -le 6
-    $spine = (($Glyph * 29 + 3) -band 0x10) -ne 0 -and ($X -eq 3 -or $X -eq 4) -and $Y -ge 1 -and $Y -le 6
-    return $top -or $middle -or $bottom -or $left -or $right -or $forward -or $backward -or $spine
+function Get-Hash {
+    param([uint64] $Value)
+    $modulus = [uint64]4294967296
+    $Value = ($Value -bxor ($Value -shr 16)) % $modulus
+    $Value = ($Value * [uint64]2145596717) % $modulus
+    $Value = ($Value -bxor ($Value -shr 15)) % $modulus
+    $Value = ($Value * [uint64]2223345291) % $modulus
+    return ($Value -bxor ($Value -shr 16)) % $modulus
+}
+
+# Two to four distinct strokes per glyph, chosen deterministically so the header never changes by accident.
+function Get-GlyphStrokes {
+    param([int] $Glyph)
+    $count = 2 + [int]((Get-Hash ([uint64]($Glyph * 7919 + 13))) % 3)
+    $strokes = [System.Collections.Generic.List[int]]::new()
+    $salt = 0
+    while ($strokes.Count -lt $count) {
+        $candidate = [int]((Get-Hash ([uint64]($Glyph * 104729 + $salt * 31 + 5))) % $palette.Count)
+        ++$salt
+        if (-not $strokes.Contains($candidate)) {
+            $strokes.Add($candidate)
+        }
+    }
+    return $strokes
+}
+
+function Get-SegmentDistance {
+    param([double] $X, [double] $Y, [double[]] $Segment)
+    $ax = $Segment[0]; $ay = $Segment[1]; $bx = $Segment[2]; $by = $Segment[3]
+    $abx = $bx - $ax; $aby = $by - $ay
+    $apx = $X - $ax; $apy = $Y - $ay
+    $lengthSquared = $abx * $abx + $aby * $aby
+    $t = if ($lengthSquared -gt 0) { [Math]::Clamp(($apx * $abx + $apy * $aby) / $lengthSquared, 0.0, 1.0) } else { 0.0 }
+    $dx = $apx - $t * $abx; $dy = $apy - $t * $aby
+    return [Math]::Sqrt($dx * $dx + $dy * $dy)
 }
 
 for ($glyph = 0; $glyph -lt $glyphCount; ++$glyph) {
-    $inside = [bool[]]::new($cellSize * $cellSize)
-    for ($y = 0; $y -lt $cellSize; ++$y) {
-        for ($x = 0; $x -lt $cellSize; ++$x) {
-            $inside[$y * $cellSize + $x] = Test-GlyphPixel -Glyph ($glyph + 1) `
-                -X ([int][Math]::Floor($x / 2)) -Y ([int][Math]::Floor($y / 2))
-        }
-    }
-
+    $strokes = Get-GlyphStrokes -Glyph $glyph
     $glyphColumn = $glyph % $atlasColumns
     $glyphRow = [int][Math]::Floor($glyph / $atlasColumns)
-    for ($y = 0; $y -lt $cellSize; ++$y) {
-        for ($x = 0; $x -lt $cellSize; ++$x) {
-            $isInside = $inside[$y * $cellSize + $x]
-            $minimumSquared = 512.0
-            for ($otherY = 0; $otherY -lt $cellSize; ++$otherY) {
-                for ($otherX = 0; $otherX -lt $cellSize; ++$otherX) {
-                    if ($inside[$otherY * $cellSize + $otherX] -eq $isInside) {
-                        continue
-                    }
-                    $deltaX = $x - $otherX
-                    $deltaY = $y - $otherY
-                    $squared = [double]($deltaX * $deltaX + $deltaY * $deltaY)
-                    if ($squared -lt $minimumSquared) {
-                        $minimumSquared = $squared
-                    }
-                }
+    for ($y = 0; $y -lt $cellHeight; ++$y) {
+        for ($x = 0; $x -lt $cellWidth; ++$x) {
+            $unitX = ($x + 0.5) / $unitPixels
+            $unitY = ($y + 0.5) / $unitPixels
+            $nearest = 1e9
+            foreach ($index in $strokes) {
+                $distance = Get-SegmentDistance -X $unitX -Y $unitY -Segment $palette[$index]
+                if ($distance -lt $nearest) { $nearest = $distance }
             }
-            $distance = [Math]::Sqrt($minimumSquared)
-            $signed = if ($isInside) { $distance } else { -$distance }
-            $encoded = [Math]::Clamp([int][Math]::Round(128.0 + $signed * 28.0), 0, 255)
-            $atlasX = $glyphColumn * $cellSize + $x
-            $atlasY = $glyphRow * $cellSize + $y
-            $atlas[$atlasY * $atlasSize + $atlasX] = [byte]$encoded
+            # Positive inside the stroke union, in atlas pixels.
+            $signed = ($strokeRadius - $nearest) * $unitPixels
+            $encoded = [Math]::Clamp([int][Math]::Round(128.0 + $signed * $encodeScale), 0, 255)
+            $atlasX = $glyphColumn * $cellWidth + $x
+            $atlasY = $glyphRow * $cellHeight + $y
+            $atlas[$atlasY * $atlasWidth + $atlasX] = [byte]$encoded
         }
     }
 }
@@ -72,19 +112,24 @@ $builder = [Text.StringBuilder]::new()
 [void]$builder.AppendLine('#include <array>')
 [void]$builder.AppendLine('#include <cstdint>')
 [void]$builder.AppendLine()
-[void]$builder.AppendLine('inline constexpr uint32_t kMatrixRainGlyphAtlasSize = 128;')
-[void]$builder.AppendLine('inline constexpr uint32_t kMatrixRainGlyphCount = 64;')
+[void]$builder.AppendLine('// Generated by GenerateGlyphAtlas.ps1: 64 original stroke glyphs as an exact signed distance field, 24 x 48 texels')
+[void]$builder.AppendLine('// per glyph in an 8 x 8 grid, encoded 128 + 28 * distance (positive inside). Do not edit by hand.')
+[void]$builder.AppendLine("inline constexpr uint32_t kMatrixRainGlyphAtlasWidth = $atlasWidth;")
+[void]$builder.AppendLine("inline constexpr uint32_t kMatrixRainGlyphAtlasHeight = $atlasHeight;")
+[void]$builder.AppendLine("inline constexpr uint32_t kMatrixRainGlyphCellWidth = $cellWidth;")
+[void]$builder.AppendLine("inline constexpr uint32_t kMatrixRainGlyphCellHeight = $cellHeight;")
+[void]$builder.AppendLine("inline constexpr uint32_t kMatrixRainGlyphCount = $glyphCount;")
 [void]$builder.AppendLine('// clang-format off')
-[void]$builder.AppendLine('inline constexpr std::array<std::uint8_t, 16384> kMatrixRainGlyphAtlas{')
+[void]$builder.AppendLine("inline constexpr std::array<std::uint8_t, $($atlas.Length)> kMatrixRainGlyphAtlas{")
 for ($index = 0; $index -lt $atlas.Length; ++$index) {
-    if (($index % 16) -eq 0) {
+    if (($index % 24) -eq 0) {
         [void]$builder.Append('    ')
     }
     [void]$builder.Append(('0x{0:X2}' -f $atlas[$index]))
     if ($index + 1 -ne $atlas.Length) {
         [void]$builder.Append(',')
     }
-    if (($index % 16) -eq 15) {
+    if (($index % 24) -eq 23) {
         [void]$builder.AppendLine()
     }
     else {

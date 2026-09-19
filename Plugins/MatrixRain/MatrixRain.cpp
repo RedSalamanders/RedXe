@@ -587,8 +587,8 @@ class MatrixRainDeviceResources final
         }
 
         D3D11_TEXTURE2D_DESC atlasDescription{};
-        atlasDescription.Width = kMatrixRainGlyphAtlasSize;
-        atlasDescription.Height = kMatrixRainGlyphAtlasSize;
+        atlasDescription.Width = kMatrixRainGlyphAtlasWidth;
+        atlasDescription.Height = kMatrixRainGlyphAtlasHeight;
         atlasDescription.MipLevels = 1;
         atlasDescription.ArraySize = 1;
         atlasDescription.Format = DXGI_FORMAT_R8_UNORM;
@@ -597,7 +597,7 @@ class MatrixRainDeviceResources final
         atlasDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
         D3D11_SUBRESOURCE_DATA atlasData{};
         atlasData.pSysMem = kMatrixRainGlyphAtlas.data();
-        atlasData.SysMemPitch = kMatrixRainGlyphAtlasSize;
+        atlasData.SysMemPitch = kMatrixRainGlyphAtlasWidth;
         wil::com_ptr_nothrow<ID3D11Texture2D> atlas;
         result = device->CreateTexture2D(&atlasDescription, &atlasData, atlas.put());
         if (FAILED(result))
@@ -1087,6 +1087,9 @@ class MatrixRainProvider final : public RedXeComObject<MatrixRainProvider, IRedX
     MatrixRainDeviceResources _resources;
 };
 
+static_assert(kMatrixRainGlyphAtlas.size() == kMatrixRainGlyphAtlasWidth * kMatrixRainGlyphAtlasHeight);
+static_assert(kMatrixRainGlyphAtlasWidth == 8U * kMatrixRainGlyphCellWidth &&
+              kMatrixRainGlyphAtlasHeight == 8U * kMatrixRainGlyphCellHeight);
 static_assert(kMatrixRainGlyphAtlas.size() <= 128U * 1024U);
 static_assert(sizeof(MatrixRainDeviceResources) < 64U * 1024U);
 static_assert(sizeof(MatrixRainProvider) < 64U * 1024U);
