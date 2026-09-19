@@ -76,6 +76,8 @@
     "LogiconMonitor": { "plugin": "builtin.logicon-monitor" },
     "Triangle": { "plugin": "builtin.rotating-triangle" },
     "Matrix": { "plugin": "builtin.matrix-rain" },
+    // 5H4D3R5: a shuffled slideshow of the bundled shaders (docs/plugins/5h4d3r5.md shows them all).
+    "Shaders": { "plugin": "builtin.5h4d3r5", "intervalSeconds": 60, "shuffle": true },
     "StudioClock": { "plugin": "builtin.studio-clock", "externalDotsAlwaysOn": true },
     "DeskClock": { "plugin": "builtin.desk-clock" },
     "Weather": { "plugin": "builtin.weather" },
@@ -125,6 +127,7 @@
         { "weight": 3, "rows": ["Network", "Storage"] },
         { "weight": 3, "rows": ["Gpu", "Thermal", "Power"] }
       ]
-    }
+    },
+    { "name": "Shaders", "widgets": ["Shaders"] }
   ]
 }

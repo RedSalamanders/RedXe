@@ -3,6 +3,8 @@
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
+#include "ShadersSettings.h"
+#include "ShadersTestContract.h"
 
 #include <algorithm>
 #include <array>
@@ -1319,6 +1321,624 @@ struct MatrixRenderTarget final
     return ValidateMatrixRendering(create);
 }
 
+constexpr std::string_view kDefaultShadersConfiguration =
+    R"json({"mode":"slideshow","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json";
+
+[[nodiscard]] HRESULT CreateShadersProvider(RedXeCreateFn create, std::string_view configuration,
+                                            wil::com_ptr_nothrow<IRedXeWidgetProvider>& provider) noexcept
+{
+    if (!create || provider)
+    {
+        return E_INVALIDARG;
+    }
+    try
+    {
+        std::string envelope;
+        envelope.reserve(configuration.size() + 32);
+        envelope.append("{\"plugin\":{},\"instance\":").append(configuration).append("}");
+        RedXeFactoryOptions options{};
+        options.sizeBytes = sizeof(options);
+        options.configurationJsonUtf8 = envelope.data();
+        options.configurationBytes = static_cast<uint32_t>(envelope.size());
+        options.backgroundColor = 0xFF010502;
+        void* object = nullptr;
+        const HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, Shaders::kPluginId, &object);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        if (!object)
+        {
+            return E_UNEXPECTED;
+        }
+        provider.attach(static_cast<IRedXeWidgetProvider*>(object));
+        return S_OK;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+// A widget of `provider` with device resources on `target`, sized to the target, ready to render.
+[[nodiscard]] HRESULT PrepareShadersWidget(IRedXeWidgetProvider& provider, MatrixRenderTarget& target,
+                                           const char* instanceId, wil::com_ptr_nothrow<IRedXeWidget>& widget,
+                                           wil::com_ptr_nothrow<IRedXeGpuWidget>& gpuWidget) noexcept
+{
+    HRESULT result = provider.CreateWidget(Shaders::kWidgetTypeId, instanceId, widget.put());
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = widget.query_to(gpuWidget.put());
+    if (FAILED(result) || !gpuWidget)
+    {
+        return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    wil::com_ptr_nothrow<IRedXeRaisedWidget> raised;
+    RedXeRaisedExtent extent = RedXeRaisedExtentQuarter;
+    if (FAILED(widget.query_to(raised.put())) || !raised || FAILED(raised->GetRaisedExtent(&extent)) ||
+        extent != RedXeRaisedExtentFull)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    const RedXeGpuDeviceContext deviceContext{
+        sizeof(RedXeGpuDeviceContext),
+        target.device.get(),
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+        target.featureLevel,
+    };
+    result = gpuWidget->OnDeviceCreated(&deviceContext);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    const RedXeGpuTargetSizeContext sizeContext{
+        sizeof(RedXeGpuTargetSizeContext),
+        target.width,
+        target.height,
+        USER_DEFAULT_SCREEN_DPI,
+    };
+    return gpuWidget->OnTargetSizeChanged(&sizeContext);
+}
+
+[[nodiscard]] bool HasAtLeastTwoColors(const std::vector<std::uint8_t>& pixels) noexcept
+{
+    if (pixels.size() < 8)
+    {
+        return false;
+    }
+    for (size_t offset = 4; offset + 3 < pixels.size(); offset += 4)
+    {
+        if (std::memcmp(pixels.data(), pixels.data() + offset, 4) != 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] HRESULT ReadShadersDiagnostics(HMODULE module, ShadersTestDiagnostics& diagnostics) noexcept
+{
+    const auto getDiagnostics = ResolveFunction<ShadersGetTestDiagnosticsFn>(module, kShadersGetTestDiagnosticsExport);
+    if (!getDiagnostics)
+    {
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    }
+    diagnostics = ShadersTestDiagnostics{sizeof(ShadersTestDiagnostics), 0, 0, 0, 0, 0};
+    return getDiagnostics(&diagnostics);
+}
+
+[[nodiscard]] HRESULT ValidateShadersConfigurationRejections(RedXeCreateFn create) noexcept
+{
+    constexpr std::array rejected{
+        std::string_view{
+            R"json({"mode":"loop","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json"},
+        std::string_view{
+            R"json({"mode":"single","shader":"nope","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json"},
+        std::string_view{
+            R"json({"mode":"single","shader":"Seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json"},
+        std::string_view{
+            R"json({"mode":"single","shader":"seascape","intervalSeconds":9,"shuffle":false,"renderScalePercent":50})json"},
+        std::string_view{
+            R"json({"mode":"single","shader":"seascape","intervalSeconds":3601,"shuffle":false,"renderScalePercent":50})json"},
+        std::string_view{
+            R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":1,"renderScalePercent":50})json"},
+        std::string_view{
+            R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":24})json"},
+        std::string_view{
+            R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":101})json"},
+        std::string_view{R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false})json"},
+        std::string_view{
+            R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50,"extra":1})json"},
+        std::string_view{
+            R"json({"mode":"single","mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json"},
+    };
+    for (const std::string_view configuration : rejected)
+    {
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+        const HRESULT result = CreateShadersProvider(create, configuration, provider);
+        if (result != HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || provider)
+        {
+            std::wprintf(L"5H4D3R5 accepted an invalid configuration: %hs\n", std::string(configuration).c_str());
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
+    return S_OK;
+}
+
+// Every bundled port renders on WARP through the production entry points: single mode, half then full render
+// scale, feedback shaders long enough for their simulation to show, and the picture is never one flat color.
+[[nodiscard]] HRESULT ValidateShadersRendering(HMODULE module, RedXeCreateFn create) noexcept
+{
+    MatrixRenderTarget target;
+    HRESULT result = CreateMatrixRenderTarget(320, 180, target);
+    if (FAILED(result))
+    {
+        return result;
+    }
+
+    std::vector<std::uint8_t> pixels;
+    for (uint32_t index = 0; index < Shaders::kShaderCount; ++index)
+    {
+        const Shaders::ShaderInfo& info = Shaders::kShaders[index];
+        for (const uint32_t renderScale : {50U, 100U})
+        {
+            std::string configuration = R"json({"mode":"single","shader":")json";
+            configuration += info.name;
+            configuration += R"json(","intervalSeconds":120,"shuffle":false,"renderScalePercent":)json";
+            configuration += std::to_string(renderScale);
+            configuration += '}';
+            wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+            result = CreateShadersProvider(create, configuration, provider);
+            if (FAILED(result))
+            {
+                return result;
+            }
+            wil::com_ptr_nothrow<IRedXeWidget> widget;
+            wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
+            result = PrepareShadersWidget(*provider, target, "shaders.contract.render", widget, gpuWidget);
+            if (FAILED(result))
+            {
+                std::wprintf(L"5H4D3R5 %hs did not prepare: 0x%08X\n", info.name, static_cast<unsigned>(result));
+                return result;
+            }
+            // Feedback shaders initialize over their first frames and need a run before ink or heat appears; the
+            // others are checked after their own start-up fades (Heartfelt fades in over ten seconds).
+            const uint32_t frameCount = info.feedbackBuffer ? 150 : 3;
+            const ULONGLONG started = GetTickCount64();
+            for (uint32_t frame = 0; frame < frameCount; ++frame)
+            {
+                result = RenderMatrixFrame(*gpuWidget, target, 12.0f + static_cast<float>(frame) / 60.0f, pixels);
+                if (FAILED(result))
+                {
+                    std::wprintf(L"5H4D3R5 %hs failed to render: 0x%08X\n", info.name, static_cast<unsigned>(result));
+                    return result;
+                }
+            }
+            if (!HasAtLeastTwoColors(pixels))
+            {
+                std::wprintf(L"5H4D3R5 %hs at %u%% rendered one flat color.\n", info.name, renderScale);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            std::wprintf(L"5H4D3R5 %hs (%hs) at %u%%: %u WARP frames at 320x180 in %llu ms\n", info.name, info.title,
+                         renderScale, frameCount, static_cast<unsigned long long>(GetTickCount64() - started));
+            ShadersTestDiagnostics diagnostics{};
+            result = ReadShadersDiagnostics(module, diagnostics);
+            if (FAILED(result) || diagnostics.lastShaderIndex != index || diagnostics.lastShaderFrame != frameCount)
+            {
+                std::wprintf(L"5H4D3R5 %hs diagnostics disagree (index %u, frame %u).\n", info.name,
+                             diagnostics.lastShaderIndex, diagnostics.lastShaderFrame);
+                return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            gpuWidget->OnDeviceLost();
+        }
+    }
+
+    // A slideshow advances one catalog entry per interval from the configured shader (seascape is entry 3) and
+    // wraps at the catalog size, restarting the frame count; shuffle or random modes always pick a catalog entry.
+    {
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+        result = CreateShadersProvider(
+            create,
+            R"json({"mode":"slideshow","shader":"seascape","intervalSeconds":10,"shuffle":false,"renderScalePercent":25})json",
+            provider);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<IRedXeWidget> widget;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
+        result = PrepareShadersWidget(*provider, target, "shaders.contract.slideshow", widget, gpuWidget);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        constexpr uint32_t seascape = Shaders::kDefaultShaderIndex;
+        constexpr uint32_t count = Shaders::kShaderCount;
+        constexpr std::array expected{
+            std::pair<float, uint32_t>{1.0f, seascape},
+            std::pair<float, uint32_t>{9.9f, seascape},
+            std::pair<float, uint32_t>{10.1f, (seascape + 1U) % count},
+            std::pair<float, uint32_t>{95.0f, (seascape + 9U) % count},
+            std::pair<float, uint32_t>{10.0f * static_cast<float>(count) + 1.0f, seascape},
+        };
+        for (const auto& [elapsed, shaderIndex] : expected)
+        {
+            result = RenderMatrixFrame(*gpuWidget, target, elapsed, pixels);
+            ShadersTestDiagnostics diagnostics{};
+            if (SUCCEEDED(result))
+            {
+                result = ReadShadersDiagnostics(module, diagnostics);
+            }
+            if (FAILED(result) || diagnostics.lastShaderIndex != shaderIndex ||
+                (elapsed != 9.9f && diagnostics.lastShaderFrame != 1))
+            {
+                std::wprintf(L"5H4D3R5 slideshow at %.1f s showed index %u frame %u.\n", elapsed,
+                             diagnostics.lastShaderIndex, diagnostics.lastShaderFrame);
+                return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+        // At the very start and at each change the picture fades from the dashboard background, so the first
+        // frame of a cycle is that background.
+        result = RenderMatrixFrame(*gpuWidget, target, 10.0f, pixels);
+        if (FAILED(result) || HasAtLeastTwoColors(pixels) || pixels.size() < 4 || pixels[0] != 0x01 ||
+            pixels[1] != 0x05 || pixels[2] != 0x02)
+        {
+            std::wprintf(L"5H4D3R5 did not fade through the dashboard background at a change.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        gpuWidget->OnDeviceLost();
+    }
+
+    // A click or tap on a slideshow skips ahead: the Up is consumed, the current entry fades out and the next one
+    // fades in from the background; a drag, and a click in single mode, change nothing and stay with the host.
+    {
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+        result = CreateShadersProvider(
+            create,
+            R"json({"mode":"slideshow","shader":"seascape","intervalSeconds":100,"shuffle":false,"renderScalePercent":25})json",
+            provider);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<IRedXeWidget> widget;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
+        result = PrepareShadersWidget(*provider, target, "shaders.contract.tap", widget, gpuWidget);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
+        if (FAILED(widget.query_to(interactive.put())) || !interactive)
+        {
+            std::wprintf(L"5H4D3R5 does not expose IRedXeInteractiveWidget.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        const auto pointer = [&](uint32_t kind, uint32_t phase, float x, float y) noexcept
+        {
+            RedXePointerEvent event{sizeof(RedXePointerEvent), 1, kind, phase, x, y};
+            event.widthPixels = target.width;
+            event.heightPixels = target.height;
+            event.dpi = USER_DEFAULT_SCREEN_DPI;
+            return interactive->OnPointer(&event);
+        };
+        const auto shownIndex = [&](float elapsed, uint32_t& index, uint32_t& frame) noexcept
+        {
+            ShadersTestDiagnostics diagnostics{};
+            HRESULT frameResult = RenderMatrixFrame(*gpuWidget, target, elapsed, pixels);
+            if (SUCCEEDED(frameResult))
+            {
+                frameResult = ReadShadersDiagnostics(module, diagnostics);
+            }
+            index = diagnostics.lastShaderIndex;
+            frame = diagnostics.lastShaderFrame;
+            return frameResult;
+        };
+        constexpr uint32_t seascape = Shaders::kDefaultShaderIndex;
+        constexpr uint32_t count = Shaders::kShaderCount;
+        uint32_t index = 0;
+        uint32_t frame = 0;
+        result = shownIndex(5.0f, index, frame);
+        if (FAILED(result) || index != seascape)
+        {
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // A drag (Down far from Up) is not a tap.
+        if (pointer(RedXePointerKindTouch, RedXePointerPhaseDown, 20.0f, 20.0f) != S_FALSE ||
+            pointer(RedXePointerKindTouch, RedXePointerPhaseUp, 200.0f, 20.0f) != S_FALSE ||
+            FAILED(shownIndex(5.5f, index, frame)) || index != seascape)
+        {
+            std::wprintf(L"5H4D3R5 treated a drag as a tap.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // A mouse click: at 6 s the entry is still seascape but fading out; at 7 s the next one has begun.
+        if (pointer(RedXePointerKindMouse, RedXePointerPhaseDown, 40.0f, 30.0f) != S_FALSE ||
+            pointer(RedXePointerKindMouse, RedXePointerPhaseUp, 44.0f, 33.0f) != S_OK ||
+            FAILED(shownIndex(6.0f, index, frame)) || index != seascape || HasAtLeastTwoColors(pixels) == false ||
+            FAILED(shownIndex(7.0f, index, frame)) || index != (seascape + 1U) % count || frame != 1)
+        {
+            std::wprintf(L"5H4D3R5 did not advance on a click (index %u, frame %u).\n", index, frame);
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // Taps wrap around the catalog: count - 1 more of them come back to seascape.
+        float elapsed = 7.0f;
+        for (uint32_t tap = 1; tap < count; ++tap)
+        {
+            if (pointer(RedXePointerKindTouch, RedXePointerPhaseDown, 100.0f, 50.0f) != S_FALSE ||
+                pointer(RedXePointerKindTouch, RedXePointerPhaseUp, 100.0f, 50.0f) != S_OK)
+            {
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            elapsed += 1.0f;
+            if (FAILED(shownIndex(elapsed, index, frame)) || index != (seascape + 1U + tap) % count)
+            {
+                std::wprintf(L"5H4D3R5 tap %u showed index %u.\n", tap, index);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+        if (index != seascape)
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        gpuWidget->OnDeviceLost();
+
+        // Single mode: the click is not consumed and nothing changes.
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> singleProvider;
+        result = CreateShadersProvider(
+            create,
+            R"json({"mode":"single","shader":"octagrams","intervalSeconds":100,"shuffle":false,"renderScalePercent":25})json",
+            singleProvider);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<IRedXeWidget> singleWidget;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> singleGpu;
+        result = PrepareShadersWidget(*singleProvider, target, "shaders.contract.single", singleWidget, singleGpu);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<IRedXeInteractiveWidget> singleInteractive;
+        if (FAILED(singleWidget.query_to(singleInteractive.put())) || !singleInteractive)
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        interactive = singleInteractive;
+        gpuWidget = singleGpu;
+        uint32_t octagrams = 0;
+        if (!Shaders::TryFindShader("octagrams", octagrams) || FAILED(shownIndex(3.0f, index, frame)) ||
+            index != octagrams || pointer(RedXePointerKindMouse, RedXePointerPhaseDown, 10.0f, 10.0f) != S_FALSE ||
+            pointer(RedXePointerKindMouse, RedXePointerPhaseUp, 10.0f, 10.0f) != S_FALSE ||
+            FAILED(shownIndex(4.0f, index, frame)) || index != octagrams || frame != 2)
+        {
+            std::wprintf(L"5H4D3R5 single mode reacted to a click (index %u, frame %u).\n", index, frame);
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        singleGpu->OnDeviceLost();
+    }
+    for (
+        const std::string_view configuration :
+        {std::string_view{
+             R"json({"mode":"slideshow","shader":"seascape","intervalSeconds":10,"shuffle":true,"renderScalePercent":25})json"},
+         std::string_view{
+             R"json({"mode":"random","shader":"seascape","intervalSeconds":10,"shuffle":false,"renderScalePercent":25})json"}})
+    {
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+        result = CreateShadersProvider(create, configuration, provider);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<IRedXeWidget> widget;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
+        result = PrepareShadersWidget(*provider, target, "shaders.contract.pick", widget, gpuWidget);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        result = RenderMatrixFrame(*gpuWidget, target, 1.0f, pixels);
+        ShadersTestDiagnostics diagnostics{};
+        if (SUCCEEDED(result))
+        {
+            result = ReadShadersDiagnostics(module, diagnostics);
+        }
+        if (FAILED(result) || diagnostics.lastShaderIndex >= Shaders::kShaderCount)
+        {
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        gpuWidget->OnDeviceLost();
+    }
+
+    // Steady-state Render allocates nothing (Debug CRT hook), device loss and recreation rebuild everything, and two
+    // widgets of one provider share its immutable device resources.
+    {
+        MatrixRenderTarget smallTarget;
+        result = CreateMatrixRenderTarget(160, 90, smallTarget);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+        result = CreateShadersProvider(
+            create,
+            R"json({"mode":"single","shader":"neon-pulse","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json",
+            provider);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<IRedXeWidget> widget;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
+        result = PrepareShadersWidget(*provider, smallTarget, "shaders.contract.steady", widget, gpuWidget);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<IRedXeWidget> sibling;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> siblingGpu;
+        result = PrepareShadersWidget(*provider, smallTarget, "shaders.contract.sibling", sibling, siblingGpu);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        ShadersTestDiagnostics diagnostics{};
+        result = ReadShadersDiagnostics(module, diagnostics);
+        if (FAILED(result) || diagnostics.liveSharedResourceSetCount != 1 || diagnostics.liveWidgetCount != 2)
+        {
+            std::wprintf(L"5H4D3R5 siblings did not share one device-resource set (%u sets, %u widgets).\n",
+                         diagnostics.liveSharedResourceSetCount, diagnostics.liveWidgetCount);
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        result = ValidateAllocationFreeMatrixRender(*gpuWidget, smallTarget);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        gpuWidget->OnDeviceLost();
+        gpuWidget->OnDeviceLost();
+        siblingGpu->OnDeviceLost();
+        result = ReadShadersDiagnostics(module, diagnostics);
+        if (FAILED(result) || diagnostics.liveSharedResourceSetCount != 0)
+        {
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        const RedXeGpuDeviceContext deviceContext{
+            sizeof(RedXeGpuDeviceContext),
+            smallTarget.device.get(),
+            DXGI_FORMAT_R8G8B8A8_UNORM,
+            smallTarget.featureLevel,
+        };
+        const RedXeGpuTargetSizeContext sizeContext{
+            sizeof(RedXeGpuTargetSizeContext),
+            smallTarget.width,
+            smallTarget.height,
+            USER_DEFAULT_SCREEN_DPI,
+        };
+        result = gpuWidget->OnDeviceCreated(&deviceContext);
+        if (SUCCEEDED(result))
+        {
+            result = gpuWidget->OnTargetSizeChanged(&sizeContext);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = RenderMatrixFrame(*gpuWidget, smallTarget, 3.0f, pixels);
+        }
+        if (FAILED(result) || !HasAtLeastTwoColors(pixels))
+        {
+            std::wprintf(L"5H4D3R5 did not render after device recreation.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        gpuWidget->OnDeviceLost();
+    }
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT RunShadersContractTests() noexcept
+{
+    const bool compilerWasLoaded = GetModuleHandleW(L"d3dcompiler_47.dll") != nullptr;
+    const bool directWriteWasLoaded = GetModuleHandleW(L"dwrite.dll") != nullptr;
+    const bool wicWasLoaded = GetModuleHandleW(L"windowscodecs.dll") != nullptr;
+
+    std::array<wchar_t, 1024> path{};
+    HRESULT result = BuildPluginPath(L"5H4D3R5.dll", path);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    wil::unique_hmodule module{
+        LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+    if (!module)
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    if ((!compilerWasLoaded && GetModuleHandleW(L"d3dcompiler_47.dll")) ||
+        (!directWriteWasLoaded && GetModuleHandleW(L"dwrite.dll")) ||
+        (!wicWasLoaded && GetModuleHandleW(L"windowscodecs.dll")))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    const RedXeCreateFn create = ResolveFunction<RedXeCreateFn>(module.get(), kRedXeCreateExport);
+    const RedXeEnumeratePluginsFn enumerate =
+        ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
+    if (!create || !enumerate)
+    {
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    }
+    result = ValidateSettingsContract(module.get(), Shaders::kPluginId, false);
+    if (FAILED(result))
+    {
+        return result;
+    }
+
+    const RedXePluginMetadata* metadata = nullptr;
+    uint32_t metadataCount = 0;
+    result = enumerate(&metadata, &metadataCount);
+    if (FAILED(result) || !metadata || metadataCount != 1 ||
+        !RedXeAsciiEqualsIgnoreCase(metadata[0].id, Shaders::kPluginId))
+    {
+        return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    {
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+        result = CreateShadersProvider(create, kDefaultShadersConfiguration, provider);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        const RedXeWidgetTypeDescriptor* widgetTypes = nullptr;
+        uint32_t widgetTypeCount = 0;
+        result = provider->GetWidgetTypes(&widgetTypes, &widgetTypeCount);
+        if (FAILED(result) || !widgetTypes || widgetTypeCount != 1 ||
+            widgetTypes[0].sizeBytes != sizeof(RedXeWidgetTypeDescriptor) ||
+            !RedXeAsciiEqualsIgnoreCase(widgetTypes[0].typeId, Shaders::kWidgetTypeId) ||
+            (widgetTypes[0].flags & RedXeWidgetFlagContinuousAnimation) == 0)
+        {
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
+
+    ShadersTestDiagnostics diagnostics{};
+    const auto getDiagnostics =
+        ResolveFunction<ShadersGetTestDiagnosticsFn>(module.get(), kShadersGetTestDiagnosticsExport);
+    ShadersTestDiagnostics shortRecord{sizeof(uint32_t), 0, 0, 0, 0, 0};
+    if (!getDiagnostics || getDiagnostics(nullptr) != E_POINTER || getDiagnostics(&shortRecord) != E_INVALIDARG)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    result = ValidateShadersConfigurationRejections(create);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = ValidateShadersRendering(module.get(), create);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = ReadShadersDiagnostics(module.get(), diagnostics);
+    if (FAILED(result) || diagnostics.liveProviderCount != 0 || diagnostics.liveWidgetCount != 0 ||
+        diagnostics.liveSharedResourceSetCount != 0)
+    {
+        std::wprintf(L"5H4D3R5 leaked objects after the contract tests (%u providers, %u widgets, %u sets).\n",
+                     diagnostics.liveProviderCount, diagnostics.liveWidgetCount,
+                     diagnostics.liveSharedResourceSetCount);
+        return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    // The host keeps modules mapped for the process lifetime; mirror that here.
+    (void)module.release();
+    return S_OK;
+}
+
 [[nodiscard]] HRESULT SubmitBenchmarkFrame(IRedXeGpuWidget* widget, MatrixRenderTarget& target,
                                            float elapsedSeconds) noexcept
 {
@@ -1913,6 +2533,11 @@ int wmain(int argumentCount, wchar_t** arguments)
     if (FAILED(matrixResult))
     {
         return static_cast<int>(matrixResult & 0xFF);
+    }
+    const HRESULT shadersResult = RunShadersContractTests();
+    if (FAILED(shadersResult))
+    {
+        return static_cast<int>(shadersResult & 0xFF);
     }
     const HRESULT processViewerResult = RunProcessViewerContractTests();
     if (FAILED(processViewerResult))

@@ -1,5 +1,6 @@
 #include "Settings.h"
 
+#include "../Plugins/5H4D3R5/ShadersSettings.h"
 #include "../Plugins/AVControl/AVControlModel.h"
 #include "../Plugins/AVControl/AVControlSettings.h"
 #include "../Plugins/Actions/Zoom/ZoomSettings.h"
@@ -42,6 +43,7 @@ constexpr char kNetworkMeterPlugin[] = "builtin.network-meter";
 constexpr char kGpuProcessesPlugin[] = "builtin.gpu-processes";
 constexpr char kStudioClockPlugin[] = "builtin.studio-clock";
 constexpr char kDeskClockPlugin[] = "builtin.desk-clock";
+constexpr char kShadersPlugin[] = "builtin.5h4d3r5";
 constexpr char kWeatherPlugin[] = "builtin.weather";
 constexpr char kLauncherPlugin[] = "builtin.launcher";
 constexpr char kAvControlPlugin[] = "builtin.av-control";
@@ -1007,6 +1009,49 @@ struct DiagnosticSink final
            RejectColor(sink, path, settings, "secondsColor") && RejectColor(sink, path, settings, "timeColor");
 }
 
+[[nodiscard]] bool ValidateShadersSettings(yyjson_val* settings, DiagnosticSink& sink, JsonPathBuffer& path) noexcept
+{
+    if (!AcceptObjectMembers(sink, path, settings,
+                             {"mode", "shader", "intervalSeconds", "shuffle", "renderScalePercent"}, false) ||
+        yyjson_obj_size(settings) != Shaders::kSettingsKeys.size())
+    {
+        return yyjson_is_obj(settings) && yyjson_obj_size(settings) != Shaders::kSettingsKeys.size() &&
+                       UnknownObjectMember(
+                           settings, {"mode", "shader", "intervalSeconds", "shuffle", "renderScalePercent"}) == nullptr
+                   ? sink.Fail(path.View(), "5H4D3R5 settings must include every required member.")
+                   : false;
+    }
+    yyjson_val* modeValue = yyjson_obj_get(settings, "mode");
+    Shaders::Mode mode = Shaders::Mode::Slideshow;
+    if (!yyjson_is_str(modeValue) ||
+        !Shaders::TryParseMode({yyjson_get_str(modeValue), yyjson_get_len(modeValue)}, mode))
+    {
+        const auto scope = path.PushName("mode");
+        return sink.Fail(path.View(), "mode must be single, random, or slideshow.");
+    }
+    yyjson_val* shaderValue = yyjson_obj_get(settings, "shader");
+    uint32_t shaderIndex = 0;
+    if (!yyjson_is_str(shaderValue) ||
+        !Shaders::TryFindShader({yyjson_get_str(shaderValue), yyjson_get_len(shaderValue)}, shaderIndex))
+    {
+        const auto scope = path.PushName("shader");
+        std::string message = "shader must be one of the bundled shader names:";
+        for (const Shaders::ShaderInfo& shader : Shaders::kShaders)
+        {
+            message += ' ';
+            message += shader.name;
+        }
+        message += '.';
+        return sink.Fail(path.View(), message);
+    }
+    return RejectRange(sink, path, settings, "intervalSeconds", Shaders::kMinimumIntervalSeconds,
+                       Shaders::kMaximumIntervalSeconds, "intervalSeconds must be an integer from 10 through 3600.") &&
+           RejectBool(sink, path, settings, "shuffle") &&
+           RejectRange(sink, path, settings, "renderScalePercent", Shaders::kMinimumRenderScalePercent,
+                       Shaders::kMaximumRenderScalePercent,
+                       "renderScalePercent must be an integer from 25 through 100.");
+}
+
 [[nodiscard]] bool ValidateDeskClockSettings(yyjson_val* settings, DiagnosticSink& sink, JsonPathBuffer& path) noexcept
 {
     if (!AcceptObjectMembers(sink, path, settings, {"flipDurationMilliseconds", "cardColor", "digitColor", "dateColor"},
@@ -1290,6 +1335,7 @@ struct DiagnosticSink final
                                : plugin == kNetworkMeterPlugin || plugin == kGpuProcessesPlugin ? kRankedViewerDefaults
                                : plugin == kStudioClockPlugin                                   ? kStudioClockDefaults
                                : plugin == kDeskClockPlugin                                     ? kDeskClockDefaults
+                               : plugin == kShadersPlugin                                       ? Shaders::kDefaultsJson
                                : plugin == kWeatherPlugin                                       ? kWeatherDefaults
                                : plugin == kLauncherPlugin                                      ? kLauncherDefaults
                                : plugin == kAvControlPlugin ? AVControl::DefaultsJson
@@ -1302,7 +1348,8 @@ struct DiagnosticSink final
     }
     else if (plugin == kMatrixPlugin || plugin == kProcessViewerPlugin || plugin == kNetworkMeterPlugin ||
              plugin == kGpuProcessesPlugin || plugin == kStudioClockPlugin || plugin == kDeskClockPlugin ||
-             plugin == kWeatherPlugin || plugin == kLauncherPlugin || plugin == kAvControlPlugin)
+             plugin == kShadersPlugin || plugin == kWeatherPlugin || plugin == kLauncherPlugin ||
+             plugin == kAvControlPlugin)
     {
         effectiveDocument.reset(yyjson_mut_doc_new(nullptr));
         yyjson_mut_val* merged =
@@ -1326,6 +1373,7 @@ struct DiagnosticSink final
             ? ValidateTopNSettings(settingsValue, 1, 16, sink, path)
         : plugin == kStudioClockPlugin        ? ValidateStudioClockSettings(settingsValue, sink, path)
         : plugin == kDeskClockPlugin          ? ValidateDeskClockSettings(settingsValue, sink, path)
+        : plugin == kShadersPlugin            ? ValidateShadersSettings(settingsValue, sink, path)
         : plugin == kWeatherPlugin            ? ValidateWeatherSettings(settingsValue, sink, path)
         : plugin == kLauncherPlugin           ? ValidateLauncherSettings(settingsValue, sink, path)
         : plugin == kAvControlPlugin          ? ValidateAvControlSettings(settingsValue, sink, path)

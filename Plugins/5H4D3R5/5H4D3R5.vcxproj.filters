@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files"><UniqueIdentifier>{2D6B0C1E-7F3A-4B0C-9A2E-5C8D1F4E7A61}</UniqueIdentifier></Filter>
+    <Filter Include="Header Files"><UniqueIdentifier>{9E4C2B7A-1D5F-4E83-B6A0-3F7C8D2E5B14}</UniqueIdentifier></Filter>
+    <Filter Include="Shader Files"><UniqueIdentifier>{6A1F3D8C-4B2E-4C97-8E5D-0B9A7C3F2D46}</UniqueIdentifier></Filter>
+    <Filter Include="Assets"><UniqueIdentifier>{3C8E5A2F-9D1B-4F6A-A7C4-1E2D8B5F9C03}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Shaders.cpp"><Filter>Source Files</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="ShadersSettings.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ShadersTestContract.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Host.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h"><Filter>Header Files</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Shaders\ShadersVertex.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\ShadersBlitPixel.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\FluidSolverImage.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\FluidSolverBufferA.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\CineShaderLava.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\SynthwaveSunset.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\Seascape.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\BaseWarpFbm.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\FractalPyramid.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\Octagrams.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\Heartfelt.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\ProteanClouds.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\TheDriveHome.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\FlammesVortexImage.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\FlammesVortexBufferA.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\NeonPulseFractal.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\CosmicOrb.hlsl"><Filter>Shader Files</Filter></FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Shaders\ShadersCommon.hlsli"><Filter>Shader Files</Filter></None>
+    <None Include="Shaders\ShadersEntry.hlsli"><Filter>Shader Files</Filter></None>
+    <None Include="Shaders\FlammesVortexCommon.hlsli"><Filter>Shader Files</Filter></None>
+    <None Include="LICENSES.md"><Filter>Assets</Filter></None>
+    <None Include="README.md"><Filter>Assets</Filter></None>
+  </ItemGroup>
+</Project>

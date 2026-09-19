@@ -219,6 +219,16 @@ Matrix Rain settings are the closed object `seed`, `glyphHeightDips`, `densityPe
 `trailLengthGlyphs`, `mutationPerSecond`, `headColor`, `trailColor`, and `glowPercent`; the rain falls over the
 host-resolved dashboard background. `backgroundColor` is not a Matrix Rain member.
 
+5H4D3R5 settings are the closed object `mode`, `shader`, `intervalSeconds`, `shuffle`, and `renderScalePercent`.
+`mode` is `single`, `random`, or `slideshow` (default `slideshow`); `shader` is one of the thirteen exact lowercase
+names of the bundled catalog in `Plugins/5H4D3R5/ShadersSettings.h` (default `seascape`);
+`intervalSeconds` is an integer from 10 through 3600 (default 120); `shuffle` is a boolean (default `false`);
+`renderScalePercent` is an integer from 25 through 100 (default 50). The host merges omitted members from these
+defaults before static validation and provider creation. Unknown members (including `backgroundColor`, which is
+host-owned), another mode, a name outside the catalog, non-integer or out-of-range numbers, and a non-boolean
+`shuffle` reject the complete candidate. The catalog, mode names, ranges, and defaults exist once in that header,
+compiled into both the host parser and the DLL.
+
 Launcher settings are the closed object `shortcuts` plus optional `iconSize`. `shortcuts` is an array of 0 through 32
 closed binding items (`Specs/Plugins/Plugins_Actions.md`): optional `action` (an action name; omitted means
 `system.launch`), `target` (UTF-8 string, at most 512 bytes; required and non-empty for `system.launch`), and

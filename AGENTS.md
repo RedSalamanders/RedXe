@@ -119,6 +119,7 @@ Plugins/
   RotatingTriangle/ First bundled widget-provider DLL
   GdiOrbit/         Double-buffered GDI window-widget DLL
   MatrixRain/       Production low-resource Direct3D digital-rain DLL
+  5H4D3R5/          Build-time HLSL shader and demo catalog (twelve Shadertoy ports and the RedXe cosmic orb): single, random, or fading slideshow; ShadersSettings.h is the shared catalog/settings model; LICENSES.md the notices
   ProcessViewer/    System Data GPU viewers sharing one Direct3D DLL
   Launcher/         GPU shortcut launcher with jumbo icons, glyph tiles, taskbar-pin fallback, and action bindings
   Weather/          GPU weather widget with host-owned network lane

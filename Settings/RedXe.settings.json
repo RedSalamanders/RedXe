@@ -49,6 +49,8 @@
   },
   "declare": {
     "Matrix": { "plugin": "builtin.matrix-rain" },
+    // 5H4D3R5: a slideshow of the bundled shaders (docs/plugins/5h4d3r5.md shows them all).
+    "Shaders": { "plugin": "builtin.5h4d3r5", "intervalSeconds": 120, "renderScalePercent": 50 },
     "Triangle": { "plugin": "builtin.rotating-triangle" },
     "StudioClock": { "plugin": "builtin.studio-clock", "externalDotsAlwaysOn": true },
     "DeskClock": { "plugin": "builtin.desk-clock" },
@@ -104,6 +106,7 @@
           ]
         }
       ]
-    }
+    },
+    { "name": "Shaders", "widgets": ["Shaders"] }
   ]
 }

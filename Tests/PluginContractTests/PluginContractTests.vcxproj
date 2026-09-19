@@ -35,6 +35,7 @@
   <ItemDefinitionGroup Condition="('$(Configuration)'=='Debug' or '$(Configuration)'=='ASan Debug')">
     <ClCompile>
       <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>..\..\Plugins\5H4D3R5;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
@@ -48,6 +49,7 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
+      <AdditionalIncludeDirectories>..\..\Plugins\5H4D3R5;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
@@ -74,6 +76,11 @@
     </ProjectReference>
     <ProjectReference Include="..\..\Plugins\MatrixRain\MatrixRain.vcxproj">
       <Project>{CB7C57F4-4C2F-4BA8-9D83-58E0367B553A}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Plugins\5H4D3R5\5H4D3R5.vcxproj">
+      <Project>{C4B1F8EF-8B5B-4E5E-ADF3-6BA1B3DF03A7}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>

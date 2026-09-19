@@ -1,0 +1,286 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|ARM64"><Configuration>Debug</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64"><Configuration>Release</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="ASan Debug|x64"><Configuration>ASan Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="ASan Debug|ARM64"><Configuration>ASan Debug</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{C4B1F8EF-8B5B-4E5E-ADF3-6BA1B3DF03A7}</ProjectGuid>
+    <RootNamespace>Shaders</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries Condition="('$(Configuration)'=='Debug' or '$(Configuration)'=='ASan Debug')">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
+            Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
+            Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <OutDir>$(RedXeBuildRoot)$(Platform)\$(Configuration)\Plugins\</OutDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="('$(Configuration)'=='Debug' or '$(Configuration)'=='ASan Debug')">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="Shaders.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Shaders\ShadersVertex.hlsl">
+      <ShaderType>Vertex</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>VertexMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersVertexShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersVertexShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersVertexShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\ShadersBlitPixel.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersBlitPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersBlitPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersBlitPixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\FluidSolverImage.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersFluidSolverImagePixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersFluidSolverImagePixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersFluidSolverImagePixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\FluidSolverBufferA.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersFluidSolverBufferAPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersFluidSolverBufferAPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersFluidSolverBufferAPixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\CineShaderLava.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersCineShaderLavaPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersCineShaderLavaPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersCineShaderLavaPixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\SynthwaveSunset.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersSynthwaveSunsetPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersSynthwaveSunsetPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersSynthwaveSunsetPixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\Seascape.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersSeascapePixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersSeascapePixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersSeascapePixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\BaseWarpFbm.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersBaseWarpFbmPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersBaseWarpFbmPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersBaseWarpFbmPixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\FractalPyramid.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersFractalPyramidPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersFractalPyramidPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersFractalPyramidPixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\Octagrams.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersOctagramsPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersOctagramsPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersOctagramsPixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\Heartfelt.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersHeartfeltPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersHeartfeltPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersHeartfeltPixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\ProteanClouds.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersProteanCloudsPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersProteanCloudsPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersProteanCloudsPixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\TheDriveHome.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersTheDriveHomePixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersTheDriveHomePixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersTheDriveHomePixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\FlammesVortexImage.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersFlammesVortexImagePixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersFlammesVortexImagePixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersFlammesVortexImagePixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\FlammesVortexBufferA.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersFlammesVortexBufferAPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersFlammesVortexBufferAPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersFlammesVortexBufferAPixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\CosmicOrb.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersCosmicOrbPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersCosmicOrbPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersCosmicOrbPixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\NeonPulseFractal.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersNeonPulseFractalPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersNeonPulseFractalPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersNeonPulseFractalPixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="ShadersSettings.h" />
+    <ClInclude Include="ShadersTestContract.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />
+    <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Shaders\ShadersCommon.hlsli" />
+    <None Include="Shaders\ShadersEntry.hlsli" />
+    <None Include="Shaders\FlammesVortexCommon.hlsli" />
+    <None Include="LICENSES.md" />
+    <None Include="README.md" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>

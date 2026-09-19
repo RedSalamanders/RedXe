@@ -1,5 +1,6 @@
 #include "Settings.h"
 
+#include "../Plugins/5H4D3R5/ShadersSettings.h"
 #include "../Plugins/AVControl/AVControlModel.h"
 #include "../Plugins/Launcher/LauncherBindings.h"
 #include "../Plugins/Launcher/LauncherPaging.h"
@@ -233,6 +234,7 @@ constexpr char kMatrixPluginId[] = "builtin.matrix-rain";
 constexpr char kProcessViewerPluginId[] = "builtin.process-viewer";
 constexpr char kStudioClockPluginId[] = "builtin.studio-clock";
 constexpr char kDeskClockPluginId[] = "builtin.desk-clock";
+constexpr char kShadersPluginId[] = "builtin.5h4d3r5";
 constexpr char kWeatherPluginId[] = "builtin.weather";
 constexpr char kLauncherPluginId[] = "builtin.launcher";
 constexpr char kAvControlPluginId[] = "builtin.av-control";
@@ -402,6 +404,24 @@ template <size_t Count>
            IsColor(object, "cardColor") && IsColor(object, "digitColor") && IsColor(object, "dateColor");
 }
 
+[[nodiscard]] bool IsValidShadersPrivate(yyjson_val* object) noexcept
+{
+    yyjson_val* modeValue = yyjson_obj_get(object, "mode");
+    yyjson_val* shaderValue = yyjson_obj_get(object, "shader");
+    Shaders::Mode mode = Shaders::Mode::Slideshow;
+    uint32_t shaderIndex = 0;
+    uint32_t value = 0;
+    return HasExactKeys(object, Shaders::kSettingsKeys) && yyjson_is_str(modeValue) &&
+           Shaders::TryParseMode({yyjson_get_str(modeValue), yyjson_get_len(modeValue)}, mode) &&
+           yyjson_is_str(shaderValue) &&
+           Shaders::TryFindShader({yyjson_get_str(shaderValue), yyjson_get_len(shaderValue)}, shaderIndex) &&
+           ReadUnsigned(object, "intervalSeconds", Shaders::kMinimumIntervalSeconds, Shaders::kMaximumIntervalSeconds,
+                        value) &&
+           yyjson_is_bool(yyjson_obj_get(object, "shuffle")) &&
+           ReadUnsigned(object, "renderScalePercent", Shaders::kMinimumRenderScalePercent,
+                        Shaders::kMaximumRenderScalePercent, value);
+}
+
 [[nodiscard]] bool IsValidWeatherPrivate(yyjson_val* object) noexcept
 {
     constexpr std::array keys{"locationMode", "location", "temperatureUnit", "windUnit"};
@@ -497,6 +517,12 @@ template <size_t Count>
 {
     unique_yyjson_doc document = ParseStoredObject(settings);
     return document && IsValidDeskClockPrivate(yyjson_doc_get_root(document.get()));
+}
+
+[[nodiscard]] bool IsShadersPrivate(const JsonObjectSettings& settings) noexcept
+{
+    unique_yyjson_doc document = ParseStoredObject(settings);
+    return document && IsValidShadersPrivate(yyjson_doc_get_root(document.get()));
 }
 
 [[nodiscard]] bool IsValidLauncherIconSize(yyjson_val* iconSize) noexcept
@@ -1548,6 +1574,13 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
             else if (SettingsIdEquals(widget.pluginId.View(), kDeskClockPluginId))
             {
                 if (!IsDeskClockPrivate(widget.privateConfiguration))
+                {
+                    return E_INVALIDARG;
+                }
+            }
+            else if (SettingsIdEquals(widget.pluginId.View(), kShadersPluginId))
+            {
+                if (!IsShadersPrivate(widget.privateConfiguration))
                 {
                     return E_INVALIDARG;
                 }

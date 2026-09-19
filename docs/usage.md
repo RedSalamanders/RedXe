@@ -8,8 +8,8 @@ Shipped layouts:
 
 | Build | First page | Other pages |
 | --- | --- | --- |
-| Release | Full-canvas Matrix Rain | Plugin Gallery, then System |
-| Debug | Development mix | Plugin Gallery, then System |
+| Release | Full-canvas Matrix Rain | Plugin Gallery, System, then a full-canvas 5H4D3R5 shader slideshow |
+| Debug | Development mix | Logicon, Plugin Gallery, System, then a full-canvas 5H4D3R5 shader slideshow |
 
 The first page is selected on every launch. RedXe does not remember which page you were on.
 

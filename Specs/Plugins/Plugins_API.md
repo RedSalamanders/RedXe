@@ -183,7 +183,7 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   Release validation drives it, so it is part of the shipped export set rather than a debug-only convenience. Each
   such export MUST be declared in that plugin's `*TestContract.h` behind a single `REDXE_*_TEST_API` macro, never as a
   raw `__declspec(dllexport)` in the implementation, so the shipped export set is readable from the contract header.
-  The host never calls these exports. The current surface is: `RedXeMatrixRainGetTestDiagnostics`,
+  The host never calls these exports. The current surface is: `RedXeMatrixRainGetTestDiagnostics`, `RedXeShadersGetTestDiagnostics`,
   `RedXeProcessViewerGetTestDiagnostics`, `RedXeStudioClockGetTestDiagnostics`, `RedXeStudioClockSetTestTime`,
   `RedXeDeskClockGetTestDiagnostics`, `RedXeDeskClockSetTestTime`, `RedXeWeatherGetTestDiagnostics`, and
   `RedXeWeatherProbeHttpGetOnSmallStack`, `RedXeWeatherBuildTestLocationSearchUrl`,
@@ -352,7 +352,8 @@ requested plugin ID. The record and its UTF-8 strings remain valid while the mod
   `topN` object with range 1 through 16 and default 8. System Pulse, CPU Meter, Memory Meter, Storage Meter, GPU Meter,
   Power Meter, and Thermal Meter publish closed empty-object schemas and `{}` defaults. Studio Clock publishes its
   complete closed boolean, color, and date-format schema and defaults. Desk Clock publishes its complete closed duration
-  and color schema and defaults. Weather publishes its closed location and unit schema and defaults. Launcher publishes
+  and color schema and defaults. 5H4D3R5 publishes its closed mode/shader enum, interval, shuffle, and render-scale
+  schema and defaults. Weather publishes its closed location and unit schema and defaults. Launcher publishes
   a closed `shortcuts` array of 0 through 32 objects with optional `action` (the action-name pattern), `target`, and
   `icon`, plus optional
   `iconSize` (`small`, `medium`, `large`, `huge`, or `automatic`, default `huge`), default
@@ -696,6 +697,7 @@ Shipped extents:
 - Launcher: half.
 - AV Control: half.
 - Matrix Rain: full.
+- 5H4D3R5: full.
 - Rotating Triangle and GdiOrbit: quarter.
 
 System Data viewers force Standard density while raised so ranked lists and cards can use the overlay. `topN` still
@@ -831,6 +833,55 @@ glyph draw. The CPU performs no per-column or per-glyph simulation. Submitted gl
 reduces both visible columns and submitted instances. The callback performs no heap allocation, synchronization, I/O,
 texture upload, or shader/font work. `OnDeviceCreated` builds the complete provider resource set transactionally and
 `OnDeviceLost` releases it idempotently.
+
+`Plugins/5H4D3R5` is the bundled GPU plugin that draws a fixed catalog of full-screen shaders and demos. It exposes
+settings-visible plugin ID `builtin.5h4d3r5`, internally maps it to type ID `5h4d3r5`, publishes its complete
+closed settings schema and defaults (`Core_Settings.md`), and creates any number of continuous-animation widgets per
+provider, each exposing `IRedXeRaisedWidget` with a full-client extent. The catalog is the thirteen entries of
+`Plugins/5H4D3R5/ShadersSettings.h` (a short lowercase name that is the `shader` value, the Shadertoy id or
+none, title, author, license, and pass flags), each a build-time Shader Model 5.0 shader under
+`Plugins/5H4D3R5/Shaders/`: twelve Shadertoy ports that keep the author's original header and license, every one
+Creative Commons BY-NC-SA 3.0 (stated by the author or Shadertoy's default), and RedXe's own Cosmic Orb under the
+repository terms. `Plugins/5H4D3R5/LICENSES.md` is the notices file. The DLL performs no runtime shader
+compilation and loads no font, WIC, or DirectWrite component. The widget MUST draw exactly the catalog: it never
+fetches, compiles, or accepts a shader outside it.
+
+Selection is a pure function of the configuration, a per-widget random seed mixed from the clock, the process id and
+the instance id at creation, and the host `elapsedSeconds`: `single` shows `shader`; `random` shows one catalog
+entry chosen at creation; `slideshow` shows entry `(shader + cycle) mod N` for cycle `floor(elapsed /
+intervalSeconds)` and catalog size `N`, or, with `shuffle`, the `cycle mod N`-th entry of a Fisher-Yates permutation
+seeded by the random seed and the round `cycle / N`, so each round shows every entry once. `iTime` restarts at zero and `iFrame`
+at zero with every cycle; single and random use a 3600 s cycle so `iTime` stays a small float. The image fades
+linearly toward the host-resolved dashboard background over the first and last 0.75 s of every cycle (so the widget
+also fades in at start). `iMouse` is always zero and `iDate` is the local date; sound channels of the originals are
+not reproduced.
+
+The widget exposes `IRedXeInteractiveWidget` so a slideshow can be skipped by hand. The clock every value above is
+computed from is the host `elapsedSeconds` plus a per-widget offset, kept in double. Pointer Down answers `S_FALSE`
+and records the position; a Cancel forgets it; Move, wheel, and horizontal wheel answer `S_FALSE` (the host pages
+the dashboard); drag-over and drop answer `S_FALSE`. In `slideshow` mode a one-contact Up (mouse, touch, or pen)
+within 24 DIP of its Down is a tap: it is consumed (`S_OK`, so it does not count toward double-activate raise) and
+moves the offset so the clock stands `kFadeSeconds` (0.75 s) before the next cycle boundary, so the current entry
+fades out and the next fades in exactly as a timed change does, the cycle counter (and with it the sequential
+wrap or the shuffle round) advancing by one; a tap inside that final fade changes nothing because the change is
+imminent. A drag past the slop, and every Up in `single` or `random` mode, answers `S_FALSE` and changes nothing, so
+double-activate raise keeps working on those tiles. `OnPointer` allocates nothing and does not call the host.
+
+Device resources are split so siblings share what is immutable: the vertex shader, sixteen pixel shaders, the blit
+shader, three samplers, the pipeline states, and Heartfelt's procedural 512×512 mipmapped background (generated once
+per device on the CPU, never from `Render`) belong to the provider and are built by the first `OnDeviceCreated`
+for a device and released by any `OnDeviceLost`; the 96-byte dynamic constant buffer, the offscreen color texture,
+and two `R32G32B32A32_FLOAT` feedback buffers belong to each widget. `OnTargetSizeChanged` sizes the offscreen
+texture and the feedback buffers to the largest viewport times `renderScalePercent` (offscreen only below 100 %;
+feedback buffers only when the configuration can reach a feedback port) and rebuilds them transactionally. A
+non-zero `Render` binds every pipeline state it uses, takes references to the host render target and viewport,
+runs the feedback pass (feedback ports only, once per presented `elapsedSeconds` at the buffer size, ping-pong),
+runs the image pass into the top-left `viewport × scale` region of the offscreen texture or straight into the host
+target at 100 %, restores the host target and viewport, and blits with a half-texel-clamped sample rectangle. Each
+pass is one three-vertex draw and one constant-buffer map/unmap; `Render` performs no heap allocation, I/O, or
+logging. Shader `fragCoord` follows Shadertoy: pixel coordinates of the pass with y up and centers at .5,
+computed from `SV_Position` minus the viewport origin, so a negative swipe origin draws correctly; channel reads
+flip V. The image entry clamps to the displayable range before the fade; a feedback pass stores raw values.
 
 `Plugins/SystemData` exposes `builtin.system-data` and only factory-created `IRedXeDataSource`. It currently publishes
 `source.status` (at most 32 rows, 5 s), `system.summary` (1 row, 1 s, not local-sensitive), `cpu.summary` (1 row, 1 s),
@@ -1406,7 +1457,15 @@ fixture, and Matrix Rain. The automated
 Release first-page composition must contain one full-canvas Matrix widget. The Debug template's second page is
 `logicon` and places the developer-only Logicon Monitor beside a Studio Clock. The gallery page of each shipped template
 must demonstrate every settings-visible plugin in the compile-time bundled widget projection, including Process Viewer,
-Studio Clock, Desk Clock, Weather, and Launcher, except the developer-only widgets, which only the Debug template places.
+Studio Clock, Desk Clock, Weather, and Launcher, except the developer-only widgets, which only the Debug template places,
+and 5H4D3R5, which each template places alone on its last page (`Shaders`) as a slideshow: Release sequential at
+120 s and half render scale, Debug shuffled at 60 s. `PluginContractTests` MUST load `5H4D3R5.dll`, validate its
+contract and configuration rejections, render every catalog entry on WARP at 50 % and 100 % render scale through the
+production entry points (feedback ports long enough for their simulation to show) and prove none is one flat color,
+prove the slideshow order, the frame restart at a change, the fade through the dashboard background, the tap that
+skips a slideshow ahead (consumed Up, fade-out then the next entry, wrap-around after a catalog's worth of taps),
+that a drag and a click in `single` mode change nothing, the shared provider resource set, device-loss recreation,
+and an allocation-free steady-state `Render`.
 The `System` page of each shipped template MUST place one instance of every Process Viewer family widget. Both
 templates configure every catalogued service under `services`.
 Scheduler tests must prove

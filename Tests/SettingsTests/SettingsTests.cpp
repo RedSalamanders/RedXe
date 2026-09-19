@@ -201,8 +201,9 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     // Development page: Launcher, Triangle, Matrix. The Debug template adds a Logicon page for the developer-only
-    // monitor tile. No shipped page places a native-window widget.
-    if (debug.dashboard.pageCount != 4 || debug.dashboard.pages[0].widgetCount != 3)
+    // monitor tile. Both templates end with a full-canvas 5H4D3R5 page. No shipped page places a native-window
+    // widget.
+    if (debug.dashboard.pageCount != 5 || debug.dashboard.pages[0].widgetCount != 3)
     {
         std::wprintf(L"Debug template page count contract failed (%u pages, first widgets %u).\n",
                      debug.dashboard.pageCount, debug.dashboard.pages[0].widgetCount);
@@ -217,11 +218,27 @@ constexpr std::string_view kRepresentative = R"json(
     if (debug.dashboard.pages[1].widgetCount != 2 || debug.dashboard.pages[1].id.View() != "logicon" ||
         debug.dashboard.pages[1].widgets[0].pluginId.View() != "builtin.logicon-monitor" ||
         debug.dashboard.pages[2].widgetCount != 7 || debug.dashboard.pages[3].widgetCount != 10 ||
-        release.dashboard.pageCount != 3 || release.dashboard.pages[0].widgetCount != 1 ||
-        release.dashboard.pages[1].widgetCount != 7 || release.dashboard.pages[2].widgetCount != 10 ||
-        debug.logRetentionDays != 15 || release.logRetentionDays != 15)
+        debug.dashboard.pages[4].widgetCount != 1 ||
+        debug.dashboard.pages[4].widgets[0].pluginId.View() != "builtin.5h4d3r5" || release.dashboard.pageCount != 4 ||
+        release.dashboard.pages[0].widgetCount != 1 || release.dashboard.pages[1].widgetCount != 7 ||
+        release.dashboard.pages[2].widgetCount != 10 || release.dashboard.pages[3].widgetCount != 1 ||
+        release.dashboard.pages[3].widgets[0].pluginId.View() != "builtin.5h4d3r5" || debug.logRetentionDays != 15 ||
+        release.logRetentionDays != 15)
     {
         std::wprintf(L"Deployed template page inventory contract failed.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    // The 5H4D3R5 pages author only the keys they change; the rest merge from the plugin defaults.
+    const std::string_view debugShaders = debug.dashboard.pages[4].widgets[0].privateConfiguration.View();
+    const std::string_view releaseShaders = release.dashboard.pages[3].widgets[0].privateConfiguration.View();
+    if (debugShaders.find("\"shuffle\":true") == std::string_view::npos ||
+        debugShaders.find("\"intervalSeconds\":60") == std::string_view::npos ||
+        debugShaders.find("\"mode\":\"slideshow\"") == std::string_view::npos ||
+        releaseShaders.find("\"intervalSeconds\":120") == std::string_view::npos ||
+        releaseShaders.find("\"shader\":\"seascape\"") == std::string_view::npos ||
+        releaseShaders.find("\"renderScalePercent\":50") == std::string_view::npos)
+    {
+        std::wprintf(L"Deployed templates do not configure the 5H4D3R5 slideshow as expected.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     // Both templates configure the Logicon service (settings minor 1) with a page-navigation key layout and author
@@ -357,7 +374,8 @@ constexpr std::string_view kRepresentative = R"json(
             }
         }
     }
-    for (const char* pluginDefinition : {"matrixSettings", "studioClockSettings", "deskClockSettings"})
+    for (const char* pluginDefinition :
+         {"matrixSettings", "studioClockSettings", "deskClockSettings", "shadersSettings"})
     {
         yyjson_val* definition = yyjson_is_obj(defs) ? yyjson_obj_get(defs, pluginDefinition) : nullptr;
         yyjson_val* definitionProperties =
@@ -599,6 +617,22 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
+    // 5H4D3R5: the defaults are a two-minute sequential slideshow starting at Seascape at half resolution; authored
+    // keys merge over them and a single shader is selected by its catalog name.
+    constexpr std::string_view shadersSettings =
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.5h4d3r5"},{"plugin":"builtin.5h4d3r5","mode":"single","shader":"protean-clouds","renderScalePercent":100,"backgroundColor":"#010203"}]}]})json";
+    AppSettings shaders{};
+    if (FAILED(ParseAppSettingsJson(shadersSettings, shaders)) ||
+        shaders.dashboard.pages[0].widgets[0].privateConfiguration.View() !=
+            R"json({"mode":"slideshow","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json" ||
+        shaders.dashboard.pages[0].widgets[1].privateConfiguration.View() !=
+            R"json({"intervalSeconds":120,"shuffle":false,"mode":"single","shader":"protean-clouds","renderScalePercent":100})json" ||
+        !shaders.dashboard.pages[0].widgets[1].overridesBackground ||
+        shaders.dashboard.pages[0].widgets[1].backgroundRgb != 0x010203)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
     // The document color feeds every plugin, including ones with closed empty settings, and a declare-level
     // override flows through use-objects (which may override it again or remove it with null).
     constexpr std::string_view backgroundSettings =
@@ -771,7 +805,7 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    constexpr std::array<std::string_view, 51> invalid{
+    constexpr std::array<std::string_view, 59> invalid{
         std::string_view{R"json({"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":4},"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":5,"minor":"0"},"pages":[{}]})json"},
@@ -815,6 +849,22 @@ constexpr std::string_view kRepresentative = R"json(
             R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock","cardColor":"#GG0000"}]}]})json"},
         std::string_view{
             R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock","unknown":true}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.5h4d3r5","mode":"loop"}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.5h4d3r5","shader":"Seascape"}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.5h4d3r5","intervalSeconds":9}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.5h4d3r5","intervalSeconds":3601}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.5h4d3r5","shuffle":1}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.5h4d3r5","renderScalePercent":24}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.5h4d3r5","renderScalePercent":101}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.5h4d3r5","unknown":true}]}]})json"},
         std::string_view{
             R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.weather","locationMode":"gps"}]}]})json"},
         std::string_view{

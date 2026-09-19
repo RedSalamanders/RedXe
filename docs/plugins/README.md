@@ -5,6 +5,7 @@ Each bundled widget has a settings `plugin` id, a screenshot, and a parameter ta
 | Widget | Plugin id | Parameters |
 | --- | --- | --- |
 | [Matrix Rain](matrix-rain.md) | `builtin.matrix-rain` | Seed, density, speed, colors |
+| [5H4D3R5](5h4d3r5.md) | `builtin.5h4d3r5` | Mode (single, random, slideshow), shader, interval, shuffle, render scale |
 | [Studio Clock](studio-clock.md) | `builtin.studio-clock` | Seconds, date, colors |
 | [Desk Clock](desk-clock.md) | `builtin.desk-clock` | Flip duration, colors |
 | [Weather](weather.md) | `builtin.weather` | Location, units |

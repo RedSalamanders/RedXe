@@ -216,6 +216,11 @@
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
+    <ProjectReference Include="..\Plugins\5H4D3R5\5H4D3R5.vcxproj">
+      <Project>{C4B1F8EF-8B5B-4E5E-ADF3-6BA1B3DF03A7}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
     <ProjectReference Include="..\Plugins\RotatingTriangle\RotatingTriangle.vcxproj">
       <Project>{6D7E78E8-B671-423A-9A15-3D1EF6DCA865}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>

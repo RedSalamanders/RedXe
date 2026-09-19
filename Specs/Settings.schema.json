@@ -69,6 +69,33 @@
         "glowPercent": { "type": "integer", "minimum": 0, "maximum": 100, "default": 35 }
       }
     },
+    "shadersSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["single", "random", "slideshow"],
+          "default": "slideshow",
+          "description": "single shows `shader`; random picks one at start; slideshow shows every bundled shader in turn, starting at `shader`."
+        },
+        "shader": {
+          "type": "string",
+          "enum": ["fluid-solver", "cineshader-lava", "synthwave-sunset", "seascape", "warp-fbm", "fractal-pyramid", "octagrams", "heartfelt", "protean-clouds", "drive-home", "flammes-vortex", "neon-pulse", "cosmic-orb"],
+          "default": "seascape",
+          "description": "Short name of a bundled shader; docs/plugins/5h4d3r5.md shows each one (twelve Shadertoy ports and the RedXe cosmic orb)."
+        },
+        "intervalSeconds": { "type": "integer", "minimum": 10, "maximum": 3600, "default": 120 },
+        "shuffle": { "type": "boolean", "default": false, "description": "Slideshow order: false cycles the catalog in order, true shuffles each round." },
+        "renderScalePercent": {
+          "type": "integer",
+          "minimum": 25,
+          "maximum": 100,
+          "default": 50,
+          "description": "Shader resolution as a percentage of the tile, upscaled on the GPU; the ray-marched shaders are heavy at full size."
+        }
+      }
+    },
     "rankedViewerSettings": {
       "type": "object",
       "additionalProperties": false,
@@ -411,6 +438,7 @@
         "builtin.rotating-triangle",
         "builtin.gdi-orbit",
         "builtin.matrix-rain",
+        "builtin.5h4d3r5",
         "builtin.studio-clock",
         "builtin.desk-clock",
         "builtin.weather",
@@ -456,6 +484,20 @@
             "headColor": { "$ref": "#/$defs/matrixSettings/properties/headColor" },
             "trailColor": { "$ref": "#/$defs/matrixSettings/properties/trailColor" },
             "glowPercent": { "$ref": "#/$defs/matrixSettings/properties/glowPercent" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plugin"],
+          "properties": {
+            "plugin": { "const": "builtin.5h4d3r5" },
+            "backgroundColor": { "$ref": "#/$defs/widgetBackground" },
+            "mode": { "$ref": "#/$defs/shadersSettings/properties/mode" },
+            "shader": { "$ref": "#/$defs/shadersSettings/properties/shader" },
+            "intervalSeconds": { "$ref": "#/$defs/shadersSettings/properties/intervalSeconds" },
+            "shuffle": { "$ref": "#/$defs/shadersSettings/properties/shuffle" },
+            "renderScalePercent": { "$ref": "#/$defs/shadersSettings/properties/renderScalePercent" }
           }
         },
         {
@@ -560,6 +602,11 @@
         "trailColor": { "$ref": "#/$defs/matrixSettings/properties/trailColor" },
         "backgroundColor": { "$ref": "#/$defs/widgetBackground" },
         "glowPercent": { "$ref": "#/$defs/matrixSettings/properties/glowPercent" },
+        "mode": { "$ref": "#/$defs/shadersSettings/properties/mode" },
+        "shader": { "$ref": "#/$defs/shadersSettings/properties/shader" },
+        "intervalSeconds": { "$ref": "#/$defs/shadersSettings/properties/intervalSeconds" },
+        "shuffle": { "$ref": "#/$defs/shadersSettings/properties/shuffle" },
+        "renderScalePercent": { "$ref": "#/$defs/shadersSettings/properties/renderScalePercent" },
         "topN": { "type": "integer", "minimum": 1, "maximum": 32 },
         "showSecondProgress": { "type": "boolean" },
         "externalDotsAlwaysOn": { "type": "boolean" },
