@@ -824,8 +824,12 @@ glyphs stay put in the grid and light as a head passes. Each stream sits at one 
 front at full brightness, the rest at 60 % or 34 %), the film's layered look of a few sharp bright columns over a
 dimmer field, and its trail is lit evenly from the head down, fading only over its last 45 %. Each cell has its own
 brightness (76–100 %), a slow ±6 % flicker, and a mutation schedule that re-rolls its glyph every
-`16 / mutationPerSecond` seconds at its own phase with a brief flash, so the field sparkles unevenly. Stream phase,
-speed, trail length, column permutation, and mutation are deterministic functions of the configured seed and frame
+`16 / mutationPerSecond` seconds at its own phase with a brief flash, so the field sparkles unevenly. The active
+columns (`densityPercent` of the grid, ceiling) are picked in blocks of seven: each block holds its share of the
+density (the running total `ceil(block * 7 * density / 100)`, so neighbouring blocks differ by at most one column)
+shuffled by its own seeded permutation, which bounds every run of dark columns to two blocks' leftovers (four columns
+at the default density) where one permutation of the whole width could leave a hole a third of the tile wide. Stream
+phase, speed, trail length, column choice, and mutation are deterministic functions of the configured seed and frame
 time. In a tile shorter than the configured trail (a dock bar, a small gallery tile) the streamed trail length shrinks
 to two thirds of the visible rows (at least four glyphs) and the off-screen cycle padding to a third of them (two
 through eight), so the bright head crosses the tile for most of each cycle instead of hanging below it; both are

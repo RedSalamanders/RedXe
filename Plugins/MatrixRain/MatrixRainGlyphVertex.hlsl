@@ -10,6 +10,8 @@ cbuffer MatrixRainConstants : register(b0)
     float4 effect;
 };
 
+static const uint kColumnBlock = 7U;
+
 struct GlyphOutput
 {
     float4 position : SV_Position;
@@ -44,6 +46,36 @@ float TrailProfile(float position)
     return smoothstep(0.0f, 0.45f, 1.0f - position) * lerp(0.82f, 1.0f, 1.0f - position);
 }
 
+// Active columns come in blocks of seven (kColumnBlock in MatrixRain.cpp): full block b holds the active indices from
+// ceil(b * 7 * density / 100) up and shuffles its seven columns with a seeded multiplier and offset (seven is prime,
+// so any multiplier is a permutation); the tail block after the last full one is a rotated run. Every block gets its
+// share of the density, so no run of dark columns is wider than two blocks' leftovers.
+uint ScreenColumn(uint activeColumn)
+{
+    const uint blockDensity = max(kColumnBlock * grid.z, 1U);
+    const uint fullBlocks = grid.x / kColumnBlock;
+    uint block;
+    uint index;
+    if (activeColumn < grid.w)
+    {
+        block = activeColumn * 100U / blockDensity;
+        index = activeColumn - (block * blockDensity + 99U) / 100U;
+    }
+    else
+    {
+        block = fullBlocks;
+        index = activeColumn - grid.w;
+    }
+    const uint blockHash = Hash(targetAndSeed.z ^ (block * 0xA511E9B3U));
+    const uint offset = blockHash >> 8U;
+    if (block < fullBlocks)
+    {
+        return block * kColumnBlock + (index * (1U + blockHash % 6U) + offset % kColumnBlock) % kColumnBlock;
+    }
+    const uint tailColumns = max(grid.x - fullBlocks * kColumnBlock, 1U);
+    return fullBlocks * kColumnBlock + (index + offset % tailColumns) % tailColumns;
+}
+
 GlyphOutput VertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 {
     static const float2 corners[6] = {
@@ -58,7 +90,7 @@ GlyphOutput VertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instanc
     const uint rowCount = targetAndSeed.w;
     const uint activeColumn = instanceId / rowCount;
     const uint row = instanceId - activeColumn * rowCount;
-    const uint screenColumn = (activeColumn * grid.z + grid.w) % grid.x;
+    const uint screenColumn = ScreenColumn(activeColumn);
     const uint streamHash = Hash(targetAndSeed.z ^ (screenColumn * 0x9E3779B9U));
     const float time = geometryAndTime.z;
     const float baseSpeed = geometryAndTime.w;

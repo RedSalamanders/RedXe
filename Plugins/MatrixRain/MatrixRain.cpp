@@ -44,6 +44,9 @@ constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(kSettingsDefaults) - 1,
 };
 constexpr uint32_t kMaximumGlyphInstances = 65'536;
+// Active columns are chosen per block of this many columns (a prime, so any multiplier shuffles a block); the vertex
+// shader (MatrixRainGlyphVertex.hlsl) uses the same value.
+constexpr uint32_t kColumnBlock = 7;
 // The bloom targets are this fraction of the widget viewport on each axis: a blur there costs a sixteenth of the
 // pixels and reads back as a soft phosphor halo.
 constexpr uint32_t kBloomDivisor = 4;
@@ -495,8 +498,11 @@ struct GridCache final
     uint32_t rows = 0;
     uint32_t activeColumns = 0;
     uint32_t instanceCount = 0;
-    uint32_t permutationMultiplier = 0;
-    uint32_t permutationOffset = 0;
+    // The density actually streamed (the configured one, lowered only when the instance budget binds) and how many
+    // of the active columns the full seven-column blocks hold; the vertex shader maps an active index to its block
+    // and screen column from these two values.
+    uint32_t densityPercent = 0;
+    uint32_t fullBlockActive = 0;
     // Trail length and off-screen cycle padding actually streamed, in glyphs. A tile shorter than the configured
     // trail (a dock bar, a small gallery tile) would otherwise show mostly dim tails with the bright head below the
     // tile, so both shrink with the visible row count.
@@ -514,17 +520,6 @@ struct GridCache final
     value ^= value >> 15U;
     value *= 0x846CA68BU;
     return value ^ (value >> 16U);
-}
-
-[[nodiscard]] uint32_t GreatestCommonDivisor(uint32_t left, uint32_t right) noexcept
-{
-    while (right != 0)
-    {
-        const uint32_t remainder = left % right;
-        left = right;
-        right = remainder;
-    }
-    return left;
 }
 
 [[nodiscard]] std::array<float, 4> ColorToFloat(uint32_t color) noexcept
@@ -892,7 +887,7 @@ class MatrixRainDeviceResources final
                            _bloomViews[1] && bloomWidth <= _bloomWidth && bloomHeight <= _bloomHeight;
         const MatrixRainConstants constants{
             {frame.widthPixels, frame.heightPixels, _configuration.seed, _grid.rows},
-            {_grid.columns, _grid.activeColumns, _grid.permutationMultiplier, _grid.permutationOffset},
+            {_grid.columns, _grid.activeColumns, _grid.densityPercent, _grid.fullBlockActive},
             {_grid.trailLength, _configuration.mutationPerSecond, _grid.cyclePadding, 8},
             {_grid.cellWidth, _grid.cellHeight, frame.elapsedSeconds,
              7.2f * static_cast<float>(_configuration.speedPercent) / 100.0f},
@@ -1040,10 +1035,30 @@ class MatrixRainDeviceResources final
                         ? std::numeric_limits<uint32_t>::max()
                         : static_cast<uint32_t>(rows);
 
-        const uint64_t desiredActive =
-            (static_cast<uint64_t>(grid.columns) * _configuration.densityPercent + 99U) / 100U;
+        // Active columns are picked in blocks of kColumnBlock: block b holds the active indices from
+        // ceil(b * kColumnBlock * density / 100) up, so the per-block count differs by at most one and the whole width
+        // gets ceil(columns * density / 100) columns, and the vertex shader shuffles each block's columns with its own
+        // seeded permutation. A single linear permutation of the whole width could pile the active columns into a few
+        // bands and leave a hole a third of the tile wide; a block bounds every dark run to two blocks' leftovers. The
+        // density drops only when the instance budget binds.
         const uint32_t maximumActive = grid.rows == 0 ? 0 : static_cast<uint32_t>(kMaximumGlyphInstances / grid.rows);
-        grid.activeColumns = static_cast<uint32_t>(desiredActive > maximumActive ? maximumActive : desiredActive);
+        uint32_t density = _configuration.densityPercent;
+        if (static_cast<uint64_t>(grid.columns) * density > static_cast<uint64_t>(maximumActive) * 100U)
+        {
+            density = static_cast<uint32_t>(static_cast<uint64_t>(maximumActive) * 100U / grid.columns);
+        }
+        const uint32_t fullBlocks = grid.columns / kColumnBlock;
+        const uint32_t tailColumns = grid.columns - fullBlocks * kColumnBlock;
+        grid.densityPercent = density;
+        grid.fullBlockActive =
+            static_cast<uint32_t>((static_cast<uint64_t>(fullBlocks) * kColumnBlock * density + 99U) / 100U);
+        uint32_t tailActive = (tailColumns * density + 99U) / 100U;
+        // Two ceilings can exceed the one ceiling the budget allows for by a single column.
+        if (grid.fullBlockActive + tailActive > maximumActive && tailActive > 0)
+        {
+            --tailActive;
+        }
+        grid.activeColumns = grid.fullBlockActive + tailActive;
         grid.instanceCount = grid.activeColumns * grid.rows;
 
         // `rows` counts the partial bottom row and one spare; the visible rows are one fewer. Keep the trail to two
@@ -1053,25 +1068,6 @@ class MatrixRainDeviceResources final
         const uint32_t trailCap = std::max(4U, visibleRows * 2U / 3U);
         grid.trailLength = std::min(_configuration.trailLengthGlyphs, trailCap);
         grid.cyclePadding = std::clamp(visibleRows / 3U, 2U, 8U);
-
-        if (grid.columns > 1)
-        {
-            uint32_t multiplier = (Hash(_configuration.seed ^ grid.columns) | 1U) % grid.columns;
-            if (multiplier == 0)
-            {
-                multiplier = 1;
-            }
-            while (GreatestCommonDivisor(multiplier, grid.columns) != 1)
-            {
-                ++multiplier;
-                if (multiplier >= grid.columns)
-                {
-                    multiplier = 1;
-                }
-            }
-            grid.permutationMultiplier = multiplier;
-            grid.permutationOffset = Hash(_configuration.seed ^ 0xA511E9B3U) % grid.columns;
-        }
 
         const float contentWidth = static_cast<float>(grid.columns) * grid.cellWidth;
         grid.horizontalMargin = contentWidth < static_cast<float>(frame.widthPixels)
