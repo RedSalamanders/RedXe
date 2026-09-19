@@ -233,8 +233,8 @@ Launcher settings are the closed object `shortcuts` plus optional `iconSize`. `s
 closed binding items (`Specs/Plugins/Plugins_Actions.md`): optional `action` (an action name; omitted means
 `system.launch`), `target` (UTF-8 string, at most 512 bytes; required and non-empty for `system.launch`), and
 optional `icon` (a Segoe Fluent Icons glyph name or `png:<absolute path>`, at most 260 bytes; required for any other
-action). `iconSize` is `"small"`, `"medium"`, `"large"`, `"huge"`, or `"automatic"`; omitted values merge to `"huge"`.
-Defaults are `{"shortcuts":[],"iconSize":"huge"}`. Unknown members, non-arrays, extra item members (including the
+action). `iconSize` is `"small"`, `"medium"`, `"large"`, `"huge"`, or `"automatic"`; omitted values merge to
+`"automatic"`. Defaults are `{"shortcuts":[],"iconSize":"automatic"}`. Unknown members, non-arrays, extra item members (including the
 former `iconPng`), an unknown `action`, an empty launch target, a non-launch item without `icon`, overlong strings,
 duplicate shortcuts, unknown `iconSize` values, and more than 32 items reject the complete candidate. A launch target
 that is not an absolute Win32 path or a URI is accepted; the widget draws it as a warning tile. An empty authored list is

@@ -217,8 +217,8 @@
         "iconSize": {
           "type": "string",
           "enum": ["small", "medium", "large", "huge", "automatic"],
-          "default": "huge",
-          "description": "Fixed cells: small 72 DIP, medium 96 DIP, large 144 DIP, huge 192 DIP (default). automatic starts at huge and shrinks toward small before paging."
+          "default": "automatic",
+          "description": "automatic (default) balances icon size against page count: the largest icons that fit one page, another page only for icons at least twice the edge, never below 72 DIP. Fixed cells: small 72 DIP, medium 96 DIP, large 144 DIP, huge 192 DIP, paging when full."
         },
         "shortcuts": {
           "type": "array",

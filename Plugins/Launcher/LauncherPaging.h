@@ -145,7 +145,8 @@ struct LauncherPageGeometry final
     {
         return 1;
     }
-    return std::max(1U, static_cast<uint32_t>(usable / denom));
+    // A cell sized to fill the extent exactly (LauncherEvenSlotLimit) must count as fitting despite float rounding.
+    return std::max(1U, static_cast<uint32_t>(usable / denom + 1.0e-3f));
 }
 
 [[nodiscard]] inline float LauncherEvenSlotLimit(float extentPx, uint32_t count, float gutterPx) noexcept
@@ -190,39 +191,88 @@ inline void LauncherChooseSpreadGrid(uint32_t widthPx, uint32_t heightPx, uint32
     }
 }
 
-[[nodiscard]] inline float LauncherChosenCellPixels(uint32_t widthPx, uint32_t heightPx, UINT dpi,
-                                                    uint32_t shortcutCount, LauncherIconSize iconSize) noexcept
+// The grid `automatic` settles on: the cell it draws, the columns and rows of one page, and the page count.
+struct LauncherAutomaticGrid final
+{
+    float cellPx = 0.0f;
+    uint32_t columns = 1;
+    uint32_t rows = 1;
+    uint32_t pageCount = 1;
+};
+
+// `automatic` weighs icon size against page count instead of insisting on either. Every whole grid of columns x
+// rows is a candidate, with the cell as large as the tile allows for that grid (at most the huge cell, never below
+// the 72 DIP floor; a grid that pages gives up the dot strip), scored by cell edge divided by page count: a second
+// page has to buy icons twice the edge of one page's, a third three times. Eight shortcuts on a wide tile become one
+// page of near-huge icons rather than four pages of two huge ones; nine on a narrow strip two pages of 99 DIP icons
+// rather than nine pages of one. Ties (the cell capped at huge) go to the fewest pages, then the fewest cells per
+// page, which keeps the last page as full as the others. When not even one floor cell fits, the floor cell pages one
+// shortcut at a time and the draw shrinks it to the tile.
+[[nodiscard]] inline LauncherAutomaticGrid LauncherChooseAutomaticGrid(uint32_t widthPx, uint32_t heightPx, UINT dpi,
+                                                                       uint32_t shortcutCount) noexcept
 {
     const float gutter = LauncherEvenGutterPixels(dpi);
     const float width = static_cast<float>(widthPx);
     const float height = static_cast<float>(heightPx);
     const float insetLimit = std::max(1.0f, std::min(width - 2.0f * gutter, height - 2.0f * gutter));
-    if (!LauncherIconSizeIsAutomatic(iconSize))
-    {
-        const float desired = std::max(1.0f, LauncherDipToPixels(LauncherIconSizeCellDip(iconSize), dpi));
-        return std::min(desired, insetLimit);
-    }
-
     const float floorPx = std::max(1.0f, LauncherDipToPixels(kLauncherAutomaticFloorDip, dpi));
     const float hugePx = std::min(std::max(1.0f, LauncherDipToPixels(kLauncherHugeCellDip, dpi)), insetLimit);
+    const float indicatorPx = LauncherDipToPixels(kLauncherPageIndicatorHeightDip, dpi);
+    LauncherAutomaticGrid best{};
     if (shortcutCount == 0)
     {
-        return hugePx;
+        best.cellPx = hugePx;
+        return best;
     }
-    float cellPx = 0.0f;
-    const uint32_t limit = std::min(shortcutCount, kLauncherMaximumShortcuts);
-    for (uint32_t columns = 1; columns <= limit; ++columns)
+    const uint32_t count = std::min(shortcutCount, kLauncherMaximumShortcuts);
+    best.cellPx = std::min(floorPx, insetLimit);
+    best.pageCount = count;
+    float bestScore = 0.0f;
+    for (uint32_t columns = 1; columns <= count; ++columns)
     {
-        const uint32_t rows = (shortcutCount + columns - 1U) / columns;
-        const float candidate =
-            std::min(LauncherEvenSlotLimit(width, columns, gutter), LauncherEvenSlotLimit(height, rows, gutter));
-        const float clamped = std::min(candidate, hugePx);
-        if (clamped + 0.01f >= floorPx && clamped > cellPx)
+        const uint32_t rowsForOnePage = (count + columns - 1U) / columns;
+        for (uint32_t rows = 1; rows <= rowsForOnePage; ++rows)
         {
-            cellPx = clamped;
+            const uint32_t perPage = columns * rows;
+            const uint32_t pages = (count + perPage - 1U) / perPage;
+            const float contentHeight = pages > 1 ? std::max(1.0f, height - indicatorPx) : height;
+            const float cell = std::min(hugePx, std::min(LauncherEvenSlotLimit(width, columns, gutter),
+                                                         LauncherEvenSlotLimit(contentHeight, rows, gutter)));
+            if (cell + 0.01f < floorPx)
+            {
+                continue;
+            }
+            const float score = cell / static_cast<float>(pages);
+            const bool tie = std::fabs(score - bestScore) <= 0.01f;
+            const bool better =
+                score > bestScore + 0.01f ||
+                (tie && (pages < best.pageCount || (pages == best.pageCount && perPage < best.columns * best.rows)));
+            if (better)
+            {
+                best.cellPx = cell;
+                best.columns = columns;
+                best.rows = rows;
+                best.pageCount = pages;
+                bestScore = score;
+            }
         }
     }
-    return cellPx > 0.0f ? cellPx : std::min(floorPx, insetLimit);
+    return best;
+}
+
+[[nodiscard]] inline float LauncherChosenCellPixels(uint32_t widthPx, uint32_t heightPx, UINT dpi,
+                                                    uint32_t shortcutCount, LauncherIconSize iconSize) noexcept
+{
+    if (LauncherIconSizeIsAutomatic(iconSize))
+    {
+        return LauncherChooseAutomaticGrid(widthPx, heightPx, dpi, shortcutCount).cellPx;
+    }
+    const float gutter = LauncherEvenGutterPixels(dpi);
+    const float width = static_cast<float>(widthPx);
+    const float height = static_cast<float>(heightPx);
+    const float insetLimit = std::max(1.0f, std::min(width - 2.0f * gutter, height - 2.0f * gutter));
+    const float desired = std::max(1.0f, LauncherDipToPixels(LauncherIconSizeCellDip(iconSize), dpi));
+    return std::min(desired, insetLimit);
 }
 
 [[nodiscard]] inline LauncherPageGeometry ComputeLauncherPages(
@@ -238,12 +288,21 @@ inline void LauncherChooseSpreadGrid(uint32_t widthPx, uint32_t heightPx, uint32
     }
 
     const float gutter = LauncherEvenGutterPixels(dpi);
-    const float cellPx = LauncherChosenCellPixels(widthPx, heightPx, dpi, shortcutCount, iconSize);
+    const bool automatic = LauncherIconSizeIsAutomatic(iconSize);
+    const LauncherAutomaticGrid chosen =
+        automatic ? LauncherChooseAutomaticGrid(widthPx, heightPx, dpi, shortcutCount) : LauncherAutomaticGrid{};
+    const float cellPx =
+        automatic ? chosen.cellPx : LauncherChosenCellPixels(widthPx, heightPx, dpi, shortcutCount, iconSize);
     geometry.cellSizePx = cellPx;
     geometry.iconSizePx = cellPx;
-    const uint32_t columnsFit = LauncherCellsAlong(static_cast<float>(widthPx), cellPx, gutter);
-    const uint32_t rowsFit = LauncherCellsAlong(static_cast<float>(heightPx), cellPx, gutter);
-    if (shortcutCount <= columnsFit * rowsFit)
+    uint32_t columnsFit = LauncherCellsAlong(static_cast<float>(widthPx), cellPx, gutter);
+    uint32_t rowsFit = LauncherCellsAlong(static_cast<float>(heightPx), cellPx, gutter);
+    if (automatic && chosen.pageCount <= 1)
+    {
+        columnsFit = std::max(columnsFit, chosen.columns);
+        rowsFit = std::max(rowsFit, chosen.rows);
+    }
+    if (shortcutCount <= columnsFit * rowsFit && (!automatic || chosen.pageCount <= 1))
     {
         LauncherChooseSpreadGrid(widthPx, heightPx, shortcutCount, columnsFit, rowsFit, geometry.columns,
                                  geometry.rows);
@@ -256,8 +315,17 @@ inline void LauncherChooseSpreadGrid(uint32_t widthPx, uint32_t heightPx, uint32
 
     geometry.indicatorHeightPx = LauncherDipToPixels(kLauncherPageIndicatorHeightDip, dpi);
     geometry.contentHeightPx = std::max(1.0f, static_cast<float>(heightPx) - geometry.indicatorHeightPx);
-    geometry.columns = columnsFit;
-    geometry.rows = std::max(1U, LauncherCellsAlong(geometry.contentHeightPx, cellPx, gutter));
+    if (automatic)
+    {
+        // The chosen grid already pays for the dot strip; a named size packs as many cells as fit beside it.
+        geometry.columns = std::max(1U, chosen.columns);
+        geometry.rows = std::max(1U, chosen.rows);
+    }
+    else
+    {
+        geometry.columns = columnsFit;
+        geometry.rows = std::max(1U, LauncherCellsAlong(geometry.contentHeightPx, cellPx, gutter));
+    }
     geometry.perPage = std::max(1U, geometry.columns * geometry.rows);
     geometry.pageCount = (shortcutCount + geometry.perPage - 1U) / geometry.perPage;
     if (geometry.pageCount == 0)

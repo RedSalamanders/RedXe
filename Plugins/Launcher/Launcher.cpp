@@ -47,7 +47,7 @@ constexpr char kPluginId[] = "builtin.launcher";
 constexpr char kWidgetTypeId[] = "launcher";
 constexpr char kSettingsSchema[] =
     R"json({"type":"object","additionalProperties":false,"properties":{"shortcuts":{"type":"array","minItems":0,"maxItems":32,"items":{"type":"object","additionalProperties":false,"properties":{"action":{"type":"string","pattern":"^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*){1,3}$"},"target":{"type":"string","maxLength":512},"icon":{"type":"string","maxLength":260}}}},"iconSize":{"type":"string","enum":["small","medium","large","huge","automatic"]}}})json";
-constexpr char kSettingsDefaults[] = R"json({"shortcuts":[],"iconSize":"huge"})json";
+constexpr char kSettingsDefaults[] = R"json({"shortcuts":[],"iconSize":"automatic"})json";
 constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
@@ -254,7 +254,7 @@ struct ShortcutRecord final
 struct LauncherConfiguration final
 {
     uint32_t count = 0;
-    LauncherIconSize iconSize = LauncherIconSize::Huge;
+    LauncherIconSize iconSize = LauncherIconSize::Automatic;
     std::array<ShortcutRecord, kMaximumShortcuts> items{};
 };
 
@@ -2112,7 +2112,7 @@ class LauncherWidget final
         uint32_t firstIndex = 0;
         uint32_t visibleCount = 0;
         float indicatorHeight = 0.0f;
-        LauncherIconSize iconSize = LauncherIconSize::Huge;
+        LauncherIconSize iconSize = LauncherIconSize::Automatic;
         std::array<std::array<float, 4>, kMaximumShortcuts> cells{};
     };
     std::array<GridLayout, 2> _grids{};

@@ -717,7 +717,7 @@ constexpr std::string_view kRepresentative = R"json(
     if (FAILED(ParseAppSettingsJson(launcherSettings, launcher)) ||
         launcher.dashboard.pages[0].widgets[0].privateConfiguration.View().find("\"shortcuts\":[]") ==
             std::string_view::npos ||
-        launcher.dashboard.pages[0].widgets[0].privateConfiguration.View().find("\"iconSize\":\"huge\"") ==
+        launcher.dashboard.pages[0].widgets[0].privateConfiguration.View().find("\"iconSize\":\"automatic\"") ==
             std::string_view::npos ||
         launcher.dashboard.pages[0].widgets[1].privateConfiguration.View().find("notepad.exe") ==
             std::string_view::npos)
@@ -1428,8 +1428,8 @@ constexpr std::string_view kRepresentative = R"json(
                 settings->sourceDocument.find("\"futureRoot\":") == std::string::npos ||
                 settings->dashboard.pages[0].widgets[0].privateConfiguration.View().find("éditeur.exe") ==
                     std::string_view::npos ||
-                settings->dashboard.pages[0].widgets[0].privateConfiguration.View().find("\"iconSize\":\"huge\"") ==
-                    std::string_view::npos)
+                settings->dashboard.pages[0].widgets[0].privateConfiguration.View().find(
+                    "\"iconSize\":\"automatic\"") == std::string_view::npos)
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             const std::string formatted = settings->sourceDocument;
             unique_doc before{yyjson_read(source.data(), source.size(), YYJSON_READ_NOFLAG)};
@@ -1442,8 +1442,8 @@ constexpr std::string_view kRepresentative = R"json(
             if (FAILED(ParseAppSettingsJson(formatted, *reloaded)) ||
                 reloaded->dashboard.pages[0].widgets[0].privateConfiguration.View().find("éditeur.exe") ==
                     std::string_view::npos ||
-                reloaded->dashboard.pages[0].widgets[0].privateConfiguration.View().find("\"iconSize\":\"huge\"") ==
-                    std::string_view::npos ||
+                reloaded->dashboard.pages[0].widgets[0].privateConfiguration.View().find(
+                    "\"iconSize\":\"automatic\"") == std::string_view::npos ||
                 FAILED(PatchWidgetInstanceSettings(*settings, id.View(), patch)) ||
                 settings->sourceDocument != formatted)
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);

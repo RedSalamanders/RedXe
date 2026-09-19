@@ -356,8 +356,8 @@ requested plugin ID. The record and its UTF-8 strings remain valid while the mod
   schema and defaults. Weather publishes its closed location and unit schema and defaults. Launcher publishes
   a closed `shortcuts` array of 0 through 32 objects with optional `action` (the action-name pattern), `target`, and
   `icon`, plus optional
-  `iconSize` (`small`, `medium`, `large`, `huge`, or `automatic`, default `huge`), default
-  `{"shortcuts":[],"iconSize":"huge"}`.
+  `iconSize` (`small`, `medium`, `large`, `huge`, or `automatic`, default `automatic`), default
+  `{"shortcuts":[],"iconSize":"automatic"}`.
 
 The metadata capability surface advertises factory-created plugin services through
 `RedXePluginCapabilityWidgetProvider`, `RedXePluginCapabilityDataSource`, `RedXePluginCapabilityService`, and
@@ -1218,8 +1218,9 @@ is what a taskbar import writes), `target` (UTF-8, at most 512 bytes; required a
 and optional `icon` (a Segoe Fluent Icons glyph name or `png:<absolute path>`, at most 260 bytes; required for any
 action other than `system.launch`, which has no file to extract an icon from). `Plugins/Launcher/LauncherBindings.h`
 (`ParseShortcutItem`) is the single validator of that shape for the DLL and the host. `iconSize` is
-`"small"` (72 DIP), `"medium"` (96 DIP), `"large"` (144 DIP), `"huge"` (fixed 192 DIP jumbo cell; default), or
-`"automatic"` (start at huge and shrink toward small). Unknown members, an unknown `action`, an empty launch target,
+`"small"` (72 DIP), `"medium"` (96 DIP), `"large"` (144 DIP), `"huge"` (fixed 192 DIP jumbo cell), or
+`"automatic"` (the default: the largest icons that fit one page, another page only for icons twice the edge).
+Unknown members, an unknown `action`, an empty launch target,
 a non-launch item without `icon`, overlong strings, unknown `iconSize` values, nested arrays, and more than 32 items
 reject the complete candidate. Duplicate shortcuts (equal actions and, for a launch path, a case-insensitive Win32
 path compare, else an exact compare) reject the document. A launch `target` that is not an absolute Win32 path
@@ -1277,9 +1278,15 @@ jumbo texture usefulness), and distributes leftover space as even gutters around
 inset at least `kLauncherEdgeInsetDip` (8 DIP, matching) from the tile edge and page-dot strip. A 4 DIP inner gutter
 keeps icon ink inside the cell so padding around a single-icon tile remains hittable. Named sizes MUST NOT shrink
 below their DIP except when the tile is smaller than one cell plus edge insets, in which case the grid scales
-uniformly to the shorter remaining edge. `automatic` starts from the huge cell and shrinks toward small so every
-shortcut fits, then paginates only
-after the 72 DIP floor still cannot hold them. Overflow still paginates when `count > columns * rows` at that cell.
+uniformly to the shorter remaining edge. `automatic` (the default) weighs icon size against page count
+(`LauncherChooseAutomaticGrid`): every whole grid of columns × rows is a candidate, with the cell as large as the
+tile allows for that grid (at most the huge cell, never below the 72 DIP floor; a grid that pages gives up the
+dot strip), scored by cell edge divided by page count, so a second page has to buy icons twice the edge of one
+page's and a third three times. Eight shortcuts on a 799×559 tile at 150 % are one page of 4 × 2 icons of 123 DIP
+where `huge` pages two at a time; nine on a 322×571 strip are two pages of 2 × 3 (six, then three) 95 DIP icons
+where `huge` pages one at a time. Ties (the cell capped at huge) go to the fewest pages, then the fewest cells per
+page. When not even one floor cell fits, the floor cell pages one shortcut at a time and the draw shrinks it to the
+tile. Overflow still paginates when `count > columns * rows` at the chosen cell.
 Hit testing uses the same cell centers and half-extents as `Render`. One-finger horizontal swipe or a
 tap on a dot changes the launcher page and MUST NOT launch. A swipe follows the finger 1:1 after the horizontal lock
 and draws the outgoing and incoming icon pages in the existing instanced draw by sliding instance-rect x positions; dots

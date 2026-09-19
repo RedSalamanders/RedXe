@@ -351,7 +351,10 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
   raise-settle duration clamps, and that the parent edge-click predicate is
   `ShouldShowEdgeAffordance && PageEdgeBandContains`.
 - LauncherTests prove drop of a file and of an `https://` URL reach `OnDrop`, that `iconSize` `huge` paginates eight
-  shortcuts on a large tile while `small`, `medium`, `large`, and `automatic` change the per-page count, that a tall
+  shortcuts on a large tile while `small`, `medium`, `large`, and `automatic` change the per-page count, that
+  `automatic` puts eight shortcuts on one page of near-huge icons on a 799×559 tile at 150 % where `huge` pages two
+  at a time and turns nine on a 322×571 strip into two pages of six and three where `huge` pages one at a time, that a
+  tall
   256×720 tile spreads at most two columns of `small` icons through the height with even gutters of at least 8 DIP
   between icon edges (and 8 DIP edge inset) instead of clustering, that 32 shortcuts are the closed cap, that a
   one-finger horizontal swipe follows the finger

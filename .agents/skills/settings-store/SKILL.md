@@ -32,7 +32,7 @@ validation, `wil-raii` for files/events/change notifications, `win32-windowing` 
   default recovery backups the bytes and installs the v5 template; `--settings` portable v4 is left unchanged.
 - Both shipped templates must contain a real placed example of every settings-visible entry in
   `RedXe/BundledPlugins.h`. Template validation must iterate that catalog rather than maintain a second plugin list.
-- Launcher `iconSize` is the closed set `small` / `medium` / `large` / `huge` / `automatic` (omit to default `huge`).
+- Launcher `iconSize` is the closed set `small` / `medium` / `large` / `huge` / `automatic` (omit to default `automatic`).
   Launcher `shortcuts` is a closed array of 0 through 32 items.
 - The hidden self-test parses the deployed template only. It must never touch `%LocalAppData%` and must never call
   `PluginHost::SetLogDirectory`.

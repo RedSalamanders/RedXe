@@ -57,7 +57,7 @@ constexpr char kDeskClockDefaults[] =
     R"json({"flipDurationMilliseconds":420,"cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json";
 constexpr char kWeatherDefaults[] =
     R"json({"locationMode":"automatic","location":"","temperatureUnit":"celsius","windUnit":"kmh"})json";
-constexpr char kLauncherDefaults[] = R"json({"shortcuts":[],"iconSize":"huge"})json";
+constexpr char kLauncherDefaults[] = R"json({"shortcuts":[],"iconSize":"automatic"})json";
 
 struct Declaration final
 {

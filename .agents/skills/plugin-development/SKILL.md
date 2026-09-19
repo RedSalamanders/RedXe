@@ -76,8 +76,8 @@ Preserve these boundaries:
   and GPU-draws a bottom page-dot strip using the same DIP metrics as `DxUi::PageIndicator` when shortcuts
   overflow the chosen cell (`iconSize` `small`/`medium`/`large`/`huge` = 72/96/144/192 DIP square icon edge and
   pagination cell, closed cap 32 shortcuts, leftover space even gutters of at least 8 DIP between icon edges plus an
-  8 DIP edge inset, `automatic` shrinks
-  from huge toward small). Internal pages
+  8 DIP edge inset; `automatic`, the default, takes the largest icons that fit one page and adds a page only for
+  icons twice the edge, never below 72 DIP). Internal pages
   follow a one-finger pan 1:1, then ease-out settle via `RequestFrame`; dots stay put. A swipe
   viewport keeps the widget's full size and may have a negative origin; `Render` must still draw, and must not treat
   that origin as invalid. Direct3D clips to the target. System Data GPU

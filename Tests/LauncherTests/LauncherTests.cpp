@@ -1213,6 +1213,32 @@ struct RenderTarget final
         std::wprintf(L"Automatic icons should still paginate when the 72 DIP floor cannot hold eight shortcuts.\n");
         return kTestFailure;
     }
+    // The balance: eight shortcuts on a 799x559 tile at 150 % fit one page of 4 x 2 near-huge icons, where huge
+    // pages two at a time; nine on a 322x571 strip at 150 % become two pages of 2 x 3 (six and three) 95 DIP icons,
+    // not nine pages of one huge icon.
+    const auto automaticWide = ComputeLauncherPages(799, 559, 144, 8, 0, LauncherIconSize::Automatic);
+    const auto hugeWide = ComputeLauncherPages(799, 559, 144, 8, 0, LauncherIconSize::Huge);
+    if (automaticWide.pageCount != 1 || automaticWide.visibleCount != 8 || automaticWide.iconSizePx < 180.0f ||
+        hugeWide.pageCount != 4)
+    {
+        std::wprintf(L"Automatic icons should put eight shortcuts on one page of near-huge icons on a wide tile.\n");
+        return kTestFailure;
+    }
+    const auto automaticStrip = ComputeLauncherPages(322, 571, 144, 9, 0, LauncherIconSize::Automatic);
+    const auto hugeStrip = ComputeLauncherPages(322, 571, 144, 9, 0, LauncherIconSize::Huge);
+    if (automaticStrip.pageCount != 2 || automaticStrip.columns != 2 || automaticStrip.rows != 3 ||
+        automaticStrip.perPage != 6 || automaticStrip.visibleCount != 6 || automaticStrip.iconSizePx < 140.0f ||
+        hugeStrip.pageCount != 9)
+    {
+        std::wprintf(L"Automatic icons should trade one page for larger icons on a narrow strip, not nine pages.\n");
+        return kTestFailure;
+    }
+    const auto automaticSecond = ComputeLauncherPages(322, 571, 144, 9, 1, LauncherIconSize::Automatic);
+    if (automaticSecond.pageIndex != 1 || automaticSecond.firstIndex != 6 || automaticSecond.visibleCount != 3)
+    {
+        std::wprintf(L"The second automatic page on a narrow strip should hold the remaining three shortcuts.\n");
+        return kTestFailure;
+    }
     if (HitLauncherPageDot(80.0f, 150.0f, 160, 160, 96, paged.pageCount) == UINT32_MAX)
     {
         std::wprintf(L"Paged launcher dots should be hittable at the bottom strip.\n");
@@ -1276,7 +1302,7 @@ struct RenderTarget final
     }
 
     constexpr std::string_view eight =
-        R"json({"shortcuts":[{"target":"C:\\Windows\\System32\\notepad.exe"},{"target":"C:\\Windows\\System32\\cmd.exe"},{"target":"C:\\Windows\\System32\\write.exe"},{"target":"C:\\Windows\\System32\\winver.exe"},{"target":"C:\\Windows\\explorer.exe"},{"target":"C:\\Windows\\System32\\mspaint.exe"},{"target":"C:\\Windows\\System32\\control.exe"},{"target":"C:\\Windows\\System32\\calc.exe"}]})json";
+        R"json({"iconSize":"huge","shortcuts":[{"target":"C:\\Windows\\System32\\notepad.exe"},{"target":"C:\\Windows\\System32\\cmd.exe"},{"target":"C:\\Windows\\System32\\write.exe"},{"target":"C:\\Windows\\System32\\winver.exe"},{"target":"C:\\Windows\\explorer.exe"},{"target":"C:\\Windows\\System32\\mspaint.exe"},{"target":"C:\\Windows\\System32\\control.exe"},{"target":"C:\\Windows\\System32\\calc.exe"}]})json";
     constexpr std::string_view smallEight =
         R"json({"iconSize":"small","shortcuts":[{"target":"C:\\Windows\\System32\\notepad.exe"},{"target":"C:\\Windows\\System32\\cmd.exe"},{"target":"C:\\Windows\\System32\\write.exe"},{"target":"C:\\Windows\\System32\\winver.exe"},{"target":"C:\\Windows\\explorer.exe"},{"target":"C:\\Windows\\System32\\mspaint.exe"},{"target":"C:\\Windows\\System32\\control.exe"},{"target":"C:\\Windows\\System32\\calc.exe"}]})json";
     {
