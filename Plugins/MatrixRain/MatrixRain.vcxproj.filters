@@ -22,6 +22,11 @@
     <FxCompile Include="MatrixRainBackgroundVertex.hlsl"><Filter>Shader Files</Filter></FxCompile>
     <FxCompile Include="MatrixRainGlyphPixel.hlsl"><Filter>Shader Files</Filter></FxCompile>
     <FxCompile Include="MatrixRainGlyphVertex.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="MatrixRainBloomVertex.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="MatrixRainBloomSourcePixel.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="MatrixRainBloomBlurHorizontalPixel.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="MatrixRainBloomBlurVerticalPixel.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="MatrixRainBloomCompositePixel.hlsl"><Filter>Shader Files</Filter></FxCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="GenerateGlyphAtlas.ps1"><Filter>Assets</Filter></None>

@@ -14,5 +14,6 @@ Regenerate it from the repository root with:
 .\Plugins\MatrixRain\GenerateGlyphAtlas.ps1
 ```
 
-The four Shader Model 5.0 HLSL entry points are compiled and embedded by MSBuild. The DLL performs no runtime shader
+The nine Shader Model 5.0 HLSL entry points (background, glyphs, and the phosphor bloom: source, two blur directions,
+composite) are compiled and embedded by MSBuild. The DLL performs no runtime shader
 compilation, font loading, DirectWrite initialization, or WIC decoding.

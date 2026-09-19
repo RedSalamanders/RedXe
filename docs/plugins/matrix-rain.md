@@ -26,7 +26,7 @@ All members are optional in the file; omitted keys take these defaults. Unknown 
 | `mutationPerSecond` | integer | 0–30 | `8` | How often glyphs change: each glyph re-rolls every `16 / mutationPerSecond` seconds at its own moment, with a brief flash (0 never changes) |
 | `headColor` | string | `#RRGGBB` | `#D8FFE5` | Leading glyph |
 | `trailColor` | string | `#RRGGBB` | `#00E65C` | Trail |
-| `glowPercent` | integer | 0–100 | `35` | Head glow |
+| `glowPercent` | integer | 0–100 | `35` | Phosphor bloom: the soft glow around lit glyphs and the bright halo of each stream head. `0` turns the bloom passes off |
 
 ```json
 {

@@ -4,6 +4,11 @@
 
 #include "MatrixRainBackgroundPixelShader.h"
 #include "MatrixRainBackgroundVertexShader.h"
+#include "MatrixRainBloomBlurHorizontalPixelShader.h"
+#include "MatrixRainBloomBlurVerticalPixelShader.h"
+#include "MatrixRainBloomCompositePixelShader.h"
+#include "MatrixRainBloomSourcePixelShader.h"
+#include "MatrixRainBloomVertexShader.h"
 #include "MatrixRainGlyphAtlas.h"
 #include "MatrixRainGlyphPixelShader.h"
 #include "MatrixRainGlyphVertexShader.h"
@@ -39,6 +44,9 @@ constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(kSettingsDefaults) - 1,
 };
 constexpr uint32_t kMaximumGlyphInstances = 65'536;
+// The bloom targets are this fraction of the widget viewport on each axis: a blur there costs a sixteenth of the
+// pixels and reads back as a soft phosphor halo.
+constexpr uint32_t kBloomDivisor = 4;
 
 constexpr std::array kMetadata{
     RedXePluginMetadata{
@@ -585,6 +593,46 @@ class MatrixRainDeviceResources final
         {
             return result;
         }
+        // Bloom: the glyph light drawn at quarter resolution, blurred in two passes, and added back over the tile.
+        wil::com_ptr_nothrow<ID3D11VertexShader> bloomVertexShader;
+        result = device->CreateVertexShader(g_MatrixRainBloomVertexShader, sizeof(g_MatrixRainBloomVertexShader),
+                                            nullptr, bloomVertexShader.put());
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<ID3D11PixelShader> bloomSourcePixelShader;
+        result =
+            device->CreatePixelShader(g_MatrixRainBloomSourcePixelShader, sizeof(g_MatrixRainBloomSourcePixelShader),
+                                      nullptr, bloomSourcePixelShader.put());
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<ID3D11PixelShader> bloomBlurHorizontalPixelShader;
+        result = device->CreatePixelShader(g_MatrixRainBloomBlurHorizontalPixelShader,
+                                           sizeof(g_MatrixRainBloomBlurHorizontalPixelShader), nullptr,
+                                           bloomBlurHorizontalPixelShader.put());
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<ID3D11PixelShader> bloomBlurVerticalPixelShader;
+        result = device->CreatePixelShader(g_MatrixRainBloomBlurVerticalPixelShader,
+                                           sizeof(g_MatrixRainBloomBlurVerticalPixelShader), nullptr,
+                                           bloomBlurVerticalPixelShader.put());
+        if (FAILED(result))
+        {
+            return result;
+        }
+        wil::com_ptr_nothrow<ID3D11PixelShader> bloomCompositePixelShader;
+        result = device->CreatePixelShader(g_MatrixRainBloomCompositePixelShader,
+                                           sizeof(g_MatrixRainBloomCompositePixelShader), nullptr,
+                                           bloomCompositePixelShader.put());
+        if (FAILED(result))
+        {
+            return result;
+        }
 
         D3D11_TEXTURE2D_DESC atlasDescription{};
         atlasDescription.Width = kMatrixRainGlyphAtlasWidth;
@@ -677,6 +725,23 @@ class MatrixRainDeviceResources final
             return result;
         }
 
+        D3D11_BLEND_DESC additiveBlendDescription{};
+        D3D11_RENDER_TARGET_BLEND_DESC& additiveTarget = additiveBlendDescription.RenderTarget[0];
+        additiveTarget.BlendEnable = TRUE;
+        additiveTarget.SrcBlend = D3D11_BLEND_ONE;
+        additiveTarget.DestBlend = D3D11_BLEND_ONE;
+        additiveTarget.BlendOp = D3D11_BLEND_OP_ADD;
+        additiveTarget.SrcBlendAlpha = D3D11_BLEND_ONE;
+        additiveTarget.DestBlendAlpha = D3D11_BLEND_ONE;
+        additiveTarget.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+        additiveTarget.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+        wil::com_ptr_nothrow<ID3D11BlendState> additiveBlend;
+        result = device->CreateBlendState(&additiveBlendDescription, additiveBlend.put());
+        if (FAILED(result))
+        {
+            return result;
+        }
+
         D3D11_BUFFER_DESC constantDescription{};
         constantDescription.ByteWidth = sizeof(MatrixRainConstants);
         constantDescription.Usage = D3D11_USAGE_DYNAMIC;
@@ -689,12 +754,21 @@ class MatrixRainDeviceResources final
             return result;
         }
 
+        const uint32_t requestedBloomWidth = _bloomRequestedWidth;
+        const uint32_t requestedBloomHeight = _bloomRequestedHeight;
         Reset();
+        _bloomRequestedWidth = requestedBloomWidth;
+        _bloomRequestedHeight = requestedBloomHeight;
         _deviceIdentity = device;
         _backgroundVertexShader = std::move(backgroundVertexShader);
         _backgroundPixelShader = std::move(backgroundPixelShader);
         _glyphVertexShader = std::move(glyphVertexShader);
         _glyphPixelShader = std::move(glyphPixelShader);
+        _bloomVertexShader = std::move(bloomVertexShader);
+        _bloomSourcePixelShader = std::move(bloomSourcePixelShader);
+        _bloomBlurHorizontalPixelShader = std::move(bloomBlurHorizontalPixelShader);
+        _bloomBlurVerticalPixelShader = std::move(bloomBlurVerticalPixelShader);
+        _bloomCompositePixelShader = std::move(bloomCompositePixelShader);
         _atlas = std::move(atlas);
         _atlasView = std::move(atlasView);
         _sampler = std::move(sampler);
@@ -702,8 +776,65 @@ class MatrixRainDeviceResources final
         _depthState = std::move(depthState);
         _opaqueBlend = std::move(opaqueBlend);
         _alphaBlend = std::move(alphaBlend);
+        _additiveBlend = std::move(additiveBlend);
         _constantBuffer = std::move(constantBuffer);
         gLiveDeviceResourceSetCount.fetch_add(1, std::memory_order_relaxed);
+        // A device recreated after a size notification rebuilds the bloom targets for that size.
+        return _bloomRequestedWidth != 0 ? EnsureBloomTargets(_bloomRequestedWidth, _bloomRequestedHeight) : S_OK;
+    }
+
+    // The bloom targets follow the largest viewport the host draws the widget at (OnTargetSizeChanged), at a quarter
+    // of its size; Render draws into the sub-rectangle its own frame needs and never allocates. Bloom is skipped,
+    // never failed, when the targets are missing or too small.
+    [[nodiscard]] HRESULT EnsureBloomTargets(uint32_t widthPixels, uint32_t heightPixels) noexcept
+    {
+        _bloomRequestedWidth = widthPixels;
+        _bloomRequestedHeight = heightPixels;
+        if (!_deviceIdentity)
+        {
+            return S_OK;
+        }
+        const uint32_t width = std::max(1U, (widthPixels + kBloomDivisor - 1) / kBloomDivisor);
+        const uint32_t height = std::max(1U, (heightPixels + kBloomDivisor - 1) / kBloomDivisor);
+        if (_bloomWidth == width && _bloomHeight == height && _bloomViews[0] && _bloomViews[1])
+        {
+            return S_OK;
+        }
+        std::array<wil::com_ptr_nothrow<ID3D11Texture2D>, 2> textures;
+        std::array<wil::com_ptr_nothrow<ID3D11RenderTargetView>, 2> targets;
+        std::array<wil::com_ptr_nothrow<ID3D11ShaderResourceView>, 2> views;
+        for (size_t index = 0; index < textures.size(); ++index)
+        {
+            D3D11_TEXTURE2D_DESC description{};
+            description.Width = width;
+            description.Height = height;
+            description.MipLevels = 1;
+            description.ArraySize = 1;
+            description.Format = DXGI_FORMAT_R11G11B10_FLOAT;
+            description.SampleDesc.Count = 1;
+            description.Usage = D3D11_USAGE_DEFAULT;
+            description.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+            HRESULT result = _deviceIdentity->CreateTexture2D(&description, nullptr, textures[index].put());
+            if (FAILED(result))
+            {
+                return result;
+            }
+            result = _deviceIdentity->CreateRenderTargetView(textures[index].get(), nullptr, targets[index].put());
+            if (FAILED(result))
+            {
+                return result;
+            }
+            result = _deviceIdentity->CreateShaderResourceView(textures[index].get(), nullptr, views[index].put());
+            if (FAILED(result))
+            {
+                return result;
+            }
+        }
+        _bloomTextures = std::move(textures);
+        _bloomTargets = std::move(targets);
+        _bloomViews = std::move(views);
+        _bloomWidth = width;
+        _bloomHeight = height;
         return S_OK;
     }
 
@@ -713,7 +844,18 @@ class MatrixRainDeviceResources final
         {
             gLiveDeviceResourceSetCount.fetch_sub(1, std::memory_order_relaxed);
         }
+        for (size_t index = 0; index < _bloomTextures.size(); ++index)
+        {
+            _bloomViews[index].reset();
+            _bloomTargets[index].reset();
+            _bloomTextures[index].reset();
+        }
+        _bloomWidth = 0;
+        _bloomHeight = 0;
+        _bloomRequestedWidth = 0;
+        _bloomRequestedHeight = 0;
         _constantBuffer.reset();
+        _additiveBlend.reset();
         _alphaBlend.reset();
         _opaqueBlend.reset();
         _depthState.reset();
@@ -721,6 +863,11 @@ class MatrixRainDeviceResources final
         _sampler.reset();
         _atlasView.reset();
         _atlas.reset();
+        _bloomCompositePixelShader.reset();
+        _bloomBlurVerticalPixelShader.reset();
+        _bloomBlurHorizontalPixelShader.reset();
+        _bloomSourcePixelShader.reset();
+        _bloomVertexShader.reset();
         _glyphPixelShader.reset();
         _glyphVertexShader.reset();
         _backgroundPixelShader.reset();
@@ -737,6 +884,12 @@ class MatrixRainDeviceResources final
         }
 
         UpdateGrid(frame);
+        // The bloom region this frame draws into: a quarter of the frame, inside targets sized for the largest
+        // viewport. A frame the targets cannot hold simply gets no bloom.
+        const uint32_t bloomWidth = (frame.widthPixels + kBloomDivisor - 1) / kBloomDivisor;
+        const uint32_t bloomHeight = (frame.heightPixels + kBloomDivisor - 1) / kBloomDivisor;
+        const bool bloom = _configuration.glowPercent != 0 && _grid.instanceCount != 0 && _bloomViews[0] &&
+                           _bloomViews[1] && bloomWidth <= _bloomWidth && bloomHeight <= _bloomHeight;
         const MatrixRainConstants constants{
             {frame.widthPixels, frame.heightPixels, _configuration.seed, _grid.rows},
             {_grid.columns, _grid.activeColumns, _grid.permutationMultiplier, _grid.permutationOffset},
@@ -746,7 +899,9 @@ class MatrixRainDeviceResources final
             {_headColor[0], _headColor[1], _headColor[2], _headColor[3]},
             {_trailColor[0], _trailColor[1], _trailColor[2], _trailColor[3]},
             {_backgroundColor[0], _backgroundColor[1], _backgroundColor[2], _backgroundColor[3]},
-            {static_cast<float>(_configuration.glowPercent) / 100.0f, _grid.horizontalMargin, 0.0f, 0.0f},
+            {static_cast<float>(_configuration.glowPercent) / 100.0f, _grid.horizontalMargin,
+             bloom ? static_cast<float>(bloomWidth) / static_cast<float>(_bloomWidth) : 0.0f,
+             bloom ? static_cast<float>(bloomHeight) / static_cast<float>(_bloomHeight) : 0.0f},
         };
 
         D3D11_MAPPED_SUBRESOURCE mapped{};
@@ -793,6 +948,62 @@ class MatrixRainDeviceResources final
             context->DrawInstanced(6, _grid.instanceCount, 0, 0);
             context->PSSetShaderResources(0, 1, noViews);
         }
+        if (!bloom)
+        {
+            return S_OK;
+        }
+
+        // Phosphor bloom. The host bound only its render target and viewport; remember both, draw the glyph light
+        // into a quarter-size region (the glyph shader's clip-space output is viewport-relative, so the same
+        // instanced draw lands scaled), blur it horizontally then vertically, and add it back over the tile.
+        wil::com_ptr_nothrow<ID3D11RenderTargetView> hostTarget;
+        context->OMGetRenderTargets(1, hostTarget.put(), nullptr);
+        UINT viewportCount = 1;
+        D3D11_VIEWPORT hostViewport{};
+        context->RSGetViewports(&viewportCount, &hostViewport);
+        if (!hostTarget || viewportCount == 0)
+        {
+            return S_OK;
+        }
+        constexpr std::array clearColor{0.0f, 0.0f, 0.0f, 0.0f};
+        const D3D11_VIEWPORT bloomViewport{0.0f, 0.0f, static_cast<float>(bloomWidth), static_cast<float>(bloomHeight),
+                                           0.0f, 1.0f};
+        ID3D11RenderTargetView* firstTargets[] = {_bloomTargets[0].get()};
+        ID3D11RenderTargetView* secondTargets[] = {_bloomTargets[1].get()};
+        ID3D11RenderTargetView* hostTargets[] = {hostTarget.get()};
+        ID3D11ShaderResourceView* firstViews[] = {_bloomViews[0].get()};
+        ID3D11ShaderResourceView* secondViews[] = {_bloomViews[1].get()};
+
+        context->ClearRenderTargetView(_bloomTargets[0].get(), clearColor.data());
+        context->ClearRenderTargetView(_bloomTargets[1].get(), clearColor.data());
+        context->OMSetRenderTargets(1, firstTargets, nullptr);
+        context->RSSetViewports(1, &bloomViewport);
+        context->VSSetShader(_glyphVertexShader.get(), nullptr, 0);
+        context->PSSetShader(_bloomSourcePixelShader.get(), nullptr, 0);
+        context->PSSetShaderResources(0, 1, atlasViews);
+        context->OMSetBlendState(_additiveBlend.get(), blendFactor.data(), UINT_MAX);
+        context->DrawInstanced(6, _grid.instanceCount, 0, 0);
+
+        context->VSSetShader(_bloomVertexShader.get(), nullptr, 0);
+        context->OMSetBlendState(_opaqueBlend.get(), blendFactor.data(), UINT_MAX);
+        context->OMSetRenderTargets(1, secondTargets, nullptr);
+        context->PSSetShader(_bloomBlurHorizontalPixelShader.get(), nullptr, 0);
+        context->PSSetShaderResources(0, 1, firstViews);
+        context->Draw(3, 0);
+        context->PSSetShaderResources(0, 1, noViews);
+        context->OMSetRenderTargets(1, firstTargets, nullptr);
+        context->PSSetShader(_bloomBlurVerticalPixelShader.get(), nullptr, 0);
+        context->PSSetShaderResources(0, 1, secondViews);
+        context->Draw(3, 0);
+        context->PSSetShaderResources(0, 1, noViews);
+
+        context->OMSetRenderTargets(1, hostTargets, nullptr);
+        context->RSSetViewports(1, &hostViewport);
+        context->PSSetShader(_bloomCompositePixelShader.get(), nullptr, 0);
+        context->PSSetShaderResources(0, 1, firstViews);
+        context->OMSetBlendState(_additiveBlend.get(), blendFactor.data(), UINT_MAX);
+        context->Draw(3, 0);
+        context->PSSetShaderResources(0, 1, noViews);
         return S_OK;
     }
 
@@ -877,6 +1088,18 @@ class MatrixRainDeviceResources final
     wil::com_ptr_nothrow<ID3D11PixelShader> _backgroundPixelShader;
     wil::com_ptr_nothrow<ID3D11VertexShader> _glyphVertexShader;
     wil::com_ptr_nothrow<ID3D11PixelShader> _glyphPixelShader;
+    wil::com_ptr_nothrow<ID3D11VertexShader> _bloomVertexShader;
+    wil::com_ptr_nothrow<ID3D11PixelShader> _bloomSourcePixelShader;
+    wil::com_ptr_nothrow<ID3D11PixelShader> _bloomBlurHorizontalPixelShader;
+    wil::com_ptr_nothrow<ID3D11PixelShader> _bloomBlurVerticalPixelShader;
+    wil::com_ptr_nothrow<ID3D11PixelShader> _bloomCompositePixelShader;
+    std::array<wil::com_ptr_nothrow<ID3D11Texture2D>, 2> _bloomTextures;
+    std::array<wil::com_ptr_nothrow<ID3D11RenderTargetView>, 2> _bloomTargets;
+    std::array<wil::com_ptr_nothrow<ID3D11ShaderResourceView>, 2> _bloomViews;
+    uint32_t _bloomWidth = 0;
+    uint32_t _bloomHeight = 0;
+    uint32_t _bloomRequestedWidth = 0;
+    uint32_t _bloomRequestedHeight = 0;
     wil::com_ptr_nothrow<ID3D11Texture2D> _atlas;
     wil::com_ptr_nothrow<ID3D11ShaderResourceView> _atlasView;
     wil::com_ptr_nothrow<ID3D11SamplerState> _sampler;
@@ -884,6 +1107,7 @@ class MatrixRainDeviceResources final
     wil::com_ptr_nothrow<ID3D11DepthStencilState> _depthState;
     wil::com_ptr_nothrow<ID3D11BlendState> _opaqueBlend;
     wil::com_ptr_nothrow<ID3D11BlendState> _alphaBlend;
+    wil::com_ptr_nothrow<ID3D11BlendState> _additiveBlend;
     wil::com_ptr_nothrow<ID3D11Buffer> _constantBuffer;
 };
 
@@ -962,9 +1186,13 @@ class MatrixRainWidget final
         {
             return E_INVALIDARG;
         }
-        // The glyph atlas is a fixed 128x128 baked table, deliberately low resolution for the rain aesthetic, so it
-        // does not track the target size.
-        return S_OK;
+        // The glyph atlas is a fixed baked table that does not track the target size; the bloom targets do, at a
+        // quarter of the largest viewport, and this is the one callback allowed to create them.
+        if (context->widthPixels == 0 || context->heightPixels == 0)
+        {
+            return S_OK;
+        }
+        return _resources->EnsureBloomTargets(context->widthPixels, context->heightPixels);
     }
 
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override

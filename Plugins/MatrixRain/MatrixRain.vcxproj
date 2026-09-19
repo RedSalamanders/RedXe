@@ -109,6 +109,66 @@
       <VariableName>g_MatrixRainGlyphVertexShader</VariableName>
       <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
+    <FxCompile Include="MatrixRainBloomVertex.hlsl">
+      <ShaderType>Vertex</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>VertexMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)MatrixRainBloomVertexShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)MatrixRainBloomVertexShader.cso</ObjectFileOutput>
+      <VariableName>g_MatrixRainBloomVertexShader</VariableName>
+      <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="MatrixRainBloomSourcePixel.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)MatrixRainBloomSourcePixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)MatrixRainBloomSourcePixelShader.cso</ObjectFileOutput>
+      <VariableName>g_MatrixRainBloomSourcePixelShader</VariableName>
+      <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="MatrixRainBloomBlurHorizontalPixel.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)MatrixRainBloomBlurHorizontalPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)MatrixRainBloomBlurHorizontalPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_MatrixRainBloomBlurHorizontalPixelShader</VariableName>
+      <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="MatrixRainBloomBlurVerticalPixel.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)MatrixRainBloomBlurVerticalPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)MatrixRainBloomBlurVerticalPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_MatrixRainBloomBlurVerticalPixelShader</VariableName>
+      <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="MatrixRainBloomCompositePixel.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)MatrixRainBloomCompositePixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)MatrixRainBloomCompositePixelShader.cso</ObjectFileOutput>
+      <VariableName>g_MatrixRainBloomCompositePixelShader</VariableName>
+      <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MatrixRainGlyphAtlas.h" />

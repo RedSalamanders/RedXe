@@ -814,7 +814,7 @@ mapped modules remain loaded.
 The plugin owns an original generated 192×384 `R8_UNORM` signed-distance-field atlas (64 vector-polyline glyphs in
 24×48 texel cells: 46 mirrored katakana-inspired shapes, the ten digits, eight Latin letters and symbols, none of
 them font data; an exact distance field so diagonals stay straight at any size; the pixel shader thresholds it over
-about one screen pixel through `fwidth`), four build-time Shader Model 5.0 shader blobs, one dynamic 128-byte
+about one screen pixel through `fwidth`), nine build-time Shader Model 5.0 shader blobs, one dynamic 128-byte
 constant buffer, and its immutable pipeline states. It loads no font, DirectWrite, WIC, runtime HLSL compiler, loose
 glyph asset, timer, worker, or HWND. Grid values are cached until viewport or DPI changes, and configured colors are
 converted to float vectors once during provider construction rather than on every frame. Every active column carries
@@ -829,7 +829,13 @@ crosses the tile for most of each cycle instead of hanging below it; both are gr
 the grid.
 
 Each non-zero visible Matrix frame performs one map/unmap, one opaque background draw, and one alpha-blended instanced
-glyph draw. The CPU performs no per-column or per-glyph simulation. Submitted glyphs are bounded at 65,536; density
+glyph draw, then, unless `glowPercent` is 0, the phosphor bloom: the same instanced draw once more into a
+quarter-resolution `R11G11B10_FLOAT` target (glyph light only, heads weighted up), a separable nine-tap Gaussian in
+two fullscreen passes between the two bloom targets, and one additive fullscreen composite back onto the host's
+render target and viewport, which the plugin reads at entry and restores. The two bloom targets are the only
+resolution-dependent resources: `OnTargetSizeChanged` sizes them to a quarter of the largest viewport, a frame draws
+into the sub-rectangle it needs, and a frame the targets cannot hold skips the bloom rather than allocating. The CPU
+performs no per-column or per-glyph simulation. Submitted glyphs are bounded at 65,536; density
 reduces both visible columns and submitted instances. The callback performs no heap allocation, synchronization, I/O,
 texture upload, or shader/font work. `OnDeviceCreated` builds the complete provider resource set transactionally and
 `OnDeviceLost` releases it idempotently.
