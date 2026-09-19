@@ -1484,7 +1484,7 @@ void TestReleaseHostIntegration(bool& success) noexcept
 
         AppSettings changed = releaseSettings;
         constexpr std::string_view changedMatrix =
-            R"json({"seed":2000,"glyphHeightDips":18,"densityPercent":80,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","glowPercent":35})json";
+            R"json({"seed":2000,"glyphHeightDips":18,"densityPercent":80,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#F6FFF6","trailColor":"#33FF33","glowPercent":35})json";
         result = SetJsonObjectSettings(changedMatrix, changed.dashboard.pages[0].widgets[0].privateConfiguration);
         if (SUCCEEDED(result))
         {

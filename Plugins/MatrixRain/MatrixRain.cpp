@@ -38,7 +38,7 @@ constexpr char kWidgetTypeId[] = "matrix-rain";
 constexpr char kSettingsSchema[] =
     R"json({"type":"object","additionalProperties":false,"properties":{"seed":{"type":"integer","minimum":0,"maximum":4294967295},"glyphHeightDips":{"type":"integer","minimum":12,"maximum":48},"densityPercent":{"type":"integer","minimum":10,"maximum":100},"speedPercent":{"type":"integer","minimum":25,"maximum":300},"trailLengthGlyphs":{"type":"integer","minimum":6,"maximum":48},"mutationPerSecond":{"type":"integer","minimum":0,"maximum":30},"headColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"trailColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"glowPercent":{"type":"integer","minimum":0,"maximum":100}}})json";
 constexpr char kSettingsDefaults[] =
-    R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","glowPercent":35})json";
+    R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#F6FFF6","trailColor":"#33FF33","glowPercent":35})json";
 constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
@@ -82,8 +82,8 @@ struct MatrixRainConfiguration final
     uint32_t speedPercent = 100;
     uint32_t trailLengthGlyphs = 18;
     uint32_t mutationPerSecond = 8;
-    uint32_t headColor = 0xD8FFE5;
-    uint32_t trailColor = 0x00E65C;
+    uint32_t headColor = 0xF6FFF6;
+    uint32_t trailColor = 0x33FF33;
     // Host-resolved dashboard background from RedXeFactoryOptions, never a settings member of this plugin.
     uint32_t backgroundColor = kRedXeDefaultBackgroundColor & 0x00FFFFFFu;
     uint32_t glowPercent = 35;
@@ -1025,7 +1025,9 @@ class MatrixRainDeviceResources final
         {
             grid.cellHeight = 1.0f;
         }
-        grid.cellWidth = grid.cellHeight * 0.625f;
+        // The film's columns sit close together: a 0.78 cell aspect with the glyph quad at 0.855 of the cell gives the
+        // atlas cell's 2 : 3 shape.
+        grid.cellWidth = grid.cellHeight * 0.78f;
         if (grid.cellWidth < 1.0f)
         {
             grid.cellWidth = 1.0f;

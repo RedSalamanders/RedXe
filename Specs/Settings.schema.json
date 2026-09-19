@@ -64,8 +64,8 @@
         "speedPercent": { "type": "integer", "minimum": 25, "maximum": 300, "default": 100 },
         "trailLengthGlyphs": { "type": "integer", "minimum": 6, "maximum": 48, "default": 18 },
         "mutationPerSecond": { "type": "integer", "minimum": 0, "maximum": 30, "default": 8 },
-        "headColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#D8FFE5" },
-        "trailColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#00E65C" },
+        "headColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#F6FFF6" },
+        "trailColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#33FF33" },
         "glowPercent": { "type": "integer", "minimum": 0, "maximum": 100, "default": 35 }
       }
     },
@@ -81,9 +81,9 @@
         },
         "shader": {
           "type": "string",
-          "enum": ["fluid-solver", "cineshader-lava", "synthwave-sunset", "seascape", "warp-fbm", "fractal-pyramid", "octagrams", "heartfelt", "protean-clouds", "drive-home", "flammes-vortex", "neon-pulse", "cosmic-orb"],
+          "enum": ["fluid-solver", "cineshader-lava", "synthwave-sunset", "seascape", "warp-fbm", "fractal-pyramid", "octagrams", "heartfelt", "protean-clouds", "drive-home", "flammes-vortex", "neon-pulse", "cosmic-orb", "sky-atmosphere"],
           "default": "seascape",
-          "description": "Short name of a bundled shader; docs/plugins/5h4d3r5.md shows each one (twelve Shadertoy ports and the RedXe cosmic orb)."
+          "description": "Short name of a bundled shader; docs/plugins/5h4d3r5.md shows each one (twelve Shadertoy ports, the RedXe cosmic orb, and the sky atmosphere)."
         },
         "intervalSeconds": { "type": "integer", "minimum": 10, "maximum": 3600, "default": 120 },
         "shuffle": { "type": "boolean", "default": false, "description": "Slideshow order: false cycles the catalog in order, true shuffles each round." },

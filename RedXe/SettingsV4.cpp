@@ -48,7 +48,7 @@ constexpr char kWeatherPlugin[] = "builtin.weather";
 constexpr char kLauncherPlugin[] = "builtin.launcher";
 constexpr char kAvControlPlugin[] = "builtin.av-control";
 constexpr char kMatrixDefaults[] =
-    R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","glowPercent":35})json";
+    R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#F6FFF6","trailColor":"#33FF33","glowPercent":35})json";
 constexpr char kProcessViewerDefaults[] = R"json({"topN":10})json";
 constexpr char kRankedViewerDefaults[] = R"json({"topN":8})json";
 constexpr char kStudioClockDefaults[] =

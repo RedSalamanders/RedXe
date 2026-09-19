@@ -76,7 +76,7 @@ constexpr char kMatrixPluginId[] = "builtin.matrix-rain";
 constexpr char kMatrixWidgetTypeId[] = "matrix-rain";
 constexpr char kProcessViewerPluginId[] = "builtin.process-viewer";
 constexpr std::string_view kDefaultMatrixConfiguration =
-    R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","glowPercent":35})json";
+    R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#F6FFF6","trailColor":"#33FF33","glowPercent":35})json";
 
 #if defined(_DEBUG)
 std::atomic<uint64_t> gMatrixRenderAllocationCount{0};
@@ -946,9 +946,9 @@ struct MatrixRenderTarget final
         Mutation{"\"speedPercent\":100", "\"speedPercent\":24"},
         Mutation{"\"trailLengthGlyphs\":18", "\"trailLengthGlyphs\":49"},
         Mutation{"\"mutationPerSecond\":8", "\"mutationPerSecond\":31"},
-        Mutation{"\"headColor\":\"#D8FFE5\"", "\"headColor\":\"D8FFE5\""},
-        Mutation{"\"trailColor\":\"#00E65C\"", "\"trailColor\":\"#00E65G\""},
-        Mutation{"\"trailColor\":\"#00E65C\"", "\"trailColor\":\"#00E65C\",\"backgroundColor\":\"#010502\""},
+        Mutation{"\"headColor\":\"#F6FFF6\"", "\"headColor\":\"F6FFF6\""},
+        Mutation{"\"trailColor\":\"#33FF33\"", "\"trailColor\":\"#33FF3G\""},
+        Mutation{"\"trailColor\":\"#33FF33\"", "\"trailColor\":\"#33FF33\",\"backgroundColor\":\"#010502\""},
         Mutation{"\"glowPercent\":35", "\"glowPercent\":101"},
         Mutation{"\"seed\":1999", "\"seed\":1999,\"seed\":1"},
         Mutation{"\"glowPercent\":35", "\"glowPercent\":35,\"unknown\":1"},
@@ -987,10 +987,10 @@ struct MatrixRenderTarget final
     }
 
     constexpr std::array<std::string_view, 4> invalidNormalizedConfigurations{
-        R"json({"plugin":{"unexpected":1},"instance":{"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","glowPercent":35}})json",
+        R"json({"plugin":{"unexpected":1},"instance":{"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#F6FFF6","trailColor":"#33FF33","glowPercent":35}})json",
         R"json({"plugin":{},"instance":{}})json",
-        R"json({"plugin":{},"instance":{"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","glowPercent":35},"unknown":1})json",
-        R"json({"instance":{"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#D8FFE5","trailColor":"#00E65C","glowPercent":35}})json",
+        R"json({"plugin":{},"instance":{"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#F6FFF6","trailColor":"#33FF33","glowPercent":35},"unknown":1})json",
+        R"json({"instance":{"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#F6FFF6","trailColor":"#33FF33","glowPercent":35}})json",
     };
     for (const std::string_view invalid : invalidNormalizedConfigurations)
     {
