@@ -40,6 +40,9 @@ is never a dialog, because a keypad key is a deliberate control.
 | `redxe.logs.open` | none | Open the `Logs` folder |
 | `redxe.screenshot` | `<png path>[@<pageId>[/<ordinal>]]` | Save a screenshot of a page (or one widget) exactly like `--screenshot` |
 | `redxe.quit` | `now` | Quit RedXe |
+| `redxe.dock.show` | none | Reveal an auto-hiding [dock](usage.md#dock); it stays until you visit it with the mouse and leave, or click it and click elsewhere |
+| `redxe.dock.hide` | none | Collapse the dock to its peek strip (does nothing while a widget is raised or being dragged) |
+| `redxe.dock.toggle` | none | Reveal the dock when it is collapsed, otherwise collapse it |
 
 ### `system.*`
 

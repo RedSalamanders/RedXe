@@ -1,5 +1,6 @@
 #include "Application.h"
 #include "CrashHandler.h"
+#include "DockOptions.h"
 #include "PluginHost.h"
 
 #include <cwchar>
@@ -167,6 +168,37 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         }
         screenshotWidgetOrdinal = static_cast<uint32_t>(parsed);
     }
+    // Screen-edge dock for this run: --dock <edge>[@<monitor>] [--dock-mode fixed|autohide]
+    // [--dock-thickness <dips>] [--dock-reserve on|off] [--dock-peek <pixels>]. Each switch overrides the same
+    // member of the settings document's `dock` object for the process lifetime (UI_XeneonDisplayWindowing.md).
+    DockOverrides dockOverrides{};
+    {
+        struct DockSwitch final
+        {
+            const wchar_t* name;
+            bool (*parse)(std::wstring_view, DockOverrides&) noexcept;
+            const wchar_t* usage;
+        };
+        constexpr DockSwitch dockSwitches[]{
+            {L"--dock", ParseDockEdgeArgument,
+             L"--dock takes none, top, bottom, left, or right, optionally followed by @primary, @xeneon, @<n>, or "
+             L"@name:<substring>."},
+            {L"--dock-mode", ParseDockModeArgument, L"--dock-mode takes fixed or autohide."},
+            {L"--dock-thickness", ParseDockThicknessArgument, L"--dock-thickness takes 32 through 1080 DIPs."},
+            {L"--dock-reserve", ParseDockReserveArgument, L"--dock-reserve takes on or off."},
+            {L"--dock-peek", ParseDockPeekArgument, L"--dock-peek takes 1 through 64 pixels."},
+        };
+        for (const DockSwitch& dockSwitch : dockSwitches)
+        {
+            std::wstring_view value;
+            if (!GetValueArgument(arguments.get(), argumentCount, dockSwitch.name, value) ||
+                (!value.empty() && !dockSwitch.parse(value, dockOverrides)))
+            {
+                MessageBoxW(nullptr, dockSwitch.usage, L"RedXe", MB_OK | MB_ICONERROR);
+                return 2;
+            }
+        }
+    }
     if (crashTest || stackOverflowCrashTest)
     {
         if (ConfigureCrashTestDirectoryOverride(arguments.get(), argumentCount) ==
@@ -194,6 +226,10 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             if (selfTest)
             {
                 PluginHost::Instance().SetNetworkAccessEnabled(false);
+            }
+            if (dockOverrides.Any() && !selfTest)
+            {
+                application->SetDockOverrides(dockOverrides);
             }
             if (!screenshotPath.empty() && !selfTest)
             {

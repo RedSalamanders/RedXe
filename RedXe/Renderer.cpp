@@ -49,6 +49,13 @@ HRESULT Renderer::Initialize(HWND window, bool forceWarp, DashboardHost& dashboa
     return CreateDeviceResources();
 }
 
+void Renderer::SetDockPresentation(bool enabled, UINT width, UINT height) noexcept
+{
+    _dockPresentation = enabled;
+    _dockWidth = enabled ? width : 0;
+    _dockHeight = enabled ? height : 0;
+}
+
 void Renderer::Shutdown() noexcept
 {
     ReleaseDeviceResources();
@@ -356,8 +363,14 @@ HRESULT Renderer::CreateDeviceResources() noexcept
         return HRESULT_FROM_WIN32(GetLastError());
     }
 
-    const UINT width = static_cast<UINT>(client.right - client.left);
-    const UINT height = static_cast<UINT>(client.bottom - client.top);
+    UINT width = static_cast<UINT>(client.right - client.left);
+    UINT height = static_cast<UINT>(client.bottom - client.top);
+    if (_dockPresentation && _dockWidth != 0 && _dockHeight != 0)
+    {
+        // The client may be the peek strip at this moment; the back buffer is always the full bar.
+        width = _dockWidth;
+        height = _dockHeight;
+    }
     if (width == 0 || height == 0)
     {
         _suspended = true;
@@ -609,7 +622,9 @@ HRESULT Renderer::CreateSwapChain() noexcept
     description.SampleDesc.Count = 1;
     description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     description.BufferCount = 2;
-    description.Scaling = DXGI_SCALING_STRETCH;
+    // The dock keeps a full-size back buffer while its window is the peek strip: no scaling, top-left aligned,
+    // clipped by DWM. With equal buffer and client sizes the two modes are indistinguishable.
+    description.Scaling = _dockPresentation ? DXGI_SCALING_NONE : DXGI_SCALING_STRETCH;
     description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     description.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
     description.Flags = kSwapChainFlags;
@@ -984,7 +999,9 @@ HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, u
         *observedChanged = false;
     if (changedWidgets)
         *changedWidgets = 0;
-    if (_suspended || _occluded)
+    // A hidden autohide dock presents one grip frame with no widget work: preparation is suppressed like any other
+    // hidden frame.
+    if (_suspended || _occluded || _hostChromeState.dockHidden)
         return S_FALSE;
     if (!_context || !_dashboardHost || !_gpuWidgetsDeviceReady)
         return E_UNEXPECTED;
@@ -1058,6 +1075,28 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
     ID3D11RenderTargetView* renderTargets[] = {_renderTarget.get()};
     _context->OMSetRenderTargets(1, renderTargets, nullptr);
     _context->ClearRenderTargetView(_renderTarget.get(), clearColor.data());
+
+    if (_hostChromeState.dockHidden)
+    {
+        // The grip frame of a hidden autohide dock: background plus the host grip strip, no widget draws. The
+        // dashboard widgets are not visible and the host blocks after this single frame.
+        const HRESULT gripResult =
+            _hostChrome.Draw(_context.get(), _renderTarget.get(), _width, _height, _hostChromeState,
+                             HostChromePhase::AboveRaised, _lastFrameChromeQuadCount);
+        if (IsDeviceLost(gripResult))
+        {
+            const HRESULT recoveryResult = RecoverDevice();
+            return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
+        }
+        const HRESULT presentResult = _swapChain->Present(1, 0);
+        if (IsDeviceLost(presentResult))
+        {
+            const HRESULT recoveryResult = RecoverDevice();
+            return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
+        }
+        _occluded = presentResult == DXGI_STATUS_OCCLUDED;
+        return _occluded ? S_OK : presentResult;
+    }
 
     const size_t widgetCount = _dashboardHost->WidgetCount();
     const auto drawWidget = [&](size_t index, const D3D11_VIEWPORT& viewport, uint32_t viewId) noexcept -> HRESULT

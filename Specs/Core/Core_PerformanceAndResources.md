@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-09-06
+Last reviewed: 2026-09-19
 
 ## Mandate
 
@@ -78,6 +78,14 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   presenting until it completes; settled overlay chrome MUST NOT add a periodic wake. Close-control hover is
   event-driven GDI on the overlay HWND and MUST NOT start a timer or a host Present. A host-owned native child covering
   the swap chain MUST NOT be treated as DXGI occlusion.
+- The screen-edge dock (`Specs/UI/UI_XeneonDisplayWindowing.md`) adds no periodic wake-up in any state. An autohide
+  reveal or hide is one `SetWindowPos` and one frame with no `ResizeBuffers`, layout recompute, `OnTargetSizeChanged`,
+  or allocation, because the dock swap chain keeps the full bar size under `DXGI_SCALING_NONE`; at most one one-shot
+  timer (dwell or hide delay) is armed and every state exit kills it; no hook and no cursor polling exist, the peek
+  strip being the window itself. A collapsed dock presents exactly one grip frame and then blocks like a minimized
+  window, retaining its full-size swap chain (about 4 MiB for a 3840×270 bar) so a reveal shows the last frame at
+  once. Shell traffic (`SHAppBarMessage`) happens only on placement, activation, window-position changes, and shell
+  notifications, never per frame.
 - After `Present` reports occlusion, RedXe must stop frame construction, wait for the DXGI factory's registered
   occlusion-status window message, and use `DXGI_PRESENT_TEST` to detect recovery without presenting content.
   Occlusion polling and periodic timers are prohibited.

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "DashboardHost.h"
+#include "DockOptions.h"
+#include "DockPlacement.h"
 #include "PageEdgeAffordance.h"
 #include "PluginManager.h"
 #include "Renderer.h"
@@ -36,6 +38,8 @@ class Application final
     // window widget as well as over a GPU tile. The container cannot forward WM_MOUSEMOVE directly because its
     // coordinates are in the container's client space.
     static constexpr UINT kPageEdgeHoverMessage = WM_APP + 4;
+    // App-bar callback registered with the shell for the dock window kind (ABN_POSCHANGED, ABN_FULLSCREENAPP, ...).
+    static constexpr UINT kDockAppBarMessage = WM_APP + 6;
 
     Application(HINSTANCE instance, bool forceWarp) noexcept;
     ~Application();
@@ -62,6 +66,12 @@ class Application final
     {
         return _screenshot.result;
     }
+    // --dock* command-line overrides, pinned over the document's `dock` object for this process (DockOptions.h).
+    // RunSelfTest ignores them: the self-test keeps its hidden titled window.
+    void SetDockOverrides(const DockOverrides& overrides) noexcept
+    {
+        _dockOverrides = overrides;
+    }
 
   private:
     static constexpr wchar_t kWindowClassName[] = L"RedXe.Window";
@@ -71,7 +81,42 @@ class Application final
 
     HRESULT RegisterWindowClass() noexcept;
     HRESULT CreateMainWindow(bool visible, const RECT* targetBounds, bool fullscreen) noexcept;
+    HRESULT RegisterDisplayPowerNotification(HWND window) noexcept;
+    // Dock window kind (UI_XeneonDisplayWindowing.md "Dock window kind"): a borderless topmost tool window on one
+    // edge of the monitor the effective dock selects. Placement, app-bar registration, DPI, and monitor changes are
+    // owned by PlaceDock; autohide reveal and hide by the DockPlacement.h state machine.
+    struct DockMonitorPlacement final
+    {
+        RECT monitor{};
+        RECT work{};
+        UINT dpi = USER_DEFAULT_SCREEN_DPI;
+        bool fellBack = false;
+    };
+    HRESULT CreateDockWindow(bool visible) noexcept;
+    [[nodiscard]] bool ResolveDockMonitor(DockMonitorPlacement& placement) noexcept;
+    // Recomputes the bar rectangle for the current monitor, DPI, mode, and reveal state, registers or updates the
+    // app bar, and moves the window. With resizeDashboard the dashboard and swap chain follow the full rectangle.
+    HRESULT PlaceDock(bool resizeDashboard) noexcept;
+    HRESULT ResizeDockDashboard() noexcept;
+    void RegisterDockAppBar() noexcept;
+    void UnregisterDockAppBar() noexcept;
+    void ApplyDockZOrder() noexcept;
+    // Live reload: re-places the bar for changed members; `none` <-> an edge is deferred to the next launch.
+    void ApplyDockSettings() noexcept;
+    [[nodiscard]] bool DockHidden() const noexcept
+    {
+        return _dockActive && _dock.mode == DockMode::Autohide && DockStateShowsStrip(_dockReveal);
+    }
+    void OnDockEvent(DockRevealEvent event) noexcept;
+    void EvaluateDockHolds() noexcept;
+    [[nodiscard]] DockHolds CurrentDockHolds() const noexcept;
+    void ApplyDockRevealState(DockRevealState state) noexcept;
+    void ArmDockTimer(uint32_t delayMilliseconds) noexcept;
+    void KillDockTimer() noexcept;
     HRESULT InitializeDashboardRuntime() noexcept;
+    // Records the failure that stops the frame loop (exit code 5) as one Error JSONL record naming the site, so a
+    // scripted or unattended run leaves a diagnosis behind rather than only a debugger string.
+    void RecordRuntimeFailure(HRESULT result, const char* eventId) noexcept;
     HRESULT ApplySettings(std::unique_ptr<AppSettings> settings) noexcept;
     void OnSettingsChanged() noexcept;
     void ShowSettingsError(std::wstring_view message) noexcept;
@@ -235,8 +280,36 @@ class Application final
         HRESULT result = S_OK;
     };
     static constexpr UINT_PTR kScreenshotTimerId = 0x5C5;
+    // One-shot dwell or hide timer of the autohide dock; at most one is armed and every state exit kills it.
+    static constexpr UINT_PTR kDockTimerId = 0x5C6;
 
     ScreenshotRequest _screenshot{};
+    DockOverrides _dockOverrides{};
+    // Effective dock for this process: the document's `dock` with the command-line overrides applied. `edge` is
+    // None for the titled and fullscreen kinds.
+    DockSettings _dock{};
+    bool _dockActive = false;
+    RECT _xeneonBounds{};
+    bool _xeneonFound = false;
+    RECT _dockMonitorRect{};
+    RECT _dockWorkRect{};
+    RECT _dockFullRect{};
+    UINT _dockDpi = USER_DEFAULT_SCREEN_DPI;
+    bool _dockAppBarRegistered = false;
+    bool _dockAutohideRegistered = false;
+    DockEdge _dockAutohideEdge = DockEdge::None;
+    RECT _dockAutohideMonitor{};
+    bool _dockReserved = false;
+    bool _dockMonitorFellBack = false;
+    bool _dockThicknessClamped = false;
+    bool _dockFullscreenAppActive = false;
+    DockRevealState _dockReveal = DockRevealState::Revealed;
+    // Set around the SetWindowPos of a reveal or hide so OnSize does not treat the strip as a dashboard resize.
+    bool _dockResizing = false;
+    bool _dockPointerInside = false;
+    bool _dockPinnedByAction = false;
+    bool _dockTimerArmed = false;
+    bool _windowActive = false;
     bool _forceWarp = false;
     bool _classRegistered = false;
     bool _rendererReady = false;

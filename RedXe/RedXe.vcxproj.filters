@@ -74,6 +74,12 @@
     <ClInclude Include="DashboardHost.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="DockOptions.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DockPlacement.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="FrameScheduler.h">
       <Filter>Header Files</Filter>
     </ClInclude>

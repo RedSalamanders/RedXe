@@ -6,7 +6,7 @@ This folder is the **user guide**. Product requirements live in `Specs/`; those 
 
 | Section | Contents |
 | --- | --- |
-| [Global usage](usage.md) | Window, pages, navigation, raise, settings file, prompts |
+| [Global usage](usage.md) | Window, dock, pages, navigation, raise, settings file, prompts |
 | [Widgets](plugins/README.md) | One page per bundled widget: screenshot path and parameters |
 | [Actions](actions.md) | Everything a Logicon key, dialpad turn, or Launcher tile can do: `page.*`, `widget.*`, `redxe.*`, `system.*`, `keys.*`, `mouse.*`, `logicon.*`, `zoom.*` |
 

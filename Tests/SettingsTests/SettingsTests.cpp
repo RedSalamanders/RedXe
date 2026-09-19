@@ -1,5 +1,6 @@
 #include "../../Plugins/Launcher/LauncherPaging.h"
 #include "../../RedXe/BundledPlugins.h"
+#include "../../RedXe/DockOptions.h"
 #include "../../RedXe/Settings.h"
 #include "../../RedXe/SettingsWatcher.h"
 
@@ -221,10 +222,18 @@ constexpr std::string_view kRepresentative = R"json(
         std::wprintf(L"Deployed template page inventory contract failed.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    // Both templates configure the Logicon service (settings minor 1) with a page-navigation key layout.
+    // Both templates configure the Logicon service (settings minor 1) with a page-navigation key layout and author
+    // minor 2 (the `dock` member) with the dock left off: the shipped window kind stays the XENEON one.
     const ServiceSettings* debugLogicon = FindServiceSettings(debug, "builtin.logicon");
     const ServiceSettings* releaseLogicon = FindServiceSettings(release, "builtin.logicon");
-    if (!debugLogicon || !releaseLogicon || debug.versionMinor != 1 || release.versionMinor != 1 ||
+    if (debug.dock != DefaultDockSettings() || release.dock != DefaultDockSettings() ||
+        debug.dock.edge != DockEdge::None || debug.sourceDocument.find("\"dock\"") == std::string::npos ||
+        release.sourceDocument.find("\"dock\"") == std::string::npos)
+    {
+        std::wprintf(L"Deployed templates must stay undocked and carry the commented dock example.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    if (!debugLogicon || !releaseLogicon || debug.versionMinor != 2 || release.versionMinor != 2 ||
         debugLogicon->name.View() != "Logicon" ||
         debugLogicon->privateConfiguration.View().find("\"logicon.keyPage.next\"") == std::string_view::npos ||
         releaseLogicon->privateConfiguration.View().find("\"dashboardPages\"") == std::string_view::npos)
@@ -287,6 +296,47 @@ constexpr std::string_view kRepresentative = R"json(
         std::string_view(yyjson_get_str(yyjson_obj_get(rootBackground, "default"))) != "#000000")
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     yyjson_val* defs = yyjson_obj_get(root, "$defs");
+    // The `dock` definition carries the same ranges and defaults as DockPlacement.h.
+    {
+        yyjson_val* rootDock = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "dock") : nullptr;
+        yyjson_val* dockDefinition = yyjson_is_obj(defs) ? yyjson_obj_get(defs, "dock") : nullptr;
+        yyjson_val* dockProperties =
+            yyjson_is_obj(dockDefinition) ? yyjson_obj_get(dockDefinition, "properties") : nullptr;
+        const auto integerRange =
+            [&](const char* member, uint64_t minimum, uint64_t maximum, uint64_t fallback) noexcept
+        {
+            yyjson_val* property = yyjson_is_obj(dockProperties) ? yyjson_obj_get(dockProperties, member) : nullptr;
+            return yyjson_is_obj(property) && yyjson_is_uint(yyjson_obj_get(property, "minimum")) &&
+                   yyjson_get_uint(yyjson_obj_get(property, "minimum")) == minimum &&
+                   yyjson_is_uint(yyjson_obj_get(property, "maximum")) &&
+                   yyjson_get_uint(yyjson_obj_get(property, "maximum")) == maximum &&
+                   yyjson_is_uint(yyjson_obj_get(property, "default")) &&
+                   yyjson_get_uint(yyjson_obj_get(property, "default")) == fallback;
+        };
+        yyjson_val* edge = yyjson_is_obj(dockProperties) ? yyjson_obj_get(dockProperties, "edge") : nullptr;
+        yyjson_val* mode = yyjson_is_obj(dockProperties) ? yyjson_obj_get(dockProperties, "mode") : nullptr;
+        yyjson_val* reserve =
+            yyjson_is_obj(dockProperties) ? yyjson_obj_get(dockProperties, "reserveWorkArea") : nullptr;
+        yyjson_val* monitor = yyjson_is_obj(dockProperties) ? yyjson_obj_get(dockProperties, "monitor") : nullptr;
+        if (!yyjson_is_obj(rootDock) || !yyjson_is_obj(dockDefinition) ||
+            !yyjson_is_false(yyjson_obj_get(dockDefinition, "additionalProperties")) || !yyjson_is_obj(edge) ||
+            !yyjson_is_arr(yyjson_obj_get(edge, "enum")) || yyjson_arr_size(yyjson_obj_get(edge, "enum")) != 5 ||
+            std::string_view(yyjson_get_str(yyjson_obj_get(edge, "default"))) != "none" || !yyjson_is_obj(mode) ||
+            std::string_view(yyjson_get_str(yyjson_obj_get(mode, "default"))) != "fixed" || !yyjson_is_obj(reserve) ||
+            !yyjson_is_true(yyjson_obj_get(reserve, "default")) || !yyjson_is_obj(monitor) ||
+            std::string_view(yyjson_get_str(yyjson_obj_get(monitor, "default"))) != kDockDefaultMonitor ||
+            !integerRange("thickness", kDockMinimumThicknessDips, kDockMaximumThicknessDips,
+                          kDockDefaultThicknessDips) ||
+            !integerRange("peek", kDockMinimumPeekPixels, kDockMaximumPeekPixels, kDockDefaultPeekPixels) ||
+            !integerRange("revealDelayMilliseconds", 0, kDockMaximumRevealDelayMilliseconds,
+                          kDockDefaultRevealDelayMilliseconds) ||
+            !integerRange("hideDelayMilliseconds", 0, kDockMaximumHideDelayMilliseconds,
+                          kDockDefaultHideDelayMilliseconds))
+        {
+            std::wprintf(L"The schema dock definition does not match DockPlacement.h.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
     yyjson_val* widgetDefinition = yyjson_is_obj(defs) ? yyjson_obj_get(defs, "widgetDefinition") : nullptr;
     yyjson_val* variants = yyjson_is_obj(widgetDefinition) ? yyjson_obj_get(widgetDefinition, "oneOf") : nullptr;
     if (!yyjson_is_arr(variants))
@@ -813,9 +863,9 @@ constexpr std::string_view kRepresentative = R"json(
     }
 
     constexpr std::string_view newerMinor =
-        R"json({"version":{"major":5,"minor":2},"futureRoot":true,"pages":[{"futurePage":1}]})json";
+        R"json({"version":{"major":5,"minor":3},"futureRoot":true,"pages":[{"futurePage":1}]})json";
     if (FAILED(ParseAppSettingsJson(newerMinor, parsed)) || parsed.dashboard.pageCount != 1 ||
-        parsed.versionMinor != 2 || parsed.sourceDocument.find("futureRoot") == std::string::npos)
+        parsed.versionMinor != 3 || parsed.sourceDocument.find("futureRoot") == std::string::npos)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -978,6 +1028,157 @@ constexpr std::string_view kRepresentative = R"json(
     return S_OK;
 }
 
+// The `dock` root member (minor 2) and the --dock* command line: defaults, every rejection, older-minor documents,
+// the switch grammar with its errors, and the merge precedence (DockOptions.h).
+[[nodiscard]] HRESULT ValidateDockSettings() noexcept
+{
+    constexpr std::string_view full = R"json({
+      "version": { "major": 5, "minor": 2 },
+      "dock": {
+        "edge": "left", "monitor": "name:DELL", "thickness": 240, "mode": "autohide", "reserveWorkArea": false,
+        "peek": 6, "revealDelayMilliseconds": 0, "hideDelayMilliseconds": 1200
+      },
+      "pages": [{}]
+    })json";
+    AppSettings parsed{};
+    if (FAILED(ParseAppSettingsJson(full, parsed)) || parsed.versionMinor != 2 || parsed.dock.edge != DockEdge::Left ||
+        parsed.dock.monitor.View() != "name:DELL" || parsed.dock.thicknessDips != 240 ||
+        parsed.dock.mode != DockMode::Autohide || parsed.dock.reserveWorkArea || parsed.dock.peekPixels != 6 ||
+        parsed.dock.revealDelayMilliseconds != 0 || parsed.dock.hideDelayMilliseconds != 1200)
+    {
+        std::wprintf(L"A complete dock object did not parse to its typed members.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    // Defaults merge member by member; an empty object, an omitted object, and a minor 1 document are the same value.
+    constexpr std::string_view partial =
+        R"json({"version":{"major":5,"minor":2},"dock":{"edge":"bottom"},"pages":[{}]})json";
+    constexpr std::string_view omitted = R"json({"version":{"major":5,"minor":2},"pages":[{}]})json";
+    constexpr std::string_view olderMinor = R"json({"version":{"major":5,"minor":1},"pages":[{}]})json";
+    constexpr std::string_view emptyObject = R"json({"version":{"major":5},"dock":{},"pages":[{}]})json";
+    AppSettings partialSettings{};
+    AppSettings omittedSettings{};
+    AppSettings olderSettings{};
+    AppSettings emptySettings{};
+    if (FAILED(ParseAppSettingsJson(partial, partialSettings)) || partialSettings.dock.edge != DockEdge::Bottom ||
+        partialSettings.dock.monitor.View() != kDockDefaultMonitor ||
+        partialSettings.dock.thicknessDips != kDockDefaultThicknessDips ||
+        partialSettings.dock.mode != DockMode::Fixed || !partialSettings.dock.reserveWorkArea ||
+        partialSettings.dock.peekPixels != kDockDefaultPeekPixels ||
+        partialSettings.dock.revealDelayMilliseconds != kDockDefaultRevealDelayMilliseconds ||
+        partialSettings.dock.hideDelayMilliseconds != kDockDefaultHideDelayMilliseconds ||
+        FAILED(ParseAppSettingsJson(omitted, omittedSettings)) || omittedSettings.dock != DefaultDockSettings() ||
+        FAILED(ParseAppSettingsJson(olderMinor, olderSettings)) || olderSettings.dock != DefaultDockSettings() ||
+        olderSettings.versionMinor != 1 || FAILED(ParseAppSettingsJson(emptyObject, emptySettings)) ||
+        emptySettings.dock != DefaultDockSettings())
+    {
+        std::wprintf(L"Dock defaults did not merge as documented.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    // edge none keeps every other member validated and inert.
+    constexpr std::string_view inert =
+        R"json({"version":{"major":5,"minor":2},"dock":{"edge":"none","thickness":400},"pages":[{}]})json";
+    AppSettings inertSettings{};
+    if (FAILED(ParseAppSettingsJson(inert, inertSettings)) || inertSettings.dock.edge != DockEdge::None ||
+        inertSettings.dock.thicknessDips != 400)
+    {
+        std::wprintf(L"edge none must still parse the other members.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    const std::string_view rejected[]{
+        R"json({"version":{"major":5,"minor":2},"dock":{"edge":"middle"},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"edge":1},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"monitor":"all"},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"monitor":"0"},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"monitor":"name:"},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"monitor":""},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"thickness":31},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"thickness":1081},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"thickness":"180"},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"mode":"hidden"},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"reserveWorkArea":"yes"},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"peek":0},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"peek":65},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"revealDelayMilliseconds":2001},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"hideDelayMilliseconds":10001},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"length":100},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":[],"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"dock":{"edge":"top","edge":"top"},"pages":[{}]})json",
+    };
+    for (const std::string_view document : rejected)
+    {
+        if (FAILED(ExpectRejected(document)))
+        {
+            std::wprintf(L"A malformed dock member was accepted.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
+    // The diagnostic names the authored member.
+    {
+        AppSettings diagnosed{};
+        SettingsParseDiagnostic diagnostic{};
+        if (SUCCEEDED(ParseAppSettingsJsonDetailed(
+                R"json({"version":{"major":5,"minor":2},"dock":{"peek":65},"pages":[{}]})json", diagnosed,
+                diagnostic)) ||
+            diagnostic.path != "$.dock.peek")
+        {
+            std::wprintf(L"The dock diagnostic path is %hs, not $.dock.peek.\n", diagnostic.path.c_str());
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
+
+    // Command line: the grammar, its errors, and the merge over the document.
+    DockOverrides overrides{};
+    if (!ParseDockEdgeArgument(L"bottom", overrides) || overrides.edge != DockEdge::Bottom || overrides.hasMonitor ||
+        !ParseDockEdgeArgument(L"left@2", overrides) || overrides.edge != DockEdge::Left || !overrides.hasMonitor ||
+        overrides.monitor.View() != "2" || !ParseDockEdgeArgument(L"top@name:DELL U2723", overrides) ||
+        overrides.monitor.View() != "name:DELL U2723" || !ParseDockEdgeArgument(L"right@xeneon", overrides) ||
+        overrides.monitor.View() != "xeneon" || !ParseDockEdgeArgument(L"none", overrides) ||
+        overrides.edge != DockEdge::None || !ParseDockModeArgument(L"autohide", overrides) ||
+        overrides.mode != DockMode::Autohide || !ParseDockModeArgument(L"fixed", overrides) ||
+        overrides.mode != DockMode::Fixed || !ParseDockThicknessArgument(L"32", overrides) ||
+        overrides.thicknessDips != 32 || !ParseDockThicknessArgument(L"1080", overrides) ||
+        overrides.thicknessDips != 1080 || !ParseDockReserveArgument(L"off", overrides) || overrides.reserveWorkArea ||
+        !ParseDockReserveArgument(L"on", overrides) || !overrides.reserveWorkArea ||
+        !ParseDockPeekArgument(L"64", overrides) || overrides.peekPixels != 64 || !overrides.Any())
+    {
+        std::wprintf(L"A valid --dock* value was refused or misread.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    DockOverrides scratch{};
+    if (ParseDockEdgeArgument(L"middle", scratch) || ParseDockEdgeArgument(L"bottom@all", scratch) ||
+        ParseDockEdgeArgument(L"bottom@0", scratch) || ParseDockEdgeArgument(L"bottom@", scratch) ||
+        ParseDockEdgeArgument(L"@primary", scratch) || ParseDockEdgeArgument(L"", scratch) ||
+        ParseDockModeArgument(L"maybe", scratch) || ParseDockThicknessArgument(L"31", scratch) ||
+        ParseDockThicknessArgument(L"1081", scratch) || ParseDockThicknessArgument(L"-5", scratch) ||
+        ParseDockThicknessArgument(L"18x", scratch) || ParseDockReserveArgument(L"maybe", scratch) ||
+        ParseDockReserveArgument(L"true", scratch) || ParseDockPeekArgument(L"0", scratch) ||
+        ParseDockPeekArgument(L"65", scratch) || scratch.Any())
+    {
+        std::wprintf(L"An invalid --dock* value was accepted.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    // Precedence: each present switch replaces its member; the rest stays with the document.
+    DockOverrides partialOverrides{};
+    if (!ParseDockEdgeArgument(L"top", partialOverrides) || !ParseDockPeekArgument(L"9", partialOverrides))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    const DockSettings effective = EffectiveDockSettings(parsed.dock, partialOverrides);
+    const DockSettings untouched = EffectiveDockSettings(parsed.dock, DockOverrides{});
+    if (effective.edge != DockEdge::Top || effective.peekPixels != 9 || effective.monitor.View() != "name:DELL" ||
+        effective.thicknessDips != 240 || effective.mode != DockMode::Autohide || effective.reserveWorkArea ||
+        effective.hideDelayMilliseconds != 1200 || untouched != parsed.dock)
+    {
+        std::wprintf(L"The --dock* merge did not replace exactly the named members.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    return S_OK;
+}
+
 [[nodiscard]] HRESULT ValidateAvControlSettings() noexcept
 {
     try
@@ -1031,14 +1232,14 @@ constexpr std::string_view kRepresentative = R"json(
         for (const auto widget : widgets)
         {
             const std::string source =
-                R"json({"version":{"major":5,"minor":2},"futureRoot":{"label":"keep\nthis","quoted":"\"{}[],:\\","list":[[],{},true,false,null,1.25e-4,-2]},"declare":{"Launch":{"plugin":"builtin.launcher"}},"pages":[{"widgets":[)json" +
+                R"json({"version":{"major":5,"minor":3},"futureRoot":{"label":"keep\nthis","quoted":"\"{}[],:\\","list":[[],{},true,false,null,1.25e-4,-2]},"declare":{"Launch":{"plugin":"builtin.launcher"}},"pages":[{"widgets":[)json" +
                 std::string(widget) + R"json(]}]})json";
             auto settings = std::make_unique<AppSettings>();
             if (FAILED(ParseAppSettingsJson(source, *settings)))
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             const auto id = settings->dashboard.pages[0].widgets[0].id;
             if (FAILED(PatchWidgetInstanceSettings(*settings, id.View(), patch)) ||
-                settings->sourceDocument.find("\n  \"version\": { \"major\": 5, \"minor\": 2 }") == std::string::npos ||
+                settings->sourceDocument.find("\n  \"version\": { \"major\": 5, \"minor\": 3 }") == std::string::npos ||
                 settings->sourceDocument.find("\"Launch\": { \"plugin\": \"builtin.launcher\" }") ==
                     std::string::npos ||
                 settings->sourceDocument.find("\"layout\"") != std::string::npos ||
@@ -1129,7 +1330,7 @@ constexpr std::string_view kRepresentative = R"json(
 
         // A compact accepted document must not be written as an oversized, subsequently unreadable pretty document.
         std::string large =
-            R"json({"version":{"major":5,"minor":2},"pages":[{"widgets":[{"plugin":"builtin.launcher"}]}],"futurePadding":")json";
+            R"json({"version":{"major":5,"minor":3},"pages":[{"widgets":[{"plugin":"builtin.launcher"}]}],"futurePadding":")json";
         large.append(1024U * 1024U - large.size() - 2, 'x');
         large += "\"}";
         auto settings = std::make_unique<AppSettings>();
@@ -1679,6 +1880,7 @@ int wmain()
     };
     const Test tests[]{{L"templates/schema", ValidateTemplatesAndSchema},
                        {L"parser", ValidateParser},
+                       {L"dock", ValidateDockSettings},
                        {L"AV profile configuration", ValidateAvControlSettings},
                        {L"low stack", ValidateLowStack},
                        {L"watcher", ValidateWatcher},

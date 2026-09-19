@@ -40,6 +40,9 @@ constexpr std::array kRedXeActions{
     Action("redxe.logs.open", L"Open logs folder", RedXeActionTargetNone, L""),
     Action("redxe.screenshot", L"Save screenshot", RedXeActionTargetText, L"<png path>[@<pageId>[/<ordinal>]]"),
     Action("redxe.quit", L"Quit RedXe", RedXeActionTargetEnum, L"now", RedXeActionFlagDestructive, 0, 0, "now"),
+    Action("redxe.dock.show", L"Reveal the dock", RedXeActionTargetNone, L""),
+    Action("redxe.dock.hide", L"Hide the dock", RedXeActionTargetNone, L""),
+    Action("redxe.dock.toggle", L"Reveal or hide the dock", RedXeActionTargetNone, L""),
 };
 
 constexpr std::array kSystemActions{

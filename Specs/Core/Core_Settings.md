@@ -1,7 +1,7 @@
 # RedXe settings contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-19
 Owner: `SettingsStore`, `SettingsWatcher`, and UI-thread application orchestration
 
 ## Scope
@@ -76,17 +76,19 @@ The root members are:
 | `backgroundColor` | No | Exact `#RRGGBB`. Omitted is `#000000`. The dashboard background: the host canvas clear color and the background every widget paints unless its widget object overrides it (see below). |
 | `declare` | No | Reusable widget definitions keyed by authored names. |
 | `services` | No | Headless service plugins the host starts at launch, keyed by authored names (minor 1). |
+| `dock` | No | Screen-edge dock: RedXe as a bar on one edge of one monitor (minor 2). Omitted or `edge: none` keeps the standard window. |
 | `pages` | Yes | One through sixteen ordered pages. |
 
-Version 5 begins at major 5, minor 0. Minor 1 adds the optional additive `services` member; this build reads and
-writes minor 1 and accepts minor 0 documents unchanged. This build reads major 5 only. Missing, malformed, or different-major versions
-(including 4) are errors (`ERROR_INVALID_DATA`) with a diagnostic on `$.version.major`. RedXe MUST NOT convert a
-version 4 layout tree. A newer RedXe accepts older minors of major 5 and supplies documented defaults. An older RedXe
-accepts a newer minor of the same major, validates the shape it understands, and silently ignores additive unknown
-host fields. Exact-version unknown host fields are errors. A future editor saving a compatible newer-minor file MUST
-preserve unknown fields. Version 3 is not migrated. Version 4 is an incompatible major: cold recovery of a default
-file backs up the bytes and installs the version 5 template; a `--settings` portable version 4 file is left unchanged
-and the process runs the in-memory deployed version 5 default.
+Version 5 begins at major 5, minor 0. Minor 1 adds the optional additive `services` member and minor 2 the optional
+additive `dock` member; this build reads and writes minor 2 and accepts minor 0 and 1 documents unchanged. This
+build reads major 5 only. Missing, malformed, or different-major versions (including 4) are errors
+(`ERROR_INVALID_DATA`) with a diagnostic on `$.version.major`. RedXe MUST NOT convert a version 4 layout tree. A newer
+RedXe accepts older minors of major 5 and supplies documented defaults. An older RedXe accepts a newer minor of the
+same major, validates the shape it understands, and silently ignores additive unknown host fields. Exact-version
+unknown host fields are errors. A future editor saving a compatible newer-minor file MUST preserve unknown fields.
+Version 3 is not migrated. Version 4 is an incompatible major: cold recovery of a default file backs up the bytes and
+installs the version 5 template; a `--settings` portable version 4 file is left unchanged and the process runs the
+in-memory deployed version 5 default.
 
 User documents MUST NOT contain `layout`, `areas`, `arrangeAlong`, `sizeRatio`, nested `settings`, or `override`.
 Those members reject the complete candidate with a diagnostic on the authored JSON path.
@@ -128,6 +130,32 @@ unknown member and MUST be rejected. A change to the document `backgroundColor` 
 the active page. Both shipped templates MUST author the document `backgroundColor` explicitly.
 
 Each appearance creates an independent runtime widget instance.
+
+### Dock
+
+`dock` is an optional closed object (minor 2) that places RedXe as a bar on one edge of one monitor instead of the
+standard XENEON window; `Specs/UI/UI_XeneonDisplayWindowing.md` "Dock window kind" owns the window, placement, and
+autohide behavior. Every member is optional and the parser merges the defaults below, so an omitted object, `{}`, and
+`{ "edge": "none" }` are the same typed value. Unknown members, wrong types, out-of-range values, `all`, and an
+unknown edge or mode reject the complete candidate with a diagnostic on `$.dock.<member>`.
+
+| Member | Type and range | Default | Contract |
+| --- | --- | --- | --- |
+| `edge` | `none`, `top`, `bottom`, `left`, `right` | `none` | Edge of the selected monitor. `none` disables the dock and leaves every other member validated and inert. |
+| `monitor` | `primary`, `xeneon`, `<n>` (1-based `EnumDisplayMonitors` order), `name:<substring>` | `primary` | Validated with the shared monitor-selector grammar (`Common/Actions/ActionTargets.h`, `all` rejected); resolved at window creation, where an absent display falls back to the primary. |
+| `thickness` | Integer DIPs, 32–1080 | `180` | Cross-axis size, scaled by the monitor DPI and clamped to half of the monitor at runtime. |
+| `mode` | `fixed`, `autohide` | `fixed` | `fixed` keeps the whole bar on screen; `autohide` collapses it to the peek strip. |
+| `reserveWorkArea` | Boolean | `true` | `fixed` only: register the bar with the shell so maximized windows stop at it. Ignored in `autohide`. |
+| `peek` | Integer physical pixels, 1–64 | `4` | `autohide` only: pixels that stay visible while hidden. |
+| `revealDelayMilliseconds` | Integer, 0–2000 | `150` | `autohide` only: pointer dwell on the strip before the bar reveals; 0 reveals on the first mouse move. |
+| `hideDelayMilliseconds` | Integer, 0–10000 | `800` | `autohide` only: delay after the last hold clears before the bar collapses. |
+
+The `--dock <edge>[@<monitor>]`, `--dock-mode`, `--dock-thickness`, `--dock-reserve`, and `--dock-peek` switches
+override the same-named members for one process (`RedXe/DockOptions.h`), including across live reloads; the
+delays are settings-only. A live reload applies changed members in place, except that switching `edge` between
+`none` and an edge takes effect at the next launch (one Warning log record). `dock` is a host member: it never
+enters a plugin contract, a factory envelope, or a widget persist. Both shipped templates author minor 2 and stay at
+`edge: none`, carrying a commented-out `dock` example.
 
 ### Services
 
@@ -330,8 +358,13 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 - Tests accept a `services` member with defaults merged and the plugin model applied, prove it adds no referenced
   widget plugin, and reject a widget plugin as a service, an unknown service plugin, a duplicated service plugin,
   plugin-model failures (`slot` 9, `brightness` 0, unknown members), an unknown or malformed `action` name, a
-  non-object `services`, a string member, and `use`. Both shipped templates MUST carry minor 1 and configure every
+  non-object `services`, a string member, and `use`. Both shipped templates MUST carry minor 2 and configure every
   catalogued service.
+- Tests accept a complete `dock` object, prove member-by-member default merging (an omitted object, `{}`, and a minor
+  1 document equal `edge: none`), keep `edge: none` validating the other members, reject every malformed member
+  (unknown edge or mode, `all`, `0` and `name:` selectors, thickness 31 and 1081, peek 0 and 65, delays past their
+  maximum, a non-boolean reserve, an unknown member, a non-object `dock`) with the diagnostic on `$.dock.<member>`,
+  and prove the `--dock*` grammar, its errors, and the merge precedence over the document.
 - Tests prove a partial widget persist merge keeps unspecified members and rejects unknown plugin members.
 - Tests prove compact/idempotent formatting, inline small objects and long single-path records, multiline sections
   and arrays, fewer lines than fully expanded output, escaped/Unicode paths, named/inline/use-object widget round

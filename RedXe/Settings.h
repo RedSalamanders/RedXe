@@ -1,5 +1,7 @@
 #pragma once
 
+#include "DockPlacement.h"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -13,8 +15,9 @@
 #include <windows.h>
 
 inline constexpr uint32_t kRedXeSettingsVersionMajor = 5;
-// Minor 1 added the optional additive `services` root member (headless service plugins such as Logicon).
-inline constexpr uint32_t kRedXeSettingsVersionMinor = 1;
+// Minor 1 added the optional additive `services` root member (headless service plugins such as Logicon); minor 2
+// added the optional additive `dock` root member (the screen-edge bar).
+inline constexpr uint32_t kRedXeSettingsVersionMinor = 2;
 // Removed with the v3 parser; retained temporarily so the transition remains buildable between slices.
 inline constexpr wchar_t kRedXeDebugSettingsFileName[] = L"RedXe-debug.settings.json";
 inline constexpr wchar_t kRedXeReleaseSettingsFileName[] = L"RedXe.settings.json";
@@ -246,12 +249,39 @@ struct ServiceSettings final
     bool operator==(const ServiceSettings&) const noexcept = default;
 };
 
+// The `dock` root member (Core_Settings.md): RedXe as a bar on one edge of one monitor. Defaults are merged by the
+// parser, so an omitted object and `{ "edge": "none" }` are the same value. The window kind is decided once at
+// startup from the effective dock (this object with the --dock* command-line overrides applied).
+struct DockSettings final
+{
+    DockEdge edge = DockEdge::None;
+    // Monitor selector text: primary, xeneon, <n>, or name:<substring> (never all).
+    SettingsText monitor;
+    uint32_t thicknessDips = kDockDefaultThicknessDips;
+    DockMode mode = DockMode::Fixed;
+    bool reserveWorkArea = true;
+    uint32_t peekPixels = kDockDefaultPeekPixels;
+    uint32_t revealDelayMilliseconds = kDockDefaultRevealDelayMilliseconds;
+    uint32_t hideDelayMilliseconds = kDockDefaultHideDelayMilliseconds;
+
+    bool operator==(const DockSettings&) const noexcept = default;
+};
+
+[[nodiscard]] inline DockSettings DefaultDockSettings() noexcept
+{
+    DockSettings dock{};
+    dock.monitor.bytes = static_cast<uint32_t>(kDockDefaultMonitor.size());
+    kDockDefaultMonitor.copy(dock.monitor.utf8.data(), kDockDefaultMonitor.size());
+    return dock;
+}
+
 struct AppSettings final
 {
     uint32_t versionMajor = kRedXeSettingsVersionMajor;
     uint32_t versionMinor = kRedXeSettingsVersionMinor;
     uint32_t logRetentionDays = kRedXeDefaultLogRetentionDays;
     uint32_t backgroundRgb = kRedXeDefaultBackgroundRgb;
+    DockSettings dock = DefaultDockSettings();
     std::string sourceDocument;
     std::vector<PluginSettings> plugins;
     uint32_t pluginCount = 0;

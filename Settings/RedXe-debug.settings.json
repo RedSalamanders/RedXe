@@ -1,9 +1,13 @@
 {
   "$schema": "RedXe.settings.schema.json",
-  "version": { "major": 5, "minor": 1 },
+  "version": { "major": 5, "minor": 2 },
   "wrapPages": false,
   "logRetentionDays": 15,
   "backgroundColor": "#000000",
+  // Screen-edge dock (minor 2): run RedXe as a bar along one edge of a monitor instead of the XENEON window.
+  // Uncomment and edit; every member is optional. --dock <edge>[@<monitor>] and the other --dock* switches override
+  // these for one run. See docs/usage.md "Dock".
+  // "dock": { "edge": "bottom", "monitor": "primary", "thickness": 180, "mode": "autohide", "peek": 4 },
   // Headless services start with the dashboard. Logicon drives a Logitech MX Creative Console keypad when one is
   // plugged in (quit Logi Options+ first); the Debug-only Logicon Monitor tile below shows and drives it.
   "services": {

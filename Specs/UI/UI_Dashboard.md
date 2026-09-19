@@ -1,7 +1,7 @@
 # RedXe adaptive dashboard and page-navigation contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-18
+Last reviewed: 2026-09-19
 Owner: `DashboardHost` layout, active-page composition, page navigation, edge-navigation chrome, host placeholder tiles, and raised overlay chrome
 
 ## Scope
@@ -131,6 +131,8 @@ navigation. This section owns that affordance; it changes nothing about the pan 
 - A band exists only when the host is composing a live multi-page dashboard and that direction has a neighbour. It
   MUST NOT exist when the renderer is not ready, the window is hidden, the display is off, the renderer is suspended
   or occluded, a widget is raised, a pointer pan is in progress, or a settle or staged transition is in progress.
+- In the dock window kind (`UI_XeneonDisplayWindowing.md`) the reachable client is the whole client, and a collapsed
+  autohide dock (its peek strip) counts as a hidden window: no band exists until the bar reveals.
 - A blocked end has no band. `wrapPages` and the first/last page rule are the same ones the pan path uses, so both
   input paths stop and wrap identically.
 - A band reveals within one coalesced frame as a translucent wash and a chevron pointing in the travel direction,
@@ -301,6 +303,10 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
 - Hidden, minimized, suspended, display-off, occluded, inactive-page, transition-cancel, and shutdown paths discard
   scheduled deadlines. Recovery invalidates once and establishes a fresh deadline after the recovery frame; missed
   deadlines are never replayed.
+- A collapsed autohide dock is one more hidden state: after its single grip frame the host discards scheduled
+  deadlines and blocks on messages regardless of continuous widgets; a raised widget, an active pan, settle, staged
+  neighbour, or interactive capture holds a revealed autohide dock open, so none of that motion is ever cut by a
+  hide (`UI_XeneonDisplayWindowing.md` "Autohide").
 
 ## Required validation
 

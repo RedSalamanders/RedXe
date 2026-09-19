@@ -23,6 +23,9 @@ struct HostFrameState final
     // Raise or dismiss settle. Same presentation-paced rule as a page swipe; settled overlay chrome does not keep
     // presenting on its own.
     bool overlayMotionActive = false;
+    // Autohide dock collapsed to its peek strip: exactly one grip frame after each hide (the invalidation), then the
+    // host blocks like a minimized window regardless of continuous widgets or scheduled frames.
+    bool dockHidden = false;
 };
 
 [[nodiscard]] constexpr HostFrameAction SelectHostFrameAction(const HostFrameState& state) noexcept
@@ -34,6 +37,10 @@ struct HostFrameState final
     if (state.rendererOccluded && !state.pageNavigationActive && !state.overlayMotionActive)
     {
         return state.occlusionStatusChanged ? HostFrameAction::ProbeOcclusion : HostFrameAction::WaitForMessage;
+    }
+    if (state.dockHidden)
+    {
+        return state.frameInvalidated ? HostFrameAction::Render : HostFrameAction::WaitForMessage;
     }
     if (!state.continuousFramesRequired && !state.frameInvalidated && !state.pageNavigationActive &&
         !state.overlayMotionActive)

@@ -44,6 +44,10 @@ class Renderer final
     Renderer& operator=(Renderer&&) = delete;
 
     HRESULT Initialize(HWND window, bool forceWarp, DashboardHost& dashboardHost) noexcept;
+    // Dock window kind: the swap chain is created with DXGI_SCALING_NONE at the full bar size (`width` × `height`,
+    // 0 = the client), so the window can shrink to its peek strip without ResizeBuffers; DWM clips the back buffer
+    // to the smaller client instead of stretching it. Set before Initialize and kept across device recovery.
+    void SetDockPresentation(bool enabled, UINT width = 0, UINT height = 0) noexcept;
     void Shutdown() noexcept;
     HRESULT SetDpi(UINT dpi) noexcept;
     HRESULT Resize(UINT width, UINT height) noexcept;
@@ -128,6 +132,9 @@ class Renderer final
     DashboardHost* _dashboardHost = nullptr;
     DashboardHost* _transitionDashboardHost = nullptr;
     bool _forceWarp = false;
+    bool _dockPresentation = false;
+    UINT _dockWidth = 0;
+    UINT _dockHeight = 0;
     bool _suspended = true;
     bool _occluded = false;
     bool _gpuWidgetsDeviceReady = false;

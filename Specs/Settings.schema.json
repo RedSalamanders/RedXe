@@ -21,6 +21,10 @@
       "propertyNames": { "minLength": 1, "maxLength": 128 },
       "additionalProperties": { "$ref": "#/$defs/widgetDefinition" }
     },
+    "dock": {
+      "$ref": "#/$defs/dock",
+      "description": "Screen-edge dock (settings minor 2): RedXe as a bar on one edge of one monitor. Omitted, or edge none, keeps the standard XENEON window."
+    },
     "services": {
       "type": "object",
       "maxProperties": 8,
@@ -312,6 +316,62 @@
         "pageButtons": { "enum": ["keyPages", "dashboardPages"], "default": "keyPages" },
         "keys": { "type": "array", "maxItems": 36, "items": { "$ref": "#/$defs/logiconKey" } },
         "dialpad": { "$ref": "#/$defs/logiconDialpad" }
+      }
+    },
+    "dock": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "edge": {
+          "enum": ["none", "top", "bottom", "left", "right"],
+          "default": "none",
+          "description": "Edge of the selected monitor the bar is attached to. none disables the dock."
+        },
+        "monitor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "default": "primary",
+          "description": "primary, xeneon (the discovered XENEON display), a 1-based display number, or name:<substring> of the display name. A display that is not found falls back to the primary."
+        },
+        "thickness": {
+          "type": "integer",
+          "minimum": 32,
+          "maximum": 1080,
+          "default": 180,
+          "description": "Bar thickness across the edge, in DIPs (scaled by the monitor DPI); clamped to half the monitor."
+        },
+        "mode": {
+          "enum": ["fixed", "autohide"],
+          "default": "fixed",
+          "description": "fixed keeps the whole bar on screen; autohide collapses it to a peek strip until the pointer dwells on it."
+        },
+        "reserveWorkArea": {
+          "type": "boolean",
+          "default": true,
+          "description": "fixed only: register the bar with the shell so maximized windows stop at it. Ignored in autohide."
+        },
+        "peek": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "default": 4,
+          "description": "autohide only: physical pixels of the bar that stay visible while hidden."
+        },
+        "revealDelayMilliseconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2000,
+          "default": 150,
+          "description": "autohide only: pointer dwell on the peek strip before the bar reveals. 0 reveals on the first mouse move."
+        },
+        "hideDelayMilliseconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "default": 800,
+          "description": "autohide only: delay after the pointer has left and the bar is inactive before it collapses."
+        }
       }
     },
     "serviceDefinition": {

@@ -1370,6 +1370,89 @@ struct DiagnosticSink final
 
 // One `services` member: a flattened plugin object naming a catalogued service plugin. The effective object is the
 // plugin's defaults merged with the authored keys, validated by the plugin's shared model, and stored compact.
+// One bounded integer member of the closed `dock` object; absent keeps the default already in `value`.
+[[nodiscard]] bool ParseDockInteger(yyjson_val* object, const char* member, uint32_t minimum, uint32_t maximum,
+                                    uint32_t& value, DiagnosticSink& sink, JsonPathBuffer& path) noexcept
+{
+    yyjson_val* number = yyjson_obj_get(object, member);
+    if (!number)
+        return true;
+    const auto scope = path.PushName(member);
+    if (!yyjson_is_uint(number))
+    {
+        std::string message = member;
+        message += " must be an integer.";
+        return sink.Fail(path.View(), message);
+    }
+    const uint64_t parsed = yyjson_get_uint(number);
+    if (parsed < minimum || parsed > maximum)
+    {
+        std::string message = member;
+        message += " must be from ";
+        message += std::to_string(minimum);
+        message += " through ";
+        message += std::to_string(maximum);
+        message += ".";
+        return sink.Fail(path.View(), message);
+    }
+    value = static_cast<uint32_t>(parsed);
+    return true;
+}
+
+// The closed `dock` root object (Core_Settings.md). Every member is optional and defaults are merged here, so the
+// typed value of an omitted object equals `{ "edge": "none" }`. The monitor selector is validated with the shared
+// grammar (never `all`); resolving it to a display happens at window creation, not here.
+[[nodiscard]] bool ParseDockObject(yyjson_val* object, DockSettings& dock, DiagnosticSink& sink, JsonPathBuffer& path,
+                                   bool allowUnknown) noexcept
+{
+    dock = DefaultDockSettings();
+    if (!AcceptObjectMembers(sink, path, object,
+                             {"edge", "monitor", "thickness", "mode", "reserveWorkArea", "peek",
+                              "revealDelayMilliseconds", "hideDelayMilliseconds"},
+                             allowUnknown))
+        return false;
+    if (yyjson_val* edge = yyjson_obj_get(object, "edge"))
+    {
+        const auto scope = path.PushName("edge");
+        if (!yyjson_is_str(edge) ||
+            !DockEdgeParse(std::string_view(yyjson_get_str(edge), yyjson_get_len(edge)), dock.edge))
+            return sink.Fail(path.View(), "edge must be none, top, bottom, left, or right.");
+    }
+    if (yyjson_val* monitor = yyjson_obj_get(object, "monitor"))
+    {
+        const auto scope = path.PushName("monitor");
+        RedXeActions::MonitorSelector selector{};
+        if (!yyjson_is_str(monitor) ||
+            !CopyText(std::string_view(yyjson_get_str(monitor), yyjson_get_len(monitor)), dock.monitor, false) ||
+            !RedXeActions::ParseMonitorSelector(dock.monitor.View(), false, selector))
+            return sink.Fail(path.View(),
+                             "monitor must be primary, xeneon, a 1-based display number, or name:<substring>.");
+    }
+    if (!ParseDockInteger(object, "thickness", kDockMinimumThicknessDips, kDockMaximumThicknessDips, dock.thicknessDips,
+                          sink, path))
+        return false;
+    if (yyjson_val* mode = yyjson_obj_get(object, "mode"))
+    {
+        const auto scope = path.PushName("mode");
+        if (!yyjson_is_str(mode) ||
+            !DockModeParse(std::string_view(yyjson_get_str(mode), yyjson_get_len(mode)), dock.mode))
+            return sink.Fail(path.View(), "mode must be fixed or autohide.");
+    }
+    if (yyjson_val* reserve = yyjson_obj_get(object, "reserveWorkArea"))
+    {
+        const auto scope = path.PushName("reserveWorkArea");
+        if (!yyjson_is_bool(reserve))
+            return sink.Fail(path.View(), "reserveWorkArea must be a boolean.");
+        dock.reserveWorkArea = yyjson_get_bool(reserve);
+    }
+    return ParseDockInteger(object, "peek", kDockMinimumPeekPixels, kDockMaximumPeekPixels, dock.peekPixels, sink,
+                            path) &&
+           ParseDockInteger(object, "revealDelayMilliseconds", 0, kDockMaximumRevealDelayMilliseconds,
+                            dock.revealDelayMilliseconds, sink, path) &&
+           ParseDockInteger(object, "hideDelayMilliseconds", 0, kDockMaximumHideDelayMilliseconds,
+                            dock.hideDelayMilliseconds, sink, path);
+}
+
 [[nodiscard]] bool ParseServiceEntry(std::string_view name, yyjson_val* definition, AppSettings& settings,
                                      DiagnosticSink& sink, JsonPathBuffer& path) noexcept
 {
@@ -1795,8 +1878,8 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSetting
         }
         const bool allowUnknown = fileMinor > kRedXeSettingsVersionMinor;
         if (!AcceptObjectMembers(sink, path, root,
-                                 {"$schema", "version", "wrapPages", "logRetentionDays", "backgroundColor", "declare",
-                                  "services", "pages"},
+                                 {"$schema", "version", "wrapPages", "logRetentionDays", "backgroundColor", "dock",
+                                  "declare", "services", "pages"},
                                  allowUnknown))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         yyjson_val* schema = yyjson_obj_get(root, "$schema");
@@ -1839,6 +1922,15 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSetting
         {
             const auto backgroundScope = path.PushName("backgroundColor");
             return sink.FailHr(path.View(), "backgroundColor must be a #RRGGBB hex string.");
+        }
+        parsed->dock = DefaultDockSettings();
+        if (yyjson_val* dock = yyjson_obj_get(root, "dock"))
+        {
+            const auto dockScope = path.PushName("dock");
+            if (!yyjson_is_obj(dock))
+                return sink.FailHr(path.View(), "dock must be a JSON object.");
+            if (!ParseDockObject(dock, parsed->dock, sink, path, allowUnknown))
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
         std::vector<Declaration> declarations;

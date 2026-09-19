@@ -37,6 +37,11 @@ struct HostChromeState final
     BYTE dimAlpha = 0;
     bool closeHovered = false;
     std::array<HostChromeEdgeBand, 2> bands{};
+    // Hidden autohide dock: the renderer draws one grip frame (wash over the visible strip plus an accent line on
+    // its desktop-facing side) and no widgets; both rectangles are in back-buffer pixels (DockPlacement.h).
+    bool dockHidden = false;
+    RECT dockGrip{};
+    RECT dockGripAccent{};
 
     bool operator==(const HostChromeState&) const noexcept = default;
 };
@@ -115,6 +120,18 @@ enum class HostChromeGlyph : uint32_t
         if (band.revealed && band.rect.right > band.rect.left && band.rect.bottom > band.rect.top)
         {
             count += glyphsAvailable ? 2 : 1;
+        }
+    }
+    if (state.dockHidden)
+    {
+        if (state.dockGrip.right > state.dockGrip.left && state.dockGrip.bottom > state.dockGrip.top)
+        {
+            ++count;
+        }
+        if (state.dockGripAccent.right > state.dockGripAccent.left &&
+            state.dockGripAccent.bottom > state.dockGripAccent.top)
+        {
+            ++count;
         }
     }
     return count;

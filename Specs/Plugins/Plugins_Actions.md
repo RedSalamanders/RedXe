@@ -1,7 +1,7 @@
 # Actions: bindings, namespaces, publication, and the host runtime
 
 Status: current normative product contract
-Last reviewed: 2026-09-17
+Last reviewed: 2026-09-19
 Owner: `Common/PlugInterfaces/Action.h`, `Common/Actions`, `RedXe/HostActionCatalog.*`, `RedXe/HostActions.*`, the
 action runtime of `RedXe/PluginHost.*` and `RedXe/Application.*`, `RedXe/BundledPlugins.h`
 (`kRedXeBundledActionNamespaces`), `Tests/HostPluginTests`
@@ -125,6 +125,7 @@ or while the settings error dialog is up returns `ERROR_BUSY` / `E_NOT_VALID_STA
 | `redxe.settings.edit`, `redxe.logs.open` | None | `system.launch` of the settings path / logs directory. |
 | `redxe.screenshot` | Text: `<absolute png path>[@<pageId>[/<ordinal>]]` | `RequestScreenshot` (the `--screenshot` pipeline); a relative path is `E_INVALIDARG`. |
 | `redxe.quit` | Enum `now`, **X** | `CloseMainWindow`. |
+| `redxe.dock.show`, `redxe.dock.hide`, `redxe.dock.toggle` | None | Reveal, collapse, or flip an autohide dock (`Specs/UI/UI_XeneonDisplayWindowing.md` "Autohide"): `show` reveals at once and keeps the bar until another hold appears and clears; `hide` collapses even with the pointer inside but is inert while a raise, capture, dialog, or pending screenshot holds it; `toggle` is `show` when the strip shows, else `hide`. `S_FALSE` (counted, inert) without an autohide dock. |
 
 ### `system.*` (`HostActions`)
 

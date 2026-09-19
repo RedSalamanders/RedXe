@@ -20,9 +20,61 @@ The first page is selected on every launch. RedXe does not remember which page y
 | Release | Borderless fullscreen on that monitor | Yes/No prompt. Yes opens a normal titled window; No exits. |
 | Debug | Titled window, 2560×720 design canvas, placed at the XENEON origin | Same titled window with normal Windows placement. No prompt. |
 
+With a `dock` configured (or `--dock` on the command line) both builds run as a bar on a screen edge instead; see [Dock](#dock).
+
 **Escape** or closing the window exits RedXe.
 
 If RedXe stopped after a crash, the next normal launch may offer to open the local crash folder. Dumps stay on this PC; nothing is uploaded.
+
+## Dock
+
+Instead of the window above, RedXe can run as a **bar along one edge of a monitor** — any monitor, not only the XENEON — like a second taskbar. Put a `dock` object in the settings file, or try it for one run from the command line:
+
+![A bottom dock: Desk Clock, Studio Clock, CPU Meter, Memory Meter, and System Pulse in a 180-DIP bar](screenshots/dock-bottom.png)
+
+```powershell
+RedXe.exe --dock bottom@primary
+RedXe.exe --dock left@2 --dock-thickness 240 --dock-reserve off
+RedXe.exe --dock top@name:DELL --dock-mode autohide --dock-peek 6
+RedXe.exe --settings C:\Dash\bar.settings.json --dock none
+```
+
+| Setting (`dock`) | Switch | Default | Meaning |
+| --- | --- | --- | --- |
+| `edge` | `--dock <edge>` | `none` | `top`, `bottom`, `left`, or `right` of the monitor. `none` is the normal window. |
+| `monitor` | `--dock <edge>@<monitor>` | `primary` | `primary`, `xeneon`, a display number (`2`), or `name:<part of the display name>` (`name:DELL`, `name:DISPLAY2`). A display that is not connected falls back to the primary. |
+| `thickness` | `--dock-thickness` | `180` | How deep the bar is, in DIPs (scaled with the monitor's display scaling; 180 is 270 px at 150 %). 32–1080, at most half the monitor. |
+| `mode` | `--dock-mode` | `fixed` | `fixed` keeps the bar on screen. `autohide` collapses it to a few pixels until you point at them. |
+| `reserveWorkArea` | `--dock-reserve on\|off` | `true` | `fixed` only. `true`: maximized windows stop at the bar. `false`: the bar floats over the maximized area. |
+| `peek` | `--dock-peek` | `4` | `autohide` only: how many pixels stay visible while the bar is collapsed (1–64). |
+| `revealDelayMilliseconds` | — | `150` | `autohide` only: how long the pointer must rest on the strip before the bar comes back (0–2000; 0 is immediate). |
+| `hideDelayMilliseconds` | — | `800` | `autohide` only: how long after the pointer leaves the bar collapses again (0–10000). |
+
+A switch overrides that one setting for the run, even when you edit the file while RedXe is running. Everything else about the dashboard is unchanged: your pages, swipes, edge chevrons, wheel, raise, and services work in the bar; a left or right bar is simply portrait. Author the pages for the bar's shape — a 180-DIP strip holds a Launcher row, a clock, and a meter comfortably; the shipped XENEON pages are too tall for it:
+
+```json
+{
+  "version": { "major": 5, "minor": 2 },
+  "dock": { "edge": "bottom", "monitor": "primary", "mode": "autohide" },
+  "declare": {
+    "Launcher": { "plugin": "builtin.launcher", "shortcuts": [], "iconSize": "medium" },
+    "Clock": { "plugin": "builtin.desk-clock" }
+  },
+  "pages": [
+    { "columns": [ { "weight": 5, "widget": "Launcher" }, { "weight": 2, "widget": "Clock" } ] }
+  ]
+}
+```
+
+Good to know:
+
+- The bar has no taskbar button and does not take the focus when it starts. To quit, click or tap the bar and press **Escape**, or bind `redxe.quit`.
+- **Autohide**: rest the mouse on the thin strip at the screen edge and the bar slides back; it collapses again shortly after the pointer leaves and nothing else holds it (a raised widget, a swipe, a text field with the focus, the settings-error dialog). A click or a touch on the strip reveals at once, and a Logicon key or a Launcher tile bound to `redxe.dock.show`, `hide`, or `toggle` does too. If the taskbar sits on the same edge, the strip is just above the taskbar, so aim for that line or use another edge.
+- With `reserveWorkArea` off, or in `autohide`, the bar never covers the taskbar; it hugs the edge of the free area.
+- A full-screen game or video on that monitor pushes the bar beneath it; it returns when you leave full screen.
+- Saving the file re-places the bar for `thickness`, `edge`, `monitor`, `mode`, `reserveWorkArea`, `peek`, and the delays. Turning the dock on or off (`edge` between `none` and an edge) takes effect at the next start; RedXe logs a warning to say so.
+- `--screenshot` works for a dock too; an auto-hiding bar is held open for the capture.
+- If RedXe crashes while it reserves space, Windows may keep that space reserved until RedXe runs again or you sign out.
 
 ## Screenshots
 
@@ -68,9 +120,10 @@ Host fields you typically edit:
 | `backgroundColor` | `#000000` | Background of the whole dashboard: the canvas and every widget tile (`#RRGGBB`) |
 | `declare` | shipped names | Reusable widget definitions (`plugin` plus flattened keys) |
 | `services` | `Logicon` | Background services that run with the dashboard, such as the [Logicon](plugins/logicon.md) keypad service |
+| `dock` | off | Run RedXe as a bar on a screen edge instead of a window; see [Dock](#dock) |
 | `pages` | 1–16 | Ordered pages. Optional `name` is the label; omitted names display as `Page N` |
 
-This build reads `"version": { "major": 5 }` only (minor `1` adds `services`; minor `0` files still load). A leftover version 4 file is invalid: the default path is backed up and replaced with the shipped template; `--settings` leaves the portable file alone.
+This build reads `"version": { "major": 5 }` only (minor `1` adds `services`, minor `2` adds `dock`; older minors still load). A leftover version 4 file is invalid: the default path is backed up and replaced with the shipped template; `--settings` leaves the portable file alone.
 
 A page uses exactly one of `widgets`, `columns`, or `rows` (or none, for a blank page). `columns` split along the long side of the window, `rows` along the short side. Omitted `weight` is 1. `widgets` is an equal-share list (omitted `along` is `long-side`). Nested `rows` inside `columns` stack tiles in a column.
 

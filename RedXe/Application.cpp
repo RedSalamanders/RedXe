@@ -26,6 +26,7 @@
 #include <new>
 #include <ole2.h>
 #include <shellapi.h>
+#include <shellscalingapi.h>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -317,6 +318,65 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
     return S_OK;
 }
 
+// Friendly display names for the dock's `name:<substring>` selector: one (GDI source name, target friendly name)
+// pair per active display path, bounded so the lookup allocates nothing on the UI thread after the query buffers.
+constexpr size_t kDockMaximumDisplays = 16;
+
+struct DisplayFriendlyName final
+{
+    std::array<wchar_t, CCHDEVICENAME> device{};
+    std::array<wchar_t, 64> friendly{};
+};
+
+[[nodiscard]] size_t QueryDisplayFriendlyNames(std::array<DisplayFriendlyName, kDockMaximumDisplays>& names) noexcept
+{
+    size_t count = 0;
+    try
+    {
+        UINT32 pathCount = 0;
+        UINT32 modeCount = 0;
+        if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount) != ERROR_SUCCESS)
+        {
+            return 0;
+        }
+        std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
+        std::vector<DISPLAYCONFIG_MODE_INFO> modes(modeCount);
+        if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pathCount, paths.data(), &modeCount, modes.data(), nullptr) !=
+            ERROR_SUCCESS)
+        {
+            return 0;
+        }
+        for (UINT32 index = 0; index < pathCount && count < names.size(); ++index)
+        {
+            const DISPLAYCONFIG_PATH_INFO& path = paths[index];
+            DISPLAYCONFIG_TARGET_DEVICE_NAME targetName{};
+            targetName.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+            targetName.header.size = sizeof(targetName);
+            targetName.header.adapterId = path.targetInfo.adapterId;
+            targetName.header.id = path.targetInfo.id;
+            DISPLAYCONFIG_SOURCE_DEVICE_NAME sourceName{};
+            sourceName.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+            sourceName.header.size = sizeof(sourceName);
+            sourceName.header.adapterId = path.sourceInfo.adapterId;
+            sourceName.header.id = path.sourceInfo.id;
+            if (DisplayConfigGetDeviceInfo(&targetName.header) != ERROR_SUCCESS ||
+                DisplayConfigGetDeviceInfo(&sourceName.header) != ERROR_SUCCESS)
+            {
+                continue;
+            }
+            DisplayFriendlyName& entry = names[count++];
+            (void)wcsncpy_s(entry.device.data(), entry.device.size(), sourceName.viewGdiDeviceName, _TRUNCATE);
+            (void)wcsncpy_s(entry.friendly.data(), entry.friendly.size(), targetName.monitorFriendlyDeviceName,
+                            _TRUNCATE);
+        }
+    }
+    catch (...)
+    {
+        return count;
+    }
+    return count;
+}
+
 [[nodiscard]] size_t CountGpuWidgets(const PluginManager& plugins) noexcept
 {
     size_t count = 0;
@@ -587,6 +647,13 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         OutputDebugStringW(L"XENEON display discovery failed; offering windowed fallback.\n");
 #endif
     }
+    _xeneonBounds = xeneonBounds;
+    _xeneonFound = xeneonFound;
+
+    // The dock window kind replaces the titled and fullscreen rows of the mode table for this process, in both
+    // configurations and on any monitor; the XENEON is only what the `xeneon` selector resolves to.
+    _dock = EffectiveDockSettings(_settings->dock, _dockOverrides);
+    _dockActive = _dock.edge != DockEdge::None;
 
     if (xeneonFound)
     {
@@ -596,7 +663,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
 #endif
     }
 #if !defined(_DEBUG)
-    else
+    else if (!_dockActive)
     {
         // Owned by UI_XeneonDisplayWindowing.md: Release prompts for a windowed fallback, Debug never does.
         const int choice = MessageBoxW(
@@ -618,10 +685,10 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         return 1;
     }
 
-    result = CreateMainWindow(true, requestedTargetBounds, requestedFullscreen);
+    result = _dockActive ? CreateDockWindow(true) : CreateMainWindow(true, requestedTargetBounds, requestedFullscreen);
     if (FAILED(result))
     {
-        OutputDebugStringW(L"CreateMainWindow failed.\n");
+        OutputDebugStringW(_dockActive ? L"CreateDockWindow failed.\n" : L"CreateMainWindow failed.\n");
         return 2;
     }
 
@@ -657,6 +724,8 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     if (FAILED(result))
     {
         OutputDebugStringW(L"Dashboard or renderer initialization failed.\n");
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr, nullptr,
+                           "runtime-init-failed", "Dashboard or renderer initialization failed.", result);
         return 5;
     }
     // Services start after the first page is live: a failed service logs and never blocks startup.
@@ -666,7 +735,9 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     PublishHostState();
     ShowActionNotices();
 
-    ShowWindow(_window.get(), showCommand);
+    // A dock is shown without taking the focus, like the taskbar: the user's current window keeps it, and an autohide
+    // bar collapses on its own after the hide delay instead of waiting for a click elsewhere.
+    ShowWindow(_window.get(), _dockActive ? SW_SHOWNOACTIVATE : showCommand);
     UpdateWindow(_window.get());
     _windowVisible = IsWindowVisible(_window.get()) != FALSE;
     CrashHandler::ShowPreviousCrashUiIfPresent(_window.get());
@@ -691,6 +762,11 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         {
             if (message.message == WM_QUIT)
             {
+                if (FAILED(_runtimeFailure))
+                {
+                    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr, nullptr,
+                                       "runtime-failed", "The frame loop stopped on a failure.", _runtimeFailure);
+                }
                 return FAILED(_runtimeFailure) ? 5 : static_cast<int>(message.wParam);
             }
             if (_textServices && (message.message == WM_KEYDOWN || message.message == WM_KEYUP ||
@@ -727,6 +803,9 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             CloseMainWindow();
             continue;
         }
+        // Every hold input (pointer, activation, pan, settle, raise, dialog, capture) changes through a message or
+        // a tick above, so one evaluation per loop turn sees each change; an unchanged state costs a few compares.
+        EvaluateDockHolds();
 
         if (!_renderer.IsOccluded())
         {
@@ -743,6 +822,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             _frameInvalidated,
             PageNavigationInProgress(),
             OverlayMotionInProgress(),
+            DockHidden(),
         });
         if (frameAction == HostFrameAction::ProbeOcclusion)
         {
@@ -750,7 +830,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             result = _renderer.ProbeOcclusion();
             if (FAILED(result))
             {
-                _runtimeFailure = result;
+                RecordRuntimeFailure(result, "occlusion-probe-failed");
                 OutputDebugStringW(L"Swap-chain occlusion probe failed.\n");
                 CloseMainWindow();
                 continue;
@@ -762,7 +842,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             result = UpdateDashboardVisibility();
             if (FAILED(result))
             {
-                _runtimeFailure = result;
+                RecordRuntimeFailure(result, "visibility-failed");
                 CloseMainWindow();
                 continue;
             }
@@ -776,6 +856,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
                 _frameInvalidated,
                 PageNavigationInProgress(),
                 OverlayMotionInProgress(),
+                DockHidden(),
             });
         }
 
@@ -784,7 +865,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             result = UpdateDashboardVisibility();
             if (FAILED(result))
             {
-                _runtimeFailure = result;
+                RecordRuntimeFailure(result, "visibility-failed");
                 CloseMainWindow();
                 continue;
             }
@@ -813,7 +894,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             result = _renderer.Render(elapsedSeconds, deltaSeconds);
         if (FAILED(result))
         {
-            _runtimeFailure = result;
+            RecordRuntimeFailure(result, "render-failed");
             OutputDebugStringW(L"Frame rendering failed.\n");
             CloseMainWindow();
             continue;
@@ -827,11 +908,16 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         result = UpdateDashboardVisibility();
         if (FAILED(result))
         {
-            _runtimeFailure = result;
+            RecordRuntimeFailure(result, "visibility-failed");
             CloseMainWindow();
         }
     }
 
+    if (FAILED(_runtimeFailure))
+    {
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr, nullptr, "runtime-failed",
+                           "The frame loop stopped on a failure.", _runtimeFailure);
+    }
     return FAILED(_runtimeFailure) ? 5 : 0;
 }
 
@@ -1140,12 +1226,10 @@ HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bo
         }
     }
 
-    _displayPowerNotification.reset(
-        RegisterPowerSettingNotification(window, &GUID_SESSION_DISPLAY_STATUS, DEVICE_NOTIFY_WINDOW_HANDLE));
-    if (!_displayPowerNotification)
+    const HRESULT powerResult = RegisterDisplayPowerNotification(window);
+    if (FAILED(powerResult))
     {
-        const DWORD error = GetLastError();
-        return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
+        return powerResult;
     }
 
     if (!visible)
@@ -1153,6 +1237,547 @@ HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bo
         ShowWindow(window, SW_HIDE);
     }
     return S_OK;
+}
+
+void Application::RecordRuntimeFailure(HRESULT result, const char* eventId) noexcept
+{
+    _runtimeFailure = result;
+    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr, nullptr, eventId,
+                       "A runtime step failed; the frame loop stops.", result);
+}
+
+HRESULT Application::RegisterDisplayPowerNotification(HWND window) noexcept
+{
+    _displayPowerNotification.reset(
+        RegisterPowerSettingNotification(window, &GUID_SESSION_DISPLAY_STATUS, DEVICE_NOTIFY_WINDOW_HANDLE));
+    if (!_displayPowerNotification)
+    {
+        const DWORD error = GetLastError();
+        return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
+    }
+    return S_OK;
+}
+
+// Dock window kind. The window is created on the selected monitor at a provisional overlay rectangle and PlaceDock
+// then applies the exact placement (app-bar query for a reserving bar, monitor DPI, autohide strip).
+HRESULT Application::CreateDockWindow(bool visible) noexcept
+{
+    if (!_dockActive || _window)
+    {
+        return E_UNEXPECTED;
+    }
+    DockMonitorPlacement placement{};
+    if (!ResolveDockMonitor(placement))
+    {
+        OutputDebugStringW(L"No display is available for the dock.\n");
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
+    bool clamped = false;
+    const LONG thicknessPx = DockClampThickness(DockThicknessPixels(_dock.thicknessDips, placement.dpi),
+                                                placement.monitor, _dock.edge, clamped);
+    const RECT initial = DockOverlayRect(placement.work, _dock.edge, thicknessPx);
+
+    // Tool window: no taskbar button and no Alt+Tab entry, like the taskbar itself. Topmost so an autohide strip can
+    // always be reached; ABN_FULLSCREENAPP lowers it beneath a full-screen application.
+    constexpr DWORD extendedStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
+    constexpr DWORD windowStyle = WS_POPUP | WS_CLIPCHILDREN;
+    const HWND window = CreateWindowExW(extendedStyle, kWindowClassName, L"RedXe — CORSAIR XENEON", windowStyle,
+                                        initial.left, initial.top, initial.right - initial.left,
+                                        initial.bottom - initial.top, nullptr, nullptr, _instance, this);
+    if (!window)
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    const HRESULT powerResult = RegisterDisplayPowerNotification(window);
+    if (FAILED(powerResult))
+    {
+        return powerResult;
+    }
+    const HRESULT placeResult = PlaceDock(false);
+    if (FAILED(placeResult))
+    {
+        return placeResult;
+    }
+    if (!visible)
+    {
+        ShowWindow(window, SW_HIDE);
+    }
+    return S_OK;
+}
+
+bool Application::ResolveDockMonitor(DockMonitorPlacement& placement) noexcept
+{
+    placement = DockMonitorPlacement{};
+    struct Enumeration final
+    {
+        std::array<HMONITOR, kDockMaximumDisplays> handles{};
+        std::array<MONITORINFOEXW, kDockMaximumDisplays> info{};
+        size_t count = 0;
+    } enumeration;
+    const auto collect = [](HMONITOR monitor, HDC, LPRECT, LPARAM data) noexcept -> BOOL
+    {
+        auto* target = reinterpret_cast<Enumeration*>(data);
+        if (target->count >= target->handles.size())
+        {
+            return FALSE;
+        }
+        MONITORINFOEXW& info = target->info[target->count];
+        info = MONITORINFOEXW{};
+        info.cbSize = sizeof(info);
+        if (!GetMonitorInfoW(monitor, &info))
+        {
+            return TRUE;
+        }
+        target->handles[target->count] = monitor;
+        ++target->count;
+        return TRUE;
+    };
+    (void)EnumDisplayMonitors(nullptr, nullptr, collect, reinterpret_cast<LPARAM>(&enumeration));
+    if (enumeration.count == 0)
+    {
+        return false;
+    }
+
+    std::array<DisplayFriendlyName, kDockMaximumDisplays> names{};
+    const size_t nameCount = QueryDisplayFriendlyNames(names);
+    std::array<DockMonitorCandidate, kDockMaximumDisplays> candidates{};
+    for (size_t index = 0; index < enumeration.count; ++index)
+    {
+        const MONITORINFOEXW& info = enumeration.info[index];
+        DockMonitorCandidate& candidate = candidates[index];
+        candidate.monitor = info.rcMonitor;
+        candidate.work = info.rcWork;
+        candidate.primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
+        candidate.xeneon = _xeneonFound && EqualRect(&info.rcMonitor, &_xeneonBounds);
+        candidate.deviceName = std::wstring_view{info.szDevice};
+        for (size_t nameIndex = 0; nameIndex < nameCount; ++nameIndex)
+        {
+            if (CompareStringOrdinal(names[nameIndex].device.data(), -1, info.szDevice, -1, TRUE) == CSTR_EQUAL)
+            {
+                candidate.friendlyName = std::wstring_view{names[nameIndex].friendly.data()};
+                break;
+            }
+        }
+        UINT dpiX = USER_DEFAULT_SCREEN_DPI;
+        UINT dpiY = USER_DEFAULT_SCREEN_DPI;
+        candidate.dpi =
+            SUCCEEDED(GetDpiForMonitor(enumeration.handles[index], MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) && dpiX != 0
+                ? dpiX
+                : USER_DEFAULT_SCREEN_DPI;
+    }
+
+    RedXeActions::MonitorSelector selector{};
+    if (!RedXeActions::ParseMonitorSelector(_dock.monitor.View(), false, selector))
+    {
+        selector = RedXeActions::MonitorSelector{};
+    }
+    std::array<wchar_t, 129> needle{};
+    if (selector.kind == RedXeActions::MonitorSelector::Kind::Name)
+    {
+        const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, selector.name.data(),
+                                               static_cast<int>(selector.name.size()), needle.data(),
+                                               static_cast<int>(needle.size() - 1));
+        if (length <= 0)
+        {
+            needle[0] = L'\0';
+        }
+    }
+    bool fellBack = false;
+    const size_t chosen =
+        SelectDockMonitor(selector, std::wstring_view{needle.data()}, candidates.data(), enumeration.count, fellBack);
+    if (chosen == SIZE_MAX)
+    {
+        return false;
+    }
+    placement.monitor = candidates[chosen].monitor;
+    placement.work = candidates[chosen].work;
+    placement.dpi = candidates[chosen].dpi;
+    placement.fellBack = fellBack;
+    return true;
+}
+
+void Application::RegisterDockAppBar() noexcept
+{
+    if (_dockAppBarRegistered || !_window)
+    {
+        return;
+    }
+    APPBARDATA data{};
+    data.cbSize = sizeof(data);
+    data.hWnd = _window.get();
+    data.uCallbackMessage = kDockAppBarMessage;
+    _dockAppBarRegistered = SHAppBarMessage(ABM_NEW, &data) != 0;
+    if (!_dockAppBarRegistered)
+    {
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                           "dock-appbar-refused", "The shell refused the app-bar registration; the dock overlays.");
+    }
+}
+
+void Application::UnregisterDockAppBar() noexcept
+{
+    if (!_window)
+    {
+        _dockAppBarRegistered = false;
+        _dockAutohideRegistered = false;
+        _dockReserved = false;
+        return;
+    }
+    if (_dockAutohideRegistered)
+    {
+        APPBARDATA data{};
+        data.cbSize = sizeof(data);
+        data.hWnd = _window.get();
+        data.uEdge = DockAppBarEdge(_dockAutohideEdge);
+        data.rc = _dockAutohideMonitor;
+        data.lParam = FALSE;
+        (void)SHAppBarMessage(ABM_SETAUTOHIDEBAREX, &data);
+        _dockAutohideRegistered = false;
+    }
+    if (_dockAppBarRegistered)
+    {
+        APPBARDATA data{};
+        data.cbSize = sizeof(data);
+        data.hWnd = _window.get();
+        (void)SHAppBarMessage(ABM_REMOVE, &data);
+        _dockAppBarRegistered = false;
+    }
+    _dockReserved = false;
+}
+
+void Application::ApplyDockZOrder() noexcept
+{
+    if (!_window || !_dockActive)
+    {
+        return;
+    }
+    (void)SetWindowPos(_window.get(), _dockFullscreenAppActive ? HWND_BOTTOM : HWND_TOPMOST, 0, 0, 0, 0,
+                       SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+HRESULT Application::PlaceDock(bool resizeDashboard) noexcept
+{
+    if (!_dockActive || !_window)
+    {
+        return S_OK;
+    }
+    DockMonitorPlacement placement{};
+    if (!ResolveDockMonitor(placement))
+    {
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
+    if (placement.fellBack != _dockMonitorFellBack)
+    {
+        _dockMonitorFellBack = placement.fellBack;
+        if (placement.fellBack)
+        {
+            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                               "dock-monitor-fallback",
+                               "The dock monitor was not found; the bar is on the primary display.");
+        }
+    }
+    bool clamped = false;
+    const LONG thicknessPx = DockClampThickness(DockThicknessPixels(_dock.thicknessDips, placement.dpi),
+                                                placement.monitor, _dock.edge, clamped);
+    if (clamped != _dockThicknessClamped)
+    {
+        _dockThicknessClamped = clamped;
+        if (clamped)
+        {
+            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                               "dock-thickness-clamped", "The dock thickness was clamped to half of the monitor.");
+        }
+    }
+
+    const bool reserve = _dock.mode == DockMode::Fixed && _dock.reserveWorkArea;
+    // Dropping a reservation or moving an autohide registration means re-registering: the shell keeps the last
+    // ABM_SETPOS rectangle until ABM_REMOVE.
+    if ((_dockReserved && !reserve) ||
+        (_dockAutohideRegistered && (_dockAutohideEdge != _dock.edge || _dock.mode != DockMode::Autohide ||
+                                     !EqualRect(&_dockAutohideMonitor, &placement.monitor))))
+    {
+        UnregisterDockAppBar();
+    }
+    RegisterDockAppBar();
+
+    RECT full{};
+    if (reserve && _dockAppBarRegistered)
+    {
+        APPBARDATA data{};
+        data.cbSize = sizeof(data);
+        data.hWnd = _window.get();
+        data.uEdge = DockAppBarEdge(_dock.edge);
+        data.rc = DockTrimToThickness(placement.monitor, _dock.edge, thicknessPx);
+        (void)SHAppBarMessage(ABM_QUERYPOS, &data);
+        data.rc = DockTrimToThickness(data.rc, _dock.edge, thicknessPx);
+        (void)SHAppBarMessage(ABM_SETPOS, &data);
+        full = data.rc;
+        _dockReserved = true;
+    }
+    else
+    {
+        full = DockOverlayRect(placement.work, _dock.edge, thicknessPx);
+        if (_dock.mode == DockMode::Autohide && _dockAppBarRegistered && !_dockAutohideRegistered)
+        {
+            APPBARDATA data{};
+            data.cbSize = sizeof(data);
+            data.hWnd = _window.get();
+            data.uEdge = DockAppBarEdge(_dock.edge);
+            data.rc = placement.monitor;
+            data.lParam = TRUE;
+            _dockAutohideRegistered = SHAppBarMessage(ABM_SETAUTOHIDEBAREX, &data) != 0;
+            _dockAutohideEdge = _dock.edge;
+            _dockAutohideMonitor = placement.monitor;
+            if (!_dockAutohideRegistered)
+            {
+                (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                                   "dock-autohide-refused",
+                                   "Another autohide bar owns this edge; the dock continues as a plain strip.");
+            }
+        }
+    }
+    if (full.right <= full.left || full.bottom <= full.top)
+    {
+        return E_UNEXPECTED;
+    }
+
+    const bool fullChanged = !EqualRect(&full, &_dockFullRect) || placement.dpi != _dockDpi;
+    _dockFullRect = full;
+    _dockMonitorRect = placement.monitor;
+    _dockWorkRect = placement.work;
+    _dockDpi = placement.dpi;
+    const RECT target = DockHidden() ? DockHiddenRect(full, _dock.edge, static_cast<LONG>(_dock.peekPixels)) : full;
+    _dockResizing = true;
+    const BOOL moved = SetWindowPos(_window.get(), _dockFullscreenAppActive ? HWND_BOTTOM : HWND_TOPMOST, target.left,
+                                    target.top, target.right - target.left, target.bottom - target.top, SWP_NOACTIVATE);
+    _dockResizing = false;
+    if (!moved)
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    if (_dockAppBarRegistered)
+    {
+        APPBARDATA data{};
+        data.cbSize = sizeof(data);
+        data.hWnd = _window.get();
+        (void)SHAppBarMessage(ABM_WINDOWPOSCHANGED, &data);
+    }
+    if (resizeDashboard && fullChanged)
+    {
+        const HRESULT resized = ResizeDockDashboard();
+        if (FAILED(resized))
+        {
+            return resized;
+        }
+    }
+    CheckDeviceAdapter();
+    RefreshPageEdgeAffordances();
+    PushHostChrome();
+    return S_OK;
+}
+
+// The dashboard and swap chain always follow the full bar rectangle; the peek strip is a window-size change only.
+HRESULT Application::ResizeDockDashboard() noexcept
+{
+    if (!_rendererReady || !_dashboardHost)
+    {
+        return S_OK;
+    }
+    const UINT width = static_cast<UINT>(_dockFullRect.right - _dockFullRect.left);
+    const UINT height = static_cast<UINT>(_dockFullRect.bottom - _dockFullRect.top);
+    ClearKeyboardFocus();
+    CancelInteractivePointer();
+    DismissWidgetRaise(false);
+    CancelPageNavigation();
+    ClearScheduledFrameDeadline();
+    HRESULT result = _dashboardHost->Resize(width, height, _dockDpi);
+    if (SUCCEEDED(result))
+    {
+        result = _renderer.Resize(width, height);
+    }
+    if (SUCCEEDED(result))
+    {
+        result = UpdateDashboardVisibility();
+    }
+    if (SUCCEEDED(result))
+    {
+        _frameInvalidated = true;
+    }
+    return result;
+}
+
+void Application::ApplyDockSettings() noexcept
+{
+    if (!_settings)
+    {
+        return;
+    }
+    const DockSettings next = EffectiveDockSettings(_settings->dock, _dockOverrides);
+    if (next == _dock)
+    {
+        return;
+    }
+    if ((next.edge == DockEdge::None) != (_dock.edge == DockEdge::None))
+    {
+        // The window kind (styles, app bar, MINMAXINFO, swap-chain scaling) is decided once; the rest of the
+        // document still applies live.
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                           "dock-restart-required", "Switching the dock on or off takes effect at the next launch.");
+        return;
+    }
+    const DockMode previousMode = _dock.mode;
+    _dock = next;
+    if (!_dockActive)
+    {
+        return;
+    }
+    if (previousMode != _dock.mode)
+    {
+        if (_dock.mode == DockMode::Fixed)
+        {
+            KillDockTimer();
+            _dockReveal = DockRevealState::Revealed;
+        }
+    }
+    (void)PlaceDock(true);
+    if (_dock.mode == DockMode::Autohide)
+    {
+        EvaluateDockHolds();
+    }
+}
+
+void Application::ArmDockTimer(uint32_t delayMilliseconds) noexcept
+{
+    if (!_window)
+    {
+        return;
+    }
+    (void)SetTimer(_window.get(), kDockTimerId, std::max<UINT>(delayMilliseconds, 1U), nullptr);
+    _dockTimerArmed = true;
+}
+
+void Application::KillDockTimer() noexcept
+{
+    if (_dockTimerArmed && _window)
+    {
+        (void)KillTimer(_window.get(), kDockTimerId);
+    }
+    _dockTimerArmed = false;
+}
+
+DockHolds Application::CurrentDockHolds() const noexcept
+{
+    DockHolds holds{};
+    holds.pointerInside = _dockPointerInside;
+    holds.windowActive = _windowActive;
+    holds.captureActive = _pagePointerActive || _pagePanStarted || _pageSettleActive || _pageTransitionDirection != 0 ||
+                          _pageStagePendingDirection != 0 || _interactiveOwnsPointer || _raiseSettleActive;
+    holds.widgetRaised = _raisedActive;
+    holds.dialogShown = _settingsErrorDialog != nullptr;
+    holds.pinned = _screenshot.pending;
+    holds.pinnedByAction = _dockPinnedByAction;
+    return holds;
+}
+
+void Application::OnDockEvent(DockRevealEvent event) noexcept
+{
+    if (!_dockActive || _dock.mode != DockMode::Autohide)
+    {
+        return;
+    }
+    if (event == DockRevealEvent::ActionShow ||
+        (event == DockRevealEvent::ActionToggle && DockStateShowsStrip(_dockReveal)))
+    {
+        // An action-revealed bar stays until another hold appears and clears; the flag drops as soon as one does.
+        DockHolds holds = CurrentDockHolds();
+        holds.pinnedByAction = false;
+        _dockPinnedByAction = !holds.Any();
+    }
+    else if (event == DockRevealEvent::ActionHide || event == DockRevealEvent::ActionToggle)
+    {
+        _dockPinnedByAction = false;
+    }
+    const DockRevealState next = NextDockRevealState(_dockReveal, event, CurrentDockHolds(),
+                                                     _dock.revealDelayMilliseconds, _dock.hideDelayMilliseconds);
+    ApplyDockRevealState(next);
+}
+
+void Application::EvaluateDockHolds() noexcept
+{
+    if (!_dockActive || _dock.mode != DockMode::Autohide)
+    {
+        return;
+    }
+    DockHolds holds = CurrentDockHolds();
+    if (_dockPinnedByAction)
+    {
+        holds.pinnedByAction = false;
+        if (holds.Any())
+        {
+            _dockPinnedByAction = false;
+        }
+        else
+        {
+            holds.pinnedByAction = true;
+        }
+    }
+    const DockRevealState next = NextDockRevealState(_dockReveal, DockRevealEvent::HoldsChanged, holds,
+                                                     _dock.revealDelayMilliseconds, _dock.hideDelayMilliseconds);
+    ApplyDockRevealState(next);
+}
+
+void Application::ApplyDockRevealState(DockRevealState state) noexcept
+{
+    if (state == _dockReveal)
+    {
+        return;
+    }
+    const bool wasStrip = DockStateShowsStrip(_dockReveal);
+    KillDockTimer();
+    _dockReveal = state;
+    if (state == DockRevealState::RevealPending)
+    {
+        ArmDockTimer(_dock.revealDelayMilliseconds);
+    }
+    else if (state == DockRevealState::HidePending)
+    {
+        ArmDockTimer(_dock.hideDelayMilliseconds);
+    }
+    if (DockStateShowsStrip(state) == wasStrip)
+    {
+        return;
+    }
+    // Reveal or hide: one SetWindowPos between the full rectangle and the peek strip. The dashboard and swap chain
+    // keep the full size (DXGI_SCALING_NONE clips the back buffer to the strip), so no ResizeBuffers, no layout
+    // recompute, and no OnTargetSizeChanged happen here.
+    if (_window && _dockFullRect.right > _dockFullRect.left)
+    {
+        const RECT target = DockHidden()
+                                ? DockHiddenRect(_dockFullRect, _dock.edge, static_cast<LONG>(_dock.peekPixels))
+                                : _dockFullRect;
+        _dockResizing = true;
+        (void)SetWindowPos(_window.get(), nullptr, target.left, target.top, target.right - target.left,
+                           target.bottom - target.top, SWP_NOACTIVATE | SWP_NOZORDER);
+        _dockResizing = false;
+    }
+    if (DockHidden())
+    {
+        ClearKeyboardFocus();
+        CancelInteractivePointer();
+        ClearPageEdgeHover();
+        _dockPointerInside = false;
+    }
+    ClearScheduledFrameDeadline();
+    _frameInvalidated = true;
+    if (const HRESULT result = UpdateDashboardVisibility(); FAILED(result))
+    {
+        RecordRuntimeFailure(result, "visibility-failed");
+        if (_window)
+        {
+            PostMessageW(_window.get(), WM_CLOSE, 0, 0);
+        }
+    }
+    PushHostChrome();
 }
 
 HRESULT Application::InitializeDashboardRuntime() noexcept
@@ -1163,13 +1788,20 @@ HRESULT Application::InitializeDashboardRuntime() noexcept
     }
 
     RECT clientBounds{};
-    const UINT dpi = GetDpiForWindow(_window.get());
+    UINT dpi = GetDpiForWindow(_window.get());
     if (dpi == 0 || !GetClientRect(_window.get(), &clientBounds))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    const UINT width = static_cast<UINT>(clientBounds.right - clientBounds.left);
-    const UINT height = static_cast<UINT>(clientBounds.bottom - clientBounds.top);
+    UINT width = static_cast<UINT>(clientBounds.right - clientBounds.left);
+    UINT height = static_cast<UINT>(clientBounds.bottom - clientBounds.top);
+    if (_dockActive && _dockFullRect.right > _dockFullRect.left && _dockFullRect.bottom > _dockFullRect.top)
+    {
+        // A live reload while an autohide dock shows its strip must still size the dashboard to the full bar.
+        width = static_cast<UINT>(_dockFullRect.right - _dockFullRect.left);
+        height = static_cast<UINT>(_dockFullRect.bottom - _dockFullRect.top);
+        dpi = _dockDpi;
+    }
     if (width == 0 || height == 0)
     {
         return E_UNEXPECTED;
@@ -1181,6 +1813,9 @@ HRESULT Application::InitializeDashboardRuntime() noexcept
         return result;
     }
 
+    // The dock window shrinks to its peek strip without resizing the swap chain: DXGI_SCALING_NONE clips the
+    // full-size back buffer to the smaller client instead of stretching it.
+    _renderer.SetDockPresentation(_dockActive);
     result = _renderer.Initialize(_window.get(), _forceWarp, *_dashboardHost);
     if (FAILED(result))
     {
@@ -1221,6 +1856,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
         _settings = std::move(settings);
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
+        ApplyDockSettings();
         PublishHostState();
         ShowActionNotices();
         return S_OK;
@@ -1240,6 +1876,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
         _settings = std::move(settings);
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
+        ApplyDockSettings();
         PublishHostState();
         ShowActionNotices();
         return S_OK;
@@ -1506,6 +2143,8 @@ void Application::RequestScreenshot(std::wstring_view pngPath, std::wstring_view
     }
     _screenshot.delayMilliseconds = delayMilliseconds;
     _screenshot.pending = true;
+    // An autohide dock is held revealed for the capture (the pending request is a hold) so the PNG shows the bar.
+    OnDockEvent(DockRevealEvent::Pin);
 }
 
 bool Application::TickScreenshot() noexcept
@@ -1616,7 +2255,7 @@ PageEdgeState Application::CurrentPageEdgeState() const noexcept
         return state;
     }
     state.rendererReady = _rendererReady;
-    state.windowVisible = _windowVisible;
+    state.windowVisible = _windowVisible && !DockHidden();
     state.displayPoweredOn = _displayPoweredOn;
     state.rendererSuspended = _renderer.IsSuspended();
     state.rendererOccluded = _renderer.IsOccluded();
@@ -1660,6 +2299,14 @@ void Application::PushHostChrome() noexcept
         band.rect = _pageEdgeBands[index];
         band.direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
         band.revealed = _pageEdgeRevealed[index] && band.rect.right > band.rect.left;
+    }
+    if (DockHidden())
+    {
+        state.dockHidden = true;
+        state.dockGrip =
+            DockGripRect(_dockFullRect.right - _dockFullRect.left, _dockFullRect.bottom - _dockFullRect.top, _dock.edge,
+                         static_cast<LONG>(_dock.peekPixels));
+        state.dockGripAccent = DockGripAccentRect(state.dockGrip, _dock.edge, PageEdgeDipPixels(1, _dockDpi));
     }
     if (_renderer.SetHostChrome(state))
     {
@@ -1723,6 +2370,12 @@ RECT Application::ReachableClientRect() const noexcept
     if (!_window || !GetClientRect(_window.get(), &client))
     {
         return RECT{};
+    }
+    if (_dockActive)
+    {
+        // A dock fits its monitor by construction, and a reserving side dock is excluded from the work area, which
+        // would otherwise leave nothing reachable; the bands hug the true client edges.
+        return client;
     }
     RECT windowBounds{};
     if (!GetWindowRect(_window.get(), &windowBounds))
@@ -2119,6 +2772,18 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
                 return E_INVALIDARG;
             }
             CloseMainWindow();
+            return S_OK;
+        }
+        if (verb == "dock.show" || verb == "dock.hide" || verb == "dock.toggle")
+        {
+            // Counted and inert without an autohide dock; an automated host never has one.
+            if (!_dockActive || _dock.mode != DockMode::Autohide)
+            {
+                return S_FALSE;
+            }
+            OnDockEvent(verb == "dock.show"   ? DockRevealEvent::ActionShow
+                        : verb == "dock.hide" ? DockRevealEvent::ActionHide
+                                              : DockRevealEvent::ActionToggle);
             return S_OK;
         }
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
@@ -3783,7 +4448,7 @@ void Application::OnSettingsChanged() noexcept
     ShowSettingsError(L"The changed settings could not be applied. The previous dashboard was restored.");
     if (!_rendererReady)
     {
-        _runtimeFailure = applyResult;
+        RecordRuntimeFailure(applyResult, "settings-apply-failed");
         CloseMainWindow();
     }
 }
@@ -3853,7 +4518,7 @@ void Application::CloseSettingsError() noexcept
 bool Application::WaitUntilMessage() noexcept
 {
     if (!_windowVisible || !_displayPoweredOn || !_rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
-        DashboardRequiresContinuousFrames())
+        DashboardRequiresContinuousFrames() || DockHidden())
     {
         ClearScheduledFrameDeadline();
     }
@@ -3930,7 +4595,7 @@ void Application::CheckDeviceAdapter() noexcept
     }
     if (FAILED(result))
     {
-        _runtimeFailure = result;
+        RecordRuntimeFailure(result, "adapter-follow-failed");
         OutputDebugStringW(L"Direct3D device could not follow the window to its new adapter.\n");
         PostMessageW(_window.get(), WM_CLOSE, 0, 0);
     }
@@ -3978,7 +4643,7 @@ void Application::RefreshScheduledFrameDeadline() noexcept
 {
     ClearScheduledFrameDeadline();
     if (!_windowVisible || !_displayPoweredOn || !_rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
-        DashboardRequiresContinuousFrames() || PageNavigationInProgress() || OverlayMotionInProgress())
+        DashboardRequiresContinuousFrames() || PageNavigationInProgress() || OverlayMotionInProgress() || DockHidden())
     {
         return;
     }
@@ -4008,13 +4673,15 @@ void Application::ClearScheduledFrameDeadline() noexcept
 HRESULT Application::UpdateDashboardVisibility() noexcept
 {
     RefreshPageEdgeAffordances();
-    if (!_dashboardHost)
+    // Before the dashboard runtime exists there is nothing to show or hide. A dock reaches here early: the app-bar
+    // registration blocks in a cross-thread SendMessage, during which the display-power notification is delivered.
+    if (!_dashboardHost || !_rendererReady)
     {
         return S_OK;
     }
 
     const bool visible =
-        _windowVisible && _displayPoweredOn && _rendererReady && !_renderer.IsSuspended() && !_renderer.IsOccluded();
+        _windowVisible && _displayPoweredOn && !_renderer.IsSuspended() && !_renderer.IsOccluded() && !DockHidden();
     if (!visible && _accessibility)
         _accessibility->ClearViews();
     if (!visible)
@@ -4046,6 +4713,8 @@ void Application::CloseMainWindow() noexcept
     }
     _pageEdgeMouseTracking = false;
     DestroyPageEdgeAffordances();
+    KillDockTimer();
+    UnregisterDockAppBar();
     _settingsWatcher.Stop();
     DismissWidgetRaise(false);
     CancelPageNavigation();
@@ -4145,8 +4814,67 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         return dpiResult;
     }
     case WM_EXITSIZEMOVE:
-    case WM_DISPLAYCHANGE:
         CheckDeviceAdapter();
+        break;
+    case WM_DISPLAYCHANGE:
+        if (_dockActive)
+        {
+            // Topology change: the selected monitor may have come or gone; re-resolve the selector and re-place.
+            (void)FindXeneonDisplay(_xeneonBounds, _xeneonFound);
+            (void)PlaceDock(true);
+        }
+        CheckDeviceAdapter();
+        break;
+    case WM_SETTINGCHANGE:
+        if (_dockActive && wParam == SPI_SETWORKAREA && !_dockReserved)
+        {
+            // Another bar or the taskbar changed the work area an overlay or autohide dock hugs. A reserving dock
+            // hears about it through ABN_POSCHANGED instead.
+            (void)PlaceDock(true);
+        }
+        break;
+    case kDockAppBarMessage:
+        if (_dockActive)
+        {
+            if (wParam == ABN_POSCHANGED || wParam == ABN_STATECHANGE)
+            {
+                (void)PlaceDock(true);
+            }
+            else if (wParam == ABN_FULLSCREENAPP)
+            {
+                _dockFullscreenAppActive = lParam != 0;
+                ApplyDockZOrder();
+            }
+        }
+        return 0;
+    case WM_ACTIVATE:
+        _windowActive = LOWORD(wParam) != WA_INACTIVE;
+        if (_dockAppBarRegistered)
+        {
+            APPBARDATA data{};
+            data.cbSize = sizeof(data);
+            data.hWnd = window;
+            (void)SHAppBarMessage(ABM_ACTIVATE, &data);
+        }
+        EvaluateDockHolds();
+        break;
+    case WM_WINDOWPOSCHANGED:
+        if (_dockAppBarRegistered && !_dockResizing)
+        {
+            APPBARDATA data{};
+            data.cbSize = sizeof(data);
+            data.hWnd = window;
+            (void)SHAppBarMessage(ABM_WINDOWPOSCHANGED, &data);
+        }
+        break;
+    case WM_TIMER:
+        if (wParam == kDockTimerId)
+        {
+            KillDockTimer();
+            OnDockEvent(_dockReveal == DockRevealState::RevealPending ? DockRevealEvent::DwellElapsed
+                                                                      : DockRevealEvent::HideElapsed);
+            return 0;
+        }
         break;
     case WM_SHOWWINDOW:
         _windowVisible = wParam != FALSE;
@@ -4157,7 +4885,7 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         }
         if (const HRESULT result = UpdateDashboardVisibility(); FAILED(result))
         {
-            _runtimeFailure = result;
+            RecordRuntimeFailure(result, "visibility-failed");
             PostMessageW(window, WM_CLOSE, 0, 0);
         }
         return 0;
@@ -4178,7 +4906,7 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
                 }
                 if (const HRESULT result = UpdateDashboardVisibility(); FAILED(result))
                 {
-                    _runtimeFailure = result;
+                    RecordRuntimeFailure(result, "visibility-failed");
                     PostMessageW(window, WM_CLOSE, 0, 0);
                 }
             }
@@ -4206,6 +4934,13 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case WM_POINTERACTIVATE:
         return MA_ACTIVATE;
     case WM_POINTERDOWN:
+        if (DockHidden())
+        {
+            // A touch or pen contact on the peek strip reveals at once; the contact itself goes nowhere because the
+            // hidden dashboard owns no visible widget.
+            OnDockEvent(DockRevealEvent::TouchOnStrip);
+            return 0;
+        }
         OnPointerDown(window, wParam, lParam);
         return 0;
     case WM_POINTERUPDATE:
@@ -4226,9 +4961,19 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         }
         return 0;
     case WM_LBUTTONDOWN:
+        if (DockHidden())
+        {
+            // A click on the strip is as deliberate as a touch: reveal without waiting for the dwell.
+            OnDockEvent(DockRevealEvent::TouchOnStrip);
+            return 0;
+        }
         OnMouseButtonDown(window, lParam);
         return 0;
     case WM_LBUTTONUP:
+        if (DockHidden())
+        {
+            return 0;
+        }
         OnMouseButtonUp(window, lParam);
         return 0;
     case WM_MOUSEWHEEL:
@@ -4241,15 +4986,28 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         // The top-level window owns edge-band hover: a band is created only while the pointer is inside its zone.
         if (!IsPointerSynthesizedMouseMessage())
         {
-            (void)ForwardInteractivePointer({GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}, 1, RedXePointerKindMouse,
-                                            RedXePointerPhaseMove, nullptr);
-            if (_interactiveOwnsPointer)
-                return 0;
             if (!_pageEdgeMouseTracking)
             {
                 TRACKMOUSEEVENT track{sizeof(TRACKMOUSEEVENT), TME_LEAVE, window, 0};
                 _pageEdgeMouseTracking = TrackMouseEvent(&track) != FALSE;
             }
+            if (!_dockPointerInside)
+            {
+                _dockPointerInside = true;
+                if (DockHidden())
+                {
+                    // The strip is the window itself: a real mouse move over it starts the reveal dwell.
+                    OnDockEvent(DockRevealEvent::PointerEnteredStrip);
+                    return 0;
+                }
+                EvaluateDockHolds();
+            }
+            if (DockHidden())
+                return 0;
+            (void)ForwardInteractivePointer({GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}, 1, RedXePointerKindMouse,
+                                            RedXePointerPhaseMove, nullptr);
+            if (_interactiveOwnsPointer)
+                return 0;
             UpdatePageEdgeHover();
             SetRaiseCloseHovered(
                 _raisedActive &&
@@ -4292,6 +5050,26 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         // unconditionally.
         UpdatePageEdgeHover();
         SetRaiseCloseHovered(false);
+        if (_dockActive)
+        {
+            POINT cursor{};
+            RECT bounds{};
+            const bool stillInside = GetCursorPos(&cursor) && GetWindowRect(window, &bounds) &&
+                                     PtInRect(&bounds, cursor) && WindowFromPoint(cursor) != nullptr &&
+                                     (WindowFromPoint(cursor) == window || IsChild(window, WindowFromPoint(cursor)));
+            if (!stillInside && _dockPointerInside)
+            {
+                _dockPointerInside = false;
+                if (_dockReveal == DockRevealState::RevealPending)
+                    OnDockEvent(DockRevealEvent::PointerLeft);
+                else
+                    EvaluateDockHolds();
+            }
+        }
+        else
+        {
+            _dockPointerInside = false;
+        }
         return 0;
     case WM_CANCELMODE:
     case WM_KILLFOCUS:
@@ -4306,6 +5084,20 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case WM_GETMINMAXINFO:
     {
         auto* minimums = reinterpret_cast<MINMAXINFO*>(lParam);
+        if (_dockActive)
+        {
+            if (_dockFullRect.right > _dockFullRect.left && _dockMonitorRect.right > _dockMonitorRect.left)
+            {
+                DockMinMaxInfo(_dockMonitorRect, _dock.edge, static_cast<LONG>(_dock.peekPixels),
+                               _dock.mode == DockMode::Autohide, _dockFullRect, *minimums);
+            }
+            else
+            {
+                // Before the first placement: no minimum, so the creation and placement rectangles are honoured.
+                minimums->ptMinTrackSize = POINT{1, 1};
+            }
+            return 0;
+        }
         minimums->ptMinTrackSize = POINT{480, 320};
         const UINT dpi = GetDpiForWindow(window);
         SIZE defaultWindowSize{};
@@ -4375,6 +5167,13 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
 
 LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
 {
+    if (_dockActive)
+    {
+        // PlaceDock owns the dock's dashboard size: a reveal or hide changes only the window, and every other
+        // size change (DPI, monitor, thickness, edge) is applied through ResizeDockDashboard with the full bar.
+        RefreshPageEdgeAffordances();
+        return 0;
+    }
     ClearKeyboardFocus();
     CancelInteractivePointer();
     const auto refreshEdges = wil::scope_exit([this]() noexcept { RefreshPageEdgeAffordances(); });
@@ -4407,7 +5206,7 @@ LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
     }
     if (FAILED(result))
     {
-        _runtimeFailure = result;
+        RecordRuntimeFailure(result, "resize-failed");
         PostMessageW(window, WM_CLOSE, 0, 0);
     }
     return 0;
@@ -4429,11 +5228,17 @@ LRESULT Application::OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBo
         const HRESULT result = _renderer.SetDpi(dpi);
         if (FAILED(result))
         {
-            _runtimeFailure = result;
+            RecordRuntimeFailure(result, "dpi-change-failed");
             PostMessageW(window, WM_CLOSE, 0, 0);
             return 0;
         }
         _frameInvalidated = true;
+    }
+    if (_dockActive)
+    {
+        // The suggested rectangle is the scaled window; the dock re-places itself from the monitor DPI instead.
+        (void)PlaceDock(true);
+        return 0;
     }
 
     int width = suggestedBounds->right - suggestedBounds->left;

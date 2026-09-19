@@ -17,6 +17,7 @@
     <ClInclude Include="..\..\Plugins\DeskClock\DeskClockTestContract.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Plugins\MatrixRain\MatrixRainTestContract.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\RedXe\DashboardHost.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\RedXe\DockPlacement.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\RedXe\FrameScheduler.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\RedXe\PageNavigation.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\RedXe\PluginManager.h"><Filter>Header Files</Filter></ClInclude>

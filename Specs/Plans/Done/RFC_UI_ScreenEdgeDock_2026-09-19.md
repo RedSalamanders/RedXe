@@ -1,8 +1,14 @@
 # RFC: Screen-edge dock — a fixed or auto-hiding RedXe bar on any monitor
 
-Status: DECISION — proposed, nothing implemented; the current window modes in
-[`UI_XeneonDisplayWindowing.md`](../../UI/UI_XeneonDisplayWindowing.md) remain the contract until this RFC is decided
-Date: 2026-09-18
+Status: COMPLETE (2026-09-19) — phases 1 and 2 shipped; the optional phase 3 slide was not built
+Date: 2026-09-18 (proposed), 2026-09-19 (decided and implemented)
+
+This file is historical sequencing. Current shipped behavior lives in
+[`Specs/UI/UI_XeneonDisplayWindowing.md`](../../UI/UI_XeneonDisplayWindowing.md) ("Dock window kind"),
+[`Specs/UI/UI_Dashboard.md`](../../UI/UI_Dashboard.md), [`Specs/Core/Core_Settings.md`](../../Core/Core_Settings.md)
+("Dock"), [`Specs/Core/Core_PerformanceAndResources.md`](../../Core/Core_PerformanceAndResources.md),
+[`Specs/Plugins/Plugins_Actions.md`](../../Plugins/Plugins_Actions.md), and [`Settings.schema.json`](../../Settings.schema.json).
+Do not edit this plan to change current requirements.
 Requested deliverables: settings and command-line switches that place RedXe as a bar on one edge of a chosen monitor
 in a **fixed** mode, with the choice of shrinking the maximize (work) area or not, and an **autohide** mode that leaves
 a few pixels visible and brings the bar back when the mouse reaches them
@@ -468,3 +474,53 @@ button.
 - Docking to the edge of the *window* the user is working in, or following the foreground window.
 - Reading or changing the taskbar's own settings.
 - Persisting runtime dock state (revealed/hidden, the fallback monitor): like the active page, it is never written.
+
+## Outcome (2026-09-19)
+
+Decided and implemented the same day, phases 1 and 2 together; every decision D1–D14 was taken as proposed, with
+these amendments found at implementation:
+
+- **Focus.** The dock is shown with `SW_SHOWNOACTIVATE` (the RFC left `showCommand` in place). A bar that took the
+  focus at launch stole it from the user's window and, in autohide, stayed revealed until they clicked elsewhere.
+- **Reveal on click.** A mouse button on the strip reveals at once, like a touch; only the hover dwell waits.
+- **`redxe.dock.show` with nothing holding the bar** keeps it revealed until another hold appears and clears (the
+  pointer visits and leaves, or the bar is activated and deactivated), rather than re-arming the 800 ms hide at once:
+  a keypad user could not read a bar that vanished after a glance.
+- **`name:` matches the GDI device name too** (`\.\DISPLAYn`) beside the `QueryDisplayConfig` friendly name, since
+  that is what other tools list.
+- **Warning events** are named: `dock-monitor-fallback`, `dock-thickness-clamped`, `dock-autohide-refused`,
+  `dock-appbar-refused`, `dock-restart-required`.
+- **Runtime failures are logged.** A step that stops the frame loop (exit code 5) now writes one Error record
+  naming the site (`render-failed`, `visibility-failed`, …) with its HRESULT, beside the former debugger string. This
+  found the one integration defect: `SHAppBarMessage` blocks in a cross-thread `SendMessage`, during which the
+  display-power notification was dispatched and `UpdateDashboardVisibility` reached an uninitialized
+  `DashboardHost`; visibility updates now wait for the renderer to be ready.
+- The window uses `GetDpiForMonitor` (shcore) for the selected monitor's DPI before the window exists.
+
+Landed: `RedXe/DockPlacement.h` (edges, placement, hidden strip, grip and accent, clamp, MINMAXINFO, monitor
+selection, the autohide state machine), `RedXe/DockOptions.h` (`--dock*` grammar and merge), the `dock` settings
+object at minor 2 with the schema and both templates (commented example), the dock window kind in `Application`
+(app-bar registration, reserve/overlay/autohide rows, `ABN_*` handling, `WM_SETTINGCHANGE`, `WM_DISPLAYCHANGE`,
+`WM_DPICHANGED`, `WM_GETMINMAXINFO`, `WM_ACTIVATE`, `WM_WINDOWPOSCHANGED`, the one-shot dock timer, reveal and
+hide, holds evaluated once per loop turn), `Renderer::SetDockPresentation` (`DXGI_SCALING_NONE` at the full bar
+size, the grip frame, no preparation while hidden), the grip quads in `HostChrome`, the `dockHidden` scheduler row,
+`redxe.dock.show/hide/toggle`, `SettingsTests` `dock`, and `HostPluginTests` placement, state machine, and dock
+presentation (a tile frame and a grip frame at a client smaller than the back buffer).
+
+Live checks on this machine (3840×2160 at 150 % primary with a bottom taskbar, 2560×720 XENEON at 150 % below it
+with its own taskbar): `--dock bottom@primary` reserving shrank the primary work area from 2088 to 1818 rows (270 px =
+180 DIPs) and restored it on exit; `--dock-reserve off` left the work area alone and placed the bar at 1818–2088;
+`--dock left@xeneon` placed a 270×648 bar at (628, 2160) above the XENEON taskbar and moved that work area to x = 898;
+`--dock top@2 --dock-thickness 100` gave a 150 px bar; `--dock right@name:DISPLAY5 --dock-reserve off` hugged the
+right edge. Autohide (`--dock-mode autohide --dock-peek 4`): hidden to a 3840×4 strip at rows 2084–2088 within the
+first 2.5 s, revealed 152 ms after the real cursor rested on the strip, collapsed 800 ms after the cursor left, and
+revealed at once on a click; three consecutive runs identical; the strip pixels show the wash with the accent line on
+its desktop-facing side. `--screenshot` of the autohide bar produced the full 3840×270 PNG. Live reload: autohide →
+fixed 120 revealed a 180 px bar, edge top overlay moved it to y = 0, and `edge: none` logged `dock-restart-required`
+and left the bar in place. Validation matrix green: Debug and Release x64 rebuild + `test.ps1`, Release ARM64
+rebuild. Not exercised live: a full-screen application (`ABN_FULLSCREENAPP`), a monitor unplug, a DPI change of the
+dock monitor, and a crash while reserving; each is implemented as specified and remains a manual check for whoever
+touches those paths.
+
+Not built: the phase 3 slide animation (open question b) and a tray icon (open question c); both stay as they were
+described here. Open question (a) kept 180 DIPs as the default thickness.

@@ -106,6 +106,7 @@
     <ClInclude Include="..\..\Plugins\ProcessViewer\ProcessViewerTestContract.h" />
     <ClInclude Include="..\..\Plugins\StudioClock\StudioClockTestContract.h" />
     <ClInclude Include="..\..\RedXe\DashboardHost.h" />
+    <ClInclude Include="..\..\RedXe\DockPlacement.h" />
     <ClInclude Include="..\..\RedXe\FrameScheduler.h" />
     <ClInclude Include="..\..\RedXe\PageNavigation.h" />
     <ClInclude Include="..\..\RedXe\PluginManager.h" />

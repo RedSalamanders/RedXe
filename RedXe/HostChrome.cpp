@@ -23,6 +23,9 @@ constexpr float kCloseGlyphHoverColor[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 constexpr float kBandWashColor[4] = {10.0f / 255.0f, 14.0f / 255.0f, 26.0f / 255.0f,
                                      static_cast<float>(kPageEdgeRevealedAlpha) / 255.0f};
 constexpr float kChevronColor[4] = {228.0f / 255.0f, 236.0f / 255.0f, 248.0f / 255.0f, 1.0f};
+// Hidden-dock grip: the band wash over the peek strip and the chevron tint as its accent line.
+constexpr float kDockGripColor[4] = {10.0f / 255.0f, 14.0f / 255.0f, 26.0f / 255.0f, 1.0f};
+constexpr float kDockGripAccentColor[4] = {228.0f / 255.0f, 236.0f / 255.0f, 248.0f / 255.0f, 0.85f};
 constexpr float kGlyphEmDips = 22.0f;
 
 [[nodiscard]] wchar_t GlyphCharacter(HostChromeGlyph glyph, FluentIcons::IconFont font) noexcept
@@ -495,6 +498,18 @@ HRESULT HostChromeResources::Draw(ID3D11DeviceContext* context, ID3D11RenderTarg
                 const RECT cell = PageEdgeChevronCell(band.rect, _dpi);
                 const RECT glyphRect = GlyphRectCentred(cell, _glyphInk[static_cast<uint32_t>(glyph)], kCellPixels);
                 result = DrawQuad(context, glyphRect, kChevronColor, viewportWidth, viewportHeight, &glyph, quadsDrawn);
+            }
+        }
+        if (SUCCEEDED(result) && state.dockHidden && state.dockGrip.right > state.dockGrip.left &&
+            state.dockGrip.bottom > state.dockGrip.top)
+        {
+            result =
+                DrawQuad(context, state.dockGrip, kDockGripColor, viewportWidth, viewportHeight, nullptr, quadsDrawn);
+            if (SUCCEEDED(result) && state.dockGripAccent.right > state.dockGripAccent.left &&
+                state.dockGripAccent.bottom > state.dockGripAccent.top)
+            {
+                result = DrawQuad(context, state.dockGripAccent, kDockGripAccentColor, viewportWidth, viewportHeight,
+                                  nullptr, quadsDrawn);
             }
         }
     }

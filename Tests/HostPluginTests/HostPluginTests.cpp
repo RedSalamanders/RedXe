@@ -2,6 +2,7 @@
 #include "../../Plugins/Weather/WeatherTestContract.h"
 #include "DashboardHost.h"
 #include "DeskClockTestContract.h"
+#include "DockPlacement.h"
 #include "FrameScheduler.h"
 #include "HostActions.h"
 #include "LauncherTestContract.h"
@@ -20,6 +21,7 @@
 #include "WidgetRaise.h"
 #include "WindowCapture.h"
 
+#include <shellapi.h>
 #include <tlhelp32.h>
 
 #include <array>
@@ -338,6 +340,320 @@ void TestFrameScheduler(bool& success) noexcept
     state.overlayMotionActive = false;
     Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage,
           L"a settled overlay does not keep a static host presenting", success);
+
+    // A hidden autohide dock: one grip frame per invalidation, then a wait regardless of continuous widgets.
+    state.dockHidden = true;
+    state.continuousFramesRequired = true;
+    Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage,
+          L"a hidden dock with a clean frame waits even with continuous widgets", success);
+    state.frameInvalidated = true;
+    Check(SelectHostFrameAction(state) == HostFrameAction::Render, L"a hidden dock renders its one grip frame",
+          success);
+    state.rendererOccluded = true;
+    state.occlusionStatusChanged = false;
+    Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage,
+          L"an occluded hidden dock waits like any occluded host", success);
+    state.rendererOccluded = false;
+    state.windowVisible = false;
+    Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage, L"a hidden dock on a hidden window waits",
+          success);
+}
+
+// DockPlacement.h: placement rectangles for every edge, the shell re-trim, the peek strip, the grip, the clamp,
+// MINMAXINFO, and monitor selection with its fallback, all without a display topology.
+void TestDockPlacement(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dock placement, monitor selection, and MINMAXINFO\n";
+    DockEdge edge = DockEdge::None;
+    Check(DockEdgeParse("top", edge) && edge == DockEdge::Top && DockEdgeParse("bottom", edge) &&
+              edge == DockEdge::Bottom && DockEdgeParse("left", edge) && edge == DockEdge::Left &&
+              DockEdgeParse("right", edge) && edge == DockEdge::Right && DockEdgeParse("none", edge) &&
+              edge == DockEdge::None && !DockEdgeParse("middle", edge) && !DockEdgeParse("Top", edge),
+          L"edge names parse exactly and nothing else does", success);
+    DockMode mode = DockMode::Fixed;
+    Check(DockModeParse("autohide", mode) && mode == DockMode::Autohide && DockModeParse("fixed", mode) &&
+              mode == DockMode::Fixed && !DockModeParse("auto", mode),
+          L"mode names parse exactly", success);
+    Check(DockAppBarEdge(DockEdge::Left) == ABE_LEFT && DockAppBarEdge(DockEdge::Top) == ABE_TOP &&
+              DockAppBarEdge(DockEdge::Right) == ABE_RIGHT && DockAppBarEdge(DockEdge::Bottom) == ABE_BOTTOM,
+          L"edges map to the shell's ABE values", success);
+
+    Check(DockThicknessPixels(180, 96) == 180 && DockThicknessPixels(180, 144) == 270 &&
+              DockThicknessPixels(180, 192) == 360 && DockThicknessPixels(180, 0) == 180,
+          L"thickness scales from DIPs by the monitor DPI", success);
+    const RECT monitor{0, 0, 2560, 1440};
+    const RECT work{0, 0, 2560, 1392}; // 48-pixel taskbar at the bottom
+    bool clamped = false;
+    Check(DockClampThickness(180, monitor, DockEdge::Bottom, clamped) == 180 && !clamped,
+          L"a thickness under half the monitor is not clamped", success);
+    Check(DockClampThickness(1000, monitor, DockEdge::Bottom, clamped) == 720 && clamped,
+          L"a thickness over half the monitor clamps to half the cross dimension", success);
+    Check(DockClampThickness(1500, monitor, DockEdge::Left, clamped) == 1280 && clamped,
+          L"a side dock clamps against the monitor width", success);
+
+    // Reserving proposal and re-trim: the shell may move the edge side; the result is always `thickness` deep.
+    const RECT proposedBottom = DockTrimToThickness(monitor, DockEdge::Bottom, 180);
+    Check(proposedBottom.top == 1260 && proposedBottom.bottom == 1440 && proposedBottom.left == 0 &&
+              proposedBottom.right == 2560,
+          L"a bottom proposal is the monitor trimmed to the thickness", success);
+    const RECT shellAdjusted{0, 0, 2560, 1392};
+    const RECT retrimmed = DockTrimToThickness(shellAdjusted, DockEdge::Bottom, 180);
+    Check(retrimmed.top == 1212 && retrimmed.bottom == 1392, L"the re-trim keeps the thickness from the returned edge",
+          success);
+    Check(DockTrimToThickness(monitor, DockEdge::Top, 180).bottom == 180 &&
+              DockTrimToThickness(monitor, DockEdge::Left, 240).right == 240 &&
+              DockTrimToThickness(monitor, DockEdge::Right, 240).left == 2320,
+          L"top, left, and right proposals trim their own side", success);
+
+    // Overlay and autohide hug the work-area edge, so a bottom bar sits above the taskbar.
+    const RECT overlayBottom = DockOverlayRect(work, DockEdge::Bottom, 180);
+    Check(overlayBottom.bottom == 1392 && overlayBottom.top == 1212 && overlayBottom.right == 2560,
+          L"an overlay bottom bar hugs the work-area bottom", success);
+    const RECT leftWork{80, 0, 2560, 1392}; // a 80-pixel bar on the left plus the taskbar
+    const RECT overlayLeft = DockOverlayRect(leftWork, DockEdge::Left, 240);
+    Check(overlayLeft.left == 80 && overlayLeft.right == 320 && overlayLeft.bottom == 1392,
+          L"an overlay side bar spans the work area and clears another bar", success);
+    const RECT secondary{-1920, -200, 0, 880}; // off-origin secondary display at negative coordinates
+    const RECT secondaryTop = DockOverlayRect(secondary, DockEdge::Top, 100);
+    Check(secondaryTop.left == -1920 && secondaryTop.top == -200 && secondaryTop.bottom == -100,
+          L"placement works at negative coordinates", success);
+
+    // Hidden strip and grip for every edge.
+    const RECT fullBottom{0, 1212, 2560, 1392};
+    const RECT hiddenBottom = DockHiddenRect(fullBottom, DockEdge::Bottom, 4);
+    Check(hiddenBottom.top == 1388 && hiddenBottom.bottom == 1392 && hiddenBottom.left == 0 &&
+              hiddenBottom.right == 2560,
+          L"a hidden bottom bar keeps its outer four rows", success);
+    const RECT fullTop{0, 0, 2560, 180};
+    Check(DockHiddenRect(fullTop, DockEdge::Top, 4).bottom == 4, L"a hidden top bar keeps its top rows", success);
+    const RECT fullLeft{0, 0, 240, 1392};
+    Check(DockHiddenRect(fullLeft, DockEdge::Left, 6).right == 6, L"a hidden left bar keeps its left columns", success);
+    const RECT fullRight{2320, 0, 2560, 1392};
+    Check(DockHiddenRect(fullRight, DockEdge::Right, 6).left == 2554, L"a hidden right bar keeps its right columns",
+          success);
+    const RECT gripBottom = DockGripRect(2560, 180, DockEdge::Bottom, 4);
+    const RECT gripLeft = DockGripRect(240, 1392, DockEdge::Left, 6);
+    Check(gripBottom.top == 0 && gripBottom.bottom == 4 && gripBottom.right == 2560 && gripLeft.left == 0 &&
+              gripLeft.right == 6 && gripLeft.bottom == 1392,
+          L"the grip is the back buffer's first rows or columns for every edge", success);
+    const RECT emptyGrip = DockGripRect(2560, 180, DockEdge::None, 4);
+    Check(emptyGrip.right == emptyGrip.left, L"no edge means no grip", success);
+    const RECT accentTop = DockGripAccentRect(DockGripRect(2560, 180, DockEdge::Top, 4), DockEdge::Top, 1);
+    const RECT accentBottom = DockGripAccentRect(gripBottom, DockEdge::Bottom, 1);
+    const RECT accentLeft = DockGripAccentRect(gripLeft, DockEdge::Left, 2);
+    const RECT accentRight = DockGripAccentRect(DockGripRect(240, 1392, DockEdge::Right, 6), DockEdge::Right, 2);
+    Check(accentTop.top == 3 && accentTop.bottom == 4 && accentBottom.top == 0 && accentBottom.bottom == 1 &&
+              accentLeft.left == 4 && accentLeft.right == 6 && accentRight.left == 0 && accentRight.right == 2,
+          L"the accent line sits on the desktop-facing side of the strip", success);
+
+    // MINMAXINFO: the strip is the minimum for autohide, the full bar for fixed, the monitor the maximum.
+    MINMAXINFO autohideInfo{};
+    DockMinMaxInfo(monitor, DockEdge::Bottom, 4, true, fullBottom, autohideInfo);
+    Check(autohideInfo.ptMinTrackSize.x == 2560 && autohideInfo.ptMinTrackSize.y == 4 &&
+              autohideInfo.ptMaxTrackSize.x == 2560 && autohideInfo.ptMaxTrackSize.y == 1440,
+          L"an autohide dock's minimum is its peek strip and its maximum the monitor", success);
+    MINMAXINFO fixedInfo{};
+    DockMinMaxInfo(monitor, DockEdge::Left, 4, false, fullLeft, fixedInfo);
+    Check(fixedInfo.ptMinTrackSize.x == 240 && fixedInfo.ptMinTrackSize.y == 1392,
+          L"a fixed dock's minimum is its full rectangle", success);
+
+    // Monitor selection over candidates: primary, xeneon, index, name (friendly or device), and the fallback.
+    std::array<DockMonitorCandidate, 3> candidates{};
+    candidates[0].monitor = secondary;
+    candidates[0].friendlyName = L"DELL U2723QE";
+    candidates[0].deviceName = L"\\\\.\\DISPLAY2";
+    candidates[1].monitor = monitor;
+    candidates[1].primary = true;
+    candidates[1].friendlyName = L"LG ULTRAGEAR";
+    candidates[1].deviceName = L"\\\\.\\DISPLAY1";
+    candidates[2].monitor = RECT{2560, 0, 5120, 720};
+    candidates[2].xeneon = true;
+    candidates[2].friendlyName = L"XENEON EDGE";
+    candidates[2].deviceName = L"\\\\.\\DISPLAY3";
+    bool fellBack = true;
+    RedXeActions::MonitorSelector selector{};
+    Check(RedXeActions::ParseMonitorSelector("primary", false, selector) &&
+              SelectDockMonitor(selector, {}, candidates.data(), candidates.size(), fellBack) == 1 && !fellBack,
+          L"primary selects the primary display wherever it enumerates", success);
+    Check(RedXeActions::ParseMonitorSelector("xeneon", false, selector) &&
+              SelectDockMonitor(selector, {}, candidates.data(), candidates.size(), fellBack) == 2 && !fellBack,
+          L"xeneon selects the discovered XENEON", success);
+    Check(RedXeActions::ParseMonitorSelector("1", false, selector) &&
+              SelectDockMonitor(selector, {}, candidates.data(), candidates.size(), fellBack) == 0 && !fellBack &&
+              RedXeActions::ParseMonitorSelector("3", false, selector) &&
+              SelectDockMonitor(selector, {}, candidates.data(), candidates.size(), fellBack) == 2,
+          L"a number selects by 1-based enumeration order", success);
+    Check(RedXeActions::ParseMonitorSelector("name:dell", false, selector) &&
+              SelectDockMonitor(selector, L"dell", candidates.data(), candidates.size(), fellBack) == 0 && !fellBack,
+          L"name: matches the friendly name without case", success);
+    Check(RedXeActions::ParseMonitorSelector("name:DISPLAY3", false, selector) &&
+              SelectDockMonitor(selector, L"DISPLAY3", candidates.data(), candidates.size(), fellBack) == 2,
+          L"name: also matches the GDI device name", success);
+    Check(RedXeActions::ParseMonitorSelector("4", false, selector) &&
+              SelectDockMonitor(selector, {}, candidates.data(), candidates.size(), fellBack) == 1 && fellBack,
+          L"an absent display falls back to the primary and reports it", success);
+    Check(RedXeActions::ParseMonitorSelector("name:ACER", false, selector) &&
+              SelectDockMonitor(selector, L"ACER", candidates.data(), candidates.size(), fellBack) == 1 && fellBack,
+          L"an unmatched name falls back to the primary", success);
+    std::array<DockMonitorCandidate, 1> noXeneon{};
+    noXeneon[0].monitor = monitor;
+    noXeneon[0].primary = true;
+    Check(RedXeActions::ParseMonitorSelector("xeneon", false, selector) &&
+              SelectDockMonitor(selector, {}, noXeneon.data(), noXeneon.size(), fellBack) == 0 && fellBack,
+          L"xeneon without a XENEON falls back to the primary", success);
+    Check(SelectDockMonitor(selector, {}, nullptr, 0, fellBack) == SIZE_MAX, L"no display means no selection", success);
+    Check(!RedXeActions::ParseMonitorSelector("all", false, selector), L"the dock never accepts all", success);
+}
+
+// DockPlacement.h autohide state machine: every transition of the reveal/hide table, zero delays, holds, and the
+// action semantics, as a pure function of (state, event, holds).
+void TestDockAutohidePolicy(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dock autohide state machine\n";
+    using S = DockRevealState;
+    using E = DockRevealEvent;
+    const DockHolds none{};
+    DockHolds pointer{};
+    pointer.pointerInside = true;
+    DockHolds active{};
+    active.windowActive = true;
+    DockHolds raised{};
+    raised.widgetRaised = true;
+    DockHolds captured{};
+    captured.captureActive = true;
+    DockHolds dialog{};
+    dialog.dialogShown = true;
+    DockHolds pinned{};
+    pinned.pinned = true;
+
+    Check(NextDockRevealState(S::Hidden, E::PointerEnteredStrip, pointer, 150, 800) == S::RevealPending,
+          L"a mouse move over the strip starts the dwell", success);
+    Check(NextDockRevealState(S::Hidden, E::PointerEnteredStrip, pointer, 0, 800) == S::Revealed,
+          L"a zero reveal delay reveals on the first mouse move", success);
+    Check(NextDockRevealState(S::RevealPending, E::DwellElapsed, pointer, 150, 800) == S::Revealed,
+          L"the dwell elapsing reveals", success);
+    Check(NextDockRevealState(S::RevealPending, E::PointerLeft, none, 150, 800) == S::Hidden,
+          L"leaving during the dwell hides again", success);
+    Check(NextDockRevealState(S::Hidden, E::TouchOnStrip, none, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::RevealPending, E::TouchOnStrip, none, 150, 800) == S::Revealed,
+          L"a touch on the strip reveals at once", success);
+    Check(NextDockRevealState(S::Hidden, E::ActionShow, none, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Hidden, E::ActionToggle, none, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::RevealPending, E::ActionToggle, none, 150, 800) == S::Revealed,
+          L"show and toggle reveal a hidden or pending bar", success);
+    Check(NextDockRevealState(S::Revealed, E::HoldsChanged, none, 150, 800) == S::HidePending,
+          L"the last hold clearing arms the hide delay", success);
+    Check(NextDockRevealState(S::Revealed, E::HoldsChanged, none, 150, 0) == S::Hidden,
+          L"a zero hide delay hides at once", success);
+    Check(NextDockRevealState(S::Revealed, E::HoldsChanged, pointer, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::HoldsChanged, active, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::HoldsChanged, raised, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::HoldsChanged, captured, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::HoldsChanged, dialog, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::HoldsChanged, pinned, 150, 800) == S::Revealed,
+          L"pointer, activation, raise, capture, dialog, and pin each hold the bar", success);
+    Check(NextDockRevealState(S::HidePending, E::HoldsChanged, pointer, 150, 800) == S::Revealed,
+          L"a hold returning during the hide delay cancels it", success);
+    Check(NextDockRevealState(S::HidePending, E::HideElapsed, none, 150, 800) == S::Hidden,
+          L"the hide delay elapsing hides", success);
+    Check(NextDockRevealState(S::HidePending, E::ActionHide, none, 150, 800) == S::Hidden &&
+              NextDockRevealState(S::Revealed, E::ActionHide, pointer, 150, 800) == S::Hidden &&
+              NextDockRevealState(S::Revealed, E::ActionToggle, pointer, 150, 800) == S::Hidden,
+          L"hide and toggle collapse a revealed bar even with the pointer inside", success);
+    Check(NextDockRevealState(S::Revealed, E::ActionHide, raised, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::ActionHide, captured, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::ActionHide, dialog, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::ActionHide, pinned, 150, 800) == S::Revealed,
+          L"hide is inert while a raise, capture, dialog, or pin holds the bar", success);
+    Check(NextDockRevealState(S::Hidden, E::Pin, none, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::HidePending, E::Pin, none, 150, 800) == S::Revealed,
+          L"a pin reveals from any state", success);
+    Check(NextDockRevealState(S::Hidden, E::DwellElapsed, none, 150, 800) == S::Hidden &&
+              NextDockRevealState(S::Revealed, E::HideElapsed, none, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::PointerEnteredStrip, pointer, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Hidden, E::HoldsChanged, active, 150, 800) == S::Hidden,
+          L"stale timer and hold events are ignored in the wrong state", success);
+    DockHolds byAction{};
+    byAction.pinnedByAction = true;
+    Check(NextDockRevealState(S::Revealed, E::HoldsChanged, byAction, 150, 800) == S::Revealed && byAction.Any() &&
+              !byAction.RefusesHide(),
+          L"an action-revealed bar holds until another hold clears, and still accepts hide", success);
+    Check(DockStateShowsStrip(S::Hidden) && DockStateShowsStrip(S::RevealPending) &&
+              !DockStateShowsStrip(S::Revealed) && !DockStateShowsStrip(S::HidePending),
+          L"the window is the strip exactly in Hidden and RevealPending", success);
+}
+
+// A dock-kind swap chain (DXGI_SCALING_NONE at the full bar size) presents both a normal frame and the grip frame
+// while the window client is smaller than the back buffer, and the grip frame draws no widget.
+void TestDockPresentation(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dock swap chain and grip frame\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":5},"pages":[{"columns":[{"plugin":"builtin.matrix-rain"},{"plugin":"builtin.desk-clock"}]}]})json";
+    constexpr UINT barWidth = 1280;
+    constexpr UINT barHeight = 180;
+    AttachedHostWindow window;
+    HRESULT result = window.Initialize(barWidth, barHeight);
+    AppSettings settings{};
+    if (SUCCEEDED(result))
+    {
+        result = ParseAppSettingsJson(settingsJson, settings);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    DashboardHost dashboard;
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.Initialize(plugins, window.Get(), barWidth, barHeight, window.Dpi(), false);
+    }
+    Renderer renderer;
+    if (SUCCEEDED(result))
+    {
+        renderer.SetDockPresentation(true, barWidth, barHeight);
+        result = renderer.Initialize(window.Get(), true, dashboard);
+    }
+    Check(SUCCEEDED(result), L"a dock-kind renderer initializes on the hidden WARP host", success);
+    if (FAILED(result))
+    {
+        dashboard.Shutdown();
+        return;
+    }
+    Check(SUCCEEDED(dashboard.SetWidgetsVisible(true)), L"the dock test shows its page", success);
+    result = renderer.Render(0.0f, 0.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 2 && renderer.LastFrameChromeQuadCount() == 0,
+          L"a revealed dock presents its tiles like any other window", success);
+
+    // Collapse the window to a 4-pixel strip without touching the swap chain, then present the grip frame.
+    RECT bounds{};
+    Check(GetWindowRect(window.Get(), &bounds) && SetWindowPos(window.Get(), nullptr, 0, 0, static_cast<int>(barWidth),
+                                                               4, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE,
+          L"the dock test shrinks the window to its peek strip", success);
+    RECT client{};
+    Check(GetClientRect(window.Get(), &client) && client.bottom - client.top < static_cast<LONG>(barHeight),
+          L"the client is now smaller than the back buffer", success);
+    Check(SUCCEEDED(dashboard.SetWidgetsVisible(false)), L"the hidden dock hides its widgets", success);
+    HostChromeState grip{};
+    grip.dockHidden = true;
+    grip.dockGrip = DockGripRect(barWidth, barHeight, DockEdge::Bottom, 4);
+    grip.dockGripAccent = DockGripAccentRect(grip.dockGrip, DockEdge::Bottom, 1);
+    Check(renderer.SetHostChrome(grip), L"the grip state is one chrome change", success);
+    Check(renderer.PrepareWidgets() == S_FALSE, L"a hidden dock prepares no widget", success);
+    result = renderer.Render(0.1f, 1.0f / 60.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 0 && renderer.LastFrameChromeQuadCount() == 2 &&
+              HostChromeQuadCount(grip, barWidth, barHeight, false) == 2,
+          L"the grip frame draws the wash and accent and no widget, at a client smaller than the buffer", success);
+    Check(SetWindowPos(window.Get(), nullptr, 0, 0, static_cast<int>(barWidth), static_cast<int>(barHeight),
+                       SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE &&
+              SUCCEEDED(dashboard.SetWidgetsVisible(true)) && renderer.SetHostChrome(HostChromeState{}),
+          L"the dock test reveals again", success);
+    result = renderer.Render(0.2f, 1.0f / 60.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 2 && renderer.LastFrameChromeQuadCount() == 0,
+          L"a reveal presents the tiles again without ResizeBuffers", success);
+    renderer.Shutdown();
+    dashboard.Shutdown();
 }
 
 void TestPageSwipePolicy(bool& success) noexcept
@@ -4904,6 +5220,9 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestWidgetRaisePolicy(success);
     TestWidgetRaiseHost(success);
     TestHostChromeComposition(success);
+    TestDockPlacement(success);
+    TestDockAutohidePolicy(success);
+    TestDockPresentation(success);
     TestWidgetRaiseNative(success);
     TestReleaseHostIntegration(success);
     TestStudioClockScheduling(success);
