@@ -48,22 +48,46 @@ GlyphOutput VertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instanc
     const uint row = instanceId - activeColumn * rowCount;
     const uint screenColumn = (activeColumn * grid.z + grid.w) % grid.x;
     const uint streamHash = Hash(targetAndSeed.z ^ (screenColumn * 0x9E3779B9U));
-
+    const float time = geometryAndTime.z;
+    const float baseSpeed = geometryAndTime.w;
     const float baseTrailLength = float(stream.x);
-    const float trailLength = baseTrailLength * lerp(0.72f, 1.28f, UnitFloat(Hash(streamHash ^ 0xB5297A4DU)));
-    const float cycleLength = float(rowCount) + trailLength + float(stream.z);
-    const float speed = geometryAndTime.w * lerp(0.68f, 1.42f, UnitFloat(Hash(streamHash ^ 0x68E31DA4U)));
-    const float phase = UnitFloat(Hash(streamHash ^ 0x1B56C4E9U)) * cycleLength;
-    const float headRow = fmod(geometryAndTime.z * speed + phase, cycleLength) - trailLength;
-    const float distanceBehindHead = headRow - float(row);
-    const float visible = step(0.0f, distanceBehindHead) * step(distanceBehindHead, trailLength);
-    const float normalizedTrail = saturate(1.0f - distanceBehindHead / max(trailLength, 1.0f));
-    const float trailIntensity = visible * normalizedTrail * normalizedTrail;
-    const float headIntensity = visible * smoothstep(1.35f, 0.0f, distanceBehindHead);
+    const float padding = float(stream.z);
 
-    const uint mutationTick = stream.y == 0U ? 0U : uint(floor(geometryAndTime.z * float(stream.y)));
-    const uint glyphIndex = Hash(targetAndSeed.z ^ (screenColumn * 0x85EBCA6BU) ^ (row * 0xC2B2AE35U) ^ mutationTick) &
-                            63U;
+    // Two streams per column, the way the film's rain overlaps: the main stream on every active column and a
+    // shorter, sparser second one on roughly half of them, each with its own length, speed, and phase. The glyphs
+    // stay put in the grid; a stream only lights them as its head passes.
+    const float trailA = baseTrailLength * lerp(0.62f, 1.3f, UnitFloat(Hash(streamHash ^ 0xB5297A4DU)));
+    const float cycleA = float(rowCount) + trailA + padding;
+    const float speedA = baseSpeed * lerp(0.55f, 1.5f, UnitFloat(Hash(streamHash ^ 0x68E31DA4U)));
+    const float headA = fmod(time * speedA + UnitFloat(Hash(streamHash ^ 0x1B56C4E9U)) * cycleA, cycleA) - trailA;
+    const uint secondHash = Hash(streamHash ^ 0x51ED270BU);
+    const float hasSecond = (secondHash % 100U) < 45U ? 1.0f : 0.0f;
+    const float trailB = baseTrailLength * lerp(0.45f, 0.9f, UnitFloat(Hash(secondHash ^ 0x2545F491U)));
+    const float cycleB = float(rowCount) + trailB + padding * 2.2f;
+    const float speedB = baseSpeed * lerp(0.5f, 1.6f, UnitFloat(Hash(secondHash ^ 0x7C3A9E11U)));
+    const float headB = fmod(time * speedB + UnitFloat(Hash(secondHash ^ 0x3D4A8B2FU)) * cycleB, cycleB) - trailB;
+
+    const float behindA = headA - float(row);
+    const float visibleA = step(0.0f, behindA) * step(behindA, trailA);
+    const float behindB = headB - float(row);
+    const float visibleB = hasSecond * step(0.0f, behindB) * step(behindB, trailB);
+    // Bright just behind the head, a long even middle, a fade at the tail.
+    const float trailShapeA = visibleA * pow(saturate(1.0f - behindA / max(trailA, 1.0f)), 1.35f);
+    const float trailShapeB = visibleB * pow(saturate(1.0f - behindB / max(trailB, 1.0f)), 1.35f);
+    const float headIntensity = max(visibleA * smoothstep(1.5f, 0.0f, behindA), visibleB * smoothstep(1.5f, 0.0f, behindB));
+
+    // Each cell has its own brightness, a slow flicker, and a mutation schedule: it re-rolls its glyph every
+    // 16 / mutationPerSecond seconds at its own phase and flashes as it does, so the field sparkles unevenly
+    // instead of every glyph changing in step.
+    const uint cellHash = Hash(targetAndSeed.z ^ (screenColumn * 0x85EBCA6BU) ^ (row * 0xC2B2AE35U));
+    const float shade = lerp(0.55f, 1.0f, UnitFloat(cellHash));
+    const float flicker = 1.0f + 0.16f * (UnitFloat(Hash(cellHash ^ uint(floor(time * 9.0f)))) - 0.5f);
+    const float mutationClock = stream.y == 0U ? 0.0f : time * float(stream.y) * (1.0f / 16.0f) + UnitFloat(cellHash);
+    const uint mutationTick = uint(floor(mutationClock));
+    const float flash = stream.y == 0U ? 0.0f : pow(1.0f - frac(mutationClock), 8.0f) * 0.9f;
+    const float trailIntensity = saturate(max(trailShapeA, trailShapeB) * shade * flicker * (1.0f + flash));
+
+    const uint glyphIndex = Hash(cellHash ^ (mutationTick * 0x27D4EB2FU)) & 63U;
     const uint glyphX = glyphIndex & 7U;
     const uint glyphY = glyphIndex >> 3U;
 

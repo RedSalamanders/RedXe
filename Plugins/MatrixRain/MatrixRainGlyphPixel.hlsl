@@ -30,7 +30,8 @@ float4 PixelMain(GlyphInput input) : SV_Target
     const float coverage = smoothstep(0.5f - edgeWidth, 0.5f + edgeWidth, distance);
     const float halo = saturate(smoothstep(0.18f, 0.49f, distance) - coverage) * effect.x;
     const float intensity = saturate(input.trailIntensity + input.headIntensity * 0.55f);
-    const float alpha = saturate(coverage * intensity + halo * intensity * 0.42f);
+    // The head carries the phosphor bloom; lit trail glyphs keep a faint one.
+    const float alpha = saturate(coverage * intensity + halo * (intensity * 0.42f + input.headIntensity * 0.5f));
     const float3 color = lerp(trailColor.rgb, headColor.rgb, saturate(input.headIntensity));
     return float4(color, alpha);
 }
