@@ -74,6 +74,9 @@
     <ClInclude Include="DashboardHost.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="CommandLine.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="DockOptions.h">
       <Filter>Header Files</Filter>
     </ClInclude>

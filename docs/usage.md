@@ -76,6 +76,21 @@ Good to know:
 - `--screenshot` works for a dock too; an auto-hiding bar is held open for the capture.
 - If RedXe crashes while it reserves space, Windows may keep that space reserved until RedXe runs again or you sign out.
 
+## Command line
+
+`RedXe.exe --help` (also `-h`, `/?`, `-?`) prints every switch, grouped, with the exit codes, to the console you ran it from (or to a message box when there is none). Every switch overrides the settings file for that run only; an unknown switch is an error (exit code 2) rather than silently ignored.
+
+| Switch | Meaning |
+| --- | --- |
+| `--settings <path>` | Use one portable settings file instead of the one under `%LocalAppData%\RedXe\Settings`; its `Logs` folder sits beside it. |
+| `--warp` | Render on the Microsoft Basic Render Driver (WARP) instead of the GPU. |
+| `--dock <edge>[@<monitor>]` | Run as a bar on that screen edge; see [Dock](#dock) for `--dock-mode`, `--dock-thickness`, `--dock-reserve`, and `--dock-peek`. |
+| `--screenshot <png>` | Start normally, wait, save the window as PNG, and exit; see [Screenshots](#screenshots) for `--page`, `--widget`, and `--after`. |
+| `--self-test` | Hidden startup validation with the deployed template; exits 0 when the host works. |
+| `--crash-test`, `--crash-test-stack-overflow`, `--crash-test-directory=<dir>` | Raise a test crash and choose where its dump goes (used by `test.ps1`). |
+
+Exit codes: 0 ok, 1 settings, 2 command line or window, 3 plugins, 5 graphics, 7 settings watcher, 8 screenshot capture.
+
 ## Screenshots
 
 `RedXe.exe --screenshot <file.png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>]` starts the dashboard as usual, jumps to that page (default: the start page), waits for the delay (default 3000 ms, so widgets and devices have settled), saves its own window — or only the widget at that 0-based position on the page — as a PNG through Windows.Graphics.Capture, and exits. It never takes the focus or moves the mouse. Combine it with `--settings` for a repeatable scene; the exit code is 0 when the file was written and 8 when the capture failed. The pictures under `docs/screenshots/` are produced this way.

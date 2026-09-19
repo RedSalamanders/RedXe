@@ -73,6 +73,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\RedXe\Settings.h" />
+    <ClInclude Include="..\..\RedXe\CommandLine.h" />
     <ClInclude Include="..\..\RedXe\DockOptions.h" />
     <ClInclude Include="..\..\RedXe\DockPlacement.h" />
     <ClInclude Include="..\..\RedXe\BundledPlugins.h" />

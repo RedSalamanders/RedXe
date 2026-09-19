@@ -1,4 +1,5 @@
 #include "Application.h"
+#include "CommandLine.h"
 #include "CrashHandler.h"
 #include "DockOptions.h"
 #include "PluginHost.h"
@@ -7,6 +8,7 @@
 #include <memory>
 #include <new>
 #include <shellapi.h>
+#include <string>
 #include <string_view>
 #include <windows.h>
 
@@ -41,7 +43,7 @@ bool HasArgument(wchar_t* const* arguments, int argumentCount, std::wstring_view
     selectedPath = {};
     for (int index = 1; index < argumentCount; ++index)
     {
-        if (std::wstring_view{arguments[index]} != L"--settings")
+        if (std::wstring_view{arguments[index]} != RedXeSwitchName(RedXeSwitch::Settings))
         {
             continue;
         }
@@ -83,7 +85,7 @@ enum class CrashDirectoryOverrideStatus
 
 CrashDirectoryOverrideStatus ConfigureCrashTestDirectoryOverride(wchar_t* const* arguments, int argumentCount) noexcept
 {
-    constexpr std::wstring_view prefix = L"--crash-test-directory=";
+    const std::wstring prefix = std::wstring{RedXeSwitchName(RedXeSwitch::CrashTestDirectory)} + L"=";
     for (int index = 1; index < argumentCount; ++index)
     {
         const std::wstring_view argument{arguments[index]};
@@ -103,6 +105,55 @@ CrashDirectoryOverrideStatus ConfigureCrashTestDirectoryOverride(wchar_t* const*
     return CrashDirectoryOverrideStatus::NotPresent;
 }
 
+// Command-line text (the `--help` catalog or an argument error) goes to the console this process was started from
+// (a GUI process has none of its own, so it attaches to the parent's), to a redirected stdout as UTF-8, or, without
+// either, to a message box unless `quiet` (a noninteractive `--self-test` line) forbids one.
+void EmitCommandLineText(const std::wstring& text, bool error, bool quiet) noexcept
+{
+    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    bool attached = false;
+    if (!output || output == INVALID_HANDLE_VALUE)
+    {
+        attached = AttachConsole(ATTACH_PARENT_PROCESS) != FALSE;
+        output = attached ? GetStdHandle(STD_OUTPUT_HANDLE) : nullptr;
+    }
+    if (output && output != INVALID_HANDLE_VALUE)
+    {
+        DWORD mode = 0;
+        if (GetConsoleMode(output, &mode))
+        {
+            // The parent's prompt is already on screen: start on a fresh line.
+            const std::wstring console = L"\n" + text;
+            DWORD written = 0;
+            (void)WriteConsoleW(output, console.c_str(), static_cast<DWORD>(console.size()), &written, nullptr);
+        }
+        else
+        {
+            const int bytes = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), nullptr, 0,
+                                                  nullptr, nullptr);
+            std::string utf8(static_cast<size_t>(bytes > 0 ? bytes : 0), '\0');
+            if (bytes > 0)
+            {
+                (void)WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), utf8.data(), bytes,
+                                          nullptr, nullptr);
+                DWORD written = 0;
+                (void)WriteFile(output, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr);
+            }
+        }
+        if (attached)
+        {
+            FreeConsole();
+        }
+        return;
+    }
+    if (quiet)
+    {
+        OutputDebugStringW(text.c_str());
+        return;
+    }
+    MessageBoxW(nullptr, text.c_str(), L"RedXe command line", MB_OK | (error ? MB_ICONERROR : MB_ICONINFORMATION));
+}
+
 int RunApplication(HINSTANCE instance, int showCommand) noexcept
 {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -114,10 +165,37 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         return 1;
     }
 
-    const bool selfTest = HasArgument(arguments.get(), argumentCount, L"--self-test");
-    const bool forceWarp = HasArgument(arguments.get(), argumentCount, L"--warp");
-    const bool crashTest = HasArgument(arguments.get(), argumentCount, L"--crash-test");
-    const bool stackOverflowCrashTest = HasArgument(arguments.get(), argumentCount, L"--crash-test-stack-overflow");
+    // Help wins over everything else on the line, and every other token must be a catalogued switch or its value
+    // so a typo never runs the dashboard with a silently ignored option.
+    const bool selfTest = HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::SelfTest));
+    try
+    {
+        for (int index = 1; index < argumentCount; ++index)
+        {
+            if (RedXeIsHelpArgument(arguments.get()[index]))
+            {
+                EmitCommandLineText(RedXeFormatCommandLineHelp(), false, selfTest);
+                return 0;
+            }
+        }
+        if (const wchar_t* unknown = RedXeFindUnknownArgument(arguments.get(), argumentCount))
+        {
+            std::wstring message = L"Unknown argument \"";
+            message += unknown;
+            message += L"\". Run RedXe.exe --help for the command line.\n";
+            EmitCommandLineText(message, true, selfTest);
+            return 2;
+        }
+    }
+    catch (...)
+    {
+        return 2;
+    }
+
+    const bool forceWarp = HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Warp));
+    const bool crashTest = HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::CrashTest));
+    const bool stackOverflowCrashTest =
+        HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::CrashTestStackOverflow));
     std::wstring_view settingsPath;
     if (!GetSettingsArgument(arguments.get(), argumentCount, settingsPath))
     {
@@ -132,10 +210,10 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
     std::wstring_view screenshotPage;
     std::wstring_view screenshotWidget;
     std::wstring_view screenshotDelay;
-    if (!GetValueArgument(arguments.get(), argumentCount, L"--screenshot", screenshotPath) ||
-        !GetValueArgument(arguments.get(), argumentCount, L"--page", screenshotPage) ||
-        !GetValueArgument(arguments.get(), argumentCount, L"--widget", screenshotWidget) ||
-        !GetValueArgument(arguments.get(), argumentCount, L"--after", screenshotDelay))
+    if (!GetValueArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Screenshot), screenshotPath) ||
+        !GetValueArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Page), screenshotPage) ||
+        !GetValueArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Widget), screenshotWidget) ||
+        !GetValueArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::After), screenshotDelay))
     {
         MessageBoxW(nullptr,
                     L"Use --screenshot <file.png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>].",
@@ -180,13 +258,14 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             const wchar_t* usage;
         };
         constexpr DockSwitch dockSwitches[]{
-            {L"--dock", ParseDockEdgeArgument,
+            {RedXeSwitchName(RedXeSwitch::Dock), ParseDockEdgeArgument,
              L"--dock takes none, top, bottom, left, or right, optionally followed by @primary, @xeneon, @<n>, or "
              L"@name:<substring>."},
-            {L"--dock-mode", ParseDockModeArgument, L"--dock-mode takes fixed or autohide."},
-            {L"--dock-thickness", ParseDockThicknessArgument, L"--dock-thickness takes 32 through 1080 DIPs."},
-            {L"--dock-reserve", ParseDockReserveArgument, L"--dock-reserve takes on or off."},
-            {L"--dock-peek", ParseDockPeekArgument, L"--dock-peek takes 1 through 64 pixels."},
+            {RedXeSwitchName(RedXeSwitch::DockMode), ParseDockModeArgument, L"--dock-mode takes fixed or autohide."},
+            {RedXeSwitchName(RedXeSwitch::DockThickness), ParseDockThicknessArgument,
+             L"--dock-thickness takes 32 through 1080 DIPs."},
+            {RedXeSwitchName(RedXeSwitch::DockReserve), ParseDockReserveArgument, L"--dock-reserve takes on or off."},
+            {RedXeSwitchName(RedXeSwitch::DockPeek), ParseDockPeekArgument, L"--dock-peek takes 1 through 64 pixels."},
         };
         for (const DockSwitch& dockSwitch : dockSwitches)
         {

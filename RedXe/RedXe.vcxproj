@@ -119,6 +119,7 @@
     <ClInclude Include="CrashHandler.h" />
     <ClInclude Include="PluginHost.h" />
     <ClInclude Include="DashboardHost.h" />
+    <ClInclude Include="CommandLine.h" />
     <ClInclude Include="DockOptions.h" />
     <ClInclude Include="DockPlacement.h" />
     <ClInclude Include="FrameScheduler.h" />

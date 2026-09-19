@@ -1,5 +1,6 @@
 #include "../../Plugins/Launcher/LauncherPaging.h"
 #include "../../RedXe/BundledPlugins.h"
+#include "../../RedXe/CommandLine.h"
 #include "../../RedXe/DockOptions.h"
 #include "../../RedXe/Settings.h"
 #include "../../RedXe/SettingsWatcher.h"
@@ -9,6 +10,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <new>
 #include <string>
@@ -1179,6 +1181,99 @@ constexpr std::string_view kRepresentative = R"json(
     return S_OK;
 }
 
+// The command-line catalog (RedXe/CommandLine.h): every switch is unique, well formed, and printed by --help; the
+// help aliases are recognized; the argument scanner accepts a full valid line and names the first stray token.
+[[nodiscard]] HRESULT ValidateCommandLineCatalog() noexcept
+{
+    try
+    {
+        const std::wstring help = RedXeFormatCommandLineHelp();
+        for (size_t index = 0; index < kRedXeCommandLineSwitches.size(); ++index)
+        {
+            const RedXeCommandLineSwitch& entry = kRedXeCommandLineSwitches[index];
+            const std::wstring_view name{entry.name};
+            if (static_cast<size_t>(entry.id) != index || !name.starts_with(L"--") || name.size() < 3 ||
+                !entry.summary || entry.summary[0] == L'\0' || !entry.group ||
+                (entry.valueKind != RedXeSwitchValue::None) != (entry.value != nullptr))
+            {
+                std::wprintf(L"Command-line switch %zu is malformed.\n", index);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            for (size_t other = 0; other < index; ++other)
+            {
+                if (name == kRedXeCommandLineSwitches[other].name)
+                {
+                    std::wprintf(L"Command-line switch %s is declared twice.\n", entry.name);
+                    return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                }
+            }
+            bool groupKnown = false;
+            for (const wchar_t* group : kRedXeCommandLineGroups)
+            {
+                groupKnown = groupKnown || std::wstring_view{group} == entry.group;
+            }
+            const std::wstring lead = std::wstring(L"  ") + entry.name;
+            // The summary is word-wrapped under the switch, so its first words are what stays contiguous.
+            const std::wstring_view summaryStart = std::wstring_view{entry.summary}.substr(0, 24);
+            if (!groupKnown || help.find(lead) == std::wstring::npos || help.find(summaryStart) == std::wstring::npos)
+            {
+                std::wprintf(L"--help does not print %s with its summary under a known group.\n", entry.name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+        if (help.find(L"Usage: RedXe.exe") == std::wstring::npos || help.find(L"Exit codes:") == std::wstring::npos ||
+            help.find(L"-h, /?, -?") == std::wstring::npos)
+        {
+            std::wprintf(L"--help lacks the usage line, the exit codes, or the help aliases.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        for (const wchar_t* alias : kRedXeHelpArguments)
+        {
+            if (!RedXeIsHelpArgument(alias) || RedXeFindSwitch(alias) != &RedXeSwitchInfo(RedXeSwitch::Help))
+            {
+                std::wprintf(L"Help alias %s is not recognized.\n", alias);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+        if (RedXeIsHelpArgument(L"--HELP") || RedXeIsHelpArgument(L"help") || RedXeFindSwitch(L"--settings=x") ||
+            RedXeFindSwitch(L"--crash-test-directory") || RedXeFindSwitch(L"--crash-test-directory=") ||
+            !RedXeFindSwitch(L"--crash-test-directory=C:\\dumps") || RedXeFindSwitch(L"--dock-peek=4"))
+        {
+            std::wprintf(L"Switch matching is not exact.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        wchar_t exe[] = L"RedXe.exe";
+        wchar_t settings[] = L"--settings";
+        wchar_t path[] = L"C:\\Dash\\bar.settings.json";
+        wchar_t dock[] = L"--dock";
+        wchar_t edge[] = L"bottom@primary";
+        wchar_t mode[] = L"--dock-mode";
+        wchar_t autohide[] = L"autohide";
+        wchar_t screenshot[] = L"--screenshot";
+        wchar_t png[] = L"--looks-like-a-switch.png";
+        wchar_t warp[] = L"--warp";
+        wchar_t crash[] = L"--crash-test-directory=C:\\dumps";
+        wchar_t stray[] = L"--dock-peek=4";
+        wchar_t* valid[]{exe, settings, path, dock, edge, mode, autohide, screenshot, png, warp, crash};
+        wchar_t* invalid[]{exe, settings, path, stray, warp};
+        wchar_t* dangling[]{exe, warp, settings};
+        if (RedXeFindUnknownArgument(valid, static_cast<int>(std::size(valid))) != nullptr ||
+            RedXeFindUnknownArgument(invalid, static_cast<int>(std::size(invalid))) != stray ||
+            RedXeFindUnknownArgument(dangling, static_cast<int>(std::size(dangling))) != nullptr ||
+            RedXeFindUnknownArgument(valid, 1) != nullptr)
+        {
+            std::wprintf(L"The unknown-argument scanner misjudged a command line.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
 [[nodiscard]] HRESULT ValidateAvControlSettings() noexcept
 {
     try
@@ -1881,6 +1976,7 @@ int wmain()
     const Test tests[]{{L"templates/schema", ValidateTemplatesAndSchema},
                        {L"parser", ValidateParser},
                        {L"dock", ValidateDockSettings},
+                       {L"command line", ValidateCommandLineCatalog},
                        {L"AV profile configuration", ValidateAvControlSettings},
                        {L"low stack", ValidateLowStack},
                        {L"watcher", ValidateWatcher},

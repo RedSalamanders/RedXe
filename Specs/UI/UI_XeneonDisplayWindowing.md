@@ -55,6 +55,13 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 | Self-test | Skip display discovery and prompts, create the titled window hidden, validate its DPI-adjusted client dimensions, render one frame, and exit. |
 | Screenshot (`--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]`) | Run exactly as the configuration above prescribes (same discovery, placement, services, and frame loop), jump to the named page through the host `PageGoTo` action once the renderer is live and no settle runs, wait the delay (default 3000 ms, 1–120000) with the frame loop idle-waiting as usual, capture the main window through `Common/WindowCapture.cpp` (Windows.Graphics.Capture of an owned, visible window; a widget ordinal crops to that tile's `PixelBoundsAt` in client space, mapped through the DWM extended frame bounds), then close. Exit 0 with the PNG written, 8 when the capture failed (no modal prompt). It MUST NOT activate, move, or resize the window, move the cursor, or send input. |
 | Dock (`dock.edge` other than `none`, or `--dock <edge>[@<monitor>]`) | Debug and Release alike: create the dock window kind below on the selected monitor instead of the row that would otherwise apply, and skip the missing-display prompt. `--self-test` ignores the dock. |
+| Help (`--help`, `-h`, `/?`, `-?`) | Print the command-line catalog and exit 0 before any other switch is read: to the console the process was started from (a GUI process attaches to its parent's), to a redirected stdout as UTF-8, or, without either, to a message box. Every other token on the line MUST be a catalogued switch or the value of one; the first unknown token is a command-line error (exit 2, `Unknown argument "<token>". Run RedXe.exe --help for the command line.`) shown the same way, never as a message box when `--self-test` is on the line. |
+
+The command line is declared once in `RedXe/CommandLine.h`: the catalog `--help` prints and the names `Main.cpp`
+parses through, so a switch cannot exist without an entry. Adding, renaming, or removing a switch changes that
+catalog, the "Command line" section of `docs/usage.md`, and the owning row of this table in the same change;
+`SettingsTests` pins the catalog (unique well-formed names, every entry printed, the help aliases, the unknown-token
+scanner) and `test.ps1` runs `--help` through a redirected stdout and an unknown switch under `--self-test`.
 
 Debug and Release display discovery MUST inspect active display paths through
 `QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS)`. A target friendly name containing `XENEON` or `CORSAIR`, compared
@@ -274,7 +281,8 @@ a 3840×2160 150 % primary plus a 2560×720 150 % XENEON with bottom taskbars.
 
 ## Implementation and validation anchors
 
-- Process awareness and command-line modes: `RedXe/Main.cpp`, `RedXe/app.manifest`
+- Process awareness and command-line modes: `RedXe/Main.cpp`, `RedXe/app.manifest`; the switch catalog behind
+  `--help`: `RedXe/CommandLine.h`
 - Display discovery, window creation, and DPI transitions: `RedXe/Application.cpp`, `RedXe/Application.h`
 - Dock placement, monitor selection, MINMAXINFO, and the autohide state machine: `RedXe/DockPlacement.h`; the
   `--dock*` grammar and merge: `RedXe/DockOptions.h`; dock-kind presentation: `Renderer::SetDockPresentation`

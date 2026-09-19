@@ -187,6 +187,29 @@ if ($process.ExitCode -ne 0) {
     throw "Smoke test failed with exit code $($process.ExitCode)."
 }
 
+# `--help` writes the RedXe/CommandLine.h catalog to a redirected stdout and exits 0; every switch the catalog
+# declares must appear, so a switch added without a catalog entry fails here as well as in SettingsTests.
+Write-Host 'Running command-line help check...' -ForegroundColor Cyan
+$helpLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.help.log"
+$helpProcess = Start-Process -WindowStyle Hidden -FilePath $executable -ArgumentList @('--help') -Wait -PassThru `
+    -RedirectStandardOutput $helpLog
+if ($helpProcess.ExitCode -ne 0) {
+    throw "RedXe.exe --help exited with code $($helpProcess.ExitCode)."
+}
+$helpText = Get-Content -LiteralPath $helpLog -Raw -Encoding UTF8
+foreach ($switch in @('--help', '--settings', '--warp', '--dock', '--dock-mode', '--dock-thickness', '--dock-reserve',
+        '--dock-peek', '--screenshot', '--page', '--widget', '--after', '--self-test', '--crash-test',
+        '--crash-test-stack-overflow', '--crash-test-directory', 'Exit codes:')) {
+    if ($helpText -notmatch [regex]::Escape($switch)) {
+        throw "RedXe.exe --help does not mention $switch."
+    }
+}
+$unknownProcess = Start-Process -WindowStyle Hidden -FilePath $executable -ArgumentList @('--self-test', '--warp', '--no-such-switch') `
+    -Wait -PassThru
+if ($unknownProcess.ExitCode -ne 2) {
+    throw "An unknown switch exited with code $($unknownProcess.ExitCode) instead of 2."
+}
+
 function Invoke-RedXeCrashTest {
     param(
         [Parameter(Mandatory)]
