@@ -30,6 +30,9 @@ concurrency:
 jobs:
   version:
     runs-on: windows-latest
+    permissions:
+      contents: read
+      actions: read   # list the validation runs of the released commit
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
