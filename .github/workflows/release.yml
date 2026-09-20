@@ -49,6 +49,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
+          # The commit count is a version only along the protected main branch; a release from any other ref could
+          # take a number that a later main commit needs, or publish a commit that never reaches main.
+          if ($env:GITHUB_REF -ne 'refs/heads/main') {
+            throw "Releases are cut from main only; this run was dispatched on '$env:GITHUB_REF'."
+          }
           Import-Module (Join-Path $env:GITHUB_WORKSPACE 'Build\Versioning.psm1') -Force
           $buildNumber = Get-RedXeDefaultBuildNumber -RepoRoot $env:GITHUB_WORKSPACE
           if ($buildNumber -le 0) { throw 'The commit count could not be determined; the release needs the full git history.' }

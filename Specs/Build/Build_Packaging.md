@@ -28,8 +28,8 @@ selection and the running-target preflight remain in [`Build_Process.md`](Build_
   `major,minor,build,0`, `ProductName` `RedXe`, `CompanyName` `RedSalamanders`. `test.ps1` MUST verify that
   `RedXe.exe` and `RedXeLauncher.exe` report the file version expected for its `-BuildNumber`.
 - The package version, GitHub release tag, and winget `PackageVersion` are the same `major.minor.build`
-  (`1.0.183`, tag `v1.0.183`). A winget manifest requires a positive build number, which only a checkout without git
-  history fails to provide.
+  (`1.0.183`, tag `v1.0.183`). A winget manifest requires a positive build number, which an incomplete checkout (no
+  history, a shallow clone, or a directory that is not the checkout root) does not provide.
 
 ## Command-alias launcher (`RedXeLauncher.exe`)
 
@@ -134,7 +134,8 @@ behind.
 
 ## Release workflow (`.github/workflows/release.yml`)
 
-`workflow_dispatch` only, so every release is deliberate.
+`workflow_dispatch` only, so every release is deliberate, and only from `main`: the `version` job rejects any other
+ref before resolving a version, because the commit count is monotonic only along the protected default branch.
 
 1. `version` checks out the full history and resolves `major.minor.<commit count>` from `Common/Version.h` and
    `git rev-list --count HEAD`. It fails when the tag `v<version>` already exists: a commit is released at most
