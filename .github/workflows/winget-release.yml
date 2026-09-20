@@ -193,7 +193,25 @@ jobs:
             throw 'The WINGET_TOKEN secret is not configured. Add a classic GitHub personal access token with the public_repo scope (winget-create forks microsoft/winget-pkgs and opens the pull request as that account).'
           }
           $headers = @{ Accept = 'application/vnd.github+json'; Authorization = "Bearer $env:WINGET_CREATE_GITHUB_TOKEN"; 'X-GitHub-Api-Version' = '2022-11-28' }
-          $owner = (Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/user').login
+          try {
+            $tokenUser = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/user' -ResponseHeadersVariable tokenResponseHeaders
+          } catch {
+            $status = $null
+            if ($_.Exception.PSObject.Properties['Response'] -and $_.Exception.Response) { $status = [int] $_.Exception.Response.StatusCode }
+            if ($status -eq 401) {
+              throw "GitHub rejects the WINGET_TOKEN secret (401 Bad credentials): the stored value is not a valid token. Set it again with a classic personal access token carrying the public_repo scope: gh secret set WINGET_TOKEN -R $env:GITHUB_REPOSITORY"
+            }
+            throw
+          }
+          $owner = [string] $tokenUser.login
+          # Scope names are not secret; winget-create needs a classic token with public_repo (fine-grained tokens
+          # report no classic scopes and are not supported by winget-create 1.12.8.0).
+          $scopeHeader = $tokenResponseHeaders.Keys | Where-Object { $_ -ieq 'X-OAuth-Scopes' } | Select-Object -First 1
+          $scopes = if ($scopeHeader) { @(([string](@($tokenResponseHeaders[$scopeHeader]) -join ',')) -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) } else { @() }
+          Write-Host "Token owner: $owner; classic scopes: $(if ($scopes.Count) { $scopes -join ', ' } else { '(none reported)' })"
+          if ($scopes -notcontains 'public_repo' -and $scopes -notcontains 'repo') {
+            throw "WINGET_TOKEN belongs to $owner but does not carry the classic public_repo scope that winget-create needs to fork microsoft/winget-pkgs and open the pull request (a fine-grained token is not supported)."
+          }
           Write-Host "Submitting as $owner from fork $owner/winget-pkgs"
 
           # Already published (a rerun after a merged pull request) is success, not a second submission.
