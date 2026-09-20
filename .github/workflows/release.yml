@@ -59,12 +59,20 @@ jobs:
           }
           # The six-configuration validation that ran when this commit reached main is the release gate: the
           # release job itself builds only Release x64/ARM64, so Debug and ASan coverage comes from that run.
-          $validation = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$env:GITHUB_SHA&event=push&per_page=10" --jq '[.workflow_runs[] | {id, status, conclusion}]' | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0) { throw 'Could not query the validation runs for this commit.' }
-          $green = @($validation | Where-Object { $_.status -eq 'completed' -and $_.conclusion -eq 'success' })
-          if ($green.Count -eq 0) {
-            $seen = if (@($validation).Count) { (@($validation) | ForEach-Object { "run $($_.id): $($_.status)/$($_.conclusion)" }) -join '; ' } else { 'no run' }
-            throw "Commit $env:GITHUB_SHA has no successful 'RedXe validation' push run ($seen). Wait for the six-configuration matrix on main to pass, or fix it, before releasing."
+          # A release dispatched right after a merge waits for that run (up to 45 minutes) instead of failing.
+          $deadline = [DateTime]::UtcNow.AddMinutes(45)
+          for (;;) {
+            $validation = @(gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$env:GITHUB_SHA&event=push&per_page=10" --jq '[.workflow_runs[] | {id, status, conclusion}]' | ConvertFrom-Json)
+            if ($LASTEXITCODE -ne 0) { throw 'Could not query the validation runs for this commit.' }
+            $green = @($validation | Where-Object { $_.status -eq 'completed' -and $_.conclusion -eq 'success' })
+            if ($green.Count -gt 0) { break }
+            $pending = @($validation | Where-Object { $_.status -ne 'completed' })
+            $seen = if ($validation.Count) { ($validation | ForEach-Object { "run $($_.id): $($_.status)/$($_.conclusion)" }) -join '; ' } else { 'no run' }
+            if ($pending.Count -eq 0 -or [DateTime]::UtcNow -ge $deadline) {
+              throw "Commit $env:GITHUB_SHA has no successful 'RedXe validation' push run ($seen). Fix the six-configuration matrix on main (or wait for it) before releasing."
+            }
+            Write-Host "Waiting for the validation run of $env:GITHUB_SHA ($seen)..."
+            Start-Sleep -Seconds 60
           }
           Write-Host "Validation run $($green[0].id) passed the six-configuration matrix for $env:GITHUB_SHA."
           Import-Module (Join-Path $env:GITHUB_WORKSPACE 'Build\Versioning.psm1') -Force
@@ -85,6 +93,8 @@ jobs:
           if (($lookup -join "`n") -notmatch 'HTTP 404') {
             throw "Could not verify that tag $tag is free (gh api exit $lookupExitCode): $($lookup -join ' ')"
           }
+          # The expected 404 left a nonzero $LASTEXITCODE, and the Actions pwsh shell exits with it after the script.
+          $global:LASTEXITCODE = 0
           "version=$($version.Version)" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "build_number=$buildNumber" >> $env:GITHUB_OUTPUT
