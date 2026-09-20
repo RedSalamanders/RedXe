@@ -67,8 +67,17 @@ function Get-RedXeDefaultBuildNumber {
     param([Parameter(Mandatory)][string] $RepoRoot)
     $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $git) { Write-Warning 'git is not available; the build number is 0.'; return 0 }
+    # git searches parent directories, so a source archive extracted inside another checkout would otherwise be
+    # stamped with that repository's count. The counted repository (or worktree) must be RepoRoot itself.
+    $topLevel = & $git.Source -C $RepoRoot rev-parse --show-toplevel 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($topLevel)) { Write-Warning "$RepoRoot is not a git checkout; the build number is 0."; return 0 }
+    $normalize = { param([string] $Path) [IO.Path]::GetFullPath($Path).TrimEnd('\', '/').Replace('/', '\') }
+    if (-not [string]::Equals((& $normalize $topLevel), (& $normalize $RepoRoot), [StringComparison]::OrdinalIgnoreCase)) {
+        Write-Warning "$RepoRoot is not the root of a git checkout (the enclosing repository is $topLevel); the build number is 0."
+        return 0
+    }
     $count = & $git.Source -C $RepoRoot rev-list --count HEAD 2>$null
-    if ($LASTEXITCODE -ne 0 -or $count -notmatch '^\d+$') { Write-Warning "$RepoRoot is not a git checkout; the build number is 0."; return 0 }
+    if ($LASTEXITCODE -ne 0 -or $count -notmatch '^\d+$') { Write-Warning "$RepoRoot has no commits; the build number is 0."; return 0 }
     $shallow = (& $git.Source -C $RepoRoot rev-parse --is-shallow-repository 2>$null)
     if ($shallow -eq 'true') { Write-Warning 'Shallow clone: the commit count would be truncated, so the build number is 0. Fetch the full history (git fetch --unshallow).'; return 0 }
     if ([int] $count -gt 65535) { throw "The commit count $count exceeds the 16-bit version field; pass -BuildNumber explicitly." }
@@ -80,6 +89,7 @@ function Get-RedXeDefaultBuildNumber {
 An explicit positive build number, or the default commit count when none was requested.
 #>
 function Resolve-RedXeBuildNumber {
+    [CmdletBinding()]
     param([Parameter(Mandatory)][string] $RepoRoot, [ValidateRange(0, 65535)][int] $Requested = 0)
     if ($Requested -gt 0) { return $Requested }
     return Get-RedXeDefaultBuildNumber -RepoRoot $RepoRoot

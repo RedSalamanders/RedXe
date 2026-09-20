@@ -22,7 +22,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-RedXe-${{ github.run_number }}
+  # One release at a time: the tag-free check and the release creation are not atomic, so two dispatches of the
+  # same commit must run one after the other (the second then stops at "tag already exists").
+  group: release-RedXe
   cancel-in-progress: false
 
 jobs:
@@ -81,9 +83,11 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Checkout
+      - name: Checkout with full history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # test.ps1 asserts the default build number against the commit count; a shallow clone would count 1.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Build and test Release ${{ matrix.platform }}
