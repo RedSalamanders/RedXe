@@ -1248,16 +1248,20 @@ void TestWindowCapture(bool& success) noexcept
     }
     Check(RedXe::SaveWindowScreenshot(GetDesktopWindow(), full.c_str()) == E_INVALIDARG,
           L"a window of another process is refused", success);
-    HRESULT result = RedXe::SaveWindowScreenshot(window.get(), full.c_str());
-    if (result == E_NOTIMPL)
+    // A host that cannot capture at all (no Windows.Graphics.Capture, no hardware Direct3D 11 device, or a session
+    // whose compositor exposes no surface for the window: the GPU-less CI images) is reported and skipped; the
+    // argument checks above and the crop-bounds check below still run, because the product validates them first.
+    SIZE surface{};
+    const HRESULT support = RedXe::QueryWindowCaptureSupport(window.get(), &surface);
+    if (FAILED(support) || surface.cx <= 0 || surface.cy <= 0)
     {
-        // Windows.Graphics.Capture reports itself unsupported on this host (a Windows Server CI image, or a session
-        // without desktop composition). The product answers E_NOTIMPL by contract, and the capture assertions
-        // cannot be exercised here; the argument checks above and the crop-bounds check below still ran.
-        std::wcout << L"[  SKIPPED ] window capture is not supported on this host (E_NOTIMPL)\n";
+        std::wcout << L"[  SKIPPED ] window capture is unavailable on this host (support HRESULT 0x" << std::hex
+                   << std::uppercase << static_cast<unsigned long>(support) << std::dec << std::nouppercase
+                   << L", surface " << surface.cx << L'x' << surface.cy << L")\n";
     }
     else
     {
+        HRESULT result = RedXe::SaveWindowScreenshot(window.get(), full.c_str());
         if (FAILED(result))
         {
             std::wcerr << L"SaveWindowScreenshot failed with HRESULT 0x" << std::hex << std::uppercase

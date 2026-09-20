@@ -101,7 +101,69 @@ constexpr DWORD kFrameTimeoutMilliseconds = 5000;
     }
     return result;
 }
+
+// The hardware Direct3D 11 device and the capture item for one window: what both the screenshot and the support
+// probe need before a frame can exist. Throws winrt::hresult_error like the projection it wraps.
+struct CaptureSource
+{
+    wil::com_ptr_nothrow<ID3D11Device> device;
+    wil::com_ptr_nothrow<ID3D11DeviceContext> context;
+    winrt::Windows::Graphics::DirectX::Direct3D11::IDirect3DDevice projected{nullptr};
+    winrt::Windows::Graphics::Capture::GraphicsCaptureItem item{nullptr};
+};
+
+[[nodiscard]] CaptureSource OpenCaptureSource(HWND window)
+{
+    namespace Capture = winrt::Windows::Graphics::Capture;
+    namespace Direct3D = winrt::Windows::Graphics::DirectX::Direct3D11;
+    CaptureSource source;
+    winrt::check_hresult(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                                           nullptr, 0, D3D11_SDK_VERSION, source.device.put(), nullptr,
+                                           source.context.put()));
+    wil::com_ptr_nothrow<IDXGIDevice> dxgiDevice;
+    winrt::check_hresult(source.device->QueryInterface(IID_PPV_ARGS(dxgiDevice.put())));
+    wil::com_ptr_nothrow<IInspectable> inspectable;
+    winrt::check_hresult(CreateDirect3D11DeviceFromDXGIDevice(dxgiDevice.get(), inspectable.put()));
+    winrt::check_hresult(inspectable->QueryInterface(winrt::guid_of<Direct3D::IDirect3DDevice>(),
+                                                     winrt::put_abi(source.projected)));
+    const auto interop = winrt::get_activation_factory<Capture::GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
+    winrt::check_hresult(
+        interop->CreateForWindow(window, winrt::guid_of<Capture::GraphicsCaptureItem>(), winrt::put_abi(source.item)));
+    return source;
+}
 } // namespace
+
+HRESULT QueryWindowCaptureSupport(HWND window, SIZE* surfaceSize) noexcept
+{
+    if (!window || !surfaceSize)
+    {
+        return E_POINTER;
+    }
+    *surfaceSize = SIZE{};
+    try
+    {
+        if (!winrt::Windows::Graphics::Capture::GraphicsCaptureSession::IsSupported())
+        {
+            return E_NOTIMPL;
+        }
+        const CaptureSource source = OpenCaptureSource(window);
+        const auto size = source.item.Size();
+        *surfaceSize = SIZE{size.Width, size.Height};
+        return S_OK;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (const winrt::hresult_error& error)
+    {
+        return error.code();
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
 
 HRESULT SaveWindowScreenshot(HWND window, const wchar_t* pngPath, const RECT* clientCrop) noexcept
 {
@@ -143,31 +205,19 @@ HRESULT SaveWindowScreenshot(HWND window, const wchar_t* pngPath, const RECT* cl
     try
     {
         namespace Capture = winrt::Windows::Graphics::Capture;
-        namespace Direct3D = winrt::Windows::Graphics::DirectX::Direct3D11;
         if (!Capture::GraphicsCaptureSession::IsSupported())
         {
             return E_NOTIMPL;
         }
-        wil::com_ptr_nothrow<ID3D11Device> device;
-        wil::com_ptr_nothrow<ID3D11DeviceContext> context;
-        winrt::check_hresult(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
-                                               D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION,
-                                               device.put(), nullptr, context.put()));
-        wil::com_ptr_nothrow<IDXGIDevice> dxgiDevice;
-        winrt::check_hresult(device->QueryInterface(IID_PPV_ARGS(dxgiDevice.put())));
-        wil::com_ptr_nothrow<IInspectable> inspectable;
-        winrt::check_hresult(CreateDirect3D11DeviceFromDXGIDevice(dxgiDevice.get(), inspectable.put()));
-        Direct3D::IDirect3DDevice projected{nullptr};
-        winrt::check_hresult(
-            inspectable->QueryInterface(winrt::guid_of<Direct3D::IDirect3DDevice>(), winrt::put_abi(projected)));
-        const auto interop = winrt::get_activation_factory<Capture::GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
-        Capture::GraphicsCaptureItem item{nullptr};
-        winrt::check_hresult(
-            interop->CreateForWindow(window, winrt::guid_of<Capture::GraphicsCaptureItem>(), winrt::put_abi(item)));
+        const CaptureSource source = OpenCaptureSource(window);
+        const auto& device = source.device;
+        const auto& context = source.context;
+        const auto& item = source.item;
         wil::unique_event_nothrow frameArrived;
         winrt::check_hresult(frameArrived.create(wil::EventOptions::ManualReset));
         auto pool = Capture::Direct3D11CaptureFramePool::CreateFreeThreaded(
-            projected, winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, item.Size());
+            source.projected, winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 2,
+            item.Size());
         auto session = pool.CreateCaptureSession(item);
         const auto close = wil::scope_exit(
             [&]() noexcept
