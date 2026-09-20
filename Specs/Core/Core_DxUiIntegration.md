@@ -55,8 +55,8 @@ token supplies advisory GitHub API rate allowance. Library success alone does no
 lock, and runs `test.ps1`; `Update-DxUi.ps1 -UpdateOnly` skips that local product suite only when equivalent product
 validation was completed elsewhere. Neither mode auto-commits, and a local validation failure leaves the changed lock
 on the branch for diagnosis.
-Pull requests run one six-profile matrix for each update; feature-branch pushes do not start a duplicate matrix.
-Pushes to main and explicit workflow dispatch retain their validation entrypoints.
+Pull requests run one x64 Release leg for each update; feature-branch pushes do not start a duplicate matrix.
+Pushes to main and explicit workflow dispatch retain the full six-configuration validation entrypoints.
 CI validates repository skill metadata with the repository-owned validator and pinned Python dependency before
 building. Clean runners require no developer-specific Codex installation or home-directory scripts.
 
