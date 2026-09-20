@@ -208,7 +208,8 @@ jobs:
             if ($status -ne 404) { throw }
           }
           # An open pull request for this exact version (from this account or anyone else) must not be duplicated.
-          $open = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/search/issues?q=$([uri]::EscapeDataString("repo:microsoft/winget-pkgs is:pr is:open in:title `"$env:PACKAGE_ID`" `"$env:VERSION`""))"
+          $openQuery = [uri]::EscapeDataString('repo:microsoft/winget-pkgs is:pr is:open in:title "' + $env:PACKAGE_ID + '" "' + $env:VERSION + '"')
+          $open = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/search/issues?q=$openQuery"
           if ($open.total_count -gt 0) {
             $urls = ($open.items | ForEach-Object { $_.html_url }) -join ', '
             Write-Host "::notice::A pull request for $env:PACKAGE_ID $env:VERSION is already open: $urls"
@@ -222,7 +223,8 @@ jobs:
           }
           & $env:WINGETCREATE_PATH submit --prtitle $title --no-open $env:MANIFEST_DIR
           if ($LASTEXITCODE -ne 0) { throw "wingetcreate submit failed with exit code $LASTEXITCODE." }
-          $created = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/search/issues?q=$([uri]::EscapeDataString("repo:microsoft/winget-pkgs is:pr author:$owner `"$env:VERSION`""))"
+          $createdQuery = [uri]::EscapeDataString('repo:microsoft/winget-pkgs is:pr author:' + $owner + ' "' + $env:VERSION + '"')
+          $created = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/search/issues?q=$createdQuery"
           $url = ($created.items | Where-Object { $_.title -match [regex]::Escape($env:PACKAGE_ID) } | Select-Object -First 1).html_url
           Write-Host "::notice::Submitted $env:PACKAGE_ID $env:VERSION$(if ($url) { ": $url" })"
           "## winget submission`n- Package: $env:PACKAGE_ID $env:VERSION`n- Pull request: $(if ($url) { $url } else { 'see the wingetcreate output above' })" >> $env:GITHUB_STEP_SUMMARY
