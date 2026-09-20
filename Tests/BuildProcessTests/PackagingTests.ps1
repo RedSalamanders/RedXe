@@ -33,7 +33,16 @@ try {
     # Versioning: the header is the single source of major.minor; callers supply the build number.
     $version = Get-RedXeVersion -RepoRoot $repo -BuildNumber 183
     if ($version.Version -ne "$($version.Major).$($version.Minor).183" -or $version.FileVersion -ne "$($version.Version).0") { throw 'Get-RedXeVersion shape' }
-    if ((Get-RedXeVersion -RepoRoot $repo).Build -ne 0) { throw 'Default build number must be 0.' }
+    if ((Get-RedXeVersion -RepoRoot $repo).Build -ne 0) { throw 'Get-RedXeVersion without a build number must report 0.' }
+    # The default build number is the commit count of HEAD; an explicit number always wins.
+    $commitCount = [int] (git -C $repo rev-list --count HEAD)
+    if ((Get-RedXeDefaultBuildNumber -RepoRoot $repo) -ne $commitCount -or $commitCount -le 0) { throw 'Default build number is not the commit count.' }
+    if ((Resolve-RedXeBuildNumber -RepoRoot $repo) -ne $commitCount -or (Resolve-RedXeBuildNumber -RepoRoot $repo -Requested 7) -ne 7) { throw 'Resolve-RedXeBuildNumber' }
+    # A source archive has no history: an invalid .git file stops git from finding the enclosing repository.
+    $noGit = Join-Path $fixture 'no-git'
+    [void](New-Item -ItemType Directory -Path $noGit)
+    Set-Content -LiteralPath (Join-Path $noGit '.git') -Value 'not a gitfile'
+    if ((Get-RedXeDefaultBuildNumber -RepoRoot $noGit -WarningAction SilentlyContinue) -ne 0) { throw 'A directory without git history must yield 0.' }
     $parsed = ConvertTo-RedXePackageVersion -Version ' 1.0.42 '
     if ($parsed.Version -ne '1.0.42' -or $parsed.Build -ne 42) { throw 'ConvertTo-RedXePackageVersion' }
     Reject 'a four-part version' { ConvertTo-RedXePackageVersion -Version '1.0.42.0' }

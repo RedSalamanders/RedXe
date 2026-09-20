@@ -16,8 +16,8 @@
     <VcpkgInstalledDir>$(RedXeBuildRoot)vcpkg_installed\$(RedXeVcpkgPlatformScope)\</VcpkgInstalledDir>
     <VcpkgEnabled>false</VcpkgEnabled>
 
-    <!-- Third version component stamped into every version resource. build.ps1 -BuildNumber (the release
-         workflow passes GITHUB_RUN_NUMBER) sets it; a plain local build keeps 0. Only ResourceCompile sees
+    <!-- Third version component stamped into every version resource. build.ps1 sets it to -BuildNumber
+         or, by default, the commit count of HEAD (the release workflow stamps the same). Only ResourceCompile sees
          it so a new number never recompiles C++ translation units. See Common/Version.h. -->
     <RedXeBuildNumber Condition="'$(RedXeBuildNumber)'==''">0</RedXeBuildNumber>
   </PropertyGroup>

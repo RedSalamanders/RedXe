@@ -165,6 +165,7 @@ function New-RedXePortablePackage {
         [switch] $SkipExecution
     )
     Import-Module (Join-Path $RepoRoot 'Build\Versioning.psm1') -Force
+    $BuildNumber = Resolve-RedXeBuildNumber -RepoRoot $RepoRoot -Requested $BuildNumber
     $version = (Get-RedXeVersion -RepoRoot $RepoRoot -BuildNumber $BuildNumber).Version
     $buildOutput = Join-Path $RepoRoot ".build\$Platform\$Configuration"
     if (-not (Test-Path -LiteralPath (Join-Path $buildOutput 'RedXe.exe') -PathType Leaf)) {

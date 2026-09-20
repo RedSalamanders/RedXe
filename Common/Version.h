@@ -1,7 +1,8 @@
 // Product version shared by every version resource and by the packaging scripts.
 //
-// The build number is intentionally not edited here. build.ps1 -BuildNumber (the release workflow passes
-// GITHUB_RUN_NUMBER) defines REDXE_VERSION_BUILD for the resource compiler; a plain local build stamps 0.
+// The build number is intentionally not edited here. build.ps1 defines REDXE_VERSION_BUILD for the resource compiler:
+// -BuildNumber when given, otherwise the commit count of HEAD (git rev-list --count), which is also what the
+// release workflow stamps, so one commit is one version.
 // Build/Versioning.psm1 reads the two human-maintained lines below with a regular expression, so keep each
 // `#define` on one line with a single integer literal.
 //

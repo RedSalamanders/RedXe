@@ -18,8 +18,8 @@ Use the repository entrypoints instead of assembling ad hoc MSBuild commands:
 .\build.ps1 -Rebuild
 .\build.ps1 -Run
 .\test.ps1                               # Build + hidden WARP smoke test
-.\build.ps1 -Configuration Release -BuildNumber 42   # Stamp 1.0.42 into every version resource
-.\package.ps1 -Platform x64 -BuildNumber 42          # Portable ZIP under .build/packages, smoke-tested
+.\build.ps1 -Configuration Release                   # Stamps 1.0.<commit count of HEAD>; -BuildNumber 42 overrides
+.\package.ps1 -Platform x64                          # Portable ZIP under .build/packages, smoke-tested
 .\winget-manifest.ps1 -Version 1.0.42                # Winget manifest from both platform packages
 ```
 

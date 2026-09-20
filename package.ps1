@@ -13,8 +13,8 @@ expanding it into a fresh directory and running the packaged RedXe.exe --self-te
 x64 or ARM64.
 
 .PARAMETER BuildNumber
-Third version component (Common/Version.h supplies major.minor). 0 makes a local 1.0.0 package that winget-manifest.ps1
-refuses; the release workflow passes GITHUB_RUN_NUMBER.
+Third version component (Common/Version.h supplies major.minor). Default 0 means the commit count of HEAD, which is
+also what the release workflow stamps.
 
 .PARAMETER SkipBuild
 Package the existing .build/<Platform>/Release output, which must already be stamped with -BuildNumber.
@@ -41,6 +41,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $repoRoot 'Build\Versioning.psm1') -Force
+$BuildNumber = Resolve-RedXeBuildNumber -RepoRoot $repoRoot -Requested $BuildNumber
 if (-not $SkipBuild) {
     & (Join-Path $repoRoot 'build.ps1') -Configuration Release -Platform $Platform -BuildNumber $BuildNumber
     if ($LASTEXITCODE -ne 0) { throw "Build entrypoint failed with exit code $LASTEXITCODE." }
