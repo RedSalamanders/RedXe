@@ -15,7 +15,8 @@ jobs:
       fail-fast: false
       matrix:
         # Pull requests run the fast, most informative leg (x64 Release, ~11 min). Pushes to main and manual
-        # dispatches run all six configurations: that full matrix is what guards releases.
+        # dispatches run all six configurations; release.yml refuses to release a commit whose push run on main
+        # did not pass, so that full matrix is the release gate.
         platform: ${{ fromJson(github.event_name == 'pull_request' && '["x64"]' || '["x64","ARM64"]') }}
         configuration: ${{ fromJson(github.event_name == 'pull_request' && '["Release"]' || '["Debug","Release","ASan Debug"]') }}
     runs-on: ${{ matrix.platform == 'ARM64' && 'windows-11-vs2026-arm' || 'windows-2025-vs2026' }}
