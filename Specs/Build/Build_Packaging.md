@@ -61,7 +61,7 @@ The package MUST contain, with forward-slash entry names and no directory entrie
 | Visual C++ runtime DLLs | the newest installed `VC\Redist\MSVC\<v>\<arch>\Microsoft.VC*.CRT`, copied to the root and to `Plugins/` (the helper executables run as separate processes) |
 | `Install-RedXe.ps1`, `install.cmd`, `uninstall.cmd` | `Installer/` |
 | `README.txt` | generated with the version and platform |
-| `LICENSE.txt` | repository root, when present |
+| `LICENSE.txt` | repository root (required) |
 
 - Every DLL named in `RedXe/BundledPlugins.h`, the AV Control helpers (`AVControlBroker.exe`,
   `AVControlCamera.dll`, `AVControlCameraSetup.exe`), `WeatherLocation.exe`, `libcurl.dll`, `Plugins/yyjson.dll`,
@@ -122,8 +122,9 @@ behind.
   with LF line endings and no unresolved `{PLACEHOLDER}`.
 - `winget validate --manifest` MUST pass. "Manifest validation succeeded with warnings" from an older client is
   accepted; the warnings are shown.
-- `License` in the locale manifest is `Proprietary` until the repository gains a license file; changing it means
-  adding `LICENSE.txt` at the repository root (which the package then ships) and updating the template together.
+- `License: MIT` and `LicenseUrl` in the locale manifest mirror the repository's `LICENSE.txt` (MIT, with the
+  carve-outs it lists: the CC BY-NC-SA 3.0 Shadertoy ports, the OFL Weather Icons font, and the never-redistributed
+  Zoom SDK). The package always ships `LICENSE.txt`; a license change updates the file and the template together.
 
 ## Release workflow (`.github/workflows/release.yml`)
 

@@ -9,8 +9,9 @@ PublisherSupportUrl: https://github.com/RedSalamanders/RedXe/issues
 Author: RedSalamanders
 PackageName: RedXe
 PackageUrl: https://github.com/RedSalamanders/RedXe
-License: Proprietary
-Copyright: Copyright (c) 2026 RedSalamanders
+License: MIT
+LicenseUrl: https://github.com/RedSalamanders/RedXe/blob/main/LICENSE.txt
+Copyright: Copyright (c) 2026 RedSalamander
 ShortDescription: Widget dashboard for the CORSAIR XENEON EDGE display, or a bar on any screen edge
 Description: |-
   RedXe is a native Windows dashboard for the CORSAIR XENEON EDGE: pages of widgets on its 2560x720 touch canvas,

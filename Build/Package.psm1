@@ -43,7 +43,7 @@ Every relative path a complete package must contain for the platform (ordinal, f
 function Get-RedXePackageRequiredEntries {
     param([Parameter(Mandatory)][string] $RepoRoot)
     $entries = [Collections.Generic.List[string]]::new()
-    foreach ($name in $script:PackageRootBinaries + $script:PackageInstallerFiles + @('README.txt')) { $entries.Add($name) }
+    foreach ($name in $script:PackageRootBinaries + $script:PackageInstallerFiles + @('README.txt', 'LICENSE.txt')) { $entries.Add($name) }
     foreach ($name in $script:PackageSettingsFiles) { $entries.Add("Settings/$name") }
     foreach ($name in (Get-RedXeBundledPluginModules -RepoRoot $RepoRoot) + $script:PackagePluginHelpers) { $entries.Add("Plugins/$name") }
     foreach ($name in $script:PackageVcRuntimeRequired) { $entries.Add($name); $entries.Add("Plugins/$name") }
@@ -133,6 +133,8 @@ WHAT IS IN HERE
                            %LocalAppData%\RedXe\Settings after the first start; edit it while RedXe runs.
   msvcp140*.dll, vcruntime140*.dll
                            The Microsoft Visual C++ runtime for this CPU architecture, so no separate install is needed.
+  LICENSE.txt              MIT license, the third-party notices, and the files under other terms (CC BY-NC-SA shader
+                           ports, the OFL Weather Icons font).
 
 REQUIREMENTS
 ------------
@@ -204,8 +206,7 @@ function New-RedXePortablePackage {
         }
 
         foreach ($name in $script:PackageInstallerFiles) { Copy-RedXePackageFile (Join-Path $RepoRoot "Installer\$name") (Join-Path $staging $name) }
-        $license = Join-Path $RepoRoot 'LICENSE.txt'
-        if (Test-Path -LiteralPath $license -PathType Leaf) { Copy-RedXePackageFile $license (Join-Path $staging 'LICENSE.txt') }
+        Copy-RedXePackageFile (Join-Path $RepoRoot 'LICENSE.txt') (Join-Path $staging 'LICENSE.txt')
         [IO.File]::WriteAllText((Join-Path $staging 'README.txt'), (New-RedXePackageReadme -Version $version -Platform $Platform), [Text.UTF8Encoding]::new($false))
 
         $entries = @(Get-ChildItem -LiteralPath $staging -File -Recurse | ForEach-Object { $_.FullName.Substring($staging.Length).TrimStart('\', '/').Replace('\', '/') } | Sort-Object)

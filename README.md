@@ -160,3 +160,11 @@ vcpkg-install.ps1     Pinned dependency bootstrap and manifest install
 vcpkg.json            WIL and yyjson dependency manifest
 Specs/                Normative contracts plus WIP and completed plan history
 ```
+
+## License
+
+RedXe is released under the [MIT License](LICENSE.txt) (Copyright (c) 2026 RedSalamander), like
+[RedSalamander](https://github.com/RedSalamanders/RedSalamander) and [DxUi](https://github.com/RedSalamanders/DxUi).
+`LICENSE.txt` also lists the third-party notices and the files under other terms: the twelve Shadertoy ports in
+`Plugins/5H4D3R5/Shaders/` are CC BY-NC-SA 3.0 (see `Plugins/5H4D3R5/LICENSES.md`), the Weather Icons font is
+SIL OFL 1.1, and the Zoom Plugin SDK is never redistributed.

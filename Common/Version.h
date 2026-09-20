@@ -27,6 +27,6 @@
 
 #define REDXE_VERSION_COMPANY "RedSalamanders"
 #define REDXE_VERSION_PRODUCT "RedXe"
-#define REDXE_VERSION_COPYRIGHT "Copyright (c) 2026 RedSalamanders"
+#define REDXE_VERSION_COPYRIGHT "Copyright (c) 2026 RedSalamander"
 
 #endif
