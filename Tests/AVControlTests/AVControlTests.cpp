@@ -46,8 +46,11 @@ wil::unique_event runFinished;
 void BeginStage(const char* name)
 {
     const ULONGLONG now = GetTickCount64();
+    // The watchdog reads both values without a lock: clearing the timestamp first means it can only ever pair a
+    // stage name with that stage's own start (or with no deadline), never a new name with the previous, older start.
+    const ULONGLONG previousStarted = stageStartedAt.exchange(0);
     const char* previous = currentStage.exchange(name);
-    const ULONGLONG previousStarted = stageStartedAt.exchange(now);
+    stageStartedAt.store(now);
     if (previousStarted)
         std::printf("AVControl: %s done in %llu ms\n", previous, static_cast<unsigned long long>(now - previousStarted));
     std::printf("AVControl: %s...\n", name);

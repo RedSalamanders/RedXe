@@ -483,6 +483,77 @@ function Set-RedXeProcessArguments {
     }) -join ' ')
 }
 
+# A Windows job object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, so a bounded child and every process it starts end
+# together: Terminate() at a budget, and Dispose() (the last handle closing) for whatever is left. Only processes
+# assigned here are affected; nothing launched independently can be in this job.
+function New-RedXeKillOnCloseJob {
+    if (-not ('RedXe.Build.KillOnCloseJob' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+namespace RedXe.Build
+{
+    public sealed class KillOnCloseJob : IDisposable
+    {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr CreateJobObjectW(IntPtr attributes, string name);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref ExtendedLimits info, int size);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool CloseHandle(IntPtr handle);
+        [StructLayout(LayoutKind.Sequential)]
+        struct BasicLimits
+        {
+            public long PerProcessUserTimeLimit; public long PerJobUserTimeLimit; public uint LimitFlags;
+            public UIntPtr MinimumWorkingSetSize; public UIntPtr MaximumWorkingSetSize; public uint ActiveProcessLimit;
+            public UIntPtr Affinity; public uint PriorityClass; public uint SchedulingClass;
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        struct IoCounters { public ulong Read, Write, Other, ReadBytes, WriteBytes, OtherBytes; }
+        [StructLayout(LayoutKind.Sequential)]
+        struct ExtendedLimits
+        {
+            public BasicLimits Basic; public IoCounters Io;
+            public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
+        }
+        const int JobObjectExtendedLimitInformation = 9;
+        const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
+        IntPtr handle;
+        public KillOnCloseJob()
+        {
+            handle = CreateJobObjectW(IntPtr.Zero, null);
+            if (handle == IntPtr.Zero) throw new Win32Exception();
+            var limits = new ExtendedLimits();
+            limits.Basic.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            if (!SetInformationJobObject(handle, JobObjectExtendedLimitInformation, ref limits, Marshal.SizeOf(typeof(ExtendedLimits))))
+            {
+                var error = new Win32Exception(); CloseHandle(handle); handle = IntPtr.Zero; throw error;
+            }
+        }
+        public void Assign(System.Diagnostics.Process process)
+        {
+            if (!AssignProcessToJobObject(handle, process.Handle)) throw new Win32Exception();
+        }
+        public void Terminate()
+        {
+            if (handle != IntPtr.Zero) TerminateJobObject(handle, 0xFFFFFFFF);
+        }
+        public void Dispose()
+        {
+            if (handle != IntPtr.Zero) { CloseHandle(handle); handle = IntPtr.Zero; }
+        }
+    }
+}
+'@
+    }
+    return [RedXe.Build.KillOnCloseJob]::new()
+}
+
 function Invoke-RedXeStreamingProcess {
     [CmdletBinding()]
     param(
@@ -507,10 +578,15 @@ function Invoke-RedXeStreamingProcess {
 
     $resolvedLogPath = [IO.Path]::GetFullPath($LogPath)
     $deadline = if ($TimeoutSeconds -gt 0) { [DateTime]::UtcNow.AddSeconds($TimeoutSeconds) } else { $null }
+    # A bounded child is placed in a job object with kill-on-close: the whole tree is contained, so a descendant that
+    # inherited the redirected pipe and outlived the child (Process.Kill cannot reach it once the child has exited) is
+    # still terminated at the budget and when this call returns.
+    $job = if ($deadline) { New-RedXeKillOnCloseJob } else { $null }
     $stopChildOnTimeout = {
         param([Diagnostics.Process] $Child, [IO.StreamWriter] $Writer)
         $message = "'$FilePath' did not finish within $TimeoutSeconds s and was terminated with its child processes (log: $resolvedLogPath)."
-        try { $Child.Kill($true) } catch { }
+        if ($job) { $job.Terminate() }
+        try { if (-not $Child.HasExited) { $Child.Kill($true) } } catch { }
         try { [void] $Child.WaitForExit(10000) } catch { }
         if ($Writer) { $Writer.WriteLine("TIMEOUT: $message") }
         throw $message
@@ -538,6 +614,11 @@ function Invoke-RedXeStreamingProcess {
 
         if (-not $process.Start()) {
             throw "Unable to start '$FilePath'."
+        }
+        if ($job) {
+            # Assigned before any output is read: a child that already spawned descendants is still contained,
+            # because they are created inside the job once their parent belongs to it.
+            $job.Assign($process)
         }
 
         $standardOutputOpen = $true
@@ -616,6 +697,10 @@ function Invoke-RedXeStreamingProcess {
             $logWriter.Dispose()
         }
         $process.Dispose()
+        if ($job) {
+            # Closing the last handle kills whatever the tree still runs (kill-on-close).
+            $job.Dispose()
+        }
     }
 }
 

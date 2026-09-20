@@ -255,13 +255,18 @@ exit 17
         throw 'The captured streaming log omitted output or contained terminal control sequences.'
     }
 
-    # A child that never finishes is terminated at the budget, together with what it started, and the call throws
-    # a message naming the executable and the log; the child's partial output stays in the log.
+    # A bounded run is terminated at its budget together with everything it started, and the call throws a message
+    # naming the executable and the log; the partial output stays in the log. The hardest shape is exercised: the
+    # child starts a grandchild that inherits the redirected pipe, then exits, so the pipe never reaches end of
+    # file and only job containment can reach the survivor once its parent is gone.
     $stallerPath = Join-Path $presentationTestRoot 'staller.ps1'
-    @'
+    $grandchildPidPath = Join-Path $presentationTestRoot 'grandchild.pid'
+    @"
 Write-Output 'staller:started'
-Start-Sleep -Seconds 60
-'@ | Set-Content -LiteralPath $stallerPath -Encoding UTF8
+`$grandchild = Start-Process -FilePath '$powershellPath' -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60') -NoNewWindow -PassThru
+Set-Content -LiteralPath '$grandchildPidPath' -Value `$grandchild.Id
+Write-Output "staller:grandchild `$(`$grandchild.Id)"
+"@ | Set-Content -LiteralPath $stallerPath -Encoding UTF8
     $stallLogPath = Join-Path $presentationTestRoot 'stalled.log'
     $timeoutStopwatch = [Diagnostics.Stopwatch]::StartNew()
     $timeoutMessage = $null
@@ -271,23 +276,33 @@ Start-Sleep -Seconds 60
             -Arguments @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $stallerPath) `
             -WorkingDirectory $presentationTestRoot `
             -LogPath $stallLogPath `
-            -TimeoutSeconds 2 `
+            -TimeoutSeconds 3 `
             -OutputLineCallback { param([string] $Line, [bool] $IsError) })
     }
     catch {
         $timeoutMessage = $_.Exception.Message
     }
     $timeoutStopwatch.Stop()
-    if (-not $timeoutMessage -or $timeoutMessage -notmatch 'did not finish within 2 s and was terminated' -or
+    if (-not $timeoutMessage -or $timeoutMessage -notmatch 'did not finish within 3 s and was terminated' -or
         $timeoutMessage -notmatch [regex]::Escape($stallLogPath)) {
-        throw "A stalled child was not reported as terminated at its budget: '$timeoutMessage'"
+        throw "A stalled run was not reported as terminated at its budget: '$timeoutMessage'"
     }
     if ($timeoutStopwatch.Elapsed.TotalSeconds -gt 20) {
-        throw "Terminating the stalled child took $($timeoutStopwatch.Elapsed.TotalSeconds) s."
+        throw "Terminating the stalled run took $($timeoutStopwatch.Elapsed.TotalSeconds) s."
     }
     $stallLogText = Get-Content -LiteralPath $stallLogPath -Raw
-    if ($stallLogText -notmatch 'staller:started' -or $stallLogText -notmatch 'TIMEOUT:') {
-        throw 'The stalled child log lacks the partial output or the timeout record.'
+    if ($stallLogText -notmatch 'staller:started' -or $stallLogText -notmatch 'staller:grandchild' -or
+        $stallLogText -notmatch 'TIMEOUT:') {
+        throw 'The stalled run log lacks the partial output or the timeout record.'
+    }
+    if (-not (Test-Path -LiteralPath $grandchildPidPath)) {
+        throw 'The stall fixture did not record its grandchild.'
+    }
+    $grandchildId = [int] (Get-Content -LiteralPath $grandchildPidPath -Raw).Trim()
+    $survivor = Get-Process -Id $grandchildId -ErrorAction SilentlyContinue
+    if ($survivor) {
+        try { $survivor.Kill() } catch { }
+        throw "The grandchild (PID $grandchildId) that inherited the pipe survived the timeout termination."
     }
     $survivors = @(Get-CimInstance Win32_Process -Filter "Name='pwsh.exe' OR Name='powershell.exe'" -ErrorAction Stop |
         Where-Object { $_.CommandLine -and $_.CommandLine.Contains('staller.ps1') })
@@ -319,3 +334,6 @@ finally {
 }
 
 Write-Host 'Build presentation and streaming tests passed.' -ForegroundColor Green
+
+# The last native command above is a fixture that exits nonzero by design; report the script result explicitly.
+exit 0
