@@ -119,8 +119,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "winget settings --enable LocalManifestFiles failed with $LASTEXITCODE." }
           winget install --manifest $env:MANIFEST_DIR --accept-package-agreements --accept-source-agreements --disable-interactivity --ignore-warnings
           if ($LASTEXITCODE -ne 0) { throw "winget install --manifest failed with $LASTEXITCODE." }
-          winget list --exact --id $env:PACKAGE_ID --accept-source-agreements --disable-interactivity
-          if ($LASTEXITCODE -ne 0) { throw "$env:PACKAGE_ID is not listed after installation." }
 
           # The alias winget created must start the packaged RedXe.exe through RedXeLauncher.exe; --help exits 0
           # only when the launcher found the package root and RedXe.exe loaded its app-local DLLs from there.
@@ -133,6 +131,16 @@ jobs:
           if ($selfTest.ExitCode -ne 0) { throw "RedXe --self-test --warp through the alias exited with $($selfTest.ExitCode)." }
           Write-Host 'The installed alias starts RedXe and its plugins from the winget package root.'
 
+          # winget registers what it installed under Apps & features with its package identifier. That is checked
+          # directly: `winget list --id` correlates installed entries with a source, and a package that is not
+          # published yet (a first submission) has no source entry to correlate with.
+          $registered = @(Get-ChildItem -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
+            Where-Object { (Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue).WinGetPackageIdentifier -eq $env:PACKAGE_ID })
+          if ($registered.Count -eq 0) { throw "$env:PACKAGE_ID is not registered under Apps & features after installation." }
+          $entry = Get-ItemProperty -LiteralPath $registered[0].PSPath
+          Write-Host "Registered: $($registered[0].PSChildName) — $($entry.DisplayName) $($entry.DisplayVersion) by $($entry.Publisher)"
+          if ($entry.DisplayVersion -ne '${{ steps.version.outputs.version }}') { throw "Registered version '$($entry.DisplayVersion)' is not ${{ steps.version.outputs.version }}." }
+
       - name: Uninstall test package
         if: always()
         shell: pwsh
@@ -140,10 +148,17 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           $PSNativeCommandUseErrorActionPreference = $false
-          winget list --exact --id $env:PACKAGE_ID --accept-source-agreements --disable-interactivity
+          # Uninstall by the same local manifest: like the install, it needs no source that knows the package.
+          # Cleanup also runs when the install never happened (an earlier step failed), so absence is not an error.
+          $registered = @(Get-ChildItem -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
+            Where-Object { (Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue).WinGetPackageIdentifier -eq $env:PACKAGE_ID })
+          if ($registered.Count -eq 0) { Write-Host 'Nothing to uninstall.'; exit 0 }
+          if (Test-Path -LiteralPath (Join-Path $env:MANIFEST_DIR 'RedSalamanders.RedXe.yaml')) {
+            winget uninstall --manifest $env:MANIFEST_DIR --silent --purge --accept-source-agreements --disable-interactivity --ignore-warnings
+          } else {
+            winget uninstall --exact --id $env:PACKAGE_ID --silent --purge --accept-source-agreements --disable-interactivity --ignore-warnings
+          }
           if ($LASTEXITCODE -eq -1978335212) { Write-Host 'Nothing to uninstall.'; exit 0 }   # APPINSTALLER_CLI_ERROR_NO_APPLICATIONS_FOUND
-          if ($LASTEXITCODE -ne 0) { throw "winget list failed with $LASTEXITCODE." }
-          winget uninstall --exact --id $env:PACKAGE_ID --silent --purge --accept-source-agreements --disable-interactivity --ignore-warnings
           if ($LASTEXITCODE -ne 0) { throw "winget uninstall failed with $LASTEXITCODE." }
           exit 0
 

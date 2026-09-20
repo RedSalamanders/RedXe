@@ -164,10 +164,13 @@ concurrency group. On `windows-latest`:
    `InstallerUrl` anonymously, so a private repository fails here with an explicit message instead of failing later
    in the community repository; the repository (at least its releases) must be public before publication.
 3. Runs `winget-manifest.ps1` (generation plus `winget validate`).
-4. Enables `LocalManifestFiles`, runs `winget install --manifest`, checks `winget list`, and runs
+4. Enables `LocalManifestFiles`, runs `winget install --manifest`, runs
    `%LocalAppData%\Microsoft\WinGet\Links\RedXe.exe --help` and `--self-test --warp` through the alias winget
-   created. This is the end-to-end proof that the launcher resolves the package root and RedXe loads its plugins
-   from there. The package is always uninstalled afterwards, including after a failure.
+   created, and checks the Apps & features entry winget registered (`WinGetPackageIdentifier` equal to the package
+   identifier, `DisplayVersion` equal to the release version). The alias run is the end-to-end proof that the
+   launcher resolves the package root and RedXe loads its plugins from there; the registry check replaces
+   `winget list --id`, which correlates installed entries with a source and cannot see a package that is not
+   published yet. The package is always uninstalled afterwards by the same manifest, including after a failure.
 5. When submitting: installs the reviewed winget-create `1.12.8.0`, verifies its banner version, requires the
    `WINGET_TOKEN` secret (a classic personal access token with `public_repo`; exposed only as
    `WINGET_CREATE_GITHUB_TOKEN`, never on a command line), treats an already published version directory or an
