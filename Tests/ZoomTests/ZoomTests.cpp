@@ -926,13 +926,19 @@ class TestHost : public IRedXeHost
                    "left the synthetic meeting again");
     }
 
-    // A dropped connection reconnects with backoff.
+    // A dropped connection reconnects with backoff. sessionStarts advances when the new session is initialized,
+    // before its authentication completes and the IPC state reads Connected again, so the whole outcome is
+    // awaited rather than sampled the instant the session count moves (that sample raced on slow CI legs).
     const uint32_t startsBefore = report.sessionStarts;
     ZOOM_CHECK(SUCCEEDED(drop()), "drop the client connection");
-    ZOOM_CHECK(WaitUntil([&]() noexcept
-                         { return SUCCEEDED(diagnostics(&report)) && report.sessionStarts == startsBefore + 1; },
-                         5000) &&
-                   report.reconnects == 1 && report.ipcState == static_cast<uint32_t>(Zoom::IpcState::Connected),
+    ZOOM_CHECK(WaitUntil(
+                   [&]() noexcept
+                   {
+                       return SUCCEEDED(diagnostics(&report)) && report.sessionStarts == startsBefore + 1 &&
+                              report.reconnects == 1 &&
+                              report.ipcState == static_cast<uint32_t>(Zoom::IpcState::Connected);
+                   },
+                   10000),
                "the lane reconnected after the drop");
 
     // Join with a meeting reference, then sign out deletes the credential.
