@@ -255,6 +255,46 @@ exit 17
         throw 'The captured streaming log omitted output or contained terminal control sequences.'
     }
 
+    # A child that never finishes is terminated at the budget, together with what it started, and the call throws
+    # a message naming the executable and the log; the child's partial output stays in the log.
+    $stallerPath = Join-Path $presentationTestRoot 'staller.ps1'
+    @'
+Write-Output 'staller:started'
+Start-Sleep -Seconds 60
+'@ | Set-Content -LiteralPath $stallerPath -Encoding UTF8
+    $stallLogPath = Join-Path $presentationTestRoot 'stalled.log'
+    $timeoutStopwatch = [Diagnostics.Stopwatch]::StartNew()
+    $timeoutMessage = $null
+    try {
+        [void](Invoke-RedXeStreamingProcess `
+            -FilePath $powershellPath `
+            -Arguments @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $stallerPath) `
+            -WorkingDirectory $presentationTestRoot `
+            -LogPath $stallLogPath `
+            -TimeoutSeconds 2 `
+            -OutputLineCallback { param([string] $Line, [bool] $IsError) })
+    }
+    catch {
+        $timeoutMessage = $_.Exception.Message
+    }
+    $timeoutStopwatch.Stop()
+    if (-not $timeoutMessage -or $timeoutMessage -notmatch 'did not finish within 2 s and was terminated' -or
+        $timeoutMessage -notmatch [regex]::Escape($stallLogPath)) {
+        throw "A stalled child was not reported as terminated at its budget: '$timeoutMessage'"
+    }
+    if ($timeoutStopwatch.Elapsed.TotalSeconds -gt 20) {
+        throw "Terminating the stalled child took $($timeoutStopwatch.Elapsed.TotalSeconds) s."
+    }
+    $stallLogText = Get-Content -LiteralPath $stallLogPath -Raw
+    if ($stallLogText -notmatch 'staller:started' -or $stallLogText -notmatch 'TIMEOUT:') {
+        throw 'The stalled child log lacks the partial output or the timeout record.'
+    }
+    $survivors = @(Get-CimInstance Win32_Process -Filter "Name='pwsh.exe' OR Name='powershell.exe'" -ErrorAction Stop |
+        Where-Object { $_.CommandLine -and $_.CommandLine.Contains('staller.ps1') })
+    if ($survivors.Count -ne 0) {
+        throw "The stalled child survived its termination: $($survivors.ProcessId -join ', ')"
+    }
+
     $formattedDuration = Format-RedXeBuildDuration -Duration ([TimeSpan]::FromMilliseconds(3723004))
     if ($formattedDuration -ne '01:02:03.004') {
         throw "Unexpected elapsed-time format: $formattedDuration"

@@ -58,7 +58,11 @@ log beneath `.build/logs/`, report diagnostic counts, and finish with its elapse
 `Tests/BuildProcessTests/BuildProcessTests.ps1` MUST launch two harmless same-name fixture processes from distinct
 paths, prove that the exact target blocks the build with identifying diagnostics, prove that both processes survive,
 and remove its isolated artifacts. It MUST also validate terminal-path selection, output color classification,
-diagnostic counting, banner identity, argument-safe streaming, combined logging, and child exit-code propagation.
+diagnostic counting, banner identity, argument-safe streaming, combined logging, child exit-code propagation, and
+the `-TimeoutSeconds` budget of `Invoke-RedXeStreamingProcess`: a child that outlives its budget is terminated with
+its process tree (a descendant of the invocation, never an independently launched process), the partial output and a
+`TIMEOUT:` record stay in the log, and the call throws naming the executable and the log. `build.ps1` keeps the
+unbounded default; `test.ps1` applies a fifteen-minute budget to every standalone test executable.
 
 Changes to this contract require:
 

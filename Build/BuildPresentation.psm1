@@ -496,10 +496,25 @@ function Invoke-RedXeStreamingProcess {
         [Parameter(Mandatory)]
         [string] $LogPath,
 
-        [scriptblock] $OutputLineCallback
+        [scriptblock] $OutputLineCallback,
+
+        # Total wall-clock budget for the child. When it runs out, the child and every process it started are
+        # terminated (they are descendants of this invocation, never an independently launched process) and the
+        # call throws, naming the executable and the log. Zero keeps the wait unbounded, as build.ps1 needs.
+        [ValidateRange(0, 86400)]
+        [int] $TimeoutSeconds = 0
     )
 
     $resolvedLogPath = [IO.Path]::GetFullPath($LogPath)
+    $deadline = if ($TimeoutSeconds -gt 0) { [DateTime]::UtcNow.AddSeconds($TimeoutSeconds) } else { $null }
+    $stopChildOnTimeout = {
+        param([Diagnostics.Process] $Child, [IO.StreamWriter] $Writer)
+        $message = "'$FilePath' did not finish within $TimeoutSeconds s and was terminated with its child processes (log: $resolvedLogPath)."
+        try { $Child.Kill($true) } catch { }
+        try { [void] $Child.WaitForExit(10000) } catch { }
+        if ($Writer) { $Writer.WriteLine("TIMEOUT: $message") }
+        throw $message
+    }
     $logDirectory = Split-Path -Parent $resolvedLogPath
     if (-not [string]::IsNullOrWhiteSpace($logDirectory)) {
         [void](New-Item -ItemType Directory -Path $logDirectory -Force)
@@ -539,7 +554,16 @@ function Invoke-RedXeStreamingProcess {
                 [void] $pendingTasks.Add($standardErrorTask)
             }
 
-            $completedIndex = [Threading.Tasks.Task]::WaitAny($pendingTasks.ToArray())
+            if ($deadline) {
+                $remaining = [int] [Math]::Max(1, [Math]::Min([int]::MaxValue, ($deadline - [DateTime]::UtcNow).TotalMilliseconds))
+                $completedIndex = [Threading.Tasks.Task]::WaitAny($pendingTasks.ToArray(), $remaining)
+                if ($completedIndex -lt 0) {
+                    & $stopChildOnTimeout $process $logWriter
+                }
+            }
+            else {
+                $completedIndex = [Threading.Tasks.Task]::WaitAny($pendingTasks.ToArray())
+            }
             $completedTask = $pendingTasks[$completedIndex]
             $isError = $standardErrorOpen -and
                 [object]::ReferenceEquals($completedTask, $standardErrorTask)
@@ -571,7 +595,18 @@ function Invoke-RedXeStreamingProcess {
             }
         }
 
-        $process.WaitForExit()
+        if ($deadline) {
+            $remaining = [int] [Math]::Max(1, [Math]::Min([int]::MaxValue, ($deadline - [DateTime]::UtcNow).TotalMilliseconds))
+            if (-not $process.WaitForExit($remaining)) {
+                & $stopChildOnTimeout $process $logWriter
+            }
+            # A bounded WaitForExit returns before the redirected streams are drained; the unbounded overload
+            # (called after a successful bounded one) finishes that without waiting on the process again.
+            $process.WaitForExit()
+        }
+        else {
+            $process.WaitForExit()
+        }
         $exitCode = [int] $process.ExitCode
         $global:LASTEXITCODE = $exitCode
         return $exitCode
