@@ -1249,24 +1249,40 @@ void TestWindowCapture(bool& success) noexcept
     Check(RedXe::SaveWindowScreenshot(GetDesktopWindow(), full.c_str()) == E_INVALIDARG,
           L"a window of another process is refused", success);
     HRESULT result = RedXe::SaveWindowScreenshot(window.get(), full.c_str());
-    Check(SUCCEEDED(result), L"the visible window captures", success);
-    UINT width = 0;
-    UINT height = 0;
-    uint32_t pixel = 0;
-    if (SUCCEEDED(result))
+    if (result == E_NOTIMPL)
     {
-        result = ReadPngPixel(full.c_str(), kWidth / 2, kHeight / 2, width, height, pixel);
-        Check(SUCCEEDED(result) && width == kWidth && height == kHeight, L"the capture has the window's size", success);
-        Check((pixel & 0x00FFFFFFU) == 0x002090E0U, L"the capture holds the painted color", success);
+        // Windows.Graphics.Capture reports itself unsupported on this host (a Windows Server CI image, or a session
+        // without desktop composition). The product answers E_NOTIMPL by contract, and the capture assertions
+        // cannot be exercised here; the argument checks above and the crop-bounds check below still ran.
+        std::wcout << L"[  SKIPPED ] window capture is not supported on this host (E_NOTIMPL)\n";
     }
-    const RECT crop{8, 4, 40, 20};
-    result = RedXe::SaveWindowScreenshot(window.get(), cropped.c_str(), &crop);
-    Check(SUCCEEDED(result), L"a client-space crop captures", success);
-    if (SUCCEEDED(result))
+    else
     {
-        result = ReadPngPixel(cropped.c_str(), 0, 0, width, height, pixel);
-        Check(SUCCEEDED(result) && width == 32 && height == 16 && (pixel & 0x00FFFFFFU) == 0x002090E0U,
-              L"the crop is 32x16 of the painted color", success);
+        if (FAILED(result))
+        {
+            std::wcerr << L"SaveWindowScreenshot failed with HRESULT 0x" << std::hex << std::uppercase
+                       << static_cast<unsigned long>(result) << std::dec << std::nouppercase << L'\n';
+        }
+        Check(SUCCEEDED(result), L"the visible window captures", success);
+        UINT width = 0;
+        UINT height = 0;
+        uint32_t pixel = 0;
+        if (SUCCEEDED(result))
+        {
+            result = ReadPngPixel(full.c_str(), kWidth / 2, kHeight / 2, width, height, pixel);
+            Check(SUCCEEDED(result) && width == kWidth && height == kHeight, L"the capture has the window's size",
+                  success);
+            Check((pixel & 0x00FFFFFFU) == 0x002090E0U, L"the capture holds the painted color", success);
+        }
+        const RECT crop{8, 4, 40, 20};
+        result = RedXe::SaveWindowScreenshot(window.get(), cropped.c_str(), &crop);
+        Check(SUCCEEDED(result), L"a client-space crop captures", success);
+        if (SUCCEEDED(result))
+        {
+            result = ReadPngPixel(cropped.c_str(), 0, 0, width, height, pixel);
+            Check(SUCCEEDED(result) && width == 32 && height == 16 && (pixel & 0x00FFFFFFU) == 0x002090E0U,
+                  L"the crop is 32x16 of the painted color", success);
+        }
     }
     const RECT outside{kWidth + 10, kHeight + 10, kWidth + 20, kHeight + 20};
     Check(RedXe::SaveWindowScreenshot(window.get(), cropped.c_str(), &outside) == E_INVALIDARG,
