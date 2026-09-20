@@ -20,8 +20,9 @@ selection and the running-target preflight remain in [`Build_Process.md`](Build_
   and the number only grows on `main`, which forbids force pushes. `build.ps1`, `test.ps1`, and `package.ps1` resolve
   it once through `Resolve-RedXeBuildNumber` (an explicit positive `-BuildNumber` wins) and pass it to MSBuild as
   `RedXeBuildNumber`, which `Directory.Build.props` defines for the resource compiler only as `REDXE_VERSION_BUILD`.
-  A checkout without git history yields 0 with a warning. A new build number MUST NOT recompile C++ translation
-  units. CI checkouts that build MUST fetch the full history (`fetch-depth: 0`); a shallow clone would count 1.
+  A checkout without git history, and a shallow clone whose count would be truncated, yield 0 with a warning; the
+  release workflow fails on 0. A new build number MUST NOT recompile C++ translation units. CI checkouts that build
+  MUST fetch the full history (`fetch-depth: 0`).
 - Every shipped executable's version resource includes `Common/Version.h`: `FILEVERSION`/`PRODUCTVERSION`
   `major,minor,build,0`, `ProductName` `RedXe`, `CompanyName` `RedSalamanders`. `test.ps1` MUST verify that
   `RedXe.exe` and `RedXeLauncher.exe` report the file version expected for its `-BuildNumber`.

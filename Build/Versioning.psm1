@@ -59,17 +59,18 @@ function ConvertTo-RedXePackageVersion {
 The default build number: the number of commits reachable from HEAD.
 .DESCRIPTION
 The same formula gives the same number locally and in CI, it only grows on a branch that forbids force pushes
-(main), and one commit always maps to one version. A checkout without git history (a source archive, or a shallow
-CI clone) yields 0 with a warning so nothing pretends to be a release.
+(main), and one commit always maps to one version. A checkout without a complete history (a source archive, or a
+shallow clone whose count would be truncated) yields 0 with a warning so nothing pretends to be a release.
 #>
 function Get-RedXeDefaultBuildNumber {
+    [CmdletBinding()]
     param([Parameter(Mandatory)][string] $RepoRoot)
     $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $git) { Write-Warning 'git is not available; the build number is 0.'; return 0 }
     $count = & $git.Source -C $RepoRoot rev-list --count HEAD 2>$null
     if ($LASTEXITCODE -ne 0 -or $count -notmatch '^\d+$') { Write-Warning "$RepoRoot is not a git checkout; the build number is 0."; return 0 }
     $shallow = (& $git.Source -C $RepoRoot rev-parse --is-shallow-repository 2>$null)
-    if ($shallow -eq 'true') { Write-Warning 'Shallow clone: the commit count is truncated (fetch the full history for a real build number).' }
+    if ($shallow -eq 'true') { Write-Warning 'Shallow clone: the commit count would be truncated, so the build number is 0. Fetch the full history (git fetch --unshallow).'; return 0 }
     if ([int] $count -gt 65535) { throw "The commit count $count exceeds the 16-bit version field; pass -BuildNumber explicitly." }
     return [int] $count
 }
