@@ -1,8 +1,5 @@
-#include "resource.h"
 #include "../Common/Version.h"
 #include <windows.h>
-
-IDI_REDXE ICON "assets\\redxe-xenon.ico"
 
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION REDXE_VERSION_NUMERIC
@@ -22,11 +19,11 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "CompanyName", REDXE_VERSION_COMPANY "\0"
-            VALUE "FileDescription", "RedXe XENEON dashboard\0"
+            VALUE "FileDescription", "RedXe command-line launcher\0"
             VALUE "FileVersion", REDXE_VERSION_STRING "\0"
-            VALUE "InternalName", "RedXe\0"
+            VALUE "InternalName", "RedXeLauncher\0"
             VALUE "LegalCopyright", REDXE_VERSION_COPYRIGHT "\0"
-            VALUE "OriginalFilename", "RedXe.exe\0"
+            VALUE "OriginalFilename", "RedXeLauncher.exe\0"
             VALUE "ProductName", REDXE_VERSION_PRODUCT "\0"
             VALUE "ProductVersion", REDXE_VERSION_STRING "\0"
         END

@@ -1,0 +1,166 @@
+name: Release
+
+# Builds and tests Release for x64 and ARM64 on the native runners, packages each into the portable ZIP, publishes
+# a GitHub release v<major>.<minor>.<run number>, and hands the release to the winget publication workflow.
+# Specs/Build/Build_Packaging.md owns this contract.
+
+"on":
+  workflow_dispatch:
+    inputs:
+      build_arm64:
+        description: "Also build, test, and package ARM64 (required for winget: the manifest lists both architectures)."
+        required: false
+        type: boolean
+        default: true
+      publish_winget:
+        description: "Validate, install-test, and submit the winget manifest to microsoft/winget-pkgs after the release is published."
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-RedXe-${{ github.run_number }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      build_number: ${{ steps.version.outputs.build_number }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve release version
+        id: version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module (Join-Path $env:GITHUB_WORKSPACE 'Build\Versioning.psm1') -Force
+          $buildNumber = [int] $env:GITHUB_RUN_NUMBER
+          $version = Get-RedXeVersion -RepoRoot $env:GITHUB_WORKSPACE -BuildNumber $buildNumber
+          Write-Host "Release version: $($version.Version) (tag v$($version.Version), build number $buildNumber)"
+          "version=$($version.Version)" >> $env:GITHUB_OUTPUT
+          "tag=v$($version.Version)" >> $env:GITHUB_OUTPUT
+          "build_number=$buildNumber" >> $env:GITHUB_OUTPUT
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJson(inputs.build_arm64 && '["x64","ARM64"]' || '["x64"]') }}
+    # The same GitHub-hosted images as ci.yml: each platform builds, tests, and smoke-runs its package natively.
+    runs-on: ${{ matrix.platform == 'ARM64' && 'windows-11-vs2026-arm' || 'windows-2025-vs2026' }}
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build and test Release ${{ matrix.platform }}
+        shell: pwsh
+        run: |
+          ./test.ps1 -Configuration Release -Platform '${{ matrix.platform }}' -BuildNumber ${{ needs.version.outputs.build_number }}
+          if ($LASTEXITCODE -ne 0) { throw 'Release tests failed.' }
+
+      - name: Package portable ZIP
+        shell: pwsh
+        run: |
+          ./package.ps1 -Platform '${{ matrix.platform }}' -BuildNumber ${{ needs.version.outputs.build_number }} -SkipBuild
+          if ($LASTEXITCODE -ne 0) { throw 'Packaging failed.' }
+
+      - name: Upload package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: package-${{ matrix.platform }}
+          path: |
+            .build/packages/RedXe-${{ needs.version.outputs.version }}-${{ matrix.platform }}-Portable.zip
+            .build/packages/RedXe-${{ needs.version.outputs.version }}-${{ matrix.platform }}-Portable.zip.sha256
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-logs-${{ matrix.platform }}
+          path: |
+            .build/logs/**
+            .build/${{ matrix.platform }}/Release/*.log
+          retention-days: 14
+
+  release:
+    needs: [version, build]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: package-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Verify the exact release set
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          BUILD_ARM64: ${{ inputs.build_arm64 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module (Join-Path $env:GITHUB_WORKSPACE 'Build\Package.psm1') -Force
+          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
+          $platforms = if ($env:BUILD_ARM64 -eq 'true') { @('x64', 'ARM64') } else { @('x64') }
+          $expected = foreach ($platform in $platforms) { Get-RedXePackageName -Version $env:VERSION -Platform $platform }
+          $lines = foreach ($name in $expected) {
+            $zip = Join-Path $artifacts $name
+            if (-not (Test-Path -LiteralPath $zip -PathType Leaf) -or (Get-Item -LiteralPath $zip).Length -eq 0) { throw "Release asset missing or empty: $name" }
+            $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+            $sidecar = (Get-Content -LiteralPath "$zip.sha256" -Raw).Trim()
+            if ($sidecar -ne "$hash *$name") { throw "SHA256 sidecar does not match ${name}: '$sidecar'" }
+            Remove-Item -LiteralPath "$zip.sha256"
+            Write-Host ("  {0}  {1}  {2:N2} MB" -f $hash, $name, ((Get-Item -LiteralPath $zip).Length / 1MB))
+            "$hash *$name"
+          }
+          $unexpected = @(Get-ChildItem -LiteralPath $artifacts -File | Where-Object { $expected -notcontains $_.Name })
+          if ($unexpected.Count) { throw "Unexpected files in the release set: $($unexpected.Name -join ', ')" }
+          [IO.File]::WriteAllText((Join-Path $artifacts 'checksums.sha256'), (($lines -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: RedXe ${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: artifacts/*
+
+  winget:
+    # winget needs both architectures; an x64-only release is published on GitHub but not submitted.
+    if: ${{ inputs.publish_winget && inputs.build_arm64 }}
+    needs: [version, release]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/winget-release.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      submit: true
+    secrets: inherit

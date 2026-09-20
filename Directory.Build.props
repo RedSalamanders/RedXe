@@ -15,6 +15,11 @@
     <VcpkgManifestRoot>$(MSBuildThisFileDirectory)</VcpkgManifestRoot>
     <VcpkgInstalledDir>$(RedXeBuildRoot)vcpkg_installed\$(RedXeVcpkgPlatformScope)\</VcpkgInstalledDir>
     <VcpkgEnabled>false</VcpkgEnabled>
+
+    <!-- Third version component stamped into every version resource. build.ps1 -BuildNumber (the release
+         workflow passes GITHUB_RUN_NUMBER) sets it; a plain local build keeps 0. Only ResourceCompile sees
+         it so a new number never recompiles C++ translation units. See Common/Version.h. -->
+    <RedXeBuildNumber Condition="'$(RedXeBuildNumber)'==''">0</RedXeBuildNumber>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)'=='ASan Debug'">
@@ -40,6 +45,9 @@
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <ResourceCompile>
+      <PreprocessorDefinitions>REDXE_VERSION_BUILD=$(RedXeBuildNumber);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ResourceCompile>
   </ItemDefinitionGroup>
 
   <ItemDefinitionGroup Condition="'$(MSBuildProjectExtension)'=='.vcxproj' and ('$(Configuration)'=='Debug' or '$(Configuration)'=='ASan Debug')">

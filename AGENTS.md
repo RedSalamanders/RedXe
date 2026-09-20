@@ -126,6 +126,11 @@ Plugins/
   AVControl/        DxUi retained controls, isolated audio/camera helper, profiles and virtual-camera source
   Logicon/          Headless MX Creative Console keypad and dialpad service (HID++ and Raw Input over the device lane, key faces, the `logicon` action namespace) plus the Debug monitor tile and the Probe tool
   Actions/Zoom/     zoom.action.dll: headless Zoom service (OAuth PKCE, Plugin SDK session on the device lane, MSAA local path over the meeting toolbar) publishing the `zoom` action namespace; the first dedicated action DLL
+RedXeLauncher/
+  Main.cpp          Dependency-free shim behind the winget `RedXe` alias: resolves its final path, starts the package-root RedXe.exe
+Installer/
+  Install-RedXe.ps1 In-package installer (copy, Start Menu, Apps entry, start at sign-in, remove); install.cmd / uninstall.cmd wrap it
+  winget/templates/ RedSalamanders.RedXe manifest templates (schema 1.12.0, zip + nested portable launcher)
 RedXe/
   Main.cpp          Process setup and command-line modes
   CommandLine.h     Command-line switch catalog: --help text, names Main.cpp parses through, unknown-token scanner
@@ -151,6 +156,11 @@ Tests/
   AVControlTests/      Synthetic AV/IPC/MF faults, native controls, camera packaging and bounded control work
   LogiconTests/        HID++ framing, image stream, settings model, faces, synthetic keypad and dialpad sessions, raw-input helpers, and the shipped service DLL
   ZoomTests/           Zoom settings model, PKCE material, loopback listener, the MSAA local path, and the shipped service DLL over the synthetic session; --live drivers
+  BuildProcessTests/   Build preflight, DxUi provenance/update, and packaging (version, ZIP rules, winget manifest, in-package installer round-trip)
+Build/
+  Versioning.psm1   major.minor from Common/Version.h plus the caller's build number
+  Package.psm1      Portable ZIP staging rules, CRT bundling, and the clean-extraction smoke
+  Winget.psm1       Manifest generation from Installer/winget/templates and `winget validate`
 ThirdParty/
   ZoomPluginSdk/    Developer import of the Zoom Plugin SDK for Windows (never committed): import script and README
 Settings/
@@ -216,7 +226,13 @@ Keep the boundary explicit:
 .\build.ps1 -Run
 .\test.ps1
 .\validate-skills.ps1
+.\package.ps1 -Platform x64 -BuildNumber 42     # portable ZIP, smoke-tested from a clean extraction
+.\winget-manifest.ps1 -Version 1.0.42           # winget manifest from both platform packages
 ```
+
+The version is `major.minor` from `Common/Version.h` plus the build number a caller passes (`-BuildNumber`; the
+release workflow passes `GITHUB_RUN_NUMBER`). Packaging, the in-package installer, the `RedXe` alias launcher, and the
+release and winget workflows are owned by [`Specs/Build/Build_Packaging.md`](Specs/Build/Build_Packaging.md).
 
 `build.ps1` rejects only a running `RedXe.exe` whose normalized executable path exactly matches the selected
 `.build/<Platform>/<Configuration>/RedXe.exe`. It MUST identify that process and MUST NOT terminate it; same-name

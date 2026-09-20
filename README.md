@@ -46,6 +46,28 @@ py -3 -m pip install -r Build/requirements-validation.txt
 .\validate-skills.ps1
 ```
 
+## Package and release
+
+```powershell
+# Portable ZIP for this machine's architecture, stamped 1.0.<n>, smoke-tested from a clean extraction
+.\package.ps1 -Platform x64 -BuildNumber 42          # -> .build\packages\RedXe-1.0.42-x64-Portable.zip (+ .sha256)
+.\package.ps1 -Platform ARM64 -BuildNumber 42 -SkipBuild   # package an existing Release output
+
+# winget manifest from both packages, validated with `winget validate`
+.\winget-manifest.ps1 -Version 1.0.42
+```
+
+The package holds `RedXe.exe`, the `RedXe` command-alias launcher, `Plugins\`, `Settings\`, the Visual C++
+runtime, and `install.cmd` / `uninstall.cmd` / `Install-RedXe.ps1` (Start Menu shortcut, Settings > Apps entry,
+optional start at sign-in — see [docs/usage.md](docs/usage.md#install)). The build number is the third version
+component; `Common/Version.h` holds major.minor and a plain build stamps `1.0.0`.
+
+Releases are cut by the **Release** workflow (`Actions > Release > Run workflow`): it builds and tests Release on the
+x64 and ARM64 runners, packages both, publishes `v1.0.<run number>` with checksums, and hands off to **Publish to
+winget**, which validates the manifest, install-tests it through the real `RedXe` alias on a clean runner, and opens
+the `microsoft/winget-pkgs` pull request (needs the `WINGET_TOKEN` secret and public release assets).
+[`Specs/Build/Build_Packaging.md`](Specs/Build/Build_Packaging.md) is the contract.
+
 Open `RedXe.sln` for IDE development. Binaries are written to:
 
 ```text
@@ -121,11 +143,15 @@ are complete, the plan must move to `Specs/Plans/Done/` and must not remain unde
 Common/               Shared native plugin contracts
 Plugins/              Bundled plugin implementations
 RedXe/                 Win32 host and Direct3D orchestration
+RedXeLauncher/         Dependency-free launcher behind the winget `RedXe` command alias
+Installer/             In-package installer (Install-RedXe.ps1, install.cmd, uninstall.cmd) and winget manifest templates
 Settings/              Debug and Release settings templates
 Tests/                 ABI, settings, and production host/plugin tests
-Build/                 Exact-output build-process safety helper
-build.ps1             Build, clean, rebuild, and optionally run
+Build/                 Build-process safety, versioning, packaging, and winget helper modules
+build.ps1             Build, clean, rebuild, and optionally run (-BuildNumber stamps the version)
 test.ps1              GPU-independent contract, host/plugin, and runtime tests
+package.ps1           Portable ZIP with clean-extraction smoke
+winget-manifest.ps1   Winget manifest generation and validation
 Update-DxUi.ps1       Update the validated DxUi pin, optionally without local validation
 format.ps1            clang-format entrypoint
 validate-skills.ps1   Validate every repository-local skill

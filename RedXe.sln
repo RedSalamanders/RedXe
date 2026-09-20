@@ -64,6 +64,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Zoom", "Plugins\Actions\Zoo
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ZoomTests", "Tests\ZoomTests\ZoomTests.vcxproj", "{D7E2A9B4-1C63-4F8E-B5A7-9F0D3C6E2B18}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RedXeLauncher", "RedXeLauncher\RedXeLauncher.vcxproj", "{5B2E7C19-8D4A-4F63-9A1E-2C7D0B6E4F58}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM64 = Debug|ARM64
@@ -446,6 +448,18 @@ Global
 		{D7E2A9B4-1C63-4F8E-B5A7-9F0D3C6E2B18}.Release|ARM64.Build.0 = Release|ARM64
 		{D7E2A9B4-1C63-4F8E-B5A7-9F0D3C6E2B18}.Release|x64.ActiveCfg = Release|x64
 		{D7E2A9B4-1C63-4F8E-B5A7-9F0D3C6E2B18}.Release|x64.Build.0 = Release|x64
+		{5B2E7C19-8D4A-4F63-9A1E-2C7D0B6E4F58}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{5B2E7C19-8D4A-4F63-9A1E-2C7D0B6E4F58}.Debug|ARM64.Build.0 = Debug|ARM64
+		{5B2E7C19-8D4A-4F63-9A1E-2C7D0B6E4F58}.ASan Debug|ARM64.ActiveCfg = ASan Debug|ARM64
+		{5B2E7C19-8D4A-4F63-9A1E-2C7D0B6E4F58}.ASan Debug|ARM64.Build.0 = ASan Debug|ARM64
+		{5B2E7C19-8D4A-4F63-9A1E-2C7D0B6E4F58}.Debug|x64.ActiveCfg = Debug|x64
+		{5B2E7C19-8D4A-4F63-9A1E-2C7D0B6E4F58}.Debug|x64.Build.0 = Debug|x64
+		{5B2E7C19-8D4A-4F63-9A1E-2C7D0B6E4F58}.ASan Debug|x64.ActiveCfg = ASan Debug|x64
+		{5B2E7C19-8D4A-4F63-9A1E-2C7D0B6E4F58}.ASan Debug|x64.Build.0 = ASan Debug|x64
+		{5B2E7C19-8D4A-4F63-9A1E-2C7D0B6E4F58}.Release|ARM64.ActiveCfg = Release|ARM64
+		{5B2E7C19-8D4A-4F63-9A1E-2C7D0B6E4F58}.Release|ARM64.Build.0 = Release|ARM64
+		{5B2E7C19-8D4A-4F63-9A1E-2C7D0B6E4F58}.Release|x64.ActiveCfg = Release|x64
+		{5B2E7C19-8D4A-4F63-9A1E-2C7D0B6E4F58}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

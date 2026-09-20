@@ -18,7 +18,15 @@ Use the repository entrypoints instead of assembling ad hoc MSBuild commands:
 .\build.ps1 -Rebuild
 .\build.ps1 -Run
 .\test.ps1                               # Build + hidden WARP smoke test
+.\build.ps1 -Configuration Release -BuildNumber 42   # Stamp 1.0.42 into every version resource
+.\package.ps1 -Platform x64 -BuildNumber 42          # Portable ZIP under .build/packages, smoke-tested
+.\winget-manifest.ps1 -Version 1.0.42                # Winget manifest from both platform packages
 ```
+
+Packaging, the in-package installer, the `RedXe` command-alias launcher (`RedXeLauncher/`), and the release and
+winget workflows follow `Specs/Build/Build_Packaging.md`; a new bundled plugin DLL becomes a required package entry
+automatically through `RedXe/BundledPlugins.h`, and a new self-terminating command-line switch must be added to the
+launcher's awaited list.
 
 Outputs are always `.build/<Platform>/<Configuration>/`. Intermediate files are under `.build/Intermediate/`.
 `build.ps1` ensures manifest dependencies are installed first. The pinned vcpkg checkout and all package state also

@@ -1,0 +1,216 @@
+name: Publish to winget
+
+# Generates the RedSalamanders.RedXe manifest from a published GitHub release, validates it, install-tests it on a
+# clean runner through the real "RedXe" command alias, and submits it to microsoft/winget-pkgs with winget-create.
+# The release workflow calls it after the release exists; workflow_dispatch reruns validation or recovers a failed
+# submission. Specs/Build/Build_Packaging.md owns this contract.
+
+"on":
+  workflow_call:
+    inputs:
+      version:
+        description: "Three-part release version to publish (its GitHub release must exist)."
+        required: true
+        type: string
+      submit:
+        description: "Open the microsoft/winget-pkgs pull request after validation and the install test."
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      WINGET_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Three-part release version to publish, for example 1.0.42."
+        required: true
+        type: string
+      submit:
+        description: "Open the microsoft/winget-pkgs pull request after validation and the install test."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: winget-RedSalamanders.RedXe-v${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  winget:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      PACKAGE_ID: RedSalamanders.RedXe
+      MANIFEST_DIR: .build\packages\winget-manifest
+    steps:
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:REQUESTED_VERSION.Trim()
+          if ($version -notmatch '^\d{1,5}\.\d{1,5}\.\d{1,5}$') { throw "Version must have exactly three numeric components: '$version'" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.version.outputs.tag }}
+          persist-credentials: false
+
+      - name: Download release assets
+        id: release
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module (Join-Path $env:GITHUB_WORKSPACE 'Build\Package.psm1') -Force
+          $headers = @{ Accept = 'application/vnd.github+json'; Authorization = "Bearer $env:GITHUB_TOKEN"; 'X-GitHub-Api-Version' = '2022-11-28' }
+          $release = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/${{ github.repository }}/releases/tags/$env:TAG"
+          $assets = Join-Path $env:GITHUB_WORKSPACE '.build\packages'
+          [void](New-Item -ItemType Directory -Path $assets -Force)
+          foreach ($platform in @('x64', 'ARM64')) {
+            $name = Get-RedXePackageName -Version $env:VERSION -Platform $platform
+            $asset = $release.assets | Where-Object { $_.name -eq $name } | Select-Object -First 1
+            if (-not $asset) { throw "Release $env:TAG has no asset '$name'. Assets: $(($release.assets.name) -join ', ')" }
+            Write-Host "Downloading $name ($([math]::Round($asset.size / 1MB, 2)) MB)"
+            Invoke-WebRequest -Uri $asset.url -Headers @{ Accept = 'application/octet-stream'; Authorization = "Bearer $env:GITHUB_TOKEN"; 'X-GitHub-Api-Version' = '2022-11-28' } -OutFile (Join-Path $assets $name)
+
+            # winget-pkgs and every winget client download InstallerUrl anonymously. A private repository's assets
+            # answer 404 without credentials, so publication cannot succeed until the repository is public.
+            $anonymous = $null
+            try { $anonymous = Invoke-WebRequest -Method Head -Uri $asset.browser_download_url -MaximumRedirection 5 -ErrorAction Stop }
+            catch { throw "$($asset.browser_download_url) is not downloadable without credentials ($($_.Exception.Message)). winget requires a public installer URL: make the repository (or at least its releases) public, then rerun this workflow." }
+            if ($anonymous.StatusCode -ne 200) { throw "Anonymous download of $name returned HTTP $($anonymous.StatusCode)." }
+          }
+          # The manifest ReleaseDate is the release's publication date so a rerun regenerates the same manifest.
+          $publishedAt = $release.published_at
+          $utc = if ($publishedAt -is [datetime]) { $publishedAt.ToUniversalTime() } else { [DateTimeOffset]::Parse([string] $publishedAt, [Globalization.CultureInfo]::InvariantCulture).UtcDateTime }
+          $releaseDate = $utc.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+          "release_date=$releaseDate" >> $env:GITHUB_OUTPUT
+          "assets=$assets" >> $env:GITHUB_OUTPUT
+          Write-Host "Release date: $releaseDate"
+
+      - name: Generate and validate manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./winget-manifest.ps1 -Version '${{ steps.version.outputs.version }}' -ReleaseDate '${{ steps.release.outputs.release_date }}' -OutputDirectory $env:MANIFEST_DIR
+          if ($LASTEXITCODE -ne 0) { throw 'Manifest generation or validation failed.' }
+          Get-ChildItem -LiteralPath $env:MANIFEST_DIR | ForEach-Object { Write-Host "::group::$($_.Name)"; Get-Content -LiteralPath $_.FullName; Write-Host '::endgroup::' }
+
+      - name: Install test through winget
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference = 'Stop'
+          winget --version
+          winget settings --enable LocalManifestFiles
+          if ($LASTEXITCODE -ne 0) { throw "winget settings --enable LocalManifestFiles failed with $LASTEXITCODE." }
+          winget install --manifest $env:MANIFEST_DIR --accept-package-agreements --accept-source-agreements --disable-interactivity --ignore-warnings
+          if ($LASTEXITCODE -ne 0) { throw "winget install --manifest failed with $LASTEXITCODE." }
+          winget list --exact --id $env:PACKAGE_ID --accept-source-agreements --disable-interactivity
+          if ($LASTEXITCODE -ne 0) { throw "$env:PACKAGE_ID is not listed after installation." }
+
+          # The alias winget created must start the packaged RedXe.exe through RedXeLauncher.exe; --help exits 0
+          # only when the launcher found the package root and RedXe.exe loaded its app-local DLLs from there.
+          $alias = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\RedXe.exe'
+          if (-not (Test-Path -LiteralPath $alias)) { throw "winget did not create the command alias at $alias." }
+          $helpLog = Join-Path $env:RUNNER_TEMP 'alias-help.log'
+          $help = Start-Process -FilePath $alias -ArgumentList @('--help') -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $helpLog
+          if ($help.ExitCode -ne 0 -or (Get-Content -LiteralPath $helpLog -Raw) -notmatch '--self-test') { throw "The RedXe alias exited with $($help.ExitCode) or printed no help." }
+          $selfTest = Start-Process -FilePath $alias -ArgumentList @('--self-test', '--warp') -Wait -PassThru -WindowStyle Hidden
+          if ($selfTest.ExitCode -ne 0) { throw "RedXe --self-test --warp through the alias exited with $($selfTest.ExitCode)." }
+          Write-Host 'The installed alias starts RedXe and its plugins from the winget package root.'
+
+      - name: Uninstall test package
+        if: always()
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          winget list --exact --id $env:PACKAGE_ID --accept-source-agreements --disable-interactivity
+          if ($LASTEXITCODE -eq -1978335212) { Write-Host 'Nothing to uninstall.'; exit 0 }   # APPINSTALLER_CLI_ERROR_NO_APPLICATIONS_FOUND
+          if ($LASTEXITCODE -ne 0) { throw "winget list failed with $LASTEXITCODE." }
+          winget uninstall --exact --id $env:PACKAGE_ID --silent --purge --accept-source-agreements --disable-interactivity --ignore-warnings
+          if ($LASTEXITCODE -ne 0) { throw "winget uninstall failed with $LASTEXITCODE." }
+          exit 0
+
+      - name: Install winget-create
+        if: ${{ inputs.submit }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = '1.12.8.0'
+          winget install --exact --id Microsoft.WingetCreate --version $expected --silent --disable-interactivity --accept-source-agreements --accept-package-agreements
+          if ($LASTEXITCODE -ne 0) { throw "winget-create $expected install failed with $LASTEXITCODE." }
+          $wingetcreate = (Get-Command wingetcreate.exe -CommandType Application -ErrorAction Stop).Source
+          # `wingetcreate --version` prints "WingetCreateCLI <version>+<commit>" and then its help, exiting nonzero.
+          $banner = (@(& $wingetcreate --version 2>&1 | ForEach-Object { $_.ToString() })) -join "`n"
+          $global:LASTEXITCODE = 0
+          $match = [regex]::Match($banner, '(?m)^\s*WingetCreateCLI\s+(?<version>\d+(?:\.\d+){1,3})\+')
+          if (-not $match.Success -or $match.Groups['version'].Value -ne $expected) { throw "Resolved winget-create '$($match.Groups['version'].Value)' is not the reviewed $expected." }
+          "WINGETCREATE_PATH=$wingetcreate" >> $env:GITHUB_ENV
+          Write-Host "winget-create $expected at $wingetcreate"
+
+      - name: Submit to microsoft/winget-pkgs
+        if: ${{ inputs.submit }}
+        shell: pwsh
+        env:
+          WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:WINGET_CREATE_GITHUB_TOKEN)) {
+            throw 'The WINGET_TOKEN secret is not configured. Add a classic GitHub personal access token with the public_repo scope (winget-create forks microsoft/winget-pkgs and opens the pull request as that account).'
+          }
+          $headers = @{ Accept = 'application/vnd.github+json'; Authorization = "Bearer $env:WINGET_CREATE_GITHUB_TOKEN"; 'X-GitHub-Api-Version' = '2022-11-28' }
+          $owner = (Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/user').login
+          Write-Host "Submitting as $owner from fork $owner/winget-pkgs"
+
+          # Already published (a rerun after a merged pull request) is success, not a second submission.
+          $manifestPath = "manifests/r/RedSalamanders/RedXe/$env:VERSION"
+          try {
+            $null = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/microsoft/winget-pkgs/contents/$manifestPath"
+            Write-Host "::notice::$env:PACKAGE_ID $env:VERSION is already published: https://github.com/microsoft/winget-pkgs/tree/master/$manifestPath"
+            exit 0
+          } catch {
+            $status = $null
+            if ($_.Exception.PSObject.Properties['Response'] -and $_.Exception.Response) { $status = [int] $_.Exception.Response.StatusCode }
+            if ($status -ne 404) { throw }
+          }
+          # An open pull request for this exact version (from this account or anyone else) must not be duplicated.
+          $open = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/search/issues?q=$([uri]::EscapeDataString("repo:microsoft/winget-pkgs is:pr is:open in:title `"$env:PACKAGE_ID`" `"$env:VERSION`""))"
+          if ($open.total_count -gt 0) {
+            $urls = ($open.items | ForEach-Object { $_.html_url }) -join ', '
+            Write-Host "::notice::A pull request for $env:PACKAGE_ID $env:VERSION is already open: $urls"
+            exit 0
+          }
+
+          $title = if ((Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/r/RedSalamanders' | Where-Object { $_.name -eq 'RedXe' })) {
+            "Update: $env:PACKAGE_ID version $env:VERSION"
+          } else {
+            "New package: $env:PACKAGE_ID version $env:VERSION"
+          }
+          & $env:WINGETCREATE_PATH submit --prtitle $title --no-open $env:MANIFEST_DIR
+          if ($LASTEXITCODE -ne 0) { throw "wingetcreate submit failed with exit code $LASTEXITCODE." }
+          $created = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/search/issues?q=$([uri]::EscapeDataString("repo:microsoft/winget-pkgs is:pr author:$owner `"$env:VERSION`""))"
+          $url = ($created.items | Where-Object { $_.title -match [regex]::Escape($env:PACKAGE_ID) } | Select-Object -First 1).html_url
+          Write-Host "::notice::Submitted $env:PACKAGE_ID $env:VERSION$(if ($url) { ": $url" })"
+          "## winget submission`n- Package: $env:PACKAGE_ID $env:VERSION`n- Pull request: $(if ($url) { $url } else { 'see the wingetcreate output above' })" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Summary
+        if: ${{ !inputs.submit }}
+        shell: pwsh
+        run: Write-Host "Validated and install-tested $env:PACKAGE_ID ${{ steps.version.outputs.version }}; submission was not requested for this run."

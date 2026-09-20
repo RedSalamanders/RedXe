@@ -25,6 +25,10 @@ Launches the resulting application after a successful build. Valid only for the 
 
 .PARAMETER MaxCpuCount
 Maximum MSBuild worker count. Zero uses MSBuild's default.
+
+.PARAMETER BuildNumber
+Third version component stamped into every version resource (Common/Version.h supplies major.minor). The release
+workflow passes GITHUB_RUN_NUMBER; a local build keeps 0. Range 0..65535.
 #>
 [CmdletBinding()]
 param(
@@ -39,7 +43,10 @@ param(
     [switch] $Run,
 
     [ValidateRange(0, 256)]
-    [int] $MaxCpuCount = 0
+    [int] $MaxCpuCount = 0,
+
+    [ValidateRange(0, 65535)]
+    [int] $BuildNumber = 0
 )
 
 Set-StrictMode -Version Latest
@@ -63,6 +70,10 @@ Import-Module $buildPresentationModule -Force -ErrorAction Stop
 $useInteractiveTerminal = Test-RedXeInteractiveTerminal
 Write-RedXeBuildBanner -UseColor $useInteractiveTerminal
 Write-Host ("Target: {0} | {1}" -f $Platform, $Configuration) -ForegroundColor Magenta
+if ($BuildNumber -gt 0) {
+    Import-Module (Join-Path $repoRoot 'Build\Versioning.psm1') -Force -ErrorAction Stop
+    Write-Host ("Version: {0}" -f (Get-RedXeVersion -RepoRoot $repoRoot -BuildNumber $BuildNumber).Version) -ForegroundColor Magenta
+}
 Write-Host ''
 
 Assert-BuildOutputProcessNotRunning -ProcessName 'RedXe.exe' -ExpectedExecutablePath $executable
@@ -126,6 +137,7 @@ $arguments = @(
     "/t:$target",
     "/p:Configuration=$Configuration",
     "/p:Platform=$Platform",
+    "/p:RedXeBuildNumber=$BuildNumber",
     $workerArgument,
     '/nologo',
     '/verbosity:minimal'

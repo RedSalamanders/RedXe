@@ -21,7 +21,10 @@ param(
     [ValidateSet('x64', 'ARM64')]
     [string] $Platform = 'x64',
 
-    [switch] $Rebuild
+    [switch] $Rebuild,
+
+    [ValidateRange(0, 65535)]
+    [int] $BuildNumber = 0
 )
 
 Set-StrictMode -Version Latest
@@ -35,6 +38,7 @@ if ($Platform -eq 'ARM64' -and $nativeArchitecture -ne 'Arm64') {
 $buildArguments = @{
     Configuration = $Configuration
     Platform = $Platform
+    BuildNumber = $BuildNumber
 }
 if ($Rebuild) {
     $buildArguments.Rebuild = $true
@@ -53,17 +57,45 @@ if ($Platform -ne 'x64' -and $env:PROCESSOR_ARCHITECTURE -eq 'AMD64') {
     throw 'The ARM64 smoke test must run on ARM64 Windows. The build itself completed successfully.'
 }
 
+Import-Module (Join-Path $repoRoot 'Build/Versioning.psm1') -Force
+$expectedFileVersion = (Get-RedXeVersion -RepoRoot $repoRoot -BuildNumber $BuildNumber).FileVersion
 $executableVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($executable)
 if ($executableVersion.FileDescription -ne 'RedXe XENEON dashboard' -or
     $executableVersion.OriginalFilename -ne 'RedXe.exe' -or
-    $executableVersion.ProductName -ne 'RedXe') {
-    throw 'RedXe.exe is missing its stable Windows executable version identity.'
+    $executableVersion.ProductName -ne 'RedXe' -or
+    $executableVersion.FileVersion -ne $expectedFileVersion) {
+    throw "RedXe.exe is missing its stable Windows executable version identity (expected $expectedFileVersion)."
+}
+
+# The winget command alias targets RedXeLauncher.exe: it must carry the same version stamp, need nothing but
+# system DLLs, and hand --help through to RedXe.exe with its output and exit code.
+$launcher = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXeLauncher.exe"
+$launcherVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($launcher)
+if ($launcherVersion.OriginalFilename -ne 'RedXeLauncher.exe' -or $launcherVersion.ProductName -ne 'RedXe' -or
+    $launcherVersion.FileVersion -ne $expectedFileVersion) {
+    throw "RedXeLauncher.exe is missing its stable Windows executable version identity (expected $expectedFileVersion)."
+}
+Write-Host 'Running command alias launcher check...' -ForegroundColor Cyan
+$launcherHelpLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXeLauncher.help.log"
+$launcherHelp = Start-Process -WindowStyle Hidden -FilePath $launcher -ArgumentList @('--help') -Wait -PassThru `
+    -RedirectStandardOutput $launcherHelpLog
+if ($launcherHelp.ExitCode -ne 0 -or (Get-Content -LiteralPath $launcherHelpLog -Raw) -notmatch '--self-test') {
+    throw "RedXeLauncher.exe --help exited with code $($launcherHelp.ExitCode) or did not relay the RedXe help text."
+}
+$launcherUnknown = Start-Process -WindowStyle Hidden -FilePath $launcher -ArgumentList @('--self-test', '--warp', '--no-such-switch') -Wait -PassThru
+if ($launcherUnknown.ExitCode -ne 2) {
+    throw "RedXeLauncher.exe did not propagate the unknown-switch exit code 2 (got $($launcherUnknown.ExitCode))."
 }
 
 Write-Host 'Running exact build-output process preflight tests...' -ForegroundColor Cyan
 & (Join-Path $repoRoot 'Tests\BuildProcessTests\BuildProcessTests.ps1')
 & (Join-Path $repoRoot 'Tests\BuildProcessTests\DxUiProvenanceTests.ps1')
 & (Join-Path $repoRoot 'Tests\BuildProcessTests\DxUiUpdateTests.ps1')
+Write-Host 'Running packaging, versioning, winget manifest, and in-package installer tests...' -ForegroundColor Cyan
+& (Join-Path $repoRoot 'Tests\BuildProcessTests\PackagingTests.ps1') -Configuration $Configuration -Platform $Platform
+if ($LASTEXITCODE -ne 0) {
+    throw "Packaging tests failed with exit code $LASTEXITCODE."
+}
 
 $contractTests = Join-Path $repoRoot ".build\$Platform\$Configuration\PluginContractTests.exe"
 if ($Configuration -eq 'ASan Debug') {

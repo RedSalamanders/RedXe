@@ -1,5 +1,44 @@
 # Global usage
 
+## Install
+
+RedXe ships as a portable ZIP per CPU architecture (`RedXe-<version>-x64-Portable.zip`,
+`RedXe-<version>-ARM64-Portable.zip`) on the [releases page](https://github.com/RedSalamanders/RedXe/releases). It
+needs Windows 10 version 2004 or later; the Visual C++ runtime is inside the package.
+
+**From the ZIP.** Extract it anywhere and run `RedXe.exe` — that is a complete installation. To get a Start Menu
+shortcut, an entry under Settings > Apps, and (optionally) RedXe starting when you sign in, run `install.cmd` from
+the extracted folder. It copies the package to `%LocalAppData%\Programs\RedXe`; nothing needs administrator rights.
+
+```powershell
+.\install.cmd                              # copy, Start Menu shortcut, Apps entry
+.\install.cmd -StartAtSignIn -Launch       # also start at sign-in, then start now
+.\Install-RedXe.ps1 -Destination D:\Apps\RedXe
+.\Install-RedXe.ps1 -InPlace               # register this folder without copying it
+.\uninstall.cmd                            # remove the shortcut, sign-in entry, Apps entry, and the copy
+.\uninstall.cmd -PurgeUserData             # also delete %LocalAppData%\RedXe (settings, logs, crash dumps)
+```
+
+Running `install.cmd` again with a newer package upgrades the copy in place; your settings under
+`%LocalAppData%\RedXe` are never touched by install or uninstall (unless you ask with `-PurgeUserData`). Close RedXe
+before installing or removing: a running copy is reported, never killed.
+
+**With winget.**
+
+```powershell
+winget install RedSalamanders.RedXe
+```
+
+This installs the same package and adds a `RedXe` command to new terminals (`RedXe`, `RedXe --dock bottom`,
+`RedXe --help`). winget does not create Start Menu shortcuts for portable packages; to add one, or to start at
+sign-in, run `install.cmd` inside the package folder,
+`%LocalAppData%\Microsoft\WinGet\Packages\RedSalamanders.RedXe_Microsoft.Winget.Source_8wekyb3d8bbwe` — inside a
+winget package the installer registers that folder in place. Upgrade with `winget upgrade RedSalamanders.RedXe`
+and remove with `winget uninstall RedSalamanders.RedXe`.
+
+The `RedXe` command is a small launcher (`RedXeLauncher.exe`) that starts `RedXe.exe` from the package folder;
+double-clicking `RedXe.exe` itself does the same thing.
+
 ## What you see
 
 RedXe fills a XENEON EDGE display with ordered **pages**. Each page is a tree of tiles. Sibling tiles share space by ratio, not by pixel coordinates, so the same layout works in landscape and portrait.
