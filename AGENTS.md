@@ -226,12 +226,12 @@ Keep the boundary explicit:
 .\build.ps1 -Run
 .\test.ps1
 .\validate-skills.ps1
-.\package.ps1 -Platform x64 -BuildNumber 42     # portable ZIP, smoke-tested from a clean extraction
-.\winget-manifest.ps1 -Version 1.0.42           # winget manifest from both platform packages
+.\package.ps1 -Platform x64                     # portable ZIP stamped 1.0.<commit count>, smoke-tested from a clean extraction
+.\winget-manifest.ps1 -Version 1.0.<n>          # winget manifest from both platform packages
 ```
 
-The version is `major.minor` from `Common/Version.h` plus the build number a caller passes (`-BuildNumber`; the
-release workflow passes `GITHUB_RUN_NUMBER`). Packaging, the in-package installer, the `RedXe` alias launcher, and the
+The version is `major.minor` from `Common/Version.h` plus the build number: `-BuildNumber` when given,
+otherwise the commit count of HEAD, which the release workflow stamps too (one commit, one version). Packaging, the in-package installer, the `RedXe` alias launcher, and the
 release and winget workflows are owned by [`Specs/Build/Build_Packaging.md`](Specs/Build/Build_Packaging.md).
 
 `build.ps1` rejects only a running `RedXe.exe` whose normalized executable path exactly matches the selected

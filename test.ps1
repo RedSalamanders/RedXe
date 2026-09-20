@@ -35,6 +35,9 @@ $nativeArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArc
 if ($Platform -eq 'ARM64' -and $nativeArchitecture -ne 'Arm64') {
     throw 'ARM64 runtime qualification requires a native ARM64 host; use build.ps1 for cross-compilation.'
 }
+# Resolve the build number once (explicit, else the commit count) so the build and the identity checks agree.
+Import-Module (Join-Path $repoRoot 'Build/Versioning.psm1') -Force
+$BuildNumber = Resolve-RedXeBuildNumber -RepoRoot $repoRoot -Requested $BuildNumber
 $buildArguments = @{
     Configuration = $Configuration
     Platform = $Platform
@@ -57,7 +60,6 @@ if ($Platform -ne 'x64' -and $env:PROCESSOR_ARCHITECTURE -eq 'AMD64') {
     throw 'The ARM64 smoke test must run on ARM64 Windows. The build itself completed successfully.'
 }
 
-Import-Module (Join-Path $repoRoot 'Build/Versioning.psm1') -Force
 $expectedFileVersion = (Get-RedXeVersion -RepoRoot $repoRoot -BuildNumber $BuildNumber).FileVersion
 $executableVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($executable)
 if ($executableVersion.FileDescription -ne 'RedXe XENEON dashboard' -or

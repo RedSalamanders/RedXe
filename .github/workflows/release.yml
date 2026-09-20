@@ -1,7 +1,7 @@
 name: Release
 
 # Builds and tests Release for x64 and ARM64 on the native runners, packages each into the portable ZIP, publishes
-# a GitHub release v<major>.<minor>.<run number>, and hands the release to the winget publication workflow.
+# a GitHub release v<major>.<minor>.<commit count>, and hands the release to the winget publication workflow.
 # Specs/Build/Build_Packaging.md owns this contract.
 
 "on":
@@ -33,22 +33,35 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       build_number: ${{ steps.version.outputs.build_number }}
     steps:
-      - name: Checkout
+      - name: Checkout with full history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The build number is the commit count of the released commit; a shallow clone would count 1.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Resolve release version
         id: version
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           Import-Module (Join-Path $env:GITHUB_WORKSPACE 'Build\Versioning.psm1') -Force
-          $buildNumber = [int] $env:GITHUB_RUN_NUMBER
+          $buildNumber = Get-RedXeDefaultBuildNumber -RepoRoot $env:GITHUB_WORKSPACE
+          if ($buildNumber -le 0) { throw 'The commit count could not be determined; the release needs the full git history.' }
           $version = Get-RedXeVersion -RepoRoot $env:GITHUB_WORKSPACE -BuildNumber $buildNumber
-          Write-Host "Release version: $($version.Version) (tag v$($version.Version), build number $buildNumber)"
+          $tag = "v$($version.Version)"
+          Write-Host "Release version: $($version.Version) (tag $tag, commit count $buildNumber, commit $env:GITHUB_SHA)"
+
+          # One commit is one version: a tag that already exists means this commit (or a same-count commit on
+          # another branch) was released, and its published assets must never be replaced.
+          $existing = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.sha' 2>$null
+          if ($LASTEXITCODE -eq 0 -and $existing) {
+            throw "Tag $tag already exists at $existing. Merge a new commit to main before releasing again."
+          }
           "version=$($version.Version)" >> $env:GITHUB_OUTPUT
-          "tag=v$($version.Version)" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
           "build_number=$buildNumber" >> $env:GITHUB_OUTPUT
 
   build:

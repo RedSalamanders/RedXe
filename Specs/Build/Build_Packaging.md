@@ -1,7 +1,7 @@
 # RedXe packaging, release, and winget contract
 
 Status: current normative repository contract
-Last reviewed: 2026-09-19
+Last reviewed: 2026-09-20
 Owner: `package.ps1`, `winget-manifest.ps1`, `Build/Versioning.psm1`, `Build/Package.psm1`, `Build/Winget.psm1`,
 `Installer/`, `RedXeLauncher/`, `.github/workflows/release.yml`, `.github/workflows/winget-release.yml`
 
@@ -15,15 +15,19 @@ selection and the running-target preflight remain in [`Build_Process.md`](Build_
 
 - `Common/Version.h` is the single source of `REDXE_VERSION_MAJOR` and `REDXE_VERSION_MINOR`. Each MUST stay a
   one-line `#define` with a single integer literal so `Build/Versioning.psm1` can read it.
-- The third component is the build number: `build.ps1 -BuildNumber` (through `test.ps1 -BuildNumber` and
-  `package.ps1 -BuildNumber`) passes it to MSBuild as `RedXeBuildNumber`, which `Directory.Build.props` defines for
-  the resource compiler only as `REDXE_VERSION_BUILD`. A plain local build stamps 0; the release workflow passes
-  `GITHUB_RUN_NUMBER`. A new build number MUST NOT recompile C++ translation units.
+- The third component is the build number. Its default is the commit count of `HEAD` (`git rev-list --count HEAD`,
+  `Get-RedXeDefaultBuildNumber`), the same formula locally and in the release workflow, so one commit is one version
+  and the number only grows on `main`, which forbids force pushes. `build.ps1`, `test.ps1`, and `package.ps1` resolve
+  it once through `Resolve-RedXeBuildNumber` (an explicit positive `-BuildNumber` wins) and pass it to MSBuild as
+  `RedXeBuildNumber`, which `Directory.Build.props` defines for the resource compiler only as `REDXE_VERSION_BUILD`.
+  A checkout without git history yields 0 with a warning. A new build number MUST NOT recompile C++ translation
+  units. CI checkouts that build MUST fetch the full history (`fetch-depth: 0`); a shallow clone would count 1.
 - Every shipped executable's version resource includes `Common/Version.h`: `FILEVERSION`/`PRODUCTVERSION`
   `major,minor,build,0`, `ProductName` `RedXe`, `CompanyName` `RedSalamanders`. `test.ps1` MUST verify that
   `RedXe.exe` and `RedXeLauncher.exe` report the file version expected for its `-BuildNumber`.
 - The package version, GitHub release tag, and winget `PackageVersion` are the same `major.minor.build`
-  (`1.0.183`, tag `v1.0.183`). A winget manifest requires a positive build number; `1.0.0` is a local package only.
+  (`1.0.183`, tag `v1.0.183`). A winget manifest requires a positive build number, which only a checkout without git
+  history fails to provide.
 
 ## Command-alias launcher (`RedXeLauncher.exe`)
 
@@ -128,9 +132,11 @@ behind.
 
 ## Release workflow (`.github/workflows/release.yml`)
 
-`workflow_dispatch` only, so the version is the run number and every release is deliberate.
+`workflow_dispatch` only, so every release is deliberate.
 
-1. `version` resolves `major.minor.<GITHUB_RUN_NUMBER>` from `Common/Version.h`.
+1. `version` checks out the full history and resolves `major.minor.<commit count>` from `Common/Version.h` and
+   `git rev-list --count HEAD`. It fails when the tag `v<version>` already exists: a commit is released at most
+   once, and published assets are never replaced. Releasing again means merging a new commit to `main`.
 2. `build` runs `test.ps1 -Configuration Release -Platform <P> -BuildNumber <n>` then
    `package.ps1 -Platform <P> -BuildNumber <n> -SkipBuild` natively on `windows-2025-vs2026` (x64) and
    `windows-11-vs2026-arm` (ARM64, unless `build_arm64` is off), and uploads the ZIP and its sidecar.

@@ -7,7 +7,7 @@ Reads the human-maintained major.minor from Common/Version.h and combines it wit
 .DESCRIPTION
 Returns Major, Minor, Build, Version ("1.0.183": the package, tag, and winget version) and FileVersion
 ("1.0.183.0": what the compiled version resources report). The header is the single source of major.minor;
-the build number comes from the caller (GITHUB_RUN_NUMBER in the release workflow, 0 for a plain local build).
+the build number comes from the caller; Resolve-RedXeBuildNumber supplies the default (the commit count of HEAD).
 #>
 function Get-RedXeVersion {
     param(
@@ -54,4 +54,34 @@ function ConvertTo-RedXePackageVersion {
     }
 }
 
-Export-ModuleMember -Function Get-RedXeVersion, ConvertTo-RedXePackageVersion
+<#
+.SYNOPSIS
+The default build number: the number of commits reachable from HEAD.
+.DESCRIPTION
+The same formula gives the same number locally and in CI, it only grows on a branch that forbids force pushes
+(main), and one commit always maps to one version. A checkout without git history (a source archive, or a shallow
+CI clone) yields 0 with a warning so nothing pretends to be a release.
+#>
+function Get-RedXeDefaultBuildNumber {
+    param([Parameter(Mandatory)][string] $RepoRoot)
+    $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $git) { Write-Warning 'git is not available; the build number is 0.'; return 0 }
+    $count = & $git.Source -C $RepoRoot rev-list --count HEAD 2>$null
+    if ($LASTEXITCODE -ne 0 -or $count -notmatch '^\d+$') { Write-Warning "$RepoRoot is not a git checkout; the build number is 0."; return 0 }
+    $shallow = (& $git.Source -C $RepoRoot rev-parse --is-shallow-repository 2>$null)
+    if ($shallow -eq 'true') { Write-Warning 'Shallow clone: the commit count is truncated (fetch the full history for a real build number).' }
+    if ([int] $count -gt 65535) { throw "The commit count $count exceeds the 16-bit version field; pass -BuildNumber explicitly." }
+    return [int] $count
+}
+
+<#
+.SYNOPSIS
+An explicit positive build number, or the default commit count when none was requested.
+#>
+function Resolve-RedXeBuildNumber {
+    param([Parameter(Mandatory)][string] $RepoRoot, [ValidateRange(0, 65535)][int] $Requested = 0)
+    if ($Requested -gt 0) { return $Requested }
+    return Get-RedXeDefaultBuildNumber -RepoRoot $RepoRoot
+}
+
+Export-ModuleMember -Function Get-RedXeVersion, ConvertTo-RedXePackageVersion, Get-RedXeDefaultBuildNumber, Resolve-RedXeBuildNumber

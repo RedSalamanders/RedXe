@@ -49,21 +49,23 @@ py -3 -m pip install -r Build/requirements-validation.txt
 ## Package and release
 
 ```powershell
-# Portable ZIP for this machine's architecture, stamped 1.0.<n>, smoke-tested from a clean extraction
-.\package.ps1 -Platform x64 -BuildNumber 42          # -> .build\packages\RedXe-1.0.42-x64-Portable.zip (+ .sha256)
-.\package.ps1 -Platform ARM64 -BuildNumber 42 -SkipBuild   # package an existing Release output
+# Portable ZIP for this machine's architecture, stamped 1.0.<commit count of HEAD>, smoke-tested from a clean extraction
+.\package.ps1 -Platform x64                          # -> .build\packages\RedXe-1.0.<n>-x64-Portable.zip (+ .sha256)
+.\package.ps1 -Platform ARM64 -SkipBuild             # package an existing Release output
+.\package.ps1 -Platform x64 -BuildNumber 42          # explicit build number
 
 # winget manifest from both packages, validated with `winget validate`
-.\winget-manifest.ps1 -Version 1.0.42
+.\winget-manifest.ps1 -Version 1.0.<n>
 ```
 
 The package holds `RedXe.exe`, the `RedXe` command-alias launcher, `Plugins\`, `Settings\`, the Visual C++
 runtime, and `install.cmd` / `uninstall.cmd` / `Install-RedXe.ps1` (Start Menu shortcut, Settings > Apps entry,
 optional start at sign-in — see [docs/usage.md](docs/usage.md#install)). The build number is the third version
-component; `Common/Version.h` holds major.minor and a plain build stamps `1.0.0`.
+component: `Common/Version.h` holds major.minor and the default build number is the commit count of HEAD, so a local
+build of commit 86 on main and the release of that commit are both `1.0.86`.
 
 Releases are cut by the **Release** workflow (`Actions > Release > Run workflow`): it builds and tests Release on the
-x64 and ARM64 runners, packages both, publishes `v1.0.<run number>` with checksums, and hands off to **Publish to
+x64 and ARM64 runners, packages both, publishes `v1.0.<commit count>` with checksums, and hands off to **Publish to
 winget**, which validates the manifest, install-tests it through the real `RedXe` alias on a clean runner, and opens
 the `microsoft/winget-pkgs` pull request (needs the `WINGET_TOKEN` secret and public release assets).
 [`Specs/Build/Build_Packaging.md`](Specs/Build/Build_Packaging.md) is the contract.
