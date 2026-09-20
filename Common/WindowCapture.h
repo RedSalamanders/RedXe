@@ -15,4 +15,11 @@ namespace RedXe
 // client area; an empty intersection fails with E_INVALIDARG.
 [[nodiscard]] HRESULT SaveWindowScreenshot(HWND window, const wchar_t* pngPath,
                                            const RECT* clientCrop = nullptr) noexcept;
+
+// Whether this host can capture that window at all, without capturing: E_NOTIMPL when the OS has no capture
+// support, otherwise the failure of the hardware Direct3D 11 device or of the capture item, otherwise S_OK with
+// the size of the surface the compositor exposes for the window. An empty size means the window has no composed
+// surface here (a session without desktop composition), and a capture would fail. The tests use it to tell a host
+// that cannot capture from a capture that broke.
+[[nodiscard]] HRESULT QueryWindowCaptureSupport(HWND window, SIZE* surfaceSize) noexcept;
 } // namespace RedXe
