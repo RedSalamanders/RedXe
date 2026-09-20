@@ -127,7 +127,9 @@ jobs:
           $helpLog = Join-Path $env:RUNNER_TEMP 'alias-help.log'
           $help = Start-Process -FilePath $alias -ArgumentList @('--help') -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $helpLog
           if ($help.ExitCode -ne 0 -or (Get-Content -LiteralPath $helpLog -Raw) -notmatch '--self-test') { throw "The RedXe alias exited with $($help.ExitCode) or printed no help." }
-          $selfTest = Start-Process -FilePath $alias -ArgumentList @('--self-test', '--warp') -Wait -PassThru -WindowStyle Hidden
+          # Redirecting output makes Start-Process use CreateProcess rather than ShellExecute: the extracted package
+          # carries the mark of the web, and ShellExecute would stop at a SmartScreen prompt on a headless runner.
+          $selfTest = Start-Process -FilePath $alias -ArgumentList @('--self-test', '--warp') -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'alias-selftest.log')
           if ($selfTest.ExitCode -ne 0) { throw "RedXe --self-test --warp through the alias exited with $($selfTest.ExitCode)." }
           Write-Host 'The installed alias starts RedXe and its plugins from the winget package root.'
 
