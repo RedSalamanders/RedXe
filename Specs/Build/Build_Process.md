@@ -37,8 +37,9 @@ entrypoint requires an isolated use-after-free to produce the sanitizer's diagno
 not successful detection. ARM64 runtime tests require native ARM64 execution.
 
 The native CI matrix runs the ordinary product test entrypoint for all six configurations on every push to `main`
-and on manual dispatch; a pull request runs only the x64 Release leg, so the full matrix (ASan and ARM64 included)
-guards what can be released while PR feedback stays fast. DxUi is public:
+and on manual dispatch; a pull request runs only the x64 Release leg, so PR feedback stays fast. The full matrix
+(ASan and ARM64 included) is the release gate: the release workflow refuses a commit whose validation push run on
+`main` has not succeeded (see [`Build_Packaging.md`](Build_Packaging.md)). DxUi is public:
 HTTPS source restore requires no personal token or repository/organization secret. The advisory API check
 uses the automatic read-only job token in CI and works anonymously locally. API unavailability or rate
 limiting produces an advisory notice and leaves the exact pin unchanged.

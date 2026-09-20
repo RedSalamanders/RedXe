@@ -137,7 +137,8 @@ behind.
 `workflow_dispatch` only, so every release is deliberate, and only from `main`: the `version` job rejects any other
 ref before resolving a version, because the commit count is monotonic only along the protected default branch.
 
-1. `version` checks out the full history and resolves `major.minor.<commit count>` from `Common/Version.h` and
+1. `version` requires a completed, successful `RedXe validation` push run for the exact commit (the six-configuration
+   matrix that ran when it reached `main`), then checks out the full history and resolves `major.minor.<commit count>` from `Common/Version.h` and
    `git rev-list --count HEAD`. It fails when the tag `v<version>` already exists: a commit is released at most
    once, and published assets are never replaced. Releasing again means merging a new commit to `main`.
 2. `build` runs `test.ps1 -Configuration Release -Platform <P> -BuildNumber <n>` then
