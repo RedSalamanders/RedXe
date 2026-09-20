@@ -20,7 +20,7 @@ Use the repository entrypoints instead of assembling ad hoc MSBuild commands:
 .\test.ps1                               # Build + hidden WARP smoke test
 .\build.ps1 -Configuration Release                   # Stamps 1.0.<commit count of HEAD>; -BuildNumber 42 overrides
 .\package.ps1 -Platform x64                          # Portable ZIP under .build/packages, smoke-tested
-.\winget-manifest.ps1 -Version 1.0.42                # Winget manifest from both platform packages
+.\winget-manifest.ps1 -Version 1.0.<n>               # Winget manifest from both packages (the version package.ps1 printed)
 ```
 
 Packaging, the in-package installer, the `RedXe` command-alias launcher (`RedXeLauncher/`), and the release and
