@@ -258,7 +258,8 @@ exit 17
     # A bounded run is terminated at its budget together with everything it started, and the call throws a message
     # naming the executable and the log; the partial output stays in the log. The hardest shape is exercised: the
     # child starts a grandchild that inherits the redirected pipe, then exits, so the pipe never reaches end of
-    # file and only job containment can reach the survivor once its parent is gone.
+    # file and only job containment can reach the survivor once its parent is gone. The budget leaves a slow
+    # runner time to start two PowerShell hosts before it expires; the run still ends at the budget, not at EOF.
     $stallerPath = Join-Path $presentationTestRoot 'staller.ps1'
     $grandchildPidPath = Join-Path $presentationTestRoot 'grandchild.pid'
     @"
@@ -276,18 +277,18 @@ Write-Output "staller:grandchild `$(`$grandchild.Id)"
             -Arguments @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $stallerPath) `
             -WorkingDirectory $presentationTestRoot `
             -LogPath $stallLogPath `
-            -TimeoutSeconds 3 `
+            -TimeoutSeconds 10 `
             -OutputLineCallback { param([string] $Line, [bool] $IsError) })
     }
     catch {
         $timeoutMessage = $_.Exception.Message
     }
     $timeoutStopwatch.Stop()
-    if (-not $timeoutMessage -or $timeoutMessage -notmatch 'did not finish within 3 s and was terminated' -or
+    if (-not $timeoutMessage -or $timeoutMessage -notmatch 'did not finish within 10 s and was terminated' -or
         $timeoutMessage -notmatch [regex]::Escape($stallLogPath)) {
         throw "A stalled run was not reported as terminated at its budget: '$timeoutMessage'"
     }
-    if ($timeoutStopwatch.Elapsed.TotalSeconds -gt 20) {
+    if ($timeoutStopwatch.Elapsed.TotalSeconds -gt 40) {
         throw "Terminating the stalled run took $($timeoutStopwatch.Elapsed.TotalSeconds) s."
     }
     $stallLogText = Get-Content -LiteralPath $stallLogPath -Raw
