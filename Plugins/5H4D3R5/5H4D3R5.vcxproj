@@ -253,6 +253,42 @@
       <VariableName>g_ShadersCosmicOrbPixelShader</VariableName>
       <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
+    <FxCompile Include="Shaders\SkyAtmosphere.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersSkyAtmospherePixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersSkyAtmospherePixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersSkyAtmospherePixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\SkyAtmosphereTransmittanceLut.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersSkyAtmosphereTransmittanceLutPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersSkyAtmosphereTransmittanceLutPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersSkyAtmosphereTransmittanceLutPixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\SkyAtmosphereMultiScatteringLut.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)ShadersSkyAtmosphereMultiScatteringLutPixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)ShadersSkyAtmosphereMultiScatteringLutPixelShader.cso</ObjectFileOutput>
+      <VariableName>g_ShadersSkyAtmosphereMultiScatteringLutPixelShader</VariableName>
+      <AdditionalOptions>/Ges /Gis /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
     <FxCompile Include="Shaders\NeonPulseFractal.hlsl">
       <ShaderType>Pixel</ShaderType>
       <ShaderModel>5.0</ShaderModel>
@@ -278,6 +314,7 @@
     <None Include="Shaders\ShadersCommon.hlsli" />
     <None Include="Shaders\ShadersEntry.hlsli" />
     <None Include="Shaders\FlammesVortexCommon.hlsli" />
+    <None Include="Shaders\SkyAtmosphereCommon.hlsli" />
     <None Include="LICENSES.md" />
     <None Include="README.md" />
   </ItemGroup>

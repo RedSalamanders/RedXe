@@ -35,11 +35,15 @@
     <FxCompile Include="Shaders\FlammesVortexBufferA.hlsl"><Filter>Shader Files</Filter></FxCompile>
     <FxCompile Include="Shaders\NeonPulseFractal.hlsl"><Filter>Shader Files</Filter></FxCompile>
     <FxCompile Include="Shaders\CosmicOrb.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\SkyAtmosphere.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\SkyAtmosphereTransmittanceLut.hlsl"><Filter>Shader Files</Filter></FxCompile>
+    <FxCompile Include="Shaders\SkyAtmosphereMultiScatteringLut.hlsl"><Filter>Shader Files</Filter></FxCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="Shaders\ShadersCommon.hlsli"><Filter>Shader Files</Filter></None>
     <None Include="Shaders\ShadersEntry.hlsli"><Filter>Shader Files</Filter></None>
     <None Include="Shaders\FlammesVortexCommon.hlsli"><Filter>Shader Files</Filter></None>
+    <None Include="Shaders\SkyAtmosphereCommon.hlsli"><Filter>Shader Files</Filter></None>
     <None Include="LICENSES.md"><Filter>Assets</Filter></None>
     <None Include="README.md"><Filter>Assets</Filter></None>
   </ItemGroup>

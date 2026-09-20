@@ -57,6 +57,7 @@ struct ShaderInfo final
 inline constexpr char kLicenseDefault[] = "CC BY-NC-SA 3.0 Unported (Shadertoy default license)";
 inline constexpr char kLicenseStated[] = "CC BY-NC-SA 3.0 Unported (stated in the shader header)";
 inline constexpr char kLicenseRedXe[] = "RedXe repository terms (an original RedXe shader, not a Shadertoy work)";
+inline constexpr char kLicenseEpicMit[] = "MIT License, Copyright (c) 2020 Epic Games, Inc. (not a Shadertoy work)";
 
 inline constexpr std::array kShaders{
     ShaderInfo{"fluid-solver", "XlsBDf", "Fluid solver", "David A Roberts (davidar)", kLicenseDefault, true, false},
@@ -74,6 +75,8 @@ inline constexpr std::array kShaders{
     ShaderInfo{"flammes-vortex", "WsccDH", "Flammes 3 - Vortex", "athibaul", kLicenseDefault, true, false},
     ShaderInfo{"neon-pulse", "7csXD4", "Neon Pulse Fractal", "bogdoslav", kLicenseDefault, false, false},
     ShaderInfo{"cosmic-orb", nullptr, "Psychedelic Cosmic Orb", "RedXe", kLicenseRedXe, false, false},
+    ShaderInfo{"sky-atmosphere", nullptr, "Sky Atmosphere",
+               "Sébastien Hillaire / Epic Games (technique), RedXe (scene)", kLicenseEpicMit, false, false},
 };
 
 inline constexpr uint32_t kShaderCount = static_cast<uint32_t>(kShaders.size());
@@ -94,7 +97,7 @@ inline constexpr char kDefaultsJson[] =
 
 // The published plugin schema (Plugins_API.md subset: closed object, string enums, bounded integers, booleans).
 inline constexpr char kSchemaJson[] =
-    R"json({"type":"object","additionalProperties":false,"properties":{"mode":{"type":"string","enum":["single","random","slideshow"]},"shader":{"type":"string","enum":["fluid-solver","cineshader-lava","synthwave-sunset","seascape","warp-fbm","fractal-pyramid","octagrams","heartfelt","protean-clouds","drive-home","flammes-vortex","neon-pulse","cosmic-orb"]},"intervalSeconds":{"type":"integer","minimum":10,"maximum":3600},"shuffle":{"type":"boolean"},"renderScalePercent":{"type":"integer","minimum":25,"maximum":100}}})json";
+    R"json({"type":"object","additionalProperties":false,"properties":{"mode":{"type":"string","enum":["single","random","slideshow"]},"shader":{"type":"string","enum":["fluid-solver","cineshader-lava","synthwave-sunset","seascape","warp-fbm","fractal-pyramid","octagrams","heartfelt","protean-clouds","drive-home","flammes-vortex","neon-pulse","cosmic-orb","sky-atmosphere"]},"intervalSeconds":{"type":"integer","minimum":10,"maximum":3600},"shuffle":{"type":"boolean"},"renderScalePercent":{"type":"integer","minimum":25,"maximum":100}}})json";
 
 inline constexpr std::array<const char*, 5> kSettingsKeys{"mode", "shader", "intervalSeconds", "shuffle",
                                                           "renderScalePercent"};

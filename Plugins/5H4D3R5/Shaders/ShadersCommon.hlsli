@@ -27,6 +27,8 @@ cbuffer ShadersConstants : register(b0)
 
 Texture2D iChannel0 : register(t0);
 SamplerState iChannel0Sampler : register(s0);
+Texture2D iChannel1 : register(t1);
+SamplerState iChannel1Sampler : register(s1);
 
 #define vec2 float2
 #define vec3 float3

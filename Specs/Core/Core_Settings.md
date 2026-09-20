@@ -221,7 +221,7 @@ Matrix Rain settings are the closed object `seed`, `glyphHeightDips`, `densityPe
 host-resolved dashboard background. `backgroundColor` is not a Matrix Rain member.
 
 5H4D3R5 settings are the closed object `mode`, `shader`, `intervalSeconds`, `shuffle`, and `renderScalePercent`.
-`mode` is `single`, `random`, or `slideshow` (default `slideshow`); `shader` is one of the thirteen exact lowercase
+`mode` is `single`, `random`, or `slideshow` (default `slideshow`); `shader` is one of the fourteen exact lowercase
 names of the bundled catalog in `Plugins/5H4D3R5/ShadersSettings.h` (default `seascape`);
 `intervalSeconds` is an integer from 10 through 3600 (default 120); `shuffle` is a boolean (default `false`);
 `renderScalePercent` is an integer from 25 through 100 (default 50). The host merges omitted members from these

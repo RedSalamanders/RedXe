@@ -1,7 +1,8 @@
 # 5H4D3R5 bundled plugin
 
 `5H4D3R5.dll` draws one of the bundled full-screen shaders and demos, or a fading slideshow of them. The catalog is
-thirteen entries today: twelve ports of Shadertoy works and RedXe's own Cosmic Orb. The catalog, the settings model,
+fourteen entries today: twelve ports of Shadertoy works, RedXe's own Cosmic Orb, and a Sky Atmosphere built on
+Sébastien Hillaire's MIT-licensed technique. The catalog, the settings model,
 the ranges, and the defaults live once in `ShadersSettings.h`, which the host parser (`RedXe/Settings.cpp`,
 `RedXe/SettingsV4.cpp`) and the DLL both compile. `LICENSES.md` carries the attribution and license of every entry;
 `docs/plugins/5h4d3r5.md` is the user page.
@@ -27,6 +28,13 @@ its `FxCompile` item to `5H4D3R5.vcxproj`, its `ShaderInfo` row to `kShaders` an
   `atan2`, scalar-broadcast constructors were spelled out, and long marches carry `[loop]`. Two ports (Fluid solver,
   Flammes 3) have a "Buffer A" feedback pass; Heartfelt samples a photograph on Shadertoy, replaced here by a
   procedural night-street texture the plugin builds once per device.
+- An entry may declare up to two lookup-table passes (`LookupTablePass` in `Shaders.cpp`): fixed-size textures
+  drawn once per device by the first frame that shows the entry, the second pass reading the first on `iChannel0`,
+  the image pass reading both on `iChannel0` and `iChannel1`. Sky Atmosphere uses them for Hillaire's transmittance
+  (256x64) and multiple-scattering (32x32) tables; its image pass then ray-marches the sky per pixel and, below the
+  horizon, once more along the reflected ray for the sea. Two float32 corner cases of a 6360 km planet are handled
+  in that code: the camera-to-sea distance uses a cancellation-free form and is handed to the marcher, and the
+  marcher's earth-shadow test is the local-horizon comparison rather than a ray-sphere hit.
 - Two ports carry a marked RedXe adjustment: Seascape clamps its final `pow()` base (a trough can push a channel
   below zero, and the resulting NaN showed as pink on hardware), and Protean clouds anchors its mouse-free camera
   framing to Shadertoy's 16:9 canvas (on a 32:9 tile the source's canvas-relative offsets left the clouds). The

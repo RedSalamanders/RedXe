@@ -851,14 +851,15 @@ texture upload, or shader/font work. `OnDeviceCreated` builds the complete provi
 `Plugins/5H4D3R5` is the bundled GPU plugin that draws a fixed catalog of full-screen shaders and demos. It exposes
 settings-visible plugin ID `builtin.5h4d3r5`, internally maps it to type ID `5h4d3r5`, publishes its complete
 closed settings schema and defaults (`Core_Settings.md`), and creates any number of continuous-animation widgets per
-provider, each exposing `IRedXeRaisedWidget` with a full-client extent. The catalog is the thirteen entries of
+provider, each exposing `IRedXeRaisedWidget` with a full-client extent. The catalog is the fourteen entries of
 `Plugins/5H4D3R5/ShadersSettings.h` (a short lowercase name that is the `shader` value, the Shadertoy id or
 none, title, author, license, and pass flags), each a build-time Shader Model 5.0 shader under
 `Plugins/5H4D3R5/Shaders/`: twelve Shadertoy ports that keep the author's original header and license, every one
-Creative Commons BY-NC-SA 3.0 (stated by the author or Shadertoy's default), and RedXe's own Cosmic Orb under the
-repository terms. `Plugins/5H4D3R5/LICENSES.md` is the notices file. The DLL performs no runtime shader
-compilation and loads no font, WIC, or DirectWrite component. The widget MUST draw exactly the catalog: it never
-fetches, compiles, or accepts a shader outside it.
+Creative Commons BY-NC-SA 3.0 (stated by the author or Shadertoy's default), RedXe's own Cosmic Orb under the
+repository terms, and Sky Atmosphere, Sébastien Hillaire's technique as published by Epic Games under the MIT
+License (its notice reproduced in the file and in the notices file) with a RedXe scene. `Plugins/5H4D3R5/LICENSES.md`
+is the notices file. The DLL performs no runtime shader compilation and loads no font, WIC, or DirectWrite
+component. The widget MUST draw exactly the catalog: it never fetches, compiles, or accepts a shader outside it.
 
 Selection is a pure function of the configuration, a per-widget random seed mixed from the clock, the process id and
 the instance id at creation, and the host `elapsedSeconds`: `single` shows `shader`; `random` shows one catalog
@@ -881,11 +882,17 @@ wrap or the shuffle round) advancing by one; a tap inside that final fade change
 imminent. A drag past the slop, and every Up in `single` or `random` mode, answers `S_FALSE` and changes nothing, so
 double-activate raise keeps working on those tiles. `OnPointer` allocates nothing and does not call the host.
 
-Device resources are split so siblings share what is immutable: the vertex shader, sixteen pixel shaders, the blit
-shader, three samplers, the pipeline states, and Heartfelt's procedural 512×512 mipmapped background (generated once
-per device on the CPU, never from `Render`) belong to the provider and are built by the first `OnDeviceCreated`
-for a device and released by any `OnDeviceLost`; the 96-byte dynamic constant buffer, the offscreen color texture,
-and two `R32G32B32A32_FLOAT` feedback buffers belong to each widget. `OnTargetSizeChanged` sizes the offscreen
+Device resources are split so siblings share what is immutable: the vertex shader, nineteen pixel shaders, the blit
+shader, three samplers, the pipeline states, Heartfelt's procedural 512×512 mipmapped background (generated once
+per device on the CPU, never from `Render`), and each entry's lookup tables belong to the provider and are built by
+the first `OnDeviceCreated` for a device and released by any `OnDeviceLost`; the 96-byte dynamic constant buffer,
+the offscreen color texture, and two `R32G32B32A32_FLOAT` feedback buffers belong to each widget. An entry MAY
+declare up to two lookup-table passes (fixed-size `R32G32B32A32_FLOAT` textures; Sky Atmosphere's transmittance
+256×64 and multiple scattering 32×32) but not together with a feedback buffer; their textures are created at device
+creation and drawn once per device by the first `Render` that shows the entry, the second pass reading the first
+on `iChannel0`, after which the image pass reads them on `iChannel0` and `iChannel1` at no per-frame cost. A
+shader reads a channel through `texture()` (mipmapped sample) or `textureLod()` (explicit level); inside a loop of
+varying trip count it MUST use `textureLod()`. `OnTargetSizeChanged` sizes the offscreen
 texture and the feedback buffers to the largest viewport times `renderScalePercent` (offscreen only below 100 %;
 feedback buffers only when the configuration can reach a feedback port) and rebuilds them transactionally. A
 non-zero `Render` binds every pipeline state it uses, takes references to the host render target and viewport,

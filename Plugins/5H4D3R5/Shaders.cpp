@@ -21,6 +21,9 @@
 #include "ShadersOctagramsPixelShader.h"
 #include "ShadersProteanCloudsPixelShader.h"
 #include "ShadersSeascapePixelShader.h"
+#include "ShadersSkyAtmosphereMultiScatteringLutPixelShader.h"
+#include "ShadersSkyAtmospherePixelShader.h"
+#include "ShadersSkyAtmosphereTransmittanceLutPixelShader.h"
 #include "ShadersSynthwaveSunsetPixelShader.h"
 #include "ShadersTheDriveHomePixelShader.h"
 #include "ShadersVertexShader.h"
@@ -88,7 +91,19 @@ struct ShaderBlob final
     size_t bytes = 0;
 };
 
-// Image shader and optional feedback-buffer shader per catalog entry, in catalog order (checked by name).
+// A lookup table an entry builds once per device before its first frame: a fixed-size texture drawn by one pass.
+// The second table's pass reads the first on iChannel0; the image pass reads them on iChannel0 and iChannel1.
+struct LookupTablePass final
+{
+    ShaderBlob shader;
+    uint32_t width = 0;
+    uint32_t height = 0;
+};
+
+constexpr uint32_t kLookupTableSlots = 2;
+
+// Image shader and optional feedback-buffer or lookup-table shaders per catalog entry, in catalog order (checked by
+// name). An entry uses feedback buffers or lookup tables, never both.
 struct ShaderProgram final
 {
     const char* name;
@@ -96,6 +111,7 @@ struct ShaderProgram final
     ShaderBlob buffer;
     // Sampler the feedback buffer is read with, following the channel settings of the source (Shadertoy wrap mode).
     bool bufferWraps;
+    std::array<LookupTablePass, kLookupTableSlots> lookupTables;
 };
 
 #define SHADERS_BLOB(symbol)                                                                                           \
@@ -120,6 +136,12 @@ constexpr std::array<ShaderProgram, kShaderCount> kPrograms{
                   SHADERS_BLOB(g_ShadersFlammesVortexBufferAPixelShader), false},
     ShaderProgram{"neon-pulse", SHADERS_BLOB(g_ShadersNeonPulseFractalPixelShader), {}, false},
     ShaderProgram{"cosmic-orb", SHADERS_BLOB(g_ShadersCosmicOrbPixelShader), {}, false},
+    ShaderProgram{"sky-atmosphere",
+                  SHADERS_BLOB(g_ShadersSkyAtmospherePixelShader),
+                  {},
+                  false,
+                  {LookupTablePass{SHADERS_BLOB(g_ShadersSkyAtmosphereTransmittanceLutPixelShader), 256, 64},
+                   LookupTablePass{SHADERS_BLOB(g_ShadersSkyAtmosphereMultiScatteringLutPixelShader), 32, 32}}},
 };
 
 #undef SHADERS_BLOB
@@ -133,6 +155,19 @@ consteval bool ProgramsMatchCatalog() noexcept
             (kShaders[index].feedbackBuffer != (program.buffer.data != nullptr)))
         {
             return false;
+        }
+        const bool tables = program.lookupTables[0].shader.data != nullptr;
+        if ((tables && program.buffer.data) ||
+            (program.lookupTables[1].shader.data && !program.lookupTables[0].shader.data))
+        {
+            return false;
+        }
+        for (const LookupTablePass& table : program.lookupTables)
+        {
+            if (table.shader.data && (table.width == 0 || table.height == 0))
+            {
+                return false;
+            }
         }
     }
     return true;
@@ -698,6 +733,60 @@ void DownsampleLevel(const uint32_t* source, uint32_t size, uint32_t* destinatio
     return device->CreateShaderResourceView(texture.get(), &viewDescription, view.put());
 }
 
+// A texture drawn by one pass and sampled by the next.
+struct RenderTexture final
+{
+    wil::com_ptr_nothrow<ID3D11Texture2D> texture;
+    wil::com_ptr_nothrow<ID3D11RenderTargetView> target;
+    wil::com_ptr_nothrow<ID3D11ShaderResourceView> view;
+    uint32_t width = 0;
+    uint32_t height = 0;
+
+    void Reset() noexcept
+    {
+        view.reset();
+        target.reset();
+        texture.reset();
+        width = 0;
+        height = 0;
+    }
+
+    [[nodiscard]] HRESULT Create(ID3D11Device* device, uint32_t textureWidth, uint32_t textureHeight,
+                                 DXGI_FORMAT format) noexcept
+    {
+        Reset();
+        D3D11_TEXTURE2D_DESC description{};
+        description.Width = textureWidth;
+        description.Height = textureHeight;
+        description.MipLevels = 1;
+        description.ArraySize = 1;
+        description.Format = format;
+        description.SampleDesc.Count = 1;
+        description.Usage = D3D11_USAGE_DEFAULT;
+        description.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        HRESULT result = device->CreateTexture2D(&description, nullptr, texture.put());
+        if (SUCCEEDED(result))
+        {
+            result = device->CreateRenderTargetView(texture.get(), nullptr, target.put());
+        }
+        if (SUCCEEDED(result))
+        {
+            result = device->CreateShaderResourceView(texture.get(), nullptr, view.put());
+        }
+        if (FAILED(result))
+        {
+            Reset();
+            return result;
+        }
+        width = textureWidth;
+        height = textureHeight;
+        return S_OK;
+    }
+};
+
+// Pointer travel between Down and Up that still counts as a tap, in DIPs.
+constexpr float kTapSlopDips = 24.0f;
+
 // Immutable device resources every widget of a provider shares: the shader objects, samplers, pipeline states, and
 // the Heartfelt background. Built by the first OnDeviceCreated for a device, released by any OnDeviceLost.
 class SharedDeviceResources final
@@ -751,6 +840,32 @@ class SharedDeviceResources final
             {
                 result = device->CreatePixelShader(program.buffer.data, program.buffer.bytes, nullptr,
                                                    bufferShaders[index].put());
+                if (FAILED(result))
+                {
+                    return result;
+                }
+            }
+        }
+        // Lookup tables: their shaders and their (empty) textures. The tables are drawn by the first widget frame
+        // that needs them, never here, because device creation has no immediate context.
+        std::array<LookupTableSet, kShaderCount> lookupTables;
+        for (uint32_t index = 0; index < kShaderCount; ++index)
+        {
+            const ShaderProgram& program = kPrograms[index];
+            for (uint32_t slot = 0; slot < kLookupTableSlots; ++slot)
+            {
+                const LookupTablePass& pass = program.lookupTables[slot];
+                if (!pass.shader.data)
+                {
+                    continue;
+                }
+                result = device->CreatePixelShader(pass.shader.data, pass.shader.bytes, nullptr,
+                                                   lookupTables[index].shaders[slot].put());
+                if (SUCCEEDED(result))
+                {
+                    result = lookupTables[index].textures[slot].Create(device, pass.width, pass.height,
+                                                                       DXGI_FORMAT_R32G32B32A32_FLOAT);
+                }
                 if (FAILED(result))
                 {
                     return result;
@@ -838,6 +953,7 @@ class SharedDeviceResources final
         _depthState = std::move(depthState);
         _opaqueBlend = std::move(opaqueBlend);
         _background = std::move(background);
+        _lookupTables = std::move(lookupTables);
         gLiveSharedResourceSetCount.fetch_add(1, std::memory_order_relaxed);
         return S_OK;
     }
@@ -847,6 +963,10 @@ class SharedDeviceResources final
         if (_deviceIdentity)
         {
             gLiveSharedResourceSetCount.fetch_sub(1, std::memory_order_relaxed);
+        }
+        for (LookupTableSet& tables : _lookupTables)
+        {
+            tables.Reset();
         }
         _background.reset();
         _opaqueBlend.reset();
@@ -918,6 +1038,29 @@ class SharedDeviceResources final
         return _background.get();
     }
 
+    // The lookup-table passes and textures of one entry (empty members for an entry without tables).
+    struct LookupTableSet final
+    {
+        std::array<wil::com_ptr_nothrow<ID3D11PixelShader>, kLookupTableSlots> shaders;
+        std::array<RenderTexture, kLookupTableSlots> textures;
+        bool built = false;
+
+        void Reset() noexcept
+        {
+            for (uint32_t slot = 0; slot < kLookupTableSlots; ++slot)
+            {
+                textures[slot].Reset();
+                shaders[slot].reset();
+            }
+            built = false;
+        }
+    };
+
+    [[nodiscard]] LookupTableSet& LookupTables(uint32_t index) noexcept
+    {
+        return _lookupTables[index];
+    }
+
   private:
     ID3D11Device* _deviceIdentity = nullptr;
     wil::com_ptr_nothrow<ID3D11VertexShader> _vertexShader;
@@ -931,61 +1074,8 @@ class SharedDeviceResources final
     wil::com_ptr_nothrow<ID3D11DepthStencilState> _depthState;
     wil::com_ptr_nothrow<ID3D11BlendState> _opaqueBlend;
     wil::com_ptr_nothrow<ID3D11ShaderResourceView> _background;
+    std::array<LookupTableSet, kShaderCount> _lookupTables;
 };
-
-// A texture drawn by one pass and sampled by the next.
-struct RenderTexture final
-{
-    wil::com_ptr_nothrow<ID3D11Texture2D> texture;
-    wil::com_ptr_nothrow<ID3D11RenderTargetView> target;
-    wil::com_ptr_nothrow<ID3D11ShaderResourceView> view;
-    uint32_t width = 0;
-    uint32_t height = 0;
-
-    void Reset() noexcept
-    {
-        view.reset();
-        target.reset();
-        texture.reset();
-        width = 0;
-        height = 0;
-    }
-
-    [[nodiscard]] HRESULT Create(ID3D11Device* device, uint32_t textureWidth, uint32_t textureHeight,
-                                 DXGI_FORMAT format) noexcept
-    {
-        Reset();
-        D3D11_TEXTURE2D_DESC description{};
-        description.Width = textureWidth;
-        description.Height = textureHeight;
-        description.MipLevels = 1;
-        description.ArraySize = 1;
-        description.Format = format;
-        description.SampleDesc.Count = 1;
-        description.Usage = D3D11_USAGE_DEFAULT;
-        description.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-        HRESULT result = device->CreateTexture2D(&description, nullptr, texture.put());
-        if (SUCCEEDED(result))
-        {
-            result = device->CreateRenderTargetView(texture.get(), nullptr, target.put());
-        }
-        if (SUCCEEDED(result))
-        {
-            result = device->CreateShaderResourceView(texture.get(), nullptr, view.put());
-        }
-        if (FAILED(result))
-        {
-            Reset();
-            return result;
-        }
-        width = textureWidth;
-        height = textureHeight;
-        return S_OK;
-    }
-};
-
-// Pointer travel between Down and Up that still counts as a tap, in DIPs.
-constexpr float kTapSlopDips = 24.0f;
 
 // What the widget shows at one instant: which catalog entry, how far into its run, and how visible it is.
 struct ShowState final
@@ -1310,19 +1400,64 @@ class ShadersWidget final
             _lastSimulatedElapsed = widget.elapsedSeconds;
         }
 
-        ID3D11ShaderResourceView* channel = nullptr;
-        ID3D11SamplerState* channelSampler = _shared->ClampSampler();
+        // Lookup tables: drawn once per device by the first frame of any widget that shows this entry, at their own
+        // sizes, each pass reading the previous table on iChannel0. Small draws with no per-frame cost afterwards.
+        SharedDeviceResources::LookupTableSet& tables = _shared->LookupTables(show.shaderIndex);
+        if (program.lookupTables[0].shader.data && !tables.built)
+        {
+            ShadersConstants tableConstants = constants;
+            tableConstants.viewportOrigin[0] = 0.0f;
+            tableConstants.viewportOrigin[1] = 0.0f;
+            for (uint32_t slot = 0; slot < kLookupTableSlots; ++slot)
+            {
+                if (!tables.shaders[slot])
+                {
+                    continue;
+                }
+                const RenderTexture& table = tables.textures[slot];
+                tableConstants.resolution[0] = static_cast<float>(table.width);
+                tableConstants.resolution[1] = static_cast<float>(table.height);
+                tableConstants.resolution[2] = 1.0f;
+                result = UploadConstants(deviceContext, tableConstants);
+                if (FAILED(result))
+                {
+                    return result;
+                }
+                ID3D11ShaderResourceView* previous[] = {slot > 0 ? tables.textures[slot - 1].view.get() : nullptr};
+                ID3D11SamplerState* previousSamplers[] = {_shared->ClampSampler()};
+                ID3D11RenderTargetView* targets[] = {table.target.get()};
+                deviceContext->OMSetRenderTargets(1, targets, nullptr);
+                SetViewport(deviceContext, 0.0f, 0.0f, static_cast<float>(table.width),
+                            static_cast<float>(table.height));
+                deviceContext->PSSetShaderResources(0, 1, previous);
+                deviceContext->PSSetSamplers(0, 1, previousSamplers);
+                deviceContext->PSSetShader(tables.shaders[slot].get(), nullptr, 0);
+                deviceContext->Draw(3, 0);
+                UnbindShaderResource(deviceContext);
+            }
+            tables.built = true;
+            // The host target must be rebound below even at 100 % scale; the offscreen branch does so itself.
+            ID3D11RenderTargetView* hostTargets[] = {hostTarget.get()};
+            deviceContext->OMSetRenderTargets(1, hostTargets, hostDepth.get());
+            deviceContext->RSSetViewports(1, &viewport);
+        }
+
+        ID3D11ShaderResourceView* channels[kLookupTableSlots] = {nullptr, nullptr};
+        ID3D11SamplerState* channelSamplers[kLookupTableSlots] = {_shared->ClampSampler(), _shared->ClampSampler()};
         if (feedbackPass)
         {
-            channel = _feedback[_feedbackRead].view.get();
+            channels[0] = _feedback[_feedbackRead].view.get();
         }
         else if (info.backgroundTexture)
         {
-            channel = _shared->Background();
-            channelSampler = _shared->WrapMipSampler();
+            channels[0] = _shared->Background();
+            channelSamplers[0] = _shared->WrapMipSampler();
         }
-        ID3D11ShaderResourceView* channels[] = {channel};
-        ID3D11SamplerState* channelSamplers[] = {channelSampler};
+        else if (tables.built)
+        {
+            channels[0] = tables.textures[0].view.get();
+            channels[1] = tables.textures[1].view.get();
+        }
 
         const float viewWidth = std::floor(viewport.Width + 0.5f);
         const float viewHeight = std::floor(viewport.Height + 0.5f);
@@ -1346,8 +1481,8 @@ class ShadersWidget final
             ID3D11RenderTargetView* targets[] = {_offscreen.target.get()};
             deviceContext->OMSetRenderTargets(1, targets, nullptr);
             SetViewport(deviceContext, 0.0f, 0.0f, static_cast<float>(renderWidth), static_cast<float>(renderHeight));
-            deviceContext->PSSetShaderResources(0, 1, channels);
-            deviceContext->PSSetSamplers(0, 1, channelSamplers);
+            deviceContext->PSSetShaderResources(0, kLookupTableSlots, channels);
+            deviceContext->PSSetSamplers(0, kLookupTableSlots, channelSamplers);
             deviceContext->PSSetShader(_shared->ImageShader(show.shaderIndex), nullptr, 0);
             deviceContext->Draw(3, 0);
             UnbindShaderResource(deviceContext);
@@ -1392,8 +1527,8 @@ class ShadersWidget final
                 deviceContext->OMSetRenderTargets(1, hostTargets, hostDepth.get());
                 deviceContext->RSSetViewports(1, &viewport);
             }
-            deviceContext->PSSetShaderResources(0, 1, channels);
-            deviceContext->PSSetSamplers(0, 1, channelSamplers);
+            deviceContext->PSSetShaderResources(0, kLookupTableSlots, channels);
+            deviceContext->PSSetSamplers(0, kLookupTableSlots, channelSamplers);
             deviceContext->PSSetShader(_shared->ImageShader(show.shaderIndex), nullptr, 0);
             deviceContext->Draw(3, 0);
             UnbindShaderResource(deviceContext);
@@ -1552,8 +1687,8 @@ class ShadersWidget final
 
     static void UnbindShaderResource(ID3D11DeviceContext* deviceContext) noexcept
     {
-        ID3D11ShaderResourceView* noViews[] = {nullptr};
-        deviceContext->PSSetShaderResources(0, 1, noViews);
+        ID3D11ShaderResourceView* noViews[kLookupTableSlots] = {nullptr, nullptr};
+        deviceContext->PSSetShaderResources(0, kLookupTableSlots, noViews);
     }
 
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _providerOwner;
