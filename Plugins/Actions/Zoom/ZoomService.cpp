@@ -1035,6 +1035,7 @@ void ZoomService::HandleRequest(const PendingRequest& request, uint64_t now) noe
     if (verb == "signIn")
     {
         BeginSignIn(now);
+        PublishSnapshot();
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
         ++_snapshot.requestsExecuted;
         return;
@@ -1045,6 +1046,7 @@ void ZoomService::HandleRequest(const PendingRequest& request, uint64_t now) noe
         {
             SignOut(true);
             Log(RedXeLogLevelInfo, "zoom-signed-out", "signed out; the stored credential was deleted.");
+            PublishSnapshot();
             const auto guard = wil::AcquireSRWLockExclusive(&_lock);
             ++_snapshot.requestsExecuted;
         }
@@ -1063,6 +1065,7 @@ void ZoomService::HandleRequest(const PendingRequest& request, uint64_t now) noe
             NoteFailure(focused);
             return;
         }
+        PublishSnapshot();
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
         ++_snapshot.requestsExecuted;
         return;
@@ -1106,6 +1109,9 @@ void ZoomService::HandleRequest(const PendingRequest& request, uint64_t now) noe
         Log(RedXeLogLevelDebug, "zoom-action-failed", "a zoom action was refused by the session.", result);
         return;
     }
+    // Same contract as the local route: the session state this verb changed is published before the counter
+    // moves, so a diagnostics reader that sees the count also sees the state.
+    PublishSnapshot();
     const auto guard = wil::AcquireSRWLockExclusive(&_lock);
     ++_snapshot.requestsExecuted;
 }
