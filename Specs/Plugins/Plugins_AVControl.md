@@ -61,6 +61,17 @@ Tests use synthetic model state and never change real endpoints, open webcams or
 normal user settings. Backend, native UI, accessibility, hardware interoperability and resource acceptance remain
 explicit open gates until their implementation and evidence are added.
 
+A hang MUST fail fast and name its stage. `AVControlTests.exe` runs its suites as named stages, each announced on a
+flushed line with the previous stage's duration, under a watchdog thread: a stage that exceeds three minutes, or a
+run that exceeds twelve, is reported on stderr as `FAIL AVControl: stage '<name>' did not finish within ...` and the
+process is terminated with exit code 3 (no CRT shutdown, because the hung thread may hold what it needs). Every
+wait a test performs — event, process, pipe, `Until` polling, thread bodies behind a `join()` — MUST carry a finite
+deadline that fails the enclosing check; `--watchdog-fixture <milliseconds>` hangs deliberately so `test.ps1` can
+prove the watchdog fires. `test.ps1` additionally gives every standalone test executable a fifteen-minute budget
+through `Invoke-RedXeStreamingProcess -TimeoutSeconds`; at the budget the child and everything it started are
+terminated and the call fails naming the executable and its log, so a CI leg reports the culprit within minutes
+instead of being cancelled at the job timeout with no diagnosis.
+
 ## Module, confirmation and profile editing
 
 `builtin.av-control` / `av-control` is supplied by `Plugins/AVControl.dll`, with its private helper and yyjson runtime

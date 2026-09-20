@@ -2,12 +2,19 @@
 #include "AVControlModel.h"
 
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cwchar>
 #include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027 28182)
+#include <wil/resource.h>
+#pragma warning(pop)
 
 uint32_t RunControlWorkQueueTests();
 uint32_t RunNativeViewTests();
@@ -23,6 +30,57 @@ void Require(bool condition, const char* description)
     ++checks;
     if (!condition)
         throw std::runtime_error(description);
+}
+
+// Every stage announces itself on a flushed line and is watched by a deadline: a wait that never returns must end
+// as a failure that names the stage within minutes, not as a silent 45-minute CI timeout. The budget is generous
+// (locally the whole run takes seconds) so it only ever fires on a genuine hang.
+DWORD StageBudgetMilliseconds = 3 * 60 * 1000;
+constexpr DWORD RunBudgetMilliseconds = 12 * 60 * 1000;
+constexpr int HangExitCode = 3;
+std::atomic<const char*> currentStage{"startup"};
+std::atomic<ULONGLONG> stageStartedAt{0};
+ULONGLONG runStartedAt = 0;
+wil::unique_event runFinished;
+
+void BeginStage(const char* name)
+{
+    const ULONGLONG now = GetTickCount64();
+    const char* previous = currentStage.exchange(name);
+    const ULONGLONG previousStarted = stageStartedAt.exchange(now);
+    if (previousStarted)
+        std::printf("AVControl: %s done in %llu ms\n", previous, static_cast<unsigned long long>(now - previousStarted));
+    std::printf("AVControl: %s...\n", name);
+    std::fflush(stdout);
+}
+
+DWORD WINAPI Watchdog(void*) noexcept
+{
+    for (;;)
+    {
+        if (WaitForSingleObject(runFinished.get(), 1000) == WAIT_OBJECT_0)
+            return 0;
+        const ULONGLONG now = GetTickCount64();
+        const ULONGLONG started = stageStartedAt.load();
+        const bool stageOverdue = started && now - started > StageBudgetMilliseconds;
+        const bool runOverdue = now - runStartedAt > RunBudgetMilliseconds;
+        if (!stageOverdue && !runOverdue)
+            continue;
+        std::fprintf(stderr,
+                     "FAIL AVControl: stage '%s' did not finish within %lu s (run %llu s); a wait in it is unbounded. "
+                     "Terminating so the suite fails here instead of at the job timeout.\n",
+                     currentStage.load(), static_cast<unsigned long>((stageOverdue ? StageBudgetMilliseconds : RunBudgetMilliseconds) / 1000),
+                     static_cast<unsigned long long>((now - runStartedAt) / 1000));
+        std::fflush(stderr);
+        // The hung thread may hold locks the CRT shutdown would need: leave immediately, no destructors.
+        TerminateProcess(GetCurrentProcess(), static_cast<UINT>(HangExitCode));
+    }
+}
+
+template <typename Suite> void Stage(const char* name, Suite&& suite)
+{
+    BeginStage(name);
+    checks += static_cast<uint32_t>(suite());
 }
 constexpr std::string_view valid =
     R"({"profiles":[{"id":"studio","name":"Studio","outputId":"output","microphoneId":"input","cameraId":"camera","audioRoles":"all","restoreLevels":true,"outputLevel":68,"microphoneLevel":72}]})";
@@ -268,37 +326,63 @@ int wmain(int argc, wchar_t** argv)
             return RunCameraBridgeChild(argv[2]);
         if (argc == 4 && std::wstring_view(argv[1]) == L"--camera-watchdog-fixture")
             return RunCameraWatchdogChild(argv[2], argv[3]);
+        if (argc == 3 && std::wstring_view(argv[1]) == L"--watchdog-fixture")
+        {
+            // Proves the stage watchdog: a stage that never returns must end the process with HangExitCode.
+            StageBudgetMilliseconds = static_cast<DWORD>(std::wcstoul(argv[2], nullptr, 10));
+            runStartedAt = GetTickCount64();
+            runFinished.create(wil::EventOptions::ManualReset);
+            const wil::unique_handle fixtureWatchdog(CreateThread(nullptr, 0, Watchdog, nullptr, 0, nullptr));
+            if (!fixtureWatchdog)
+                return 2;
+            BeginStage("watchdog fixture");
+            Sleep(INFINITE);
+        }
         if (argc != 1)
             return 2;
+        runStartedAt = GetTickCount64();
+        runFinished.create(wil::EventOptions::ManualReset);
+        const wil::unique_handle watchdog(CreateThread(nullptr, 0, Watchdog, nullptr, 0, nullptr));
+        if (!watchdog)
+            throw std::runtime_error("the stage watchdog thread could not be created");
+        BeginStage("settings");
         SettingsTests();
+        BeginStage("gesture and matching");
         GestureAndMatchingTests();
+        BeginStage("layout");
         LayoutTests();
+        BeginStage("audio revisions");
         AudioRevisionTests();
-        checks += RunTextTransportTests();
-        checks += RunWidgetTextClientTests();
-        checks += RunAccessibilityHostTests();
-        checks += RunInventorySelectionTests();
-        checks += RunAudioBackendTests();
-        checks += RunControlWorkQueueTests();
-        checks += RunNativeViewTests();
-        checks += RunBrokerTests();
-        checks += RunProfileTransactionTests();
-        checks += RunCoordinatorTests();
-        checks += RunModuleTests();
-        checks += RunCameraMediaTests();
-        checks += RunCameraChannelTests();
-        checks += RunCameraBridgeTests();
-        checks += RunCameraActivationTests();
-        checks += RunCameraCaptureTests();
-        checks += RunCameraCrossProcessTests();
-        checks += RunCameraControllerTests();
-        checks += RunCameraWatchdogTests();
+        Stage("text transport", RunTextTransportTests);
+        Stage("widget text client", RunWidgetTextClientTests);
+        Stage("accessibility host", RunAccessibilityHostTests);
+        Stage("inventory selection", RunInventorySelectionTests);
+        Stage("audio backend", RunAudioBackendTests);
+        Stage("control work queue", RunControlWorkQueueTests);
+        Stage("native views", RunNativeViewTests);
+        Stage("broker", RunBrokerTests);
+        Stage("profile transactions", RunProfileTransactionTests);
+        Stage("coordinator", RunCoordinatorTests);
+        Stage("module", RunModuleTests);
+        Stage("camera media", RunCameraMediaTests);
+        Stage("camera channel", RunCameraChannelTests);
+        Stage("camera bridge", RunCameraBridgeTests);
+        Stage("camera activation", RunCameraActivationTests);
+        Stage("camera capture", RunCameraCaptureTests);
+        Stage("camera cross-process", RunCameraCrossProcessTests);
+        Stage("camera controller", RunCameraControllerTests);
+        Stage("camera watchdog", RunCameraWatchdogTests);
+        BeginStage("finished");
+        runFinished.SetEvent();
+        (void)WaitForSingleObject(watchdog.get(), 5000);
         std::printf("PASS AVControl: %u checks (synthetic model and layout; no hardware changes)\n", checks);
         return 0;
     }
     catch (const std::exception& error)
     {
-        std::fprintf(stderr, "FAIL AVControl: %s\n", error.what());
+        if (runFinished)
+            runFinished.SetEvent();
+        std::fprintf(stderr, "FAIL AVControl: %s (stage '%s')\n", error.what(), currentStage.load());
         return 1;
     }
 }

@@ -99,6 +99,10 @@ if ($LASTEXITCODE -ne 0) {
     throw "Packaging tests failed with exit code $LASTEXITCODE."
 }
 
+# Every standalone test executable gets a wall-clock budget: a hung test then fails in minutes with its log,
+# instead of the CI job's timeout cancelling the whole leg without a diagnosis. The longest suite finishes in
+# a small fraction of this on the slowest CI runner.
+$testTimeoutSeconds = 900
 $contractTests = Join-Path $repoRoot ".build\$Platform\$Configuration\PluginContractTests.exe"
 if ($Configuration -eq 'ASan Debug') {
     $probeLog = Join-Path $repoRoot ".build\logs\I19-ASan-probe-$Platform-$([guid]::NewGuid().ToString('N')).log"
@@ -114,33 +118,42 @@ if ($Configuration -eq 'ASan Debug') {
     Write-Host "PASS AddressSanitizer detection probe: $probeLog"
 }
 Write-Host 'Running plugin ABI and rendering-interface contract tests...' -ForegroundColor Cyan
-$contractProcess = Invoke-RedXeStreamingProcess -FilePath $contractTests -WorkingDirectory $repoRoot -LogPath ($contractTests + '.log')
+$contractProcess = Invoke-RedXeStreamingProcess -FilePath $contractTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($contractTests + '.log')
 if ($contractProcess -ne 0) {
     throw "Plugin contract tests failed with exit code $($contractProcess)."
 }
 
 $avControlTests = Join-Path $repoRoot ".build\$Platform\$Configuration\AVControlTests.exe"
 Write-Host 'Running AV Control model, input and layout tests...' -ForegroundColor Cyan
-$avControlProcess = Invoke-RedXeStreamingProcess -FilePath $avControlTests -WorkingDirectory $repoRoot -LogPath ($avControlTests + '.log')
+$avControlProcess = Invoke-RedXeStreamingProcess -FilePath $avControlTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($avControlTests + '.log')
 if ($avControlProcess -ne 0) {
     throw "AV Control tests failed with exit code $($avControlProcess)."
+}
+# The suite's own stage watchdog must turn a stage that never returns into exit code 3 that names the stage.
+Write-Host 'Running AV Control stage-watchdog check...' -ForegroundColor Cyan
+$watchdogErrorLog = Join-Path $repoRoot ".build\$Platform\$Configuration\AVControlTests.watchdog.log"
+$watchdogProcess = Start-Process -WindowStyle Hidden -FilePath $avControlTests -ArgumentList @('--watchdog-fixture', '500') `
+    -Wait -PassThru -RedirectStandardError $watchdogErrorLog
+$watchdogText = Get-Content -LiteralPath $watchdogErrorLog -Raw
+if ($watchdogProcess.ExitCode -ne 3 -or $watchdogText -notmatch "stage 'watchdog fixture' did not finish within") {
+    throw "The AV Control stage watchdog did not end a hung stage (exit $($watchdogProcess.ExitCode)): $watchdogText"
 }
 & (Join-Path $repoRoot 'Tests/AVControlTests/CameraPackageTests.ps1') -Configuration $Configuration -Platform $Platform
 
 $systemDataTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SystemDataTests.exe"
 Write-Host 'Running local system-data provider contract tests...' -ForegroundColor Cyan
-$systemDataProcess = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -LogPath ($systemDataTests + '.log')
+$systemDataProcess = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($systemDataTests + '.log')
 if ($systemDataProcess -ne 0) {
     throw "System-data provider tests failed with exit code $($systemDataProcess)."
 }
 if ($Configuration -eq 'Release' -and $Platform -eq 'x64') {
     Write-Host 'Running Release system-data row-cap resource measurement...' -ForegroundColor Cyan
-    $systemDataBenchmark = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -Arguments @('--benchmark') -LogPath ($systemDataTests + '-benchmark.log')
+    $systemDataBenchmark = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -Arguments @('--benchmark') -TimeoutSeconds $testTimeoutSeconds -LogPath ($systemDataTests + '-benchmark.log')
     if ($systemDataBenchmark -ne 0) {
         throw "System-data row-cap measurement failed with exit code $($systemDataBenchmark)."
     }
     Write-Host 'Running Release system-data per-domain measurement...' -ForegroundColor Cyan
-    $systemDataDomains = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -Arguments @('--domains') -LogPath ($systemDataTests + '-domains.log')
+    $systemDataDomains = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -Arguments @('--domains') -TimeoutSeconds $testTimeoutSeconds -LogPath ($systemDataTests + '-domains.log')
     if ($systemDataDomains -ne 0) {
         throw "System-data per-domain measurement failed with exit code $($systemDataDomains)."
     }
@@ -148,56 +161,56 @@ if ($Configuration -eq 'Release' -and $Platform -eq 'x64') {
 
 $systemDataPhase0 = Join-Path $repoRoot ".build\$Platform\$Configuration\SystemDataPhase0.exe"
 Write-Host 'Running system-data Phase 0 acquisition spikes...' -ForegroundColor Cyan
-$systemDataPhase0Process = Invoke-RedXeStreamingProcess -FilePath $systemDataPhase0 -WorkingDirectory $repoRoot -LogPath ($systemDataPhase0 + '.log')
+$systemDataPhase0Process = Invoke-RedXeStreamingProcess -FilePath $systemDataPhase0 -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($systemDataPhase0 + '.log')
 if ($systemDataPhase0Process -ne 0) {
     throw "System-data Phase 0 spikes failed with exit code $($systemDataPhase0Process)."
 }
 
 $studioClockTests = Join-Path $repoRoot ".build\$Platform\$Configuration\StudioClockTests.exe"
 Write-Host 'Running Studio Clock contract, scheduling, WARP, and resource tests...' -ForegroundColor Cyan
-$studioClockProcess = Invoke-RedXeStreamingProcess -FilePath $studioClockTests -WorkingDirectory $repoRoot -LogPath ($studioClockTests + '.log')
+$studioClockProcess = Invoke-RedXeStreamingProcess -FilePath $studioClockTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($studioClockTests + '.log')
 if ($studioClockProcess -ne 0) {
     throw "Studio Clock tests failed with exit code $($studioClockProcess)."
 }
 
 $deskClockTests = Join-Path $repoRoot ".build\$Platform\$Configuration\DeskClockTests.exe"
 Write-Host 'Running Desk Clock contract, scheduling, WARP, and resource tests...' -ForegroundColor Cyan
-$deskClockProcess = Invoke-RedXeStreamingProcess -FilePath $deskClockTests -WorkingDirectory $repoRoot -LogPath ($deskClockTests + '.log')
+$deskClockProcess = Invoke-RedXeStreamingProcess -FilePath $deskClockTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($deskClockTests + '.log')
 if ($deskClockProcess -ne 0) {
     throw "Desk Clock tests failed with exit code $($deskClockProcess)."
 }
 
 $launcherTests = Join-Path $repoRoot ".build\$Platform\$Configuration\LauncherTests.exe"
 Write-Host 'Running Launcher factory, pin fallback, WARP, launch, and drop tests...' -ForegroundColor Cyan
-$launcherProcess = Invoke-RedXeStreamingProcess -FilePath $launcherTests -WorkingDirectory $repoRoot -LogPath ($launcherTests + '.log')
+$launcherProcess = Invoke-RedXeStreamingProcess -FilePath $launcherTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($launcherTests + '.log')
 if ($launcherProcess -ne 0) {
     throw "Launcher tests failed with exit code $($launcherProcess)."
 }
 
 $weatherTests = Join-Path $repoRoot ".build\$Platform\$Configuration\WeatherTests.exe"
 Write-Host 'Running Weather HTTP, unit, and label format tests...' -ForegroundColor Cyan
-$weatherProcess = Invoke-RedXeStreamingProcess -FilePath $weatherTests -WorkingDirectory $repoRoot -LogPath ($weatherTests + '.log')
+$weatherProcess = Invoke-RedXeStreamingProcess -FilePath $weatherTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($weatherTests + '.log')
 if ($weatherProcess -ne 0) {
     throw "Weather tests failed with exit code $($weatherProcess)."
 }
 
 $logiconTests = Join-Path $repoRoot ".build\$Platform\$Configuration\LogiconTests.exe"
 Write-Host 'Running Logicon protocol, settings, face, device, and module tests...' -ForegroundColor Cyan
-$logiconProcess = Invoke-RedXeStreamingProcess -FilePath $logiconTests -WorkingDirectory $repoRoot -LogPath ($logiconTests + '.log')
+$logiconProcess = Invoke-RedXeStreamingProcess -FilePath $logiconTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($logiconTests + '.log')
 if ($logiconProcess -ne 0) {
     throw "Logicon tests failed with exit code $($logiconProcess)."
 }
 
 $zoomTests = Join-Path $repoRoot ".build\$Platform\$Configuration\ZoomTests.exe"
 Write-Host 'Running Zoom settings, OAuth material, loopback listener, and module tests...' -ForegroundColor Cyan
-$zoomProcess = Invoke-RedXeStreamingProcess -FilePath $zoomTests -WorkingDirectory $repoRoot -LogPath ($zoomTests + '.log')
+$zoomProcess = Invoke-RedXeStreamingProcess -FilePath $zoomTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($zoomTests + '.log')
 if ($zoomProcess -ne 0) {
     throw "Zoom tests failed with exit code $($zoomProcess)."
 }
 
 $settingsTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SettingsTests.exe"
 Write-Host 'Running settings, schema, stamp, and watcher contract tests...' -ForegroundColor Cyan
-$settingsProcess = Invoke-RedXeStreamingProcess -FilePath $settingsTests -WorkingDirectory $repoRoot -LogPath ($settingsTests + '.log')
+$settingsProcess = Invoke-RedXeStreamingProcess -FilePath $settingsTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($settingsTests + '.log')
 if ($settingsProcess -ne 0) {
     throw "Settings tests failed with exit code $($settingsProcess)."
 }
