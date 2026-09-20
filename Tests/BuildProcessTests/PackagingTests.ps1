@@ -34,15 +34,27 @@ try {
     $version = Get-RedXeVersion -RepoRoot $repo -BuildNumber 183
     if ($version.Version -ne "$($version.Major).$($version.Minor).183" -or $version.FileVersion -ne "$($version.Version).0") { throw 'Get-RedXeVersion shape' }
     if ((Get-RedXeVersion -RepoRoot $repo).Build -ne 0) { throw 'Get-RedXeVersion without a build number must report 0.' }
-    # The default build number is the commit count of HEAD; an explicit number always wins.
-    $commitCount = [int] (git -C $repo rev-list --count HEAD)
-    if ((Get-RedXeDefaultBuildNumber -RepoRoot $repo) -ne $commitCount -or $commitCount -le 0) { throw 'Default build number is not the commit count.' }
-    if ((Resolve-RedXeBuildNumber -RepoRoot $repo) -ne $commitCount -or (Resolve-RedXeBuildNumber -RepoRoot $repo -Requested 7) -ne 7) { throw 'Resolve-RedXeBuildNumber' }
-    # A source archive has no history: an invalid .git file stops git from finding the enclosing repository.
-    $noGit = Join-Path $fixture 'no-git'
-    [void](New-Item -ItemType Directory -Path $noGit)
-    Set-Content -LiteralPath (Join-Path $noGit '.git') -Value 'not a gitfile'
-    if ((Get-RedXeDefaultBuildNumber -RepoRoot $noGit -WarningAction SilentlyContinue) -ne 0) { throw 'A directory without git history must yield 0.' }
+    # The default build number is the commit count of HEAD (0 when this checkout itself is shallow); an explicit
+    # number always wins.
+    $commitCount = if ((git -C $repo rev-parse --is-shallow-repository) -eq 'true') { 0 } else { [int] (git -C $repo rev-list --count HEAD) }
+    if ((Get-RedXeDefaultBuildNumber -RepoRoot $repo -WarningAction SilentlyContinue) -ne $commitCount) { throw 'Default build number is not the commit count.' }
+    if ((Resolve-RedXeBuildNumber -RepoRoot $repo -WarningAction SilentlyContinue) -ne $commitCount -or (Resolve-RedXeBuildNumber -RepoRoot $repo -Requested 7) -ne 7) { throw 'Resolve-RedXeBuildNumber' }
+    # A source archive extracted inside another checkout (this fixture sits inside the repository's .build) must not
+    # borrow the enclosing repository's count.
+    $nested = Join-Path $fixture 'extracted-archive'
+    [void](New-Item -ItemType Directory -Path $nested)
+    $nestedWarnings = @()
+    if ((Get-RedXeDefaultBuildNumber -RepoRoot $nested -WarningVariable nestedWarnings -WarningAction SilentlyContinue) -ne 0 -or $nestedWarnings.Count -ne 1) {
+        throw 'A directory that is not the root of a checkout must yield 0 with a warning.'
+    }
+    # A shallow clone would count 1: it must also yield 0 rather than a truncated version.
+    $shallow = Join-Path $fixture 'shallow-clone'
+    git clone --quiet --depth 1 ("file:///" + $repo.Replace('\', '/')) $shallow 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0 -or (git -C $shallow rev-parse --is-shallow-repository) -ne 'true') { throw 'Could not create the shallow-clone fixture.' }
+    $shallowWarnings = @()
+    if ((Get-RedXeDefaultBuildNumber -RepoRoot $shallow -WarningVariable shallowWarnings -WarningAction SilentlyContinue) -ne 0 -or $shallowWarnings.Count -ne 1 -or $shallowWarnings[0] -notmatch 'Shallow') {
+        throw 'A shallow clone must yield 0 with a shallow-clone warning.'
+    }
     $parsed = ConvertTo-RedXePackageVersion -Version ' 1.0.42 '
     if ($parsed.Version -ne '1.0.42' -or $parsed.Build -ne 42) { throw 'ConvertTo-RedXePackageVersion' }
     Reject 'a four-part version' { ConvertTo-RedXePackageVersion -Version '1.0.42.0' }
