@@ -109,8 +109,9 @@ if ($Configuration -eq 'ASan Debug') {
     $previousOptions=$env:ASAN_OPTIONS
     try {
         $env:ASAN_OPTIONS='halt_on_error=1:abort_on_error=0:detect_leaks=0'
-        & $contractTests --asan-probe *> $probeLog
-        $probeExit=$LASTEXITCODE
+        # Bounded like every other test process; the sanitizer report is captured in the log for the check below.
+        $probeExit = Invoke-RedXeStreamingProcess -FilePath $contractTests -Arguments @('--asan-probe') -WorkingDirectory $repoRoot `
+            -TimeoutSeconds 120 -LogPath $probeLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
     } finally { $env:ASAN_OPTIONS=$previousOptions }
     if ($probeExit -eq 0 -or -not (Select-String -LiteralPath $probeLog -SimpleMatch 'AddressSanitizer: heap-use-after-free')) {
         throw "ASAN failed to diagnose the isolated deliberate defect: $probeLog"
@@ -131,12 +132,13 @@ if ($avControlProcess -ne 0) {
 }
 # The suite's own stage watchdog must turn a stage that never returns into exit code 3 that names the stage.
 Write-Host 'Running AV Control stage-watchdog check...' -ForegroundColor Cyan
-$watchdogErrorLog = Join-Path $repoRoot ".build\$Platform\$Configuration\AVControlTests.watchdog.log"
-$watchdogProcess = Start-Process -WindowStyle Hidden -FilePath $avControlTests -ArgumentList @('--watchdog-fixture', '500') `
-    -Wait -PassThru -RedirectStandardError $watchdogErrorLog
-$watchdogText = Get-Content -LiteralPath $watchdogErrorLog -Raw
-if ($watchdogProcess.ExitCode -ne 3 -or $watchdogText -notmatch "stage 'watchdog fixture' did not finish within") {
-    throw "The AV Control stage watchdog did not end a hung stage (exit $($watchdogProcess.ExitCode)): $watchdogText"
+$watchdogLog = Join-Path $repoRoot ".build\$Platform\$Configuration\AVControlTests.watchdog.log"
+# Bounded itself: if the watchdog ever failed to fire, this check must report that, not hang in its place.
+$watchdogExit = Invoke-RedXeStreamingProcess -FilePath $avControlTests -Arguments @('--watchdog-fixture', '500') -WorkingDirectory $repoRoot `
+    -TimeoutSeconds 60 -LogPath $watchdogLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+$watchdogText = Get-Content -LiteralPath $watchdogLog -Raw
+if ($watchdogExit -ne 3 -or $watchdogText -notmatch "stage 'watchdog fixture' did not finish within") {
+    throw "The AV Control stage watchdog did not end a hung stage (exit $watchdogExit): $watchdogText"
 }
 & (Join-Path $repoRoot 'Tests/AVControlTests/CameraPackageTests.ps1') -Configuration $Configuration -Platform $Platform
 
@@ -219,12 +221,20 @@ $hostPluginTests = Join-Path $repoRoot ".build\$Platform\$Configuration\HostPlug
 Write-Host 'Running production host and plugin integration tests...' -ForegroundColor Cyan
 $hostPluginLog = Join-Path $repoRoot ".build\$Platform\$Configuration\HostPluginTests.log"
 $hostPluginErrors = Join-Path $repoRoot ".build\$Platform\$Configuration\HostPluginTests.stderr.log"
-$hostPluginProcess = Start-Process -WindowStyle Hidden -FilePath $hostPluginTests -Wait -PassThru `
-    -RedirectStandardOutput $hostPluginLog -RedirectStandardError $hostPluginErrors
-if ($hostPluginProcess.ExitCode -ne 0) {
+# Both streams are captured (stderr also on its own, for the failure summary) under the same budget as the others.
+$hostPluginErrorWriter = [IO.StreamWriter]::new($hostPluginErrors, $false, [Text.UTF8Encoding]::new($false))
+try {
+    $hostPluginExit = Invoke-RedXeStreamingProcess -FilePath $hostPluginTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds `
+        -LogPath $hostPluginLog -OutputLineCallback {
+            param([string] $Line, [bool] $IsError)
+            if ($IsError) { $hostPluginErrorWriter.WriteLine($Line) }
+        }
+}
+finally { $hostPluginErrorWriter.Dispose() }
+if ($hostPluginExit -ne 0) {
     Get-Content -LiteralPath $hostPluginLog -Tail 80
     Get-Content -LiteralPath $hostPluginErrors -Tail 40
-    throw "Host/plugin integration tests failed with exit code $($hostPluginProcess.ExitCode)."
+    throw "Host/plugin integration tests failed with exit code $hostPluginExit."
 }
 Write-Host "Host integration log: $hostPluginLog" -ForegroundColor DarkGray
 
