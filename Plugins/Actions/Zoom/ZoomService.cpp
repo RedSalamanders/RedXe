@@ -278,6 +278,10 @@ void ZoomService::NoteFailure(HRESULT code) noexcept
 
 void ZoomService::PublishSnapshot() noexcept
 {
+    // The session is lane-owned, so it is read before the service lock is taken: the session's own lock is held by
+    // SDK callbacks while they signal OnSessionChanged (which takes the service lock), and taking the two in the
+    // opposite order here could deadlock with such a callback.
+    const SessionSnapshot session = _session ? _session->Snapshot() : SessionSnapshot{};
     const auto guard = wil::AcquireSRWLockExclusive(&_lock);
     _snapshot.laneRunning = _laneRunning.load(std::memory_order_acquire);
     _snapshot.deviceAccess = _deviceAccess.load(std::memory_order_acquire);
@@ -286,7 +290,7 @@ void ZoomService::PublishSnapshot() noexcept
     _snapshot.credentialPresent = _credentialPresent;
     _snapshot.signingIn = _signingIn;
     _snapshot.listenerPort = _listener.Running() ? _listener.Port() : 0;
-    _snapshot.session = _session ? _session->Snapshot() : SessionSnapshot{};
+    _snapshot.session = session;
     if (_localActive)
     {
         // The local path knows the meeting only through the window it found and the toolbar it read; the
@@ -1109,8 +1113,10 @@ void ZoomService::HandleRequest(const PendingRequest& request, uint64_t now) noe
         Log(RedXeLogLevelDebug, "zoom-action-failed", "a zoom action was refused by the session.", result);
         return;
     }
-    // Same contract as the local route: the session state this verb changed is published before the counter
-    // moves, so a diagnostics reader that sees the count also sees the state.
+    // Same contract as the local route: the state the session reports once the verb returned is published before
+    // the counter moves, so a diagnostics reader that sees the count also sees that state. The synthetic session
+    // applies a verb synchronously; the SDK session acknowledges the submission and reports the change through a
+    // later callback, which wakes the lane to publish again.
     PublishSnapshot();
     const auto guard = wil::AcquireSRWLockExclusive(&_lock);
     ++_snapshot.requestsExecuted;
