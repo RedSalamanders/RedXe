@@ -257,58 +257,52 @@ exit 17
 
     # A bounded run is terminated at its budget together with everything it started, and the call throws a message
     # naming the executable and the log; the partial output stays in the log. The hardest shape is exercised: the
-    # child starts a grandchild that inherits the redirected pipe, then exits, so the pipe never reaches end of
-    # file and only job containment can reach the survivor once its parent is gone. The budget leaves a slow
-    # runner time to start two PowerShell hosts before it expires; the run still ends at the budget, not at EOF.
-    $stallerPath = Join-Path $presentationTestRoot 'staller.ps1'
-    $grandchildPidPath = Join-Path $presentationTestRoot 'grandchild.pid'
+    # child starts a grandchild that inherits the redirected pipe (`start /b` keeps the standard handles), then
+    # exits, so the pipe never reaches end of file and only job containment can reach the survivor once its parent
+    # is gone. cmd.exe starts instantly, so the fixture's own startup cannot eat the budget on a slow runner; the
+    # grandchild is recognized by a marker in its command line.
+    $stallMarker = 'RedXeStallFixture-' + [guid]::NewGuid().ToString('N')
+    $stallerPath = Join-Path $presentationTestRoot 'staller.cmd'
     @"
-Write-Output 'staller:started'
-`$grandchild = Start-Process -FilePath '$powershellPath' -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60') -NoNewWindow -PassThru
-Set-Content -LiteralPath '$grandchildPidPath' -Value `$grandchild.Id
-Write-Output "staller:grandchild `$(`$grandchild.Id)"
-"@ | Set-Content -LiteralPath $stallerPath -Encoding UTF8
+@echo off
+echo staller:started
+start /b "" cmd.exe /d /c "ping.exe -n 60 127.0.0.1 > nul & rem $stallMarker"
+echo staller:grandchild
+exit /b 0
+"@ | Set-Content -LiteralPath $stallerPath -Encoding ASCII
     $stallLogPath = Join-Path $presentationTestRoot 'stalled.log'
     $timeoutStopwatch = [Diagnostics.Stopwatch]::StartNew()
     $timeoutMessage = $null
     try {
         [void](Invoke-RedXeStreamingProcess `
-            -FilePath $powershellPath `
-            -Arguments @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $stallerPath) `
+            -FilePath $env:ComSpec `
+            -Arguments @('/d', '/c', $stallerPath) `
             -WorkingDirectory $presentationTestRoot `
             -LogPath $stallLogPath `
-            -TimeoutSeconds 10 `
+            -TimeoutSeconds 5 `
             -OutputLineCallback { param([string] $Line, [bool] $IsError) })
     }
     catch {
         $timeoutMessage = $_.Exception.Message
     }
     $timeoutStopwatch.Stop()
-    if (-not $timeoutMessage -or $timeoutMessage -notmatch 'did not finish within 10 s and was terminated' -or
+    $stallLogText = if (Test-Path -LiteralPath $stallLogPath) { Get-Content -LiteralPath $stallLogPath -Raw } else { '' }
+    if (-not $timeoutMessage -or $timeoutMessage -notmatch 'did not finish within 5 s and was terminated' -or
         $timeoutMessage -notmatch [regex]::Escape($stallLogPath)) {
-        throw "A stalled run was not reported as terminated at its budget: '$timeoutMessage'"
+        throw "A stalled run was not reported as terminated at its budget: '$timeoutMessage' (log: $stallLogText)"
     }
     if ($timeoutStopwatch.Elapsed.TotalSeconds -gt 40) {
         throw "Terminating the stalled run took $($timeoutStopwatch.Elapsed.TotalSeconds) s."
     }
-    $stallLogText = Get-Content -LiteralPath $stallLogPath -Raw
     if ($stallLogText -notmatch 'staller:started' -or $stallLogText -notmatch 'staller:grandchild' -or
         $stallLogText -notmatch 'TIMEOUT:') {
-        throw 'The stalled run log lacks the partial output or the timeout record.'
+        throw "The stalled run log lacks the partial output or the timeout record: $stallLogText"
     }
-    if (-not (Test-Path -LiteralPath $grandchildPidPath)) {
-        throw 'The stall fixture did not record its grandchild.'
-    }
-    $grandchildId = [int] (Get-Content -LiteralPath $grandchildPidPath -Raw).Trim()
-    $survivor = Get-Process -Id $grandchildId -ErrorAction SilentlyContinue
-    if ($survivor) {
-        try { $survivor.Kill() } catch { }
-        throw "The grandchild (PID $grandchildId) that inherited the pipe survived the timeout termination."
-    }
-    $survivors = @(Get-CimInstance Win32_Process -Filter "Name='pwsh.exe' OR Name='powershell.exe'" -ErrorAction Stop |
-        Where-Object { $_.CommandLine -and $_.CommandLine.Contains('staller.ps1') })
+    $survivors = @(Get-CimInstance Win32_Process -ErrorAction Stop |
+        Where-Object { $_.CommandLine -and ($_.CommandLine.Contains($stallMarker) -or $_.CommandLine.Contains('staller.cmd')) })
     if ($survivors.Count -ne 0) {
-        throw "The stalled child survived its termination: $($survivors.ProcessId -join ', ')"
+        foreach ($survivor in $survivors) { Stop-Process -Id $survivor.ProcessId -Force -ErrorAction SilentlyContinue }
+        throw "A process of the stalled run survived its termination: $(($survivors | ForEach-Object { "$($_.Name) $($_.ProcessId)" }) -join ', ')"
     }
 
     $formattedDuration = Format-RedXeBuildDuration -Duration ([TimeSpan]::FromMilliseconds(3723004))
