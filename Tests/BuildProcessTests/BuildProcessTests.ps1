@@ -298,7 +298,7 @@ exit /b 0
         $stallLogText -notmatch 'TIMEOUT:') {
         throw "The stalled run log lacks the partial output or the timeout record: $stallLogText"
     }
-    $survivors = @(Get-CimInstance Win32_Process -ErrorAction Stop |
+    $survivors = @(Get-CimInstance Win32_Process -Filter "Name='cmd.exe' OR Name='ping.exe'" -ErrorAction Stop |
         Where-Object { $_.CommandLine -and ($_.CommandLine.Contains($stallMarker) -or $_.CommandLine.Contains('staller.cmd')) })
     if ($survivors.Count -ne 0) {
         foreach ($survivor in $survivors) { Stop-Process -Id $survivor.ProcessId -Force -ErrorAction SilentlyContinue }
