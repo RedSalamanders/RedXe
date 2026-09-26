@@ -5,6 +5,7 @@
 #include "HostActionCatalog.h"
 
 #include <algorithm>
+#include <climits>
 #include <cstring>
 #include <powrprof.h>
 #include <shellapi.h>
@@ -28,7 +29,10 @@ bool g_chordHeld = false;
 uint32_t g_heldMouseFlags = 0;
 DWORD g_heldMouseData = 0;
 bool g_mouseHeld = false;
-ULONGLONG g_heldSince = 0;
+ULONGLONG g_chordSince = 0;
+ULONGLONG g_mouseSince = 0;
+bool g_chordDeviceAccess = false;
+bool g_mouseDeviceAccess = false;
 
 void CountExecution(const RedXeActionDescriptor& descriptor) noexcept
 {
@@ -153,6 +157,67 @@ void FillKey(INPUT& input, uint16_t virtualKey, bool extended, bool up) noexcept
         FillKey(inputs[count++], chord.virtualKey, chord.extended, false);
     }
     return count;
+}
+
+void ArmHeldTimer() noexcept
+{
+    if (!g_hostWindow)
+    {
+        return;
+    }
+    (void)KillTimer(g_hostWindow, kHeldInputTimerId);
+    if (!g_chordHeld && !g_mouseHeld)
+    {
+        return;
+    }
+    const ULONGLONG chordDue = g_chordHeld ? g_chordSince + kHeldReleaseMilliseconds : ULLONG_MAX;
+    const ULONGLONG mouseDue = g_mouseHeld ? g_mouseSince + kHeldReleaseMilliseconds : ULLONG_MAX;
+    const ULONGLONG now = GetTickCount64();
+    const ULONGLONG due = std::min(chordDue, mouseDue);
+    const UINT delay = static_cast<UINT>(std::max<ULONGLONG>(1, due > now ? due - now : 1));
+    (void)SetTimer(g_hostWindow, kHeldInputTimerId, delay, nullptr);
+}
+
+void ReleaseChord() noexcept
+{
+    if (!g_chordHeld)
+    {
+        return;
+    }
+    std::array<INPUT, 5> inputs{};
+    const uint32_t count = FillChord(g_heldChord, true, inputs.data());
+    (void)Inject(inputs.data(), count, g_chordDeviceAccess);
+    g_chordHeld = false;
+    ++g_counters.heldReleases;
+}
+
+void ReleaseMouse() noexcept
+{
+    if (!g_mouseHeld)
+    {
+        return;
+    }
+    INPUT input{};
+    input.type = INPUT_MOUSE;
+    input.mi.dwFlags = g_heldMouseFlags;
+    input.mi.mouseData = g_heldMouseData;
+    (void)Inject(&input, 1, g_mouseDeviceAccess);
+    g_mouseHeld = false;
+    ++g_counters.heldReleases;
+}
+
+void ExpireHeld() noexcept
+{
+    const ULONGLONG now = GetTickCount64();
+    if (g_chordHeld && now - g_chordSince >= kHeldReleaseMilliseconds)
+    {
+        ReleaseChord();
+    }
+    if (g_mouseHeld && now - g_mouseSince >= kHeldReleaseMilliseconds)
+    {
+        ReleaseMouse();
+    }
+    ArmHeldTimer();
 }
 
 [[nodiscard]] HRESULT PressChords(const ChordSequence& sequence, bool deviceAccess) noexcept
@@ -724,6 +789,16 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     {
         return E_INVALIDARG;
     }
+    if (release && g_mouseHeld)
+    {
+        ReleaseMouse();
+        ArmHeldTimer();
+        return S_OK;
+    }
+    if (!release && g_mouseHeld)
+    {
+        ReleaseMouse();
+    }
     INPUT input{};
     input.type = INPUT_MOUSE;
     input.mi.dwFlags = release ? up : down;
@@ -732,9 +807,14 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     if (SUCCEEDED(result))
     {
         g_mouseHeld = !release;
-        g_heldMouseFlags = up;
-        g_heldMouseData = data;
-        g_heldSince = GetTickCount64();
+        if (!release)
+        {
+            g_heldMouseFlags = up;
+            g_heldMouseData = data;
+            g_mouseSince = GetTickCount64();
+            g_mouseDeviceAccess = deviceAccess;
+        }
+        ArmHeldTimer();
     }
     return result;
 }
@@ -760,14 +840,29 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     {
         return E_INVALIDARG;
     }
+    if (release && g_chordHeld)
+    {
+        ReleaseChord();
+        ArmHeldTimer();
+        return S_OK;
+    }
+    if (!release && g_chordHeld)
+    {
+        ReleaseChord();
+    }
     std::array<INPUT, 5> inputs{};
     const uint32_t count = FillChord(sequence.chords[0], release, inputs.data());
     const HRESULT result = Inject(inputs.data(), count, deviceAccess);
     if (SUCCEEDED(result))
     {
         g_chordHeld = !release;
-        g_heldChord = sequence.chords[0];
-        g_heldSince = GetTickCount64();
+        if (!release)
+        {
+            g_heldChord = sequence.chords[0];
+            g_chordSince = GetTickCount64();
+            g_chordDeviceAccess = deviceAccess;
+        }
+        ArmHeldTimer();
     }
     return result;
 }
@@ -936,7 +1031,12 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
 
 void SetHostWindow(HWND window) noexcept
 {
+    if (g_hostWindow)
+    {
+        (void)KillTimer(g_hostWindow, kHeldInputTimerId);
+    }
     g_hostWindow = window;
+    ArmHeldTimer();
 }
 
 HRESULT ValidateExtra(const RedXeActionDescriptor& descriptor, std::string_view target) noexcept
@@ -962,24 +1062,15 @@ HRESULT ValidateExtra(const RedXeActionDescriptor& descriptor, std::string_view 
 
 void ReleaseHeld(bool deviceAccess) noexcept
 {
-    if (g_chordHeld)
-    {
-        std::array<INPUT, 5> inputs{};
-        const uint32_t count = FillChord(g_heldChord, true, inputs.data());
-        (void)Inject(inputs.data(), count, deviceAccess);
-        g_chordHeld = false;
-        ++g_counters.heldReleases;
-    }
-    if (g_mouseHeld)
-    {
-        INPUT input{};
-        input.type = INPUT_MOUSE;
-        input.mi.dwFlags = g_heldMouseFlags;
-        input.mi.mouseData = g_heldMouseData;
-        (void)Inject(&input, 1, deviceAccess);
-        g_mouseHeld = false;
-        ++g_counters.heldReleases;
-    }
+    (void)deviceAccess;
+    ReleaseChord();
+    ReleaseMouse();
+    ArmHeldTimer();
+}
+
+void OnHeldTimer() noexcept
+{
+    ExpireHeld();
 }
 
 HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target, bool deviceAccess) noexcept
@@ -993,11 +1084,7 @@ HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target
     const std::string_view verb = name.substr(space.size() + 1);
     // Anything left pressed by an earlier keys.down / mouse.down is released once it is older than the budget,
     // unless this execution is the matching release itself.
-    if ((g_chordHeld || g_mouseHeld) && GetTickCount64() - g_heldSince > kHeldReleaseMilliseconds &&
-        !(space == "keys" && verb == "up") && !(space == "mouse" && verb == "up"))
-    {
-        ReleaseHeld(deviceAccess);
-    }
+    ExpireHeld();
     CountExecution(descriptor);
     if (space == "system")
     {

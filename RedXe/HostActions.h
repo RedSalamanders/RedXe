@@ -26,11 +26,13 @@ void SetHostWindow(HWND window) noexcept;
 [[nodiscard]] HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target,
                               bool deviceAccess) noexcept;
 
-// Releases keys and buttons still held by keys.down / mouse.down. Called before any execution older than
-// kHeldReleaseMilliseconds and at shutdown, so nothing stays pressed when a binding never sends the matching up.
+// Releases keys and buttons still held by keys.down / mouse.down. The main window calls OnHeldTimer for the
+// one-shot deadline; shutdown also releases anything still held.
 void ReleaseHeld(bool deviceAccess) noexcept;
+void OnHeldTimer() noexcept;
 
 inline constexpr uint32_t kHeldReleaseMilliseconds = 2000;
+inline constexpr UINT_PTR kHeldInputTimerId = 0x5C7;
 inline constexpr uint32_t kMaximumInputBatch = 32;
 
 // Counters for automated hosts and tests; every field counts since the last reset.

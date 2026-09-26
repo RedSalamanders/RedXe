@@ -8,13 +8,13 @@ Anything you bind to a physical control or a launcher tile is an **action**: one
 
 | Member | Meaning |
 | --- | --- |
-| `action` | `<namespace>.<verb>` such as `page.next`, `keys.media`, or `zoom.mute`. The namespaces below are the only ones that exist; an unknown one rejects the settings file. |
+| `action` | `<namespace>.<verb>` such as `page.next`, `keys.media`, or `zoom.open`. The namespaces below are the only ones that exist; an unknown one rejects the settings file. |
 | `target` | The action's argument, at most 512 bytes. Its grammar depends on the action (table below). A target that does not fit its action is not an error: the key shows a red `!` (Logicon) or a warning tile (Launcher) and the press does nothing. |
 
 Where bindings live: Logicon `keys[]`, `dialpad.buttons[]`, and `dialpad.turns[]` ([Logicon](plugins/logicon.md)); Launcher
 `shortcuts[]` ([Launcher](plugins/launcher.md)).
 
-Actions that could cost you something (`system.shutdown`, `zoom.leave`, …) need a confirming `target` such as `"now"`; there
+Actions that could cost you something (`system.shutdown`, `system.restart`, …) need a confirming `target` such as `"now"`; there
 is never a dialog, because a keypad key is a deliberate control.
 
 ## Built into RedXe
@@ -101,32 +101,18 @@ A `@<monitor>` is `primary`, `xeneon` (the monitor RedXe sits on), a 1-based mon
 
 ### `zoom.*` — the Zoom service
 
-See [Zoom](plugins/zoom.md) for setup. With a Zoom sign-in (`zoom.signIn`) every action below runs through the Zoom
-Plugin SDK; without one — or on a corporate account that does not allow the RedXe app — the actions marked † still work through
-the Zoom client's own meeting toolbar, pressed through Windows' accessibility interface (state read from the
-button names); the others do nothing.
+See [Zoom](plugins/zoom.md). These actions open the Zoom web app in the default browser; RedXe needs no Zoom
+Workplace installation or Marketplace application registration.
 
 | `action` | `target` | Effect |
 | --- | --- | --- |
-| `zoom.signIn` | none | Open the browser to sign in to Zoom and remember the sign-in |
-| `zoom.signOut` | `now` | Forget the sign-in |
-| `zoom.join` † | a meeting link, or `<meeting id>[:<passcode>]` | Join |
-| `zoom.start` † | your PMI, or empty (SDK only) | Start a meeting |
-| `zoom.leave` †, `zoom.end` | `now` | Leave, or end for everyone (host) |
-| `zoom.audio` | `join`, `leave` | Join / leave computer audio |
-| `zoom.mute` †, `zoom.video` †, `zoom.raiseHand` † | `on`, `off`, `toggle` | Your microphone, camera, and hand |
-| `zoom.share` † (start only) | `monitor`, `monitor@<monitor>`, `app@exe:<name.exe>`, `pause`, `resume`, `stop` | Screen sharing |
-| `zoom.record` † (start only) | `local.start`, `local.stop`, `cloud.start`, `cloud.stop`, `pause`, `resume` | Recording |
-| `zoom.reaction` | `thumbsUp`, `clap`, `heart`, `joy`, `openMouth`, `tada` | Send a reaction |
-| `zoom.chat.send` | text | Send a chat message to everyone |
-| `zoom.captions` | `on`, `off` | Captions |
-| `zoom.participants.muteAll`, `zoom.participants.admitAll` | none | Host controls |
-| `zoom.focus` † | none | Bring the Zoom window to the front (works without a sign-in) |
+| `zoom.open` | none | Open the Zoom web join page |
+| `zoom.join` | an HTTPS `zoom.us` or `*.zoom.us` `/j/<meeting id>` invite URL | Open that meeting invite in the browser, preserving its passcode link |
 
 ## When something is wrong
 
 - A misspelled or unknown `action` rejects the settings file; the message names the entry.
 - A `target` that does not fit is shown on the control (red `!` / warning tile) and never runs.
-- If two plugin DLLs beside `RedXe.exe` claim the same action namespace, or one that RedXe does not know, a dialog
+- If two plugin DLLs beside `RedXe.exe` claim the same action namespace, or one that RedXe does not know, a notice
   names both files and the affected bindings are disabled until the deployment is repaired. The dashboard keeps
   running.

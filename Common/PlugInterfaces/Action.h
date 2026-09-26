@@ -86,7 +86,7 @@ struct RedXeActionDescriptor final
 {
     uint32_t sizeBytes;
     uint32_t flags;
-    // Full name including the namespace, for example "zoom.mute".
+    // Full name including the namespace, for example "zoom.open".
     const char* name;
     const wchar_t* displayName;
     // Human-readable target syntax for documentation and diagnostics.

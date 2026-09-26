@@ -53,7 +53,7 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 | Release with active XENEON | Create a `WS_POPUP` borderless window using the detected XENEON monitor's exact `rcMonitor` bounds. |
 | Release without active XENEON | Show the missing-display Yes/No warning. Yes creates the standard titled fallback window; No exits successfully without creating the main window. |
 | Self-test | Skip display discovery and prompts, create the titled window hidden, validate its DPI-adjusted client dimensions, render one frame, and exit. |
-| Screenshot (`--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]`) | Run exactly as the configuration above prescribes (same discovery, placement, services, and frame loop), jump to the named page through the host `PageGoTo` action once the renderer is live and no settle runs, wait the delay (default 3000 ms, 1–120000) with the frame loop idle-waiting as usual, capture the main window through `Common/WindowCapture.cpp` (Windows.Graphics.Capture of an owned, visible window; a widget ordinal crops to that tile's `PixelBoundsAt` in client space, mapped through the DWM extended frame bounds), then close. Exit 0 with the PNG written, 8 when the capture failed (no modal prompt). It MUST NOT activate, move, or resize the window, move the cursor, or send input. |
+| Screenshot (`--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]`) | Run exactly as the configuration above prescribes (same discovery, placement, services, and frame loop), jump to the named page through the host `PageGoTo` action once the renderer is live and no settle runs, wait the delay (default 3000 ms, 1–120000) with the frame loop idle-waiting as usual, capture the main window through `Common/WindowCapture.cpp` on a capture worker (Windows.Graphics.Capture of an owned, visible window; a widget ordinal crops to that tile's `PixelBoundsAt` in client space, mapped through the DWM extended frame bounds), then close. The UI thread continues handling input and timers while capture waits for its first frame. Exit 0 with the PNG written, 8 when the capture failed (no modal prompt). It MUST NOT activate, move, or resize the window, move the cursor, or send input. |
 | Dock (`dock.edge` other than `none`, or `--dock <edge>[@<monitor>]`) | Debug and Release alike: create the dock window kind below on the selected monitor instead of the row that would otherwise apply, and skip the missing-display prompt. `--self-test` ignores the dock. |
 | Help (`--help`, `-h`, `/?`, `-?`) | Print the command-line catalog and exit 0 before any other switch is read: to the console the process was started from (a GUI process attaches to its parent's), to a redirected stdout as UTF-8, or, without either, to a message box. Every other token on the line MUST be a catalogued switch or the value of one; the first unknown token is a command-line error (exit 2, `Unknown argument "<token>". Run RedXe.exe --help for the command line.`) shown the same way, never as a message box when `--self-test` is on the line. |
 
@@ -177,7 +177,10 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
   re-placing and, when the registration row changed, re-registering; an edge change that flips orientation reflows
   the dashboard through the full rectangle. Switching between `none` and an edge changes the window kind and takes
   effect at the next launch: one Warning record (`dock-restart-required`) and the rest of the document still
-  applies. Command-line-pinned members are re-applied after every merge.
+  applies, including other `dock` members on the same edit. Command-line-pinned members are re-applied after every merge.
+- During an inner-edge drag the window follows the pointer. Dashboard and swap-chain resize work is coalesced to
+  at most one callback per 16 ms, with the final dimensions flushed on release before persisting thickness. The
+  shell work-area reservation is committed on release.
 
 ## Windows shell identity
 

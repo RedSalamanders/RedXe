@@ -34,6 +34,7 @@
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <new>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -50,6 +51,92 @@
 #include <wil/com.h>
 #include <wil/resource.h>
 #pragma warning(pop)
+
+struct PluginHostTestAccess final
+{
+    struct StallProbe final
+    {
+        wil::unique_event_nothrow entered;
+        wil::unique_event_nothrow release;
+        std::atomic<uint32_t> stopped{0};
+        std::atomic<uint32_t> destroyed{0};
+    };
+
+    class StalledService final : public RedXeComObject<StalledService, IRedXeService, IRedXeDeviceWorker>
+    {
+      public:
+        explicit StalledService(StallProbe& probe) noexcept : _probe(probe) {}
+        ~StalledService()
+        {
+            ++_probe.destroyed;
+        }
+        HRESULT STDMETHODCALLTYPE Start(const RedXeServiceStartContext*) noexcept override
+        {
+            return S_OK;
+        }
+        HRESULT STDMETHODCALLTYPE ApplySettings(const char*, uint32_t) noexcept override
+        {
+            return S_OK;
+        }
+        HRESULT STDMETHODCALLTYPE OnHostState(const RedXeHostState*) noexcept override
+        {
+            return S_OK;
+        }
+        HRESULT STDMETHODCALLTYPE Stop() noexcept override
+        {
+            ++_probe.stopped;
+            return S_OK;
+        }
+        HRESULT STDMETHODCALLTYPE RunDeviceWork(HANDLE, HANDLE) noexcept override
+        {
+            (void)SetEvent(_probe.entered.get());
+            return WaitForSingleObject(_probe.release.get(), 10'000) == WAIT_OBJECT_0 ? S_OK : E_FAIL;
+        }
+
+      private:
+        StallProbe& _probe;
+    };
+
+    [[nodiscard]] static bool Run() noexcept
+    {
+        StallProbe probe;
+        probe.entered.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+        probe.release.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+        if (!probe.entered || !probe.release)
+        {
+            return false;
+        }
+        PluginHost host;
+        auto& slot = host._services[0];
+        slot.spec = &kRedXeBundledServices[0];
+        slot.service.attach(new (std::nothrow) StalledService(probe));
+        if (!slot.service || FAILED(slot.service.query_to(slot.worker.put())))
+        {
+            return false;
+        }
+        slot.started = true;
+        if (FAILED(host.StartDeviceLane(slot)))
+        {
+            return false;
+        }
+        if (WaitForSingleObject(probe.entered.get(), 2000) != WAIT_OBJECT_0)
+        {
+            (void)SetEvent(probe.release.get());
+            return false;
+        }
+        host.StopService(slot);
+        const bool tombstoned = slot.stopPending && slot.lane.joinable() && slot.service && slot.worker &&
+                                probe.stopped.load() == 0 && probe.destroyed.load() == 0 &&
+                                host.RunningDeviceWorkerCount() == 1;
+        const bool noRestart = host.StartService(slot) == HRESULT_FROM_WIN32(ERROR_BUSY) &&
+                               host.StartDeviceLane(slot) == S_FALSE && host.RunningDeviceWorkerCount() == 1;
+        (void)SetEvent(probe.release.get());
+        const bool returned = WaitForSingleObject(slot.lane.native_handle(), 2000) == WAIT_OBJECT_0;
+        host.StopService(slot);
+        return tombstoned && noRestart && returned && !slot.stopPending && !slot.lane.joinable() && !slot.service &&
+               !slot.worker && probe.stopped.load() == 1 && probe.destroyed.load() == 1;
+    }
+};
 
 namespace
 {
@@ -3705,21 +3792,22 @@ void TestActionValidation(bool& success) noexcept
     request.actionUtf8 = "logicon.nowhere";
     Check(host.ValidateAction(&request, nullptr) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND),
           L"an unknown published verb is not found", success);
-    request.actionUtf8 = "zoom.mute";
-    request.targetUtf8 = "toggle";
+    request.actionUtf8 = "zoom.open";
+    request.targetUtf8 = nullptr;
     Check(host.ValidateAction(&request, &descriptor) == S_OK && descriptor &&
               (descriptor->flags & RedXeActionFlagDeferred) != 0 &&
               host.ActionPublisherStateOf("zoom") == PluginHost::ActionPublisherState::Ready,
           L"the Zoom contract registers from zoom.action.dll", success);
-    request.actionUtf8 = "zoom.share";
-    request.targetUtf8 = "app@exe:Zoom.exe";
-    Check(host.ValidateAction(&request, nullptr) == S_OK, L"a window suffix is accepted where the descriptor allows it",
-          success);
+    request.actionUtf8 = "zoom.mute";
+    request.targetUtf8 = "toggle";
+    Check(host.ValidateAction(&request, nullptr) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND),
+          L"client-only Zoom controls are absent from the browser contract", success);
     request.actionUtf8 = "zoom.join";
     request.targetUtf8 = "https://zoom.us/j/1234567890?pwd=abc";
-    Check(host.ValidateAction(&request, nullptr) == S_OK, L"a meeting URL validates", success);
+    Check(host.ValidateAction(&request, nullptr) == S_OK, L"a meeting URL validates as text", success);
     request.targetUtf8 = "12";
-    Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a short meeting id is invalid", success);
+    Check(host.ValidateAction(&request, nullptr) == S_OK, L"the pack performs strict URL validation at execution",
+          success);
     std::array<wchar_t, 2048> notices{};
     Check(host.CopyActionNotices(notices.data(), notices.size()) == 0,
           L"the bundled publishers register without a collision notice", success);
@@ -3749,8 +3837,68 @@ void TestActionValidation(bool& success) noexcept
     host.SetDeviceAccessEnabled(true);
 }
 
+void TestHeldInputTimer(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] held input: replacement and release without a later action\n";
+    wil::unique_hwnd window{CreateWindowExW(0, L"STATIC", L"held input timer", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
+                                            GetModuleHandleW(nullptr), nullptr)};
+    if (!window)
+    {
+        Check(false, L"message-only timer window was created", success);
+        return;
+    }
+    PluginHost& host = PluginHost::Instance();
+    RedXeActionRequest request{};
+    request.sizeBytes = sizeof(request);
+    request.actionUtf8 = "keys.down";
+    request.targetUtf8 = "Ctrl+A";
+    const RedXeActionDescriptor* keyDown = nullptr;
+    Check(host.ValidateAction(&request, &keyDown) == S_OK && keyDown, L"held key action descriptor is available",
+          success);
+    request.actionUtf8 = "mouse.down";
+    request.targetUtf8 = "left";
+    const RedXeActionDescriptor* mouseDown = nullptr;
+    Check(host.ValidateAction(&request, &mouseDown) == S_OK && mouseDown, L"held mouse action descriptor is available",
+          success);
+    if (!keyDown || !mouseDown)
+    {
+        return;
+    }
+    HostActions::SetHostWindow(window.get());
+    HostActions::ResetCounters();
+    Check(HostActions::Execute(*keyDown, "Ctrl+A", false) == S_OK &&
+              HostActions::Execute(*keyDown, "Ctrl+B", false) == S_OK && HostActions::CopyCounters().heldReleases == 1,
+          L"replacing a chord releases the original chord", success);
+    Check(HostActions::Execute(*mouseDown, "left", false) == S_OK &&
+              HostActions::Execute(*mouseDown, "right", false) == S_OK && HostActions::CopyCounters().heldReleases == 2,
+          L"replacing a button releases the original button", success);
+    HostActions::ReleaseHeld(false);
+    HostActions::ResetCounters();
+    Check(HostActions::Execute(*keyDown, "Ctrl+C", false) == S_OK, L"one held chord arms the host timer", success);
+    const ULONGLONG deadline = GetTickCount64() + 3000;
+    while (GetTickCount64() < deadline && HostActions::CopyCounters().heldReleases == 0)
+    {
+        (void)MsgWaitForMultipleObjectsEx(0, nullptr, 100, QS_TIMER, MWMO_INPUTAVAILABLE);
+        MSG message{};
+        while (PeekMessageW(&message, window.get(), WM_TIMER, WM_TIMER, PM_REMOVE))
+        {
+            if (message.wParam == HostActions::kHeldInputTimerId)
+            {
+                HostActions::OnHeldTimer();
+            }
+        }
+    }
+    Check(HostActions::CopyCounters().heldReleases == 1,
+          L"a held chord releases after two seconds without another action", success);
+    HostActions::ReleaseHeld(false);
+    HostActions::SetHostWindow(nullptr);
+}
+
 void TestServiceLifetime(bool& success) noexcept
 {
+    std::wcout << L"[ RUN      ] device lane overrun retains its service and prevents replacement\n";
+    Check(PluginHostTestAccess::Run(),
+          L"a timed-out lane owns its service until return and cannot start a replacement lane", success);
     std::wcout << L"[ RUN      ] service lifetime: start, device lane, host state, settings apply, stop\n";
     PluginHost& host = PluginHost::Instance();
     host.SetDeviceAccessEnabled(false);
@@ -5312,6 +5460,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestNetworkLane(success);
     TestHostActionQueue(success);
     TestActionValidation(success);
+    TestHeldInputTimer(success);
     TestServiceLifetime(success);
     TestLauncherPluginConstructs(success);
     TestPublishedArraySchema(success);

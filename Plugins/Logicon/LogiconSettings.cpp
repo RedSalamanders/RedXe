@@ -120,6 +120,12 @@ template <size_t Capacity>
         binding.actionBytes = 0;
         return true;
     }
+    // The keypad bindings are press-only. A held input needs a matching physical release; reject it at the
+    // settings boundary instead of leaving an injected key or mouse button down until the host safety timer.
+    if (name == "keys.down" || name == "mouse.down")
+    {
+        return false;
+    }
     if (!CopyBounded(name, binding.action, binding.actionBytes, kMaximumActionBytes))
     {
         return false;

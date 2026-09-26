@@ -38,7 +38,9 @@ the highest bound `page` plus one; runtime key-page selection is never persisted
 `action` is `none` or any action name (`Plugins_Actions.md`): a default namespace (`page.*`, `widget.*`, `redxe.*`,
 `system.*`, `keys.*`, `mouse.*`) or a registered published one (`logicon.*`, `zoom.*`); `target` is that action's
 argument (at most 512 bytes). The document parser rejects a name outside the grammar, an unregistered namespace, or an
-unknown default verb; the service validates every binding through `IRedXeHost::ValidateAction` at create, `Start`, and
+unknown default verb. Because control dispatch is press-only, it also rejects `keys.down` and `mouse.down` for every
+key, dialpad button, or turn binding; other actions may use the host's bounded hold timer. The service validates every
+binding through `IRedXeHost::ValidateAction` at create, `Start`, and
 `ApplySettings` and keeps the result, so a target that does not satisfy its action, an unknown published verb, or an
 unavailable publisher is accepted, drawn as a red `!` face, and never dispatched. Valid bindings are dispatched from
 the lane through `IRedXeHost::RequestAction`, except the service's own namespace, which runs on the lane without a
@@ -120,14 +122,16 @@ receiver child with a HID++ device index other than `0xFF`) is not driven.
   four-bit dial-button mask with the same press-edge rule as the page buttons. Stop or disconnect restores the
   stored flags; a settings apply that binds a different set restores and reconnects at once.
 - Dial and roller: no HID++ event arrives for either while turning them (75 s capture with every control diverted),
-  so they are read as the mouse collection's wheels through Raw Input: the lane creates one hidden top-level window
-  (class `RedXe.Logicon.RawInput`) on the lane thread, registers `usage page 1 / usage 2` with `RIDEV_INPUTSINK`,
-  waits with `MsgWaitForMultipleObjectsEx`, and folds every `RIM_TYPEMOUSE` packet whose device name carries
+  so they are read as the mouse collection's wheels through Raw Input: only while the dialpad is connected, the lane
+  creates one hidden top-level window (class `RedXe.Logicon.RawInput`) on the lane thread and registers
+  `usage page 1 / usage 2` with `RIDEV_INPUTSINK` if no process user already owns that registration. It waits with
+  `MsgWaitForMultipleObjectsEx`, dispatches at most 256 messages per turn, and folds every `RIM_TYPEMOUSE` packet whose device name carries
   `VID&02046d_PID&bc00` (Bluetooth) or `VID_046D&PID_BC00` (USB) — matched case-insensitively and cached per
   `hDevice`, forgotten on every hotplug change. `RI_MOUSE_HWHEEL` is taken as the dial and `RI_MOUSE_WHEEL` as the
   roller, each summed in raw HID units (120 per detent on a classic wheel) with an event count; the monitor prints
   the raw source next to each so a wrong assignment is visible. Raw mouse buttons and X/Y motion are counted for
-  diagnostics only. The window is destroyed and the sink unregistered before `RunDeviceWork` returns. Raw Input does
+  diagnostics only. The window is destroyed and its sink unregistered on dialpad disconnect; a later process owner
+  is never unregistered. Raw Input does
   not divert: the desktop still receives the wheel (`0x4610`, the only candidate for diverting it, stays undecoded by
   decision).
 - The dialpad never blocks the keypad: discovery, backoff, and disconnects are tracked per device, and either may be

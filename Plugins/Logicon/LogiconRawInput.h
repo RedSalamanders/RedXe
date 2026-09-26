@@ -53,7 +53,7 @@ class RawWheelListener final
     [[nodiscard]] HRESULT Start(uint16_t vendorId, uint16_t productId) noexcept;
     void Stop() noexcept;
     [[nodiscard]] bool Running() const noexcept;
-    // Dispatches every queued message of the thread. Returns true when a matched packet arrived since the last pump.
+    // Dispatches at most 256 queued messages per turn. Returns true when a matched packet arrived.
     bool Pump() noexcept;
     [[nodiscard]] const WheelState& State() const noexcept;
     [[nodiscard]] WheelDeltas TakeDeltas() noexcept;

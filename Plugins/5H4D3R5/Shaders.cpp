@@ -44,6 +44,7 @@
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027 28182)
 #include <wil/com.h>
+#include <wil/resource.h>
 #pragma warning(pop)
 
 namespace
@@ -1267,7 +1268,7 @@ class ShadersWidget final
         if (sizeUnchanged && (wantOffscreen == static_cast<bool>(_offscreen.texture)) &&
             (_mayUseFeedbackBuffers == static_cast<bool>(_feedback[0].texture)))
         {
-            return S_OK;
+            return BakeLookupTables();
         }
 
         // Build the replacement set completely before swapping it in, so a failure keeps the previous resources.
@@ -1297,7 +1298,7 @@ class ShadersWidget final
         _sizedHeight = height;
         // New buffers hold no simulation state: restart the shader's frame count so it re-initializes.
         _shaderFrame = 0;
-        return S_OK;
+        return BakeLookupTables();
     }
 
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
@@ -1357,6 +1358,14 @@ class ShadersWidget final
         {
             return E_UNEXPECTED;
         }
+        // Feedback and offscreen passes can fail after rebinding OM. Always hand the borrowed host target back.
+        const auto restoreHostTarget = wil::scope_exit(
+            [&]() noexcept
+            {
+                ID3D11RenderTargetView* targets[] = {hostTarget.get()};
+                deviceContext->OMSetRenderTargets(1, targets, hostDepth.get());
+                deviceContext->RSSetViewports(1, &viewport);
+            });
 
         BindCommonState(deviceContext);
 
@@ -1400,47 +1409,7 @@ class ShadersWidget final
             _lastSimulatedElapsed = widget.elapsedSeconds;
         }
 
-        // Lookup tables: drawn once per device by the first frame of any widget that shows this entry, at their own
-        // sizes, each pass reading the previous table on iChannel0. Small draws with no per-frame cost afterwards.
         SharedDeviceResources::LookupTableSet& tables = _shared->LookupTables(show.shaderIndex);
-        if (program.lookupTables[0].shader.data && !tables.built)
-        {
-            ShadersConstants tableConstants = constants;
-            tableConstants.viewportOrigin[0] = 0.0f;
-            tableConstants.viewportOrigin[1] = 0.0f;
-            for (uint32_t slot = 0; slot < kLookupTableSlots; ++slot)
-            {
-                if (!tables.shaders[slot])
-                {
-                    continue;
-                }
-                const RenderTexture& table = tables.textures[slot];
-                tableConstants.resolution[0] = static_cast<float>(table.width);
-                tableConstants.resolution[1] = static_cast<float>(table.height);
-                tableConstants.resolution[2] = 1.0f;
-                result = UploadConstants(deviceContext, tableConstants);
-                if (FAILED(result))
-                {
-                    return result;
-                }
-                ID3D11ShaderResourceView* previous[] = {slot > 0 ? tables.textures[slot - 1].view.get() : nullptr};
-                ID3D11SamplerState* previousSamplers[] = {_shared->ClampSampler()};
-                ID3D11RenderTargetView* targets[] = {table.target.get()};
-                deviceContext->OMSetRenderTargets(1, targets, nullptr);
-                SetViewport(deviceContext, 0.0f, 0.0f, static_cast<float>(table.width),
-                            static_cast<float>(table.height));
-                deviceContext->PSSetShaderResources(0, 1, previous);
-                deviceContext->PSSetSamplers(0, 1, previousSamplers);
-                deviceContext->PSSetShader(tables.shaders[slot].get(), nullptr, 0);
-                deviceContext->Draw(3, 0);
-                UnbindShaderResource(deviceContext);
-            }
-            tables.built = true;
-            // The host target must be rebound below even at 100 % scale; the offscreen branch does so itself.
-            ID3D11RenderTargetView* hostTargets[] = {hostTarget.get()};
-            deviceContext->OMSetRenderTargets(1, hostTargets, hostDepth.get());
-            deviceContext->RSSetViewports(1, &viewport);
-        }
 
         ID3D11ShaderResourceView* channels[kLookupTableSlots] = {nullptr, nullptr};
         ID3D11SamplerState* channelSamplers[kLookupTableSlots] = {_shared->ClampSampler(), _shared->ClampSampler()};
@@ -1545,6 +1514,75 @@ class ShadersWidget final
     {
         const uint64_t scaled = (static_cast<uint64_t>(pixels) * _configuration.renderScalePercent + 99U) / 100U;
         return static_cast<uint32_t>(std::max<uint64_t>(scaled, 1U));
+    }
+
+    [[nodiscard]] HRESULT BakeLookupTables() noexcept
+    {
+        if (!_device || !_constantBuffer || !_shared->IsReady(_device))
+        {
+            return E_UNEXPECTED;
+        }
+        wil::com_ptr_nothrow<ID3D11DeviceContext> context;
+        _device->GetImmediateContext(context.put());
+        if (!context)
+        {
+            return E_UNEXPECTED;
+        }
+        wil::com_ptr_nothrow<ID3D11RenderTargetView> previousTarget;
+        wil::com_ptr_nothrow<ID3D11DepthStencilView> previousDepth;
+        context->OMGetRenderTargets(1, previousTarget.put(), previousDepth.put());
+        UINT viewportCount = 1;
+        D3D11_VIEWPORT previousViewport{};
+        context->RSGetViewports(&viewportCount, &previousViewport);
+        const auto restore = wil::scope_exit(
+            [&]() noexcept
+            {
+                ID3D11RenderTargetView* targets[] = {previousTarget.get()};
+                context->OMSetRenderTargets(1, targets, previousDepth.get());
+                context->RSSetViewports(viewportCount, viewportCount ? &previousViewport : nullptr);
+            });
+        BindCommonState(context.get());
+        ShadersConstants constants{};
+        std::memcpy(constants.background, _background.data(), sizeof(constants.background));
+        FillDate(constants);
+        for (uint32_t index = 0; index < kShaderCount; ++index)
+        {
+            const ShaderProgram& program = kPrograms[index];
+            SharedDeviceResources::LookupTableSet& tables = _shared->LookupTables(index);
+            if (!program.lookupTables[0].shader.data || tables.built)
+            {
+                continue;
+            }
+            for (uint32_t slot = 0; slot < kLookupTableSlots; ++slot)
+            {
+                if (!tables.shaders[slot])
+                {
+                    continue;
+                }
+                const RenderTexture& table = tables.textures[slot];
+                constants.resolution[0] = static_cast<float>(table.width);
+                constants.resolution[1] = static_cast<float>(table.height);
+                constants.resolution[2] = 1.0f;
+                const HRESULT uploaded = UploadConstants(context.get(), constants);
+                if (FAILED(uploaded))
+                {
+                    return uploaded;
+                }
+                ID3D11ShaderResourceView* previous[] = {slot > 0 ? tables.textures[slot - 1].view.get() : nullptr};
+                ID3D11SamplerState* samplers[] = {_shared->ClampSampler()};
+                ID3D11RenderTargetView* targets[] = {table.target.get()};
+                context->OMSetRenderTargets(1, targets, nullptr);
+                SetViewport(context.get(), 0.0f, 0.0f, static_cast<float>(table.width),
+                            static_cast<float>(table.height));
+                context->PSSetShaderResources(0, 1, previous);
+                context->PSSetSamplers(0, 1, samplers);
+                context->PSSetShader(tables.shaders[slot].get(), nullptr, 0);
+                context->Draw(3, 0);
+                UnbindShaderResource(context.get());
+            }
+            tables.built = true;
+        }
+        return S_OK;
     }
 
     void ReleaseSizedResources() noexcept

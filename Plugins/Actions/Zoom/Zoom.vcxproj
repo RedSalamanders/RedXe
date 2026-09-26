@@ -29,11 +29,6 @@
   <ImportGroup Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
             Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-    <!-- Written by ThirdParty\ZoomPluginSdk\Import-ZoomSdk.ps1 from the developer-downloaded package (x64 only):
-         defines ZOOM_PLUGIN_SDK_AVAILABLE, adds export_h to the includes, links zToolSuiteIPCProxy.lib delay-loaded,
-         and copies the runtime beside RedXe.exe. Absent, the DLL builds with the synthetic session only. -->
-    <Import Project="$(MSBuildThisFileDirectory)..\..\..\ThirdParty\ZoomPluginSdk\ZoomSdk.props"
-            Condition="'$(Platform)'=='x64' and exists('$(MSBuildThisFileDirectory)..\..\..\ThirdParty\ZoomPluginSdk\ZoomSdk.props')" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
@@ -49,7 +44,7 @@
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>ws2_32.lib;winhttp.lib;bcrypt.lib;advapi32.lib;ole32.lib;oleaut32.lib;oleacc.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
@@ -64,30 +59,15 @@
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>ws2_32.lib;winhttp.lib;bcrypt.lib;advapi32.lib;ole32.lib;oleaut32.lib;oleacc.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Zoom.cpp" />
-    <ClCompile Include="ZoomAuth.cpp" />
-    <ClCompile Include="ZoomSdkSession.cpp" />
-    <ClCompile Include="ZoomService.cpp" />
     <ClCompile Include="ZoomSettings.cpp" />
-    <ClCompile Include="ZoomLocal.cpp" />
-    <ClCompile Include="ZoomSynthetic.cpp" />
-    <ClCompile Include="..\..\..\Common\Actions\ActionTargets.cpp" />
-    <ClCompile Include="..\..\..\Common\Actions\WindowSelector.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="ZoomAuth.h" />
-    <ClInclude Include="ZoomService.h" />
-    <ClInclude Include="ZoomSession.h" />
     <ClInclude Include="ZoomSettings.h" />
-    <ClInclude Include="ZoomLocal.h" />
-    <ClInclude Include="ZoomSynthetic.h" />
-    <ClInclude Include="ZoomTestContract.h" />
-    <ClInclude Include="..\..\..\Common\Actions\ActionTargets.h" />
-    <ClInclude Include="..\..\..\Common\Actions\WindowSelector.h" />
     <ClInclude Include="..\..\..\Common\PlugInterfaces\Action.h" />
     <ClInclude Include="..\..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\..\Common\PlugInterfaces\FactoryImpl.h" />

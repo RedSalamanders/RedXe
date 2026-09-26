@@ -309,35 +309,9 @@
         "buttons": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/logiconDialButton" } }
       }
     },
-    "zoomLabel": { "type": "string", "minLength": 1, "maxLength": 64 },
     "zoomSettings": {
       "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "clientId": { "type": "string", "maxLength": 128, "description": "The Zoom Marketplace General app's client id (Plugin SDK enabled). Never a secret. Required unless mode is shortcuts." },
-        "redirectPort": { "type": "integer", "minimum": 1024, "maximum": 65535, "default": 48123, "description": "Loopback port of the OAuth redirect URL http://127.0.0.1:<port>/redirect registered in the Marketplace app." },
-        "domain": { "type": "string", "minLength": 1, "maxLength": 128, "default": "zoom.us" },
-        "displayName": { "type": "string", "maxLength": 128, "default": "" },
-        "autoConnect": { "type": "boolean", "default": false, "description": "true connects to the Zoom client at start when a credential exists; false connects at the first zoom.* action." },
-        "mode": { "type": "string", "enum": ["auto", "sdk", "local"], "default": "auto", "description": "auto: the Plugin SDK when the account allows the app, else the Zoom client's own meeting toolbar through its accessibility interface; sdk: never fall back; local: never use the SDK (no Marketplace app needed)." },
-        "labels": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "The meeting toolbar button names the local mode matches to read the state and to press (English Zoom Workplace 7.1.5 defaults; set them for another Zoom language).",
-          "properties": {
-            "muted": { "$ref": "#/$defs/zoomLabel", "default": "currently muted" },
-            "unmuted": { "$ref": "#/$defs/zoomLabel", "default": "currently unmuted" },
-            "videoOn": { "$ref": "#/$defs/zoomLabel", "default": "Stop my video" },
-            "videoOff": { "$ref": "#/$defs/zoomLabel", "default": "Start my video" },
-            "handRaised": { "$ref": "#/$defs/zoomLabel", "default": "Lower hand" },
-            "handLowered": { "$ref": "#/$defs/zoomLabel", "default": "Raise hand" },
-            "share": { "$ref": "#/$defs/zoomLabel", "default": "Share," },
-            "record": { "$ref": "#/$defs/zoomLabel", "default": "Record" },
-            "leave": { "$ref": "#/$defs/zoomLabel", "default": "Leave," },
-            "end": { "$ref": "#/$defs/zoomLabel", "default": "End," }
-          }
-        }
-      }
+      "additionalProperties": false
     },
     "logiconSettings": {
       "type": "object",
@@ -426,14 +400,7 @@
           "additionalProperties": false,
           "required": ["plugin"],
           "properties": {
-            "plugin": { "const": "builtin.zoom" },
-            "clientId": { "$ref": "#/$defs/zoomSettings/properties/clientId" },
-            "redirectPort": { "$ref": "#/$defs/zoomSettings/properties/redirectPort" },
-            "domain": { "$ref": "#/$defs/zoomSettings/properties/domain" },
-            "displayName": { "$ref": "#/$defs/zoomSettings/properties/displayName" },
-            "autoConnect": { "$ref": "#/$defs/zoomSettings/properties/autoConnect" },
-            "mode": { "$ref": "#/$defs/zoomSettings/properties/mode" },
-            "labels": { "$ref": "#/$defs/zoomSettings/properties/labels" }
+            "plugin": { "const": "builtin.zoom" }
           }
         }
       ]

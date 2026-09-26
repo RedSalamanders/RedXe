@@ -13,6 +13,32 @@ constexpr wchar_t kClassName[] = L"RedXe.Logicon.RawInput";
 constexpr USHORT kGenericDesktopPage = 0x01;
 constexpr USHORT kMouseUsage = 0x02;
 
+[[nodiscard]] bool MouseRegistration(HWND& target, bool& found) noexcept
+{
+    target = nullptr;
+    found = false;
+    UINT count = 0;
+    if (GetRegisteredRawInputDevices(nullptr, &count, sizeof(RAWINPUTDEVICE)) == UINT(-1) || count > 32)
+    {
+        return false;
+    }
+    std::array<RAWINPUTDEVICE, 32> devices{};
+    if (count != 0 && GetRegisteredRawInputDevices(devices.data(), &count, sizeof(RAWINPUTDEVICE)) == UINT(-1))
+    {
+        return false;
+    }
+    for (UINT index = 0; index < count; ++index)
+    {
+        if (devices[index].usUsagePage == kGenericDesktopPage && devices[index].usUsage == kMouseUsage)
+        {
+            target = devices[index].hwndTarget;
+            found = true;
+            break;
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool ContainsIgnoreCase(const wchar_t* text, const wchar_t* pattern) noexcept
 {
     const size_t textLength = std::wcslen(text);
@@ -118,6 +144,13 @@ HRESULT RawWheelListener::Start(uint16_t vendorId, uint16_t productId) noexcept
     {
         return S_OK;
     }
+    HWND priorTarget = nullptr;
+    bool priorFound = false;
+    if (!MouseRegistration(priorTarget, priorFound) || priorFound)
+    {
+        // RegisterRawInputDevices replaces the process's registration for this device class.
+        return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
+    }
     _vendorId = vendorId;
     _productId = productId;
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -170,12 +203,17 @@ void RawWheelListener::Stop() noexcept
 {
     if (_sinkRegistered)
     {
-        RAWINPUTDEVICE device{};
-        device.usUsagePage = kGenericDesktopPage;
-        device.usUsage = kMouseUsage;
-        device.dwFlags = RIDEV_REMOVE;
-        device.hwndTarget = nullptr;
-        (void)RegisterRawInputDevices(&device, 1, sizeof(device));
+        HWND registeredTarget = nullptr;
+        bool registeredFound = false;
+        if (MouseRegistration(registeredTarget, registeredFound) && registeredFound && registeredTarget == _window)
+        {
+            RAWINPUTDEVICE device{};
+            device.usUsagePage = kGenericDesktopPage;
+            device.usUsage = kMouseUsage;
+            device.dwFlags = RIDEV_REMOVE;
+            device.hwndTarget = nullptr;
+            (void)RegisterRawInputDevices(&device, 1, sizeof(device));
+        }
         _sinkRegistered = false;
     }
     if (_window)
@@ -204,7 +242,7 @@ bool RawWheelListener::Pump() noexcept
         return false;
     }
     MSG message{};
-    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
+    for (uint32_t drained = 0; drained < 256 && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE); ++drained)
     {
         if (message.message == WM_QUIT)
         {
