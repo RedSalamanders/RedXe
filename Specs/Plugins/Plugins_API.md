@@ -348,11 +348,11 @@ requested plugin ID. The record and its UTF-8 strings remain valid while the mod
   GPU Processes publish the closed `topN` object with range 1 through 16 and default 8. System Pulse, CPU Meter,
   Memory Meter, Storage Meter, GPU Meter,
   Power Meter, and Thermal Meter publish closed empty-object schemas and `{}` defaults. Studio Clock publishes its
-  complete closed boolean, color, and date-format schema and defaults. Desk Clock publishes its complete closed duration
-  and color schema and defaults. 5H4D3R5 publishes its closed mode/shader enum, interval, shuffle, and render-scale
-  schema and defaults. Weather publishes its closed location and unit schema and defaults. Launcher publishes
-  a closed `shortcuts` array of 0 through 32 objects with optional `action` (the action-name pattern), `target`, and
-  `icon`, plus optional
+  complete closed boolean, color, date-format, and glow schema and defaults. Desk Clock publishes its complete closed
+  duration and color schema and defaults. 5H4D3R5 publishes its closed mode/shader enum, interval, shuffle, and
+  render-scale schema and defaults. Weather publishes its closed location and unit schema and defaults. Launcher
+  publishes a closed `shortcuts` array of 0 through 32 objects with optional `action` (the action-name pattern),
+  `target`, and `icon`, plus optional
   `iconSize` (`small`, `medium`, `large`, `huge`, or `automatic`, default `automatic`), default
   `{"shortcuts":[],"iconSize":"automatic"}`.
 
@@ -1092,15 +1092,17 @@ Studio Clock publishes and consumes this complete effective settings object:
   "secondsColor": "#FF1616",
   "showDate": false,
   "dateFormat": "dd-mm-yyyy",
-  "timeColor": "#FF1616"
+  "timeColor": "#FF1616",
+  "glowPercent": 35
 }
 ```
 
 The schema is closed. Colors are exact `#RRGGBB` strings with case-insensitive hexadecimal digits; supported date
-orders are `dd-mm-yyyy`, `mm-dd-yyyy`, and `yyyy-mm-dd`. The host merges defaults before factory creation. The plugin
-strictly rejects missing effective members, duplicate or unknown members (including `backgroundColor`), malformed
-booleans, colors, and date formats, converts values once during provider creation, and retains no borrowed JSON. Its
-opaque background is `RedXeFactoryOptions::backgroundColor`.
+orders are `dd-mm-yyyy`, `mm-dd-yyyy`, and `yyyy-mm-dd`; `glowPercent` is an integer from 0 through 100. The host
+merges defaults before factory creation. The plugin strictly rejects missing effective members, duplicate or unknown
+members (including `backgroundColor`), malformed booleans, colors, and date formats, a non-integer or out-of-range
+`glowPercent`, converts values once during provider creation, and retains no borrowed JSON. Its opaque background is
+`RedXeFactoryOptions::backgroundColor`.
 
 The clock displays zero-padded local 24-hour `HH:MM` with an always-lit colon. Optional zero-padded seconds and the
 clockwise progress ring use `secondsColor`. The ring contains 60 ordinary second positions and one companion at every
@@ -1116,11 +1118,22 @@ fitting square clock is centered in the viewport. With a date, rendering centers
 upper square remains the clock and whose lower band contains the date wholly below that square. The procedural
 composition contains no copied branding, runtime font, DirectWrite, WIC, texture, or loose image asset.
 
+`glowPercent` is LED bloom: every visible dot, dimmed ring positions included, emits an additive halo in its own color
+whose strength scales linearly with the setting (0.6 times the LED color at 100, before falloff) and with the dot's own
+brightness. The halo falls off smoothly to zero at four LED radii from the dot center; date halos, whose overlapping
+dots would otherwise sum to about twice the glow of the time digits, are weighted by 0.55. The halo stays out of the
+LED disc, all halos are drawn before any LED core, and the cores composite over them, so a lit LED keeps its exact
+configured color, a dimmed position keeps its brightness, and the result does not depend on dot order. The default 35
+keeps the gaps between the dots of a segment clearly darker than the dots; 100 merges each segment into a glowing bar;
+0 draws no halo.
+
 Studio Clock owns four embedded stripped Shader Model 5.0 blobs, one provider-shared immutable shader/state resource
 set per device, and one 160-byte dynamic constant buffer per attached widget. A frame issues one opaque fullscreen
-triangle and one alpha-blended instanced dot draw. Submitted instances are 114 for `HH:MM`, plus 42 for seconds, 174
-for the date, and 72 for the ordinary and five-second companion ring dots, bounded at 402. Constants map once only when
-the time bucket, settings, viewport, or DPI-derived state changes; an unrelated continuous sibling frame reuses them.
+triangle and one premultiplied-alpha instanced dot draw. The draw covers 114 dots for `HH:MM`, plus 42 for seconds,
+174 for the date, and 72 for the ordinary and five-second companion ring dots, bounded at 402. A nonzero `glowPercent`
+submits each dot twice in that same draw, one halo instance and then one core instance, bounded at 804 submitted
+instances. Constants map once only when the time bucket, settings, viewport, or DPI-derived state changes; an
+unrelated continuous sibling frame reuses them.
 Rendering performs no heap allocation,
 I/O, wait, synchronization, CPU dot loop, runtime shader compilation, timer, worker, or HWND work.
 
@@ -1440,8 +1453,10 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     transactional reconfiguration, inactive-gallery absence, ordinary 00/01/30/59 ring states, 12 default-always-lit
     outward companions, disabled-option companion counts of 1/1/7/12, four-dot oblique primary and three-dot seconds
     paths, common target LED diameter, balanced date separator gaps, dated/undated descriptor variants,
-    square-plus-lower-date-band WARP readback across landscape, portrait, square, and minimum sizes, device recreation,
-    zero steady render allocations, one-upload/two-draw and 402-instance bounds, resource sharing,
+    square-plus-lower-date-band WARP readback across landscape, portrait, square, and minimum sizes, `glowPercent`
+    range and type rejection, glow readback at 0, 35, and 100 (unchanged lit core color, a halo in the LED color that
+    grows with the setting, no light beyond the four-radius extent, an unchanged dimmed ring LED), device recreation,
+    zero steady render allocations with glow, one-upload/two-draw and 402-dot/804-instance bounds, resource sharing,
     five-minute scheduled host soak, and complete teardown through `StudioClockTests` and `HostPluginTests`.
 18. Verify Desk Clock defaults and normalized effective settings, strict duration/color validation,
     controlling-IUnknown identity, second-boundary and active-flip scheduling, transactional reconfiguration,

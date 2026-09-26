@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <new>
 #include <string_view>
 #include <utility>
@@ -29,9 +30,9 @@ namespace
 constexpr char kPluginId[] = "builtin.studio-clock";
 constexpr char kWidgetTypeId[] = "studio-clock";
 constexpr char kSettingsSchema[] =
-    R"json({"type":"object","additionalProperties":false,"properties":{"showSecondProgress":{"type":"boolean"},"externalDotsAlwaysOn":{"type":"boolean"},"showSeconds":{"type":"boolean"},"secondsColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"showDate":{"type":"boolean"},"dateFormat":{"type":"string","enum":["dd-mm-yyyy","mm-dd-yyyy","yyyy-mm-dd"]},"timeColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"}}})json";
+    R"json({"type":"object","additionalProperties":false,"properties":{"showSecondProgress":{"type":"boolean"},"externalDotsAlwaysOn":{"type":"boolean"},"showSeconds":{"type":"boolean"},"secondsColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"showDate":{"type":"boolean"},"dateFormat":{"type":"string","enum":["dd-mm-yyyy","mm-dd-yyyy","yyyy-mm-dd"]},"timeColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"glowPercent":{"type":"integer","minimum":0,"maximum":100}}})json";
 constexpr char kSettingsDefaults[] =
-    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616"})json";
+    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","glowPercent":35})json";
 constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
@@ -42,6 +43,14 @@ constexpr uint32_t kDateDotInstances = 174;
 constexpr uint32_t kProgressDotInstances = 72;
 constexpr uint32_t kMaximumDotInstances =
     kTimeDotInstances + kSecondsDotInstances + kDateDotInstances + kProgressDotInstances;
+// A nonzero glow submits every dot twice in the same draw: one additive halo, then the LED core.
+constexpr uint32_t kMaximumSubmittedInstances = kMaximumDotInstances * 2U;
+constexpr uint32_t kMaximumGlowPercent = 100;
+// Halo light at glowPercent 100, relative to the LED color, before the falloff. The default 35 keeps the gaps between
+// the dots of a segment clearly darker than the dots, as on a real display; 100 merges each segment into a glowing bar.
+constexpr float kFullGlowStrength = 0.6f;
+// The halo quad spans this many LED radii from the dot center; the falloff reaches zero at its edge.
+constexpr float kGlowExtentRadii = 4.0f;
 constexpr float kDateCompositionHeightScale = 10.0f / 9.0f;
 constexpr ULONGLONG kMaximumClockSampleIntervalMilliseconds = 1000;
 constexpr ULONGLONG kLowCadenceFrameThresholdMilliseconds = 500;
@@ -102,6 +111,7 @@ struct StudioClockConfiguration final
     bool showDate = false;
     DateFormat dateFormat = DateFormat::DayMonthYear;
     uint32_t timeColor = 0xFF1616;
+    uint32_t glowPercent = 35;
     // Host-resolved dashboard background from RedXeFactoryOptions, never a settings member of this plugin.
     uint32_t backgroundColor = kRedXeDefaultBackgroundColor & 0x00FFFFFFu;
 };
@@ -115,9 +125,10 @@ enum ConfigurationMember : uint32_t
     ConfigurationShowDate = 1U << 4U,
     ConfigurationDateFormat = 1U << 5U,
     ConfigurationTimeColor = 1U << 6U,
+    ConfigurationGlowPercent = 1U << 7U,
 };
 
-inline constexpr uint32_t kAllConfigurationMembers = (1U << 7U) - 1U;
+inline constexpr uint32_t kAllConfigurationMembers = (1U << 8U) - 1U;
 
 std::atomic<uint32_t> gLiveProviderCount{0};
 std::atomic<uint32_t> gLiveWidgetCount{0};
@@ -205,6 +216,34 @@ class JsonCursor final
         return false;
     }
 
+    [[nodiscard]] bool ReadUnsigned(uint32_t& value) noexcept
+    {
+        SkipWhitespace();
+        if (_offset >= _text.size() || _text[_offset] < '0' || _text[_offset] > '9')
+        {
+            return false;
+        }
+        const bool leadingZero = _text[_offset] == '0';
+        uint64_t parsed = 0;
+        size_t digits = 0;
+        while (_offset < _text.size() && _text[_offset] >= '0' && _text[_offset] <= '9')
+        {
+            parsed = parsed * 10U + static_cast<uint64_t>(_text[_offset] - '0');
+            if (parsed > std::numeric_limits<uint32_t>::max())
+            {
+                return false;
+            }
+            ++_offset;
+            ++digits;
+        }
+        if (leadingZero && digits != 1)
+        {
+            return false;
+        }
+        value = static_cast<uint32_t>(parsed);
+        return true;
+    }
+
     [[nodiscard]] bool AtEnd() noexcept
     {
         SkipWhitespace();
@@ -263,6 +302,7 @@ class JsonCursor final
         std::pair<std::string_view, uint32_t>{"showDate", ConfigurationShowDate},
         std::pair<std::string_view, uint32_t>{"dateFormat", ConfigurationDateFormat},
         std::pair<std::string_view, uint32_t>{"timeColor", ConfigurationTimeColor},
+        std::pair<std::string_view, uint32_t>{"glowPercent", ConfigurationGlowPercent},
     };
     for (const auto& member : members)
     {
@@ -318,6 +358,7 @@ class JsonCursor final
         seen |= member;
 
         bool booleanValue = false;
+        uint32_t number = 0;
         std::string_view text;
         switch (member)
         {
@@ -352,6 +393,11 @@ class JsonCursor final
         case ConfigurationTimeColor:
             if (!cursor.ReadString(text) || !ParseColor(text, parsed.timeColor))
                 return false;
+            break;
+        case ConfigurationGlowPercent:
+            if (!cursor.ReadUnsigned(number) || number > kMaximumGlowPercent)
+                return false;
+            parsed.glowPercent = number;
             break;
         default:
             return false;
@@ -528,6 +574,7 @@ struct alignas(16) StudioClockConstants final
     float timeColor[4];
     float secondsColor[4];
     float viewportAndOrigin[4];
+    // Square size in pixels, glow strength, halo extent in LED radii (zero skips the halo pass), unused.
     float geometry[4];
     uint32_t timeDigits[4];
     uint32_t secondsAndFlags[4];
@@ -539,6 +586,7 @@ struct alignas(16) StudioClockConstants final
 static_assert(sizeof(StudioClockConstants) == 160);
 static_assert(sizeof(StudioClockConstants) <= 256);
 static_assert(kMaximumDotInstances == 402);
+static_assert(kMaximumSubmittedInstances == 804);
 
 class StudioClockSharedResources final
 {
@@ -612,10 +660,11 @@ class StudioClockSharedResources final
         if (FAILED(result))
             return result;
 
+        // Premultiplied: a core composites over what is below it, and a halo (zero alpha) adds light to it.
         D3D11_BLEND_DESC alphaDescription{};
         D3D11_RENDER_TARGET_BLEND_DESC& target = alphaDescription.RenderTarget[0];
         target.BlendEnable = TRUE;
-        target.SrcBlend = D3D11_BLEND_SRC_ALPHA;
+        target.SrcBlend = D3D11_BLEND_ONE;
         target.DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
         target.BlendOp = D3D11_BLEND_OP_ADD;
         target.SrcBlendAlpha = D3D11_BLEND_ONE;
@@ -752,7 +801,10 @@ class StudioClockWidget final
                       const StudioClockConfiguration& configuration, StudioClockSharedResources& resources) noexcept
         : _providerOwner(std::move(providerOwner)), _configuration(configuration), _resources(&resources),
           _timeColor(ConvertColor(configuration.timeColor)), _secondsColor(ConvertColor(configuration.secondsColor)),
-          _backgroundColor(ConvertColor(configuration.backgroundColor))
+          _backgroundColor(ConvertColor(configuration.backgroundColor)),
+          _glowStrength(kFullGlowStrength * static_cast<float>(configuration.glowPercent) /
+                        static_cast<float>(kMaximumGlowPercent)),
+          _glowExtent(configuration.glowPercent != 0 ? kGlowExtentRadii : 0.0f)
     {
         gLiveWidgetCount.fetch_add(1, std::memory_order_relaxed);
     }
@@ -1046,14 +1098,15 @@ class StudioClockWidget final
             {_timeColor[0], _timeColor[1], _timeColor[2], _timeColor[3]},
             {_secondsColor[0], _secondsColor[1], _secondsColor[2], _secondsColor[3]},
             {static_cast<float>(_width), static_cast<float>(_height), originX, originY},
-            {squareSize, 0.0f, 0.0f, 0.0f},
+            {squareSize, _glowStrength, _glowExtent, 0.0f},
             {timeDigits[0], timeDigits[1], timeDigits[2], timeDigits[3]},
             {secondsDigits[0], secondsDigits[1], _time.wSecond, _configuration.externalDotsAlwaysOn ? 1U : 0U},
             {dateDigits[0], dateDigits[1], dateDigits[2], dateDigits[3]},
             {dateDigits[4], dateDigits[5], dateDigits[6], dateDigits[7]},
             {kTimeDotInstances, secondsCount, dateCount, progressCount},
         };
-        _instanceCount = kTimeDotInstances + secondsCount + dateCount + progressCount;
+        const uint32_t dotCount = kTimeDotInstances + secondsCount + dateCount + progressCount;
+        _instanceCount = _glowExtent > 0.0f ? dotCount * 2U : dotCount;
     }
 
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _providerOwner;
@@ -1062,6 +1115,8 @@ class StudioClockWidget final
     std::array<float, 4> _timeColor;
     std::array<float, 4> _secondsColor;
     std::array<float, 4> _backgroundColor;
+    float _glowStrength;
+    float _glowExtent;
     wil::com_ptr_nothrow<ID3D11Buffer> _constantBuffer;
     StudioClockConstants _constants{};
     SYSTEMTIME _time{};

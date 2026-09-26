@@ -1660,7 +1660,7 @@ void TestStudioClockScheduling(bool& success) noexcept
     constexpr std::string_view settingsJson =
         R"json({"version":{"major":5},"pages":[{"name":"Clock","widgets":[{"plugin":"builtin.studio-clock"}]}]})json";
     constexpr std::string_view changedConfiguration =
-        R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#00EE44","showDate":true,"dateFormat":"yyyy-mm-dd","timeColor":"#E0E0FF"})json";
+        R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#00EE44","showDate":true,"dateFormat":"yyyy-mm-dd","timeColor":"#E0E0FF","glowPercent":35})json";
 
     AttachedHostWindow window;
     HRESULT result = window.Initialize(kHostWidth, kHostHeight);
@@ -1747,9 +1747,9 @@ void TestStudioClockScheduling(bool& success) noexcept
         result = ReadStudioClockDiagnostics(diagnostics);
     }
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 1 && diagnostics.lastMapCount == 1 &&
-              diagnostics.lastDrawCount == 2 && diagnostics.lastInstanceCount == 402 &&
+              diagnostics.lastDrawCount == 2 && diagnostics.lastInstanceCount == 804 &&
               diagnostics.liveSharedDeviceResourceSetCount == 1 && diagnostics.liveConstantBufferCount == 1,
-          L"Studio Clock renders configured maximum content within its resource budgets", success);
+          L"Studio Clock renders configured maximum content with glow within its resource budgets", success);
 
     if (SUCCEEDED(result))
     {

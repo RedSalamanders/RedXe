@@ -257,9 +257,10 @@ consumer exists, the design review MUST first evaluate a host-owned bounded comm
 widget root must not absorb plugin-specific drawing records.
 
 The measured Studio Clock is an accepted low-cadence `IRedXeGpuWidget`: one instance uses two draws, no more than 402
-dot instances, one 160-byte map only when cached visual state changes, one shared immutable device-resource set, and
-one per-widget constant buffer. It owns no texture, font, HWND, timer, or worker. This bounded consumer does not by
-itself justify a host primitive-batching IID; a materially larger family must be measured again before that decision.
+dots (804 submitted instances with LED glow), one 160-byte map only when cached visual state changes, one shared
+immutable device-resource set, and one per-widget constant buffer. It owns no texture, font, HWND, timer, or worker.
+This bounded consumer does not by itself justify a host primitive-batching IID; a materially larger family must be
+measured again before that decision.
 At 2560×720, three Release WARP runs of the overlay-aligned 228-instance default produced a representative median CPU
 submission delta of 267.403 microseconds/frame and GPU timestamp time of 0.0829 ms/frame. This is lower than the prior
 404-instance reference-aligned medians of 287.055 microseconds/frame and 0.0842 ms/frame while preserving its visual
@@ -268,6 +269,15 @@ After adding the selectable outward-dot state, six Release WARP runs produced re
 microseconds/frame and 0.0993 ms/frame. The bounded 13.422-microsecond CPU and 0.0164-ms WARP timestamp increases are
 accepted for the dynamic per-companion setting at the clock's one-Hz cadence; instance count, constant-buffer size,
 maps, draws, allocations, resources, and wake frequency remain unchanged.
+The default LED glow (`glowPercent` 35) submits one additive halo quad of four LED radii per dot ahead of the cores in
+the same draw, so the 228-dot default submits 456 instances. On 2026-09-26, six alternating Release WARP runs of that
+2560×720 benchmark (a 720-pixel clock, the raised size) produced medians of 499.845 microseconds/frame and
+0.2212 ms/frame against 241.912 microseconds/frame and 0.0800 ms/frame with `glowPercent` 0 in the same build. The
+software rasterizer's cost grows with the halo pixels, about 16 times each dot's core quad; draws, maps,
+constant-buffer size, allocations, resources, and wake frequency are unchanged. The increase is accepted because the
+clock renders once per second, the regression is fill-rate only, and `glowPercent` 0 submits no halo at all. Beside a
+continuous sibling in the shipped galleries its tile is about 256 pixels square, where the halos cover about 50,000
+pixels per frame.
 
 The measured Desk Clock is also an accepted bounded low-cadence `IRedXeGpuWidget`. One static instance uses three
 draws and 40 submitted instances; its configured 250–800 ms split-flap burst uses four draws and 46 submitted

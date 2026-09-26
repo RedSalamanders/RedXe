@@ -586,13 +586,15 @@ constexpr std::string_view kRepresentative = R"json(
     // backgroundColor is a host-reserved widget key: it lifts onto the typed instance and never enters the plugin
     // settings object, so the plugin defaults merge and validators stay unaware of it.
     constexpr std::string_view studioClockSettings =
-        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock"},{"plugin":"builtin.studio-clock","showDate":true,"backgroundColor":"#010203"}]}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock"},{"plugin":"builtin.studio-clock","showDate":true,"glowPercent":0,"backgroundColor":"#010203"}]}]})json";
     AppSettings studioClock{};
     if (FAILED(ParseAppSettingsJson(studioClockSettings, studioClock)) ||
         studioClock.dashboard.pages[0].widgets[0].privateConfiguration.View() !=
-            R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616"})json" ||
+            R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","glowPercent":35})json" ||
         studioClock.dashboard.pages[0].widgets[0].overridesBackground ||
         studioClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"showDate\":true") ==
+            std::string_view::npos ||
+        studioClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"glowPercent\":0}") ==
             std::string_view::npos ||
         studioClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("backgroundColor") !=
             std::string_view::npos ||
@@ -809,7 +811,7 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    constexpr std::array<std::string_view, 60> invalid{
+    constexpr std::array<std::string_view, 64> invalid{
         std::string_view{R"json({"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":4},"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":5,"minor":"0"},"pages":[{}]})json"},
@@ -847,6 +849,14 @@ constexpr std::string_view kRepresentative = R"json(
             R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","secondsColor":"#GG0000"}]}]})json"},
         std::string_view{
             R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","unknown":true}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","glowPercent":101}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","glowPercent":-1}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","glowPercent":3.5}]}]})json"},
+        std::string_view{
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","glowPercent":"35"}]}]})json"},
         std::string_view{
             R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.desk-clock","flipDurationMilliseconds":249}]}]})json"},
         std::string_view{

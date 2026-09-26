@@ -4,7 +4,7 @@ cbuffer ClockConstants : register(b0)
     float4 timeColor;
     float4 secondsColor;
     float4 viewportAndOrigin;
-    float4 geometry;
+    float4 geometry; // x: square size in pixels, y: glow strength, z: halo extent in LED radii (0 skips the halo pass)
     uint4 timeDigits;
     uint4 secondsAndFlags;
     uint4 dateDigits0;
@@ -17,6 +17,8 @@ struct VertexOutput
     float4 position : SV_Position;
     float2 local : TEXCOORD0;
     float4 color : COLOR0;
+    // x: halo strength scaled by the LED's own brightness, zero on a core quad; y: 1 / extent squared.
+    nointerpolation float2 halo : TEXCOORD1;
 };
 
 static const uint digitSegments[10] = {
@@ -189,6 +191,17 @@ VertexOutput VertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instan
     float4 color = timeColor;
     bool visible = true;
 
+    // With glow enabled the draw submits every dot twice: all additive halos first, then every LED core over them, so
+    // a later neighbour's halo never brightens a core drawn earlier. geometry.z is the halo extent in LED radii.
+    const float glowExtent = geometry.z;
+    float glowWeight = 1.0;
+    const uint dotCount = segmentCounts.x + segmentCounts.y + segmentCounts.z + segmentCounts.w;
+    const bool haloPass = glowExtent > 0.0 && instanceId < dotCount;
+    if (glowExtent > 0.0 && !haloPass)
+    {
+        instanceId -= dotCount;
+    }
+
     if (instanceId < segmentCounts.x)
     {
         center = TimeDot(instanceId, radius, visible);
@@ -207,6 +220,9 @@ VertexOutput VertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instan
             if (instanceId < segmentCounts.z)
             {
                 center = DateDot(instanceId, radius, visible);
+                // Date dots overlap along each segment, so their summed halos would read about twice as strong as the
+                // time digits' at the same setting.
+                glowWeight = 0.55;
             }
             else
             {
@@ -221,7 +237,8 @@ VertexOutput VertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instan
         }
     }
 
-    const float2 corner = corners[vertexId];
+    const float extent = haloPass ? glowExtent : 1.0;
+    const float2 corner = corners[vertexId] * extent;
     if (!visible)
     {
         output.position = float4(2.0, 2.0, 0.0, 1.0);
@@ -235,5 +252,6 @@ VertexOutput VertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instan
     }
     output.local = corner;
     output.color = color;
+    output.halo = haloPass ? float2(geometry.y * glowWeight * color.a, 1.0 / (extent * extent)) : float2(0.0, 1.0);
     return output;
 }
