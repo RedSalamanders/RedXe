@@ -41,7 +41,8 @@ static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeRaisedWidget>);
 constexpr char kPluginId[] = "builtin.studio-clock";
 constexpr char kWidgetTypeId[] = "studio-clock";
 constexpr std::string_view kDefaults =
-    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616"})json";
+    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","glowPercent":35})json";
+constexpr uint32_t kDefaultGlowPercent = 35;
 
 void Expect(bool condition, const char* message)
 {
@@ -83,7 +84,8 @@ struct Exports final
 [[nodiscard]] std::string Configuration(bool showProgress, bool showSeconds, bool showDate,
                                         bool externalDotsAlwaysOn = true, std::string_view dateFormat = "dd-mm-yyyy",
                                         std::string_view secondsColor = "#FF1616",
-                                        std::string_view timeColor = "#FF1616")
+                                        std::string_view timeColor = "#FF1616",
+                                        uint32_t glowPercent = kDefaultGlowPercent)
 {
     std::string result;
     result.reserve(256);
@@ -93,7 +95,8 @@ struct Exports final
     result.append(",\"secondsColor\":\"").append(secondsColor).append("\"");
     result.append(",\"showDate\":").append(showDate ? "true" : "false");
     result.append(",\"dateFormat\":\"").append(dateFormat).append("\"");
-    result.append(",\"timeColor\":\"").append(timeColor).append("\"}");
+    result.append(",\"timeColor\":\"").append(timeColor).append("\"");
+    result.append(",\"glowPercent\":").append(std::to_string(glowPercent)).append("}");
     return result;
 }
 
@@ -420,6 +423,8 @@ void ValidateFactoryAndSettings(const Exports& exports)
     const std::string_view schema(contract->schemaJsonUtf8, contract->schemaBytes);
     Expect(schema.find("showSecondProgress") != std::string_view::npos &&
                schema.find("externalDotsAlwaysOn") != std::string_view::npos &&
+               schema.find("\"glowPercent\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":100}") !=
+                   std::string_view::npos &&
                schema.find("additionalProperties\":false") != std::string_view::npos,
            "Studio Clock schema is not closed or complete");
 
@@ -489,6 +494,14 @@ void ValidateFactoryAndSettings(const Exports& exports)
         Expect(TryCreateProvider(exports.create, configuration, provider) == S_OK && provider,
                "Studio Clock rejected a valid date format or mixed-case color");
     }
+    for (const uint32_t glowPercent : {0U, 1U, 99U, 100U})
+    {
+        const std::string configuration =
+            Configuration(true, true, false, true, "dd-mm-yyyy", "#FF1616", "#FF1616", glowPercent);
+        provider.reset();
+        Expect(TryCreateProvider(exports.create, configuration, provider) == S_OK && provider,
+               "Studio Clock rejected a valid glowPercent");
+    }
 
     struct Mutation final
     {
@@ -506,6 +519,15 @@ void ValidateFactoryAndSettings(const Exports& exports)
         Mutation{"\"timeColor\":\"#FF1616\"", "\"timeColor\":\"#FF1616\",\"backgroundColor\":\"#111111\""},
         Mutation{"\"showSeconds\":true", "\"showSeconds\":true,\"showSeconds\":false"},
         Mutation{"\"showDate\":false", "\"showDate\":false,\"unknown\":1"},
+        Mutation{",\"glowPercent\":35", ""},
+        Mutation{"\"glowPercent\":35", "\"glowPercent\":101"},
+        Mutation{"\"glowPercent\":35", "\"glowPercent\":-1"},
+        Mutation{"\"glowPercent\":35", "\"glowPercent\":3.5"},
+        Mutation{"\"glowPercent\":35", "\"glowPercent\":1e1"},
+        Mutation{"\"glowPercent\":35", "\"glowPercent\":035"},
+        Mutation{"\"glowPercent\":35", "\"glowPercent\":\"35\""},
+        Mutation{"\"glowPercent\":35", "\"glowPercent\":true"},
+        Mutation{"\"glowPercent\":35", "\"glowPercent\":4294967296"},
     };
     for (const Mutation& mutation : mutations)
     {
@@ -640,8 +662,8 @@ void ValidateRendering(const Exports& exports)
     SetTime(exports, 2024, 12, 31, 12, 34, 0, 0);
     std::vector<std::uint8_t> pixels = RenderAndReadback(*created.gpu, target);
     StudioClockTestDiagnostics diagnostics = Diagnostics(exports);
-    Expect(diagnostics.lastMapCount == 1 && diagnostics.lastDrawCount == 2 && diagnostics.lastInstanceCount == 228,
-           "Studio Clock default render budgets are wrong");
+    Expect(diagnostics.lastMapCount == 1 && diagnostics.lastDrawCount == 2 && diagnostics.lastInstanceCount == 456,
+           "Studio Clock default render budgets are wrong (228 dots, each with a halo)");
     Expect(PixelAt(pixels, target.width, 4, 4) == std::array<std::uint8_t, 4>{0x11, 0x11, 0x11, 0xFF},
            "Studio Clock background color is wrong");
     Expect(CountActiveRingDots(pixels, target.width, target.height) == 1,
@@ -719,7 +741,8 @@ void ValidateRendering(const Exports& exports)
     Expect(recreatedPixels == pixels, "Studio Clock pixels changed across device recreation");
     created.gpu->OnDeviceLost();
 
-    const std::string colorful = Configuration(true, true, true, true, "dd-mm-yyyy", "#11EE44", "#2244FF");
+    // Exact LED radius and clear-gap probes need the bare dots; ValidateGlow covers the halo.
+    const std::string colorful = Configuration(true, true, true, true, "dd-mm-yyyy", "#11EE44", "#2244FF", 0);
     wil::com_ptr_nothrow<IRedXeWidgetProvider> colorfulProvider;
     Expect(TryCreateProvider(exports.create, colorful, colorfulProvider, 0xFF050607) == S_OK,
            "Studio Clock colorful provider failed");
@@ -729,7 +752,7 @@ void ValidateRendering(const Exports& exports)
     pixels = RenderAndReadback(*colorfulWidget.gpu, target);
     diagnostics = Diagnostics(exports);
     Expect(diagnostics.lastInstanceCount == 402 && diagnostics.lastDrawCount == 2 && diagnostics.lastMapCount == 1,
-           "Studio Clock maximum-content render budgets are wrong");
+           "Studio Clock maximum-content render budgets without glow are wrong");
     Expect(PixelAt(pixels, target.width, 4, 4) == std::array<std::uint8_t, 4>{0x05, 0x06, 0x07, 0xFF},
            "Studio Clock host-supplied background color is wrong");
     const ClockLayout colorfulLayout = LayoutFor(target.width, target.height, true);
@@ -862,18 +885,78 @@ void ValidateRendering(const Exports& exports)
     }
 }
 
+void ValidateGlow(const Exports& exports)
+{
+    // Probes around the top-left LED of the hour tens digit ("2" of 20:59) and the dimmed ring position of second 30,
+    // on a 720 px square where one LED radius is 5.76 px.
+    RenderTarget target;
+    Expect(CreateRenderTarget(720, 720, target) == S_OK, "Studio Clock glow target failed");
+    const RedXeGpuDeviceContext deviceContext = DeviceContextFor(target);
+    const auto render = [&exports, &target, &deviceContext](uint32_t glowPercent)
+    {
+        const std::string configuration =
+            Configuration(true, false, false, true, "dd-mm-yyyy", "#FF1616", "#2244FF", glowPercent);
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+        Expect(TryCreateProvider(exports.create, configuration, provider) == S_OK, "Studio Clock glow provider failed");
+        WidgetInterfaces widget = CreateWidget(*provider, "studio.glow");
+        Expect(widget.gpu->OnDeviceCreated(&deviceContext) == S_OK, "Studio Clock glow device failed");
+        SetTime(exports, 2024, 12, 31, 20, 59, 0, 0);
+        std::vector<std::uint8_t> pixels = RenderAndReadback(*widget.gpu, target);
+        const StudioClockTestDiagnostics diagnostics = Diagnostics(exports);
+        constexpr uint32_t dots = 114U + 72U;
+        Expect(diagnostics.lastMapCount == 1 && diagnostics.lastDrawCount == 2 &&
+                   diagnostics.lastInstanceCount == (glowPercent != 0 ? dots * 2U : dots),
+               "Studio Clock glow render budgets are wrong");
+        widget.gpu->OnDeviceLost();
+        return pixels;
+    };
+    const std::vector<std::uint8_t> bare = render(0);
+    const std::vector<std::uint8_t> natural = render(kDefaultGlowPercent);
+    const std::vector<std::uint8_t> strong = render(100);
+    const auto at = [&target](const std::vector<std::uint8_t>& pixels, uint32_t x, uint32_t y)
+    { return PixelAt(pixels, target.width, x, y); };
+    constexpr std::array<std::uint8_t, 4> background{0x11, 0x11, 0x11, 0xFF};
+    constexpr std::array<std::uint8_t, 4> timeColor{0x22, 0x44, 0xFF, 0xFF};
+
+    Expect(at(bare, 155, 296) == timeColor && at(natural, 155, 296) == timeColor && at(strong, 155, 296) == timeColor,
+           "Studio Clock glow changed the color of a lit LED core");
+    const std::array<std::uint8_t, 4> bareHalo = at(bare, 155, 287);
+    const std::array<std::uint8_t, 4> naturalHalo = at(natural, 155, 287);
+    const std::array<std::uint8_t, 4> strongHalo = at(strong, 155, 287);
+    Expect(bareHalo == background, "Studio Clock drew light beside an LED with glow disabled");
+    Expect(naturalHalo[2] >= background[2] + 16 && strongHalo[2] >= naturalHalo[2] + 32 && naturalHalo[3] == 0xFF &&
+               naturalHalo[2] - background[2] > 4 * (naturalHalo[0] - background[0]),
+           "Studio Clock halo is missing, does not grow with glowPercent, or does not take the LED color");
+    Expect(at(natural, 155, 268) == background && at(strong, 155, 268) == background,
+           "Studio Clock halo spread past its bounded extent");
+
+    const std::array<std::uint8_t, 4> bareDim = at(bare, 360, 661);
+    Expect(bareDim[0] > background[0] + 24 && bareDim[0] < 180, "Studio Clock dimmed ring probe missed its LED");
+    for (const std::vector<std::uint8_t>* glowing : {&natural, &strong})
+    {
+        const std::array<std::uint8_t, 4> dim = at(*glowing, 360, 661);
+        for (size_t channel = 0; channel < 3; ++channel)
+        {
+            Expect(std::abs(static_cast<int>(dim[channel]) - static_cast<int>(bareDim[channel])) <= 1,
+                   "Studio Clock glow changed the brightness of a dimmed ring LED");
+        }
+    }
+}
+
 void ValidateSharedResourcesAndToggles(const Exports& exports)
 {
     RenderTarget target;
     Expect(CreateRenderTarget(320, 320, target) == S_OK, "Studio Clock resource target failed");
     const RedXeGpuDeviceContext deviceContext = DeviceContextFor(target);
-    for (uint32_t bits = 0; bits < 16; ++bits)
+    for (uint32_t bits = 0; bits < 32; ++bits)
     {
         const bool progress = (bits & 1U) != 0;
         const bool seconds = (bits & 2U) != 0;
         const bool date = (bits & 4U) != 0;
         const bool externalDotsAlwaysOn = (bits & 8U) != 0;
-        const std::string configuration = Configuration(progress, seconds, date, externalDotsAlwaysOn);
+        const uint32_t glowPercent = (bits & 16U) != 0 ? 0U : kDefaultGlowPercent;
+        const std::string configuration = Configuration(progress, seconds, date, externalDotsAlwaysOn, "dd-mm-yyyy",
+                                                        "#FF1616", "#FF1616", glowPercent);
         wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
         Expect(TryCreateProvider(exports.create, configuration, provider) == S_OK,
                "Studio Clock toggle provider failed");
@@ -881,8 +964,9 @@ void ValidateSharedResourcesAndToggles(const Exports& exports)
         Expect(widget.gpu->OnDeviceCreated(&deviceContext) == S_OK, "Studio Clock toggle device failed");
         SetTime(exports, 2024, 2, 29, 8, 7, 6, 0);
         Expect(RenderOnly(*widget.gpu, target) == S_OK, "Studio Clock toggle render failed");
-        const uint32_t expectedInstances = 114U + (seconds ? 42U : 0U) + (date ? 174U : 0U) + (progress ? 72U : 0U);
-        Expect(Diagnostics(exports).lastInstanceCount == expectedInstances,
+        const uint32_t dots = 114U + (seconds ? 42U : 0U) + (date ? 174U : 0U) + (progress ? 72U : 0U);
+        const StudioClockTestDiagnostics diagnostics = Diagnostics(exports);
+        Expect(diagnostics.lastInstanceCount == (glowPercent != 0 ? dots * 2U : dots) && diagnostics.lastDrawCount == 2,
                "Studio Clock toggle instance bound is wrong");
         widget.gpu->OnDeviceLost();
     }
@@ -968,12 +1052,15 @@ void ValidateSharedResourcesAndToggles(const Exports& exports)
            frameCount;
 }
 
-void RunBenchmark(const Exports& exports)
+void RunBenchmark(const Exports& exports, uint32_t glowPercent)
 {
     RenderTarget target;
     Expect(CreateRenderTarget(2560, 720, target) == S_OK, "Studio Clock benchmark target failed");
     wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
-    Expect(TryCreateProvider(exports.create, kDefaults, provider) == S_OK, "Studio Clock benchmark provider failed");
+    const std::string configuration =
+        Configuration(true, true, false, true, "dd-mm-yyyy", "#FF1616", "#FF1616", glowPercent);
+    Expect(TryCreateProvider(exports.create, configuration, provider) == S_OK,
+           "Studio Clock benchmark provider failed");
     WidgetInterfaces widget = CreateWidget(*provider, "studio.benchmark");
     const RedXeGpuDeviceContext deviceContext = DeviceContextFor(target);
     Expect(widget.gpu->OnDeviceCreated(&deviceContext) == S_OK, "Studio Clock benchmark device failed");
@@ -1018,13 +1105,13 @@ void RunBenchmark(const Exports& exports)
     const std::int64_t workingSetDelta =
         static_cast<std::int64_t>(afterMemory.WorkingSetSize) - static_cast<std::int64_t>(beforeMemory.WorkingSetSize);
     const StudioClockTestDiagnostics diagnostics = Diagnostics(exports);
-    std::wcout << L"StudioClock benchmark 2560x720: baseline_cpu_us_per_frame=" << baselineMicroseconds
-               << L", clock_cpu_us_per_frame=" << cpuMicroseconds << L", clock_cpu_delta_us_per_frame="
-               << (cpuMicroseconds - baselineMicroseconds) << L", gpu_ms_per_frame=" << gpuMilliseconds
-               << L", private_delta_bytes=" << privateDelta << L", working_set_delta_bytes=" << workingSetDelta
-               << L", maps_last_frame=" << diagnostics.lastMapCount << L", draws=" << diagnostics.lastDrawCount
-               << L", instances=" << diagnostics.lastInstanceCount << L'\n';
-    Expect(diagnostics.lastMapCount == 0 && diagnostics.lastDrawCount == 2 && diagnostics.lastInstanceCount <= 402,
+    std::wcout << L"StudioClock benchmark 2560x720 glow=" << glowPercent << L": baseline_cpu_us_per_frame="
+               << baselineMicroseconds << L", clock_cpu_us_per_frame=" << cpuMicroseconds
+               << L", clock_cpu_delta_us_per_frame=" << (cpuMicroseconds - baselineMicroseconds)
+               << L", gpu_ms_per_frame=" << gpuMilliseconds << L", private_delta_bytes=" << privateDelta
+               << L", working_set_delta_bytes=" << workingSetDelta << L", maps_last_frame=" << diagnostics.lastMapCount
+               << L", draws=" << diagnostics.lastDrawCount << L", instances=" << diagnostics.lastInstanceCount << L'\n';
+    Expect(diagnostics.lastMapCount == 0 && diagnostics.lastDrawCount == 2 && diagnostics.lastInstanceCount <= 804,
            "Studio Clock benchmark exceeded a structural budget");
     widget.gpu->OnDeviceLost();
 }
@@ -1070,11 +1157,12 @@ void RunSoak(const Exports& exports, uint32_t seconds)
     widget.gpu->OnDeviceLost();
 }
 
-void WriteSnapshot(const Exports& exports, const std::filesystem::path& path, bool showDate)
+void WriteSnapshot(const Exports& exports, const std::filesystem::path& path, bool showDate, uint32_t glowPercent)
 {
     RenderTarget target;
     Expect(CreateRenderTarget(720, showDate ? 800U : 720U, target) == S_OK, "Studio Clock snapshot target failed");
-    const std::string configuration = Configuration(true, true, showDate);
+    const std::string configuration =
+        Configuration(true, true, showDate, true, "dd-mm-yyyy", "#FF1616", "#FF1616", glowPercent);
     wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
     Expect(TryCreateProvider(exports.create, configuration, provider) == S_OK, "Studio Clock snapshot provider failed");
     WidgetInterfaces widget = CreateWidget(*provider, "studio.snapshot");
@@ -1121,7 +1209,7 @@ void WriteSnapshot(const Exports& exports, const std::filesystem::path& path, bo
 }
 
 void Run(uint32_t soakSeconds, bool benchmark, const std::filesystem::path& snapshotPath,
-         const std::filesystem::path& noDateSnapshotPath)
+         const std::filesystem::path& noDateSnapshotPath, uint32_t glowPercent)
 {
     const std::filesystem::path pluginPath = PluginPath();
     const bool compilerWasLoaded = GetModuleHandleW(L"d3dcompiler_47.dll") != nullptr;
@@ -1145,10 +1233,11 @@ void Run(uint32_t soakSeconds, bool benchmark, const std::filesystem::path& snap
     ValidateFactoryAndSettings(exports);
     ValidateInterfacesAndScheduling(exports);
     ValidateRendering(exports);
+    ValidateGlow(exports);
     ValidateSharedResourcesAndToggles(exports);
     if (benchmark)
     {
-        RunBenchmark(exports);
+        RunBenchmark(exports, glowPercent);
     }
     if (soakSeconds != 0)
     {
@@ -1156,11 +1245,11 @@ void Run(uint32_t soakSeconds, bool benchmark, const std::filesystem::path& snap
     }
     if (!snapshotPath.empty())
     {
-        WriteSnapshot(exports, snapshotPath, true);
+        WriteSnapshot(exports, snapshotPath, true, glowPercent);
     }
     if (!noDateSnapshotPath.empty())
     {
-        WriteSnapshot(exports, noDateSnapshotPath, false);
+        WriteSnapshot(exports, noDateSnapshotPath, false, glowPercent);
     }
     Expect(exports.setTime(nullptr) == S_OK, "Studio Clock test time could not be cleared");
     exports.shutdown();
@@ -1181,6 +1270,7 @@ int wmain(int argumentCount, wchar_t** arguments)
         uint32_t soakSeconds = 0;
         std::filesystem::path snapshotPath;
         std::filesystem::path noDateSnapshotPath;
+        uint32_t glowPercent = kDefaultGlowPercent;
         for (int index = 1; index < argumentCount; ++index)
         {
             const std::wstring_view argument(arguments[index]);
@@ -1202,12 +1292,20 @@ int wmain(int argumentCount, wchar_t** arguments)
             {
                 noDateSnapshotPath = arguments[++index];
             }
+            else if (argument == L"--glow" && index + 1 < argumentCount)
+            {
+                // glowPercent for --benchmark and the snapshots; the validation suite always covers 0, 35, and 100.
+                wchar_t* end = nullptr;
+                const unsigned long parsed = std::wcstoul(arguments[++index], &end, 10);
+                Expect(end && *end == L'\0' && parsed <= 100, "invalid Studio Clock glow percentage");
+                glowPercent = static_cast<uint32_t>(parsed);
+            }
             else
             {
                 throw std::runtime_error("unknown Studio Clock test argument");
             }
         }
-        Run(soakSeconds, benchmark, snapshotPath, noDateSnapshotPath);
+        Run(soakSeconds, benchmark, snapshotPath, noDateSnapshotPath, glowPercent);
         std::wcout << L"Studio Clock tests passed.\n";
         return 0;
     }

@@ -204,11 +204,12 @@ and default 8. System Pulse, CPU Meter, Memory Meter, Storage Meter, GPU Meter, 
 closed empty objects `{}`. Unknown members and out-of-range `topN` values reject the complete candidate.
 
 Studio Clock settings are the closed object `showSecondProgress`, `externalDotsAlwaysOn`, `showSeconds`,
-`secondsColor`, `showDate`, `dateFormat`, and `timeColor`. Defaults are respectively `true`, `true`, `true`,
-`#FF1616`, `false`, `dd-mm-yyyy`, and `#FF1616`. Colors are exact `#RRGGBB`; date format is one of `dd-mm-yyyy`,
-`mm-dd-yyyy`, and `yyyy-mm-dd`. The host merges omitted members from these defaults before static validation and
-provider creation. Unknown members (including `backgroundColor`, which is host-owned), malformed booleans/colors, or
-another date format reject the complete candidate.
+`secondsColor`, `showDate`, `dateFormat`, `timeColor`, and `glowPercent`. Defaults are respectively `true`, `true`,
+`true`, `#FF1616`, `false`, `dd-mm-yyyy`, `#FF1616`, and `35`. Colors are exact `#RRGGBB`; date format is one of
+`dd-mm-yyyy`, `mm-dd-yyyy`, and `yyyy-mm-dd`; `glowPercent` is an integer from 0 through 100. The host merges omitted
+members from these defaults before static validation and provider creation. Unknown members (including
+`backgroundColor`, which is host-owned), malformed booleans/colors, another date format, or a non-integer or
+out-of-range `glowPercent` reject the complete candidate.
 
 Desk Clock settings are the closed object `flipDurationMilliseconds`, `cardColor`, `digitColor`, and `dateColor`.
 Defaults are respectively `420`, `#FF3B43`, `#FFFFFF`, and `#D8D8D8`. Duration is an integer from 250 through 800 and
@@ -360,8 +361,10 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   `override`. They reject malformed syntax/version, duplicate and exact-version unknown members, unresolved
   references, invalid merge results, plugin settings failures, Process Viewer `topN` values outside 1 through 32,
   Network Meter and GPU Processes `topN` values outside 1 through 16, and malformed Studio
-  Clock booleans including `externalDotsAlwaysOn`, colors, date formats, and unknown members. They also reject Desk
-  Clock duration and color failures and verify its complete merged defaults and valid partial overrides. They also
+  Clock booleans including `externalDotsAlwaysOn`, colors, date formats, `glowPercent` values that are not integers
+  from 0 through 100, and unknown members, and verify its complete merged defaults and a valid `glowPercent`
+  override. They also reject Desk Clock duration and color failures and verify its complete merged defaults and valid
+  partial overrides. They also
   reject Launcher shortcut failures (unknown members, `iconPng`, an unknown `action`, a non-launch item without
   `icon`, duplicate shortcuts, unknown `iconSize`), accept a schemeless launch target, and verify empty-list
   defaults plus a valid persist merge of a `shortcuts` array. Settings tests prove a live

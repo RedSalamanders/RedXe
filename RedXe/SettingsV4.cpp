@@ -52,7 +52,7 @@ constexpr char kMatrixDefaults[] =
 constexpr char kProcessViewerDefaults[] = R"json({"topN":10,"hideIdle":true})json";
 constexpr char kRankedViewerDefaults[] = R"json({"topN":8})json";
 constexpr char kStudioClockDefaults[] =
-    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616"})json";
+    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","glowPercent":35})json";
 constexpr char kDeskClockDefaults[] =
     R"json({"flipDurationMilliseconds":420,"cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json";
 constexpr char kWeatherDefaults[] =
@@ -988,13 +988,14 @@ struct DiagnosticSink final
 {
     if (!AcceptObjectMembers(sink, path, settings,
                              {"showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor", "showDate",
-                              "dateFormat", "timeColor"},
+                              "dateFormat", "timeColor", "glowPercent"},
                              false) ||
-        yyjson_obj_size(settings) != 7)
+        yyjson_obj_size(settings) != 8)
     {
-        return yyjson_is_obj(settings) && yyjson_obj_size(settings) != 7 &&
-                       UnknownObjectMember(settings, {"showSecondProgress", "externalDotsAlwaysOn", "showSeconds",
-                                                      "secondsColor", "showDate", "dateFormat", "timeColor"}) == nullptr
+        return yyjson_is_obj(settings) && yyjson_obj_size(settings) != 8 &&
+                       UnknownObjectMember(settings,
+                                           {"showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor",
+                                            "showDate", "dateFormat", "timeColor", "glowPercent"}) == nullptr
                    ? sink.Fail(path.View(), "Studio Clock settings must include every required member.")
                    : false;
     }
@@ -1011,7 +1012,9 @@ struct DiagnosticSink final
     return RejectBool(sink, path, settings, "showSecondProgress") &&
            RejectBool(sink, path, settings, "externalDotsAlwaysOn") &&
            RejectBool(sink, path, settings, "showSeconds") && RejectBool(sink, path, settings, "showDate") &&
-           RejectColor(sink, path, settings, "secondsColor") && RejectColor(sink, path, settings, "timeColor");
+           RejectColor(sink, path, settings, "secondsColor") && RejectColor(sink, path, settings, "timeColor") &&
+           RejectRange(sink, path, settings, "glowPercent", 0, 100,
+                       "glowPercent must be an integer from 0 through 100.");
 }
 
 [[nodiscard]] bool ValidateShadersSettings(yyjson_val* settings, DiagnosticSink& sink, JsonPathBuffer& path) noexcept

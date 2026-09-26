@@ -377,18 +377,19 @@ template <size_t Count>
 {
     constexpr std::array keys{
         "showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor",
-        "showDate",           "dateFormat",           "timeColor",
+        "showDate",           "dateFormat",           "timeColor",   "glowPercent",
     };
     yyjson_val* dateFormatValue = yyjson_obj_get(object, "dateFormat");
     const char* dateFormat = yyjson_is_str(dateFormatValue) ? yyjson_get_str(dateFormatValue) : nullptr;
     const bool validDateFormat =
         dateFormat && (std::strcmp(dateFormat, "dd-mm-yyyy") == 0 || std::strcmp(dateFormat, "mm-dd-yyyy") == 0 ||
                        std::strcmp(dateFormat, "yyyy-mm-dd") == 0);
+    uint32_t value = 0;
     return HasExactKeys(object, keys) && yyjson_is_bool(yyjson_obj_get(object, "showSecondProgress")) &&
            yyjson_is_bool(yyjson_obj_get(object, "externalDotsAlwaysOn")) &&
            yyjson_is_bool(yyjson_obj_get(object, "showSeconds")) &&
            yyjson_is_bool(yyjson_obj_get(object, "showDate")) && validDateFormat && IsColor(object, "secondsColor") &&
-           IsColor(object, "timeColor");
+           IsColor(object, "timeColor") && ReadUnsigned(object, "glowPercent", 0, 100, value);
 }
 
 [[nodiscard]] bool IsValidDeskClockPrivate(yyjson_val* object) noexcept

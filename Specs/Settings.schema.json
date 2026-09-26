@@ -128,7 +128,14 @@
           "enum": ["dd-mm-yyyy", "mm-dd-yyyy", "yyyy-mm-dd"],
           "default": "dd-mm-yyyy"
         },
-        "timeColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#FF1616" }
+        "timeColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#FF1616" },
+        "glowPercent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 35,
+          "description": "LED bloom: the soft halo of light around every lit dot, in the dot's own color. 0 turns it off."
+        }
       }
     },
     "weatherSettings": {
@@ -506,7 +513,8 @@
             "secondsColor": { "$ref": "#/$defs/studioClockSettings/properties/secondsColor" },
             "showDate": { "$ref": "#/$defs/studioClockSettings/properties/showDate" },
             "dateFormat": { "$ref": "#/$defs/studioClockSettings/properties/dateFormat" },
-            "timeColor": { "$ref": "#/$defs/studioClockSettings/properties/timeColor" }
+            "timeColor": { "$ref": "#/$defs/studioClockSettings/properties/timeColor" },
+            "glowPercent": { "$ref": "#/$defs/studioClockSettings/properties/glowPercent" }
           }
         },
         {
