@@ -1,5 +1,0 @@
-# The imported SDK package and the generated props are developer-local.
-*
-!.gitignore
-!Import-ZoomSdk.ps1
-!README.md

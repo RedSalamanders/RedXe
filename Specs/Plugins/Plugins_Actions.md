@@ -55,9 +55,8 @@ namespace; every plugin id is a row of `kRedXeBundledPlugins`. Adding a publishe
 `PluginHost` reads a module's action contract **whenever it maps that module** for any reason (a placed widget, a
 configured service, a bound namespace validated on first use) and registers every published namespace. Each row
 below logs one `Error` line (`IRedXeHost::Log`) and appends one bounded notice (at most 8 notices of 256 characters)
-that `Application::ShowActionNotices` shows through the existing settings-error dialog (`ShowSettingsError`,
-non-stacking, ending "The current dashboard remains active.") after the next service apply or drained action, only
-while device access is enabled.
+that `Application::ShowActionNotices` shows in one modeless notice window after the next service apply or drained
+action, only while device access is enabled. The dashboard remains enabled and its actions continue to run.
 
 | Condition | Log event | Effect |
 | --- | --- | --- |
@@ -69,7 +68,7 @@ while device access is enabled.
 A contract is invalid when its `sizeBytes`, a namespace's `sizeBytes`, a descriptor's `sizeBytes`, a count bound, a
 namespace name, an action name (grammar, namespace prefix, uniqueness), a target kind, or the required
 `targetOptions` for an `Enum` kind is wrong; the whole module's publication is refused, never a part of it.
-`ResetActionPublishers` (every settings apply) clears the notices and returns `Unavailable` slots to `Unresolved` so
+`ResetActionPublishers` (every changed settings apply) clears the notices and returns `Unavailable` slots to `Unresolved` so
 a repaired deployment retries once; `Missing` is permanent for the process because the mapped image cannot change.
 `action-contract-loaded` (`Info`) records a successful read. Because every bundled publisher is compiled from one
 tree, a collision can only come from a mismatched deployment; `HostPluginTests` proves the shipped catalog collides
@@ -156,8 +155,9 @@ or while the settings error dialog is up returns `ERROR_BUSY` / `E_NOT_VALID_STA
 
 Chords are injected as scan codes (`MapVirtualKeyW`, extended flag for the navigation cluster) in batches of at most
 `kMaximumInputBatch` (32) `INPUT`s per `SendInput`, never sleeping between batches. Anything held by `keys.down` or
-`mouse.down` is released by the matching `up`, by any later execution after `kHeldReleaseMilliseconds` (2000), and at
-runtime shutdown (`HostActions::ReleaseHeld`). Windows does not deliver injected input to an elevated window; RedXe
+`mouse.down` is released by the matching `up`, by a one-shot host timer at `kHeldReleaseMilliseconds` (2000), by a
+later execution after that deadline, and at runtime shutdown (`HostActions::ReleaseHeld`). A replacement down
+releases the previous hold first. Windows does not deliver injected input to an elevated window; RedXe
 never runs elevated and does not work around it.
 
 ### `mouse.*` (`HostActions`, **I** except `mouse.speed`)
@@ -176,7 +176,7 @@ above, never a private vocabulary.
 
 ## Shared target grammars — `Common/Actions`
 
-`ActionTargets.h/.cpp` is compiled into the host and into every publisher (Logicon, Launcher, Zoom) so validation and
+`ActionTargets.h/.cpp` is compiled into the host and into publishers that use its grammars (Logicon, Launcher) so validation and
 execution agree by construction. `RedXeActions::ValidateTarget(descriptor, target)` dispatches on the descriptor's
 kind and returns `S_OK`, `E_INVALIDARG`, or (for a null/empty target on a kind other than `None` without
 `TargetOptional`) `E_INVALIDARG`; `SplitSuffix` separates a trailing `@<selector>` when the descriptor carries
@@ -301,13 +301,13 @@ log a Warning once per distinct failure.
   vectors. Accepted allocations are those an API mandates.
 - Validation maps at most the modules whose namespaces a document binds, at the same moment and cost as reading a
   settings contract; a document that binds only default namespaces maps no module for actions.
-- No polling: the ring drains on one posted message; held-input release is checked on the next execution and at
-  shutdown, not on a timer.
+- No polling: the ring drains on one posted message; a timer is armed only while an injected hold exists and is
+  killed when the hold is released. Execution and shutdown also check for expired holds.
 
 ## Safety
 
 - Destructive actions (`redxe.quit`, `system.sleep`, `system.hibernate`, `system.logoff`, `system.shutdown`,
-  `system.restart`, `zoom.signOut`, `zoom.leave`, `zoom.end`) require the confirming target; there is never a
+  `system.restart`) require the confirming target; there is never a
   confirmation dialog, because a physical control is a deliberate input.
 - `system.process.close` sends `WM_CLOSE` only. `system.run` never goes through a shell. Nothing elevates.
 - A collision or a foreign DLL can disable bindings but never crashes the host or blocks the dashboard.
@@ -320,11 +320,11 @@ log a Warning once per distinct failure.
   `keys.down`, monitor-relative and half-relative points, named and unknown power plans), an unknown default verb
   and an unregistered namespace (`ERROR_NOT_FOUND`), the Logicon and Zoom publishers resolved from their shipped
   modules (`Ready`, a target outside the published bounds `E_INVALIDARG`, an unknown published verb
-  `ERROR_NOT_FOUND`, a window suffix and a meeting reference where the descriptor allows them), the shipped catalog
+  `ERROR_NOT_FOUND`, the `zoom.open` and `zoom.join` browser contract), the shipped catalog
   producing no notice, and device-access-disabled execution of `keys`, `system`, and `mouse` actions that counts
   inputs, launches, and power requests without performing them.
 - `SettingsTests`: document-level acceptance of both templates' bindings (`page.*`, `widget.*`, `keys.media`, dialpad
-  `turns`; in Debug also `logicon.keyPage.*`, `logicon.brightness`, and `zoom.mute`) and of the `builtin.zoom`
+  `turns`; in Debug also `logicon.keyPage.*`, `logicon.brightness`, and `zoom.open`) and of the `builtin.zoom`
   service object, rejection of unknown names, unknown default verbs, `iconPng`, and a non-launch Launcher item
   without `icon`, and acceptance of a launch target that is not a path (decision D1).
 - `LogiconTests`, `LauncherTests`, `ZoomTests`: their owning specs. `--self-test` renders both templates with device

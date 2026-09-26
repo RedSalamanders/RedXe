@@ -204,7 +204,7 @@ if ($logiconProcess -ne 0) {
 }
 
 $zoomTests = Join-Path $repoRoot ".build\$Platform\$Configuration\ZoomTests.exe"
-Write-Host 'Running Zoom settings, OAuth material, loopback listener, and module tests...' -ForegroundColor Cyan
+Write-Host 'Running Zoom browser action, meeting URL, and module tests...' -ForegroundColor Cyan
 $zoomProcess = Invoke-RedXeStreamingProcess -FilePath $zoomTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($zoomTests + '.log')
 if ($zoomProcess -ne 0) {
     throw "Zoom tests failed with exit code $($zoomProcess)."

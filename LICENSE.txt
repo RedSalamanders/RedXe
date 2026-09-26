@@ -34,8 +34,6 @@ repository and of the portable package carry their own terms, which take precede
 - `Plugins/Weather/Fonts/weathericons-regular-webfont.ttf` (shipped as `Plugins\weathericons-regular-webfont.ttf`):
   Weather Icons, Copyright (c) 2015 Erik Flowers, original icon designs by Lukas Bischoff, SIL Open Font License 1.1.
   The full license is `Plugins/Weather/Fonts/OFL.txt`, shipped beside the font as `Plugins\OFL.txt`.
-- The Zoom Plugin SDK for Windows is licensed by Zoom to each developer, is never committed, and is never
-  redistributed in a RedXe package (see `ThirdParty/ZoomPluginSdk/README.md`).
 - The Microsoft Visual C++ runtime DLLs bundled in the portable package are redistributed under the Microsoft
   Visual Studio distributable-code terms. Windows SDK and system libraries are supplied under Microsoft's terms.
 

@@ -1846,24 +1846,339 @@ HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view inst
     return S_OK;
 }
 
+namespace
+{
+struct SourceMember final
+{
+    size_t valueBegin = 0;
+    size_t valueEnd = 0;
+    size_t closingBrace = 0;
+    bool found = false;
+    bool hasMembers = false;
+    bool trailingComma = false;
+};
+
+[[nodiscard]] bool SkipSourceTrivia(std::string_view source, size_t& position) noexcept
+{
+    for (;;)
+    {
+        while (position < source.size() && std::isspace(static_cast<unsigned char>(source[position])))
+        {
+            ++position;
+        }
+        if (position + 1 >= source.size() || source[position] != '/')
+        {
+            return true;
+        }
+        if (source[position + 1] == '/')
+        {
+            position += 2;
+            while (position < source.size() && source[position] != '\n')
+            {
+                ++position;
+            }
+        }
+        else if (source[position + 1] == '*')
+        {
+            position += 2;
+            const size_t end = source.find("*/", position);
+            if (end == std::string_view::npos)
+            {
+                return false;
+            }
+            position = end + 2;
+        }
+        else
+        {
+            return true;
+        }
+    }
+}
+
+[[nodiscard]] bool SkipSourceString(std::string_view source, size_t& position) noexcept
+{
+    if (position >= source.size() || source[position++] != '"')
+    {
+        return false;
+    }
+    while (position < source.size())
+    {
+        const char character = source[position++];
+        if (character == '"')
+        {
+            return true;
+        }
+        if (character == '\\' && position < source.size())
+        {
+            ++position;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool SourceKeyEquals(std::string_view source, size_t begin, size_t end,
+                                   std::string_view expected) noexcept
+{
+    if (end <= begin + 1 || expected.size() < 2 || source[begin] != '"' || expected.front() != '"')
+    {
+        return false;
+    }
+    size_t actual = begin + 1;
+    size_t wanted = 1;
+    while (actual + 1 < end)
+    {
+        char character = source[actual++];
+        if (character == '\\')
+        {
+            if (actual + 1 >= end)
+            {
+                return false;
+            }
+            character = source[actual++];
+            if (character == 'u')
+            {
+                if (actual + 4 >= end)
+                {
+                    return false;
+                }
+                uint32_t codepoint = 0;
+                for (uint32_t digit = 0; digit < 4; ++digit)
+                {
+                    const char hex = source[actual++];
+                    const uint32_t value = hex >= '0' && hex <= '9'   ? static_cast<uint32_t>(hex - '0')
+                                           : hex >= 'a' && hex <= 'f' ? static_cast<uint32_t>(hex - 'a' + 10)
+                                           : hex >= 'A' && hex <= 'F' ? static_cast<uint32_t>(hex - 'A' + 10)
+                                                                      : 0x100U;
+                    if (value > 15)
+                    {
+                        return false;
+                    }
+                    codepoint = (codepoint << 4U) | value;
+                }
+                if (codepoint > 0x7f)
+                {
+                    return false;
+                }
+                character = static_cast<char>(codepoint);
+            }
+            else if (character == 'b' || character == 'f' || character == 'n' || character == 'r' || character == 't')
+            {
+                // Target member names are printable ASCII; these escapes cannot match them.
+                return false;
+            }
+        }
+        if (wanted + 1 >= expected.size() || character != expected[wanted++])
+        {
+            return false;
+        }
+    }
+    return wanted + 1 == expected.size();
+}
+
+[[nodiscard]] bool SkipSourceValue(std::string_view source, size_t& position) noexcept
+{
+    if (position >= source.size())
+    {
+        return false;
+    }
+    if (source[position] == '"')
+    {
+        return SkipSourceString(source, position);
+    }
+    if (source[position] == '{' || source[position] == '[')
+    {
+        uint32_t depth = 0;
+        do
+        {
+            if (!SkipSourceTrivia(source, position) || position >= source.size())
+            {
+                return false;
+            }
+            if (source[position] == '"')
+            {
+                if (!SkipSourceString(source, position))
+                {
+                    return false;
+                }
+                continue;
+            }
+            const char character = source[position++];
+            if (character == '{' || character == '[')
+            {
+                ++depth;
+            }
+            else if (character == '}' || character == ']')
+            {
+                --depth;
+            }
+        } while (depth != 0);
+        return true;
+    }
+    const size_t begin = position;
+    while (position < source.size() && std::strchr(",}]", source[position]) == nullptr &&
+           !std::isspace(static_cast<unsigned char>(source[position])) && source[position] != '/')
+    {
+        ++position;
+    }
+    return position > begin;
+}
+
+[[nodiscard]] bool FindSourceMember(std::string_view source, size_t objectBegin, std::string_view key,
+                                    SourceMember& found) noexcept
+{
+    found = SourceMember{};
+    if (objectBegin >= source.size() || source[objectBegin] != '{')
+    {
+        return false;
+    }
+    size_t position = objectBegin + 1;
+    for (;;)
+    {
+        if (!SkipSourceTrivia(source, position) || position >= source.size())
+        {
+            return false;
+        }
+        if (source[position] == '}')
+        {
+            found.closingBrace = position;
+            return true;
+        }
+        const size_t keyBegin = position;
+        if (!SkipSourceString(source, position))
+        {
+            return false;
+        }
+        const bool matching = SourceKeyEquals(source, keyBegin, position, key);
+        if (!SkipSourceTrivia(source, position) || position >= source.size() || source[position++] != ':' ||
+            !SkipSourceTrivia(source, position))
+        {
+            return false;
+        }
+        const size_t valueBegin = position;
+        if (!SkipSourceValue(source, position))
+        {
+            return false;
+        }
+        found.hasMembers = true;
+        found.trailingComma = false;
+        if (matching)
+        {
+            found.found = true;
+            found.valueBegin = valueBegin;
+            found.valueEnd = position;
+        }
+        if (!SkipSourceTrivia(source, position) || position >= source.size())
+        {
+            return false;
+        }
+        if (source[position] == ',')
+        {
+            ++position;
+            found.trailingComma = true;
+        }
+        else if (source[position] != '}')
+        {
+            return false;
+        }
+    }
+}
+
+[[nodiscard]] bool PatchSourceMember(std::string& source, size_t objectBegin, std::string_view key,
+                                     std::string_view replacement) noexcept
+{
+    SourceMember member{};
+    if (!FindSourceMember(source, objectBegin, key, member))
+    {
+        return false;
+    }
+    if (member.found)
+    {
+        source.replace(member.valueBegin, member.valueEnd - member.valueBegin, replacement);
+    }
+    else
+    {
+        std::string addition;
+        if (member.hasMembers && !member.trailingComma)
+        {
+            addition.push_back(',');
+        }
+        addition.append(key);
+        addition.push_back(':');
+        addition.append(replacement);
+        source.insert(member.closingBrace, addition);
+    }
+    return true;
+}
+} // namespace
+
 HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept
 {
     if (thicknessDips < kDockMinimumThicknessDips || thicknessDips > kDockMaximumThicknessDips)
     {
         return E_INVALIDARG;
     }
-    settings.dock.thicknessDips = thicknessDips;
     if (settings.sourceDocument.empty())
     {
+        settings.dock.thicknessDips = thicknessDips;
         return S_OK;
     }
-    unique_yyjson_doc source;
     try
     {
-        std::vector<char> mutableSource(settings.sourceDocument.begin(), settings.sourceDocument.end());
+        std::string updated = settings.sourceDocument;
         yyjson_read_err error{};
-        source.reset(yyjson_read_opts(mutableSource.data(), mutableSource.size(),
-                                      YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS, nullptr, &error));
+        unique_yyjson_doc source{yyjson_read_opts(updated.data(), updated.size(),
+                                                  YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS,
+                                                  nullptr, &error)};
+        yyjson_val* root = source ? yyjson_doc_get_root(source.get()) : nullptr;
+        if (!yyjson_is_obj(root))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        yyjson_val* version = yyjson_obj_get(root, "version");
+        yyjson_val* minor = yyjson_is_obj(version) ? yyjson_obj_get(version, "minor") : nullptr;
+        if (minor && !yyjson_is_uint(minor))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        const bool raiseMinor = !minor || yyjson_get_uint(minor) < 2;
+        size_t rootBegin = 0;
+        if (!SkipSourceTrivia(updated, rootBegin))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        SourceMember dock{};
+        if (!FindSourceMember(updated, rootBegin, "\"dock\"", dock))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        const std::string thickness = std::to_string(thicknessDips);
+        if (dock.found)
+        {
+            if (!PatchSourceMember(updated, dock.valueBegin, "\"thickness\"", thickness))
+            {
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+        else if (!PatchSourceMember(updated, rootBegin, "\"dock\"", "{\"thickness\":" + thickness + "}"))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (raiseMinor)
+        {
+            SourceMember versionMember{};
+            if (!FindSourceMember(updated, rootBegin, "\"version\"", versionMember) || !versionMember.found ||
+                !PatchSourceMember(updated, versionMember.valueBegin, "\"minor\"", "2"))
+            {
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+        if (updated.size() > kMaximumSettingsBytes)
+        {
+            return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
+        }
+        settings.sourceDocument = std::move(updated);
+        settings.dock.thicknessDips = thicknessDips;
+        return S_OK;
     }
     catch (const std::bad_alloc&)
     {
@@ -1873,49 +2188,6 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
     {
         return E_FAIL;
     }
-    unique_mut_doc mutableDocument{yyjson_mut_doc_new(nullptr)};
-    yyjson_mut_val* mutableRoot = mutableDocument && source
-                                      ? yyjson_val_mut_copy(mutableDocument.get(), yyjson_doc_get_root(source.get()))
-                                      : nullptr;
-    if (!mutableRoot || !yyjson_mut_is_obj(mutableRoot))
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
-    yyjson_mut_doc_set_root(mutableDocument.get(), mutableRoot);
-    // The member is additive at minor 2; an older document that gains it moves to that minor.
-    if (yyjson_mut_val* version = yyjson_mut_obj_get(mutableRoot, "version"); yyjson_mut_is_obj(version))
-    {
-        yyjson_mut_val* minor = yyjson_mut_obj_get(version, "minor");
-        if (!minor || (yyjson_mut_is_uint(minor) && yyjson_mut_get_uint(minor) < 2))
-        {
-            if (!yyjson_mut_obj_put(version, yyjson_mut_str(mutableDocument.get(), "minor"),
-                                    yyjson_mut_uint(mutableDocument.get(), 2)))
-            {
-                return E_OUTOFMEMORY;
-            }
-        }
-    }
-    yyjson_mut_val* dock = yyjson_mut_obj_get(mutableRoot, "dock");
-    if (!yyjson_mut_is_obj(dock))
-    {
-        dock = yyjson_mut_obj(mutableDocument.get());
-        if (!dock || !yyjson_mut_obj_put(mutableRoot, yyjson_mut_str(mutableDocument.get(), "dock"), dock))
-        {
-            return E_OUTOFMEMORY;
-        }
-    }
-    if (!yyjson_mut_obj_put(dock, yyjson_mut_str(mutableDocument.get(), "thickness"),
-                            yyjson_mut_uint(mutableDocument.get(), thicknessDips)))
-    {
-        return E_OUTOFMEMORY;
-    }
-    size_t length = 0;
-    unique_malloc_string written{yyjson_mut_write(mutableDocument.get(), YYJSON_WRITE_NOFLAG, &length)};
-    if (!written || length == 0)
-    {
-        return E_OUTOFMEMORY;
-    }
-    return FormatCompactSettingsJson(std::string_view(written.get(), length), settings.sourceDocument);
 }
 
 HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexcept

@@ -830,6 +830,13 @@ HRESULT LogiconService::TryOpenDialpad(HANDLE stopEvent) noexcept
     }
     _lastDialpadFailure = S_OK;
     _lastLoggedDialpadFailure = S_OK;
+    // Mouse raw input is process wide. Register it only while the dialpad actually needs its wheel reports.
+    const HRESULT listening = _wheels.Start(kVendorId, kDialpadProductId);
+    if (FAILED(listening))
+    {
+        Log(RedXeLogLevelWarning, "rawinput-unavailable", "the dialpad's wheels cannot be read (raw input).",
+            listening);
+    }
     std::array<char, 160> message{};
     (void)sprintf_s(
         message.data(), message.size(),
@@ -847,6 +854,7 @@ void LogiconService::CloseDialpad(HANDLE stopEvent, bool restore) noexcept
         (void)_dialpad.Restore(stopEvent, false);
     }
     _dialpad.Detach();
+    _wheels.Stop();
 }
 
 uint64_t LogiconService::SlotSignature(uint32_t slot, const KeyBinding* binding, const FaceOverride& override,
@@ -1295,14 +1303,6 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
         if (FAILED(watching))
         {
             Log(RedXeLogLevelWarning, "hotplug-unavailable", "device arrival notifications are unavailable.", watching);
-        }
-        // The dialpad's dial and roller are the wheels of a mouse collection Windows keeps exclusive; Raw Input is
-        // the only non-exclusive reader, and it needs a window on this thread.
-        const HRESULT listening = _wheels.Start(kVendorId, kDialpadProductId);
-        if (FAILED(listening))
-        {
-            Log(RedXeLogLevelWarning, "rawinput-unavailable", "the dialpad's wheels cannot be read (raw input).",
-                listening);
         }
     }
 

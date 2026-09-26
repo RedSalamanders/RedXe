@@ -25,8 +25,8 @@ Use the repository entrypoints instead of assembling ad hoc MSBuild commands:
 
 Packaging, the in-package installer, the `RedXe` command-alias launcher (`RedXeLauncher/`), and the release and
 winget workflows follow `Specs/Build/Build_Packaging.md`; a new bundled plugin DLL becomes a required package entry
-automatically through `RedXe/BundledPlugins.h`, and a new self-terminating command-line switch must be added to the
-launcher's awaited list.
+automatically through `RedXe/BundledPlugins.h`, and a new self-terminating command-line switch is marked in the
+shared `RedXe/CommandLine.h` catalog that the launcher reads.
 
 Outputs are always `.build/<Platform>/<Configuration>/`. Intermediate files are under `.build/Intermediate/`.
 `build.ps1` ensures manifest dependencies are installed first. The pinned vcpkg checkout and all package state also

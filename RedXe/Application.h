@@ -12,10 +12,12 @@
 #include "WidgetRaise.h"
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <windows.h>
 
 #pragma warning(push)
@@ -40,6 +42,7 @@ class Application final
     static constexpr UINT kPageEdgeHoverMessage = WM_APP + 4;
     // App-bar callback registered with the shell for the dock window kind (ABN_POSCHANGED, ABN_FULLSCREENAPP, ...).
     static constexpr UINT kDockAppBarMessage = WM_APP + 6;
+    static constexpr UINT kScreenshotCompleteMessage = WM_APP + 7;
 
     Application(HINSTANCE instance, bool forceWarp) noexcept;
     ~Application();
@@ -115,6 +118,7 @@ class Application final
     void BeginDockResize(HWND window) noexcept;
     void UpdateDockResize() noexcept;
     void EndDockResize() noexcept;
+    void FlushDockDashboardResize() noexcept;
     void EvaluateDockHolds() noexcept;
     [[nodiscard]] DockHolds CurrentDockHolds() const noexcept;
     void ApplyDockRevealState(DockRevealState state) noexcept;
@@ -264,6 +268,7 @@ class Application final
     UINT _pageEdgeAppliedDpi = 0;
     bool _pageEdgeApplyValid = false;
     HWND _settingsErrorDialog = nullptr;
+    HWND _actionNoticeDialog = nullptr;
     wil::unique_hpowernotify _displayPowerNotification;
     std::unique_ptr<PluginManager> _pluginManager;
     std::unique_ptr<DashboardHost> _dashboardHost;
@@ -283,14 +288,19 @@ class Application final
         uint32_t widgetOrdinal = UINT32_MAX;
         bool pending = false;
         bool navigated = false;
+        bool capturing = false;
+        bool complete = false;
         ULONGLONG dueTick = 0;
         HRESULT result = S_OK;
     };
     static constexpr UINT_PTR kScreenshotTimerId = 0x5C5;
     // One-shot dwell or hide timer of the autohide dock; at most one is armed and every state exit kills it.
     static constexpr UINT_PTR kDockTimerId = 0x5C6;
+    static constexpr UINT_PTR kDockDashboardResizeTimerId = 0x5C8;
 
     ScreenshotRequest _screenshot{};
+    std::jthread _screenshotWorker;
+    std::atomic<HRESULT> _screenshotWorkerResult{S_OK};
     DockOverrides _dockOverrides{};
     // Effective dock for this process: the document's `dock` with the command-line overrides applied. `edge` is
     // None for the titled and fullscreen kinds.
@@ -313,10 +323,13 @@ class Application final
     DockRevealState _dockReveal = DockRevealState::Revealed;
     // Set around the SetWindowPos of a reveal or hide so OnSize does not treat the strip as a dashboard resize.
     bool _dockResizing = false;
+    bool _dockPlacing = false;
     bool _dockPointerInside = false;
     bool _dockPinnedByAction = false;
     bool _dockTimerArmed = false;
     bool _dockResizeDrag = false;
+    bool _dockDashboardResizePending = false;
+    bool _dockDashboardResizeTimerArmed = false;
     // Distance from the inner edge to the pointer at the press, so the edge keeps its offset under the pointer.
     LONG _dockResizeGrabPx = 0;
     bool _windowActive = false;
