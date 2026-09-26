@@ -13,7 +13,7 @@ $script:PackagePluginHelpers = @('AVControlBroker.exe', 'AVControlCamera.dll', '
     'WeatherLocation.exe', 'libcurl.dll', 'yyjson.dll', 'weathericons-regular-webfont.ttf', 'OFL.txt')
 $script:PackageInstallerFiles = @('Install-RedXe.ps1', 'install.cmd', 'uninstall.cmd')
 $script:PackageBuildArtifactExtensions = @('.pdb', '.lib', '.exp', '.ilk', '.iobj', '.ipdb', '.obj', '.log', '.tlog')
-# Licensed by Zoom and imported per developer; never redistributed (ThirdParty/ZoomPluginSdk/README.md).
+# Reject stale SDK files from older local builds; the browser-only Zoom plugin does not use them.
 $script:PackageExcludedPluginDirectories = @('ZoomSdk')
 $script:PackageVcRuntimeRequired = @('msvcp140.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
 
@@ -141,8 +141,8 @@ REQUIREMENTS
   Windows 10 version 2004 (build 19041) or later, x64 or ARM64 to match this package. A Direct3D 11 GPU is
   recommended; --warp renders on the Windows software driver.
 
-The Zoom action pack in this package runs without the Zoom Plugin SDK (which Zoom licenses to developers only) and
-reports zoom-sdk-unavailable; every other widget and service is complete.
+The Zoom action pack opens meeting links in the default browser without a Zoom Workplace installation or
+Marketplace application registration. Browser joining depends on the meeting host's Zoom settings.
 
 https://github.com/RedSalamanders/RedXe
 "@

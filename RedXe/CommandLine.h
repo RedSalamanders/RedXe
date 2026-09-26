@@ -54,6 +54,8 @@ struct RedXeCommandLineSwitch final
     const wchar_t* value;
     const wchar_t* summary;
     const wchar_t* group;
+    // The alias launcher waits for modes that exit on their own and forwards their exit status.
+    bool launcherWaitForExit = false;
 };
 
 // Help aliases; the primary name is the first catalog entry.
@@ -61,7 +63,7 @@ inline constexpr std::array<const wchar_t*, 4> kRedXeHelpArguments{L"--help", L"
 
 inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwitch::Count)> kRedXeCommandLineSwitches{
     RedXeCommandLineSwitch{RedXeSwitch::Help, L"--help", L"-h, /?, -?", RedXeSwitchValue::None, nullptr,
-                           L"Show this text and exit.", L"General"},
+                           L"Show this text and exit.", L"General", true},
     RedXeCommandLineSwitch{RedXeSwitch::Settings, L"--settings", nullptr, RedXeSwitchValue::Separate, L"<path>",
                            L"Use one portable settings file instead of the one under %LocalAppData%\\RedXe\\Settings; "
                            L"its Logs folder sits beside it.",
@@ -84,7 +86,8 @@ inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwi
                            L"Autohide only: pixels that stay visible while hidden, 1 through 64 (default 4).", L"Dock"},
     RedXeCommandLineSwitch{
         RedXeSwitch::Screenshot, L"--screenshot", nullptr, RedXeSwitchValue::Separate, L"<png>",
-        L"Start normally, wait, save the window (or one widget) as PNG, and exit: 0 written, 8 failed.", L"Screenshot"},
+        L"Start normally, wait, save the window (or one widget) as PNG, and exit: 0 written, 8 failed.", L"Screenshot",
+        true},
     RedXeCommandLineSwitch{RedXeSwitch::Page, L"--page", nullptr, RedXeSwitchValue::Separate, L"<id>",
                            L"Page to show before the capture (default: the first page).", L"Screenshot"},
     RedXeCommandLineSwitch{RedXeSwitch::Widget, L"--widget", nullptr, RedXeSwitchValue::Separate, L"<ordinal>",
@@ -93,11 +96,12 @@ inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwi
                            L"Settle time before the capture, 1 through 120000 (default 3000).", L"Screenshot"},
     RedXeCommandLineSwitch{RedXeSwitch::SelfTest, L"--self-test", nullptr, RedXeSwitchValue::None, nullptr,
                            L"Hidden startup validation with the deployed template; exits 0 when the host works.",
-                           L"Diagnostics"},
+                           L"Diagnostics", true},
     RedXeCommandLineSwitch{RedXeSwitch::CrashTest, L"--crash-test", nullptr, RedXeSwitchValue::None, nullptr,
-                           L"Raise a test crash to exercise the dump writer.", L"Diagnostics"},
+                           L"Raise a test crash to exercise the dump writer.", L"Diagnostics", true},
     RedXeCommandLineSwitch{RedXeSwitch::CrashTestStackOverflow, L"--crash-test-stack-overflow", nullptr,
-                           RedXeSwitchValue::None, nullptr, L"Raise a stack-overflow test crash.", L"Diagnostics"},
+                           RedXeSwitchValue::None, nullptr, L"Raise a stack-overflow test crash.", L"Diagnostics",
+                           true},
     RedXeCommandLineSwitch{RedXeSwitch::CrashTestDirectory, L"--crash-test-directory", nullptr,
                            RedXeSwitchValue::Joined, L"<directory>",
                            L"Where a test crash writes its dump instead of the user's crash folder.", L"Diagnostics"},

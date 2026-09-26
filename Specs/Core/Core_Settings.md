@@ -156,8 +156,8 @@ delays are settings-only. A live reload applies changed members in place, except
 `none` and an edge takes effect at the next launch (one Warning log record). `dock` is a host member: it never
 enters a plugin contract, a factory envelope, or a widget persist. The one host-driven write is `dock.thickness`
 after the bar's inner edge is dragged (`PatchDockThickness`): it replaces or adds that member, creates the `dock`
-object when absent, raises `version.minor` to 2 when lower, and goes through the same formatting and atomic
-replacement as a widget persist; it MUST NOT touch any other member. Both shipped templates author minor 2 and stay at
+object when absent, raises `version.minor` to 2 when lower, and uses the same atomic replacement as a widget
+persist. The source edit MUST preserve comments, spacing, and every unrelated member. Both shipped templates author minor 2 and stay at
 `edge: none`, carrying a commented-out `dock` example.
 
 ### Services

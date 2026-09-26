@@ -385,6 +385,13 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0,"action":"launch"}]})json", settings,
                                            diagnostic.data(), diagnostic.size())),
                   "the former launch name is not an action name");
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0,"action":"keys.down","target":"A"}]})json",
+                                           settings, diagnostic.data(), diagnostic.size())),
+                  "press-only keys cannot hold a keyboard chord");
+    LOGICON_CHECK(FAILED(ParseSettingsJson(
+                      R"json({"dialpad":{"buttons":[{"button":1,"action":"mouse.down","target":"left"}]}})json",
+                      settings, diagnostic.data(), diagnostic.size())),
+                  "press-only dialpad buttons cannot hold a mouse button");
     LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"buttons":[{"button":4}]}})json", settings,
                                            diagnostic.data(), diagnostic.size())),
                   "dial button 4 rejected");

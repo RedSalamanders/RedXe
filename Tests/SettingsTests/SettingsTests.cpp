@@ -452,9 +452,9 @@ constexpr std::string_view kRepresentative = R"json(
         "Keypad":{"plugin":"builtin.logicon","brightness":40,"keys":[
           {"slot":0,"action":"page.next"},
           {"slot":1,"action":"system.launch","target":"not-a-path"},
-          {"slot":2,"action":"zoom.mute","target":"toggle"}],
+          {"slot":2,"action":"zoom.open"}],
           "dialpad":{"turns":[{"control":"roller","direction":"up","action":"logicon.brightness","target":"+5"}]}},
-        "Meet":{"plugin":"builtin.zoom","mode":"local","labels":{"muted":"actuellement coupé"}}},
+        "Meet":{"plugin":"builtin.zoom"}},
       "pages":[{"widgets":[{"plugin":"builtin.gdi-orbit"}]}]
     })json";
     AppSettings services{};
@@ -466,11 +466,9 @@ constexpr std::string_view kRepresentative = R"json(
         services.services[0].privateConfiguration.View().find("\"page.next\"") == std::string_view::npos ||
         services.services[0].privateConfiguration.View().find("\"not-a-path\"") == std::string_view::npos ||
         services.services[1].pluginId.View() != "builtin.zoom" ||
-        services.services[1].privateConfiguration.View().find("\"redirectPort\":48123") == std::string_view::npos ||
-        services.services[1].privateConfiguration.View().find("\"unmuted\":\"currently unmuted\"") ==
-            std::string_view::npos ||
-        !FindServiceSettings(services, "builtin.logicon") || !FindServiceSettings(services, "builtin.zoom") ||
-        FindServiceSettings(services, "builtin.launcher") || FAILED(ValidateAppSettings(services)))
+        services.services[1].privateConfiguration.View() != "{}" || !FindServiceSettings(services, "builtin.logicon") ||
+        !FindServiceSettings(services, "builtin.zoom") || FindServiceSettings(services, "builtin.launcher") ||
+        FAILED(ValidateAppSettings(services)))
     {
         std::wprintf(L"The services root did not parse as expected.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -488,6 +486,8 @@ constexpr std::string_view kRepresentative = R"json(
         // Plugin-model rejections surface as document errors.
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","keys":[{"slot":9}]}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","brightness":0}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","keys":[{"slot":0,"action":"keys.down","target":"Ctrl+K"}]}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"buttons":[{"button":0,"action":"mouse.down","target":"left"}]}}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","extra":true}},"pages":[{}]})json",
         // Action names: the former bare names, an unknown default verb, and an unregistered namespace are document
         // errors; an unsatisfied target is not (Plugins_Actions.md).
@@ -496,9 +496,9 @@ constexpr std::string_view kRepresentative = R"json(
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"turns":[{"control":"dial","direction":"cw","action":"nowhere.go"}]}}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"dial":"page"}}},"pages":[{}]})json",
         // Zoom model rejections.
-        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","redirectPort":80}},"pages":[{}]})json",
-        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","clientSecret":"x"}},"pages":[{}]})json",
-        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","mode":"keys"}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc"}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","redirectPort":48123}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","mode":"local"}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","mode":"auto"}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","labels":{"mute":"x"}}},"pages":[{}]})json",
         // Shape errors.
@@ -1252,10 +1252,53 @@ constexpr std::string_view kRepresentative = R"json(
         std::wprintf(L"The patched document does not parse back to the dragged thickness.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
+    std::string annotated{full};
+    annotated.insert(annotated.find("\"dock\""), "// user dock example\n      ");
+    annotated.insert(annotated.find("\"edge\""), "/* keep the dock note */ ");
+    std::string expected = annotated;
+    const size_t thicknessPosition = expected.find("\"thickness\": 240");
+    if (thicknessPosition == std::string::npos)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    expected.replace(thicknessPosition, sizeof("\"thickness\": 240") - 1, "\"thickness\": 144");
+    AppSettings annotatedSettings{};
+    if (FAILED(ParseAppSettingsJson(annotated, annotatedSettings)) ||
+        FAILED(PatchDockThickness(annotatedSettings, 144)) || annotatedSettings.sourceDocument != expected ||
+        FAILED(ParseAppSettingsJson(annotatedSettings.sourceDocument, reparsed)) || reparsed.dock.thicknessDips != 144)
+    {
+        std::wprintf(L"PatchDockThickness changed comments or unrelated settings text.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    std::string escaped{full};
+    escaped.replace(escaped.find("\"dock\""), sizeof("\"dock\"") - 1, "\"\\u0064ock\"");
+    escaped.replace(escaped.find("\"thickness\""), sizeof("\"thickness\"") - 1, "\"thi\\u0063kness\"");
+    AppSettings escapedSettings{};
+    if (FAILED(ParseAppSettingsJson(escaped, escapedSettings)) || FAILED(PatchDockThickness(escapedSettings, 150)) ||
+        escapedSettings.sourceDocument.find("\"thi\\u0063kness\": 150") == std::string::npos ||
+        FAILED(ParseAppSettingsJson(escapedSettings.sourceDocument, reparsed)) || reparsed.dock.thicknessDips != 150)
+    {
+        std::wprintf(L"PatchDockThickness did not preserve escaped dock member names.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    constexpr std::string_view commentedExample = R"json({
+      "version":{"major":5,"minor":1,},
+      "pages":[{}],
+      // "dock":{"edge":"left","thickness":999}
+    })json";
+    AppSettings exampleSettings{};
+    if (FAILED(ParseAppSettingsJson(commentedExample, exampleSettings)) ||
+        FAILED(PatchDockThickness(exampleSettings, 220)) ||
+        exampleSettings.sourceDocument.find("// \"dock\":{\"edge\":\"left\",\"thickness\":999}") == std::string::npos ||
+        FAILED(ParseAppSettingsJson(exampleSettings.sourceDocument, reparsed)) || reparsed.dock.thicknessDips != 220)
+    {
+        std::wprintf(L"PatchDockThickness did not retain the commented dock example and trailing comma.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
     AppSettings created{};
     if (FAILED(ParseAppSettingsJson(olderMinor, created)) || FAILED(PatchDockThickness(created, 300)) ||
         created.dock.thicknessDips != 300 || created.sourceDocument.find("\"dock\"") == std::string::npos ||
-        created.sourceDocument.find("\"minor\": 2") == std::string::npos ||
+        created.sourceDocument.find("\"minor\":2") == std::string::npos ||
         FAILED(ParseAppSettingsJson(created.sourceDocument, reparsed)) || reparsed.dock.thicknessDips != 300 ||
         reparsed.versionMinor != 2 || reparsed.dock.edge != DockEdge::None)
     {
@@ -1315,6 +1358,16 @@ constexpr std::string_view kRepresentative = R"json(
             help.find(L"-h, /?, -?") == std::wstring::npos)
         {
             std::wprintf(L"--help lacks the usage line, the exit codes, or the help aliases.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (!RedXeSwitchInfo(RedXeSwitch::Help).launcherWaitForExit ||
+            !RedXeSwitchInfo(RedXeSwitch::Screenshot).launcherWaitForExit ||
+            !RedXeSwitchInfo(RedXeSwitch::SelfTest).launcherWaitForExit ||
+            !RedXeSwitchInfo(RedXeSwitch::CrashTest).launcherWaitForExit ||
+            !RedXeSwitchInfo(RedXeSwitch::CrashTestStackOverflow).launcherWaitForExit ||
+            RedXeSwitchInfo(RedXeSwitch::CrashTestDirectory).launcherWaitForExit)
+        {
+            std::wprintf(L"The launcher wait policy does not match the self-terminating modes.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         for (const wchar_t* alias : kRedXeHelpArguments)

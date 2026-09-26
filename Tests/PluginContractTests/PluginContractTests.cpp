@@ -1501,11 +1501,27 @@ constexpr std::string_view kDefaultShadersConfiguration =
             }
             wil::com_ptr_nothrow<IRedXeWidget> widget;
             wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
+            ID3D11RenderTargetView* hostTargets[] = {target.renderTarget.get()};
+            target.context->OMSetRenderTargets(1, hostTargets, nullptr);
+            const D3D11_VIEWPORT hostViewport{
+                0.0f, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f};
+            target.context->RSSetViewports(1, &hostViewport);
             result = PrepareShadersWidget(*provider, target, "shaders.contract.render", widget, gpuWidget);
             if (FAILED(result))
             {
                 std::wprintf(L"5H4D3R5 %hs did not prepare: 0x%08X\n", info.name, static_cast<unsigned>(result));
                 return result;
+            }
+            wil::com_ptr_nothrow<ID3D11RenderTargetView> restoredTarget;
+            target.context->OMGetRenderTargets(1, restoredTarget.put(), nullptr);
+            UINT restoredViewportCount = 1;
+            D3D11_VIEWPORT restoredViewport{};
+            target.context->RSGetViewports(&restoredViewportCount, &restoredViewport);
+            if (restoredTarget.get() != target.renderTarget.get() || restoredViewportCount != 1 ||
+                restoredViewport.Width != hostViewport.Width || restoredViewport.Height != hostViewport.Height)
+            {
+                std::wprintf(L"5H4D3R5 %hs did not restore the host target after size notification.\n", info.name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
             // Feedback shaders initialize over their first frames and need a run before ink or heat appears; the
             // others are checked after their own start-up fades (Heartfelt fades in over ten seconds).
@@ -1518,6 +1534,16 @@ constexpr std::string_view kDefaultShadersConfiguration =
                 {
                     std::wprintf(L"5H4D3R5 %hs failed to render: 0x%08X\n", info.name, static_cast<unsigned>(result));
                     return result;
+                }
+                if (frame == 0)
+                {
+                    restoredTarget.reset();
+                    target.context->OMGetRenderTargets(1, restoredTarget.put(), nullptr);
+                    if (restoredTarget.get() != target.renderTarget.get())
+                    {
+                        std::wprintf(L"5H4D3R5 %hs did not restore the host target after rendering.\n", info.name);
+                        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                    }
                 }
             }
             if (!HasAtLeastTwoColors(pixels))

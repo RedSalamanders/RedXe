@@ -198,14 +198,19 @@ HRESULT WindowsHidPort::Open(const HidCollectionInfo& info) noexcept
 {
     Close();
     // An output-only collection (no input reports) is legal: it is written to and never read.
-    if (info.path[0] == L'\0' || info.inputReportBytes > _readBuffer.size() ||
-        info.outputReportBytes > _writeBuffer.size() || (info.inputReportBytes == 0 && info.outputReportBytes == 0))
+    if (info.path[0] == L'\0' || info.inputReportBytes > kMaximumHidReportBytes ||
+        info.outputReportBytes > kMaximumHidReportBytes || (info.inputReportBytes == 0 && info.outputReportBytes == 0))
     {
         return E_INVALIDARG;
     }
-    _readEvent.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
-    _writeEvent.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
-    if (!_readEvent || !_writeEvent)
+    _io.reset(new (std::nothrow) IoState());
+    if (!_io)
+    {
+        return E_OUTOFMEMORY;
+    }
+    _io->readEvent.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    _io->writeEvent.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    if (!_io->readEvent || !_io->writeEvent)
     {
         const DWORD error = GetLastError();
         Close();
@@ -223,7 +228,7 @@ HRESULT WindowsHidPort::Open(const HidCollectionInfo& info) noexcept
     // Keep a few reports buffered by the class driver so a burst of key events survives a slow write.
     (void)HidD_SetNumInputBuffers(handle.get(), 32);
     _info = info;
-    _handle = std::move(handle);
+    _io->handle = std::move(handle);
     _disconnected = false;
     const HRESULT armed = ArmRead();
     if (FAILED(armed))
@@ -236,21 +241,34 @@ HRESULT WindowsHidPort::Open(const HidCollectionInfo& info) noexcept
 
 void WindowsHidPort::Close() noexcept
 {
-    if (_handle)
+    if (_io && _io->handle)
     {
-        CancelIoEx(_handle.get(), nullptr);
+        (void)CancelIoEx(_io->handle.get(), nullptr);
         DWORD transferred = 0;
-        if (_readArmed)
+        constexpr DWORD kCanceledIoDrainMilliseconds = 100;
+        const auto drain = [&](bool armed, HANDLE event, OVERLAPPED& overlapped) noexcept
         {
-            (void)GetOverlappedResult(_handle.get(), &_readOverlapped, &transferred, TRUE);
+            if (!armed)
+            {
+                return true;
+            }
+            if (WaitForSingleObject(event, kCanceledIoDrainMilliseconds) != WAIT_OBJECT_0)
+            {
+                return false;
+            }
+            return GetOverlappedResult(_io->handle.get(), &overlapped, &transferred, FALSE) ||
+                   GetLastError() != ERROR_IO_INCOMPLETE;
+        };
+        const bool readDone = drain(_io->readArmed, _io->readEvent.get(), _io->readOverlapped);
+        const bool writeDone = drain(_io->writeArmed, _io->writeEvent.get(), _io->writeOverlapped);
+        if (!readDone || !writeDone)
+        {
+            // The driver still owns an OVERLAPPED and buffer. The exceptional backing block is intentionally
+            // retained until process exit; the host also tombstones a lane that itself fails to return.
+            (void)_io.release();
         }
-        _handle.reset();
     }
-    _readArmed = false;
-    _readOverlapped = OVERLAPPED{};
-    _writeOverlapped = OVERLAPPED{};
-    _readEvent.reset();
-    _writeEvent.reset();
+    _io.reset();
     _info = HidCollectionInfo{};
     _disconnected = false;
 }
@@ -262,7 +280,7 @@ const HidCollectionInfo& WindowsHidPort::Info() const noexcept
 
 HANDLE WindowsHidPort::ReadEvent() const noexcept
 {
-    return _readEvent.get();
+    return _io ? _io->readEvent.get() : nullptr;
 }
 
 void WindowsHidPort::NoteFailure(DWORD error) noexcept
@@ -275,14 +293,14 @@ void WindowsHidPort::NoteFailure(DWORD error) noexcept
 
 HRESULT WindowsHidPort::ArmRead() noexcept
 {
-    if (!_handle || _readArmed || _info.inputReportBytes == 0)
+    if (!_io || !_io->handle || _io->readArmed || _info.inputReportBytes == 0)
     {
-        return _handle ? S_OK : E_UNEXPECTED;
+        return _io && _io->handle ? S_OK : E_UNEXPECTED;
     }
-    _readOverlapped = OVERLAPPED{};
-    _readOverlapped.hEvent = _readEvent.get();
-    ResetEvent(_readEvent.get());
-    if (!ReadFile(_handle.get(), _readBuffer.data(), _info.inputReportBytes, nullptr, &_readOverlapped))
+    _io->readOverlapped = OVERLAPPED{};
+    _io->readOverlapped.hEvent = _io->readEvent.get();
+    ResetEvent(_io->readEvent.get());
+    if (!ReadFile(_io->handle.get(), _io->readBuffer.data(), _info.inputReportBytes, nullptr, &_io->readOverlapped))
     {
         const DWORD error = GetLastError();
         if (error != ERROR_IO_PENDING)
@@ -291,7 +309,7 @@ HRESULT WindowsHidPort::ArmRead() noexcept
             return HRESULT_FROM_WIN32(error);
         }
     }
-    _readArmed = true;
+    _io->readArmed = true;
     return S_OK;
 }
 
@@ -302,7 +320,7 @@ HRESULT WindowsHidPort::TakeReport(uint8_t* buffer, uint32_t capacity, uint32_t&
     {
         return E_POINTER;
     }
-    if (!_handle || _disconnected)
+    if (!_io || !_io->handle || _disconnected)
     {
         return HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_CONNECTED);
     }
@@ -310,7 +328,7 @@ HRESULT WindowsHidPort::TakeReport(uint8_t* buffer, uint32_t capacity, uint32_t&
     {
         return S_FALSE;
     }
-    if (!_readArmed)
+    if (!_io->readArmed)
     {
         const HRESULT armed = ArmRead();
         if (FAILED(armed))
@@ -318,21 +336,21 @@ HRESULT WindowsHidPort::TakeReport(uint8_t* buffer, uint32_t capacity, uint32_t&
             return armed;
         }
     }
-    if (WaitForSingleObject(_readEvent.get(), 0) != WAIT_OBJECT_0)
+    if (WaitForSingleObject(_io->readEvent.get(), 0) != WAIT_OBJECT_0)
     {
         return S_FALSE;
     }
     DWORD transferred = 0;
-    _readArmed = false;
-    if (!GetOverlappedResult(_handle.get(), &_readOverlapped, &transferred, FALSE))
+    _io->readArmed = false;
+    if (!GetOverlappedResult(_io->handle.get(), &_io->readOverlapped, &transferred, FALSE))
     {
         const DWORD error = GetLastError();
         NoteFailure(error);
         return HRESULT_FROM_WIN32(error);
     }
     const uint32_t copied =
-        std::min<uint32_t>(std::min<uint32_t>(transferred, capacity), static_cast<uint32_t>(_readBuffer.size()));
-    std::memcpy(buffer, _readBuffer.data(), copied);
+        std::min<uint32_t>(std::min<uint32_t>(transferred, capacity), static_cast<uint32_t>(_io->readBuffer.size()));
+    std::memcpy(buffer, _io->readBuffer.data(), copied);
     bytes = copied;
     const HRESULT rearmed = ArmRead();
     return FAILED(rearmed) ? rearmed : S_OK;
@@ -345,21 +363,25 @@ HRESULT WindowsHidPort::Write(const uint8_t* report, uint32_t bytes, HANDLE stop
     {
         return E_POINTER;
     }
-    if (!_handle || _disconnected)
+    if (!_io || !_io->handle || _disconnected)
     {
         return HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_CONNECTED);
     }
-    if (bytes > _info.outputReportBytes || _info.outputReportBytes > _writeBuffer.size())
+    if (bytes > _info.outputReportBytes || _info.outputReportBytes > _io->writeBuffer.size())
     {
         return E_INVALIDARG;
     }
     // The HID class driver requires exactly OutputReportByteLength bytes; shorter reports are zero padded.
-    std::memset(_writeBuffer.data(), 0, _info.outputReportBytes);
-    std::memcpy(_writeBuffer.data(), report, bytes);
-    _writeOverlapped = OVERLAPPED{};
-    _writeOverlapped.hEvent = _writeEvent.get();
-    ResetEvent(_writeEvent.get());
-    if (!WriteFile(_handle.get(), _writeBuffer.data(), _info.outputReportBytes, nullptr, &_writeOverlapped))
+    if (_io->writeArmed)
+    {
+        return HRESULT_FROM_WIN32(ERROR_BUSY);
+    }
+    std::memset(_io->writeBuffer.data(), 0, _info.outputReportBytes);
+    std::memcpy(_io->writeBuffer.data(), report, bytes);
+    _io->writeOverlapped = OVERLAPPED{};
+    _io->writeOverlapped.hEvent = _io->writeEvent.get();
+    ResetEvent(_io->writeEvent.get());
+    if (!WriteFile(_io->handle.get(), _io->writeBuffer.data(), _info.outputReportBytes, nullptr, &_io->writeOverlapped))
     {
         const DWORD error = GetLastError();
         if (error != ERROR_IO_PENDING)
@@ -368,7 +390,8 @@ HRESULT WindowsHidPort::Write(const uint8_t* report, uint32_t bytes, HANDLE stop
             return HRESULT_FROM_WIN32(error);
         }
     }
-    HANDLE handles[2] = {stopEvent, _writeEvent.get()};
+    _io->writeArmed = true;
+    HANDLE handles[2] = {stopEvent, _io->writeEvent.get()};
     const DWORD handleCount = stopEvent ? 2U : 1U;
     const DWORD waited =
         WaitForMultipleObjects(handleCount, stopEvent ? handles : &handles[1], FALSE, timeoutMilliseconds);
@@ -376,11 +399,20 @@ HRESULT WindowsHidPort::Write(const uint8_t* report, uint32_t bytes, HANDLE stop
     DWORD transferred = 0;
     if (!completed)
     {
-        CancelIoEx(_handle.get(), &_writeOverlapped);
-        (void)GetOverlappedResult(_handle.get(), &_writeOverlapped, &transferred, TRUE);
+        (void)CancelIoEx(_io->handle.get(), &_io->writeOverlapped);
+        if (WaitForSingleObject(_io->writeEvent.get(), 100) == WAIT_OBJECT_0)
+        {
+            (void)GetOverlappedResult(_io->handle.get(), &_io->writeOverlapped, &transferred, FALSE);
+            _io->writeArmed = false;
+        }
+        else
+        {
+            _disconnected = true;
+        }
         return HRESULT_FROM_WIN32(waited == WAIT_TIMEOUT ? ERROR_TIMEOUT : ERROR_CANCELLED);
     }
-    if (!GetOverlappedResult(_handle.get(), &_writeOverlapped, &transferred, FALSE))
+    _io->writeArmed = false;
+    if (!GetOverlappedResult(_io->handle.get(), &_io->writeOverlapped, &transferred, FALSE))
     {
         const DWORD error = GetLastError();
         NoteFailure(error);
@@ -395,18 +427,18 @@ HRESULT WindowsHidPort::SetFeature(const uint8_t* report, uint32_t bytes) noexce
     {
         return E_POINTER;
     }
-    if (!_handle || _disconnected)
+    if (!_io || !_io->handle || _disconnected)
     {
         return HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_CONNECTED);
     }
     if (_info.featureReportBytes == 0 || bytes > _info.featureReportBytes ||
-        _info.featureReportBytes > _writeBuffer.size())
+        _info.featureReportBytes > _io->writeBuffer.size())
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
     }
     std::array<uint8_t, kMaximumHidReportBytes> padded{};
     std::memcpy(padded.data(), report, bytes);
-    if (!HidD_SetFeature(_handle.get(), padded.data(), _info.featureReportBytes))
+    if (!HidD_SetFeature(_io->handle.get(), padded.data(), _info.featureReportBytes))
     {
         const DWORD error = GetLastError();
         NoteFailure(error);
@@ -417,14 +449,14 @@ HRESULT WindowsHidPort::SetFeature(const uint8_t* report, uint32_t bytes) noexce
 
 bool WindowsHidPort::Disconnected() const noexcept
 {
-    return _disconnected || !_handle;
+    return _disconnected || !_io || !_io->handle;
 }
 
 void WindowsHidPort::Cancel() noexcept
 {
-    if (_handle)
+    if (_io && _io->handle)
     {
-        CancelIoEx(_handle.get(), nullptr);
+        (void)CancelIoEx(_io->handle.get(), nullptr);
     }
 }
 

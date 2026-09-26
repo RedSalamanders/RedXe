@@ -2,6 +2,11 @@
 
 Status: ACTIVE — phase 1 (core and Zoom) is implemented and its durable behavior lives in the normative contracts;
 phases 2–4 remain. Every decision D1–D10 was taken as proposed except the D9 platform note (see "Phase 1 outcome").
+2026-09-21 revision: The Zoom SDK, OAuth, and installed Workplace portions of this historical proposal are
+superseded by `Specs/Plans/Done/ReviewHardeningAndLocalZoom_2026-09-21.md`.
+`Specs/Plugins/Plugins_Zoom.md` now owns the browser-only contract. Phase 2 and the Zoom state-face portion of
+phase 4 are retired; remaining non-Zoom action publishers
+stay active. The Zoom tables and implementation notes below record the original decision, not current behavior.
 Date: 2026-09-17 (decided and phase 1 landed the same day)
 Requested deliverables: one normalized `action` / `target` binding shape shared by Logicon and Launcher; a complete
 action catalog by namespace; a publication ABI through which any plugin DLL (widget provider, service, or a

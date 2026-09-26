@@ -85,7 +85,8 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   strip being the window itself. A collapsed dock presents exactly one grip frame and then blocks like a minimized
   window, retaining its full-size swap chain (about 4 MiB for a 3840×270 bar) so a reveal shows the last frame at
   once. Shell traffic (`SHAppBarMessage`) happens only on placement, activation, window-position changes, and shell
-  notifications, never per frame.
+  notifications, never per frame. An inner-edge drag moves the window per pointer update but coalesces dashboard,
+  swap-chain, and widget size callbacks to one 16 ms timer; release flushes the final size.
 - After `Present` reports occlusion, RedXe must stop frame construction, wait for the DXGI factory's registered
   occlusion-status window message, and use `DXGI_PRESENT_TEST` to detect recovery without presenting content.
   Occlusion polling and periodic timers are prohibited.
@@ -183,16 +184,23 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   contract): one thread per started service that exposes `IRedXeDeviceWorker`, at most four, created at service start
   and joined at stop. Its bounds are normative: the plugin blocks only in one wait on the host stop and wake events
   and its own overlapped-I/O events (a message-aware wait when the lane owns a hidden Raw Input sink window, whose
-  queue it drains on the same thread), every device command and write carries a 1 s timeout followed by `CancelIoEx`,
+  queue it drains on the same thread in bounded batches of 256 messages), every device command and write carries a 1 s timeout followed by `CancelIoEx`,
   hotplug arrival is a CfgMgr32 notification that sets the wake event rather than a poll, a failed open retries at
   most four times with doubling delays from 1 s and then waits for the next arrival, and stop drains within 3 s or
-  the host logs one `device-lane-drain-timeout`, detaches the thread, and continues shutdown. Idle cost with a
-  connected keypad is zero wake-ups (a connected dialpad adds one Raw Input packet per wheel or button event, none
-  while idle); the lane owns at most one 434×434 BGRA compose surface, one 128 KiB JPEG buffer, one 4095-byte
+  the host logs one `device-lane-drain-timeout` and tombstones the slot, service COM object, thread, events, and
+  module until `RunDeviceWork` returns. If a driver never returns, that exceptional storage remains until process
+  exit to avoid releasing memory still in use. A replacement lane cannot start in that slot while tombstoned. Idle cost with a
+  connected keypad is zero wake-ups. A connected dialpad requires a process-wide Raw Input mouse sink and therefore
+  wakes for mouse packets until disconnected; it filters by device and caps each queue drain at 256 messages. The
+  lane owns at most one 434×434 BGRA compose surface, one 128 KiB JPEG buffer, one 4095-byte
   report buffer, and the key faces' signatures while a device or a monitor tile needs faces, and releases the
   surfaces at stop. A service's System Data faces ride the shared acquisition worker at the shortest requested
   interval (Logicon: 1 s for three data sets, only while such a face is bound) and never render there.
   `RedXeDataSetFlagDeviceLane` for data sources remains unimplemented.
+- Screenshot capture owns at most one temporary worker and one pending request. The worker waits for the first
+  Windows.Graphics.Capture frame; the UI thread continues dispatching messages and its normal frame policy. A second
+  screenshot request while one is pending is ignored, so replacing the worker cannot synchronously join on the UI
+  thread. Completion posts one UI message and releases the worker before the request closes the window.
 - Logging and diagnostics must not format or emit per-frame success messages. `IRedXeHost::Log` copies a bounded
   record into a 32-slot 1024-byte ring and wakes one event-blocked writer. The writer appends JSONL under the settings
   sibling `Logs` directory using a UTC-dated file (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`) and

@@ -115,7 +115,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // Headless services (Service.h). All calls run on the UI thread. StartServices creates and starts every
     // service the document configures; ApplyServiceSettings starts, stops, or re-applies services after a live
     // reload; PublishHostState fans one state record out to started services; StopServices signals every device
-    // lane, waits at most kRedXeDeviceWorkerDrainMilliseconds per lane, and calls Stop. Interactive RedXe leaves
+    // lane and waits at most kRedXeDeviceWorkerDrainMilliseconds per lane. A late lane retains its service and
+    // host runtime until it returns; Stop runs only after that return. Interactive RedXe leaves
     // device access enabled; --self-test and host tests disable it before StartServices.
     [[nodiscard]] HRESULT StartServices(const AppSettings& settings) noexcept;
     [[nodiscard]] HRESULT ApplyServiceSettings(const AppSettings& settings) noexcept;
@@ -167,6 +168,9 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     void ClearWidgetStatus(const char* instanceId) noexcept;
 
   private:
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+    friend struct PluginHostTestAccess;
+#endif
     ControlWorkQueue _controlWork;
     bool _controlAccessEnabled = true;
     static constexpr size_t kMaximumDataSetsPerProvider = 256;
@@ -296,6 +300,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         JsonObjectSettings settings;
         bool started = false;
         bool laneRunning = false;
+        bool stopPending = false;
+        bool laneTombstoned = false;
     };
 
     [[nodiscard]] HRESULT LoadModule(const RedXeBundledPluginSpec& spec, ModuleSlot& slot) noexcept;
@@ -344,7 +350,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] HRESULT StartService(ServiceSlot& slot) noexcept;
     void StopService(ServiceSlot& slot) noexcept;
     [[nodiscard]] HRESULT StartDeviceLane(ServiceSlot& slot) noexcept;
-    void StopDeviceLane(ServiceSlot& slot) noexcept;
+    [[nodiscard]] bool StopDeviceLane(ServiceSlot& slot) noexcept;
     void DeviceLane(ServiceSlot& slot) noexcept;
 
     std::atomic<ULONG> _references{1};

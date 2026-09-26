@@ -10,6 +10,8 @@
 // --screenshot, the crash harness) are awaited so the caller sees their output and exit code.
 #include <windows.h>
 
+#include "../RedXe/CommandLine.h"
+
 #include <shellapi.h>
 
 #include <limits>
@@ -23,11 +25,6 @@ namespace
 {
 constexpr wchar_t kTargetExecutable[] = L"RedXe.exe";
 constexpr wchar_t kErrorCaption[] = L"RedXe";
-
-// Switches after which RedXe.exe exits by itself; the shim waits for them and propagates the exit code.
-constexpr std::wstring_view kAwaitedSwitches[] = {
-    L"--help", L"-h", L"/?", L"-?", L"--self-test", L"--screenshot", L"--crash-test", L"--crash-test-stack-overflow",
-};
 
 void ShowError(std::wstring_view message) noexcept
 {
@@ -161,15 +158,8 @@ void ShowError(std::wstring_view message) noexcept
             continue;
         }
         const std::wstring_view argument(arguments[index]);
-        for (const std::wstring_view awaited : kAwaitedSwitches)
-        {
-            if (argument == awaited)
-            {
-                return true;
-            }
-        }
-        // --crash-test-directory=<dir> accompanies a crash switch; --screenshot's value follows separately.
-        if (argument.starts_with(L"--crash-test-directory="))
+        const RedXeCommandLineSwitch* entry = RedXeFindSwitch(argument);
+        if (entry && entry->launcherWaitForExit)
         {
             return true;
         }

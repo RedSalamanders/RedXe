@@ -189,13 +189,9 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   `RedXeWeatherProbeHttpGetOnSmallStack`, `RedXeWeatherBuildTestLocationSearchUrl`,
   `RedXeAVControlUseSyntheticBackend` and `RedXeAVControlTestSnapshot`, and the Logicon surface
   `RedXeLogiconGetTestDiagnostics`, `RedXeLogiconUseSyntheticDevice`, `RedXeLogiconInjectControl`,
-  `RedXeLogiconInjectSyntheticReport`, `RedXeLogiconSetFaceOverride`, and `RedXeLogiconSetBrightness`, and the Zoom
-  surface `RedXeZoomGetTestDiagnostics`, `RedXeZoomUseSyntheticSession`, `RedXeZoomSeedCredential`,
-  `RedXeZoomSyntheticSetHost`, `RedXeZoomSyntheticDropConnection`, `RedXeZoomSyntheticCounters`, and
-  `RedXeZoomStoredCredential`. AV synthetic
+  `RedXeLogiconInjectSyntheticReport`, `RedXeLogiconSetFaceOverride`, and `RedXeLogiconSetBrightness`. AV synthetic
   mode is accepted only before providers exist and is never exposed as a user setting or environment toggle; the
-  Logicon synthetic keypad and the Zoom synthetic session are selected only through their exports (or, for Logicon,
-  the Debug monitor tile), never by a setting.
+  Logicon synthetic keypad is selected only through its exports or the Debug monitor tile, never by a setting.
 - Every factory call names one non-empty plugin ID. Null and empty IDs are invalid, including in single-plugin DLLs.
 - Factory, enumeration, widget creation, device notification, GPU rendering, native-window lifecycle, host-service,
   data-source, provider, and data-sink calls are synchronous and non-reentrant. Widget visibility, collect-on-exit,
@@ -371,8 +367,8 @@ Logicon publishes its closed service schema (`brightness` 1–100, `restoreLogoO
 object with `turns` and `buttons` arrays) and defaults
 `{"brightness":70,"restoreLogoOnExit":true,"pageButtons":"keyPages","keys":[],"dialpad":{"turns":[],"buttons":[]}}`;
 the Logicon Monitor publishes a closed empty object. `Specs/Plugins/Plugins_Logicon.md` owns the member semantics.
-Zoom publishes its closed service schema (`clientId`, `redirectPort`, `domain`, `displayName`, `autoConnect`) and
-defaults; `Specs/Plugins/Plugins_Zoom.md` owns the member semantics.
+Zoom publishes a closed empty service schema and `{}` defaults; `Specs/Plugins/Plugins_Zoom.md` owns the
+browser action semantics.
 
 ## Service contract
 
@@ -413,13 +409,16 @@ the shipped ones; both also publish an action namespace (`Plugins_Actions.md`).
   re-enter the host except through `RequestAction`, `RequestFrame`, and `Log`. A lane that needs Raw Input (a
   device Windows opens exclusively, such as a mouse collection) MAY own one hidden, never-shown top-level window on
   the lane thread, registered with `RIDEV_INPUTSINK`, and then waits with `MsgWaitForMultipleObjectsEx` and drains
-  its queue on the same thread; it MUST unregister the sink and destroy the window before returning, and it MUST
-  NOT register a usage another plugin's lane registers (raw-input registration is per process; today only Logicon
-  registers `usage page 1 / usage 2`). The service MAY signal `wakeEvent`
+  at most 256 queued messages per turn on the same thread; it MUST unregister its sink and destroy the window
+  before returning, and it MUST NOT replace another user's process-wide registration (today only Logicon registers
+  `usage page 1 / usage 2`, and only while its dialpad is connected). The service MAY signal `wakeEvent`
   from any thread while the call runs and MUST NOT touch either handle after it returns. `StopDeviceLane` signals
   `stopEvent`, waits `kRedXeDeviceWorkerDrainMilliseconds` (3000) for the thread, joins it, and closes the events; an
-  overrun logs `device-lane-drain-timeout` once, detaches the thread, and leaks the two event handles so a late wait
-  inside the plugin still sees valid objects. Shutdown continues either way. `RedXeDataSetFlagDeviceLane` for data
+  overrun logs `device-lane-drain-timeout` once and tombstones the service slot: the thread stays joinable and its
+  COM service, worker, module, host, settings, and event handles remain live until `RunDeviceWork` returns. A
+  tombstoned slot cannot start a second lane. Process shutdown leaves the process runtime allocated if a lane is
+  still active; a private host destructor joins it before releasing storage. A later service apply can reap a
+  completed tombstone. `RedXeDataSetFlagDeviceLane` for data
   sources remains unimplemented.
 - **Developer-only widgets** (`kRedXeDebugOnlyBundledWidgetIds`, today `builtin.logicon-monitor`) stay catalogued and
   schema-accepted in every build so both shipped templates parse everywhere. Only the Debug template places them, and
@@ -766,12 +765,12 @@ device lane and turns key presses and dialpad detents into named actions (`Plugi
 `logicon` namespace itself; the monitor is the Debug view of that service. Behavior,
 protocol, faces, and validation are owned by [`Plugins_Logicon.md`](Plugins_Logicon.md). `Logicon.dll` imports
 `hid.dll`, `cfgmgr32.dll`, `windowscodecs.dll`, `ole32.dll`, and `yyjson.dll` (copied beside it); Debug builds also
-$1
+construct the monitor widget when it is placed in the Debug template.
 `Plugins/Actions/Zoom` builds `zoom.action.dll`, the first dedicated action DLL: service plugin ID `builtin.zoom`
-(`RedXePluginCapabilityService | RedXePluginCapabilityActions`, `IRedXeService` plus `IRedXeDeviceWorker` plus
-`IRedXeActionPack`) publishing the `zoom` namespace over the Zoom Plugin SDK for Windows, or over the client's own meeting
-toolbar read and pressed through its MSAA accessibility objects when the SDK cannot serve. Behavior, sign-in, the SDK import, and validation are owned by [`Plugins_Zoom.md`](Plugins_Zoom.md). It imports `bcrypt.dll`, `winhttp.dll`,
-`ws2_32.dll`, `advapi32.dll`, and `yyjson.dll` (copied beside it).
+(`RedXePluginCapabilityService | RedXePluginCapabilityActions`, `IRedXeService` plus `IRedXeActionPack`) publishing
+only `zoom.open` and `zoom.join`. It opens the Zoom web join page or a meeting invite through `system.launch` and
+requires no Zoom installation, SDK, registration, or token. Behavior and validation are owned by
+[`Plugins_Zoom.md`](Plugins_Zoom.md). The DLL imports `yyjson.dll` (copied beside it).
 
 `Plugins/RotatingTriangle` exposes settings-visible plugin ID `builtin.rotating-triangle`, internally maps it to type
 ID `rotating-triangle`, publishes closed `{}` settings and defaults, and exposes sibling `IRedXeGpuWidget` and
@@ -889,7 +888,7 @@ the first `OnDeviceCreated` for a device and released by any `OnDeviceLost`; the
 the offscreen color texture, and two `R32G32B32A32_FLOAT` feedback buffers belong to each widget. An entry MAY
 declare up to two lookup-table passes (fixed-size `R32G32B32A32_FLOAT` textures; Sky Atmosphere's transmittance
 256×64 and multiple scattering 32×32) but not together with a feedback buffer; their textures are created at device
-creation and drawn once per device by the first `Render` that shows the entry, the second pass reading the first
+creation and drawn once per device during `OnTargetSizeChanged`, the second pass reading the first
 on `iChannel0`, after which the image pass reads them on `iChannel0` and `iChannel1` at no per-frame cost. A
 shader reads a channel through `texture()` (mipmapped sample) or `textureLod()` (explicit level); inside a loop of
 varying trip count it MUST use `textureLod()`. `OnTargetSizeChanged` sizes the offscreen

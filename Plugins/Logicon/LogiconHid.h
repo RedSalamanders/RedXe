@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <windows.h>
 
 #include <cfgmgr32.h>
@@ -113,15 +114,23 @@ class WindowsHidPort final : public HidPort
     [[nodiscard]] HRESULT ArmRead() noexcept;
     void NoteFailure(DWORD error) noexcept;
 
+    // Keep every buffer, OVERLAPPED, event, and file handle in one backing block. If a broken driver does not
+    // complete canceled I/O within the close budget, that block is retired intact rather than freed under I/O.
+    struct IoState final
+    {
+        wil::unique_hfile handle;
+        wil::unique_event_nothrow readEvent;
+        wil::unique_event_nothrow writeEvent;
+        OVERLAPPED readOverlapped{};
+        OVERLAPPED writeOverlapped{};
+        std::array<uint8_t, kMaximumHidReportBytes> readBuffer{};
+        std::array<uint8_t, kMaximumHidReportBytes> writeBuffer{};
+        bool readArmed = false;
+        bool writeArmed = false;
+    };
+
     HidCollectionInfo _info{};
-    wil::unique_hfile _handle;
-    wil::unique_event_nothrow _readEvent;
-    wil::unique_event_nothrow _writeEvent;
-    OVERLAPPED _readOverlapped{};
-    OVERLAPPED _writeOverlapped{};
-    std::array<uint8_t, kMaximumHidReportBytes> _readBuffer{};
-    std::array<uint8_t, kMaximumHidReportBytes> _writeBuffer{};
-    bool _readArmed = false;
+    std::unique_ptr<IoState> _io;
     bool _disconnected = false;
 };
 

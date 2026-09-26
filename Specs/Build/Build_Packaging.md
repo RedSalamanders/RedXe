@@ -45,9 +45,9 @@ that link resolves app-local DLLs and `GetModuleFileNameW` against the link's di
   passed through with `CommandLineToArgvW`-compatible quoting. It hands its standard handles to the child so
   `RedXe --help > file` and terminal output work although `RedXe.exe` is a GUI-subsystem image.
 - A normal dashboard launch returns immediately with exit code 0. For `--help`, `-h`, `/?`, `-?`, `--self-test`,
-  `--screenshot`, `--crash-test`, `--crash-test-stack-overflow`, and `--crash-test-directory=` it waits for
-  `RedXe.exe` and returns its exit code. Adding a self-terminating switch to `RedXe/CommandLine.h` MUST add it to
-  `kAwaitedSwitches` in `RedXeLauncher/Main.cpp`.
+  `--screenshot`, `--crash-test`, and `--crash-test-stack-overflow` it waits for `RedXe.exe` and returns its exit
+  code. `--crash-test-directory=` only changes where a crash writes its dump; it does not make an ordinary launch
+  self-terminating. `RedXe/CommandLine.h` owns the launcher's wait flag for each switch.
 - `test.ps1` MUST run `RedXeLauncher.exe --help` and check that the RedXe help text is relayed with exit code 0, and
   that an unknown switch through the launcher yields exit code 2.
 
@@ -73,9 +73,8 @@ The package MUST contain, with forward-slash entry names and no directory entrie
   `AVControlCamera.dll`, `AVControlCameraSetup.exe`), `WeatherLocation.exe`, `libcurl.dll`, `Plugins/yyjson.dll`,
   the Weather Icons font and its `OFL.txt`, and `msvcp140.dll`, `msvcp140_atomic_wait.dll`, `vcruntime140.dll`,
   `vcruntime140_1.dll` at both levels are required. A missing required entry fails packaging.
-- Build artifacts, `*Tests.exe`, `SystemDataPhase0.exe`, and anything under `Plugins/ZoomSdk/` are forbidden. The
-  Zoom Plugin SDK is licensed to each developer by Zoom and MUST NOT be redistributed; the shipped
-  `zoom.action.dll` runs its synthetic session and reports `zoom-sdk-unavailable`.
+- Build artifacts, `*Tests.exe`, `SystemDataPhase0.exe`, and anything under `Plugins/ZoomSdk/` are forbidden.
+  `zoom.action.dll` opens Zoom's web join page and meeting invites in the default browser; it ships no Zoom SDK.
 - Both `RedXe.exe` and `RedXeLauncher.exe` MUST be Release images of the target architecture stamped with the
   package version; a Debug or mismatched stamp fails packaging.
 - The package is never written until the clean-extraction smoke accepts a staged copy: the archive is expanded into
@@ -129,8 +128,8 @@ behind.
 - `winget validate --manifest` MUST pass. "Manifest validation succeeded with warnings" from an older client is
   accepted; the warnings are shown.
 - `License: MIT` and `LicenseUrl` in the locale manifest mirror the repository's `LICENSE.txt` (MIT, with the
-  carve-outs it lists: the CC BY-NC-SA 3.0 Shadertoy ports, the OFL Weather Icons font, and the never-redistributed
-  Zoom SDK). The package always ships `LICENSE.txt`; a license change updates the file and the template together.
+  carve-outs it lists: the CC BY-NC-SA 3.0 Shadertoy ports and the OFL Weather Icons font). The package always
+  ships `LICENSE.txt`; a license change updates the file and the template together.
 
 ## Release workflow (`.github/workflows/release.yml`)
 

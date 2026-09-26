@@ -41,7 +41,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>ws2_32.lib;winhttp.lib;bcrypt.lib;advapi32.lib;ole32.lib;oleaut32.lib;oleacc.lib;shell32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
@@ -55,21 +55,17 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>ws2_32.lib;winhttp.lib;bcrypt.lib;advapi32.lib;ole32.lib;oleaut32.lib;oleacc.lib;shell32.lib;yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>yyjson.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="ZoomTests.cpp" />
-    <ClCompile Include="..\..\Plugins\Actions\Zoom\ZoomAuth.cpp" />
     <ClCompile Include="..\..\Plugins\Actions\Zoom\ZoomSettings.cpp" />
-    <ClCompile Include="..\..\Plugins\Actions\Zoom\ZoomLocal.cpp" />
-    <ClCompile Include="..\..\Common\Actions\ActionTargets.cpp" />
-    <ClCompile Include="..\..\Common\Actions\WindowSelector.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Plugins\Actions\Zoom\ZoomTestContract.h" />
+    <ClInclude Include="..\..\Plugins\Actions\Zoom\ZoomSettings.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Action.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Service.h" />

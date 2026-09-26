@@ -594,8 +594,17 @@ Application::Application(HINSTANCE instance, bool forceWarp) noexcept : _instanc
 
 Application::~Application()
 {
+    if (_screenshotWorker.joinable())
+    {
+        _screenshotWorker.join();
+    }
     _displayPowerNotification.reset();
     CloseSettingsError();
+    if (_actionNoticeDialog && IsWindow(_actionNoticeDialog))
+    {
+        (void)DestroyWindow(_actionNoticeDialog);
+        _actionNoticeDialog = nullptr;
+    }
     CloseMainWindow();
     _dropTarget.reset();
     if (_oleInitialized)
@@ -1461,6 +1470,12 @@ HRESULT Application::PlaceDock(bool resizeDashboard) noexcept
     {
         return S_OK;
     }
+    if (_dockPlacing)
+    {
+        return S_OK;
+    }
+    _dockPlacing = true;
+    const auto clearPlacing = wil::scope_exit([this]() noexcept { _dockPlacing = false; });
     DockMonitorPlacement placement{};
     if (!ResolveDockMonitor(placement))
     {
@@ -1619,10 +1634,24 @@ void Application::ApplyDockSettings() noexcept
     }
     if ((next.edge == DockEdge::None) != (_dock.edge == DockEdge::None))
     {
-        // The window kind (styles, app bar, MINMAXINFO, swap-chain scaling) is decided once; the rest of the
-        // document still applies live.
+        // The window kind is fixed until restart, but sibling dock settings still apply to the active edge.
         (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
                            "dock-restart-required", "Switching the dock on or off takes effect at the next launch.");
+        DockSettings live = next;
+        live.edge = _dock.edge;
+        if (live == _dock)
+        {
+            return;
+        }
+        _dock = live;
+        if (_dockActive)
+        {
+            (void)PlaceDock(true);
+            if (_dock.mode == DockMode::Autohide)
+            {
+                EvaluateDockHolds();
+            }
+        }
         return;
     }
     const DockMode previousMode = _dock.mode;
@@ -1758,10 +1787,28 @@ void Application::UpdateDockResize() noexcept
                        _dockFullRect.right - _dockFullRect.left, _dockFullRect.bottom - _dockFullRect.top,
                        SWP_NOACTIVATE | SWP_NOZORDER);
     _dockResizing = false;
+    _dockDashboardResizePending = true;
+    if (!_dockDashboardResizeTimerArmed)
+    {
+        _dockDashboardResizeTimerArmed = SetTimer(_window.get(), kDockDashboardResizeTimerId, 16, nullptr) != 0;
+        if (!_dockDashboardResizeTimerArmed)
+        {
+            FlushDockDashboardResize();
+        }
+    }
+}
+
+void Application::FlushDockDashboardResize() noexcept
+{
+    if (!_dockDashboardResizePending || !_window)
+    {
+        return;
+    }
+    _dockDashboardResizePending = false;
     if (const HRESULT result = ResizeDockDashboard(); FAILED(result))
     {
         RecordRuntimeFailure(result, "resize-failed");
-        PostMessageW(_window.get(), WM_CLOSE, 0, 0);
+        (void)PostMessageW(_window.get(), WM_CLOSE, 0, 0);
         return;
     }
     RefreshPageEdgeAffordances();
@@ -1775,6 +1822,12 @@ void Application::EndDockResize() noexcept
         return;
     }
     _dockResizeDrag = false;
+    if (_dockDashboardResizeTimerArmed)
+    {
+        (void)KillTimer(_window.get(), kDockDashboardResizeTimerId);
+        _dockDashboardResizeTimerArmed = false;
+    }
+    FlushDockDashboardResize();
     if (GetCapture() == _window.get())
     {
         (void)ReleaseCapture();
@@ -1976,15 +2029,25 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     {
         return E_POINTER;
     }
+    // Source-only edits (comments and spacing) still become the persisted document without interrupting a swipe,
+    // raise, or wheel sequence. Compare the typed runtime state before tearing down any interaction.
+    const bool sameRuntime =
+        settings->versionMajor == _settings->versionMajor && settings->versionMinor == _settings->versionMinor &&
+        settings->logRetentionDays == _settings->logRetentionDays &&
+        settings->backgroundRgb == _settings->backgroundRgb && settings->dock == _settings->dock &&
+        settings->plugins == _settings->plugins && settings->pluginCount == _settings->pluginCount &&
+        settings->services == _settings->services && settings->serviceCount == _settings->serviceCount &&
+        settings->dashboard == _settings->dashboard;
+    if (sameRuntime)
+    {
+        _settings = std::move(settings);
+        return S_FALSE;
+    }
     // A repaired deployment gets one retry of every publisher that could not be loaded.
     PluginHost::Instance().ResetActionPublishers();
     DismissWidgetRaise(false);
     CancelPageNavigation();
     _wheel.Reset();
-    if (*settings == *_settings)
-    {
-        return S_FALSE;
-    }
     if (ActiveDashboardRuntimeEquals(*settings, *_settings))
     {
         _settings = std::move(settings);
@@ -2261,6 +2324,11 @@ void Application::BeginPageSettle(LONG targetOffset, bool commit) noexcept
 void Application::RequestScreenshot(std::wstring_view pngPath, std::wstring_view pageId, uint32_t delayMilliseconds,
                                     uint32_t widgetOrdinal) noexcept
 {
+    if (_screenshot.pending)
+    {
+        // A capture worker may still own the previous request and its HWND. Keep it alive until completion.
+        return;
+    }
     _screenshot = ScreenshotRequest{};
     _screenshot.widgetOrdinal = widgetOrdinal;
     _screenshot.path.assign(pngPath);
@@ -2284,6 +2352,19 @@ void Application::RequestScreenshot(std::wstring_view pngPath, std::wstring_view
 bool Application::TickScreenshot() noexcept
 {
     if (!_screenshot.pending || !_window)
+    {
+        return false;
+    }
+    if (_screenshot.complete)
+    {
+        _screenshot.pending = false;
+        if (FAILED(_screenshot.result))
+        {
+            OutputDebugStringW(L"Screenshot capture failed.\n");
+        }
+        return true;
+    }
+    if (_screenshot.capturing)
     {
         return false;
     }
@@ -2329,13 +2410,34 @@ bool Application::TickScreenshot() noexcept
                                              static_cast<UINT>(client.bottom));
         cropPointer = &crop;
     }
-    _screenshot.result = RedXe::SaveWindowScreenshot(_window.get(), _screenshot.path.c_str(), cropPointer);
-    _screenshot.pending = false;
-    if (FAILED(_screenshot.result))
+    _screenshot.capturing = true;
+    try
     {
-        OutputDebugStringW(L"Screenshot capture failed.\n");
+        const HWND window = _window.get();
+        const std::wstring path = _screenshot.path;
+        const bool cropping = cropPointer != nullptr;
+        _screenshotWorker = std::jthread(
+            [this, window, path, crop, cropping]() noexcept
+            {
+                const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+                const HRESULT result =
+                    FAILED(initialized) ? initialized
+                                        : RedXe::SaveWindowScreenshot(window, path.c_str(), cropping ? &crop : nullptr);
+                if (SUCCEEDED(initialized))
+                {
+                    CoUninitialize();
+                }
+                _screenshotWorkerResult.store(result, std::memory_order_release);
+                (void)PostMessageW(window, kScreenshotCompleteMessage, 0, 0);
+            });
     }
-    return true;
+    catch (...)
+    {
+        _screenshot.capturing = false;
+        _screenshot.result = E_OUTOFMEMORY;
+        _screenshot.complete = true;
+    }
+    return false;
 }
 
 void Application::TickPageSettle() noexcept
@@ -2713,8 +2815,39 @@ void Application::ShowActionNotices() noexcept
     {
         return;
     }
-    (void)wcscat_s(text.data(), text.size(), L"\nThe current dashboard remains active.");
-    ShowSettingsError(text.data());
+    if (_actionNoticeDialog && IsWindow(_actionNoticeDialog))
+    {
+        (void)SetWindowTextW(GetDlgItem(_actionNoticeDialog, 100), text.data());
+        return;
+    }
+    RECT owner{};
+    (void)GetWindowRect(_window.get(), &owner);
+    constexpr int width = 600;
+    constexpr int height = 280;
+    const int x = owner.left + ((owner.right - owner.left) - width) / 2;
+    const int y = owner.top + ((owner.bottom - owner.top) - height) / 2;
+    _actionNoticeDialog = CreateWindowExW(WS_EX_TOOLWINDOW, kSettingsDialogClassName, L"RedXe action notice",
+                                          WS_CAPTION | WS_SYSMENU | WS_VISIBLE, x, y, width, height, _window.get(),
+                                          nullptr, _instance, this);
+    if (!_actionNoticeDialog)
+    {
+        return;
+    }
+    const HWND label =
+        CreateWindowExW(0, L"STATIC", text.data(), WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX | SS_EDITCONTROL, 24,
+                        20, width - 48, 170, _actionNoticeDialog, reinterpret_cast<HMENU>(100), _instance, nullptr);
+    const HWND button =
+        CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, width - 120, height - 78, 80, 28,
+                        _actionNoticeDialog, reinterpret_cast<HMENU>(IDOK), _instance, nullptr);
+    const HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    if (label)
+    {
+        (void)SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    }
+    if (button)
+    {
+        (void)SendMessageW(button, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    }
 }
 
 HRESULT Application::HandleHostAction(std::string_view action, std::string_view target) noexcept
@@ -4855,6 +4988,12 @@ void Application::CloseMainWindow() noexcept
             (void)ReleaseCapture();
         }
     }
+    if (_dockDashboardResizeTimerArmed && _window)
+    {
+        (void)KillTimer(_window.get(), kDockDashboardResizeTimerId);
+        _dockDashboardResizeTimerArmed = false;
+    }
+    _dockDashboardResizePending = false;
     KillDockTimer();
     UnregisterDockAppBar();
     _settingsWatcher.Stop();
@@ -4906,8 +5045,20 @@ LRESULT CALLBACK Application::SettingsDialogProcedure(HWND window, UINT message,
     }
     if (application && (message == WM_CLOSE || (message == WM_COMMAND && LOWORD(wParam) == IDOK)))
     {
-        application->CloseSettingsError();
+        if (window == application->_actionNoticeDialog)
+        {
+            application->_actionNoticeDialog = nullptr;
+            (void)DestroyWindow(window);
+        }
+        else
+        {
+            application->CloseSettingsError();
+        }
         return 0;
+    }
+    if (application && message == WM_NCDESTROY && window == application->_actionNoticeDialog)
+    {
+        application->_actionNoticeDialog = nullptr;
     }
     return DefWindowProcW(window, message, wParam, lParam);
 }
@@ -5010,6 +5161,18 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         }
         break;
     case WM_TIMER:
+        if (wParam == HostActions::kHeldInputTimerId)
+        {
+            HostActions::OnHeldTimer();
+            return 0;
+        }
+        if (wParam == kDockDashboardResizeTimerId)
+        {
+            (void)KillTimer(window, kDockDashboardResizeTimerId);
+            _dockDashboardResizeTimerArmed = false;
+            FlushDockDashboardResize();
+            return 0;
+        }
         if (wParam == kDockTimerId)
         {
             KillDockTimer();
@@ -5060,6 +5223,18 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         return 0;
     case Renderer::kOcclusionStatusMessage:
         _occlusionStatusChanged = true;
+        return 0;
+    case kScreenshotCompleteMessage:
+        if (_screenshot.capturing)
+        {
+            if (_screenshotWorker.joinable())
+            {
+                _screenshotWorker.join();
+            }
+            _screenshot.result = _screenshotWorkerResult.load(std::memory_order_acquire);
+            _screenshot.capturing = false;
+            _screenshot.complete = true;
+        }
         return 0;
     case PluginHost::kDataSnapshotInvalidateMessage:
         PluginHost::Instance().AcknowledgeUiInvalidate();

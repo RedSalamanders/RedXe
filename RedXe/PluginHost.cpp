@@ -467,12 +467,38 @@ class PluginHost::Subscription final : public RedXeComObject<PluginHost::Subscri
 PluginHost::~PluginHost()
 {
     Shutdown();
+    // Private test hosts may be stack-owned. Their storage cannot go away while a late lane still borrows a slot
+    // and this host, so destruction joins it even after the UI-thread drain budget has expired.
+    for (ServiceSlot& slot : _services)
+    {
+        if (slot.lane.joinable())
+        {
+            slot.lane.join();
+        }
+    }
+    Shutdown();
 }
 
 PluginHost& PluginHost::Instance() noexcept
 {
-    static PluginHost instance;
-    return instance;
+    struct ProcessRuntimeDeleter final
+    {
+        void operator()(PluginHost* runtime) const noexcept
+        {
+            if (!runtime)
+            {
+                return;
+            }
+            runtime->Shutdown();
+            if (runtime->RunningDeviceWorkerCount() == 0)
+            {
+                delete runtime;
+            }
+            // A stuck driver still borrows this host. Keep it and its modules until process exit.
+        }
+    };
+    static std::unique_ptr<PluginHost, ProcessRuntimeDeleter> instance{new PluginHost};
+    return *instance;
 }
 
 void PluginHost::ShutdownProcessRuntime() noexcept
@@ -486,6 +512,17 @@ void PluginHost::Shutdown() noexcept
     // Services go first: a stopped service releases its device lane and any provider subscription before the
     // acquisition worker and providers below are torn down.
     StopServices();
+    for (const ServiceSlot& slot : _services)
+    {
+        if (slot.lane.joinable())
+        {
+            // The lane still borrows this host and its module. The process singleton is intentionally retained,
+            // and a private host's destructor joins before it releases this storage.
+            HostActions::ReleaseHeld(DeviceAccessEnabled());
+            _shutdown = true;
+            return;
+        }
+    }
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_hostActionLock);
         for (HostActionSlot& slot : _hostActions)
@@ -522,7 +559,7 @@ IRedXeHost* PluginHost::Interface() noexcept
     return static_cast<IRedXeHost*>(this);
 }
 
-// PluginHost is the process runtime, not a heap-owned object, so it does not use RedXeComObject: its reference count
+// PluginHost is owned by the process singleton, so it does not use RedXeComObject: its reference count
 // is advisory and Release never destroys it. The optional settings queue shares its controlling IUnknown.
 // Plugins borrow IRedXeHost for the lifetime of the runtime and must not outlive it.
 HRESULT PluginHost::QueryInterface(REFIID interfaceId, void** result) noexcept
@@ -2134,6 +2171,10 @@ HRESULT PluginHost::StartService(ServiceSlot& slot) noexcept
     {
         return S_OK;
     }
+    if (slot.stopPending || slot.lane.joinable())
+    {
+        return HRESULT_FROM_WIN32(ERROR_BUSY);
+    }
     RedXeServiceStartContext context{};
     context.sizeBytes = sizeof(context);
     context.flags = DeviceAccessEnabled() ? RedXeServiceFlagNone : RedXeServiceFlagDeviceAccessDisabled;
@@ -2158,8 +2199,14 @@ HRESULT PluginHost::StartService(ServiceSlot& slot) noexcept
 
 void PluginHost::StopService(ServiceSlot& slot) noexcept
 {
-    StopDeviceLane(slot);
-    if (slot.service && slot.started)
+    const bool wasStarted = slot.started || slot.stopPending;
+    if (!StopDeviceLane(slot))
+    {
+        slot.stopPending = wasStarted;
+        slot.started = false;
+        return;
+    }
+    if (slot.service && wasStarted)
     {
         const HRESULT stopped = slot.service->Stop();
         (void)RedXeHostLog(Interface(), FAILED(stopped) ? RedXeLogLevelWarning : RedXeLogLevelInfo,
@@ -2167,6 +2214,7 @@ void PluginHost::StopService(ServiceSlot& slot) noexcept
                            stopped);
     }
     slot.started = false;
+    slot.stopPending = false;
     slot.worker.reset();
     slot.service.reset();
     slot.settings = JsonObjectSettings{};
@@ -2231,36 +2279,36 @@ void PluginHost::DeviceLane(ServiceSlot& slot) noexcept
     }
 }
 
-void PluginHost::StopDeviceLane(ServiceSlot& slot) noexcept
+bool PluginHost::StopDeviceLane(ServiceSlot& slot) noexcept
 {
     if (!slot.lane.joinable())
     {
         slot.wakeEvent.reset();
         slot.stopEvent.reset();
-        return;
+        return true;
     }
     if (slot.stopEvent)
     {
         SetEvent(slot.stopEvent.get());
     }
-    const DWORD waited = WaitForSingleObject(slot.lane.native_handle(), kRedXeDeviceWorkerDrainMilliseconds);
+    const DWORD waited =
+        WaitForSingleObject(slot.lane.native_handle(), slot.laneTombstoned ? 0U : kRedXeDeviceWorkerDrainMilliseconds);
     if (waited == WAIT_OBJECT_0)
     {
         slot.lane.join();
         slot.lane = std::jthread{};
         slot.wakeEvent.reset();
         slot.stopEvent.reset();
-        return;
+        slot.laneTombstoned = false;
+        return true;
     }
-    // The lane overran its drain budget. Detach it and keep the event handles alive so a late wait inside the
-    // plugin still sees valid objects; the process is shutting down or the service is being retired, and the
-    // overrun is the diagnostic.
-    (void)RedXeHostLog(Interface(), RedXeLogLevelError, slot.spec ? slot.spec->pluginId : nullptr, nullptr,
-                       "device-lane-drain-timeout", "device lane did not return within the drain budget.");
-    slot.lane.detach();
-    slot.lane = std::jthread{};
-    (void)slot.wakeEvent.release();
-    (void)slot.stopEvent.release();
+    if (!slot.laneTombstoned)
+    {
+        (void)RedXeHostLog(Interface(), RedXeLogLevelError, slot.spec ? slot.spec->pluginId : nullptr, nullptr,
+                           "device-lane-drain-timeout", "device lane did not return within the drain budget.");
+        slot.laneTombstoned = true;
+    }
+    return false;
 }
 
 HRESULT PluginHost::StartServices(const AppSettings& settings) noexcept
@@ -2273,7 +2321,22 @@ HRESULT PluginHost::StartServices(const AppSettings& settings) noexcept
     for (size_t index = 0; index < _services.size(); ++index)
     {
         ServiceSlot& slot = _services[index];
-        slot.spec = &kRedXeBundledServices[index];
+        if (!slot.spec)
+        {
+            slot.spec = &kRedXeBundledServices[index];
+        }
+        if (slot.stopPending)
+        {
+            StopService(slot);
+            if (slot.stopPending)
+            {
+                if (SUCCEEDED(first))
+                {
+                    first = HRESULT_FROM_WIN32(ERROR_BUSY);
+                }
+                continue;
+            }
+        }
         const ServiceSettings* configured = FindServiceSettings(settings, slot.spec->pluginId);
         if (!configured)
         {
@@ -2302,7 +2365,22 @@ HRESULT PluginHost::ApplyServiceSettings(const AppSettings& settings) noexcept
     for (size_t index = 0; index < _services.size(); ++index)
     {
         ServiceSlot& slot = _services[index];
-        slot.spec = &kRedXeBundledServices[index];
+        if (!slot.spec)
+        {
+            slot.spec = &kRedXeBundledServices[index];
+        }
+        if (slot.stopPending)
+        {
+            StopService(slot);
+            if (slot.stopPending)
+            {
+                if (SUCCEEDED(first))
+                {
+                    first = HRESULT_FROM_WIN32(ERROR_BUSY);
+                }
+                continue;
+            }
+        }
         const ServiceSettings* configured = FindServiceSettings(settings, slot.spec->pluginId);
         if (!configured)
         {
