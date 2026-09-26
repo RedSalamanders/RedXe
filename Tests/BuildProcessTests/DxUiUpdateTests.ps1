@@ -37,7 +37,9 @@ try {
     $current = 'a' * 40; $candidate = 'b' * 40
     New-RedXeDxUiUpdateFixture -Root $testRoot -Commit $current
     $state = [pscustomobject]@{ Ran = $false }
-    $result = Invoke-RedXeDxUiUpdate -RepoRoot $testRoot -Request (New-RedXeDxUiUpdateRequest -Current $current -Candidate $candidate) -ValidationAction { $state.Ran = $true }
+    # The updater reports through Write-Host; 6>$null keeps the fixture's fake pins from reading as a real
+    # "DxUi pin updated" line in test.ps1 output.
+    $result = Invoke-RedXeDxUiUpdate -RepoRoot $testRoot -Request (New-RedXeDxUiUpdateRequest -Current $current -Candidate $candidate) -ValidationAction { $state.Ran = $true } 6>$null
     if (-not $result.Updated -or -not $result.Validated -or -not $state.Ran) { throw 'Default DxUi update did not run RedXe validation.' }
     $updated = (Get-Content -Raw -LiteralPath (Join-Path $testRoot 'Dependencies/DxUi.lock.json') | ConvertFrom-Json).commit
     if ($updated -ne $candidate) { throw "DxUi update wrote '$updated' instead of '$candidate'." }
@@ -45,7 +47,7 @@ try {
     $updateOnlyRoot = Join-Path $testRoot 'update-only'; $current = 'c' * 40; $candidate = 'd' * 40
     New-RedXeDxUiUpdateFixture -Root $updateOnlyRoot -Commit $current
     $state = [pscustomobject]@{ Ran = $false }
-    $result = Invoke-RedXeDxUiUpdate -RepoRoot $updateOnlyRoot -UpdateOnly -Request (New-RedXeDxUiUpdateRequest -Current $current -Candidate $candidate) -ValidationAction { $state.Ran = $true }
+    $result = Invoke-RedXeDxUiUpdate -RepoRoot $updateOnlyRoot -UpdateOnly -Request (New-RedXeDxUiUpdateRequest -Current $current -Candidate $candidate) -ValidationAction { $state.Ran = $true } 6>$null
     if (-not $result.Updated -or $result.Validated -or $state.Ran) { throw '-UpdateOnly did not skip RedXe validation.' }
 
     $rejectedRoot = Join-Path $testRoot 'rejected'; $current = 'e' * 40; $candidate = 'f' * 40

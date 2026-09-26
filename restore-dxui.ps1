@@ -36,7 +36,9 @@ if (-not $MSBuildPath) {
 }
 Import-Module (Join-Path $source 'Tools/ConsumerBuild.psm1') -Force
 $buildIdentity=Get-DxUiConsumerBuildIdentity -DxUiRoot $source -MSBuildPath $MSBuildPath -Platform $Platform
-$output = (Join-Path $dependencyRoot $buildIdentity.Fingerprint) + [IO.Path]::DirectorySeparatorChar
+# A 16-digit fingerprint prefix names the folder: under the full 64 digits, vcpkg's deepest tool files pass MAX_PATH.
+# The full fingerprint stays in DxUi.identity.<Platform>.json and the product provenance.
+$output = (Join-Path $dependencyRoot $buildIdentity.Fingerprint.Substring(0, 16)) + [IO.Path]::DirectorySeparatorChar
 & (Join-Path $source 'vcpkg-install.ps1') -Platform $Platform -OutputRoot $output
 $escape = { param([string] $value) [System.Security.SecurityElement]::Escape($value) }
 $sourceXml = & $escape $source

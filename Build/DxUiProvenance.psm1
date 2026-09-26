@@ -13,7 +13,9 @@ function Write-RedXeDxUiProvenance {
     $dependencyRoot=Join-Path $RepoRoot '.build/dependencies/DxUi'
     $identity=Get-Content -Raw -LiteralPath (Join-Path $dependencyRoot "DxUi.identity.$Platform.json") | ConvertFrom-Json
     if ($identity.Identity.commit -cne $pin.commit -or $identity.Identity.platform -cne $Platform) { throw 'Restored DxUi identity does not match the product pin/profile.' }
-    $archive=Join-Path $dependencyRoot "$($identity.Fingerprint)/$Platform/$Configuration/DxUi.lib"
+    # The archive sits under the output root MSBuild was given; restore-dxui.ps1 alone owns that folder name.
+    [xml]$props=Get-Content -Raw -LiteralPath (Join-Path $dependencyRoot "DxUi.resolved.$Platform.props")
+    $archive=Join-Path ([string]$props.Project.PropertyGroup.DxUiConsumerOutputRoot) "$Platform/$Configuration/DxUi.lib"
     $source=Join-Path $dependencyRoot "source/$($pin.commit)"
     & (Join-Path $source 'Tools/validate_consumer.ps1') -DxUiRoot $source -LockFile (Join-Path $RepoRoot 'Dependencies/DxUi.lock.json')
     $output=Join-Path $RepoRoot ".build/$Platform/$Configuration"

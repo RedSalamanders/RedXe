@@ -1,7 +1,7 @@
 # DxUi integration
 
 Status: current normative consumer contract
-Last reviewed: 2026-09-13
+Last reviewed: 2026-09-26
 
 This contract owns how RedXe consumes the standalone DxUi library: the exact source pin, restore/build isolation,
 which process modules link `DxUi.lib`, and the COM/POD boundary that keeps DxUi C++ objects inside those modules.
@@ -15,8 +15,10 @@ and matched text/UIA performance remain in [`Plugins_AVControl.md`](../Plugins/P
 revision 2, and lock target `["DxUi"]`. `build.ps1` runs `restore-dxui.ps1` for the selected platform. Restore clones
 that exact commit under `.build/dependencies/DxUi/source/<commit>` and isolates vcpkg/library outputs under a
 fingerprint that includes commit, API revision, target architecture, evaluated compiler host, compiler/linker/MSBuild
-hashes, SDK version/header/import-library hashes, CRT family and sanitizer annotation policy. It never checks out, resets, or edits a sibling
-`DxUi` working tree. A mismatched or dirty pin fails the consumer restore.
+hashes, SDK version/header/import-library hashes, CRT family and sanitizer annotation policy. The output folder is
+`.build/dependencies/DxUi/<first 16 fingerprint hex digits>` so vcpkg's deepest tool paths stay under `MAX_PATH`; the
+full fingerprint stays in the identity file and the product provenance. Restore never checks out, resets, or edits a
+sibling `DxUi` working tree. A mismatched or dirty pin fails the consumer restore.
 
 The pinned library releases the cached surface
 of a hidden or zero-extent `EmbeddedHost`, marks a view dirty only through control invalidation, and bounds its
@@ -37,9 +39,9 @@ Restore writes separate resolved properties and evaluated identity files for eac
 preserve the chosen configuration and platform, and fail before compilation if the consumer's actual toolchain
 differs from the restored identity. Builds produce `DxUi.provenance.json` beside the application: exact source/API,
 public-header tree, archive hash, build identity and linked-module hashes for RedXe, AVControl and AVControlTests.
-The producer verifies each actual linker command names the selected archive; test.ps1 rejects wrong pins, profiles,
-missing/duplicate modules and replaced binaries before product regressions. The ordinary sidecar is product evidence,
-not a separate release or qualification system.
+The producer locates the archive through the resolved output root and verifies each actual linker command names
+it; test.ps1 rejects wrong pins, profiles, missing/duplicate modules and replaced binaries before product regressions.
+The ordinary sidecar is product evidence, not a separate release or qualification system.
 
 ## Manual update loop
 
