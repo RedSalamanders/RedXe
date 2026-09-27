@@ -224,7 +224,9 @@ When RedXe installs its default settings file at startup (the file is missing, o
 installed document carries the **first-run dock**: `{ "edge": "bottom", "monitor": "primary", "mode": "autohide",
 "thickness": T }`, so this start and the following ones show the Dock row of the mode table instead of the Release
 missing-display prompt or the Debug titled window. `T` gives the bar the XENEON EDGE's 32:9 proportions along the
-primary display's work area, so the shipped 2560×720 pages keep their shape (`DockFirstRunThicknessDips`):
+primary display's work area, so the shipped 2560×720 pages keep their shape (`DockFirstRunThicknessDips`). The
+primary monitor is identified by `MONITORINFOF_PRIMARY` during enumeration, even when another monitor contains
+screen coordinate `(0,0)`. Its thickness is:
 `MulDiv(workAreaWidth, 720, 2560)` pixels, clamped to half the monitor like every dock, converted to DIPs at the
 primary display's effective DPI rounding down (so the runtime rescale stays within those pixels and does not clamp),
 and kept in 32–1080. On a 16:9 display that is half its height: 720 DIPs on a 3840×2160 150 % display, 540 DIPs on a

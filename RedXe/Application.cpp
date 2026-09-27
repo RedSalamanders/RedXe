@@ -334,7 +334,20 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
 [[nodiscard]] bool MakeFirstRunDock(DockSettings& dock) noexcept
 {
     dock = DefaultDockSettings();
-    const HMONITOR primary = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+    // (0,0) can belong to a secondary display when the primary is at a negative origin.
+    HMONITOR primary = nullptr;
+    const auto findPrimary = [](HMONITOR monitor, HDC, LPRECT, LPARAM context) noexcept -> BOOL
+    {
+        MONITORINFO info{};
+        info.cbSize = sizeof(info);
+        if (GetMonitorInfoW(monitor, &info) && (info.dwFlags & MONITORINFOF_PRIMARY) != 0)
+        {
+            *reinterpret_cast<HMONITOR*>(context) = monitor;
+            return FALSE;
+        }
+        return TRUE;
+    };
+    (void)EnumDisplayMonitors(nullptr, nullptr, findPrimary, reinterpret_cast<LPARAM>(&primary));
     MONITORINFO information{};
     information.cbSize = sizeof(information);
     if (!primary || !GetMonitorInfoW(primary, &information))

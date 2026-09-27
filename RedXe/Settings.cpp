@@ -2121,12 +2121,17 @@ struct SourceMember final
     return true;
 }
 
-// Preconditions shared by the dock source patches: the root is an object whose optional `version.minor` is an
-// unsigned integer. `raiseMinor` reports a minor below 2, the minor that added `dock`; `rootBegin` is the root's '{'.
+// Preconditions shared by the dock source patches: the whole source is a valid v5 document. `raiseMinor` reports
+// a minor below 2, the minor that added `dock`; `rootBegin` is the root's '{'.
 [[nodiscard]] HRESULT PrepareDockSourcePatch(std::string& source, bool& raiseMinor, size_t& rootBegin) noexcept
 {
     raiseMinor = false;
     rootBegin = 0;
+    std::unique_ptr<AppSettings> validated;
+    if (const HRESULT result = ParseAppSettingsJsonV5(source, validated); FAILED(result))
+    {
+        return result;
+    }
     yyjson_read_err error{};
     unique_yyjson_doc document{yyjson_read_opts(
         source.data(), source.size(), YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS, nullptr, &error)};
@@ -2135,13 +2140,7 @@ struct SourceMember final
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    yyjson_val* version = yyjson_obj_get(root, "version");
-    yyjson_val* minor = yyjson_is_obj(version) ? yyjson_obj_get(version, "minor") : nullptr;
-    if (minor && !yyjson_is_uint(minor))
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
-    raiseMinor = !minor || yyjson_get_uint(minor) < 2;
+    raiseMinor = validated->versionMinor < 2;
     return SkipSourceTrivia(source, rootBegin) ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 }
 

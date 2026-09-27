@@ -397,7 +397,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   `version`, the template's CRLF line breaks kept, the typed document otherwise unchanged), on a minor 1 document
   (raised to 2), with `version` as the last member, and over an existing `dock` value, and that an invalid dock (the
   `none` edge, an edge or mode outside the enumerations, the `all` selector, a number out of range) or a malformed
-  document is refused without changing the source. They prove that the store installs the first-run dock
+  document, including a scalar `version` or incompatible major version, is refused without changing the source.
+  They prove that the store installs the first-run dock
   for a missing and for an invalid default file (with the notice), keeps an existing file byte for byte, installs
   the plain template byte for byte when no dock is offered or the offered dock is refused by the patch, and never
   writes a missing `--settings` file.

@@ -2015,12 +2015,18 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         std::string untouched = R"json({"version":{"major":5,"minor":2},"pages":[{}]})json";
         std::string malformed = R"json({"version":{"major":5,"minor":"2"},"pages":[{}]})json";
         const std::string malformedCopy = malformed;
+        std::string scalarVersion = R"json({"version":5,"pages":[{}]})json";
+        const std::string scalarVersionCopy = scalarVersion;
+        std::string oldMajor = R"json({"version":{"major":4},"pages":[{}]})json";
+        const std::string oldMajorCopy = oldMajor;
         if (PatchFirstRunDock(untouched, none) != E_INVALIDARG || PatchFirstRunDock(untouched, thick) != E_INVALIDARG ||
             PatchFirstRunDock(untouched, strayEdge) != E_INVALIDARG ||
             PatchFirstRunDock(untouched, strayMode) != E_INVALIDARG ||
             PatchFirstRunDock(untouched, everyMonitor) != E_INVALIDARG ||
             untouched != R"json({"version":{"major":5,"minor":2},"pages":[{}]})json" ||
-            SUCCEEDED(PatchFirstRunDock(malformed, dock)) || malformed != malformedCopy)
+            SUCCEEDED(PatchFirstRunDock(malformed, dock)) || malformed != malformedCopy ||
+            SUCCEEDED(PatchFirstRunDock(scalarVersion, dock)) || scalarVersion != scalarVersionCopy ||
+            SUCCEEDED(PatchFirstRunDock(oldMajor, dock)) || oldMajor != oldMajorCopy)
         {
             std::wprintf(L"The first-run dock accepted an invalid dock or document.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
