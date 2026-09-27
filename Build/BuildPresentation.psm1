@@ -569,19 +569,20 @@ function Invoke-RedXeStreamingProcess {
 
         [scriptblock] $OutputLineCallback,
 
-        # Total wall-clock budget for the child. When it runs out, the child and every process it started are
-        # terminated (they are descendants of this invocation, never an independently launched process) and the
-        # call throws, naming the executable and the log. Zero keeps the wait unbounded, as build.ps1 needs.
+        # Total wall-clock budget for the child, counted from its start. When it runs out, the child and every
+        # process it started are terminated (they are descendants of this invocation, never an independently launched
+        # process) and the call throws, naming the executable and the log. Zero keeps the wait unbounded, as build.ps1
+        # needs.
         [ValidateRange(0, 86400)]
         [int] $TimeoutSeconds = 0
     )
 
     $resolvedLogPath = [IO.Path]::GetFullPath($LogPath)
-    $deadline = if ($TimeoutSeconds -gt 0) { [DateTime]::UtcNow.AddSeconds($TimeoutSeconds) } else { $null }
     # A bounded child is placed in a job object with kill-on-close: the whole tree is contained, so a descendant that
     # inherited the redirected pipe and outlived the child (Process.Kill cannot reach it once the child has exited) is
     # still terminated at the budget and when this call returns.
-    $job = if ($deadline) { New-RedXeKillOnCloseJob } else { $null }
+    $job = if ($TimeoutSeconds -gt 0) { New-RedXeKillOnCloseJob } else { $null }
+    $deadline = $null
     $stopChildOnTimeout = {
         param([Diagnostics.Process] $Child, [IO.StreamWriter] $Writer)
         $message = "'$FilePath' did not finish within $TimeoutSeconds s and was terminated with its child processes (log: $resolvedLogPath)."
@@ -612,6 +613,11 @@ function Invoke-RedXeStreamingProcess {
         $encoding = [Text.UTF8Encoding]::new($false)
         $logWriter = [IO.StreamWriter]::new($resolvedLogPath, $false, $encoding)
 
+        # The budget is the child's, so it starts with the child. The first bounded call in a session compiles the
+        # job type above, which took over a second on a loaded machine, and that must not come out of the child's time.
+        if ($TimeoutSeconds -gt 0) {
+            $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        }
         if (-not $process.Start()) {
             throw "Unable to start '$FilePath'."
         }
