@@ -2214,9 +2214,16 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
 
 HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcept
 {
-    if (dock.edge == DockEdge::None || dock.monitor.bytes == 0 || dock.thicknessDips < kDockMinimumThicknessDips ||
-        dock.thicknessDips > kDockMaximumThicknessDips || dock.peekPixels < kDockMinimumPeekPixels ||
-        dock.peekPixels > kDockMaximumPeekPixels ||
+    // Only a dock the parser would accept back: one of the four edges, a known mode, a monitor selector of the shared
+    // grammar (never `all`), and every number in its settings range.
+    const bool knownEdge = dock.edge == DockEdge::Top || dock.edge == DockEdge::Bottom || dock.edge == DockEdge::Left ||
+                           dock.edge == DockEdge::Right;
+    const bool knownMode = dock.mode == DockMode::Fixed || dock.mode == DockMode::Autohide;
+    RedXeActions::MonitorSelector selector{};
+    if (!knownEdge || !knownMode || dock.monitor.bytes == 0 || dock.monitor.bytes > kMaximumSettingsTextBytes ||
+        !RedXeActions::ParseMonitorSelector(dock.monitor.View(), false, selector) ||
+        dock.thicknessDips < kDockMinimumThicknessDips || dock.thicknessDips > kDockMaximumThicknessDips ||
+        dock.peekPixels < kDockMinimumPeekPixels || dock.peekPixels > kDockMaximumPeekPixels ||
         dock.revealDelayMilliseconds > kDockMaximumRevealDelayMilliseconds ||
         dock.hideDelayMilliseconds > kDockMaximumHideDelayMilliseconds)
     {

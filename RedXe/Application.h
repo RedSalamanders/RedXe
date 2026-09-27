@@ -113,7 +113,15 @@ class Application final
     // window is hidden, restyled, placed as the other kind, and shown again without activation, and the swap chain is
     // rebuilt for that kind's scaling. Widgets, services, native containers, the settings watcher, and the drop target
     // stay bound to the window. A failure is a runtime failure (the caller closes the window).
+    // SwitchWindowKind = RestyleWindowKind, RebuildPresentation, FinishWindowKindSwitch; a reload that also rebuilds
+    // the page runs InitializeDashboardRuntime between the two halves instead, so the renderer is created once.
     HRESULT SwitchWindowKind(const DockSettings& next) noexcept;
+    // Ends the interactions, takes the presentation down, and hides, restyles, and places the window as the kind
+    // `next` selects. The window stays hidden with no renderer until FinishWindowKindSwitch.
+    HRESULT RestyleWindowKind(const DockSettings& next) noexcept;
+    // Shows the restyled window without activation, settles the standard kind's placement, the holds, and the chrome,
+    // and logs the switch. Needs the renderer of the new kind.
+    HRESULT FinishWindowKindSwitch() noexcept;
     // The standard kind for a window that already exists, placed by the startup rows of the mode table without the
     // missing-display prompt: Release fullscreen on the XENEON's rcMonitor; the titled window at the XENEON origin;
     // without a XENEON, the titled window at the work-area origin of `fallbackMonitor`. Idempotent.
@@ -329,6 +337,9 @@ class Application final
     // `edge` is None for the titled and fullscreen kinds.
     DockSettings _dock{};
     bool _dockActive = false;
+    // Standard-kind placement inputs kept from RestyleWindowKind for FinishWindowKindSwitch.
+    HMONITOR _kindSwitchFallbackMonitor = nullptr;
+    bool _kindSwitchFullscreen = false;
     RECT _xeneonBounds{};
     bool _xeneonFound = false;
     RECT _dockMonitorRect{};

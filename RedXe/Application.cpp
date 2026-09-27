@@ -1762,6 +1762,20 @@ void Application::ResetDockPlacementState() noexcept
 
 HRESULT Application::SwitchWindowKind(const DockSettings& next) noexcept
 {
+    HRESULT result = RestyleWindowKind(next);
+    if (SUCCEEDED(result))
+    {
+        result = RebuildPresentation();
+    }
+    if (SUCCEEDED(result))
+    {
+        result = FinishWindowKindSwitch();
+    }
+    return result;
+}
+
+HRESULT Application::RestyleWindowKind(const DockSettings& next) noexcept
+{
     if (!_window || !_dashboardHost)
     {
         return E_UNEXPECTED;
@@ -1769,7 +1783,7 @@ HRESULT Application::SwitchWindowKind(const DockSettings& next) noexcept
     const HWND window = _window.get();
     const bool toDock = next.edge != DockEdge::None;
     // Without a XENEON the standard window lands on the monitor the dock was on, where the person is looking.
-    const HMONITOR previousMonitor = MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
+    _kindSwitchFallbackMonitor = MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
 
     // Every interaction bound to the old geometry ends, then the presentation goes: its swap-chain scaling belongs
     // to the old kind. Shell notifications that arrive while the dock unregisters find no dock.
@@ -1803,6 +1817,7 @@ HRESULT Application::SwitchWindowKind(const DockSettings& next) noexcept
     constexpr bool releaseBuild = true;
 #endif
     const bool fullscreen = !toDock && releaseBuild && _xeneonFound;
+    _kindSwitchFullscreen = fullscreen;
 
     // The taskbar adds or drops the button (WS_EX_APPWINDOW, WS_EX_TOOLWINDOW) only for a window shown after the
     // change, so the window leaves minimized or maximized, hides, takes the other kind's styles, and shows again at
@@ -1828,22 +1843,23 @@ HRESULT Application::SwitchWindowKind(const DockSettings& next) noexcept
     }
 
     _dockActive = toDock;
-    HRESULT result = toDock ? PlaceDock(false) : PlaceStandardWindow(fullscreen, previousMonitor);
-    if (SUCCEEDED(result))
+    return toDock ? PlaceDock(false) : PlaceStandardWindow(fullscreen, _kindSwitchFallbackMonitor);
+}
+
+HRESULT Application::FinishWindowKindSwitch() noexcept
+{
+    if (!_window || !_rendererReady)
     {
-        result = RebuildPresentation();
+        return E_UNEXPECTED;
     }
-    if (FAILED(result))
-    {
-        return result;
-    }
+    const HWND window = _window.get();
     (void)ShowWindow(window, SW_SHOWNOACTIVATE);
     _windowVisible = IsWindowVisible(window) != FALSE;
-    if (!toDock)
+    if (!_dockActive)
     {
         // A DPI change that arrives with the show answers at the suggested position; the standard kind keeps its
         // exact origin and canvas. The dock re-places itself from WM_DPICHANGED.
-        result = PlaceStandardWindow(fullscreen, previousMonitor);
+        const HRESULT result = PlaceStandardWindow(_kindSwitchFullscreen, _kindSwitchFallbackMonitor);
         if (FAILED(result))
         {
             return result;
@@ -1854,8 +1870,8 @@ HRESULT Application::SwitchWindowKind(const DockSettings& next) noexcept
     PublishHostState();
     _frameInvalidated = true;
     (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "window-kind-changed",
-                       toDock ? "A settings reload turned the window into the dock."
-                              : "A settings reload turned the dock into the standard window.");
+                       _dockActive ? "A settings reload turned the window into the dock."
+                                   : "A settings reload turned the dock into the standard window.");
     return S_OK;
 }
 
@@ -2367,10 +2383,23 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     _rendererReady = false;
     _dashboardHost->Shutdown(false);
 
-    HRESULT applyResult = _pluginManager->Reconfigure(*settings);
+    // A reload that also switches the window kind restyles the hidden window first, so the runtime below creates its
+    // renderer once, for the new kind; a rollback restyles it back the same way.
+    const DockSettings previousDock = _dock;
+    const DockSettings nextDock = EffectiveDockSettings(settings->dock, _dockOverrides);
+    const bool switchKind = (nextDock.edge != DockEdge::None) != _dockActive;
+    HRESULT applyResult = switchKind ? RestyleWindowKind(nextDock) : S_OK;
+    if (SUCCEEDED(applyResult))
+    {
+        applyResult = _pluginManager->Reconfigure(*settings);
+    }
     if (SUCCEEDED(applyResult))
     {
         applyResult = InitializeDashboardRuntime();
+    }
+    if (SUCCEEDED(applyResult) && switchKind)
+    {
+        applyResult = FinishWindowKindSwitch();
     }
     if (SUCCEEDED(applyResult))
     {
@@ -2386,10 +2415,18 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     _renderer.Shutdown();
     _rendererReady = false;
     _dashboardHost->Shutdown(false);
-    HRESULT rollbackResult = _pluginManager->Reconfigure(*_settings);
+    HRESULT rollbackResult = switchKind ? RestyleWindowKind(previousDock) : S_OK;
+    if (SUCCEEDED(rollbackResult))
+    {
+        rollbackResult = _pluginManager->Reconfigure(*_settings);
+    }
     if (SUCCEEDED(rollbackResult))
     {
         rollbackResult = InitializeDashboardRuntime();
+    }
+    if (SUCCEEDED(rollbackResult) && switchKind)
+    {
+        rollbackResult = FinishWindowKindSwitch();
     }
     if (FAILED(rollbackResult))
     {

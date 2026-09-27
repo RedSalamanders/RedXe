@@ -2003,10 +2003,22 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         none.edge = DockEdge::None;
         DockSettings thick = dock;
         thick.thicknessDips = kDockMaximumThicknessDips + 1;
+        DockSettings strayEdge = dock;
+        strayEdge.edge = static_cast<DockEdge>(9);
+        DockSettings strayMode = dock;
+        strayMode.mode = static_cast<DockMode>(7);
+        DockSettings everyMonitor = dock;
+        everyMonitor.monitor = SettingsText{};
+        constexpr std::string_view allMonitors = "all";
+        allMonitors.copy(everyMonitor.monitor.utf8.data(), allMonitors.size());
+        everyMonitor.monitor.bytes = static_cast<uint32_t>(allMonitors.size());
         std::string untouched = R"json({"version":{"major":5,"minor":2},"pages":[{}]})json";
         std::string malformed = R"json({"version":{"major":5,"minor":"2"},"pages":[{}]})json";
         const std::string malformedCopy = malformed;
         if (PatchFirstRunDock(untouched, none) != E_INVALIDARG || PatchFirstRunDock(untouched, thick) != E_INVALIDARG ||
+            PatchFirstRunDock(untouched, strayEdge) != E_INVALIDARG ||
+            PatchFirstRunDock(untouched, strayMode) != E_INVALIDARG ||
+            PatchFirstRunDock(untouched, everyMonitor) != E_INVALIDARG ||
             untouched != R"json({"version":{"major":5,"minor":2},"pages":[{}]})json" ||
             SUCCEEDED(PatchFirstRunDock(malformed, dock)) || malformed != malformedCopy)
         {

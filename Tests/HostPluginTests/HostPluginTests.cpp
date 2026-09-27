@@ -584,6 +584,14 @@ void TestDockPlacement(bool& success) noexcept
               firstRunMonitor, DockEdge::Bottom, firstRunClamped) == 1080 &&
               !firstRunClamped,
           L"the first-run thickness rescales to the same pixels at 175 % without a clamp", success);
+    // The documented exception: under 64 DIPs across the edge, the 32-DIP minimum itself is more than half the
+    // display, so the runtime clamps the first-run bar like any dock (a 100x60 display at 175 %: 56 px to 30).
+    const RECT tinyMonitor{0, 0, 100, 60};
+    Check(DockFirstRunThicknessDips(tinyMonitor, tinyMonitor, DockEdge::Bottom, 168) == kDockMinimumThicknessDips &&
+              DockClampThickness(DockThicknessPixels(kDockMinimumThicknessDips, 168), tinyMonitor, DockEdge::Bottom,
+                                 firstRunClamped) == 30 &&
+              firstRunClamped,
+          L"on a display under 64 DIPs across, the minimum first-run bar is clamped by the runtime", success);
 
     // MINMAXINFO: the strip is the minimum for autohide, the full bar for fixed, the monitor the maximum.
     MINMAXINFO autohideInfo{};

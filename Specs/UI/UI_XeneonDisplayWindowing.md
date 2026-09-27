@@ -208,7 +208,9 @@ native containers, the settings watcher, the drop target, and accessibility.
 - The dashboard is resized to the new canvas and the renderer is initialized again with the target kind's
   presentation (`DXGI_SCALING_NONE` at the full bar for a dock, `DXGI_SCALING_STRETCH` at the client otherwise) on
   the adapter that owns the new monitor. GPU widgets see one `OnDeviceLost` / `OnDeviceCreated` pair, as on an
-  adapter change; no widget instance is recreated.
+  adapter change; no widget instance is recreated. A reload that also rebuilds the active page restyles and places
+  the hidden window before the page runtime starts, so its renderer is created once, for the new kind; a failed
+  apply restyles the window back before the previous page is restored.
 - The window is shown with `SW_SHOWNOACTIVATE`: the window in which the file was saved keeps the focus. An autohide
   dock collapses after the hide delay as at launch.
 - A switch logs one Info record (`window-kind-changed`). A failed step logs one Error record
@@ -224,9 +226,11 @@ installed document carries the **first-run dock**: `{ "edge": "bottom", "monitor
 missing-display prompt or the Debug titled window. `T` gives the bar the XENEON EDGE's 32:9 proportions along the
 primary display's work area, so the shipped 2560×720 pages keep their shape (`DockFirstRunThicknessDips`):
 `MulDiv(workAreaWidth, 720, 2560)` pixels, clamped to half the monitor like every dock, converted to DIPs at the
-primary display's effective DPI rounding down (the runtime rescale never exceeds it and never logs a clamp), and kept
-in 32–1080. On a 16:9 display that is half its height: 720 DIPs on a 3840×2160 150 % display, 540 DIPs on a
-1920×1080 100 % display. The start logs one Info record (`dock-first-run`). After a failed discovery, or when the
+primary display's effective DPI rounding down (so the runtime rescale stays within those pixels and does not clamp),
+and kept in 32–1080. On a 16:9 display that is half its height: 720 DIPs on a 3840×2160 150 % display, 540 DIPs on a
+1920×1080 100 % display. The one exception is a display under 64 DIPs across the edge, where even the 32-DIP
+settings minimum is more than half of it: the runtime clamps that bar like any dock (one `dock-thickness-clamped`
+record). The start logs one Info record (`dock-first-run`). After a failed discovery, or when the
 template cannot be patched, the plain template is installed; a `--settings` file and the self-test never install.
 The file is not revisited later: a XENEON connected afterwards changes nothing until the user sets `edge` to `none`,
 which applies live.
@@ -336,7 +340,8 @@ same swap chain created at the full bar while the window is already the strip an
 the rebuild of one renderer and dashboard across kinds (`DXGI_SCALING_STRETCH` at the client, then
 `DXGI_SCALING_NONE` at the full bar, the same widget instances presenting), and the first-run thickness
 (`DockFirstRunThicknessDips`: 16:9 displays at 100, 125, and 150 %, an ultrawide capped at half its height, a 5:4
-display, a side bar, negative coordinates, the minimum, DPI 0, and the rescale without a clamp at 175 %);
+display, a side bar, negative coordinates, the minimum, DPI 0, the rescale without a clamp at 175 %, and the display
+under 64 DIPs across where the minimum is still clamped);
 `SettingsTests` proves the `dock` member, its rejections, minor 2, the `--dock*` grammar with its errors, the merge
 precedence, `PatchDockThickness` (replace, create with the minor bump, range, re-parse), and the first-run install
 (`Specs/Core/Core_Settings.md`). Live, on the machine's topology: a reserving bar shrinks `rcWork` by exactly its
@@ -363,7 +368,8 @@ fullscreen on the XENEON.
 - Process awareness and command-line modes: `RedXe/Main.cpp`, `RedXe/app.manifest`; the switch catalog behind
   `--help`: `RedXe/CommandLine.h`
 - Display discovery, window creation, and DPI transitions: `RedXe/Application.cpp`, `RedXe/Application.h`; live
-  window-kind switches: `Application::SwitchWindowKind`, `PlaceStandardWindow`, and `RebuildPresentation`; the
+  window-kind switches: `Application::SwitchWindowKind` (`RestyleWindowKind`, `RebuildPresentation`,
+  `FinishWindowKindSwitch`), `PlaceStandardWindow`, and the combined page-and-kind reload in `ApplySettings`; the
   first-run dock: `MakeFirstRunDock` in `RedXe/Application.cpp`
 - Dock placement, monitor selection, MINMAXINFO, the autohide state machine, and the first-run thickness:
   `RedXe/DockPlacement.h`; the `--dock*` grammar and merge: `RedXe/DockOptions.h`; dock-kind presentation:
