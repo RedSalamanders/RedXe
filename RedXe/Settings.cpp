@@ -1184,7 +1184,9 @@ template <size_t Count>
     return items && PatchMutableHumanItems(document, items, instanceIndex, targetIndex, settingsObject, declare);
 }
 
-[[nodiscard]] HRESULT WriteUtf8FileAtomically(const std::filesystem::path& target, std::string_view bytes) noexcept
+// S_FALSE without replaceExisting when the target already exists (an install that lost the race keeps that file).
+[[nodiscard]] HRESULT WriteUtf8FileAtomically(const std::filesystem::path& target, std::string_view bytes,
+                                              bool replaceExisting = true) noexcept
 {
     try
     {
@@ -1207,9 +1209,15 @@ template <size_t Count>
             return HRESULT_FROM_WIN32(GetLastError());
         }
         file.reset();
-        if (!MoveFileExW(temporary.c_str(), target.c_str(), MOVEFILE_WRITE_THROUGH | MOVEFILE_REPLACE_EXISTING))
+        const DWORD flags = MOVEFILE_WRITE_THROUGH | (replaceExisting ? MOVEFILE_REPLACE_EXISTING : 0U);
+        if (!MoveFileExW(temporary.c_str(), target.c_str(), flags))
         {
-            return HRESULT_FROM_WIN32(GetLastError());
+            const DWORD error = GetLastError();
+            if (!replaceExisting && (error == ERROR_ALREADY_EXISTS || error == ERROR_FILE_EXISTS))
+            {
+                return S_FALSE;
+            }
+            return HRESULT_FROM_WIN32(error);
         }
         return S_OK;
     }
@@ -1851,6 +1859,7 @@ namespace
 {
 struct SourceMember final
 {
+    size_t keyBegin = 0;
     size_t valueBegin = 0;
     size_t valueEnd = 0;
     size_t closingBrace = 0;
@@ -2065,6 +2074,7 @@ struct SourceMember final
         if (matching)
         {
             found.found = true;
+            found.keyBegin = keyBegin;
             found.valueBegin = valueBegin;
             found.valueEnd = position;
         }
@@ -2110,6 +2120,37 @@ struct SourceMember final
     }
     return true;
 }
+
+// Preconditions shared by the dock source patches: the root is an object whose optional `version.minor` is an
+// unsigned integer. `raiseMinor` reports a minor below 2, the minor that added `dock`; `rootBegin` is the root's '{'.
+[[nodiscard]] HRESULT PrepareDockSourcePatch(std::string& source, bool& raiseMinor, size_t& rootBegin) noexcept
+{
+    raiseMinor = false;
+    rootBegin = 0;
+    yyjson_read_err error{};
+    unique_yyjson_doc document{yyjson_read_opts(
+        source.data(), source.size(), YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS, nullptr, &error)};
+    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    if (!yyjson_is_obj(root))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    yyjson_val* version = yyjson_obj_get(root, "version");
+    yyjson_val* minor = yyjson_is_obj(version) ? yyjson_obj_get(version, "minor") : nullptr;
+    if (minor && !yyjson_is_uint(minor))
+    {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    raiseMinor = !minor || yyjson_get_uint(minor) < 2;
+    return SkipSourceTrivia(source, rootBegin) ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+}
+
+[[nodiscard]] bool RaiseDockSourceMinor(std::string& source, size_t rootBegin) noexcept
+{
+    SourceMember version{};
+    return FindSourceMember(source, rootBegin, "\"version\"", version) && version.found &&
+           PatchSourceMember(source, version.valueBegin, "\"minor\"", "2");
+}
 } // namespace
 
 HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept
@@ -2126,26 +2167,11 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
     try
     {
         std::string updated = settings.sourceDocument;
-        yyjson_read_err error{};
-        unique_yyjson_doc source{yyjson_read_opts(updated.data(), updated.size(),
-                                                  YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS,
-                                                  nullptr, &error)};
-        yyjson_val* root = source ? yyjson_doc_get_root(source.get()) : nullptr;
-        if (!yyjson_is_obj(root))
-        {
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        }
-        yyjson_val* version = yyjson_obj_get(root, "version");
-        yyjson_val* minor = yyjson_is_obj(version) ? yyjson_obj_get(version, "minor") : nullptr;
-        if (minor && !yyjson_is_uint(minor))
-        {
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        }
-        const bool raiseMinor = !minor || yyjson_get_uint(minor) < 2;
+        bool raiseMinor = false;
         size_t rootBegin = 0;
-        if (!SkipSourceTrivia(updated, rootBegin))
+        if (const HRESULT prepared = PrepareDockSourcePatch(updated, raiseMinor, rootBegin); FAILED(prepared))
         {
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            return prepared;
         }
         SourceMember dock{};
         if (!FindSourceMember(updated, rootBegin, "\"dock\"", dock))
@@ -2164,14 +2190,9 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        if (raiseMinor)
+        if (raiseMinor && !RaiseDockSourceMinor(updated, rootBegin))
         {
-            SourceMember versionMember{};
-            if (!FindSourceMember(updated, rootBegin, "\"version\"", versionMember) || !versionMember.found ||
-                !PatchSourceMember(updated, versionMember.valueBegin, "\"minor\"", "2"))
-            {
-                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-            }
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         if (updated.size() > kMaximumSettingsBytes)
         {
@@ -2179,6 +2200,131 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
         }
         settings.sourceDocument = std::move(updated);
         settings.dock.thicknessDips = thicknessDips;
+        return S_OK;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcept
+{
+    if (dock.edge == DockEdge::None || dock.monitor.bytes == 0 || dock.thicknessDips < kDockMinimumThicknessDips ||
+        dock.thicknessDips > kDockMaximumThicknessDips || dock.peekPixels < kDockMinimumPeekPixels ||
+        dock.peekPixels > kDockMaximumPeekPixels ||
+        dock.revealDelayMilliseconds > kDockMaximumRevealDelayMilliseconds ||
+        dock.hideDelayMilliseconds > kDockMaximumHideDelayMilliseconds)
+    {
+        return E_INVALIDARG;
+    }
+    try
+    {
+        // Edge, monitor, mode, and thickness always; the other members only where they leave their defaults.
+        std::string member = "{ \"edge\": \"";
+        member += DockEdgeName(dock.edge);
+        member += "\", \"monitor\": \"";
+        for (const char character : dock.monitor.View())
+        {
+            if (static_cast<unsigned char>(character) < 0x20)
+            {
+                return E_INVALIDARG;
+            }
+            if (character == '"' || character == '\\')
+            {
+                member.push_back('\\');
+            }
+            member.push_back(character);
+        }
+        member += "\", \"mode\": \"";
+        member += dock.mode == DockMode::Autohide ? "autohide" : "fixed";
+        member += "\", \"thickness\": " + std::to_string(dock.thicknessDips);
+        if (!dock.reserveWorkArea)
+        {
+            member += ", \"reserveWorkArea\": false";
+        }
+        if (dock.peekPixels != kDockDefaultPeekPixels)
+        {
+            member += ", \"peek\": " + std::to_string(dock.peekPixels);
+        }
+        if (dock.revealDelayMilliseconds != kDockDefaultRevealDelayMilliseconds)
+        {
+            member += ", \"revealDelayMilliseconds\": " + std::to_string(dock.revealDelayMilliseconds);
+        }
+        if (dock.hideDelayMilliseconds != kDockDefaultHideDelayMilliseconds)
+        {
+            member += ", \"hideDelayMilliseconds\": " + std::to_string(dock.hideDelayMilliseconds);
+        }
+        member += " }";
+
+        std::string updated = source;
+        bool raiseMinor = false;
+        size_t rootBegin = 0;
+        if (const HRESULT prepared = PrepareDockSourcePatch(updated, raiseMinor, rootBegin); FAILED(prepared))
+        {
+            return prepared;
+        }
+        SourceMember existing{};
+        if (!FindSourceMember(updated, rootBegin, "\"dock\"", existing))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (existing.found)
+        {
+            updated.replace(existing.valueBegin, existing.valueEnd - existing.valueBegin, member);
+        }
+        else
+        {
+            // A new line after `version`, at its indentation and in the file's own line breaks, with the reason
+            // above it so the person who opens the file knows where the bar came from and how to turn it off.
+            SourceMember version{};
+            if (!FindSourceMember(updated, rootBegin, "\"version\"", version) || !version.found)
+            {
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            const size_t newline = updated.find_last_of('\n', version.keyBegin);
+            const size_t lineBegin = newline == std::string::npos ? 0 : newline + 1;
+            std::string indentation = updated.substr(lineBegin, version.keyBegin - lineBegin);
+            if (indentation.find_first_not_of(" \t") != std::string::npos)
+            {
+                indentation = "  ";
+            }
+            const std::string_view lineBreak = updated.find("\r\n") != std::string::npos ? "\r\n" : "\n";
+            std::string lines;
+            lines.append(lineBreak).append(indentation);
+            lines.append(
+                "// No XENEON display was found when RedXe installed this file, so this dock runs it as a bar on "
+                "a screen edge;");
+            lines.append(lineBreak).append(indentation);
+            lines.append("// set \"edge\" to \"none\" to use the standard window instead.");
+            lines.append(lineBreak).append(indentation).append("\"dock\": ").append(member);
+            size_t after = version.valueEnd;
+            if (!SkipSourceTrivia(updated, after) || after >= updated.size())
+            {
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            if (updated[after] == ',')
+            {
+                updated.insert(after + 1, lines + ",");
+            }
+            else
+            {
+                updated.insert(version.valueEnd, "," + lines);
+            }
+        }
+        if (raiseMinor && !RaiseDockSourceMinor(updated, rootBegin))
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (updated.size() > kMaximumSettingsBytes)
+        {
+            return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
+        }
+        source = std::move(updated);
         return S_OK;
     }
     catch (const std::bad_alloc&)
@@ -2292,11 +2438,72 @@ HRESULT QuerySettingsFileStamp(std::wstring_view path, SettingsFileStamp& stamp)
     }
 }
 
+namespace
+{
+// The selected template with the first-run dock patched in (Core_Settings.md "Cold load and recovery"), validated and
+// then written with the same atomic same-directory replacement as a plain install. Without replaceExisting an
+// existing target wins (S_FALSE), exactly as InstallIfMissing.
+[[nodiscard]] HRESULT InstallTemplateWithDock(const std::filesystem::path& source, const std::filesystem::path& target,
+                                              const DockSettings& dock, bool replaceExisting) noexcept
+{
+    if (!replaceExisting)
+    {
+        const DWORD attributes = GetFileAttributesW(target.c_str());
+        if (attributes != INVALID_FILE_ATTRIBUTES)
+        {
+            return (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ? S_FALSE : HRESULT_FROM_WIN32(ERROR_DIRECTORY);
+        }
+        const DWORD error = GetLastError();
+        if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
+        {
+            return HRESULT_FROM_WIN32(error);
+        }
+    }
+    try
+    {
+        std::vector<char> bytes;
+        HRESULT result = ReadFileBytes(source.wstring(), bytes);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        std::string text(bytes.begin(), bytes.end());
+        result = PatchFirstRunDock(text, dock);
+        std::unique_ptr<AppSettings> validated;
+        if (SUCCEEDED(result))
+        {
+            result = ParseAppSettingsJsonCandidate(text, validated);
+        }
+        if (SUCCEEDED(result) &&
+            (!validated || validated->dock.edge != dock.edge || validated->dock.mode != dock.mode ||
+             validated->dock.thicknessDips != dock.thicknessDips ||
+             validated->dock.monitor.View() != dock.monitor.View()))
+        {
+            result = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (FAILED(result))
+        {
+            return result;
+        }
+        return WriteUtf8FileAtomically(target, text, replaceExisting);
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+} // namespace
+
 HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath, std::unique_ptr<AppSettings>& settings,
-                                  std::wstring_view localAppDataOverride) noexcept
+                                  std::wstring_view localAppDataOverride, const DockSettings* firstRunDock) noexcept
 {
     settings.reset();
     _usedInitialFallback = false;
+    _installedFirstRunDock = false;
     _selfTest = selfTest;
     _suppressDocumentWrites = false;
     _initialNotice.clear();
@@ -2399,7 +2606,16 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
             return result;
         }
 #endif
-        result = InstallIfMissing(initialSource, settingsPath);
+        // Without a XENEON the installed default is the template plus the first-run dock, so RedXe starts as a bar
+        // on the primary display instead of asking about the missing display. The dock is a convenience: a template
+        // it cannot patch still installs plainly.
+        result = firstRunDock ? InstallTemplateWithDock(initialSource, settingsPath, *firstRunDock, false)
+                              : InstallIfMissing(initialSource, settingsPath);
+        _installedFirstRunDock = firstRunDock && result == S_OK;
+        if (FAILED(result) && firstRunDock)
+        {
+            result = InstallIfMissing(initialSource, settingsPath);
+        }
         if (FAILED(result))
         {
             return result;
@@ -2414,7 +2630,13 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
             {
                 return backupResult;
             }
-            result = CopyFileAtomically(selectedTemplate, settingsPath, true);
+            result = firstRunDock ? InstallTemplateWithDock(selectedTemplate, settingsPath, *firstRunDock, true)
+                                  : CopyFileAtomically(selectedTemplate, settingsPath, true);
+            const bool recoveredWithDock = firstRunDock && SUCCEEDED(result);
+            if (FAILED(result) && firstRunDock)
+            {
+                result = CopyFileAtomically(selectedTemplate, settingsPath, true);
+            }
             if (SUCCEEDED(result))
             {
                 result = LoadAppSettingsFileCandidate(_settingsPath, settings);
@@ -2422,8 +2644,13 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
             if (SUCCEEDED(result))
             {
                 _usedInitialFallback = true;
+                _installedFirstRunDock = recoveredWithDock;
                 _initialNotice = L"The default settings file was incompatible or invalid. It was preserved as:\n" +
                                  backupPath.wstring() + L"\n\nA fresh default configuration was installed.";
+                if (_installedFirstRunDock)
+                {
+                    _initialNotice += L" No XENEON display was found, so it runs RedXe as a bar on a screen edge.";
+                }
             }
         }
         if (FAILED(result))
@@ -2548,6 +2775,11 @@ const std::wstring& SettingsStore::SchemaPath() const noexcept
 bool SettingsStore::UsedInitialFallback() const noexcept
 {
     return _usedInitialFallback;
+}
+
+bool SettingsStore::InstalledFirstRunDock() const noexcept
+{
+    return _installedFirstRunDock;
 }
 
 const std::wstring& SettingsStore::InitialNotice() const noexcept

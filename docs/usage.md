@@ -61,6 +61,8 @@ The first page is selected on every launch. RedXe does not remember which page y
 
 With a `dock` configured (or `--dock` on the command line) both builds run as a bar on a screen edge instead; see [Dock](#dock).
 
+On the very first start without a XENEON (no settings file yet), RedXe skips the prompt and the plain window: it writes an auto-hiding bar at the bottom of your main display into the new settings file and starts as that bar. See [First start without a XENEON](#first-start-without-a-xeneon).
+
 **Escape** or closing the window exits RedXe.
 
 If RedXe stopped after a crash, the next normal launch may offer to open the local crash folder. Dumps stay on this PC; nothing is uploaded.
@@ -111,10 +113,22 @@ Good to know:
 - **Resize by dragging**: point at the bar's inner edge (the side facing the desktop; the cursor becomes a resize arrow), press, and drag. The bar follows the mouse; when you release, the reserved area follows and the new `thickness` is written to the settings file, so it survives the next start. Works in `fixed` and `autohide` (the bar stays open while you drag); a `--dock-thickness` switch is replaced by the dragged value for that run.
 - **Autohide**: rest the mouse on the thin strip at the screen edge and the bar slides back; it collapses again shortly after the pointer leaves and nothing else holds it (a raised widget, a swipe, a text field with the focus, the settings-error dialog). A click or a touch on the strip reveals at once, and a Logicon key or a Launcher tile bound to `redxe.dock.show`, `hide`, or `toggle` does too. If the taskbar sits on the same edge, the strip is just above the taskbar, so aim for that line or use another edge.
 - With `reserveWorkArea` off, or in `autohide`, the bar never covers the taskbar; it hugs the edge of the free area.
-- A full-screen game or video on that monitor pushes the bar beneath it; it returns when you leave full screen.
-- Saving the file re-places the bar for `thickness`, `edge`, `monitor`, `mode`, `reserveWorkArea`, `peek`, and the delays. Turning the dock on or off (`edge` between `none` and an edge) takes effect at the next start; RedXe logs a warning to say so.
+- A full-screen game or video on that monitor pushes the bar beneath it; it returns when you leave full screen. A full-screen window on another display (a XENEON dashboard, a video on a second screen) leaves the bar on top.
+- Saving the file applies every change while RedXe runs: `thickness`, `edge`, `monitor`, `mode`, `reserveWorkArea`, `peek`, and the delays re-place the bar, and turning the dock on or off (`edge` between `none` and an edge) turns the running window into the bar, or the bar back into the normal window (fullscreen or titled, as in [Window](#window), without the XENEON prompt). The switch never takes the focus from the editor you saved in. A `--dock` switch keeps its edge for that run.
 - `--screenshot` works for a dock too; an auto-hiding bar is held open for the capture.
 - If RedXe crashes while it reserves space, Windows may keep that space reserved until RedXe runs again or you sign out.
+
+### First start without a XENEON
+
+When RedXe starts with no settings file yet (or replaces an invalid one) and no XENEON display is connected, the settings file it creates already contains a bar, with a comment saying why:
+
+```jsonc
+  // No XENEON display was found when RedXe installed this file, so this dock runs it as a bar on a screen edge;
+  // set "edge" to "none" to use the standard window instead.
+  "dock": { "edge": "bottom", "monitor": "primary", "mode": "autohide", "thickness": 720 },
+```
+
+The bar sits at the bottom of your main display and collapses to a thin line until you rest the pointer on it. Its `thickness` gives it the XENEON's 32:9 shape across that display, so the shipped pages look as they do on a XENEON: on a 16:9 display that is half the screen height (720 on a 4K display at 150 %, 540 on a 1920×1080 display at 100 %). Drag its inner edge or edit `thickness` to make it smaller. If you connect a XENEON later, the file keeps the bar until you set `"edge": "none"`, which switches to the XENEON window at once.
 
 ## Command line
 
@@ -162,7 +176,7 @@ Without `--settings`, RedXe uses one editable file:
 
 Save the file to apply it. RedXe watches that path; you do not restart. A valid document keeps the page you were on when that page still exists. An invalid save leaves the last good dashboard running and shows one error dialog with the JSON path and the reason (and line and column when those are known). Dismissing the dialog suppresses only that failed save; a later distinct invalid save can prompt again.
 
-If the default file is missing, RedXe installs the shipped template and continues. If it is invalid, RedXe copies the bytes beside it as `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`, installs a fresh template, and tells you where the backup went.
+If the default file is missing, RedXe installs the shipped template and continues. If it is invalid, RedXe copies the bytes beside it as `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`, installs a fresh template, and tells you where the backup went. Without a XENEON connected, either installed template also gets an auto-hiding bar; see [First start without a XENEON](#first-start-without-a-xeneon).
 
 `--settings <path>` uses one portable file instead. A missing or invalid portable file is not rewritten; RedXe reports the problem and runs the shipped default in memory.
 

@@ -37,7 +37,10 @@ validation, `wil-raii` for files/events/change notifications, `win32-windowing` 
 - The hidden self-test parses the deployed template only. It must never touch `%LocalAppData%` and must never call
   `PluginHost::SetLogDirectory`.
 - Cold start with no user file installs the template and continues. An unmapped catalogued plugin DLL is a
-  placeholder, not a settings or startup failure.
+  placeholder, not a settings or startup failure. Without an active XENEON, the installed template (first start or
+  recovery) carries the first-run dock through `PatchFirstRunDock`; a `--settings` file is never written.
+- A live `dock` change applies to the running window, including `edge` between `none` and an edge, which restyles
+  the same HWND (`Application::SwitchWindowKind`); never defer it to a restart.
 - Validate types, ranges, required members, duplicates, unknown members, schema version, and the 1 MiB limit before
   replacing typed runtime state. yyjson values and strings remain borrowed from their owning document.
 - `PatchWidgetInstanceSettings` merges supplied members into the stored instance object, validates the complete

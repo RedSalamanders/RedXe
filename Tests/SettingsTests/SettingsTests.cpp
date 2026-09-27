@@ -1889,6 +1889,253 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 #endif
 }
 
+// First start without a XENEON (Core_Settings.md "Cold load and recovery"): PatchFirstRunDock inserts `dock` into both
+// shipped templates as one commented run after `version`, in the file's own line breaks, leaving every other byte and
+// member; the store writes that document for a missing or invalid default file, never over an existing one, and never
+// for a `--settings` file.
+[[nodiscard]] HRESULT ValidateFirstRunDock() noexcept
+{
+    try
+    {
+        DockSettings dock = DefaultDockSettings();
+        dock.edge = DockEdge::Bottom;
+        dock.mode = DockMode::Autohide;
+        dock.thicknessDips = 720;
+        const auto isFirstRunDock = [&dock](const DockSettings& value) noexcept
+        {
+            return value.edge == dock.edge && value.mode == dock.mode && value.thicknessDips == dock.thicknessDips &&
+                   value.monitor.View() == "primary" && value.reserveWorkArea &&
+                   value.peekPixels == kDockDefaultPeekPixels &&
+                   value.revealDelayMilliseconds == kDockDefaultRevealDelayMilliseconds &&
+                   value.hideDelayMilliseconds == kDockDefaultHideDelayMilliseconds;
+        };
+        const auto sameExceptDock = [](const AppSettings& left, const AppSettings& right) noexcept
+        {
+            return left.versionMajor == right.versionMajor && left.versionMinor == right.versionMinor &&
+                   left.logRetentionDays == right.logRetentionDays && left.backgroundRgb == right.backgroundRgb &&
+                   left.plugins == right.plugins && left.pluginCount == right.pluginCount &&
+                   left.services == right.services && left.serviceCount == right.serviceCount &&
+                   left.dashboard == right.dashboard;
+        };
+        for (const wchar_t* name : {kRedXeDebugSettingsFileName, kRedXeReleaseSettingsFileName})
+        {
+            std::filesystem::path path;
+            std::string original;
+            HRESULT result = GetDeployedPath(name, path);
+            if (SUCCEEDED(result))
+                result = ReadFile(path, original);
+            if (FAILED(result))
+                return result;
+            std::string patched = original;
+            AppSettings before{};
+            AppSettings after{};
+            if (FAILED(PatchFirstRunDock(patched, dock)) || FAILED(ParseAppSettingsJson(original, before)) ||
+                FAILED(ParseAppSettingsJson(patched, after)) || before.dock.edge != DockEdge::None ||
+                !isFirstRunDock(after.dock) || !sameExceptDock(before, after))
+            {
+                std::wprintf(L"The first-run dock did not patch %s into the same document plus the dock.\n", name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            // One contiguous insertion right after the `version` member, in the template's own line breaks.
+            constexpr std::string_view versionMember = "\"version\": { \"major\": 5, \"minor\": 2 },";
+            const size_t versionAt = original.find(versionMember);
+            if (versionAt == std::string::npos || patched.size() <= original.size())
+            {
+                std::wprintf(L"The %s template has no version member to follow.\n", name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            const size_t insertAt = versionAt + versionMember.size();
+            const size_t insertedBytes = patched.size() - original.size();
+            const std::string inserted = patched.substr(insertAt, insertedBytes);
+            const std::string_view lineBreak = original.find("\r\n") != std::string::npos ? "\r\n" : "\n";
+            size_t bareLineFeeds = 0;
+            for (size_t index = 0; index < inserted.size(); ++index)
+                bareLineFeeds += inserted[index] == '\n' && (index == 0 || inserted[index - 1] != '\r') ? 1U : 0U;
+            if (patched.compare(0, insertAt, original, 0, insertAt) != 0 ||
+                patched.compare(insertAt + insertedBytes, std::string::npos, original, insertAt, std::string::npos) !=
+                    0 ||
+                !inserted.starts_with(lineBreak) || !inserted.ends_with("},") ||
+                inserted.find("// No XENEON display was found") == std::string::npos ||
+                inserted.find(
+                    R"("dock": { "edge": "bottom", "monitor": "primary", "mode": "autohide", "thickness": 720 })") ==
+                    std::string::npos ||
+                (lineBreak == "\r\n" && bareLineFeeds != 0))
+            {
+                std::wprintf(L"The first-run dock in %s is not one commented line run after version.\n", name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+
+        // Other shapes: a minor 1 document rises to minor 2, `version` as the last member, and an existing `dock`
+        // value is replaced. Invalid docks and malformed documents leave the source untouched.
+        AppSettings parsed{};
+        std::string olderMinor = R"json({"version":{"major":5,"minor":1},"pages":[{}]})json";
+        if (FAILED(PatchFirstRunDock(olderMinor, dock)) || FAILED(ParseAppSettingsJson(olderMinor, parsed)) ||
+            parsed.versionMinor != 2 || !isFirstRunDock(parsed.dock))
+        {
+            std::wprintf(L"The first-run dock did not raise a minor 1 document.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        std::string versionLast = R"json({"pages":[{}],"version":{"major":5}})json";
+        if (FAILED(PatchFirstRunDock(versionLast, dock)) || FAILED(ParseAppSettingsJson(versionLast, parsed)) ||
+            parsed.versionMinor != 2 || !isFirstRunDock(parsed.dock))
+        {
+            std::wprintf(L"The first-run dock did not follow a last version member.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        std::string existing =
+            R"json({"version":{"major":5,"minor":2},"dock":{"edge":"none","thickness":200},"pages":[{}]})json";
+        DockSettings named = dock;
+        named.monitor = SettingsText{};
+        constexpr std::string_view namedMonitor = "name:DELL";
+        namedMonitor.copy(named.monitor.utf8.data(), namedMonitor.size());
+        named.monitor.bytes = static_cast<uint32_t>(namedMonitor.size());
+        named.peekPixels = 6;
+        if (FAILED(PatchFirstRunDock(existing, named)) || FAILED(ParseAppSettingsJson(existing, parsed)) ||
+            parsed.dock.edge != DockEdge::Bottom || parsed.dock.thicknessDips != 720 ||
+            parsed.dock.monitor.View() != namedMonitor || parsed.dock.peekPixels != 6 ||
+            existing.find("\"thickness\":200") != std::string::npos)
+        {
+            std::wprintf(L"The first-run dock did not replace an existing dock value.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        DockSettings none = dock;
+        none.edge = DockEdge::None;
+        DockSettings thick = dock;
+        thick.thicknessDips = kDockMaximumThicknessDips + 1;
+        std::string untouched = R"json({"version":{"major":5,"minor":2},"pages":[{}]})json";
+        std::string malformed = R"json({"version":{"major":5,"minor":"2"},"pages":[{}]})json";
+        const std::string malformedCopy = malformed;
+        if (PatchFirstRunDock(untouched, none) != E_INVALIDARG || PatchFirstRunDock(untouched, thick) != E_INVALIDARG ||
+            untouched != R"json({"version":{"major":5,"minor":2},"pages":[{}]})json" ||
+            SUCCEEDED(PatchFirstRunDock(malformed, dock)) || malformed != malformedCopy)
+        {
+            std::wprintf(L"The first-run dock accepted an invalid dock or document.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // The store: install with the dock, keep an existing file, recover an invalid one with the dock, install the
+        // plain template when no dock is offered, and never write a missing `--settings` file.
+        const std::filesystem::path localRoot = std::filesystem::temp_directory_path() /
+                                                (L"RedXe.FirstRunDockTests." + std::to_wstring(GetCurrentProcessId()) +
+                                                 L"." + std::to_wstring(GetTickCount64()));
+        const std::filesystem::path settingsDirectory = localRoot / L"RedXe" / L"Settings";
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code error;
+                std::filesystem::remove_all(localRoot, error);
+            });
+#if defined(_DEBUG)
+        constexpr const wchar_t* selectedName = kRedXeDebugSettingsFileName;
+#else
+        constexpr const wchar_t* selectedName = kRedXeReleaseSettingsFileName;
+#endif
+        std::filesystem::path templatePath;
+        std::string templateBytes;
+        HRESULT result = GetDeployedPath(selectedName, templatePath);
+        if (SUCCEEDED(result))
+            result = ReadFile(templatePath, templateBytes);
+        if (FAILED(result))
+            return result;
+        const std::filesystem::path selected = settingsDirectory / selectedName;
+
+        SettingsStore installStore;
+        std::unique_ptr<AppSettings> installed;
+        result = installStore.Initialize(false, {}, installed, localRoot.wstring(), &dock);
+        std::string installedBytes;
+        if (SUCCEEDED(result))
+            result = ReadFile(selected, installedBytes);
+        if (FAILED(result) || !installed || !installStore.InstalledFirstRunDock() ||
+            installStore.UsedInitialFallback() || !isFirstRunDock(installed->dock) ||
+            installedBytes.find("// No XENEON display was found") == std::string::npos)
+        {
+            std::wprintf(L"A missing default file was not installed with the first-run dock.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        {
+            std::ofstream stream(selected, std::ios::binary | std::ios::trunc);
+            stream.write(templateBytes.data(), static_cast<std::streamsize>(templateBytes.size()));
+        }
+        SettingsStore keepStore;
+        std::unique_ptr<AppSettings> kept;
+        result = keepStore.Initialize(false, {}, kept, localRoot.wstring(), &dock);
+        std::string keptBytes;
+        if (SUCCEEDED(result))
+            result = ReadFile(selected, keptBytes);
+        if (FAILED(result) || !kept || keepStore.InstalledFirstRunDock() || kept->dock.edge != DockEdge::None ||
+            keptBytes != templateBytes)
+        {
+            std::wprintf(L"An existing default file was changed by the first-run dock.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        {
+            std::ofstream stream(selected, std::ios::binary | std::ios::trunc);
+            stream << "invalid default bytes";
+        }
+        SettingsStore recoverStore;
+        std::unique_ptr<AppSettings> recovered;
+        result = recoverStore.Initialize(false, {}, recovered, localRoot.wstring(), &dock);
+        if (FAILED(result) || !recovered || !recoverStore.UsedInitialFallback() ||
+            !recoverStore.InstalledFirstRunDock() || !isFirstRunDock(recovered->dock) ||
+            recoverStore.InitialNotice().find(L"bar on a screen edge") == std::wstring::npos)
+        {
+            std::wprintf(L"An invalid default file was not recovered with the first-run dock.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        const std::filesystem::path plainRoot = localRoot / L"Plain";
+        SettingsStore plainStore;
+        std::unique_ptr<AppSettings> plain;
+        result = plainStore.Initialize(false, {}, plain, plainRoot.wstring());
+        std::string plainBytes;
+        if (SUCCEEDED(result))
+            result = ReadFile(plainRoot / L"RedXe" / L"Settings" / selectedName, plainBytes);
+        if (FAILED(result) || !plain || plainStore.InstalledFirstRunDock() || plain->dock.edge != DockEdge::None ||
+            plainBytes != templateBytes)
+        {
+            std::wprintf(L"Without a first-run dock the install is not the template byte for byte.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // A dock the patch refuses never blocks the install: the plain template goes in instead.
+        const std::filesystem::path refusedRoot = localRoot / L"Refused";
+        DockSettings refused = dock;
+        refused.thicknessDips = kDockMinimumThicknessDips - 1;
+        SettingsStore refusedStore;
+        std::unique_ptr<AppSettings> refusedSettings;
+        result = refusedStore.Initialize(false, {}, refusedSettings, refusedRoot.wstring(), &refused);
+        std::string refusedBytes;
+        if (SUCCEEDED(result))
+            result = ReadFile(refusedRoot / L"RedXe" / L"Settings" / selectedName, refusedBytes);
+        if (FAILED(result) || !refusedSettings || refusedStore.InstalledFirstRunDock() ||
+            refusedSettings->dock.edge != DockEdge::None || refusedBytes != templateBytes)
+        {
+            std::wprintf(L"A first-run dock the patch refuses blocked or changed the plain install.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        const std::filesystem::path portable = localRoot / L"portable.settings.json";
+        SettingsStore portableStore;
+        std::unique_ptr<AppSettings> portableSettings;
+        result = portableStore.Initialize(false, portable.wstring(), portableSettings, {}, &dock);
+        if (FAILED(result) || !portableSettings || !portableStore.UsedInitialFallback() ||
+            portableStore.InstalledFirstRunDock() || portableSettings->dock.edge != DockEdge::None ||
+            std::filesystem::exists(portable))
+        {
+            std::wprintf(L"A missing --settings file was written or docked.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
 [[nodiscard]] HRESULT ValidatePersistRollback() noexcept
 {
     constexpr std::string_view documentJson =
@@ -2136,6 +2383,7 @@ int wmain()
                        {L"external selection", ValidateExternalSelection},
                        {L"default recovery", ValidateDefaultRecovery},
                        {L"legacy filename", ValidateLegacyReleaseFilenameMigration},
+                       {L"first-run dock", ValidateFirstRunDock},
                        {L"logs directory", ValidateLogsDirectory},
                        {L"persist formatting", ValidatePersistFormatting},
                        {L"persist rollback", ValidatePersistRollback},

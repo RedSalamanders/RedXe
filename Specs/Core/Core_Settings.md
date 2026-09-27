@@ -1,7 +1,7 @@
 # RedXe settings contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-19
+Last reviewed: 2026-09-27
 Owner: `SettingsStore`, `SettingsWatcher`, and UI-thread application orchestration
 
 ## Scope
@@ -152,13 +152,15 @@ unknown edge or mode reject the complete candidate with a diagnostic on `$.dock.
 
 The `--dock <edge>[@<monitor>]`, `--dock-mode`, `--dock-thickness`, `--dock-reserve`, and `--dock-peek` switches
 override the same-named members for one process (`RedXe/DockOptions.h`), including across live reloads; the
-delays are settings-only. A live reload applies changed members in place, except that switching `edge` between
-`none` and an edge takes effect at the next launch (one Warning log record). `dock` is a host member: it never
-enters a plugin contract, a factory envelope, or a widget persist. The one host-driven write is `dock.thickness`
-after the bar's inner edge is dragged (`PatchDockThickness`): it replaces or adds that member, creates the `dock`
-object when absent, raises `version.minor` to 2 when lower, and uses the same atomic replacement as a widget
-persist. The source edit MUST preserve comments, spacing, and every unrelated member. Both shipped templates author minor 2 and stay at
-`edge: none`, carrying a commented-out `dock` example.
+delays are settings-only. A valid live reload applies every changed member to the running window, including `edge`
+between `none` and an edge, which switches the window kind without a restart (`Specs/UI/UI_XeneonDisplayWindowing.md`
+"Switching the window kind"). `dock` is a host member: it never enters a plugin contract, a factory envelope, or a
+widget persist. The one host-driven write to an existing document is `dock.thickness` after the bar's inner edge is
+dragged (`PatchDockThickness`): it replaces or adds that member, creates the `dock` object when absent, raises
+`version.minor` to 2 when lower, and uses the same atomic replacement as a widget persist. The source edit MUST
+preserve comments, spacing, and every unrelated member. Both shipped templates author minor 2 and stay at
+`edge: none`, carrying a commented-out `dock` example; a default file installed on a machine without a XENEON adds
+the first-run dock ("Cold load and recovery").
 
 ### Services
 
@@ -310,6 +312,15 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 - An invalid or incompatible default is preserved byte-for-byte beside it, then atomically replaced with a fresh
   template. Its backup name is `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`. The user is told what happened and where
   the backup was written.
+- When XENEON discovery succeeded without finding a display (`Specs/UI/UI_XeneonDisplayWindowing.md` "First start
+  without a XENEON"), a default file installed by either rule above is the template plus the first-run dock
+  (`PatchFirstRunDock`): one `dock` member on its own line after `version`, at that member's indentation and in the
+  file's own line breaks, preceded by a two-line comment naming why it was added and that `"edge": "none"` restores
+  the standard window. Every other byte of the template is unchanged; an existing `dock` member would have its value
+  replaced instead, and `version.minor` rises to 2 when lower. The patched document is validated before the same
+  atomic same-directory write, an existing file is never patched, and the recovery notice adds one sentence naming
+  the bar. After a failed discovery, or when the patch cannot be applied, the plain template is installed; the
+  first-run dock never fails startup.
 - A missing, unreadable, or invalid command-line file is never modified. RedXe reports the problem and runs with the
   deployed default configuration in memory.
 - If a deployed default cannot be read or validated, startup fails rather than inventing settings.
@@ -382,6 +393,13 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   (unknown edge or mode, `all`, `0` and `name:` selectors, thickness 31 and 1081, peek 0 and 65, delays past their
   maximum, a non-boolean reserve, an unknown member, a non-object `dock`) with the diagnostic on `$.dock.<member>`,
   and prove the `--dock*` grammar, its errors, and the merge precedence over the document.
+- Tests prove `PatchFirstRunDock` on both shipped templates (one contiguous commented insertion right after
+  `version`, the template's CRLF line breaks kept, the typed document otherwise unchanged), on a minor 1 document
+  (raised to 2), with `version` as the last member, and over an existing `dock` value, and that an invalid dock or
+  a malformed document is refused without changing the source. They prove that the store installs the first-run dock
+  for a missing and for an invalid default file (with the notice), keeps an existing file byte for byte, installs
+  the plain template byte for byte when no dock is offered or the offered dock is refused by the patch, and never
+  writes a missing `--settings` file.
 - Tests prove a partial widget persist merge keeps unspecified members and rejects unknown plugin members.
 - Tests prove compact/idempotent formatting, inline small objects and long single-path records, multiline sections
   and arrays, fewer lines than fully expanded output, escaped/Unicode paths, named/inline/use-object widget round
@@ -413,7 +431,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 
 ## Implementation anchors
 
-- Parsing, paths, recovery, diagnostics, stamps, and persist merge: `RedXe/Settings.*`
+- Parsing, paths, recovery (including the first-run dock install), diagnostics, stamps, and persist merge:
+  `RedXe/Settings.*`
 - Event-blocked watching: `RedXe/SettingsWatcher.*`
 - UI-thread apply, persist thunk, and error-dialog state: `RedXe/Application.*`
 - Collect-on-exit: `RedXe/DashboardHost.cpp`

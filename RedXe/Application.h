@@ -70,7 +70,7 @@ class Application final
         return _screenshot.result;
     }
     // --dock* command-line overrides, pinned over the document's `dock` object for this process (DockOptions.h).
-    // RunSelfTest ignores them: the self-test keeps its hidden titled window.
+    // RunSelfTest replaces them with an edge pinned to none: the self-test keeps its hidden titled window.
     void SetDockOverrides(const DockOverrides& overrides) noexcept
     {
         _dockOverrides = overrides;
@@ -104,8 +104,31 @@ class Application final
     void RegisterDockAppBar() noexcept;
     void UnregisterDockAppBar() noexcept;
     void ApplyDockZOrder() noexcept;
-    // Live reload: re-places the bar for changed members; `none` <-> an edge is deferred to the next launch.
+    // True while the shell reports a full-screen application (ABN_FULLSCREENAPP) and the foreground window fills the
+    // dock's own monitor: only then does the bar step beneath it.
+    [[nodiscard]] bool DockYieldsToFullscreen() const noexcept;
+    // Live reload: re-places the bar for changed members, and `none` <-> an edge switches the window kind.
     void ApplyDockSettings() noexcept;
+    // Live reload between `none` and an edge (UI_XeneonDisplayWindowing.md "Switching the window kind"): the same
+    // window is hidden, restyled, placed as the other kind, and shown again without activation, and the swap chain is
+    // rebuilt for that kind's scaling. Widgets, services, native containers, the settings watcher, and the drop target
+    // stay bound to the window. A failure is a runtime failure (the caller closes the window).
+    HRESULT SwitchWindowKind(const DockSettings& next) noexcept;
+    // The standard kind for a window that already exists, placed by the startup rows of the mode table without the
+    // missing-display prompt: Release fullscreen on the XENEON's rcMonitor; the titled window at the XENEON origin;
+    // without a XENEON, the titled window at the work-area origin of `fallbackMonitor`. Idempotent.
+    HRESULT PlaceStandardWindow(bool fullscreen, HMONITOR fallbackMonitor) noexcept;
+    // The canvas the dashboard and the swap chain use: the client, or the full bar for a dock (which may be its
+    // strip at the moment), at the matching DPI.
+    HRESULT PresentationCanvas(UINT& width, UINT& height, UINT& dpi) const noexcept;
+    // After a window-kind switch: resizes the dashboard to the new canvas and re-initializes the renderer with that
+    // kind's presentation. Widget instances and native containers stay; GPU widgets see one OnDeviceLost and
+    // OnDeviceCreated pair, as on an adapter change.
+    HRESULT RebuildPresentation() noexcept;
+    // Ends a dock drag without committing it and kills every dock timer; the placement is left alone.
+    void StopDockInteraction() noexcept;
+    // Forgets the bar's placement and reveal state so the next PlaceDock starts from a revealed, unplaced bar.
+    void ResetDockPlacementState() noexcept;
     [[nodiscard]] bool DockHidden() const noexcept
     {
         return _dockActive && _dock.mode == DockMode::Autohide && DockStateShowsStrip(_dockReveal);
@@ -302,8 +325,8 @@ class Application final
     std::jthread _screenshotWorker;
     std::atomic<HRESULT> _screenshotWorkerResult{S_OK};
     DockOverrides _dockOverrides{};
-    // Effective dock for this process: the document's `dock` with the command-line overrides applied. `edge` is
-    // None for the titled and fullscreen kinds.
+    // Effective dock: the document's `dock` with the command-line overrides applied, re-merged on every live reload.
+    // `edge` is None for the titled and fullscreen kinds.
     DockSettings _dock{};
     bool _dockActive = false;
     RECT _xeneonBounds{};
@@ -319,6 +342,7 @@ class Application final
     bool _dockReserved = false;
     bool _dockMonitorFellBack = false;
     bool _dockThicknessClamped = false;
+    // The last ABN_FULLSCREENAPP state, for any monitor; DockYieldsToFullscreen narrows it to the dock's.
     bool _dockFullscreenAppActive = false;
     DockRevealState _dockReveal = DockRevealState::Revealed;
     // Set around the SetWindowPos of a reveal or hide so OnSize does not treat the strip as a dashboard resize.

@@ -127,6 +127,27 @@ inline constexpr std::string_view kDockDefaultMonitor = "primary";
     return result < 1 ? 1 : result;
 }
 
+// First start without a XENEON (Core_Settings.md "Cold load and recovery"): the installed bar takes the XENEON EDGE's
+// 32:9 proportions along the work area, so the shipped 2560x720 pages keep the shape they were designed for, capped
+// at half the monitor like every dock and kept in the settings range. The DIPs round down so the runtime rescale
+// (DockThicknessPixels) never exceeds the pixels measured here and never logs a clamp.
+inline constexpr LONG kDockDesignLongSideDips = 2560;
+inline constexpr LONG kDockDesignShortSideDips = 720;
+
+[[nodiscard]] inline uint32_t DockFirstRunThicknessDips(const RECT& monitor, const RECT& work, DockEdge edge,
+                                                        UINT dpi) noexcept
+{
+    const LONG span = DockEdgeIsHorizontal(edge) ? work.right - work.left : work.bottom - work.top;
+    bool clamped = false;
+    const LONG pixels = DockClampThickness(
+        std::max(1L, static_cast<LONG>(MulDiv(span, kDockDesignShortSideDips, kDockDesignLongSideDips))), monitor, edge,
+        clamped);
+    const LONG scaleDpi = dpi == 0 ? USER_DEFAULT_SCREEN_DPI : static_cast<LONG>(dpi);
+    const LONG dips = pixels * USER_DEFAULT_SCREEN_DPI / scaleDpi;
+    return static_cast<uint32_t>(
+        std::clamp(dips, static_cast<LONG>(kDockMinimumThicknessDips), static_cast<LONG>(kDockMaximumThicknessDips)));
+}
+
 // `bounds` trimmed to `thicknessPx` on the edge side. Used for the proposal to the shell (bounds = monitor) and for
 // the re-trim after ABM_QUERYPOS (bounds = the rectangle the shell returned).
 [[nodiscard]] constexpr RECT DockTrimToThickness(const RECT& bounds, DockEdge edge, LONG thicknessPx) noexcept

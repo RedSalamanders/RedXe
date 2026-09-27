@@ -559,6 +559,32 @@ void TestDockPlacement(bool& success) noexcept
               DockThicknessFromDrag(fullBottom, monitor, DockEdge::Bottom, POINT{100, -500}, 192) == 360,
           L"a drag past the outer edge clamps to the minimum and one into the desktop to half the monitor", success);
 
+    // First start without a XENEON: the bar takes the XENEON's 32:9 proportions along the work area, capped at half
+    // the monitor, in DIPs rounded down so the runtime rescale never clamps.
+    Check(DockFirstRunThicknessDips(RECT{0, 0, 3840, 2160}, RECT{0, 0, 3840, 2088}, DockEdge::Bottom, 144) == 720 &&
+              DockFirstRunThicknessDips(RECT{0, 0, 1920, 1080}, RECT{0, 0, 1920, 1032}, DockEdge::Bottom, 96) == 540 &&
+              DockFirstRunThicknessDips(RECT{0, 0, 1920, 1080}, RECT{0, 0, 1920, 1030}, DockEdge::Bottom, 120) == 432 &&
+              DockFirstRunThicknessDips(RECT{0, 0, 2560, 1440}, RECT{0, 0, 2560, 1392}, DockEdge::Bottom, 144) == 480,
+          L"a first-run bar has the XENEON's proportions along a 16:9 display at every scale", success);
+    Check(DockFirstRunThicknessDips(RECT{0, 0, 3440, 1440}, RECT{0, 0, 3440, 1392}, DockEdge::Bottom, 96) == 720 &&
+              DockFirstRunThicknessDips(RECT{0, 0, 1280, 1024}, RECT{0, 0, 1280, 984}, DockEdge::Bottom, 96) == 360 &&
+              DockFirstRunThicknessDips(RECT{-2560, -1440, 0, 0}, RECT{-2560, -1440, 0, -48}, DockEdge::Bottom, 96) ==
+                  720,
+          L"an ultrawide caps at half its height, a 5:4 display keeps 32:9, and negative coordinates work", success);
+    Check(DockFirstRunThicknessDips(RECT{0, 0, 1080, 1920}, RECT{0, 0, 1080, 1872}, DockEdge::Left, 96) == 527 &&
+              DockFirstRunThicknessDips(RECT{0, 0, 100, 60}, RECT{0, 0, 100, 60}, DockEdge::Bottom, 96) ==
+                  kDockMinimumThicknessDips &&
+              DockFirstRunThicknessDips(RECT{0, 0, 1920, 1080}, RECT{0, 0, 1920, 1032}, DockEdge::Bottom, 0) == 540,
+          L"a side bar measures along the height, a tiny display keeps the minimum, and DPI 0 counts as 96", success);
+    const RECT firstRunMonitor{0, 0, 3840, 2160};
+    bool firstRunClamped = true;
+    Check(DockClampThickness(
+              DockThicknessPixels(
+                  DockFirstRunThicknessDips(firstRunMonitor, RECT{0, 0, 3840, 2088}, DockEdge::Bottom, 168), 168),
+              firstRunMonitor, DockEdge::Bottom, firstRunClamped) == 1080 &&
+              !firstRunClamped,
+          L"the first-run thickness rescales to the same pixels at 175 % without a clamp", success);
+
     // MINMAXINFO: the strip is the minimum for autohide, the full bar for fixed, the monitor the maximum.
     MINMAXINFO autohideInfo{};
     DockMinMaxInfo(monitor, DockEdge::Bottom, 4, true, fullBottom, autohideInfo);
@@ -765,6 +791,112 @@ void TestDockPresentation(bool& success) noexcept
     result = renderer.Render(0.2f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 2 && renderer.LastFrameChromeQuadCount() == 0,
           L"a reveal presents the tiles again without ResizeBuffers", success);
+    renderer.Shutdown();
+    dashboard.Shutdown();
+}
+
+// The dock swap chain is the full bar even when it is created while the window is the peek strip (a live reload of a
+// collapsed bar), Resize keeps that size for a later rebuild, and a live window-kind switch rebuilds the presentation
+// on the same window and dashboard: the standard kind stretches at the client size, the dock clips at the full bar.
+void TestDockPresentationRebuild(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dock swap chain rebuilds at the full bar and across window kinds\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":5},"pages":[{"columns":[{"plugin":"builtin.matrix-rain"},{"plugin":"builtin.desk-clock"}]}]})json";
+    constexpr UINT barWidth = 1280;
+    constexpr UINT barHeight = 180;
+    constexpr UINT thickerHeight = 240;
+    constexpr UINT stripHeight = 4;
+    constexpr UINT standardHeight = 360;
+    AttachedHostWindow window;
+    HRESULT result = window.Initialize(barWidth, stripHeight);
+    AppSettings settings{};
+    if (SUCCEEDED(result))
+    {
+        result = ParseAppSettingsJson(settingsJson, settings);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    DashboardHost dashboard;
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.Initialize(plugins, window.Get(), barWidth, barHeight, window.Dpi(), false);
+    }
+    Renderer renderer;
+    if (SUCCEEDED(result))
+    {
+        renderer.SetDockPresentation(true, barWidth, barHeight);
+        result = renderer.Initialize(window.Get(), true, dashboard);
+    }
+    Check(SUCCEEDED(result), L"a dock renderer initializes while the window is its peek strip", success);
+    if (FAILED(result))
+    {
+        dashboard.Shutdown();
+        return;
+    }
+    DXGI_SWAP_CHAIN_DESC1 description{};
+    Check(SUCCEEDED(renderer.GetSwapChainDescription(description)) && description.Width == barWidth &&
+              description.Height == barHeight && description.Scaling == DXGI_SCALING_NONE,
+          L"the swap chain is the full bar, unscaled, not the strip the window is at that moment", success);
+    Check(SUCCEEDED(dashboard.SetWidgetsVisible(true)) && SUCCEEDED(renderer.Render(0.0f, 0.0f)) &&
+              renderer.LastFrameWidgetCount() == 2,
+          L"a bar rebuilt while collapsed presents both tiles", success);
+
+    // A thickness change resizes the buffer, and a later rebuild recreates it at that size.
+    Check(SUCCEEDED(dashboard.Resize(barWidth, thickerHeight, window.Dpi())) &&
+              SUCCEEDED(renderer.Resize(barWidth, thickerHeight)),
+          L"the bar grows to a new thickness", success);
+    renderer.Shutdown();
+    result = renderer.Initialize(window.Get(), true, dashboard);
+    Check(SUCCEEDED(result) && SUCCEEDED(renderer.GetSwapChainDescription(description)) &&
+              description.Width == barWidth && description.Height == thickerHeight &&
+              description.Scaling == DXGI_SCALING_NONE,
+          L"a rebuild after a resize recreates the buffer at the last full bar", success);
+
+    // Dock to standard on the same window: stretch scaling at the client size.
+    renderer.Shutdown();
+    Check(SetWindowPos(window.Get(), nullptr, 0, 0, static_cast<int>(barWidth), static_cast<int>(standardHeight),
+                       SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE,
+          L"the switch test gives the window the standard client", success);
+    result = dashboard.Resize(barWidth, standardHeight, window.Dpi());
+    if (SUCCEEDED(result))
+    {
+        renderer.SetDockPresentation(false);
+        result = renderer.Initialize(window.Get(), true, dashboard);
+    }
+    Check(SUCCEEDED(result) && SUCCEEDED(renderer.GetSwapChainDescription(description)) &&
+              description.Width == barWidth && description.Height == standardHeight &&
+              description.Scaling == DXGI_SCALING_STRETCH,
+          L"the standard kind rebuilds with stretch scaling at the client size", success);
+    Check(SUCCEEDED(dashboard.SetWidgetsVisible(true)) && SUCCEEDED(renderer.Render(0.1f, 1.0f / 60.0f)) &&
+              renderer.LastFrameWidgetCount() == 2 && renderer.LastFrameChromeQuadCount() == 0,
+          L"the standard kind presents the same widget instances", success);
+
+    // Standard to dock again, with the window already collapsed to the strip: the full bar and its grip frame.
+    renderer.Shutdown();
+    Check(SetWindowPos(window.Get(), nullptr, 0, 0, static_cast<int>(barWidth), static_cast<int>(stripHeight),
+                       SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE,
+          L"the switch test collapses the window to the strip", success);
+    result = dashboard.Resize(barWidth, barHeight, window.Dpi());
+    if (SUCCEEDED(result))
+    {
+        renderer.SetDockPresentation(true, barWidth, barHeight);
+        result = renderer.Initialize(window.Get(), true, dashboard);
+    }
+    Check(SUCCEEDED(result) && SUCCEEDED(renderer.GetSwapChainDescription(description)) &&
+              description.Width == barWidth && description.Height == barHeight &&
+              description.Scaling == DXGI_SCALING_NONE,
+          L"the dock kind rebuilds unscaled at the full bar", success);
+    HostChromeState grip{};
+    grip.dockHidden = true;
+    grip.dockGrip = DockGripRect(barWidth, barHeight, DockEdge::Bottom, static_cast<LONG>(stripHeight));
+    grip.dockGripAccent = DockGripAccentRect(grip.dockGrip, DockEdge::Bottom, 1);
+    Check(renderer.SetHostChrome(grip) && SUCCEEDED(renderer.Render(0.2f, 1.0f / 60.0f)) &&
+              renderer.LastFrameWidgetCount() == 0 && renderer.LastFrameChromeQuadCount() == 2,
+          L"the rebuilt dock presents its grip frame", success);
     renderer.Shutdown();
     dashboard.Shutdown();
 }
@@ -5435,6 +5567,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestDockPlacement(success);
     TestDockAutohidePolicy(success);
     TestDockPresentation(success);
+    TestDockPresentationRebuild(success);
     TestWidgetRaiseNative(success);
     TestReleaseHostIntegration(success);
     TestStudioClockScheduling(success);

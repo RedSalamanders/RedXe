@@ -46,7 +46,9 @@ class Renderer final
     HRESULT Initialize(HWND window, bool forceWarp, DashboardHost& dashboardHost) noexcept;
     // Dock window kind: the swap chain is created with DXGI_SCALING_NONE at the full bar size (`width` × `height`,
     // 0 = the client), so the window can shrink to its peek strip without ResizeBuffers; DWM clips the back buffer
-    // to the smaller client instead of stretching it. Set before Initialize and kept across device recovery.
+    // to the smaller client instead of stretching it. Set before Initialize; Resize keeps the size current, and
+    // device recovery recreates the buffer at it. A live switch between window kinds calls Shutdown, this, and
+    // Initialize again.
     void SetDockPresentation(bool enabled, UINT width = 0, UINT height = 0) noexcept;
     void Shutdown() noexcept;
     HRESULT SetDpi(UINT dpi) noexcept;
@@ -76,6 +78,8 @@ class Renderer final
     // device already sits on that adapter (or the window is off every monitor, or WARP is forced), failure otherwise.
     HRESULT EnsureDeviceForWindowMonitor() noexcept;
     [[nodiscard]] DeviceIdentity DeviceInfo() const noexcept;
+    // Size and scaling of the live swap chain, which tests read to prove the dock presentation.
+    [[nodiscard]] HRESULT GetSwapChainDescription(DXGI_SWAP_CHAIN_DESC1& description) const noexcept;
     // Frame-latency waitable object of the swap chain (maximum latency one). The UI thread waits on it before
     // building a frame so Present never blocks; null before device creation.
     [[nodiscard]] HANDLE FrameLatencyWaitableObject() const noexcept;
