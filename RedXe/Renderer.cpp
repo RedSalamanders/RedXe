@@ -589,6 +589,12 @@ Renderer::DeviceIdentity Renderer::DeviceInfo() const noexcept
     return _deviceInfo;
 }
 
+HRESULT Renderer::GetSwapChainDescription(DXGI_SWAP_CHAIN_DESC1& description) const noexcept
+{
+    description = {};
+    return _swapChain ? _swapChain->GetDesc1(&description) : E_UNEXPECTED;
+}
+
 HANDLE Renderer::FrameLatencyWaitableObject() const noexcept
 {
     return _frameLatencyWaitable.get();
@@ -623,8 +629,14 @@ HRESULT Renderer::CreateSwapChain() noexcept
     description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     description.BufferCount = 2;
     // The dock keeps a full-size back buffer while its window is the peek strip: no scaling, top-left aligned,
-    // clipped by DWM. With equal buffer and client sizes the two modes are indistinguishable.
+    // clipped by DWM. With equal buffer and client sizes the two modes are indistinguishable. The buffer is sized to
+    // the full bar explicitly, because the window may be the strip when the swap chain is (re)created.
     description.Scaling = _dockPresentation ? DXGI_SCALING_NONE : DXGI_SCALING_STRETCH;
+    if (_dockPresentation && _dockWidth != 0 && _dockHeight != 0)
+    {
+        description.Width = _dockWidth;
+        description.Height = _dockHeight;
+    }
     description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     description.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
     description.Flags = kSwapChainFlags;
@@ -966,6 +978,12 @@ HRESULT Renderer::Resize(UINT width, UINT height) noexcept
         return S_OK;
     }
 
+    if (_dockPresentation)
+    {
+        // The dock is only ever resized to its full bar; a later device rebuild recreates the buffer at this size.
+        _dockWidth = width;
+        _dockHeight = height;
+    }
     if (width == _width && height == _height && _renderTarget)
     {
         _suspended = false;

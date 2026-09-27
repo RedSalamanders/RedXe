@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-09-19
+Last reviewed: 2026-09-27
 
 ## Mandate
 
@@ -86,7 +86,11 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   window, retaining its full-size swap chain (about 4 MiB for a 3840×270 bar) so a reveal shows the last frame at
   once. Shell traffic (`SHAppBarMessage`) happens only on placement, activation, window-position changes, and shell
   notifications, never per frame. An inner-edge drag moves the window per pointer update but coalesces dashboard,
-  swap-chain, and widget size callbacks to one 16 ms timer; release flushes the final size.
+  swap-chain, and widget size callbacks to one 16 ms timer; release flushes the final size. A live switch between
+  the standard window and the dock is a cold settings-reload path: one renderer rebuild (device and swap chain, as
+  on an adapter change) and one dashboard resize, with no widget re-creation. The first-run bar on a display without
+  a XENEON retains the back buffer of its XENEON-proportioned full size (3840×1080, about 16 MiB, on a 150 % 4K
+  display), the same buffer as the titled fallback window it replaces there.
 - After `Present` reports occlusion, RedXe must stop frame construction, wait for the DXGI factory's registered
   occlusion-status window message, and use `DXGI_PRESENT_TEST` to detect recovery without presenting content.
   Occlusion polling and periodic timers are prohibited.

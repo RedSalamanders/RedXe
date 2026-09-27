@@ -1,7 +1,7 @@
 # XENEON display and windowing contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-19
+Last reviewed: 2026-09-27
 Owner: `Application` process, display-selection, HWND, and DPI behavior
 
 ## Scope
@@ -51,10 +51,10 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 | Debug with active XENEON | Create a visible `WS_OVERLAPPEDWINDOW` with the RedXe title bar and DPI-adjusted 2560×720 logical client canvas. Place its outer top-left corner at the detected XENEON `rcMonitor` origin; do not force fullscreen. |
 | Debug without active XENEON | Create the same titled window using normal shell-selected placement. Do not prompt and do not force fullscreen. |
 | Release with active XENEON | Create a `WS_POPUP` borderless window using the detected XENEON monitor's exact `rcMonitor` bounds. |
-| Release without active XENEON | Show the missing-display Yes/No warning. Yes creates the standard titled fallback window; No exits successfully without creating the main window. |
+| Release without active XENEON | Show the missing-display Yes/No warning. Yes creates the standard titled fallback window; No exits successfully without creating the main window. A default settings file installed at this start carries the first-run dock ("First start without a XENEON"), so the Dock row applies instead. |
 | Self-test | Skip display discovery and prompts, create the titled window hidden, validate its DPI-adjusted client dimensions, render one frame, and exit. |
 | Screenshot (`--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]`) | Run exactly as the configuration above prescribes (same discovery, placement, services, and frame loop), jump to the named page through the host `PageGoTo` action once the renderer is live and no settle runs, wait the delay (default 3000 ms, 1–120000) with the frame loop idle-waiting as usual, capture the main window through `Common/WindowCapture.cpp` on a capture worker (Windows.Graphics.Capture of an owned, visible window; a widget ordinal crops to that tile's `PixelBoundsAt` in client space, mapped through the DWM extended frame bounds), then close. The UI thread continues handling input and timers while capture waits for its first frame. Exit 0 with the PNG written, 8 when the capture failed (no modal prompt). It MUST NOT activate, move, or resize the window, move the cursor, or send input. |
-| Dock (`dock.edge` other than `none`, or `--dock <edge>[@<monitor>]`) | Debug and Release alike: create the dock window kind below on the selected monitor instead of the row that would otherwise apply, and skip the missing-display prompt. `--self-test` ignores the dock. |
+| Dock (`dock.edge` other than `none`, or `--dock <edge>[@<monitor>]`) | Debug and Release alike: create the dock window kind below on the selected monitor instead of the row that would otherwise apply, and skip the missing-display prompt. A live reload that turns the dock on or off switches the running window between this row and the one that would otherwise apply ("Switching the window kind"). `--self-test` ignores the dock. |
 | Help (`--help`, `-h`, `/?`, `-?`) | Print the command-line catalog and exit 0 before any other switch is read: to the console the process was started from (a GUI process attaches to its parent's), to a redirected stdout as UTF-8, or, without either, to a message box. Every other token on the line MUST be a catalogued switch or the value of one; the first unknown token is a command-line error (exit 2, `Unknown argument "<token>". Run RedXe.exe --help for the command line.`) shown the same way, never as a message box when `--self-test` is on the line. |
 
 The command line is declared once in `RedXe/CommandLine.h`: the catalog `--help` prints and the names `Main.cpp`
@@ -71,11 +71,12 @@ failure uses normal shell placement in Debug and follows the missing-display fal
 ## Dock window kind
 
 The dock is RedXe as a bar along one edge of one monitor. The **effective dock** is the settings document's `dock`
-object (`Specs/Core/Core_Settings.md`) with the `--dock*` command-line overrides applied, and the window kind is
-decided once at startup from it: an `edge` other than `none` selects the dock in both configurations, on any
+object (`Specs/Core/Core_Settings.md`) with the `--dock*` command-line overrides applied, and the window kind follows
+it at startup and on every live reload: an `edge` other than `none` selects the dock in both configurations, on any
 monitor; the XENEON is only what the `xeneon` selector resolves to. `RedXe/DockPlacement.h` owns every pure rule
-below (placement, monitor selection, MINMAXINFO, the autohide state machine) and `RedXe/DockOptions.h` the command
-line and the merge; `HostPluginTests` and `SettingsTests` prove them without a display topology.
+below (placement, monitor selection, MINMAXINFO, the autohide state machine, the first-run thickness) and
+`RedXe/DockOptions.h` the command line and the merge; `HostPluginTests` and `SettingsTests` prove them without a
+display topology.
 
 ### Command line
 
@@ -101,14 +102,18 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
 - Activation is unchanged (`MA_ACTIVATE` on click or touch; hover never activates).
 - The dashboard and swap chain are always sized to the **full** bar rectangle; an autohide strip is a window-size
   change only (below). `OnSize` never resizes the dashboard in dock mode; `PlaceDock` does, through the full
-  rectangle, on DPI, monitor, thickness, and edge changes.
+  rectangle, on DPI, monitor, thickness, and edge changes. A swap chain created while the window is the strip (a
+  live reload that rebuilds the page of a collapsed bar, a device rebuild) is still created at the full bar, the
+  size `Renderer::Resize` last received.
 - `WM_GETMINMAXINFO` answers with the peek strip (autohide) or the full bar (fixed) as the minimum and the monitor as
   the maximum, because Windows applies `ptMinTrackSize` to `SetWindowPos` as well as to user tracking and the titled
   window's 480×320 minimum would refuse the strip.
 - The reachable client for the edge bands is the whole client: the bar fits its monitor by construction, and a
   reserving side dock is excluded from the work area, which would otherwise leave nothing reachable.
-- Z-order is topmost; `ABN_FULLSCREENAPP` with a full-screen window on the dock's monitor drops the bar to
-  `HWND_BOTTOM` and the clearing notification restores `HWND_TOPMOST`.
+- Z-order is topmost; a full-screen window on the dock's monitor drops the bar to `HWND_BOTTOM` and the clearing
+  notification restores `HWND_TOPMOST`. `ABN_FULLSCREENAPP` names no monitor and the shell also sends it for a
+  full-screen window on another display (a XENEON dashboard, a video on a second screen), so the bar steps down only
+  while the shell reports one and the foreground window covers the dock's `rcMonitor` (`DockYieldsToFullscreen`).
 - `--screenshot` captures the dock like any window; an autohide dock is held revealed for the whole run (a pending
   capture is a hold), so the PNG shows the bar.
 - Drag-to-resize: the inner edge of a revealed bar (the side facing the desktop) is a host-owned grip band
@@ -175,12 +180,62 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
   chain is retained while hidden so a reveal shows the last frame at once.
 - A live reload applies every `dock` member in place (thickness, edge, monitor, mode, reserve, peek, delays) by
   re-placing and, when the registration row changed, re-registering; an edge change that flips orientation reflows
-  the dashboard through the full rectangle. Switching between `none` and an edge changes the window kind and takes
-  effect at the next launch: one Warning record (`dock-restart-required`) and the rest of the document still
-  applies, including other `dock` members on the same edit. Command-line-pinned members are re-applied after every merge.
+  the dashboard through the full rectangle. Switching between `none` and an edge switches the window kind live (next
+  section) while the rest of the document applies as usual. Command-line-pinned members are re-applied after every
+  merge, so `--dock none` or `--dock <edge>` keeps the kind for the run.
 - During an inner-edge drag the window follows the pointer. Dashboard and swap-chain resize work is coalesced to
   at most one callback per 16 ms, with the final dimensions flushed on release before persisting thickness. The
   shell work-area reservation is committed on release.
+
+### Switching the window kind
+
+A valid live reload whose effective `edge` changes between `none` and an edge switches the kind of the running
+window (`Application::SwitchWindowKind`). The HWND and everything bound to it stay: widget instances, services,
+native containers, the settings watcher, the drop target, and accessibility.
+
+- Every interaction bound to the old geometry ends (raise, page navigation, wheel sequence, keyboard focus,
+  interactive capture, and a dock drag, whose thickness is then not persisted; dock timers stop), the renderer shuts
+  down, and a dock unregisters its app bar (`ABM_REMOVE`), so the shell returns a reserved work area before the
+  standard window is placed. XENEON discovery re-runs. Shell notifications that arrive meanwhile find no dock.
+- The window leaves minimized or maximized, hides (the taskbar adds or drops the button only for a window shown after
+  the `WS_EX_APPWINDOW` / `WS_EX_TOOLWINDOW` change), and takes the exact styles of the target kind; topmost changes
+  through `SetWindowPos`, and the `WS_DISABLED` of an open settings dialog is kept. A dock is then placed by
+  `PlaceDock`, starting revealed. The standard kind is placed by the startup rows of the mode table without the
+  missing-display prompt: Release fullscreen on the XENEON's `rcMonitor`; the titled window at the XENEON origin;
+  without a XENEON, the titled window (in Release, the fallback) at the work-area origin of the monitor the dock was
+  on. The titled window gets its exact DPI-adjusted 2560×720 canvas, re-applied at the intended origin when the move
+  or the show changes its DPI (`Application::PlaceStandardWindow`).
+- The dashboard is resized to the new canvas and the renderer is initialized again with the target kind's
+  presentation (`DXGI_SCALING_NONE` at the full bar for a dock, `DXGI_SCALING_STRETCH` at the client otherwise) on
+  the adapter that owns the new monitor. GPU widgets see one `OnDeviceLost` / `OnDeviceCreated` pair, as on an
+  adapter change; no widget instance is recreated. A reload that also rebuilds the active page restyles and places
+  the hidden window before the page runtime starts, so its renderer is created once, for the new kind; a failed
+  apply restyles the window back before the previous page is restored.
+- The window is shown with `SW_SHOWNOACTIVATE`: the window in which the file was saved keeps the focus. An autohide
+  dock collapses after the hide delay as at launch.
+- A switch logs one Info record (`window-kind-changed`). A failed step logs one Error record
+  (`window-kind-switch-failed`) and closes the window like any other runtime failure (exit code 5).
+- `--self-test` pins the edge to `none`, so a document `dock` never switches its hidden titled window.
+
+### First start without a XENEON
+
+When RedXe installs its default settings file at startup (the file is missing, or the recovery of an invalid file;
+`Specs/Core/Core_Settings.md` "Cold load and recovery") and XENEON discovery succeeded without finding a display, the
+installed document carries the **first-run dock**: `{ "edge": "bottom", "monitor": "primary", "mode": "autohide",
+"thickness": T }`, so this start and the following ones show the Dock row of the mode table instead of the Release
+missing-display prompt or the Debug titled window. `T` gives the bar the XENEON EDGE's 32:9 proportions along the
+primary display's work area, so the shipped 2560×720 pages keep their shape (`DockFirstRunThicknessDips`). The
+primary monitor is identified by `MONITORINFOF_PRIMARY` during enumeration, even when another monitor contains
+screen coordinate `(0,0)`. Its thickness is:
+`MulDiv(workAreaWidth, 720, 2560)` pixels, clamped to half the monitor like every dock, converted to DIPs at the
+primary display's effective DPI rounding down (so the runtime rescale stays within those pixels and does not clamp),
+and kept in 32–1080. On a 16:9 display that is half its height: 720 DIPs on a 3840×2160 150 % display, 540 DIPs on a
+1920×1080 100 % display. The one exception is a display under 64 DIPs across the edge, where even the 32-DIP
+settings minimum is more than half of it: the runtime clamps that bar like any dock (one `dock-thickness-clamped`
+record). The start logs one Info record (`dock-first-run`). After a failed discovery, or when the
+template cannot be patched, the plain template is installed; a `--settings` file and the self-test never install.
+The file is not revisited later: a XENEON connected afterwards changes nothing until the user sets `edge` to `none`,
+which applies live.
 
 ## Windows shell identity
 
@@ -281,26 +336,46 @@ Dock changes MUST keep the pure tables green: `HostPluginTests` proves the place
 coordinates), the thickness scaling and clamp, the hidden strip, the grip and its accent for every edge, the resize
 band for every edge and the dragged thickness (outer-edge distance, DPI, both clamps), MINMAXINFO, monitor selection
 for every selector kind with the primary fallback, every autohide state-machine row including zero delays and hold
-precedence, the scheduler row that a hidden dock waits after its one grip frame, and a dock-kind swap chain
-(`DXGI_SCALING_NONE`) presenting a tile frame and a grip frame while the client is smaller than the back buffer;
+precedence, the scheduler row that a hidden dock waits after its one grip frame, a dock-kind swap chain
+(`DXGI_SCALING_NONE`) presenting a tile frame and a grip frame while the client is smaller than the back buffer, the
+same swap chain created at the full bar while the window is already the strip and recreated at the last resized bar,
+the rebuild of one renderer and dashboard across kinds (`DXGI_SCALING_STRETCH` at the client, then
+`DXGI_SCALING_NONE` at the full bar, the same widget instances presenting), and the first-run thickness
+(`DockFirstRunThicknessDips`: 16:9 displays at 100, 125, and 150 %, an ultrawide capped at half its height, a 5:4
+display, a side bar, negative coordinates, the minimum, DPI 0, the rescale without a clamp at 175 %, and the display
+under 64 DIPs across where the minimum is still clamped);
 `SettingsTests` proves the `dock` member, its rejections, minor 2, the `--dock*` grammar with its errors, the merge
-precedence, and `PatchDockThickness` (replace, create with the minor bump, range, re-parse). Live, on the machine's
-topology: a reserving bar shrinks `rcWork` by exactly its thickness while it runs and restores it on exit; an overlay
-bar leaves `rcWork` alone and sits against the work-area edge; a side bar on a monitor with a bottom taskbar ends
-above the taskbar; an autohide bar collapses to its strip after the hide delay, reveals after the dwell when the real
-cursor rests on the strip, hides after the pointer leaves, and reveals at once on a click; `--screenshot` of an
-autohide bar yields the full bar; a live reload re-places thickness, mode, and edge changes and logs
-`dock-restart-required` for `none`; a real mouse drag on the inner edge grows the bar live, commits the reservation
-on release, and writes `dock.thickness` to the file. The 2026-09-19 closeout recorded all of these on a 3840×2160
-150 % primary plus a 2560×720 150 % XENEON with bottom taskbars.
+precedence, `PatchDockThickness` (replace, create with the minor bump, range, re-parse), and the first-run install
+(`Specs/Core/Core_Settings.md`). Live, on the machine's topology: a reserving bar shrinks `rcWork` by exactly its
+thickness while it runs and restores it on exit; an overlay bar leaves `rcWork` alone and sits against the work-area
+edge; a side bar on a monitor with a bottom taskbar ends above the taskbar; an autohide bar collapses to its strip
+after the hide delay, reveals after the dwell when the real cursor rests on the strip, hides after the pointer
+leaves, and reveals at once on a click; `--screenshot` of an autohide bar yields the full bar; a live reload
+re-places thickness, mode, and edge changes; a real mouse drag on the inner edge grows the bar live, commits the
+reservation on release, and writes `dock.thickness` to the file. The 2026-09-19 closeout recorded all of these on a
+3840×2160 150 % primary plus a 2560×720 150 % XENEON with bottom taskbars.
+
+Window-kind switches additionally require a live run with a portable `--settings` file edited while RedXe runs:
+`none` → an edge and back yields the dock styles (`WS_EX_TOOLWINDOW`, topmost, no `WS_EX_APPWINDOW`) and then the
+standard ones (`WS_OVERLAPPEDWINDOW`, `WS_EX_APPWINDOW`, not topmost) at the mode-table placement with its exact
+client, without activation; a reserving bar's work area comes back when it switches to `none`; a minimized and a
+maximized titled window become a bar and come back normal; a switched dock stays topmost while a full-screen window
+is open on another display; the JSONL log holds one `device-created` and one `window-kind-changed` record per switch;
+and `--screenshot` taken after a switch in either direction shows the tiles. The 2026-09-27 check recorded these on
+a 3840×2160 150 % primary (NVIDIA) plus a 2560×720 100 % XENEON on the integrated GPU (AMD), with a Release RedXe
+fullscreen on the XENEON.
 
 ## Implementation and validation anchors
 
 - Process awareness and command-line modes: `RedXe/Main.cpp`, `RedXe/app.manifest`; the switch catalog behind
   `--help`: `RedXe/CommandLine.h`
-- Display discovery, window creation, and DPI transitions: `RedXe/Application.cpp`, `RedXe/Application.h`
-- Dock placement, monitor selection, MINMAXINFO, and the autohide state machine: `RedXe/DockPlacement.h`; the
-  `--dock*` grammar and merge: `RedXe/DockOptions.h`; dock-kind presentation: `Renderer::SetDockPresentation`
+- Display discovery, window creation, and DPI transitions: `RedXe/Application.cpp`, `RedXe/Application.h`; live
+  window-kind switches: `Application::SwitchWindowKind` (`RestyleWindowKind`, `RebuildPresentation`,
+  `FinishWindowKindSwitch`), `PlaceStandardWindow`, and the combined page-and-kind reload in `ApplySettings`; the
+  first-run dock: `MakeFirstRunDock` in `RedXe/Application.cpp`
+- Dock placement, monitor selection, MINMAXINFO, the autohide state machine, and the first-run thickness:
+  `RedXe/DockPlacement.h`; the `--dock*` grammar and merge: `RedXe/DockOptions.h`; dock-kind presentation:
+  `Renderer::SetDockPresentation`
 - Physical render-target resizing: `RedXe/Renderer.cpp`, `RedXe/Renderer.h`
 - Automated build, scheduler, production host/plugin, and hidden WARP validation: `build.ps1`, `test.ps1`,
   `Tests/HostPluginTests/`

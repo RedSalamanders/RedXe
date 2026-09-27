@@ -38,6 +38,16 @@ namespace
 constexpr LONG kXeneonEdgeClientWidth = 2560;
 constexpr LONG kXeneonEdgeClientHeight = 720;
 
+// Window-kind styles (UI_XeneonDisplayWindowing.md). No kind has a redirection surface: the main window never paints
+// with GDI; its chrome is drawn into the swap chain and native-widget containers are layered children with their own
+// surfaces. A live switch between the standard kinds and the dock restyles the same window between these rows.
+constexpr DWORD kStandardExtendedStyle = WS_EX_APPWINDOW | WS_EX_NOREDIRECTIONBITMAP;
+constexpr DWORD kTitledWindowStyle = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;
+constexpr DWORD kPopupWindowStyle = WS_POPUP | WS_CLIPCHILDREN;
+// Tool window: no taskbar button and no Alt+Tab entry, like the taskbar itself. Topmost so an autohide strip can
+// always be reached; ABN_FULLSCREENAPP lowers it beneath a full-screen application.
+constexpr DWORD kDockExtendedStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
+
 [[nodiscard]] BOOL HostSetPointerCapture(HWND window, UINT32 pointerId) noexcept
 {
     using Function = BOOL(WINAPI*)(HWND, UINT32);
@@ -316,6 +326,44 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
     }
 
     return S_OK;
+}
+
+// The dock written into a default settings file installed without a XENEON (Core_Settings.md "Cold load and
+// recovery"): an auto-hiding bar on the primary display's bottom edge, as deep as the XENEON's proportions make it
+// along that display (DockFirstRunThicknessDips).
+[[nodiscard]] bool MakeFirstRunDock(DockSettings& dock) noexcept
+{
+    dock = DefaultDockSettings();
+    // (0,0) can belong to a secondary display when the primary is at a negative origin.
+    HMONITOR primary = nullptr;
+    const auto findPrimary = [](HMONITOR monitor, HDC, LPRECT, LPARAM context) noexcept -> BOOL
+    {
+        MONITORINFO info{};
+        info.cbSize = sizeof(info);
+        if (GetMonitorInfoW(monitor, &info) && (info.dwFlags & MONITORINFOF_PRIMARY) != 0)
+        {
+            *reinterpret_cast<HMONITOR*>(context) = monitor;
+            return FALSE;
+        }
+        return TRUE;
+    };
+    (void)EnumDisplayMonitors(nullptr, nullptr, findPrimary, reinterpret_cast<LPARAM>(&primary));
+    MONITORINFO information{};
+    information.cbSize = sizeof(information);
+    if (!primary || !GetMonitorInfoW(primary, &information))
+    {
+        return false;
+    }
+    UINT dpiX = USER_DEFAULT_SCREEN_DPI;
+    UINT dpiY = USER_DEFAULT_SCREEN_DPI;
+    if (FAILED(GetDpiForMonitor(primary, MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) || dpiX == 0)
+    {
+        dpiX = USER_DEFAULT_SCREEN_DPI;
+    }
+    dock.edge = DockEdge::Bottom;
+    dock.mode = DockMode::Autohide;
+    dock.thicknessDips = DockFirstRunThicknessDips(information.rcMonitor, information.rcWork, dock.edge, dpiX);
+    return true;
 }
 
 // Friendly display names for the dock's `name:<substring>` selector: one (GDI source name, target friendly name)
@@ -627,7 +675,28 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         return 1;
     }
 
-    HRESULT result = _settingsStore.Initialize(false, settingsPath, _settings);
+    // Discovery runs before the settings load: a default file installed on a machine without a XENEON (first start,
+    // or recovery of an invalid file) carries the first-run dock instead of leading to the missing-display prompt.
+    RECT xeneonBounds{};
+    const RECT* requestedTargetBounds = nullptr;
+    bool requestedFullscreen = false;
+    bool xeneonFound = false;
+    HRESULT result = FindXeneonDisplay(xeneonBounds, xeneonFound);
+    if (FAILED(result))
+    {
+#if defined(_DEBUG)
+        OutputDebugStringW(L"XENEON display discovery failed; using default window placement.\n");
+#else
+        OutputDebugStringW(L"XENEON display discovery failed; offering windowed fallback.\n");
+#endif
+    }
+    _xeneonBounds = xeneonBounds;
+    _xeneonFound = xeneonFound;
+    DockSettings firstRunDock{};
+    const bool offerFirstRunDock =
+        SUCCEEDED(result) && !xeneonFound && settingsPath.empty() && MakeFirstRunDock(firstRunDock);
+
+    result = _settingsStore.Initialize(false, settingsPath, _settings, {}, offerFirstRunDock ? &firstRunDock : nullptr);
     if (FAILED(result) || !_settings)
     {
         OutputDebugStringW(L"Settings initialization or validation failed.\n");
@@ -642,22 +711,11 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         (void)PluginHost::Instance().SetLogDirectory(_settingsStore.LogsDirectory().c_str());
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
     }
-
-    RECT xeneonBounds{};
-    const RECT* requestedTargetBounds = nullptr;
-    bool requestedFullscreen = false;
-    bool xeneonFound = false;
-    result = FindXeneonDisplay(xeneonBounds, xeneonFound);
-    if (FAILED(result))
+    if (_settingsStore.InstalledFirstRunDock())
     {
-#if defined(_DEBUG)
-        OutputDebugStringW(L"XENEON display discovery failed; using default window placement.\n");
-#else
-        OutputDebugStringW(L"XENEON display discovery failed; offering windowed fallback.\n");
-#endif
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "dock-first-run",
+                           "No XENEON display was found; the installed settings run RedXe as an auto-hiding bar.");
     }
-    _xeneonBounds = xeneonBounds;
-    _xeneonFound = xeneonFound;
 
     // The dock window kind replaces the titled and fullscreen rows of the mode table for this process, in both
     // configurations and on any monitor; the XENEON is only what the `xeneon` selector resolves to.
@@ -938,6 +996,11 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
 // validate its DPI-adjusted client dimensions, render one frame, and exit.
 int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
 {
+    // The self-test keeps its hidden titled window: pinning the edge to none, as `--dock none` does, keeps a document
+    // `dock` from switching the window kind when the smoke test re-applies settings.
+    _dockOverrides = DockOverrides{};
+    _dockOverrides.hasEdge = true;
+    _dockOverrides.edge = DockEdge::None;
     PluginHost::Instance().SetNetworkAccessEnabled(false);
     PluginHost::Instance().SetControlAccessEnabled(false);
     // Services start in self-test too, but with device access disabled: no HID handle, hotplug registration, or
@@ -1167,10 +1230,8 @@ HRESULT Application::RegisterWindowClass() noexcept
 
 HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bool fullscreen) noexcept
 {
-    // No redirection surface: the main window never paints with GDI. Its chrome is drawn into the swap chain and
-    // native-widget containers are layered children with their own surfaces, so DWM keeps no 2560x720 GDI copy.
-    constexpr DWORD extendedStyle = WS_EX_APPWINDOW | WS_EX_NOREDIRECTIONBITMAP;
-    const DWORD windowStyle = (fullscreen ? WS_POPUP : WS_OVERLAPPEDWINDOW) | WS_CLIPCHILDREN;
+    constexpr DWORD extendedStyle = kStandardExtendedStyle;
+    const DWORD windowStyle = fullscreen ? kPopupWindowStyle : kTitledWindowStyle;
 
     if ((fullscreen && !targetBounds) ||
         (targetBounds && (targetBounds->right <= targetBounds->left || targetBounds->bottom <= targetBounds->top)))
@@ -1286,10 +1347,8 @@ HRESULT Application::CreateDockWindow(bool visible) noexcept
                                                 placement.monitor, _dock.edge, clamped);
     const RECT initial = DockOverlayRect(placement.work, _dock.edge, thicknessPx);
 
-    // Tool window: no taskbar button and no Alt+Tab entry, like the taskbar itself. Topmost so an autohide strip can
-    // always be reached; ABN_FULLSCREENAPP lowers it beneath a full-screen application.
-    constexpr DWORD extendedStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
-    constexpr DWORD windowStyle = WS_POPUP | WS_CLIPCHILDREN;
+    constexpr DWORD extendedStyle = kDockExtendedStyle;
+    constexpr DWORD windowStyle = kPopupWindowStyle;
     const HWND window = CreateWindowExW(extendedStyle, kWindowClassName, L"RedXe — CORSAIR XENEON", windowStyle,
                                         initial.left, initial.top, initial.right - initial.left,
                                         initial.bottom - initial.top, nullptr, nullptr, _instance, this);
@@ -1460,8 +1519,24 @@ void Application::ApplyDockZOrder() noexcept
     {
         return;
     }
-    (void)SetWindowPos(_window.get(), _dockFullscreenAppActive ? HWND_BOTTOM : HWND_TOPMOST, 0, 0, 0, 0,
+    (void)SetWindowPos(_window.get(), DockYieldsToFullscreen() ? HWND_BOTTOM : HWND_TOPMOST, 0, 0, 0, 0,
                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+bool Application::DockYieldsToFullscreen() const noexcept
+{
+    // ABN_FULLSCREENAPP names no monitor, and the shell also reports a full-screen window on another display (a
+    // XENEON dashboard, a video on a second screen). The bar steps down only for the foreground window filling its
+    // own monitor.
+    const HWND foreground = GetForegroundWindow();
+    RECT bounds{};
+    if (!_dockFullscreenAppActive || !foreground || foreground == _window.get() || IsRectEmpty(&_dockMonitorRect) ||
+        !GetWindowRect(foreground, &bounds))
+    {
+        return false;
+    }
+    return bounds.left <= _dockMonitorRect.left && bounds.top <= _dockMonitorRect.top &&
+           bounds.right >= _dockMonitorRect.right && bounds.bottom >= _dockMonitorRect.bottom;
 }
 
 HRESULT Application::PlaceDock(bool resizeDashboard) noexcept
@@ -1563,7 +1638,7 @@ HRESULT Application::PlaceDock(bool resizeDashboard) noexcept
     _dockDpi = placement.dpi;
     const RECT target = DockHidden() ? DockHiddenRect(full, _dock.edge, static_cast<LONG>(_dock.peekPixels)) : full;
     _dockResizing = true;
-    const BOOL moved = SetWindowPos(_window.get(), _dockFullscreenAppActive ? HWND_BOTTOM : HWND_TOPMOST, target.left,
+    const BOOL moved = SetWindowPos(_window.get(), DockYieldsToFullscreen() ? HWND_BOTTOM : HWND_TOPMOST, target.left,
                                     target.top, target.right - target.left, target.bottom - target.top, SWP_NOACTIVATE);
     _dockResizing = false;
     if (!moved)
@@ -1632,24 +1707,15 @@ void Application::ApplyDockSettings() noexcept
     {
         return;
     }
-    if ((next.edge == DockEdge::None) != (_dock.edge == DockEdge::None))
+    if ((next.edge != DockEdge::None) != _dockActive)
     {
-        // The window kind is fixed until restart, but sibling dock settings still apply to the active edge.
-        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
-                           "dock-restart-required", "Switching the dock on or off takes effect at the next launch.");
-        DockSettings live = next;
-        live.edge = _dock.edge;
-        if (live == _dock)
+        // `none` <-> an edge changes the window kind; the window follows the file at once.
+        if (const HRESULT result = SwitchWindowKind(next); FAILED(result))
         {
-            return;
-        }
-        _dock = live;
-        if (_dockActive)
-        {
-            (void)PlaceDock(true);
-            if (_dock.mode == DockMode::Autohide)
+            RecordRuntimeFailure(result, "window-kind-switch-failed");
+            if (_window)
             {
-                EvaluateDockHolds();
+                (void)PostMessageW(_window.get(), WM_CLOSE, 0, 0);
             }
         }
         return;
@@ -1660,19 +1726,296 @@ void Application::ApplyDockSettings() noexcept
     {
         return;
     }
-    if (previousMode != _dock.mode)
+    if (previousMode != _dock.mode && _dock.mode == DockMode::Fixed)
     {
-        if (_dock.mode == DockMode::Fixed)
-        {
-            KillDockTimer();
-            _dockReveal = DockRevealState::Revealed;
-        }
+        KillDockTimer();
+        _dockReveal = DockRevealState::Revealed;
+        _dockPinnedByAction = false;
     }
     (void)PlaceDock(true);
     if (_dock.mode == DockMode::Autohide)
     {
         EvaluateDockHolds();
     }
+}
+
+void Application::StopDockInteraction() noexcept
+{
+    if (_dockResizeDrag)
+    {
+        // Cleared before the capture goes so WM_CAPTURECHANGED does not commit and persist the partial drag.
+        _dockResizeDrag = false;
+        if (_window && GetCapture() == _window.get())
+        {
+            (void)ReleaseCapture();
+        }
+    }
+    if (_dockDashboardResizeTimerArmed && _window)
+    {
+        (void)KillTimer(_window.get(), kDockDashboardResizeTimerId);
+    }
+    _dockDashboardResizeTimerArmed = false;
+    _dockDashboardResizePending = false;
+    KillDockTimer();
+}
+
+void Application::ResetDockPlacementState() noexcept
+{
+    _dockReveal = DockRevealState::Revealed;
+    _dockFullRect = RECT{};
+    _dockMonitorRect = RECT{};
+    _dockWorkRect = RECT{};
+    _dockDpi = USER_DEFAULT_SCREEN_DPI;
+    _dockMonitorFellBack = false;
+    _dockThicknessClamped = false;
+    _dockFullscreenAppActive = false;
+    _dockPointerInside = false;
+    _dockPinnedByAction = false;
+}
+
+HRESULT Application::SwitchWindowKind(const DockSettings& next) noexcept
+{
+    HRESULT result = RestyleWindowKind(next);
+    if (SUCCEEDED(result))
+    {
+        result = RebuildPresentation();
+    }
+    if (SUCCEEDED(result))
+    {
+        result = FinishWindowKindSwitch();
+    }
+    return result;
+}
+
+HRESULT Application::RestyleWindowKind(const DockSettings& next) noexcept
+{
+    if (!_window || !_dashboardHost)
+    {
+        return E_UNEXPECTED;
+    }
+    const HWND window = _window.get();
+    const bool toDock = next.edge != DockEdge::None;
+    // Without a XENEON the standard window lands on the monitor the dock was on, where the person is looking.
+    _kindSwitchFallbackMonitor = MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
+
+    // Every interaction bound to the old geometry ends, then the presentation goes: its swap-chain scaling belongs
+    // to the old kind. Shell notifications that arrive while the dock unregisters find no dock.
+    StopDockInteraction();
+    DismissWidgetRaise(false);
+    CancelPageNavigation();
+    _wheel.Reset();
+    ClearKeyboardFocus();
+    CancelInteractivePointer();
+    ClearDoubleActivateCandidate();
+    ClearPageEdgeHover();
+    ClearScheduledFrameDeadline();
+    // The hide below may end TME_LEAVE tracking without a WM_MOUSELEAVE; the next mouse move re-arms it, so a pointer
+    // hold on an autohide bar can always clear.
+    _pageEdgeMouseTracking = false;
+    _renderer.Shutdown();
+    _rendererReady = false;
+    const bool wasDock = _dockActive;
+    _dockActive = false;
+    if (wasDock)
+    {
+        // ABM_REMOVE: the shell gives a reserved work area back before the standard window is placed.
+        UnregisterDockAppBar();
+    }
+    (void)FindXeneonDisplay(_xeneonBounds, _xeneonFound);
+    _dock = next;
+    ResetDockPlacementState();
+#if defined(_DEBUG)
+    constexpr bool releaseBuild = false;
+#else
+    constexpr bool releaseBuild = true;
+#endif
+    const bool fullscreen = !toDock && releaseBuild && _xeneonFound;
+    _kindSwitchFullscreen = fullscreen;
+
+    // The taskbar adds or drops the button (WS_EX_APPWINDOW, WS_EX_TOOLWINDOW) only for a window shown after the
+    // change, so the window leaves minimized or maximized, hides, takes the other kind's styles, and shows again at
+    // the end. WS_EX_TOPMOST belongs to SetWindowPos, and a settings dialog's WS_DISABLED is kept.
+    if (IsIconic(window) || IsZoomed(window))
+    {
+        (void)ShowWindow(window, SW_SHOWNOACTIVATE);
+    }
+    (void)ShowWindow(window, SW_HIDE);
+    const LONG_PTR keptStyle = GetWindowLongPtrW(window, GWL_STYLE) & (WS_VISIBLE | WS_DISABLED);
+    const LONG_PTR keptExtendedStyle = GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST;
+    (void)SetWindowLongPtrW(window, GWL_STYLE,
+                            keptStyle |
+                                static_cast<LONG_PTR>(toDock || fullscreen ? kPopupWindowStyle : kTitledWindowStyle));
+    (void)SetWindowLongPtrW(
+        window, GWL_EXSTYLE,
+        keptExtendedStyle |
+            static_cast<LONG_PTR>((toDock ? kDockExtendedStyle : kStandardExtendedStyle) & ~DWORD{WS_EX_TOPMOST}));
+    if (!SetWindowPos(window, toDock ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED))
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+
+    _dockActive = toDock;
+    return toDock ? PlaceDock(false) : PlaceStandardWindow(fullscreen, _kindSwitchFallbackMonitor);
+}
+
+HRESULT Application::FinishWindowKindSwitch() noexcept
+{
+    if (!_window || !_rendererReady)
+    {
+        return E_UNEXPECTED;
+    }
+    const HWND window = _window.get();
+    (void)ShowWindow(window, SW_SHOWNOACTIVATE);
+    _windowVisible = IsWindowVisible(window) != FALSE;
+    if (!_dockActive)
+    {
+        // A DPI change that arrives with the show answers at the suggested position; the standard kind keeps its
+        // exact origin and canvas. The dock re-places itself from WM_DPICHANGED.
+        const HRESULT result = PlaceStandardWindow(_kindSwitchFullscreen, _kindSwitchFallbackMonitor);
+        if (FAILED(result))
+        {
+            return result;
+        }
+    }
+    EvaluateDockHolds();
+    PushHostChrome();
+    PublishHostState();
+    _frameInvalidated = true;
+    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "window-kind-changed",
+                       _dockActive ? "A settings reload turned the window into the dock."
+                                   : "A settings reload turned the dock into the standard window.");
+    return S_OK;
+}
+
+HRESULT Application::PlaceStandardWindow(bool fullscreen, HMONITOR fallbackMonitor) noexcept
+{
+    const HWND window = _window.get();
+    if (!window)
+    {
+        return E_UNEXPECTED;
+    }
+    RECT target = _xeneonBounds;
+    UINT targetDpi = USER_DEFAULT_SCREEN_DPI;
+    if (!fullscreen)
+    {
+        HMONITOR monitor = _xeneonFound ? MonitorFromRect(&_xeneonBounds, MONITOR_DEFAULTTONEAREST) : fallbackMonitor;
+        MONITORINFO information{};
+        information.cbSize = sizeof(information);
+        if (!monitor || !GetMonitorInfoW(monitor, &information))
+        {
+            monitor = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+            if (!GetMonitorInfoW(monitor, &information))
+            {
+                return HRESULT_FROM_WIN32(GetLastError());
+            }
+        }
+        UINT dpiY = USER_DEFAULT_SCREEN_DPI;
+        if (FAILED(GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &targetDpi, &dpiY)) || targetDpi == 0)
+        {
+            targetDpi = USER_DEFAULT_SCREEN_DPI;
+        }
+        SIZE size{};
+        const HRESULT sized = CalculateWindowSizeForDpi(kTitledWindowStyle, kStandardExtendedStyle, targetDpi, size);
+        if (FAILED(sized))
+        {
+            return sized;
+        }
+        const POINT origin = _xeneonFound ? POINT{_xeneonBounds.left, _xeneonBounds.top}
+                                          : POINT{information.rcWork.left, information.rcWork.top};
+        target = RECT{origin.x, origin.y, origin.x + size.cx, origin.y + size.cy};
+    }
+    if (target.right <= target.left || target.bottom <= target.top)
+    {
+        return E_UNEXPECTED;
+    }
+    if (!SetWindowPos(window, nullptr, target.left, target.top, target.right - target.left, target.bottom - target.top,
+                      SWP_NOACTIVATE | SWP_NOZORDER))
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    // The move may have changed the window's DPI, and WM_DPICHANGED answers at the suggested rectangle. The titled
+    // window settles on the exact canvas for the DPI it now has; both kinds keep the intended origin.
+    const UINT windowDpi = GetDpiForWindow(window);
+    if (!fullscreen && windowDpi != 0 && windowDpi != targetDpi)
+    {
+        SIZE size{};
+        const HRESULT sized = CalculateWindowSizeForDpi(kTitledWindowStyle, kStandardExtendedStyle, windowDpi, size);
+        if (FAILED(sized))
+        {
+            return sized;
+        }
+        target.right = target.left + size.cx;
+        target.bottom = target.top + size.cy;
+    }
+    RECT bounds{};
+    if (GetWindowRect(window, &bounds) && EqualRect(&bounds, &target))
+    {
+        return S_OK;
+    }
+    return SetWindowPos(window, nullptr, target.left, target.top, target.right - target.left,
+                        target.bottom - target.top, SWP_NOACTIVATE | SWP_NOZORDER)
+               ? S_OK
+               : HRESULT_FROM_WIN32(GetLastError());
+}
+
+HRESULT Application::PresentationCanvas(UINT& width, UINT& height, UINT& dpi) const noexcept
+{
+    width = 0;
+    height = 0;
+    RECT client{};
+    dpi = _window ? GetDpiForWindow(_window.get()) : 0;
+    if (dpi == 0 || !GetClientRect(_window.get(), &client))
+    {
+        const DWORD error = GetLastError();
+        return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_UNEXPECTED;
+    }
+    width = static_cast<UINT>(client.right - client.left);
+    height = static_cast<UINT>(client.bottom - client.top);
+    if (_dockActive && _dockFullRect.right > _dockFullRect.left && _dockFullRect.bottom > _dockFullRect.top)
+    {
+        // An autohide dock may be its strip now; the dashboard and the swap chain are always the full bar.
+        width = static_cast<UINT>(_dockFullRect.right - _dockFullRect.left);
+        height = static_cast<UINT>(_dockFullRect.bottom - _dockFullRect.top);
+        dpi = _dockDpi;
+    }
+    return width != 0 && height != 0 ? S_OK : E_UNEXPECTED;
+}
+
+HRESULT Application::RebuildPresentation() noexcept
+{
+    if (!_window || !_dashboardHost || _rendererReady)
+    {
+        return E_UNEXPECTED;
+    }
+    UINT width = 0;
+    UINT height = 0;
+    UINT dpi = 0;
+    HRESULT result = PresentationCanvas(width, height, dpi);
+    if (SUCCEEDED(result))
+    {
+        result = _dashboardHost->Resize(width, height, dpi);
+    }
+    if (FAILED(result))
+    {
+        return result;
+    }
+    _renderer.SetDockPresentation(_dockActive, width, height);
+    result = _renderer.Initialize(_window.get(), _forceWarp, *_dashboardHost);
+    if (FAILED(result))
+    {
+        _renderer.Shutdown();
+        return result;
+    }
+    _rendererReady = true;
+    RefreshAppearance();
+    RefreshPageEdgeAffordances();
+    result = UpdateDashboardVisibility();
+    if (SUCCEEDED(result))
+    {
+        _frameInvalidated = true;
+    }
+    return result;
 }
 
 void Application::ArmDockTimer(uint32_t delayMilliseconds) noexcept
@@ -1974,35 +2317,25 @@ HRESULT Application::InitializeDashboardRuntime() noexcept
         return E_UNEXPECTED;
     }
 
-    RECT clientBounds{};
-    UINT dpi = GetDpiForWindow(_window.get());
-    if (dpi == 0 || !GetClientRect(_window.get(), &clientBounds))
+    UINT width = 0;
+    UINT height = 0;
+    UINT dpi = 0;
+    HRESULT result = PresentationCanvas(width, height, dpi);
+    if (FAILED(result))
     {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    UINT width = static_cast<UINT>(clientBounds.right - clientBounds.left);
-    UINT height = static_cast<UINT>(clientBounds.bottom - clientBounds.top);
-    if (_dockActive && _dockFullRect.right > _dockFullRect.left && _dockFullRect.bottom > _dockFullRect.top)
-    {
-        // A live reload while an autohide dock shows its strip must still size the dashboard to the full bar.
-        width = static_cast<UINT>(_dockFullRect.right - _dockFullRect.left);
-        height = static_cast<UINT>(_dockFullRect.bottom - _dockFullRect.top);
-        dpi = _dockDpi;
-    }
-    if (width == 0 || height == 0)
-    {
-        return E_UNEXPECTED;
+        return result;
     }
 
-    HRESULT result = _dashboardHost->Initialize(*_pluginManager, _window.get(), width, height, dpi, false);
+    result = _dashboardHost->Initialize(*_pluginManager, _window.get(), width, height, dpi, false);
     if (FAILED(result))
     {
         return result;
     }
 
     // The dock window shrinks to its peek strip without resizing the swap chain: DXGI_SCALING_NONE clips the
-    // full-size back buffer to the smaller client instead of stretching it.
-    _renderer.SetDockPresentation(_dockActive);
+    // full-size back buffer to the smaller client instead of stretching it, so the buffer is the full bar even when
+    // a live reload rebuilds it while the window is the strip.
+    _renderer.SetDockPresentation(_dockActive, width, height);
     result = _renderer.Initialize(_window.get(), _forceWarp, *_dashboardHost);
     if (FAILED(result))
     {
@@ -2063,10 +2396,23 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     _rendererReady = false;
     _dashboardHost->Shutdown(false);
 
-    HRESULT applyResult = _pluginManager->Reconfigure(*settings);
+    // A reload that also switches the window kind restyles the hidden window first, so the runtime below creates its
+    // renderer once, for the new kind; a rollback restyles it back the same way.
+    const DockSettings previousDock = _dock;
+    const DockSettings nextDock = EffectiveDockSettings(settings->dock, _dockOverrides);
+    const bool switchKind = (nextDock.edge != DockEdge::None) != _dockActive;
+    HRESULT applyResult = switchKind ? RestyleWindowKind(nextDock) : S_OK;
+    if (SUCCEEDED(applyResult))
+    {
+        applyResult = _pluginManager->Reconfigure(*settings);
+    }
     if (SUCCEEDED(applyResult))
     {
         applyResult = InitializeDashboardRuntime();
+    }
+    if (SUCCEEDED(applyResult) && switchKind)
+    {
+        applyResult = FinishWindowKindSwitch();
     }
     if (SUCCEEDED(applyResult))
     {
@@ -2082,10 +2428,18 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     _renderer.Shutdown();
     _rendererReady = false;
     _dashboardHost->Shutdown(false);
-    HRESULT rollbackResult = _pluginManager->Reconfigure(*_settings);
+    HRESULT rollbackResult = switchKind ? RestyleWindowKind(previousDock) : S_OK;
+    if (SUCCEEDED(rollbackResult))
+    {
+        rollbackResult = _pluginManager->Reconfigure(*_settings);
+    }
     if (SUCCEEDED(rollbackResult))
     {
         rollbackResult = InitializeDashboardRuntime();
+    }
+    if (SUCCEEDED(rollbackResult) && switchKind)
+    {
+        rollbackResult = FinishWindowKindSwitch();
     }
     if (FAILED(rollbackResult))
     {
@@ -4980,21 +5334,7 @@ void Application::CloseMainWindow() noexcept
     }
     _pageEdgeMouseTracking = false;
     DestroyPageEdgeAffordances();
-    if (_dockResizeDrag)
-    {
-        _dockResizeDrag = false;
-        if (_window && GetCapture() == _window.get())
-        {
-            (void)ReleaseCapture();
-        }
-    }
-    if (_dockDashboardResizeTimerArmed && _window)
-    {
-        (void)KillTimer(_window.get(), kDockDashboardResizeTimerId);
-        _dockDashboardResizeTimerArmed = false;
-    }
-    _dockDashboardResizePending = false;
-    KillDockTimer();
+    StopDockInteraction();
     UnregisterDockAppBar();
     _settingsWatcher.Stop();
     DismissWidgetRaise(false);

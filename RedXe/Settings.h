@@ -250,8 +250,8 @@ struct ServiceSettings final
 };
 
 // The `dock` root member (Core_Settings.md): RedXe as a bar on one edge of one monitor. Defaults are merged by the
-// parser, so an omitted object and `{ "edge": "none" }` are the same value. The window kind is decided once at
-// startup from the effective dock (this object with the --dock* command-line overrides applied).
+// parser, so an omitted object and `{ "edge": "none" }` are the same value. The window kind follows the effective
+// dock (this object with the --dock* command-line overrides applied) at startup and on every live reload.
 struct DockSettings final
 {
     DockEdge edge = DockEdge::None;
@@ -367,13 +367,21 @@ enum class SettingsReloadStatus : std::uint8_t
 // Sets `dock.thickness` in the typed settings and the retained source document (creating `dock`, and raising
 // `version.minor` to 2 when lower); a dragged bar edge persists through this. The formatting contract applies.
 [[nodiscard]] HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept;
+// Writes `dock` into a template's source for the first start without a XENEON (Core_Settings.md "Cold load and
+// recovery"): a new member on its own line after `version`, with a comment naming why and how to turn it off, or the
+// value of an existing `dock`. Comments and every other member stay; `version.minor` rises to 2 when lower.
+[[nodiscard]] HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcept;
 
 class SettingsStore final
 {
   public:
+    // firstRunDock: when the default file is installed (missing) or reinstalled (recovery), the template is written
+    // with this dock (PatchFirstRunDock). The caller passes it only when XENEON discovery found no display; a
+    // `--settings` file and the self-test never install and ignore it.
     [[nodiscard]] HRESULT Initialize(bool selfTest, std::wstring_view selectedPath,
                                      std::unique_ptr<AppSettings>& settings,
-                                     std::wstring_view localAppDataOverride = {}) noexcept;
+                                     std::wstring_view localAppDataOverride = {},
+                                     const DockSettings* firstRunDock = nullptr) noexcept;
     [[nodiscard]] HRESULT TryLoadChanged(std::unique_ptr<AppSettings>& settings, SettingsFileStamp& stamp,
                                          SettingsReloadStatus& status) noexcept;
     void MarkApplied(const SettingsFileStamp& stamp) noexcept;
@@ -388,6 +396,8 @@ class SettingsStore final
     [[nodiscard]] const std::wstring& LogsDirectory() const noexcept;
     [[nodiscard]] const std::wstring& SchemaPath() const noexcept;
     [[nodiscard]] bool UsedInitialFallback() const noexcept;
+    // True when Initialize installed the template with the first-run dock.
+    [[nodiscard]] bool InstalledFirstRunDock() const noexcept;
     [[nodiscard]] const std::wstring& InitialNotice() const noexcept;
     [[nodiscard]] const std::wstring& LastDiagnosticText() const noexcept;
     [[nodiscard]] HRESULT PersistPatchedDocument(const AppSettings& settings) noexcept;
@@ -405,6 +415,7 @@ class SettingsStore final
     std::optional<SettingsFileStamp> _lastRejectedStamp;
     bool _missingObserved = false;
     bool _usedInitialFallback = false;
+    bool _installedFirstRunDock = false;
     bool _selfTest = false;
     bool _suppressDocumentWrites = false;
     std::wstring _lastDiagnosticText;
