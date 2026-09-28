@@ -613,13 +613,14 @@ function Invoke-RedXeStreamingProcess {
         $encoding = [Text.UTF8Encoding]::new($false)
         $logWriter = [IO.StreamWriter]::new($resolvedLogPath, $false, $encoding)
 
-        # The budget is the child's, so it starts with the child. The first bounded call in a session compiles the
-        # job type above, which took over a second on a loaded machine, and that must not come out of the child's time.
-        if ($TimeoutSeconds -gt 0) {
-            $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-        }
         if (-not $process.Start()) {
             throw "Unable to start '$FilePath'."
+        }
+        # The budget is the child's, so it starts once the child exists. The first bounded call in a session compiles
+        # the job type above, which took over a second on a loaded machine, and neither that nor a slow process
+        # creation may come out of the child's time.
+        if ($TimeoutSeconds -gt 0) {
+            $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
         }
         if ($job) {
             # Assigned before any output is read: a child that already spawned descendants is still contained,
