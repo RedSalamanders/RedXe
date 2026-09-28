@@ -3315,7 +3315,12 @@ void TestHostJsonlLog(bool& success) noexcept
         }
         return result;
     };
-    Check(SUCCEEDED(flushLog()), L"FlushLog waits for the writer to drain", success);
+    const HRESULT drained = flushLog();
+    Check(SUCCEEDED(drained), L"FlushLog waits for the writer to drain", success);
+    if (FAILED(drained))
+    {
+        return; // Every later flush would wait out another timeout on a writer that never drained.
+    }
     constexpr size_t flushBatches = 64;
     constexpr size_t recordsPerBatch = 4;
     const RedXeLogRecord pulse{sizeof(pulse), RedXeLogLevelInfo,   nullptr, nullptr,
