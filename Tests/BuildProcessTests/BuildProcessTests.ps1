@@ -259,50 +259,76 @@ exit 17
     # naming the executable and the log; the partial output stays in the log. The hardest shape is exercised: the
     # child starts a grandchild that inherits the redirected pipe (`start /b` keeps the standard handles), then
     # exits, so the pipe never reaches end of file and only job containment can reach the survivor once its parent
-    # is gone. cmd.exe starts instantly, so the fixture's own startup cannot eat the budget on a slow runner; the
-    # grandchild is recognized by a marker in its command line.
+    # is gone. The grandchild is recognized by a marker in its command line.
+    #
+    # A run proves that only if the child reached that shape inside its budget, and on a loaded machine starting
+    # cmd.exe alone has taken over a second. So the child writes staller.ready after its last line: a run without it
+    # is inconclusive and is repeated once with a longer budget. With it, a missing line is output the helper lost,
+    # and that fails at once.
     $stallMarker = 'RedXeStallFixture-' + [guid]::NewGuid().ToString('N')
     $stallerPath = Join-Path $presentationTestRoot 'staller.cmd'
+    $stallReadyPath = Join-Path $presentationTestRoot 'staller.ready'
     @"
 @echo off
 echo staller:started
-start /b "" cmd.exe /d /c "ping.exe -n 60 127.0.0.1 > nul & rem $stallMarker"
+start /b "" cmd.exe /d /c "ping.exe -n 120 127.0.0.1 > nul & rem $stallMarker"
 echo staller:grandchild
+type nul > "%~dp0staller.ready"
 exit /b 0
 "@ | Set-Content -LiteralPath $stallerPath -Encoding ASCII
     $stallLogPath = Join-Path $presentationTestRoot 'stalled.log'
-    $timeoutStopwatch = [Diagnostics.Stopwatch]::StartNew()
-    $timeoutMessage = $null
-    try {
-        [void](Invoke-RedXeStreamingProcess `
-            -FilePath $env:ComSpec `
-            -Arguments @('/d', '/c', $stallerPath) `
-            -WorkingDirectory $presentationTestRoot `
-            -LogPath $stallLogPath `
-            -TimeoutSeconds 5 `
-            -OutputLineCallback { param([string] $Line, [bool] $IsError) })
+    $stallReady = $false
+    $stallLogText = ''
+    $stallBudgets = @(5, 20)
+    foreach ($stallBudget in $stallBudgets) {
+        Remove-Item -LiteralPath $stallReadyPath -Force -ErrorAction SilentlyContinue
+        $timeoutStopwatch = [Diagnostics.Stopwatch]::StartNew()
+        $timeoutMessage = $null
+        try {
+            [void](Invoke-RedXeStreamingProcess `
+                -FilePath $env:ComSpec `
+                -Arguments @('/d', '/c', $stallerPath) `
+                -WorkingDirectory $presentationTestRoot `
+                -LogPath $stallLogPath `
+                -TimeoutSeconds $stallBudget `
+                -OutputLineCallback { param([string] $Line, [bool] $IsError) })
+        }
+        catch {
+            $timeoutMessage = $_.Exception.Message
+        }
+        $timeoutStopwatch.Stop()
+        $stallReady = Test-Path -LiteralPath $stallReadyPath
+        $stallLogText = if (Test-Path -LiteralPath $stallLogPath) { Get-Content -LiteralPath $stallLogPath -Raw } else { '' }
+        if (-not $timeoutMessage -or $timeoutMessage -notmatch "did not finish within $stallBudget s and was terminated" -or
+            $timeoutMessage -notmatch [regex]::Escape($stallLogPath)) {
+            throw "A stalled run was not reported as terminated at its budget: '$timeoutMessage' (log: $stallLogText)"
+        }
+        # The grandchild pings for two minutes, so returning this soon means the budget ended it.
+        if ($timeoutStopwatch.Elapsed.TotalSeconds -gt $stallBudget + 35) {
+            throw "Terminating the stalled run took $($timeoutStopwatch.Elapsed.TotalSeconds) s."
+        }
+        if ($stallLogText -notmatch 'TIMEOUT:') {
+            throw "The stalled run log lacks the timeout record: $stallLogText"
+        }
+        $survivors = @(Get-CimInstance Win32_Process -Filter "Name='cmd.exe' OR Name='ping.exe'" -ErrorAction Stop |
+            Where-Object { $_.CommandLine -and ($_.CommandLine.Contains($stallMarker) -or $_.CommandLine.Contains('staller.cmd')) })
+        if ($survivors.Count -ne 0) {
+            foreach ($survivor in $survivors) { Stop-Process -Id $survivor.ProcessId -Force -ErrorAction SilentlyContinue }
+            throw "A process of the stalled run survived its termination: $(($survivors | ForEach-Object { "$($_.Name) $($_.ProcessId)" }) -join ', ')"
+        }
+        if ($stallReady) {
+            break
+        }
+        if ($stallBudget -ne $stallBudgets[-1]) {
+            Write-Host ("The stall fixture did not reach its grandchild within $stallBudget s; " +
+                'repeating with a longer budget.') -ForegroundColor DarkYellow
+        }
     }
-    catch {
-        $timeoutMessage = $_.Exception.Message
+    if (-not $stallReady) {
+        throw "The stall fixture did not reach its grandchild even within $($stallBudgets[-1]) s: $stallLogText"
     }
-    $timeoutStopwatch.Stop()
-    $stallLogText = if (Test-Path -LiteralPath $stallLogPath) { Get-Content -LiteralPath $stallLogPath -Raw } else { '' }
-    if (-not $timeoutMessage -or $timeoutMessage -notmatch 'did not finish within 5 s and was terminated' -or
-        $timeoutMessage -notmatch [regex]::Escape($stallLogPath)) {
-        throw "A stalled run was not reported as terminated at its budget: '$timeoutMessage' (log: $stallLogText)"
-    }
-    if ($timeoutStopwatch.Elapsed.TotalSeconds -gt 40) {
-        throw "Terminating the stalled run took $($timeoutStopwatch.Elapsed.TotalSeconds) s."
-    }
-    if ($stallLogText -notmatch 'staller:started' -or $stallLogText -notmatch 'staller:grandchild' -or
-        $stallLogText -notmatch 'TIMEOUT:') {
-        throw "The stalled run log lacks the partial output or the timeout record: $stallLogText"
-    }
-    $survivors = @(Get-CimInstance Win32_Process -Filter "Name='cmd.exe' OR Name='ping.exe'" -ErrorAction Stop |
-        Where-Object { $_.CommandLine -and ($_.CommandLine.Contains($stallMarker) -or $_.CommandLine.Contains('staller.cmd')) })
-    if ($survivors.Count -ne 0) {
-        foreach ($survivor in $survivors) { Stop-Process -Id $survivor.ProcessId -Force -ErrorAction SilentlyContinue }
-        throw "A process of the stalled run survived its termination: $(($survivors | ForEach-Object { "$($_.Name) $($_.ProcessId)" }) -join ', ')"
+    if ($stallLogText -notmatch 'staller:started' -or $stallLogText -notmatch 'staller:grandchild') {
+        throw "The stalled run log lacks output the child wrote before it was terminated: $stallLogText"
     }
 
     $formattedDuration = Format-RedXeBuildDuration -Duration ([TimeSpan]::FromMilliseconds(3723004))

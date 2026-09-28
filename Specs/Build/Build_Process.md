@@ -61,8 +61,12 @@ and remove its isolated artifacts. It MUST also validate terminal-path selection
 diagnostic counting, banner identity, argument-safe streaming, combined logging, child exit-code propagation, and
 the `-TimeoutSeconds` budget of `Invoke-RedXeStreamingProcess`: a child that outlives its budget is terminated with
 its process tree (a descendant of the invocation, never an independently launched process), the partial output and a
-`TIMEOUT:` record stay in the log, and the call throws naming the executable and the log. `build.ps1` keeps the
-unbounded default; `test.ps1` applies a fifteen-minute budget to every standalone test executable.
+`TIMEOUT:` record stay in the log, and the call throws naming the executable and the log. The budget is counted from
+the child's start, so the helper's own setup (compiling its job type on first use) never shortens it. The stall
+fixture proves containment only once its child has started the pipe-holding grandchild and exited: a run that did not
+get that far inside the budget is inconclusive and is repeated once with a longer budget, and a line the child wrote
+that is missing from the log fails. `build.ps1` keeps the unbounded default; `test.ps1` applies a fifteen-minute
+budget to every standalone test executable.
 
 Changes to this contract require:
 
