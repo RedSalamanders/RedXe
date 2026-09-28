@@ -48,6 +48,15 @@ constexpr DWORD kPopupWindowStyle = WS_POPUP | WS_CLIPCHILDREN;
 // always be reached; ABN_FULLSCREENAPP lowers it beneath a full-screen application.
 constexpr DWORD kDockExtendedStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
 
+// The private messages the main window receives are distinct.
+static_assert(TrayIcon::kCommandMessage != Renderer::kOcclusionStatusMessage &&
+              TrayIcon::kCommandMessage != SettingsWatcher::kSettingsChangedMessage &&
+              TrayIcon::kCommandMessage != PluginHost::kDataSnapshotInvalidateMessage &&
+              TrayIcon::kCommandMessage != Application::kPageEdgeHoverMessage &&
+              TrayIcon::kCommandMessage != PluginHost::kHostActionMessage &&
+              TrayIcon::kCommandMessage != Application::kDockAppBarMessage &&
+              TrayIcon::kCommandMessage != Application::kScreenshotCompleteMessage);
+
 [[nodiscard]] BOOL HostSetPointerCapture(HWND window, UINT32 pointerId) noexcept
 {
     using Function = BOOL(WINAPI*)(HWND, UINT32);
@@ -328,44 +337,6 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
     return S_OK;
 }
 
-// The dock written into a default settings file installed without a XENEON (Core_Settings.md "Cold load and
-// recovery"): an auto-hiding bar on the primary display's bottom edge, as deep as the XENEON's proportions make it
-// along that display (DockFirstRunThicknessDips).
-[[nodiscard]] bool MakeFirstRunDock(DockSettings& dock) noexcept
-{
-    dock = DefaultDockSettings();
-    // (0,0) can belong to a secondary display when the primary is at a negative origin.
-    HMONITOR primary = nullptr;
-    const auto findPrimary = [](HMONITOR monitor, HDC, LPRECT, LPARAM context) noexcept -> BOOL
-    {
-        MONITORINFO info{};
-        info.cbSize = sizeof(info);
-        if (GetMonitorInfoW(monitor, &info) && (info.dwFlags & MONITORINFOF_PRIMARY) != 0)
-        {
-            *reinterpret_cast<HMONITOR*>(context) = monitor;
-            return FALSE;
-        }
-        return TRUE;
-    };
-    (void)EnumDisplayMonitors(nullptr, nullptr, findPrimary, reinterpret_cast<LPARAM>(&primary));
-    MONITORINFO information{};
-    information.cbSize = sizeof(information);
-    if (!primary || !GetMonitorInfoW(primary, &information))
-    {
-        return false;
-    }
-    UINT dpiX = USER_DEFAULT_SCREEN_DPI;
-    UINT dpiY = USER_DEFAULT_SCREEN_DPI;
-    if (FAILED(GetDpiForMonitor(primary, MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) || dpiX == 0)
-    {
-        dpiX = USER_DEFAULT_SCREEN_DPI;
-    }
-    dock.edge = DockEdge::Bottom;
-    dock.mode = DockMode::Autohide;
-    dock.thicknessDips = DockFirstRunThicknessDips(information.rcMonitor, information.rcWork, dock.edge, dpiX);
-    return true;
-}
-
 // Friendly display names for the dock's `name:<substring>` selector: one (GDI source name, target friendly name)
 // pair per active display path, bounded so the lookup allocates nothing on the UI thread after the query buffers.
 constexpr size_t kDockMaximumDisplays = 16;
@@ -423,6 +394,90 @@ struct DisplayFriendlyName final
         return count;
     }
     return count;
+}
+
+// Evidence for the first-run edge (DockFirstRunEdge): an autohide bar registered on `appBarEdge` of `monitor`, which is
+// how an auto-hiding taskbar holds its edge without trimming the work area.
+[[nodiscard]] bool AutohideBarOnEdge(UINT appBarEdge, const RECT& monitor) noexcept
+{
+    APPBARDATA data{};
+    data.cbSize = sizeof(data);
+    data.uEdge = appBarEdge;
+    data.rc = monitor;
+    return SHAppBarMessage(ABM_GETAUTOHIDEBAREX, &data) != 0;
+}
+
+// The primary taskbar's edge, or None without a taskbar (Explorer not started yet).
+[[nodiscard]] DockEdge PrimaryTaskbarEdge() noexcept
+{
+    APPBARDATA data{};
+    data.cbSize = sizeof(data);
+    return SHAppBarMessage(ABM_GETTASKBARPOS, &data) != 0 ? DockEdgeFromAppBarEdge(data.uEdge) : DockEdge::None;
+}
+
+// The dock written into a default settings file installed without a XENEON (Core_Settings.md "Cold load and
+// recovery"; UI_XeneonDisplayWindowing.md "First start without a XENEON"): an auto-hiding bar on the second screen
+// when there is more than one display (DockFirstRunMonitor), on the horizontal edge the taskbar leaves free there
+// (DockFirstRunEdge), as deep as the XENEON's proportions make it along that display (DockFirstRunThicknessDips).
+[[nodiscard]] bool MakeFirstRunDock(DockSettings& dock) noexcept
+{
+    dock = DefaultDockSettings();
+    // Enumeration order is the order the `secondary` selector resolves in at runtime; the primary is the display
+    // flagged MONITORINFOF_PRIMARY, since (0,0) can belong to another display.
+    struct Enumeration final
+    {
+        std::array<HMONITOR, kDockMaximumDisplays> handles{};
+        std::array<DockMonitorCandidate, kDockMaximumDisplays> candidates{};
+        size_t count = 0;
+    } enumeration;
+    const auto collect = [](HMONITOR monitor, HDC, LPRECT, LPARAM context) noexcept -> BOOL
+    {
+        auto* target = reinterpret_cast<Enumeration*>(context);
+        if (target->count >= target->handles.size())
+        {
+            return FALSE;
+        }
+        MONITORINFO info{};
+        info.cbSize = sizeof(info);
+        if (!GetMonitorInfoW(monitor, &info))
+        {
+            return TRUE;
+        }
+        DockMonitorCandidate& candidate = target->candidates[target->count];
+        candidate.monitor = info.rcMonitor;
+        candidate.work = info.rcWork;
+        candidate.primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
+        target->handles[target->count] = monitor;
+        ++target->count;
+        return TRUE;
+    };
+    (void)EnumDisplayMonitors(nullptr, nullptr, collect, reinterpret_cast<LPARAM>(&enumeration));
+    const std::string_view monitorSelector = DockFirstRunMonitor(enumeration.count);
+    RedXeActions::MonitorSelector selector{};
+    bool fellBack = false;
+    const size_t chosen =
+        RedXeActions::ParseMonitorSelector(monitorSelector, false, selector)
+            ? SelectDockMonitor(selector, {}, enumeration.candidates.data(), enumeration.count, fellBack)
+            : SIZE_MAX;
+    if (chosen == SIZE_MAX)
+    {
+        return false;
+    }
+    const DockMonitorCandidate& display = enumeration.candidates[chosen];
+    UINT dpiX = USER_DEFAULT_SCREEN_DPI;
+    UINT dpiY = USER_DEFAULT_SCREEN_DPI;
+    if (FAILED(GetDpiForMonitor(enumeration.handles[chosen], MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) || dpiX == 0)
+    {
+        dpiX = USER_DEFAULT_SCREEN_DPI;
+    }
+    dock.edge = DockFirstRunEdge(display.monitor, display.work, AutohideBarOnEdge(ABE_TOP, display.monitor),
+                                 AutohideBarOnEdge(ABE_BOTTOM, display.monitor), PrimaryTaskbarEdge());
+    dock.mode = DockMode::Autohide;
+    dock.monitor = SettingsText{};
+    monitorSelector.copy(dock.monitor.utf8.data(), monitorSelector.size());
+    dock.monitor.bytes = static_cast<uint32_t>(monitorSelector.size());
+    dock.thicknessDips = DockFirstRunThicknessDips(display.monitor, display.work, dock.edge, dpiX);
+    return true;
 }
 
 [[nodiscard]] size_t CountGpuWidgets(const PluginManager& plugins) noexcept
@@ -713,8 +768,14 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     }
     if (_settingsStore.InstalledFirstRunDock())
     {
+        std::array<char, 192> message{};
+        (void)std::snprintf(message.data(), message.size(),
+                            "No XENEON display was found; the installed settings run RedXe as an auto-hiding bar on "
+                            "the %s edge of the %.*s display.",
+                            DockEdgeName(_settings->dock.edge), static_cast<int>(_settings->dock.monitor.bytes),
+                            _settings->dock.monitor.utf8.data());
         (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "dock-first-run",
-                           "No XENEON display was found; the installed settings run RedXe as an auto-hiding bar.");
+                           message.data());
     }
 
     // The dock window kind replaces the titled and fullscreen rows of the mode table for this process, in both
@@ -812,6 +873,9 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     {
         return FAILED(_runtimeFailure) ? 5 : 0;
     }
+    // The notification-area icon belongs to an interactive run; RunSelfTest never allows it.
+    _trayIconAllowed = true;
+    ApplyTrayIconSettings();
 
     result = _settingsWatcher.Start(_window.get(), _settingsStore.SettingsDirectory());
     if (FAILED(result))
@@ -865,6 +929,10 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         {
             TickRaiseSettle();
         }
+        if (_dockSlideActive)
+        {
+            TickDockSlide();
+        }
         if (_screenshot.pending && TickScreenshot())
         {
             CloseMainWindow();
@@ -888,7 +956,8 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             DashboardRequiresContinuousFrames(),
             _frameInvalidated,
             PageNavigationInProgress(),
-            OverlayMotionInProgress(),
+            // A dock slide is visible motion like a raise settle: every frame presents until it ends.
+            OverlayMotionInProgress() || _dockSlideActive,
             DockHidden(),
         });
         if (frameAction == HostFrameAction::ProbeOcclusion)
@@ -922,7 +991,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
                 DashboardRequiresContinuousFrames(),
                 _frameInvalidated,
                 PageNavigationInProgress(),
-                OverlayMotionInProgress(),
+                OverlayMotionInProgress() || _dockSlideActive,
                 DockHidden(),
             });
         }
@@ -1549,6 +1618,8 @@ HRESULT Application::PlaceDock(bool resizeDashboard) noexcept
     {
         return S_OK;
     }
+    // A placement starts from the size the reveal state asks for, not from a frame of a slide.
+    SettleDockSlide();
     _dockPlacing = true;
     const auto clearPlacing = wil::scope_exit([this]() noexcept { _dockPlacing = false; });
     DockMonitorPlacement placement{};
@@ -1757,11 +1828,16 @@ void Application::StopDockInteraction() noexcept
     _dockDashboardResizeTimerArmed = false;
     _dockDashboardResizePending = false;
     KillDockTimer();
+    // A slide stops where it is; whoever places the window next sizes it, and the dashboard loses the translation.
+    _dockSlideActive = false;
+    ApplyDockSlideOffset(POINT{});
 }
 
 void Application::ResetDockPlacementState() noexcept
 {
     _dockReveal = DockRevealState::Revealed;
+    _dockSlideActive = false;
+    _dockVisiblePx = 0;
     _dockFullRect = RECT{};
     _dockMonitorRect = RECT{};
     _dockWorkRect = RECT{};
@@ -2059,6 +2135,7 @@ void Application::BeginDockResize(HWND window) noexcept
     {
         return;
     }
+    SettleDockSlide();
     CancelInteractivePointer();
     ClearPageEdgeHover();
     _dockResizeDrag = true;
@@ -2206,6 +2283,7 @@ DockHolds Application::CurrentDockHolds() const noexcept
     holds.dialogShown = _settingsErrorDialog != nullptr;
     holds.pinned = _screenshot.pending;
     holds.pinnedByAction = _dockPinnedByAction;
+    holds.revealSliding = _dockSlideActive && _dockSlideRevealing;
     return holds;
 }
 
@@ -2219,9 +2297,7 @@ void Application::OnDockEvent(DockRevealEvent event) noexcept
         (event == DockRevealEvent::ActionToggle && DockStateShowsStrip(_dockReveal)))
     {
         // An action-revealed bar stays until another hold appears and clears; the flag drops as soon as one does.
-        DockHolds holds = CurrentDockHolds();
-        holds.pinnedByAction = false;
-        _dockPinnedByAction = !holds.Any();
+        _dockPinnedByAction = !CurrentDockHolds().AnyOther();
     }
     else if (event == DockRevealEvent::ActionHide || event == DockRevealEvent::ActionToggle)
     {
@@ -2239,17 +2315,11 @@ void Application::EvaluateDockHolds() noexcept
         return;
     }
     DockHolds holds = CurrentDockHolds();
-    if (_dockPinnedByAction)
+    if (_dockPinnedByAction && holds.AnyOther())
     {
+        // Another hold appeared: the action's pin gives way to it (the reveal's own slide does not count).
+        _dockPinnedByAction = false;
         holds.pinnedByAction = false;
-        if (holds.Any())
-        {
-            _dockPinnedByAction = false;
-        }
-        else
-        {
-            holds.pinnedByAction = true;
-        }
     }
     const DockRevealState next = NextDockRevealState(_dockReveal, DockRevealEvent::HoldsChanged, holds,
                                                      _dock.revealDelayMilliseconds, _dock.hideDelayMilliseconds);
@@ -2273,29 +2343,150 @@ void Application::ApplyDockRevealState(DockRevealState state) noexcept
     {
         ArmDockTimer(_dock.hideDelayMilliseconds);
     }
-    if (DockStateShowsStrip(state) == wasStrip)
+    const bool toStrip = DockStateShowsStrip(state);
+    if (toStrip == wasStrip)
     {
         return;
     }
-    // Reveal or hide: one SetWindowPos between the full rectangle and the peek strip. The dashboard and swap chain
-    // keep the full size (DXGI_SCALING_NONE clips the back buffer to the strip), so no ResizeBuffers, no layout
-    // recompute, and no OnTargetSizeChanged happen here.
-    if (_window && _dockFullRect.right > _dockFullRect.left)
+    // Reveal or hide: the window moves between the full rectangle and the peek strip. The dashboard and swap chain
+    // keep the full size (DXGI_SCALING_NONE clips the back buffer to the window), so no ResizeBuffers, no layout
+    // recompute, and no OnTargetSizeChanged happen here. With dock.animationMilliseconds the move is a slide over the
+    // presented frames that follow (TickDockSlide), starting where a running slide left the bar; otherwise it is one
+    // SetWindowPos and one frame.
+    const LONG fullPx = DockFullPixels();
+    const LONG peekPx = DockPeekPixels();
+    const LONG targetPx = toStrip ? peekPx : fullPx;
+    const LONG fromPx = _dockSlideActive ? _dockVisiblePx : (wasStrip ? peekPx : fullPx);
+    const uint32_t durationMilliseconds =
+        DockSlideDurationMilliseconds(_dock.animationMilliseconds, fromPx, targetPx, peekPx, fullPx);
+    LARGE_INTEGER now{};
+    if (durationMilliseconds == 0 || _qpcFrequency == 0 || !_rendererReady || !QueryPerformanceCounter(&now))
     {
-        const RECT target = DockHidden()
-                                ? DockHiddenRect(_dockFullRect, _dock.edge, static_cast<LONG>(_dock.peekPixels))
-                                : _dockFullRect;
+        _dockSlideActive = false;
+        SetDockVisiblePixels(targetPx);
+        FinishDockRevealChange();
+        return;
+    }
+    _dockSlideActive = true;
+    _dockSlideRevealing = !toStrip;
+    _dockSlideFromPx = fromPx;
+    _dockSlideToPx = targetPx;
+    _dockSlideStartQpc = static_cast<UINT64>(now.QuadPart);
+    _dockSlideDurationQpc = std::max<UINT64>(1, _qpcFrequency * durationMilliseconds / 1000);
+    // The first frame already shows the bar at its starting size: a reveal makes the dashboard visible now, a hide
+    // keeps it visible until the strip is reached.
+    SetDockVisiblePixels(fromPx);
+    FinishDockRevealChange();
+}
+
+LONG Application::DockFullPixels() const noexcept
+{
+    return _dockFullRect.right > _dockFullRect.left && _dockFullRect.bottom > _dockFullRect.top
+               ? DockCrossPixels(_dockFullRect, _dock.edge)
+               : 0;
+}
+
+LONG Application::DockPeekPixels() const noexcept
+{
+    return std::clamp(static_cast<LONG>(_dock.peekPixels), 1L, std::max(1L, DockFullPixels()));
+}
+
+void Application::SetDockVisiblePixels(LONG visiblePx) noexcept
+{
+    const LONG fullPx = DockFullPixels();
+    if (!_window || fullPx <= 0)
+    {
+        return;
+    }
+    visiblePx = std::clamp(visiblePx, 1L, fullPx);
+    // A slide repeats sizes near its ends; the one-step change and the end of a slide always place the window.
+    if (!_dockSlideActive || visiblePx != _dockVisiblePx)
+    {
+        const RECT target = DockHiddenRect(_dockFullRect, _dock.edge, visiblePx);
         _dockResizing = true;
         (void)SetWindowPos(_window.get(), nullptr, target.left, target.top, target.right - target.left,
                            target.bottom - target.top, SWP_NOACTIVATE | SWP_NOZORDER);
         _dockResizing = false;
     }
+    _dockVisiblePx = visiblePx;
+    ApplyDockSlideOffset(_dockSlideActive ? DockSlideContentOffset(_dock.edge, fullPx, visiblePx) : POINT{});
+}
+
+void Application::ApplyDockSlideOffset(POINT offset) noexcept
+{
+    bool changed = false;
+    for (DashboardHost* host : {_dashboardHost.get(), _transitionDashboardHost.get()})
+    {
+        if (!host)
+        {
+            continue;
+        }
+        const POINT current = host->SlideOffset();
+        if (current.x != offset.x || current.y != offset.y)
+        {
+            // A native container that cannot move keeps its place for one frame; the next offset retries it.
+            (void)host->SetSlideOffset(offset);
+            changed = true;
+        }
+    }
+    if (changed)
+    {
+        if (_rendererReady)
+        {
+            (void)_renderer.RefreshLayout();
+        }
+        _frameInvalidated = true;
+    }
+}
+
+void Application::TickDockSlide() noexcept
+{
+    if (!_dockSlideActive)
+    {
+        return;
+    }
+    float t = 1.0f;
+    LARGE_INTEGER now{};
+    if (QueryPerformanceCounter(&now))
+    {
+        const UINT64 elapsed = static_cast<UINT64>(now.QuadPart) - _dockSlideStartQpc;
+        t = elapsed >= _dockSlideDurationQpc ? 1.0f
+                                             : static_cast<float>(elapsed) / static_cast<float>(_dockSlideDurationQpc);
+    }
+    if (t < 1.0f)
+    {
+        SetDockVisiblePixels(DockSlideVisiblePixels(_dockSlideFromPx, _dockSlideToPx, t, _dockSlideRevealing));
+        _frameInvalidated = true;
+        return;
+    }
+    _dockSlideActive = false;
+    SetDockVisiblePixels(_dockSlideToPx);
+    FinishDockRevealChange();
+}
+
+void Application::SettleDockSlide() noexcept
+{
+    if (!_dockSlideActive)
+    {
+        return;
+    }
+    _dockSlideActive = false;
+    SetDockVisiblePixels(DockHiddenOrHiding() ? DockPeekPixels() : DockFullPixels());
+    FinishDockRevealChange();
+}
+
+void Application::FinishDockRevealChange() noexcept
+{
     if (DockHidden())
     {
         ClearKeyboardFocus();
         CancelInteractivePointer();
         ClearPageEdgeHover();
-        _dockPointerInside = false;
+        // A pointer that entered a bar sliding out has already started the reveal dwell and is still inside.
+        if (_dockReveal != DockRevealState::RevealPending)
+        {
+            _dockPointerInside = false;
+        }
     }
     ClearScheduledFrameDeadline();
     _frameInvalidated = true;
@@ -2368,9 +2559,9 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
         settings->versionMajor == _settings->versionMajor && settings->versionMinor == _settings->versionMinor &&
         settings->logRetentionDays == _settings->logRetentionDays &&
         settings->backgroundRgb == _settings->backgroundRgb && settings->dock == _settings->dock &&
-        settings->plugins == _settings->plugins && settings->pluginCount == _settings->pluginCount &&
-        settings->services == _settings->services && settings->serviceCount == _settings->serviceCount &&
-        settings->dashboard == _settings->dashboard;
+        settings->trayIcon == _settings->trayIcon && settings->plugins == _settings->plugins &&
+        settings->pluginCount == _settings->pluginCount && settings->services == _settings->services &&
+        settings->serviceCount == _settings->serviceCount && settings->dashboard == _settings->dashboard;
     if (sameRuntime)
     {
         _settings = std::move(settings);
@@ -2378,6 +2569,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     }
     // A repaired deployment gets one retry of every publisher that could not be loaded.
     PluginHost::Instance().ResetActionPublishers();
+    SettleDockSlide();
     DismissWidgetRaise(false);
     CancelPageNavigation();
     _wheel.Reset();
@@ -2387,6 +2579,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
         ApplyDockSettings();
+        ApplyTrayIconSettings();
         PublishHostState();
         ShowActionNotices();
         return S_OK;
@@ -2420,6 +2613,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
         ApplyDockSettings();
+        ApplyTrayIconSettings();
         PublishHostState();
         ShowActionNotices();
         return S_OK;
@@ -2446,6 +2640,73 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
         return rollbackResult;
     }
     return applyResult;
+}
+
+void Application::ApplyTrayIconSettings() noexcept
+{
+    if (!_trayIconAllowed || !_settings || !_settings->trayIcon || !_window)
+    {
+        _trayIcon.Hide();
+        return;
+    }
+    if (_trayIcon.Shown())
+    {
+        return;
+    }
+    // S_FALSE: the icon was not added, typically because there is no taskbar yet (a start at sign-in); the owner adds
+    // it when the taskbar announces itself.
+    const HRESULT result = _trayIcon.Show(_instance, _window.get());
+    if (result != S_OK)
+    {
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                           "tray-icon-failed",
+                           FAILED(result) ? "The notification-area icon could not be created."
+                                          : "The notification-area icon was not added; it is added when the taskbar "
+                                            "next starts.",
+                           result);
+    }
+}
+
+void Application::OnTrayCommand(TrayCommand command) noexcept
+{
+    switch (command)
+    {
+    case TrayCommand::EditSettings:
+        EditSettingsFile();
+        break;
+    case TrayCommand::Exit:
+        CloseMainWindow();
+        break;
+    default:
+        break;
+    }
+}
+
+// The settings file this process watches (the default file or `--settings`), opened by its default app: the editor
+// the person associated with .json files. Unlike `redxe.settings.edit`, the shell's own UI stays on, so a file type
+// without an association offers the Open With picker and a missing file is reported instead of failing silently. It
+// works while the settings-error dialog is up, which is when the file most needs editing.
+void Application::EditSettingsFile() noexcept
+{
+    const std::wstring& path = _settingsStore.SettingsPath();
+    if (path.empty())
+    {
+        return;
+    }
+    // An editor that is already running takes the file over and must be able to come to the front.
+    (void)AllowSetForegroundWindow(ASFW_ANY);
+    SHELLEXECUTEINFOW info{};
+    info.cbSize = sizeof(info);
+    info.lpFile = path.c_str();
+    info.lpDirectory =
+        _settingsStore.SettingsDirectory().empty() ? nullptr : _settingsStore.SettingsDirectory().c_str();
+    info.nShow = SW_SHOWNORMAL;
+    if (!ShellExecuteExW(&info))
+    {
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                           "tray-edit-settings-failed", "The settings file could not be opened in its editor.",
+                           HRESULT_FROM_WIN32(GetLastError()));
+    }
 }
 
 HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPageIndex) noexcept
@@ -2510,6 +2771,9 @@ HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPa
                                    static_cast<UINT>(client.bottom), dpi, false);
     if (SUCCEEDED(result))
         result = dashboard->SetHorizontalOffset(_pageCurrentOffset + direction * client.right);
+    // Both pages share a dock slide's translation (zero once settled, as it is when navigation starts).
+    if (SUCCEEDED(result) && _dashboardHost)
+        result = dashboard->SetSlideOffset(_dashboardHost->SlideOffset());
     if (SUCCEEDED(result))
         result = _renderer.SetTransitionDashboard(dashboard.get());
     if (SUCCEEDED(result))
@@ -2727,7 +2991,7 @@ bool Application::TickScreenshot() noexcept
     {
         // Jump only once the first page is live and no swipe or raise is settling; the wait starts after the jump
         // so the target page (and the services reacting to it) has the whole delay to settle.
-        if (!_rendererReady || _pageSettleActive || _raiseSettleActive)
+        if (!_rendererReady || _pageSettleActive || _raiseSettleActive || _dockSlideActive)
         {
             return false;
         }
@@ -2741,7 +3005,7 @@ bool Application::TickScreenshot() noexcept
         (void)SetTimer(_window.get(), kScreenshotTimerId, std::max<UINT>(_screenshot.delayMilliseconds, 1U), nullptr);
         return false;
     }
-    if (now < _screenshot.dueTick || _pageSettleActive || _raiseSettleActive)
+    if (now < _screenshot.dueTick || _pageSettleActive || _raiseSettleActive || _dockSlideActive)
     {
         return false;
     }
@@ -3069,6 +3333,8 @@ void Application::ClearPageEdgeHover() noexcept
 
 HRESULT Application::NavigateToAdjacentPage(int direction) noexcept
 {
+    // Page geometry comes from the client, which a dock slide is still changing.
+    SettleDockSlide();
     if (!_window || !_rendererReady || _raisedActive || _pageSettleActive || _pagePointerActive)
     {
         return E_UNEXPECTED;
@@ -3102,6 +3368,7 @@ HRESULT Application::NavigateToAdjacentPage(int direction) noexcept
 
 HRESULT Application::NavigateToPage(uint32_t pageIndex) noexcept
 {
+    SettleDockSlide();
     if (!_window || !_rendererReady || !_settings || _raisedActive || _pageSettleActive || _pagePointerActive)
     {
         return E_UNEXPECTED;
@@ -4759,6 +5026,8 @@ void Application::OnClientActivateAttempt(HWND window, POINT position, ULONGLONG
 
 HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
 {
+    // The raise lays out against the client, which a dock slide is still changing.
+    SettleDockSlide();
     if (_raisedActive || !_dashboardHost || !_rendererReady || widgetIndex >= _dashboardHost->WidgetCount())
     {
         return E_UNEXPECTED;
@@ -5264,7 +5533,8 @@ void Application::RefreshScheduledFrameDeadline() noexcept
 {
     ClearScheduledFrameDeadline();
     if (!_windowVisible || !_displayPoweredOn || !_rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
-        DashboardRequiresContinuousFrames() || PageNavigationInProgress() || OverlayMotionInProgress() || DockHidden())
+        DashboardRequiresContinuousFrames() || PageNavigationInProgress() || OverlayMotionInProgress() ||
+        _dockSlideActive || DockHidden())
     {
         return;
     }
@@ -5320,6 +5590,9 @@ HRESULT Application::UpdateDashboardVisibility() noexcept
 
 void Application::CloseMainWindow() noexcept
 {
+    // The icon goes with the window it commands; a crash skips this and the shell drops the icon on the next hover.
+    _trayIconAllowed = false;
+    _trayIcon.Hide();
     if (_accessibility)
         _accessibility->Disconnect();
     _accessibility.reset();
@@ -5466,6 +5739,9 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             (void)PlaceDock(true);
         }
         break;
+    case TrayIcon::kCommandMessage:
+        OnTrayCommand(static_cast<TrayCommand>(wParam));
+        return 0;
     case kDockAppBarMessage:
         if (_dockActive)
         {
@@ -5591,13 +5867,15 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case WM_POINTERACTIVATE:
         return MA_ACTIVATE;
     case WM_POINTERDOWN:
-        if (DockHidden())
+        if (DockHiddenOrHiding())
         {
-            // A touch or pen contact on the peek strip reveals at once; the contact itself goes nowhere because the
-            // hidden dashboard owns no visible widget.
+            // A touch or pen contact on the peek strip, or on a bar sliding out, reveals at once; the contact itself
+            // goes nowhere because the dashboard is leaving.
             OnDockEvent(DockRevealEvent::TouchOnStrip);
             return 0;
         }
+        // A contact on a bar still sliding in completes the slide first: the tiles are where they will stay.
+        SettleDockSlide();
         OnPointerDown(window, wParam, lParam);
         return 0;
     case WM_POINTERUPDATE:
@@ -5618,12 +5896,14 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         }
         return 0;
     case WM_LBUTTONDOWN:
-        if (DockHidden())
+        if (DockHiddenOrHiding())
         {
-            // A click on the strip is as deliberate as a touch: reveal without waiting for the dwell.
+            // A click on the strip, or on a bar sliding out, is as deliberate as a touch: reveal without waiting for
+            // the dwell.
             OnDockEvent(DockRevealEvent::TouchOnStrip);
             return 0;
         }
+        SettleDockSlide();
         if (!IsPointerSynthesizedMouseMessage() &&
             PointInDockResizeBand(POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}))
         {
@@ -5639,16 +5919,18 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             EndDockResize();
             return 0;
         }
-        if (DockHidden())
+        if (DockHiddenOrHiding())
         {
             return 0;
         }
         OnMouseButtonUp(window, lParam);
         return 0;
     case WM_MOUSEWHEEL:
+        SettleDockSlide();
         OnMouseWheel(window, wParam, lParam, WheelAxis::Vertical);
         return 0;
     case WM_MOUSEHWHEEL:
+        SettleDockSlide();
         OnMouseWheel(window, wParam, lParam, WheelAxis::Horizontal);
         return 0;
     case WM_MOUSEMOVE:
@@ -5668,15 +5950,16 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             if (!_dockPointerInside)
             {
                 _dockPointerInside = true;
-                if (DockHidden())
+                if (DockHiddenOrHiding())
                 {
-                    // The strip is the window itself: a real mouse move over it starts the reveal dwell.
+                    // The strip is the window itself, and so is a bar sliding out: a real mouse move over it starts
+                    // the reveal dwell.
                     OnDockEvent(DockRevealEvent::PointerEnteredStrip);
                     return 0;
                 }
                 EvaluateDockHolds();
             }
-            if (DockHidden())
+            if (DockHiddenOrHiding())
                 return 0;
             (void)ForwardInteractivePointer({GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}, 1, RedXePointerKindMouse,
                                             RedXePointerPhaseMove, nullptr);

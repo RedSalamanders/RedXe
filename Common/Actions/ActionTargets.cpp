@@ -487,6 +487,11 @@ bool ParseMonitorSelector(std::string_view value, bool allowAll, MonitorSelector
         parsed.kind = MonitorSelector::Kind::Primary;
         return true;
     }
+    if (value == "secondary")
+    {
+        parsed.kind = MonitorSelector::Kind::Secondary;
+        return true;
+    }
     if (value == "xeneon")
     {
         parsed.kind = MonitorSelector::Kind::Xeneon;

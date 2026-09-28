@@ -8,6 +8,7 @@
 #include "Renderer.h"
 #include "Settings.h"
 #include "SettingsWatcher.h"
+#include "TrayIcon.h"
 #include "WheelNavigation.h"
 #include "WidgetRaise.h"
 
@@ -137,10 +138,32 @@ class Application final
     void StopDockInteraction() noexcept;
     // Forgets the bar's placement and reveal state so the next PlaceDock starts from a revealed, unplaced bar.
     void ResetDockPlacementState() noexcept;
-    [[nodiscard]] bool DockHidden() const noexcept
+    // The reveal state asks for the peek strip: the bar is hidden or sliding out. Input on it asks for a reveal.
+    [[nodiscard]] bool DockHiddenOrHiding() const noexcept
     {
         return _dockActive && _dock.mode == DockMode::Autohide && DockStateShowsStrip(_dockReveal);
     }
+    // The window is the settled peek strip: the dashboard is not visible and the host blocks after the grip frame. A
+    // bar sliding out stays visible until its slide ends.
+    [[nodiscard]] bool DockHidden() const noexcept
+    {
+        return DockHiddenOrHiding() && !_dockSlideActive;
+    }
+    // Autohide slide (DockPlacement.h DockSlide*): the window's visible thickness travels between the peek strip and
+    // the full bar over dock.animationMilliseconds, one SetWindowPos per presented frame, with the full-size
+    // dashboard translated for top and left bars. The reveal state stays the authority; the slide only follows it.
+    [[nodiscard]] LONG DockFullPixels() const noexcept;
+    [[nodiscard]] LONG DockPeekPixels() const noexcept;
+    // Sizes the window to `visiblePx` of the full bar and translates the dashboard while a slide runs.
+    void SetDockVisiblePixels(LONG visiblePx) noexcept;
+    void ApplyDockSlideOffset(POINT offset) noexcept;
+    void TickDockSlide() noexcept;
+    // Ends a running slide at the size the reveal state asks for; geometry-bound work (a pointer contact, a page or
+    // widget change, a drag, a placement, a reload) starts from a settled bar.
+    void SettleDockSlide() noexcept;
+    // What follows a reveal or hide reaching its window size: focus and hover cleanup for a hidden bar, dashboard
+    // visibility, host chrome (the grip), and one frame.
+    void FinishDockRevealChange() noexcept;
     void OnDockEvent(DockRevealEvent event) noexcept;
     // Drag-to-resize on the bar's inner edge (DockPlacement.h `DockResizeBandRect`): the window and dashboard follow
     // the pointer live; the shell reservation and the settings file (`dock.thickness`) update on release.
@@ -160,6 +183,12 @@ class Application final
     // scripted or unattended run leaves a diagnosis behind rather than only a debugger string.
     void RecordRuntimeFailure(HRESULT result, const char* eventId) noexcept;
     HRESULT ApplySettings(std::unique_ptr<AppSettings> settings) noexcept;
+    // Shows or removes the notification-area icon for the current `trayIcon`; an interactive run only
+    // (UI_XeneonDisplayWindowing.md "Notification-area icon").
+    void ApplyTrayIconSettings() noexcept;
+    void OnTrayCommand(TrayCommand command) noexcept;
+    // Opens the settings file this process watches with its default app, the shell's UI allowed.
+    void EditSettingsFile() noexcept;
     void OnSettingsChanged() noexcept;
     void ShowSettingsError(std::wstring_view message) noexcept;
     void CloseSettingsError() noexcept;
@@ -306,6 +335,9 @@ class Application final
     Renderer _renderer;
     SettingsStore _settingsStore;
     SettingsWatcher _settingsWatcher;
+    TrayIcon _trayIcon;
+    // Set by Run once the main window is up; RunSelfTest never shows the icon, whatever the document says.
+    bool _trayIconAllowed = false;
     std::unique_ptr<AppSettings> _settings;
     std::unique_ptr<AppSettings> _transitionSettings;
     std::unique_ptr<PluginManager> _transitionPluginManager;
@@ -356,6 +388,14 @@ class Application final
     // The last ABN_FULLSCREENAPP state, for any monitor; DockYieldsToFullscreen narrows it to the dock's.
     bool _dockFullscreenAppActive = false;
     DockRevealState _dockReveal = DockRevealState::Revealed;
+    bool _dockSlideActive = false;
+    bool _dockSlideRevealing = false;
+    LONG _dockSlideFromPx = 0;
+    LONG _dockSlideToPx = 0;
+    // The window's cross size while a slide runs, so a reversal starts where the bar is.
+    LONG _dockVisiblePx = 0;
+    UINT64 _dockSlideStartQpc = 0;
+    UINT64 _dockSlideDurationQpc = 0;
     // Set around the SetWindowPos of a reveal or hide so OnSize does not treat the strip as a dashboard resize.
     bool _dockResizing = false;
     bool _dockPlacing = false;

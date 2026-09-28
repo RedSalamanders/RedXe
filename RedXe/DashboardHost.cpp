@@ -416,7 +416,25 @@ HRESULT DashboardHost::SetHorizontalOffset(LONG offset) noexcept
         return S_OK;
     }
     _horizontalOffset = offset;
+    return MoveNativeContainers();
+}
 
+HRESULT DashboardHost::SetSlideOffset(POINT offset) noexcept
+{
+    if (!_pluginManager)
+    {
+        return E_UNEXPECTED;
+    }
+    if (_slideOffset.x == offset.x && _slideOffset.y == offset.y)
+    {
+        return S_OK;
+    }
+    _slideOffset = offset;
+    return MoveNativeContainers();
+}
+
+HRESULT DashboardHost::MoveNativeContainers() noexcept
+{
     UINT nativeCount = 0;
     for (size_t index = 0; index < _widgetCount; ++index)
     {
@@ -710,6 +728,7 @@ void DashboardHost::Shutdown(bool persistCollectedSettings) noexcept
     _requiresContinuousFrames = false;
     _widgetsVisible = false;
     _horizontalOffset = 0;
+    _slideOffset = POINT{};
     _clientWidth = 0;
     _clientHeight = 0;
     _raisedNativeIndex = SIZE_MAX;
@@ -788,8 +807,10 @@ RECT DashboardHost::PixelBoundsAt(size_t index, UINT width, UINT height) const n
                       : (_gridColumns != 0 && _gridRows != 0
                              ? ToPixelBounds(_gridPlacements[index], _gridColumns, _gridRows, width, height)
                              : RECT{});
-    bounds.left += _horizontalOffset;
-    bounds.right += _horizontalOffset;
+    bounds.left += _horizontalOffset + _slideOffset.x;
+    bounds.right += _horizontalOffset + _slideOffset.x;
+    bounds.top += _slideOffset.y;
+    bounds.bottom += _slideOffset.y;
     return bounds;
 }
 

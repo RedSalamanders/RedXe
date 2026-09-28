@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-09-27
+Last reviewed: 2026-09-28
 
 ## Mandate
 
@@ -79,18 +79,27 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   event-driven GDI on the overlay HWND and MUST NOT start a timer or a host Present. A host-owned native child covering
   the swap chain MUST NOT be treated as DXGI occlusion.
 - The screen-edge dock (`Specs/UI/UI_XeneonDisplayWindowing.md`) adds no periodic wake-up in any state. An autohide
-  reveal or hide is one `SetWindowPos` and one frame with no `ResizeBuffers`, layout recompute, `OnTargetSizeChanged`,
-  or allocation, because the dock swap chain keeps the full bar size under `DXGI_SCALING_NONE`; at most one one-shot
-  timer (dwell or hide delay) is armed and every state exit kills it; no hook and no cursor polling exist, the peek
-  strip being the window itself. A collapsed dock presents exactly one grip frame and then blocks like a minimized
-  window, retaining its full-size swap chain (about 4 MiB for a 3840×270 bar) so a reveal shows the last frame at
-  once. Shell traffic (`SHAppBarMessage`) happens only on placement, activation, window-position changes, and shell
-  notifications, never per frame. An inner-edge drag moves the window per pointer update but coalesces dashboard,
-  swap-chain, and widget size callbacks to one 16 ms timer; release flushes the final size. A live switch between
-  the standard window and the dock is a cold settings-reload path: one renderer rebuild (device and swap chain, as
-  on an adapter change) and one dashboard resize, with no widget re-creation. The first-run bar on a display without
-  a XENEON retains the back buffer of its XENEON-proportioned full size (3840×1080, about 16 MiB, on a 150 % 4K
-  display), the same buffer as the titled fallback window it replaces there.
+  reveal or hide never calls `ResizeBuffers`, recomputes the layout, calls `OnTargetSizeChanged`, or allocates, because
+  the dock swap chain keeps the full bar size under `DXGI_SCALING_NONE`. With `animationMilliseconds` 0 it is one
+  `SetWindowPos` and one frame; otherwise it is a slide of that duration (200 ms by default), visible motion like a
+  raise settle: one `SetWindowPos` and one presented frame per display refresh until it ends, a top or left bar also
+  moving its cached viewports (and any native container) by the slide offset, then the host blocks again; at most one
+  one-shot timer (dwell or hide delay) is armed and every state exit kills it; no hook and no cursor polling exist, the
+  peek strip being the window itself. A collapsed dock presents exactly one grip frame and then blocks like a minimized
+  window, retaining its full-size swap chain (about 4 MiB for a 3840×270 bar) so a reveal presents at once without
+  rebuilding it. Shell traffic (`SHAppBarMessage`) happens only on placement, activation, window-position changes, and
+  shell notifications, never per frame. An inner-edge drag moves the window per pointer update but coalesces dashboard,
+  swap-chain, and widget size callbacks to one 16 ms timer; release flushes the final size. A live switch between the
+  standard window and the dock is a cold settings-reload path: one renderer rebuild (device and swap chain, as on an
+  adapter change) and one dashboard resize, with no widget re-creation. The first-run bar on a display without a XENEON
+  retains the back buffer of its XENEON-proportioned full size (3840×1080, about 16 MiB, on a 150 % 4K display), the
+  same buffer as the titled fallback window it replaces there.
+- The notification-area icon (`Specs/UI/UI_XeneonDisplayWindowing.md`) costs one hidden owner window of its own class
+  and one small-icon `HICON` on the UI thread, with no thread, timer, hook, or periodic wake-up in any state. Shell
+  traffic (`Shell_NotifyIconW`) happens only when the icon is added or removed, on `TaskbarCreated`, and on a DPI change
+  of the owner; its callbacks, the menu, and the editor launch run only on user interaction, and none of them
+  invalidates a frame. While its menu is open the system's modal menu loop runs on the UI thread and the dashboard
+  presents nothing, like any other modal UI.
 - After `Present` reports occlusion, RedXe must stop frame construction, wait for the DXGI factory's registered
   occlusion-status window message, and use `DXGI_PRESENT_TEST` to detect recovery without presenting content.
   Occlusion polling and periodic timers are prohibited.

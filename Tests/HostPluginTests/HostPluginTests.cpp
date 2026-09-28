@@ -17,6 +17,7 @@
 #include "Renderer.h"
 #include "Settings.h"
 #include "StudioClockTestContract.h"
+#include "TrayIcon.h"
 #include "WheelNavigation.h"
 #include "WidgetRaise.h"
 #include "WindowCapture.h"
@@ -650,6 +651,149 @@ void TestDockPlacement(bool& success) noexcept
           L"xeneon without a XENEON falls back to the primary", success);
     Check(SelectDockMonitor(selector, {}, nullptr, 0, fellBack) == SIZE_MAX, L"no display means no selection", success);
     Check(!RedXeActions::ParseMonitorSelector("all", false, selector), L"the dock never accepts all", success);
+
+    // `secondary` is the second screen: the first display in enumeration order that is not the primary, wherever the
+    // primary enumerates; a single display falls back to the primary and reports it.
+    Check(RedXeActions::ParseMonitorSelector("secondary", false, selector) &&
+              selector.kind == RedXeActions::MonitorSelector::Kind::Secondary &&
+              SelectDockMonitor(selector, {}, candidates.data(), candidates.size(), fellBack) == 0 && !fellBack,
+          L"secondary selects the first display that is not the primary, even before it", success);
+    std::array<DockMonitorCandidate, 3> primaryFirst{};
+    primaryFirst[0].monitor = monitor;
+    primaryFirst[0].primary = true;
+    primaryFirst[1].monitor = secondary;
+    primaryFirst[2].monitor = RECT{2560, 0, 5120, 1440};
+    Check(SelectDockMonitor(selector, {}, primaryFirst.data(), primaryFirst.size(), fellBack) == 1 && !fellBack,
+          L"secondary skips a primary that enumerates first", success);
+    Check(SelectDockMonitor(selector, {}, noXeneon.data(), noXeneon.size(), fellBack) == 0 && fellBack,
+          L"secondary on a single display falls back to the primary", success);
+    Check(!RedXeActions::ParseMonitorSelector("Secondary", false, selector) &&
+              !RedXeActions::ParseMonitorSelector("second", false, selector),
+          L"secondary is matched exactly", success);
+
+    // First start without a XENEON: the second screen when there is one, and the horizontal edge its taskbar leaves
+    // free, the top unless only the top is taken.
+    Check(DockFirstRunMonitor(0) == kDockDefaultMonitor && DockFirstRunMonitor(1) == kDockDefaultMonitor &&
+              DockFirstRunMonitor(2) == kDockSecondaryMonitor && DockFirstRunMonitor(4) == kDockSecondaryMonitor,
+          L"a first-run bar goes to the second screen only when there is more than one display", success);
+    Check(DockEdgeFromAppBarEdge(ABE_TOP) == DockEdge::Top && DockEdgeFromAppBarEdge(ABE_BOTTOM) == DockEdge::Bottom &&
+              DockEdgeFromAppBarEdge(ABE_LEFT) == DockEdge::Left &&
+              DockEdgeFromAppBarEdge(ABE_RIGHT) == DockEdge::Right && DockEdgeFromAppBarEdge(7) == DockEdge::None &&
+              DockEdgeFromAppBarEdge(DockAppBarEdge(DockEdge::Top)) == DockEdge::Top,
+          L"ABE values map back to edges", success);
+    const RECT fullWork{0, 0, 2560, 1440};
+    const RECT topTaskbarWork{0, 48, 2560, 1440};
+    const RECT bothBarsWork{0, 48, 2560, 1392};
+    const RECT leftTaskbarWork{62, 0, 2560, 1440};
+    Check(DockFirstRunEdge(monitor, work, false, false, DockEdge::Bottom) == DockEdge::Top &&
+              DockFirstRunEdge(monitor, work, false, false, DockEdge::None) == DockEdge::Top &&
+              DockFirstRunEdge(monitor, topTaskbarWork, false, false, DockEdge::Top) == DockEdge::Bottom &&
+              DockFirstRunEdge(monitor, topTaskbarWork, false, false, DockEdge::Bottom) == DockEdge::Bottom,
+          L"a visible taskbar trims the work area and the bar takes the other horizontal edge", success);
+    Check(DockFirstRunEdge(monitor, fullWork, false, true, DockEdge::None) == DockEdge::Top &&
+              DockFirstRunEdge(monitor, fullWork, true, false, DockEdge::Bottom) == DockEdge::Bottom,
+          L"an auto-hiding taskbar holds its edge through its autohide registration", success);
+    Check(DockFirstRunEdge(monitor, fullWork, false, false, DockEdge::Bottom) == DockEdge::Top &&
+              DockFirstRunEdge(monitor, fullWork, false, false, DockEdge::Top) == DockEdge::Bottom &&
+              DockFirstRunEdge(monitor, fullWork, false, false, DockEdge::None) == DockEdge::Top,
+          L"a display without a taskbar of its own follows the primary taskbar's edge, top when unknown", success);
+    Check(DockFirstRunEdge(monitor, leftTaskbarWork, false, false, DockEdge::Left) == DockEdge::Top &&
+              DockFirstRunEdge(monitor, bothBarsWork, false, false, DockEdge::Bottom) == DockEdge::Top &&
+              DockFirstRunEdge(monitor, topTaskbarWork, false, true, DockEdge::Top) == DockEdge::Top,
+          L"a side taskbar leaves the top, and with both edges taken the bar stays on top", success);
+    Check(DockFirstRunEdge(secondary, RECT{-1920, -200, 0, 832}, false, false, DockEdge::None) == DockEdge::Top &&
+              DockFirstRunEdge(secondary, RECT{-1920, -152, 0, 880}, false, false, DockEdge::Bottom) ==
+                  DockEdge::Bottom,
+          L"the edge decision works at negative coordinates", success);
+}
+
+// DockPlacement.h autohide slide: the duration share of a partial travel, the eased visible thickness of a reveal and
+// a hide, and the dashboard translation that makes top and left bars lead with their inner edge.
+void TestDockSlidePolicy(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dock autohide slide\n";
+    Check(DockCrossPixels(RECT{0, 900, 1920, 1080}, DockEdge::Bottom) == 180 &&
+              DockCrossPixels(RECT{-1920, 0, -1680, 1032}, DockEdge::Left) == 240,
+          L"the cross size is the height of a top or bottom bar and the width of a side bar", success);
+
+    // A whole travel takes the setting, a partial one its share, and 0 or no distance means one step.
+    Check(DockSlideDurationMilliseconds(200, 4, 540, 4, 540) == 200 &&
+              DockSlideDurationMilliseconds(200, 540, 4, 4, 540) == 200 &&
+              DockSlideDurationMilliseconds(200, 272, 540, 4, 540) == 100 &&
+              DockSlideDurationMilliseconds(1000, 300, 4, 4, 540) == 552,
+          L"a slide takes the share of the setting its distance is of the whole travel", success);
+    Check(DockSlideDurationMilliseconds(0, 4, 540, 4, 540) == 0 &&
+              DockSlideDurationMilliseconds(200, 540, 540, 4, 540) == 0 &&
+              DockSlideDurationMilliseconds(200, 4, 4, 4, 4) == 0 &&
+              DockSlideDurationMilliseconds(200, 539, 540, 4, 540) == 1 &&
+              DockSlideDurationMilliseconds(200, -100, 900, 4, 540) == 200,
+          L"no animation, no distance, or no travel is one step; a tiny slide lasts at least 1 ms", success);
+
+    // A reveal eases out of the edge and a hide eases in; both start and end exactly and never overshoot.
+    Check(DockSlideVisiblePixels(4, 540, 0.0f, true) == 4 && DockSlideVisiblePixels(4, 540, 1.0f, true) == 540 &&
+              DockSlideVisiblePixels(540, 4, 0.0f, false) == 540 && DockSlideVisiblePixels(540, 4, 1.0f, false) == 4 &&
+              DockSlideVisiblePixels(4, 540, -1.0f, true) == 4 && DockSlideVisiblePixels(4, 540, 2.0f, true) == 540,
+          L"a slide starts and ends at its sizes and clamps its progress", success);
+    Check(DockSlideVisiblePixels(4, 540, 0.5f, true) == 473 && DockSlideVisiblePixels(540, 4, 0.5f, false) == 473,
+          L"halfway through, a reveal has covered 7/8 of its travel and a hide 1/8", success);
+    bool monotonic = true;
+    LONG previousReveal = 0;
+    LONG previousHide = 541;
+    for (int step = 0; step <= 20; ++step)
+    {
+        const float t = static_cast<float>(step) / 20.0f;
+        const LONG reveal = DockSlideVisiblePixels(4, 540, t, true);
+        const LONG hide = DockSlideVisiblePixels(540, 4, t, false);
+        monotonic = monotonic && reveal >= previousReveal && hide <= previousHide && reveal >= 4 && reveal <= 540 &&
+                    hide >= 4 && hide <= 540;
+        previousReveal = reveal;
+        previousHide = hide;
+    }
+    Check(monotonic, L"a slide moves one way and stays between the strip and the full bar", success);
+
+    // Top and left bars are translated back by the hidden part; bottom and right bars need no translation because
+    // DXGI_SCALING_NONE keeps the buffer's top-left at the window's moving inner edge.
+    const POINT top = DockSlideContentOffset(DockEdge::Top, 540, 140);
+    const POINT left = DockSlideContentOffset(DockEdge::Left, 240, 40);
+    const POINT bottom = DockSlideContentOffset(DockEdge::Bottom, 540, 140);
+    const POINT right = DockSlideContentOffset(DockEdge::Right, 240, 40);
+    const POINT settled = DockSlideContentOffset(DockEdge::Top, 540, 540);
+    const POINT over = DockSlideContentOffset(DockEdge::Left, 240, 300);
+    Check(top.x == 0 && top.y == -400 && left.x == -200 && left.y == 0 && bottom.x == 0 && bottom.y == 0 &&
+              right.x == 0 && right.y == 0 && settled.y == 0 && over.x == 0,
+          L"top and left bars are translated by the hidden part, bottom and right bars never", success);
+}
+
+// TrayIcon.h: the shell's notification-icon callbacks (NOTIFYICON_VERSION_4 events) as a pure table, including the
+// guard that keeps one keystroke or a quick second double-click from starting two editors.
+void TestTrayIconPolicy(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] notification-area icon callbacks\n";
+    using A = TrayIconAction;
+    Check(TrayIconActionFor(WM_LBUTTONDBLCLK, 10'000, 0, 500) == A::EditSettings &&
+              TrayIconActionFor(NIN_KEYSELECT, 10'000, 0, 500) == A::EditSettings,
+          L"a double-click, or Enter or Space on the icon, edits the settings", success);
+    Check(TrayIconActionFor(WM_CONTEXTMENU, 10'000, 0, 500) == A::ShowMenu &&
+              TrayIconActionFor(WM_CONTEXTMENU, 10'100, 10'000, 500) == A::ShowMenu,
+          L"the context-menu request opens the menu, also right after an edit", success);
+    Check(TrayIconActionFor(NIN_SELECT, 10'000, 0, 500) == A::None &&
+              TrayIconActionFor(WM_LBUTTONDOWN, 10'000, 0, 500) == A::None &&
+              TrayIconActionFor(WM_LBUTTONUP, 10'000, 0, 500) == A::None &&
+              TrayIconActionFor(WM_RBUTTONUP, 10'000, 0, 500) == A::None &&
+              TrayIconActionFor(WM_MOUSEMOVE, 10'000, 0, 500) == A::None &&
+              TrayIconActionFor(NIN_POPUPOPEN, 10'000, 0, 500) == A::None &&
+              TrayIconActionFor(NIN_BALLOONUSERCLICK, 10'000, 0, 500) == A::None,
+          L"single clicks, hover, and balloon events do nothing", success);
+    Check(TrayIconActionFor(NIN_KEYSELECT, 10'010, 10'000, 500) == A::None &&
+              TrayIconActionFor(WM_LBUTTONDBLCLK, 10'499, 10'000, 500) == A::None &&
+              TrayIconActionFor(WM_LBUTTONDBLCLK, 10'500, 10'000, 500) == A::EditSettings &&
+              TrayIconActionFor(NIN_KEYSELECT, 20'000, 10'000, 500) == A::EditSettings,
+          L"an edit within the double-click time of the previous one is dropped", success);
+    Check(TrayIconActionFor(WM_LBUTTONDBLCLK, 5'000, 10'000, 500) == A::EditSettings,
+          L"a tick earlier than the previous edit never blocks an edit", success);
+    Check(static_cast<UINT>(TrayCommand::EditSettings) != 0 && static_cast<UINT>(TrayCommand::Exit) != 0 &&
+              TrayCommand::EditSettings != TrayCommand::Exit,
+          L"menu commands are non-zero, so a dismissed menu selects nothing", success);
 }
 
 // DockPlacement.h autohide state machine: every transition of the reveal/hide table, zero delays, holds, and the
@@ -723,8 +867,14 @@ void TestDockAutohidePolicy(bool& success) noexcept
     DockHolds byAction{};
     byAction.pinnedByAction = true;
     Check(NextDockRevealState(S::Revealed, E::HoldsChanged, byAction, 150, 800) == S::Revealed && byAction.Any() &&
-              !byAction.RefusesHide(),
+              !byAction.RefusesHide() && !byAction.AnyOther(),
           L"an action-revealed bar holds until another hold clears, and still accepts hide", success);
+    DockHolds sliding{};
+    sliding.revealSliding = true;
+    Check(NextDockRevealState(S::Revealed, E::HoldsChanged, sliding, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::ActionHide, sliding, 150, 800) == S::Hidden && sliding.Any() &&
+              !sliding.RefusesHide() && !sliding.AnyOther() && pointer.AnyOther() && pinned.AnyOther(),
+          L"a reveal still sliding holds the bar without refusing hide or counting as another hold", success);
     Check(DockStateShowsStrip(S::Hidden) && DockStateShowsStrip(S::RevealPending) &&
               !DockStateShowsStrip(S::Revealed) && !DockStateShowsStrip(S::HidePending),
           L"the window is the strip exactly in Hidden and RevealPending", success);
@@ -799,6 +949,31 @@ void TestDockPresentation(bool& success) noexcept
     result = renderer.Render(0.2f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 2 && renderer.LastFrameChromeQuadCount() == 0,
           L"a reveal presents the tiles again without ResizeBuffers", success);
+
+    // A frame halfway through a top bar's slide: the window is 90 of the 180 rows and the dashboard is translated up by
+    // the hidden 90, so the bar's inner edge leads. Tiles keep their size, sit partly above the target, and draw.
+    const RECT settledTile = dashboard.PixelBoundsAt(0, barWidth, barHeight);
+    const POINT halfway = DockSlideContentOffset(DockEdge::Top, static_cast<LONG>(barHeight), 90);
+    Check(SetWindowPos(window.Get(), nullptr, 0, 0, static_cast<int>(barWidth), 90,
+                       SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE &&
+              SUCCEEDED(dashboard.SetSlideOffset(halfway)) && SUCCEEDED(renderer.RefreshLayout()),
+          L"the dock test sizes the window and translates the dashboard for a slide frame", success);
+    const RECT slidTile = dashboard.PixelBoundsAt(0, barWidth, barHeight);
+    Check(slidTile.top == settledTile.top - 90 && slidTile.bottom == settledTile.bottom - 90 &&
+              slidTile.left == settledTile.left && slidTile.right == settledTile.right,
+          L"a slide offset moves every tile by the hidden part without resizing it", success);
+    result = renderer.Render(0.3f, 1.0f / 60.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 2 && renderer.LastFrameSuccessfulWidgetCount() == 2,
+          L"a slide frame draws every tile at its translated viewport", success);
+    Check(SetWindowPos(window.Get(), nullptr, 0, 0, static_cast<int>(barWidth), static_cast<int>(barHeight),
+                       SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE &&
+              SUCCEEDED(dashboard.SetSlideOffset(POINT{})) && SUCCEEDED(renderer.RefreshLayout()),
+          L"the dock test ends the slide", success);
+    const RECT restoredTile = dashboard.PixelBoundsAt(0, barWidth, barHeight);
+    Check(EqualRect(&settledTile, &restoredTile) != FALSE, L"the end of the slide leaves the tiles where they were",
+          success);
+    result = renderer.Render(0.4f, 1.0f / 60.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 2, L"the settled bar presents its tiles", success);
     renderer.Shutdown();
     dashboard.Shutdown();
 }
@@ -3908,6 +4083,8 @@ void TestActionValidation(bool& success) noexcept
     request.actionUtf8 = "mouse.move";
     request.targetUtf8 = "center@xeneon";
     Check(host.ValidateAction(&request, nullptr) == S_OK, L"a monitor-relative point validates", success);
+    request.targetUtf8 = "center@secondary";
+    Check(host.ValidateAction(&request, nullptr) == S_OK, L"a point on the second screen validates", success);
     request.targetUtf8 = "+10,20";
     Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a half-relative point is invalid", success);
     request.actionUtf8 = "system.power.plan";
@@ -5574,6 +5751,8 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestHostChromeComposition(success);
     TestDockPlacement(success);
     TestDockAutohidePolicy(success);
+    TestDockSlidePolicy(success);
+    TestTrayIconPolicy(success);
     TestDockPresentation(success);
     TestDockPresentationRebuild(success);
     TestWidgetRaiseNative(success);

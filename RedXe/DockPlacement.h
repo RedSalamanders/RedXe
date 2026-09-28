@@ -39,7 +39,11 @@ inline constexpr uint32_t kDockMaximumRevealDelayMilliseconds = 2000;
 inline constexpr uint32_t kDockDefaultRevealDelayMilliseconds = 150;
 inline constexpr uint32_t kDockMaximumHideDelayMilliseconds = 10000;
 inline constexpr uint32_t kDockDefaultHideDelayMilliseconds = 800;
+inline constexpr uint32_t kDockMaximumAnimationMilliseconds = 1000;
+inline constexpr uint32_t kDockDefaultAnimationMilliseconds = 200;
 inline constexpr std::string_view kDockDefaultMonitor = "primary";
+// The second screen: the first display in enumeration order that is not the primary (settings minor 3).
+inline constexpr std::string_view kDockSecondaryMonitor = "secondary";
 
 [[nodiscard]] constexpr bool DockEdgeParse(std::string_view text, DockEdge& edge) noexcept
 {
@@ -110,6 +114,24 @@ inline constexpr std::string_view kDockDefaultMonitor = "primary";
     }
 }
 
+// The edge an ABE_* value names (the taskbar's `uEdge` from ABM_GETTASKBARPOS); None for anything else.
+[[nodiscard]] constexpr DockEdge DockEdgeFromAppBarEdge(UINT appBarEdge) noexcept
+{
+    switch (appBarEdge)
+    {
+    case 0: // ABE_LEFT
+        return DockEdge::Left;
+    case 1: // ABE_TOP
+        return DockEdge::Top;
+    case 2: // ABE_RIGHT
+        return DockEdge::Right;
+    case 3: // ABE_BOTTOM
+        return DockEdge::Bottom;
+    default:
+        return DockEdge::None;
+    }
+}
+
 [[nodiscard]] inline LONG DockThicknessPixels(uint32_t thicknessDips, UINT dpi) noexcept
 {
     const int scaleDpi = dpi == 0 ? USER_DEFAULT_SCREEN_DPI : static_cast<int>(dpi);
@@ -148,6 +170,31 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
     const LONG dips = pixels * USER_DEFAULT_SCREEN_DPI / scaleDpi;
     return static_cast<uint32_t>(
         std::clamp(dips, static_cast<LONG>(kDockMinimumThicknessDips), static_cast<LONG>(kDockMaximumThicknessDips)));
+}
+
+// First start without a XENEON: with more than one display the bar goes to the second screen (`secondary`, which
+// keeps following whichever display is not the primary), otherwise to the primary.
+[[nodiscard]] constexpr std::string_view DockFirstRunMonitor(size_t displayCount) noexcept
+{
+    return displayCount > 1 ? kDockSecondaryMonitor : kDockDefaultMonitor;
+}
+
+// First start without a XENEON: the bar takes the horizontal edge the taskbar leaves free on the bar's monitor, the
+// top unless the top is taken and the bottom is not. Evidence of a taken edge, strongest first: the work area trimmed
+// on that side (a taskbar that stays visible, any reserving app bar), then an autohide bar registered on that edge of
+// that monitor (an auto-hiding taskbar). A monitor with neither, one without a taskbar of its own, follows the
+// primary taskbar's edge (`taskbarEdge`, None when unknown), so the bar sits opposite the taskbar the person uses.
+[[nodiscard]] constexpr DockEdge DockFirstRunEdge(const RECT& monitor, const RECT& work, bool autohideTop,
+                                                  bool autohideBottom, DockEdge taskbarEdge) noexcept
+{
+    bool top = work.top > monitor.top || autohideTop;
+    bool bottom = work.bottom < monitor.bottom || autohideBottom;
+    if (!top && !bottom)
+    {
+        top = taskbarEdge == DockEdge::Top;
+        bottom = taskbarEdge == DockEdge::Bottom;
+    }
+    return top && !bottom ? DockEdge::Bottom : DockEdge::Top;
 }
 
 // `bounds` trimmed to `thicknessPx` on the edge side. Used for the proposal to the shell (bounds = monitor) and for
@@ -204,6 +251,59 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
         break;
     }
     return rect;
+}
+
+// Cross-axis size of a bar rectangle: its height for a top or bottom dock, its width for a side dock.
+[[nodiscard]] constexpr LONG DockCrossPixels(const RECT& rect, DockEdge edge) noexcept
+{
+    return DockEdgeIsHorizontal(edge) ? rect.bottom - rect.top : rect.right - rect.left;
+}
+
+// Autohide slide (UI_XeneonDisplayWindowing.md "Autohide"): over `animationMilliseconds` the window's visible
+// thickness travels between the peek strip and the full bar, one SetWindowPos per presented frame (the window is
+// DockHiddenRect of the full bar at the visible thickness). A slide covering part of the travel, such as one that
+// reverses halfway, takes that share of the time; 0 is no animation (one step, as without a slide).
+[[nodiscard]] constexpr uint32_t DockSlideDurationMilliseconds(uint32_t animationMilliseconds, LONG fromPx, LONG toPx,
+                                                               LONG peekPx, LONG fullPx) noexcept
+{
+    const LONG travel = fullPx - peekPx;
+    const LONG distance = std::min(fromPx > toPx ? fromPx - toPx : toPx - fromPx, travel);
+    if (animationMilliseconds == 0 || travel <= 0 || distance <= 0)
+    {
+        return 0;
+    }
+    const uint64_t share = (static_cast<uint64_t>(animationMilliseconds) * static_cast<uint64_t>(distance) +
+                            static_cast<uint64_t>(travel) / 2) /
+                           static_cast<uint64_t>(travel);
+    return static_cast<uint32_t>(std::max<uint64_t>(share, 1));
+}
+
+// The visible thickness at progress `t` (0..1) of a slide: a reveal eases out of the edge (fast, then settling at the
+// full bar), a hide eases in (slow, then quickly into the edge).
+[[nodiscard]] constexpr LONG DockSlideVisiblePixels(LONG fromPx, LONG toPx, float t, bool revealing) noexcept
+{
+    const float progress = t <= 0.0f ? 0.0f : (t >= 1.0f ? 1.0f : t);
+    const float remaining = 1.0f - progress;
+    const float eased = revealing ? 1.0f - remaining * remaining * remaining : progress * progress * progress;
+    const float mixed = static_cast<float>(fromPx) + static_cast<float>(toPx - fromPx) * eased;
+    return static_cast<LONG>(mixed >= 0.0f ? mixed + 0.5f : mixed - 0.5f);
+}
+
+// The dashboard translation for a visible thickness during a slide. DXGI_SCALING_NONE shows the back buffer's top-left,
+// which already makes a bottom or right bar slide: its content follows the window's moving inner edge. A top or left
+// bar is translated back by the part still hidden, so its inner edge leads out of the screen edge the same way.
+[[nodiscard]] constexpr POINT DockSlideContentOffset(DockEdge edge, LONG fullPx, LONG visiblePx) noexcept
+{
+    const LONG hidden = fullPx > visiblePx ? fullPx - visiblePx : 0;
+    switch (edge)
+    {
+    case DockEdge::Top:
+        return POINT{0, -hidden};
+    case DockEdge::Left:
+        return POINT{-hidden, 0};
+    default:
+        return POINT{0, 0};
+    }
 }
 
 // The part of the full-size back buffer that the hidden window shows. The dock swap chain uses DXGI_SCALING_NONE,
@@ -360,7 +460,8 @@ struct DockMonitorCandidate final
 }
 
 // Index of the candidate the selector names, else the primary (`fellBack` = true), else the first candidate.
-// SIZE_MAX only when there is no candidate at all. `index` selectors are 1-based in enumeration order.
+// SIZE_MAX only when there is no candidate at all. `index` selectors are 1-based in enumeration order; `secondary`
+// is the first candidate in enumeration order that is not the primary.
 [[nodiscard]] inline size_t SelectDockMonitor(const RedXeActions::MonitorSelector& selector,
                                               std::wstring_view nameNeedle, const DockMonitorCandidate* candidates,
                                               size_t count, bool& fellBack) noexcept
@@ -384,6 +485,15 @@ struct DockMonitorCandidate final
     {
     case Kind::Primary:
         return primary;
+    case Kind::Secondary:
+        for (size_t index = 0; index < count; ++index)
+        {
+            if (!candidates[index].primary)
+            {
+                return index;
+            }
+        }
+        break;
     case Kind::Xeneon:
         for (size_t index = 0; index < count; ++index)
         {
@@ -457,11 +567,18 @@ struct DockHolds final
     bool pinned = false;
     // redxe.dock.show revealed the bar with nothing holding it: it stays until some other hold appears and clears.
     bool pinnedByAction = false;
+    // A reveal still sliding out of the edge: the hide delay starts once the bar is all the way out.
+    bool revealSliding = false;
 
     [[nodiscard]] constexpr bool Any() const noexcept
     {
-        return pointerInside || windowActive || captureActive || widgetRaised || dialogShown || pinned ||
-               pinnedByAction;
+        return AnyOther() || pinnedByAction || revealSliding;
+    }
+    // Holds other than the reveal's own slide and an action's pin: an action-revealed bar keeps its pin until one of
+    // these appears.
+    [[nodiscard]] constexpr bool AnyOther() const noexcept
+    {
+        return pointerInside || windowActive || captureActive || widgetRaised || dialogShown || pinned;
     }
     // Holds that also refuse redxe.dock.hide (the pointer merely being inside does not).
     [[nodiscard]] constexpr bool RefusesHide() const noexcept

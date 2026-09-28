@@ -1,9 +1,11 @@
 {
   "$schema": "RedXe.settings.schema.json",
-  "version": { "major": 5, "minor": 2 },
+  "version": { "major": 5, "minor": 3 },
   "wrapPages": false,
   "logRetentionDays": 15,
   "backgroundColor": "#000000",
+  // Notification-area icon (minor 3): double-click it to edit this file; right-click it for Edit settings and Exit.
+  "trayIcon": true,
   // Screen-edge dock (minor 2): run RedXe as a bar along one edge of a monitor instead of the XENEON window.
   // Uncomment and edit; every member is optional. --dock <edge>[@<monitor>] and the other --dock* switches override
   // these for one run. See docs/usage.md "Dock".

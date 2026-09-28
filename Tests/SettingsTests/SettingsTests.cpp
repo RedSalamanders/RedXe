@@ -242,7 +242,8 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     // Both templates configure the Logicon service (settings minor 1) with a page-navigation key layout and author
-    // minor 2 (the `dock` member) with the dock left off: the shipped window kind stays the XENEON one.
+    // the current minor (2 added `dock`, 3 `trayIcon`) with the dock left off: the shipped window kind stays the
+    // XENEON one.
     const ServiceSettings* debugLogicon = FindServiceSettings(debug, "builtin.logicon");
     const ServiceSettings* releaseLogicon = FindServiceSettings(release, "builtin.logicon");
     if (debug.dock != DefaultDockSettings() || release.dock != DefaultDockSettings() ||
@@ -252,8 +253,8 @@ constexpr std::string_view kRepresentative = R"json(
         std::wprintf(L"Deployed templates must stay undocked and carry the commented dock example.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    if (!debugLogicon || !releaseLogicon || debug.versionMinor != 2 || release.versionMinor != 2 ||
-        debugLogicon->name.View() != "Logicon" ||
+    if (!debugLogicon || !releaseLogicon || debug.versionMinor != kRedXeSettingsVersionMinor ||
+        release.versionMinor != kRedXeSettingsVersionMinor || debugLogicon->name.View() != "Logicon" ||
         debugLogicon->privateConfiguration.View().find("\"logicon.keyPage.next\"") == std::string_view::npos ||
         releaseLogicon->privateConfiguration.View().find("\"dashboardPages\"") == std::string_view::npos)
     {
@@ -265,6 +266,14 @@ constexpr std::string_view kRepresentative = R"json(
         release.sourceDocument.find("\"backgroundColor\"") == std::string::npos)
     {
         std::wprintf(L"Deployed templates must author the document backgroundColor explicitly.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    // The notification-area icon is authored explicitly: shown by the Release template, hidden by the Debug one,
+    // matching what each build assumes when the member is omitted.
+    if (debug.trayIcon || !release.trayIcon || debug.sourceDocument.find("\"trayIcon\": false") == std::string::npos ||
+        release.sourceDocument.find("\"trayIcon\": true") == std::string::npos)
+    {
+        std::wprintf(L"Deployed templates must author trayIcon: false in Debug and true in Release.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     const WidgetInstanceSettings& gpu = release.dashboard.pages[2].widgets[7];
@@ -314,6 +323,15 @@ constexpr std::string_view kRepresentative = R"json(
     if (!yyjson_is_obj(rootBackground) || !yyjson_is_str(yyjson_obj_get(rootBackground, "default")) ||
         std::string_view(yyjson_get_str(yyjson_obj_get(rootBackground, "default"))) != "#000000")
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    // trayIcon is a boolean without a schema default: the omitted value depends on the build.
+    yyjson_val* rootTrayIcon = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "trayIcon") : nullptr;
+    if (!yyjson_is_obj(rootTrayIcon) || !yyjson_is_str(yyjson_obj_get(rootTrayIcon, "type")) ||
+        std::string_view(yyjson_get_str(yyjson_obj_get(rootTrayIcon, "type"))) != "boolean" ||
+        yyjson_obj_get(rootTrayIcon, "default"))
+    {
+        std::wprintf(L"The schema must declare trayIcon as a boolean without a default.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
     yyjson_val* defs = yyjson_obj_get(root, "$defs");
     // The `dock` definition carries the same ranges and defaults as DockPlacement.h.
     {
@@ -350,7 +368,9 @@ constexpr std::string_view kRepresentative = R"json(
             !integerRange("revealDelayMilliseconds", 0, kDockMaximumRevealDelayMilliseconds,
                           kDockDefaultRevealDelayMilliseconds) ||
             !integerRange("hideDelayMilliseconds", 0, kDockMaximumHideDelayMilliseconds,
-                          kDockDefaultHideDelayMilliseconds))
+                          kDockDefaultHideDelayMilliseconds) ||
+            !integerRange("animationMilliseconds", 0, kDockMaximumAnimationMilliseconds,
+                          kDockDefaultAnimationMilliseconds))
         {
             std::wprintf(L"The schema dock definition does not match DockPlacement.h.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -931,9 +951,9 @@ constexpr std::string_view kRepresentative = R"json(
     }
 
     constexpr std::string_view newerMinor =
-        R"json({"version":{"major":5,"minor":3},"futureRoot":true,"pages":[{"futurePage":1}]})json";
+        R"json({"version":{"major":5,"minor":4},"futureRoot":true,"pages":[{"futurePage":1}]})json";
     if (FAILED(ParseAppSettingsJson(newerMinor, parsed)) || parsed.dashboard.pageCount != 1 ||
-        parsed.versionMinor != 3 || parsed.sourceDocument.find("futureRoot") == std::string::npos)
+        parsed.versionMinor != 4 || parsed.sourceDocument.find("futureRoot") == std::string::npos)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -1104,7 +1124,7 @@ constexpr std::string_view kRepresentative = R"json(
       "version": { "major": 5, "minor": 2 },
       "dock": {
         "edge": "left", "monitor": "name:DELL", "thickness": 240, "mode": "autohide", "reserveWorkArea": false,
-        "peek": 6, "revealDelayMilliseconds": 0, "hideDelayMilliseconds": 1200
+        "peek": 6, "revealDelayMilliseconds": 0, "hideDelayMilliseconds": 1200, "animationMilliseconds": 350
       },
       "pages": [{}]
     })json";
@@ -1112,9 +1132,20 @@ constexpr std::string_view kRepresentative = R"json(
     if (FAILED(ParseAppSettingsJson(full, parsed)) || parsed.versionMinor != 2 || parsed.dock.edge != DockEdge::Left ||
         parsed.dock.monitor.View() != "name:DELL" || parsed.dock.thicknessDips != 240 ||
         parsed.dock.mode != DockMode::Autohide || parsed.dock.reserveWorkArea || parsed.dock.peekPixels != 6 ||
-        parsed.dock.revealDelayMilliseconds != 0 || parsed.dock.hideDelayMilliseconds != 1200)
+        parsed.dock.revealDelayMilliseconds != 0 || parsed.dock.hideDelayMilliseconds != 1200 ||
+        parsed.dock.animationMilliseconds != 350)
     {
         std::wprintf(L"A complete dock object did not parse to its typed members.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    // `secondary` (minor 3) names the second screen: the first display that is not the primary.
+    AppSettings secondScreen{};
+    if (FAILED(ParseAppSettingsJson(
+            R"json({"version":{"major":5,"minor":3},"dock":{"edge":"top","monitor":"secondary"},"pages":[{}]})json",
+            secondScreen)) ||
+        secondScreen.dock.edge != DockEdge::Top || secondScreen.dock.monitor.View() != kDockSecondaryMonitor)
+    {
+        std::wprintf(L"The secondary monitor selector was refused.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
@@ -1135,6 +1166,7 @@ constexpr std::string_view kRepresentative = R"json(
         partialSettings.dock.peekPixels != kDockDefaultPeekPixels ||
         partialSettings.dock.revealDelayMilliseconds != kDockDefaultRevealDelayMilliseconds ||
         partialSettings.dock.hideDelayMilliseconds != kDockDefaultHideDelayMilliseconds ||
+        partialSettings.dock.animationMilliseconds != kDockDefaultAnimationMilliseconds ||
         FAILED(ParseAppSettingsJson(omitted, omittedSettings)) || omittedSettings.dock != DefaultDockSettings() ||
         FAILED(ParseAppSettingsJson(olderMinor, olderSettings)) || olderSettings.dock != DefaultDockSettings() ||
         olderSettings.versionMinor != 1 || FAILED(ParseAppSettingsJson(emptyObject, emptySettings)) ||
@@ -1154,6 +1186,16 @@ constexpr std::string_view kRepresentative = R"json(
         std::wprintf(L"edge none must still parse the other members.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
+    // animationMilliseconds 0 turns the slide off: the bar reveals and hides in one step.
+    AppSettings unanimated{};
+    if (FAILED(ParseAppSettingsJson(
+            R"json({"version":{"major":5,"minor":3},"dock":{"animationMilliseconds":0},"pages":[{}]})json",
+            unanimated)) ||
+        unanimated.dock.animationMilliseconds != 0)
+    {
+        std::wprintf(L"animationMilliseconds 0 was refused.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
 
     const std::string_view rejected[]{
         R"json({"version":{"major":5,"minor":2},"dock":{"edge":"middle"},"pages":[{}]})json",
@@ -1162,6 +1204,8 @@ constexpr std::string_view kRepresentative = R"json(
         R"json({"version":{"major":5,"minor":2},"dock":{"monitor":"0"},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"dock":{"monitor":"name:"},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"dock":{"monitor":""},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":3},"dock":{"monitor":"Secondary"},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":3},"dock":{"monitor":"second"},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"dock":{"thickness":31},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"dock":{"thickness":1081},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"dock":{"thickness":"180"},"pages":[{}]})json",
@@ -1171,6 +1215,10 @@ constexpr std::string_view kRepresentative = R"json(
         R"json({"version":{"major":5,"minor":2},"dock":{"peek":65},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"dock":{"revealDelayMilliseconds":2001},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"dock":{"hideDelayMilliseconds":10001},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":3},"dock":{"animationMilliseconds":1001},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":3},"dock":{"animationMilliseconds":-1},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":3},"dock":{"animationMilliseconds":"200"},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":3},"dock":{"animationMilliseconds":1.5},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"dock":{"length":100},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"dock":[],"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"dock":{"edge":"top","edge":"top"},"pages":[{}]})json",
@@ -1203,7 +1251,8 @@ constexpr std::string_view kRepresentative = R"json(
         !ParseDockEdgeArgument(L"left@2", overrides) || overrides.edge != DockEdge::Left || !overrides.hasMonitor ||
         overrides.monitor.View() != "2" || !ParseDockEdgeArgument(L"top@name:DELL U2723", overrides) ||
         overrides.monitor.View() != "name:DELL U2723" || !ParseDockEdgeArgument(L"right@xeneon", overrides) ||
-        overrides.monitor.View() != "xeneon" || !ParseDockEdgeArgument(L"none", overrides) ||
+        overrides.monitor.View() != "xeneon" || !ParseDockEdgeArgument(L"top@secondary", overrides) ||
+        overrides.monitor.View() != kDockSecondaryMonitor || !ParseDockEdgeArgument(L"none", overrides) ||
         overrides.edge != DockEdge::None || !ParseDockModeArgument(L"autohide", overrides) ||
         overrides.mode != DockMode::Autohide || !ParseDockModeArgument(L"fixed", overrides) ||
         overrides.mode != DockMode::Fixed || !ParseDockThicknessArgument(L"32", overrides) ||
@@ -1319,6 +1368,71 @@ constexpr std::string_view kRepresentative = R"json(
         created.dock.thicknessDips != 300)
     {
         std::wprintf(L"PatchDockThickness accepted an out-of-range thickness.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    return S_OK;
+}
+
+// The `trayIcon` root member (minor 3): omitted, it follows the build (Release shows the notification-area icon,
+// Debug hides it), also in an older-minor document; an authored boolean wins in both builds; anything else rejects
+// the document with the diagnostic on $.trayIcon. It is typed runtime state, so a toggle is a runtime change the host
+// applies live.
+[[nodiscard]] HRESULT ValidateTrayIconSettings() noexcept
+{
+#if defined(_DEBUG)
+    constexpr bool buildDefault = false;
+#else
+    constexpr bool buildDefault = true;
+#endif
+    AppSettings omitted{};
+    AppSettings olderMinor{};
+    AppSettings shown{};
+    AppSettings hidden{};
+    if (kRedXeDefaultTrayIcon != buildDefault || AppSettings{}.trayIcon != buildDefault ||
+        FAILED(ParseAppSettingsJson(R"json({"version":{"major":5,"minor":3},"pages":[{}]})json", omitted)) ||
+        omitted.trayIcon != buildDefault ||
+        FAILED(ParseAppSettingsJson(R"json({"version":{"major":5,"minor":2},"pages":[{}]})json", olderMinor)) ||
+        olderMinor.trayIcon != buildDefault ||
+        FAILED(
+            ParseAppSettingsJson(R"json({"version":{"major":5,"minor":3},"trayIcon":true,"pages":[{}]})json", shown)) ||
+        !shown.trayIcon ||
+        FAILED(ParseAppSettingsJson(R"json({"version":{"major":5,"minor":3},"trayIcon":false,"pages":[{}]})json",
+                                    hidden)) ||
+        hidden.trayIcon)
+    {
+        std::wprintf(L"trayIcon did not parse to the build default or the authored boolean.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    // Only the member differs between the two documents, and the typed settings see it.
+    hidden.sourceDocument = shown.sourceDocument;
+    hidden.trayIcon = true;
+    if (hidden != shown)
+    {
+        std::wprintf(L"trayIcon changed typed settings other than trayIcon.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    const std::string_view rejected[]{
+        R"json({"version":{"major":5,"minor":3},"trayIcon":"true","pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":3},"trayIcon":1,"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":3},"trayIcon":null,"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":3},"trayIcon":{},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":3},"trayIcon":true,"trayIcon":false,"pages":[{}]})json",
+    };
+    for (const std::string_view document : rejected)
+    {
+        if (FAILED(ExpectRejected(document)))
+        {
+            std::wprintf(L"A malformed trayIcon was accepted.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
+    AppSettings diagnosed{};
+    SettingsParseDiagnostic diagnostic{};
+    if (SUCCEEDED(ParseAppSettingsJsonDetailed(
+            R"json({"version":{"major":5,"minor":3},"trayIcon":"yes","pages":[{}]})json", diagnosed, diagnostic)) ||
+        diagnostic.path != "$.trayIcon")
+    {
+        std::wprintf(L"The trayIcon diagnostic path is %hs, not $.trayIcon.\n", diagnostic.path.c_str());
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     return S_OK;
@@ -1480,14 +1594,14 @@ constexpr std::string_view kRepresentative = R"json(
         for (const auto widget : widgets)
         {
             const std::string source =
-                R"json({"version":{"major":5,"minor":3},"futureRoot":{"label":"keep\nthis","quoted":"\"{}[],:\\","list":[[],{},true,false,null,1.25e-4,-2]},"declare":{"Launch":{"plugin":"builtin.launcher"}},"pages":[{"widgets":[)json" +
+                R"json({"version":{"major":5,"minor":4},"futureRoot":{"label":"keep\nthis","quoted":"\"{}[],:\\","list":[[],{},true,false,null,1.25e-4,-2]},"declare":{"Launch":{"plugin":"builtin.launcher"}},"pages":[{"widgets":[)json" +
                 std::string(widget) + R"json(]}]})json";
             auto settings = std::make_unique<AppSettings>();
             if (FAILED(ParseAppSettingsJson(source, *settings)))
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             const auto id = settings->dashboard.pages[0].widgets[0].id;
             if (FAILED(PatchWidgetInstanceSettings(*settings, id.View(), patch)) ||
-                settings->sourceDocument.find("\n  \"version\": { \"major\": 5, \"minor\": 3 }") == std::string::npos ||
+                settings->sourceDocument.find("\n  \"version\": { \"major\": 5, \"minor\": 4 }") == std::string::npos ||
                 settings->sourceDocument.find("\"Launch\": { \"plugin\": \"builtin.launcher\" }") ==
                     std::string::npos ||
                 settings->sourceDocument.find("\"layout\"") != std::string::npos ||
@@ -1578,7 +1692,7 @@ constexpr std::string_view kRepresentative = R"json(
 
         // A compact accepted document must not be written as an oversized, subsequently unreadable pretty document.
         std::string large =
-            R"json({"version":{"major":5,"minor":3},"pages":[{"widgets":[{"plugin":"builtin.launcher"}]}],"futurePadding":")json";
+            R"json({"version":{"major":5,"minor":4},"pages":[{"widgets":[{"plugin":"builtin.launcher"}]}],"futurePadding":")json";
         large.append(1024U * 1024U - large.size() - 2, 'x');
         large += "\"}";
         auto settings = std::make_unique<AppSettings>();
@@ -1897,14 +2011,22 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 {
     try
     {
-        DockSettings dock = DefaultDockSettings();
-        dock.edge = DockEdge::Bottom;
+        // The first-run dock of a machine with two displays and a bottom taskbar: the top of the second screen.
+        const auto withMonitor = [](DockSettings value, std::string_view monitor) noexcept
+        {
+            value.monitor = SettingsText{};
+            monitor.copy(value.monitor.utf8.data(), monitor.size());
+            value.monitor.bytes = static_cast<uint32_t>(monitor.size());
+            return value;
+        };
+        DockSettings dock = withMonitor(DefaultDockSettings(), kDockSecondaryMonitor);
+        dock.edge = DockEdge::Top;
         dock.mode = DockMode::Autohide;
         dock.thicknessDips = 720;
         const auto isFirstRunDock = [&dock](const DockSettings& value) noexcept
         {
             return value.edge == dock.edge && value.mode == dock.mode && value.thicknessDips == dock.thicknessDips &&
-                   value.monitor.View() == "primary" && value.reserveWorkArea &&
+                   value.monitor.View() == dock.monitor.View() && value.reserveWorkArea &&
                    value.peekPixels == kDockDefaultPeekPixels &&
                    value.revealDelayMilliseconds == kDockDefaultRevealDelayMilliseconds &&
                    value.hideDelayMilliseconds == kDockDefaultHideDelayMilliseconds;
@@ -1913,9 +2035,9 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         {
             return left.versionMajor == right.versionMajor && left.versionMinor == right.versionMinor &&
                    left.logRetentionDays == right.logRetentionDays && left.backgroundRgb == right.backgroundRgb &&
-                   left.plugins == right.plugins && left.pluginCount == right.pluginCount &&
-                   left.services == right.services && left.serviceCount == right.serviceCount &&
-                   left.dashboard == right.dashboard;
+                   left.trayIcon == right.trayIcon && left.plugins == right.plugins &&
+                   left.pluginCount == right.pluginCount && left.services == right.services &&
+                   left.serviceCount == right.serviceCount && left.dashboard == right.dashboard;
         };
         for (const wchar_t* name : {kRedXeDebugSettingsFileName, kRedXeReleaseSettingsFileName})
         {
@@ -1937,7 +2059,7 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
             // One contiguous insertion right after the `version` member, in the template's own line breaks.
-            constexpr std::string_view versionMember = "\"version\": { \"major\": 5, \"minor\": 2 },";
+            constexpr std::string_view versionMember = "\"version\": { \"major\": 5, \"minor\": 3 },";
             const size_t versionAt = original.find(versionMember);
             if (versionAt == std::string::npos || patched.size() <= original.size())
             {
@@ -1957,7 +2079,7 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
                 !inserted.starts_with(lineBreak) || !inserted.ends_with("},") ||
                 inserted.find("// No XENEON display was found") == std::string::npos ||
                 inserted.find(
-                    R"("dock": { "edge": "bottom", "monitor": "primary", "mode": "autohide", "thickness": 720 })") ==
+                    R"("dock": { "edge": "top", "monitor": "secondary", "mode": "autohide", "thickness": 720 })") ==
                     std::string::npos ||
                 (lineBreak == "\r\n" && bareLineFeeds != 0))
             {
@@ -1966,19 +2088,51 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             }
         }
 
-        // Other shapes: a minor 1 document rises to minor 2, `version` as the last member, and an existing `dock`
-        // value is replaced. Invalid docks and malformed documents leave the source untouched.
+        // Other shapes: an older minor rises to the minor the dock needs (3 for `secondary`, else 2, the minor that
+        // added `dock`), `version` as the last member, and an existing `dock` value is replaced. Invalid docks and
+        // malformed documents leave the source untouched.
         AppSettings parsed{};
         std::string olderMinor = R"json({"version":{"major":5,"minor":1},"pages":[{}]})json";
         if (FAILED(PatchFirstRunDock(olderMinor, dock)) || FAILED(ParseAppSettingsJson(olderMinor, parsed)) ||
-            parsed.versionMinor != 2 || !isFirstRunDock(parsed.dock))
+            parsed.versionMinor != kRedXeSettingsSecondaryMonitorMinor || !isFirstRunDock(parsed.dock))
         {
-            std::wprintf(L"The first-run dock did not raise a minor 1 document.\n");
+            std::wprintf(L"The first-run dock on the second screen did not raise a minor 1 document to 3.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        DockSettings primaryDock = withMonitor(dock, kDockDefaultMonitor);
+        primaryDock.edge = DockEdge::Bottom;
+        std::string primaryOlderMinor = R"json({"version":{"major":5,"minor":1},"pages":[{}]})json";
+        if (FAILED(PatchFirstRunDock(primaryOlderMinor, primaryDock)) ||
+            FAILED(ParseAppSettingsJson(primaryOlderMinor, parsed)) || parsed.versionMinor != kRedXeSettingsDockMinor ||
+            parsed.dock.edge != DockEdge::Bottom || parsed.dock.monitor.View() != kDockDefaultMonitor)
+        {
+            std::wprintf(L"The first-run dock on the primary did not raise a minor 1 document to 2.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // A slide duration other than the default is written and needs minor 3, even on the primary.
+        DockSettings unanimatedDock = primaryDock;
+        unanimatedDock.animationMilliseconds = 0;
+        std::string unanimatedSource = R"json({"version":{"major":5,"minor":1},"pages":[{}]})json";
+        if (FAILED(PatchFirstRunDock(unanimatedSource, unanimatedDock)) ||
+            FAILED(ParseAppSettingsJson(unanimatedSource, parsed)) ||
+            parsed.versionMinor != kRedXeSettingsDockAnimationMinor || parsed.dock.animationMilliseconds != 0 ||
+            unanimatedSource.find("\"animationMilliseconds\": 0") == std::string::npos)
+        {
+            std::wprintf(L"The first-run dock did not write a non-default slide duration with minor 3.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        DockSettings slowDock = dock;
+        slowDock.animationMilliseconds = kDockMaximumAnimationMilliseconds + 1;
+        std::string refusedSlow = R"json({"version":{"major":5,"minor":2},"pages":[{}]})json";
+        if (PatchFirstRunDock(refusedSlow, slowDock) != E_INVALIDARG ||
+            refusedSlow != R"json({"version":{"major":5,"minor":2},"pages":[{}]})json")
+        {
+            std::wprintf(L"The first-run dock accepted a slide duration out of range.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         std::string versionLast = R"json({"pages":[{}],"version":{"major":5}})json";
         if (FAILED(PatchFirstRunDock(versionLast, dock)) || FAILED(ParseAppSettingsJson(versionLast, parsed)) ||
-            parsed.versionMinor != 2 || !isFirstRunDock(parsed.dock))
+            parsed.versionMinor != kRedXeSettingsSecondaryMonitorMinor || !isFirstRunDock(parsed.dock))
         {
             std::wprintf(L"The first-run dock did not follow a last version member.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -1992,9 +2146,9 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         named.monitor.bytes = static_cast<uint32_t>(namedMonitor.size());
         named.peekPixels = 6;
         if (FAILED(PatchFirstRunDock(existing, named)) || FAILED(ParseAppSettingsJson(existing, parsed)) ||
-            parsed.dock.edge != DockEdge::Bottom || parsed.dock.thicknessDips != 720 ||
+            parsed.dock.edge != DockEdge::Top || parsed.dock.thicknessDips != 720 ||
             parsed.dock.monitor.View() != namedMonitor || parsed.dock.peekPixels != 6 ||
-            existing.find("\"thickness\":200") != std::string::npos)
+            parsed.versionMinor != kRedXeSettingsDockMinor || existing.find("\"thickness\":200") != std::string::npos)
         {
             std::wprintf(L"The first-run dock did not replace an existing dock value.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -2394,6 +2548,7 @@ int wmain()
     const Test tests[]{{L"templates/schema", ValidateTemplatesAndSchema},
                        {L"parser", ValidateParser},
                        {L"dock", ValidateDockSettings},
+                       {L"tray icon", ValidateTrayIconSettings},
                        {L"command line", ValidateCommandLineCatalog},
                        {L"AV profile configuration", ValidateAvControlSettings},
                        {L"low stack", ValidateLowStack},
