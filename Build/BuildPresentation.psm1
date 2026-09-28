@@ -462,6 +462,16 @@ function ConvertTo-RedXeQuotedProcessArgument {
     return $builder.ToString()
 }
 
+function ConvertTo-RedXeProcessCommandLine {
+    param(
+        [string[]] $Arguments = @()
+    )
+
+    return (($Arguments | ForEach-Object {
+        ConvertTo-RedXeQuotedProcessArgument -Argument $_
+    }) -join ' ')
+}
+
 function Set-RedXeProcessArguments {
     param(
         [Parameter(Mandatory)]
@@ -478,23 +488,27 @@ function Set-RedXeProcessArguments {
         return
     }
 
-    $ProcessStartInfo.Arguments = (($Arguments | ForEach-Object {
-        ConvertTo-RedXeQuotedProcessArgument -Argument $_
-    }) -join ' ')
+    $ProcessStartInfo.Arguments = ConvertTo-RedXeProcessCommandLine -Arguments $Arguments
 }
 
-# A Windows job object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, so a bounded child and every process it starts end
-# together: Terminate() at a budget, and Dispose() (the last handle closing) for whatever is left. Only processes
-# assigned here are affected; nothing launched independently can be in this job.
-function New-RedXeKillOnCloseJob {
-    if (-not ('RedXe.Build.KillOnCloseJob' -as [type])) {
+# A Windows job object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE that starts the bounded child itself, so the child and
+# every process it starts end together: Terminate() at a budget, and Dispose() (the last handle closing) for whatever
+# is left. Start() creates the child suspended and resumes it only once it belongs to the job, so no process the child
+# creates can come into being outside the job. Nothing launched independently can be in this job.
+# A session cannot unload a compiled type: rename the classes whenever this definition changes, or a session that
+# loaded the previous one keeps using it.
+function New-RedXeContainmentJob {
+    if (-not ('RedXe.Build.ContainmentJob' -as [type])) {
         Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
 namespace RedXe.Build
 {
-    public sealed class KillOnCloseJob : IDisposable
+    public sealed class ContainmentJob : IDisposable
     {
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         static extern IntPtr CreateJobObjectW(IntPtr attributes, string name);
@@ -506,6 +520,22 @@ namespace RedXe.Build
         static extern bool TerminateJobObject(IntPtr job, uint exitCode);
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern bool CloseHandle(IntPtr handle);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool CreatePipe(out SafeFileHandle readPipe, out SafeFileHandle writePipe, IntPtr attributes, int size);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool SetHandleInformation(SafeFileHandle handle, uint mask, uint flags);
+        [DllImport("kernel32.dll")]
+        static extern IntPtr GetStdHandle(int standardHandle);
+        [DllImport("kernel32.dll")]
+        static extern uint GetConsoleOutputCP();
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern bool CreateProcessW(string applicationName, StringBuilder commandLine, IntPtr processAttributes,
+            IntPtr threadAttributes, bool inheritHandles, uint creationFlags, IntPtr environment, string currentDirectory,
+            ref StartupInfo startupInfo, out ProcessInformation processInformation);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern uint ResumeThread(IntPtr thread);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool TerminateProcess(IntPtr process, uint exitCode);
         [StructLayout(LayoutKind.Sequential)]
         struct BasicLimits
         {
@@ -521,10 +551,25 @@ namespace RedXe.Build
             public BasicLimits Basic; public IoCounters Io;
             public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
         }
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        struct StartupInfo
+        {
+            public int cb; public string lpReserved; public string lpDesktop; public string lpTitle;
+            public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+            public short wShowWindow, cbReserved2; public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        struct ProcessInformation { public IntPtr hProcess, hThread; public int dwProcessId, dwThreadId; }
         const int JobObjectExtendedLimitInformation = 9;
         const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
+        const uint HANDLE_FLAG_INHERIT = 0x1;
+        const int STD_INPUT_HANDLE = -10;
+        const int STARTF_USESTDHANDLES = 0x100;
+        const uint CREATE_SUSPENDED = 0x4, CREATE_NO_WINDOW = 0x08000000;
+        // Only this class's own starts are serialized; the child ends are inheritable just for one CreateProcess.
+        static readonly object StartLock = new object();
         IntPtr handle;
-        public KillOnCloseJob()
+        public ContainmentJob()
         {
             handle = CreateJobObjectW(IntPtr.Zero, null);
             if (handle == IntPtr.Zero) throw new Win32Exception();
@@ -535,9 +580,75 @@ namespace RedXe.Build
                 var error = new Win32Exception(); CloseHandle(handle); handle = IntPtr.Zero; throw error;
             }
         }
-        public void Assign(System.Diagnostics.Process process)
+        // Starts the child the way Process.Start does with UseShellExecute off, CreateNoWindow, and both output
+        // streams redirected (quoted file name first, inherited environment and standard input, output decoded with
+        // the console output code page), except that the child joins this job before its first instruction runs.
+        public ContainedProcess Start(string fileName, string arguments, string workingDirectory)
         {
-            if (!AssignProcessToJobObject(handle, process.Handle)) throw new Win32Exception();
+            string file = fileName.Trim();
+            var commandLine = new StringBuilder();
+            if (file.Length > 1 && file[0] == '"' && file[file.Length - 1] == '"') commandLine.Append(file);
+            else commandLine.Append('"').Append(file).Append('"');
+            if (!string.IsNullOrEmpty(arguments)) commandLine.Append(' ').Append(arguments);
+
+            SafeFileHandle outputRead = null, outputWrite = null, errorRead = null, errorWrite = null;
+            ProcessInformation info;
+            try
+            {
+                if (!CreatePipe(out outputRead, out outputWrite, IntPtr.Zero, 0)) throw new Win32Exception();
+                if (!CreatePipe(out errorRead, out errorWrite, IntPtr.Zero, 0)) throw new Win32Exception();
+                var startup = new StartupInfo();
+                startup.cb = Marshal.SizeOf(typeof(StartupInfo));
+                startup.dwFlags = STARTF_USESTDHANDLES;
+                startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+                startup.hStdOutput = outputWrite.DangerousGetHandle();
+                startup.hStdError = errorWrite.DangerousGetHandle();
+                lock (StartLock)
+                {
+                    if (!SetHandleInformation(outputWrite, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT) ||
+                        !SetHandleInformation(errorWrite, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT))
+                        throw new Win32Exception();
+                    bool created = CreateProcessW(null, commandLine, IntPtr.Zero, IntPtr.Zero, true,
+                        CREATE_SUSPENDED | CREATE_NO_WINDOW, IntPtr.Zero,
+                        string.IsNullOrEmpty(workingDirectory) ? null : workingDirectory, ref startup, out info);
+                    int error = Marshal.GetLastWin32Error();
+                    // The child holds its own copies now; the parent's must close for end of file to arrive.
+                    outputWrite.Dispose();
+                    errorWrite.Dispose();
+                    if (!created)
+                        throw new Win32Exception(error, "Unable to start '" + fileName + "': " + new Win32Exception(error).Message);
+                }
+            }
+            catch
+            {
+                if (outputRead != null) outputRead.Dispose();
+                if (outputWrite != null) outputWrite.Dispose();
+                if (errorRead != null) errorRead.Dispose();
+                if (errorWrite != null) errorWrite.Dispose();
+                throw;
+            }
+            try
+            {
+                if (!AssignProcessToJobObject(handle, info.hProcess)) throw new Win32Exception();
+                if (ResumeThread(info.hThread) == uint.MaxValue) throw new Win32Exception();
+            }
+            catch
+            {
+                TerminateProcess(info.hProcess, 0xFFFFFFFF);
+                CloseHandle(info.hProcess);
+                outputRead.Dispose();
+                errorRead.Dispose();
+                throw;
+            }
+            finally
+            {
+                CloseHandle(info.hThread);
+            }
+            Encoding encoding;
+            try { encoding = Encoding.GetEncoding((int)GetConsoleOutputCP()); }
+            catch (ArgumentException) { encoding = new UTF8Encoding(false); }
+            catch (NotSupportedException) { encoding = new UTF8Encoding(false); }
+            return new ContainedProcess(info.hProcess, info.dwProcessId, outputRead, errorRead, encoding);
         }
         public void Terminate()
         {
@@ -548,10 +659,62 @@ namespace RedXe.Build
             if (handle != IntPtr.Zero) { CloseHandle(handle); handle = IntPtr.Zero; }
         }
     }
+
+    // The members Invoke-RedXeStreamingProcess uses from System.Diagnostics.Process, over a child the job started.
+    public sealed class ContainedProcess : IDisposable
+    {
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool CloseHandle(IntPtr handle);
+        const uint WAIT_OBJECT_0 = 0, WAIT_TIMEOUT = 0x102, INFINITE = 0xFFFFFFFF;
+        IntPtr handle;
+        readonly int id;
+        readonly StreamReader standardOutput, standardError;
+        internal ContainedProcess(IntPtr process, int processId, SafeFileHandle output, SafeFileHandle error, Encoding encoding)
+        {
+            handle = process;
+            id = processId;
+            standardOutput = new StreamReader(new FileStream(output, FileAccess.Read, 4096, false), encoding, true, 4096);
+            standardError = new StreamReader(new FileStream(error, FileAccess.Read, 4096, false), encoding, true, 4096);
+        }
+        public int Id { get { return id; } }
+        public StreamReader StandardOutput { get { return standardOutput; } }
+        public StreamReader StandardError { get { return standardError; } }
+        public bool HasExited { get { return Wait(0); } }
+        public int ExitCode
+        {
+            get
+            {
+                uint code;
+                if (!Wait(0)) throw new InvalidOperationException("The process has not exited.");
+                if (!GetExitCodeProcess(handle, out code)) throw new Win32Exception();
+                return unchecked((int)code);
+            }
+        }
+        public bool WaitForExit(int milliseconds) { return Wait(milliseconds < 0 ? INFINITE : (uint)milliseconds); }
+        public void WaitForExit() { Wait(INFINITE); }
+        bool Wait(uint milliseconds)
+        {
+            if (handle == IntPtr.Zero) throw new ObjectDisposedException("ContainedProcess");
+            uint result = WaitForSingleObject(handle, milliseconds);
+            if (result == WAIT_OBJECT_0) return true;
+            if (result == WAIT_TIMEOUT) return false;
+            throw new Win32Exception();
+        }
+        public void Dispose()
+        {
+            standardOutput.Dispose();
+            standardError.Dispose();
+            if (handle != IntPtr.Zero) { CloseHandle(handle); handle = IntPtr.Zero; }
+        }
+    }
 }
 '@
     }
-    return [RedXe.Build.KillOnCloseJob]::new()
+    return [RedXe.Build.ContainmentJob]::new()
 }
 
 function Invoke-RedXeStreamingProcess {
@@ -578,16 +741,15 @@ function Invoke-RedXeStreamingProcess {
     )
 
     $resolvedLogPath = [IO.Path]::GetFullPath($LogPath)
-    # A bounded child is placed in a job object with kill-on-close: the whole tree is contained, so a descendant that
-    # inherited the redirected pipe and outlived the child (Process.Kill cannot reach it once the child has exited) is
-    # still terminated at the budget and when this call returns.
-    $job = if ($TimeoutSeconds -gt 0) { New-RedXeKillOnCloseJob } else { $null }
+    # A bounded child is started by a job object with kill-on-close and belongs to it before it runs, so the whole
+    # tree is contained: a descendant that inherited the redirected pipe and outlived the child is still terminated
+    # at the budget and when this call returns.
+    $job = if ($TimeoutSeconds -gt 0) { New-RedXeContainmentJob } else { $null }
     $deadline = $null
     $stopChildOnTimeout = {
-        param([Diagnostics.Process] $Child, [IO.StreamWriter] $Writer)
+        param($Child, [IO.StreamWriter] $Writer)
         $message = "'$FilePath' did not finish within $TimeoutSeconds s and was terminated with its child processes (log: $resolvedLogPath)."
-        if ($job) { $job.Terminate() }
-        try { if (-not $Child.HasExited) { $Child.Kill($true) } } catch { }
+        $job.Terminate()
         try { [void] $Child.WaitForExit(10000) } catch { }
         if ($Writer) { $Writer.WriteLine("TIMEOUT: $message") }
         throw $message
@@ -597,35 +759,33 @@ function Invoke-RedXeStreamingProcess {
         [void](New-Item -ItemType Directory -Path $logDirectory -Force)
     }
 
-    $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $FilePath
-    Set-RedXeProcessArguments -ProcessStartInfo $startInfo -Arguments $Arguments
-    $startInfo.WorkingDirectory = $WorkingDirectory
-    $startInfo.UseShellExecute = $false
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $startInfo.CreateNoWindow = $true
-
-    $process = [Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
+    $process = $null
     $logWriter = $null
     try {
         $encoding = [Text.UTF8Encoding]::new($false)
         $logWriter = [IO.StreamWriter]::new($resolvedLogPath, $false, $encoding)
 
-        if (-not $process.Start()) {
-            throw "Unable to start '$FilePath'."
-        }
-        # The budget is the child's, so it starts once the child exists. The first bounded call in a session compiles
-        # the job type above, which took over a second on a loaded machine, and neither that nor a slow process
-        # creation may come out of the child's time.
-        if ($TimeoutSeconds -gt 0) {
+        if ($job) {
+            $process = $job.Start($FilePath, (ConvertTo-RedXeProcessCommandLine -Arguments $Arguments), $WorkingDirectory)
+            # The budget is the child's, so it starts once the child runs. The first bounded call in a session
+            # compiles the job type above, which took over a second on a loaded machine, and neither that nor a slow
+            # process creation may come out of the child's time.
             $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
         }
-        if ($job) {
-            # Assigned before any output is read: a child that already spawned descendants is still contained,
-            # because they are created inside the job once their parent belongs to it.
-            $job.Assign($process)
+        else {
+            $startInfo = [Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = $FilePath
+            Set-RedXeProcessArguments -ProcessStartInfo $startInfo -Arguments $Arguments
+            $startInfo.WorkingDirectory = $WorkingDirectory
+            $startInfo.UseShellExecute = $false
+            $startInfo.RedirectStandardOutput = $true
+            $startInfo.RedirectStandardError = $true
+            $startInfo.CreateNoWindow = $true
+            $process = [Diagnostics.Process]::new()
+            $process.StartInfo = $startInfo
+            if (-not $process.Start()) {
+                throw "Unable to start '$FilePath'."
+            }
         }
 
         $standardOutputOpen = $true
@@ -688,9 +848,6 @@ function Invoke-RedXeStreamingProcess {
             if (-not $process.WaitForExit($remaining)) {
                 & $stopChildOnTimeout $process $logWriter
             }
-            # A bounded WaitForExit returns before the redirected streams are drained; the unbounded overload
-            # (called after a successful bounded one) finishes that without waiting on the process again.
-            $process.WaitForExit()
         }
         else {
             $process.WaitForExit()
@@ -703,7 +860,9 @@ function Invoke-RedXeStreamingProcess {
         if ($logWriter) {
             $logWriter.Dispose()
         }
-        $process.Dispose()
+        if ($process) {
+            $process.Dispose()
+        }
         if ($job) {
             # Closing the last handle kills whatever the tree still runs (kill-on-close).
             $job.Dispose()

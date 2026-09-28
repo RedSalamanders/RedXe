@@ -224,35 +224,46 @@ link : fatal error LNK1120: 1 unresolved externals
     @'
 param([string] $Message)
 Write-Output "stdout:$Message"
+Write-Output ('stdout:caf' + [char] 0xE9)
 [Console]::Error.WriteLine("stderr:$Message")
 exit 17
 '@ | Set-Content -LiteralPath $emitterPath -Encoding UTF8
-    $streamLogPath = Join-Path $presentationTestRoot 'streamed.log'
-    $receivedLines = [Collections.Generic.List[psobject]]::new()
     $powershellPath = (Get-Process -Id $PID -ErrorAction Stop).Path
-    $streamExitCode = Invoke-RedXeStreamingProcess `
-        -FilePath $powershellPath `
-        -Arguments @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $emitterPath, 'argument with spaces') `
-        -WorkingDirectory $presentationTestRoot `
-        -LogPath $streamLogPath `
-        -OutputLineCallback {
-        param([string] $Line, [bool] $IsError)
-        [void] $receivedLines.Add([pscustomobject]@{ Line = $Line; IsError = $IsError })
-    }
+    # An unbounded run uses Process.Start and a bounded one the job's own start, so both must quote arguments, keep
+    # stream identity, propagate the exit code, and decode the same bytes into the same text.
+    $decodedOutput = @{}
+    foreach ($streamBudget in @(0, 120)) {
+        $streamLogPath = Join-Path $presentationTestRoot "streamed-$streamBudget.log"
+        $receivedLines = [Collections.Generic.List[psobject]]::new()
+        $streamExitCode = Invoke-RedXeStreamingProcess `
+            -FilePath $powershellPath `
+            -Arguments @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $emitterPath, 'argument with spaces') `
+            -WorkingDirectory $presentationTestRoot `
+            -LogPath $streamLogPath `
+            -TimeoutSeconds $streamBudget `
+            -OutputLineCallback {
+            param([string] $Line, [bool] $IsError)
+            [void] $receivedLines.Add([pscustomobject]@{ Line = $Line; IsError = $IsError })
+        }
 
-    if ($streamExitCode -ne 17) {
-        throw "Streaming did not propagate the child exit code; expected 17, got $streamExitCode."
+        if ($streamExitCode -ne 17 -or $LASTEXITCODE -ne 17) {
+            throw "Streaming with a $streamBudget s budget did not propagate the child exit code; expected 17, got $streamExitCode."
+        }
+        $stdoutRecord = $receivedLines | Where-Object { $_.Line -eq 'stdout:argument with spaces' -and -not $_.IsError }
+        $stderrRecord = $receivedLines | Where-Object { $_.Line -eq 'stderr:argument with spaces' -and $_.IsError }
+        if (-not $stdoutRecord -or -not $stderrRecord) {
+            throw "Streaming with a $streamBudget s budget did not preserve argument quoting and stream identity: $($receivedLines | Out-String)"
+        }
+        $streamLogText = Get-Content -LiteralPath $streamLogPath -Raw
+        if ($streamLogText -notmatch 'stdout:argument with spaces' -or
+            $streamLogText -notmatch 'stderr:argument with spaces' -or
+            $streamLogText.Contains([char] 0x1b)) {
+            throw "The captured streaming log with a $streamBudget s budget omitted output or contained terminal control sequences."
+        }
+        $decodedOutput[$streamBudget] = @($receivedLines | ForEach-Object { '{0}|{1}' -f [int] $_.IsError, $_.Line } | Sort-Object) -join "`n"
     }
-    $stdoutRecord = $receivedLines | Where-Object { $_.Line -eq 'stdout:argument with spaces' -and -not $_.IsError }
-    $stderrRecord = $receivedLines | Where-Object { $_.Line -eq 'stderr:argument with spaces' -and $_.IsError }
-    if (-not $stdoutRecord -or -not $stderrRecord) {
-        throw "Streaming did not preserve argument quoting and stream identity: $($receivedLines | Out-String)"
-    }
-    $streamLogText = Get-Content -LiteralPath $streamLogPath -Raw
-    if ($streamLogText -notmatch 'stdout:argument with spaces' -or
-        $streamLogText -notmatch 'stderr:argument with spaces' -or
-        $streamLogText.Contains([char] 0x1b)) {
-        throw 'The captured streaming log omitted output or contained terminal control sequences.'
+    if ($decodedOutput[0] -cne $decodedOutput[120]) {
+        throw "A bounded run decoded the child's output differently from Process.Start: '$($decodedOutput[120])' instead of '$($decodedOutput[0])'."
     }
 
     # A bounded run is terminated at its budget together with everything it started, and the call throws a message
@@ -310,8 +321,25 @@ exit /b 0
         if ($stallLogText -notmatch 'TIMEOUT:') {
             throw "The stalled run log lacks the timeout record: $stallLogText"
         }
-        $survivors = @(Get-CimInstance Win32_Process -Filter "Name='cmd.exe' OR Name='ping.exe'" -ErrorAction Stop |
-            Where-Object { $_.CommandLine -and ($_.CommandLine.Contains($stallMarker) -or $_.CommandLine.Contains('staller.cmd')) })
+        # The child's command line names this run's staller and the grandchild's carries the marker; ping.exe has
+        # neither, so a process belongs to the run when its parent does.
+        $candidates = @(Get-CimInstance Win32_Process -Filter "Name='cmd.exe' OR Name='ping.exe'" -ErrorAction Stop)
+        $runProcessIds = [Collections.Generic.HashSet[uint32]]::new()
+        foreach ($candidate in $candidates) {
+            if ($candidate.CommandLine -and
+                ($candidate.CommandLine.Contains($stallMarker) -or $candidate.CommandLine.Contains($stallerPath))) {
+                [void] $runProcessIds.Add($candidate.ProcessId)
+            }
+        }
+        do {
+            $foundDescendant = $false
+            foreach ($candidate in $candidates) {
+                if ($runProcessIds.Contains($candidate.ParentProcessId) -and $runProcessIds.Add($candidate.ProcessId)) {
+                    $foundDescendant = $true
+                }
+            }
+        } while ($foundDescendant)
+        $survivors = @($candidates | Where-Object { $runProcessIds.Contains($_.ProcessId) })
         if ($survivors.Count -ne 0) {
             foreach ($survivor in $survivors) { Stop-Process -Id $survivor.ProcessId -Force -ErrorAction SilentlyContinue }
             throw "A process of the stalled run survived its termination: $(($survivors | ForEach-Object { "$($_.Name) $($_.ProcessId)" }) -join ', ')"

@@ -61,7 +61,11 @@ and remove its isolated artifacts. It MUST also validate terminal-path selection
 diagnostic counting, banner identity, argument-safe streaming, combined logging, child exit-code propagation, and
 the `-TimeoutSeconds` budget of `Invoke-RedXeStreamingProcess`: a child that outlives its budget is terminated with
 its process tree (a descendant of the invocation, never an independently launched process), the partial output and a
-`TIMEOUT:` record stay in the log, and the call throws naming the executable and the log. The budget is counted from
+`TIMEOUT:` record stay in the log, and the call throws naming the executable and the log. A bounded child is created
+suspended and joins the kill-on-close job before its first instruction runs, so nothing it starts can escape the job;
+an unbounded one starts through `Process.Start`, and both paths quote arguments, keep stream identity, propagate the
+exit code, and decode output alike. The survivor check follows parent processes, so a descendant that carries no
+marker (`ping.exe`) still counts. The budget is counted from
 the child's start, so the helper's own setup (compiling its job type on first use) never shortens it. The stall
 fixture proves containment only once its child has started the pipe-holding grandchild and exited: a run that did not
 get that far inside the budget is inconclusive and is repeated once with a longer budget, and a line the child wrote
