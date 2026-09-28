@@ -3477,17 +3477,36 @@ void TestHostJsonlLog(bool& success) noexcept
                                    "the next record remains independent",
                                    S_OK};
     Check(iface->Log(&following) == S_OK, L"a following record is accepted", success);
-    Check(SUCCEEDED(host.FlushLog(2000)), L"FlushLog waits for the writer to drain", success);
+    // The timeout only bounds a hung writer; it is not a latency budget. The first drain creates the dated file,
+    // purges the expired ones, and flushes to disk, which once took longer than 2 s on a GitHub-hosted x64 runner.
+    // A stale idle signal still fails at once with ERROR_IO_PENDING, whatever the timeout.
+    const auto flushLog = [&host]() noexcept
+    {
+        const HRESULT result = host.FlushLog(10'000);
+        if (FAILED(result))
+        {
+            std::wcerr << L"[       -- ] FlushLog returned 0x" << std::hex << static_cast<unsigned long>(result)
+                       << std::dec << L'\n';
+        }
+        return result;
+    };
+    const HRESULT drained = flushLog();
+    Check(SUCCEEDED(drained), L"FlushLog waits for the writer to drain", success);
+    if (FAILED(drained))
+    {
+        return; // Every later flush would wait out another timeout on a writer that never drained.
+    }
     constexpr size_t flushBatches = 64;
     constexpr size_t recordsPerBatch = 4;
     const RedXeLogRecord pulse{sizeof(pulse), RedXeLogLevelInfo,   nullptr, nullptr,
                                "flush-pulse", "queued after idle", S_OK};
     bool flushesSucceeded = true;
-    for (size_t batch = 0; batch < flushBatches; ++batch)
+    // Stop at the first failure so a hung writer costs one timeout, not one per batch.
+    for (size_t batch = 0; batch < flushBatches && flushesSucceeded; ++batch)
     {
         for (size_t record = 0; record < recordsPerBatch; ++record)
             flushesSucceeded = (iface->Log(&pulse) == S_OK) && flushesSucceeded;
-        flushesSucceeded = (host.FlushLog(2000) == S_OK) && flushesSucceeded;
+        flushesSucceeded = (flushLog() == S_OK) && flushesSucceeded;
     }
     Check(flushesSucceeded, L"repeated enqueue/flush boundaries never observe a stale idle signal", success);
 
