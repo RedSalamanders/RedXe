@@ -131,6 +131,7 @@
     <ClInclude Include="resource.h" />
     <ClInclude Include="Settings.h" />
       <ClInclude Include="SettingsWatcher.h" />
+    <ClInclude Include="TrayIcon.h" />
     <ClInclude Include="WheelNavigation.h" />
     <ClInclude Include="WidgetRaise.h" />
   </ItemGroup>
@@ -156,6 +157,7 @@
     <ClCompile Include="HostActions.cpp" />
     <ClCompile Include="SettingsV4.cpp" />
     <ClCompile Include="SettingsWatcher.cpp" />
+    <ClCompile Include="TrayIcon.cpp" />
     <ClCompile Include="..\Common\WindowCapture.cpp" />
   </ItemGroup>
   <ItemGroup>

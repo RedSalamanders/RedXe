@@ -145,6 +145,7 @@ RedXe/
   Renderer.*        Direct3D 11 host resources, widget callbacks, placeholder tiles, and frames
   Settings.*        Typed yyjson persistence, paths, recovery, stamps, and persist merge
   SettingsWatcher.* Event-blocked directory notification; posts to the UI thread only
+  TrayIcon.*        Notification-area icon: hidden owner window, double-click edits the settings, Edit settings/Exit menu
   FluentIcons.h     Segoe Fluent Icons glyphs and font selection for all host chrome
   app.manifest      Per-monitor-v2 DPI and Windows compatibility metadata
 Tests/
@@ -186,6 +187,8 @@ Keep the boundary explicit:
   and stamp deduplication.
 - `SettingsWatcher` owns one event-blocked directory watcher and only posts a coalesced UI message; settings and
   dashboard mutation remain on `Application`'s UI thread.
+- `TrayIcon` owns the notification-area icon and its hidden owner window and only posts commands to the main window;
+  `Application` decides from `trayIcon` whether it exists and performs Edit settings and Exit.
 - `PluginHost` is process scoped. One instance owns every mapped module, every data source, the single acquisition
   worker, the optional network worker, the started services with their device-lane threads, the host action ring,
   and the JSONL log writer for the whole application, including the dashboard page staged during a swipe. Optional

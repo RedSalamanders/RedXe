@@ -625,6 +625,9 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     case MonitorSelector::Kind::Primary:
         matched = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
         break;
+    case MonitorSelector::Kind::Secondary:
+        matched = (info.dwFlags & MONITORINFOF_PRIMARY) == 0;
+        break;
     case MonitorSelector::Kind::Xeneon:
         matched = monitor == search.xeneon;
         break;

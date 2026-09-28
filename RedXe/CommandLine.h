@@ -70,11 +70,11 @@ inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwi
                            L"General"},
     RedXeCommandLineSwitch{RedXeSwitch::Warp, L"--warp", nullptr, RedXeSwitchValue::None, nullptr,
                            L"Render on the Microsoft Basic Render Driver (WARP) instead of the GPU.", L"General"},
-    RedXeCommandLineSwitch{
-        RedXeSwitch::Dock, L"--dock", nullptr, RedXeSwitchValue::Separate, L"<edge>[@<monitor>]",
-        L"Run as a bar on that screen edge: none, top, bottom, left, or right, on monitor primary, "
-        L"xeneon, <n>, or name:<substring> (default primary). Overrides the settings dock.edge/monitor.",
-        L"Dock"},
+    RedXeCommandLineSwitch{RedXeSwitch::Dock, L"--dock", nullptr, RedXeSwitchValue::Separate, L"<edge>[@<monitor>]",
+                           L"Run as a bar on that screen edge: none, top, bottom, left, or right, on monitor primary, "
+                           L"secondary, xeneon, <n>, or name:<substring> (default primary). Overrides the settings "
+                           L"dock.edge/monitor.",
+                           L"Dock"},
     RedXeCommandLineSwitch{RedXeSwitch::DockMode, L"--dock-mode", nullptr, RedXeSwitchValue::Separate, L"<mode>",
                            L"fixed (always on screen) or autohide (collapses to a peek strip).", L"Dock"},
     RedXeCommandLineSwitch{RedXeSwitch::DockThickness, L"--dock-thickness", nullptr, RedXeSwitchValue::Separate,

@@ -16,8 +16,14 @@
 
 inline constexpr uint32_t kRedXeSettingsVersionMajor = 5;
 // Minor 1 added the optional additive `services` root member (headless service plugins such as Logicon); minor 2
-// added the optional additive `dock` root member (the screen-edge bar).
-inline constexpr uint32_t kRedXeSettingsVersionMinor = 2;
+// added the optional additive `dock` root member (the screen-edge bar); minor 3 added the optional additive `trayIcon`
+// root member (the notification-area icon), the `secondary` monitor selector, and `dock.animationMilliseconds`.
+inline constexpr uint32_t kRedXeSettingsVersionMinor = 3;
+// The minor a document needs for `dock` (PatchDockThickness, PatchFirstRunDock), for the `secondary` selector, and for
+// `dock.animationMilliseconds`.
+inline constexpr uint32_t kRedXeSettingsDockMinor = 2;
+inline constexpr uint32_t kRedXeSettingsSecondaryMonitorMinor = 3;
+inline constexpr uint32_t kRedXeSettingsDockAnimationMinor = 3;
 // Removed with the v3 parser; retained temporarily so the transition remains buildable between slices.
 inline constexpr wchar_t kRedXeDebugSettingsFileName[] = L"RedXe-debug.settings.json";
 inline constexpr wchar_t kRedXeReleaseSettingsFileName[] = L"RedXe.settings.json";
@@ -31,8 +37,11 @@ inline constexpr size_t kRedXeLogFileNameCapacity = 64;
 inline constexpr uint32_t kRedXeDefaultBackgroundRgb = 0x000000;
 #if defined(_DEBUG)
 inline constexpr wchar_t kRedXeLogFileNamePrefix[] = L"RedXe-debug-";
+// The notification-area icon when the document omits trayIcon: hidden by Debug, shown by Release.
+inline constexpr bool kRedXeDefaultTrayIcon = false;
 #else
 inline constexpr wchar_t kRedXeLogFileNamePrefix[] = L"RedXe-";
+inline constexpr bool kRedXeDefaultTrayIcon = true;
 #endif
 
 [[nodiscard]] inline bool RedXeFormatLogFileName(wchar_t* buffer, size_t capacity, const SYSTEMTIME& utcDate) noexcept
@@ -255,7 +264,7 @@ struct ServiceSettings final
 struct DockSettings final
 {
     DockEdge edge = DockEdge::None;
-    // Monitor selector text: primary, xeneon, <n>, or name:<substring> (never all).
+    // Monitor selector text: primary, secondary, xeneon, <n>, or name:<substring> (never all).
     SettingsText monitor;
     uint32_t thicknessDips = kDockDefaultThicknessDips;
     DockMode mode = DockMode::Fixed;
@@ -263,6 +272,8 @@ struct DockSettings final
     uint32_t peekPixels = kDockDefaultPeekPixels;
     uint32_t revealDelayMilliseconds = kDockDefaultRevealDelayMilliseconds;
     uint32_t hideDelayMilliseconds = kDockDefaultHideDelayMilliseconds;
+    // Autohide slide duration (minor 3); 0 reveals and hides in one step.
+    uint32_t animationMilliseconds = kDockDefaultAnimationMilliseconds;
 
     bool operator==(const DockSettings&) const noexcept = default;
 };
@@ -282,6 +293,8 @@ struct AppSettings final
     uint32_t logRetentionDays = kRedXeDefaultLogRetentionDays;
     uint32_t backgroundRgb = kRedXeDefaultBackgroundRgb;
     DockSettings dock = DefaultDockSettings();
+    // The `trayIcon` root member (minor 3): the notification-area icon of an interactive run.
+    bool trayIcon = kRedXeDefaultTrayIcon;
     std::string sourceDocument;
     std::vector<PluginSettings> plugins;
     uint32_t pluginCount = 0;
@@ -369,7 +382,8 @@ enum class SettingsReloadStatus : std::uint8_t
 [[nodiscard]] HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept;
 // Writes `dock` into a template's source for the first start without a XENEON (Core_Settings.md "Cold load and
 // recovery"): a new member on its own line after `version`, with a comment naming why and how to turn it off, or the
-// value of an existing `dock`. Comments and every other member stay; `version.minor` rises to 2 when lower.
+// value of an existing `dock`. Comments and every other member stay; `version.minor` rises to 2 when lower, or to 3
+// when the dock names the `secondary` monitor.
 [[nodiscard]] HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcept;
 
 class SettingsStore final

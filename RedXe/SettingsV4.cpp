@@ -1464,7 +1464,7 @@ struct DiagnosticSink final
     dock = DefaultDockSettings();
     if (!AcceptObjectMembers(sink, path, object,
                              {"edge", "monitor", "thickness", "mode", "reserveWorkArea", "peek",
-                              "revealDelayMilliseconds", "hideDelayMilliseconds"},
+                              "revealDelayMilliseconds", "hideDelayMilliseconds", "animationMilliseconds"},
                              allowUnknown))
         return false;
     if (yyjson_val* edge = yyjson_obj_get(object, "edge"))
@@ -1481,8 +1481,8 @@ struct DiagnosticSink final
         if (!yyjson_is_str(monitor) ||
             !CopyText(std::string_view(yyjson_get_str(monitor), yyjson_get_len(monitor)), dock.monitor, false) ||
             !RedXeActions::ParseMonitorSelector(dock.monitor.View(), false, selector))
-            return sink.Fail(path.View(),
-                             "monitor must be primary, xeneon, a 1-based display number, or name:<substring>.");
+            return sink.Fail(path.View(), "monitor must be primary, secondary, xeneon, a 1-based display number, or "
+                                          "name:<substring>.");
     }
     if (!ParseDockInteger(object, "thickness", kDockMinimumThicknessDips, kDockMaximumThicknessDips, dock.thicknessDips,
                           sink, path))
@@ -1506,7 +1506,9 @@ struct DiagnosticSink final
            ParseDockInteger(object, "revealDelayMilliseconds", 0, kDockMaximumRevealDelayMilliseconds,
                             dock.revealDelayMilliseconds, sink, path) &&
            ParseDockInteger(object, "hideDelayMilliseconds", 0, kDockMaximumHideDelayMilliseconds,
-                            dock.hideDelayMilliseconds, sink, path);
+                            dock.hideDelayMilliseconds, sink, path) &&
+           ParseDockInteger(object, "animationMilliseconds", 0, kDockMaximumAnimationMilliseconds,
+                            dock.animationMilliseconds, sink, path);
 }
 
 [[nodiscard]] bool ParseServiceEntry(std::string_view name, yyjson_val* definition, AppSettings& settings,
@@ -1935,7 +1937,7 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSetting
         const bool allowUnknown = fileMinor > kRedXeSettingsVersionMinor;
         if (!AcceptObjectMembers(sink, path, root,
                                  {"$schema", "version", "wrapPages", "logRetentionDays", "backgroundColor", "dock",
-                                  "declare", "services", "pages"},
+                                  "trayIcon", "declare", "services", "pages"},
                                  allowUnknown))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         yyjson_val* schema = yyjson_obj_get(root, "$schema");
@@ -1988,6 +1990,14 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSetting
             if (!ParseDockObject(dock, parsed->dock, sink, path, allowUnknown))
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
+        // Omitted, the notification-area icon follows the build: shown by Release, hidden by Debug.
+        yyjson_val* trayIcon = yyjson_obj_get(root, "trayIcon");
+        if (trayIcon && !yyjson_is_bool(trayIcon))
+        {
+            const auto trayIconScope = path.PushName("trayIcon");
+            return sink.FailHr(path.View(), "trayIcon must be a boolean.");
+        }
+        parsed->trayIcon = trayIcon ? yyjson_get_bool(trayIcon) : kRedXeDefaultTrayIcon;
 
         std::vector<Declaration> declarations;
         yyjson_val* declarationObject = yyjson_obj_get(root, "declare");

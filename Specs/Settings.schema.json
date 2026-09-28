@@ -25,6 +25,10 @@
       "$ref": "#/$defs/dock",
       "description": "Screen-edge dock (settings minor 2): RedXe as a bar on one edge of one monitor. Omitted, or edge none, keeps the standard XENEON window."
     },
+    "trayIcon": {
+      "type": "boolean",
+      "description": "Notification-area (system tray) icon (settings minor 3): double-click it to open this file in its default editor; right-click it for Edit settings and Exit. Omitted: true in Release, false in Debug."
+    },
     "services": {
       "type": "object",
       "maxProperties": 8,
@@ -345,7 +349,7 @@
           "minLength": 1,
           "maxLength": 128,
           "default": "primary",
-          "description": "primary, xeneon (the discovered XENEON display), a 1-based display number, or name:<substring> of the display name. A display that is not found falls back to the primary."
+          "description": "primary, secondary (the first display that is not the primary; settings minor 3), xeneon (the discovered XENEON display), a 1-based display number, or name:<substring> of the display name. A display that is not found falls back to the primary."
         },
         "thickness": {
           "type": "integer",
@@ -384,6 +388,13 @@
           "maximum": 10000,
           "default": 800,
           "description": "autohide only: delay after the pointer has left and the bar is inactive before it collapses."
+        },
+        "animationMilliseconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "default": 200,
+          "description": "autohide only (settings minor 3): how long the bar takes to slide out of the screen edge and back; 0 reveals and hides at once."
         }
       }
     },

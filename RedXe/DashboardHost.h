@@ -38,6 +38,13 @@ class DashboardHost final
     }
     [[nodiscard]] HRESULT SetHorizontalOffset(LONG offset) noexcept;
     [[nodiscard]] LONG HorizontalOffset() const noexcept;
+    // Autohide slide of a top or left dock (DockSlideContentOffset): every tile and native container moves by this
+    // offset on top of the page offset while the bar slides; zero otherwise.
+    [[nodiscard]] HRESULT SetSlideOffset(POINT offset) noexcept;
+    [[nodiscard]] POINT SlideOffset() const noexcept
+    {
+        return _slideOffset;
+    }
     [[nodiscard]] HRESULT ApplyRaisedNativeLayout(size_t widgetIndex, const RECT& content, UINT dpi) noexcept;
     [[nodiscard]] HRESULT ClearRaisedNativeLayout(UINT dpi) noexcept;
     // Native containers are layered children with their own DWM surface. While another widget is raised they take
@@ -76,12 +83,16 @@ class DashboardHost final
     std::array<AdaptiveWidgetPlacement, PluginManager::kMaximumWidgetInstances> _adaptivePlacements{};
     std::array<bool, PluginManager::kMaximumWidgetInstances> _usesAdaptivePlacement{};
     std::array<wil::unique_hwnd, PluginManager::kMaximumWidgetInstances> _windowContainers;
+    // Moves every native container to its current PixelBoundsAt origin after an offset change.
+    [[nodiscard]] HRESULT MoveNativeContainers() noexcept;
+
     size_t _widgetCount = 0;
     uint32_t _gridColumns = 0;
     uint32_t _gridRows = 0;
     bool _requiresContinuousFrames = false;
     bool _widgetsVisible = false;
     LONG _horizontalOffset = 0;
+    POINT _slideOffset{};
     UINT _clientWidth = 0;
     UINT _clientHeight = 0;
     size_t _raisedNativeIndex = SIZE_MAX;

@@ -8,6 +8,7 @@
 #include "HostActionCatalog.h"
 #include "PlugInterfaces/Factory.h"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstdio>
@@ -2122,8 +2123,9 @@ struct SourceMember final
 }
 
 // Preconditions shared by the dock source patches: the whole source is a valid v5 document. `raiseMinor` reports
-// a minor below 2, the minor that added `dock`; `rootBegin` is the root's '{'.
-[[nodiscard]] HRESULT PrepareDockSourcePatch(std::string& source, bool& raiseMinor, size_t& rootBegin) noexcept
+// a minor below `requiredMinor` (2 added `dock`, 3 the `secondary` monitor selector); `rootBegin` is the root's '{'.
+[[nodiscard]] HRESULT PrepareDockSourcePatch(std::string& source, uint32_t requiredMinor, bool& raiseMinor,
+                                             size_t& rootBegin) noexcept
 {
     raiseMinor = false;
     rootBegin = 0;
@@ -2140,15 +2142,18 @@ struct SourceMember final
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    raiseMinor = validated->versionMinor < 2;
+    raiseMinor = validated->versionMinor < requiredMinor;
     return SkipSourceTrivia(source, rootBegin) ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 }
 
-[[nodiscard]] bool RaiseDockSourceMinor(std::string& source, size_t rootBegin) noexcept
+[[nodiscard]] bool RaiseDockSourceMinor(std::string& source, size_t rootBegin, uint32_t minor) noexcept
 {
+    std::array<char, 16> digits{};
+    const int length = std::snprintf(digits.data(), digits.size(), "%u", minor);
     SourceMember version{};
-    return FindSourceMember(source, rootBegin, "\"version\"", version) && version.found &&
-           PatchSourceMember(source, version.valueBegin, "\"minor\"", "2");
+    return length > 0 && FindSourceMember(source, rootBegin, "\"version\"", version) && version.found &&
+           PatchSourceMember(source, version.valueBegin, "\"minor\"",
+                             std::string_view(digits.data(), static_cast<size_t>(length)));
 }
 } // namespace
 
@@ -2168,7 +2173,8 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
         std::string updated = settings.sourceDocument;
         bool raiseMinor = false;
         size_t rootBegin = 0;
-        if (const HRESULT prepared = PrepareDockSourcePatch(updated, raiseMinor, rootBegin); FAILED(prepared))
+        if (const HRESULT prepared = PrepareDockSourcePatch(updated, kRedXeSettingsDockMinor, raiseMinor, rootBegin);
+            FAILED(prepared))
         {
             return prepared;
         }
@@ -2189,7 +2195,7 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        if (raiseMinor && !RaiseDockSourceMinor(updated, rootBegin))
+        if (raiseMinor && !RaiseDockSourceMinor(updated, rootBegin, kRedXeSettingsDockMinor))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -2224,7 +2230,8 @@ HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcep
         dock.thicknessDips < kDockMinimumThicknessDips || dock.thicknessDips > kDockMaximumThicknessDips ||
         dock.peekPixels < kDockMinimumPeekPixels || dock.peekPixels > kDockMaximumPeekPixels ||
         dock.revealDelayMilliseconds > kDockMaximumRevealDelayMilliseconds ||
-        dock.hideDelayMilliseconds > kDockMaximumHideDelayMilliseconds)
+        dock.hideDelayMilliseconds > kDockMaximumHideDelayMilliseconds ||
+        dock.animationMilliseconds > kDockMaximumAnimationMilliseconds)
     {
         return E_INVALIDARG;
     }
@@ -2265,12 +2272,27 @@ HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcep
         {
             member += ", \"hideDelayMilliseconds\": " + std::to_string(dock.hideDelayMilliseconds);
         }
+        if (dock.animationMilliseconds != kDockDefaultAnimationMilliseconds)
+        {
+            member += ", \"animationMilliseconds\": " + std::to_string(dock.animationMilliseconds);
+        }
         member += " }";
 
+        // The minor that added `dock`, or a later one for a member value the dock uses.
+        uint32_t requiredMinor = kRedXeSettingsDockMinor;
+        if (selector.kind == RedXeActions::MonitorSelector::Kind::Secondary)
+        {
+            requiredMinor = std::max(requiredMinor, kRedXeSettingsSecondaryMonitorMinor);
+        }
+        if (dock.animationMilliseconds != kDockDefaultAnimationMilliseconds)
+        {
+            requiredMinor = std::max(requiredMinor, kRedXeSettingsDockAnimationMinor);
+        }
         std::string updated = source;
         bool raiseMinor = false;
         size_t rootBegin = 0;
-        if (const HRESULT prepared = PrepareDockSourcePatch(updated, raiseMinor, rootBegin); FAILED(prepared))
+        if (const HRESULT prepared = PrepareDockSourcePatch(updated, requiredMinor, raiseMinor, rootBegin);
+            FAILED(prepared))
         {
             return prepared;
         }
@@ -2322,7 +2344,7 @@ HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcep
                 updated.insert(version.valueEnd, "," + lines);
             }
         }
-        if (raiseMinor && !RaiseDockSourceMinor(updated, rootBegin))
+        if (raiseMinor && !RaiseDockSourceMinor(updated, rootBegin, requiredMinor))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }

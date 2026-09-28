@@ -1,13 +1,14 @@
 # XENEON display and windowing contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-27
+Last reviewed: 2026-09-28
 Owner: `Application` process, display-selection, HWND, and DPI behavior
 
 ## Scope
 
 This specification owns RedXe startup display selection, Debug and Release window modes, the screen-edge dock window
-kind, the XENEON EDGE design canvas, per-monitor DPI behavior, fallback prompts, and the hidden smoke-test window. Direct3D device and swap-chain
+kind, the XENEON EDGE design canvas, per-monitor DPI behavior, fallback prompts, the notification-area icon, and the
+hidden smoke-test window. Direct3D device and swap-chain
 ownership remains in `Renderer`; see the `direct3d11-rendering` skill for that boundary.
 
 Dashboard pages, adaptive placement, runtime orientation reflow, and horizontal touch navigation are owned by
@@ -74,7 +75,8 @@ The dock is RedXe as a bar along one edge of one monitor. The **effective dock**
 object (`Specs/Core/Core_Settings.md`) with the `--dock*` command-line overrides applied, and the window kind follows
 it at startup and on every live reload: an `edge` other than `none` selects the dock in both configurations, on any
 monitor; the XENEON is only what the `xeneon` selector resolves to. `RedXe/DockPlacement.h` owns every pure rule
-below (placement, monitor selection, MINMAXINFO, the autohide state machine, the first-run thickness) and
+below (placement, monitor selection, MINMAXINFO, the autohide state machine and slide, the first-run monitor, edge,
+and thickness) and
 `RedXe/DockOptions.h` the command line and the merge; `HostPluginTests` and `SettingsTests` prove them without a
 display topology.
 
@@ -87,7 +89,7 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
 
 | Switch | Value | Overrides |
 | --- | --- | --- |
-| `--dock <edge>[@<monitor>]` | `none`, `top`, `bottom`, `left`, `right`, optionally followed by `@` and a monitor selector (`primary`, `xeneon`, `<n>`, `name:<substring>`; never `all`) | `dock.edge`, and `dock.monitor` when the suffix is present |
+| `--dock <edge>[@<monitor>]` | `none`, `top`, `bottom`, `left`, `right`, optionally followed by `@` and a monitor selector (`primary`, `secondary`, `xeneon`, `<n>`, `name:<substring>`; never `all`) | `dock.edge`, and `dock.monitor` when the suffix is present |
 | `--dock-mode <mode>` | `fixed`, `autohide` | `dock.mode` |
 | `--dock-thickness <dips>` | 32–1080 | `dock.thickness` |
 | `--dock-reserve <on|off>` | `on`, `off` | `dock.reserveWorkArea` |
@@ -128,11 +130,13 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
 
 ### Monitor and placement
 
-- `monitor` resolves over `EnumDisplayMonitors`: `primary` → the primary display; `<n>` → the n-th in enumeration
-  order (1-based); `name:<substring>` → an ordinal case-insensitive substring of the `QueryDisplayConfig` friendly
-  name or of the GDI device name (`\\.\DISPLAYn`); `xeneon` → the display XENEON discovery found. A selector that
-  resolves to nothing falls back to the primary display with one Warning log record (`dock-monitor-fallback`) and
-  no prompt; `WM_DISPLAYCHANGE` re-runs discovery and the selector, so the bar returns when its monitor does.
+- `monitor` resolves over `EnumDisplayMonitors`: `primary` → the primary display (`MONITORINFOF_PRIMARY`);
+  `secondary` → the second screen, the first display in enumeration order that is not the primary; `<n>` → the n-th
+  in enumeration order (1-based); `name:<substring>` → an ordinal case-insensitive substring of the
+  `QueryDisplayConfig` friendly name or of the GDI device name (`\\.\DISPLAYn`); `xeneon` → the display XENEON
+  discovery found. A selector that resolves to nothing (`secondary` on a single display included) falls back to the
+  primary display with one Warning log record (`dock-monitor-fallback`) and no prompt; `WM_DISPLAYCHANGE` re-runs
+  discovery and the selector, so the bar returns when its monitor does.
 - Thickness is `MulDiv(thickness, monitorDpi, 96)` (`GetDpiForMonitor`, effective DPI) and is clamped so at least
   half of the monitor's cross dimension stays free (one Warning record, `dock-thickness-clamped`).
 - A reserving bar (`fixed` with `reserveWorkArea`) proposes the monitor rectangle trimmed to the thickness on the
@@ -161,24 +165,39 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
   along-edge extent, and reveals to the full rectangle. The swap chain is created with `DXGI_SCALING_NONE` at the
   full bar size (`Renderer::SetDockPresentation`), so the client can shrink without `ResizeBuffers`: DWM shows the
   back buffer's top-left region, which is the bar's first rows (top and bottom docks) or columns (left and right
-  docks). Reveal and hide are one `SetWindowPos` and one frame each; no layout recompute and no
-  `OnTargetSizeChanged` happen.
+  docks). Neither a reveal nor a hide recomputes the layout, calls `OnTargetSizeChanged`, or resizes the buffers.
+- A reveal and a hide **slide** over `animationMilliseconds` (`Specs/Core/Core_Settings.md`; default 200, 0 keeps one
+  `SetWindowPos` and one frame). Each presented frame sizes the window to the outer `v` pixels of the full bar
+  (`DockHiddenRect` at the visible thickness `v`), eased out from the strip to the full bar for a reveal and eased in
+  back to the strip for a hide (`DockSlideVisiblePixels`). A bottom or right bar slides as it is, because the buffer's
+  top-left follows the window's moving inner edge; a top or left bar's dashboard is translated back by the part still
+  hidden (`DockSlideContentOffset`, `DashboardHost::SetSlideOffset`, native containers included), so every bar leads out
+  of the screen edge with its inner edge and no window ever leaves its monitor. A slide is visible motion: the host
+  presents every frame until it ends (the scheduler's motion input), then blocks as before. The dashboard is visible
+  from the first frame of a reveal and until the last frame of a hide, which the grip frame follows. The reveal state
+  stays the authority: when it flips during a slide, a new slide starts from where the bar is and takes the share of
+  `animationMilliseconds` its distance is of the whole travel (`DockSlideDurationMilliseconds`). A mouse move, touch,
+  pen, or mouse-button contact on a bar sliding out counts as on the strip (dwell or immediate reveal); a contact, a
+  wheel, a page change, a raise, a dock drag, a placement, and a live reload first complete a slide in progress at the
+  size the reveal state asks for, so they work on settled geometry. A `--screenshot` capture waits for a slide to end.
 - States and holds are the `DockPlacement.h` table: `Revealed`, `HidePending` (one-shot hide timer), `Hidden`, and
   `RevealPending` (one-shot dwell timer). A real mouse move over the strip starts the dwell (`revealDelayMilliseconds`;
   0 reveals at once); leaving during the dwell hides again; a touch, pen, or mouse-button contact on the strip and
   `redxe.dock.show` / `redxe.dock.toggle` reveal at once. A revealed bar stays while any hold is active — the pointer
   inside, the window active, a pan/settle/staged neighbour/interactive capture/raise settle, a raised widget, the
-  settings-error dialog, a pending screenshot — and arms `hideDelayMilliseconds` when the last hold clears (0 hides
-  at once); a hold returning cancels the timer. `redxe.dock.hide` and `toggle` collapse a revealed bar even with the
-  pointer inside but are inert while a raise, capture, dialog, or pin holds it. A bar revealed by `redxe.dock.show`
-  with nothing holding it stays until some other hold appears and clears. Mouse messages synthesized from touch or
-  pen never start the dwell. At most one one-shot timer is armed and every state exit kills it.
-- `Hidden` and `RevealPending` are "not visible" for `UpdateDashboardVisibility` and the frame scheduler: widgets
-  `SetVisible(FALSE)`, native containers hidden, keyboard focus and interactive capture cleared, edge bands gone, and
-  after the single **grip frame** (dashboard clear color plus the host-chrome wash over the strip and a one-DIP accent
-  line on its desktop-facing side, two quads) the host blocks on messages like a minimized window. The full-size swap
-  chain is retained while hidden so a reveal shows the last frame at once.
-- A live reload applies every `dock` member in place (thickness, edge, monitor, mode, reserve, peek, delays) by
+  settings-error dialog, a pending screenshot, a reveal still sliding out of the edge — and arms `hideDelayMilliseconds`
+  when the last hold clears (0 hides at once); a hold returning cancels the timer. `redxe.dock.hide` and `toggle`
+  collapse a revealed bar even with the pointer inside but are inert while a raise, capture, dialog, or pin holds it. A
+  bar revealed by `redxe.dock.show` with nothing holding it stays until some other hold appears and clears (its own
+  slide is not one). Mouse messages synthesized from touch or pen never start the dwell. At most one one-shot timer is
+  armed and every state exit kills it.
+- `Hidden` and `RevealPending`, once any slide has ended, are "not visible" for `UpdateDashboardVisibility` and the
+  frame scheduler: widgets `SetVisible(FALSE)`, native containers hidden, keyboard focus and interactive capture
+  cleared, edge bands gone, and after the single **grip frame** (dashboard clear color plus the host-chrome wash over
+  the strip and a one-DIP accent line on its desktop-facing side, two quads) the host blocks on messages like a
+  minimized window. The full-size swap chain is retained while hidden so a reveal presents at once, without rebuilding
+  it.
+- A live reload applies every `dock` member in place (thickness, edge, monitor, mode, reserve, peek, delays, slide) by
   re-placing and, when the registration row changed, re-registering; an edge change that flips orientation reflows
   the dashboard through the full rectangle. Switching between `none` and an edge switches the window kind live (next
   section) while the rest of the document applies as usual. Command-line-pinned members are re-applied after every
@@ -221,21 +240,72 @@ native containers, the settings watcher, the drop target, and accessibility.
 
 When RedXe installs its default settings file at startup (the file is missing, or the recovery of an invalid file;
 `Specs/Core/Core_Settings.md` "Cold load and recovery") and XENEON discovery succeeded without finding a display, the
-installed document carries the **first-run dock**: `{ "edge": "bottom", "monitor": "primary", "mode": "autohide",
-"thickness": T }`, so this start and the following ones show the Dock row of the mode table instead of the Release
-missing-display prompt or the Debug titled window. `T` gives the bar the XENEON EDGE's 32:9 proportions along the
-primary display's work area, so the shipped 2560×720 pages keep their shape (`DockFirstRunThicknessDips`). The
-primary monitor is identified by `MONITORINFOF_PRIMARY` during enumeration, even when another monitor contains
-screen coordinate `(0,0)`. Its thickness is:
-`MulDiv(workAreaWidth, 720, 2560)` pixels, clamped to half the monitor like every dock, converted to DIPs at the
-primary display's effective DPI rounding down (so the runtime rescale stays within those pixels and does not clamp),
-and kept in 32–1080. On a 16:9 display that is half its height: 720 DIPs on a 3840×2160 150 % display, 540 DIPs on a
-1920×1080 100 % display. The one exception is a display under 64 DIPs across the edge, where even the 32-DIP
-settings minimum is more than half of it: the runtime clamps that bar like any dock (one `dock-thickness-clamped`
-record). The start logs one Info record (`dock-first-run`). After a failed discovery, or when the
-template cannot be patched, the plain template is installed; a `--settings` file and the self-test never install.
-The file is not revisited later: a XENEON connected afterwards changes nothing until the user sets `edge` to `none`,
-which applies live.
+installed document carries the **first-run dock**: `{ "edge": E, "monitor": M, "mode": "autohide", "thickness": T }`,
+so this start and the following ones show the Dock row of the mode table instead of the Release missing-display
+prompt or the Debug titled window. `MakeFirstRunDock` measures the displays once, at that install:
+
+- `M` is the second screen when more than one display is active (`DockFirstRunMonitor`): `secondary`, which
+  resolves like every selector at runtime, so the bar follows whichever display is not the primary. With one display
+  it is `primary`. The primary monitor is identified by `MONITORINFOF_PRIMARY` during enumeration, even when another
+  monitor contains screen coordinate `(0,0)`, and the second screen is chosen in the enumeration order the
+  `secondary` selector uses.
+- `E` is the horizontal edge the taskbar leaves free on that display (`DockFirstRunEdge`): `top`, unless the top is
+  taken and the bottom is not, then `bottom`. An edge is taken when the display's work area is trimmed on that side
+  (a taskbar that stays visible, or any reserving app bar) or when an autohide bar is registered on that edge of that
+  display (`ABM_GETAUTOHIDEBAREX`: an auto-hiding taskbar). A display with neither, one without a taskbar of its own,
+  follows the primary taskbar's edge (`ABM_GETTASKBARPOS`), so the bar sits opposite the taskbar the person uses; a
+  side taskbar, both edges taken, or no taskbar at all (Explorer not started) gives `top`. Whenever one horizontal
+  edge is free, the autohide strip therefore sits at the screen edge rather than beside a taskbar.
+- `T` gives the bar the XENEON EDGE's 32:9 proportions along that display's work area, so the shipped 2560×720 pages
+  keep their shape (`DockFirstRunThicknessDips`): `MulDiv(workAreaWidth, 720, 2560)` pixels, clamped to half the
+  monitor like every dock, converted to DIPs at that display's effective DPI rounding down (so the runtime rescale
+  stays within those pixels and does not clamp), and kept in 32–1080. On a 16:9 display that is half its height:
+  720 DIPs on a 3840×2160 150 % display, 540 DIPs on a 1920×1080 100 % display. The one exception is a display under
+  64 DIPs across the edge, where even the 32-DIP settings minimum is more than half of it: the runtime clamps that
+  bar like any dock (one `dock-thickness-clamped` record).
+
+The start logs one Info record (`dock-first-run`) naming the edge and the monitor selector. After a failed
+discovery, or when the template cannot be patched, the plain template is installed; a `--settings` file and the
+self-test never install. The file is not revisited later: a XENEON connected afterwards, a display added or removed,
+or a taskbar moved changes nothing in it until the user edits `dock` (for example `edge` to `none`), which applies
+live.
+
+## Notification-area icon
+
+`trayIcon` (`Specs/Core/Core_Settings.md`; omitted, Release shows the icon and Debug hides it) puts the product icon
+in the Windows notification area for an interactive run. `RedXe/TrayIcon.*` owns the icon and its owner window;
+`Application` decides when it exists and performs its commands.
+
+- The owner is a hidden top-level `WS_POPUP` tool window of its own class (`RedXe.TrayIcon`), never shown. It is not
+  the dashboard window: a notification-area menu must belong to the foreground window, and foregrounding the dashboard
+  would reveal an autohide dock and move the focus to a fullscreen XENEON window. A message-only window could neither
+  take the foreground nor hear the `TaskbarCreated` broadcast.
+- The icon is one `Shell_NotifyIconW` entry identified by the owner and ID 1, never by a GUID (a GUID binds the icon to
+  one executable path, which portable copies and the Debug and Release builds do not share), with
+  `NOTIFYICON_VERSION_4`, the tooltip `RedXe` (`RedXe (Debug)` in Debug builds), and `IDI_REDXE` at the small-icon
+  size for the owner's DPI, reloaded on `WM_DPICHANGED`. When the shell refuses the icon (no taskbar yet, as at
+  sign-in) the owner stays and adds it when `TaskbarCreated` arrives, which is also how the icon returns after Explorer
+  restarts; `ChangeWindowMessageFilterEx` admits that message for an elevated run. An add refused because the taskbar
+  still shows the icon becomes an update, and removal always deletes, so no icon outlives a clean exit.
+- A double-click, or Enter or Space on the keyboard-focused icon (`NIN_KEYSELECT`), opens the settings file this
+  process watches (the default file or the `--settings` file) with its default app, the editor associated with
+  `.json`: `ShellExecuteExW` with the default verb and the shell's UI enabled, so a file type without an association
+  offers the Open With picker and a missing file is reported rather than ignored. An edit within the double-click time
+  of the previous one is dropped, because Enter reports `NIN_KEYSELECT` twice (`TrayIconActionFor`). Unlike the
+  `redxe.settings.edit` action, this works while the settings-error dialog is open, when the file most needs editing.
+- The context-menu request (right-click, Shift+F10, or the menu key: `WM_CONTEXTMENU` at the shell's anchor point)
+  opens a menu with **Edit settings**, the default item drawn bold and the same as a double-click, and **Exit**, which
+  closes RedXe like `WM_CLOSE`. The owner is foregrounded before the menu and posts itself `WM_NULL` after it. The menu
+  runs the system's modal menu loop on the UI thread, so the dashboard presents no frame while it is open. Single
+  clicks, hover, and balloon events do nothing.
+- Commands reach the main window as a posted `TrayIcon::kCommandMessage`, never as a call from the owner's window
+  procedure, so Exit never destroys the owner from inside its own procedure.
+- `Run` shows the icon once the main window is shown; a live reload that changes `trayIcon` shows or removes it
+  without rebuilding the page; `CloseMainWindow` removes it (`NIM_DELETE`) and destroys the owner first. `--self-test`
+  never shows it, whatever the document says; a `--screenshot` run shows it like any interactive run. The
+  fatal-process path does not call the shell, so after a crash the icon remains until the pointer passes over it.
+- A failure to create the owner or to add the icon is one Warning record (`tray-icon-failed`), and a failed launch of
+  the editor one Warning record (`tray-edit-settings-failed`); neither affects the dashboard.
 
 ## Windows shell identity
 
@@ -335,25 +405,35 @@ Dock changes MUST keep the pure tables green: `HostPluginTests` proves the place
 (reserving proposal and shell re-trim, overlay against a work area with a taskbar or another bar, negative
 coordinates), the thickness scaling and clamp, the hidden strip, the grip and its accent for every edge, the resize
 band for every edge and the dragged thickness (outer-edge distance, DPI, both clamps), MINMAXINFO, monitor selection
-for every selector kind with the primary fallback, every autohide state-machine row including zero delays and hold
+for every selector kind with the primary fallback (`secondary` before and after an enumerated primary, and on a single
+display), every autohide state-machine row including zero delays and hold
 precedence, the scheduler row that a hidden dock waits after its one grip frame, a dock-kind swap chain
 (`DXGI_SCALING_NONE`) presenting a tile frame and a grip frame while the client is smaller than the back buffer, the
 same swap chain created at the full bar while the window is already the strip and recreated at the last resized bar,
 the rebuild of one renderer and dashboard across kinds (`DXGI_SCALING_STRETCH` at the client, then
-`DXGI_SCALING_NONE` at the full bar, the same widget instances presenting), and the first-run thickness
+`DXGI_SCALING_NONE` at the full bar, the same widget instances presenting), the first-run thickness
 (`DockFirstRunThicknessDips`: 16:9 displays at 100, 125, and 150 %, an ultrawide capped at half its height, a 5:4
 display, a side bar, negative coordinates, the minimum, DPI 0, the rescale without a clamp at 175 %, and the display
-under 64 DIPs across where the minimum is still clamped);
-`SettingsTests` proves the `dock` member, its rejections, minor 2, the `--dock*` grammar with its errors, the merge
+under 64 DIPs across where the minimum is still clamped), the first-run monitor (`DockFirstRunMonitor`: the primary
+for zero or one display, `secondary` from two), and the first-run edge (`DockFirstRunEdge`: a visible taskbar at the
+bottom and at the top, an auto-hiding taskbar at either edge, a display without a taskbar following the primary
+taskbar's edge and `top` when that is unknown, a side taskbar, both edges taken, negative coordinates, and the ABE
+mapping back to edges), and the autohide slide (`DockSlideDurationMilliseconds`: whole, partial, reversed, zero,
+and tiny travels; `DockSlideVisiblePixels`: exact ends, clamped progress, the eased halfway points of a reveal and a
+hide, one-way motion within the travel; `DockSlideContentOffset` for every edge), with a dock-kind swap chain
+presenting a slide frame at half the bar with every tile translated and returning in place when the slide ends;
+`SettingsTests` proves the `dock` member with `animationMilliseconds` (0 through 1000, default 200), its rejections,
+minor 2, the `secondary` selector in the document and on `--dock`, the `--dock*` grammar with its errors, the merge
 precedence, `PatchDockThickness` (replace, create with the minor bump, range, re-parse), and the first-run install
 (`Specs/Core/Core_Settings.md`). Live, on the machine's topology: a reserving bar shrinks `rcWork` by exactly its
 thickness while it runs and restores it on exit; an overlay bar leaves `rcWork` alone and sits against the work-area
-edge; a side bar on a monitor with a bottom taskbar ends above the taskbar; an autohide bar collapses to its strip
-after the hide delay, reveals after the dwell when the real cursor rests on the strip, hides after the pointer
-leaves, and reveals at once on a click; `--screenshot` of an autohide bar yields the full bar; a live reload
-re-places thickness, mode, and edge changes; a real mouse drag on the inner edge grows the bar live, commits the
-reservation on release, and writes `dock.thickness` to the file. The 2026-09-19 closeout recorded all of these on a
-3840×2160 150 % primary plus a 2560×720 150 % XENEON with bottom taskbars.
+edge; a side bar on a monitor with a bottom taskbar ends above the taskbar; an autohide bar collapses to its strip after
+the hide delay, reveals after the dwell when the real cursor rests on the strip, hides after the pointer leaves, and
+reveals at once on a click; each edge slides in and out over `animationMilliseconds` with its inner edge leading and 0
+restores the one-step change; `--screenshot` of an autohide bar yields the full bar; a live reload re-places thickness,
+mode, and edge changes; a real mouse drag on the inner edge grows the bar live, commits the reservation on release, and
+writes `dock.thickness` to the file. The 2026-09-19 closeout recorded all of these on a 3840×2160 150 % primary plus a
+2560×720 150 % XENEON with bottom taskbars.
 
 Window-kind switches additionally require a live run with a portable `--settings` file edited while RedXe runs:
 `none` → an edge and back yields the dock styles (`WS_EX_TOOLWINDOW`, topmost, no `WS_EX_APPWINDOW`) and then the
@@ -365,6 +445,21 @@ and `--screenshot` taken after a switch in either direction shows the tiles. The
 a 3840×2160 150 % primary (NVIDIA) plus a 2560×720 100 % XENEON on the integrated GPU (AMD), with a Release RedXe
 fullscreen on the XENEON.
 
+First-run changes additionally require a live install without a XENEON: on a machine with two displays and a bottom
+taskbar the installed `dock` names `top` and `secondary`, the `dock-first-run` record says so, and the bar collapses
+to its strip at the top of the display that is not the primary.
+
+Notification-area icon changes MUST keep `HostPluginTests` proving the callback table (`TrayIconActionFor`: a
+double-click and `NIN_KEYSELECT` edit, `WM_CONTEXTMENU` opens the menu, single clicks, hover, and balloon events do
+nothing, an edit within the double-click time of the previous one is dropped, and an earlier tick never blocks one)
+and `SettingsTests` proving `trayIcon` (`Specs/Core/Core_Settings.md`). Because the shell is not automated, they
+additionally require a live check: a Release run with the shipped template shows the icon with the `RedXe` tooltip
+(`Shell_NotifyIconGetRect` finds it); a double-click, and Enter on the keyboard-focused icon, open the settings file
+once in the default `.json` editor; a right-click and Shift+F10 show Edit settings (bold) and Exit, and a click
+elsewhere closes the menu; Exit quits and removes the icon; saving `"trayIcon": false` removes the icon and `true`
+brings it back without a restart; restarting Explorer brings it back; and a Debug run with the shipped template shows
+none.
+
 ## Implementation and validation anchors
 
 - Process awareness and command-line modes: `RedXe/Main.cpp`, `RedXe/app.manifest`; the switch catalog behind
@@ -373,9 +468,13 @@ fullscreen on the XENEON.
   window-kind switches: `Application::SwitchWindowKind` (`RestyleWindowKind`, `RebuildPresentation`,
   `FinishWindowKindSwitch`), `PlaceStandardWindow`, and the combined page-and-kind reload in `ApplySettings`; the
   first-run dock: `MakeFirstRunDock` in `RedXe/Application.cpp`
-- Dock placement, monitor selection, MINMAXINFO, the autohide state machine, and the first-run thickness:
-  `RedXe/DockPlacement.h`; the `--dock*` grammar and merge: `RedXe/DockOptions.h`; dock-kind presentation:
-  `Renderer::SetDockPresentation`
+- Dock placement, monitor selection, MINMAXINFO, the autohide state machine, the slide, and the first-run monitor,
+  edge, and thickness: `RedXe/DockPlacement.h`; the `--dock*` grammar and merge: `RedXe/DockOptions.h`; dock-kind
+  presentation: `Renderer::SetDockPresentation`; the slide's frames and translation: `Application::TickDockSlide`,
+  `SettleDockSlide`, and `DashboardHost::SetSlideOffset`
+- Notification-area icon: `RedXe/TrayIcon.h` (the owner window, the icon, the menu, and the `TrayIconActionFor`
+  callback table), `RedXe/TrayIcon.cpp`; its lifetime and commands: `Application::ApplyTrayIconSettings`,
+  `OnTrayCommand`, and `EditSettingsFile`
 - Physical render-target resizing: `RedXe/Renderer.cpp`, `RedXe/Renderer.h`
 - Automated build, scheduler, production host/plugin, and hidden WARP validation: `build.ps1`, `test.ps1`,
   `Tests/HostPluginTests/`

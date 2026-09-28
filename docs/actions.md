@@ -87,7 +87,7 @@ input to a window that runs elevated (as administrator); RedXe never runs elevat
 | `mouse.scroll`, `mouse.scroll.horizontal` | `+n` or `-n` notches | Scroll |
 | `mouse.speed` | `1`–`20` | Pointer speed |
 
-A `@<monitor>` is `primary`, `xeneon` (the monitor RedXe sits on), a 1-based monitor number, or `name:<part of the device name>`.
+A `@<monitor>` is `primary`, `secondary` (the first monitor that is not the primary), `xeneon` (the monitor RedXe sits on), a 1-based monitor number, or `name:<part of the device name>`.
 
 ## Published by plugins
 

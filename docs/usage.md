@@ -61,11 +61,26 @@ The first page is selected on every launch. RedXe does not remember which page y
 
 With a `dock` configured (or `--dock` on the command line) both builds run as a bar on a screen edge instead; see [Dock](#dock).
 
-On the very first start without a XENEON (no settings file yet), RedXe skips the prompt and the plain window: it writes an auto-hiding bar at the bottom of your main display into the new settings file and starts as that bar. See [First start without a XENEON](#first-start-without-a-xeneon).
+On the very first start without a XENEON (no settings file yet), RedXe skips the prompt and the plain window: it writes an auto-hiding bar into the new settings file, on your second screen when you have more than one and on the edge where your taskbar is not (normally the top), and starts as that bar. See [First start without a XENEON](#first-start-without-a-xeneon).
 
-**Escape** or closing the window exits RedXe.
+**Escape**, closing the window, or **Exit** in the [notification-area icon](#notification-area-icon)'s menu exits RedXe.
 
 If RedXe stopped after a crash, the next normal launch may offer to open the local crash folder. Dumps stay on this PC; nothing is uploaded.
+
+## Notification-area icon
+
+The Release build puts the RedXe icon in the notification area of the taskbar (the system tray). Windows may first put it among the hidden icons behind the **^** arrow; drag it onto the taskbar, or turn it on under **Settings > Personalization > Taskbar**, to keep it in view. The Debug build shows it only when you ask for it.
+
+- **Double-click** the icon (or select it with the keyboard and press **Enter**) to open the settings file RedXe is using in your default editor for `.json` files. If no app is associated with `.json` yet, Windows asks which one to use. It works while the settings-error dialog is open, which is when you most need the file.
+- **Right-click** it (or press **Shift+F10** on it) for the menu: **Edit settings** does the same as a double-click; **Exit** closes RedXe.
+
+Turn it on or off with `trayIcon` in the settings file; the change applies when you save:
+
+```json
+"trayIcon": false
+```
+
+Without `trayIcon`, Release shows the icon and Debug does not. The shipped files write it out: `true` in the Release file, `false` in the Debug file.
 
 ## Dock
 
@@ -83,13 +98,14 @@ RedXe.exe --settings C:\Dash\bar.settings.json --dock none
 | Setting (`dock`) | Switch | Default | Meaning |
 | --- | --- | --- | --- |
 | `edge` | `--dock <edge>` | `none` | `top`, `bottom`, `left`, or `right` of the monitor. `none` is the normal window. |
-| `monitor` | `--dock <edge>@<monitor>` | `primary` | `primary`, `xeneon`, a display number (`2`), or `name:<part of the display name>` (`name:DELL`, `name:DISPLAY2`). A display that is not connected falls back to the primary. |
+| `monitor` | `--dock <edge>@<monitor>` | `primary` | `primary`, `secondary` (your second screen: the first display that is not the main one), `xeneon`, a display number (`2`), or `name:<part of the display name>` (`name:DELL`, `name:DISPLAY2`). A display that is not connected falls back to the primary. |
 | `thickness` | `--dock-thickness` | `180` | How deep the bar is, in DIPs (scaled with the monitor's display scaling; 180 is 270 px at 150 %). 32–1080, at most half the monitor. |
 | `mode` | `--dock-mode` | `fixed` | `fixed` keeps the bar on screen. `autohide` collapses it to a few pixels until you point at them. |
 | `reserveWorkArea` | `--dock-reserve on\|off` | `true` | `fixed` only. `true`: maximized windows stop at the bar. `false`: the bar floats over the maximized area. |
 | `peek` | `--dock-peek` | `4` | `autohide` only: how many pixels stay visible while the bar is collapsed (1–64). |
 | `revealDelayMilliseconds` | — | `150` | `autohide` only: how long the pointer must rest on the strip before the bar comes back (0–2000; 0 is immediate). |
 | `hideDelayMilliseconds` | — | `800` | `autohide` only: how long after the pointer leaves the bar collapses again (0–10000). |
+| `animationMilliseconds` | — | `200` | `autohide` only: how long the bar takes to slide out of the edge when it appears, and back when it collapses (0–1000; 0 shows and hides it at once). |
 
 A switch overrides that one setting for the run, even when you edit the file while RedXe is running. Everything else about the dashboard is unchanged: your pages, swipes, edge chevrons, wheel, raise, and services work in the bar; a left or right bar is simply portrait. Author the pages for the bar's shape — a 180-DIP strip holds a Launcher row, a clock, and a meter comfortably; the shipped XENEON pages are too tall for it:
 
@@ -109,9 +125,9 @@ A switch overrides that one setting for the run, even when you edit the file whi
 
 Good to know:
 
-- The bar has no taskbar button and does not take the focus when it starts. To quit, click or tap the bar and press **Escape**, or bind `redxe.quit`.
+- The bar has no taskbar button and does not take the focus when it starts. To quit, choose **Exit** in the [notification-area icon](#notification-area-icon)'s menu, click or tap the bar and press **Escape**, or bind `redxe.quit`.
 - **Resize by dragging**: point at the bar's inner edge (the side facing the desktop; the cursor becomes a resize arrow), press, and drag. The bar follows the mouse; when you release, the reserved area follows and the new `thickness` is written to the settings file, so it survives the next start. Works in `fixed` and `autohide` (the bar stays open while you drag); a `--dock-thickness` switch is replaced by the dragged value for that run.
-- **Autohide**: rest the mouse on the thin strip at the screen edge and the bar slides back; it collapses again shortly after the pointer leaves and nothing else holds it (a raised widget, a swipe, a text field with the focus, the settings-error dialog). A click or a touch on the strip reveals at once, and a Logicon key or a Launcher tile bound to `redxe.dock.show`, `hide`, or `toggle` does too. If the taskbar sits on the same edge, the strip is just above the taskbar, so aim for that line or use another edge.
+- **Autohide**: rest the mouse on the thin strip at the screen edge and the bar slides out of the edge (it takes `animationMilliseconds`, after the `revealDelayMilliseconds` wait); it collapses again shortly after the pointer leaves and nothing else holds it (a raised widget, a swipe, a text field with the focus, the settings-error dialog). A click or a touch on the strip reveals at once, and a Logicon key or a Launcher tile bound to `redxe.dock.show`, `hide`, or `toggle` does too. If the taskbar sits on the same edge, the strip is just above the taskbar, so aim for that line or use another edge.
 - With `reserveWorkArea` off, or in `autohide`, the bar never covers the taskbar; it hugs the edge of the free area.
 - A full-screen game or video on that monitor pushes the bar beneath it; it returns when you leave full screen. A full-screen window on another display (a XENEON dashboard, a video on a second screen) leaves the bar on top.
 - Saving the file applies every change while RedXe runs: `thickness`, `edge`, `monitor`, `mode`, `reserveWorkArea`, `peek`, and the delays re-place the bar, and turning the dock on or off (`edge` between `none` and an edge) turns the running window into the bar, or the bar back into the normal window (fullscreen or titled, as in [Window](#window), without the XENEON prompt). The switch never takes the focus from the editor you saved in. A `--dock` switch keeps its edge for that run.
@@ -125,10 +141,15 @@ When RedXe starts with no settings file yet (or replaces an invalid one) and no 
 ```jsonc
   // No XENEON display was found when RedXe installed this file, so this dock runs it as a bar on a screen edge;
   // set "edge" to "none" to use the standard window instead.
-  "dock": { "edge": "bottom", "monitor": "primary", "mode": "autohide", "thickness": 720 },
+  "dock": { "edge": "top", "monitor": "secondary", "mode": "autohide", "thickness": 720 },
 ```
 
-The bar sits at the bottom of your main display and collapses to a thin line until you rest the pointer on it. Its `thickness` gives it the XENEON's 32:9 shape across that display, so the shipped pages look as they do on a XENEON: on a 16:9 display that is half the screen height (720 on a 4K display at 150 %, 540 on a 1920×1080 display at 100 %). Drag its inner edge or edit `thickness` to make it smaller. If you connect a XENEON later, the file keeps the bar until you set `"edge": "none"`, which switches to the XENEON window at once.
+Where the bar goes is decided once, when the file is written:
+
+- **Which screen**: with more than one display, your second screen (`"secondary"`: the first display that is not the main one); with a single display, that display (`"primary"`).
+- **Which edge**: the top or the bottom, whichever your taskbar does not use on that screen — normally the **top**, since the taskbar sits at the bottom. A screen without a taskbar of its own follows where your main taskbar is. So the bar's thin strip normally sits at the screen edge rather than next to the taskbar.
+
+The bar collapses to a thin line until you rest the pointer on it. Its `thickness` gives it the XENEON's 32:9 shape across that display, so the shipped pages look as they do on a XENEON: on a 16:9 display that is half the screen height (720 on a 4K display at 150 %, 540 on a 1920×1080 display at 100 %). Drag its inner edge or edit `thickness` to make it smaller, and edit `edge` or `monitor` to move it. If you connect a XENEON later, the file keeps the bar until you set `"edge": "none"`, which switches to the XENEON window at once. A settings file written by an earlier RedXe keeps its bar where it is.
 
 ## Command line
 
@@ -174,7 +195,7 @@ Without `--settings`, RedXe uses one editable file:
 | Debug | `%LocalAppData%\RedXe\Settings\RedXe-debug.settings.json` |
 | Release | `%LocalAppData%\RedXe\Settings\RedXe.settings.json` |
 
-Save the file to apply it. RedXe watches that path; you do not restart. A valid document keeps the page you were on when that page still exists. An invalid save leaves the last good dashboard running and shows one error dialog with the JSON path and the reason (and line and column when those are known). Dismissing the dialog suppresses only that failed save; a later distinct invalid save can prompt again.
+Save the file to apply it. RedXe watches that path; you do not restart. When the [notification-area icon](#notification-area-icon) is shown, double-clicking it is the quickest way to open the file. A valid document keeps the page you were on when that page still exists. An invalid save leaves the last good dashboard running and shows one error dialog with the JSON path and the reason (and line and column when those are known). Dismissing the dialog suppresses only that failed save; a later distinct invalid save can prompt again.
 
 If the default file is missing, RedXe installs the shipped template and continues. If it is invalid, RedXe copies the bytes beside it as `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`, installs a fresh template, and tells you where the backup went. Without a XENEON connected, either installed template also gets an auto-hiding bar; see [First start without a XENEON](#first-start-without-a-xeneon).
 
@@ -190,9 +211,10 @@ Host fields you typically edit:
 | `declare` | shipped names | Reusable widget definitions (`plugin` plus flattened keys) |
 | `services` | `Logicon` | Background services that run with the dashboard, such as the [Logicon](plugins/logicon.md) keypad service |
 | `dock` | off | Run RedXe as a bar on a screen edge instead of a window; see [Dock](#dock) |
+| `trayIcon` | `true` in Release, `false` in Debug | Show RedXe's icon in the notification area; see [Notification-area icon](#notification-area-icon) |
 | `pages` | 1–16 | Ordered pages. Optional `name` is the label; omitted names display as `Page N` |
 
-This build reads `"version": { "major": 5 }` only (minor `1` adds `services`, minor `2` adds `dock`; older minors still load). A leftover version 4 file is invalid: the default path is backed up and replaced with the shipped template; `--settings` leaves the portable file alone.
+This build reads `"version": { "major": 5 }` only (minor `1` adds `services`, minor `2` adds `dock`, minor `3` adds `trayIcon` and the `secondary` monitor; older minors still load). A leftover version 4 file is invalid: the default path is backed up and replaced with the shipped template; `--settings` leaves the portable file alone.
 
 A page uses exactly one of `widgets`, `columns`, or `rows` (or none, for a blank page). `columns` split along the long side of the window, `rows` along the short side. Omitted `weight` is 1. `widgets` is an equal-share list (omitted `along` is `long-side`). Nested `rows` inside `columns` stack tiles in a column.
 

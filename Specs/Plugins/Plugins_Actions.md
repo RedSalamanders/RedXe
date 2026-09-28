@@ -1,7 +1,7 @@
 # Actions: bindings, namespaces, publication, and the host runtime
 
 Status: current normative product contract
-Last reviewed: 2026-09-19
+Last reviewed: 2026-09-28
 Owner: `Common/PlugInterfaces/Action.h`, `Common/Actions`, `RedXe/HostActionCatalog.*`, `RedXe/HostActions.*`, the
 action runtime of `RedXe/PluginHost.*` and `RedXe/Application.*`, `RedXe/BundledPlugins.h`
 (`kRedXeBundledActionNamespaces`), `Tests/HostPluginTests`
@@ -194,7 +194,7 @@ caller-owned bounded storage.
 | **Enum** | One of the descriptor's `\|`-separated `targetOptions`, case-sensitive. |
 | **Chords** | `chord(,chord)*`, at most `kMaximumChords` (8); `chord` = `(Mod+)*Key`; `Mod` ∈ `Ctrl`, `Shift`, `Alt`, `Win`; `Key` is a letter, digit, `F1`–`F24`, one of the named keys in `docs/actions.md`, or `VK:<hex>`; names are case-insensitive (`ParseChords` → `ChordSequence` of `KeyChord`). |
 | **Point** | `<x>,<y>` (physical virtual-screen pixels), `+<dx>,+<dy>`, or `center`, each optionally `@<monitor>` (`ParsePoint`). |
-| **Monitor** | `primary`, `xeneon` (the monitor hosting RedXe's window), `all`, `<n>` (1-based `EnumDisplayMonitors` order), `name:<substring>` (`ParseMonitorSelector`). |
+| **Monitor** | `primary`, `secondary` (the first display in `EnumDisplayMonitors` order that is not the primary), `xeneon` (the monitor hosting RedXe's window), `all`, `<n>` (1-based `EnumDisplayMonitors` order), `name:<substring>` (`ParseMonitorSelector`). |
 | **Window** | `foreground`, `exe:<image.exe>`, `class:<class>`, `title:<substring>` (`ParseWindowSelector`; `WindowSelector.cpp` selects the first visible non-tool top-level window in Z order without allocating, and `BringToForeground` taps `Alt` synthetically before `SetForegroundWindow`). |
 | **Meeting** | `https://<host>/j/<id>[?pwd=<passcode>]` or `<id>[:<passcode>]` with a 9–11 digit id (`ParseMeeting`). |
 | **NowOrSeconds** | `now`, or a decimal delay in seconds within the bounds (`ParseNowOrSeconds`). |

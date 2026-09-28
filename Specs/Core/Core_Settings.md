@@ -1,7 +1,7 @@
 # RedXe settings contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-27
+Last reviewed: 2026-09-28
 Owner: `SettingsStore`, `SettingsWatcher`, and UI-thread application orchestration
 
 ## Scope
@@ -77,18 +77,21 @@ The root members are:
 | `declare` | No | Reusable widget definitions keyed by authored names. |
 | `services` | No | Headless service plugins the host starts at launch, keyed by authored names (minor 1). |
 | `dock` | No | Screen-edge dock: RedXe as a bar on one edge of one monitor (minor 2). Omitted or `edge: none` keeps the standard window. |
+| `trayIcon` | No | Boolean (minor 3): the notification-area icon of an interactive run. Omitted is `true` in Release and `false` in Debug. |
 | `pages` | Yes | One through sixteen ordered pages. |
 
-Version 5 begins at major 5, minor 0. Minor 1 adds the optional additive `services` member and minor 2 the optional
-additive `dock` member; this build reads and writes minor 2 and accepts minor 0 and 1 documents unchanged. This
-build reads major 5 only. Missing, malformed, or different-major versions (including 4) are errors
+Version 5 begins at major 5, minor 0. Minor 1 adds the optional additive `services` member, minor 2 the optional
+additive `dock` member, and minor 3 the optional additive `trayIcon` member, the `secondary` monitor selector, and
+`dock.animationMilliseconds`; this build reads and writes minor 3 and accepts minor 0 through 2 documents unchanged. A
+new selector value is not an additive member: a build older than minor 3 rejects a document whose `dock.monitor` is
+`secondary`. This build reads major 5 only. Missing, malformed, or different-major versions (including 4) are errors
 (`ERROR_INVALID_DATA`) with a diagnostic on `$.version.major`. RedXe MUST NOT convert a version 4 layout tree. A newer
-RedXe accepts older minors of major 5 and supplies documented defaults. An older RedXe accepts a newer minor of the
-same major, validates the shape it understands, and silently ignores additive unknown host fields. Exact-version
-unknown host fields are errors. A future editor saving a compatible newer-minor file MUST preserve unknown fields.
-Version 3 is not migrated. Version 4 is an incompatible major: cold recovery of a default file backs up the bytes and
-installs the version 5 template; a `--settings` portable version 4 file is left unchanged and the process runs the
-in-memory deployed version 5 default.
+RedXe accepts older minors of major 5 and supplies documented defaults. An older RedXe accepts a newer minor of the same
+major, validates the shape it understands, and silently ignores additive unknown host fields. Exact-version unknown host
+fields are errors. A future editor saving a compatible newer-minor file MUST preserve unknown fields. Version 3 is not
+migrated. Version 4 is an incompatible major: cold recovery of a default file backs up the bytes and installs the
+version 5 template; a `--settings` portable version 4 file is left unchanged and the process runs the in-memory deployed
+version 5 default.
 
 User documents MUST NOT contain `layout`, `areas`, `arrangeAlong`, `sizeRatio`, nested `settings`, or `override`.
 Those members reject the complete candidate with a diagnostic on the authored JSON path.
@@ -142,25 +145,37 @@ unknown edge or mode reject the complete candidate with a diagnostic on `$.dock.
 | Member | Type and range | Default | Contract |
 | --- | --- | --- | --- |
 | `edge` | `none`, `top`, `bottom`, `left`, `right` | `none` | Edge of the selected monitor. `none` disables the dock and leaves every other member validated and inert. |
-| `monitor` | `primary`, `xeneon`, `<n>` (1-based `EnumDisplayMonitors` order), `name:<substring>` | `primary` | Validated with the shared monitor-selector grammar (`Common/Actions/ActionTargets.h`, `all` rejected); resolved at window creation, where an absent display falls back to the primary. |
+| `monitor` | `primary`, `secondary` (the first display in `EnumDisplayMonitors` order that is not the primary; minor 3), `xeneon`, `<n>` (1-based `EnumDisplayMonitors` order), `name:<substring>` | `primary` | Validated with the shared monitor-selector grammar (`Common/Actions/ActionTargets.h`, `all` rejected); resolved at window creation, where an absent display falls back to the primary. |
 | `thickness` | Integer DIPs, 32–1080 | `180` | Cross-axis size, scaled by the monitor DPI and clamped to half of the monitor at runtime. |
 | `mode` | `fixed`, `autohide` | `fixed` | `fixed` keeps the whole bar on screen; `autohide` collapses it to the peek strip. |
 | `reserveWorkArea` | Boolean | `true` | `fixed` only: register the bar with the shell so maximized windows stop at it. Ignored in `autohide`. |
 | `peek` | Integer physical pixels, 1–64 | `4` | `autohide` only: pixels that stay visible while hidden. |
 | `revealDelayMilliseconds` | Integer, 0–2000 | `150` | `autohide` only: pointer dwell on the strip before the bar reveals; 0 reveals on the first mouse move. |
 | `hideDelayMilliseconds` | Integer, 0–10000 | `800` | `autohide` only: delay after the last hold clears before the bar collapses. |
+| `animationMilliseconds` | Integer, 0–1000 | `200` | `autohide` only (minor 3): how long the bar slides out of its edge when it reveals and back when it hides; 0 reveals and hides in one step. |
 
 The `--dock <edge>[@<monitor>]`, `--dock-mode`, `--dock-thickness`, `--dock-reserve`, and `--dock-peek` switches
-override the same-named members for one process (`RedXe/DockOptions.h`), including across live reloads; the
-delays are settings-only. A valid live reload applies every changed member to the running window, including `edge`
-between `none` and an edge, which switches the window kind without a restart (`Specs/UI/UI_XeneonDisplayWindowing.md`
-"Switching the window kind"). `dock` is a host member: it never enters a plugin contract, a factory envelope, or a
-widget persist. The one host-driven write to an existing document is `dock.thickness` after the bar's inner edge is
-dragged (`PatchDockThickness`): it replaces or adds that member, creates the `dock` object when absent, raises
-`version.minor` to 2 when lower, and uses the same atomic replacement as a widget persist. The source edit MUST
-preserve comments, spacing, and every unrelated member. Both shipped templates author minor 2 and stay at
-`edge: none`, carrying a commented-out `dock` example; a default file installed on a machine without a XENEON adds
-the first-run dock ("Cold load and recovery").
+override the same-named members for one process (`RedXe/DockOptions.h`), including across live reloads; the delays and
+`animationMilliseconds` are settings-only. A valid live reload applies every changed member to the running window,
+including `edge` between `none` and an edge, which switches the window kind without a restart
+(`Specs/UI/UI_XeneonDisplayWindowing.md` "Switching the window kind"). `dock` is a host member: it never enters a plugin
+contract, a factory envelope, or a widget persist. The one host-driven write to an existing document is `dock.thickness`
+after the bar's inner edge is dragged (`PatchDockThickness`): it replaces or adds that member, creates the `dock` object
+when absent, raises `version.minor` to 2 when lower, and uses the same atomic replacement as a widget persist. The
+source edit MUST preserve comments, spacing, and every unrelated member. Both shipped templates author the current minor
+and stay at `edge: none`, carrying a commented-out `dock` example; a default file installed on a machine without a
+XENEON adds the first-run dock ("Cold load and recovery").
+
+### Notification-area icon
+
+`trayIcon` is an optional boolean (minor 3). `true` shows the product icon in the Windows notification area while
+RedXe runs interactively; `false` shows none. Omitted, it follows the build: `true` in Release, `false` in Debug
+(`kRedXeDefaultTrayIcon`), including in documents of an older minor, so an existing Release file gains the icon.
+Any other type rejects the complete candidate with a diagnostic on `$.trayIcon`. Both shipped templates author it
+explicitly: `true` in the Release template, `false` in the Debug template. It is a host member that never enters a
+plugin contract, and a change is a runtime change applied live without rebuilding the page. `--self-test` never
+shows the icon. `Specs/UI/UI_XeneonDisplayWindowing.md` "Notification-area icon" owns the icon, its double-click (the
+settings file in its default editor), and its menu.
 
 ### Services
 
@@ -317,7 +332,9 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   (`PatchFirstRunDock`): one `dock` member on its own line after `version`, at that member's indentation and in the
   file's own line breaks, preceded by a two-line comment naming why it was added and that `"edge": "none"` restores
   the standard window. Every other byte of the template is unchanged; an existing `dock` member would have its value
-  replaced instead, and `version.minor` rises to 2 when lower. The patched document is validated before the same
+  replaced instead, and `version.minor` rises to 2 when lower, or to 3 when the dock names the `secondary` monitor.
+  The display spec owns the dock's edge, monitor, and thickness (the horizontal edge the taskbar leaves free, on the
+  second screen when there is more than one display). The patched document is validated before the same
   atomic same-directory write, an existing file is never patched, and the recovery notice adds one sentence naming
   the bar. After a failed discovery, or when the patch cannot be applied, the plain template is installed; the
   first-run dock never fails startup.
@@ -386,22 +403,29 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 - Tests accept a `services` member with defaults merged and the plugin model applied, prove it adds no referenced
   widget plugin, and reject a widget plugin as a service, an unknown service plugin, a duplicated service plugin,
   plugin-model failures (`slot` 9, `brightness` 0, unknown members), an unknown or malformed `action` name, a
-  non-object `services`, a string member, and `use`. Both shipped templates MUST carry minor 2 and configure every
-  catalogued service.
-- Tests accept a complete `dock` object, prove member-by-member default merging (an omitted object, `{}`, and a minor
-  1 document equal `edge: none`), keep `edge: none` validating the other members, reject every malformed member
-  (unknown edge or mode, `all`, `0` and `name:` selectors, thickness 31 and 1081, peek 0 and 65, delays past their
-  maximum, a non-boolean reserve, an unknown member, a non-object `dock`) with the diagnostic on `$.dock.<member>`,
-  and prove the `--dock*` grammar, its errors, and the merge precedence over the document.
-- Tests prove `PatchFirstRunDock` on both shipped templates (one contiguous commented insertion right after
-  `version`, the template's CRLF line breaks kept, the typed document otherwise unchanged), on a minor 1 document
-  (raised to 2), with `version` as the last member, and over an existing `dock` value, and that an invalid dock (the
-  `none` edge, an edge or mode outside the enumerations, the `all` selector, a number out of range) or a malformed
-  document, including a scalar `version` or incompatible major version, is refused without changing the source.
-  They prove that the store installs the first-run dock
-  for a missing and for an invalid default file (with the notice), keeps an existing file byte for byte, installs
-  the plain template byte for byte when no dock is offered or the offered dock is refused by the patch, and never
-  writes a missing `--settings` file.
+  non-object `services`, a string member, and `use`. Both shipped templates MUST carry the current minor (3) and
+  configure every catalogued service.
+- Tests prove `trayIcon`: omitted it is `true` in Release and `false` in Debug, also in a minor 2 document; an authored
+  `true` or `false` wins; a string, a number, `null`, an object, and a duplicate member are rejected, with the
+  diagnostic on `$.trayIcon`; the member changes no other typed setting; both templates author it (`false` in Debug,
+  `true` in Release); and the schema declares it a boolean without a default.
+- Tests accept a complete `dock` object, prove member-by-member default merging (an omitted object, `{}`, and a minor 1
+  document equal `edge: none`), keep `edge: none` validating the other members, accept the `secondary` selector in the
+  document and on `--dock` and an `animationMilliseconds` of 0, reject every malformed member (unknown edge or mode,
+  `all`, `0`, `name:`, `Secondary`, and `second` selectors, thickness 31 and 1081, peek 0 and 65, delays past their
+  maximum, an `animationMilliseconds` of 1001, -1, a string, or a fraction, a non-boolean reserve, an unknown member, a
+  non-object `dock`) with the diagnostic on `$.dock.<member>`, and prove the `--dock*` grammar, its errors, and the
+  merge precedence over the document.
+- Tests prove `PatchFirstRunDock` on both shipped templates with a `top` bar on `secondary` (one contiguous commented
+  insertion right after `version`, the template's CRLF line breaks kept, the typed document otherwise unchanged), on a
+  minor 1 document (raised to 3 for `secondary` or a non-default `animationMilliseconds`, which is then written, and to
+  2 for `primary`), with `version` as the last member, and over an existing `dock` value (a `name:` selector leaves
+  minor 2), and that an invalid dock (the `none` edge, an edge or mode outside the enumerations, the `all` selector, a
+  number out of range, an `animationMilliseconds` past 1000) or a malformed document, including a scalar `version` or
+  incompatible major version, is refused without changing the source. They prove that the store installs the first-run
+  dock for a missing and for an invalid default file (with the notice), keeps an existing file byte for byte, installs
+  the plain template byte for byte when no dock is offered or the offered dock is refused by the patch, and never writes
+  a missing `--settings` file.
 - Tests prove a partial widget persist merge keeps unspecified members and rejects unknown plugin members.
 - Tests prove compact/idempotent formatting, inline small objects and long single-path records, multiline sections
   and arrays, fewer lines than fully expanded output, escaped/Unicode paths, named/inline/use-object widget round

@@ -83,7 +83,7 @@ namespace DockOptionsDetail
 } // namespace DockOptionsDetail
 
 // --dock <edge>[@<monitor>]: none | top | bottom | left | right, optionally followed by @ and a monitor selector
-// (primary, xeneon, <n>, name:<substring>; never all).
+// (primary, secondary, xeneon, <n>, name:<substring>; never all).
 [[nodiscard]] inline bool ParseDockEdgeArgument(std::wstring_view value, DockOverrides& overrides) noexcept
 {
     std::wstring_view edgeText = value;

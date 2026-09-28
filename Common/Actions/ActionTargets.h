@@ -100,12 +100,14 @@ struct MonitorSelector final
         All,
         Index,
         Name,
+        // The second screen: the first display in enumeration order that is not the primary.
+        Secondary,
     };
     Kind kind = Kind::Primary;
     uint32_t index = 0;
     std::string_view name;
 };
-// "primary", "xeneon", "all", "<n>" (1-based), or "name:<substring>". allowAll rejects "all" when false.
+// "primary", "secondary", "xeneon", "all", "<n>" (1-based), or "name:<substring>". allowAll rejects "all" when false.
 [[nodiscard]] bool ParseMonitorSelector(std::string_view value, bool allowAll, MonitorSelector& parsed) noexcept;
 
 struct WindowSelector final
