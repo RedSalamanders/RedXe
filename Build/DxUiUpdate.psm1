@@ -3,16 +3,13 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# The lock is read, and its API revision checked, in one place: the pin restore.
+Import-Module (Join-Path $PSScriptRoot 'DxUiRestore.psm1') -Force -ErrorAction Stop
+
 function Read-RedXeDxUiUpdateLock {
     param([Parameter(Mandatory)][string] $LockFile)
 
-    $pin = Get-Content -LiteralPath $LockFile -Raw | ConvertFrom-Json
-    if ($pin.repository -cne 'https://github.com/RedSalamanders/DxUi' -or
-        $pin.commit -cnotmatch '^[0-9a-f]{40}$' -or $pin.apiRevision -ne 3 -or
-        @($pin.targets).Count -ne 1 -or $pin.targets[0] -cne 'DxUi') {
-        throw "DxUi lock is not the canonical API-revision-3 DxUi target: $LockFile"
-    }
-    return $pin
+    return Read-RedXeDxUiLock -LockFile $LockFile
 }
 
 function New-RedXeDxUiUpdateRequest {

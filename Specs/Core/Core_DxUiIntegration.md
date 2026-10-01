@@ -13,15 +13,28 @@ and matched text/UIA performance remain in [`Plugins_AVControl.md`](../Plugins/P
 
 `Dependencies/DxUi.lock.json` identifies `https://github.com/RedSalamanders/DxUi`, one 40-character commit, API
 revision 3, and lock target `["DxUi"]`. The API revision is DxUi's compatibility number. The pinned source names its own
-in `capabilities.json`, `Tools/validate_consumer.ps1` rejects a lock that names another, and `restore-dxui.ps1` and `Update-DxUi.ps1`
-accept only the revision this product is adapted to. Moving to a new revision is therefore one reviewed change: the
-lock, that number in both and the adapters the revision needs. `Update-DxUi.ps1` changes only the commit. Revision 3 needed no
+in `capabilities.json`, `Tools/validate_consumer.ps1` rejects a lock that names another, and `Build/DxUiRestore.psm1`
+accepts only the revision this product is adapted to. Moving to a new revision is therefore one reviewed change: the
+lock, that number and the adapters the revision needs. `Update-DxUi.ps1` changes only the commit. Revision 3 needed no
 product source change: the product uses none of the renamed `IGridModel`, `IGridDelegate`, `ITreeModel` and
 `ITreeDelegate` interfaces, no Python tool of the library and no `WM_APP` value of DxUi's (see Host bridges), and CI runs
 the library's PowerShell `validate-build-matrix.ps1`.
 
-`build.ps1` runs `restore-dxui.ps1` for the selected platform. Restore clones
-that exact commit under `.build/dependencies/DxUi/source/<commit>` and isolates vcpkg/library outputs under a
+`build.ps1` runs `restore-dxui.ps1` for the selected platform, which restores the pin through
+`Build/DxUiRestore.psm1`. Restore clones that exact commit under `.build/dependencies/DxUi/source/<commit>`, from
+a sibling `DxUi` checkout that holds it and otherwise from the canonical repository, and checks it out detached.
+- The clone and its checkout use Git long paths. `git clone -c core.longpaths=true` keeps the setting in that clone's own
+  configuration; no user or global Git setting changes.
+- The working tree is sparse. `Measurements/`, `docs/gallery/` and `Specs/` are left out, because the product neither
+  builds nor reads them. Everything the restore, the build and DxUi's consumer interface use stays: `capabilities.json`,
+  `Tools/`, `Build/`, `src/`, `include/`, the vcpkg files and the root scripts. A sparse checkout reads as clean to
+  `git status`, which `Tools/validate_consumer.ps1` requires.
+- DxUi keeps every tracked path within 150 characters, so a product root of up to 35 characters restores even without
+  long paths. The setting covers deeper roots, such as a CI runner's, where a longer path made the restore fail as a
+  dirty checkout. `Tests/BuildProcessTests/DxUiRestoreTests.ps1` restores a fixture from a root deep enough to pass 259
+  characters and requires an exact, clean, sparse checkout with the long file written.
+
+Restore isolates vcpkg/library outputs under a
 fingerprint that includes commit, API revision, target architecture, evaluated compiler host, compiler/linker/MSBuild
 hashes, SDK version/header/import-library hashes, CRT family and sanitizer annotation policy. The output folder is
 `.build/dependencies/DxUi/<first 16 fingerprint hex digits>` so vcpkg's deepest tool paths stay under `MAX_PATH`; the

@@ -93,6 +93,7 @@ Write-Host 'Running exact build-output process preflight tests...' -ForegroundCo
 & (Join-Path $repoRoot 'Tests\BuildProcessTests\BuildProcessTests.ps1')
 & (Join-Path $repoRoot 'Tests\BuildProcessTests\DxUiProvenanceTests.ps1')
 & (Join-Path $repoRoot 'Tests\BuildProcessTests\DxUiUpdateTests.ps1')
+& (Join-Path $repoRoot 'Tests\BuildProcessTests\DxUiRestoreTests.ps1')
 Write-Host 'Running packaging, versioning, winget manifest, and in-package installer tests...' -ForegroundColor Cyan
 & (Join-Path $repoRoot 'Tests\BuildProcessTests\PackagingTests.ps1') -Configuration $Configuration -Platform $Platform
 if ($LASTEXITCODE -ne 0) {
