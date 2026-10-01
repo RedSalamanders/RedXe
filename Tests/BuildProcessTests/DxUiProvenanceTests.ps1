@@ -6,13 +6,13 @@ $fixture=Join-Path $repo ('.build/BuildProcessTests/DxUi-'+[guid]::NewGuid().ToS
 [void](New-Item -ItemType Directory -Path (Join-Path $fixture 'Plugins') -Force)
 try {
     $lock=Join-Path $fixture 'lock.json'
-    @{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=2} | ConvertTo-Json | Set-Content -LiteralPath $lock
+    @{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=3} | ConvertTo-Json | Set-Content -LiteralPath $lock
     $modules=foreach ($name in @('RedXe.exe','Plugins/AVControl.dll','AVControlTests.exe')) {
         $path=Join-Path $fixture $name
         Set-Content -LiteralPath $path -Value "fixture $name"
         @{path=$name;sha256=(Get-FileHash -LiteralPath $path).Hash}
     }
-    $record=@{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=2;platform='x64';configuration='Debug';modules=@($modules)}
+    $record=@{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=3;platform='x64';configuration='Debug';modules=@($modules)}
     function Write-Record { $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $fixture 'DxUi.provenance.json') }
     function Reject([string]$Scenario) {
         $rejected=$false
@@ -28,8 +28,8 @@ try {
     $record.platform='x64'; $record.configuration='ASan Debug'; Write-Record; Reject 'wrong configuration'
     $record.configuration='Debug'
     $record.commit='b'*40; Write-Record; Reject 'wrong pin'
-    $record.commit='a'*40; $record.apiRevision=1; Write-Record; Reject 'wrong API'
-    $record.apiRevision=2; $record.modules=@($modules[0]); Write-Record; Reject 'incomplete module closure'
+    $record.commit='a'*40; $record.apiRevision=2; Write-Record; Reject 'wrong API'
+    $record.apiRevision=3; $record.modules=@($modules[0]); Write-Record; Reject 'incomplete module closure'
     $record.modules=@($modules[0],$modules[0],$modules[2]); Write-Record; Reject 'duplicate module'
     $record.modules=@($modules); Write-Record
     Add-Content -LiteralPath (Join-Path $fixture 'Plugins/AVControl.dll') -Value 'replacement'

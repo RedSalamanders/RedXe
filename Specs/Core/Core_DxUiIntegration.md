@@ -1,7 +1,7 @@
 # DxUi integration
 
 Status: current normative consumer contract
-Last reviewed: 2026-09-26
+Last reviewed: 2026-10-01
 
 This contract owns how RedXe consumes the standalone DxUi library: the exact source pin, restore/build isolation,
 which process modules link `DxUi.lib`, and the COM/POD boundary that keeps DxUi C++ objects inside those modules.
@@ -12,7 +12,15 @@ and matched text/UIA performance remain in [`Plugins_AVControl.md`](../Plugins/P
 ## Pin and restore
 
 `Dependencies/DxUi.lock.json` identifies `https://github.com/RedSalamanders/DxUi`, one 40-character commit, API
-revision 2, and lock target `["DxUi"]`. `build.ps1` runs `restore-dxui.ps1` for the selected platform. Restore clones
+revision 3, and lock target `["DxUi"]`. The API revision is DxUi's compatibility number. The pinned source names its own
+in `capabilities.json`, `Tools/validate_consumer.ps1` rejects a lock that names another, and `restore-dxui.ps1` and `Update-DxUi.ps1`
+accept only the revision this product is adapted to. Moving to a new revision is therefore one reviewed change: the
+lock, that number in both and the adapters the revision needs. `Update-DxUi.ps1` changes only the commit. Revision 3 needed no
+product source change: the product uses none of the renamed `IGridModel`, `IGridDelegate`, `ITreeModel` and
+`ITreeDelegate` interfaces, no Python tool of the library and no `WM_APP` value of DxUi's (see Host bridges), and CI runs
+the library's PowerShell `validate-build-matrix.ps1`.
+
+`build.ps1` runs `restore-dxui.ps1` for the selected platform. Restore clones
 that exact commit under `.build/dependencies/DxUi/source/<commit>` and isolates vcpkg/library outputs under a
 fingerprint that includes commit, API revision, target architecture, evaluated compiler host, compiler/linker/MSBuild
 hashes, SDK version/header/import-library hashes, CRT family and sanitizer annotation policy. The output folder is
@@ -59,6 +67,9 @@ validation was completed elsewhere. Neither mode auto-commits, and a local valid
 on the branch for diagnosis.
 Pull requests run one x64 Release leg for each update; feature-branch pushes do not start a duplicate matrix.
 Pushes to main and explicit workflow dispatch retain the full six-configuration validation entrypoints.
+After the product tests, every leg runs the pinned library's `validate-build-matrix.ps1 -Root <checkout>`, which fails
+when a native project or the solution does not map all six configurations. It is a PowerShell script at API revision 3;
+the Python validator it replaced is gone.
 CI validates repository skill metadata with the repository-owned validator and pinned Python dependency before
 building. Clean runners require no developer-specific Codex installation or home-directory scripts.
 
@@ -83,6 +94,19 @@ The host owns the HWND, swap chain, presentation, OS focus, TSF/IME association,
 origin. `WidgetTextClient` adapts `IRedXeTextInputWidget` to `DxUi::TextInputClient`. `AccessibilityHost` owns
 `WM_GETOBJECT`, generation-bound sites, and prepared publication. AV adapts `IRedXeAccessibilitySite` to
 `DxUi::EmbeddedAccessibilitySite` inside the plugin module.
+
+DxUi registers each private window message by name (`RedSalamanders.DxUi.<Component>.<Purpose>.v1`), so its values lie in
+0xC000-0xFFFF and no `WM_APP` value belongs to DxUi. A window that attaches a DxUi component passes every message to that
+component's `HandleMessage`, registered ones included.
+- The product attaches one: `DxUi::TextInputServices` on the main window, which posts its deferred TSF lock there.
+  `Application::HandleMessage` passes every message to `TextInputServices::HandleMessage` before its own dispatch, with no
+  range or message filter, so the registered message reaches it. A filter placed in front of that call would stop text
+  input from being granted its lock.
+- The product attaches no `DxUi::ControlHost` to a window: its views are `EmbeddedHost`s, which own no window. So no
+  other DxUi message reaches a product window. A window that attached a `ControlHost` would forward every message to its
+  `HandleMessage` too, and would post a menu-bar hover with `ContextMenu::PostMenuBarHover`, never a message of its own.
+- `AccessibilityHost::IsMessage` runs first and claims only the product's own registered `RedXe.Accessibility.Pending.v1`
+  with its cookie. The product's `WM_APP + n` messages cannot meet DxUi's, which are registered.
 
 Text and accessibility ABI records stay in `Widget.h`: a 9,312-byte text snapshot and a 56-byte physical placement
 record. `Common/DxUiTextTransport.h` converts between those records and DxUi snapshots inside each module.

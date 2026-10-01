@@ -5,8 +5,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $pinPath = Join-Path $PSScriptRoot 'Dependencies/DxUi.lock.json'
 $pin = Get-Content -LiteralPath $pinPath -Raw | ConvertFrom-Json
-if ($pin.repository -ne 'https://github.com/RedSalamanders/DxUi' -or $pin.commit -notmatch '^[0-9a-f]{40}$' -or $pin.apiRevision -ne 2 -or @($pin.targets).Count -ne 1 -or $pin.targets[0] -ne 'DxUi') {
-    throw 'DxUi.lock.json must identify the canonical repository, exact commit, API revision 2 and single DxUi target.'
+if ($pin.repository -ne 'https://github.com/RedSalamanders/DxUi' -or $pin.commit -notmatch '^[0-9a-f]{40}$' -or $pin.apiRevision -ne 3 -or @($pin.targets).Count -ne 1 -or $pin.targets[0] -ne 'DxUi') {
+    throw 'DxUi.lock.json must identify the canonical repository, exact commit, API revision 3 and single DxUi target.'
 }
 $dependencyRoot = Join-Path $PSScriptRoot '.build/dependencies/DxUi'
 $source = Join-Path $dependencyRoot "source/$($pin.commit)"

@@ -8,9 +8,9 @@ function Read-RedXeDxUiUpdateLock {
 
     $pin = Get-Content -LiteralPath $LockFile -Raw | ConvertFrom-Json
     if ($pin.repository -cne 'https://github.com/RedSalamanders/DxUi' -or
-        $pin.commit -cnotmatch '^[0-9a-f]{40}$' -or $pin.apiRevision -ne 2 -or
+        $pin.commit -cnotmatch '^[0-9a-f]{40}$' -or $pin.apiRevision -ne 3 -or
         @($pin.targets).Count -ne 1 -or $pin.targets[0] -cne 'DxUi') {
-        throw "DxUi lock is not the canonical API-revision-2 DxUi target: $LockFile"
+        throw "DxUi lock is not the canonical API-revision-3 DxUi target: $LockFile"
     }
     return $pin
 }
