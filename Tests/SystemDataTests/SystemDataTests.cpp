@@ -1,4 +1,5 @@
 #include "../../Plugins/SystemData/SystemDataTestContract.h"
+#include "../Support/FailureReports.h"
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"
@@ -1393,6 +1394,7 @@ void Run(bool benchmark, bool domains)
 
 int wmain(int argumentCount, wchar_t** arguments)
 {
+    RedXeTestFailureReports::RouteAwayFromDialogs();
     try
     {
         const std::wstring_view argument = argumentCount == 2 ? arguments[1] : L"";

@@ -1,5 +1,6 @@
 #include "../../Plugins/Weather/WeatherHttp.h"
 #include "../../Plugins/Weather/WeatherTestContract.h"
+#include "../Support/FailureReports.h"
 #include "PlugInterfaces/Factory.h"
 
 #include <array>
@@ -246,6 +247,7 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
 
 int wmain() noexcept
 {
+    RedXeTestFailureReports::RouteAwayFromDialogs();
     const HRESULT result = Run();
     if (FAILED(result))
     {

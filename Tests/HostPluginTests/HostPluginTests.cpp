@@ -1,5 +1,6 @@
 #include "../../Plugins/Logicon/LogiconTestContract.h"
 #include "../../Plugins/Weather/WeatherTestContract.h"
+#include "../Support/FailureReports.h"
 #include "DashboardHost.h"
 #include "DeskClockTestContract.h"
 #include "DockPlacement.h"
@@ -5713,6 +5714,7 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
 
 int wmain(int argumentCount, wchar_t** arguments)
 {
+    RedXeTestFailureReports::RouteAwayFromDialogs();
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
     if (argumentCount >= 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--matrix-soak")

@@ -118,6 +118,24 @@ if ($Configuration -eq 'ASan Debug') {
     }
     Write-Host "PASS AddressSanitizer detection probe: $probeLog"
 }
+# A test process never waits on a dialog: a failed runtime check ends it with its report and exit code 3
+# (Tests/Support/FailureReports.h). Debug and ASan Debug have such checks; Release has none and exits 0. Bounded like
+# every other test process, so a routing that stopped working fails here, in at most two minutes, not in the suites.
+Write-Host 'Running test failure-report routing check...' -ForegroundColor Cyan
+$failureReportLog = Join-Path $repoRoot ".build\logs\failure-report-$Platform-$($Configuration -replace ' ', '')-$([guid]::NewGuid().ToString('N')).log"
+$failureReportExit = Invoke-RedXeStreamingProcess -FilePath $contractTests -Arguments @('--failure-report-self-test') `
+    -WorkingDirectory $repoRoot -TimeoutSeconds 120 -LogPath $failureReportLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+$failureReportText = Get-Content -LiteralPath $failureReportLog -Raw
+if ($Configuration -eq 'Release') {
+    if ($failureReportExit -ne 0) {
+        throw "The Release failure-report self-test must exit 0, not $failureReportExit`: $failureReportLog"
+    }
+}
+elseif ($failureReportExit -ne 3 -or $failureReportText -notmatch 'fails this check on purpose' -or
+    $failureReportText -match 'returned instead of ending') {
+    throw "A failed runtime check must end the run with its report and exit code 3 (it exited $failureReportExit): $failureReportLog"
+}
+Write-Host "PASS test failure-report routing (exit $failureReportExit): $failureReportLog"
 Write-Host 'Running plugin ABI and rendering-interface contract tests...' -ForegroundColor Cyan
 $contractProcess = Invoke-RedXeStreamingProcess -FilePath $contractTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($contractTests + '.log')
 if ($contractProcess -ne 0) {

@@ -1,3 +1,4 @@
+#include "../Support/FailureReports.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"
 #include "StudioClockTestContract.h"
@@ -1264,6 +1265,7 @@ void Run(uint32_t soakSeconds, bool benchmark, const std::filesystem::path& snap
 
 int wmain(int argumentCount, wchar_t** arguments)
 {
+    RedXeTestFailureReports::RouteAwayFromDialogs();
     try
     {
         bool benchmark = false;

@@ -99,3 +99,5 @@ hardware or presented-frame resource gates.
 Native test executables run through the existing streaming-process runner, which captures standard output and
 standard error in per-executable logs alongside the build output. CI retains these logs on failure; a child test
 failure must expose its own assertion message in addition to its exit code. Hidden execution preserves desktop focus.
+A failed runtime check in a Debug-family test ends the process with its report and exit code 3, never a dialog
+([`Build_Process.md`](../Build/Build_Process.md)).

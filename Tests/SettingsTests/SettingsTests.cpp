@@ -4,6 +4,7 @@
 #include "../../RedXe/DockOptions.h"
 #include "../../RedXe/Settings.h"
 #include "../../RedXe/SettingsWatcher.h"
+#include "../Support/FailureReports.h"
 
 #include <array>
 #include <cstdio>
@@ -2540,6 +2541,7 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 
 int wmain()
 {
+    RedXeTestFailureReports::RouteAwayFromDialogs();
     struct Test final
     {
         const wchar_t* name;

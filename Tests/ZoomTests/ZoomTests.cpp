@@ -1,3 +1,4 @@
+#include "../Support/FailureReports.h"
 #include "PlugInterfaces/Action.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
@@ -235,5 +236,6 @@ bool TestPlugin() noexcept
 
 int wmain()
 {
+    RedXeTestFailureReports::RouteAwayFromDialogs();
     return TestSettingsAndUrls() && TestPlugin() ? 0 : 1;
 }
