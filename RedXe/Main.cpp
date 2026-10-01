@@ -1,3 +1,4 @@
+#include "../Common/FailureReports.h"
 #include "Application.h"
 #include "CommandLine.h"
 #include "CrashHandler.h"
@@ -168,6 +169,11 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
     // Help wins over everything else on the line, and every other token must be a catalogued switch or its value
     // so a typo never runs the dashboard with a silently ignored option.
     const bool selfTest = HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::SelfTest));
+    if (selfTest)
+    {
+        // test.ps1 runs the self-test unattended: a failed Debug check ends it with its report instead of a dialog.
+        RedXeFailureReports::RouteAwayFromDialogs();
+    }
     try
     {
         for (int index = 1; index < argumentCount; ++index)

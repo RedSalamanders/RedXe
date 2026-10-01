@@ -1,6 +1,6 @@
 #include "SystemDataPhase0.h"
+#include "../../Common/FailureReports.h"
 #include "../../Plugins/SystemData/NtLayout.h"
-#include "../Support/FailureReports.h"
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/Factory.h"
 
@@ -677,7 +677,7 @@ void Run()
 
 int wmain()
 {
-    RedXeTestFailureReports::RouteAwayFromDialogs();
+    RedXeFailureReports::RouteAwayFromDialogs();
     try
     {
         Run();

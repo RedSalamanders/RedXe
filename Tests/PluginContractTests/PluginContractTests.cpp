@@ -1,4 +1,4 @@
-#include "../Support/FailureReports.h"
+#include "../../Common/FailureReports.h"
 #include "AddressSanitizerProbe.h"
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/Factory.h"
@@ -2533,7 +2533,7 @@ struct HeapSnapshot final
 
 int wmain(int argumentCount, wchar_t** arguments)
 {
-    RedXeTestFailureReports::RouteAwayFromDialogs();
+    RedXeFailureReports::RouteAwayFromDialogs();
     // The failure-report self-test, reached only through --failure-report-self-test, which test.ps1 runs: a failed
     // runtime check must end the run with its report and exit code 3, never wait on a dialog.
     if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--failure-report-self-test")

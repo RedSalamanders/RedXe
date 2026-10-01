@@ -1,4 +1,4 @@
-#include "../Support/FailureReports.h"
+#include "../../Common/FailureReports.h"
 #include "AVControlLayout.h"
 #include "AVControlModel.h"
 
@@ -319,7 +319,7 @@ uint32_t RunWidgetTextClientTests();
 uint32_t RunAccessibilityHostTests();
 int wmain(int argc, wchar_t** argv)
 {
-    RedXeTestFailureReports::RouteAwayFromDialogs();
+    RedXeFailureReports::RouteAwayFromDialogs();
     try
     {
         if (argc == 3 && std::wstring_view(argv[1]) == L"--measure-native-views")

@@ -48,8 +48,8 @@ Build outputs remain under `.build/<Platform>/<Configuration>/`, with intermedia
 The root `test.ps1` exits zero only after every required assertion has passed. Expected nonzero exits from isolated
 negative-test children must not become the test entrypoint's success exit code.
 
-A test process never waits on a dialog. Every native test executable calls `Tests/Support/FailureReports.h` first
-thing in `wmain`.
+A test process never waits on a dialog. Every native test executable calls `Common/FailureReports.h` first thing in
+`wmain`, and `RedXe.exe` calls it as soon as its command line has `--self-test`, before the self-test runs.
 - In a Debug or ASan Debug build, a failed runtime check (an STL range check, a CRT assertion) writes its report to
   stderr and ends the process with exit code 3, as the CRT's Abort button would, instead of opening its modal
   Abort/Retry/Ignore box. An abort or a fail-fast also ends the process quietly: Windows Error Reporting's dialog and
@@ -57,6 +57,8 @@ thing in `wmain`.
 - `test.ps1` runs `PluginContractTests.exe --failure-report-self-test`, a hidden switch that fails such a check on
   purpose. It requires the report and exit code 3 in Debug and ASan Debug, and exit code 0 in Release, which has no
   such checks. The run is bounded by two minutes, so a routing that stopped working fails there.
+- `test.ps1` runs `RedXe.exe --self-test --warp` bounded by the same budget as the test executables and keeps its
+  output in `.build/<Platform>/<Configuration>/RedXe.self-test.log`.
 - A new test executable calls the header first, so an unattended run on a developer's desktop never holds a dialog.
 
 `build.ps1` MUST begin with the framed RedXe product banner and identify the selected platform and configuration. The

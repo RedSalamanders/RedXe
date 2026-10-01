@@ -10,8 +10,9 @@
 // otherwise opens a modal Abort/Retry/Ignore box on the desktop: an unattended run hangs until its time budget ends it,
 // and an attended one interrupts the person at the desktop. The report goes to stderr, which the executable's log
 // keeps, and the check ends the process with exit code 3 (the dialog's Abort), with no Windows Error Reporting dialog
-// either: a fail-fast or an abort ends the process quietly too.
-namespace RedXeTestFailureReports
+// either: a fail-fast or an abort ends the process quietly too. RedXe.exe --self-test is a test process as well, so the
+// header lives beside the product's shared sources rather than with the test executables.
+namespace RedXeFailureReports
 {
 #if defined(_DEBUG)
 inline int __cdecl ReportAndEnd(int reportType, wchar_t* message, int* returnValue) noexcept
@@ -27,7 +28,7 @@ inline int __cdecl ReportAndEnd(int reportType, wchar_t* message, int* returnVal
 }
 #endif
 
-// Call first in wmain: before any test can fail a check.
+// Call first in a test executable's wmain, and in RedXe.exe as soon as --self-test is known: before any check can fail.
 inline void RouteAwayFromDialogs() noexcept
 {
     static_cast<void>(_set_abort_behavior(0u, _WRITE_ABORT_MSG | _CALL_REPORTFAULT));
@@ -36,4 +37,4 @@ inline void RouteAwayFromDialogs() noexcept
     static_cast<void>(_CrtSetReportHookW2(_CRT_RPTHOOK_INSTALL, &ReportAndEnd));
 #endif
 }
-} // namespace RedXeTestFailureReports
+} // namespace RedXeFailureReports

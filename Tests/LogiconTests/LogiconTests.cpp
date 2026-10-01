@@ -2,7 +2,7 @@
 // the shared settings model, key-face composition and JPEG round trips, the device session driven by the synthetic
 // keypad, and the shipped DLL's factory, contract, service lifetime, device lane, and test exports.
 
-#include "../Support/FailureReports.h"
+#include "../../Common/FailureReports.h"
 #include "Actions/ActionTargets.h"
 #include "LogiconDevice.h"
 #include "LogiconFaces.h"
@@ -1523,7 +1523,7 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
 
 int wmain() noexcept
 {
-    RedXeTestFailureReports::RouteAwayFromDialogs();
+    RedXeFailureReports::RouteAwayFromDialogs();
     // Progress lines must reach a redirected console immediately so a hang is attributable to one case.
     (void)setvbuf(stdout, nullptr, _IONBF, 0);
     const HRESULT result = Run();
