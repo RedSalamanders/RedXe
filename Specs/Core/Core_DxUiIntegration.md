@@ -106,7 +106,8 @@ building. Clean runners require no developer-specific Codex installation or home
 Rollback reverts the complete product adoption change, including adapter/build changes, and rebuilds/tests that
 previous source revision. Retain the previously qualified product package; a pin-only edit cannot restore an older
 library that predates required integration helpers. Current candidate qualification and rollback evidence are tracked
-in the [completed adoption record](../Plans/Done/DxUiAdoption_2026-09-09.md).
+in the completed adoption records: [2026-09-09](../Plans/Done/DxUiAdoption_2026-09-09.md) and, for the pin at API
+revision 3, whose rollback pin is `40c6c215`, [2026-10-01](../Plans/Done/DxUiFollowUps_2026-10-01.md).
 The user deferred further ARM64 and ASan qualification on 2026-09-13; the cross-product
 follow-up is `Specs/Plans/WIP/DxUi_DeferredPlatformQualification_2026-09-13.md` in
 RedSalamander. That deferral is not a runtime pass or a change to the supported matrix.
