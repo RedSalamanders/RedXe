@@ -125,7 +125,8 @@ $dependencyInstaller = Join-Path $repoRoot 'vcpkg-install.ps1'
 $operationStopwatch = [Diagnostics.Stopwatch]::StartNew()
 if (-not $Clean) {
     Write-Host '[1/2] Dependencies' -ForegroundColor Cyan
-    & $dependencyInstaller -Platform $Platform
+    # vcpkg builds with the Visual Studio installation that holds the MSBuild below, as MSBuild does.
+    & $dependencyInstaller -Platform $Platform -MSBuildPath $msbuild
     & (Join-Path $repoRoot 'restore-dxui.ps1') -Platform $Platform -MSBuildPath $msbuild -CheckUpdates
     Write-Host ''
 }

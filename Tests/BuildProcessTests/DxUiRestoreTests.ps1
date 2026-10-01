@@ -1,8 +1,9 @@
 [CmdletBinding()]
 param()
 
-# Restoring the DxUi pin: the lock the product accepts and the sparse long-path checkout restored from a deep root. Everything runs
-# on fixtures; nothing needs the network or a window.
+# Restoring the DxUi pin: the lock the product accepts, the sparse long-path checkout restored from a deep root, the Visual Studio
+# installation vcpkg builds with, and the wiring that keeps build.ps1's order. Everything runs on fixtures or on the files the build
+# already restored; nothing needs the network or a window.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -83,6 +84,30 @@ try {
         Assert-Throws { Read-RedXeDxUiLock -LockFile $lockPath } 'API revision 3' "the lock refuses $($case.Name)"
     }
 
+    # --- The Visual Studio installation of the build's MSBuild ---
+    $installation = Join-Path $testRoot 'VisualStudio/18/Insiders'
+    foreach ($directory in @('MSBuild/Current/Bin/amd64', 'VC/Auxiliary/Build', 'Common7/IDE')) {
+        [void][IO.Directory]::CreateDirectory((Join-Path $installation $directory))
+    }
+    foreach ($relative in @('MSBuild/Current/Bin/MSBuild.exe', 'MSBuild/Current/Bin/amd64/MSBuild.exe')) {
+        [IO.File]::WriteAllText((Join-Path $installation $relative), 'fixture')
+    }
+    foreach ($relative in @('MSBuild/Current/Bin/amd64/MSBuild.exe', 'MSBuild/Current/Bin/MSBuild.exe')) {
+        $found = Get-RedXeVisualStudioInstallation -MSBuildPath (Join-Path $installation $relative)
+        Assert-That ($found -ieq $installation) "the installation of $relative is the directory with VC\Auxiliary\Build"
+    }
+    Push-Location (Join-Path $installation 'MSBuild/Current')
+    try {
+        $relativeFound = Get-RedXeVisualStudioInstallation -MSBuildPath 'Bin/amd64/MSBuild.exe'
+        Assert-That ($relativeFound -ieq $installation) 'a relative MSBuild path resolves against the PowerShell location'
+    }
+    finally { Pop-Location }
+    $strayMSBuild = Join-Path $testRoot 'Elsewhere/MSBuild.exe'
+    [void][IO.Directory]::CreateDirectory((Join-Path $testRoot 'Elsewhere'))
+    [IO.File]::WriteAllText($strayMSBuild, 'fixture')
+    Assert-Throws { Get-RedXeVisualStudioInstallation -MSBuildPath $strayMSBuild } 'not inside a Visual Studio installation' `
+        'an MSBuild outside any Visual Studio installation is refused'
+
     # --- The restore from a deep root ---
     $fixture = Join-Path $testRoot 'DxUi-fixture'
     $commit = New-DxUiFixtureRepository $fixture
@@ -149,6 +174,47 @@ try {
     $again = Restore-RedXeDxUiPin -RepoRoot $productRoot
     Assert-That ($again.Source -ieq $pinRestore.Source) 'a second pin restore finds the first'
 
+    # --- What the product consumes from the pinned DxUi: the discovery and the overlay writer ---
+    $realPin = Read-RedXeDxUiLock -LockFile (Join-Path $repoRoot 'Dependencies/DxUi.lock.json')
+    $realSource = Get-RedXeDxUiSourcePath -RepoRoot $repoRoot -Commit $realPin.commit
+    foreach ($module in @('Tools/VisualStudio.psm1', 'Tools/VcpkgTriplet.psm1')) {
+        Assert-That ([IO.File]::Exists((Join-Path $realSource $module))) "the pinned DxUi restore holds $module, which vcpkg-install.ps1 imports"
+    }
+    Import-Module (Join-Path $realSource 'Tools/VisualStudio.psm1') -Force
+    Import-Module (Join-Path $realSource 'Tools/VcpkgTriplet.psm1') -Force
+    [IO.File]::WriteAllText((Join-Path $installation 'VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt'), "14.51.36231`n")
+    $toolset = Get-DxUiDefaultToolset -Installation $installation
+    Assert-That ($toolset.MajorMinor -ceq '14.51' -and $toolset.Version -ceq '14.51.36231') 'the default toolset is read from the installation, not from the newest one'
+    $stock = Join-Path $testRoot 'vcpkg/triplets/arm64-windows.cmake'
+    [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($stock))
+    [IO.File]::WriteAllText($stock, "set(VCPKG_TARGET_ARCHITECTURE arm64)`r`nset(VCPKG_CRT_LINKAGE dynamic)`r`n")
+    $overlay = Update-DxUiVcpkgOverlayTriplet -StockTripletPath $stock -Toolset $toolset -OutputDirectory (Join-Path $testRoot 'overlays/ARM64')
+    $overlayText = [IO.File]::ReadAllText($overlay.Path)
+    Assert-That ($overlay.Changed -and $overlay.Triplet -ceq 'arm64-windows' -and $overlayText.StartsWith("set(VCPKG_TARGET_ARCHITECTURE arm64)`r`n")) `
+        'the overlay keeps the stock triplet and its line endings'
+    Assert-That ($overlayText.Contains('set(VCPKG_PLATFORM_TOOLSET_VERSION "14.51")') -and $overlayText.Contains('set(VCPKG_VISUAL_STUDIO_PATH "')) `
+        'the overlay pins the installation and the default toolset'
+    $again = Update-DxUiVcpkgOverlayTriplet -StockTripletPath $stock -Toolset $toolset -OutputDirectory (Join-Path $testRoot 'overlays/ARM64')
+    Assert-That (-not $again.Changed) 'an unchanged restore leaves the overlay alone'
+
+    # --- The wiring ---
+    $vcpkgInstall = Get-Content -LiteralPath (Join-Path $repoRoot 'vcpkg-install.ps1') -Raw
+    foreach ($needle in @('Restore-RedXeDxUiPin', 'Get-DxUiVisualStudioInstallation', 'Get-RedXeVisualStudioInstallation',
+            'Get-DxUiDefaultToolset', 'Update-DxUiVcpkgOverlayTriplet', '--overlay-triplets=')) {
+        Assert-That ($vcpkgInstall.Contains($needle)) "vcpkg-install.ps1 uses $needle"
+    }
+    $overlayCalls = [regex]::Matches($vcpkgInstall, 'Update-DxUiVcpkgOverlayTriplet').Count
+    $overlayArguments = [regex]::Matches($vcpkgInstall, '--overlay-triplets=').Count
+    Assert-That ($overlayCalls -eq 1 -and $overlayArguments -eq 1 -and $vcpkgInstall.IndexOf('foreach ($targetPlatform') -lt $vcpkgInstall.IndexOf('Update-DxUiVcpkgOverlayTriplet')) `
+        'every triplet the script installs is pinned: the overlay is written and passed inside the platform loop'
+    $restoreScript = Get-Content -LiteralPath (Join-Path $repoRoot 'restore-dxui.ps1') -Raw
+    Assert-That ($restoreScript.Contains('Restore-RedXeDxUiPin') -and $restoreScript -notmatch 'git clone') 'restore-dxui.ps1 restores through the shared module, never its own clone'
+    $buildScript = Get-Content -LiteralPath (Join-Path $repoRoot 'build.ps1') -Raw
+    $installerCall = $buildScript.IndexOf('& $dependencyInstaller')
+    $restoreCall = $buildScript.IndexOf("restore-dxui.ps1')")
+    Assert-That ($installerCall -gt 0 -and $restoreCall -gt $installerCall) 'build.ps1 still installs the vcpkg dependencies before it restores DxUi'
+    Assert-That ($buildScript -match '& \$dependencyInstaller -Platform \$Platform -MSBuildPath \$msbuild') `
+        'build.ps1 gives vcpkg-install.ps1 the MSBuild it runs, so vcpkg builds with that installation'
 }
 finally {
     $path = [IO.Path]::GetFullPath($testRoot)

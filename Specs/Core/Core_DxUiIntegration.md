@@ -20,8 +20,8 @@ product source change: the product uses none of the renamed `IGridModel`, `IGrid
 `ITreeDelegate` interfaces, no Python tool of the library and no `WM_APP` value of DxUi's (see Host bridges), and CI runs
 the library's PowerShell `validate-build-matrix.ps1`.
 
-`build.ps1` runs `restore-dxui.ps1` for the selected platform, which restores the pin through
-`Build/DxUiRestore.psm1`. Restore clones that exact commit under `.build/dependencies/DxUi/source/<commit>`, from
+`build.ps1` runs `vcpkg-install.ps1` and then `restore-dxui.ps1` for the selected platform, and both restore the pin
+through `Build/DxUiRestore.psm1`. Restore clones that exact commit under `.build/dependencies/DxUi/source/<commit>`, from
 a sibling `DxUi` checkout that holds it and otherwise from the canonical repository, and checks it out detached.
 - The clone and its checkout use Git long paths. `git clone -c core.longpaths=true` keeps the setting in that clone's own
   configuration; no user or global Git setting changes.
@@ -40,6 +40,23 @@ hashes, SDK version/header/import-library hashes, CRT family and sanitizer annot
 `.build/dependencies/DxUi/<first 16 fingerprint hex digits>` so vcpkg's deepest tool paths stay under `MAX_PATH`; the
 full fingerprint stays in the identity file and the product provenance. Restore never checks out, resets, or edits a
 sibling `DxUi` working tree. A mismatched or dirty pin fails the consumer restore.
+
+`vcpkg-install.ps1` builds the manifest packages with the Visual Studio installation and the default MSVC toolset that
+MSBuild compiles with, not the newest toolset vcpkg would find. The two differ when a newer toolset is installed beside
+the default and lacks a compiler for a target: a VS 18 Insiders' 14.52 has no x64-hosted ARM64 compiler beside the
+default 14.51, and every fresh ARM64 restore failed.
+- The installation is the one that holds the MSBuild the build runs (`build.ps1` passes its own as `-MSBuildPath`; a
+  standalone run uses `MSBUILD_EXE_PATH`, else the newest installation with MSBuild). The toolset is that installation's
+  `VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt`. Neither is hard-coded, and a missing or malformed version
+  file fails before vcpkg is cloned.
+- For each triplet it installs, the script writes the overlay `.build/vcpkg-triplets/<platform>/<triplet>.cmake`, which is
+  the pinned vcpkg checkout's triplet plus `VCPKG_VISUAL_STUDIO_PATH` and `VCPKG_PLATFORM_TOOLSET_VERSION`, rewritten only
+  when its bytes change, and passes `--overlay-triplets`. A changed triplet changes vcpkg's package ABI hash, so the first
+  install after a change rebuilds the packages.
+- The discovery and the overlay writer are DxUi's (`Tools/VisualStudio.psm1` and `Tools/VcpkgTriplet.psm1`, part of its
+  consumer interface), imported from the pinned source, which `vcpkg-install.ps1` restores first when it is missing. That
+  keeps `build.ps1`'s order: the dependencies, then the DxUi restore. DxUi's own `vcpkg-install.ps1`, which the DxUi
+  restore runs, applies the same pin to its dependencies.
 
 The pinned library releases the cached surface
 of a hidden or zero-extent `EmbeddedHost`, marks a view dirty only through control invalidation, and bounds its

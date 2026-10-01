@@ -1,5 +1,5 @@
-# The exact DxUi pin and what restoring it takes: the lock and the pinned source under .build. restore-dxui.ps1 and the update
-# helper share it, so each fact lives once.
+# The exact DxUi pin and what restoring it takes: the lock, the pinned source under .build, and the Visual Studio installation that
+# vcpkg must build with. restore-dxui.ps1, vcpkg-install.ps1 and the update helper share it, so each fact lives once.
 Set-StrictMode -Version Latest
 
 # The DxUi API revision this product is adapted to. The pinned source names its own revision in capabilities.json and
@@ -102,4 +102,20 @@ function Restore-RedXeDxUiPin {
     return [pscustomobject]@{ Pin = $pin; LockFile = $lockFile; Source = $source }
 }
 
-Export-ModuleMember -Function Read-RedXeDxUiLock, Get-RedXeDxUiSourcePath, Get-RedXeDxUiCloneSource, Restore-RedXeDxUiSource, Restore-RedXeDxUiPin
+function Get-RedXeVisualStudioInstallation {
+    <# The Visual Studio installation that holds the MSBuild the build runs: the nearest directory above MSBuildPath with
+       VC\Auxiliary\Build, as MSBuild compiles with that installation's default MSVC toolset. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string] $MSBuildPath)
+
+    # A relative path means the caller's PowerShell location, which .NET file calls do not know.
+    $path = $PSCmdlet.GetUnresolvedProviderPathFromPSPath($MSBuildPath)
+    $directory = [IO.Path]::GetDirectoryName($path)
+    while ($directory) {
+        if ([IO.Directory]::Exists([IO.Path]::Combine($directory, 'VC', 'Auxiliary', 'Build'))) { return $directory }
+        $directory = [IO.Path]::GetDirectoryName($directory)
+    }
+    throw "The MSBuild at '$path' is not inside a Visual Studio installation with the MSVC build tools (there is no VC\Auxiliary\Build above it). Install the Desktop development with C++ workload, or put a Visual Studio MSBuild on the build's path."
+}
+
+Export-ModuleMember -Function Read-RedXeDxUiLock, Get-RedXeDxUiSourcePath, Get-RedXeDxUiCloneSource, Restore-RedXeDxUiSource, Restore-RedXeDxUiPin, Get-RedXeVisualStudioInstallation

@@ -82,8 +82,10 @@ Open `RedXe.sln` for IDE development. Binaries are written to:
 The first command-line build clones and bootstraps the vcpkg commit pinned in `vcpkg-tool.json`, then installs the
 manifest from `vcpkg.json`. That manifest's `builtin-baseline` MUST be the same commit so the versions database can
 resolve every port. All tool, package, download, and installed state stays under `.build`. x64 and ARM64 use
-separate install roots so their manifest metadata cannot purge one another. Run `vcpkg-install.ps1` once before the
-first direct Visual Studio build.
+separate install roots so their manifest metadata cannot purge one another. vcpkg builds the packages with the Visual
+Studio installation and default MSVC toolset that MSBuild compiles with, through an overlay triplet it writes under
+`.build\vcpkg-triplets`; the script restores the pinned DxUi source first, for the helpers that pin the toolset. Run
+`vcpkg-install.ps1` once before the first direct Visual Studio build.
 
 Before mutating an output profile, `build.ps1` identifies running `RedXe.exe` processes by full executable path. An
 instance executing that exact `.build\<Platform>\<Configuration>\RedXe.exe` blocks the build with identifying
