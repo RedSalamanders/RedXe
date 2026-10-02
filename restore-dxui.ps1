@@ -1,30 +1,16 @@
-<# .SYNOPSIS Restore the exact DxUi source pin and isolated build dependencies without modifying a sibling checkout. #>
+<# .SYNOPSIS Restore the exact DxUi source pin (a sparse checkout, with Git long paths) and isolated build dependencies without modifying a sibling checkout. #>
 [CmdletBinding()]
 param([ValidateSet('x64','ARM64')][string] $Platform = 'x64', [string] $MSBuildPath = '', [switch] $CheckUpdates)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$pinPath = Join-Path $PSScriptRoot 'Dependencies/DxUi.lock.json'
-$pin = Get-Content -LiteralPath $pinPath -Raw | ConvertFrom-Json
-if ($pin.repository -ne 'https://github.com/RedSalamanders/DxUi' -or $pin.commit -notmatch '^[0-9a-f]{40}$' -or $pin.apiRevision -ne 2 -or @($pin.targets).Count -ne 1 -or $pin.targets[0] -ne 'DxUi') {
-    throw 'DxUi.lock.json must identify the canonical repository, exact commit, API revision 2 and single DxUi target.'
-}
+# The lock, the sparse long-path clone of its exact commit and the sibling-checkout rule live in one module, which
+# vcpkg-install.ps1 uses too: it imports the pinned source's Visual Studio and vcpkg helpers.
+Import-Module (Join-Path $PSScriptRoot 'Build/DxUiRestore.psm1') -Force
+$restored = Restore-RedXeDxUiPin -RepoRoot $PSScriptRoot
+$pinPath = $restored.LockFile
+$pin = $restored.Pin
+$source = $restored.Source
 $dependencyRoot = Join-Path $PSScriptRoot '.build/dependencies/DxUi'
-$source = Join-Path $dependencyRoot "source/$($pin.commit)"
-if (-not (Test-Path -LiteralPath $source)) {
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $source) | Out-Null
-    $sibling = Join-Path (Split-Path -Parent $PSScriptRoot) 'DxUi'
-    $cloneFrom = "$($pin.repository).git"
-    if (Test-Path -LiteralPath (Join-Path $sibling '.git')) {
-        & git -C $sibling cat-file -e "$($pin.commit)^{commit}" 2>$null
-        if ($LASTEXITCODE -eq 0) { $cloneFrom = $sibling }
-    }
-    & git clone --no-checkout --no-hardlinks $cloneFrom $source
-    if ($LASTEXITCODE -ne 0) { throw 'DxUi source restore failed. Check Git/network access to the public repository and retry; no custom access token is required.' }
-    & git -C $source checkout --detach $pin.commit
-    if ($LASTEXITCODE -ne 0) { throw 'The exact DxUi source pin could not be checked out.' }
-    & git -C $source remote set-url origin "$($pin.repository).git"
-    if ($LASTEXITCODE -ne 0) { throw 'Could not record the canonical DxUi origin.' }
-}
 & (Join-Path $source 'Tools/validate_consumer.ps1') -DxUiRoot $source -LockFile $pinPath
 if (-not $MSBuildPath) {
     if ($env:MSBUILD_EXE_PATH) { $MSBuildPath=$env:MSBUILD_EXE_PATH }

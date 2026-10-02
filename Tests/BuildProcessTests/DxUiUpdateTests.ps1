@@ -9,7 +9,7 @@ Import-Module (Join-Path $repoRoot 'Build/DxUiUpdate.psm1') -Force -ErrorAction 
 function New-RedXeDxUiUpdateFixture {
     param([string] $Root, [string] $Commit)
     [void](New-Item -ItemType Directory -Path (Join-Path $Root 'Dependencies') -Force)
-    [ordered]@{ repository = 'https://github.com/RedSalamanders/DxUi'; commit = $Commit; apiRevision = 2; targets = @('DxUi') } |
+    [ordered]@{ repository = 'https://github.com/RedSalamanders/DxUi'; commit = $Commit; apiRevision = 3; targets = @('DxUi') } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Root 'Dependencies/DxUi.lock.json') -NoNewline
 }
 

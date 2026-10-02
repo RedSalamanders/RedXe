@@ -93,6 +93,7 @@ Write-Host 'Running exact build-output process preflight tests...' -ForegroundCo
 & (Join-Path $repoRoot 'Tests\BuildProcessTests\BuildProcessTests.ps1')
 & (Join-Path $repoRoot 'Tests\BuildProcessTests\DxUiProvenanceTests.ps1')
 & (Join-Path $repoRoot 'Tests\BuildProcessTests\DxUiUpdateTests.ps1')
+& (Join-Path $repoRoot 'Tests\BuildProcessTests\DxUiRestoreTests.ps1')
 Write-Host 'Running packaging, versioning, winget manifest, and in-package installer tests...' -ForegroundColor Cyan
 & (Join-Path $repoRoot 'Tests\BuildProcessTests\PackagingTests.ps1') -Configuration $Configuration -Platform $Platform
 if ($LASTEXITCODE -ne 0) {
@@ -118,6 +119,24 @@ if ($Configuration -eq 'ASan Debug') {
     }
     Write-Host "PASS AddressSanitizer detection probe: $probeLog"
 }
+# A test process never waits on a dialog: a failed runtime check ends it with its report and exit code 3
+# (Common/FailureReports.h). Debug and ASan Debug have such checks; Release has none and exits 0. Bounded like
+# every other test process, so a routing that stopped working fails here, in at most two minutes, not in the suites.
+Write-Host 'Running test failure-report routing check...' -ForegroundColor Cyan
+$failureReportLog = Join-Path $repoRoot ".build\logs\failure-report-$Platform-$($Configuration -replace ' ', '')-$([guid]::NewGuid().ToString('N')).log"
+$failureReportExit = Invoke-RedXeStreamingProcess -FilePath $contractTests -Arguments @('--failure-report-self-test') `
+    -WorkingDirectory $repoRoot -TimeoutSeconds 120 -LogPath $failureReportLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+$failureReportText = Get-Content -LiteralPath $failureReportLog -Raw
+if ($Configuration -eq 'Release') {
+    if ($failureReportExit -ne 0) {
+        throw "The Release failure-report self-test must exit 0, not $failureReportExit`: $failureReportLog"
+    }
+}
+elseif ($failureReportExit -ne 3 -or $failureReportText -notmatch 'fails this check on purpose' -or
+    $failureReportText -match 'returned instead of ending') {
+    throw "A failed runtime check must end the run with its report and exit code 3 (it exited $failureReportExit): $failureReportLog"
+}
+Write-Host "PASS test failure-report routing (exit $failureReportExit): $failureReportLog"
 Write-Host 'Running plugin ABI and rendering-interface contract tests...' -ForegroundColor Cyan
 $contractProcess = Invoke-RedXeStreamingProcess -FilePath $contractTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($contractTests + '.log')
 if ($contractProcess -ne 0) {
@@ -239,9 +258,15 @@ if ($hostPluginExit -ne 0) {
 Write-Host "Host integration log: $hostPluginLog" -ForegroundColor DarkGray
 
 Write-Host 'Running hidden Direct3D 11 WARP smoke test...' -ForegroundColor Cyan
-$process = Start-Process -WindowStyle Hidden -FilePath $executable -ArgumentList @('--self-test', '--warp') -Wait -PassThru
-if ($process.ExitCode -ne 0) {
-    throw "Smoke test failed with exit code $($process.ExitCode)."
+# Bounded and logged like every other test process. RedXe.exe routes a --self-test run's failed Debug checks through
+# Common/FailureReports.h, so such a check ends the run with its report in this log and exit code 3, never a dialog.
+# The self-test's window stays hidden: its first ShowWindow is SW_HIDE, whatever the start information says.
+$smokeLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.self-test.log"
+$smokeExit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments @('--self-test', '--warp') -WorkingDirectory $repoRoot `
+    -TimeoutSeconds $testTimeoutSeconds -LogPath $smokeLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+if ($smokeExit -ne 0) {
+    Get-Content -LiteralPath $smokeLog -Tail 40
+    throw "Smoke test failed with exit code $smokeExit`: $smokeLog"
 }
 
 # `--help` writes the RedXe/CommandLine.h catalog to a redirected stdout and exits 0; every switch the catalog

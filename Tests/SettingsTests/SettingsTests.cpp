@@ -1,3 +1,4 @@
+#include "../../Common/FailureReports.h"
 #include "../../Plugins/Launcher/LauncherPaging.h"
 #include "../../RedXe/BundledPlugins.h"
 #include "../../RedXe/CommandLine.h"
@@ -2540,6 +2541,7 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 
 int wmain()
 {
+    RedXeFailureReports::RouteAwayFromDialogs();
     struct Test final
     {
         const wchar_t* name;

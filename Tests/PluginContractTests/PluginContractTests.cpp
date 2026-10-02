@@ -1,3 +1,4 @@
+#include "../../Common/FailureReports.h"
 #include "AddressSanitizerProbe.h"
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/Factory.h"
@@ -2532,6 +2533,20 @@ struct HeapSnapshot final
 
 int wmain(int argumentCount, wchar_t** arguments)
 {
+    RedXeFailureReports::RouteAwayFromDialogs();
+    // The failure-report self-test, reached only through --failure-report-self-test, which test.ps1 runs: a failed
+    // runtime check must end the run with its report and exit code 3, never wait on a dialog.
+    if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--failure-report-self-test")
+    {
+#if defined(_DEBUG)
+        _ASSERTE(!L"the failure-report self-test fails this check on purpose");
+        std::fputs("The failed check returned instead of ending the run.\n", stderr);
+        return 1;
+#else
+        std::fputs("A Release build has no runtime checks to report.\n", stdout);
+        return 0;
+#endif
+    }
     if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--asan-probe")
     {
         SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);

@@ -46,8 +46,10 @@ jobs:
           ./test.ps1 -Configuration '${{ matrix.configuration }}' -Platform '${{ matrix.platform }}'
           if ($LASTEXITCODE -ne 0) { throw 'Pinned product tests failed.' }
           $pin=Get-Content Dependencies/DxUi.lock.json -Raw | ConvertFrom-Json
-          python ".build/dependencies/DxUi/source/$($pin.commit)/Tools/validate_build_matrix.py" --root .
-          if ($LASTEXITCODE -ne 0) { throw 'Native project matrix validation failed.' }
+          # DxUi PR 30 replaced the pinned Tools/validate_build_matrix.py with this PowerShell script, which throws on a
+          # finding. It resolves -Root against the process directory, so pass the absolute checkout root.
+          & ".build/dependencies/DxUi/source/$($pin.commit)/validate-build-matrix.ps1" -Root $PWD.Path
+          if (-not $?) { throw 'Native project matrix validation failed.' }
       - name: Exercise native AV resource fixture
         if: matrix.configuration != 'ASan Debug'
         shell: pwsh

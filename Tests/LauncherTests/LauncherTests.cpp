@@ -1,3 +1,4 @@
+#include "../../Common/FailureReports.h"
 #include "../../Plugins/Launcher/LauncherPaging.h"
 #include "../../Plugins/Launcher/LauncherTestContract.h"
 #include "PlugInterfaces/Factory.h"
@@ -1718,6 +1719,7 @@ struct RenderTarget final
 
 int wmain() noexcept
 {
+    RedXeFailureReports::RouteAwayFromDialogs();
     const HRESULT result = Run();
     if (FAILED(result))
     {

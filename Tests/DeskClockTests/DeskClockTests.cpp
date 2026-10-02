@@ -1,3 +1,4 @@
+#include "../../Common/FailureReports.h"
 #include "../../Plugins/DeskClock/DeskClockTestContract.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"
@@ -1369,6 +1370,7 @@ struct PixelBounds final
 
 int wmain() noexcept
 {
+    RedXeFailureReports::RouteAwayFromDialogs();
     const HRESULT result = Run();
     if (FAILED(result))
     {
