@@ -5,7 +5,7 @@
     <Filter Include="Public Interfaces"><UniqueIdentifier>{4CE9621D-4EBC-49CC-B367-C3A80560C266}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="PluginContractTests.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="PluginContract.Tests.Runner.cpp"><Filter>Source Files</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Common\PlugInterfaces\Data.h"><Filter>Public Interfaces</Filter></ClInclude>

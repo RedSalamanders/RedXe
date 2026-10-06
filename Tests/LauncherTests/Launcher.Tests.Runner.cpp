@@ -1,6 +1,6 @@
 #include "../../Common/FailureReports.h"
+#include "../../Plugins/Launcher/Launcher.Tests.Contract.h"
 #include "../../Plugins/Launcher/LauncherPaging.h"
-#include "../../Plugins/Launcher/LauncherTestContract.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"

@@ -6,7 +6,7 @@
     <Filter Include="Settings"><UniqueIdentifier>{6157520E-1966-44BA-9CC5-2CB8458F5E20}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="SettingsTests.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="Settings.Tests.Runner.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\RedXe\Settings.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\RedXe\SettingsWatcher.cpp"><Filter>Source Files</Filter></ClCompile>
   </ItemGroup>

@@ -61,7 +61,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="LogiconTests.cpp" />
+    <ClCompile Include="Logicon.Tests.Runner.cpp" />
     <ClCompile Include="..\..\Plugins\Logicon\LogiconDevice.cpp" />
     <ClCompile Include="..\..\Plugins\Logicon\LogiconFaces.cpp" />
     <ClCompile Include="..\..\Plugins\Logicon\LogiconHid.cpp" />
@@ -73,7 +73,7 @@
     <ClCompile Include="..\..\Common\Actions\ActionTargets.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Plugins\Logicon\LogiconTestContract.h" />
+    <ClInclude Include="..\..\Plugins\Logicon\Logicon.Tests.Contract.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Service.h" />
   </ItemGroup>

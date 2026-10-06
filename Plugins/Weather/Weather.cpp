@@ -3,12 +3,12 @@
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
+#include "Weather.Tests.Contract.h"
 #include "WeatherGpu.h"
 #include "WeatherHttp.h"
 #include "WeatherIcons.h"
 #include "WeatherLocation.h"
 #include "WeatherModel.h"
-#include "WeatherTestContract.h"
 #include "WheelDetent.h"
 
 #include <algorithm>

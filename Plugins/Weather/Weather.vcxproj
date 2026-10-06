@@ -99,7 +99,7 @@
     <ClInclude Include="WeatherLocation.h" />
     <ClInclude Include="WeatherIcons.h" />
     <ClInclude Include="WeatherGpu.h" />
-    <ClInclude Include="WeatherTestContract.h" />
+    <ClInclude Include="Weather.Tests.Contract.h" />
     <None Include="Fonts\weathericons-regular-webfont.ttf" />
     <None Include="Fonts\OFL.txt" />
     <ClInclude Include="..\..\Common\PageIndicator.h" />

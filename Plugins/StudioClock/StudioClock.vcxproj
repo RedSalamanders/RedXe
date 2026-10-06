@@ -99,7 +99,7 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="StudioClockTestContract.h" />
+    <ClInclude Include="StudioClock.Tests.Contract.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />

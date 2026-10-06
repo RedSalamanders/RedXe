@@ -6,10 +6,10 @@
 #include "Actions/ActionTargets.h"
 #include "Actions/FluentGlyphNames.h"
 #include "Actions/GlyphIcon.h"
+#include "Launcher.Tests.Contract.h"
 #include "LauncherBindings.h"
 #include "LauncherPaging.h"
 #include "LauncherPixelShader.h"
-#include "LauncherTestContract.h"
 #include "LauncherVertexShader.h"
 #include "WheelDetent.h"
 

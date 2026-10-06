@@ -16,7 +16,7 @@
     <ClInclude Include="WeatherModel.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="WeatherIcons.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="WeatherGpu.h"><Filter>Header Files</Filter></ClInclude>
-    <ClInclude Include="WeatherTestContract.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="Weather.Tests.Contract.h"><Filter>Header Files</Filter></ClInclude>
     <None Include="Fonts\weathericons-regular-webfont.ttf"><Filter>Header Files</Filter></None>
     <None Include="Fonts\OFL.txt"><Filter>Header Files</Filter></None>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Header Files</Filter></ClInclude>

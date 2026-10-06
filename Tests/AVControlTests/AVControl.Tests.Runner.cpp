@@ -53,7 +53,8 @@ void BeginStage(const char* name)
     const char* previous = currentStage.exchange(name);
     stageStartedAt.store(now);
     if (previousStarted)
-        std::printf("AVControl: %s done in %llu ms\n", previous, static_cast<unsigned long long>(now - previousStarted));
+        std::printf("AVControl: %s done in %llu ms\n", previous,
+                    static_cast<unsigned long long>(now - previousStarted));
     std::printf("AVControl: %s...\n", name);
     std::fflush(stdout);
 }
@@ -70,11 +71,13 @@ DWORD WINAPI Watchdog(void*) noexcept
         const bool runOverdue = now - runStartedAt > RunBudgetMilliseconds;
         if (!stageOverdue && !runOverdue)
             continue;
-        std::fprintf(stderr,
-                     "FAIL AVControl: stage '%s' did not finish within %lu s (run %llu s); a wait in it is unbounded. "
-                     "Terminating so the suite fails here instead of at the job timeout.\n",
-                     currentStage.load(), static_cast<unsigned long>((stageOverdue ? StageBudgetMilliseconds : RunBudgetMilliseconds) / 1000),
-                     static_cast<unsigned long long>((now - runStartedAt) / 1000));
+        std::fprintf(
+            stderr,
+            "FAIL AVControl: stage '%s' did not finish within %lu s (run %llu s); a wait in it is unbounded. "
+            "Terminating so the suite fails here instead of at the job timeout.\n",
+            currentStage.load(),
+            static_cast<unsigned long>((stageOverdue ? StageBudgetMilliseconds : RunBudgetMilliseconds) / 1000),
+            static_cast<unsigned long long>((now - runStartedAt) / 1000));
         std::fflush(stderr);
         // The hung thread may hold locks the CRT shutdown would need: leave immediately, no destructors.
         TerminateProcess(GetCurrentProcess(), static_cast<UINT>(HangExitCode));

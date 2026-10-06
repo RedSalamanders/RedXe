@@ -14,7 +14,7 @@
     <FxCompile Include="ViewerPixel.hlsl"><Filter>Shaders</Filter></FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="ProcessViewerTestContract.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="ProcessViewer.Tests.Contract.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="ViewerGpu.h"><Filter>Source Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Data.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Public Interfaces</Filter></ClInclude>

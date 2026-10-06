@@ -74,7 +74,7 @@
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />
-    <ClInclude Include="SystemDataTestContract.h" />
+    <ClInclude Include="SystemData.Tests.Contract.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

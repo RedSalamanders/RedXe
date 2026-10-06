@@ -6,7 +6,7 @@
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PowerSensors.h"
-#include "SystemDataTestContract.h"
+#include "SystemData.Tests.Contract.h"
 
 #include <algorithm>
 #include <array>

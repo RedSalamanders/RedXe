@@ -1,7 +1,7 @@
 #include "../../Common/FailureReports.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"
-#include "StudioClockTestContract.h"
+#include "StudioClock.Tests.Contract.h"
 
 #include <algorithm>
 #include <array>

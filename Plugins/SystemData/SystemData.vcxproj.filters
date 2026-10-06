@@ -11,6 +11,6 @@
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="NtLayout.h"><Filter>Source Files</Filter></ClInclude>
-    <ClInclude Include="SystemDataTestContract.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="SystemData.Tests.Contract.h"><Filter>Public Interfaces</Filter></ClInclude>
   </ItemGroup>
 </Project>

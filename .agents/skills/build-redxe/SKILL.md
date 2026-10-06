@@ -64,3 +64,5 @@ Scheduling changes also require the live hidden, minimized, suspended, and occlu
 Before closeout, confirm the authoritative domain spec matches the validated behavior. If the work finishes a WIP
 plan, move it to `Specs/Plans/Done/` only after merging durable requirements into that spec. Apply the `spec-workflow`
 skill when specification or plan state changes.
+
+Ordinary iteration uses `Test-Changes.ps1 -Explain` followed by the affected default. Full/PrePush are explicit; use the owning scoped-testing contract to account for matching CI obligations and exact local evidence instead of repeating unchanged identical tests. Pending CI or foreground/platform acceptance is not a repository pass.

@@ -304,7 +304,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ShadersSettings.h" />
-    <ClInclude Include="ShadersTestContract.h" />
+    <ClInclude Include="Shaders.Tests.Contract.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />

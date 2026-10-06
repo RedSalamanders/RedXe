@@ -4,10 +4,10 @@
     <Filter Include="Source Files"><UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier></Filter>
     <Filter Include="Header Files"><UniqueIdentifier>{93995380-89BD-4B04-88EB-625FBE52EBFB}</UniqueIdentifier></Filter>
   </ItemGroup>
-  <ItemGroup><ClCompile Include="WeatherTests.cpp"><Filter>Source Files</Filter></ClCompile></ItemGroup>
+  <ItemGroup><ClCompile Include="Weather.Tests.Runner.cpp"><Filter>Source Files</Filter></ClCompile></ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Plugins\Weather\WeatherHttp.h"><Filter>Header Files</Filter></ClInclude>
-    <ClInclude Include="..\..\Plugins\Weather\WeatherTestContract.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Plugins\Weather\Weather.Tests.Contract.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Header Files</Filter></ClInclude>
   </ItemGroup>
 </Project>

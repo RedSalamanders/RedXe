@@ -1,0 +1,368 @@
+{
+  "version": 1,
+  "repository": "RedSalamanders/RedXe",
+  "defaultBranch": "main",
+  "scopes": [
+    {
+      "name": "LauncherAlias",
+      "native": true,
+      "reuse": true
+    },
+    {
+      "name": "Packaging",
+      "native": true,
+      "reuse": true
+    },
+    {
+      "name": "PluginContract",
+      "native": true,
+      "reuse": true
+    },
+    {
+      "name": "AVControl",
+      "native": true,
+      "reuse": true
+    },
+    {
+      "name": "SystemData",
+      "native": true,
+      "reuse": true
+    },
+    {
+      "name": "SystemDataPhase0",
+      "native": true,
+      "reuse": true
+    },
+    {
+      "name": "StudioClock",
+      "native": true,
+      "reuse": true
+    },
+    {
+      "name": "DeskClock",
+      "native": true,
+      "reuse": true
+    },
+    {
+      "name": "Launcher",
+      "native": true,
+      "reuse": true
+    },
+    {
+      "name": "Weather",
+      "native": true,
+      "reuse": true
+    },
+    {
+      "name": "Logicon",
+      "native": true,
+      "reuse": true
+    },
+    {
+      "name": "Zoom",
+      "native": true,
+      "reuse": true
+    },
+    {
+      "name": "Settings",
+      "native": true,
+      "reuse": true
+    },
+    {
+      "name": "HostPlugin",
+      "native": true,
+      "reuse": true
+    },
+    {
+      "name": "HostSmoke",
+      "native": true,
+      "reuse": true
+    },
+    {
+      "name": "BuildProcess",
+      "native": false,
+      "reuse": true
+    }
+  ],
+  "rules": [
+    {
+      "pattern": "Plugins/AVControl/**",
+      "scopes": [
+        "AVControl",
+        "PluginContract",
+        "HostPlugin",
+        "HostSmoke",
+        "Packaging"
+      ],
+      "reason": "plugin contracts, host integration and deployment"
+    },
+    {
+      "pattern": "Plugins/SystemData/**",
+      "scopes": [
+        "SystemData",
+        "PluginContract",
+        "HostPlugin",
+        "HostSmoke",
+        "Packaging",
+        "SystemDataPhase0"
+      ],
+      "reason": "plugin contracts, host integration and deployment"
+    },
+    {
+      "pattern": "Plugins/StudioClock/**",
+      "scopes": [
+        "StudioClock",
+        "PluginContract",
+        "HostPlugin",
+        "HostSmoke",
+        "Packaging"
+      ],
+      "reason": "plugin contracts, host integration and deployment"
+    },
+    {
+      "pattern": "Plugins/DeskClock/**",
+      "scopes": [
+        "DeskClock",
+        "PluginContract",
+        "HostPlugin",
+        "HostSmoke",
+        "Packaging"
+      ],
+      "reason": "plugin contracts, host integration and deployment"
+    },
+    {
+      "pattern": "Plugins/Launcher/**",
+      "scopes": [
+        "Launcher",
+        "PluginContract",
+        "HostPlugin",
+        "HostSmoke",
+        "Packaging"
+      ],
+      "reason": "plugin contracts, host integration and deployment"
+    },
+    {
+      "pattern": "Plugins/Weather/**",
+      "scopes": [
+        "Weather",
+        "PluginContract",
+        "HostPlugin",
+        "HostSmoke",
+        "Packaging"
+      ],
+      "reason": "plugin contracts, host integration and deployment"
+    },
+    {
+      "pattern": "Plugins/Logicon/**",
+      "scopes": [
+        "Logicon",
+        "PluginContract",
+        "HostPlugin",
+        "HostSmoke",
+        "Packaging"
+      ],
+      "reason": "plugin contracts, host integration and deployment"
+    },
+    {
+      "pattern": "Plugins/Actions/Zoom/**",
+      "scopes": [
+        "Zoom",
+        "PluginContract",
+        "HostPlugin",
+        "HostSmoke",
+        "Packaging"
+      ],
+      "reason": "plugin contracts, host integration and deployment"
+    },
+    {
+      "pattern": "Tests/LauncherAliasTests/**",
+      "scopes": [
+        "LauncherAlias"
+      ],
+      "reason": "owning native test project"
+    },
+    {
+      "pattern": "Tests/PackagingTests/**",
+      "scopes": [
+        "Packaging"
+      ],
+      "reason": "owning native test project"
+    },
+    {
+      "pattern": "Tests/PluginContractTests/**",
+      "scopes": [
+        "PluginContract"
+      ],
+      "reason": "owning native test project"
+    },
+    {
+      "pattern": "Tests/AVControlTests/**",
+      "scopes": [
+        "AVControl"
+      ],
+      "reason": "owning native test project"
+    },
+    {
+      "pattern": "Tests/SystemDataTests/**",
+      "scopes": [
+        "SystemData"
+      ],
+      "reason": "owning native test project"
+    },
+    {
+      "pattern": "Tests/SystemDataPhase0Tests/**",
+      "scopes": [
+        "SystemDataPhase0"
+      ],
+      "reason": "owning native test project"
+    },
+    {
+      "pattern": "Tests/StudioClockTests/**",
+      "scopes": [
+        "StudioClock"
+      ],
+      "reason": "owning native test project"
+    },
+    {
+      "pattern": "Tests/DeskClockTests/**",
+      "scopes": [
+        "DeskClock"
+      ],
+      "reason": "owning native test project"
+    },
+    {
+      "pattern": "Tests/LauncherTests/**",
+      "scopes": [
+        "Launcher"
+      ],
+      "reason": "owning native test project"
+    },
+    {
+      "pattern": "Tests/WeatherTests/**",
+      "scopes": [
+        "Weather"
+      ],
+      "reason": "owning native test project"
+    },
+    {
+      "pattern": "Tests/LogiconTests/**",
+      "scopes": [
+        "Logicon"
+      ],
+      "reason": "owning native test project"
+    },
+    {
+      "pattern": "Tests/ZoomTests/**",
+      "scopes": [
+        "Zoom"
+      ],
+      "reason": "owning native test project"
+    },
+    {
+      "pattern": "Tests/SettingsTests/**",
+      "scopes": [
+        "Settings"
+      ],
+      "reason": "owning native test project"
+    },
+    {
+      "pattern": "Tests/HostPluginTests/**",
+      "scopes": [
+        "HostPlugin"
+      ],
+      "reason": "owning native test project"
+    },
+    {
+      "pattern": "Tests/HostSmokeTests/**",
+      "scopes": [
+        "HostSmoke"
+      ],
+      "reason": "owning native test project"
+    },
+    {
+      "pattern": "Tests/SystemDataPhase0/**",
+      "scopes": [
+        "SystemDataPhase0"
+      ],
+      "reason": "system data acquisition fixture"
+    },
+    {
+      "pattern": "RedXe/Settings*",
+      "scopes": [
+        "Settings",
+        "HostPlugin",
+        "HostSmoke"
+      ],
+      "reason": "settings parser and live application behavior"
+    },
+    {
+      "pattern": "Settings/**",
+      "scopes": [
+        "Settings",
+        "HostPlugin",
+        "HostSmoke"
+      ],
+      "reason": "shipped settings and schema integration"
+    },
+    {
+      "pattern": "Specs/Settings.schema.json",
+      "scopes": [
+        "Settings",
+        "HostPlugin",
+        "HostSmoke"
+      ],
+      "reason": "executable settings schema"
+    },
+    {
+      "pattern": "RedXeLauncher/**",
+      "scopes": [
+        "LauncherAlias",
+        "Packaging"
+      ],
+      "reason": "portable command alias"
+    },
+    {
+      "pattern": "Tests/BuildProcessTests/**",
+      "scopes": [
+        "BuildProcess",
+        "Packaging"
+      ],
+      "reason": "build/process/packaging tooling"
+    },
+    {
+      "pattern": "Tests/SkillValidationTests/**",
+      "scopes": [
+        "BuildProcess"
+      ],
+      "reason": "skill validation tooling"
+    }
+  ],
+  "toolingCommands": [
+    "Tests/BuildProcessTests/Invoke-ToolingTests.ps1"
+  ],
+  "prCoverage": [
+    {
+      "configuration": "Release",
+      "scopes": [
+        "LauncherAlias",
+        "Packaging",
+        "PluginContract",
+        "AVControl",
+        "SystemData",
+        "SystemDataPhase0",
+        "StudioClock",
+        "DeskClock",
+        "Launcher",
+        "Weather",
+        "Logicon",
+        "Zoom",
+        "Settings",
+        "HostPlugin",
+        "HostSmoke",
+        "BuildProcess"
+      ],
+      "platform": "x64"
+    }
+  ],
+  "prWorkflowDigest": "adc0819e5d13b107f19febf476c827557495fb7497a89759f2a2214d3fda95be"
+}

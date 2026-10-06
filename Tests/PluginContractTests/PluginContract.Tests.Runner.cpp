@@ -4,8 +4,8 @@
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
+#include "Shaders.Tests.Contract.h"
 #include "ShadersSettings.h"
-#include "ShadersTestContract.h"
 
 #include <algorithm>
 #include <array>

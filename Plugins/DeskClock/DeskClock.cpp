@@ -2,10 +2,10 @@
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PlugInterfaces/Widget.h"
 
+#include "DeskClock.Tests.Contract.h"
 #include "DeskClockBackgroundPixelShader.h"
 #include "DeskClockBackgroundVertexShader.h"
 #include "DeskClockPixelShader.h"
-#include "DeskClockTestContract.h"
 #include "DeskClockVertexShader.h"
 
 #include <algorithm>

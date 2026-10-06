@@ -1,5 +1,5 @@
 #include "../../Common/FailureReports.h"
-#include "../../Plugins/SystemData/SystemDataTestContract.h"
+#include "../../Plugins/SystemData/SystemData.Tests.Contract.h"
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"

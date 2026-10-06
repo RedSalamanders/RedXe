@@ -9,7 +9,7 @@
     <ClCompile Include="StudioClock.cpp"><Filter>Source Files</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="StudioClockTestContract.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="StudioClock.Tests.Contract.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h"><Filter>Header Files</Filter></ClInclude>

@@ -1,6 +1,6 @@
 #define REDXE_PLUGIN_EXPORTS
+#include "AVControl.Tests.Contract.h"
 #include "AVControlSettings.h"
-#include "AVControlTestContract.h"
 #include "AccessibilityValidation.h"
 #include "Coordinator.h"
 #include <algorithm>

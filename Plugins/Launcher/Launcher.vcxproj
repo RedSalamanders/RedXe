@@ -92,7 +92,7 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="LauncherTestContract.h" />
+    <ClInclude Include="Launcher.Tests.Contract.h" />
     <ClInclude Include="..\..\Common\PageIndicator.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\WheelDetent.h" />

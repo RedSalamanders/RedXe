@@ -60,9 +60,9 @@
       <AdditionalDependencies>d3d11.lib;windowscodecs.lib;ole32.lib;shell32.lib;uuid.lib;psapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="LauncherTests.cpp" /></ItemGroup>
+  <ItemGroup><ClCompile Include="Launcher.Tests.Runner.cpp" /></ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Plugins\Launcher\LauncherTestContract.h" />
+    <ClInclude Include="..\..\Plugins\Launcher\Launcher.Tests.Contract.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h" />

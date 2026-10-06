@@ -173,3 +173,5 @@ RedXe is released under the [MIT License](LICENSE) (Copyright (c) 2026 RedSalama
 and adds the third-party notices and the files under other terms: the twelve Shadertoy ports in
 `Plugins/5H4D3R5/Shaders/` are CC BY-NC-SA 3.0 (see `Plugins/5H4D3R5/LICENSES.md`), the Weather Icons font is
 SIL OFL 1.1. The browser-only Zoom action plugin uses no Zoom SDK.
+
+Affected iteration, full local coverage, exact reuse and pending PR obligations are described in [the testing guide](Tests/README.md).

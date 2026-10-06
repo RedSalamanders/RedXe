@@ -91,7 +91,7 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="ProcessViewerTestContract.h" />
+    <ClInclude Include="ProcessViewer.Tests.Contract.h" />
     <ClInclude Include="ViewerGpu.h" />
     <ClInclude Include="..\..\Common\PageIndicator.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Data.h" />

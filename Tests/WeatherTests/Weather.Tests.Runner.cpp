@@ -1,6 +1,6 @@
 #include "../../Common/FailureReports.h"
+#include "../../Plugins/Weather/Weather.Tests.Contract.h"
 #include "../../Plugins/Weather/WeatherHttp.h"
-#include "../../Plugins/Weather/WeatherTestContract.h"
 #include "PlugInterfaces/Factory.h"
 
 #include <array>
