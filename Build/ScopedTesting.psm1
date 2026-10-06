@@ -140,12 +140,16 @@ function Get-ScopedArtifactIdentity {
     # These deployed inputs are read by SettingsTests and the canonical provenance check.
     # Generated reports and test-owned fixtures are deliberately outside this stable closure.
     $runtimeInputs = @('Settings/RedXe-debug.settings.json','Settings/RedXe.settings.json','Settings/RedXe.settings.schema.json','DxUi.provenance.json')
-    $rows = @(Get-ChildItem -LiteralPath $directory -Recurse -File | Where-Object {
-        $_.Extension -in @('.exe','.dll','.pdb') -or ([IO.Path]::GetRelativePath($directory,$_.FullName) -replace '\\','/') -in $runtimeInputs
-    } | Sort-Object FullName | ForEach-Object {
+    $binaries = @(Get-ChildItem -LiteralPath $directory -Recurse -File | Where-Object { $_.Extension -in @('.exe','.dll','.pdb') })
+    if (-not $binaries.Count) { throw 'No executable build artifacts were found.' }
+    $deployed = @(foreach ($relative in $runtimeInputs) {
+        $path = Join-Path $directory $relative
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing deployed runtime input: $relative" }
+        Get-Item -LiteralPath $path -ErrorAction Stop
+    })
+    $rows = @(@($binaries + $deployed) | Sort-Object FullName | ForEach-Object {
         [IO.Path]::GetRelativePath($directory,$_.FullName) + ':' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
     })
-    if (-not $rows.Count) { throw 'No executable build artifacts were found.' }
     return Get-ScopedDigest ($rows -join "`n")
 }
 

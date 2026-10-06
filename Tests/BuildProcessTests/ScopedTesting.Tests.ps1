@@ -87,7 +87,12 @@ try {
         $content=Get-Content $path -Raw | ConvertFrom-Json;$content.outcome='FAILED';Write-Fixture $path ($content|ConvertTo-Json)
         Assert-Scope (-not(Test-ScopedReceipt $path $key)) 'Failed result reused'
     }
-    foreach($profile in @('Debug','Release')) {Write-Fixture (Join-Path $fixture ".build/x64/$profile/suite.exe") 'binary';Write-Fixture (Join-Path $fixture ".build/x64/$profile/Plugins/runtime.dll") 'dependency'}
+    $runtimeInputs=@('Settings/RedXe-debug.settings.json','Settings/RedXe.settings.json','Settings/RedXe.settings.schema.json','DxUi.provenance.json')
+    foreach($profile in @('Debug','Release')) {
+        Write-Fixture (Join-Path $fixture ".build/x64/$profile/suite.exe") 'binary'
+        Write-Fixture (Join-Path $fixture ".build/x64/$profile/Plugins/runtime.dll") 'dependency'
+        foreach($relative in $runtimeInputs) {Write-Fixture (Join-Path $fixture ".build/x64/$profile/$relative") 'original deployed input'}
+    }
     Run-Case 'tooling identities include documentation, skills and source-origin mappings' {
         $compiled=Get-ScopedSourceIdentity $fixture -CompiledOnly
         $native=Get-ScopedRunIdentity $fixture x64 Debug Example
@@ -112,7 +117,7 @@ try {
         Assert-Scope ((Get-ScopedArtifactIdentity $fixture x64 Debug) -cne $before) 'DLL mutation reused'
     }
     Run-Case 'deployed settings and provenance invalidate receipts while generated reports do not' {
-        foreach($name in @('Settings/RedXe-debug.settings.json','Settings/RedXe.settings.json','Settings/RedXe.settings.schema.json','DxUi.provenance.json')) {
+        foreach($name in $runtimeInputs) {
             $path=Join-Path $fixture ('.build/x64/Debug/'+$name)
             Write-Fixture $path 'original deployed input'
             $key=Get-ScopedRunIdentity $fixture x64 Debug Example
@@ -121,13 +126,26 @@ try {
             Write-Fixture $path 'changed deployed input'
             Assert-Scope (-not(Test-ScopedReceipt $receipt (Get-ScopedRunIdentity $fixture x64 Debug Example))) "Changed deployed input reused: $name"
             Remove-Item -LiteralPath $path
-            Assert-Scope (-not(Test-ScopedReceipt $receipt (Get-ScopedRunIdentity $fixture x64 Debug Example))) "Missing deployed input reused: $name"
+            $message='';try {Get-ScopedRunIdentity $fixture x64 Debug Example | Out-Null} catch [System.Management.Automation.RuntimeException] {$message=$_.Exception.Message}
+            Assert-Scope ($message -eq "Missing deployed runtime input: $name") "Missing deployed input accepted: $name ($message)"
             Write-Fixture $path 'original deployed input'
             Assert-Scope (Test-ScopedReceipt $receipt (Get-ScopedRunIdentity $fixture x64 Debug Example)) "Identical deployed input not reusable: $name"
         }
         $before=Get-ScopedArtifactIdentity $fixture x64 Debug
         Write-Fixture (Join-Path $fixture '.build/x64/Debug/logs/generated-report.json') 'new report'
         Assert-Scope ((Get-ScopedArtifactIdentity $fixture x64 Debug) -ceq $before) 'Generated reports invalidated native evidence'
+    }
+    Run-Case 'incomplete profiles cannot establish an initial artifact identity' {
+        $incomplete=Join-Path $fixture 'incomplete'
+        $profile=Join-Path $incomplete '.build/x64/Debug'
+        Write-Fixture (Join-Path $profile 'suite.exe') 'binary'
+        $message='';try {Get-ScopedArtifactIdentity $incomplete x64 Debug | Out-Null} catch [System.Management.Automation.RuntimeException] {$message=$_.Exception.Message}
+        Assert-Scope ($message -like 'Missing deployed runtime input:*') "Missing initial closure accepted: $message"
+        foreach($relative in $runtimeInputs) {Write-Fixture (Join-Path $profile $relative) 'original deployed input'}
+        Assert-Scope (-not [string]::IsNullOrWhiteSpace((Get-ScopedArtifactIdentity $incomplete x64 Debug))) 'Complete initial closure rejected'
+        Remove-Item -LiteralPath (Join-Path $profile 'suite.exe')
+        $message='';try {Get-ScopedArtifactIdentity $incomplete x64 Debug | Out-Null} catch [System.Management.Automation.RuntimeException] {$message=$_.Exception.Message}
+        Assert-Scope ($message -eq 'No executable build artifacts were found.') "JSON-only profile accepted: $message"
     }
     Run-Case 'configuration, scope and sanitizer environment differ' {
         $before=Get-ScopedRunIdentity $fixture x64 Debug Example
@@ -245,6 +263,11 @@ param($Platform,$Configuration)
 $output=Join-Path $PSScriptRoot ".build/$Platform/$Configuration"
 New-Item -ItemType Directory -Path $output -Force|Out-Null
 [IO.File]::WriteAllText((Join-Path $output 'example.exe'),'fixture binary')
+foreach($relative in @('Settings/RedXe-debug.settings.json','Settings/RedXe.settings.json','Settings/RedXe.settings.schema.json','DxUi.provenance.json')) {
+    $path=Join-Path $output $relative
+    [void](New-Item -ItemType Directory -Path (Split-Path $path) -Force)
+    [IO.File]::WriteAllText($path,'fixture deployed input')
+}
 exit 0
 '@
         Write-Fixture (Join-Path $sandbox 'test.ps1') @'
