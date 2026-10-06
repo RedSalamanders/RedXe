@@ -137,7 +137,12 @@ function Get-ScopedArtifactIdentity {
     param([string] $Root, [string] $Platform, [string] $Configuration)
     $directory = Join-Path $Root ".build/$Platform/$Configuration"
     if (-not (Test-Path -LiteralPath $directory -PathType Container)) { throw "Missing build profile: $directory" }
-    $rows = @(Get-ChildItem -LiteralPath $directory -Recurse -File | Where-Object { $_.Extension -in @('.exe','.dll','.pdb') } | Sort-Object FullName | ForEach-Object {
+    # These deployed inputs are read by SettingsTests and the canonical provenance check.
+    # Generated reports and test-owned fixtures are deliberately outside this stable closure.
+    $runtimeInputs = @('Settings/RedXe-debug.settings.json','Settings/RedXe.settings.json','Settings/RedXe.settings.schema.json','DxUi.provenance.json')
+    $rows = @(Get-ChildItem -LiteralPath $directory -Recurse -File | Where-Object {
+        $_.Extension -in @('.exe','.dll','.pdb') -or ([IO.Path]::GetRelativePath($directory,$_.FullName) -replace '\\','/') -in $runtimeInputs
+    } | Sort-Object FullName | ForEach-Object {
         [IO.Path]::GetRelativePath($directory,$_.FullName) + ':' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
     })
     if (-not $rows.Count) { throw 'No executable build artifacts were found.' }
@@ -227,12 +232,18 @@ function Get-ScopedPrCoverage {
     if (-not $profile.Count) { return @() }
     # The forthcoming PR executes its candidate workflow. Its reviewed digest must match; API problems keep work local.
     try {
+        # GitHub receives committed bytes. Dirty or concurrently changing work cannot be delegated.
+        $candidate = (Invoke-ScopedGit $Root @('rev-parse','HEAD')).Trim()
+        if (Invoke-ScopedGit $Root @('status','--porcelain','--untracked-files=normal')) { return @() }
         $local = [IO.File]::ReadAllText((Join-Path $Root '.github/workflows/ci.yml')) -replace "`r`n","`n"
         if ((Get-ScopedDigest $local) -cne $Manifest.prWorkflowDigest -or $local -notmatch '(?m)^  pull_request:') { return @() }
         $workflow = & gh api "repos/$($Manifest.repository)/actions/workflows/ci.yml" 2>$null | ConvertFrom-Json
         if ($LASTEXITCODE -ne 0 -or $workflow.state -ne 'active') { return @() }
         $paths = @(Get-ScopedChangedPaths $Root ('origin/' + $Manifest.defaultBranch))
-        return @(Get-ScopedPrCandidateScopes $Root $Manifest $Platform $Configuration $paths)
+        $covered = @(Get-ScopedPrCandidateScopes $Root $Manifest $Platform $Configuration $paths)
+        if ((Invoke-ScopedGit $Root @('rev-parse','HEAD')).Trim() -cne $candidate -or
+            (Invoke-ScopedGit $Root @('status','--porcelain','--untracked-files=normal'))) { return @() }
+        return $covered
     } catch [System.Management.Automation.RuntimeException] { return @() }
     catch [ArgumentException] { return @() }
 }
