@@ -70,6 +70,9 @@ try {
         } else {
             $systemData=Get-ScopedTestPlan $manifest @('Plugins/SystemData/SystemData.cpp')
             Assert-Scope ('SystemDataPhase0' -in $systemData.scopes) 'Referenced SystemData module did not select its phase-zero consumer'
+            foreach($inputPath in @('Plugins/AVControl/AVControlModel.cpp','Plugins/Launcher/LauncherPaging.h','Plugins/Logicon/LogiconSettings.cpp','Plugins/Actions/Zoom/ZoomSettings.cpp')) {
+                Assert-Scope ('Settings' -in (Get-ScopedTestPlan $manifest @($inputPath)).scopes) "Shared settings consumer omitted: $inputPath"
+            }
         }
     }
     Run-Case 'only intact identical success can be reused' {
@@ -84,7 +87,12 @@ try {
         $content=Get-Content $path -Raw | ConvertFrom-Json;$content.outcome='FAILED';Write-Fixture $path ($content|ConvertTo-Json)
         Assert-Scope (-not(Test-ScopedReceipt $path $key)) 'Failed result reused'
     }
-    foreach($profile in @('Debug','Release')) {Write-Fixture (Join-Path $fixture ".build/x64/$profile/suite.exe") 'binary';Write-Fixture (Join-Path $fixture ".build/x64/$profile/Plugins/runtime.dll") 'dependency'}
+    $runtimeInputs=@('Settings/RedXe-debug.settings.json','Settings/RedXe.settings.json','Settings/RedXe.settings.schema.json','DxUi.provenance.json')
+    foreach($profile in @('Debug','Release')) {
+        Write-Fixture (Join-Path $fixture ".build/x64/$profile/suite.exe") 'binary'
+        Write-Fixture (Join-Path $fixture ".build/x64/$profile/Plugins/runtime.dll") 'dependency'
+        foreach($relative in $runtimeInputs) {Write-Fixture (Join-Path $fixture ".build/x64/$profile/$relative") 'original deployed input'}
+    }
     Run-Case 'tooling identities include documentation, skills and source-origin mappings' {
         $compiled=Get-ScopedSourceIdentity $fixture -CompiledOnly
         $native=Get-ScopedRunIdentity $fixture x64 Debug Example
@@ -108,6 +116,37 @@ try {
         Write-Fixture (Join-Path $fixture '.build/x64/Debug/Plugins/runtime.dll') 'newdependency'
         Assert-Scope ((Get-ScopedArtifactIdentity $fixture x64 Debug) -cne $before) 'DLL mutation reused'
     }
+    Run-Case 'deployed settings and provenance invalidate receipts while generated reports do not' {
+        foreach($name in $runtimeInputs) {
+            $path=Join-Path $fixture ('.build/x64/Debug/'+$name)
+            Write-Fixture $path 'original deployed input'
+            $key=Get-ScopedRunIdentity $fixture x64 Debug Example
+            $receipt=Join-Path $fixture '.build/reports/deployed.json'
+            Write-ScopedReceipt $receipt $key
+            Write-Fixture $path 'changed deployed input'
+            Assert-Scope (-not(Test-ScopedReceipt $receipt (Get-ScopedRunIdentity $fixture x64 Debug Example))) "Changed deployed input reused: $name"
+            Remove-Item -LiteralPath $path
+            $message='';try {Get-ScopedRunIdentity $fixture x64 Debug Example | Out-Null} catch [System.Management.Automation.RuntimeException] {$message=$_.Exception.Message}
+            Assert-Scope ($message -eq "Missing deployed runtime input: $name") "Missing deployed input accepted: $name ($message)"
+            Write-Fixture $path 'original deployed input'
+            Assert-Scope (Test-ScopedReceipt $receipt (Get-ScopedRunIdentity $fixture x64 Debug Example)) "Identical deployed input not reusable: $name"
+        }
+        $before=Get-ScopedArtifactIdentity $fixture x64 Debug
+        Write-Fixture (Join-Path $fixture '.build/x64/Debug/logs/generated-report.json') 'new report'
+        Assert-Scope ((Get-ScopedArtifactIdentity $fixture x64 Debug) -ceq $before) 'Generated reports invalidated native evidence'
+    }
+    Run-Case 'incomplete profiles cannot establish an initial artifact identity' {
+        $incomplete=Join-Path $fixture 'incomplete'
+        $profile=Join-Path $incomplete '.build/x64/Debug'
+        Write-Fixture (Join-Path $profile 'suite.exe') 'binary'
+        $message='';try {Get-ScopedArtifactIdentity $incomplete x64 Debug | Out-Null} catch [System.Management.Automation.RuntimeException] {$message=$_.Exception.Message}
+        Assert-Scope ($message -like 'Missing deployed runtime input:*') "Missing initial closure accepted: $message"
+        foreach($relative in $runtimeInputs) {Write-Fixture (Join-Path $profile $relative) 'original deployed input'}
+        Assert-Scope (-not [string]::IsNullOrWhiteSpace((Get-ScopedArtifactIdentity $incomplete x64 Debug))) 'Complete initial closure rejected'
+        Remove-Item -LiteralPath (Join-Path $profile 'suite.exe')
+        $message='';try {Get-ScopedArtifactIdentity $incomplete x64 Debug | Out-Null} catch [System.Management.Automation.RuntimeException] {$message=$_.Exception.Message}
+        Assert-Scope ($message -eq 'No executable build artifacts were found.') "JSON-only profile accepted: $message"
+    }
     Run-Case 'configuration, scope and sanitizer environment differ' {
         $before=Get-ScopedRunIdentity $fixture x64 Debug Example
         Assert-Scope ((Get-ScopedRunIdentity $fixture x64 Release Example) -cne $before) 'Configuration ignored'
@@ -125,6 +164,56 @@ try {
         Write-Fixture (Join-Path $fixture 'code.cpp') 'another implementation'
         Assert-Scope (-not(Test-ScopedReceipt $path (Get-ScopedDigest ((Get-ScopedSourceIdentity $fixture -CompiledOnly)+"`n"+$binary)))) 'Stale source accepted'
     }
+    Run-Case 'PR delegation binds clean committed bytes and rejects concurrent changes' {
+        $delegate=Join-Path $fixture 'delegation'
+        function Invoke-DelegateGit([string[]]$Arguments) {& git -C $delegate @Arguments *> $null;if($LASTEXITCODE){throw "Delegation fixture git failed: $Arguments"}}
+        [void](New-Item -ItemType Directory -Path $delegate -Force)
+        $workflow="name: fixture`non:`n  pull_request:`n"
+        [void](New-Item -ItemType Directory -Path (Join-Path $delegate '.github/workflows') -Force)
+        [IO.File]::WriteAllText((Join-Path $delegate '.github/workflows/ci.yml'),$workflow)
+        [IO.File]::WriteAllText((Join-Path $delegate 'code.cpp'),'initial')
+        Invoke-DelegateGit @('init','-q')
+        Invoke-DelegateGit @('config','user.name','Delegation fixture')
+        Invoke-DelegateGit @('config','user.email','fixture@example.invalid')
+        Invoke-DelegateGit @('add','-A');Invoke-DelegateGit @('commit','-q','-m','baseline')
+        Invoke-DelegateGit @('update-ref','refs/remotes/origin/main','HEAD')
+        $coverage=[pscustomobject]@{repository='fixture/example';defaultBranch='main';prWorkflowDigest=(Get-ScopedDigest $workflow);prCoverage=@([pscustomobject]@{platform='x64';configuration='Release';scopes=@('Example')})}
+        $previousGh=Get-Item Function:\global:gh -ErrorAction SilentlyContinue
+        $global:ScopedFixtureGhCalls=0;$global:ScopedFixtureGhMutation=''
+        $global:ScopedFixtureGhRoot=$delegate
+        function global:gh {
+            param([Parameter(ValueFromRemainingArguments=$true)][string[]]$FixtureGhArguments)
+            $global:ScopedFixtureGhCalls++;$global:LASTEXITCODE=0
+            if($global:ScopedFixtureGhMutation -eq 'untracked') {[IO.File]::WriteAllText((Join-Path $global:ScopedFixtureGhRoot 'during-api.cpp'),'changed')}
+            if($global:ScopedFixtureGhMutation -eq 'commit') {
+                [IO.File]::WriteAllText((Join-Path $global:ScopedFixtureGhRoot 'code.cpp'),'concurrent committed change')
+                & git -C $global:ScopedFixtureGhRoot add code.cpp *> $null
+                & git -C $global:ScopedFixtureGhRoot commit -q -m 'concurrent change' *> $null
+            }
+            '{"state":"active"}'
+        }
+        try {
+            Assert-Scope (@(Get-ScopedPrCoverage $delegate $coverage x64 Release) -contains 'Example') 'Clean committed candidate was not delegated'
+            foreach($state in @('untracked','unstaged','staged')) {
+                $path=Join-Path $delegate $(if($state -eq 'untracked'){'pending.cpp'}else{'code.cpp'})
+                [IO.File]::WriteAllText($path,'pending')
+                if($state -eq 'staged'){Invoke-DelegateGit @('add','code.cpp')}
+                $calls=$global:ScopedFixtureGhCalls
+                Assert-Scope (@(Get-ScopedPrCoverage $delegate $coverage x64 Release).Count -eq 0) "Dirty candidate delegated: $state"
+                Assert-Scope ($global:ScopedFixtureGhCalls -eq $calls) 'Dirty candidate consulted CI before retaining obligations locally'
+                if($state -eq 'untracked'){Remove-Item -LiteralPath $path}else{Invoke-DelegateGit @('restore','--staged','--worktree','--','code.cpp')}
+            }
+            $global:ScopedFixtureGhMutation='untracked'
+            Assert-Scope (@(Get-ScopedPrCoverage $delegate $coverage x64 Release).Count -eq 0) 'Mutation during API lookup was delegated'
+            Remove-Item -LiteralPath (Join-Path $delegate 'during-api.cpp')
+            $global:ScopedFixtureGhMutation='commit'
+            Assert-Scope (@(Get-ScopedPrCoverage $delegate $coverage x64 Release).Count -eq 0) 'Concurrent committed candidate change was delegated'
+        } finally {
+            if($previousGh){Set-Item Function:\global:gh -Value $previousGh.ScriptBlock}else{Remove-Item Function:\global:gh}
+            Remove-Variable -Name ScopedFixtureGhCalls,ScopedFixtureGhMutation,ScopedFixtureGhRoot -Scope Global
+        }
+    }
+
     Run-Case 'a profile outside actual PR coverage cannot be delegated' {Assert-Scope (@(Get-ScopedPrCoverage $repository $manifest Unknown Unknown).Count -eq 0) 'Unknown PR profile delegated'}
     Run-Case 'PR coverage accounts for conditional native jobs without an API dependency' {
         $profile=$manifest.prCoverage[0]
@@ -174,6 +263,11 @@ param($Platform,$Configuration)
 $output=Join-Path $PSScriptRoot ".build/$Platform/$Configuration"
 New-Item -ItemType Directory -Path $output -Force|Out-Null
 [IO.File]::WriteAllText((Join-Path $output 'example.exe'),'fixture binary')
+foreach($relative in @('Settings/RedXe-debug.settings.json','Settings/RedXe.settings.json','Settings/RedXe.settings.schema.json','DxUi.provenance.json')) {
+    $path=Join-Path $output $relative
+    [void](New-Item -ItemType Directory -Path (Split-Path $path) -Force)
+    [IO.File]::WriteAllText($path,'fixture deployed input')
+}
 exit 0
 '@
         Write-Fixture (Join-Path $sandbox 'test.ps1') @'
