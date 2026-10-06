@@ -1,12 +1,17 @@
 <#
 .SYNOPSIS Runs the profile-independent build and skill regression tests once.
 .DESCRIPTION Requires Windows, PowerShell, Git, Python and Build/requirements-validation.txt.
+Restores the exact pinned DxUi source before checking its build-tool wiring on a clean checkout.
 Creates bounded test-owned fixtures under .build; does not build or run the product.
 #>
 [CmdletBinding()]param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $repository=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+# The restore contract checks the pinned source's VisualStudio helper. Independent
+# tooling runs before a product build too, so establish that source-only prerequisite.
+Import-Module (Join-Path $repository 'Build/DxUiRestore.psm1') -Force
+$null=Restore-RedXeDxUiPin -RepoRoot $repository
 foreach($name in @('BuildProcessTests.ps1','DxUiProvenanceTests.ps1','DxUiUpdateTests.ps1','DxUiRestoreTests.ps1','ScopedTesting.Tests.ps1')) {
     $global:LASTEXITCODE=0
     & (Join-Path $PSScriptRoot $name)
