@@ -62,25 +62,25 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="AVControlTests.cpp" />
-    <ClCompile Include="ControlWorkQueueTests.cpp" />
-    <ClCompile Include="NativeViewTests.cpp" />
-    <ClCompile Include="TextTransportTests.cpp" />
-    <ClCompile Include="WidgetTextClientTests.cpp" />
-    <ClCompile Include="AccessibilityHostTests.cpp" />
+    <ClCompile Include="AVControl.Tests.Runner.cpp" />
+    <ClCompile Include="AVControl.Tests.ControlWorkQueue.cpp" />
+    <ClCompile Include="AVControl.Tests.NativeView.cpp" />
+    <ClCompile Include="AVControl.Tests.TextTransport.cpp" />
+    <ClCompile Include="AVControl.Tests.WidgetTextClient.cpp" />
+    <ClCompile Include="AVControl.Tests.AccessibilityHost.cpp" />
     <ClCompile Include="..\..\RedXe\AccessibilityHost.cpp" />
     <ClCompile Include="..\..\RedXe\WidgetTextClient.cpp" />
-    <ClCompile Include="BrokerTests.cpp" />
-    <ClCompile Include="ProfileTransactionTests.cpp" />
-    <ClCompile Include="CoordinatorTests.cpp" />
-    <ClCompile Include="InventorySelectionTests.cpp" />
-    <ClCompile Include="AudioBackendTests.cpp" />
+    <ClCompile Include="AVControl.Tests.Broker.cpp" />
+    <ClCompile Include="AVControl.Tests.ProfileTransaction.cpp" />
+    <ClCompile Include="AVControl.Tests.Coordinator.cpp" />
+    <ClCompile Include="AVControl.Tests.InventorySelection.cpp" />
+    <ClCompile Include="AVControl.Tests.AudioBackend.cpp" />
     <ClCompile Include="..\..\Plugins\AVControl\WindowsAudioBackend.cpp" />
     <ClCompile Include="..\..\Plugins\AVControl\AudioPolicy.cpp" />
-    <ClCompile Include="ModuleTests.cpp" />
-    <ClCompile Include="CameraMediaTests.cpp" />
-    <ClCompile Include="CameraBridgeTests.cpp" />
-    <ClCompile Include="CameraActivationTests.cpp" />
+    <ClCompile Include="AVControl.Tests.Module.cpp" />
+    <ClCompile Include="AVControl.Tests.CameraMedia.cpp" />
+    <ClCompile Include="AVControl.Tests.CameraBridge.cpp" />
+    <ClCompile Include="AVControl.Tests.CameraActivation.cpp" />
     <ClCompile Include="..\..\Plugins\AVControl\Camera\CameraMediaSource.cpp" />
     <ClCompile Include="..\..\Plugins\AVControl\Camera\CameraFrameChannel.cpp" />
     <ClCompile Include="..\..\Plugins\AVControl\Camera\CameraBridge.cpp" />

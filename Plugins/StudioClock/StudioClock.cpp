@@ -2,11 +2,11 @@
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PlugInterfaces/Widget.h"
 
+#include "StudioClock.Tests.Contract.h"
 #include "StudioClockBackgroundPixelShader.h"
 #include "StudioClockBackgroundVertexShader.h"
 #include "StudioClockDotPixelShader.h"
 #include "StudioClockDotVertexShader.h"
-#include "StudioClockTestContract.h"
 
 #include <algorithm>
 #include <array>

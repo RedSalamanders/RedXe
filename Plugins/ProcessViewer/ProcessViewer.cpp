@@ -4,7 +4,7 @@
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
-#include "ProcessViewerTestContract.h"
+#include "ProcessViewer.Tests.Contract.h"
 #include "ViewerGpu.h"
 #include "WheelDetent.h"
 

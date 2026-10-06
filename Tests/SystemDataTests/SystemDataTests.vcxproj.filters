@@ -4,11 +4,11 @@
     <Filter Include="Source Files"><UniqueIdentifier>{7A71C744-872D-4ADB-8BD5-27FC6DA53FE7}</UniqueIdentifier></Filter>
     <Filter Include="Public Interfaces"><UniqueIdentifier>{4D253814-8158-4F34-B621-D0A2F93A418B}</UniqueIdentifier></Filter>
   </ItemGroup>
-  <ItemGroup><ClCompile Include="SystemDataTests.cpp"><Filter>Source Files</Filter></ClCompile></ItemGroup>
+  <ItemGroup><ClCompile Include="SystemData.Tests.Runner.cpp"><Filter>Source Files</Filter></ClCompile></ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Common\PlugInterfaces\Data.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Public Interfaces</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h"><Filter>Public Interfaces</Filter></ClInclude>
-    <ClInclude Include="..\..\Plugins\SystemData\SystemDataTestContract.h"><Filter>Public Interfaces</Filter></ClInclude>
+    <ClInclude Include="..\..\Plugins\SystemData\SystemData.Tests.Contract.h"><Filter>Public Interfaces</Filter></ClInclude>
   </ItemGroup>
 </Project>

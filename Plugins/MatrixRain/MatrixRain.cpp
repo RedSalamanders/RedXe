@@ -2,6 +2,7 @@
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PlugInterfaces/Widget.h"
 
+#include "MatrixRain.Tests.Contract.h"
 #include "MatrixRainBackgroundPixelShader.h"
 #include "MatrixRainBackgroundVertexShader.h"
 #include "MatrixRainBloomBlurHorizontalPixelShader.h"
@@ -12,7 +13,6 @@
 #include "MatrixRainGlyphAtlas.h"
 #include "MatrixRainGlyphPixelShader.h"
 #include "MatrixRainGlyphVertexShader.h"
-#include "MatrixRainTestContract.h"
 
 #include <algorithm>
 #include <array>

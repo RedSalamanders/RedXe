@@ -281,3 +281,7 @@ must not write to the user's normal crash directory.
   them with `struct`, and do not use interface inheritance to couple generic widget identity to a rendering mechanism.
 - Keep `Settings/`, `Specs/Settings.schema.json`, `Settings.*`, `Core_Settings.md`, and `SettingsTests` aligned. A
   settings change is incomplete if any one of these still describes the old document.
+
+## Scoped testing policy (2026-10-05)
+
+The user's accepted workflow replaces unconditional full-test iteration. Use `Test-Changes.ps1 -Explain` and the affected default while editing; use `-Mode PrePush` to account for full local/PR coverage without duplicate identical obligations. A forthcoming enabled CI gate is pending acceptance, never an already passed result. Explicit Full remains available. Active native test files use `Scope.Tests.Something.h/.cpp` and the native file inventory. Follow [Specs/Build/Build_Process.md](Specs/Build/Build_Process.md) and [the test guide](Tests/README.md). Focus-taking work requires agreement to the time; no scoped pass closes that gate. Build/runtime/platform qualification still applies to changed behavior, with exact prior evidence reusable only under the owning contract.

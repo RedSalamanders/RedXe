@@ -81,7 +81,7 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="HostPluginTests.cpp" />
+    <ClCompile Include="HostPlugin.Tests.Runner.cpp" />
     <ClCompile Include="..\..\RedXe\PluginHost.cpp" />
     <ClCompile Include="..\..\RedXe\ControlWorkQueue.cpp" />
     <ClCompile Include="..\..\RedXe\DashboardHost.cpp" />
@@ -100,11 +100,11 @@
     <ClCompile Include="..\..\Common\WindowCapture.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Plugins\DeskClock\DeskClockTestContract.h" />
-    <ClInclude Include="..\..\Plugins\Launcher\LauncherTestContract.h" />
-    <ClInclude Include="..\..\Plugins\MatrixRain\MatrixRainTestContract.h" />
-    <ClInclude Include="..\..\Plugins\ProcessViewer\ProcessViewerTestContract.h" />
-    <ClInclude Include="..\..\Plugins\StudioClock\StudioClockTestContract.h" />
+    <ClInclude Include="..\..\Plugins\DeskClock\DeskClock.Tests.Contract.h" />
+    <ClInclude Include="..\..\Plugins\Launcher\Launcher.Tests.Contract.h" />
+    <ClInclude Include="..\..\Plugins\MatrixRain\MatrixRain.Tests.Contract.h" />
+    <ClInclude Include="..\..\Plugins\ProcessViewer\ProcessViewer.Tests.Contract.h" />
+    <ClInclude Include="..\..\Plugins\StudioClock\StudioClock.Tests.Contract.h" />
     <ClInclude Include="..\..\RedXe\DashboardHost.h" />
     <ClInclude Include="..\..\RedXe\DockPlacement.h" />
     <ClInclude Include="..\..\RedXe\FrameScheduler.h" />

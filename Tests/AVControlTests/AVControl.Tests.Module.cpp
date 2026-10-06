@@ -1,9 +1,9 @@
 #include "../../Common/PlugInterfaces/FactoryImpl.h"
 #include "../../Common/PlugInterfaces/Widget.h"
 #include "../../RedXe/AccessibilityHost.h"
+#include "AVControl.Tests.AccessibilityTestHelpers.h"
+#include "AVControl.Tests.Contract.h"
 #include "AVControlLayout.h"
-#include "AVControlTestContract.h"
-#include "AccessibilityTestHelpers.h"
 #include <filesystem>
 #include <stdexcept>
 #include <thread>

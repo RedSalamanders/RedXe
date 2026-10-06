@@ -58,11 +58,11 @@
       <AdditionalDependencies>d3d11.lib;psapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="DeskClockTests.cpp" /></ItemGroup>
+  <ItemGroup><ClCompile Include="DeskClock.Tests.Runner.cpp" /></ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h" />
-    <ClInclude Include="..\..\Plugins\DeskClock\DeskClockTestContract.h" />
+    <ClInclude Include="..\..\Plugins\DeskClock\DeskClock.Tests.Contract.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Plugins\DeskClock\DeskClock.vcxproj">

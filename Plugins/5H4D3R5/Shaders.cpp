@@ -2,8 +2,8 @@
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PlugInterfaces/Widget.h"
 
+#include "Shaders.Tests.Contract.h"
 #include "ShadersSettings.h"
-#include "ShadersTestContract.h"
 
 // Build-time Shader Model 5.0 blobs (FxCompile in 5H4D3R5.vcxproj). One vertex shader, one blit shader, and one
 // image shader per catalog entry plus a feedback-buffer shader for the two multi-pass ports.

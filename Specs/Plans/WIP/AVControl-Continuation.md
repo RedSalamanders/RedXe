@@ -67,7 +67,7 @@ device and owns its HWND/OS integration. RedSalamander migrates later. No upstre
 Source entrypoints: `Plugins/AVControl/{AVControl.cpp,LiveView.*,ProfileControls.*,AccessibilitySite.h}`,
 `Common/{AccessibilityValidation.h,DxUiTextTransport.h,PlugInterfaces/Widget.h}`,
 `RedXe/{WidgetTextClient.*,AccessibilityHost.*,Application.*}`,
-`Tests/AVControlTests/{AccessibilityHostTests.cpp,AccessibilityTestHelpers.h,ModuleTests.cpp,NativeViewTests.cpp}`.
+`Tests/AVControlTests/{AVControl.Tests.AccessibilityHost.cpp,AVControl.Tests.AccessibilityTestHelpers.h,AVControl.Tests.Module.cpp,AVControl.Tests.NativeView.cpp}`.
 
 Backend bounds retained: four profiles, bounded JSON/IDs, three-second transaction deadline with bounded undo and
 rollback, five coalesced command lanes, bounded endpoint inventory, generation-checked notifications and one

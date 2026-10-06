@@ -1,9 +1,9 @@
+#include "../../RedXe/Settings.h"
 #include "../../Common/FailureReports.h"
 #include "../../Plugins/Launcher/LauncherPaging.h"
 #include "../../RedXe/BundledPlugins.h"
 #include "../../RedXe/CommandLine.h"
 #include "../../RedXe/DockOptions.h"
-#include "../../RedXe/Settings.h"
 #include "../../RedXe/SettingsWatcher.h"
 
 #include <array>

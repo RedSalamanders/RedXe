@@ -59,11 +59,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="SystemDataPhase0.cpp" />
-    <ClCompile Include="SystemDataPhase0Surfaces.cpp" />
+    <ClCompile Include="SystemDataPhase0.Tests.Runner.cpp" />
+    <ClCompile Include="SystemDataPhase0.Tests.SystemDataPhase0Surfaces.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="SystemDataPhase0.h" />
+    <ClInclude Include="SystemDataPhase0.Tests.Runner.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Data.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
   </ItemGroup>

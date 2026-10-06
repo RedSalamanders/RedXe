@@ -4,6 +4,7 @@
 
 #include "../../Common/FailureReports.h"
 #include "Actions/ActionTargets.h"
+#include "Logicon.Tests.Contract.h"
 #include "LogiconDevice.h"
 #include "LogiconFaces.h"
 #include "LogiconProtocol.h"
@@ -11,7 +12,6 @@
 #include "LogiconSettings.h"
 #include "LogiconSynthetic.h"
 #include "LogiconSystemData.h"
-#include "LogiconTestContract.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Service.h"

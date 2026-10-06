@@ -61,7 +61,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="ZoomTests.cpp" />
+    <ClCompile Include="Zoom.Tests.Runner.cpp" />
     <ClCompile Include="..\..\Plugins\Actions\Zoom\ZoomSettings.cpp" />
   </ItemGroup>
   <ItemGroup>

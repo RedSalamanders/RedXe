@@ -44,7 +44,7 @@ function Get-InputHashes([string[]] $Paths) {
     }
     return $result
 }
-$fixturePaths = @('Tests/AVControlTests/AVControlTests.cpp', 'Tests/AVControlTests/NativeViewTests.cpp') |
+$fixturePaths = @('Tests/AVControlTests/AVControl.Tests.Runner.cpp', 'Tests/AVControlTests/AVControl.Tests.NativeView.cpp') |
     ForEach-Object { Join-Path $RepoRoot $_ }
 $productionPaths = Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'Plugins/AVControl') -Recurse -File |
     Where-Object Extension -In '.cpp', '.h' | Sort-Object FullName | Select-Object -ExpandProperty FullName

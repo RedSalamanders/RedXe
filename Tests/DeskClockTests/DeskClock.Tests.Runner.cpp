@@ -1,5 +1,5 @@
 #include "../../Common/FailureReports.h"
-#include "../../Plugins/DeskClock/DeskClockTestContract.h"
+#include "../../Plugins/DeskClock/DeskClock.Tests.Contract.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"
 

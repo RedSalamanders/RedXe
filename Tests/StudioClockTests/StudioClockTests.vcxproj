@@ -60,11 +60,11 @@
       <AdditionalDependencies>d3d11.lib;psapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="StudioClockTests.cpp" /></ItemGroup>
+  <ItemGroup><ClCompile Include="StudioClock.Tests.Runner.cpp" /></ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h" />
-    <ClInclude Include="..\..\Plugins\StudioClock\StudioClockTestContract.h" />
+    <ClInclude Include="..\..\Plugins\StudioClock\StudioClock.Tests.Contract.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Plugins\StudioClock\StudioClock.vcxproj">

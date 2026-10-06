@@ -59,7 +59,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="SettingsTests.cpp" />
+    <ClCompile Include="Settings.Tests.Runner.cpp" />
     <ClCompile Include="..\..\RedXe\Settings.cpp" />
     <ClCompile Include="..\..\Plugins\AVControl\AVControlModel.cpp" />
     <ClCompile Include="..\..\Plugins\Logicon\LogiconSettings.cpp" />

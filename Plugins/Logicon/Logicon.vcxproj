@@ -139,7 +139,7 @@
     <ClInclude Include="LogiconSettings.h" />
     <ClInclude Include="LogiconSynthetic.h" />
     <ClInclude Include="LogiconSystemData.h" />
-    <ClInclude Include="LogiconTestContract.h" />
+    <ClInclude Include="Logicon.Tests.Contract.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />

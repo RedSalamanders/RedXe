@@ -971,7 +971,7 @@ adapter, battery, or thermal sensor is a valid empty or `Unavailable` snapshot; 
 host-specific churn rather than a second catalog shape. ARM64 shares the x64 64-bit native record layouts; a live ARM64
 host is not required for the shipped catalog.
 
-`SystemDataTestContract.h` declares a test-only sibling interface that reports fixed source bounds and drives the same
+`SystemData.Tests.Contract.h` declares a test-only sibling interface that reports fixed source bounds and drives the same
 per-process row-population path with a requested synthetic row count. It is not a published plugin ABI, dataset,
 host dependency, or production acquisition mode. Its controlling `IUnknown`, exact record size, excessive-row
 rejection, and 2,048-row Release resource measurement are validated by `SystemDataTests`.

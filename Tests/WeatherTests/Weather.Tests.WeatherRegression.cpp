@@ -1,9 +1,9 @@
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"
+#include "Weather.Tests.Contract.h"
 #include "WeatherGpu.h"
 #include "WeatherIcons.h"
 #include "WeatherModel.h"
-#include "WeatherTestContract.h"
 
 #include <atomic>
 #include <cstdio>

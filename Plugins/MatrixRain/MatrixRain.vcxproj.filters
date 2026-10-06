@@ -11,7 +11,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MatrixRainGlyphAtlas.h"><Filter>Header Files</Filter></ClInclude>
-    <ClInclude Include="MatrixRainTestContract.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="MatrixRain.Tests.Contract.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h"><Filter>Header Files</Filter></ClInclude>

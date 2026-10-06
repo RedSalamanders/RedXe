@@ -61,15 +61,15 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="WeatherTests.cpp" />
-    <ClCompile Include="WeatherRegressionTests.cpp" />
-    <ClCompile Include="WeatherLocationTests.cpp" />
+    <ClCompile Include="Weather.Tests.Runner.cpp" />
+    <ClCompile Include="Weather.Tests.WeatherRegression.cpp" />
+    <ClCompile Include="Weather.Tests.WeatherLocation.cpp" />
     <ClCompile Include="..\..\Plugins\WeatherLocation\LocationPolicy.cpp" />
     <ClCompile Include="..\..\Plugins\Weather\WeatherModel.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Plugins\Weather\WeatherHttp.h" />
-    <ClInclude Include="..\..\Plugins\Weather\WeatherTestContract.h" />
+    <ClInclude Include="..\..\Plugins\Weather\Weather.Tests.Contract.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
   </ItemGroup>
   <ItemGroup>

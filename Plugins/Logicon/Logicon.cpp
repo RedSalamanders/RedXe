@@ -1,6 +1,6 @@
 #define REDXE_PLUGIN_EXPORTS
+#include "Logicon.Tests.Contract.h"
 #include "LogiconService.h"
-#include "LogiconTestContract.h"
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PlugInterfaces/Service.h"
 
