@@ -2148,13 +2148,23 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 }
 
 // First start without a XENEON (Core_Settings.md "Cold load and recovery"): PatchFirstRunDock inserts `dock` into both
-// shipped templates as one commented run after `version`, in the file's own line breaks, leaving every other byte and
-// member; the store writes that document for a missing or invalid default file, never over an existing one, and never
-// for a `--settings` file.
+// shipped templates as one commented run after `version`, in the file's own line breaks, and removes the template's
+// commented-out `dock` example with the comment that says to uncomment it, leaving every other byte and member; the
+// store writes that document for a missing or invalid default file, never over an existing one, and never for a
+// `--settings` file.
 [[nodiscard]] HRESULT ValidateFirstRunDock() noexcept
 {
     try
     {
+        // The installed file defines the dock once and never tells the reader to uncomment a second one.
+        const auto definesOneDock = [](std::string_view text) noexcept
+        {
+            size_t docks = 0;
+            for (size_t at = text.find("\"dock\""); at != std::string_view::npos; at = text.find("\"dock\"", at + 1))
+                ++docks;
+            return docks == 1 && text.find("Uncomment") == std::string_view::npos &&
+                   text.find("uncomment") == std::string_view::npos;
+        };
         // The first-run dock of a machine with two displays and a bottom taskbar: the top of the second screen.
         const auto withMonitor = [](DockSettings value, std::string_view monitor) noexcept
         {
@@ -2202,24 +2212,37 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
                 std::wprintf(L"The first-run dock did not patch %s into the same document plus the dock.\n", name);
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
-            // One contiguous insertion right after the `version` member, in the template's own line breaks.
+            // The template's commented dock example, from its introduction through the `// "dock":` line, is gone; the
+            // rest of the template is unchanged around one contiguous insertion right after the `version` member, in
+            // the template's own line breaks.
+            const size_t introductionAt = original.find("// Screen-edge dock (minor 2)");
+            const size_t exampleAt = original.find("// \"dock\": {", introductionAt);
+            if (introductionAt == std::string::npos || exampleAt == std::string::npos ||
+                original.find('\n', exampleAt) == std::string::npos || definesOneDock(original) ||
+                !definesOneDock(patched))
+            {
+                std::wprintf(L"The first-run dock in %s is not the only dock definition.\n", name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            std::string kept = original;
+            const size_t removedAt = kept.rfind('\n', introductionAt) + 1;
+            kept.erase(removedAt, kept.find('\n', exampleAt) + 1 - removedAt);
             constexpr std::string_view versionMember = "\"version\": { \"major\": 5, \"minor\": 3 },";
-            const size_t versionAt = original.find(versionMember);
-            if (versionAt == std::string::npos || patched.size() <= original.size())
+            const size_t versionAt = kept.find(versionMember);
+            if (versionAt == std::string::npos || patched.size() <= kept.size())
             {
                 std::wprintf(L"The %s template has no version member to follow.\n", name);
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
             const size_t insertAt = versionAt + versionMember.size();
-            const size_t insertedBytes = patched.size() - original.size();
+            const size_t insertedBytes = patched.size() - kept.size();
             const std::string inserted = patched.substr(insertAt, insertedBytes);
             const std::string_view lineBreak = original.find("\r\n") != std::string::npos ? "\r\n" : "\n";
             size_t bareLineFeeds = 0;
             for (size_t index = 0; index < inserted.size(); ++index)
                 bareLineFeeds += inserted[index] == '\n' && (index == 0 || inserted[index - 1] != '\r') ? 1U : 0U;
-            if (patched.compare(0, insertAt, original, 0, insertAt) != 0 ||
-                patched.compare(insertAt + insertedBytes, std::string::npos, original, insertAt, std::string::npos) !=
-                    0 ||
+            if (patched.compare(0, insertAt, kept, 0, insertAt) != 0 ||
+                patched.compare(insertAt + insertedBytes, std::string::npos, kept, insertAt, std::string::npos) != 0 ||
                 !inserted.starts_with(lineBreak) || !inserted.ends_with("},") ||
                 inserted.find("// No XENEON display was found") == std::string::npos ||
                 inserted.find(
@@ -2297,6 +2320,22 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             std::wprintf(L"The first-run dock did not replace an existing dock value.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
+        // Only a root `// "dock":` example goes, with the comment lines right above it and their line breaks: a comment
+        // a blank line separates from it, an example inside another value, and a comment after a member stay.
+        std::string examples =
+            "{\n  \"version\": { \"major\": 5, \"minor\": 3 },\n  // Kept: a blank line follows.\n\n"
+            "  // Introduces the example;\n  // uncomment it.\n  // \"dock\": { \"edge\": \"bottom\" },\n"
+            "  \"pages\": [{\n    // \"dock\": {}\n  }] // \"dock\": after a member\n}\n";
+        constexpr std::string_view examplesKept = "\n  // Kept: a blank line follows.\n\n  \"pages\": [{\n"
+                                                  "    // \"dock\": {}\n  }] // \"dock\": after a member\n}\n";
+        if (FAILED(PatchFirstRunDock(examples, dock)) || FAILED(ParseAppSettingsJson(examples, parsed)) ||
+            !isFirstRunDock(parsed.dock) || !examples.ends_with(examplesKept) ||
+            examples.find("Introduces the example") != std::string::npos ||
+            examples.find("uncomment it") != std::string::npos || examples.find("\"bottom\"") != std::string::npos)
+        {
+            std::wprintf(L"The first-run dock did not remove exactly the root dock example:\n%hs\n", examples.c_str());
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
         DockSettings none = dock;
         none.edge = DockEdge::None;
         DockSettings thick = dock;
@@ -2364,7 +2403,8 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             result = ReadFile(selected, installedBytes);
         if (FAILED(result) || !installed || !installStore.InstalledFirstRunDock() ||
             installStore.UsedInitialFallback() || !isFirstRunDock(installed->dock) ||
-            installedBytes.find("// No XENEON display was found") == std::string::npos)
+            installedBytes.find("// No XENEON display was found") == std::string::npos ||
+            !definesOneDock(installedBytes))
         {
             std::wprintf(L"A missing default file was not installed with the first-run dock.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -2442,6 +2482,161 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             std::filesystem::exists(portable))
         {
             std::wprintf(L"A missing --settings file was written or docked.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+// A document that starts with a UTF-8 BOM (Core_Settings.md "Version 5 document"), as Windows PowerShell 5.1
+// `Set-Content -Encoding UTF8` saves it: it loads like the same text without one, its diagnostics name the real
+// problem, the dock and first-run patches and a widget persist keep the BOM, and a default file saved that way loads
+// at startup instead of being backed up and replaced.
+[[nodiscard]] HRESULT ValidateByteOrderMark() noexcept
+{
+    constexpr std::string_view bom = "\xEF\xBB\xBF";
+    try
+    {
+        for (const wchar_t* name : {kRedXeDebugSettingsFileName, kRedXeReleaseSettingsFileName})
+        {
+            std::filesystem::path path;
+            std::string original;
+            HRESULT result = GetDeployedPath(name, path);
+            if (SUCCEEDED(result))
+                result = ReadFile(path, original);
+            if (FAILED(result))
+                return result;
+            const std::string marked = std::string(bom) + original;
+            AppSettings plain{};
+            AppSettings withBom{};
+            if (FAILED(ParseAppSettingsJson(original, plain)) || FAILED(ParseAppSettingsJson(marked, withBom)) ||
+                withBom.sourceDocument != marked)
+            {
+                std::wprintf(L"The %s template with a BOM did not load.\n", name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            withBom.sourceDocument = plain.sourceDocument;
+            // The dock drag and the first-run dock patch the text after the BOM exactly as without it.
+            AppSettings dragged = plain;
+            AppSettings markedDragged{};
+            std::string firstRun = original;
+            std::string markedFirstRun = marked;
+            DockSettings firstRunDock = DefaultDockSettings();
+            firstRunDock.edge = DockEdge::Bottom;
+            if (withBom != plain || FAILED(ParseAppSettingsJson(marked, markedDragged)) ||
+                PatchDockThickness(dragged, 220) != S_OK || PatchDockThickness(markedDragged, 220) != S_OK ||
+                markedDragged.sourceDocument != std::string(bom) + dragged.sourceDocument ||
+                markedDragged.versionMinor != dragged.versionMinor ||
+                FAILED(PatchFirstRunDock(firstRun, firstRunDock)) ||
+                FAILED(PatchFirstRunDock(markedFirstRun, firstRunDock)) ||
+                markedFirstRun != std::string(bom) + firstRun ||
+                FAILED(ParseAppSettingsJson(markedFirstRun, withBom)) || withBom.dock.edge != DockEdge::Bottom)
+            {
+                std::wprintf(L"A dock patch of the %s template with a BOM did not keep the BOM.\n", name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+
+        // A widget persist rewrites the document with the BOM it started with, once.
+        const std::string launcher =
+            std::string(bom) +
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher"}]}]})json";
+        AppSettings persisted{};
+        AppSettings reparsed{};
+        if (FAILED(ParseAppSettingsJson(launcher, persisted)) ||
+            PatchWidgetInstanceSettings(persisted, persisted.dashboard.pages[0].widgets[0].id.View(),
+                                        R"json({"iconSize":"large"})json") != S_OK ||
+            !persisted.sourceDocument.starts_with(bom) ||
+            persisted.sourceDocument.compare(bom.size(), bom.size(), bom) == 0 ||
+            FAILED(ParseAppSettingsJson(persisted.sourceDocument, reparsed)) ||
+            reparsed.dashboard.pages[0].widgets[0].privateConfiguration.View().find("\"iconSize\":\"large\"") ==
+                std::string_view::npos)
+        {
+            std::wprintf(L"A widget persist did not keep the document's BOM.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // Diagnostics after a BOM name the real problem, and a BOM alone, or with only comments, is an empty file.
+        const auto diagnose = [](std::string_view json, SettingsParseDiagnostic& diagnostic) noexcept
+        {
+            AppSettings settings{};
+            return FAILED(ParseAppSettingsJsonDetailed(json, settings, diagnostic));
+        };
+        SettingsParseDiagnostic unknown;
+        SettingsParseDiagnostic syntax;
+        SettingsParseDiagnostic empty;
+        SettingsParseDiagnostic commentsOnly;
+        if (!diagnose(std::string(bom) + R"json({"version":{"major":5},"unknown":1,"pages":[{}]})json", unknown) ||
+            unknown.path.find(".unknown") == std::string::npos ||
+            !diagnose(std::string(bom) + "{\n  \"version\": { \"major\": 5 },\n  \"pages\": [{}] x\n}\n", syntax) ||
+            syntax.line != 3 || syntax.message.find("BOM") != std::string::npos || !diagnose(bom, empty) ||
+            empty.message != "The settings file is empty." ||
+            !diagnose(std::string(bom) + "\r\n// Only a comment.\r\n", commentsOnly) ||
+            commentsOnly.message != "The settings file is empty.")
+        {
+            std::wprintf(L"A document with a BOM was diagnosed as '%hs' (line %u), '%hs', '%hs'.\n",
+                         syntax.message.c_str(), syntax.line, empty.message.c_str(), commentsOnly.message.c_str());
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // The store: a default file saved with a BOM loads at startup, untouched and without a backup, and a host write
+        // to a loaded file keeps its BOM on disk.
+        const std::filesystem::path localRoot = std::filesystem::temp_directory_path() /
+                                                (L"RedXe.ByteOrderMarkTests." + std::to_wstring(GetCurrentProcessId()) +
+                                                 L"." + std::to_wstring(GetTickCount64()));
+        const std::filesystem::path settingsDirectory = localRoot / L"RedXe" / L"Settings";
+        std::filesystem::create_directories(settingsDirectory);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code error;
+                std::filesystem::remove_all(localRoot, error);
+            });
+#if defined(_DEBUG)
+        constexpr const wchar_t* selectedName = kRedXeDebugSettingsFileName;
+#else
+        constexpr const wchar_t* selectedName = kRedXeReleaseSettingsFileName;
+#endif
+        std::filesystem::path templatePath;
+        std::string templateBytes;
+        HRESULT result = GetDeployedPath(selectedName, templatePath);
+        if (SUCCEEDED(result))
+            result = ReadFile(templatePath, templateBytes);
+        if (FAILED(result))
+            return result;
+        const std::string markedTemplate = std::string(bom) + templateBytes;
+        const std::filesystem::path selected = settingsDirectory / selectedName;
+        {
+            std::ofstream stream(selected, std::ios::binary | std::ios::trunc);
+            stream.write(markedTemplate.data(), static_cast<std::streamsize>(markedTemplate.size()));
+        }
+        SettingsStore store;
+        std::unique_ptr<AppSettings> loaded;
+        result = store.Initialize(false, {}, loaded, localRoot.wstring());
+        std::string loadedBytes;
+        if (SUCCEEDED(result))
+            result = ReadFile(selected, loadedBytes);
+        size_t backups = 0;
+        for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(settingsDirectory))
+            backups += entry.path().filename().wstring().find(L".invalid-") != std::wstring::npos ? 1U : 0U;
+        if (FAILED(result) || !loaded || store.UsedInitialFallback() || loaded->sourceDocument != markedTemplate ||
+            loadedBytes != markedTemplate || backups != 0 || !store.InitialNotice().empty())
+        {
+            std::wprintf(L"A default file with a BOM was not loaded as it is.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        std::string draggedBytes;
+        result = store.PersistDockThickness(*loaded, 220);
+        if (SUCCEEDED(result))
+            result = ReadFile(selected, draggedBytes);
+        if (result != S_OK || !draggedBytes.starts_with(bom) || draggedBytes != loaded->sourceDocument ||
+            draggedBytes.find("\"dock\": { \"thickness\": 220 }") == std::string::npos)
+        {
+            std::wprintf(L"A dock drag did not keep the BOM of the settings file.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         return S_OK;
@@ -2925,6 +3120,7 @@ int wmain()
                        {L"default recovery", ValidateDefaultRecovery},
                        {L"legacy filename", ValidateLegacyReleaseFilenameMigration},
                        {L"first-run dock", ValidateFirstRunDock},
+                       {L"byte order mark", ValidateByteOrderMark},
                        {L"logs directory", ValidateLogsDirectory},
                        {L"persist formatting", ValidatePersistFormatting},
                        {L"persist rollback", ValidatePersistRollback},

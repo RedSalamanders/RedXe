@@ -136,11 +136,11 @@ Good to know:
 
 ### First start without a XENEON
 
-When RedXe starts with no settings file yet (or replaces an invalid one) and no XENEON display is connected, the settings file it creates already contains a bar, with a comment saying why:
+When RedXe starts with no settings file yet (or replaces an invalid one) and no XENEON display is connected, the settings file it creates already contains a bar, with a comment saying why. This `dock` line is the one to edit: the commented-out `dock` example the shipped template carries further down is left out of this file, so there is no second one to uncomment.
 
 ```jsonc
   // No XENEON display was found when RedXe installed this file, so this dock runs it as a bar on a screen edge;
-  // set "edge" to "none" to use the standard window instead.
+  // set "edge" to "none" to use the standard window instead. See docs/usage.md "Dock" for the other members.
   "dock": { "edge": "top", "monitor": "secondary", "mode": "autohide", "thickness": 720 },
 ```
 
@@ -195,7 +195,7 @@ Without `--settings`, RedXe uses one editable file:
 | Debug | `%LocalAppData%\RedXe\Settings\RedXe-debug.settings.json` |
 | Release | `%LocalAppData%\RedXe\Settings\RedXe.settings.json` |
 
-Save the file to apply it. RedXe watches that path; you do not restart. When the [notification-area icon](#notification-area-icon) is shown, double-clicking it is the quickest way to open the file. A valid document keeps the page you were on when that page still exists. An invalid save leaves the last good dashboard running and shows one error dialog with the JSON path and the reason (and line and column when those are known). Dismissing the dialog suppresses only that failed save; a later distinct invalid save can prompt again.
+The file is UTF-8 JSON; `//` and `/* */` comments and trailing commas are allowed, and a file saved with a byte order mark ("UTF-8 with BOM", as Windows PowerShell 5.1 `Set-Content -Encoding UTF8` writes it) works too and keeps its mark when RedXe writes to it. Save the file to apply it. RedXe watches that path; you do not restart. When the [notification-area icon](#notification-area-icon) is shown, double-clicking it is the quickest way to open the file. A valid document keeps the page you were on when that page still exists. An invalid save leaves the last good dashboard running and shows one error dialog with the JSON path and the reason (and line and column when those are known). Dismissing the dialog suppresses only that failed save; a later distinct invalid save can prompt again.
 
 RedXe writes the file itself only when a widget's own settings actually change (a Launcher importing your taskbar pins, for example) or when you drag the bar's edge, and only while the file on disk is the one it last loaded. While your last save is invalid, the file was deleted, or a `--settings` file could not be loaded, such a change stays in memory and your file is left as it is (the log records `settings-persist-deferred`); your next valid save takes over from it.
 

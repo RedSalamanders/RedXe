@@ -38,6 +38,8 @@ using unique_malloc_string = wil::unique_any<char*, decltype(&free), free>;
 [[nodiscard]] unique_yyjson_doc ParseStoredObject(const JsonObjectSettings& settings) noexcept;
 
 constexpr size_t kMaximumSettingsBytes = 1024U * 1024U;
+// A user document MAY start with it (Core_Settings.md "Version 5 document"); a host write keeps it there.
+constexpr std::string_view kUtf8ByteOrderMark = "\xEF\xBB\xBF";
 
 // Input is valid compact JSON from yyjson. Only whitespace outside tokens changes here.
 [[nodiscard]] size_t JsonTokenEnd(std::string_view json, size_t begin, size_t limit) noexcept
@@ -129,12 +131,16 @@ constexpr size_t kMaximumSettingsBytes = 1024U * 1024U;
     return false;
 }
 
-[[nodiscard]] HRESULT FormatCompactSettingsJson(std::string_view json, std::string& formatted) noexcept
+// `byteOrderMark` starts the output with the UTF-8 BOM, which counts toward the size cap but not the line width.
+[[nodiscard]] HRESULT FormatCompactSettingsJson(std::string_view json, bool byteOrderMark,
+                                                std::string& formatted) noexcept
 {
     try
     {
         std::string output;
         output.reserve(json.size() < kMaximumSettingsBytes ? json.size() : kMaximumSettingsBytes);
+        if (byteOrderMark)
+            output.append(kUtf8ByteOrderMark);
         std::vector<uint8_t> inlineContainers;
         inlineContainers.reserve(32);
         size_t column = 0;
@@ -1833,8 +1839,9 @@ HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view inst
     {
         std::vector<char> mutableSource(settings.sourceDocument.begin(), settings.sourceDocument.end());
         yyjson_read_err error{};
-        source.reset(yyjson_read_opts(mutableSource.data(), mutableSource.size(),
-                                      YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS, nullptr, &error));
+        source.reset(yyjson_read_opts(
+            mutableSource.data(), mutableSource.size(),
+            YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS | YYJSON_READ_ALLOW_BOM, nullptr, &error));
     }
     catch (const std::bad_alloc&)
     {
@@ -1885,7 +1892,10 @@ HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view inst
         widget->privateConfiguration = previousPrivate;
         return E_OUTOFMEMORY;
     }
-    result = FormatCompactSettingsJson(std::string_view(written.get(), length), settings.sourceDocument);
+    // The rewritten document keeps a BOM the user's file starts with.
+    result =
+        FormatCompactSettingsJson(std::string_view(written.get(), length),
+                                  settings.sourceDocument.starts_with(kUtf8ByteOrderMark), settings.sourceDocument);
     if (FAILED(result))
     {
         widget->privateConfiguration = previousPrivate;
@@ -2210,7 +2220,7 @@ struct SourceMember final
 
 // Preconditions shared by the dock source patches: the whole source is a valid v5 document, parsed into `validated`.
 // `raiseMinor` reports a minor below `requiredMinor` (2 added `dock`, 3 the `secondary` monitor selector);
-// `rootBegin` is the root's '{'.
+// `rootBegin` is the root's '{', after a leading UTF-8 BOM, which the patch leaves in place.
 [[nodiscard]] HRESULT PrepareDockSourcePatch(std::string& source, uint32_t requiredMinor, bool& raiseMinor,
                                              size_t& rootBegin, std::unique_ptr<AppSettings>& validated) noexcept
 {
@@ -2222,13 +2232,15 @@ struct SourceMember final
     }
     yyjson_read_err error{};
     unique_yyjson_doc document{yyjson_read_opts(
-        source.data(), source.size(), YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS, nullptr, &error)};
+        source.data(), source.size(),
+        YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS | YYJSON_READ_ALLOW_BOM, nullptr, &error)};
     yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
     if (!yyjson_is_obj(root))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     raiseMinor = validated->versionMinor < requiredMinor;
+    rootBegin = source.starts_with(kUtf8ByteOrderMark) ? kUtf8ByteOrderMark.size() : 0;
     return SkipSourceTrivia(source, rootBegin) ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 }
 
@@ -2308,6 +2320,98 @@ struct SourceMember final
     {
         source.insert(SourceTrailingTriviaEnd(source, version.valueEnd), lines);
         source.insert(version.valueEnd, ",");
+    }
+    return true;
+}
+
+// Removes every commented-out example of the root member `key`: a `//` comment alone on its line whose text starts with
+// `key` and a colon (the templates' `// "dock": { ... },`), together with the comment lines right above it that
+// introduce it, each line with its line break. Only comments between root members count; a member or a blank line
+// ends an introduction. Throws only std::bad_alloc.
+[[nodiscard]] bool RemoveCommentedRootExamples(std::string& source, std::string_view key)
+{
+    size_t depth = 0;
+    // The start of the line that begins the current run of root comment lines, and whether the line being read is one.
+    size_t runBegin = std::string::npos;
+    bool commentLine = false;
+    size_t position = 0;
+    while (position < source.size())
+    {
+        const char character = source[position];
+        if (character == '"')
+        {
+            if (!SkipSourceString(source, position))
+            {
+                return false;
+            }
+            runBegin = std::string::npos;
+            continue;
+        }
+        if (character == '/' && source.compare(position, 2, "/*") == 0)
+        {
+            const size_t end = source.find("*/", position + 2);
+            if (end == std::string::npos)
+            {
+                return false;
+            }
+            position = end + 2;
+            runBegin = std::string::npos;
+            continue;
+        }
+        if (character == '/' && source.compare(position, 2, "//") == 0)
+        {
+            // A line comment ends at CR or LF, exactly where the parser ends it.
+            const size_t lineBegin = SourceLineBegin(source, position);
+            const size_t lineEnd = std::min(source.find_first_of("\r\n", position), source.size());
+            if (depth != 1 || source.find_first_not_of(" \t", lineBegin) != position)
+            {
+                runBegin = std::string::npos;
+                position = lineEnd;
+                continue;
+            }
+            runBegin = runBegin == std::string::npos ? lineBegin : runBegin;
+            commentLine = true;
+            size_t text = source.find_first_not_of(" \t", position + 2);
+            if (text < lineEnd && source.compare(text, key.size(), key) == 0)
+            {
+                text = source.find_first_not_of(" \t", text + key.size());
+                if (text < lineEnd && source[text] == ':')
+                {
+                    size_t next = lineEnd;
+                    next += next < source.size() && source[next] == '\r' ? 1U : 0U;
+                    next += next < source.size() && source[next] == '\n' ? 1U : 0U;
+                    source.erase(runBegin, next - runBegin);
+                    position = runBegin;
+                    runBegin = std::string::npos;
+                    commentLine = false;
+                    continue;
+                }
+            }
+            position = lineEnd;
+            continue;
+        }
+        if (character == '\r' || character == '\n')
+        {
+            // CRLF is one line break.
+            if (character == '\r' || position == 0 || source[position - 1] != '\r')
+            {
+                runBegin = commentLine ? runBegin : std::string::npos;
+                commentLine = false;
+            }
+        }
+        else if (!std::isspace(static_cast<unsigned char>(character)))
+        {
+            runBegin = std::string::npos;
+            if (character == '{' || character == '[')
+            {
+                ++depth;
+            }
+            else if ((character == '}' || character == ']') && depth != 0)
+            {
+                --depth;
+            }
+        }
+        ++position;
     }
     return true;
 }
@@ -2492,13 +2596,17 @@ HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcep
         {
             return prepared;
         }
+        // The template's commented-out `dock` example goes with the comment that says to uncomment it: the file then
+        // defines the bar once, and following its comments cannot add a second, duplicate `dock` member.
         SourceMember existing{};
-        if (!FindSourceMember(updated, rootBegin, "\"dock\"", existing))
+        if (!RemoveCommentedRootExamples(updated, "\"dock\"") ||
+            !FindSourceMember(updated, rootBegin, "\"dock\"", existing))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         // An existing value is replaced. A new member goes on its own line after `version`, with the reason above it
-        // so the person who opens the file knows where the bar came from and how to turn it off.
+        // so the person who opens the file knows where the bar came from, how to turn it off, and where the rest of
+        // its members are described.
         if (existing.found)
         {
             updated.replace(existing.valueBegin, existing.valueEnd - existing.valueBegin, member);
@@ -2507,7 +2615,8 @@ HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcep
                      updated, rootBegin, "\"dock\": " + member,
                      {"// No XENEON display was found when RedXe installed this file, so this dock runs it as a bar on "
                       "a screen edge;",
-                      "// set \"edge\" to \"none\" to use the standard window instead."}))
+                      "// set \"edge\" to \"none\" to use the standard window instead. See docs/usage.md \"Dock\" for "
+                      "the other members."}))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }

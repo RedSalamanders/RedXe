@@ -65,6 +65,14 @@ stay unique; module file names MAY repeat so several settings-visible widgets ca
 RedXe accepts standard JSON semantics plus comments and trailing commas. It MUST reject duplicate object members and
 other JSON5 extensions. The source MUST NOT exceed 1 MiB.
 
+The document is UTF-8. Every read of the user document (load, live reload, and the source the widget persist and the
+dock patches start from) MUST accept a leading UTF-8 byte order mark (BOM, `EF BB BF`), which Windows PowerShell 5.1
+`Set-Content -Encoding UTF8` and editors saving "UTF-8 with signature" write, and MUST NOT treat it as an error or a
+reason for cold recovery. The BOM counts toward the 1 MiB limit and toward the byte offsets and first-line columns of
+diagnostics. Every host write of a document that starts with a BOM (a widget persist, a `dock.thickness` drag) MUST
+keep it, once, at the start; RedXe never adds a BOM to a document that has none. A file holding only a BOM, blanks, or
+comments is reported as empty. `v1.0.102` and earlier builds reject a BOM-prefixed document.
+
 The root members are:
 
 | Member | Required | Contract |
@@ -175,7 +183,8 @@ patched text MUST parse back to the running `dock` with the new thickness, and t
 only `dock.thickness` and a raised minor changed, before it is kept or written; otherwise the drag changes nothing in
 the document. A raised source minor is also the typed minor, so a later comment-only reload still matches the running
 settings. Both shipped templates author the current minor and stay at `edge: none`, carrying a commented-out `dock`
-example; a default file installed on a machine without a XENEON adds the first-run dock ("Cold load and recovery").
+example; a default file installed on a machine without a XENEON adds the first-run dock and drops that example
+("Cold load and recovery").
 
 ### Notification-area icon
 
@@ -367,9 +376,13 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 - When XENEON discovery succeeded without finding a display (`Specs/UI/UI_XeneonDisplayWindowing.md` "First start
   without a XENEON"), a default file installed by either rule above is the template plus the first-run dock
   (`PatchFirstRunDock`): one `dock` member on its own line after `version`, at that member's indentation and in the
-  file's own line breaks, preceded by a two-line comment naming why it was added and that `"edge": "none"` restores
-  the standard window. Every other byte of the template is unchanged; an existing `dock` member would have its value
-  replaced instead, and `version.minor` rises to 2 when lower, or to 3 when the dock names the `secondary` monitor.
+  file's own line breaks, preceded by a two-line comment naming why it was added, that `"edge": "none"` restores
+  the standard window, and where the other members are described. The template's commented-out `dock` example (a
+  root `//` line whose text starts with `"dock":`) MUST be removed together with the comment lines directly above it
+  that introduce it and tell the reader to uncomment it, each whole line with its line break, so the installed file
+  defines the dock once and following its comments cannot add a duplicate `dock` member. Every other byte of the
+  template is unchanged; an existing `dock` member would have its value replaced instead, and `version.minor` rises
+  to 2 when lower, or to 3 when the dock names the `secondary` monitor.
   The display spec owns the dock's edge, monitor, and thickness (the horizontal edge the taskbar leaves free, on the
   second screen when there is more than one display). The patched document is validated before the same
   atomic same-directory write, an existing file is never patched, and the recovery notice adds one sentence naming
@@ -459,7 +472,10 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   non-object `dock`) with the diagnostic on `$.dock.<member>`, and prove the `--dock*` grammar, its errors, and the
   merge precedence over the document.
 - Tests prove `PatchFirstRunDock` on both shipped templates with a `top` bar on `secondary` (one contiguous commented
-  insertion right after `version`, the template's CRLF line breaks kept, the typed document otherwise unchanged), on a
+  insertion right after `version`, the template's commented `dock` example and its introduction removed so the result
+  holds one `"dock"` and no instruction to uncomment another, the template's CRLF line breaks kept, the typed document
+  otherwise unchanged), on a document whose root example follows a separate comment and a blank line (only the
+  example and its introduction go; a nested `// "dock":` comment and one after a member stay), on a
   minor 1 document (raised to 3 for `secondary` or a non-default `animationMilliseconds`, which is then written, and to
   2 for `primary`), with `version` as the last member, and over an existing `dock` value (a `name:` selector leaves
   minor 2), and that an invalid dock (the `none` edge, an edge or mode outside the enumerations, the `all` selector, a
@@ -468,6 +484,12 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   dock for a missing and for an invalid default file (with the notice), keeps an existing file byte for byte, installs
   the plain template byte for byte when no dock is offered or the offered dock is refused by the patch, and never writes
   a missing `--settings` file.
+- Tests prove the BOM rule: both shipped templates with a BOM load to the same typed settings with the BOM kept in
+  the source; `PatchDockThickness` and `PatchFirstRunDock` produce the BOM followed by the bytes they produce without
+  it; a widget persist rewrites the document with exactly one leading BOM; an error after a BOM is reported on its own
+  line and not as a BOM problem, and a BOM alone or with only comments is an empty file; and the store loads a
+  BOM-prefixed default file at startup unchanged and without a backup, then writes a dock drag to it with the BOM
+  kept.
 - Tests prove `PatchDockThickness` adds a new `dock` to both shipped templates as one line right after `version` in the
   template's line breaks, and below a comment that ends `version`'s line, with or without a comma after `version`;
   appends a missing `thickness` after the last dock member on its line, before a trailing comma and comment, and on a

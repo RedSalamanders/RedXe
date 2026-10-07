@@ -386,8 +386,9 @@ enum class SettingsReloadStatus : std::uint8_t
 [[nodiscard]] HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept;
 // Writes `dock` into a template's source for the first start without a XENEON (Core_Settings.md "Cold load and
 // recovery"): a new member on its own line after `version`, with a comment naming why and how to turn it off, or the
-// value of an existing `dock`. Comments and every other member stay; `version.minor` rises to 2 when lower, or to 3
-// when the dock names the `secondary` monitor.
+// value of an existing `dock`. The commented-out `dock` example and the comment lines introducing it are removed, so
+// the result defines the dock once; other comments and every other member stay. `version.minor` rises to 2 when lower,
+// or to 3 when the dock names the `secondary` monitor.
 [[nodiscard]] HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcept;
 
 class SettingsStore final
