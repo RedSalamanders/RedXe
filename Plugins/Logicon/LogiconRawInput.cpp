@@ -225,9 +225,13 @@ void RawWheelListener::Stop() noexcept
     {
         // Packets queued before the removal stay in this thread's queue, and the lane's wait stops watching the queue
         // once the sink is gone: dispatch all of them while the window still exists, so each WM_INPUT reaches
-        // Procedure and DefWindowProc, and only then destroy it.
-        Dispatch(kStopDrainMessages);
-        (void)DestroyWindow(_window);
+        // Procedure and DefWindowProc, and only then destroy it. Only the lane thread that created the window owns that
+        // queue and can destroy the window; any other caller leaves both alone rather than draining its own queue.
+        if (GetWindowThreadProcessId(_window, nullptr) == GetCurrentThreadId())
+        {
+            Dispatch(kStopDrainMessages);
+            (void)DestroyWindow(_window);
+        }
         _window = nullptr;
     }
     if (_classRegistered)

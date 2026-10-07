@@ -1905,6 +1905,7 @@ int wmain() noexcept
         std::wprintf(L"Logicon tests failed: 0x%08X\n", static_cast<unsigned int>(result));
         return 1;
     }
-    std::wprintf(L"Logicon protocol, settings, face, device, HID port, dialpad, and module tests passed.\n");
+    std::wprintf(
+        L"Logicon protocol, settings, face, device, HID port, HID I/O budget, dialpad, and module tests passed.\n");
     return 0;
 }
