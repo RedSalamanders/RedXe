@@ -1,6 +1,7 @@
 #include "../../RedXe/Settings.h"
 #include "../../Common/FailureReports.h"
 #include "../../Plugins/Launcher/LauncherPaging.h"
+#include "../../Plugins/StudioClock/StudioClockSettings.h"
 #include "../../RedXe/BundledPlugins.h"
 #include "../../RedXe/CommandLine.h"
 #include "../../RedXe/DockOptions.h"
@@ -171,6 +172,70 @@ constexpr std::string_view kRepresentative = R"json(
             if (yyjson_is_str(value) && pluginId == std::string_view{yyjson_get_str(value), yyjson_get_len(value)})
                 return true;
         }
+    }
+    return false;
+}
+
+// A Studio Clock settings schema (the Specs `studioClockSettings` definition, or the schema StudioClock.dll publishes)
+// carries exactly the members, date formats, and glowPercent range of StudioClockSettings.h; given the catalog
+// defaults, every member's `default` is the catalog value.
+[[nodiscard]] bool StudioClockSchemaMatchesCatalog(yyjson_val* schema, yyjson_val* catalogDefaults) noexcept
+{
+    yyjson_val* members = yyjson_obj_get(schema, "properties");
+    if (!yyjson_is_false(yyjson_obj_get(schema, "additionalProperties")) || !yyjson_is_obj(members) ||
+        yyjson_obj_size(members) != StudioClock::kSettingsKeys.size())
+        return false;
+    for (const char* key : StudioClock::kSettingsKeys)
+    {
+        yyjson_val* member = yyjson_obj_get(members, key);
+        if (!yyjson_is_obj(member) || (catalogDefaults && !yyjson_equals(yyjson_obj_get(member, "default"),
+                                                                         yyjson_obj_get(catalogDefaults, key))))
+            return false;
+    }
+    yyjson_val* glowPercent = yyjson_obj_get(members, "glowPercent");
+    yyjson_val* minimum = yyjson_obj_get(glowPercent, "minimum");
+    yyjson_val* maximum = yyjson_obj_get(glowPercent, "maximum");
+    yyjson_val* dateFormats = yyjson_obj_get(yyjson_obj_get(members, "dateFormat"), "enum");
+    if (!yyjson_is_uint(minimum) || yyjson_get_uint(minimum) != StudioClock::kMinimumGlowPercent ||
+        !yyjson_is_uint(maximum) || yyjson_get_uint(maximum) != StudioClock::kMaximumGlowPercent ||
+        yyjson_arr_size(dateFormats) != StudioClock::kDateFormatNames.size())
+        return false;
+    for (size_t index = 0; index < StudioClock::kDateFormatNames.size(); ++index)
+    {
+        const std::string_view name = StudioClock::kDateFormatNames[index];
+        if (!yyjson_equals_strn(yyjson_arr_get(dateFormats, index), name.data(), name.size()))
+            return false;
+    }
+    return true;
+}
+
+// The Specs widget variant for Studio Clock offers the host backgroundColor and every catalog member, each a reference
+// to its `studioClockSettings` property.
+[[nodiscard]] bool StudioClockVariantMatchesCatalog(yyjson_val* root) noexcept
+{
+    constexpr std::string_view referencePrefix = "#/$defs/studioClockSettings/properties/";
+    yyjson_val* variants = yyjson_obj_get(yyjson_obj_get(yyjson_obj_get(root, "$defs"), "widgetDefinition"), "oneOf");
+    size_t index = 0;
+    size_t count = 0;
+    yyjson_val* variant = nullptr;
+    yyjson_arr_foreach(variants, index, count, variant)
+    {
+        yyjson_val* properties = yyjson_obj_get(variant, "properties");
+        if (!yyjson_equals_str(yyjson_obj_get(yyjson_obj_get(properties, "plugin"), "const"), StudioClock::kPluginId))
+            continue;
+        if (yyjson_obj_size(properties) != StudioClock::kSettingsKeys.size() + 2 ||
+            !yyjson_obj_get(properties, "backgroundColor"))
+            return false;
+        for (const char* key : StudioClock::kSettingsKeys)
+        {
+            yyjson_val* reference = yyjson_obj_get(yyjson_obj_get(properties, key), "$ref");
+            const std::string_view text = yyjson_is_str(reference)
+                                              ? std::string_view{yyjson_get_str(reference), yyjson_get_len(reference)}
+                                              : std::string_view{};
+            if (!text.starts_with(referencePrefix) || text.substr(referencePrefix.size()) != key)
+                return false;
+        }
+        return true;
     }
     return false;
 }
@@ -409,6 +474,26 @@ constexpr std::string_view kRepresentative = R"json(
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
     }
+    // StudioClockSettings.h is the one Studio Clock catalog the host parser and StudioClock.dll compile in: its
+    // defaults name every member, and the Specs definition (members, defaults, date formats, glowPercent range), the
+    // Specs widget variant, and the schema the DLL publishes all match it.
+    {
+        unique_doc catalogDefaults{
+            yyjson_read(StudioClock::kDefaultsJson, sizeof(StudioClock::kDefaultsJson) - 1, YYJSON_READ_NOFLAG)};
+        unique_doc publishedSchema{
+            yyjson_read(StudioClock::kSchemaJson, sizeof(StudioClock::kSchemaJson) - 1, YYJSON_READ_NOFLAG)};
+        yyjson_val* catalog = catalogDefaults ? yyjson_doc_get_root(catalogDefaults.get()) : nullptr;
+        if (!yyjson_is_obj(catalog) || yyjson_obj_size(catalog) != StudioClock::kSettingsKeys.size() ||
+            !publishedSchema ||
+            !StudioClockSchemaMatchesCatalog(yyjson_obj_get(defs, "studioClockSettings"), catalog) ||
+            !StudioClockSchemaMatchesCatalog(yyjson_doc_get_root(publishedSchema.get()), nullptr) ||
+            !StudioClockVariantMatchesCatalog(root))
+        {
+            std::wprintf(L"The Studio Clock schema, widget variant, or published schema differs from "
+                         L"StudioClockSettings.h.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
     yyjson_val* launcherSettings = yyjson_is_obj(defs) ? yyjson_obj_get(defs, "launcherSettings") : nullptr;
     yyjson_val* launcherProperties =
         yyjson_is_obj(launcherSettings) ? yyjson_obj_get(launcherSettings, "properties") : nullptr;
@@ -639,8 +724,7 @@ constexpr std::string_view kRepresentative = R"json(
         R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock"},{"plugin":"builtin.studio-clock","showDate":true,"glowPercent":0,"backgroundColor":"#010203"}]}]})json";
     AppSettings studioClock{};
     if (FAILED(ParseAppSettingsJson(studioClockSettings, studioClock)) ||
-        studioClock.dashboard.pages[0].widgets[0].privateConfiguration.View() !=
-            R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","glowPercent":35})json" ||
+        studioClock.dashboard.pages[0].widgets[0].privateConfiguration.View() != StudioClock::kDefaultsJson ||
         studioClock.dashboard.pages[0].widgets[0].overridesBackground ||
         studioClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"showDate\":true") ==
             std::string_view::npos ||
@@ -654,6 +738,34 @@ constexpr std::string_view kRepresentative = R"json(
             kRedXeDefaultBackgroundRgb ||
         EffectiveWidgetBackgroundRgb(studioClock, studioClock.dashboard.pages[0].widgets[1]) != 0x010203)
     {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    // Both host validators (the document parser and ValidateAppSettings) take the date formats and the glowPercent
+    // range from StudioClockSettings.h, as the DLL does.
+    const auto studioClockDocument = [](std::string_view member)
+    {
+        return std::string(R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock",)json") +
+               std::string(member) + "}]}]}";
+    };
+    for (const std::string_view dateFormat : StudioClock::kDateFormatNames)
+    {
+        AppSettings dated{};
+        if (FAILED(ParseAppSettingsJson(studioClockDocument("\"dateFormat\":\"" + std::string(dateFormat) + "\""),
+                                        dated)) ||
+            FAILED(ValidateAppSettings(dated)))
+        {
+            std::wprintf(L"A catalogued Studio Clock date format was rejected.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
+    AppSettings brightest{};
+    if (FAILED(ParseAppSettingsJson(
+            studioClockDocument("\"glowPercent\":" + std::to_string(StudioClock::kMaximumGlowPercent)), brightest)) ||
+        FAILED(ValidateAppSettings(brightest)) ||
+        FAILED(ExpectRejected(
+            studioClockDocument("\"glowPercent\":" + std::to_string(StudioClock::kMaximumGlowPercent + 1U)))))
+    {
+        std::wprintf(L"The host glowPercent range differs from StudioClockSettings.h.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 

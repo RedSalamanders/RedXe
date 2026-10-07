@@ -128,7 +128,7 @@ try {
         } else {
             $systemData=Get-ScopedTestPlan $manifest @('Plugins/SystemData/SystemData.cpp')
             Assert-Scope ('SystemDataPhase0' -in $systemData.scopes) 'Referenced SystemData module did not select its phase-zero consumer'
-            foreach($inputPath in @('Plugins/AVControl/AVControlModel.cpp','Plugins/Launcher/LauncherPaging.h','Plugins/Logicon/LogiconSettings.cpp','Plugins/Actions/Zoom/ZoomSettings.cpp')) {
+            foreach($inputPath in @('Plugins/AVControl/AVControlModel.cpp','Plugins/Launcher/LauncherPaging.h','Plugins/Logicon/LogiconSettings.cpp','Plugins/Actions/Zoom/ZoomSettings.cpp','Plugins/StudioClock/StudioClockSettings.h')) {
                 Assert-Scope ('Settings' -in (Get-ScopedTestPlan $manifest @($inputPath)).scopes) "Shared settings consumer omitted: $inputPath"
             }
         }

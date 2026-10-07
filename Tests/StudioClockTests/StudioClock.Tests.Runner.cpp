@@ -2,6 +2,7 @@
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"
 #include "StudioClock.Tests.Contract.h"
+#include "StudioClockSettings.h"
 
 #include <algorithm>
 #include <array>
@@ -41,8 +42,9 @@ static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeRaisedWidget>);
 
 constexpr char kPluginId[] = "builtin.studio-clock";
 constexpr char kWidgetTypeId[] = "studio-clock";
-constexpr std::string_view kDefaults =
-    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","glowPercent":35})json";
+// The one catalog (StudioClockSettings.h) that the host parser compiles in too; SettingsTests checks it against the
+// Specs schema.
+constexpr std::string_view kDefaults = StudioClock::kDefaultsJson;
 constexpr uint32_t kDefaultGlowPercent = 35;
 // Row of the date's middle segments and hyphens, in units of the clock square (StudioClockDotVertex.hlsl).
 constexpr float kDateSeparatorY = 1.05f;
@@ -424,6 +426,7 @@ void ValidateFactoryAndSettings(const Exports& exports)
                std::string_view(contract->defaultsJsonUtf8, contract->defaultsBytes) == kDefaults,
            "Studio Clock defaults differ from the contract");
     const std::string_view schema(contract->schemaJsonUtf8, contract->schemaBytes);
+    Expect(schema == StudioClock::kSchemaJson, "Studio Clock publishes a schema other than its catalog's");
     Expect(schema.find("showSecondProgress") != std::string_view::npos &&
                schema.find("externalDotsAlwaysOn") != std::string_view::npos &&
                schema.find("\"glowPercent\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":100}") !=

@@ -7,6 +7,7 @@
 #include "../Plugins/Launcher/LauncherBindings.h"
 #include "../Plugins/Launcher/LauncherPaging.h"
 #include "../Plugins/Logicon/LogiconSettings.h"
+#include "../Plugins/StudioClock/StudioClockSettings.h"
 #include "BundledPlugins.h"
 #include "HostActionCatalog.h"
 #include "PlugInterfaces/Factory.h"
@@ -17,6 +18,7 @@
 #include <cstring>
 #include <memory>
 #include <new>
+#include <span>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -51,8 +53,6 @@ constexpr char kMatrixDefaults[] =
     R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#F6FFF6","trailColor":"#33FF33","glowPercent":35})json";
 constexpr char kProcessViewerDefaults[] = R"json({"topN":10,"hideIdle":true})json";
 constexpr char kRankedViewerDefaults[] = R"json({"topN":8})json";
-constexpr char kStudioClockDefaults[] =
-    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","glowPercent":35})json";
 constexpr char kDeskClockDefaults[] =
     R"json({"flipDurationMilliseconds":420,"cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json";
 constexpr char kWeatherDefaults[] =
@@ -677,7 +677,7 @@ struct DiagnosticSink final
     }
 };
 
-[[nodiscard]] const char* UnknownObjectMember(yyjson_val* object, std::initializer_list<const char*> keys) noexcept
+[[nodiscard]] const char* UnknownObjectMember(yyjson_val* object, std::span<const char* const> keys) noexcept
 {
     if (!yyjson_is_obj(object))
     {
@@ -701,7 +701,7 @@ struct DiagnosticSink final
 }
 
 [[nodiscard]] bool AcceptObjectMembers(DiagnosticSink& sink, JsonPathBuffer& path, yyjson_val* object,
-                                       std::initializer_list<const char*> keys, bool allowUnknown) noexcept
+                                       std::span<const char* const> keys, bool allowUnknown) noexcept
 {
     if (!yyjson_is_obj(object))
     {
@@ -721,6 +721,18 @@ struct DiagnosticSink final
     message += unknown;
     message += "\".";
     return sink.Fail(path.View(), message);
+}
+
+// Key lists written in place at the call sites; a plugin's shared settings catalog passes its std::array instead.
+[[nodiscard]] const char* UnknownObjectMember(yyjson_val* object, std::initializer_list<const char*> keys) noexcept
+{
+    return UnknownObjectMember(object, std::span(keys.begin(), keys.size()));
+}
+
+[[nodiscard]] bool AcceptObjectMembers(DiagnosticSink& sink, JsonPathBuffer& path, yyjson_val* object,
+                                       std::initializer_list<const char*> keys, bool allowUnknown) noexcept
+{
+    return AcceptObjectMembers(sink, path, object, std::span(keys.begin(), keys.size()), allowUnknown);
 }
 
 [[nodiscard]] bool RejectDuplicateMembers(DiagnosticSink& sink, JsonPathBuffer& path, yyjson_val* value) noexcept
@@ -986,25 +998,18 @@ struct DiagnosticSink final
 [[nodiscard]] bool ValidateStudioClockSettings(yyjson_val* settings, DiagnosticSink& sink,
                                                JsonPathBuffer& path) noexcept
 {
-    if (!AcceptObjectMembers(sink, path, settings,
-                             {"showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor", "showDate",
-                              "dateFormat", "timeColor", "glowPercent"},
-                             false) ||
-        yyjson_obj_size(settings) != 8)
+    if (!AcceptObjectMembers(sink, path, settings, StudioClock::kSettingsKeys, false) ||
+        yyjson_obj_size(settings) != StudioClock::kSettingsKeys.size())
     {
-        return yyjson_is_obj(settings) && yyjson_obj_size(settings) != 8 &&
-                       UnknownObjectMember(settings,
-                                           {"showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor",
-                                            "showDate", "dateFormat", "timeColor", "glowPercent"}) == nullptr
+        return yyjson_is_obj(settings) && yyjson_obj_size(settings) != StudioClock::kSettingsKeys.size() &&
+                       UnknownObjectMember(settings, StudioClock::kSettingsKeys) == nullptr
                    ? sink.Fail(path.View(), "Studio Clock settings must include every required member.")
                    : false;
     }
     yyjson_val* dateFormatValue = yyjson_obj_get(settings, "dateFormat");
     const char* dateFormat = yyjson_is_str(dateFormatValue) ? yyjson_get_str(dateFormatValue) : nullptr;
-    const bool validDateFormat =
-        dateFormat && (std::strcmp(dateFormat, "dd-mm-yyyy") == 0 || std::strcmp(dateFormat, "mm-dd-yyyy") == 0 ||
-                       std::strcmp(dateFormat, "yyyy-mm-dd") == 0);
-    if (!validDateFormat)
+    StudioClock::DateFormat parsedDateFormat = StudioClock::DateFormat::DayMonthYear;
+    if (!dateFormat || !StudioClock::TryParseDateFormat(dateFormat, parsedDateFormat))
     {
         const auto scope = path.PushName("dateFormat");
         return sink.Fail(path.View(), "dateFormat must be dd-mm-yyyy, mm-dd-yyyy, or yyyy-mm-dd.");
@@ -1013,8 +1018,8 @@ struct DiagnosticSink final
            RejectBool(sink, path, settings, "externalDotsAlwaysOn") &&
            RejectBool(sink, path, settings, "showSeconds") && RejectBool(sink, path, settings, "showDate") &&
            RejectColor(sink, path, settings, "secondsColor") && RejectColor(sink, path, settings, "timeColor") &&
-           RejectRange(sink, path, settings, "glowPercent", 0, 100,
-                       "glowPercent must be an integer from 0 through 100.");
+           RejectRange(sink, path, settings, "glowPercent", StudioClock::kMinimumGlowPercent,
+                       StudioClock::kMaximumGlowPercent, "glowPercent must be an integer from 0 through 100.");
 }
 
 [[nodiscard]] bool ValidateShadersSettings(yyjson_val* settings, DiagnosticSink& sink, JsonPathBuffer& path) noexcept
@@ -1341,13 +1346,13 @@ struct DiagnosticSink final
     const char* defaultsText = plugin == kMatrixPlugin                                          ? kMatrixDefaults
                                : plugin == kProcessViewerPlugin                                 ? kProcessViewerDefaults
                                : plugin == kNetworkMeterPlugin || plugin == kGpuProcessesPlugin ? kRankedViewerDefaults
-                               : plugin == kStudioClockPlugin                                   ? kStudioClockDefaults
-                               : plugin == kDeskClockPlugin                                     ? kDeskClockDefaults
-                               : plugin == kShadersPlugin                                       ? Shaders::kDefaultsJson
-                               : plugin == kWeatherPlugin                                       ? kWeatherDefaults
-                               : plugin == kLauncherPlugin                                      ? kLauncherDefaults
-                               : plugin == kAvControlPlugin ? AVControl::DefaultsJson
-                                                            : "{}";
+                               : plugin == kStudioClockPlugin ? StudioClock::kDefaultsJson
+                               : plugin == kDeskClockPlugin   ? kDeskClockDefaults
+                               : plugin == kShadersPlugin     ? Shaders::kDefaultsJson
+                               : plugin == kWeatherPlugin     ? kWeatherDefaults
+                               : plugin == kLauncherPlugin    ? kLauncherDefaults
+                               : plugin == kAvControlPlugin   ? AVControl::DefaultsJson
+                                                              : "{}";
     defaults.reset(yyjson_read(defaultsText, std::strlen(defaultsText), YYJSON_READ_NOFLAG));
     yyjson_val* settingsValue = authoredSettings;
     if (!settingsValue)

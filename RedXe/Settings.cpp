@@ -4,6 +4,7 @@
 #include "../Plugins/AVControl/AVControlModel.h"
 #include "../Plugins/Launcher/LauncherBindings.h"
 #include "../Plugins/Launcher/LauncherPaging.h"
+#include "../Plugins/StudioClock/StudioClockSettings.h"
 #include "BundledPlugins.h"
 #include "HostActionCatalog.h"
 #include "PlugInterfaces/Factory.h"
@@ -382,21 +383,19 @@ template <size_t Count>
 
 [[nodiscard]] bool IsValidStudioClockPrivate(yyjson_val* object) noexcept
 {
-    constexpr std::array keys{
-        "showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor",
-        "showDate",           "dateFormat",           "timeColor",   "glowPercent",
-    };
     yyjson_val* dateFormatValue = yyjson_obj_get(object, "dateFormat");
     const char* dateFormat = yyjson_is_str(dateFormatValue) ? yyjson_get_str(dateFormatValue) : nullptr;
-    const bool validDateFormat =
-        dateFormat && (std::strcmp(dateFormat, "dd-mm-yyyy") == 0 || std::strcmp(dateFormat, "mm-dd-yyyy") == 0 ||
-                       std::strcmp(dateFormat, "yyyy-mm-dd") == 0);
+    StudioClock::DateFormat parsedDateFormat = StudioClock::DateFormat::DayMonthYear;
+    const bool validDateFormat = dateFormat && StudioClock::TryParseDateFormat(dateFormat, parsedDateFormat);
     uint32_t value = 0;
-    return HasExactKeys(object, keys) && yyjson_is_bool(yyjson_obj_get(object, "showSecondProgress")) &&
+    return HasExactKeys(object, StudioClock::kSettingsKeys) &&
+           yyjson_is_bool(yyjson_obj_get(object, "showSecondProgress")) &&
            yyjson_is_bool(yyjson_obj_get(object, "externalDotsAlwaysOn")) &&
            yyjson_is_bool(yyjson_obj_get(object, "showSeconds")) &&
            yyjson_is_bool(yyjson_obj_get(object, "showDate")) && validDateFormat && IsColor(object, "secondsColor") &&
-           IsColor(object, "timeColor") && ReadUnsigned(object, "glowPercent", 0, 100, value);
+           IsColor(object, "timeColor") &&
+           ReadUnsigned(object, "glowPercent", StudioClock::kMinimumGlowPercent, StudioClock::kMaximumGlowPercent,
+                        value);
 }
 
 [[nodiscard]] bool IsValidDeskClockPrivate(yyjson_val* object) noexcept

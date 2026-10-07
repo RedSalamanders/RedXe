@@ -12,6 +12,7 @@
   <ItemGroup>
     <ClInclude Include="ShadersSettings.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="Shaders.Tests.Contract.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\SettingsCursor.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h"><Filter>Header Files</Filter></ClInclude>

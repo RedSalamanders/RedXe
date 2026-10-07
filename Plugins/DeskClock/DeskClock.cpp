@@ -7,6 +7,7 @@
 #include "DeskClockBackgroundVertexShader.h"
 #include "DeskClockPixelShader.h"
 #include "DeskClockVertexShader.h"
+#include "SettingsCursor.h"
 
 #include <algorithm>
 #include <array>
@@ -208,137 +209,6 @@ std::atomic<uint64_t> gScheduleQueryCount{0};
 std::atomic<uint64_t> gTypographyBuildCount{0};
 std::atomic<uint64_t> gTestTime{0};
 
-class JsonCursor final
-{
-  public:
-    explicit JsonCursor(std::string_view text) noexcept : _text(text) {}
-
-    void SkipWhitespace() noexcept
-    {
-        while (_offset < _text.size())
-        {
-            const char value = _text[_offset];
-            if (value != ' ' && value != '\t' && value != '\r' && value != '\n')
-            {
-                break;
-            }
-            ++_offset;
-        }
-    }
-
-    [[nodiscard]] bool Consume(char expected) noexcept
-    {
-        SkipWhitespace();
-        if (_offset >= _text.size() || _text[_offset] != expected)
-        {
-            return false;
-        }
-        ++_offset;
-        return true;
-    }
-
-    [[nodiscard]] bool ReadString(std::string_view& value) noexcept
-    {
-        SkipWhitespace();
-        if (_offset >= _text.size() || _text[_offset] != '"')
-        {
-            return false;
-        }
-        const size_t start = ++_offset;
-        while (_offset < _text.size() && _text[_offset] != '"')
-        {
-            const unsigned char character = static_cast<unsigned char>(_text[_offset]);
-            if (character < 0x20U || character == '\\')
-            {
-                return false;
-            }
-            ++_offset;
-        }
-        if (_offset >= _text.size())
-        {
-            return false;
-        }
-        value = _text.substr(start, _offset - start);
-        ++_offset;
-        return true;
-    }
-
-    [[nodiscard]] bool ReadUnsigned(uint32_t& value) noexcept
-    {
-        SkipWhitespace();
-        if (_offset >= _text.size() || _text[_offset] < '0' || _text[_offset] > '9')
-        {
-            return false;
-        }
-        const bool leadingZero = _text[_offset] == '0';
-        uint64_t parsed = 0;
-        size_t digits = 0;
-        while (_offset < _text.size() && _text[_offset] >= '0' && _text[_offset] <= '9')
-        {
-            parsed = parsed * 10U + static_cast<uint64_t>(_text[_offset] - '0');
-            if (parsed > std::numeric_limits<uint32_t>::max())
-            {
-                return false;
-            }
-            ++_offset;
-            ++digits;
-        }
-        if (leadingZero && digits != 1)
-        {
-            return false;
-        }
-        value = static_cast<uint32_t>(parsed);
-        return true;
-    }
-
-    [[nodiscard]] bool AtEnd() noexcept
-    {
-        SkipWhitespace();
-        return _offset == _text.size();
-    }
-
-  private:
-    std::string_view _text;
-    size_t _offset = 0;
-};
-
-[[nodiscard]] int HexDigitValue(char value) noexcept
-{
-    if (value >= '0' && value <= '9')
-    {
-        return value - '0';
-    }
-    if (value >= 'A' && value <= 'F')
-    {
-        return value - 'A' + 10;
-    }
-    if (value >= 'a' && value <= 'f')
-    {
-        return value - 'a' + 10;
-    }
-    return -1;
-}
-
-[[nodiscard]] bool ParseColor(std::string_view text, uint32_t& color) noexcept
-{
-    if (text.size() != 7 || text[0] != '#')
-    {
-        return false;
-    }
-    uint32_t parsed = 0;
-    for (size_t index = 1; index < text.size(); ++index)
-    {
-        const int digit = HexDigitValue(text[index]);
-        if (digit < 0)
-        {
-            return false;
-        }
-        parsed = (parsed << 4U) | static_cast<uint32_t>(digit);
-    }
-    color = parsed;
-    return true;
-}
-
 [[nodiscard]] uint32_t ConfigurationMemberForKey(std::string_view key) noexcept
 {
     if (key == "flipDurationMilliseconds")
@@ -360,7 +230,7 @@ class JsonCursor final
     return 0;
 }
 
-[[nodiscard]] bool ParseSettingsObject(JsonCursor& cursor, DeskClockConfiguration& configuration) noexcept
+[[nodiscard]] bool ParseSettingsObject(RedXeSettingsCursor& cursor, DeskClockConfiguration& configuration) noexcept
 {
     if (!cursor.Consume('{'))
     {
@@ -394,19 +264,19 @@ class JsonCursor final
             parsed.flipDurationMilliseconds = number;
             break;
         case ConfigurationCard:
-            if (!cursor.ReadString(text) || !ParseColor(text, parsed.cardColor))
+            if (!cursor.ReadString(text) || !RedXeParseHexColor(text, parsed.cardColor))
             {
                 return false;
             }
             break;
         case ConfigurationDigit:
-            if (!cursor.ReadString(text) || !ParseColor(text, parsed.digitColor))
+            if (!cursor.ReadString(text) || !RedXeParseHexColor(text, parsed.digitColor))
             {
                 return false;
             }
             break;
         case ConfigurationDate:
-            if (!cursor.ReadString(text) || !ParseColor(text, parsed.dateColor))
+            if (!cursor.ReadString(text) || !RedXeParseHexColor(text, parsed.dateColor))
             {
                 return false;
             }
@@ -434,7 +304,7 @@ class JsonCursor final
 
 [[nodiscard]] bool ParseNormalizedConfiguration(std::string_view json, DeskClockConfiguration& configuration) noexcept
 {
-    JsonCursor cursor(json);
+    RedXeSettingsCursor cursor(json);
     if (!cursor.Consume('{'))
     {
         return false;

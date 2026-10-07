@@ -116,9 +116,10 @@
         "PluginContract",
         "HostPlugin",
         "HostSmoke",
-        "Packaging"
+        "Packaging",
+        "Settings"
       ],
-      "reason": "plugin contracts, host integration and deployment"
+      "reason": "plugin contracts, shared host-settings consumers, host integration and deployment"
     },
     {
       "pattern": "Plugins/DeskClock/**",

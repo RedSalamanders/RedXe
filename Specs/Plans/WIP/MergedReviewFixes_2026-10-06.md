@@ -457,9 +457,9 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `slide-tray#10` (low) `RedXe/Application.cpp:427`: MakeFirstRunDock duplicates ResolveDockMonitor's display enumeration and round-trips its own constant selector through text
 - [ ] `slide-tray#13` (low) `RedXe/Application.cpp:2462`: Two slide fields can be derived from existing state, and the end of TickDockSlide repeats SettleDockSlide
 - [ ] `slide-tray#9` (low) `RedXe/Application.cpp:752`: MakeFirstRunDock runs on every launch without a XENEON, including three synchronous Explorer round trips, although only a template install uses its result
-- [ ] `studioclock#6` (low) `RedXe/SettingsV4.cpp:54`: Studio Clock settings are spelled out in four places; follow the shared ShadersSettings.h pattern
-- [ ] `studioclock#7` (low) `Plugins/StudioClock/StudioClock.cpp:219`: #22 added a fourth identical copy of JsonCursor::ReadUnsigned; the settings cursor is copied across four plugin DLLs
-- [ ] `tests#12` (low) `RedXe/SettingsV4.cpp:55`: Studio Clock defaults and glowPercent range exist in four copies, each tested only against its own literal
+- [x] `studioclock#6` (low) `RedXe/SettingsV4.cpp:54`: Studio Clock settings are spelled out in four places; follow the shared ShadersSettings.h pattern
+- [x] `studioclock#7` (low) `Plugins/StudioClock/StudioClock.cpp:219`: #22 added a fourth identical copy of JsonCursor::ReadUnsigned; the settings cursor is copied across four plugin DLLs
+- [x] `tests#12` (low) `RedXe/SettingsV4.cpp:55`: Studio Clock defaults and glowPercent range exist in four copies, each tested only against its own literal
 - [ ] `alignment#14` (nit) `Specs/Settings.schema.json:323`: Dead leftovers of the removed Zoom SDK path: unreferenced schema def and stale guidance that ActionTargets is compiled into every publisher
 - [ ] `alignment#15` (nit) `.gitignore:26`: Leftover Zoom SDK ignore entries point at a deleted import script
 - [ ] `dock-switch#17` (nit) `RedXe/Application.cpp:2079`: RebuildPresentation duplicates the renderer start sequence of InitializeDashboardRuntime
