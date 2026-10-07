@@ -38,11 +38,14 @@ the highest bound `page` plus one; runtime key-page selection is never persisted
 `action` is `none` or any action name (`Plugins_Actions.md`): a default namespace (`page.*`, `widget.*`, `redxe.*`,
 `system.*`, `keys.*`, `mouse.*`) or a registered published one (`logicon.*`, `zoom.*`); `target` is that action's
 argument (at most 512 bytes). The document parser rejects a name outside the grammar, an unregistered namespace, or an
-unknown default verb. Because control dispatch is press-only, it also rejects `keys.down` and `mouse.down` for every
-key, dialpad button, or turn binding; other actions may use the host's bounded hold timer. The service validates every
-binding through `IRedXeHost::ValidateAction` at create, `Start`, and
+unknown default verb. The service validates every binding through `IRedXeHost::ValidateAction` at create, `Start`, and
 `ApplySettings` and keeps the result, so a target that does not satisfy its action, an unknown published verb, or an
-unavailable publisher is accepted, drawn as a red `!` face, and never dispatched. Valid bindings are dispatched from
+unavailable publisher is accepted, drawn as a red `!` face, and never dispatched. Control dispatch is press-only and
+never sends a release, so `keys.down` and `mouse.down` are invalid on every key, dialpad button, and turn: a document
+that binds them MUST load (`v1.0.102` accepted them), and the service MUST mark each such binding invalid without
+calling `ValidateAction` and MUST NOT dispatch it. Each validation logs one Warning `binding-invalid` per such binding,
+naming the control (`keys[] page 0 slot 4`, `dialpad.buttons[] button 1`, `dialpad.turns[] dial cw`) followed by
+`Logicon::kHeldInputReason`, which points to `keys.press` or `mouse.click`. Valid bindings are dispatched from
 the lane through `IRedXeHost::RequestAction`, except the service's own namespace, which runs on the lane without a
 host round trip. The service injects no input itself: `keys.media` and every other injecting action are host-native
 and are counted, not performed, while device access is disabled (`--self-test`, host tests).
@@ -160,7 +163,7 @@ receiver child with a HID++ device index other than `0xFF`) is not driven.
   indexes and collection count), `device-disconnected`, `connect-failed` (once per distinct failure until success),
   `dialpad-connected` (its `0x1B04` index, collection count, whether the wheels are read), `dialpad-disconnected`,
   `dialpad-connect-failed` (same once rule), `rawinput-unavailable`, `system-data-unavailable`, `faces-unavailable`, `hotplug-unavailable`,
-  `face-write-failed`, `input-read-failed`, `settings-rejected`, `service-degraded`.
+  `face-write-failed`, `input-read-failed`, `settings-rejected`, `binding-invalid`, `service-degraded`.
 
 ## Monitor tile (Debug builds)
 
@@ -191,7 +194,8 @@ cleared by a new settings object. Release builds keep the tile catalogued but re
   and `setBrightness(70)` against the reference writes; error, ack, key, and page-button parsing; key geometry;
   `VlpPacketCount` for 0, 1, 4075, 4076, and 20000 bytes; the first-packet header and every continuation of a
   20000-byte stream; defer and out-of-panel rejection; the settings model's defaults, authored values, key pages,
-  action names (`none` clearing, grammar), `dialpad.turns` (control/direction pairing, duplicates), and rejections
+  action names (`none` clearing, grammar, `keys.down` / `mouse.down` accepted and reported by
+  `KeyBinding::HoldsInput`), `dialpad.turns` (control/direction pairing, duplicates), and rejections
   including 37 keys and the former `launch`/`keys`/`dial`/`roller` names; the face renderer's compose, ellipsis, accent ring, invalid
   face, JPEG markers, WIC round trips at 118×118 and 434×434, and strided sub-rectangle encoding; the device session
   over the synthetic keypad (feature resolution, diversion, brightness, image reassembly, press edges across one
@@ -200,13 +204,16 @@ cleared by a new settings object. Release builds keep the tile catalogued but re
   `0x1B04` at `0x0A`, four diversions, button edges apart from page buttons, restore); and the shipped DLL's
   metadata, contract, monitor provider (constructs in Debug, refuses in Release), service creation and rejection,
   identity, lane start and drain, host state, synthetic connect, faces, actions from injected and raw presses reaching the fake host's `RequestAction`,
-  bindings validated through the fake host's `ValidateAction`, key pages and brightness through the published
+  bindings validated through the fake host's `ValidateAction`, `keys.down` / `mouse.down` bindings on a key, a
+  dialpad button, and a turn that apply, log `binding-invalid` naming their control, skip `ValidateAction`, and request
+  nothing when pressed, key pages and brightness through the published
   `logicon.*` actions executed locally, a dialpad button binding and dial/roller `turns` bindings, System Data faces through a fake provider (lookup only once a face is bound,
   three one-second subscriptions, a pushed value reaching the face, pause without faces, release on stop),
   overrides, brightness, settings apply, and release.
 - `HostPluginTests`: the action ring, the `logicon` contract, and the service lifetime (`Plugins_API.md` items 20
   and 21). `SettingsTests`: the
-  `services` grammar and both templates. `--self-test` starts the service with device access disabled and renders the
+  `services` grammar, both templates, and a document with `keys.down` / `mouse.down` bindings that loads.
+  `--self-test` starts the service with device access disabled and renders the
   Debug `logicon` page under WARP.
 - Hardware validation (a receipt under `.build/receipts/`, never `docs/`): plug and unplug while running, sleep and
   resume, Options+ running then quit, every action, key pages, brightness, `restoreLogoOnExit`, and the measured

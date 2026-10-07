@@ -254,6 +254,9 @@ struct ServiceSettings final
     SettingsText name;
     SettingsText pluginId;
     JsonObjectSettings privateConfiguration;
+    // The plugin model accepted and ignored retired members (today the v1.0.102 Zoom members); the host logs one
+    // service-retired-settings-ignored warning per load or live apply.
+    bool retiredMembersIgnored = false;
 
     bool operator==(const ServiceSettings&) const noexcept = default;
 };
@@ -375,15 +378,20 @@ enum class SettingsReloadStatus : std::uint8_t
                                                         uint32_t& jsonBytes) noexcept;
 [[nodiscard]] const ServiceSettings* FindServiceSettings(const AppSettings& settings,
                                                          std::string_view pluginId) noexcept;
+// S_FALSE when the merge leaves the stored instance object unchanged: typed settings and the source are not touched.
 [[nodiscard]] HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view instanceId,
                                                   std::string_view settingsJson) noexcept;
-// Sets `dock.thickness` in the typed settings and the retained source document (creating `dock`, and raising
-// `version.minor` to 2 when lower); a dragged bar edge persists through this. The formatting contract applies.
+// Sets `dock.thickness` in the typed settings and the retained source document (creating `dock` on its own line after
+// `version`, and raising `version.minor` to 2 when lower, typed minor included); a dragged bar edge persists through
+// this. The formatting contract applies, and the patched source must parse back to the running dock with the new
+// thickness and to the same document otherwise, or nothing changes. S_FALSE when the typed thickness already is
+// `thicknessDips`: typed settings and the source are not touched.
 [[nodiscard]] HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept;
 // Writes `dock` into a template's source for the first start without a XENEON (Core_Settings.md "Cold load and
 // recovery"): a new member on its own line after `version`, with a comment naming why and how to turn it off, or the
-// value of an existing `dock`. Comments and every other member stay; `version.minor` rises to 2 when lower, or to 3
-// when the dock names the `secondary` monitor.
+// value of an existing `dock`. The commented-out `dock` example and the comment lines introducing it are removed, so
+// the result defines the dock once; other comments and every other member stay. `version.minor` rises to 2 when lower,
+// or to 3 when the dock names the `secondary` monitor.
 [[nodiscard]] HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcept;
 
 class SettingsStore final
@@ -414,11 +422,21 @@ class SettingsStore final
     [[nodiscard]] bool InstalledFirstRunDock() const noexcept;
     [[nodiscard]] const std::wstring& InitialNotice() const noexcept;
     [[nodiscard]] const std::wstring& LastDiagnosticText() const noexcept;
+    // Writes the source document only over the file last applied: its current stamp must equal the applied stamp.
+    // S_FALSE otherwise (a rejected, replaced, deleted, or unreadable file, a `--settings` fallback, or a save the
+    // watcher has not processed yet): nothing is written, and the patched typed and source state stays in memory
+    // until the next applied load replaces it.
     [[nodiscard]] HRESULT PersistPatchedDocument(const AppSettings& settings) noexcept;
+    // PatchWidgetInstanceSettings plus the document write; rolls both back on failure. S_FALSE: nothing changed and
+    // nothing deferred is waiting, or the write was deferred and the merge is kept, so the widget keeps its state.
     [[nodiscard]] HRESULT PersistWidgetSettings(AppSettings& settings, std::string_view instanceId,
                                                 std::string_view settingsJson) noexcept;
-    // PatchDockThickness plus the atomic document write; rolls both back on failure.
+    // PatchDockThickness plus the atomic document write; rolls both back on failure. S_FALSE: the thickness is
+    // unchanged and nothing deferred is waiting, or the write was deferred and the new thickness is kept in memory.
     [[nodiscard]] HRESULT PersistDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept;
+    // True once for each distinct on-disk state that deferred a write since the last write or applied load; the
+    // caller then logs `settings-persist-deferred`.
+    [[nodiscard]] bool TakeDeferredPersistNotice() noexcept;
 
   private:
     std::wstring _settingsPath;
@@ -427,6 +445,10 @@ class SettingsStore final
     std::wstring _schemaPath;
     std::optional<SettingsFileStamp> _lastAppliedStamp;
     std::optional<SettingsFileStamp> _lastRejectedStamp;
+    // The on-disk state of the last deferred write (zero for a missing or unreadable file) and whether it is
+    // unreported. Set while deferred changes are held in memory; a write or an applied load clears it.
+    std::optional<SettingsFileStamp> _deferredStamp;
+    bool _deferredNoticePending = false;
     bool _missingObserved = false;
     bool _usedInitialFallback = false;
     bool _installedFirstRunDock = false;

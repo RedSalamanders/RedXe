@@ -295,7 +295,9 @@ object it was supplied to.
   visibility, raise, `Render`, `CollectPersistentSettings`, `OnDataSnapshot`, and `RunNetworkWork`. It is allowed from
   `OnPointer` (committed click) and `OnDrop`. A null instance ID, a null JSON pointer, or zero bytes returns
   `E_INVALIDARG`. `--self-test` and HostPluginTests keep a successful merge in memory and MUST NOT write
-  `%LocalAppData%`.
+  `%LocalAppData%`. `S_FALSE` is success without a file write: the merge changed nothing, or the host keeps it in
+  memory because the settings file on disk is not the document it last loaded (`Core_Settings.md` "Plugin persist").
+  A widget MUST NOT roll back its state on `S_FALSE`.
 - An interactive settings save is transactional: validation or file-replacement failure MUST preserve both the
   typed instance settings and the retained source document. A committed file replacement remains success even if
   querying its deduplication stamp fails afterward; the next watcher notification may reload it.

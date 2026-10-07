@@ -18,6 +18,10 @@ inline constexpr char kSettingsDefaults[] = "{}";
 
 struct Settings final
 {
+    // The object carried retired v1.0.102 members, which ParseSettings accepts with any value and ignores
+    // (Plugins_Zoom.md); the host logs one warning for them. The published schema stays the closed authoring contract.
+    bool retiredMembersIgnored = false;
+
     bool operator==(const Settings&) const noexcept = default;
 };
 

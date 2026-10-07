@@ -38,15 +38,23 @@ validation, `wil-raii` for files/events/change notifications, `win32-windowing` 
   `PluginHost::SetLogDirectory`.
 - Cold start with no user file installs the template and continues. An unmapped catalogued plugin DLL is a
   placeholder, not a settings or startup failure. Without an active XENEON, the installed template (first start or
-  recovery) carries the first-run dock through `PatchFirstRunDock`; a `--settings` file is never written.
+  recovery) carries the first-run dock through `PatchFirstRunDock`, which also drops the template's commented `dock`
+  example so the file never invites a duplicate member; a `--settings` file is never installed or patched.
 - A live `dock` change applies to the running window, including `edge` between `none` and an edge, which restyles
   the same HWND (`Application::SwitchWindowKind`); never defer it to a restart. A failed switch rolls back to the
   previous kind and rejects the reload; it never exits unless the rollback leaves no renderer.
 - Validate types, ranges, required members, duplicates, unknown members, schema version, and the 1 MiB limit before
-  replacing typed runtime state. yyjson values and strings remain borrowed from their owning document.
+  replacing typed runtime state. yyjson values and strings remain borrowed from their owning document. Every read of
+  the user document passes `YYJSON_READ_ALLOW_BOM`, and every host write keeps a leading BOM the document has.
 - `PatchWidgetInstanceSettings` merges supplied members into the stored instance object, validates the complete
-  result, and patches `sourceDocument`. It MUST NOT replace unspecified members. Interactive persist MAY write the
-  user file; `--self-test` keeps the merge in memory.
+  result, and patches `sourceDocument`. It MUST NOT replace unspecified members. A merge that changes nothing returns
+  `S_FALSE` and touches neither the typed settings nor the source, so comments survive an unchanged collect.
+  `PatchDockThickness` does the same for a release at the current thickness. Interactive persist MAY write the user
+  file; `--self-test` keeps the merge in memory.
+- `PersistPatchedDocument` writes only while the file's current stamp equals the last applied stamp. A rejected,
+  unprocessed, deleted, or unreadable file and a `--settings` fallback keep the patch in memory and return `S_FALSE`
+  (never a rollback); the caller logs `settings-persist-deferred` once per on-disk state through
+  `TakeDeferredPersistNotice`.
 - Cold invalid files are backed up and restored from the deployed template. Invalid live edits preserve both the
   edited file and the last valid runtime configuration.
 
