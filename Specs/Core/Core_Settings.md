@@ -162,9 +162,16 @@ including `edge` between `none` and an edge, which switches the window kind with
 contract, a factory envelope, or a widget persist. The one host-driven write to an existing document is `dock.thickness`
 after the bar's inner edge is dragged (`PatchDockThickness`): it replaces or adds that member, creates the `dock` object
 when absent, raises `version.minor` to 2 when lower, and uses the same stamp check and atomic replacement as a widget
-persist ("Plugin persist"). The source edit MUST preserve comments, spacing, and every unrelated member. Both shipped
-templates author the current minor and stay at `edge: none`, carrying a commented-out `dock` example; a default file
-installed on a machine without a XENEON adds the first-run dock ("Cold load and recovery").
+persist ("Plugin persist"). The source edit MUST preserve comments, spacing, and every unrelated member, and MUST follow
+the document's layout: a new `dock` is `"dock": { "thickness": N }` on its own line right after `version`, at that
+member's indentation and in the file's own line breaks (where the first-run dock goes); a missing `thickness`, or a
+missing `version.minor`, follows the object's last member, on a new line at its indentation when that member starts
+its own line and otherwise on the same line. A line comment ends at CR or LF, as the parser ends it. The patched text
+MUST parse back to the same `dock` with the new thickness before it is kept or written; otherwise the drag changes
+nothing in the document. A raised source minor is also the typed minor, so a later comment-only reload still matches
+the running settings. Both shipped templates author the current minor and stay at `edge: none`, carrying a
+commented-out `dock` example; a default file installed on a machine without a XENEON adds the first-run dock ("Cold
+load and recovery").
 
 ### Notification-area icon
 
@@ -284,6 +291,12 @@ or atomic file replacement fails. A later partial save MUST NOT resurrect a reje
 only the affected private object and source text, rather than copying the entire typed dashboard. Once replacement
 commits, failure to query the file stamp MUST NOT report a failed save; clear deduplication state and allow reload.
 
+A document write (a widget persist, a `dock.thickness` drag, or a first-run install) writes a same-directory temporary
+file, MUST flush it to disk (`FlushFileBuffers`) before the write-through rename, and MUST treat a short write as a
+failure, so a power loss right after a save cannot leave the settings name on unwritten or truncated bytes. The flush
+costs about 3 ms per save (median; p95 under 5 ms for a 24 KB document on an NVMe system SSD, measured 2026-10-07) and
+runs only on these writes, never on a frame, idle, or live-reload path.
+
 A persist whose merge leaves the stored instance object unchanged (an unchanged collect, a repeated import) MUST NOT
 validate, re-serialize, or write the document: typed settings and the retained source, comments included, stay byte
 for byte and the host returns `S_FALSE`. The one exception is an earlier deferred write still held in memory (below),
@@ -368,6 +381,9 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   are deduplicated; every distinct later change is reconsidered.
 - A valid candidate is applied transactionally after the host reselects the page that was current, when that page
   still exists in the candidate. Failure preserves or restores the previous settings and dashboard.
+- A candidate whose typed settings equal the running ones (for example a comment or spacing edit) only becomes the
+  retained source document: it MUST NOT cancel a page swipe, a raise, or a wheel sequence. A swipe that commits after
+  it MUST change only the active page, so that source stays the document a later persist or dock drag writes.
 - A successful live load MUST apply the candidate in memory only. It MUST NOT write the watched file, format it,
   persist a widget merge, or collect-on-exit onto that path. The editor's bytes stay until an explicit widget persist
   or other user-driven save. `--self-test` MUST NOT write `%LocalAppData%` and MUST NOT write the deployed template.
@@ -441,6 +457,12 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   dock for a missing and for an invalid default file (with the notice), keeps an existing file byte for byte, installs
   the plain template byte for byte when no dock is offered or the offered dock is refused by the patch, and never writes
   a missing `--settings` file.
+- Tests prove `PatchDockThickness` adds a new `dock` to both shipped templates as one line right after `version` in the
+  template's line breaks; appends a missing `thickness` after the last dock member on its line, before a trailing comma
+  and comment, and on a new line at its indentation; fills an empty `dock` and appends a missing `version.minor`;
+  patches a `dock` that follows a line comment ended by a lone CR in place; and raises the typed minor with the source
+  minor. A dock drag whose write fails restores the typed minor with the thickness and source, and a committed drag
+  leaves the typed minor equal to the file's.
 - Tests prove a partial widget persist merge keeps unspecified members and rejects unknown plugin members.
 - Tests prove the persist write gate: a widget persist or dock drag over a rejected save, a loaded but not yet applied
   save, a deleted file, and a `--settings` file that fell back to the default returns `S_FALSE`, leaves the file bytes
@@ -462,8 +484,9 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 - Hidden host tests prove first-page startup, blank pages, inactive-page resource absence, transactional apply, WARP
   rendering, current-plus-adjacent-only swipe staging, that a live reload of an unchanged page list keeps the page
   that was current, and that a catalogued plugin whose DLL cannot be mapped becomes a placeholder without aborting
-  startup. Host tests prove JSONL `Log` reject/write/flush behavior, UTC-dated file names, and retention deletion of
-  expired and legacy log files. Settings tests prove the default logs path is the
+  startup. The `--self-test` run proves that a source-only reload keeps a staged swipe and is still the document after
+  the swipe commits to its page. Host tests prove JSONL `Log` reject/write/flush behavior, UTC-dated file names, and
+  retention deletion of expired and legacy log files. Settings tests prove the default logs path is the
   `Logs` sibling of `Settings`, omitted `logRetentionDays` is 15, and values outside 1–365 are rejected.
 - Parser tests prove that `PreserveActiveDashboardPage` follows an authored page id across a reorder, keeps a
   generated `page.N` index when that page remains, and falls back to the first page when the current page is gone.

@@ -1204,8 +1204,18 @@ template <size_t Count>
         }
         const auto cleanup = wil::scope_exit([&temporary]() noexcept { DeleteFileW(temporary.c_str()); });
         DWORD written = 0;
-        if (!WriteFile(file.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr) ||
-            written != bytes.size())
+        if (!WriteFile(file.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr))
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+        // A short write that reports no error is still a failed write: never rename a truncated document into place.
+        if (written != bytes.size())
+        {
+            return HRESULT_FROM_WIN32(ERROR_WRITE_FAULT);
+        }
+        // MOVEFILE_WRITE_THROUGH makes only the rename durable. Flush the data first, so a power loss right after a
+        // save cannot leave the settings name on bytes that never reached the disk.
+        if (!FlushFileBuffers(file.get()))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
@@ -1871,9 +1881,11 @@ struct SourceMember final
     size_t valueBegin = 0;
     size_t valueEnd = 0;
     size_t closingBrace = 0;
+    // The object's last member, where a new member is appended.
+    size_t lastKeyBegin = 0;
+    size_t lastValueEnd = 0;
     bool found = false;
     bool hasMembers = false;
-    bool trailingComma = false;
 };
 
 [[nodiscard]] bool SkipSourceTrivia(std::string_view source, size_t& position) noexcept
@@ -1890,8 +1902,9 @@ struct SourceMember final
         }
         if (source[position + 1] == '/')
         {
+            // A line comment ends at CR or LF, exactly where the parser ends it.
             position += 2;
-            while (position < source.size() && source[position] != '\n')
+            while (position < source.size() && source[position] != '\n' && source[position] != '\r')
             {
                 ++position;
             }
@@ -2078,7 +2091,8 @@ struct SourceMember final
             return false;
         }
         found.hasMembers = true;
-        found.trailingComma = false;
+        found.lastKeyBegin = keyBegin;
+        found.lastValueEnd = position;
         if (matching)
         {
             found.found = true;
@@ -2093,7 +2107,6 @@ struct SourceMember final
         if (source[position] == ',')
         {
             ++position;
-            found.trailingComma = true;
         }
         else if (source[position] != '}')
         {
@@ -2102,8 +2115,17 @@ struct SourceMember final
     }
 }
 
+// The document's own line break: CRLF when it has one, otherwise LF.
+[[nodiscard]] std::string_view SourceLineBreak(std::string_view source) noexcept
+{
+    return source.find("\r\n") != std::string_view::npos ? "\r\n" : "\n";
+}
+
+// Replaces the value of `key`, or appends `"key": replacement` in the object's own layout: right after the last
+// member's value (its trailing comma or comment then follows the new member), on a new line at that member's
+// indentation when the member starts its own line, otherwise on the same line. Throws only std::bad_alloc.
 [[nodiscard]] bool PatchSourceMember(std::string& source, size_t objectBegin, std::string_view key,
-                                     std::string_view replacement) noexcept
+                                     std::string_view replacement)
 {
     SourceMember member{};
     if (!FindSourceMember(source, objectBegin, key, member))
@@ -2113,19 +2135,36 @@ struct SourceMember final
     if (member.found)
     {
         source.replace(member.valueBegin, member.valueEnd - member.valueBegin, replacement);
+        return true;
     }
-    else
+    std::string addition;
+    size_t insertAt = member.closingBrace;
+    if (member.hasMembers)
     {
-        std::string addition;
-        if (member.hasMembers && !member.trailingComma)
+        insertAt = member.lastValueEnd;
+        addition.push_back(',');
+        const size_t newline = source.find_last_of('\n', member.lastKeyBegin);
+        const size_t lineBegin = newline == std::string::npos ? 0 : newline + 1;
+        if (newline != std::string::npos && newline > objectBegin &&
+            source.find_first_not_of(" \t", lineBegin) == member.lastKeyBegin)
         {
-            addition.push_back(',');
+            addition.append(SourceLineBreak(source)).append(source, lineBegin, member.lastKeyBegin - lineBegin);
         }
-        addition.append(key);
-        addition.push_back(':');
-        addition.append(replacement);
-        source.insert(member.closingBrace, addition);
+        else
+        {
+            addition.push_back(' ');
+        }
     }
+    else if (!std::isspace(static_cast<unsigned char>(source[insertAt - 1])))
+    {
+        addition.push_back(' ');
+    }
+    addition.append(key).append(": ").append(replacement);
+    if (!member.hasMembers)
+    {
+        addition.push_back(' ');
+    }
+    source.insert(insertAt, addition);
     return true;
 }
 
@@ -2153,7 +2192,8 @@ struct SourceMember final
     return SkipSourceTrivia(source, rootBegin) ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 }
 
-[[nodiscard]] bool RaiseDockSourceMinor(std::string& source, size_t rootBegin, uint32_t minor) noexcept
+// Throws only std::bad_alloc.
+[[nodiscard]] bool RaiseDockSourceMinor(std::string& source, size_t rootBegin, uint32_t minor)
 {
     std::array<char, 16> digits{};
     const int length = std::snprintf(digits.data(), digits.size(), "%u", minor);
@@ -2161,6 +2201,46 @@ struct SourceMember final
     return length > 0 && FindSourceMember(source, rootBegin, "\"version\"", version) && version.found &&
            PatchSourceMember(source, version.valueBegin, "\"minor\"",
                              std::string_view(digits.data(), static_cast<size_t>(length)));
+}
+
+// A new root member (`"key": value`) on its own line right after `version`, at that member's indentation and in the
+// file's own line breaks, below the given whole comment lines. Throws only std::bad_alloc.
+[[nodiscard]] bool InsertRootMemberAfterVersion(std::string& source, size_t rootBegin, std::string_view member,
+                                                std::initializer_list<std::string_view> comments)
+{
+    SourceMember version{};
+    if (!FindSourceMember(source, rootBegin, "\"version\"", version) || !version.found)
+    {
+        return false;
+    }
+    const size_t newline = source.find_last_of('\n', version.keyBegin);
+    const size_t lineBegin = newline == std::string::npos ? 0 : newline + 1;
+    std::string indentation = source.substr(lineBegin, version.keyBegin - lineBegin);
+    if (indentation.find_first_not_of(" \t") != std::string::npos)
+    {
+        indentation = "  ";
+    }
+    const std::string_view lineBreak = SourceLineBreak(source);
+    std::string lines;
+    for (const std::string_view comment : comments)
+    {
+        lines.append(lineBreak).append(indentation).append(comment);
+    }
+    lines.append(lineBreak).append(indentation).append(member);
+    size_t after = version.valueEnd;
+    if (!SkipSourceTrivia(source, after) || after >= source.size())
+    {
+        return false;
+    }
+    if (source[after] == ',')
+    {
+        source.insert(after + 1, lines + ",");
+    }
+    else
+    {
+        source.insert(version.valueEnd, "," + lines);
+    }
+    return true;
 }
 } // namespace
 
@@ -2190,6 +2270,8 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
+        // An existing dock gains or replaces `thickness`; a new one goes where the first-run dock goes, on its own line
+        // after `version`.
         const std::string thickness = std::to_string(thicknessDips);
         if (dock.found)
         {
@@ -2198,7 +2280,8 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
         }
-        else if (!PatchSourceMember(updated, rootBegin, "\"dock\"", "{\"thickness\":" + thickness + "}"))
+        else if (!InsertRootMemberAfterVersion(updated, rootBegin, "\"dock\": { \"thickness\": " + thickness + " }",
+                                               {}))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -2210,8 +2293,24 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
         {
             return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
         }
+        // The patched text is what gets written, so it must parse back to the same dock with the new thickness. A
+        // scanner that read the document differently from the parser would otherwise persist a file the next start
+        // rejects and resets.
+        DockSettings expected = settings.dock;
+        expected.thicknessDips = thicknessDips;
+        std::unique_ptr<AppSettings> patched;
+        if (const HRESULT validated = ParseAppSettingsJsonV5(updated, patched); FAILED(validated))
+        {
+            return validated;
+        }
+        if (!patched || patched->dock != expected)
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
         settings.sourceDocument = std::move(updated);
         settings.dock.thicknessDips = thicknessDips;
+        // A raised source minor is the typed minor too, so the next comment-only reload still matches the runtime.
+        settings.versionMinor = patched->versionMinor;
         return S_OK;
     }
     catch (const std::bad_alloc&)
@@ -2308,48 +2407,19 @@ HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcep
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
+        // An existing value is replaced. A new member goes on its own line after `version`, with the reason above it
+        // so the person who opens the file knows where the bar came from and how to turn it off.
         if (existing.found)
         {
             updated.replace(existing.valueBegin, existing.valueEnd - existing.valueBegin, member);
         }
-        else
+        else if (!InsertRootMemberAfterVersion(
+                     updated, rootBegin, "\"dock\": " + member,
+                     {"// No XENEON display was found when RedXe installed this file, so this dock runs it as a bar on "
+                      "a screen edge;",
+                      "// set \"edge\" to \"none\" to use the standard window instead."}))
         {
-            // A new line after `version`, at its indentation and in the file's own line breaks, with the reason
-            // above it so the person who opens the file knows where the bar came from and how to turn it off.
-            SourceMember version{};
-            if (!FindSourceMember(updated, rootBegin, "\"version\"", version) || !version.found)
-            {
-                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-            }
-            const size_t newline = updated.find_last_of('\n', version.keyBegin);
-            const size_t lineBegin = newline == std::string::npos ? 0 : newline + 1;
-            std::string indentation = updated.substr(lineBegin, version.keyBegin - lineBegin);
-            if (indentation.find_first_not_of(" \t") != std::string::npos)
-            {
-                indentation = "  ";
-            }
-            const std::string_view lineBreak = updated.find("\r\n") != std::string::npos ? "\r\n" : "\n";
-            std::string lines;
-            lines.append(lineBreak).append(indentation);
-            lines.append(
-                "// No XENEON display was found when RedXe installed this file, so this dock runs it as a bar on "
-                "a screen edge;");
-            lines.append(lineBreak).append(indentation);
-            lines.append("// set \"edge\" to \"none\" to use the standard window instead.");
-            lines.append(lineBreak).append(indentation).append("\"dock\": ").append(member);
-            size_t after = version.valueEnd;
-            if (!SkipSourceTrivia(updated, after) || after >= updated.size())
-            {
-                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-            }
-            if (updated[after] == ',')
-            {
-                updated.insert(after + 1, lines + ",");
-            }
-            else
-            {
-                updated.insert(version.valueEnd, "," + lines);
-            }
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         if (raiseMinor && !RaiseDockSourceMinor(updated, rootBegin, requiredMinor))
         {
@@ -2879,6 +2949,7 @@ HRESULT SettingsStore::PersistPatchedDocument(const AppSettings& settings) noexc
 HRESULT SettingsStore::PersistDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept
 {
     const uint32_t previousThickness = settings.dock.thicknessDips;
+    const uint32_t previousMinor = settings.versionMinor;
     try
     {
         std::string previousSource = settings.sourceDocument;
@@ -2890,6 +2961,7 @@ HRESULT SettingsStore::PersistDockThickness(AppSettings& settings, uint32_t thic
         if (FAILED(result))
         {
             settings.dock.thicknessDips = previousThickness;
+            settings.versionMinor = previousMinor;
             settings.sourceDocument = std::move(previousSource);
         }
         return result;

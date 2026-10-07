@@ -1357,12 +1357,14 @@ constexpr std::string_view kRepresentative = R"json(
     }
     AppSettings created{};
     if (FAILED(ParseAppSettingsJson(olderMinor, created)) || FAILED(PatchDockThickness(created, 300)) ||
-        created.dock.thicknessDips != 300 || created.sourceDocument.find("\"dock\"") == std::string::npos ||
+        created.dock.thicknessDips != 300 || created.versionMinor != 2 ||
+        created.sourceDocument.find("\"dock\"") == std::string::npos ||
         created.sourceDocument.find("\"minor\":2") == std::string::npos ||
         FAILED(ParseAppSettingsJson(created.sourceDocument, reparsed)) || reparsed.dock.thicknessDips != 300 ||
         reparsed.versionMinor != 2 || reparsed.dock.edge != DockEdge::None)
     {
-        std::wprintf(L"PatchDockThickness did not create the dock object on a minor 1 document.\n");
+        std::wprintf(
+            L"PatchDockThickness did not create the dock object on a minor 1 document, typed minor included.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     if (SUCCEEDED(PatchDockThickness(created, 31)) || SUCCEEDED(PatchDockThickness(created, 1081)) ||
@@ -1372,6 +1374,96 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     return S_OK;
+}
+
+// A dragged edge writes `dock.thickness` in the document's own layout: a new `dock` on its own line after `version`
+// (one line in each shipped template, in its line breaks), a missing `thickness` after the last dock member, on its
+// line or on a new line at its indentation, and a missing `minor` the same way inside `version`. The typed minor
+// follows a raised source minor, and a line comment ends at a lone CR exactly where the parser ends it.
+[[nodiscard]] HRESULT ValidateDockThicknessLayout() noexcept
+{
+    try
+    {
+        for (const wchar_t* name : {kRedXeDebugSettingsFileName, kRedXeReleaseSettingsFileName})
+        {
+            std::filesystem::path path;
+            std::string original;
+            HRESULT result = GetDeployedPath(name, path);
+            if (SUCCEEDED(result))
+                result = ReadFile(path, original);
+            if (FAILED(result))
+                return result;
+            constexpr std::string_view versionMember = "\"version\": { \"major\": 5, \"minor\": 3 },";
+            const size_t versionAt = original.find(versionMember);
+            AppSettings dragged{};
+            if (versionAt == std::string::npos || FAILED(ParseAppSettingsJson(original, dragged)) ||
+                FAILED(PatchDockThickness(dragged, 220)))
+            {
+                std::wprintf(L"PatchDockThickness could not patch the %s template.\n", name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            std::string expected = original;
+            expected.insert(versionAt + versionMember.size(),
+                            (original.find("\r\n") != std::string::npos ? "\r\n" : "\n") +
+                                std::string("  \"dock\": { \"thickness\": 220 },"));
+            AppSettings reparsed{};
+            if (dragged.sourceDocument != expected || FAILED(ParseAppSettingsJson(dragged.sourceDocument, reparsed)) ||
+                reparsed.dock.thicknessDips != 220 || reparsed.dock.edge != DockEdge::None ||
+                dragged.versionMinor != kRedXeSettingsVersionMinor)
+            {
+                std::wprintf(L"PatchDockThickness did not add dock to %s as one line after version.\n", name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+
+        struct LayoutCase
+        {
+            std::string_view source;
+            std::string_view expected;
+        };
+        const LayoutCase cases[]{
+            // On the last member's line.
+            {R"json({"version":{"major":5,"minor":2},"dock":{ "edge": "bottom" },"pages":[{}]})json",
+             R"json({"version":{"major":5,"minor":2},"dock":{ "edge": "bottom", "thickness": 220 },"pages":[{}]})json"},
+            // Before the last member's trailing comma and comment, which then follow it.
+            {R"json({"version":{"major":5,"minor":2},"dock":{ "edge": "top", /* keep */ },"pages":[{}]})json",
+             R"json({"version":{"major":5,"minor":2},"dock":{ "edge": "top", "thickness": 220, /* keep */ },)json"
+             R"json("pages":[{}]})json"},
+            // On a new line at the last member's indentation.
+            {"{\n  \"version\": { \"major\": 5, \"minor\": 2 },\n  \"dock\": {\n    \"edge\": \"left\" // keep\n"
+             "  },\n  \"pages\": [{}]\n}\n",
+             "{\n  \"version\": { \"major\": 5, \"minor\": 2 },\n  \"dock\": {\n    \"edge\": \"left\",\n"
+             "    \"thickness\": 220 // keep\n  },\n  \"pages\": [{}]\n}\n"},
+            // An empty dock, and the minor a minor 0 document gains.
+            {R"json({"version":{"major":5},"dock":{},"pages":[{}]})json",
+             R"json({"version":{"major":5, "minor": 2},"dock":{ "thickness": 220 },"pages":[{}]})json"},
+            // A line comment that ends at a lone CR: the dock after it is a member to the parser, so it is patched in
+            // place instead of gaining a duplicate that the next start would reject.
+            {"{\"version\":{\"major\":5,\"minor\":2},// note\r\"dock\":{\"edge\":\"top\",\"thickness\":100},\n"
+             "\"pages\":[{}]}",
+             "{\"version\":{\"major\":5,\"minor\":2},// note\r\"dock\":{\"edge\":\"top\",\"thickness\":220},\n"
+             "\"pages\":[{}]}"},
+        };
+        for (const LayoutCase& layout : cases)
+        {
+            AppSettings dragged{};
+            AppSettings reparsed{};
+            if (FAILED(ParseAppSettingsJson(layout.source, dragged)) || FAILED(PatchDockThickness(dragged, 220)) ||
+                dragged.sourceDocument != layout.expected || dragged.versionMinor != kRedXeSettingsDockMinor ||
+                FAILED(ParseAppSettingsJson(dragged.sourceDocument, reparsed)) || reparsed.dock != dragged.dock ||
+                reparsed.versionMinor != dragged.versionMinor)
+            {
+                std::wprintf(L"PatchDockThickness did not follow the document's layout:\n%hs\n",
+                             dragged.sourceDocument.c_str());
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
 }
 
 // The `trayIcon` root member (minor 3): omitted, it follows the build (Release shows the notification-area icon,
@@ -2359,6 +2451,14 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             std::wprintf(L"Failed persistence changed the authoritative settings or disk.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
+        // A failed dock drag rolls back the same way, including the minor it raised (0 to 2 here).
+        result = store.PersistDockThickness(*loaded, 200);
+        if ((result != HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION) && result != E_ACCESSDENIED) || *loaded != *before ||
+            FAILED(ReadFile(path, disk)) || disk != documentJson)
+        {
+            std::wprintf(L"A failed dock-thickness persist changed the authoritative settings or disk.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
         locked.reset();
         if (SUCCEEDED(store.PersistWidgetSettings(*loaded, id, "[]")) || *loaded != *before)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -2377,6 +2477,14 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             saved != loaded->dashboard.pages[0].widgets[1].privateConfiguration)
         {
             std::wprintf(L"A later save resurrected the rejected patch or lost the new patch.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // A committed drag leaves the typed minor equal to the file's.
+        if (store.PersistDockThickness(*loaded, 200) != S_OK ||
+            FAILED(LoadAppSettingsFile(path.wstring(), *reloaded)) || reloaded->dock.thicknessDips != 200 ||
+            reloaded->versionMinor != kRedXeSettingsDockMinor || loaded->versionMinor != reloaded->versionMinor)
+        {
+            std::wprintf(L"A committed dock-thickness persist left the typed minor apart from the file.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         return S_OK;
@@ -2742,6 +2850,7 @@ int wmain()
     const Test tests[]{{L"templates/schema", ValidateTemplatesAndSchema},
                        {L"parser", ValidateParser},
                        {L"dock", ValidateDockSettings},
+                       {L"dock thickness layout", ValidateDockThicknessLayout},
                        {L"tray icon", ValidateTrayIconSettings},
                        {L"command line", ValidateCommandLineCatalog},
                        {L"AV profile configuration", ValidateAvControlSettings},

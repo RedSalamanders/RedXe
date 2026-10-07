@@ -378,8 +378,10 @@ enum class SettingsReloadStatus : std::uint8_t
 // S_FALSE when the merge leaves the stored instance object unchanged: typed settings and the source are not touched.
 [[nodiscard]] HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view instanceId,
                                                   std::string_view settingsJson) noexcept;
-// Sets `dock.thickness` in the typed settings and the retained source document (creating `dock`, and raising
-// `version.minor` to 2 when lower); a dragged bar edge persists through this. The formatting contract applies.
+// Sets `dock.thickness` in the typed settings and the retained source document (creating `dock` on its own line after
+// `version`, and raising `version.minor` to 2 when lower, typed minor included); a dragged bar edge persists through
+// this. The formatting contract applies, and the patched source must parse back to the same dock with the new
+// thickness, or nothing changes.
 [[nodiscard]] HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept;
 // Writes `dock` into a template's source for the first start without a XENEON (Core_Settings.md "Cold load and
 // recovery"): a new member on its own line after `version`, with a comment naming why and how to turn it off, or the
