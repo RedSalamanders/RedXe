@@ -1,6 +1,6 @@
 # Review fixes for PRs #21 to #32
 
-Status: `ACTIVE`, with open product decisions (see [Decisions](#decisions)).
+Status: `ACTIVE`. Decisions D1 to D9 are resolved (see [Decisions](#decisions)); D6 is the owner's repository setting.
 Date: 2026-10-06
 Owner: the domain specs listed under [Contracts expected to change](#contracts-expected-to-change).
 
@@ -59,7 +59,9 @@ Fix:
 - Turn `keys.down` and `mouse.down` on a Logicon key, dial button or turn into an invalid binding (red `!`, never
   dispatched) instead of a document error, with a precise diagnostic. Align the schema, `docs/actions.md` and
   `docs/plugins/logicon.md`. Launcher taps keep their current behavior (decision D9).
-- Add SettingsTests that load the exact `v1.0.102` Release and Debug templates and a document with a held binding.
+- Add SettingsTests that load the exact `v1.0.102` Release and Debug templates and a document with a held binding,
+  plus a case that sets all seven retired members with varied JSON value kinds (string, number, boolean, null,
+  object, array) and checks that one load logs one warning.
 
 ### B2. Release workflow runs the Python tooling suite
 
@@ -185,7 +187,8 @@ Recommended defaults are in bold. On 2026-10-07 the owner asked for the whole pl
 recommended defaults apply; D6 stays the owner's repository setting and is not changed by any batch.
 
 - D1, upgrade policy (B1): **accept and ignore retired members with a warning**, or migrate the file on first load.
-  Is a rollback from a newer build to `v1.0.102` supported? Today it resets the file in that direction too.
+  Rollback from a newer build to an older one: **not supported**; `Core_Settings.md` says an older build may reject a
+  newer file and that cold recovery keeps the backup.
 - D2, first-run bar (P3):
   - The top edge of the second screen covers maximized windows' caption buttons: **prefer the free bottom edge**, or
     keep the top edge and inset the strip's corners?
@@ -218,8 +221,8 @@ recommended defaults apply; D6 stays the owner's repository setting and is not c
 
 - Every batch, B1 and B2 included: the affected build, `Test-Changes.ps1` for the changed scopes, and the validation
   its owning specs name. B1, B2 and P1 to P4 also run `test.ps1 -Full` on x64 Debug and Release before their PR.
-- B1: a SettingsTests case per `v1.0.102` template and a held Logicon binding, plus the Zoom, Logicon, Settings and
-  HostPlugin suites.
+- B1: a SettingsTests case per `v1.0.102` template, the all-retired-members case with varied value kinds and one
+  warning per load, and a held Logicon binding, plus the Zoom, Logicon, Settings and HostPlugin suites.
 - B2: the BuildProcess (tooling) scope, run explicitly, because the corrected release command skips it and
   `ScopedTesting.Tests.ps1` carries the extended assertion; plus the release command run locally on x64 Release.
   Never dispatch `release.yml` as a test: every dispatch creates a GitHub release and, with the default inputs,
