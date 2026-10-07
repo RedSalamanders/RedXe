@@ -30,6 +30,11 @@ inline constexpr uint32_t kReconnectBackoffSteps = 4;
 inline constexpr uint32_t kWheelDetentUnits = 120;
 // Requests for the published "logicon" namespace arriving from other owners through IRedXeActionPack::Execute.
 inline constexpr uint32_t kMaximumLocalRequests = 4;
+// The in-memory dialpad the test contract can present to the lane in place of Bluetooth discovery.
+inline constexpr uint32_t kSyntheticDialpadNone = 0;
+inline constexpr uint32_t kSyntheticDialpadAnswering = 1;
+// Present, but answers no HID++ command, as a sleeping dialpad or one Options+ holds.
+inline constexpr uint32_t kSyntheticDialpadUnresponsive = 2;
 using ActionName = std::array<char, kMaximumActionBytes + 1>;
 
 enum class OverrideKind : uint8_t
@@ -76,6 +81,8 @@ inline constexpr uint32_t kInjectKindDialButton = 2;
 struct DialpadSnapshot final
 {
     bool connected = false;
+    // The dialpad is present and a turn is bound, so the wheels should be read; listening says whether they are.
+    bool wheelsWanted = false;
     bool wheelsListening = false;
     uint32_t buttons = 0;
     // Bit n = button n is diverted (bound); the others keep their native behavior.
@@ -168,6 +175,8 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
     [[nodiscard]] HRESULT SetFaceOverride(uint32_t slot, OverrideKind kind, uint32_t colorRgb) noexcept;
     [[nodiscard]] HRESULT SetBrightness(uint32_t percent) noexcept;
     [[nodiscard]] HRESULT SetSynthetic(bool enabled) noexcept;
+    // kSyntheticDialpadNone, kSyntheticDialpadAnswering, or kSyntheticDialpadUnresponsive.
+    [[nodiscard]] HRESULT SetSyntheticDialpad(uint32_t mode) noexcept;
     [[nodiscard]] HRESULT InjectSyntheticReport(const uint8_t* report, uint32_t bytes) noexcept;
     void AttachMonitor(bool attached) noexcept;
     [[nodiscard]] bool Started() const noexcept;
@@ -192,6 +201,9 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
     void CloseDevice(HANDLE stopEvent, bool restore) noexcept;
     [[nodiscard]] HRESULT TryOpenDialpad(HANDLE stopEvent) noexcept;
     void CloseDialpad(HANDLE stopEvent, bool restore) noexcept;
+    // Starts or stops the process-wide Raw Input sink when "dialpad present and a turn bound" changes; the HID++
+    // session plays no part.
+    void UpdateWheels() noexcept;
     void DispatchEdges(const ControlEdges& edges) noexcept;
     void DispatchSlot(uint32_t slot) noexcept;
     void DispatchDialButton(uint32_t button) noexcept;
@@ -242,6 +254,7 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
     uint32_t _injectedCount = 0;
     uint32_t _brightnessRequest = 0;
     bool _syntheticRequested = false;
+    uint32_t _syntheticDialpadRequested = kSyntheticDialpadNone;
     HANDLE _wakeEvent = nullptr;
     MonitorSnapshot _snapshot{};
     std::unique_ptr<uint32_t[]> _grid;
@@ -278,6 +291,11 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
     DeviceSession _session;
     DeviceSession _dialpad;
     RawWheelListener _wheels;
+    // Whether the last dialpad discovery found it, and whether the wheels were last asked to run.
+    bool _dialpadPresent = false;
+    bool _wheelsWanted = false;
+    SyntheticKeypad _syntheticDialpad;
+    uint32_t _syntheticDialpadMode = kSyntheticDialpadNone;
     uint32_t _dialpadAttempts = 0;
     uint32_t _dialButtonPresses = 0;
     uint32_t _wheelSteps = 0;

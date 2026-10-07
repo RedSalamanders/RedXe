@@ -188,10 +188,11 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   `RedXeDeskClockGetTestDiagnostics`, `RedXeDeskClockSetTestTime`, `RedXeWeatherGetTestDiagnostics`, and
   `RedXeWeatherProbeHttpGetOnSmallStack`, `RedXeWeatherBuildTestLocationSearchUrl`,
   `RedXeAVControlUseSyntheticBackend` and `RedXeAVControlTestSnapshot`, and the Logicon surface
-  `RedXeLogiconGetTestDiagnostics`, `RedXeLogiconUseSyntheticDevice`, `RedXeLogiconInjectControl`,
-  `RedXeLogiconInjectSyntheticReport`, `RedXeLogiconSetFaceOverride`, and `RedXeLogiconSetBrightness`. AV synthetic
-  mode is accepted only before providers exist and is never exposed as a user setting or environment toggle; the
-  Logicon synthetic keypad is selected only through its exports or the Debug monitor tile, never by a setting.
+  `RedXeLogiconGetTestDiagnostics`, `RedXeLogiconUseSyntheticDevice`, `RedXeLogiconUseSyntheticDialpad`,
+  `RedXeLogiconInjectControl`, `RedXeLogiconInjectSyntheticReport`, `RedXeLogiconSetFaceOverride`, and
+  `RedXeLogiconSetBrightness`. AV synthetic mode is accepted only before providers exist and is never exposed as a
+  user setting or environment toggle; the Logicon synthetic keypad is selected only through its exports or the Debug
+  monitor tile, and the synthetic dialpad only through its export, never by a setting.
 - Every factory call names one non-empty plugin ID. Null and empty IDs are invalid, including in single-plugin DLLs.
 - Factory, enumeration, widget creation, device notification, GPU rendering, native-window lifecycle, host-service,
   data-source, provider, and data-sink calls are synchronous and non-reentrant. Widget visibility, collect-on-exit,
@@ -373,13 +374,15 @@ Logicon publishes its closed service schema (`brightness` 1–100, `restoreLogoO
 object with `turns` and `buttons` arrays) and defaults
 `{"brightness":70,"restoreLogoOnExit":true,"pageButtons":"keyPages","keys":[],"dialpad":{"turns":[],"buttons":[]}}`;
 the Logicon Monitor publishes a closed empty object. `Specs/Plugins/Plugins_Logicon.md` owns the member semantics.
-Zoom publishes a closed empty service schema and `{}` defaults; `Specs/Plugins/Plugins_Zoom.md` owns the
-browser action semantics.
+Zoom is a dedicated action DLL and publishes no settings contract; `Specs/Plugins/Plugins_Zoom.md` owns the browser
+action semantics and the retired `builtin.zoom` services entry.
 
 ## Service contract
 
-A service is a plugin object the host runs without a placed widget. `Plugins/Logicon` and `Plugins/Actions/Zoom` are
-the shipped ones; both also publish an action namespace (`Plugins_Actions.md`).
+A service is a plugin object the host runs without a placed widget. `Plugins/Logicon` is the shipped one; it also
+publishes an action namespace (`Plugins_Actions.md`). `RedXe/BundledPlugins.h` lists plugin ids that are no longer
+services in `kRedXeRetiredServices` (today `builtin.zoom`); a `services` entry naming one loads and is never started
+(`Core_Settings.md` "Services").
 
 - A DLL advertises `RedXePluginCapabilityService` and creates the object through
   `RedXeCreate(IID_IRedXeService, …)` with the same compact `{"plugin":{},"instance":<effective-settings>}` envelope
@@ -415,10 +418,11 @@ the shipped ones; both also publish an action namespace (`Plugins_Actions.md`).
   its own I/O events; it MUST NOT poll, sleep-loop, touch Direct3D, wait on the UI thread, create a thread, or
   re-enter the host except through `RequestAction`, `RequestFrame`, and `Log`. A lane that needs Raw Input (a
   device Windows opens exclusively, such as a mouse collection) MAY own one hidden, never-shown top-level window on
-  the lane thread, registered with `RIDEV_INPUTSINK`, and then waits with `MsgWaitForMultipleObjectsEx` and drains
-  at most 256 queued messages per turn on the same thread; it MUST unregister its sink and destroy the window
-  before returning, and it MUST NOT replace another user's process-wide registration (today only Logicon registers
-  `usage page 1 / usage 2`, and only while its dialpad is connected). The service MAY signal `wakeEvent`
+  the lane thread, registered with `RIDEV_INPUTSINK`, and then waits with `MsgWaitForMultipleObjectsEx`, message-aware
+  only while that sink is registered, and drains at most 256 queued messages per batch on the same thread; it MUST
+  unregister its sink, destroy the window, and drain what it left queued before returning, and it MUST NOT replace
+  another user's process-wide registration (today only Logicon registers `usage page 1 / usage 2`, and only while
+  its dialpad is present and a turn is bound). The service MAY signal `wakeEvent`
   from any thread while the call runs and MUST NOT touch either handle after it returns. `StopDeviceLane` signals
   `stopEvent`, waits `kRedXeDeviceWorkerDrainMilliseconds` (3000) for the thread, joins it, and closes the events.
   `PluginHost::StopServices` signals every lane's `stopEvent` before it waits for the first, so the lanes drain
@@ -559,7 +563,11 @@ GPU vtables.
     the larger of the two. Raster resources may be minified, but layout and input coordinates MUST match the actual
     per-frame viewport, including intermediate overlay sizes during animation.
   - A widget with no resolution-dependent resources returns `S_OK` and does nothing.
-  - A failure is isolated: the host keeps the widget's previous resources and continues rendering it.
+  - A failure is isolated: the host keeps the widget's previous resources and continues rendering it, and logs one
+    Warning record `gpu-target-size-failed` with the widget instance and the `HRESULT` for that notification.
+- A failed `OnDeviceCreated` fails the device setup of its whole page: the host releases that page's widgets already
+  set up, fails the step that asked (startup, device recovery, or staging a page for a swipe), and logs one Error
+  record `gpu-device-create-failed` with the widget instance and the `HRESULT`.
 - `OnDeviceLost` is idempotent and releases all plugin-owned device resources before the host releases its device.
   The host MUST deactivate and drain current and staged widget work before device teardown, stage new pages hidden
   until setup completes, and restore prior visibility only after successful resource creation. GPU state accessed by
@@ -790,11 +798,11 @@ device lane and turns key presses and dialpad detents into named actions (`Plugi
 protocol, faces, and validation are owned by [`Plugins_Logicon.md`](Plugins_Logicon.md). `Logicon.dll` imports
 `hid.dll`, `cfgmgr32.dll`, `windowscodecs.dll`, `ole32.dll`, and `yyjson.dll` (copied beside it); Debug builds also
 construct the monitor widget when it is placed in the Debug template.
-`Plugins/Actions/Zoom` builds `zoom.action.dll`, the first dedicated action DLL: service plugin ID `builtin.zoom`
-(`RedXePluginCapabilityService | RedXePluginCapabilityActions`, `IRedXeService` plus `IRedXeActionPack`) publishing
-only `zoom.open` and `zoom.join`. It opens the Zoom web join page or a meeting invite through `system.launch` and
-requires no Zoom installation, SDK, registration, or token. Behavior and validation are owned by
-[`Plugins_Zoom.md`](Plugins_Zoom.md). The DLL imports `yyjson.dll` (copied beside it).
+`Plugins/Actions/Zoom` builds `zoom.action.dll`, the first dedicated action DLL: plugin ID `builtin.zoom`
+(`RedXePluginCapabilityActions` only, one `IRedXeActionPack` created on first execution, no settings contract)
+publishing only `zoom.open` and `zoom.join`. It opens the Zoom web join page or a meeting link through
+`system.launch` and requires no Zoom installation, SDK, registration, token, or `services` entry. Behavior and
+validation are owned by [`Plugins_Zoom.md`](Plugins_Zoom.md). The DLL imports `yyjson.dll` (copied beside it).
 
 `Plugins/RotatingTriangle` exposes settings-visible plugin ID `builtin.rotating-triangle`, internally maps it to type
 ID `rotating-triangle`, publishes closed `{}` settings and defaults, and exposes sibling `IRedXeGpuWidget` and
@@ -912,8 +920,13 @@ the first `OnDeviceCreated` for a device and released by any `OnDeviceLost`; the
 the offscreen color texture, and two `R32G32B32A32_FLOAT` feedback buffers belong to each widget. An entry MAY
 declare up to two lookup-table passes (fixed-size `R32G32B32A32_FLOAT` textures; Sky Atmosphere's transmittance
 256×64 and multiple scattering 32×32) but not together with a feedback buffer; their textures are created at device
-creation and drawn once per device during `OnTargetSizeChanged`, the second pass reading the first
-on `iChannel0`, after which the image pass reads them on `iChannel0` and `iChannel1` at no per-frame cost. A
+creation and drawn once per device, the second pass reading the first on `iChannel0`, after which the image pass reads
+them on `iChannel0` and `iChannel1` at no per-frame cost. The tables MUST be drawn by the `OnDeviceCreated` of the
+first widget whose configuration can show their entry (`single` on it, `random` that picked it, or any `slideshow`),
+and that call MUST fail and release the widget's constant buffer when they cannot be drawn, so the host's device-setup
+rollback and `gpu-device-create-failed` log cover the failure. A widget that can never show the entry MUST NOT draw
+them, and `OnTargetSizeChanged` never draws them, so a failed or repeated size notification cannot leave them undrawn
+or draw them again. A
 shader reads a channel through `texture()` (mipmapped sample) or `textureLod()` (explicit level); inside a loop of
 varying trip count it MUST use `textureLod()`. `OnTargetSizeChanged` sizes the offscreen
 texture and the feedback buffers to the largest viewport times `renderScalePercent` (offscreen only below 100 %;
@@ -1139,17 +1152,23 @@ dots per segment at the target scale. Main, seconds, and ring dots share the tar
 local date uses smaller three-dot segments in `timeColor` and the selected fixed numeric order. Its two three-dot
 hyphens are positioned to leave balanced clear space before the following numeric group. With no date, the largest
 fitting square clock is centered in the viewport. With a date, rendering centers an unstretched 10:9 composition whose
-upper square remains the clock and whose lower band contains the date wholly below that square. The procedural
-composition contains no copied branding, runtime font, DirectWrite, WIC, texture, or loose image asset.
+upper square remains the clock and whose lower band contains the date wholly below that square. Every halo MUST stay
+inside the composition, so a height-limited tile never cuts one at its border: the date sits high enough in its band
+that the halo of its lowest row reaches zero at the band's bottom edge. The procedural composition contains no copied
+branding, runtime font, DirectWrite, WIC, texture, or loose image asset.
 
 `glowPercent` is LED bloom: every visible dot, dimmed ring positions included, emits an additive halo in its own color
 whose strength scales linearly with the setting (0.6 times the LED color at 100, before falloff) and with the dot's own
 brightness. The halo falls off smoothly to zero at four LED radii from the dot center; date halos, whose overlapping
-dots would otherwise sum to about twice the glow of the time digits, are weighted by 0.55. The halo stays out of the
-LED disc, all halos are drawn before any LED core, and the cores composite over them, so a lit LED keeps its exact
-configured color, a dimmed position keeps its brightness, and the result does not depend on dot order. The default 35
-keeps the gaps between the dots of a segment clearly darker than the dots; 100 merges each segment into a glowing bar;
-0 draws no halo.
+dots would otherwise sum to about twice the glow of the time digits, are weighted by 0.55. The halo stays out of its
+own LED disc, all halos are drawn before any LED core, and the cores composite over them, so a lit LED keeps its exact
+configured color, no LED is brightened by its own halo, and the result does not depend on dot order. A dimmed ring
+position's core (18 percent alpha) lets 82 percent of the light beneath it through. The only halo that reaches a ring
+position is its partner's, 3.6 LED radii away on the same radial line (an ordinary position at a multiple of five
+seconds and its companion): on a dimmed position it brightens the half facing the partner, from up to about 6
+percent of the partner's color at the rim at 100 (scaled by the setting, and by 0.18 from a dimmed partner) down to
+nothing at the center, and the other half keeps its brightness. The default 35 keeps the gaps between the dots of a
+segment clearly darker than the dots; 100 merges each segment into a glowing bar; 0 draws no halo.
 
 Studio Clock owns four embedded stripped Shader Model 5.0 blobs, one provider-shared immutable shader/state resource
 set per device, and one 160-byte dynamic constant buffer per attached widget. A frame issues one opaque fullscreen
@@ -1157,7 +1176,10 @@ triangle and one premultiplied-alpha instanced dot draw. The draw covers 114 dot
 174 for the date, and 72 for the ordinary and five-second companion ring dots, bounded at 402. A nonzero `glowPercent`
 submits each dot twice in that same draw, one halo instance and then one core instance, bounded at 804 submitted
 instances. Constants map once only when the time bucket, settings, viewport, or DPI-derived state changes; an
-unrelated continuous sibling frame reuses them.
+unrelated continuous sibling frame reuses them. A raised clock is the exception: the host draws it at its tile and
+again at the overlay slice in every frame, the two viewports differ, so each of those draws rebuilds and maps the
+constants, two maps per presented frame while a continuous sibling keeps frames coming (see
+`Core_PerformanceAndResources.md`).
 Rendering performs no heap allocation,
 I/O, wait, synchronization, CPU dot loop, runtime shader compilation, timer, worker, or HWND work.
 
@@ -1357,7 +1379,7 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
 ## Required validation
 
 1. Run `./format.ps1` and `./validate-skills.ps1`.
-2. Run Debug and Release x64 `test.ps1`; both must pass the plugin contract executable, the production host/plugin
+2. Run Debug and Release x64 `test.ps1 -Full`; both must pass the plugin contract executable, the production host/plugin
    harness, and the hidden application WARP smoke frame.
 3. Build Release ARM64 and confirm the host, plugins, contract tests, and host/plugin harness compile.
 4. Verify factory null outputs, unsupported IIDs, non-empty IDs, exact current record sizes, rejection of smaller and
@@ -1397,6 +1419,11 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     moves Desk Clock's glyph atlas to its higher tier and back down when the viewport shrinks, and that the widget
     still renders after a tier change. Also verify one notification for a DPI-only change, none for unchanged DPI,
     correct initial notification for a same-sized replacement page, and cache preservation on promotion.
+    With fault-injecting wrappers around placed GPU widgets on WARP, they MUST prove that a failed `OnDeviceCreated`,
+    at startup and while staging a page, releases the widgets already set up, sets up no later one, keeps the page
+    hidden, and logs one Error `gpu-device-create-failed` with that instance and `HRESULT`; and that a failed
+    `OnTargetSizeChanged` releases nothing, is not retried per frame, leaves that widget and its siblings rendering,
+    and logs one Warning `gpu-target-size-failed` with that instance and `HRESULT`.
     Lifecycle tests MUST prove data/network widgets are hidden during all device callbacks and render after WARP
     recreation. Event-barrier tests MUST prove subscription release and deactivation wait for running and reserved
     callbacks, allow reactivation, and safely reuse released subscription slots.
@@ -1480,9 +1507,12 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     paths, common target LED diameter, balanced date separator gaps, dated/undated descriptor variants,
     square-plus-lower-date-band WARP readback across landscape, portrait, square, and minimum sizes, `glowPercent`
     range and type rejection, glow readback at 0, 35, and 100 (unchanged lit core color, a halo in the LED color that
-    grows with the setting, no light beyond the four-radius extent, an unchanged dimmed ring LED), device recreation,
-    zero steady render allocations with glow, one-upload/two-draw and 402-dot/804-instance bounds, resource sharing,
-    five-minute scheduled host soak, and complete teardown through `StudioClockTests` and `HostPluginTests`.
+    grows with the setting, no light 3.6 radii from an isolated LED so a wider halo fails, an unchanged dimmed ring LED
+    center and the documented companion light on its rim, seconds and date halos matching the documented strength,
+    falloff, `secondsColor`, and 0.55 date weight, and no light on any border pixel of height-limited dated tiles),
+    device recreation, zero steady render allocations with glow, one-upload/two-draw and 402-dot/804-instance bounds,
+    resource sharing, five-minute scheduled host soak, and complete teardown through `StudioClockTests` and
+    `HostPluginTests`.
 18. Verify Desk Clock defaults and normalized effective settings, strict duration/color validation,
     controlling-IUnknown identity, second-boundary and active-flip scheduling, transactional reconfiguration,
     inactive-gallery absence, deterministic rollover and date-change phases, landscape/portrait/minimum WARP readback,
@@ -1523,12 +1553,12 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     flush releases it) while a second shutdown does not flush again, and it still stops the launch worker: a queued
     launch never starts and one in the shell logs `launch-stop-timeout` (`TestLaunchWorker`); and under a session-end
     budget a responsive lane stopped after a stuck one still drains and runs `Stop`, and only the stuck one logs
-    `device-lane-drain-timeout` (`TestSessionEndDeadline`). `SettingsTests` MUST cover the `services`
-    grammar and rejections and both templates' Logicon and Zoom objects. Plugins_Logicon.md owns the protocol and
-    face vectors.
+    `device-lane-drain-timeout` (`TestSessionEndDeadline`). `SettingsTests` MUST cover the `services` grammar and
+    rejections, both templates' Logicon objects, and the retired `builtin.zoom` entry. Plugins_Logicon.md owns the
+    protocol and face vectors.
 
-21. Verify the action contract, registry, validation, and execution through `HostPluginTests` and the Zoom service
-    through `ZoomTests` as [`Plugins_Actions.md`](Plugins_Actions.md) and [`Plugins_Zoom.md`](Plugins_Zoom.md)
+21. Verify the action contract, registry, validation, and execution through `HostPluginTests` and the Zoom action
+    DLL through `ZoomTests` as [`Plugins_Actions.md`](Plugins_Actions.md) and [`Plugins_Zoom.md`](Plugins_Zoom.md)
     require; `HostPluginTests` MUST map every catalogued module and prove no action namespace collides.
 
 The automated Debug host composition must contain the GPU launcher, one rotating-triangle GPU fixture, the GDI
@@ -1544,7 +1574,9 @@ production entry points (feedback ports long enough for their simulation to show
 prove the slideshow order, the frame restart at a change, the fade through the dashboard background, the tap that
 skips a slideshow ahead (consumed Up, fade-out then the next entry, wrap-around after a catalog's worth of taps),
 that a drag and a click in `single` mode change nothing, the shared provider resource set, device-loss recreation,
-and an allocation-free steady-state `Render`.
+an allocation-free steady-state `Render`, and that lookup tables are drawn once at device creation (again after device
+recreation) only for a configuration that can show their entry, never by a sibling or a size notification, and that
+Sky Atmosphere after a failed first size notification renders exactly what a successfully sized widget renders.
 The `System` page of each shipped template MUST place one instance of every Process Viewer family widget. Both
 templates configure every catalogued service under `services`.
 Scheduler tests must prove

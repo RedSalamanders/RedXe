@@ -95,7 +95,8 @@ inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwi
     RedXeCommandLineSwitch{RedXeSwitch::After, L"--after", nullptr, RedXeSwitchValue::Separate, L"<milliseconds>",
                            L"Settle time before the capture, 1 through 120000 (default 3000).", L"Screenshot"},
     RedXeCommandLineSwitch{RedXeSwitch::SelfTest, L"--self-test", nullptr, RedXeSwitchValue::None, nullptr,
-                           L"Hidden startup validation with the deployed template; exits 0 when the host works.",
+                           L"Hidden startup validation with the deployed template; exits 0 when the host works and 6 "
+                           L"when a check fails, which it names on stderr.",
                            L"Diagnostics", true},
     RedXeCommandLineSwitch{RedXeSwitch::CrashTest, L"--crash-test", nullptr, RedXeSwitchValue::None, nullptr,
                            L"Raise a test crash to exercise the dump writer.", L"Diagnostics", true},
@@ -322,6 +323,7 @@ inline constexpr int kRedXeScreenshotFailedExitCode = 8;
         }
     }
     text += L"\nExit codes: 0 ok, 1 settings, 2 command line or window, 3 plugins, 5 graphics, 7 settings watcher,\n";
-    text += L"8 screenshot capture. Settings, dock, pages, and actions: docs/usage.md and docs/actions.md.\n";
+    text += L"8 screenshot capture. --self-test: 6 a failed check, 3 a failed Debug runtime check, 4 abort(), each\n";
+    text += L"reported on stderr. Settings, dock, pages, and actions: docs/usage.md and docs/actions.md.\n";
     return text;
 }

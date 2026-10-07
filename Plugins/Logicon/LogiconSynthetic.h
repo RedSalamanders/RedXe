@@ -69,6 +69,11 @@ class SyntheticKeypad final
     {
         return _dialpad;
     }
+    // When true the device counts every HID++ command and answers none, as a sleeping or wedged device does.
+    void Unresponsive(bool unresponsive) noexcept
+    {
+        _unresponsive = unresponsive;
+    }
 
     // Port side.
     [[nodiscard]] HRESULT HandleWrite(const uint8_t* report, uint32_t bytes) noexcept;
@@ -96,6 +101,7 @@ class SyntheticKeypad final
     bool _resetSeen = false;
     bool _hideDisplayFromRoot = false;
     bool _dialpad = false;
+    bool _unresponsive = false;
 };
 
 class SyntheticHidPort final : public HidPort
@@ -107,7 +113,8 @@ class SyntheticHidPort final : public HidPort
     [[nodiscard]] HRESULT TakeReport(uint8_t* buffer, uint32_t capacity, uint32_t& bytes) noexcept override;
     [[nodiscard]] HRESULT Write(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
                                 uint32_t timeoutMilliseconds) noexcept override;
-    [[nodiscard]] HRESULT SetFeature(const uint8_t* report, uint32_t bytes) noexcept override;
+    [[nodiscard]] HRESULT SetFeature(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
+                                     uint32_t timeoutMilliseconds) noexcept override;
     [[nodiscard]] bool Disconnected() const noexcept override;
     void Cancel() noexcept override;
 

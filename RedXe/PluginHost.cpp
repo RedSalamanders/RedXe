@@ -2558,6 +2558,18 @@ HRESULT PluginHost::ApplyServiceSettings(const AppSettings& settings) noexcept
     return first;
 }
 
+void PluginHost::LogRetiredServiceSettings(const AppSettings& settings) noexcept
+{
+    // A retired service (today builtin.zoom, with or without its v1.0.102 members) still loads; its entry is ignored.
+    for (const SettingsText& pluginId : settings.retiredServices)
+    {
+        (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, pluginId.utf8.data(), nullptr,
+                           "service-retired-settings-ignored",
+                           "This services entry is no longer needed: the plugin is not a service any more, so the "
+                           "entry is ignored and can be deleted.");
+    }
+}
+
 void PluginHost::PublishHostState(const RedXeHostState& state) noexcept
 {
     if (state.sizeBytes != sizeof(RedXeHostState))

@@ -39,9 +39,7 @@
           { "button": 3, "action": "keys.media", "target": "mute" }
         ]
       }
-    },
-    // Zoom web actions open the browser; no desktop client or Marketplace application is needed.
-    "Zoom": { "plugin": "builtin.zoom" }
+    }
   },
   "declare": {
     "Matrix": { "plugin": "builtin.matrix-rain" },

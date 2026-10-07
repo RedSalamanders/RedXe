@@ -99,23 +99,25 @@ float2 SecondsSegmentPosition(float anchor, uint segment, uint dotIndex)
     return float2(anchor - 0.0103 + float(dotIndex) * 0.0176, 0.7079);
 }
 
+// The date sits high enough in the band below the clock square that the halo of its lowest row (1.087 plus four radii
+// of 0.006) fades out at 1.111, inside the band's 10/9 bottom edge, instead of being cut by the viewport.
 float2 DateSegmentPosition(float anchor, uint segment, uint dotIndex)
 {
-    static const float upperY[3] = {1.033, 1.044, 1.055};
-    static const float lowerY[3] = {1.069, 1.08, 1.091};
+    static const float upperY[3] = {1.021, 1.032, 1.043};
+    static const float lowerY[3] = {1.057, 1.068, 1.079};
     if (segment == 0)
-        return float2(anchor + float(dotIndex) * 0.0075, 1.025);
+        return float2(anchor + float(dotIndex) * 0.0075, 1.013);
     if (segment == 1)
         return float2(anchor + 0.023 - float(dotIndex) * 0.0013, upperY[dotIndex]);
     if (segment == 2)
         return float2(anchor + 0.0185 - float(dotIndex) * 0.0013, lowerY[dotIndex]);
     if (segment == 3)
-        return float2(anchor - 0.01 + float(dotIndex) * 0.0075, 1.099);
+        return float2(anchor - 0.01 + float(dotIndex) * 0.0075, 1.087);
     if (segment == 4)
         return float2(anchor - 0.0115 - float(dotIndex) * 0.0013, lowerY[dotIndex]);
     if (segment == 5)
         return float2(anchor - 0.0075 - float(dotIndex) * 0.0013, upperY[dotIndex]);
-    return float2(anchor - 0.0045 + float(dotIndex) * 0.0075, 1.062);
+    return float2(anchor - 0.0045 + float(dotIndex) * 0.0075, 1.05);
 }
 
 float2 TimeDot(uint instanceId, out float radius, out bool visible)
@@ -158,7 +160,7 @@ float2 DateDot(uint instanceId, out float radius, out bool visible)
         const uint separator = separatorCell / 3;
         const uint column = separatorCell - separator * 3;
         visible = true;
-        return float2((separator == 0 ? 0.38125 : 0.51625) + (float(column) - 1.0) * 0.006, 1.062);
+        return float2((separator == 0 ? 0.38125 : 0.51625) + (float(column) - 1.0) * 0.006, 1.05);
     }
 
     const uint digitIndex = instanceId / 21;

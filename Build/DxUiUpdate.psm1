@@ -27,7 +27,8 @@ function Get-RedXeDxUiValidatedMainCandidate {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string] $LockFile,
-        [scriptblock] $Request
+        [scriptblock] $Request,
+        [switch] $AllowApiRevisionChange
     )
 
     $pin = Read-RedXeDxUiUpdateLock -LockFile $LockFile
@@ -49,7 +50,20 @@ function Get-RedXeDxUiValidatedMainCandidate {
             $runs[0].status -ne 'completed' -or $runs[0].conclusion -ne 'success') {
             throw "DxUi main $($candidate.Substring(0, 12)) has no successful completed validation; the lock remains unchanged."
         }
-        return [pscustomobject]@{ LockFile = $LockFile; Current = $pin.commit; Candidate = $candidate; IsCurrent = $false }
+
+        # The candidate's own compatibility number, from its capabilities.json. The product moves to another API revision only as
+        # one reviewed adoption (the supported revision in DxUiRestore.psm1, the lock and the adapters), so a candidate at another
+        # revision is refused unless that adoption is asked for.
+        $capabilities = & $Request "contents/capabilities.json?ref=$candidate"
+        $apiRevision = [string] ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([string] $capabilities.content)) | ConvertFrom-Json).apiRevision
+        if ($apiRevision -cnotmatch '^[1-9][0-9]{0,8}$') {
+            throw "DxUi main $($candidate.Substring(0, 12)) names no API revision in capabilities.json; the lock remains unchanged."
+        }
+        $supported = Get-RedXeDxUiSupportedApiRevision
+        if ([int] $apiRevision -ne $supported -and -not $AllowApiRevisionChange) {
+            throw "DxUi main $($candidate.Substring(0, 12)) is at API revision $apiRevision and this product is adapted to revision $supported; the lock remains unchanged. Adopting revision $apiRevision is one reviewed change: run Update-DxUi.ps1 -AllowApiRevisionChange, then change the supported revision in Build/DxUiRestore.psm1 and the adapters the revision needs."
+        }
+        return [pscustomobject]@{ LockFile = $LockFile; Current = $pin.commit; Candidate = $candidate; IsCurrent = $false; ApiRevision = [int] $apiRevision }
     }
     catch [System.Exception] {
         throw "Cannot select a validated DxUi main candidate: $($_.Exception.Message)"
@@ -59,11 +73,13 @@ function Get-RedXeDxUiValidatedMainCandidate {
 function Set-RedXeDxUiLockCommit {
     param(
         [Parameter(Mandatory)][string] $LockFile,
-        [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string] $Commit
+        [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string] $Commit,
+        [Parameter(Mandatory)][ValidateRange(1, [int]::MaxValue)][int] $ApiRevision
     )
 
     $pin = Read-RedXeDxUiUpdateLock -LockFile $LockFile
     $pin.commit = $Commit
+    $pin.apiRevision = $ApiRevision
     $json = ($pin | ConvertTo-Json -Depth 5) + [Environment]::NewLine
     $directory = Split-Path -Parent $LockFile
     $temporary = Join-Path $directory ('.' + [IO.Path]::GetFileName($LockFile) + ".$PID.$([guid]::NewGuid().ToString('N')).tmp")
@@ -82,11 +98,12 @@ function Invoke-RedXeDxUiUpdate {
         [Parameter(Mandatory)][string] $RepoRoot,
         [switch] $UpdateOnly,
         [scriptblock] $Request,
-        [scriptblock] $ValidationAction
+        [scriptblock] $ValidationAction,
+        [switch] $AllowApiRevisionChange
     )
 
     $lockFile = Join-Path $RepoRoot 'Dependencies/DxUi.lock.json'
-    $candidate = Get-RedXeDxUiValidatedMainCandidate -LockFile $lockFile -Request $Request
+    $candidate = Get-RedXeDxUiValidatedMainCandidate -LockFile $lockFile -Request $Request -AllowApiRevisionChange:$AllowApiRevisionChange
     if ($candidate.IsCurrent) {
         Write-Host "DxUi is already pinned to validated main $($candidate.Current.Substring(0, 12))." -ForegroundColor Green
         return [pscustomobject]@{ Updated = $false; Validated = $false; Candidate = $candidate.Candidate }
@@ -99,8 +116,15 @@ function Invoke-RedXeDxUiUpdate {
     if (-not $UpdateOnly -and -not $ValidationAction) {
         throw 'A product validation action is required unless -UpdateOnly is selected.'
     }
-    Set-RedXeDxUiLockCommit -LockFile $lockFile -Commit $candidate.Candidate
+    Set-RedXeDxUiLockCommit -LockFile $lockFile -Commit $candidate.Candidate -ApiRevision $candidate.ApiRevision
     Write-Host "DxUi pin updated: $($candidate.Current.Substring(0, 12)) -> $($candidate.Candidate.Substring(0, 12))." -ForegroundColor Yellow
+
+    $supported = Get-RedXeDxUiSupportedApiRevision
+    if ($candidate.ApiRevision -ne $supported) {
+        # Asked for with -AllowApiRevisionChange: the lock names the new revision, which the build refuses until the adoption is done.
+        Write-Host "DxUi API revision $supported -> $($candidate.ApiRevision): the build refuses this lock until the supported revision in Build/DxUiRestore.psm1 and the adapters the revision needs change with it. Product validation is not run before then." -ForegroundColor Yellow
+        return [pscustomobject]@{ Updated = $true; Validated = $false; Candidate = $candidate.Candidate; ApiRevision = $candidate.ApiRevision }
+    }
 
     if ($UpdateOnly) {
         Write-Host 'Product validation skipped by -UpdateOnly; retain external validation evidence with this branch.' -ForegroundColor Yellow

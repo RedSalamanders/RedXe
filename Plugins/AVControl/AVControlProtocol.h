@@ -21,7 +21,8 @@ enum class BrokerOperation : uint32_t
     // Available only to an explicitly synthetic helper; never accepted by the hardware backend.
     FixtureHang,
     FixtureExit,
-    FixtureMalformedReply
+    FixtureMalformedReply,
+    FixtureFailedCheck
 };
 enum BackendCapability : uint32_t
 {

@@ -36,7 +36,7 @@ Every namespace has exactly one executor.
 | Class | Namespaces | Declared where | Executes where |
 | --- | --- | --- | --- |
 | Default (hardcoded, no DLL) | `page`, `widget`, `redxe`, `system`, `keys`, `mouse` | `RedXe/HostActionCatalog.cpp` (`constexpr` descriptor tables; `kRedXeDefaultActionNamespaceNames` in `BundledPlugins.h` mirrors the list) | `page`, `widget`, `redxe` in `Application::HandleHostAction`; `system`, `keys`, `mouse` in `RedXe/HostActions.cpp`; always on the UI thread, except that a launch completes on the host's [launch worker](#launch-worker) |
-| Published | `logicon` (`builtin.logicon`, `Logicon.dll`), `zoom` (`builtin.zoom`, `zoom.action.dll`) | The publisher's `RedXeGetActionContract`, registered to its plugin id in `kRedXeBundledActionNamespaces` | The publisher's `IRedXeActionPack::Execute` on the UI thread |
+| Published | `logicon` (`builtin.logicon`, `Logicon.dll`, a service), `zoom` (`builtin.zoom`, `zoom.action.dll`, a dedicated action DLL) | The publisher's `RedXeGetActionContract`, registered to its plugin id in `kRedXeBundledActionNamespaces` | The publisher's `IRedXeActionPack::Execute` on the UI thread; a launch it requests completes on the launch worker |
 
 Default namespaces are reserved: a publisher contract that names one is a collision. A plugin id may publish up to
 `kRedXeMaximumActionNamespacesPerPlugin` (4) namespaces of at most 32 bytes each, each with at most
@@ -93,7 +93,9 @@ Two layers decide what a document may say and what a control does:
    the binding **invalid**: Logicon draws the red `!` face, Launcher draws the `Warning` glyph tile, and neither ever
    dispatches it. No object, thread, or window is created for validation. Logicon controls are press-only, so a
    Logicon binding to `keys.down` or `mouse.down` is invalid the same way without a `ValidateAction` call
-   (`Plugins_Logicon.md`).
+   (`Plugins_Logicon.md`). A Launcher shortcut has no such rule: a tap bound to `keys.down` or `mouse.down` is a
+   valid binding, executes once, and holds the chord or button until a matching `up`, a replacement hold, or the
+   2 s release (`keys.*` below).
 
 An unsatisfied target therefore never rejects a document (including a Launcher launch target that is not an absolute
 path or URI); only the closed shape, the grammar, and the namespace do.
@@ -199,8 +201,8 @@ above, never a private vocabulary.
 
 ## Shared target grammars — `Common/Actions`
 
-`ActionTargets.h/.cpp` is compiled into the host and into publishers that use its grammars (Logicon, Launcher) so validation and
-execution agree by construction. `RedXeActions::ValidateTarget(descriptor, target)` dispatches on the descriptor's
+`ActionTargets.h/.cpp` is compiled into the host and into publishers that use its grammars (Logicon, Launcher, Zoom)
+so validation and execution agree by construction. `RedXeActions::ValidateTarget(descriptor, target)` dispatches on the descriptor's
 kind and returns `S_OK`, `E_INVALIDARG`, or (for a null/empty target on a kind other than `None` without
 `TargetOptional`) `E_INVALIDARG`; `SplitSuffix` separates a trailing `@<selector>` when the descriptor carries
 `MonitorSuffix` or `WindowSuffix` (a `Point` handles its own `@monitor`). The parsers allocate nothing and copy into
@@ -219,7 +221,7 @@ caller-owned bounded storage.
 | **Point** | `<x>,<y>` (physical virtual-screen pixels), `+<dx>,+<dy>`, or `center`, each optionally `@<monitor>` (`ParsePoint`). |
 | **Monitor** | `primary`, `secondary` (the first display in `EnumDisplayMonitors` order that is neither the primary nor the display XENEON discovery found, and that XENEON only when it is the only display that is not the primary: `SecondaryMonitorRank`, the dock's rule too; the host repeats discovery on every `WM_DISPLAYCHANGE`), `xeneon` (the monitor hosting RedXe's window), `all`, `<n>` (1-based `EnumDisplayMonitors` order), `name:<substring>` (`ParseMonitorSelector`). |
 | **Window** | `foreground`, `exe:<image.exe>`, `class:<class>`, `title:<substring>` (`ParseWindowSelector`; `WindowSelector.cpp` selects the first visible non-tool top-level window in Z order without allocating, and `BringToForeground` taps `Alt` synthetically before `SetForegroundWindow`). |
-| **Meeting** | `https://<host>/j/<id>[?pwd=<passcode>]` or `<id>[:<passcode>]` with a 9–11 digit id (`ParseMeeting`). |
+| **Meeting** | A complete Zoom browser link (`ParseMeeting`, `Plugins_Zoom.md`): `https://`, then `zoom.us` or a subdomain with no `@`, `:`, `#`, or `?` in the authority, then `/j/<id>`, `/wc/join/<id>`, or `/wc/<id>/join` with a 9–11 digit id, ending the path or followed by `?` or `#`; printable ASCII without `"`, `<`, `>`, or `\`. |
 | **NowOrSeconds** | `now`, or a decimal delay in seconds within the bounds (`ParseNowOrSeconds`). |
 
 `FluentGlyphNames.h` (the Segoe Fluent Icons name table shared by Logicon faces and Launcher tiles) and
@@ -366,8 +368,10 @@ distinct failure.
   closed shape for the DLL and the host's settings validator; a committed tap calls `ExecuteAction`, and a failed
   result reports `Degraded` "Launch failed". A launch the shell fails after it was deferred is the host's
   `launch-failed` log record instead.
-- **Zoom** (`Plugins_Zoom.md`): the first dedicated action DLL, a service publishing `zoom`; its deferred actions
-  return `S_FALSE` once `system.launch` is requested.
+- **Zoom** (`Plugins_Zoom.md`): the first dedicated action DLL. `zoom.action.dll` publishes `zoom` without a service
+  or settings, so `zoom.*` bindings need no `services` entry; a retired `builtin.zoom` entry loads and is ignored. Its
+  deferred actions return `S_FALSE` once `RequestAction` accepts (or coalesces) their `system.launch`, which the drain
+  hands to the launch worker; a browser that fails to open then is the host's `launch-failed` log record.
 
 ## Performance and resource bounds
 
@@ -399,11 +403,12 @@ distinct failure.
   `keys.down`, monitor-relative and half-relative points, named and unknown power plans), an unknown default verb
   and an unregistered namespace (`ERROR_NOT_FOUND`), the Logicon and Zoom publishers resolved from their shipped
   modules (`Ready`, a target outside the published bounds `E_INVALIDARG`, an unknown published verb
-  `ERROR_NOT_FOUND`, the `zoom.open` and `zoom.join` browser contract), the shipped catalog
-  producing no notice, the **D** flag on launches, `redxe.settings.reload`, and `redxe.quit`, and
-  device-access-disabled execution of `keys`, `system`, and `mouse` actions that counts inputs, launches, and power
-  requests without performing them. `TestQueuedInputAge`: an aged key press is dropped while an aged release, an aged
-  non-input action, and fresh input run, a coalesced repeat takes the newer time, and one `action-expired` Warning is
+  `ERROR_NOT_FOUND`, the `zoom.open` and `zoom.join` browser contract with Meeting links accepted and malformed or
+  spoofed ones `E_INVALIDARG`), the shipped catalog producing no notice, the **D** flag on launches,
+  `redxe.settings.reload`, and `redxe.quit`, device-access-disabled execution of `keys`, `system`, and `mouse` actions
+  that counts inputs, launches, and power requests without performing them, and `zoom.*` executed through the
+  dedicated executor without any service, deferred (`S_FALSE`) and drained as `system.launch`. `TestQueuedInputAge`:
+  an aged key press is dropped while an aged release, an aged non-input action, and fresh input run, a coalesced repeat takes the newer time, and one `action-expired` Warning is
   logged. `TestHeldInputTimer`: a replacement down releases the previous chord or button; an `up` naming another
   chord or button leaves the hold tracked until its own `up` releases it; a held chord and button release on the
   timer after the deadline, their own `up` then injects nothing (`S_FALSE`) while any other `up` injects; with
@@ -423,9 +428,10 @@ distinct failure.
   reserve is waited for only with what is left and is still logged as `launch-stop-timeout`; and a zero-wait stop of
   an idle worker logs no `launch-stop-timeout`, the thread exits by itself, and the shutdown after it joins it.
 - `SettingsTests`: document-level acceptance of both templates' bindings (`page.*`, `widget.*`, `keys.media`, dialpad
-  `turns`; in Debug also `logicon.keyPage.*`, `logicon.brightness`, and `zoom.open`) and of the `builtin.zoom`
-  service object, rejection of unknown names, unknown default verbs, `iconPng`, and a non-launch Launcher item
-  without `icon`, and acceptance of a launch target that is not a path (decision D1).
+  `turns`; in Debug also `logicon.keyPage.*`, `logicon.brightness`, and `zoom.open`, without a Zoom `services`
+  entry), acceptance and ignoring of a retired `builtin.zoom` services entry, rejection of unknown names, unknown
+  default verbs, `iconPng`, and a non-launch Launcher item without `icon`, and acceptance of a launch target that is
+  not a path (decision D1).
 - `LogiconTests`, `LauncherTests`, `ZoomTests`: their owning specs. `--self-test` renders both templates with device
   access disabled, so every template binding is validated on every run without a side effect.
 - `--self-test` also runs `redxe.screenshot` against its hidden window: an ordinal past the page is `ERROR_NOT_FOUND`

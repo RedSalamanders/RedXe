@@ -159,6 +159,10 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // access enabled; --self-test and host tests disable it before StartServices.
     [[nodiscard]] HRESULT StartServices(const AppSettings& settings) noexcept;
     [[nodiscard]] HRESULT ApplyServiceSettings(const AppSettings& settings) noexcept;
+    // One service-retired-settings-ignored Warning per retired `services` entry of a document (Core_Settings.md
+    // "Services"). Application calls it once per document load: after the startup load and after each applied live
+    // reload, never from StartServices or ApplyServiceSettings, which also run for in-process changes.
+    void LogRetiredServiceSettings(const AppSettings& settings) noexcept;
     void PublishHostState(const RedXeHostState& state) noexcept;
     void StopServices(uint32_t budgetMilliseconds = INFINITE) noexcept;
     void SetDeviceAccessEnabled(bool enabled) noexcept;

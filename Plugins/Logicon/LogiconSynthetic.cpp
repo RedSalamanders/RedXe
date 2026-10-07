@@ -281,6 +281,10 @@ HRESULT SyntheticKeypad::HandleWrite(const uint8_t* report, uint32_t bytes) noex
         return S_OK;
     }
     ++_commands;
+    if (_unresponsive)
+    {
+        return S_OK;
+    }
     const uint8_t featureIndex = report[2];
     const uint8_t function = static_cast<uint8_t>(report[3] >> 4U);
     const uint8_t softwareId = static_cast<uint8_t>(report[3] & 0x0FU);
@@ -487,7 +491,7 @@ HRESULT SyntheticHidPort::Write(const uint8_t* report, uint32_t bytes, HANDLE, u
     return _keypad.HandleWrite(report, bytes);
 }
 
-HRESULT SyntheticHidPort::SetFeature(const uint8_t* report, uint32_t bytes) noexcept
+HRESULT SyntheticHidPort::SetFeature(const uint8_t* report, uint32_t bytes, HANDLE, uint32_t) noexcept
 {
     return _keypad.HandleFeature(report, bytes);
 }

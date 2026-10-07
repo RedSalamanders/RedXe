@@ -12,6 +12,11 @@ namespace
 constexpr wchar_t kClassName[] = L"RedXe.Logicon.RawInput";
 constexpr USHORT kGenericDesktopPage = 0x01;
 constexpr USHORT kMouseUsage = 0x02;
+// Messages one Pump dispatches before the lane returns to its wait.
+constexpr uint32_t kPumpMessages = 256;
+// Messages Stop dispatches before it gives up on a queue that never empties; above a thread's default quota of 10,000
+// posted messages, so it empties any queue that nothing refills while it drains.
+constexpr uint32_t kStopDrainMessages = 16384;
 
 [[nodiscard]] bool MouseRegistration(HWND& target, bool& found) noexcept
 {
@@ -218,7 +223,15 @@ void RawWheelListener::Stop() noexcept
     }
     if (_window)
     {
-        (void)DestroyWindow(_window);
+        // Packets queued before the removal stay in this thread's queue, and the lane's wait stops watching the queue
+        // once the sink is gone: dispatch all of them while the window still exists, so each WM_INPUT reaches
+        // Procedure and DefWindowProc, and only then destroy it. Only the lane thread that created the window owns that
+        // queue and can destroy the window; any other caller leaves both alone rather than draining its own queue.
+        if (GetWindowThreadProcessId(_window, nullptr) == GetCurrentThreadId())
+        {
+            Dispatch(kStopDrainMessages);
+            (void)DestroyWindow(_window);
+        }
         _window = nullptr;
     }
     if (_classRegistered)
@@ -228,6 +241,9 @@ void RawWheelListener::Stop() noexcept
     }
     _module = nullptr;
     _deviceCount = 0;
+    _state = WheelState{};
+    _pending = WheelDeltas{};
+    _arrived = false;
 }
 
 bool RawWheelListener::Running() const noexcept
@@ -235,14 +251,44 @@ bool RawWheelListener::Running() const noexcept
     return _window != nullptr && _sinkRegistered;
 }
 
+DWORD RawWheelListener::Wait(uint32_t count, const HANDLE* handles, DWORD timeoutMilliseconds) noexcept
+{
+    const uint64_t started = GetTickCount64();
+    DWORD remaining = timeoutMilliseconds;
+    for (;;)
+    {
+        // A wake mask of 0 waits on the handles alone; MWMO_INPUTAVAILABLE also reports input already seen.
+        const DWORD waited =
+            MsgWaitForMultipleObjectsEx(count, handles, remaining, Running() ? QS_ALLINPUT : 0, MWMO_INPUTAVAILABLE);
+        if (waited != WAIT_OBJECT_0 + count || Pump())
+        {
+            return waited;
+        }
+        if (timeoutMilliseconds != INFINITE)
+        {
+            const uint64_t elapsed = GetTickCount64() - started;
+            if (elapsed >= timeoutMilliseconds)
+            {
+                return WAIT_TIMEOUT;
+            }
+            remaining = static_cast<DWORD>(timeoutMilliseconds - elapsed);
+        }
+    }
+}
+
 bool RawWheelListener::Pump() noexcept
 {
-    if (!_window)
-    {
-        return false;
-    }
+    Dispatch(kPumpMessages);
+    const bool arrived = _arrived;
+    _arrived = false;
+    return arrived;
+}
+
+void RawWheelListener::Dispatch(uint32_t limit) noexcept
+{
     MSG message{};
-    for (uint32_t drained = 0; drained < 256 && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE); ++drained)
+    uint32_t dispatched = 0;
+    while (dispatched < limit && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
     {
         if (message.message == WM_QUIT)
         {
@@ -250,10 +296,8 @@ bool RawWheelListener::Pump() noexcept
         }
         (void)TranslateMessage(&message);
         (void)DispatchMessageW(&message);
+        ++dispatched;
     }
-    const bool arrived = _arrived;
-    _arrived = false;
-    return arrived;
 }
 
 const WheelState& RawWheelListener::State() const noexcept

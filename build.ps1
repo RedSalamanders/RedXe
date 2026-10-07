@@ -77,49 +77,9 @@ Write-Host ''
 
 Assert-BuildOutputProcessNotRunning -ProcessName 'RedXe.exe' -ExpectedExecutablePath $executable
 
-function Find-MSBuild {
-    if ($env:MSBUILD_EXE_PATH -and (Test-Path -LiteralPath $env:MSBUILD_EXE_PATH -PathType Leaf)) {
-        return $env:MSBUILD_EXE_PATH
-    }
-
-    $pathCommand = Get-Command 'msbuild.exe' -ErrorAction SilentlyContinue
-    if ($pathCommand) {
-        return $pathCommand.Source
-    }
-
-    $vswhereCandidates = @(
-        (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'),
-        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\Installer\vswhere.exe')
-    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) }
-
-    foreach ($vswhere in $vswhereCandidates) {
-        $matches = & $vswhere -all -prerelease -products '*' -requires Microsoft.Component.MSBuild `
-            -find 'MSBuild\**\Bin\amd64\MSBuild.exe' 2>$null
-        $candidate = $matches | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
-        if ($candidate) {
-            return $candidate
-        }
-    }
-
-    $roots = @(
-        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio'),
-        (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio')
-    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) }
-
-    foreach ($root in $roots) {
-        $candidate = Get-ChildItem -LiteralPath $root -Filter 'MSBuild.exe' -File -Recurse -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -match '\\MSBuild\\Current\\Bin\\(amd64\\)?MSBuild\.exe$' } |
-            Sort-Object FullName -Descending |
-            Select-Object -First 1
-        if ($candidate) {
-            return $candidate.FullName
-        }
-    }
-
-    throw 'MSBuild was not found. Install the Visual Studio Desktop development with C++ workload from .vsconfig.'
-}
-
-$msbuild = Find-MSBuild
+# vcpkg-install.ps1 and restore-dxui.ps1 resolve the same MSBuild when they run on their own.
+Import-Module (Join-Path $repoRoot 'Build\DxUiRestore.psm1') -Force -ErrorAction Stop
+$msbuild = Find-RedXeMSBuild
 $target = if ($Clean) { 'Clean' } elseif ($Rebuild) { 'Rebuild' } else { 'Build' }
 $dependencyInstaller = Join-Path $repoRoot 'vcpkg-install.ps1'
 $operationStopwatch = [Diagnostics.Stopwatch]::StartNew()
