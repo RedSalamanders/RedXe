@@ -18,6 +18,9 @@ if (-not $MSBuildPath) { $MSBuildPath = Find-RedXeMSBuild }
 Import-Module (Join-Path $source 'Tools/ConsumerBuild.psm1') -Force
 $buildIdentity=Get-DxUiConsumerBuildIdentity -DxUiRoot $source -MSBuildPath $MSBuildPath -Platform $Platform
 $output = Get-RedXeDxUiOutputRoot -RepoRoot $PSScriptRoot -Fingerprint $buildIdentity.Fingerprint
+# The root's lease is renewed before anything uses it, the source's was by Restore-RedXeDxUiPin: no removal of superseded
+# restores, this session's or another's, takes either for the lease window, even once another fingerprint's properties replace ours.
+Update-RedXeDxUiLease -RepoRoot $PSScriptRoot -Path $output
 # DxUi's own vcpkg-install.ps1 takes no MSBuild: it builds DxUi's dependencies with the newest Visual Studio installation that has
 # MSBuild, which can differ from the build's (Core_DxUiIntegration.md).
 & (Join-Path $source 'vcpkg-install.ps1') -Platform $Platform -OutputRoot $output

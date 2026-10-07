@@ -518,6 +518,52 @@ exit /b 0
         throw "The stalled run log lacks output the child wrote before it was terminated: $stallLogText"
     }
 
+    # An open pipe after the child's exit is no descendant by itself. This child starts nothing: it writes a backlog of
+    # lines into the pipe and exits at once, and the callback takes 30 ms a line to present them, so the backlog
+    # outlasts the ten-second exit grace. No process of the job is left, so the call keeps draining, presents every line
+    # and returns the child's exit code instead of reporting and terminating a process that does not exist.
+    $backlogPath = Join-Path $presentationTestRoot 'backlog.cmd'
+    @'
+@echo off
+for /l %%i in (1,1,400) do echo b:%%i
+exit /b 5
+'@ | Set-Content -LiteralPath $backlogPath -Encoding ASCII
+    $backlogLogPath = Join-Path $presentationTestRoot 'backlog.log'
+    $backlogLines = [Collections.Generic.List[string]]::new()
+    $backlogClock = [Diagnostics.Stopwatch]::StartNew()
+    $backlogMessage = $null
+    $backlogExitCode = $null
+    try {
+        $backlogExitCode = Invoke-RedXeStreamingProcess `
+            -FilePath $env:ComSpec `
+            -Arguments @('/d', '/c', $backlogPath) `
+            -WorkingDirectory $presentationTestRoot `
+            -LogPath $backlogLogPath `
+            -TimeoutSeconds 120 `
+            -OutputLineCallback {
+            param([string] $Line, [bool] $IsError)
+            [void] $backlogLines.Add($Line)
+            [Threading.Thread]::Sleep(30)
+        }
+    }
+    catch {
+        $backlogMessage = $_.Exception.Message
+    }
+    $backlogClock.Stop()
+    if ($backlogMessage -or $backlogExitCode -ne 5) {
+        throw "A child that exited normally while its backlog was still being presented was reported as a hang (exit code '$backlogExitCode'): '$backlogMessage'"
+    }
+    if ($backlogLines.Count -ne 400 -or $backlogLines[0] -cne 'b:1' -or $backlogLines[399] -cne 'b:400') {
+        throw "The backlog of a child that exited normally was not presented whole: $($backlogLines.Count) lines, last '$($backlogLines | Select-Object -Last 1)'."
+    }
+    # 400 lines at 30 ms or more each: the drain outlasted the grace, so the case exercised it.
+    if ($backlogClock.Elapsed.TotalSeconds -lt 11) {
+        throw "The backlog took only $($backlogClock.Elapsed.TotalSeconds) s to present, within the exit grace."
+    }
+    if ((Get-Content -LiteralPath $backlogLogPath -Raw) -match 'TIMEOUT:') {
+        throw 'The log of a child that exited normally carries a timeout record.'
+    }
+
     $formattedDuration = Format-RedXeBuildDuration -Duration ([TimeSpan]::FromMilliseconds(3723004))
     if ($formattedDuration -ne '01:02:03.004') {
         throw "Unexpected elapsed-time format: $formattedDuration"

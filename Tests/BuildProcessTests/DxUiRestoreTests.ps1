@@ -2,9 +2,10 @@
 param()
 
 # Restoring the DxUi pin: the lock the product accepts, the sparse long-path checkout restored from a deep root, the repair of an
-# unfinished or changed restore, a restore that loses to a concurrent one, the filtered clone, the removal of superseded restores, the
-# Visual Studio installation vcpkg builds with, and the wiring that keeps build.ps1's order. Everything runs on fixtures or on the
-# files the build already restored; nothing needs the network or a window.
+# unfinished or changed restore, a restore that loses to a concurrent one, two concurrent repairs of one destination, the filtered
+# clone, the leases and the removal of superseded restores, the Visual Studio installation vcpkg builds with, and the wiring that
+# keeps build.ps1's order. Everything runs on fixtures or on the files the build already restored; nothing needs the network or a
+# window.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -251,6 +252,62 @@ try {
     Assert-That ($raceStaged -and $won -is [bool] -and -not $won) 'a restore whose rename loses to a concurrent restore reports that it restored nothing'
     Assert-CleanRestore $raced $commit 'the concurrent restore''s checkout is used'
 
+    # --- Two concurrent repairs of one destination: the one that waited leaves the other's checkout alone ---
+    # Both restores find the destination unfinished (a clone interrupted before its checkout). The second runs in a runspace of its
+    # own, on its own thread and module, and a stand-in for git there holds it right after its first check said so. The first then
+    # repairs and publishes the destination, and its caller marks the checkout it may now import from (inside .git, which leaves
+    # it clean). Released, the second must find that checkout and keep it, instead of removing it and restoring its own.
+    $contested = Join-Path $testRoot "contested/source/$commit"
+    Invoke-Git clone -q --no-checkout --no-hardlinks $fixture $contested | Out-Null
+    $secondChecked = [Threading.ManualResetEventSlim]::new($false)
+    $firstPublished = [Threading.ManualResetEventSlim]::new($false)
+    $secondShell = [powershell]::Create()
+    $firstRestored = $null
+    $secondRestored = @()
+    $firstMarker = Join-Path $contested '.git/first-restore-marker'
+    try {
+        [void]$secondShell.AddScript({
+            param([string] $ModulePath, [string] $Destination, [string] $From, [string] $Commit, $Checked, $Published)
+            $ErrorActionPreference = 'Stop'
+            $restoreModule = Import-Module $ModulePath -Force -PassThru
+            & $restoreModule {
+                param($Checked, $Published)
+                $script:FixtureChecked = $Checked
+                $script:FixturePublished = $Published
+                function script:git {
+                    if ($MyInvocation.ExpectingInput) { $input | & git.exe @args } else { & git.exe @args }
+                    $exitCode = $LASTEXITCODE
+                    # The status call ends the destination check; the first one is the check before any mutex.
+                    if ($script:FixtureChecked -and $args -contains 'status') {
+                        $script:FixtureChecked.Set()
+                        $script:FixtureChecked = $null
+                        [void]$script:FixturePublished.Wait(60000)
+                    }
+                    $global:LASTEXITCODE = $exitCode
+                }
+            } $Checked $Published
+            Restore-RedXeDxUiSource -Repository 'https://github.com/RedSalamanders/DxUi' -Commit $Commit -Destination $Destination -CloneFrom $From 3>$null
+        }.ToString()).AddArgument((Join-Path $repoRoot 'Build/DxUiRestore.psm1')).AddArgument($contested).AddArgument($fixture).AddArgument(
+            $commit).AddArgument($secondChecked).AddArgument($firstPublished)
+        $secondRun = $secondShell.BeginInvoke()
+        if (-not $secondChecked.Wait(60000)) { throw "FAIL: the second restore did not check the destination within 60 s: $($secondShell.Streams.Error)" }
+        $firstRestored = Restore-RedXeDxUiSource -Repository 'https://github.com/RedSalamanders/DxUi' -Commit $commit -Destination $contested -CloneFrom $fixture 3>$null
+        [IO.File]::WriteAllText($firstMarker, 'the first restore published this checkout')
+        $firstPublished.Set()
+        $secondRestored = @($secondShell.EndInvoke($secondRun))
+    }
+    finally {
+        $firstPublished.Set()
+        $secondShell.Dispose()
+        $secondChecked.Dispose()
+        $firstPublished.Dispose()
+    }
+    Assert-That ($firstRestored -is [bool] -and $firstRestored) 'the first of two concurrent repairs restores the destination'
+    Assert-That ($secondRestored.Count -eq 1 -and $secondRestored[0] -is [bool] -and -not $secondRestored[0]) `
+        'the repair that waited reports that it restored nothing'
+    Assert-That ([IO.File]::Exists($firstMarker)) 'the repair that waited never removes the checkout the other published, which its caller may be importing from'
+    Assert-CleanRestore $contested $commit 'the destination both repaired is the clean checkout of the commit'
+
     # --- A clone of the repository itself fetches only the kept files' contents ---
     # A bare copy of the fixture stands in for the canonical repository. file:// is Git's network path (a local path is cloned
     # locally, where filters are ignored), and the copy accepts filtered fetches as GitHub does.
@@ -268,35 +325,60 @@ try {
         'the clone fetched the contents of the kept files only, never those the sparse checkout leaves out'
     Assert-That (((& git -C $filtered remote get-url origin) -join '').Trim() -ceq "$repository.git") 'the filtered clone records the repository as origin'
 
-    # --- Superseded restores are removed; what a platform builds with, a restore in progress and other folders stay ---
+    # --- Superseded restores are removed; what a platform builds with, what was used within the lease window and other folders stay ---
+    # A folder's last use is its lease, which a restore renews before it uses the folder, or without one the newest thing written in
+    # it; never the folder's own time, which a build that reuses a root does not change.
     $pruneRoot = Join-Path $testRoot 'prune/RedXe'
     $dependencyRoot = Get-RedXeDxUiDependencyRoot -RepoRoot $pruneRoot
+    $leaseRoot = Join-Path $dependencyRoot 'leases'
     $pinned = '8' * 40
-    $old = [DateTime]::UtcNow.AddDays(-2)
+    $old = [DateTime]::UtcNow.AddDays(-30)
+    $recent = [DateTime]::UtcNow.AddDays(-1)
     $folders = [ordered]@{
-        ('1' * 16) = @{ Age = $old; Kept = 'the x64 properties name it' }
-        ('2' * 16) = @{ Age = $old; Kept = 'the ARM64 properties name it' }
-        ('3' * 16) = @{ Age = $old; Kept = '' }
-        ('4' * 64) = @{ Age = $old; Kept = '' }
-        (('5' * 40) + '-api2-v145-sdk26100-md') = @{ Age = $old; Kept = '' }
-        ('7' * 16) = @{ Age = [DateTime]::UtcNow; Kept = 'a restore may still be writing it' }
-        'notes' = @{ Age = $old; Kept = 'a restore never names a folder so' }
-        "source/$pinned" = @{ Age = $old; Kept = 'it is the pinned commit' }
-        "source/$('6' * 40)" = @{ Age = $old; Kept = '' }
-        'source/~0123abcd' = @{ Age = $old; Kept = '' }
-        'source/~89abcdef' = @{ Age = [DateTime]::UtcNow; Kept = 'a restore may still be writing it' }
+        ('1' * 16) = @{ Kept = 'the x64 properties name it' }
+        ('2' * 16) = @{ Kept = 'the ARM64 properties name it' }
+        ('3' * 16) = @{ Kept = '' }
+        ('4' * 64) = @{ Kept = '' }
+        (('5' * 40) + '-api2-v145-sdk26100-md') = @{ Kept = '' }
+        ('7' * 16) = @{ Lease = $recent; Kept = 'another session leased it a day ago and builds with it, though no properties name it any more and nothing in it changed for a month' }
+        ('9' * 16) = @{ Content = $recent; Kept = 'it has no lease, and a file in it was written a day ago' }
+        ('a' * 16) = @{ Lease = $old; Folder = [DateTime]::UtcNow; Kept = '' }
+        'notes' = @{ Kept = 'a restore never names a folder so' }
+        "source/$pinned" = @{ Kept = 'it is the pinned commit' }
+        "source/$('6' * 40)" = @{ Kept = '' }
+        "source/$('d' * 40)" = @{ Lease = $recent; Kept = 'a restore of another pin leased it a day ago' }
+        'source/~0123abcd' = @{ Kept = '' }
+        'source/~89abcdef' = @{ Content = [DateTime]::UtcNow; Kept = 'a restore is writing it' }
     }
     foreach ($name in $folders.Keys) {
-        $file = Join-Path $dependencyRoot "$name/.git/objects/pack/pack-old.pack"
+        $folder = Join-Path $dependencyRoot $name
+        $file = Join-Path $folder '.git/objects/pack/pack-old.pack'
         [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($file))
         [IO.File]::WriteAllText($file, 'old')
+        foreach ($entry in @(Get-ChildItem -LiteralPath $folder -Recurse -Force)) { $entry.LastWriteTimeUtc = $old }
+        if ($folders[$name].ContainsKey('Content')) { [IO.File]::SetLastWriteTimeUtc($file, $folders[$name].Content) }
         [IO.File]::SetAttributes($file, [IO.FileAttributes]::ReadOnly)
-        [IO.Directory]::SetLastWriteTimeUtc((Join-Path $dependencyRoot $name), $folders[$name].Age)
+        [IO.Directory]::SetLastWriteTimeUtc($folder, $(if ($folders[$name].ContainsKey('Folder')) { $folders[$name].Folder } else { $old }))
+        if ($folders[$name].ContainsKey('Lease')) {
+            $lease = Join-Path $leaseRoot $name.Replace('/', '.')
+            [void][IO.Directory]::CreateDirectory($leaseRoot)
+            [IO.File]::WriteAllText($lease, 'fixture lease')
+            [IO.File]::SetLastWriteTimeUtc($lease, $folders[$name].Lease)
+        }
     }
     foreach ($platform in @(@{ Name = 'x64'; Root = '1' * 16 }, @{ Name = 'ARM64'; Root = '2' * 16 })) {
         [IO.File]::WriteAllText((Join-Path $dependencyRoot "DxUi.resolved.$($platform.Name).props"),
             "<Project><PropertyGroup><DxUiConsumerOutputRoot>$(Join-Path $dependencyRoot $platform.Root)\</DxUiConsumerOutputRoot></PropertyGroup></Project>")
     }
+    # Leases whose folder does not exist: one a month old, and one a restore wrote before creating its root.
+    [IO.File]::WriteAllText((Join-Path $leaseRoot ('e' * 16)), 'fixture lease')
+    [IO.File]::SetLastWriteTimeUtc((Join-Path $leaseRoot ('e' * 16)), $old)
+    Update-RedXeDxUiLease -RepoRoot $pruneRoot -Path (Join-Path $dependencyRoot ('b' * 16))
+    $renewed = Join-Path $leaseRoot ('b' * 16)
+    Assert-That ([IO.File]::Exists($renewed) -and [IO.File]::GetLastWriteTimeUtc($renewed) -gt [DateTime]::UtcNow.AddMinutes(-5)) `
+        'a lease is renewed before its folder exists, under leases/<the folder below the dependency root>'
+    Assert-Throws { Update-RedXeDxUiLease -RepoRoot $pruneRoot -Path (Join-Path $testRoot 'elsewhere') } 'is not a folder below' `
+        'a lease names only a folder below the dependency root'
     Remove-RedXeDxUiSupersededRestores -RepoRoot $pruneRoot -Commit $pinned 6>$null
     foreach ($name in $folders.Keys) {
         $exists = [IO.Directory]::Exists((Join-Path $dependencyRoot $name))
@@ -304,6 +386,10 @@ try {
         else { Assert-That (-not $exists) "the superseded $name is removed, read-only files included" }
     }
     Assert-That (@(Get-ChildItem -LiteralPath $dependencyRoot -File).Count -eq 2) 'the resolved properties stay'
+    $leasesLeft = @(Get-ChildItem -LiteralPath $leaseRoot -File | ForEach-Object Name | Sort-Object)
+    $leasesKept = @(('7' * 16), ('b' * 16), "source.$('d' * 40)" | Sort-Object)
+    Assert-That (($leasesLeft -join ',') -ceq ($leasesKept -join ',')) `
+        "the leases in use stay, and the lease of a removed folder or of a folder gone for the window goes ($($leasesLeft -join ', '))"
 
     # --- The pin restore from a sibling checkout ---
     $productRoot = Join-Path $testRoot 'product-root/RedXe'
@@ -315,6 +401,8 @@ try {
     Assert-That ((Get-RedXeDxUiCloneSource -RepoRoot $productRoot -Commit ('b' * 40)) -eq '') 'a sibling without the commit is not used'
     $pinRestore = Restore-RedXeDxUiPin -RepoRoot $productRoot
     Assert-That ($pinRestore.Source -ieq (Get-RedXeDxUiSourcePath -RepoRoot $productRoot -Commit $siblingCommit)) 'the pin restores under .build/dependencies/DxUi/source/<commit>'
+    Assert-That ([IO.File]::Exists((Join-Path (Get-RedXeDxUiDependencyRoot -RepoRoot $productRoot) "leases/source.$siblingCommit"))) `
+        'the pin restore renews the lease of the source it returns'
     Assert-That ([IO.File]::Exists((Join-Path $pinRestore.Source 'capabilities.json')) -and -not [IO.Directory]::Exists((Join-Path $pinRestore.Source 'Specs'))) `
         'the pin restore is the sparse checkout'
     $siblingStatus = @(& git -C (Join-Path $siblingRoot 'DxUi') status --porcelain --untracked-files=normal)
@@ -368,6 +456,10 @@ try {
     $propsWrite = $restoreScript.IndexOf('WriteAllText($propsPath')
     Assert-That ($propsWrite -gt 0 -and $restoreScript.IndexOf('Remove-RedXeDxUiSupersededRestores') -gt $propsWrite) `
         'restore-dxui.ps1 removes superseded restores only after its platform''s properties name the root it builds with'
+    $rootLease = $restoreScript.IndexOf('Update-RedXeDxUiLease -RepoRoot $PSScriptRoot -Path $output')
+    Assert-That ($rootLease -gt $restoreScript.IndexOf('$output = Get-RedXeDxUiOutputRoot') -and
+        $rootLease -lt $restoreScript.IndexOf("Join-Path `$source 'vcpkg-install.ps1'")) `
+        'restore-dxui.ps1 renews the output root''s lease before anything builds into it'
     $buildScript = Get-Content -LiteralPath (Join-Path $repoRoot 'build.ps1') -Raw
     $installerCall = $buildScript.IndexOf('& $dependencyInstaller')
     $restoreCall = $buildScript.IndexOf("restore-dxui.ps1')")

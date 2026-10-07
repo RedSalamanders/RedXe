@@ -42,16 +42,26 @@ try {
     [void](New-Item -ItemType Directory -Path (Join-Path $product 'Dependencies'),$dependencyRoot -Force)
     @{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=3;targets=@('DxUi')} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $product 'Dependencies/DxUi.lock.json')
     @{Fingerprint=('c'*64);Identity=@{commit=('a'*40);platform='x64'}} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $dependencyRoot 'DxUi.identity.x64.json')
-    function Write-OutputRoot([string]$Leaf) {
-        Set-Content -LiteralPath (Join-Path $dependencyRoot 'DxUi.resolved.x64.props') -Value "<Project><PropertyGroup><DxUiConsumerOutputRoot>$(Join-Path $dependencyRoot $Leaf)\</DxUiConsumerOutputRoot></PropertyGroup></Project>"
+    function Write-OutputRoot([string]$Root) {
+        Set-Content -LiteralPath (Join-Path $dependencyRoot 'DxUi.resolved.x64.props') -Value "<Project><PropertyGroup><DxUiConsumerOutputRoot>$Root</DxUiConsumerOutputRoot></PropertyGroup></Project>"
         $message=''
         try { Write-RedXeDxUiProvenance -RepoRoot $product -Platform x64 -Configuration Debug | Out-Null } catch { $message=$_.Exception.Message }
         return $message
     }
-    if ((Write-OutputRoot ('d'*16)) -notlike 'Restored DxUi identity does not match the resolved output root*') { throw 'Provenance paired an identity with another restore''s archive.' }
+    if ((Write-OutputRoot "$(Join-Path $dependencyRoot ('d'*16))\") -notlike 'Restored DxUi identity does not match the resolved output root*') { throw 'Provenance paired an identity with another restore''s archive.' }
     Write-Host 'PASS provenance writer rejects an output root another identity named'
-    if ((Write-OutputRoot ('c'*16)) -like '*does not match the resolved output root*') { throw 'Provenance rejected the output root its identity named.' }
-    Write-Host 'PASS provenance writer accepts the output root its identity named'
+    # A directory elsewhere whose name is the identity's 16 digits is still another restore's root.
+    $elsewhere=Join-Path $fixture "elsewhere/.build/dependencies/DxUi/$('c'*16)"
+    [void](New-Item -ItemType Directory -Path $elsewhere -Force)
+    if ((Write-OutputRoot "$elsewhere\") -notlike 'Restored DxUi identity does not match the resolved output root*') { throw 'Provenance paired an identity with the archive of another directory ending in its fingerprint.' }
+    Write-Host 'PASS provenance writer rejects another directory ending in the identity''s fingerprint'
+    if ((Write-OutputRoot '') -notlike 'Restored DxUi identity does not match the resolved output root*') { throw 'Provenance accepted properties that name no output root.' }
+    Write-Host 'PASS provenance writer rejects properties that name no output root'
+    # The same directory spelled another way (case, separators, a redundant segment, no trailing separator) is the same root.
+    foreach ($spelling in @("$(Join-Path $dependencyRoot ('c'*16))\", (Join-Path $dependencyRoot "x/../$('C'*16)").Replace('\','/'), (Join-Path $dependencyRoot ('c'*16)).ToUpperInvariant())) {
+        if ((Write-OutputRoot $spelling) -like '*does not match the resolved output root*') { throw "Provenance rejected the output root its identity named, spelled $spelling." }
+    }
+    Write-Host 'PASS provenance writer accepts the output root its identity named, however it is spelled'
 } finally {
     $path=[IO.Path]::GetFullPath($fixture)
     $parent=[IO.Path]::GetFullPath((Join-Path $repo '.build/BuildProcessTests')).TrimEnd('\')+'\'

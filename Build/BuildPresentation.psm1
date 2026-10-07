@@ -666,7 +666,8 @@ namespace RedXe.Build
             if (handle != IntPtr.Zero) TerminateJobObject(handle, 0xFFFFFFFF);
         }
         // TerminateJobObject only starts the termination. True once no process of the job is left, false if the
-        // timeout passes first. It runs only after a termination, where the wait is short, so it checks every 10 ms.
+        // timeout passes first. It waits only after a termination, where the wait is short, so it checks every 10 ms;
+        // with a zero timeout it is a single probe, which the exit grace uses to ask whether any process still runs.
         public bool WaitUntilEmpty(int milliseconds)
         {
             var clock = Stopwatch.StartNew();
@@ -899,7 +900,10 @@ function Invoke-RedXeStreamingProcess {
                     $childExitedAt = $elapsed
                 }
                 if ($childExitedAt -ge 0) {
-                    if ($elapsed - $childExitedAt -ge $exitGraceMilliseconds) {
+                    # An open pipe alone proves no descendant: a backlog the child left, or a slow callback presenting
+                    # it, can outlast the grace. Only a process of the job that still runs can hold the output open;
+                    # with none left, the pipes hold only what the tree wrote, and draining them reaches end of file.
+                    if ($elapsed - $childExitedAt -ge $exitGraceMilliseconds -and -not $job.WaitUntilEmpty(0)) {
                         $failure = "'$FilePath' exited with code $($process.ExitCode), but a process it started kept its output open and was terminated with its own child processes (log: $resolvedLogPath)."
                     }
                 }

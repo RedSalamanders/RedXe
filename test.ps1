@@ -401,6 +401,29 @@ if ($smokeFailure -or $smokeExit -ne 0) {
     if ($smokeFailure) { throw $smokeFailure }
     throw "Smoke test failed with exit code $smokeExit`: $smokeLog"
 }
+# Every failing check reports through that one path: each return of Application::RunSelfTest other than its success
+# returns FailSelfTest, and none writes only to the debugger output, which an unattended run never sees.
+$applicationSource = [IO.File]::ReadAllText((Join-Path $repoRoot 'RedXe\Application.cpp'))
+$selfTestStart = $applicationSource.IndexOf('int Application::RunSelfTest(')
+$selfTestBody = ''
+if ($selfTestStart -ge 0) {
+    $depth = 0
+    for ($index = $applicationSource.IndexOf('{', $selfTestStart); $index -ge 0 -and $index -lt $applicationSource.Length; $index++) {
+        if ($applicationSource[$index] -eq '{') { $depth++ }
+        elseif ($applicationSource[$index] -eq '}') {
+            $depth--
+            if ($depth -eq 0) {
+                $selfTestBody = $applicationSource.Substring($selfTestStart, $index - $selfTestStart + 1)
+                break
+            }
+        }
+    }
+}
+$bypassingReturns = @([regex]::Matches($selfTestBody, '\breturn\b\s*([^;]*);') |
+    Where-Object { $_.Groups[1].Value -cne '0' -and -not $_.Groups[1].Value.StartsWith('FailSelfTest(') })
+if (-not $selfTestBody -or $bypassingReturns.Count -ne 0 -or $selfTestBody.Contains('OutputDebugStringW')) {
+    throw "Every failing check of Application::RunSelfTest must report through FailSelfTest: $(($bypassingReturns | ForEach-Object Value) -join ' | ')"
+}
 # The same diagnosis for a failing check, proven in the product executable: a copy of RedXe.exe with no Settings folder
 # beside it fails its settings check, which must be named in its log, with exit code 6.
 $selfTestFailureDirectory = Join-Path $repoRoot ".build\SelfTestFailure\$([guid]::NewGuid().ToString('N'))"

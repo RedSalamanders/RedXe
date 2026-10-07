@@ -85,7 +85,9 @@ A test process never waits on a dialog. Every native test executable calls `Comm
 - `test.ps1` runs `RedXe.exe --self-test --warp` bounded by the same budget as the test executables and keeps its
   output in `.build/<Platform>/<Configuration>/RedXe.self-test.log`. A failed self-test check MUST name itself, with
   its HRESULT when there is one, on stderr as well as on the debugger output, and end the run with exit code 6.
-  `test.ps1` proves it on a copy of `RedXe.exe` without the `Settings` folder beside it, whose settings check fails.
+  `test.ps1` proves it on a copy of `RedXe.exe` without the `Settings` folder beside it, whose settings check fails,
+  and requires that every return of `Application::RunSelfTest` other than its success goes through that one report
+  (`FailSelfTest`) and that none writes to the debugger output alone.
 - Every other run of `RedXe.exe` or `RedXeLauncher.exe` in `test.ps1` (`--help`, an unknown switch, the crash harness
   and its invalid directory) and in the package smoke of `Build/Package.psm1` goes through
   `Invoke-RedXeStreamingProcess` with a budget and a log, and keeps its exit-code check.
@@ -122,8 +124,10 @@ harness, two minutes to its `--help`, unknown-switch and routing checks, and sho
 tails, which never stream to the console, for a run ended at its budget as well as for a failing exit code.
 
 `Invoke-RedXeStreamingProcess` MUST also hold to the following. `BuildProcessTests.ps1` covers a child that never
-stops writing, the exit grace with a drained last line, a stop of a silent child with and without a budget (stopped
-within seconds, no survivor), and an edited launcher definition imported into a session that compiled the original.
+stops writing, the exit grace with a drained last line, a child that starts nothing and exits while a slow callback
+presents its backlog for longer than the grace (every line presented, its exit code returned, no timeout record), a stop
+of a silent child with and without a budget (stopped within seconds, no survivor), and an edited launcher definition
+imported into a session that compiled the original.
 
 - The budget is counted on a monotonic clock from the child's start, so neither the helper's own setup (compiling its
   job type on first use) nor a change of the system time moves it. It is checked on every pass of the read loop, so a
@@ -132,6 +136,10 @@ within seconds, no survivor), and an edited launcher definition imported into a 
   tree ten seconds after its exit, not left to its budget, and the call reports the child's exit code and that a
   process it started kept its output open, instead of a child that did not finish. Once the child has exited only this
   grace applies, so output it left in the pipes as its budget ran out is read, never taken for a hang.
+- An open pipe at the end of the grace is no such process by itself: a backlog the child left, or a slow callback
+  presenting it, can outlast ten seconds. The grace therefore ends the run only while a process of the job still runs
+  (the job's accounting reports an active process); with none left, the pipes hold only what the tree already wrote,
+  and the helper keeps draining them to end of file and returns the child's exit code.
 - After a termination the helper drains both pipes, for at most five seconds, so output already written, a last line
   without a newline included, reaches the log and the callback before the `TIMEOUT:` record. The call throws only once
   no process of the job is left (or after five more seconds), so a caller that looks for survivors finds none.

@@ -18,11 +18,14 @@ function Write-RedXeDxUiProvenance {
     $identity=Get-Content -Raw -LiteralPath (Join-Path $dependencyRoot "DxUi.identity.$Platform.json") | ConvertFrom-Json
     if ($identity.Identity.commit -cne $pin.commit -or $identity.Identity.platform -cne $Platform) { throw 'Restored DxUi identity does not match the product pin/profile.' }
     # The archive sits under the output root MSBuild was given. It must be the root the restore named after this identity's
-    # fingerprint; otherwise the record would pair this identity with an archive another restore built.
+    # fingerprint, the whole normalized path and not only its fingerprint folder name: a stale or altered properties file can
+    # name another directory ending in the same 16 digits, and the record would pair this identity with an archive another
+    # restore built.
     [xml]$props=Get-Content -Raw -LiteralPath (Join-Path $dependencyRoot "DxUi.resolved.$Platform.props")
     $outputRoot=[string]$props.Project.PropertyGroup.DxUiConsumerOutputRoot
     $identityRoot=Get-RedXeDxUiOutputRoot -RepoRoot $RepoRoot -Fingerprint ([string]$identity.Fingerprint)
-    if ((Split-Path -Leaf $outputRoot.TrimEnd('\','/')) -ine (Split-Path -Leaf $identityRoot.TrimEnd('\','/'))) {
+    $normalize={ param([string]$Path) [IO.Path]::GetFullPath($PSCmdlet.GetUnresolvedProviderPathFromPSPath($Path)).TrimEnd('\','/') }
+    if (-not $outputRoot.Trim() -or -not [string]::Equals((& $normalize $outputRoot),(& $normalize $identityRoot),[StringComparison]::OrdinalIgnoreCase)) {
         throw "Restored DxUi identity does not match the resolved output root: $outputRoot"
     }
     $archive=Join-Path $outputRoot "$Platform/$Configuration/DxUi.lib"

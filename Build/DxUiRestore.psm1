@@ -14,6 +14,10 @@ $script:CanonicalRepository = 'https://github.com/RedSalamanders/DxUi'
 # (capabilities.json, Tools, Build, src, include, the vcpkg files and the root scripts). Non-cone patterns, so the root stays whole.
 $script:SparseCheckoutPatterns = @('/*', '!/Measurements/', '!/docs/gallery/', '!/Specs/')
 
+# How long a folder under .build/dependencies/DxUi stays after its last use before Remove-RedXeDxUiSupersededRestores may remove it:
+# far longer than any restore or build, so none still using a folder is ever outside it.
+$script:RestoreLeaseWindow = [TimeSpan]::FromDays(7)
+
 function Read-RedXeDxUiLock {
     <# The lock at LockFile, once it names the canonical repository, one exact commit, the API revision this product is adapted to
        and the single DxUi target. #>
@@ -97,6 +101,46 @@ function Test-RedXeDxUiSourceCheckout {
     return $LASTEXITCODE -eq 0 -and $changes.Count -eq 0
 }
 
+function Enter-RedXeDxUiLock {
+    <# Waits for and returns the machine-wide named mutex of Path, which serializes the work on that folder across threads,
+       processes and logon sessions: its name is a digest of the full path, compared without case as Windows compares paths. The
+       wait is sliced, so Ctrl+C stops it, and says once what it waits for. A holder that ended without releasing the mutex hands it over
+       (Windows reports it abandoned); the caller checks the folder under the mutex anyway. The mutex belongs to the calling thread:
+       Exit-RedXeDxUiLock releases it on that thread, which may also enter it again (a nested restore). #>
+    param(
+        [Parameter(Mandatory)][string] $Path,
+        [Parameter(Mandatory)][string] $Purpose
+    )
+    $key = [IO.Path]::GetFullPath($Path).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar).ToUpperInvariant()
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try { $digest = [BitConverter]::ToString($sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($key))).Replace('-', '') }
+    finally { $sha256.Dispose() }
+    $mutex = [Threading.Mutex]::new($false, "Global\RedXe.DxUi.$digest")
+    try {
+        $announced = $false
+        while ($true) {
+            try { if ($mutex.WaitOne(500)) { break } }
+            catch [Threading.AbandonedMutexException] { break }
+            if (-not $announced) {
+                Write-Host "Waiting for $Purpose in another process..." -ForegroundColor DarkGray
+                $announced = $true
+            }
+        }
+    }
+    catch {
+        $mutex.Dispose()
+        throw
+    }
+    return $mutex
+}
+
+function Exit-RedXeDxUiLock {
+    <# Releases and closes a mutex Enter-RedXeDxUiLock returned, on the thread that entered it. #>
+    param([Parameter(Mandatory)][Threading.Mutex] $Mutex)
+    try { $Mutex.ReleaseMutex() }
+    finally { $Mutex.Dispose() }
+}
+
 function Restore-RedXeDxUiSource {
     <# Restores Commit of Repository at Destination and returns whether it did. A Destination that already is the clean checkout of
        Commit is left alone; any other one (a restore that an older build left unfinished, a deletion that did not finish, another
@@ -105,6 +149,10 @@ function Restore-RedXeDxUiSource {
          temporary sibling, which is checked as Destination would be and then renamed into place. A failure or an interruption
          removes the temporary folder (with -Force, for Git's read-only pack files), so no run ever finds half a restore at
          Destination. When a concurrent restore publishes first, its checkout of the same commit is used and this one discarded.
+       - Restores of one Destination run one at a time on the machine: a named mutex of its full path (Enter-RedXeDxUiLock) is held
+         from a second check through the removal and the publication. Two runs can both find Destination unfinished; the one that
+         waited then finds the checkout the other published and leaves it alone, instead of removing it while the other's caller
+         imports from it. The first check takes no mutex, so a finished restore costs no wait.
        - The temporary name (~ and up to eight hex digits) is never longer than Destination's leaf, so every path the checkout
          writes there fits wherever it fits at Destination.
        - Git long paths are on for the clone and its checkout. `git clone -c` keeps the setting in the clone's own configuration, so
@@ -129,77 +177,151 @@ function Restore-RedXeDxUiSource {
     if (Test-RedXeDxUiSourceCheckout -Path $Destination -Commit $Commit) { return $false }
     $parent = Split-Path -Parent $Destination
     [void](New-Item -ItemType Directory -Force -Path $parent -ErrorAction Stop)
-    if (Test-Path -LiteralPath $Destination) {
-        Write-Warning "The DxUi source at '$Destination' is not a clean checkout of $Commit; it is removed and restored again."
-        try { Remove-Item -LiteralPath $Destination -Recurse -Force -ErrorAction Stop }
-        catch {
-            # Gone anyway when a concurrent restore removed it first.
-            if (Test-Path -LiteralPath $Destination) {
-                throw "The unfinished DxUi source at '$Destination' could not be removed ($($_.Exception.Message)). Close what holds it open, delete the folder and retry."
-            }
-        }
-    }
-
-    $leaf = Split-Path -Leaf $Destination
-    $temporary = Join-Path $parent ('~' + [guid]::NewGuid().ToString('N').Substring(0, [Math]::Max(1, [Math]::Min(8, $leaf.Length - 1))))
-    $from = if ($CloneFrom) { $CloneFrom } else { "$Repository.git" }
-    $filter = @(if (-not $CloneFrom) { '--filter=blob:none' })
+    $lock = Enter-RedXeDxUiLock -Path $Destination -Purpose "the restore of the DxUi source at '$Destination'"
     try {
-        # The setting comes before each command, so it is in force for the whole command; the clone option is the one the new
-        # clone keeps in its own configuration for the git calls of other scripts (status, rev-parse).
-        & git -c core.longpaths=true clone -c core.longpaths=true --no-checkout --no-hardlinks @filter $from $temporary
-        if ($LASTEXITCODE -ne 0) { throw 'DxUi source restore failed. Check Git/network access to the public repository and retry; no custom access token is required.' }
-        $script:SparseCheckoutPatterns | & git -c core.longpaths=true -C $temporary sparse-checkout set --no-cone --stdin
-        if ($LASTEXITCODE -ne 0) { throw 'The DxUi checkout could not be limited to the files the product consumes.' }
-        & git -c core.longpaths=true -C $temporary checkout --detach $Commit
-        if ($LASTEXITCODE -ne 0) { throw 'The exact DxUi source pin could not be checked out.' }
-        & git -c core.longpaths=true -C $temporary remote set-url origin "$Repository.git"
-        if ($LASTEXITCODE -ne 0) { throw 'Could not record the canonical DxUi origin.' }
-        if (-not (Test-RedXeDxUiSourceCheckout -Path $temporary -Commit $Commit)) { throw "The DxUi restore is not a clean checkout of $Commit." }
-
-        # Antivirus or the indexer can hold a file just written for a moment, which fails the rename; a short bounded retry covers it.
-        for ($attempt = 1; ; $attempt++) {
-            try {
-                [IO.Directory]::Move($temporary, $Destination)
-                return $true
-            }
+        # Checked again under the mutex: a restore that waited for another finds that one's checkout here.
+        if (Test-RedXeDxUiSourceCheckout -Path $Destination -Commit $Commit) {
+            Write-Verbose "A concurrent restore published the DxUi source at '$Destination' first; using it."
+            return $false
+        }
+        if (Test-Path -LiteralPath $Destination) {
+            Write-Warning "The DxUi source at '$Destination' is not a clean checkout of $Commit; it is removed and restored again."
+            try { Remove-Item -LiteralPath $Destination -Recurse -Force -ErrorAction Stop }
             catch {
-                if (Test-RedXeDxUiSourceCheckout -Path $Destination -Commit $Commit) {
-                    Write-Verbose "A concurrent restore published the DxUi source at '$Destination' first; using it."
-                    return $false
+                # Gone anyway when a concurrent restore removed it first.
+                if (Test-Path -LiteralPath $Destination) {
+                    throw "The unfinished DxUi source at '$Destination' could not be removed ($($_.Exception.Message)). Close what holds it open, delete the folder and retry."
                 }
-                if ($attempt -ge 10 -or (Test-Path -LiteralPath $Destination)) {
-                    throw "The DxUi restore could not be moved into place at '$Destination': $($_.Exception.Message)"
+            }
+        }
+
+        $leaf = Split-Path -Leaf $Destination
+        $temporary = Join-Path $parent ('~' + [guid]::NewGuid().ToString('N').Substring(0, [Math]::Max(1, [Math]::Min(8, $leaf.Length - 1))))
+        $from = if ($CloneFrom) { $CloneFrom } else { "$Repository.git" }
+        $filter = @(if (-not $CloneFrom) { '--filter=blob:none' })
+        try {
+            # The setting comes before each command, so it is in force for the whole command; the clone option is the one the new
+            # clone keeps in its own configuration for the git calls of other scripts (status, rev-parse).
+            & git -c core.longpaths=true clone -c core.longpaths=true --no-checkout --no-hardlinks @filter $from $temporary
+            if ($LASTEXITCODE -ne 0) { throw 'DxUi source restore failed. Check Git/network access to the public repository and retry; no custom access token is required.' }
+            $script:SparseCheckoutPatterns | & git -c core.longpaths=true -C $temporary sparse-checkout set --no-cone --stdin
+            if ($LASTEXITCODE -ne 0) { throw 'The DxUi checkout could not be limited to the files the product consumes.' }
+            & git -c core.longpaths=true -C $temporary checkout --detach $Commit
+            if ($LASTEXITCODE -ne 0) { throw 'The exact DxUi source pin could not be checked out.' }
+            & git -c core.longpaths=true -C $temporary remote set-url origin "$Repository.git"
+            if ($LASTEXITCODE -ne 0) { throw 'Could not record the canonical DxUi origin.' }
+            if (-not (Test-RedXeDxUiSourceCheckout -Path $temporary -Commit $Commit)) { throw "The DxUi restore is not a clean checkout of $Commit." }
+
+            # Antivirus or the indexer can hold a file just written for a moment, which fails the rename; a short bounded retry covers it.
+            for ($attempt = 1; ; $attempt++) {
+                try {
+                    [IO.Directory]::Move($temporary, $Destination)
+                    return $true
                 }
-                Start-Sleep -Milliseconds 200
+                catch {
+                    if (Test-RedXeDxUiSourceCheckout -Path $Destination -Commit $Commit) {
+                        Write-Verbose "A concurrent restore published the DxUi source at '$Destination' first; using it."
+                        return $false
+                    }
+                    if ($attempt -ge 10 -or (Test-Path -LiteralPath $Destination)) {
+                        throw "The DxUi restore could not be moved into place at '$Destination': $($_.Exception.Message)"
+                    }
+                    Start-Sleep -Milliseconds 200
+                }
+            }
+        }
+        finally {
+            # After a successful rename the temporary folder is gone; otherwise this restore is discarded.
+            if (Test-Path -LiteralPath $temporary) {
+                try { Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction Stop }
+                catch { Write-Warning "Could not remove the temporary DxUi restore '$temporary' ($($_.Exception.Message)); a later restore removes it." }
             }
         }
     }
-    finally {
-        # After a successful rename the temporary folder is gone; otherwise this restore is discarded.
-        if (Test-Path -LiteralPath $temporary) {
-            try { Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction Stop }
-            catch { Write-Warning "Could not remove the temporary DxUi restore '$temporary' ($($_.Exception.Message)); a later restore removes it." }
-        }
-    }
+    finally { Exit-RedXeDxUiLock -Mutex $lock }
 }
 
 function Restore-RedXeDxUiPin {
     <# Reads the product's lock and returns the validated pin, the lock's path and the source path, once that source is the clean
        checkout of the pinned commit: an existing restore is verified (Test-RedXeDxUiSourceCheckout), and a missing, unfinished or
        changed one is restored again. Callers therefore import and run only the pinned commit's own files. The API revision of that
-       checkout is Tools/validate_consumer.ps1's check, which restore-dxui.ps1 and the provenance writer run on it. #>
+       checkout is Tools/validate_consumer.ps1's check, which restore-dxui.ps1 and the provenance writer run on it. The source's
+       lease is renewed first (Update-RedXeDxUiLease), so no removal of superseded restores takes it between the check and the
+       caller's use. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string] $RepoRoot)
 
     $lockFile = Join-Path $RepoRoot 'Dependencies/DxUi.lock.json'
     $pin = Read-RedXeDxUiLock -LockFile $lockFile
     $source = Get-RedXeDxUiSourcePath -RepoRoot $RepoRoot -Commit $pin.commit
+    Update-RedXeDxUiLease -RepoRoot $RepoRoot -Path $source
     if (-not (Test-RedXeDxUiSourceCheckout -Path $source -Commit $pin.commit)) {
         $cloneFrom = Get-RedXeDxUiCloneSource -RepoRoot $RepoRoot -Commit $pin.commit
         [void](Restore-RedXeDxUiSource -Repository $pin.repository -Commit $pin.commit -Destination $source -CloneFrom $cloneFrom)
     }
     return [pscustomobject]@{ Pin = $pin; LockFile = $lockFile; Source = $source }
+}
+
+function Get-RedXeDxUiLeasePath {
+    <# The lease file of Path, a folder below DependencyRoot: leases/<Path below DependencyRoot, a dot for each separator>, so
+       leases/<fingerprint> for an output root and leases/source.<commit> for a source clone. #>
+    param(
+        [Parameter(Mandatory)][string] $DependencyRoot,
+        [Parameter(Mandatory)][string] $Path
+    )
+    $root = [IO.Path]::GetFullPath($DependencyRoot).TrimEnd('\', '/')
+    $relative = [IO.Path]::GetRelativePath($root, [IO.Path]::GetFullPath($Path).TrimEnd('\', '/'))
+    if ($relative -eq '.' -or $relative -eq '..' -or $relative.StartsWith('..\') -or $relative.StartsWith('../') -or [IO.Path]::IsPathRooted($relative)) {
+        throw "'$Path' is not a folder below '$DependencyRoot'."
+    }
+    return Join-Path $root ('leases\' + $relative.Replace('\', '.').Replace('/', '.'))
+}
+
+function Update-RedXeDxUiLease {
+    <# Records that a restore or a build is about to use Path, an output root or a source clone under .build/dependencies/DxUi, by
+       rewriting its lease file (Get-RedXeDxUiLeasePath), whose time Remove-RedXeDxUiSupersededRestores reads as the folder's last
+       use. The folder need not exist yet, so a caller renews the lease before it checks, creates or uses the folder. The lease is
+       written under the dependency root's mutex, which a removal holds from its decisions to its end: a removal already under way
+       finishes first (the caller then finds the folder gone and restores it), and none after the lease removes the folder for the
+       lease window. #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string] $RepoRoot,
+        [Parameter(Mandatory)][string] $Path
+    )
+    $dependencyRoot = $PSCmdlet.GetUnresolvedProviderPathFromPSPath((Get-RedXeDxUiDependencyRoot -RepoRoot $RepoRoot))
+    $lease = Get-RedXeDxUiLeasePath -DependencyRoot $dependencyRoot -Path $PSCmdlet.GetUnresolvedProviderPathFromPSPath($Path)
+    $lock = Enter-RedXeDxUiLock -Path $dependencyRoot -Purpose "a lease or a removal under '$dependencyRoot'"
+    try {
+        [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($lease))
+        $now = [DateTime]::UtcNow
+        [IO.File]::WriteAllText($lease, $now.ToString('o'))
+        [IO.File]::SetLastWriteTimeUtc($lease, $now)
+    }
+    finally { Exit-RedXeDxUiLock -Mutex $lock }
+}
+
+function Test-RedXeDxUiUsedSince {
+    <# Whether Folder was used at Since or later: by its lease when it has one; otherwise (a folder an older restore left, a
+       temporary clone) when it or anything in it was written since. An entry that cannot be read counts as a use. #>
+    param(
+        [Parameter(Mandatory)][IO.DirectoryInfo] $Folder,
+        [Parameter(Mandatory)][string] $LeasePath,
+        [Parameter(Mandatory)][DateTime] $Since
+    )
+    if ([IO.File]::Exists($LeasePath)) { return [IO.File]::GetLastWriteTimeUtc($LeasePath) -ge $Since }
+    if ($Folder.LastWriteTimeUtc -ge $Since) { return $true }
+    # Hidden entries (.git) count; reparse points are neither counted nor followed. The first recent entry ends the walk.
+    $options = [IO.EnumerationOptions]::new()
+    $options.RecurseSubdirectories = $true
+    $options.AttributesToSkip = [IO.FileAttributes]::ReparsePoint
+    try {
+        foreach ($entry in $Folder.EnumerateFileSystemInfos('*', $options)) {
+            if ($entry.LastWriteTimeUtc -ge $Since) { return $true }
+        }
+    }
+    catch { return $true }
+    return $false
 }
 
 function Remove-RedXeDxUiSupersededRestores {
@@ -209,42 +331,74 @@ function Remove-RedXeDxUiSupersededRestores {
        properties, so the root each platform builds with is kept.
        - Only folders named the way RedXe's restores name them are candidates: 16- or 64-digit fingerprint roots, the older
          <commit>-api<n>-... roots, source/<commit> and source/~<hex>. Anything else in the folder is left alone.
-       - A candidate written to within MinimumAge is kept, so a restore that another session is still running (the other platform's
-         root before its properties exist, a temporary clone) is never removed under it.
+       - A candidate used within UnusedFor (the seven-day lease window) is kept. Every restore-dxui.ps1 run, which starts every
+         build, renews the lease of the output root and of the source clone it uses before it uses them (Update-RedXeDxUiLease); a
+         folder without a lease counts as used when it or anything in it was written within the window. The folder's own time
+         does not count: a build that reuses a root reads it without writing its top level. The window is far longer than any
+         build, so a root another session still builds with stays when a restore for another fingerprint has since replaced the
+         properties that named it.
+       - The decisions and the removals run under the dependency root's mutex, which Update-RedXeDxUiLease takes too, so a lease
+         and a removal never interleave.
+       - A removed folder's lease goes with it, and a lease whose folder is gone goes once it is older than the window.
        - It is best effort: a folder that cannot be removed now (a file still open) is reported and left to a later restore. #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string] $RepoRoot,
         [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string] $Commit,
-        [TimeSpan] $MinimumAge = [TimeSpan]::FromHours(1)
+        [TimeSpan] $UnusedFor = $script:RestoreLeaseWindow
     )
 
-    $dependencyRoot = Get-RedXeDxUiDependencyRoot -RepoRoot $RepoRoot
-    $named = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    foreach ($propsFile in @(Get-ChildItem -LiteralPath $dependencyRoot -Filter 'DxUi.resolved*.props' -File -ErrorAction SilentlyContinue)) {
-        try { [xml] $props = [IO.File]::ReadAllText($propsFile.FullName) }
-        catch {
-            Write-Warning "Cannot read '$($propsFile.FullName)' ($($_.Exception.Message)); no superseded DxUi restore is removed."
-            return
+    $dependencyRoot = $PSCmdlet.GetUnresolvedProviderPathFromPSPath((Get-RedXeDxUiDependencyRoot -RepoRoot $RepoRoot))
+    $since = [DateTime]::UtcNow - $UnusedFor
+    $lock = Enter-RedXeDxUiLock -Path $dependencyRoot -Purpose "a lease or a removal under '$dependencyRoot'"
+    try {
+        $named = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach ($propsFile in @(Get-ChildItem -LiteralPath $dependencyRoot -Filter 'DxUi.resolved*.props' -File -ErrorAction SilentlyContinue)) {
+            try { [xml] $props = [IO.File]::ReadAllText($propsFile.FullName) }
+            catch {
+                Write-Warning "Cannot read '$($propsFile.FullName)' ($($_.Exception.Message)); no superseded DxUi restore is removed."
+                return
+            }
+            foreach ($root in @($props.SelectNodes('/Project/PropertyGroup/DxUiConsumerOutputRoot'))) {
+                [void]$named.Add([IO.Path]::GetFileName($root.InnerText.TrimEnd('\', '/')))
+            }
         }
-        foreach ($root in @($props.SelectNodes('/Project/PropertyGroup/DxUiConsumerOutputRoot'))) {
-            [void]$named.Add([IO.Path]::GetFileName($root.InnerText.TrimEnd('\', '/')))
+        $roots = @(Get-ChildItem -LiteralPath $dependencyRoot -Directory -ErrorAction SilentlyContinue)
+        $sources = @(Get-ChildItem -LiteralPath (Join-Path $dependencyRoot 'source') -Directory -ErrorAction SilentlyContinue)
+        $candidates = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach ($folder in $roots) {
+            if ($folder.Name -cmatch '^([0-9a-f]{16}|[0-9a-f]{64}|[0-9a-f]{40}-api[0-9]+-.+)$' -and -not $named.Contains($folder.Name)) {
+                [void]$candidates.Add($folder.FullName)
+            }
+        }
+        foreach ($folder in $sources) {
+            if ($folder.Name -cmatch '^([0-9a-f]{40}|~[0-9a-f]+)$' -and $folder.Name -cne $Commit) { [void]$candidates.Add($folder.FullName) }
+        }
+        # The leases of the folders that stay; every other lease is an orphan.
+        $leases = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach ($folder in @($roots + $sources)) {
+            $lease = Get-RedXeDxUiLeasePath -DependencyRoot $dependencyRoot -Path $folder.FullName
+            if (-not $candidates.Contains($folder.FullName) -or (Test-RedXeDxUiUsedSince -Folder $folder -LeasePath $lease -Since $since)) {
+                [void]$leases.Add($lease)
+                continue
+            }
+            try {
+                Remove-Item -LiteralPath $folder.FullName -Recurse -Force -ErrorAction Stop
+                Write-Host "Removed the superseded DxUi restore $($folder.FullName)" -ForegroundColor DarkGray
+            }
+            catch {
+                [void]$leases.Add($lease)
+                Write-Warning "Could not remove the superseded DxUi restore '$($folder.FullName)' ($($_.Exception.Message)); a later restore tries again."
+            }
+        }
+        foreach ($lease in @(Get-ChildItem -LiteralPath (Join-Path $dependencyRoot 'leases') -File -ErrorAction SilentlyContinue)) {
+            if (-not $leases.Contains($lease.FullName) -and $lease.LastWriteTimeUtc -lt $since) {
+                try { $lease.Delete() }
+                catch { Write-Warning "Could not remove the DxUi restore lease '$($lease.FullName)' ($($_.Exception.Message)); a later restore tries again." }
+            }
         }
     }
-    $cutoff = [DateTime]::UtcNow - $MinimumAge
-    $superseded = @(
-        Get-ChildItem -LiteralPath $dependencyRoot -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -cmatch '^([0-9a-f]{16}|[0-9a-f]{64}|[0-9a-f]{40}-api[0-9]+-.+)$' -and -not $named.Contains($_.Name) }
-        Get-ChildItem -LiteralPath (Join-Path $dependencyRoot 'source') -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -cmatch '^([0-9a-f]{40}|~[0-9a-f]+)$' -and $_.Name -cne $Commit }
-    ) | Where-Object { $_.LastWriteTimeUtc -lt $cutoff }
-    foreach ($folder in $superseded) {
-        try {
-            Remove-Item -LiteralPath $folder.FullName -Recurse -Force -ErrorAction Stop
-            Write-Host "Removed the superseded DxUi restore $($folder.FullName)" -ForegroundColor DarkGray
-        }
-        catch { Write-Warning "Could not remove the superseded DxUi restore '$($folder.FullName)' ($($_.Exception.Message)); a later restore tries again." }
-    }
+    finally { Exit-RedXeDxUiLock -Mutex $lock }
 }
 
 function Find-RedXeMSBuild {
@@ -313,5 +467,5 @@ function Get-RedXeVisualStudioInstallation {
 }
 
 Export-ModuleMember -Function Read-RedXeDxUiLock, Get-RedXeDxUiSupportedApiRevision, Get-RedXeDxUiDependencyRoot, Get-RedXeDxUiSourcePath,
-    Get-RedXeDxUiOutputRoot, Get-RedXeDxUiCloneSource, Restore-RedXeDxUiSource, Restore-RedXeDxUiPin, Remove-RedXeDxUiSupersededRestores,
-    Find-RedXeMSBuild, Get-RedXeVisualStudioInstallation
+    Get-RedXeDxUiOutputRoot, Get-RedXeDxUiCloneSource, Restore-RedXeDxUiSource, Restore-RedXeDxUiPin, Update-RedXeDxUiLease,
+    Remove-RedXeDxUiSupersededRestores, Find-RedXeMSBuild, Get-RedXeVisualStudioInstallation

@@ -1298,8 +1298,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         if (FAILED(result) || _transitionSettings || _settings->dashboard.activePageIndex != firstPage ||
             _settings->sourceDocument != expectedSource)
         {
-            OutputDebugStringW(L"A source-only reload during a staged swipe did not survive the page commit.\n");
-            return 6;
+            return FailSelfTest(L"A source-only reload during a staged swipe did not survive the page commit.", result);
         }
     }
 

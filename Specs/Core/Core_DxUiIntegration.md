@@ -35,6 +35,12 @@ a sibling `DxUi` checkout that holds it and otherwise from the canonical reposit
   is never longer than the commit, so every path fits wherever it fits at the destination. A failure or an interruption
   removes the temporary folder. When a concurrent restore publishes first, its checkout is used and the other
   discarded.
+- Restores of one destination MUST run one at a time on the machine. A machine-wide named mutex derived from the
+  destination's normalized full path (compared without case) is held from a second check of the destination through
+  its removal and the publication, whatever process or logon session runs the restore. Two runs can both find the
+  destination unfinished; the one that waited then finds the checkout the other published and keeps it, instead of
+  removing it while the other's caller imports from it. The first check takes no mutex, so a finished restore costs no
+  wait, and a holder that ended without releasing the mutex hands it over.
 - The clone and its checkout use Git long paths. `git clone -c core.longpaths=true` keeps the setting in that clone's own
   configuration; no user or global Git setting changes.
 - The working tree is sparse. `Measurements/`, `docs/gallery/` and `Specs/` are left out, because the product neither
@@ -55,7 +61,9 @@ requires an exact, clean, sparse checkout with the long file written. It also re
 its checkout, the read-only pack files of an unfinished deletion, a checkout of another commit and an edited checkout are
 each replaced by the clean checkout, and a pin restore that lost a file is restored again before it is returned; that a
 failed restore leaves neither the destination nor a temporary folder; that a restore whose rename loses to a concurrent
-one (staged deterministically) reports no restore and uses the winner; and that a `file://` clone of a bare copy, Git's
+one (staged deterministically) reports no restore and uses the winner; that of two concurrent repairs of one unfinished
+destination, run on two threads with the second held right after its first check until the first has published, the
+second reports no restore and leaves the first's checkout in place; and that a `file://` clone of a bare copy, Git's
 network path, fetches no content of a left-out file.
 
 Restore isolates vcpkg/library outputs under a
@@ -71,14 +79,31 @@ Every pin bump, toolset or SDK update leaves the previous output root behind (fr
 `DxUi.resolved*.props` names, source clones of other commits, and temporary restore folders.
 - Only folders named the way RedXe's restores name them are candidates: 16- or 64-digit fingerprint roots, the older
   `<commit>-api<n>-...` roots, `source/<commit>` and `source/~<hex>`. Nothing else under the folder is touched.
-- A candidate written to within the last hour MUST be kept, so a restore that another session is still running (the
-  other platform's root before its properties exist, a temporary clone) is never removed under it.
+- A candidate used within the last seven days (the lease window) MUST be kept. Its last use is its lease,
+  `.build/dependencies/DxUi/leases/<fingerprint>` for an output root and `leases/source.<commit>` for a source clone,
+  which every `restore-dxui.ps1` run, and so the start of every build, rewrites before it uses that folder: the pin
+  restore renews the source's lease before it checks the source, and the script renews the output root's before
+  DxUi's `vcpkg-install.ps1` builds into it. A folder without a lease (one an older restore left, a temporary clone)
+  counts as used when it or anything in it was written within the window. The folder's own time never counts: a build
+  that reuses a root reads it without writing its top level. The window is far longer than any build, so a root that
+  another session still builds with stays after a restore for another fingerprint has replaced the properties that
+  named it, and a restore that another session is still running (a root before its properties exist, a temporary
+  clone) is never removed under it.
+- Leases and removals are serialized by a named mutex of the dependency root: a removal holds it from its first decision
+  to its last deletion, and a lease is written under it, so a removal already under way finishes before the lease (the
+  restore then finds the folder gone and restores it), and none after the lease removes the folder within the window.
+- A removed folder's lease goes with it; a lease whose folder is gone goes once it is older than the window.
 - The removal is best effort: a folder still in use is reported and left to a later restore. A branch with another pin
   therefore restores and rebuilds that pin's outputs when it is built again.
 
-`DxUiRestoreTests.ps1` requires that superseded roots of each naming, another commit's clone and a stale temporary
-folder are removed, read-only files included, while both platforms' roots, the pin's clone, recent folders and a
-folder of another name stay.
+`DxUiRestoreTests.ps1` requires that superseded roots of each naming, another commit's clone, a stale temporary folder
+and a root whose lease is older than the window although its folder was just written are removed, read-only files
+included, while both platforms' roots, the pin's clone, a root and another pin's clone whose leases are recent although
+nothing in them changed for a month, a root without a lease whose content is recent, a temporary folder being written
+and a folder of another name stay. It also requires that a lease can be renewed before its folder exists and names
+only folders below the dependency root, that the leases of removed and long-gone folders go while those in use stay,
+that the pin restore renews its source's lease, and that `restore-dxui.ps1` renews the output root's lease before
+DxUi's dependencies build into it.
 
 `vcpkg-install.ps1` builds the manifest packages with the Visual Studio installation and the default MSVC toolset that
 MSBuild compiles with, not the newest toolset vcpkg would find. The two differ when a newer toolset is installed beside
@@ -128,7 +153,12 @@ differs from the restored identity. Builds produce `DxUi.provenance.json` beside
 public-header tree, archive hash, build identity and linked-module hashes for RedXe, AVControl and AVControlTests.
 The producer locates the archive through the resolved output root and verifies each actual linker command names
 it. It MUST refuse an output root other than the one the restored identity's fingerprint names, because the record would
-otherwise pair that identity with an archive another restore built (`DxUiProvenanceTests.ps1` covers both outcomes).
+otherwise pair that identity with an archive another restore built. The comparison is of the complete paths, both
+normalized to full paths without a trailing separator and compared without case, never of the fingerprint folder name
+alone: a stale or altered properties file can name another directory whose name is the same 16 digits. Properties that
+name no root are refused too. `DxUiProvenanceTests.ps1` requires the refusal of another identity's root, of another
+directory ending in the identity's fingerprint and of an empty root, and the acceptance of the identity's own root
+however it is spelled (case, separators, a redundant segment, a trailing separator).
 test.ps1 rejects wrong pins, profiles, missing/duplicate modules and replaced binaries before product regressions.
 The ordinary sidecar is product evidence, not a separate release or qualification system.
 
