@@ -1349,7 +1349,7 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
 ## Required validation
 
 1. Run `./format.ps1` and `./validate-skills.ps1`.
-2. Run Debug and Release x64 `test.ps1`; both must pass the plugin contract executable, the production host/plugin
+2. Run Debug and Release x64 `test.ps1 -Full`; both must pass the plugin contract executable, the production host/plugin
    harness, and the hidden application WARP smoke frame.
 3. Build Release ARM64 and confirm the host, plugins, contract tests, and host/plugin harness compile.
 4. Verify factory null outputs, unsupported IIDs, non-empty IDs, exact current record sizes, rejection of smaller and

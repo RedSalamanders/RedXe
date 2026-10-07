@@ -1,3 +1,4 @@
+#include "../../Common/FailureReports.h"
 #include "AVControlBroker.h"
 #include <filesystem>
 #include <stdexcept>
@@ -109,6 +110,22 @@ uint32_t RunBrokerTests()
     Check(broker.Execute(command, *reply, cancel.get(), 3000) == HRESULT_FROM_WIN32(ERROR_PROCESS_ABORTED),
           "helper crash produces local failure");
     start();
+    process.reset(OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, broker.ProcessId()));
+    Check(bool(process), "retain the failed-check helper handle");
+    command.operation = BrokerOperation::FixtureFailedCheck;
+#if defined(_DEBUG)
+    // A failed Debug check in a synthetic helper ends it with its report (Common/FailureReports.h): a modal dialog
+    // would hold the helper until the call's deadline instead.
+    DWORD helperExitCode = 0;
+    Check(broker.Execute(command, *reply, cancel.get(), 3000) == HRESULT_FROM_WIN32(ERROR_PROCESS_ABORTED) &&
+              WaitForSingleObject(process.get(), 500) == WAIT_OBJECT_0 &&
+              GetExitCodeProcess(process.get(), &helperExitCode) &&
+              helperExitCode == static_cast<DWORD>(RedXeFailureReports::kFailedCheckExitCode),
+          "a failed check ends the synthetic helper with exit code 3, never a dialog");
+#else
+    Check(broker.Execute(command, *reply, cancel.get(), 3000) == E_NOTIMPL, "a Release helper has no runtime checks");
+#endif
+    start();
     command.operation = BrokerOperation::FixtureMalformedReply;
     Check(broker.Execute(command, *reply, cancel.get(), 3000) == HRESULT_FROM_WIN32(ERROR_INVALID_DATA) &&
               !broker.Running(),
@@ -133,5 +150,23 @@ uint32_t RunBrokerTests()
     Check(FAILED(broker.Start((helper.parent_path() / L"does-not-exist.exe").native(), true)) && !broker.Running(),
           "startup failure cleans partial resources");
     Check(broker.Start(L"bad\"path", true) == E_INVALIDARG, "helper executable quoting cannot inject arguments");
+    {
+        // The checks that run before the helper knows it is synthetic never end with 3 or 4, which a synthetic helper
+        // keeps for a failed check and an abort (Common/FailureReports.h): unusable handle arguments are a bad
+        // command line.
+        std::wstring commandLine = L"\"" + helper.native() + L"\" --broker 0 0 0 0";
+        STARTUPINFOW startup{sizeof(startup)};
+        PROCESS_INFORMATION created{};
+        Check(CreateProcessW(helper.c_str(), commandLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
+                             nullptr, &startup, &created) != FALSE,
+              "start a helper with unusable handle arguments");
+        const wil::unique_handle invalidProcess(created.hProcess), invalidThread(created.hThread);
+        const bool exited = WaitForSingleObject(invalidProcess.get(), 3000) == WAIT_OBJECT_0;
+        if (!exited)
+            (void)TerminateProcess(invalidProcess.get(), ERROR_TIMEOUT);
+        DWORD invalidExitCode = 0;
+        Check(exited && GetExitCodeProcess(invalidProcess.get(), &invalidExitCode) && invalidExitCode == 2,
+              "unusable handle arguments end the helper with exit code 2, never 3 or 4");
+    }
     return brokerChecks;
 }

@@ -83,7 +83,9 @@ The package MUST contain, with forward-slash entry names and no directory entrie
 - The package is never written until the clean-extraction smoke accepts a staged copy: the archive is expanded into
   a fresh directory, its entry list is checked against the rules above, and when the host can run the platform
   (`x64` on x64/ARM64 Windows, `ARM64` only on ARM64 Windows) the packaged `RedXe.exe --self-test --warp` MUST exit
-  0 and `RedXeLauncher.exe --help` MUST exit 0 with the help text. The extraction is removed afterwards.
+  0 and `RedXeLauncher.exe --help` MUST exit 0 with the help text. Both run through `Invoke-RedXeStreamingProcess`
+  with a time budget (fifteen and two minutes) and a log under `.build/logs/`, which outlives the extraction; the
+  extraction is removed afterwards.
 
 ## In-package installer (`Installer/Install-RedXe.ps1`)
 
@@ -186,7 +188,7 @@ concurrency group. On `windows-latest`:
 Changes to this contract require:
 
 ```powershell
-.\test.ps1 -Configuration Debug -Platform x64          # includes the launcher checks and PackagingTests.ps1
+.\test.ps1 -Full -Configuration Debug -Platform x64    # includes the launcher checks and PackagingTests.ps1
 .\package.ps1 -Platform x64 -BuildNumber 1
 .\winget-manifest.ps1 -Version 1.0.1 -Arm64ZipPath <an ARM64 package or a copy for local validation>
 ```

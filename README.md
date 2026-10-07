@@ -29,10 +29,13 @@ Windows. Opening `.vsconfig` in Visual Studio offers the required workload. The 
 # Release or ARM64
 .\build.ps1 -Configuration Release
 .\build.ps1 -Platform ARM64
-.\test.ps1 -Configuration 'ASan Debug' # Native sanitizer detection and product regressions
+.\test.ps1 -Full -Configuration 'ASan Debug' # Native sanitizer detection and product regressions
 
 # Rebuild and validate with the software Direct3D driver
 .\build.ps1 -Rebuild
+.\test.ps1 -Full
+
+# While editing: only the suites your changes affect
 .\test.ps1
 
 # Adopt the latest DxUi main commit after its DxUi CI is green, then run RedXe validation
@@ -153,7 +156,7 @@ Settings/              Debug and Release settings templates
 Tests/                 ABI, settings, and production host/plugin tests
 Build/                 Build-process safety, versioning, packaging, and winget helper modules
 build.ps1             Build, clean, rebuild, and optionally run (-BuildNumber stamps the version)
-test.ps1              GPU-independent contract, host/plugin, and runtime tests
+test.ps1              GPU-independent contract, host/plugin, and runtime tests (affected suites; -Full runs every suite)
 package.ps1           Portable ZIP with clean-extraction smoke
 winget-manifest.ps1   Winget manifest generation and validation
 Update-DxUi.ps1       Update the validated DxUi pin, optionally without local validation

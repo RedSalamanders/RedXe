@@ -6,6 +6,7 @@
 #include <UIAutomation.h>
 
 #include "CrashHandler.h"
+#include "FailureReports.h"
 #include "FluentIcons.h"
 #include "FrameScheduler.h"
 #include "PageNavigation.h"
@@ -1103,9 +1104,36 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     return FAILED(_runtimeFailure) ? 5 : 0;
 }
 
+namespace
+{
+// `--self-test`'s exit code for a failed check, as `--help` documents it (CommandLine.h). A failed Debug runtime check
+// ends the run with 3 and any other abort() with 4 (Common/FailureReports.h), so the codes never overlap.
+constexpr int kSelfTestFailedExitCode = 6;
+
+// A failed self-test check names itself, with its HRESULT when there is one, on the debugger output and on stderr,
+// which test.ps1 keeps in RedXe.self-test.log, and ends the self-test.
+int FailSelfTest(const wchar_t* check, HRESULT result = S_OK) noexcept
+{
+    std::array<wchar_t, 512> text{};
+    if (FAILED(result))
+    {
+        static_cast<void>(_snwprintf_s(text.data(), text.size(), _TRUNCATE, L"RedXe --self-test: %ls HRESULT 0x%08X.\n",
+                                       check, static_cast<unsigned int>(result)));
+    }
+    else
+    {
+        static_cast<void>(_snwprintf_s(text.data(), text.size(), _TRUNCATE, L"RedXe --self-test: %ls\n", check));
+    }
+    OutputDebugStringW(text.data());
+    RedXeFailureReports::WriteToStandardError(text.data());
+    return kSelfTestFailedExitCode;
+}
+} // namespace
+
 // Hidden startup validation for `--self-test`. It shares Application's startup steps but never shows a window and
 // never enters the frame loop, so the production Run above carries no test branches and no `selfTest` parameter.
-// It MUST NOT call SetLogDirectory: diagnostics stay off `%LocalAppData%` and the deployed tree.
+// It MUST NOT call SetLogDirectory: diagnostics stay off `%LocalAppData%` and the deployed tree; a failed check goes
+// to stderr instead (FailSelfTest).
 //
 // UI_XeneonDisplayWindowing.md owns this mode: skip display discovery and prompts, create the titled window hidden,
 // validate its DPI-adjusted client dimensions, render one frame, and exit.
@@ -1123,34 +1151,30 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     PluginHost::Instance().SetDeviceAccessEnabled(false);
     if (!_pluginManager || !_dashboardHost)
     {
-        OutputDebugStringW(L"Dashboard host allocation failed.\n");
-        return 1;
+        return FailSelfTest(L"Dashboard host allocation failed.", E_OUTOFMEMORY);
     }
 
     HRESULT result = _settingsStore.Initialize(true, settingsPath, _settings);
     if (FAILED(result) || !_settings)
     {
-        OutputDebugStringW(L"Settings initialization or validation failed.\n");
-        return 1;
+        return FailSelfTest(L"Settings initialization or validation failed.", result);
     }
-    if (FAILED(ValidateExecutableShellIcon()))
+    result = ValidateExecutableShellIcon();
+    if (FAILED(result))
     {
-        OutputDebugStringW(L"The executable does not expose extractable large and small shell icons.\n");
-        return 1;
+        return FailSelfTest(L"The executable does not expose extractable large and small shell icons.", result);
     }
 
     result = RegisterWindowClass();
     if (FAILED(result))
     {
-        OutputDebugStringW(L"RegisterWindowClass failed.\n");
-        return 1;
+        return FailSelfTest(L"RegisterWindowClass failed.", result);
     }
 
     result = CreateMainWindow(false, nullptr, false);
     if (FAILED(result))
     {
-        OutputDebugStringW(L"CreateMainWindow failed.\n");
-        return 2;
+        return FailSelfTest(L"CreateMainWindow failed.", result);
     }
 
     RECT clientBounds{};
@@ -1163,8 +1187,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         clientBounds.right - clientBounds.left != expectedClientSize.cx ||
         clientBounds.bottom - clientBounds.top != expectedClientSize.cy)
     {
-        OutputDebugStringW(L"The default client area does not match the current monitor DPI.\n");
-        return 2;
+        return FailSelfTest(L"The default client area does not match the current monitor DPI.");
     }
 
     {
@@ -1175,9 +1198,8 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
                                                             _window.get(), nullptr, nullptr, nullptr));
         if (!layeredProbe || !SetLayeredWindowAttributes(layeredProbe.get(), 0, 255, LWA_ALPHA))
         {
-            OutputDebugStringW(
-                L"Layered child containers are unavailable; the manifest must declare Windows 8 or later.\n");
-            return 2;
+            return FailSelfTest(
+                L"Layered child containers are unavailable; the manifest must declare Windows 8 or later.");
         }
     }
 
@@ -1186,20 +1208,18 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     result = OleInitialize(nullptr);
     if (FAILED(result))
     {
-        OutputDebugStringW(L"OleInitialize failed.\n");
-        return 2;
+        return FailSelfTest(L"OleInitialize failed.", result);
     }
     _oleInitialized = true;
     _dropTarget.reset(new (std::nothrow) ApplicationDropTarget(this));
     if (!_dropTarget)
     {
-        return 2;
+        return FailSelfTest(L"Drop target allocation failed.", E_OUTOFMEMORY);
     }
     result = RegisterDragDrop(_window.get(), _dropTarget.get());
     if (FAILED(result))
     {
-        OutputDebugStringW(L"RegisterDragDrop failed.\n");
-        return 2;
+        return FailSelfTest(L"RegisterDragDrop failed.", result);
     }
     _dropRegistered = true;
     PluginHost::Instance().SetSettingsPersistHandler(&Application::SettingsPersistThunk, this);
@@ -1209,7 +1229,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         std::unique_ptr<AppSettings> matrixDisabled{new (std::nothrow) AppSettings{*_settings}};
         if (!matrixDisabled)
         {
-            return 3;
+            return FailSelfTest(L"The conditional-load test could not copy the settings.", E_OUTOFMEMORY);
         }
         result = DisablePluginAndRemoveWidgets(*matrixDisabled, "builtin.matrix-rain");
         PluginManager disabledMatrixManager;
@@ -1219,8 +1239,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         }
         if (FAILED(result) || GetModuleHandleW(L"MatrixRain.dll"))
         {
-            OutputDebugStringW(L"A disabled Matrix Rain plugin was loaded during the conditional-load test.\n");
-            return 3;
+            return FailSelfTest(L"A disabled Matrix Rain plugin was loaded during the conditional-load test.", result);
         }
     }
 #endif
@@ -1228,23 +1247,20 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     result = _pluginManager->Initialize(*_settings);
     if (FAILED(result))
     {
-        OutputDebugStringW(L"Bundled plugin initialization failed.\n");
-        return 3;
+        return FailSelfTest(L"Bundled plugin initialization failed.", result);
     }
 
     result = InitializeDashboardRuntime();
     if (FAILED(result))
     {
-        OutputDebugStringW(L"Dashboard or renderer initialization failed.\n");
-        return 5;
+        return FailSelfTest(L"Dashboard or renderer initialization failed.", result);
     }
     PluginHost::Instance().SetHostActionHandler(&Application::HostActionThunk, &Application::HostActionCompletedThunk,
                                                 this);
     result = PluginHost::Instance().StartServices(*_settings);
     if (FAILED(result))
     {
-        OutputDebugStringW(L"A configured service failed to start with device access disabled.\n");
-        return 5;
+        return FailSelfTest(L"A configured service failed to start with device access disabled.", result);
     }
     PublishHostState();
 
@@ -1258,8 +1274,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         (!PluginEnabled(*_settings, "builtin.gdi-orbit") && GetModuleHandleW(L"GdiOrbit.dll")) ||
         (!PluginEnabled(*_settings, "builtin.matrix-rain") && GetModuleHandleW(L"MatrixRain.dll")))
     {
-        OutputDebugStringW(L"The plugin smoke frame did not render every GPU-widget instance.\n");
-        return 6;
+        return FailSelfTest(L"The plugin smoke frame did not render every GPU-widget instance.", result);
     }
 
     const uint32_t pageCount = _settings->dashboard.pageCount;
@@ -1268,7 +1283,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         std::unique_ptr<AppSettings> changed{new (std::nothrow) AppSettings{*_settings}};
         if (!changed)
         {
-            return 6;
+            return FailSelfTest(L"The page reconfiguration test could not copy the settings.", E_OUTOFMEMORY);
         }
         result = MoveDashboardPage(*changed, 1);
         if (SUCCEEDED(result))
@@ -1281,8 +1296,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         if (FAILED(result) || _renderer.LastFrameWidgetCount() != changedGpuWidgetCount ||
             _renderer.LastFrameSuccessfulWidgetCount() != changedGpuWidgetCount)
         {
-            OutputDebugStringW(L"The dashboard page/private settings reconfiguration smoke test failed.\n");
-            return 6;
+            return FailSelfTest(L"The dashboard page/private settings reconfiguration smoke test failed.", result);
         }
     }
 
@@ -1313,16 +1327,14 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         if (FAILED(result) || _transitionSettings || _settings->dashboard.activePageIndex != firstPage ||
             _settings->sourceDocument != expectedSource)
         {
-            OutputDebugStringW(L"A source-only reload during a staged swipe did not survive the page commit.\n");
-            return 6;
+            return FailSelfTest(L"A source-only reload during a staged swipe did not survive the page commit.", result);
         }
     }
 
     std::unique_ptr<AppSettings> rejected{new (std::nothrow) AppSettings{*_settings}};
     if (!rejected || SUCCEEDED(ParseAppSettingsJson("{}", *rejected)) || *rejected != *_settings)
     {
-        OutputDebugStringW(L"Invalid settings changed the active typed configuration.\n");
-        return 6;
+        return FailSelfTest(L"Invalid settings changed the active typed configuration.");
     }
 
     // The `redxe.screenshot` action keeps RedXe running: an ordinal past the page's widgets fails it, a second request
@@ -1346,8 +1358,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         }
         if (!keptRunning || TickScreenshot() || _screenshot.pending || !_window || SUCCEEDED(_screenshot.result))
         {
-            OutputDebugStringW(L"The redxe.screenshot action did not keep RedXe running after its capture.\n");
-            return 6;
+            return FailSelfTest(L"The redxe.screenshot action did not keep RedXe running after its capture.");
         }
     }
 
@@ -1366,8 +1377,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
                               PeekMessageW(&posted, _window.get(), WM_CLOSE, WM_CLOSE, PM_REMOVE);
         if (!deferred)
         {
-            OutputDebugStringW(L"redxe.settings.reload or redxe.quit ran inside the caller instead of being posted.\n");
-            return 6;
+            return FailSelfTest(L"redxe.settings.reload or redxe.quit ran inside the caller instead of being posted.");
         }
     }
     return 0;

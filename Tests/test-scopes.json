@@ -179,20 +179,6 @@
       "reason": "plugin contracts, shared host-settings consumers, host integration and deployment"
     },
     {
-      "pattern": "Tests/LauncherAliasTests/**",
-      "scopes": [
-        "LauncherAlias"
-      ],
-      "reason": "owning native test project"
-    },
-    {
-      "pattern": "Tests/PackagingTests/**",
-      "scopes": [
-        "Packaging"
-      ],
-      "reason": "owning native test project"
-    },
-    {
       "pattern": "Tests/PluginContractTests/**",
       "scopes": [
         "PluginContract"
@@ -210,13 +196,6 @@
       "pattern": "Tests/SystemDataTests/**",
       "scopes": [
         "SystemData"
-      ],
-      "reason": "owning native test project"
-    },
-    {
-      "pattern": "Tests/SystemDataPhase0Tests/**",
-      "scopes": [
-        "SystemDataPhase0"
       ],
       "reason": "owning native test project"
     },
@@ -277,18 +256,21 @@
       "reason": "owning native test project"
     },
     {
-      "pattern": "Tests/HostSmokeTests/**",
-      "scopes": [
-        "HostSmoke"
-      ],
-      "reason": "owning native test project"
-    },
-    {
       "pattern": "Tests/SystemDataPhase0/**",
       "scopes": [
         "SystemDataPhase0"
       ],
       "reason": "system data acquisition fixture"
+    },
+    {
+      "pattern": "Tests/*/*.vcxproj",
+      "scopes": [
+        "PluginContract",
+        "HostPlugin",
+        "HostSmoke",
+        "Packaging"
+      ],
+      "reason": "every project builds into the shared output folder: deployed files and referenced product builds reach the host, smoke and package consumers"
     },
     {
       "pattern": "RedXe/Settings*",
@@ -339,6 +321,34 @@
         "BuildProcess"
       ],
       "reason": "skill validation tooling"
+    },
+    {
+      "pattern": ".agents/**",
+      "scopes": [
+        "BuildProcess"
+      ],
+      "reason": "skill metadata read only by the skill validator"
+    },
+    {
+      "pattern": "validate-skills.ps1",
+      "scopes": [
+        "BuildProcess"
+      ],
+      "reason": "skill validation tooling"
+    },
+    {
+      "pattern": "Build/validate_skills.py",
+      "scopes": [
+        "BuildProcess"
+      ],
+      "reason": "skill validation tooling"
+    },
+    {
+      "pattern": "Build/requirements-validation.txt",
+      "scopes": [
+        "BuildProcess"
+      ],
+      "reason": "skill validator dependencies"
     }
   ],
   "toolingCommands": [
@@ -346,6 +356,14 @@
   ],
   "prCoverage": [
     {
+      "check": "tooling",
+      "scopes": [
+        "BuildProcess"
+      ]
+    },
+    {
+      "check": "native (x64, Release)",
+      "platform": "x64",
       "configuration": "Release",
       "scopes": [
         "LauncherAlias",
@@ -362,10 +380,8 @@
         "Zoom",
         "Settings",
         "HostPlugin",
-        "HostSmoke",
-        "BuildProcess"
-      ],
-      "platform": "x64"
+        "HostSmoke"
+      ]
     }
   ],
   "prWorkflowDigest": "adc0819e5d13b107f19febf476c827557495fb7497a89759f2a2214d3fda95be"
