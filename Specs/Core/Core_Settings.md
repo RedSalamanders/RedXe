@@ -442,9 +442,10 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 - `redxe.settings.reload` forgets the stamps and posts the watcher's message; the reload MUST run from the message
   loop, never inside the widget input callback that requested it, because applying it can release that widget
   (`Specs/Plugins/Plugins_Actions.md`).
-- A candidate whose typed settings equal the running ones (for example a comment or spacing edit) only becomes the
-  retained source document: it MUST NOT cancel a page swipe, a raise, or a wheel sequence. A swipe that commits after
-  it MUST change only the active page, so that source stays the document a later persist or dock drag writes.
+- A candidate whose typed settings equal the running ones in every member except the retained source and the retired
+  `services` entries, which nothing runs (`RuntimeSettingsEqual`; for example a comment or spacing edit), only becomes
+  the retained source document: it MUST NOT cancel a page swipe, a raise, or a wheel sequence. A swipe that commits
+  after it MUST change only the active page, so that source stays the document a later persist or dock drag writes.
 - A successful live load MUST apply the candidate in memory only. It MUST NOT write the watched file, format it,
   persist a widget merge, or collect-on-exit onto that path. The editor's bytes stay until an explicit widget persist
   or other user-driven save. `--self-test` MUST NOT write `%LocalAppData%` and MUST NOT write the deployed template.
@@ -452,8 +453,9 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   An invalid live load MUST NOT rewrite the invalid file and MUST NOT write the last-good document over it, and neither
   may a later persist or dock drag ("Plugin persist"). Monitoring continues until a later distinct save can be loaded.
 - Diagnostics MUST name the JSON path and the specific problem in clear user language. When the byte location is
-  reliable (JSON syntax errors, or a path the locator can resolve), they MUST also include line and column. The dialog
-  MUST NOT report a generic version-5 schema failure at `path $` when a more specific member is known.
+  reliable (JSON syntax errors, or a path the locator can resolve), they MUST also include line and column. The
+  locator MUST read comments where the parser does, as the dock source patches do: a line comment ends at CR or LF.
+  The dialog MUST NOT report a generic version-5 schema failure at `path $` when a more specific member is known.
 - At most one modal settings-error dialog may exist. Monitoring continues while visible. A later invalid save refreshes
   it with the newest bounded error list; dialogs never stack. If all errors do not fit, an ellipsis states that more
   were omitted. A valid save applies and closes the dialog automatically. The dialog opens inside the work area of the
@@ -513,8 +515,12 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   notification, a repeated service apply, or a reload without the entry.
 - Tests prove `trayIcon`: omitted it is `true` in Release and `false` in Debug, also in a minor 2 document; an authored
   `true` or `false` wins; a string, a number, `null`, an object, and a duplicate member are rejected, with the
-  diagnostic on `$.trayIcon`; the member changes no other typed setting; both templates author it (`false` in Debug,
-  `true` in Release); and the schema declares it a boolean without a default.
+  diagnostic on `$.trayIcon`; the member changes no other typed setting, and a toggle is a runtime change
+  (`RuntimeSettingsEqual`) that keeps the active page (`ActiveDashboardRuntimeEquals`); both templates author it
+  (`false` in Debug, `true` in Release); and the schema declares it a boolean without a default.
+- Tests prove `RuntimeSettingsEqual` member by member: a candidate that differs from the running settings in any one
+  root member alone is a runtime change, and one that differs only in the retained source or the retired `services`
+  entries is not.
 - Tests accept a complete `dock` object, prove member-by-member default merging (an omitted object, `{}`, and a minor 1
   document equal `edge: none`), keep `edge: none` validating the other members, accept the `secondary` selector in the
   document and on `--dock` and an `animationMilliseconds` of 0, reject every malformed member (unknown edge or mode,
@@ -536,7 +542,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   plain template byte for byte and a notice that names no bar although a dock is offered, installs the plain template
   byte for byte when no dock is offered, none is made, or the offered dock is refused by the patch, and never writes a
   missing `--settings` file; and that it asks its provider for the dock exactly once for a missing default file and
-  never for an existing file, a recovery, a `--settings` file, or the self-test.
+  never for an existing file, a recovery, a `--settings` file, or the self-test. A dock whose every member leaves its
+  default is written, parsed back, and installed exactly as it was made.
 - Tests prove the BOM rule: both shipped templates with a BOM load to the same typed settings with the BOM kept in
   the source; `PatchDockThickness` and `PatchFirstRunDock` produce the BOM followed by the bytes they produce without
   it; a widget persist rewrites the document with exactly one leading BOM; an error after a BOM is reported on its own
@@ -552,7 +559,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   release at the current thickness returns `S_FALSE` and leaves the source and typed minor unchanged, and typed
   settings whose dock differs from the document's are refused with `ERROR_INVALID_DATA` and leave the source,
   thickness, and minor unchanged. A dock drag whose write fails restores the typed minor with the thickness and
-  source, and a committed drag leaves the typed minor equal to the file's.
+  source, and a committed drag leaves the typed minor equal to the file's. The diagnostic locator, which shares the
+  patch's scanner, locates a member after a line comment ended by a lone CR where the parser reads it.
 - Tests prove a partial widget persist merge keeps unspecified members and rejects unknown plugin members.
 - Tests prove the persist write gate: a widget persist or dock drag over a rejected save, a loaded but not yet applied
   save, a deleted file, and a `--settings` file that fell back to the default returns `S_FALSE`, leaves the file bytes

@@ -435,25 +435,25 @@ Check a row when its fix lands, or note why it was dropped.
 
 ### P6. Behavior-preserving simplifications (41)
 
-- [ ] `tests#0` (medium) `Tests/SettingsTests/Settings.Tests.Runner.cpp:1408`: Tray-icon test claims 'a toggle is a runtime change the host applies live' but only checks AppSettings::operator==, which the live-reload path never uses
+- [x] `tests#0` (medium) `Tests/SettingsTests/Settings.Tests.Runner.cpp:1408`: Tray-icon test claims 'a toggle is a runtime change the host applies live' but only checks AppSettings::operator==, which the live-reload path never uses
 - [ ] `alignment#10` (low) `Specs/Build/Build_Process.md:117`: Build_Process.md states normative requirements for RedSalamander and DxUi, which RedXe neither owns nor implements
 - [ ] `alignment#13` (low) `Tests/test-scopes.json:182`: The scoped-testing manifest, module and help carry rules and examples copied from other repositories
 - [x] `alignment#8` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock measures displays on every launch without a XENEON, though the spec says only at install
 - [x] `dock-switch#15` (low) `RedXe/Application.cpp:433`: Monitor enumeration and effective-DPI lookup duplicated across MakeFirstRunDock, ResolveDockMonitor and PlaceStandardWindow; the `secondary` order invariant depends on the copies matching
-- [ ] `dock-switch#16` (low) `RedXe/Settings.cpp:2477`: Duplicated install-target probe and atomic-commit code in Settings.cpp introduced by the first-run path
+- [x] `dock-switch#16` (low) `RedXe/Settings.cpp:2477`: Duplicated install-target probe and atomic-commit code in Settings.cpp introduced by the first-run path
 - [x] `dock-switch#5` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock measures displays and queries Explorer on every start without a XENEON, though its result is used only when a template is installed
 - [ ] `dxui-restore#12` (low) `Build/DxUiProvenance.psm1:12`: Lock reading, source-path building and MSBuild discovery are still duplicated after the PR's 'each fact lives once' consolidation, including a pass-through Read-RedXeDxUiUpdateLock
-- [ ] `host-hardening#9` (low) `RedXe/Application.cpp:2558`: The sameRuntime field list duplicates AppSettings::operator== by hand and silently treats any new member as source-only
+- [x] `host-hardening#9` (low) `RedXe/Application.cpp:2558`: The sameRuntime field list duplicates AppSettings::operator== by hand and silently treats any new member as source-only
 - [ ] `logicon-zoom#10` (low) `Common/Actions/WindowSelector.cpp:153`: RedXeActions::BringToForeground is dead after zoom.focus was removed; it is the only synthetic-Alt focus stealer and its docs still name Zoom
 - [ ] `logicon-zoom#6` (low) `Plugins/Logicon/LogiconHid.h:90`: Dead HID cancel and redundant stop paths after the IoState rewrite: HidPort::Cancel has no caller and races Close, Write's ERROR_BUSY branch is unreachable, and lane exit stops the wheels twice
 - [ ] `process-containment#11` (low) `Build/BuildPresentation.psm1:720`: The process-containment launcher lives in the presentation module; test.ps1 loads BuildPresentation.psm1 only for it
 - [ ] `process-containment#8` (low) `Build/BuildPresentation.psm1:475`: Two argument-quoting implementations for the two launch paths; ConvertTo-RedXeProcessCommandLine matches .NET ArgumentList exactly, so Set-RedXeProcessArguments can be deleted
 - [ ] `scoped-testing#18` (low) `Build/ScopedTesting.psm1:224`: Code, help text and normative spec text copied from other repositories (DxUi, RedSalamander) is dead or wrong in RedXe
-- [ ] `settings#11` (low) `RedXe/Settings.cpp:2137`: PrepareDockSourcePatch parses the whole document a second time for a check ParseAppSettingsJsonV5 already guarantees
+- [x] `settings#11` (low) `RedXe/Settings.cpp:2137`: PrepareDockSourcePatch parses the whole document a second time for a check ParseAppSettingsJsonV5 already guarantees
 - [x] `settings#12` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock queries Explorer on every launch without a XENEON although it is used only when the default file is installed, and it duplicates ResolveDockMonitor's monitor enumeration
-- [ ] `settings#13` (low) `RedXe/Settings.cpp:1872`: The new source-text JSON scanner duplicates JsonTextCursor already in SettingsV4.cpp
-- [ ] `settings#14` (low) `RedXe/Settings.cpp:2506`: InstallTemplateWithDock checks only 4 dock fields where DockSettings::operator== is available, and repeats the install and commit plumbing
-- [ ] `settings#16` (low) `RedXe/Application.cpp:2261`: Application::_persistSettingsToDisk duplicates the store's self-test write gate
+- [x] `settings#13` (low) `RedXe/Settings.cpp:1872`: The new source-text JSON scanner duplicates JsonTextCursor already in SettingsV4.cpp The shared cursor ends a line comment at CR or LF as the parser and the dock patches (`settings#8`) already did; the diagnostic locator, which ended it at LF only, now also locates a member after a comment ended by a lone CR.
+- [x] `settings#14` (low) `RedXe/Settings.cpp:2506`: InstallTemplateWithDock checks only 4 dock fields where DockSettings::operator== is available, and repeats the install and commit plumbing
+- [x] `settings#16` (low) `RedXe/Application.cpp:2261`: Application::_persistSettingsToDisk duplicates the store's self-test write gate
 - [x] `slide-tray#10` (low) `RedXe/Application.cpp:427`: MakeFirstRunDock duplicates ResolveDockMonitor's display enumeration and round-trips its own constant selector through text The text round trip stays on purpose: it parses the selector written into the file, so the display measured is the one that text resolves to over the shared walk.
 - [ ] `slide-tray#13` (low) `RedXe/Application.cpp:2462`: Two slide fields can be derived from existing state, and the end of TickDockSlide repeats SettleDockSlide
 - [x] `slide-tray#9` (low) `RedXe/Application.cpp:752`: MakeFirstRunDock runs on every launch without a XENEON, including three synchronous Explorer round trips, although only a template install uses its result

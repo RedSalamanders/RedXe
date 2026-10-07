@@ -1266,7 +1266,6 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         }
     }
 
-    _persistSettingsToDisk = false;
     (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
     result = OleInitialize(nullptr);
     if (FAILED(result))
@@ -2502,9 +2501,7 @@ void Application::EndDockResize() noexcept
     (void)PlaceDock(true);
     if (_settings)
     {
-        const HRESULT persisted = _persistSettingsToDisk
-                                      ? _settingsStore.PersistDockThickness(*_settings, _dock.thicknessDips)
-                                      : PatchDockThickness(*_settings, _dock.thicknessDips);
+        const HRESULT persisted = _settingsStore.PersistDockThickness(*_settings, _dock.thicknessDips);
         if (FAILED(persisted))
         {
             (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
@@ -2829,14 +2826,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     }
     // Source-only edits (comments and spacing) still become the persisted document without interrupting a swipe,
     // raise, or wheel sequence. Compare the typed runtime state before tearing down any interaction.
-    const bool sameRuntime =
-        settings->versionMajor == _settings->versionMajor && settings->versionMinor == _settings->versionMinor &&
-        settings->logRetentionDays == _settings->logRetentionDays &&
-        settings->backgroundRgb == _settings->backgroundRgb && settings->dock == _settings->dock &&
-        settings->trayIcon == _settings->trayIcon && settings->plugins == _settings->plugins &&
-        settings->pluginCount == _settings->pluginCount && settings->services == _settings->services &&
-        settings->serviceCount == _settings->serviceCount && settings->dashboard == _settings->dashboard;
-    if (sameRuntime)
+    if (RuntimeSettingsEqual(*settings, *_settings))
     {
         _settings = std::move(settings);
         return S_FALSE;
@@ -6835,10 +6825,7 @@ HRESULT Application::ApplyWidgetSettingsPersist(const char* instanceId, const ch
     {
         return E_INVALIDARG;
     }
-    if (!_persistSettingsToDisk)
-    {
-        return PatchWidgetInstanceSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
-    }
+    // The self-test store keeps the merge in memory and writes nothing.
     const HRESULT result =
         _settingsStore.PersistWidgetSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
     LogDeferredSettingsPersist();

@@ -352,6 +352,9 @@ enum class SettingsReloadStatus : std::uint8_t
 [[nodiscard]] HRESULT MoveDashboardPage(AppSettings& settings, int direction) noexcept;
 [[nodiscard]] HRESULT PreserveActiveDashboardPage(const AppSettings& previous, AppSettings& candidate) noexcept;
 [[nodiscard]] bool ActiveDashboardRuntimeEquals(const AppSettings& left, const AppSettings& right) noexcept;
+// True when the two differ at most in the retained source text and the retired services entries: a live reload of such
+// a candidate only becomes the retained source (Core_Settings.md "Live reload and diagnostics").
+[[nodiscard]] bool RuntimeSettingsEqual(const AppSettings& left, const AppSettings& right) noexcept;
 // The 0xRRGGBB background one widget instance paints: its own override, else the document background.
 [[nodiscard]] inline uint32_t EffectiveWidgetBackgroundRgb(const AppSettings& settings,
                                                            const WidgetInstanceSettings& widget) noexcept

@@ -116,6 +116,9 @@
     <ClInclude Include="Settings.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="SettingsJsonText.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="SettingsWatcher.h">
       <Filter>Header Files</Filter>
     </ClInclude>

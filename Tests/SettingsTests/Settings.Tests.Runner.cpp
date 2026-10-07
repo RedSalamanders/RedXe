@@ -1409,9 +1409,9 @@ constexpr std::string_view kRepresentative = R"json(
 // (one line in each shipped template, in its line breaks) and below a comment that ends version's line, a missing
 // `thickness` after the last dock member, on its line or on a new line at its indentation, or one level deeper than
 // the closing brace of an empty dock, and a missing `minor` the same way inside `version`. The typed minor follows a
-// raised source minor, a line comment ends at a lone CR exactly where the parser ends it, and a CR-only document
-// keeps CR. A release at the current thickness changes nothing, and a patch that would not parse back to the running
-// dock is refused.
+// raised source minor, a line comment ends at a lone CR exactly where the parser ends it (for the diagnostic locator,
+// which shares the scanner, too), and a CR-only document keeps CR. A release at the current thickness changes nothing,
+// and a patch that would not parse back to the running dock is refused.
 [[nodiscard]] HRESULT ValidateDockThicknessLayout() noexcept
 {
     try
@@ -1506,6 +1506,20 @@ constexpr std::string_view kRepresentative = R"json(
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
         }
+        // The diagnostic for a member after a line comment ended by a lone CR is located where the parser reads it.
+        constexpr std::string_view loneCr =
+            "{\"version\":{\"major\":5,\"minor\":2},// note\r\"dock\":{\"peek\":65},\"pages\":[{}]}";
+        const size_t peekAt = loneCr.find("65");
+        AppSettings diagnosed{};
+        SettingsParseDiagnostic diagnostic{};
+        if (SUCCEEDED(ParseAppSettingsJsonDetailed(loneCr, diagnosed, diagnostic)) ||
+            diagnostic.path != "$.dock.peek" || !diagnostic.hasLocation || diagnostic.byteOffset != peekAt ||
+            diagnostic.line != 1 || diagnostic.column != peekAt + 1)
+        {
+            std::wprintf(L"A member after a line comment ended by a lone CR was located at offset %llu, not %zu.\n",
+                         static_cast<unsigned long long>(diagnostic.byteOffset), peekAt);
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
 
         // A release at the thickness the document already has (a click on the edge) adds no `dock` and no minor.
         constexpr std::string_view noDock = R"json({"version":{"major":5,"minor":1},"pages":[{}]})json";
@@ -1541,8 +1555,9 @@ constexpr std::string_view kRepresentative = R"json(
 
 // The `trayIcon` root member (minor 3): omitted, it follows the build (Release shows the notification-area icon,
 // Debug hides it), also in an older-minor document; an authored boolean wins in both builds; anything else rejects
-// the document with the diagnostic on $.trayIcon. It is typed runtime state, so a toggle is a runtime change the host
-// applies live.
+// the document with the diagnostic on $.trayIcon. A toggle changes no other typed member, is a runtime change by the
+// check a live reload makes before it applies anything (RuntimeSettingsEqual), and keeps the active page
+// (ActiveDashboardRuntimeEquals), so the host applies it without rebuilding the page.
 [[nodiscard]] HRESULT ValidateTrayIconSettings() noexcept
 {
 #if defined(_DEBUG)
@@ -1570,11 +1585,18 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     // Only the member differs between the two documents, and the typed settings see it.
-    hidden.sourceDocument = shown.sourceDocument;
-    hidden.trayIcon = true;
-    if (hidden != shown)
+    AppSettings toggled = hidden;
+    toggled.sourceDocument = shown.sourceDocument;
+    toggled.trayIcon = true;
+    if (toggled != shown)
     {
         std::wprintf(L"trayIcon changed typed settings other than trayIcon.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    if (RuntimeSettingsEqual(hidden, shown) || RuntimeSettingsEqual(shown, hidden) ||
+        !ActiveDashboardRuntimeEquals(hidden, shown))
+    {
+        std::wprintf(L"A trayIcon toggle is not a runtime change that keeps the active page.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     const std::string_view rejected[]{
@@ -1602,6 +1624,68 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     return S_OK;
+}
+
+// RuntimeSettingsEqual, the check a live reload makes before it applies anything (Application::ApplySettings): a
+// candidate that differs from the running settings in any one root member is a runtime change, and one that differs
+// only in the retained source text or the retired services entries, which nothing runs, only becomes the source.
+[[nodiscard]] HRESULT ValidateRuntimeSettingsEqual() noexcept
+{
+    try
+    {
+        constexpr std::string_view document = R"json({
+          "version":{"major":5,"minor":3},
+          "services":{"Keypad":{"plugin":"builtin.logicon"},"Meet":{"plugin":"builtin.zoom"}},
+          "pages":[{"widgets":[{"plugin":"builtin.gdi-orbit"}]}]
+        })json";
+        AppSettings running{};
+        if (FAILED(ParseAppSettingsJson(document, running)) || running.pluginCount != 1 || running.serviceCount != 1 ||
+            running.retiredServices.size() != 1 || !RuntimeSettingsEqual(running, running))
+        {
+            std::wprintf(L"The runtime comparison document did not parse as expected.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        struct MemberChange final
+        {
+            const wchar_t* member;
+            void (*change)(AppSettings& settings) noexcept;
+            bool runtime;
+        };
+        const MemberChange changes[]{
+            {L"versionMajor", [](AppSettings& settings) noexcept { ++settings.versionMajor; }, true},
+            {L"versionMinor", [](AppSettings& settings) noexcept { ++settings.versionMinor; }, true},
+            {L"logRetentionDays", [](AppSettings& settings) noexcept { ++settings.logRetentionDays; }, true},
+            {L"backgroundRgb", [](AppSettings& settings) noexcept { settings.backgroundRgb ^= 0x010203U; }, true},
+            {L"dock", [](AppSettings& settings) noexcept { ++settings.dock.animationMilliseconds; }, true},
+            {L"trayIcon", [](AppSettings& settings) noexcept { settings.trayIcon = !settings.trayIcon; }, true},
+            {L"plugins",
+             [](AppSettings& settings) noexcept { settings.plugins[0].enabled = !settings.plugins[0].enabled; }, true},
+            {L"pluginCount", [](AppSettings& settings) noexcept { ++settings.pluginCount; }, true},
+            {L"services", [](AppSettings& settings) noexcept { settings.services[0].name = SettingsText{}; }, true},
+            {L"serviceCount", [](AppSettings& settings) noexcept { ++settings.serviceCount; }, true},
+            {L"dashboard", [](AppSettings& settings) noexcept
+             { settings.dashboard.wrapPages = !settings.dashboard.wrapPages; }, true},
+            {L"sourceDocument", [](AppSettings& settings) noexcept { settings.sourceDocument.clear(); }, false},
+            {L"retiredServices", [](AppSettings& settings) noexcept { settings.retiredServices.clear(); }, false},
+        };
+        for (const MemberChange& change : changes)
+        {
+            AppSettings candidate = running;
+            change.change(candidate);
+            if (candidate == running || RuntimeSettingsEqual(candidate, running) == change.runtime ||
+                RuntimeSettingsEqual(running, candidate) == change.runtime)
+            {
+                std::wprintf(L"A change of %s alone is %s.\n", change.member,
+                             change.runtime ? L"not a runtime change" : L"a runtime change");
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
 }
 
 // The command-line catalog (RedXe/CommandLine.h): every switch is unique, well formed, and printed by --help; the
@@ -2343,9 +2427,9 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 // First start without a XENEON (Core_Settings.md "Cold load and recovery"): PatchFirstRunDock inserts `dock` into both
 // shipped templates as one commented run after `version`, in the file's own line breaks, and removes the template's
 // commented-out `dock` example with the comment that says to uncomment it, leaving every other byte and member; the
-// store writes that document for a missing default file only, never over an existing one, never when it recovers an
-// invalid one, and never for a `--settings` file, and it asks its provider for the dock only for that missing file,
-// once, so no other start measures the displays for it.
+// store writes that document, with every dock member as it was made, for a missing default file only, never over an
+// existing one, never when it recovers an invalid one, and never for a `--settings` file, and it asks its provider for
+// the dock only for that missing file, once, so no other start measures the displays for it.
 [[nodiscard]] HRESULT ValidateFirstRunDock() noexcept
 {
     try
@@ -2514,6 +2598,25 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             std::wprintf(L"The first-run dock did not replace an existing dock value.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
+        // Every member away from its default is written and parses back: the store installs a first-run dock only
+        // when the written file holds exactly that dock.
+        DockSettings everyMember = withMonitor(DefaultDockSettings(), namedMonitor);
+        everyMember.edge = DockEdge::Left;
+        everyMember.thicknessDips = 240;
+        everyMember.mode = DockMode::Autohide;
+        everyMember.reserveWorkArea = false;
+        everyMember.peekPixels = 6;
+        everyMember.revealDelayMilliseconds = 0;
+        everyMember.hideDelayMilliseconds = 1500;
+        everyMember.animationMilliseconds = 0;
+        std::string everySource = R"json({"version":{"major":5,"minor":1},"pages":[{}]})json";
+        if (FAILED(PatchFirstRunDock(everySource, everyMember)) || FAILED(ParseAppSettingsJson(everySource, parsed)) ||
+            parsed.dock != everyMember || parsed.versionMinor != kRedXeSettingsDockAnimationMinor)
+        {
+            std::wprintf(L"The first-run dock did not write every member that leaves its default:\n%hs\n",
+                         everySource.c_str());
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
         // Only a root `// "dock":` example goes, with the comment lines right above it and their line breaks: a comment
         // a blank line separates from it, an example inside another value, and a comment after a member stay.
         std::string examples =
@@ -2620,6 +2723,17 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             !definesOneDock(installedBytes))
         {
             std::wprintf(L"A missing default file was not installed with the first-run dock, made once.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        const std::filesystem::path everyRoot = localRoot / L"EveryMember";
+        SettingsStore everyStore;
+        std::unique_ptr<AppSettings> everyInstalled;
+        OfferedDock everyOffer{everyMember};
+        result = everyStore.Initialize(false, {}, everyInstalled, everyRoot.wstring(), offer(everyOffer));
+        if (FAILED(result) || !everyInstalled || everyOffer.requests != 1 || !everyStore.InstalledFirstRunDock() ||
+            everyInstalled->dock != everyMember)
+        {
+            std::wprintf(L"A first-run dock with every member set was not installed as it was made.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
@@ -3360,6 +3474,7 @@ int wmain()
                        {L"dock", ValidateDockSettings},
                        {L"dock thickness layout", ValidateDockThicknessLayout},
                        {L"tray icon", ValidateTrayIconSettings},
+                       {L"runtime settings", ValidateRuntimeSettingsEqual},
                        {L"command line", ValidateCommandLineCatalog},
                        {L"AV profile configuration", ValidateAvControlSettings},
                        {L"low stack", ValidateLowStack},

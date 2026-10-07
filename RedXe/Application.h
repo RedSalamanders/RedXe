@@ -578,6 +578,5 @@ class Application final
     size_t _dragWidgetIndex = SIZE_MAX;
     bool _oleInitialized = false;
     bool _dropRegistered = false;
-    bool _persistSettingsToDisk = true;
     std::unique_ptr<ApplicationDropTarget> _dropTarget;
 };

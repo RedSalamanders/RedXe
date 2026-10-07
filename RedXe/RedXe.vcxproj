@@ -133,6 +133,7 @@
     <ClInclude Include="Renderer.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="Settings.h" />
+    <ClInclude Include="SettingsJsonText.h" />
       <ClInclude Include="SettingsWatcher.h" />
     <ClInclude Include="TrayIcon.h" />
     <ClInclude Include="WheelNavigation.h" />
