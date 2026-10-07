@@ -238,6 +238,14 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
     return DockTrimToThickness(workArea, edge, thicknessPx);
 }
 
+// The peek strip of an autohide bar in pixels. `peek` (1–64 physical pixels) and the thickness (32 DIPs and up) are
+// validated apart, so the strip is clamped to the bar it belongs to: at least 1 pixel, at most the full bar. Every
+// hidden window size, the slide, the grip, and MINMAXINFO use this one value.
+[[nodiscard]] constexpr LONG DockClampPeek(uint32_t peekPixels, LONG fullPx) noexcept
+{
+    return std::clamp(static_cast<LONG>(peekPixels), 1L, std::max(1L, fullPx));
+}
+
 // Autohide hidden rectangle: the outer `peekPx` of the full rectangle, same along-edge extent.
 [[nodiscard]] constexpr RECT DockHiddenRect(const RECT& full, DockEdge edge, LONG peekPx) noexcept
 {
@@ -266,6 +274,19 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
 [[nodiscard]] constexpr LONG DockCrossPixels(const RECT& rect, DockEdge edge) noexcept
 {
     return DockEdgeIsHorizontal(edge) ? rect.bottom - rect.top : rect.right - rect.left;
+}
+
+// The size the dashboard is laid out at, and so every host-side geometry built on it: tile bounds, hit tests, raises,
+// page offsets, and accessibility and text-input rectangles. For a placed dock it is the full bar, whatever part of it
+// the window shows (the peek strip while collapsed, a partly open bar while sliding), as for the swap chain; for the
+// titled and fullscreen kinds, and a dock before its first placement, it is the client.
+[[nodiscard]] constexpr SIZE DockDashboardCanvas(bool dockActive, const RECT& full, SIZE client) noexcept
+{
+    if (dockActive && full.right > full.left && full.bottom > full.top)
+    {
+        return SIZE{full.right - full.left, full.bottom - full.top};
+    }
+    return client;
 }
 
 // Autohide slide (UI_XeneonDisplayWindowing.md "Autohide"): over `animationMilliseconds` the window's visible
@@ -313,6 +334,57 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
     default:
         return POINT{0, 0};
     }
+}
+
+// A press on a bar sliding in settles the slide first, and the settle moves the dashboard under a pointer that stays
+// put: a top or left bar drops its translation, a bottom or right bar moves its window's (and so its client's) origin
+// back by the part still hidden. Adding this shift to a client point taken after the settle gives the dashboard point
+// that was on screen under it at `visiblePx`, so the press and the rest of its contact reach what the user aimed at.
+[[nodiscard]] constexpr POINT DockSettleShift(DockEdge edge, LONG fullPx, LONG visiblePx) noexcept
+{
+    const LONG hidden = fullPx > visiblePx ? fullPx - visiblePx : 0;
+    switch (edge)
+    {
+    case DockEdge::Top:
+        return POINT{0, hidden};
+    case DockEdge::Bottom:
+        return POINT{0, -hidden};
+    case DockEdge::Left:
+        return POINT{hidden, 0};
+    case DockEdge::Right:
+        return POINT{-hidden, 0};
+    default:
+        return POINT{0, 0};
+    }
+}
+
+// Where a press or a wheel on the dock goes (UI_XeneonDisplayWindowing.md "Autohide"). The strip and a bar sliding out
+// show no dashboard to aim at: a press there only reveals the bar (the rest of its contact goes nowhere) and a wheel is
+// dropped, so neither snaps a hiding bar shut nor scrolls or pages a widget nobody can see. A press on a bar sliding in
+// settles the slide and keeps DockSettleShift for its contact; a wheel there reaches the tile under it as the frame
+// shows it, without settling. Everything else is routed as on any window.
+enum class DockInput : uint8_t
+{
+    Press = 0,
+    Wheel,
+};
+
+enum class DockInputRoute : uint8_t
+{
+    Dashboard = 0,
+    RevealOnly,
+    Drop,
+    SettleShifted,
+};
+
+// `showsStrip` is DockStateShowsStrip of an active autohide bar (false for a fixed bar and for the standard kinds).
+[[nodiscard]] constexpr DockInputRoute DockRouteInput(DockInput input, bool showsStrip, bool slideActive) noexcept
+{
+    if (showsStrip)
+    {
+        return input == DockInput::Press ? DockInputRoute::RevealOnly : DockInputRoute::Drop;
+    }
+    return input == DockInput::Press && slideActive ? DockInputRoute::SettleShifted : DockInputRoute::Dashboard;
 }
 
 // The part of the full-size back buffer that the hidden window shows. The dock swap chain uses DXGI_SCALING_NONE,
@@ -436,6 +508,20 @@ constexpr void DockMinMaxInfo(const RECT& monitor, DockEdge edge, LONG peekPx, b
         POINT{std::max(1L, smallest.right - smallest.left), std::max(1L, smallest.bottom - smallest.top)};
     info.ptMaxTrackSize = POINT{std::max(1L, monitor.right - monitor.left), std::max(1L, monitor.bottom - monitor.top)};
     info.ptMaxSize = info.ptMaxTrackSize;
+}
+
+// Full-screen yield (UI_XeneonDisplayWindowing.md "Window"): ABN_FULLSCREENAPP names no monitor, so the bar steps
+// beneath only a foreground window that covers the bar's own monitor. `windowBounds` is GetWindowRect, which includes
+// the invisible resize borders: a maximized window with a caption overhangs a monitor whose work area is the whole
+// monitor (no taskbar there, or an auto-hiding one) by about 8 px on every side, yet it is an ordinary maximized
+// window, never a full-screen one. A captionless window that covers the monitor (a game, a video, a browser in full
+// screen) counts, maximized or not, and so does one spanning several monitors.
+[[nodiscard]] constexpr bool DockForegroundCoversMonitor(const RECT& windowBounds, const RECT& monitor,
+                                                         bool maximizedWithCaption) noexcept
+{
+    return !maximizedWithCaption && monitor.right > monitor.left && monitor.bottom > monitor.top &&
+           windowBounds.left <= monitor.left && windowBounds.top <= monitor.top &&
+           windowBounds.right >= monitor.right && windowBounds.bottom >= monitor.bottom;
 }
 
 // Placement requests (UI_XeneonDisplayWindowing.md "Monitor and placement"). A placement makes cross-process shell
@@ -605,6 +691,10 @@ enum class DockRevealEvent : uint8_t
     ActionShow,
     ActionHide,
     ActionToggle,
+    // A page or widget change (a page.* or widget.* host action, an accessibility raise) while the strip shows: reveal
+    // at once so the change is seen and laid out on the full bar. Unlike ActionShow it pins nothing: the change's own
+    // hold (a page settle, a raise) keeps the bar, and the hide delay starts once no hold is left.
+    PageOrWidgetChange,
     // Any hold input changed; the decision re-reads `holds`.
     HoldsChanged,
     // A --screenshot run, or a live reload to `fixed`: revealed and kept there.
@@ -668,6 +758,7 @@ struct DockHolds final
         return current == DockRevealState::RevealPending ? DockRevealState::Hidden : current;
     case DockRevealEvent::TouchOnStrip:
     case DockRevealEvent::ActionShow:
+    case DockRevealEvent::PageOrWidgetChange:
         return DockRevealState::Revealed;
     case DockRevealEvent::ActionHide:
         if (DockStateShowsStrip(current))

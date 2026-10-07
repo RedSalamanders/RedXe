@@ -996,10 +996,6 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         {
             TickRaiseSettle();
         }
-        if (_dockSlideActive)
-        {
-            TickDockSlide();
-        }
         if (_screenshot.pending && TickScreenshot())
         {
             CloseMainWindow();
@@ -1065,6 +1061,13 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
 
         if (frameAction == HostFrameAction::WaitForMessage)
         {
+            if (_dockSlideActive)
+            {
+                // No frame will show the slide's next step (a hidden window, the display off, a suspended renderer):
+                // it ends at once at the size the reveal state asks for.
+                SettleDockSlide();
+                continue;
+            }
             result = UpdateDashboardVisibility();
             if (FAILED(result))
             {
@@ -1080,6 +1083,12 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         {
             // Input arrived while a back buffer was still in flight: dispatch it before building the frame.
             continue;
+        }
+        if (_dockSlideActive)
+        {
+            // The slide steps here, after the wait and right before the frame that shows the step, so the window size
+            // and the top or left translation reach DWM with that frame's Present rather than one composition early.
+            TickDockSlide();
         }
 
         const std::chrono::duration<float> elapsed = std::chrono::steady_clock::now() - startTime;
@@ -1756,17 +1765,17 @@ void Application::ApplyDockZOrder() noexcept
 bool Application::DockYieldsToFullscreen() const noexcept
 {
     // ABN_FULLSCREENAPP names no monitor, and the shell also reports a full-screen window on another display (a
-    // XENEON dashboard, a video on a second screen). The bar steps down only for the foreground window filling its
-    // own monitor.
+    // XENEON dashboard, a video on a second screen). The bar steps down only for the foreground window covering its
+    // own monitor, and a maximized window with a caption never counts, whatever its resize borders overhang.
     const HWND foreground = GetForegroundWindow();
     RECT bounds{};
-    if (!_dockFullscreenAppActive || !foreground || foreground == _window.get() || IsRectEmpty(&_dockMonitorRect) ||
-        !GetWindowRect(foreground, &bounds))
+    if (!_dockFullscreenAppActive || !foreground || foreground == _window.get() || !GetWindowRect(foreground, &bounds))
     {
         return false;
     }
-    return bounds.left <= _dockMonitorRect.left && bounds.top <= _dockMonitorRect.top &&
-           bounds.right >= _dockMonitorRect.right && bounds.bottom >= _dockMonitorRect.bottom;
+    const bool maximizedWithCaption =
+        IsZoomed(foreground) && (GetWindowLongPtrW(foreground, GWL_STYLE) & WS_CAPTION) == WS_CAPTION;
+    return DockForegroundCoversMonitor(bounds, _dockMonitorRect, maximizedWithCaption);
 }
 
 HRESULT Application::PlaceDock(bool resizeDashboard) noexcept
@@ -1878,7 +1887,8 @@ HRESULT Application::PlaceDockPass(bool resizeDashboard) noexcept
     _dockMonitorRect = placement.monitor;
     _dockWorkRect = placement.work;
     _dockDpi = placement.dpi;
-    const RECT target = DockHidden() ? DockHiddenRect(full, _dock.edge, static_cast<LONG>(_dock.peekPixels)) : full;
+    // The strip is clamped to the bar just placed (_dockFullRect), as every reveal and hide clamps it.
+    const RECT target = DockHidden() ? DockHiddenRect(full, _dock.edge, DockPeekPixels()) : full;
     _dockResizing = true;
     const BOOL moved = SetWindowPos(_window.get(), DockYieldsToFullscreen() ? HWND_BOTTOM : HWND_TOPMOST, target.left,
                                     target.top, target.right - target.left, target.bottom - target.top, SWP_NOACTIVATE);
@@ -2000,6 +2010,9 @@ void Application::StopDockInteraction() noexcept
     // A slide stops where it is; whoever places the window next sizes it, and the dashboard loses the translation.
     _dockSlideActive = false;
     ApplyDockSlideOffset(POINT{});
+    // A press record belongs to the bar it pressed.
+    _dockMousePress = DockPress{};
+    _dockPointerPress = DockPress{};
 }
 
 void Application::ResetDockPlacementState() noexcept
@@ -2223,16 +2236,26 @@ HRESULT Application::PresentationCanvas(UINT& width, UINT& height, UINT& dpi) co
         const DWORD error = GetLastError();
         return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_UNEXPECTED;
     }
-    width = static_cast<UINT>(client.right - client.left);
-    height = static_cast<UINT>(client.bottom - client.top);
-    if (_dockActive && _dockFullRect.right > _dockFullRect.left && _dockFullRect.bottom > _dockFullRect.top)
+    // An autohide dock may be its strip, or part of the bar, now; the dashboard and the swap chain are always the full
+    // bar, at the bar's monitor DPI.
+    const SIZE canvas =
+        DockDashboardCanvas(_dockActive, _dockFullRect, SIZE{client.right - client.left, client.bottom - client.top});
+    width = static_cast<UINT>(std::max(0L, canvas.cx));
+    height = static_cast<UINT>(std::max(0L, canvas.cy));
+    if (_dockActive && !IsRectEmpty(&_dockFullRect))
     {
-        // An autohide dock may be its strip now; the dashboard and the swap chain are always the full bar.
-        width = static_cast<UINT>(_dockFullRect.right - _dockFullRect.left);
-        height = static_cast<UINT>(_dockFullRect.bottom - _dockFullRect.top);
         dpi = _dockDpi;
     }
     return width != 0 && height != 0 ? S_OK : E_UNEXPECTED;
+}
+
+SIZE Application::DashboardCanvasSize() const noexcept
+{
+    UINT width = 0;
+    UINT height = 0;
+    UINT dpi = 0;
+    return SUCCEEDED(PresentationCanvas(width, height, dpi)) ? SIZE{static_cast<LONG>(width), static_cast<LONG>(height)}
+                                                             : SIZE{};
 }
 
 HRESULT Application::RebuildPresentation() noexcept
@@ -2565,7 +2588,7 @@ LONG Application::DockFullPixels() const noexcept
 
 LONG Application::DockPeekPixels() const noexcept
 {
-    return std::clamp(static_cast<LONG>(_dock.peekPixels), 1L, std::max(1L, DockFullPixels()));
+    return DockClampPeek(_dock.peekPixels, DockFullPixels());
 }
 
 void Application::SetDockVisiblePixels(LONG visiblePx) noexcept
@@ -2599,12 +2622,10 @@ void Application::ApplyDockSlideOffset(POINT offset) noexcept
             continue;
         }
         const POINT current = host->SlideOffset();
-        if (current.x != offset.x || current.y != offset.y)
-        {
-            // A native container that cannot move keeps its place for one frame; the next offset retries it.
-            (void)host->SetSlideOffset(offset);
-            changed = true;
-        }
+        changed = changed || current.x != offset.x || current.y != offset.y;
+        // A native container that cannot move keeps its place; the host moves it again on its next call, even one with
+        // the same offset, such as the zero offset that ends the slide (DashboardHost::SetSlideOffset).
+        (void)host->SetSlideOffset(offset);
     }
     if (changed)
     {
@@ -2636,6 +2657,8 @@ void Application::TickDockSlide() noexcept
         _frameInvalidated = true;
         return;
     }
+    // The last step ends the slide before the frame that shows it: a finished hide renders the grip frame at the strip
+    // size, and the next turn's holds and frame scheduler see the settled state.
     _dockSlideActive = false;
     SetDockVisiblePixels(_dockSlideToPx);
     FinishDockRevealChange();
@@ -2650,6 +2673,35 @@ void Application::SettleDockSlide() noexcept
     _dockSlideActive = false;
     SetDockVisiblePixels(DockHiddenOrHiding() ? DockPeekPixels() : DockFullPixels());
     FinishDockRevealChange();
+}
+
+void Application::RevealDockForChange() noexcept
+{
+    if (DockHiddenOrHiding())
+    {
+        OnDockEvent(DockRevealEvent::PageOrWidgetChange);
+    }
+    SettleDockSlide();
+}
+
+void Application::BeginDockPress(DockPress& press, UINT32 pointerId, DockInputRoute route) noexcept
+{
+    if (route == DockInputRoute::RevealOnly)
+    {
+        press = DockPress{true, true, pointerId, POINT{}};
+        return;
+    }
+    if (route == DockInputRoute::SettleShifted)
+    {
+        // The shift is taken at the size the user saw, before the settle changes it.
+        press = DockPress{true, false, pointerId, DockSettleShift(_dock.edge, DockFullPixels(), _dockVisiblePx)};
+        SettleDockSlide();
+        return;
+    }
+    if (press.pointerId == pointerId)
+    {
+        press = DockPress{};
+    }
 }
 
 void Application::FinishDockRevealChange() noexcept
@@ -2949,11 +3001,14 @@ HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPa
     {
         return result;
     }
-    RECT client{};
-    const UINT dpi = GetDpiForWindow(_window.get());
-    if (dpi == 0 || !GetClientRect(_window.get(), &client) || client.right <= 0 || client.bottom <= 0)
+    // The neighbour is laid out on the same canvas as the page it replaces: a dock's full bar, never its strip.
+    UINT width = 0;
+    UINT height = 0;
+    UINT dpi = 0;
+    result = PresentationCanvas(width, height, dpi);
+    if (FAILED(result))
     {
-        return HRESULT_FROM_WIN32(GetLastError());
+        return result;
     }
     auto dashboard = std::unique_ptr<DashboardHost>(new (std::nothrow) DashboardHost());
     if (!dashboard)
@@ -2961,10 +3016,9 @@ HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPa
         return E_OUTOFMEMORY;
     }
     const bool visible = _windowVisible && _displayPoweredOn && !_renderer.IsSuspended() && !_renderer.IsOccluded();
-    result = dashboard->Initialize(*plugins, _window.get(), static_cast<UINT>(client.right),
-                                   static_cast<UINT>(client.bottom), dpi, false);
+    result = dashboard->Initialize(*plugins, _window.get(), width, height, dpi, false);
     if (SUCCEEDED(result))
-        result = dashboard->SetHorizontalOffset(_pageCurrentOffset + direction * client.right);
+        result = dashboard->SetHorizontalOffset(_pageCurrentOffset + direction * static_cast<LONG>(width));
     // Both pages share a dock slide's translation (zero once settled, as it is when navigation starts).
     if (SUCCEEDED(result) && _dashboardHost)
         result = dashboard->SetSlideOffset(_dashboardHost->SlideOffset());
@@ -3029,10 +3083,10 @@ void Application::FlushPendingTransitionStage() noexcept
     {
         return;
     }
-    RECT client{};
-    if (_window && GetClientRect(_window.get(), &client) && client.right > 0)
+    const SIZE canvas = DashboardCanvasSize();
+    if (canvas.cx > 0)
     {
-        ApplyPageOffset(_pageCurrentOffset, client.right);
+        ApplyPageOffset(_pageCurrentOffset, canvas.cx);
     }
 }
 
@@ -3084,8 +3138,8 @@ HRESULT Application::PromoteTransitionPage() noexcept
 
 void Application::BeginPageSettle(LONG targetOffset, bool commit) noexcept
 {
-    RECT client{};
-    if (!_window || !GetClientRect(_window.get(), &client) || client.right <= 0)
+    const SIZE canvas = DashboardCanvasSize();
+    if (!_window || canvas.cx <= 0)
     {
         CancelPageNavigation();
         return;
@@ -3106,20 +3160,20 @@ void Application::BeginPageSettle(LONG targetOffset, bool commit) noexcept
     LARGE_INTEGER now{};
     if (!QueryPerformanceCounter(&now) || _qpcFrequency == 0)
     {
-        ApplyPageOffset(targetOffset, client.right);
+        ApplyPageOffset(targetOffset, canvas.cx);
         _pageSettleActive = false;
         if (commit)
         {
             if (FAILED(PromoteTransitionPage()))
             {
-                ApplyPageOffset(0, client.right);
+                ApplyPageOffset(0, canvas.cx);
                 ClearTransitionPage();
             }
         }
         else
         {
             ClearTransitionPage();
-            ApplyPageOffset(0, client.right);
+            ApplyPageOffset(0, canvas.cx);
         }
         return;
     }
@@ -3233,17 +3287,16 @@ bool Application::TickScreenshot() noexcept
     // A widget ordinal crops to that tile's pixel bounds on the page now shown, the way the docs show one tile.
     RECT crop{};
     const RECT* cropPointer = nullptr;
-    RECT client{};
-    if (_screenshot.widgetOrdinal != UINT32_MAX && _dashboardHost && GetClientRect(_window.get(), &client) &&
-        client.right > 0 && client.bottom > 0)
+    const SIZE canvas = DashboardCanvasSize();
+    if (_screenshot.widgetOrdinal != UINT32_MAX && _dashboardHost && canvas.cx > 0 && canvas.cy > 0)
     {
         if (_screenshot.widgetOrdinal >= _dashboardHost->WidgetCount())
         {
             OutputDebugStringW(L"Screenshot widget ordinal is out of range for the captured page.\n");
             return EndScreenshot(HRESULT_FROM_WIN32(ERROR_NOT_FOUND));
         }
-        crop = _dashboardHost->PixelBoundsAt(_screenshot.widgetOrdinal, static_cast<UINT>(client.right),
-                                             static_cast<UINT>(client.bottom));
+        crop = _dashboardHost->PixelBoundsAt(_screenshot.widgetOrdinal, static_cast<UINT>(canvas.cx),
+                                             static_cast<UINT>(canvas.cy));
         cropPointer = &crop;
     }
     try
@@ -3280,8 +3333,8 @@ void Application::TickPageSettle() noexcept
     {
         return;
     }
-    RECT client{};
-    if (!GetClientRect(_window.get(), &client) || client.right <= 0)
+    const SIZE canvas = DashboardCanvasSize();
+    if (canvas.cx <= 0)
     {
         CancelPageNavigation();
         return;
@@ -3297,7 +3350,7 @@ void Application::TickPageSettle() noexcept
                 : static_cast<float>(elapsed) / static_cast<float>(_pageSettleDurationQpc);
     }
     const LONG offset = InterpolatePageOffset(_pageSettleStart, _pageSettleTarget, t);
-    ApplyPageOffset(offset, client.right);
+    ApplyPageOffset(offset, canvas.cx);
     if (t < 1.0f)
     {
         return;
@@ -3308,13 +3361,13 @@ void Application::TickPageSettle() noexcept
     {
         if (FAILED(PromoteTransitionPage()))
         {
-            ApplyPageOffset(0, client.right);
+            ApplyPageOffset(0, canvas.cx);
             ClearTransitionPage();
         }
         return;
     }
     ClearTransitionPage();
-    ApplyPageOffset(0, client.right);
+    ApplyPageOffset(0, canvas.cx);
 }
 
 PageEdgeState Application::CurrentPageEdgeState() const noexcept
@@ -3373,9 +3426,8 @@ void Application::PushHostChrome() noexcept
     if (DockHidden())
     {
         state.dockHidden = true;
-        state.dockGrip =
-            DockGripRect(_dockFullRect.right - _dockFullRect.left, _dockFullRect.bottom - _dockFullRect.top, _dock.edge,
-                         static_cast<LONG>(_dock.peekPixels));
+        state.dockGrip = DockGripRect(_dockFullRect.right - _dockFullRect.left,
+                                      _dockFullRect.bottom - _dockFullRect.top, _dock.edge, DockPeekPixels());
         state.dockGripAccent = DockGripAccentRect(state.dockGrip, _dock.edge, PageEdgeDipPixels(1, _dockDpi));
     }
     if (_renderer.SetHostChrome(state))
@@ -3549,14 +3601,14 @@ void Application::ClearPageEdgeHover() noexcept
 
 HRESULT Application::NavigateToAdjacentPage(int direction) noexcept
 {
-    // Page geometry comes from the client, which a dock slide is still changing.
-    SettleDockSlide();
+    // A page change on a collapsed or sliding dock (a page.* action, a wheel detent) is seen on the full, settled bar.
+    RevealDockForChange();
     if (!_window || !_rendererReady || _raisedActive || _pageSettleActive || _pagePointerActive)
     {
         return E_UNEXPECTED;
     }
-    RECT client{};
-    if (!GetClientRect(_window.get(), &client) || client.right <= 0)
+    const SIZE canvas = DashboardCanvasSize();
+    if (canvas.cx <= 0)
     {
         return E_UNEXPECTED;
     }
@@ -3570,21 +3622,21 @@ HRESULT Application::NavigateToAdjacentPage(int direction) noexcept
     {
         return staged;
     }
-    ApplyPageOffset(0, client.right);
+    ApplyPageOffset(0, canvas.cx);
     // A click has no follow-finger phase, so the settle runs from rest. Zero velocity puts
     // PageSettleDurationMilliseconds at its clamped upper bound, giving one ease-out slide.
     _pageVelocityPxPerSec = 0.0f;
     // A navigation click must never count as half of a double-activate raise gesture.
     _activateTick = 0;
     _activateWidgetIndex = SIZE_MAX;
-    BeginPageSettle(PageEdgeSettleTarget(direction, client.right), true);
+    BeginPageSettle(PageEdgeSettleTarget(direction, canvas.cx), true);
     RefreshPageEdgeAffordances();
     return S_OK;
 }
 
 HRESULT Application::NavigateToPage(uint32_t pageIndex) noexcept
 {
-    SettleDockSlide();
+    RevealDockForChange();
     if (!_window || !_rendererReady || !_settings || _raisedActive || _pageSettleActive || _pagePointerActive)
     {
         return E_UNEXPECTED;
@@ -3597,8 +3649,8 @@ HRESULT Application::NavigateToPage(uint32_t pageIndex) noexcept
     {
         return S_FALSE;
     }
-    RECT client{};
-    if (!GetClientRect(_window.get(), &client) || client.right <= 0)
+    const SIZE canvas = DashboardCanvasSize();
+    if (canvas.cx <= 0)
     {
         return E_UNEXPECTED;
     }
@@ -3609,11 +3661,11 @@ HRESULT Application::NavigateToPage(uint32_t pageIndex) noexcept
     {
         return staged;
     }
-    ApplyPageOffset(0, client.right);
+    ApplyPageOffset(0, canvas.cx);
     _pageVelocityPxPerSec = 0.0f;
     _activateTick = 0;
     _activateWidgetIndex = SIZE_MAX;
-    BeginPageSettle(PageEdgeSettleTarget(direction, client.right), true);
+    BeginPageSettle(PageEdgeSettleTarget(direction, canvas.cx), true);
     RefreshPageEdgeAffordances();
     return S_OK;
 }
@@ -4049,6 +4101,8 @@ bool Application::PageTouchesContain(UINT32 pointerId) const noexcept
 bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position, UINT64& qpc,
                                            LPARAM lParam) const noexcept
 {
+    // A contact that pressed a bar sliding in keeps the shift of that settle (DockPressPoint), so its moves and its
+    // release stay on the tile its press reached.
     POINTER_INFO information{};
     if (GetPointerInfo(pointerId, &information) &&
         (information.pointerType == PT_TOUCH || information.pointerType == PT_PEN) &&
@@ -4057,6 +4111,7 @@ bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT&
         position = PointerScreenPixels(information);
         if (ScreenToClient(window, &position))
         {
+            position = DockPressPoint(_dockPointerPress, pointerId, position);
             qpc = information.PerformanceCount;
             return true;
         }
@@ -4065,7 +4120,12 @@ bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT&
     // WM_POINTER* lParam is physical screen coordinates of the contact.
     position = POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
     qpc = 0;
-    return ScreenToClient(window, &position) != FALSE;
+    if (!ScreenToClient(window, &position))
+    {
+        return false;
+    }
+    position = DockPressPoint(_dockPointerPress, pointerId, position);
+    return true;
 }
 
 void Application::OnPointerDown(HWND window, WPARAM wParam, LPARAM lParam) noexcept
@@ -4172,8 +4232,8 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam, LPARAM lParam) noe
             CancelPageNavigation();
             return;
         }
-        RECT client{};
-        if (!GetClientRect(window, &client) || client.right <= 0)
+        const SIZE canvas = DashboardCanvasSize();
+        if (canvas.cx <= 0)
         {
             return;
         }
@@ -4251,7 +4311,7 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam, LPARAM lParam) noe
         const bool atLast = _settings && _settings->dashboard.activePageIndex + 1U >= _settings->dashboard.pageCount;
         const bool wrapPages = _settings && _settings->dashboard.wrapPages;
         const bool blocked = PageSwipeBlocksDirection(deltaX, wrapPages, atFirst, atLast);
-        const LONG offset = ApplyPageEdgeResistance(deltaX, client.right, blocked);
+        const LONG offset = ApplyPageEdgeResistance(deltaX, canvas.cx, blocked);
         const int direction = blocked ? 0 : PageSwipeDirection(offset);
         if (direction != 0 && direction != _pageTransitionDirection && direction != _pageStagePendingDirection)
         {
@@ -4261,7 +4321,7 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam, LPARAM lParam) noe
             }
             _pageStagePendingDirection = direction;
         }
-        ApplyPageOffset(offset, client.right);
+        ApplyPageOffset(offset, canvas.cx);
         return;
     }
     if (_interactiveOwnsPointer)
@@ -4372,8 +4432,8 @@ void Application::OnPointerUp(HWND window, WPARAM wParam, LPARAM lParam) noexcep
 
         CancelInteractivePointer();
         FlushPendingTransitionStage();
-        RECT client{};
-        if (!_settings || !GetClientRect(window, &client) || client.right <= 0)
+        const SIZE canvas = DashboardCanvasSize();
+        if (!_settings || canvas.cx <= 0)
         {
             CancelPageNavigation();
             return;
@@ -4381,10 +4441,10 @@ void Application::OnPointerUp(HWND window, WPARAM wParam, LPARAM lParam) noexcep
         const bool atFirst = _settings->dashboard.activePageIndex == 0;
         const bool atLast = _settings->dashboard.activePageIndex + 1U >= _settings->dashboard.pageCount;
         const UINT dpi = GetDpiForWindow(window);
-        const bool commit = ShouldCommitPageSwipe(_pageCurrentOffset, client.right, _pageVelocityPxPerSec, dpi,
+        const bool commit = ShouldCommitPageSwipe(_pageCurrentOffset, canvas.cx, _pageVelocityPxPerSec, dpi,
                                                   _settings->dashboard.wrapPages, atFirst, atLast) &&
                             _transitionDashboardHost;
-        const LONG target = commit ? -_pageTransitionDirection * client.right : 0;
+        const LONG target = commit ? -_pageTransitionDirection * canvas.cx : 0;
         BeginPageSettle(target, commit);
         return;
     }
@@ -4438,13 +4498,12 @@ void Application::OnPointerUp(HWND window, WPARAM wParam, LPARAM lParam) noexcep
     }
 }
 
-void Application::OnMouseButtonDown(HWND window, LPARAM lParam) noexcept
+void Application::OnMouseButtonDown(HWND window, POINT position) noexcept
 {
     if (_pagePointerActive || _pagePanStarted || IsPointerSynthesizedMouseMessage())
     {
         return;
     }
-    const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
     if (PointInPageEdgeBand(window, position))
     {
         return;
@@ -4453,13 +4512,12 @@ void Application::OnMouseButtonDown(HWND window, LPARAM lParam) noexcept
     (void)ForwardInteractivePointer(position, 1, RedXePointerKindMouse, RedXePointerPhaseDown, &consumed);
 }
 
-void Application::OnMouseButtonUp(HWND window, LPARAM lParam) noexcept
+void Application::OnMouseButtonUp(HWND window, POINT position) noexcept
 {
     if (_pagePointerActive || _pagePanStarted || IsPointerSynthesizedMouseMessage())
     {
         return;
     }
-    const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
     if (_raisedActive && !_interactiveOwnsPointer && PointInRectInclusive(_raisedLayout.close, position))
     {
         // The close control is host chrome in the swap chain; the top-level window owns its click.
@@ -4538,10 +4596,9 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
             bounds = _raisedLayout.content;
         else if (_window)
         {
-            RECT clientBounds{};
-            if (GetClientRect(_window.get(), &clientBounds))
-                bounds = _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(clientBounds.right),
-                                                       static_cast<UINT>(clientBounds.bottom));
+            const SIZE canvas = DashboardCanvasSize();
+            bounds = _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(std::max(0L, canvas.cx)),
+                                                   static_cast<UINT>(std::max(0L, canvas.cy)));
         }
         const RedXePointerEvent event{sizeof(RedXePointerEvent),
                                       pointerId,
@@ -4691,11 +4748,11 @@ void Application::WidgetLocalPoint(size_t widgetIndex, POINT client, float& loca
     }
     else if (_window && _dashboardHost)
     {
-        RECT clientRect{};
-        if (GetClientRect(_window.get(), &clientRect) && clientRect.right > 0 && clientRect.bottom > 0)
+        const SIZE canvas = DashboardCanvasSize();
+        if (canvas.cx > 0 && canvas.cy > 0)
         {
-            bounds = _dashboardHost->PixelBoundsAt(widgetIndex, static_cast<UINT>(clientRect.right),
-                                                   static_cast<UINT>(clientRect.bottom));
+            bounds =
+                _dashboardHost->PixelBoundsAt(widgetIndex, static_cast<UINT>(canvas.cx), static_cast<UINT>(canvas.cy));
         }
     }
     localX = static_cast<float>(client.x - bounds.left);
@@ -4765,7 +4822,8 @@ bool Application::HitInteractiveLocal(POINT client, size_t& widgetIndex, float& 
     widgetIndex = SIZE_MAX;
     localX = 0.0f;
     localY = 0.0f;
-    if (!_dashboardHost || !_window)
+    // A collapsed autohide bar shows no tile under its strip (an OLE drop there goes nowhere).
+    if (!_dashboardHost || !_window || DockHidden())
     {
         return false;
     }
@@ -4792,8 +4850,10 @@ bool Application::HitInteractiveLocal(POINT client, size_t& widgetIndex, float& 
         return accept(_raisedWidgetIndex, _raisedLayout.content);
     }
 
-    RECT clientRect{};
-    if (!GetClientRect(_window.get(), &clientRect) || clientRect.right <= 0 || clientRect.bottom <= 0)
+    // Tiles are where the renderer draws them: on the dashboard canvas, which a sliding bar shows only part of (its
+    // slide offset is already in PixelBoundsAt).
+    const SIZE canvas = DashboardCanvasSize();
+    if (canvas.cx <= 0 || canvas.cy <= 0)
     {
         return false;
     }
@@ -4801,8 +4861,8 @@ bool Application::HitInteractiveLocal(POINT client, size_t& widgetIndex, float& 
     const size_t count = _dashboardHost->WidgetCount();
     for (size_t index = 0; index < count; ++index)
     {
-        bounds[index] = _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(clientRect.right),
-                                                      static_cast<UINT>(clientRect.bottom));
+        bounds[index] =
+            _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(canvas.cx), static_cast<UINT>(canvas.cy));
     }
     const size_t hit = HitTestTopmostWidget(client, bounds.data(), count);
     return hit != SIZE_MAX && accept(hit, bounds[hit]);
@@ -4903,14 +4963,16 @@ void Application::RefreshAccessibility(uint64_t preparedWidgets) noexcept
 {
     if (!_accessibility)
         return;
+    // A collapsed autohide bar shows no widget, and a sliding one moves them on every frame, like a page settle.
     if (!_dashboardHost || !_window || !_windowVisible || !_displayPoweredOn || _renderer.IsSuspended() ||
-        _renderer.IsOccluded() || PageNavigationInProgress() || OverlayMotionInProgress() || _settingsErrorDialog)
+        _renderer.IsOccluded() || PageNavigationInProgress() || OverlayMotionInProgress() || _settingsErrorDialog ||
+        DockHidden() || _dockSlideActive)
     {
         _accessibility->ClearViews();
         return;
     }
-    RECT client{};
-    if (!GetClientRect(_window.get(), &client) || client.right <= 0 || client.bottom <= 0)
+    const SIZE canvas = DashboardCanvasSize();
+    if (canvas.cx <= 0 || canvas.cy <= 0)
     {
         _accessibility->ClearViews();
         return;
@@ -4925,8 +4987,8 @@ void Application::RefreshAccessibility(uint64_t preparedWidgets) noexcept
         if (!widget || _dashboardHost->RequiresPlaceholderAt(index))
             continue;
         const RECT bounds = _raisedActive ? _raisedLayout.content
-                                          : _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(client.right),
-                                                                          static_cast<UINT>(client.bottom));
+                                          : _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(canvas.cx),
+                                                                          static_cast<UINT>(canvas.cy));
         POINT top{bounds.left, bounds.top}, bottom{bounds.right, bounds.bottom};
         if (!ClientToScreen(_window.get(), &top) || !ClientToScreen(_window.get(), &bottom))
             continue;
@@ -4980,16 +5042,16 @@ void Application::RefreshTextServices(bool layoutPrepared) noexcept
         ClearTextServices();
         return;
     }
-    RECT client{};
-    if (!GetClientRect(_window.get(), &client) || client.right <= 0 || client.bottom <= 0)
+    const SIZE canvas = DashboardCanvasSize();
+    if (canvas.cx <= 0 || canvas.cy <= 0)
     {
         ClearTextServices();
         return;
     }
     const RECT bounds = _keyboardView
                             ? _raisedLayout.content
-                            : _dashboardHost->PixelBoundsAt(_keyboardWidgetIndex, static_cast<UINT>(client.right),
-                                                            static_cast<UINT>(client.bottom));
+                            : _dashboardHost->PixelBoundsAt(_keyboardWidgetIndex, static_cast<UINT>(canvas.cx),
+                                                            static_cast<UINT>(canvas.cy));
     POINT origin{bounds.left, bounds.top};
     if (!ClientToScreen(_window.get(), &origin))
     {
@@ -5182,8 +5244,8 @@ void Application::OnClientActivateAttempt(HWND window, POINT position, ULONGLONG
     {
         return;
     }
-    RECT client{};
-    if (!GetClientRect(window, &client) || client.right <= 0 || client.bottom <= 0)
+    const SIZE canvas = DashboardCanvasSize();
+    if (canvas.cx <= 0 || canvas.cy <= 0)
     {
         return;
     }
@@ -5193,7 +5255,7 @@ void Application::OnClientActivateAttempt(HWND window, POINT position, ULONGLONG
     for (size_t index = 0; index < widgetCount; ++index)
     {
         bounds[index] =
-            _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(client.right), static_cast<UINT>(client.bottom));
+            _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(canvas.cx), static_cast<UINT>(canvas.cy));
     }
     const size_t hit = HitTestTopmostWidget(position, bounds.data(), widgetCount);
     if (hit == SIZE_MAX)
@@ -5218,19 +5280,20 @@ void Application::OnClientActivateAttempt(HWND window, POINT position, ULONGLONG
 
 HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
 {
-    // The raise lays out against the client, which a dock slide is still changing.
-    SettleDockSlide();
+    // A raise on a collapsed or sliding dock (a widget.* action, an accessibility request) lays out on the full,
+    // settled bar, where the overlay is seen.
+    RevealDockForChange();
     if (_raisedActive || !_dashboardHost || !_rendererReady || widgetIndex >= _dashboardHost->WidgetCount())
     {
         return E_UNEXPECTED;
     }
-    RECT client{};
-    if (!GetClientRect(window, &client) || client.right <= 0 || client.bottom <= 0)
+    const SIZE canvas = DashboardCanvasSize();
+    if (canvas.cx <= 0 || canvas.cy <= 0)
     {
         return E_UNEXPECTED;
     }
-    const UINT clientWidth = static_cast<UINT>(client.right);
-    const UINT clientHeight = static_cast<UINT>(client.bottom);
+    const UINT clientWidth = static_cast<UINT>(canvas.cx);
+    const UINT clientHeight = static_cast<UINT>(canvas.cy);
     const RECT tile = _dashboardHost->PixelBoundsAt(widgetIndex, clientWidth, clientHeight);
     IRedXeRaisedWidget* raisedWidget = _dashboardHost->RaisedWidgetAt(widgetIndex);
     if (!raisedWidget)
@@ -5303,15 +5366,15 @@ void Application::DismissWidgetRaise(bool animate) noexcept
         return;
     }
 
-    RECT client{};
-    if (!GetClientRect(_window.get(), &client) || client.right <= 0 || client.bottom <= 0)
+    const SIZE canvas = DashboardCanvasSize();
+    if (canvas.cx <= 0 || canvas.cy <= 0)
     {
         CompleteDismissImmediate();
         return;
     }
     const UINT dpi = GetDpiForWindow(_window.get());
     const RaisedLayout tileLayout =
-        RaisedLayoutFromTile(_raiseTile, static_cast<UINT>(client.right), static_cast<UINT>(client.bottom), dpi);
+        RaisedLayoutFromTile(_raiseTile, static_cast<UINT>(canvas.cx), static_cast<UINT>(canvas.cy), dpi);
     if (tileLayout.content.right <= tileLayout.content.left)
     {
         CompleteDismissImmediate();
@@ -5776,14 +5839,14 @@ void Application::ResumePageSettleIfNeeded() noexcept
     {
         return;
     }
-    RECT client{};
-    if (!_window || !GetClientRect(_window.get(), &client) || client.right <= 0)
+    const SIZE canvas = DashboardCanvasSize();
+    if (!_window || canvas.cx <= 0)
     {
         CancelPageNavigation();
         return;
     }
     const bool commit = _pageSettleCommit && _transitionDashboardHost;
-    const LONG target = commit ? -_pageTransitionDirection * client.right : 0;
+    const LONG target = commit ? -_pageTransitionDirection * canvas.cx : 0;
     BeginPageSettle(target, commit);
 }
 
@@ -6166,23 +6229,44 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case WM_POINTERACTIVATE:
         return MA_ACTIVATE;
     case WM_POINTERDOWN:
-        if (DockHiddenOrHiding())
+    {
+        const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+        const DockInputRoute route = DockRouteInput(DockInput::Press, DockHiddenOrHiding(), _dockSlideActive);
+        // A contact on a bar still sliding in completes the slide first, so the tiles are where they will stay, and
+        // keeps the settle's shift so it reaches the tile that was under it on screen (TryPointerClientPosition).
+        BeginDockPress(_dockPointerPress, pointerId, route);
+        if (route == DockInputRoute::RevealOnly)
         {
-            // A touch or pen contact on the peek strip, or on a bar sliding out, reveals at once; the contact itself
-            // goes nowhere because the dashboard is leaving.
+            // A touch or pen contact on the peek strip, or on a bar sliding out, reveals at once; the contact itself,
+            // up to its release, goes nowhere because no tile was on screen under it.
             OnDockEvent(DockRevealEvent::TouchOnStrip);
             return 0;
         }
-        // A contact on a bar still sliding in completes the slide first: the tiles are where they will stay.
-        SettleDockSlide();
         OnPointerDown(window, wParam, lParam);
         return 0;
+    }
     case WM_POINTERUPDATE:
+        if (_dockPointerPress.active && _dockPointerPress.revealOnly &&
+            _dockPointerPress.pointerId == GET_POINTERID_WPARAM(wParam))
+        {
+            return 0;
+        }
         OnPointerUpdate(window, wParam, lParam);
         return _pagePanStarted ? 1 : 0;
     case WM_POINTERUP:
-        OnPointerUp(window, wParam, lParam);
+    {
+        const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+        const bool recorded = _dockPointerPress.active && _dockPointerPress.pointerId == pointerId;
+        if (!recorded || !_dockPointerPress.revealOnly)
+        {
+            OnPointerUp(window, wParam, lParam);
+        }
+        if (recorded)
+        {
+            _dockPointerPress = DockPress{};
+        }
         return 0;
+    }
     case WM_POINTERCAPTURECHANGED:
         if (_interactivePointerWidget != SIZE_MAX && GET_POINTERID_WPARAM(wParam) == _interactivePointerId &&
             !PointerStillInContact(GET_POINTERID_WPARAM(wParam)))
@@ -6193,49 +6277,79 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         {
             CancelPageNavigation();
         }
+        if (_dockPointerPress.active && _dockPointerPress.pointerId == GET_POINTERID_WPARAM(wParam) &&
+            !PointerStillInContact(GET_POINTERID_WPARAM(wParam)))
+        {
+            _dockPointerPress = DockPress{};
+        }
         return 0;
     case WM_LBUTTONDOWN:
-        if (DockHiddenOrHiding())
+    {
+        const DockInputRoute route = DockRouteInput(DockInput::Press, DockHiddenOrHiding(), _dockSlideActive);
+        POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+        // A click on a bar still sliding in completes the slide first and is routed with the settle's shift to what
+        // was under it on screen. lParam is client space before the settle, which moves a bottom or right bar's
+        // client origin, so the point crosses the settle in screen space.
+        const bool throughScreen = route == DockInputRoute::SettleShifted && ClientToScreen(window, &position) != FALSE;
+        BeginDockPress(_dockMousePress, 0, route);
+        if (route == DockInputRoute::RevealOnly)
         {
             // A click on the strip, or on a bar sliding out, is as deliberate as a touch: reveal without waiting for
-            // the dwell.
+            // the dwell. The click itself, up to its release, goes nowhere.
             OnDockEvent(DockRevealEvent::TouchOnStrip);
             return 0;
         }
-        SettleDockSlide();
-        if (!IsPointerSynthesizedMouseMessage() &&
-            PointInDockResizeBand(POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}))
+        if (throughScreen)
+        {
+            (void)ScreenToClient(window, &position);
+        }
+        position = DockPressPoint(_dockMousePress, 0, position);
+        if (!IsPointerSynthesizedMouseMessage() && PointInDockResizeBand(position))
         {
             BeginDockResize(window);
             return 0;
         }
-        OnMouseButtonDown(window, lParam);
+        OnMouseButtonDown(window, position);
         return 0;
+    }
     case WM_LBUTTONUP:
+    {
+        const DockPress press = std::exchange(_dockMousePress, DockPress{});
         if (_dockResizeDrag)
         {
             UpdateDockResize();
             EndDockResize();
             return 0;
         }
-        if (DockHiddenOrHiding())
+        if (DockHiddenOrHiding() || (press.active && press.revealOnly))
         {
             return 0;
         }
-        OnMouseButtonUp(window, lParam);
+        OnMouseButtonUp(window, DockPressPoint(press, 0, POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}));
         return 0;
+    }
     case WM_MOUSEWHEEL:
-        SettleDockSlide();
-        OnMouseWheel(window, wParam, lParam, WheelAxis::Vertical);
-        return 0;
     case WM_MOUSEHWHEEL:
-        SettleDockSlide();
-        OnMouseWheel(window, wParam, lParam, WheelAxis::Horizontal);
+        if (DockRouteInput(DockInput::Wheel, DockHiddenOrHiding(), _dockSlideActive) == DockInputRoute::Drop)
+        {
+            // The strip and a bar sliding out show no dashboard: a wheel there neither snaps the bar shut nor scrolls
+            // or pages a widget nobody can see, and no partial detent or widget latch survives it.
+            _wheel.Reset();
+            return 0;
+        }
+        // On a bar sliding in the wheel reaches the tile under it as this frame shows it, without settling; a page
+        // detent settles the slide itself (NavigateToAdjacentPage).
+        OnMouseWheel(window, wParam, lParam, message == WM_MOUSEWHEEL ? WheelAxis::Vertical : WheelAxis::Horizontal);
         return 0;
     case WM_MOUSEMOVE:
         // The top-level window owns edge-band hover: a band is created only while the pointer is inside its zone.
         if (!IsPointerSynthesizedMouseMessage())
         {
+            if ((wParam & MK_LBUTTON) == 0)
+            {
+                // The button is up, so a recorded press has ended even when its release went to another window.
+                _dockMousePress = DockPress{};
+            }
             if (_dockResizeDrag)
             {
                 UpdateDockResize();
@@ -6260,8 +6374,9 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             }
             if (DockHiddenOrHiding())
                 return 0;
-            (void)ForwardInteractivePointer({GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}, 1, RedXePointerKindMouse,
-                                            RedXePointerPhaseMove, nullptr);
+            (void)ForwardInteractivePointer(
+                DockPressPoint(_dockMousePress, 0, POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}), 1,
+                RedXePointerKindMouse, RedXePointerPhaseMove, nullptr);
             if (_interactiveOwnsPointer)
                 return 0;
             UpdatePageEdgeHover();
@@ -6354,8 +6469,8 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         {
             if (_dockFullRect.right > _dockFullRect.left && _dockMonitorRect.right > _dockMonitorRect.left)
             {
-                DockMinMaxInfo(_dockMonitorRect, _dock.edge, static_cast<LONG>(_dock.peekPixels),
-                               _dock.mode == DockMode::Autohide, _dockFullRect, *minimums);
+                DockMinMaxInfo(_dockMonitorRect, _dock.edge, DockPeekPixels(), _dock.mode == DockMode::Autohide,
+                               _dockFullRect, *minimums);
             }
             else
             {

@@ -121,6 +121,11 @@ MUST NOT run them before that callback has returned.
 or while the settings error dialog is up returns `ERROR_BUSY` / `E_NOT_VALID_STATE` and is never queued for later;
 `page.*` also refuses while a widget is raised. Every other namespace executes regardless of dashboard motion.
 
+**Collapsed dock:** on an autohide dock that shows its peek strip or is sliding out, a page change or a raise
+(`NavigateToAdjacentPage`, `NavigateToPage`, `TryRaiseWidgetAt`) reveals and settles the bar first and lays out on
+the full bar, never on the strip (`Specs/UI/UI_XeneonDisplayWindowing.md` "Autohide"). It pins nothing, unlike
+`redxe.dock.show`: the bar collapses again after its hide delay once the settle or the raise no longer holds it.
+
 ### `redxe.*` (`Application`)
 
 | Action | Target | Behavior |

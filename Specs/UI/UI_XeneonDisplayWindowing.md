@@ -77,10 +77,10 @@ The dock is RedXe as a bar along one edge of one monitor. The **effective dock**
 object (`Specs/Core/Core_Settings.md`) with the `--dock*` command-line overrides applied, and the window kind follows
 it at startup and on every live reload: an `edge` other than `none` selects the dock in both configurations, on any
 monitor; the XENEON is only what the `xeneon` selector resolves to. `RedXe/DockPlacement.h` owns every pure rule
-below (placement, monitor selection, MINMAXINFO, the autohide state machine and slide, the first-run monitor, edge,
-and thickness) and
-`RedXe/DockOptions.h` the command line and the merge; `HostPluginTests` and `SettingsTests` prove them without a
-display topology.
+below (placement, monitor selection, MINMAXINFO, the full-screen yield, the autohide state machine and slide, the
+peek clamp, the dashboard canvas, input routing on a collapsed or sliding bar, the first-run monitor, edge, and
+thickness) and `RedXe/DockOptions.h` the command line and the merge; `HostPluginTests` and `SettingsTests` prove them
+without a display topology.
 
 ### Command line
 
@@ -113,15 +113,19 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
   rectangle, on DPI, monitor, thickness, and edge changes. A swap chain created while the window is the strip (a
   live reload that rebuilds the page of a collapsed bar, a device rebuild) is still created at the full bar, the
   size `Renderer::Resize` last received.
-- `WM_GETMINMAXINFO` answers with the peek strip (autohide) or the full bar (fixed) as the minimum and the monitor as
-  the maximum, because Windows applies `ptMinTrackSize` to `SetWindowPos` as well as to user tracking and the titled
-  window's 480×320 minimum would refuse the strip.
+- `WM_GETMINMAXINFO` answers with the peek strip (autohide, clamped like every strip by `DockClampPeek`) or the full
+  bar (fixed) as the minimum and the monitor as the maximum, because Windows applies `ptMinTrackSize` to
+  `SetWindowPos` as well as to user tracking and the titled window's 480×320 minimum would refuse the strip.
 - The reachable client for the edge bands is the whole client: the bar fits its monitor by construction, and a
   reserving side dock is excluded from the work area, which would otherwise leave nothing reachable.
 - Z-order is topmost; a full-screen window on the dock's monitor drops the bar to `HWND_BOTTOM` and the clearing
   notification restores `HWND_TOPMOST`. `ABN_FULLSCREENAPP` names no monitor and the shell also sends it for a
   full-screen window on another display (a XENEON dashboard, a video on a second screen), so the bar steps down only
-  while the shell reports one and the foreground window covers the dock's `rcMonitor` (`DockYieldsToFullscreen`).
+  while the shell reports one and the foreground window covers the dock's `rcMonitor` (`DockYieldsToFullscreen` over
+  the pure `DockForegroundCoversMonitor`). A maximized window with a caption MUST NOT count: its `GetWindowRect`
+  includes the invisible resize borders, which overhang a monitor whose work area is the whole monitor (no taskbar
+  there, or an auto-hiding one) by about 8 px on every side. A captionless window covering the monitor counts,
+  maximized or not, and so does one spanning several monitors.
 - `--screenshot` captures the dock like any window; an autohide dock is held revealed for the whole run (a pending
   capture is a hold), so the PNG shows the bar.
 - Drag-to-resize: the inner edge of a revealed bar (the side facing the desktop) is a host-owned grip band
@@ -183,24 +187,46 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
 ### Autohide
 
 - In `autohide` mode the window collapses to the outer `peek` physical pixels of the bar (`DockHiddenRect`), same
-  along-edge extent, and reveals to the full rectangle. The swap chain is created with `DXGI_SCALING_NONE` at the
-  full bar size (`Renderer::SetDockPresentation`), so the client can shrink without `ResizeBuffers`: DWM shows the
+  along-edge extent, and reveals to the full rectangle. `peek` and the thickness are validated apart, so the strip is
+  clamped to the bar (`DockClampPeek`: at least 1 pixel, at most the full bar); placement, every reveal and hide, the
+  grip, and `WM_GETMINMAXINFO` MUST use that one clamped value. The swap chain is created with `DXGI_SCALING_NONE` at
+  the full bar size (`Renderer::SetDockPresentation`), so the client can shrink without `ResizeBuffers`: DWM shows the
   back buffer's top-left region, which is the bar's first rows (top and bottom docks) or columns (left and right
   docks). Neither a reveal nor a hide recomputes the layout, calls `OnTargetSizeChanged`, or resizes the buffers.
+- The dashboard is laid out on the full bar, so every host-side geometry built on that layout MUST use the dashboard
+  canvas (`DockDashboardCanvas`, `Application::DashboardCanvasSize`: the full bar for a placed dock, the client for
+  the standard kinds) and never the client of a collapsed or sliding bar: tile bounds and hit tests, raises, page
+  offsets and the staged neighbour, accessibility and text-input rectangles, and a `--screenshot` crop. A top or left
+  bar's slide translation is part of the tile bounds (`DashboardHost::PixelBoundsAt`), so a point on a sliding bar
+  hits the tile the frame shows there. A collapsed bar hits no tile (an OLE drop on its strip goes nowhere) and
+  exposes no accessibility view; a sliding bar exposes none until it settles, as during a page settle.
 - A reveal and a hide **slide** over `animationMilliseconds` (`Specs/Core/Core_Settings.md`; default 200, 0 keeps one
   `SetWindowPos` and one frame). Each presented frame sizes the window to the outer `v` pixels of the full bar
   (`DockHiddenRect` at the visible thickness `v`), eased out from the strip to the full bar for a reveal and eased in
   back to the strip for a hide (`DockSlideVisiblePixels`). A bottom or right bar slides as it is, because the buffer's
   top-left follows the window's moving inner edge; a top or left bar's dashboard is translated back by the part still
   hidden (`DockSlideContentOffset`, `DashboardHost::SetSlideOffset`, native containers included), so every bar leads out
-  of the screen edge with its inner edge and no window ever leaves its monitor. A slide is visible motion: the host
-  presents every frame until it ends (the scheduler's motion input), then blocks as before. The dashboard is visible
-  from the first frame of a reveal and until the last frame of a hide, which the grip frame follows. The reveal state
-  stays the authority: when it flips during a slide, a new slide starts from where the bar is and takes the share of
-  `animationMilliseconds` its distance is of the whole travel (`DockSlideDurationMilliseconds`). A mouse move, touch,
-  pen, or mouse-button contact on a bar sliding out counts as on the strip (dwell or immediate reveal); a contact, a
-  wheel, a page change, a raise, a dock drag, a placement, and a live reload first complete a slide in progress at the
-  size the reveal state asks for, so they work on settled geometry. A `--screenshot` capture waits for a slide to end.
+  of the screen edge with its inner edge and no window ever leaves its monitor. Each step MUST run after the
+  frame-latency wait, right before the frame that shows it (`Application::TickDockSlide`), so its `SetWindowPos` and
+  the top or left translation reach the same DWM composition as that frame's `Present` rather than the one before; the
+  last step ends the slide before its frame (a finished hide presents the grip frame at the strip size), and a slide
+  that no frame will show (a hidden window, the display off, a suspended renderer) ends at once. A native container
+  that fails to move with a step is moved again by the next offset, also when that offset is unchanged, such as the
+  zero offset that ends the slide. A slide is visible motion: the host presents every frame until it ends (the
+  scheduler's motion input), then blocks as before. The dashboard is visible from the first frame of a reveal and
+  until the last frame of a hide, which the grip frame follows. The reveal state stays the authority: when it flips
+  during a slide, a new slide starts from where the bar is and takes the share of `animationMilliseconds` its distance
+  is of the whole travel (`DockSlideDurationMilliseconds`). A page change, a raise, a dock drag, a placement, and a
+  live reload first complete a slide in progress at the size the reveal state asks for, so they work on settled
+  geometry. A `--screenshot` capture waits for a slide to end.
+- Input on the bar follows `DockRouteInput`. A mouse move over the strip or a bar sliding out starts the dwell. A
+  touch, pen, or mouse-button press there reveals at once, and the rest of that contact up to its release MUST go
+  nowhere: no tile was on screen under it, so no widget receives its release and no double-activate candidate is
+  recorded. A wheel there MUST be dropped: it neither snaps a hiding bar shut nor scrolls or pages a widget nobody can
+  see. A press on a bar sliding in first completes the slide, and its contact (the press, its moves, and its release)
+  MUST be routed with `DockSettleShift`, so it reaches the tile or the inner-edge grip that was on screen under it
+  rather than what the settle moves there; a wheel on a bar sliding in reaches the tile under it as the frame shows it,
+  without settling (a whole page detent settles through the page change).
 - States and holds are the `DockPlacement.h` table: `Revealed`, `HidePending` (one-shot hide timer), `Hidden`, and
   `RevealPending` (one-shot dwell timer). A real mouse move over the strip starts the dwell (`revealDelayMilliseconds`;
   0 reveals at once); leaving during the dwell hides again; a touch, pen, or mouse-button contact on the strip and
@@ -210,8 +236,13 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
   when the last hold clears (0 hides at once); a hold returning cancels the timer. `redxe.dock.hide` and `toggle`
   collapse a revealed bar even with the pointer inside but are inert while a raise, capture, dialog, or pin holds it. A
   bar revealed by `redxe.dock.show` with nothing holding it stays until some other hold appears and clears (its own
-  slide is not one). Mouse messages synthesized from touch or pen never start the dwell. At most one one-shot timer is
-  armed and every state exit kills it.
+  slide is not one). A page or widget change on the strip or a bar sliding out (a `page.*` or `widget.*` host action
+  from a Logicon key, the dialpad, or a Launcher binding, or an accessibility raise) MUST reveal the bar at once and
+  settle it before it runs (`PageOrWidgetChange`, `Application::RevealDockForChange`), so the change is seen and laid
+  out on the full bar. Unlike `redxe.dock.show` it pins nothing: the change's page settle or raise holds the bar, and a
+  change that ends without a hold (a `page.next` on the last page) leaves it to the hide delay. Mouse messages
+  synthesized from touch or pen never start the dwell. At most one one-shot timer is armed and every state exit kills
+  it.
 - `Hidden` and `RevealPending`, once any slide has ended, are "not visible" for `UpdateDashboardVisibility` and the
   frame scheduler: widgets `SetVisible(FALSE)`, native containers hidden, keyboard focus and interactive capture
   cleared, edge bands gone, and after the single **grip frame** (dashboard clear color plus the host-chrome wash over
@@ -512,7 +543,16 @@ mapping back to edges, and `DockAutohideBarHoldsEdge` counting a registration on
 autohide slide (`DockSlideDurationMilliseconds`: whole, partial, reversed, zero, and tiny travels;
 `DockSlideVisiblePixels`: exact ends, clamped progress, the eased halfway points of a reveal and a hide, one-way
 motion within the travel; `DockSlideContentOffset` for every edge), with a dock-kind swap chain presenting a slide
-frame at half the bar with every tile translated and returning in place when the slide ends;
+frame at half the bar with every tile translated and returning in place when the slide ends, and the collapsed and
+sliding bar (`TestDockCollapsedBarPolicy`: `DockClampPeek` up to and past the bar, with the hidden rectangle and
+MINMAXINFO of a peek larger than the bar; `DockDashboardCanvas` for a collapsed, a sliding, an unplaced, and a
+standard window; the `PageOrWidgetChange` reveal and the holds that follow it; `DockSettleShift` for every edge and as
+the inverse of a top or left translation; every `DockRouteInput` row; `DockForegroundCoversMonitor` for a full-screen
+window, a maximized captioned window's overhang, a captionless one, another monitor, a spanning window, and a partial
+cover), proved on a real dashboard too (`TestDockCanvasHitTesting`: mid-slide hits on the canvas reach the tile on
+screen on a bottom and a translated top bar where the client size missed, a settled press keeps that tile only with the
+shift, and a raise on a collapsed bar fills the full bar; `TestDashboardSlideOffsetRetry`: a native container that
+failed to move is moved again by an unchanged offset, the zero one included);
 `SettingsTests` proves the `dock` member with `animationMilliseconds` (0 through 1000, default 200), its rejections,
 minor 2, the `secondary` selector in the document and on `--dock`, the `--dock*` grammar with its errors, the merge
 precedence, `PatchDockThickness` (replace, create with the minor bump, range, re-parse), and the first-run install
@@ -525,6 +565,13 @@ restores the one-step change; `--screenshot` of an autohide bar yields the full 
 mode, and edge changes; a real mouse drag on the inner edge grows the bar live, commits the reservation on release, and
 writes `dock.thickness` to the file. The 2026-09-19 closeout recorded all of these on a 3840×2160 150 % primary plus a
 2560×720 150 % XENEON with bottom taskbars.
+
+Changes to the slide step, the dashboard canvas, or input on a collapsed or sliding bar additionally require a live
+check on an autohide bar, because a reveal needs the real cursor or a bound control and `--screenshot` holds the bar
+revealed: frame-by-frame captures of a top bar's reveal and hide show no background band at its leading edge and
+native tiles moving with the GPU tiles; a `page.goto` and a `widget.toggle` key pressed on the collapsed bar reveal it
+with the page changed or the widget raised over the full bar; a click on a tile while the bar is still sliding in
+reaches that tile; and a wheel over the strip changes no page. These are manual checks and are not recorded yet.
 
 Window-kind switches additionally require a live run with a portable `--settings` file edited while RedXe runs:
 `none` → an edge and back yields the dock styles (`WS_EX_TOOLWINDOW`, topmost, no `WS_EX_APPWINDOW`) and then the
@@ -611,9 +658,11 @@ restarting Explorer brings it back; and a Debug run with the shipped template sh
 - Dock placement, monitor selection, MINMAXINFO, the autohide state machine, the slide, and the first-run monitor,
   edge, and thickness: `RedXe/DockPlacement.h`; the `--dock*` grammar and merge: `RedXe/DockOptions.h`; dock-kind
   presentation: `Renderer::SetDockPresentation`; the slide's frames and translation: `Application::TickDockSlide`,
-  `SettleDockSlide`, and `DashboardHost::SetSlideOffset`; the app-bar renewal after an Explorer restart:
-  `Application::OnTaskbarCreated`; placement requests during a placement: `Application::PlaceDock` over
-  `PlaceDockPass`
+  `SettleDockSlide`, and `DashboardHost::SetSlideOffset`; the dashboard canvas: `Application::DashboardCanvasSize`;
+  the reveal before a page or widget change: `Application::RevealDockForChange`; input on a collapsed or sliding bar:
+  `Application::BeginDockPress` and `DockPressPoint` in `HandleMessage` and `TryPointerClientPosition`; the app-bar
+  renewal after an Explorer restart: `Application::OnTaskbarCreated`; placement requests during a placement:
+  `Application::PlaceDock` over `PlaceDockPass`
 - Notice windows: `Application::CreateNoticeWindow`, used by `ShowSettingsError` and `ShowActionNotices`; their
   placement: `RedXe/NoticeWindow.h`
 - Notification-area icon: `RedXe/TrayIcon.h` (the owner window, the icon, the menu, the `TrayIconActionFor`

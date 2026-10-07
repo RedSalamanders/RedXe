@@ -1001,6 +1001,249 @@ void TestDockSlidePolicy(bool& success) noexcept
           L"top and left bars are translated by the hidden part, bottom and right bars never", success);
 }
 
+// DockPlacement.h on a collapsed or sliding autohide bar: one clamped peek strip, the dashboard canvas every host-side
+// layout uses, a page or widget change revealing the bar, the settle shift that keeps a press on the tile it was aimed
+// at, where a press or a wheel goes, and the full-screen yield that ignores a maximized window's frame overhang.
+void TestDockCollapsedBarPolicy(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dock collapsed and sliding bar policy\n";
+    // One peek strip: the setting, at least 1 pixel and never more than the bar it belongs to.
+    Check(DockClampPeek(4, 540) == 4 && DockClampPeek(64, 540) == 64 && DockClampPeek(64, 32) == 32 &&
+              DockClampPeek(0, 540) == 1 && DockClampPeek(4, 0) == 1,
+          L"the peek strip is the setting clamped to 1 pixel and to the full bar", success);
+    const RECT monitor{0, 0, 2560, 1440};
+    const RECT thinBar{0, 1360, 2560, 1392}; // a 32-pixel bottom bar above a 48-pixel taskbar
+    const LONG thinPeek = DockClampPeek(64, DockCrossPixels(thinBar, DockEdge::Bottom));
+    const RECT thinHidden = DockHiddenRect(thinBar, DockEdge::Bottom, thinPeek);
+    MINMAXINFO thinInfo{};
+    DockMinMaxInfo(monitor, DockEdge::Bottom, thinPeek, true, thinBar, thinInfo);
+    Check(EqualRect(&thinHidden, &thinBar) != FALSE && thinInfo.ptMinTrackSize.y == 32,
+          L"a 64-pixel peek on a 32-pixel bar hides to the bar itself, for the window and MINMAXINFO alike", success);
+
+    // The dashboard canvas: a placed dock is laid out on its full bar whatever part of it the window shows.
+    const RECT fullBottom{0, 852, 2560, 1392};
+    const SIZE stripCanvas = DockDashboardCanvas(true, fullBottom, SIZE{2560, 4});
+    const SIZE slidingCanvas = DockDashboardCanvas(true, fullBottom, SIZE{2560, 270});
+    const SIZE titledCanvas = DockDashboardCanvas(false, fullBottom, SIZE{1280, 360});
+    const SIZE unplacedCanvas = DockDashboardCanvas(true, RECT{}, SIZE{2560, 4});
+    Check(stripCanvas.cx == 2560 && stripCanvas.cy == 540 && slidingCanvas.cx == 2560 && slidingCanvas.cy == 540 &&
+              titledCanvas.cx == 1280 && titledCanvas.cy == 360 && unplacedCanvas.cx == 2560 && unplacedCanvas.cy == 4,
+          L"a dock's canvas is its full bar, collapsed or sliding; the standard kinds and an unplaced dock keep the "
+          L"client",
+          success);
+
+    // A page or widget change on the strip reveals at once and pins nothing: its own settle or raise holds the bar.
+    using S = DockRevealState;
+    using E = DockRevealEvent;
+    const DockHolds none{};
+    DockHolds settling{};
+    settling.captureActive = true;
+    DockHolds raised{};
+    raised.widgetRaised = true;
+    Check(NextDockRevealState(S::Hidden, E::PageOrWidgetChange, none, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::RevealPending, E::PageOrWidgetChange, none, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::PageOrWidgetChange, none, 150, 800) == S::Revealed,
+          L"a page or widget change on the strip reveals the bar at once, without the dwell", success);
+    Check(NextDockRevealState(S::Revealed, E::HoldsChanged, settling, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::HoldsChanged, raised, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::HoldsChanged, none, 150, 800) == S::HidePending,
+          L"the change's page settle or raise then holds the bar, and the hide delay starts once no hold is left",
+          success);
+
+    // The settle shift: a settled client point plus the shift is the dashboard point that was on screen under it.
+    const POINT topShift = DockSettleShift(DockEdge::Top, 540, 314);
+    const POINT bottomShift = DockSettleShift(DockEdge::Bottom, 540, 270);
+    const POINT leftShift = DockSettleShift(DockEdge::Left, 240, 40);
+    const POINT rightShift = DockSettleShift(DockEdge::Right, 240, 40);
+    const POINT settledShift = DockSettleShift(DockEdge::Top, 540, 540);
+    const POINT noShift = DockSettleShift(DockEdge::None, 540, 4);
+    Check(topShift.x == 0 && topShift.y == 226 && bottomShift.x == 0 && bottomShift.y == -270 && leftShift.x == 200 &&
+              leftShift.y == 0 && rightShift.x == -200 && rightShift.y == 0 && settledShift.y == 0 && noShift.x == 0 &&
+              noShift.y == 0,
+          L"the settle shift undoes a top or left translation and a bottom or right origin move by the hidden part",
+          success);
+    const POINT topOffset = DockSlideContentOffset(DockEdge::Top, 540, 314);
+    const POINT leftOffset = DockSlideContentOffset(DockEdge::Left, 240, 40);
+    Check(topShift.y == -topOffset.y && leftShift.x == -leftOffset.x,
+          L"for a top or left bar the shift is exactly the translation the settle drops", success);
+
+    // Where a press or a wheel goes.
+    using R = DockInputRoute;
+    Check(DockRouteInput(DockInput::Wheel, true, false) == R::Drop &&
+              DockRouteInput(DockInput::Wheel, true, true) == R::Drop,
+          L"a wheel on the strip or on a bar sliding out is dropped", success);
+    Check(DockRouteInput(DockInput::Press, true, false) == R::RevealOnly &&
+              DockRouteInput(DockInput::Press, true, true) == R::RevealOnly,
+          L"a press on the strip or on a bar sliding out only reveals the bar", success);
+    Check(DockRouteInput(DockInput::Press, false, true) == R::SettleShifted &&
+              DockRouteInput(DockInput::Wheel, false, true) == R::Dashboard,
+          L"on a bar sliding in a press settles with the shift and a wheel reaches the tile under it", success);
+    Check(DockRouteInput(DockInput::Press, false, false) == R::Dashboard &&
+              DockRouteInput(DockInput::Wheel, false, false) == R::Dashboard,
+          L"a settled bar, a fixed bar, and the standard kinds route input as any window", success);
+
+    // Full-screen yield on a taskbar-less display, whose work area is the whole monitor.
+    const RECT dockMonitor{2560, 0, 4480, 1080};
+    const RECT overhang{2552, -8, 4488, 1088};
+    Check(DockForegroundCoversMonitor(dockMonitor, dockMonitor, false),
+          L"a full-screen window covering the bar's monitor puts the bar beneath it", success);
+    Check(!DockForegroundCoversMonitor(overhang, dockMonitor, true),
+          L"a maximized captioned window's resize-border overhang is not full screen", success);
+    Check(DockForegroundCoversMonitor(overhang, dockMonitor, false),
+          L"a captionless window covering the monitor counts, maximized or not", success);
+    Check(!DockForegroundCoversMonitor(RECT{0, 0, 2560, 1440}, dockMonitor, false) &&
+              DockForegroundCoversMonitor(RECT{0, 0, 4480, 1440}, dockMonitor, false) &&
+              !DockForegroundCoversMonitor(RECT{2560, 0, 4480, 1040}, dockMonitor, false) &&
+              !DockForegroundCoversMonitor(dockMonitor, RECT{}, false),
+          L"another monitor's window or a partial cover does not count, a window spanning both does, no monitor never",
+          success);
+}
+
+// A press during a reveal slide reaches the tile the user saw (slide-tray#2, #19), and a raise on a collapsed bar is
+// laid out on the full bar (dock-switch#21): tiles are hit on the dashboard canvas with the slide's translation, never
+// squeezed into the partly open window, and a press that settles the slide keeps DockSettleShift.
+void TestDockCanvasHitTesting(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dock canvas hit testing during a slide and on a collapsed bar\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":5},"pages":[{"rows":[{"plugin":"builtin.matrix-rain"},{"plugin":"builtin.desk-clock"}]}]})json";
+    constexpr UINT barWidth = 1280;
+    constexpr UINT barHeight = 540;
+    AttachedHostWindow window;
+    HRESULT result = window.Initialize(barWidth, barHeight);
+    AppSettings settings{};
+    if (SUCCEEDED(result))
+    {
+        result = ParseAppSettingsJson(settingsJson, settings);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    DashboardHost dashboard;
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.Initialize(plugins, window.Get(), barWidth, barHeight, window.Dpi(), false);
+    }
+    Check(SUCCEEDED(result) && dashboard.WidgetCount() == 2, L"a two-row bar page initializes", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+    const auto hit = [&dashboard](POINT point, UINT width, UINT height) noexcept -> size_t
+    {
+        const std::array<RECT, 2> bounds{dashboard.PixelBoundsAt(0, width, height),
+                                         dashboard.PixelBoundsAt(1, width, height)};
+        return HitTestTopmostWidget(point, bounds.data(), bounds.size());
+    };
+    const RECT upper = dashboard.PixelBoundsAt(0, barWidth, barHeight);
+    const RECT lower = dashboard.PixelBoundsAt(1, barWidth, barHeight);
+    Check(upper.top == 0 && upper.bottom == 270 && lower.top == 270 && lower.bottom == 540,
+          L"the two rows split the 540-pixel bar at 270", success);
+
+    // Bottom bar halfway through a reveal: the window is the outer 270 rows and shows dashboard rows 0..270.
+    const POINT seenBottom{640, 269};
+    Check(hit(seenBottom, barWidth, barHeight) == 0 && hit(seenBottom, barWidth, 270) == 1,
+          L"mid-slide the canvas hits the upper tile on screen, where the client size hit the hidden lower one",
+          success);
+    // The settle grows the window up by the hidden 270, so the same screen point is client row 539.
+    const POINT settledBottom{seenBottom.x, seenBottom.y + 270};
+    const POINT bottomShift = DockSettleShift(DockEdge::Bottom, barHeight, 270);
+    Check(hit(settledBottom, barWidth, barHeight) == 1 &&
+              hit(POINT{settledBottom.x + bottomShift.x, settledBottom.y + bottomShift.y}, barWidth, barHeight) == 0,
+          L"after the settle a bottom bar's press keeps the upper tile only with the shift", success);
+
+    // Top bar at 314 of 540 rows: the dashboard is translated up by the hidden 226, so client row 250 shows row 476.
+    Check(SUCCEEDED(dashboard.SetSlideOffset(DockSlideContentOffset(DockEdge::Top, barHeight, 314))),
+          L"the top bar's slide translates the page", success);
+    const POINT seenTop{640, 250};
+    Check(hit(seenTop, barWidth, barHeight) == 1, L"mid-slide a top bar's client point hits the translated lower tile",
+          success);
+    Check(SUCCEEDED(dashboard.SetSlideOffset(POINT{})), L"the settle drops the translation", success);
+    const POINT topShift = DockSettleShift(DockEdge::Top, barHeight, 314);
+    Check(hit(seenTop, barWidth, barHeight) == 0 &&
+              hit(POINT{seenTop.x + topShift.x, seenTop.y + topShift.y}, barWidth, barHeight) == 1,
+          L"after the settle a top bar's press keeps the lower tile only with the shift", success);
+
+    // widget.raise on the collapsed bar, whose window is a 4-pixel strip: on the canvas the overlay spans the bar's
+    // full height; on the strip the same raise is still allowed but would be 4 pixels tall.
+    const SIZE canvas = DockDashboardCanvas(true, RECT{0, 852, 1280, 1392}, SIZE{1280, 4});
+    const UINT canvasWidth = static_cast<UINT>(canvas.cx);
+    const UINT canvasHeight = static_cast<UINT>(canvas.cy);
+    const RECT canvasTile = dashboard.PixelBoundsAt(0, canvasWidth, canvasHeight);
+    const RaisedLayout canvasRaise =
+        MakeRaisedLayout(canvasWidth, canvasHeight, RedXeRaisedExtentHalf, window.Dpi(), &canvasTile);
+    const RECT stripTile = dashboard.PixelBoundsAt(0, barWidth, 4);
+    const RaisedLayout stripRaise = MakeRaisedLayout(barWidth, 4, RedXeRaisedExtentHalf, window.Dpi(), &stripTile);
+    Check(CanRaiseWidget(canvasTile, canvasWidth, canvasHeight, RedXeRaisedExtentHalf) &&
+              canvasRaise.content.top == 0 && canvasRaise.content.bottom == static_cast<LONG>(barHeight) &&
+              CanRaiseWidget(stripTile, barWidth, 4, RedXeRaisedExtentHalf) && stripRaise.content.bottom == 4,
+          L"a raise on a collapsed bar is laid out on its full bar, not in the strip that would also accept it",
+          success);
+    dashboard.Shutdown();
+}
+
+// DashboardHost::SetSlideOffset after a native container failed to move (slide-tray#15): the next call moves the
+// containers again even with the same offset, so the zero offset that ends a dock slide retries a failed last step.
+// The container is destroyed behind the host here, so every move fails and every call reports it.
+void TestDashboardSlideOffsetRetry(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dock slide offset retries a failed native container move\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":5},"pages":[{"rows":[{"plugin":"builtin.rotating-triangle"},{"plugin":"builtin.gdi-orbit"}]}]})json";
+    constexpr UINT barWidth = 1280;
+    constexpr UINT barHeight = 540;
+    AttachedHostWindow window;
+    HRESULT result = window.Initialize(barWidth, barHeight);
+    AppSettings settings{};
+    if (SUCCEEDED(result))
+    {
+        result = ParseAppSettingsJson(settingsJson, settings);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    DashboardHost dashboard;
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.Initialize(plugins, window.Get(), barWidth, barHeight, window.Dpi(), false);
+    }
+    const HWND container = SUCCEEDED(result) ? GetWindow(window.Get(), GW_CHILD) : nullptr;
+    Check(SUCCEEDED(result) && dashboard.WindowWidgetAt(1) != nullptr && container != nullptr,
+          L"a bar page with a native container initializes", success);
+    if (FAILED(result) || !container)
+    {
+        dashboard.Shutdown();
+        return;
+    }
+    const auto containerTop = [&window, container]() noexcept -> LONG
+    {
+        RECT bounds{};
+        if (!GetWindowRect(container, &bounds))
+        {
+            return -1;
+        }
+        MapWindowPoints(HWND_DESKTOP, window.Get(), reinterpret_cast<POINT*>(&bounds), 2);
+        return bounds.top;
+    };
+    Check(containerTop() == 270 && SUCCEEDED(dashboard.SetSlideOffset(POINT{0, -90})) && containerTop() == 180 &&
+              SUCCEEDED(dashboard.SetSlideOffset(POINT{})) && containerTop() == 270,
+          L"a slide offset moves the native container and the zero offset puts it back", success);
+
+    Check(DestroyWindow(container) != FALSE, L"the test destroys the container behind the host", success);
+    const HRESULT moved = dashboard.SetSlideOffset(POINT{0, -90});
+    const HRESULT retried = dashboard.SetSlideOffset(POINT{0, -90});
+    const HRESULT reset = dashboard.SetSlideOffset(POINT{});
+    const HRESULT resetAgain = dashboard.SetSlideOffset(POINT{});
+    Check(FAILED(moved) && FAILED(retried), L"a failed move is retried by a call with the same offset", success);
+    Check(FAILED(reset) && FAILED(resetAgain) && dashboard.SlideOffset().x == 0 && dashboard.SlideOffset().y == 0,
+          L"the zero offset that ends a slide keeps retrying, and the offset the renderer reads is recorded", success);
+    dashboard.Shutdown();
+}
+
 // TrayIcon.h: the shell's notification-icon callbacks (NOTIFYICON_VERSION_4 events) as a pure table, including the
 // guard that keeps one keystroke or a quick second double-click from starting two editors.
 void TestTrayIconPolicy(bool& success) noexcept
@@ -6604,6 +6847,9 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestNoticeWindowPlacement(success);
     TestDockAutohidePolicy(success);
     TestDockSlidePolicy(success);
+    TestDockCollapsedBarPolicy(success);
+    TestDockCanvasHitTesting(success);
+    TestDashboardSlideOffsetRetry(success);
     TestTrayIconPolicy(success);
     TestTrayIconOwner(success);
     TestDockPresentation(success);

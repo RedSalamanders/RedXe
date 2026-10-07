@@ -117,8 +117,8 @@ class Application final
     // TaskbarCreated: a restarted Explorer knows no app bar, so an active dock registers and places itself again.
     void OnTaskbarCreated() noexcept;
     void ApplyDockZOrder() noexcept;
-    // True while the shell reports a full-screen application (ABN_FULLSCREENAPP) and the foreground window fills the
-    // dock's own monitor: only then does the bar step beneath it.
+    // True while the shell reports a full-screen application (ABN_FULLSCREENAPP) and the foreground window covers the
+    // dock's own monitor (DockPlacement.h DockForegroundCoversMonitor): only then does the bar step beneath it.
     [[nodiscard]] bool DockYieldsToFullscreen() const noexcept;
     // Live reload: re-places the bar for the document's changed `dock` members, and `none` <-> an edge switches the
     // window kind. A failed switch is rolled back to the previous kind and its failure returned, so the caller rejects
@@ -143,8 +143,13 @@ class Application final
     // without a XENEON, the titled window at the work-area origin of `fallbackMonitor`. Idempotent.
     HRESULT PlaceStandardWindow(bool fullscreen, HMONITOR fallbackMonitor) noexcept;
     // The canvas the dashboard and the swap chain use: the client, or the full bar for a dock (which may be its
-    // strip at the moment), at the matching DPI.
+    // strip at the moment), at the matching DPI (DockPlacement.h DockDashboardCanvas).
     HRESULT PresentationCanvas(UINT& width, UINT& height, UINT& dpi) const noexcept;
+    // PresentationCanvas without the DPI, {0, 0} when there is none (a minimized standard window). Every host-side
+    // geometry built on the dashboard layout uses it instead of the client: tile bounds and hit tests, raises, page
+    // offsets, and accessibility and text-input rectangles, so they match what the renderer draws while a collapsed or
+    // sliding autohide bar shows only part of it.
+    [[nodiscard]] SIZE DashboardCanvasSize() const noexcept;
     // After a window-kind switch: resizes the dashboard to the new canvas and re-initializes the renderer with that
     // kind's presentation. Widget instances and native containers stay; GPU widgets see one OnDeviceLost and
     // OnDeviceCreated pair, as on an adapter change.
@@ -172,10 +177,37 @@ class Application final
     // Sizes the window to `visiblePx` of the full bar and translates the dashboard while a slide runs.
     void SetDockVisiblePixels(LONG visiblePx) noexcept;
     void ApplyDockSlideOffset(POINT offset) noexcept;
+    // The frame loop's slide step, run once a back buffer is free and right before the frame is rendered: the window
+    // size and the top or left translation for this frame's progress, or the end of the slide once its time is up, so
+    // the SetWindowPos and the content offset reach the same DWM composition as the Present that shows them.
     void TickDockSlide() noexcept;
     // Ends a running slide at the size the reveal state asks for; geometry-bound work (a pointer contact, a page or
     // widget change, a drag, a placement, a reload) starts from a settled bar.
     void SettleDockSlide() noexcept;
+    // Before a page or widget change: the strip or a bar sliding out reveals at once (PageOrWidgetChange), and a slide
+    // in progress settles, so the change is seen and laid out on the full, settled bar.
+    void RevealDockForChange() noexcept;
+    // A press while the bar was not settled (DockPlacement.h DockRouteInput). One on the strip or a bar sliding out
+    // only revealed the bar, so the rest of its contact up to the release goes nowhere; one on a bar sliding in settled
+    // the slide, and every later point of its contact adds `shift` (DockSettleShift) so it stays on what the user aimed
+    // at. The mouse (pointer id 0 here) and one touch or pen contact each keep a record; their next press replaces it.
+    struct DockPress final
+    {
+        bool active = false;
+        bool revealOnly = false;
+        UINT32 pointerId = 0;
+        POINT shift{};
+    };
+    // Records the press of contact `pointerId` routed as `route`, settling a slide for SettleShifted; a press routed
+    // to the dashboard forgets that contact's record.
+    void BeginDockPress(DockPress& press, UINT32 pointerId, DockInputRoute route) noexcept;
+    // `client` of contact `pointerId` plus the shift its press recorded; unchanged for any other contact.
+    [[nodiscard]] static POINT DockPressPoint(const DockPress& press, UINT32 pointerId, POINT client) noexcept
+    {
+        return press.active && !press.revealOnly && press.pointerId == pointerId
+                   ? POINT{client.x + press.shift.x, client.y + press.shift.y}
+                   : client;
+    }
     // What follows a reveal or hide reaching its window size: focus and hover cleanup for a hidden bar, dashboard
     // visibility, host chrome (the grip), and one frame.
     void FinishDockRevealChange() noexcept;
@@ -243,8 +275,9 @@ class Application final
     void OnPointerDown(HWND window, WPARAM wParam, LPARAM lParam) noexcept;
     void OnPointerUpdate(HWND window, WPARAM wParam, LPARAM lParam) noexcept;
     void OnPointerUp(HWND window, WPARAM wParam, LPARAM lParam) noexcept;
-    void OnMouseButtonDown(HWND window, LPARAM lParam) noexcept;
-    void OnMouseButtonUp(HWND window, LPARAM lParam) noexcept;
+    // `position` is the client point of the button message, plus the shift of a press that settled a dock slide.
+    void OnMouseButtonDown(HWND window, POINT position) noexcept;
+    void OnMouseButtonUp(HWND window, POINT position) noexcept;
     // WM_MOUSEWHEEL / WM_MOUSEHWHEEL. The first sample of a wheel sequence goes to the interactive widget under the
     // pointer; its answer latches the sequence to that widget or to the host, which turns each whole detent into one
     // adjacent-page navigation (WheelNavigation.h).
@@ -447,6 +480,8 @@ class Application final
     bool _dockDashboardResizeTimerArmed = false;
     // Distance from the inner edge to the pointer at the press, so the edge keeps its offset under the pointer.
     LONG _dockResizeGrabPx = 0;
+    DockPress _dockMousePress{};
+    DockPress _dockPointerPress{};
     bool _windowActive = false;
     // Between WM_ENTERSIZEMOVE and WM_EXITSIZEMOVE: the system move/size loop owns the window's rectangle.
     bool _inSizeMove = false;

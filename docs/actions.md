@@ -31,6 +31,8 @@ is never a dialog, because a keypad key is a deliberate control.
 | `widget.dismiss` | none | Close the raised widget |
 | `widget.next`, `widget.previous` | none | Raise the next / previous widget in page order |
 
+On an auto-hiding [dock](usage.md#dock) that is collapsed, these actions bring the bar out first so you see the page change or the raised widget; it collapses again shortly afterwards unless a raised widget keeps it open.
+
 ### `redxe.*`
 
 | `action` | `target` | Effect |
