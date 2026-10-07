@@ -1257,6 +1257,38 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         }
     }
 
+    // A source-only reload (a comment saved mid-swipe) keeps a staged swipe and becomes the document; committing the
+    // swipe then changes only the active page.
+    if (pageCount > 1)
+    {
+        constexpr uint32_t firstPage = 0;
+        std::unique_ptr<AppSettings> annotated{new (std::nothrow) AppSettings{*_settings}};
+        std::string expectedSource;
+        try
+        {
+            if (annotated)
+            {
+                annotated->sourceDocument.append("\n// Saved during a swipe.\n");
+                expectedSource = annotated->sourceDocument;
+            }
+        }
+        catch (...)
+        {
+            annotated.reset();
+        }
+        result = annotated ? StageTransitionPage(-1, &firstPage) : E_OUTOFMEMORY;
+        if (SUCCEEDED(result))
+            result = ApplySettings(std::move(annotated));
+        if (SUCCEEDED(result))
+            result = (result == S_FALSE && _transitionSettings) ? PromoteTransitionPage() : E_UNEXPECTED;
+        if (FAILED(result) || _transitionSettings || _settings->dashboard.activePageIndex != firstPage ||
+            _settings->sourceDocument != expectedSource)
+        {
+            OutputDebugStringW(L"A source-only reload during a staged swipe did not survive the page commit.\n");
+            return 6;
+        }
+    }
+
     std::unique_ptr<AppSettings> rejected{new (std::nothrow) AppSettings{*_settings}};
     if (!rejected || SUCCEEDED(ParseAppSettingsJson("{}", *rejected)) || *rejected != *_settings)
     {
@@ -2270,7 +2302,7 @@ void Application::EndDockResize() noexcept
         (void)ReleaseCapture();
     }
     // The dragged size replaces a --dock-thickness pin for the rest of the run, is committed to the shell, and is
-    // written to the settings file so it survives the next launch.
+    // written to the settings file so it survives the next launch (a size the document already has writes nothing).
     _dockOverrides.hasThickness = false;
     (void)PlaceDock(true);
     if (_settings)
@@ -2284,6 +2316,7 @@ void Application::EndDockResize() noexcept
                                "dock-thickness-persist-failed",
                                "The dragged dock thickness could not be written to the settings file.", persisted);
         }
+        LogDeferredSettingsPersist();
     }
     EvaluateDockHolds();
 }
@@ -2861,8 +2894,8 @@ void Application::FlushPendingTransitionStage() noexcept
 
 HRESULT Application::PromoteTransitionPage() noexcept
 {
-    if (!_transitionDashboardHost || !_transitionPluginManager || !_transitionSettings || !_pluginManager ||
-        !_dashboardHost)
+    if (!_transitionDashboardHost || !_transitionPluginManager || !_transitionSettings || !_settings ||
+        !_pluginManager || !_dashboardHost)
     {
         return E_UNEXPECTED;
     }
@@ -2878,7 +2911,12 @@ HRESULT Application::PromoteTransitionPage() noexcept
     std::unique_ptr<PluginManager> retiringPlugins = std::move(_pluginManager);
     _dashboardHost = std::move(_transitionDashboardHost);
     _pluginManager = std::move(_transitionPluginManager);
-    _settings = std::move(_transitionSettings);
+    // The staged copy differs from the document only in the active page (StageTransitionPage), and every change to
+    // the page list cancels navigation first. Take only the page, so a source-only reload, a dock drag, or a widget
+    // persist made during the swipe stays in the document.
+    _settings->dashboard.activePageIndex = _transitionSettings->dashboard.activePageIndex;
+    _settings->dashboard.activePageId = _transitionSettings->dashboard.activePageId;
+    _transitionSettings.reset();
     _pageTransitionDirection = 0;
     _pageStagePendingDirection = 0;
     _pageCurrentOffset = 0;
@@ -6343,8 +6381,22 @@ HRESULT Application::ApplyWidgetSettingsPersist(const char* instanceId, const ch
     {
         return PatchWidgetInstanceSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
     }
-    return _settingsStore.PersistWidgetSettings(*_settings, instanceId,
-                                                std::string_view(settingsJsonUtf8, settingsBytes));
+    const HRESULT result =
+        _settingsStore.PersistWidgetSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
+    LogDeferredSettingsPersist();
+    return result;
+}
+
+void Application::LogDeferredSettingsPersist() noexcept
+{
+    if (_settingsStore.TakeDeferredPersistNotice())
+    {
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                           "settings-persist-deferred",
+                           "A settings change was kept in memory and not written, because the settings file on disk "
+                           "is not the document RedXe last loaded; the next successful load of that file replaces it.",
+                           S_FALSE);
+    }
 }
 
 HRESULT Application::SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8,

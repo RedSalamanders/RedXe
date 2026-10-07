@@ -1878,9 +1878,11 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSetting
             return sink.FailHr(path.View(), "The settings file exceeds the 1 MiB limit.");
         std::vector<char> mutableJson(json.begin(), json.end());
         yyjson_read_err error{};
-        unique_doc document{yyjson_read_opts(mutableJson.data(), mutableJson.size(),
-                                             YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS, nullptr,
-                                             &error)};
+        // A leading UTF-8 BOM (Windows PowerShell 5.1, "UTF-8 with signature" editors) is accepted and stays in the
+        // retained source; error offsets and the diagnostic columns count its three bytes.
+        unique_doc document{yyjson_read_opts(
+            mutableJson.data(), mutableJson.size(),
+            YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS | YYJSON_READ_ALLOW_BOM, nullptr, &error)};
         if (!document)
         {
             if (diagnostic)
@@ -1902,7 +1904,10 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSetting
                         ++diagnostic->column;
                     }
                 }
-                diagnostic->message = error.msg && error.msg[0] != '\0' ? error.msg : "Invalid JSON syntax.";
+                // Nothing but blanks or comments; after a BOM, yyjson would name the BOM it accepted as the problem.
+                diagnostic->message = error.code == YYJSON_READ_ERROR_EMPTY_CONTENT ? "The settings file is empty."
+                                      : error.msg && error.msg[0] != '\0'           ? error.msg
+                                                                                    : "Invalid JSON syntax.";
                 sink.recorded = true;
             }
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);

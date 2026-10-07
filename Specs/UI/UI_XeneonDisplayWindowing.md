@@ -125,8 +125,9 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
   window and dashboard follow the pointer live with the outer edge fixed and the shell reservation untouched; the
   release (or a lost capture) commits through `PlaceDock`, replaces a `--dock-thickness` pin for the run, and
   persists `dock.thickness` into the settings document (`SettingsStore::PersistDockThickness`, which creates the
-  `dock` object and raises `version.minor` to 2 when needed; a failed write is one Warning record,
-  `dock-thickness-persist-failed`). A drag is a hold for an autohide bar. Touch and pen do not resize.
+  `dock` object and raises `version.minor` to 2 when needed, and writes nothing for a release at the thickness the
+  document already has; a failed write is one Warning record, `dock-thickness-persist-failed`). A drag is a hold for
+  an autohide bar. Touch and pen do not resize.
 
 ### Monitor and placement
 

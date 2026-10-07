@@ -100,7 +100,9 @@ Orientation is runtime state and MUST NOT appear in settings.
   page sliding in from the left.
 - During a swipe only the current and directionally adjacent pages may be instantiated and rendered. Cancellation
   tears down the staged neighbor. Commit makes it current and tears down the prior page.
-- Resize, close, reload, and capture loss cancel an active transition immediately, without a settle animation.
+- Resize, close, reload, and capture loss cancel an active transition immediately, without a settle animation. A
+  reload that changes only the settings source text (comments or spacing) keeps the transition; a commit after it
+  changes only the active page (`Specs/Core/Core_Settings.md` "Live reload and diagnostics").
 
 ## Mouse edge navigation
 

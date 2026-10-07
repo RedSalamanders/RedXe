@@ -126,7 +126,7 @@ A switch overrides that one setting for the run, even when you edit the file whi
 Good to know:
 
 - The bar has no taskbar button and does not take the focus when it starts. To quit, choose **Exit** in the [notification-area icon](#notification-area-icon)'s menu, click or tap the bar and press **Escape**, or bind `redxe.quit`.
-- **Resize by dragging**: point at the bar's inner edge (the side facing the desktop; the cursor becomes a resize arrow), press, and drag. The bar follows the mouse; when you release, the reserved area follows and the new `thickness` is written to the settings file, so it survives the next start. Works in `fixed` and `autohide` (the bar stays open while you drag); a `--dock-thickness` switch is replaced by the dragged value for that run.
+- **Resize by dragging**: point at the bar's inner edge (the side facing the desktop; the cursor becomes a resize arrow), press, and drag. The bar follows the mouse; when you release, the reserved area follows and the new `thickness` is written to the settings file, so it survives the next start. Only that value changes: your comments and layout stay, and a file without a `dock` gains a `"dock": { "thickness": ... }` line right after `version`. A click on the edge that leaves the size as it was writes nothing. Works in `fixed` and `autohide` (the bar stays open while you drag); a `--dock-thickness` switch is replaced by the dragged value for that run.
 - **Autohide**: rest the mouse on the thin strip at the screen edge and the bar slides out of the edge (it takes `animationMilliseconds`, after the `revealDelayMilliseconds` wait); it collapses again shortly after the pointer leaves and nothing else holds it (a raised widget, a swipe, a text field with the focus, the settings-error dialog). A click or a touch on the strip reveals at once, and a Logicon key or a Launcher tile bound to `redxe.dock.show`, `hide`, or `toggle` does too. If the taskbar sits on the same edge, the strip is just above the taskbar, so aim for that line or use another edge.
 - With `reserveWorkArea` off, or in `autohide`, the bar never covers the taskbar; it hugs the edge of the free area.
 - A full-screen game or video on that monitor pushes the bar beneath it; it returns when you leave full screen. A full-screen window on another display (a XENEON dashboard, a video on a second screen) leaves the bar on top.
@@ -136,11 +136,11 @@ Good to know:
 
 ### First start without a XENEON
 
-When RedXe starts with no settings file yet (or replaces an invalid one) and no XENEON display is connected, the settings file it creates already contains a bar, with a comment saying why:
+When RedXe starts with no settings file yet (or replaces an invalid one) and no XENEON display is connected, the settings file it creates already contains a bar, with a comment saying why. This `dock` line is the one to edit: the commented-out `dock` example the shipped template carries further down is left out of this file, so there is no second one to uncomment.
 
 ```jsonc
   // No XENEON display was found when RedXe installed this file, so this dock runs it as a bar on a screen edge;
-  // set "edge" to "none" to use the standard window instead.
+  // set "edge" to "none" to use the standard window instead. See docs/usage.md "Dock" for the other members.
   "dock": { "edge": "top", "monitor": "secondary", "mode": "autohide", "thickness": 720 },
 ```
 
@@ -195,7 +195,9 @@ Without `--settings`, RedXe uses one editable file:
 | Debug | `%LocalAppData%\RedXe\Settings\RedXe-debug.settings.json` |
 | Release | `%LocalAppData%\RedXe\Settings\RedXe.settings.json` |
 
-Save the file to apply it. RedXe watches that path; you do not restart. When the [notification-area icon](#notification-area-icon) is shown, double-clicking it is the quickest way to open the file. A valid document keeps the page you were on when that page still exists. An invalid save leaves the last good dashboard running and shows one error dialog with the JSON path and the reason (and line and column when those are known). Dismissing the dialog suppresses only that failed save; a later distinct invalid save can prompt again.
+The file is UTF-8 JSON; `//` and `/* */` comments and trailing commas are allowed, and a file saved with a byte order mark ("UTF-8 with BOM", as Windows PowerShell 5.1 `Set-Content -Encoding UTF8` writes it) works too and keeps its mark when RedXe writes to it. Save the file to apply it. RedXe watches that path; you do not restart. When the [notification-area icon](#notification-area-icon) is shown, double-clicking it is the quickest way to open the file. A valid document keeps the page you were on when that page still exists. An invalid save leaves the last good dashboard running and shows one error dialog with the JSON path and the reason (and line and column when those are known). Dismissing the dialog suppresses only that failed save; a later distinct invalid save can prompt again.
+
+RedXe writes the file itself only when a widget's own settings actually change (a Launcher importing your taskbar pins, for example) or when you drag the bar's edge, and only while the file on disk is the one it last loaded. While your last save is invalid, the file was deleted, or a `--settings` file could not be loaded, such a change stays in memory and your file is left as it is (the log records `settings-persist-deferred`); your next valid save takes over from it.
 
 If the default file is missing, RedXe installs the shipped template and continues. If it is invalid, RedXe copies the bytes beside it as `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`, installs a fresh template, and tells you where the backup went. Without a XENEON connected, either installed template also gets an auto-hiding bar; see [First start without a XENEON](#first-start-without-a-xeneon).
 
