@@ -180,9 +180,10 @@ register rows.
   the `AGENTS.md` layout, and the scoped-testing WIP plan in line with the code.
 - Add the missing tests: kind switch with rollback, `TrayIcon`, held-key release identity, action monitor
   resolution including `secondary`, and Logicon raw-input ownership.
-- Run the live checks `UI_XeneonDisplayWindowing.md` requires and #27 left unchecked: a real Explorer restart with
-  the tray icon and an autohide bar up, and a real first-run install on two displays without a XENEON. Correct the
-  spec sentence that dates the slide checks to the 2026-09-19 closeout.
+- Hand the live checks `UI_XeneonDisplayWindowing.md` requires and #27 left unchecked (a real Explorer restart with
+  the tray icon and an autohide bar up, and a real first-run install on two displays without a XENEON) to the owner, as
+  [Manual checks for the owner](#manual-checks-for-the-owner): no batch runs them. Correct the spec sentence that dates
+  the slide checks to the 2026-09-19 closeout.
 
 ## Decisions
 
@@ -245,16 +246,21 @@ setting.
   is added first.
 - Merge gate: under D6 the local runs above are what a merge rests on. The PR checks (`native (x64, Release)` and
   `tooling`) still run, but `main` does not require them, and PrePush keeps every obligation local.
-- P3 and the release: a check that needs the real desktop, Explorer, a sign-in or a release is not run by a batch. Those
-  are the manual checks for the owner below, recorded with date and topology.
+- Live checks: a check that needs the real cursor, changes the work area of the desktop in use, restarts Explorer, takes
+  the focus, signs out, uses hardware or publishes a release is not run by a batch or an agent. Those are the manual
+  checks for the owner below, recorded with date and topology. A short, non-activating live run that closes its own
+  process (a `--screenshot` run, a posted message) is validation a batch does run and record, as the P2 and P3 batches
+  did (the 2026-10-07 checks in `UI_XeneonDisplayWindowing.md`).
 - Spec-only changes: `validate-skills.ps1`.
 
 ### Manual checks for the owner
 
-Each of these needs the real desktop, the real cursor, Explorer, a sign-in session or a release, so no batch and no
-agent runs it. Run it on your own machine, record its date and topology in the owning spec (in the paragraph that says
-"not recorded yet" or calls the check manual), and check the box here. The expected observations are in
-`UI_XeneonDisplayWindowing.md` ("Validation contract") unless another spec is named.
+Each of these needs the real cursor, changes the work area of the desktop in use, restarts Explorer, takes the focus,
+signs out, uses hardware or publishes a release, so no batch and no agent runs it. Run it on your own machine, record
+its date and topology in the owning spec (in the paragraph that names the check, which says "not recorded yet" or calls
+it manual or live; the Logicon hardware record is a receipt under `.build/receipts/`, never `docs/`), and check the box
+here. The expected observations are in `UI_XeneonDisplayWindowing.md` ("Validation contract") unless another spec is
+named.
 
 - [ ] **Autohide strip beside maximized windows, on every edge.** Run an autohide bar, which always reserves its strip
   (the first-run bar, or `--dock <edge>@<display> --dock-mode autohide`), on the top, bottom, left and right edge in
@@ -272,6 +278,13 @@ agent runs it. Run it on your own machine, record its date and topology in the o
   bar's monitor puts it beneath again, and the tray icon returns. Repeat with an autohide bar up (its strip is reserved
   again), and once with Explorer restarting while RedXe starts, so the broadcast arrives during the first placement.
   Rows: `dock-switch#2`, `slide-tray#0`, `slide-tray#1`.
+- [ ] **The notification-area icon, live.** In a Release run with the shipped template (the paragraph on
+  notification-area icon changes in `UI_XeneonDisplayWindowing.md`, "Validation contract"): the icon shows with the
+  `RedXe` tooltip; a double-click, and Enter on the keyboard-focused icon, open the settings file once in the default
+  `.json` editor; a right-click and Shift+F10 show Edit settings (bold) and Exit, a click elsewhere closes the menu, and
+  Esc after Shift+F10 leaves the keyboard focus on the notification area; Exit quits and removes the icon; saving
+  `"trayIcon": false` removes the icon and `true` brings it back without a restart; and a Debug run with the shipped
+  template shows none. The Explorer restart is the box above. Rows: `slide-tray#0`, `slide-tray#6`, `slide-tray#11`.
 - [ ] **A first install without a XENEON, on two displays and on one.** With no settings file and no XENEON active
   ("First start without a XENEON"): on two displays side by side with the taskbar on the primary only, the installed
   `dock` names `bottom` and `secondary`, the `dock-first-run` record names two active displays and the second screen's
@@ -282,6 +295,15 @@ agent runs it. Run it on your own machine, record its date and topology in the o
 - [ ] **A real sign-out with a Logicon keypad bound** (the spec names a restart and a shutdown as well). The keypad
   shows the Logi splash on the sign-in screen, and the dialpad buttons that RedXe bound work normally again
   (`Plugins_Logicon.md` "Host integration"). Rows: `session-end#0`.
+- [ ] **Logicon hardware validation, after the device-lane changes of P4.** With the keypad and the dialpad connected,
+  in a Debug run with the shipped template (it binds Logicon's keys, dial buttons and turns), run the hardware bullet of
+  `Plugins_Logicon.md` "Required validation" and leave its receipt under `.build/receipts/`, never `docs/`. Unplug and
+  replug the dialpad, and the keypad, while RedXe runs: the log holds `dialpad-disconnected` or `device-disconnected`
+  and then the reconnect, and after a disconnect the lane sits idle (no core spins; with the mouse still, RedXe's CPU
+  use stays at zero). Then a sleep and resume; Options+ running, then quit; and an exit with `restoreLogoOnExit` true
+  (the keypad shows the Logi splash) and false. The rest of that bullet (every action, key pages, brightness and the
+  measured per-report write time) belongs to the same receipt. Rows: `logicon-zoom#4`, `logicon-zoom#13`,
+  `logicon-zoom#14`, `logicon-zoom#15`, `logicon-zoom#16`.
 - [ ] **The release workflow end to end, at the next intentional release.** Never dispatch `release.yml` to test it:
   every dispatch creates a GitHub release. At that release `version` finds the successful push run of the commit, each
   `build` leg runs `test.ps1 -Full -SkipTooling` without Python and uploads its ZIP, and `release` publishes `v<version>`
@@ -536,7 +558,7 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `alignment#21` (low) `RedXe/CommandLine.h:189`: The --help text and README still describe startup without a XENEON as the prompt or plain titled window, which #27's first-run bar replaced
 - [x] `alignment#5` (low) `Specs/Core/Core_Settings.md:335`: Minor-raise rules and dock patch comments disagree with the code and with each other. The cold-load rule in `Core_Settings.md` and the minor list in `docs/usage.md` now name `animationMilliseconds` beside `secondary`; the `Settings.h` comment half (lines 381 to 395) is `settings#17`'s.
 - [x] `alignment#7` (low) `Specs/UI/UI_XeneonDisplayWindowing.md:53`: Mode table's Debug-without-XENEON row omits the first-run dock that replaces it
-- [x] `alignment#9` (low) `Specs/Plans/WIP/ScopedTesting_2026-10-05.md:3`: The ScopedTesting WIP plan is still ACTIVE with unchecked items, although its work and qualification are recorded as done. Fixed: its two open items are checked with evidence (the `RedXe validation` main runs 37491745609 for #31 and 37501400691 for #32 passed `tooling` and all six native profiles; the local x64 Release rebuild it left pending is replaced by the hosted Release legs, as #31's description says), a Closeout section maps every durable requirement to `Build_Process.md`, `Tests/README.md` and `AGENTS.md` (one was missing and is added to `Build_Process.md`: the independent tooling runner restores the pinned DxUi source first, so the CI `tooling` job works on a clean checkout), and the plan moved to `Specs/Plans/Done/` with both indexes updated.
+- [x] `alignment#9` (low) `Specs/Plans/WIP/ScopedTesting_2026-10-05.md:3`: The ScopedTesting WIP plan is still ACTIVE with unchecked items, although its work and qualification are recorded as done. Fixed: its two open items are checked with evidence (the `RedXe validation` main runs 37491745609 for #31 and 37501400691 for #32 passed `tooling` and all six native profiles; the local x64 Release rebuild it left pending is replaced by the hosted Release legs, as #31's description says), a Closeout section maps every durable requirement to `Build_Process.md`, `Tests/README.md` and `AGENTS.md` (one was missing and is added to `Build_Process.md`: the independent tooling runner restores the pinned DxUi source first, so the CI `tooling` job works on a clean checkout), and the plan moved to `Specs/Plans/Done/` with both indexes updated. The plan is closed for its qualification gates only: its Closeout names the review defects in its deliverables that were still open, all owned by rows in this register (`scoped-testing#18`, `scoped-testing#20`, `scoped-testing#21`, `scoped-testing#22`, `alignment#10` and `alignment#13`; `scoped-testing#19` is not listed because `9dae761` already removed the four dead scope rules it names). No owner statement yet confirms that the hosted Release legs replace the local Release rebuild.
 - [x] `dock-switch#13` (low) `Build/Package.psm1:107`: User-facing startup docs (README, packaged README, usage.md) still describe the prompt or titled window for a machine without a XENEON. The README and the packaged README now describe the first-run bar; the `docs/usage.md` part was already corrected by P3 and matches D2 (only a missing file installs the bar, a recovered file is plain).
 - [ ] `dock-switch#4` (low) `RedXe/Application.cpp:2625`: Window-kind switch orchestration and the combined-reload rollback have no automated or manual coverage
 - [x] `dxui-restore#13` (low) `README.md:88`: The README says vcpkg-install.ps1 is enough before a direct Visual Studio build, but the build also needs restore-dxui.ps1
@@ -550,7 +572,7 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `tests#13` (low) `RedXe/HostActions.cpp:698`: Monitor resolution for actions (including the new `secondary` kind) never runs under test: deviceAccess=false swaps in a fixed rectangle
 - [ ] `tests#21` (low) `Tests/LogiconTests/Logicon.Tests.Runner.cpp:718`: Logicon raw-input ownership rules added in #21 have no test; only plain Start/Stop/restart is exercised
 - [ ] `tests#7` (low) `test.ps1:116`: Launcher wait-policy tests pin only the self-terminating switches; an unknown argument through the RedXe alias exits 0, and test.ps1 hides this by adding --self-test
-- [x] `alignment#16` (nit) `Specs/Plans/Done/DxUiFollowUps_2026-10-01.md:52`: Plan hygiene: an unindexed WIP checkpoint edited in the range, and a Done plan naming a header that does not exist. Fixed: the Done plan names `Common/FailureReports.h`, and `AVControl-Continuation.md` is indexed as `HOLD` beside its RFC with a note that its pins and working state are a 2026-09-05 snapshot. It was kept rather than folded into `RFC_Plugins_AVControl.md` and deleted, because the proposed long-profile performance acceptance run is recorded nowhere else; folding it is the owner's call when AV resumes.
+- [x] `alignment#16` (nit) `Specs/Plans/Done/DxUiFollowUps_2026-10-01.md:52`: Plan hygiene: an unindexed WIP checkpoint edited in the range, and a Done plan naming a header that does not exist. Fixed: the Done plan names `Common/FailureReports.h`, and the checkpoint is indexed as `HOLD` beside its RFC with a note that its pins and working state are a 2026-09-05 snapshot. Its old name, `AVControl-Continuation.md`, fit neither plan naming rule of `Specs/README.md`, so it is now `AVControlContinuation_2026-09-05.md`, with the RFC's and `RFC_Core_DxUiSharedProject.md`'s links following it, and the RFC says in the past tense that the checkpoint superseded older notes. It was kept rather than folded into `RFC_Plugins_AVControl.md` and deleted, because the proposed long-profile performance acceptance run is recorded nowhere else; folding it is the owner's call when AV resumes.
 - [ ] `dock-switch#14` (nit) `RedXe/Settings.cpp:2637`: Stale comment: the first-run bar is no longer always on the primary display
 - [x] `dxui-restore#16` (nit) `Specs/Plans/Done/DxUiFollowUps_2026-10-01.md:52`: The Done plan names Tests/Support/FailureReports.h, which no longer exists. Fixed with `alignment#16`: the plan names `Common/FailureReports.h` and says `RedXe.exe --self-test` calls it too, which is why the header lives beside the shared sources.
 - [ ] `host-hardening#18` (nit) `Plugins/5H4D3R5/Shaders.cpp:850`: Stale comment: lookup tables are no longer drawn by the first widget frame

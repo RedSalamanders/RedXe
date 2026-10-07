@@ -1,6 +1,6 @@
 # Scoped testing and validation cost
 
-Status: DONE (2026-10-07)
+Status: DONE (2026-10-07): qualification gates closed; review follow-ups stay open (see the [Closeout](#closeout))
 Date: 2026-10-05
 Owner: [current validation contract](../../Build/Build_Process.md)
 
@@ -8,7 +8,7 @@ Current requirements live in [`Build_Process.md`](../../Build/Build_Process.md) 
 [`Tests/README.md`](../../../Tests/README.md) and the "Scoped testing policy" of [`AGENTS.md`](../../../AGENTS.md).
 This plan records how the work was sequenced and qualified. Where it differs from them (the later review fixes changed
 the build-number identity, PR delegation, Git output decoding and the test-source detector), they win. The
-[Closeout](#closeout) holds the evidence that closed it.
+[Closeout](#closeout) holds the evidence that closed its qualification gates and the review follow-ups that stayed open.
 
 ## Accepted request
 
@@ -48,15 +48,15 @@ All 41 active native tests/helpers and plugin test-contract headers use contextu
 
 Qualification completed: the full noninteractive x64 Debug gate, eighteen scope/reuse/CI/public-runner regressions, independent tooling plus Python skill tests, ASan PluginContract/HostPlugin/HostSmoke with the real sanitizer detection and WARP/crash paths, x64 Debug/ASan builds, and all three ARM64 cross-builds. All affected C++ files pass the pinned formatter. A second identical BuildProcess invocation on ASan Debug reports REUSED from the independent Debug-profile success.
 
-The x64 Release build guard refused because independently launched RedXe.exe PID 8060 used that exact output. It was left running. Full Release qualification is delegated to the forthcoming matching PR gate; local Release rebuild remains pending until the person closes the application. Current GitHub main [36950802759](https://github.com/RedSalamanders/RedXe/actions/runs/36950802759) passed on 71107b053be5; it does not prove this candidate workflow. Its reviewed digest and enabled-workflow state permit only pending CI delegation.
+At the time of that qualification the x64 Release build guard refused because independently launched RedXe.exe PID 8060 used that exact output. It was left running. Full Release qualification was delegated to the forthcoming matching PR gate, and the local Release rebuild was left pending until the person closed the application; the [Closeout](#closeout) records how that gate closed. The then-current GitHub main [36950802759](https://github.com/RedSalamanders/RedXe/actions/runs/36950802759) passed on 71107b053be5; it did not prove this candidate workflow, and its reviewed digest and enabled-workflow state permitted only pending CI delegation.
 
-Raw logs/receipts are under .build/logs/scoped-testing-* and .build/reports/scoped-tests. No dependency pin, application setting or runtime behavior changed. Pending at the time, and closed in the [Closeout](#closeout): required candidate CI/native profile coverage and the blocked local Release build if requested; native ARM64 execution is distinct from cross-compilation. The plan stayed active, with focused/CI_PENDING verdicts preserved, until qualification was accepted.
+Raw logs/receipts are under .build/logs/scoped-testing-* and .build/reports/scoped-tests. No dependency pin, application setting or runtime behavior changed. Pending at the time, and closed in the [Closeout](#closeout): required candidate CI/native profile coverage and the blocked local Release build if requested; native ARM64 execution is distinct from cross-compilation. The plan stayed active, with focused/CI_PENDING verdicts preserved, until qualification was accepted. That acceptance rests on the hosted runs in the Closeout and on the closure under `alignment#9` of the review plan on 2026-10-07. No owner statement records that the hosted Release legs replace the local Release rebuild, so the owner's confirmation of that reading is pending.
 
 Final receipt review includes documentation, skill Markdown and source-origin mappings in validator identities. Uncommon inline/generator extensions invalidate build attestation. Documentation edits select only independent validators; native scopes remain omitted. The two standalone runner fixtures pass all eighteen cases, including those invalidation boundaries.
 
 DxUi preserves one Windows tooling qualification and one Linux portability qualification, with the staging fixture only once. Conditional native PR coverage reuses its existing NativeScope contract; skipped native jobs are never delegated. Native receipts retain identical-code reuse across validator prose edits. The standalone fixtures cover these boundaries in eighteen cases.
 
-The first candidate PR tooling job exposed a clean-checkout prerequisite: the restore contracts inspect the real pinned DxUi source, which ordinary builds had already provisioned locally. The independent runner now establishes that exact source pin before testing, without building the product or restoring vcpkg packages. The complete independent tooling runner passes locally after this repair; the corrected hosted candidate remains pending.
+The first candidate PR tooling job exposed a clean-checkout prerequisite: the restore contracts inspect the real pinned DxUi source, which ordinary builds had already provisioned locally. The independent runner now establishes that exact source pin before testing, without building the product or restoring vcpkg packages. The complete independent tooling runner passed locally after this repair, and the corrected hosted candidate was still pending then; its pull-request run passed (see the [Closeout](#closeout)).
 
 Post-merge review repairs four Settings dependency omissions for AVControl, Launcher, Logicon and Zoom. Exact native evidence now includes stable deployed settings/schema and DxUi provenance bytes while excluding generated reports. A clean committed candidate barrier rejects uncommitted or concurrent changes during PR delegation. All 20 scoped-runner regressions pass, including asset mutation/deletion/restoration and candidate races. Original PR #31 passed its Release/tooling gate; the subsequent main run passed all six profiles and tooling. This tooling-only follow-up does not repeat local native qualification.
 
@@ -64,7 +64,9 @@ Final receipt review requires every deployed Settings/provenance input and a non
 
 ## Closeout
 
-Closed 2026-10-07 by `alignment#9` of the `MergedReviewFixes_2026-10-06` review plan. Every item above is done:
+Closed 2026-10-07 by `alignment#9` of the `MergedReviewFixes_2026-10-06` review plan. Every item above is done: the
+plan's qualification gates are closed and each durable requirement has a home. That does not certify the tooling it
+delivered. The review that followed found defects in it, and the last bullet names the ones still open.
 
 - **Implementation.** #31 (`508bd3d`) and #32 (`25433ae`) merged into `main` on 2026-10-06. The tooling batch of the
   review fixes that followed (#37) reworked the build-number identity, PR delegation, Git output decoding and the
@@ -76,7 +78,8 @@ Closed 2026-10-07 by `alignment#9` of the `MergedReviewFixes_2026-10-06` review 
 - **The local x64 Release rebuild** that the qualification above left pending was refused by the build guard, because an
   independently launched `RedXe.exe` used that output. The plan asked for it only "if requested", and nothing in the
   plan or its pull requests records a request. #31's description names the candidate pull request's Release check as the
-  replacement, and that check passed. Nothing is left open.
+  replacement, and that check passed. On that reading no qualification gate is left open; no owner statement has
+  confirmed the reading yet.
 - **Durable requirements.** Each lives in a contract, and one was missing: this closeout added it to `Build_Process.md`.
   - The independent tooling runner restores the exact pinned DxUi source first, so the CI `tooling` job works on a clean
     checkout before any product build (the clean-checkout prerequisite that the first candidate pull request exposed):
@@ -97,3 +100,16 @@ Closed 2026-10-07 by `alignment#9` of the `MergedReviewFixes_2026-10-06` review 
     noninteractive, so the "existing harness desktop leases" constraint has no RedXe counterpart.
   - Agent guidance: `AGENTS.md` ("Scoped testing policy" and the build commands), the `build-redxe` skill and
     `README.md`.
+- **Open follow-ups.** Review defects in what #31 and #32 delivered that were still open when this plan closed. They
+  belong to the P6 and P7 batches of `MergedReviewFixes_2026-10-06`, whose register rows hold the current state of each:
+  - `scoped-testing#18` and `alignment#13`: code, help text and test branches copied from DxUi and RedSalamander that do
+    nothing or mislead in RedXe, such as the `-Scopes Tree` example in `Test-Changes.ps1`, which fails with an unknown
+    test scope.
+  - `scoped-testing#20`: the top-level `Mockups/` folder counts as code, so editing its one file selects every scope and
+    invalidates native results.
+  - `scoped-testing#21`: `test.ps1` assigns `$testTimeoutSeconds` twice.
+  - `scoped-testing#22`: `Common/AddressSanitizerProbe.h`, a test-only fixture, escaped the naming migration, so
+    `Tests/native-test-files.json` does not list it and an edit to it selects the full fallback.
+  - `alignment#10`: the "Scoped iteration and PR coverage" section of `Build_Process.md`, which the **Durable
+    requirements** bullet names as the home of the requirements, still carries RedSalamander and DxUi rules that RedXe
+    neither owns nor implements.
