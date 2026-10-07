@@ -13,9 +13,11 @@ TrayIcon::~TrayIcon()
 HRESULT TrayIcon::Show(HINSTANCE instance, HWND commandTarget) noexcept
 {
     _commandTarget = commandTarget;
+    // A new request starts the retries again, also after the last series gave up.
+    _addRetries = 0;
     if (_window)
     {
-        return _iconAdded || AddIcon() ? S_OK : S_FALSE;
+        return _iconAdded || AddIconOrRetry() ? S_OK : S_FALSE;
     }
     _instance = instance;
     if (!_classRegistered)
@@ -47,13 +49,15 @@ HRESULT TrayIcon::Show(HINSTANCE instance, HWND commandTarget) noexcept
         // An elevated RedXe still hears the shell announce a new taskbar.
         (void)ChangeWindowMessageFilterEx(_window.get(), _taskbarCreatedMessage, MSGFLT_ALLOW, nullptr);
     }
-    return AddIcon() ? S_OK : S_FALSE;
+    return AddIconOrRetry() ? S_OK : S_FALSE;
 }
 
 void TrayIcon::Hide() noexcept
 {
-    RemoveIcon();
+    // The owner deletes the icon on WM_DESTROY, and its destruction kills a pending retry.
     _window.reset();
+    _iconAdded = false;
+    _addRetries = 0;
     _icon.reset();
     if (_classRegistered)
     {
@@ -90,15 +94,45 @@ bool TrayIcon::AddIcon() noexcept
 #else
     (void)wcscpy_s(data.szTip, L"RedXe");
 #endif
-    // A taskbar that still shows the icon (TaskbarCreated without a new Explorer) refuses the add; it takes an update.
-    _iconAdded = Shell_NotifyIconW(NIM_ADD, &data) != FALSE || Shell_NotifyIconW(NIM_MODIFY, &data) != FALSE;
-    if (_iconAdded)
+    // A taskbar that still shows the icon (TaskbarCreated without a new Explorer, or an add that landed after its call
+    // timed out) refuses the add; it takes an update. A busy Explorer times the call out (ERROR_TIMEOUT, when the shell
+    // passes it on); the update would only block the UI thread for a second timeout, so the retry makes it instead.
+    SetLastError(ERROR_SUCCESS);
+    bool listed = _shellNotify(NIM_ADD, &data) != FALSE;
+    if (!listed && GetLastError() != ERROR_TIMEOUT)
     {
-        // Version 4: WM_CONTEXTMENU for the menu (mouse and keyboard alike) with the anchor point in wParam.
-        data.uVersion = NOTIFYICON_VERSION_4;
-        (void)Shell_NotifyIconW(NIM_SETVERSION, &data);
+        listed = _shellNotify(NIM_MODIFY, &data) != FALSE;
     }
+    // Version 4: WM_CONTEXTMENU for the menu (mouse and keyboard alike) with the anchor point in wParam. It follows the
+    // add, and the update too, since the icon an update finds may come from an add whose version was never set (one
+    // that landed after its call timed out). The icon counts as added only once it is set: an icon left on version 0
+    // would never open its menu, so a retry repairs it.
+    data.uVersion = NOTIFYICON_VERSION_4;
+    _iconAdded = listed && _shellNotify(NIM_SETVERSION, &data) != FALSE;
     return _iconAdded;
+}
+
+bool TrayIcon::TaskbarExists() noexcept
+{
+    return FindWindowW(L"Shell_TrayWnd", nullptr) != nullptr;
+}
+
+bool TrayIcon::AddIconOrRetry() noexcept
+{
+    if (AddIcon())
+    {
+        _addRetries = 0;
+        (void)KillTimer(_window.get(), kAddRetryTimerId);
+        return true;
+    }
+    // Without a taskbar the add waits for TaskbarCreated. A running taskbar that refused it (Explorer busy, typically
+    // at sign-in) gets a few more tries, one one-shot timer at a time.
+    const UINT delay = TrayIconAddRetryDelayMilliseconds(_addRetries);
+    if (_window && delay != 0 && _taskbarExists() && SetTimer(_window.get(), kAddRetryTimerId, delay, nullptr) != 0)
+    {
+        ++_addRetries;
+    }
+    return false;
 }
 
 void TrayIcon::RemoveIcon() noexcept
@@ -110,7 +144,7 @@ void TrayIcon::RemoveIcon() noexcept
         data.cbSize = sizeof(data);
         data.hWnd = _window.get();
         data.uID = kIconId;
-        (void)Shell_NotifyIconW(NIM_DELETE, &data);
+        (void)_shellNotify(NIM_DELETE, &data);
     }
     _iconAdded = false;
 }
@@ -168,6 +202,16 @@ void TrayIcon::ShowMenu(POINT anchor) noexcept
     {
         PostCommand(TrayCommand::Exit);
     }
+    else if (GetForegroundWindow() == _window.get())
+    {
+        // Cancelled from the keyboard (Esc): the keyboard focus goes back to the notification area rather than staying
+        // on this invisible window. A click on another window has already moved the foreground there, and keeps it.
+        NOTIFYICONDATAW data{};
+        data.cbSize = sizeof(data);
+        data.hWnd = _window.get();
+        data.uID = kIconId;
+        (void)_shellNotify(NIM_SETFOCUS, &data);
+    }
 }
 
 void TrayIcon::PostCommand(TrayCommand command) noexcept
@@ -214,17 +258,38 @@ LRESULT TrayIcon::HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM
     if (_taskbarCreatedMessage != 0 && message == _taskbarCreatedMessage)
     {
         // A new taskbar knows no icon: Explorer restarted, or started after RedXe at sign-in. The icon is loaded again
-        // for the display scale the new taskbar has.
+        // for the display scale the new taskbar has, and the retries start over.
         _iconAdded = false;
         _icon.reset();
-        (void)AddIcon();
+        _addRetries = 0;
+        (void)AddIconOrRetry();
         return 0;
     }
     switch (message)
     {
+    case WM_TIMER:
+        if (wParam == kAddRetryTimerId)
+        {
+            (void)KillTimer(window, kAddRetryTimerId);
+            if (!_iconAdded)
+            {
+                (void)AddIconOrRetry();
+            }
+            return 0;
+        }
+        break;
+    case WM_CLOSE:
+        // Only Hide ends the owner. A close from outside (Alt+F4 while the owner is the foreground window after its
+        // menu was dismissed) is ignored, so the running dashboard keeps its icon and menu.
+        return 0;
+    case WM_DESTROY:
+        // Every way the owner ends deletes the icon while the window still exists, so no icon outlives its owner.
+        RemoveIcon();
+        return 0;
     case WM_DPICHANGED:
         // The taskbar's display changed scale: the icon follows at the new small-icon size. The window stays hidden
-        // and is not moved.
+        // and is not moved. The update keeps version 4: the shell reads the version only from NIM_SETVERSION, which
+        // every NIM_ADD needs and a NIM_MODIFY does not. An icon not added yet takes the image with its next add.
         if (wil::unique_hicon icon = LoadIconForDpi())
         {
             if (_iconAdded)
@@ -235,7 +300,7 @@ LRESULT TrayIcon::HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM
                 data.uID = kIconId;
                 data.uFlags = NIF_ICON;
                 data.hIcon = icon.get();
-                (void)Shell_NotifyIconW(NIM_MODIFY, &data);
+                (void)_shellNotify(NIM_MODIFY, &data);
             }
             _icon = std::move(icon);
         }

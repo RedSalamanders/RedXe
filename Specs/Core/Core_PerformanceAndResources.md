@@ -54,9 +54,11 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   created only by the first launch, in a single-threaded COM apartment, with 8 fixed slots of about 3 KiB and two
   events. Idle, it blocks in one message-aware wait and owns no timer or periodic wake; a full set of slots refuses a
   launch rather than waiting. Each finished launch posts the existing coalesced host-action message, and the UI
-  thread logs the result. Shutdown, also one a stuck device lane ends early, drops queued launches and waits at most
-  1000 ms, once per process, for a launch still in the shell, and then retains that thread's storage until process
-  exit instead of joining it; the process runtime's second shutdown only checks whether the thread has exited.
+  thread logs the result. Shutdown, also one a stuck device lane ends early, and a session end before its log flush
+  drop queued launches and wait at most 1000 ms (a session end only what is left of its deadline), once per process,
+  for a launch still in the shell, and then retain that thread's storage until process exit instead of joining it; a
+  later stop (the shutdown after a session end, or the process runtime's second shutdown) only checks whether the
+  thread has exited, unless the earlier wait was zero and found no launch, when it waits for the exiting thread again.
 - A queued action that injects input and waited more than 1000 ms for the UI thread is dropped, not replayed into
   whatever window is foreground after the stall; the check is one tick comparison per drained slot.
 - RedXe and plugins must share immutable device resources across compatible widget instances and minimize dynamic
@@ -99,19 +101,26 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   peek strip being the window itself. A collapsed dock presents exactly one grip frame and then blocks like a minimized
   window, retaining its full-size swap chain (about 4 MiB for a 3840×270 bar) so a reveal presents at once without
   rebuilding it. Shell traffic (`SHAppBarMessage`) happens only on placement, activation, window-position changes, and
-  shell notifications, never per frame. An inner-edge drag moves the window per pointer update but coalesces dashboard,
-  swap-chain, and widget size callbacks to one 16 ms timer; release flushes the final size. A live switch between the
-  standard window and the dock is a cold settings-reload path: one renderer rebuild (device and swap chain, as on an
-  adapter change) and one dashboard resize, with no widget re-creation. The first-run bar on a display without a XENEON
-  retains the back buffer of its XENEON-proportioned full size (3840×1080, about 16 MiB, on a 150 % 4K display), the
-  same buffer as the titled fallback window it replaces there.
+  shell notifications, never per frame and never for a reveal, a hide, or a slide step. The work-area reservation (the
+  whole bar of a fixed reserving bar, the peek strip of an autohide bar) is queried and set again only when a placement
+  changes the reserved rectangle, its edge, row, or monitor DPI, or follows a shell change (`ABN_POSCHANGED`,
+  `ABN_STATECHANGE`, `WM_DISPLAYCHANGE`), so the desktop is not re-laid out by the reveal state or by a placement that
+  leaves the reservation alone (`PlanDockAppBar`). An inner-edge drag moves the window per pointer update but coalesces
+  dashboard, swap-chain, and widget size callbacks to one 16 ms timer; release flushes the final size. A live switch
+  between the standard window and the dock is a cold settings-reload path: one renderer rebuild (device and swap chain,
+  as on an adapter change) and one dashboard resize, with no widget re-creation. The first-run bar on a display without
+  a XENEON retains the back buffer of its XENEON-proportioned full size (3840×1080, about 16 MiB, on a 150 % 4K
+  display), the same buffer as the titled fallback window it replaces there.
 - The notification-area icon (`Specs/UI/UI_XeneonDisplayWindowing.md`) costs one hidden owner window of its own class
-  and one small-icon `HICON` on the UI thread, with no thread, timer, hook, or periodic wake-up in any state. Shell
-  traffic (`Shell_NotifyIconW`) happens only when the icon is added or removed, on `TaskbarCreated`, and on a DPI change
-  of the owner; its callbacks, the menu, and the editor launch run only on user interaction, and none of them
-  invalidates a frame. The editor launch, with any Open With picker or shell error box, runs on the launch worker,
-  so the dashboard keeps presenting. While its menu is open the system's modal menu loop runs on the UI thread and the
-  dashboard presents nothing, like any other modal UI.
+  and one small-icon `HICON` on the UI thread, with no thread, hook, or periodic wake-up in any state. Its only timer
+  is the one-shot retry of an add that a running taskbar refused: at most four, with doubling delays from 1 s, one
+  armed at a time, and none once the icon is added or the tries are spent. Shell traffic (`Shell_NotifyIconW`) happens
+  only when the icon is added or removed, on those retries, on `TaskbarCreated`, on a settings apply while the icon is
+  missing, on a menu cancelled from the keyboard (`NIM_SETFOCUS`), and on a DPI change of the owner; its callbacks, the
+  menu, and the editor launch run only on user interaction, and none of them invalidates a frame. The editor launch,
+  with any Open With picker or shell error box, runs on the launch worker, so the dashboard keeps presenting. While its
+  menu is open the system's modal menu loop runs on the UI thread and the dashboard presents nothing, like any other
+  modal UI.
 - After `Present` reports occlusion, RedXe must stop frame construction, wait for the DXGI factory's registered
   occlusion-status window message, and use `DXGI_PRESENT_TEST` to detect recovery without presenting content.
   Occlusion polling and periodic timers are prohibited.

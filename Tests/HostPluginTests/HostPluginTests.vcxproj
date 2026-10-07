@@ -98,7 +98,11 @@
     <ClCompile Include="..\..\RedXe\HostActionCatalog.cpp" />
     <ClCompile Include="..\..\RedXe\HostActions.cpp" />
     <ClCompile Include="..\..\RedXe\SettingsV4.cpp" />
+    <ClCompile Include="..\..\RedXe\TrayIcon.cpp" />
     <ClCompile Include="..\..\Common\WindowCapture.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="HostPluginTests.rc" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Plugins\DeskClock\DeskClock.Tests.Contract.h" />
@@ -108,6 +112,7 @@
     <ClInclude Include="..\..\Plugins\StudioClock\StudioClock.Tests.Contract.h" />
     <ClInclude Include="..\..\RedXe\DashboardHost.h" />
     <ClInclude Include="..\..\RedXe\DockPlacement.h" />
+    <ClInclude Include="..\..\RedXe\NoticeWindow.h" />
     <ClInclude Include="..\..\RedXe\FrameScheduler.h" />
     <ClInclude Include="..\..\RedXe\PageNavigation.h" />
     <ClInclude Include="..\..\RedXe\PluginManager.h" />

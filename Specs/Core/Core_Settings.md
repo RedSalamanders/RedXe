@@ -166,11 +166,11 @@ unknown edge or mode reject the complete candidate with a diagnostic on `$.dock.
 | Member | Type and range | Default | Contract |
 | --- | --- | --- | --- |
 | `edge` | `none`, `top`, `bottom`, `left`, `right` | `none` | Edge of the selected monitor. `none` disables the dock and leaves every other member validated and inert. |
-| `monitor` | `primary`, `secondary` (the first display in `EnumDisplayMonitors` order that is not the primary; minor 3), `xeneon`, `<n>` (1-based `EnumDisplayMonitors` order), `name:<substring>` | `primary` | Validated with the shared monitor-selector grammar (`Common/Actions/ActionTargets.h`, `all` rejected); resolved at window creation, where an absent display falls back to the primary. |
+| `monitor` | `primary`, `secondary` (the first display in `EnumDisplayMonitors` order that is neither the primary nor the XENEON, and the XENEON only when it is the only display that is not the primary; minor 3), `xeneon`, `<n>` (1-based `EnumDisplayMonitors` order), `name:<substring>` | `primary` | Validated with the shared monitor-selector grammar (`Common/Actions/ActionTargets.h`, `all` rejected); resolved at window creation, where an absent display falls back to the primary. |
 | `thickness` | Integer DIPs, 32–1080 | `180` | Cross-axis size, scaled by the monitor DPI and clamped to half of the monitor at runtime. |
-| `mode` | `fixed`, `autohide` | `fixed` | `fixed` keeps the whole bar on screen; `autohide` collapses it to the peek strip. |
-| `reserveWorkArea` | Boolean | `true` | `fixed` only: register the bar with the shell so maximized windows stop at it. Ignored in `autohide`. |
-| `peek` | Integer physical pixels, 1–64 | `4` | `autohide` only: pixels that stay visible while hidden. |
+| `mode` | `fixed`, `autohide` | `fixed` | `fixed` keeps the whole bar on screen; `autohide` collapses it to the peek strip, which it reserves in the monitor's work area so maximized windows stop just inside it, and reveals the full bar over the work area. |
+| `reserveWorkArea` | Boolean | `true` | `fixed` only: reserve the whole bar in the monitor's work area so maximized windows stop at it; `false` reserves nothing and the bar overlays the work area. Ignored in `autohide`, which always reserves its peek strip. |
+| `peek` | Integer physical pixels, 1–64 | `4` | `autohide` only: pixels that stay visible while hidden, clamped to the bar's thickness; the bar reserves exactly that strip in the work area. |
 | `revealDelayMilliseconds` | Integer, 0–2000 | `150` | `autohide` only: pointer dwell on the strip before the bar reveals; 0 reveals on the first mouse move. |
 | `hideDelayMilliseconds` | Integer, 0–10000 | `800` | `autohide` only: delay after the last hold clears before the bar collapses. |
 | `animationMilliseconds` | Integer, 0–1000 | `200` | `autohide` only (minor 3): how long the bar slides out of its edge when it reveals and back when it hides; 0 reveals and hides in one step. |
@@ -196,8 +196,8 @@ patched text MUST parse back to the running `dock` with the new thickness, and t
 only `dock.thickness` and a raised minor changed, before it is kept or written; otherwise the drag changes nothing in
 the document. A raised source minor is also the typed minor, so a later comment-only reload still matches the running
 settings. Both shipped templates author the current minor and stay at `edge: none`, carrying a commented-out `dock`
-example; a default file installed on a machine without a XENEON adds the first-run dock and drops that example
-("Cold load and recovery").
+example; a missing default file installed on a machine without a XENEON adds the first-run dock and drops that
+example ("Cold load and recovery").
 
 ### Notification-area icon
 
@@ -395,24 +395,28 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 - An invalid or incompatible default is preserved byte-for-byte beside it, then atomically replaced with a fresh
   template. Its backup name is `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`. The user is told what happened and where
   the backup was written.
-- When XENEON discovery succeeded without finding a display (`Specs/UI/UI_XeneonDisplayWindowing.md` "First start
-  without a XENEON"), a default file installed by either rule above is the template plus the first-run dock
-  (`PatchFirstRunDock`): one `dock` member on its own line after `version`, at that member's indentation and in the
-  file's own line breaks, preceded by a two-line comment naming why it was added, that `"edge": "none"` restores
-  the standard window, and where the other members are described. The template's commented-out `dock` example (a
-  root `//` line whose text starts with `"dock":`) MUST be removed together with the comment lines directly above it
-  that introduce it and tell the reader to uncomment it, each whole line with its line break, so the installed file
-  defines the dock once and following its comments cannot add a duplicate `dock` member. Every other byte of the
-  template is unchanged; an existing `dock` member would have its value replaced instead, and `version.minor` rises
-  to 2 when lower, or to 3 when the dock names the `secondary` monitor.
-  The display spec owns the dock's edge, monitor, and thickness (the horizontal edge the taskbar leaves free, on the
-  second screen when there is more than one display). The patched document is validated before the same
-  atomic same-directory write, an existing file is never patched, and the recovery notice adds one sentence naming
-  the bar. After a failed discovery, or when the patch cannot be applied, the plain template is installed; the
-  first-run dock never fails startup.
+- When XENEON discovery succeeded without finding a display outside a remote session
+  (`Specs/UI/UI_XeneonDisplayWindowing.md` "First start without a XENEON"), a default file installed because it was
+  missing is the template plus the first-run dock (`PatchFirstRunDock`): one `dock` member on its own line after
+  `version`, at that member's indentation and in the file's own line breaks, preceded by a two-line comment naming why
+  it was added, that `"edge": "none"` restores the standard window, and where the other members are described. The
+  template's commented-out `dock` example (a root `//` line whose text starts with `"dock":`) MUST be removed together
+  with the comment lines directly above it that introduce it and tell the reader to uncomment it, each whole line with
+  its line break, so the installed file defines the dock once and following its comments cannot add a duplicate
+  `dock` member. Every other byte of the template is unchanged; an existing `dock` member would have its value
+  replaced instead, and `version.minor` rises to 2 when lower, or to 3 when the dock names the `secondary` monitor.
+  The display spec owns the dock's edge, monitor, and thickness (the free bottom edge first, on the second screen when
+  there is more than one display). The patched document is validated before the same atomic same-directory write, and
+  an existing file is never patched. The recovery of an invalid or incompatible default MUST install the plain
+  template, even without a XENEON, so a file that failed validation never turns the user's XENEON or window
+  configuration into a bar. After a failed discovery, in a remote session, or when the patch cannot be applied, the
+  plain template is installed; the first-run dock never fails startup.
 - A missing, unreadable, or invalid command-line file is never modified. RedXe reports the problem, runs with the
   deployed default configuration in memory, and writes nothing to that path until a later save of it loads ("Plugin
   persist").
+- The recovery notice and the command-line file report are a message box before the window is created, except in an
+  unattended `--screenshot` run, which writes the same text as one Warning record (`settings-fallback-notice`) instead
+  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Configuration behavior").
 - If a deployed default cannot be read or validated, startup fails rather than inventing settings.
 - Template/schema installation and recovery use same-directory temporary files and write-through atomic rename; a
   settings template is written and flushed like any document write ("Plugin persist"), the schema copy is not.
@@ -450,7 +454,9 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   MUST NOT report a generic version-5 schema failure at `path $` when a more specific member is known.
 - At most one modal settings-error dialog may exist. Monitoring continues while visible. A later invalid save refreshes
   it with the newest bounded error list; dialogs never stack. If all errors do not fit, an ellipsis states that more
-  were omitted. A valid save applies and closes the dialog automatically.
+  were omitted. A valid save applies and closes the dialog automatically. The dialog opens inside the work area of the
+  RedXe window's monitor, over the full bar of a dock even while an autohide bar is collapsed
+  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Notice windows").
 - Dismissal suppresses only that rejected stamp. A distinct later invalid save may display again.
 - Shutdown signals and joins the watcher before destroying its target window.
 
@@ -524,9 +530,10 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   minor 2), and that an invalid dock (the `none` edge, an edge or mode outside the enumerations, the `all` selector, a
   number out of range, an `animationMilliseconds` past 1000) or a malformed document, including a scalar `version` or
   incompatible major version, is refused without changing the source. They prove that the store installs the first-run
-  dock for a missing and for an invalid default file (with the notice), keeps an existing file byte for byte, installs
-  the plain template byte for byte when no dock is offered or the offered dock is refused by the patch, and never writes
-  a missing `--settings` file.
+  dock for a missing default file, keeps an existing file byte for byte, recovers an invalid default file with the
+  plain template byte for byte and a notice that names no bar although a dock is offered, installs the plain template
+  byte for byte when no dock is offered or the offered dock is refused by the patch, and never writes a missing
+  `--settings` file.
 - Tests prove the BOM rule: both shipped templates with a BOM load to the same typed settings with the BOM kept in
   the source; `PatchDockThickness` and `PatchFirstRunDock` produce the BOM followed by the bytes they produce without
   it; a widget persist rewrites the document with exactly one leading BOM; an error after a BOM is reported on its own
