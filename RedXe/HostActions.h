@@ -2,9 +2,12 @@
 
 // Executes the host's default system, keys, and mouse actions on the UI thread (HostActionCatalog.h lists them;
 // page, widget, and redxe run inside Application). Every call is synchronous, non-reentrant, allocation-free
-// beyond what an API mandates, and returns within kRedXeActionExecuteBudgetMilliseconds. With device access
-// disabled (automated hosts) nothing is injected, launched, or changed: the action is validated and counted.
+// beyond what an API mandates, and returns within kRedXeActionExecuteBudgetMilliseconds: a launch (system.launch,
+// system.open, system.run, system.taskManager) is validated and counted here and performed by the host's launch worker
+// (LaunchWorker.h), never on the UI thread. With device access disabled (automated hosts) nothing is injected,
+// launched, or changed: the action is validated and counted.
 
+#include "LaunchWorker.h"
 #include "PlugInterfaces/Action.h"
 
 #include <array>
@@ -22,9 +25,11 @@ void SetHostWindow(HWND window) noexcept;
 [[nodiscard]] HRESULT ValidateExtra(const RedXeActionDescriptor& descriptor, std::string_view target) noexcept;
 
 // Executes one system, keys, or mouse action. Returns S_OK, E_INVALIDARG for a target the grammar accepted but the
-// system rejected, or the Win32 failure. deviceAccess false counts and performs nothing.
-[[nodiscard]] HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target,
-                              bool deviceAccess) noexcept;
+// system rejected, or the Win32 failure. A launch returns S_FALSE once launches has queued it (its result is logged
+// when the worker finishes), or the queue's refusal. deviceAccess false counts and performs nothing, and a launch then
+// returns S_FALSE without touching launches, which may be null only then.
+[[nodiscard]] HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target, bool deviceAccess,
+                              LaunchWorker* launches) noexcept;
 
 // Releases keys and buttons still held by keys.down / mouse.down. The main window calls OnHeldTimer for the
 // one-shot deadline; shutdown also releases anything still held.

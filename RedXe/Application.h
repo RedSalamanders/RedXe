@@ -308,9 +308,10 @@ class Application final
                                        uint32_t settingsBytes) noexcept;
     static HRESULT SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8,
                                         uint32_t settingsBytes) noexcept;
-    // The page, widget, and redxe action namespaces (HostActionCatalog.h), executed on the UI thread outside input
-    // and render dispatch from the host-action drain or IRedXeHost::ExecuteAction. A page or widget action during
-    // a swipe, raise settle, or settings error returns ERROR_BUSY / E_NOT_VALID_STATE and is dropped.
+    // The page, widget, and redxe action namespaces (HostActionCatalog.h), executed on the UI thread from the
+    // host-action drain or from IRedXeHost::ExecuteAction inside a widget's own input callback. Actions that release
+    // widgets (redxe.settings.reload, redxe.quit) are therefore only posted and return S_FALSE. A page or widget
+    // action during a swipe, raise settle, or settings error returns ERROR_BUSY / E_NOT_VALID_STATE and is dropped.
     static HRESULT HostActionThunk(void* context, const char* actionUtf8, const char* targetUtf8) noexcept;
     static void HostActionCompletedThunk(void* context) noexcept;
     HRESULT HandleHostAction(std::string_view action, std::string_view target) noexcept;

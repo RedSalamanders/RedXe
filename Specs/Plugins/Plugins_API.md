@@ -272,11 +272,13 @@ object it was supplied to.
   lane, allocation-free, never blocking (16-slot ring, identical pending request coalesced to `S_FALSE`, full ring
   `ERROR_BUSY`, one coalesced `WM_APP + 5` post, drained on the UI thread outside input and render dispatch);
   `ExecuteAction` is UI-thread only, synchronous, non-reentrant, allowed from `OnPointer` (committed activation),
-  `OnKey` / `OnCharacter`, and `OnDrop`, and never queued or dropped; `ValidateAction` resolves a name and checks its
-  target without executing anything and may map a registered publisher's module on first use. A `page.*` or
-  `widget.*` action that arrives during a page swipe, a raise settle, or while the settings error dialog is up is
-  refused (`ERROR_BUSY`) rather than queued; every other namespace still executes. Every drained action is followed by
-  one host-state publication to started services.
+  `OnKey` / `OnCharacter`, and `OnDrop`, and never waits in the ring; a deferred action returns `S_FALSE` (a launch
+  runs on the host's launch worker, and `redxe.settings.reload` and `redxe.quit` are posted so that a widget is never
+  released inside its own callback); `ValidateAction` resolves a name and checks its target without executing
+  anything and may map a registered publisher's module on first use. A `page.*` or `widget.*` action that arrives
+  during a page swipe, a raise settle, or while the settings error dialog is up is refused (`ERROR_BUSY`) rather than
+  queued, and a queued input action that waited more than 1 s for the UI thread is dropped; every other action still
+  executes. Every drained action is followed by one host-state publication to started services.
 - `ReportWidgetStatus` records the condition of one widget instance, named by the instance ID the host passed to
   `CreateWidget`. Status is one of `RedXeWidgetStatusOk`, `Initializing`, `Degraded`, or `Unavailable`, with an
   optional borrowed UTF-16 reason the host copies into bounded storage and truncates. Repeat reports are idempotent;
@@ -1267,8 +1269,9 @@ and authoritative on subsequent creation. An empty/unavailable folder causes no 
 
 A committed tap calls `IRedXeHost::ExecuteAction` with the item's binding on the UI thread and plays the launch
 motion for every action; a failed result reports `RedXeWidgetStatusDegraded` "Launch failed". `system.launch` is
-the host's `ShellExecuteExW` policy (`Plugins_Actions.md`); Launcher itself never calls the shell. Automated hosts
-count launches and MUST NOT reach `ShellExecuteExW`. Icon extraction is off `Render`: a glyph `icon` is rasterized
+the host's `ShellExecuteExW` policy (`Plugins_Actions.md`): it returns `S_FALSE` once the launch worker has it, and a
+shell failure after that is the host's `launch-failed` log record, not a tile status. Launcher itself never calls
+the shell. Automated hosts count launches and MUST NOT reach `ShellExecuteExW`. Icon extraction is off `Render`: a glyph `icon` is rasterized
 through DirectWrite (`Common/Actions/GlyphIcon.cpp`) into the same 256×256 slice a shell icon fills, an invalid
 binding draws the `Warning` glyph, `png:` via WIC (PNG container only, long edge capped at 256),
 else `IExtractIconW` 256, else `IShellItemImageFactory::GetImage` 256 with `SIIGBF_BIGGERSIZEOK`, else

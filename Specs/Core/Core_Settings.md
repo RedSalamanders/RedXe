@@ -359,6 +359,9 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   page of a minimized standard window, MUST wait: neither applied nor rejected, with no stamp recorded, until the loop
   ends or the window is restored, when the file is read once more (`Specs/UI/UI_XeneonDisplayWindowing.md` "Window
   and rendering lifecycle"). `redxe.settings.reload` waits the same way.
+- `redxe.settings.reload` forgets the stamps and posts the watcher's message; the reload MUST run from the message
+  loop, never inside the widget input callback that requested it, because applying it can release that widget
+  (`Specs/Plugins/Plugins_Actions.md`).
 - A successful live load MUST apply the candidate in memory only. It MUST NOT write the watched file, format it,
   persist a widget merge, or collect-on-exit onto that path. The editor's bytes stay until an explicit widget persist
   or other user-driven save. `--self-test` MUST NOT write `%LocalAppData%` and MUST NOT write the deployed template.

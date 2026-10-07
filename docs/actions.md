@@ -113,6 +113,12 @@ Workplace installation or Marketplace application registration.
 
 - A misspelled or unknown `action` rejects the settings file; the message names the entry.
 - A `target` that does not fit is shown on the control (red `!` / warning tile) and never runs.
+- Launches (`system.launch`, `system.open`, `system.run`, `system.taskManager`, and the Zoom actions) start in the
+  background, so the dashboard never freezes, even for a file on a share that does not answer. A launch whose file is
+  missing, has no app for it, or cannot be reached does nothing visible; the log (`redxe.logs.open` opens its folder)
+  records `launch-failed`.
+- A key or mouse action that waited more than a second because RedXe was busy is skipped rather than typed into
+  whatever window you switched to meanwhile; the log records `action-expired`.
 - If two plugin DLLs beside `RedXe.exe` claim the same action namespace, or one that RedXe does not know, a notice
   names both files and the affected bindings are disabled until the deployment is repaired. The dashboard keeps
   running.

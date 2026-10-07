@@ -22,7 +22,9 @@ are rejected. No secret or token is read or stored. The DLL advertises `Service 
 | `zoom.open` | None | Enqueue `system.launch` for `https://app.zoom.us/wc`. |
 | `zoom.join` | Text containing a complete meeting invite URL | Enqueue `system.launch` for the URL unchanged. |
 
-Both actions are deferred because the host drains the `system.launch` request after the pack returns. `zoom.join`
+Both actions are `Deferred`: once `RequestAction` accepts the `system.launch` request, `Execute` returns `S_FALSE`,
+and the host drains that request after the pack returns and opens the browser on its launch worker
+([`Plugins_Actions.md`](Plugins_Actions.md) "Launch worker"); a refused request returns its failure. `zoom.join`
 validates the URL again in the pack: HTTPS only, exact `zoom.us` or a subdomain, path `/j/` followed by 9–11 digits,
 and no controls, spaces, backslashes, credentials, or port in the authority. It preserves the query, including an
 opaque `pwd` token. A separate meeting ID and passcode are entered at the web join page; the plugin MUST NOT
@@ -49,6 +51,6 @@ validation and copies no meeting URL; the host action ring owns its own bounded 
 OAuth, synthetic session, local MSAA path, and their binaries are absent from this product.
 
 `ZoomTests` loads the shipped DLL with a fake host and proves the two-action contract, empty settings, URL allowlist,
-unchanged invite forwarding, refusal without a host request, and stopped-service behavior. `SettingsTests` proves
+unchanged invite forwarding with `S_FALSE`, refusal without a host request, and stopped-service behavior. `SettingsTests` proves
 the two shipped templates and rejects legacy private members. `HostPluginTests` proves the publisher is registered
 and the removed verbs are unknown. `BuildProcessTests` keeps stale SDK binaries out of packages.

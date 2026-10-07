@@ -1,9 +1,9 @@
 # Actions: bindings, namespaces, publication, and the host runtime
 
 Status: current normative product contract
-Last reviewed: 2026-09-28
-Owner: `Common/PlugInterfaces/Action.h`, `Common/Actions`, `RedXe/HostActionCatalog.*`, `RedXe/HostActions.*`, the
-action runtime of `RedXe/PluginHost.*` and `RedXe/Application.*`, `RedXe/BundledPlugins.h`
+Last reviewed: 2026-10-07
+Owner: `Common/PlugInterfaces/Action.h`, `Common/Actions`, `RedXe/HostActionCatalog.*`, `RedXe/HostActions.*`,
+`RedXe/LaunchWorker.*`, the action runtime of `RedXe/PluginHost.*` and `RedXe/Application.*`, `RedXe/BundledPlugins.h`
 (`kRedXeBundledActionNamespaces`), `Tests/HostPluginTests`
 
 The plugin ABI, module discovery, service lifetime, and device lane are owned by [`Plugins_API.md`](Plugins_API.md).
@@ -35,7 +35,7 @@ Every namespace has exactly one executor.
 
 | Class | Namespaces | Declared where | Executes where |
 | --- | --- | --- | --- |
-| Default (hardcoded, no DLL) | `page`, `widget`, `redxe`, `system`, `keys`, `mouse` | `RedXe/HostActionCatalog.cpp` (`constexpr` descriptor tables; `kRedXeDefaultActionNamespaceNames` in `BundledPlugins.h` mirrors the list) | `page`, `widget`, `redxe` in `Application::HandleHostAction`; `system`, `keys`, `mouse` in `RedXe/HostActions.cpp`; always on the UI thread |
+| Default (hardcoded, no DLL) | `page`, `widget`, `redxe`, `system`, `keys`, `mouse` | `RedXe/HostActionCatalog.cpp` (`constexpr` descriptor tables; `kRedXeDefaultActionNamespaceNames` in `BundledPlugins.h` mirrors the list) | `page`, `widget`, `redxe` in `Application::HandleHostAction`; `system`, `keys`, `mouse` in `RedXe/HostActions.cpp`; always on the UI thread, except that a launch completes on the host's [launch worker](#launch-worker) |
 | Published | `logicon` (`builtin.logicon`, `Logicon.dll`), `zoom` (`builtin.zoom`, `zoom.action.dll`) | The publisher's `RedXeGetActionContract`, registered to its plugin id in `kRedXeBundledActionNamespaces` | The publisher's `IRedXeActionPack::Execute` on the UI thread |
 
 Default namespaces are reserved: a publisher contract that names one is a collision. A plugin id may publish up to
@@ -99,7 +99,10 @@ path or URI); only the closed shape, the grammar, and the namespace do.
 
 Target kinds are `RedXeActionTargetKind` values; flags are `RedXeActionFlags`. **I** = `InjectsInput`, **X** =
 `Destructive` (the target must be the confirming argument; there is never a dialog), **D** = `Deferred`. Every
-default action returns synchronously.
+default action returns within the 20 ms budget on the UI thread. A **D** action returns `S_FALSE` and completes
+later: a launch on the [launch worker](#launch-worker); `redxe.settings.reload` and `redxe.quit` from the UI thread's
+message loop, because `ExecuteAction` runs inside a widget's own input callback and both release widgets, so the host
+MUST NOT run them before that callback has returned.
 
 ### `page.*` and `widget.*` (`Application`)
 
@@ -121,18 +124,18 @@ or while the settings error dialog is up returns `ERROR_BUSY` / `E_NOT_VALID_STA
 
 | Action | Target | Behavior |
 | --- | --- | --- |
-| `redxe.settings.reload` | None | Forgets the dedup stamps and runs the change path (`OnSettingsChanged`). |
-| `redxe.settings.edit`, `redxe.logs.open` | None | `system.launch` of the settings path / logs directory. |
+| `redxe.settings.reload` | None, **D** | Forgets the dedup stamps and posts the watcher's message (`SettingsWatcher::kSettingsChangedMessage`); the change path (`OnSettingsChanged`) runs from the message loop. |
+| `redxe.settings.edit`, `redxe.logs.open` | None, **D** | `system.launch` of the settings path / logs directory. |
 | `redxe.screenshot` | Text: `<absolute png path>[@<pageId>[/<ordinal>]]` | `RequestScreenshot` (the `--screenshot` pipeline, no delay) without its exit: RedXe MUST keep running after the capture, whatever its result. A relative path is `E_INVALIDARG`; a page that is neither a page id nor a page index, or an ordinal past that page's widget count, is `ERROR_NOT_FOUND` and captures nothing; a request while another capture is pending is `ERROR_BUSY`. A capture that fails logs `screenshot-failed` (`Warning`, `HRESULT`). |
-| `redxe.quit` | Enum `now`, **X** | `CloseMainWindow`. |
+| `redxe.quit` | Enum `now`, **X**, **D** | Posts `WM_CLOSE`; `CloseMainWindow` runs from the message loop. |
 | `redxe.dock.show`, `redxe.dock.hide`, `redxe.dock.toggle` | None | Reveal, collapse, or flip an autohide dock (`Specs/UI/UI_XeneonDisplayWindowing.md` "Autohide"): `show` reveals at once and keeps the bar until another hold appears and clears; `hide` collapses even with the pointer inside but is inert while a raise, capture, dialog, or pending screenshot holds it; `toggle` is `show` when the strip shows, else `hide`. `S_FALSE` (counted, inert) without an autohide dock. |
 
 ### `system.*` (`HostActions`)
 
 | Action | Target | Behavior |
 | --- | --- | --- |
-| `system.launch`, `system.open` | PathOrUri | `ShellExecuteExW` with the default verb, `SEE_MASK_FLAG_NO_UI`, a null window, no wait; a file's parent directory is the working directory. |
-| `system.run` | CommandLine: an absolute executable path, optionally quoted, plus arguments | `CreateProcessW` (no shell, no window inheritance), handles closed at once. |
+| `system.launch`, `system.open` | PathOrUri, **D** | On the launch worker: `ShellExecuteExW` with the default verb, `SEE_MASK_FLAG_NO_UI`, a null window, no wait; the parent directory of an existing file (probed there, never on the UI thread) is the working directory. |
+| `system.run` | CommandLine: an absolute executable path, optionally quoted, plus arguments; **D** | On the launch worker: `CreateProcessW` (no shell, no window inheritance), handles closed at once. |
 | `system.lock` | None | `LockWorkStation`. |
 | `system.sleep`, `system.hibernate` | Enum `now`, **X** | `SetSuspendState`. |
 | `system.logoff` | Enum `now`, **X** | `ExitWindowsEx(EWX_LOGOFF)`. |
@@ -141,7 +144,7 @@ or while the settings error dialog is up returns `ERROR_BUSY` / `E_NOT_VALID_STA
 | `system.process.close` | Window selector | `WM_CLOSE` to the selected window; never terminates a process. |
 | `system.power.plan` | Text: `balanced`, `highPerformance`, `powerSaver`, or a GUID | `PowerSetActiveScheme`. |
 | `system.theme` | Enum `light` / `dark` / `toggle` | `AppsUseLightTheme` and `SystemUsesLightTheme` under `HKCU\...\Themes\Personalize`, then `WM_SETTINGCHANGE` `ImmersiveColorSet`. |
-| `system.taskManager` | None | Launches `Taskmgr.exe`. |
+| `system.taskManager` | None, **D** | Launches `Taskmgr.exe` on the launch worker. |
 
 ### `keys.*` (`HostActions`, **I**)
 
@@ -224,7 +227,8 @@ caller-owned bounded storage.
   and suppressed completions, before `RedXePluginShutdown` and unmapping.
 - `Execute` runs synchronously on the UI thread inside the host-action drain, is non-reentrant, and MUST return
   within `kRedXeActionExecuteBudgetMilliseconds` (20) without waiting on another thread, pumping messages, or showing
-  UI. A `Deferred` action returns `S_FALSE` after handing the work to a host-owned lane (`QueueControlWork`, or the
+  UI. A `Deferred` action returns `S_FALSE` after handing the work to a host-owned lane (`QueueControlWork`, a
+  `RequestAction` of a deferred host action such as `system.launch`, which the launch worker performs, or the
   publisher's own device lane through a bounded slot and its wake event). From `Execute` a publisher MAY call only
   `QueueControlWork`, `Log`, and `RequestAction`. Return codes: `S_OK`, `S_FALSE` (deferred), `E_INVALIDARG` (name or
   target the publisher does not accept), `ERROR_BUSY` (its bounded slots are full), `E_NOT_VALID_STATE` /
@@ -242,43 +246,77 @@ caller-owned bounded storage.
 
 - `RequestAction(const RedXeActionRequest*)`: safe from any thread including a service's device lane,
   allocation-free, never blocking. The host copies the request into a 16-slot ring of
-  `HostActionSlot{action[65], target[513], used}`, coalesces an identical pending `(action, target)` pair
-  (`S_FALSE`), returns `ERROR_BUSY` when the ring is full, and posts one coalesced `WM_APP + 5`. A null record, a
-  mismatched `sizeBytes`, a name outside the grammar, a name outside a default or registered namespace, or an
-  overlong name or target returns `E_POINTER` / `E_INVALIDARG`; after shutdown, `E_UNEXPECTED`. The verb and target
-  are resolved at drain time, not at request time.
+  `HostActionSlot{action[65], target[513], queued, used}` stamped with `GetTickCount64`, coalesces an identical
+  pending `(action, target)` pair (`S_FALSE`, and the slot takes the newer time), returns `ERROR_BUSY` when the ring
+  is full, and posts one coalesced `WM_APP + 5`. A null record, a mismatched `sizeBytes`, a name outside the grammar,
+  a name outside a default or registered namespace, or an overlong name or target returns `E_POINTER` /
+  `E_INVALIDARG`; after shutdown, `E_UNEXPECTED`. The verb and target are resolved at drain time, not at request
+  time.
 - `ExecuteAction(const RedXeActionRequest*)`: UI thread only, synchronous, non-reentrant; allowed from `OnPointer`
   (committed activation), `OnKey` / `OnCharacter`, and `OnDrop`; forbidden from device, size, visibility, raise,
-  `Render`, `Prepare`, and every worker callback. Never queued, coalesced, or dropped; it returns the executor's
-  result (`ERROR_BUSY` for the busy rule above, `ERROR_NOT_FOUND` for an unknown action, `E_INVALIDARG` for an
-  unsatisfied target).
+  `Render`, `Prepare`, and every worker callback. It never waits in the ring, so it is never coalesced or dropped for
+  age; it returns the executor's result (`S_FALSE` for a **D** action, `ERROR_BUSY` for the busy rule above or a full
+  launch worker, `ERROR_NOT_FOUND` for an unknown action, `E_INVALIDARG` for an unsatisfied target). A deferred launch
+  that fails later reaches the log, not the caller.
 - `ValidateAction(const RedXeActionRequest*, const RedXeActionDescriptor**)`: the binding validator above; the
   optional descriptor output borrows the owning record and is null for an unknown action.
 - `RequestHostAction`, `RedXeHostAction`, and `RedXeHostActionRequest` no longer exist.
 
 ### Drain and dispatch
 
-`Application::DrainHostActions` runs on the UI thread outside input and render dispatch. For each slot
-`PluginHost::ExecuteNow` resolves the namespace: `page` / `widget` / `redxe` go to the registered application
-handler (`Application::HandleHostAction`); the other default namespaces validate the target, apply
-`ValidateExtra`, and run `HostActions::Execute(descriptor, target, deviceAccess)`; a published namespace obtains the
-executor (`EnsurePublisherExecutor`), validates the target against the published descriptor, and calls `Execute`
-with the device-access flag. A failed result logs `action-failed` (`Debug`, name and `HRESULT`). After every drained
-action the host publishes one host state to started services and shows pending notices.
+`PluginHost::DrainHostActions` runs on the UI thread from the posted `WM_APP + 5`, outside input and render
+dispatch. It first logs every launch the launch worker finished. Then, for each slot, an action that injects input
+(`InjectsInput` on its default or already-read published descriptor) whose request is older than
+`PluginHost::kMaximumQueuedInputAgeMilliseconds` (1000 ms) MUST be dropped rather than executed: after a UI-thread
+stall it would land in whatever window is foreground by then. `keys.up` and `mouse.up` are exempt because they only
+end a hold. One drain that drops any logs one `action-expired` Warning with the count and the first dropped name.
+Every other slot goes to `PluginHost::ExecuteNow`, which resolves the namespace: `page` / `widget` / `redxe` go to
+the registered application handler (`Application::HandleHostAction`); the other default namespaces validate the
+target, apply `ValidateExtra`, and run `HostActions::Execute(descriptor, target, deviceAccess, launches)`; a
+published namespace obtains the executor (`EnsurePublisherExecutor`), validates the target against the published
+descriptor, and calls `Execute` with the device-access flag. A failed result logs `action-failed` (`Debug`, name and
+`HRESULT`). After every drained action, executed or dropped, the host publishes one host state to started services
+and shows pending notices.
+
+### Launch worker
+
+`ShellExecuteExW`, the file probe before it, and `CreateProcessW` can block their thread for tens of seconds (a target
+on an offline share took about 42 s), so none of them runs on the UI thread. `RedXe/LaunchWorker.*`, owned by the
+process `PluginHost`, performs every launch: `system.launch`, `system.open`, `system.run`, `system.taskManager` (and
+through them `redxe.settings.edit`, `redxe.logs.open`, `zoom.open`, and `zoom.join`), and the tray's Edit settings
+(`Specs/UI/UI_XeneonDisplayWindowing.md`).
+
+- The UI thread validates and counts the launch, copies it into one of 8 fixed slots (`LaunchWorker::kSlots`), and
+  returns `S_FALSE`; when every slot holds a launch that is queued, running, or not yet drained, the request fails
+  with `ERROR_BUSY` at once. Nothing on the UI thread touches the target's file system.
+- One thread, created by the first launch, initializes a single-threaded COM apartment
+  (`COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE`) as the shell requires, performs the launches in submission
+  order with the flags of the caller (actions `SEE_MASK_FLAG_NO_UI`; the tray keeps the shell's UI, so the Open With
+  picker and the shell's error boxes run on this thread, never on the UI thread), and otherwise blocks in one
+  message-aware wait on its stop and wake events.
+- A finished launch keeps its `HRESULT` in its slot and posts the coalesced `WM_APP + 5`; the drain logs a failure as
+  one Warning (`launch-failed`, or `tray-edit-settings-failed` for the tray) with the `HRESULT`, and a success as one
+  Debug `launch-completed`, and frees the slot.
+- `PluginHost::Shutdown` drops queued launches and waits at most `LaunchWorker::kStopMilliseconds` (1000 ms) for the
+  one in progress; a launch still in the shell then logs `launch-stop-timeout` (Warning) and keeps only the worker's
+  own slots, and the process runtime is not deleted while that thread exists, so it never frees memory in use.
 
 ### Automated hosts and counters
 
 `HostActions::Counters` (`executed`, `injectedInputs`, `launches`, `processes`, `powerRequests`, `heldReleases`,
 `lastAction`) count every execution; with device access disabled `HostActions::Execute` validates, counts, and
-performs nothing (no `SendInput`, `ShellExecuteExW`, `CreateProcessW`, power, registry, or layout call). Launcher's
-own launch counter and Logicon's `localExecuted` / `lastAction` diagnostics observe the same rule. Live shell, input,
-and power effects are manual-only and MUST NOT be a CI pass condition.
+performs nothing (no `SendInput`, `ShellExecuteExW`, `CreateProcessW`, power, registry, or layout call; a launch
+returns `S_FALSE` without starting the launch worker). Launcher's own launch counter and Logicon's `localExecuted` /
+`lastAction` diagnostics observe the same rule. Live shell, input, and power effects are manual-only and MUST NOT be a
+CI pass condition; `TestLaunchWorker`'s shell call on a missing file starts nothing and has no effect.
 
 ### Diagnostics
 
 `IRedXeHost::Log`, never per detent: `action-contract-loaded` (Info), `action-contract-invalid`,
 `action-namespace-collision`, `action-namespace-unregistered`, `action-namespace-missing`,
 `action-publisher-unavailable` (Error, once per condition per process), `action-failed` (Debug),
+`action-expired` (Warning, once per drain that dropped input for age), `launch-failed` (Warning, once per failed
+launch), `launch-completed` (Debug), `launch-stop-timeout` (Warning, at most once per shutdown),
 `screenshot-failed` (Warning, once per screenshot request that wrote no PNG). A publisher MAY log a Warning once per
 distinct failure.
 
@@ -292,15 +330,20 @@ distinct failure.
   on the service object.
 - **Launcher** (`Plugins_API.md`): `shortcuts[]` items are `action` (default `system.launch`), `target`, and
   `icon`; the shared parser `Plugins/Launcher/LauncherBindings.h` (`ParseShortcutItem`) is the single source of the
-  closed shape for the DLL and the host's settings validator; a committed tap calls `ExecuteAction`, and a failure
-  reports `Degraded` "Launch failed".
-- **Zoom** (`Plugins_Zoom.md`): the first dedicated action DLL, a service publishing `zoom`.
+  closed shape for the DLL and the host's settings validator; a committed tap calls `ExecuteAction`, and a failed
+  result reports `Degraded` "Launch failed". A launch the shell fails after it was deferred is the host's
+  `launch-failed` log record instead.
+- **Zoom** (`Plugins_Zoom.md`): the first dedicated action DLL, a service publishing `zoom`; its deferred actions
+  return `S_FALSE` once `system.launch` is requested.
 
 ## Performance and resource bounds
 
-- The ring is static (16 × ~580 bytes); publisher slots are one per registry row; notices are 8 × 256 characters.
+- The ring is static (16 × ~590 bytes); publisher slots are one per registry row; notices are 8 × 256 characters.
   Steady state allocates nothing: bounded stack buffers (`std::array<wchar_t, 513>`, 32 `INPUT`s), no strings, no
   vectors. Accepted allocations are those an API mandates.
+- The launch worker owns 8 static slots of about 3 KiB, one thread only after the first launch, and two events; idle,
+  it blocks in one wait and owns no timer. It exists so that no launch blocks the UI thread
+  (`../Core/Core_PerformanceAndResources.md`).
 - Validation maps at most the modules whose namespaces a document binds, at the same moment and cost as reading a
   settings contract; a document that binds only default namespaces maps no module for actions.
 - No polling: the ring drains on one posted message; a timer is armed only while an injected hold exists and is
@@ -323,8 +366,15 @@ distinct failure.
   and an unregistered namespace (`ERROR_NOT_FOUND`), the Logicon and Zoom publishers resolved from their shipped
   modules (`Ready`, a target outside the published bounds `E_INVALIDARG`, an unknown published verb
   `ERROR_NOT_FOUND`, the `zoom.open` and `zoom.join` browser contract), the shipped catalog
-  producing no notice, and device-access-disabled execution of `keys`, `system`, and `mouse` actions that counts
-  inputs, launches, and power requests without performing them.
+  producing no notice, the **D** flag on launches, `redxe.settings.reload`, and `redxe.quit`, and
+  device-access-disabled execution of `keys`, `system`, and `mouse` actions that counts inputs, launches, and power
+  requests without performing them. `TestQueuedInputAge`: an aged key press is dropped while an aged release, an aged
+  non-input action, and fresh input run, a coalesced repeat takes the newer time, and one `action-expired` Warning is
+  logged. `TestLaunchWorker`: with a probe in place of the shell, a launch returns `S_FALSE` while it runs on the
+  worker's own STA thread, a full worker answers `ERROR_BUSY`, completions drain through the posted message with a
+  `launch-failed` Warning for a failure, an idle worker accrues no CPU time, shutdown joins an idle worker at once and
+  waits only the bound for a stuck one; and the real `ShellExecuteExW` on a file that does not exist (nothing starts)
+  logs `launch-failed` with `0x80070002`.
 - `SettingsTests`: document-level acceptance of both templates' bindings (`page.*`, `widget.*`, `keys.media`, dialpad
   `turns`; in Debug also `logicon.keyPage.*`, `logicon.brightness`, and `zoom.open`) and of the `builtin.zoom`
   service object, rejection of unknown names, unknown default verbs, `iconPng`, and a non-launch Launcher item
@@ -333,4 +383,6 @@ distinct failure.
   access disabled, so every template binding is validated on every run without a side effect.
 - `--self-test` also runs `redxe.screenshot` against its hidden window: an ordinal past the page is `ERROR_NOT_FOUND`
   with nothing pending, a second request while one is pending is `ERROR_BUSY`, and the finished capture (refused for
-  the hidden window before any file is written) leaves the window open and nothing pending.
+  the hidden window before any file is written) leaves the window open and nothing pending. It then calls
+  `redxe.settings.reload` and `redxe.quit` as a Launcher tile would: each returns `S_FALSE`, the page keeps the same
+  widget count and the same first widget object, and each has only posted its message.

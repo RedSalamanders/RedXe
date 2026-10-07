@@ -140,6 +140,7 @@ RedXe/
   PluginManager.*   Widget providers and instance lifetime
   HostActionCatalog.* Hardcoded default action namespaces (page, widget, redxe, system, keys, mouse) and name checks
   HostActions.*     Win32 execution of the system, keys, and mouse namespaces; counters for automated hosts
+  LaunchWorker.*    Host-owned launch thread: ShellExecuteExW and CreateProcessW for launches, never on the UI thread
   BundledPlugins.h  Compile-time module, widget, service, and action-namespace catalogs
   DashboardHost.*   Widget placement, frame-scheduling policy, and collect-on-exit
   Renderer.*        Direct3D 11 host resources, widget callbacks, placeholder tiles, and frames
@@ -191,8 +192,8 @@ Keep the boundary explicit:
   `Application` decides from `trayIcon` whether it exists and performs Edit settings and Exit.
 - `PluginHost` is process scoped. One instance owns every mapped module, every data source, the single acquisition
   worker, the optional network worker, the started services with their device-lane threads, the host action ring,
-  and the JSONL log writer for the whole application, including the dashboard page staged during a swipe. Optional
-  `RedXePluginShutdown` runs once per module at process teardown.
+  the lazy launch worker, and the JSONL log writer for the whole application, including the dashboard page staged
+  during a swipe. Optional `RedXePluginShutdown` runs once per module at process teardown.
 - A service (`Service.h`) runs without a placed widget: `Application` starts it after the first page is live, feeds it
   host state, drains its host actions on the UI thread, and stops it before the process runtime shuts down. A
   service's device I/O runs only on its host-owned lane, never on a plugin-created thread.

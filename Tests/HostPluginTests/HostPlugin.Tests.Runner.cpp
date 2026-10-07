@@ -26,6 +26,7 @@
 #include <shellapi.h>
 #include <tlhelp32.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -137,6 +138,34 @@ struct PluginHostTestAccess final
         host.StopService(slot);
         return tombstoned && noRestart && returned && !slot.stopPending && !slot.lane.joinable() && !slot.service &&
                !slot.worker && probe.stopped.load() == 1 && probe.destroyed.load() == 1;
+    }
+
+    // Ages every queued host action by `milliseconds`, as if the UI thread had stalled that long.
+    static void AgeHostActions(PluginHost& host, ULONGLONG milliseconds) noexcept
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&host._hostActionLock);
+        for (auto& slot : host._hostActions)
+        {
+            slot.queued -= milliseconds;
+        }
+    }
+
+    // Replaces the launch worker's shell and process call, so a test never reaches either.
+    static void SetLaunchProbe(PluginHost& host, HRESULT (*probe)(LaunchWorker::Request& request) noexcept) noexcept
+    {
+        host._launches._perform = probe;
+    }
+
+    [[nodiscard]] static HANDLE LaunchThread(PluginHost& host) noexcept
+    {
+        return host._launches._thread.native_handle();
+    }
+
+    // Launches queued, running, or finished but not yet drained.
+    [[nodiscard]] static size_t LaunchSlotsInUse(PluginHost& host) noexcept
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&host._launches._lock);
+        return host._launches._count;
     }
 };
 
@@ -4064,6 +4093,273 @@ void TestHostActionQueue(bool& success) noexcept
     host.SetHostActionHandler(nullptr, nullptr, nullptr);
 }
 
+// Today's UTC log file in root, or nothing.
+[[nodiscard]] std::string ReadTodayLog(const std::filesystem::path& root) noexcept
+{
+    SYSTEMTIME utc{};
+    GetSystemTime(&utc);
+    wchar_t name[kRedXeLogFileNameCapacity]{};
+    std::string bytes;
+    if (RedXeFormatLogFileName(name, kRedXeLogFileNameCapacity, utc))
+    {
+        std::ifstream stream(root / name, std::ios::binary);
+        if (stream)
+        {
+            bytes.assign(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
+        }
+    }
+    return bytes;
+}
+
+[[nodiscard]] size_t CountText(std::string_view text, std::string_view needle) noexcept
+{
+    size_t count = 0;
+    for (size_t offset = text.find(needle); offset != std::string_view::npos;
+         offset = text.find(needle, offset + needle.size()))
+    {
+        ++count;
+    }
+    return count;
+}
+
+void TestQueuedInputAge(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] host action ring: input that waited past the age bound is dropped\n";
+    std::error_code error;
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() /
+        (L"RedXe.InputAgeTests." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()));
+    std::filesystem::create_directories(root, error);
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            std::error_code removeError;
+            std::filesystem::remove_all(root, removeError);
+        });
+    PluginHost host;
+    host.SetDeviceAccessEnabled(false);
+    if (error || FAILED(host.SetLogDirectory(root.c_str())))
+    {
+        Check(false, L"a temporary log directory can be created", success);
+        return;
+    }
+    HostActions::ReleaseHeld(false);
+    HostActions::ResetCounters();
+    RedXeActionRequest request{};
+    request.sizeBytes = sizeof(request);
+    const auto requestAction = [&](const char* action, const char* target) noexcept
+    {
+        request.actionUtf8 = action;
+        request.targetUtf8 = target;
+        return host.RequestAction(&request);
+    };
+    Check(requestAction("keys.press", "Ctrl+W") == S_OK && requestAction("keys.up", "Ctrl+W") == S_OK &&
+              requestAction("system.lock", nullptr) == S_OK,
+          L"input and other actions queue", success);
+    PluginHostTestAccess::AgeHostActions(host, 2 * PluginHost::kMaximumQueuedInputAgeMilliseconds);
+    Check(requestAction("keys.type", "x") == S_OK, L"a fresh input action queues behind them", success);
+    host.DrainHostActions();
+    HostActions::Counters counters = HostActions::CopyCounters();
+    Check(counters.executed == 3 && counters.injectedInputs == 4 && counters.powerRequests == 1 &&
+              std::strcmp(counters.lastAction.data(), "keys.type") == 0,
+          L"a stale key press is dropped; a stale release, a stale non-input action, and fresh input still run",
+          success);
+
+    HostActions::ResetCounters();
+    Check(requestAction("keys.press", "Ctrl+W") == S_OK, L"a key press queues", success);
+    PluginHostTestAccess::AgeHostActions(host, 2 * PluginHost::kMaximumQueuedInputAgeMilliseconds);
+    Check(requestAction("keys.press", "Ctrl+W") == S_FALSE, L"the same press again coalesces into it", success);
+    host.DrainHostActions();
+    counters = HostActions::CopyCounters();
+    Check(counters.executed == 1 && counters.injectedInputs == 4,
+          L"a coalesced press carries the newest request time and runs", success);
+
+    Check(SUCCEEDED(host.FlushLog(10'000)), L"the input-age log drains", success);
+    const std::string bytes = ReadTodayLog(root);
+    Check(CountText(bytes, "\"event\":\"action-expired\"") == 1 && CountText(bytes, "\"level\":\"warning\"") == 1 &&
+              bytes.find("first \\\"keys.press\\\"") != std::string::npos,
+          L"one drain that drops input logs one action-expired Warning naming the first dropped action", success);
+}
+
+struct LaunchProbe final
+{
+    wil::unique_event_nothrow entered;
+    wil::unique_event_nothrow release;
+    std::atomic<uint32_t> calls{0};
+    std::atomic<DWORD> thread{0};
+    std::atomic<int> apartment{-1};
+};
+
+LaunchProbe* g_launchProbe = nullptr;
+
+// Stands in for ShellExecuteExW: records the calling thread and apartment, then blocks until the test releases it.
+HRESULT ProbeLaunch(LaunchWorker::Request& request) noexcept
+{
+    LaunchProbe& probe = *g_launchProbe;
+    probe.thread.store(GetCurrentThreadId());
+    APTTYPE type{};
+    APTTYPEQUALIFIER qualifier{};
+    probe.apartment.store(SUCCEEDED(CoGetApartmentType(&type, &qualifier)) ? static_cast<int>(type) : -1);
+    ++probe.calls;
+    (void)SetEvent(probe.entered.get());
+    (void)WaitForSingleObject(probe.release.get(), 10'000);
+    return wcsstr(request.file.data(), L"\\fail") ? HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) : S_OK;
+}
+
+// Waits on the test window for the launch worker's posted completions and drains them, until no slot is in use.
+[[nodiscard]] bool DrainLaunches(PluginHost& host, HWND window) noexcept
+{
+    const ULONGLONG deadline = GetTickCount64() + 10'000;
+    while (PluginHostTestAccess::LaunchSlotsInUse(host) != 0)
+    {
+        const ULONGLONG now = GetTickCount64();
+        if (now >= deadline)
+        {
+            return false;
+        }
+        (void)MsgWaitForMultipleObjectsEx(0, nullptr, static_cast<DWORD>(std::min<ULONGLONG>(deadline - now, 100)),
+                                          QS_POSTMESSAGE, 0);
+        MSG message{};
+        while (
+            PeekMessageW(&message, window, PluginHost::kHostActionMessage, PluginHost::kHostActionMessage, PM_REMOVE))
+        {
+            host.DrainHostActions();
+        }
+    }
+    return true;
+}
+
+void TestLaunchWorker(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] launch worker: off the UI thread, bounded, idle-blocked, joined at shutdown\n";
+    LaunchProbe probe;
+    probe.entered.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
+    probe.release.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    wil::unique_hwnd window{CreateWindowExW(0, L"STATIC", L"launch worker", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
+                                            GetModuleHandleW(nullptr), nullptr)};
+    std::error_code error;
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() /
+        (L"RedXe.LaunchTests." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()));
+    std::filesystem::create_directories(root / L"probe", error);
+    if (!error)
+    {
+        std::filesystem::create_directories(root / L"shell", error);
+    }
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            std::error_code removeError;
+            std::filesystem::remove_all(root, removeError);
+        });
+    if (!probe.entered || !probe.release || !window || error)
+    {
+        Check(false, L"launch test events, window, and log directories can be created", success);
+        return;
+    }
+    g_launchProbe = &probe;
+    HostActions::ResetCounters();
+    RedXeActionRequest request{};
+    request.sizeBytes = sizeof(request);
+    request.actionUtf8 = "system.launch";
+    std::array<std::string, LaunchWorker::kSlots + 1> targets{};
+    for (size_t index = 0; index < targets.size(); ++index)
+    {
+        targets[index] = "C:\\RedXe-launch-test\\" + std::string(index == 1 ? "fail" : "ok") + std::to_string(index);
+    }
+    {
+        PluginHost host;
+        Check(SUCCEEDED(host.SetLogDirectory((root / L"probe").c_str())), L"the probe host logs", success);
+        host.SetUiInvalidateTarget(window.get());
+        PluginHostTestAccess::SetLaunchProbe(host, &ProbeLaunch);
+        Check(!host.LaunchWorkerRunning(), L"no launch thread exists before the first launch", success);
+        request.targetUtf8 = targets[0].c_str();
+        const HRESULT first = host.ExecuteAction(&request);
+        const bool entered = WaitForSingleObject(probe.entered.get(), 5'000) == WAIT_OBJECT_0;
+        Check(first == S_FALSE && entered && host.LaunchWorkerRunning() &&
+                  probe.thread.load() != GetCurrentThreadId() && probe.apartment.load() == APTTYPE_STA,
+              L"system.launch returns S_FALSE while the launch runs on the worker's own STA thread", success);
+        // One running and seven queued launches fill the eight slots; the next one is refused, never waited for.
+        bool queued = true;
+        for (size_t index = 1; index < LaunchWorker::kSlots; ++index)
+        {
+            request.targetUtf8 = targets[index].c_str();
+            queued = host.ExecuteAction(&request) == S_FALSE && queued;
+        }
+        request.targetUtf8 = targets[LaunchWorker::kSlots].c_str();
+        Check(queued && host.ExecuteAction(&request) == HRESULT_FROM_WIN32(ERROR_BUSY) && probe.calls.load() == 1,
+              L"launches queue behind the one in progress and a full queue answers ERROR_BUSY", success);
+        (void)SetEvent(probe.release.get());
+        Check(DrainLaunches(host, window.get()) && probe.calls.load() == LaunchWorker::kSlots,
+              L"every queued launch runs and its posted completion drains on the UI thread", success);
+
+        // Idle, the worker blocks in its wait: no CPU time accrues.
+        FILETIME creation{};
+        FILETIME exit{};
+        FILETIME kernel{};
+        FILETIME user{};
+        const HANDLE thread = PluginHostTestAccess::LaunchThread(host);
+        const auto cpu = [&]() noexcept
+        {
+            (void)GetThreadTimes(thread, &creation, &exit, &kernel, &user);
+            return (static_cast<ULONGLONG>(kernel.dwHighDateTime) << 32U | kernel.dwLowDateTime) +
+                   (static_cast<ULONGLONG>(user.dwHighDateTime) << 32U | user.dwLowDateTime);
+        };
+        const ULONGLONG before = cpu();
+        Sleep(250);
+        Check(cpu() - before < 500'000, L"an idle launch worker blocks instead of spinning", success);
+
+        Check(SUCCEEDED(host.FlushLog(10'000)), L"the probe host log drains", success);
+        const ULONGLONG start = GetTickCount64();
+        host.Shutdown();
+        Check(!host.LaunchWorkerRunning() && GetTickCount64() - start < LaunchWorker::kStopMilliseconds,
+              L"shutdown joins an idle launch worker without waiting out its bound", success);
+    }
+    const std::string probeLog = ReadTodayLog(root / L"probe");
+    Check(CountText(probeLog, "\"event\":\"launch-failed\"") == 1 &&
+              probeLog.find("\"hr\":\"0x80070002\"") != std::string::npos,
+          L"the one failed launch is logged as a launch-failed Warning with its HRESULT", success);
+
+    // A launch stuck in the shell gets a bounded wait at shutdown and is joined only when the host goes away.
+    (void)ResetEvent(probe.entered.get());
+    (void)ResetEvent(probe.release.get());
+    {
+        PluginHost host;
+        host.SetUiInvalidateTarget(window.get());
+        PluginHostTestAccess::SetLaunchProbe(host, &ProbeLaunch);
+        request.targetUtf8 = targets[0].c_str();
+        const bool started =
+            host.ExecuteAction(&request) == S_FALSE && WaitForSingleObject(probe.entered.get(), 5'000) == WAIT_OBJECT_0;
+        const ULONGLONG start = GetTickCount64();
+        host.Shutdown();
+        const ULONGLONG waited = GetTickCount64() - start;
+        Check(started && waited + 100 >= LaunchWorker::kStopMilliseconds &&
+                  waited < LaunchWorker::kStopMilliseconds + 2'000 && host.LaunchWorkerRunning(),
+              L"shutdown waits a bounded time for a launch stuck in the shell and leaves it running", success);
+        (void)SetEvent(probe.release.get());
+    }
+    Check(probe.calls.load() == LaunchWorker::kSlots + 1, L"the stuck launch finished before its host was destroyed",
+          success);
+    g_launchProbe = nullptr;
+
+    // The real shell call, on a file that does not exist: nothing starts, and the failure reaches the log.
+    {
+        PluginHost host;
+        Check(SUCCEEDED(host.SetLogDirectory((root / L"shell").c_str())), L"the shell host logs", success);
+        host.SetUiInvalidateTarget(window.get());
+        const std::u8string missing = (root / L"shell" / L"missing.redxe-launch-test").u8string();
+        request.targetUtf8 = reinterpret_cast<const char*>(missing.c_str());
+        Check(host.ExecuteAction(&request) == S_FALSE && DrainLaunches(host, window.get()) &&
+                  SUCCEEDED(host.FlushLog(10'000)),
+              L"a launch of a missing file returns at once and completes on the worker", success);
+        const std::string shellLog = ReadTodayLog(root / L"shell");
+        Check(CountText(shellLog, "\"event\":\"launch-failed\"") == 1 &&
+                  shellLog.find("\"hr\":\"0x80070002\"") != std::string::npos,
+              L"ShellExecuteExW's file-not-found failure is logged as a launch-failed Warning", success);
+    }
+    HostActions::ResetCounters();
+}
+
 void TestActionValidation(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] action validation: default catalog, target grammars, registry, publishers\n";
@@ -4083,7 +4379,18 @@ void TestActionValidation(bool& success) noexcept
     request.targetUtf8 = "notepad.exe";
     Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a relative launch target is invalid", success);
     request.targetUtf8 = "C:\\Tools\\Code.exe";
-    Check(host.ValidateAction(&request, nullptr) == S_OK, L"an absolute launch target is valid", success);
+    Check(host.ValidateAction(&request, &descriptor) == S_OK && descriptor &&
+              (descriptor->flags & RedXeActionFlagDeferred) != 0,
+          L"an absolute launch target is valid and the launch is deferred", success);
+    request.actionUtf8 = "redxe.settings.reload";
+    request.targetUtf8 = nullptr;
+    const bool reloadDeferred = host.ValidateAction(&request, &descriptor) == S_OK && descriptor &&
+                                (descriptor->flags & RedXeActionFlagDeferred) != 0;
+    request.actionUtf8 = "redxe.quit";
+    request.targetUtf8 = "now";
+    Check(reloadDeferred && host.ValidateAction(&request, &descriptor) == S_OK && descriptor &&
+              (descriptor->flags & RedXeActionFlagDeferred) != 0,
+          L"the reload and quit actions, which release widgets, are deferred", success);
     request.actionUtf8 = "system.shutdown";
     request.targetUtf8 = nullptr;
     Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a destructive action needs its confirming target",
@@ -4157,7 +4464,7 @@ void TestActionValidation(bool& success) noexcept
     Check(host.ExecuteAction(&request) == S_OK, L"a keys action executes", success);
     request.actionUtf8 = "system.launch";
     request.targetUtf8 = "https://example.org";
-    Check(host.ExecuteAction(&request) == S_OK, L"a launch executes", success);
+    Check(host.ExecuteAction(&request) == S_FALSE, L"a launch is counted and reports itself deferred", success);
     request.actionUtf8 = "mouse.scroll";
     request.targetUtf8 = "+3";
     Check(host.ExecuteAction(&request) == S_OK, L"a mouse action executes", success);
@@ -4203,15 +4510,18 @@ void TestHeldInputTimer(bool& success) noexcept
     }
     HostActions::SetHostWindow(window.get());
     HostActions::ResetCounters();
-    Check(HostActions::Execute(*keyDown, "Ctrl+A", false) == S_OK &&
-              HostActions::Execute(*keyDown, "Ctrl+B", false) == S_OK && HostActions::CopyCounters().heldReleases == 1,
+    Check(HostActions::Execute(*keyDown, "Ctrl+A", false, nullptr) == S_OK &&
+              HostActions::Execute(*keyDown, "Ctrl+B", false, nullptr) == S_OK &&
+              HostActions::CopyCounters().heldReleases == 1,
           L"replacing a chord releases the original chord", success);
-    Check(HostActions::Execute(*mouseDown, "left", false) == S_OK &&
-              HostActions::Execute(*mouseDown, "right", false) == S_OK && HostActions::CopyCounters().heldReleases == 2,
+    Check(HostActions::Execute(*mouseDown, "left", false, nullptr) == S_OK &&
+              HostActions::Execute(*mouseDown, "right", false, nullptr) == S_OK &&
+              HostActions::CopyCounters().heldReleases == 2,
           L"replacing a button releases the original button", success);
     HostActions::ReleaseHeld(false);
     HostActions::ResetCounters();
-    Check(HostActions::Execute(*keyDown, "Ctrl+C", false) == S_OK, L"one held chord arms the host timer", success);
+    Check(HostActions::Execute(*keyDown, "Ctrl+C", false, nullptr) == S_OK, L"one held chord arms the host timer",
+          success);
     const ULONGLONG deadline = GetTickCount64() + 3000;
     while (GetTickCount64() < deadline && HostActions::CopyCounters().heldReleases == 0)
     {
@@ -5800,6 +6110,8 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestWeatherPluginConstructs(success);
     TestNetworkLane(success);
     TestHostActionQueue(success);
+    TestQueuedInputAge(success);
+    TestLaunchWorker(success);
     TestActionValidation(success);
     TestHeldInputTimer(success);
     TestServiceLifetime(success);

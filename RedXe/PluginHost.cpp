@@ -490,11 +490,12 @@ PluginHost& PluginHost::Instance() noexcept
                 return;
             }
             runtime->Shutdown();
-            if (runtime->RunningDeviceWorkerCount() == 0)
+            if (runtime->RunningDeviceWorkerCount() == 0 && !runtime->LaunchWorkerRunning())
             {
                 delete runtime;
             }
-            // A stuck driver still borrows this host. Keep it and its modules until process exit.
+            // A stuck driver or a launch still in the shell borrows this host. Keep it and its modules until process
+            // exit.
         }
     };
     static std::unique_ptr<PluginHost, ProcessRuntimeDeleter> instance{new PluginHost};
@@ -530,6 +531,13 @@ void PluginHost::Shutdown() noexcept
         _hostActionHead = 0;
         _hostActionCount = 0;
         _pendingHostActionPost.store(0, std::memory_order_release);
+    }
+    // Queued launches are dropped. One blocked in the shell (an offline share) gets a bounded wait; after that it
+    // keeps only the launch worker's own slots and this host's post target, which is already cleared.
+    if (!_launches.Stop(LaunchWorker::kStopMilliseconds))
+    {
+        (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, nullptr, nullptr, "launch-stop-timeout",
+                           "a launch was still in progress at shutdown; RedXe exits without waiting for it.");
     }
     _controlWork.Stop();
     // Executors go after the control lane has drained so no deferred action can still reference a pack object.
@@ -1907,14 +1915,17 @@ HRESULT PluginHost::RequestAction(const RedXeActionRequest* request) noexcept
 
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_hostActionLock);
-        // Coalesce an identical pending request: a key held down or a repeated dial tick must not stack up.
+        // Coalesce an identical pending request: a key held down or a repeated dial tick must not stack up. The slot
+        // then carries the newest request's time, so a fresh press is not dropped as an old one.
+        const ULONGLONG now = GetTickCount64();
         for (size_t offset = 0; offset < _hostActionCount; ++offset)
         {
-            const HostActionSlot& pending = _hostActions[(_hostActionHead + offset) % kHostActionRingSlots];
+            HostActionSlot& pending = _hostActions[(_hostActionHead + offset) % kHostActionRingSlots];
             if (pending.used && std::strncmp(pending.action.data(), request->actionUtf8, pending.action.size()) == 0 &&
                 strnlen_s(pending.target.data(), pending.target.size()) == targetBytes &&
                 (targetBytes == 0 || std::memcmp(pending.target.data(), request->targetUtf8, targetBytes) == 0))
             {
+                pending.queued = now;
                 return S_FALSE;
             }
         }
@@ -1929,6 +1940,7 @@ HRESULT PluginHost::RequestAction(const RedXeActionRequest* request) noexcept
         {
             std::memcpy(slot.target.data(), request->targetUtf8, targetBytes);
         }
+        slot.queued = now;
         slot.used = true;
         ++_hostActionCount;
     }
@@ -1980,7 +1992,7 @@ HRESULT PluginHost::ExecuteNow(const char* actionUtf8, const char* targetUtf8) n
         }
         if (SUCCEEDED(result))
         {
-            result = HostActions::Execute(*descriptor, target, DeviceAccessEnabled());
+            result = HostActions::Execute(*descriptor, target, DeviceAccessEnabled(), &_launches);
         }
     }
     else
@@ -2044,9 +2056,52 @@ uint32_t PluginHost::PendingHostActionCount() const noexcept
     return static_cast<uint32_t>(_hostActionCount);
 }
 
+HRESULT PluginHost::QueueLaunch(const LaunchWorker::Request& request) noexcept
+{
+    return _shutdown ? E_UNEXPECTED : _launches.Enqueue(request);
+}
+
+bool PluginHost::LaunchWorkerRunning() const noexcept
+{
+    return _launches.Running();
+}
+
+void PluginHost::NotifyLaunchFinished(void* context) noexcept
+{
+    static_cast<PluginHost*>(context)->RequestHostActionDrain();
+}
+
+bool PluginHost::IsExpiredInput(const HostActionSlot& slot, ULONGLONG now) noexcept
+{
+    if (now - slot.queued <= kMaximumQueuedInputAgeMilliseconds)
+    {
+        return false;
+    }
+    const std::string_view action{slot.action.data()};
+    if (action == "keys.up" || action == "mouse.up")
+    {
+        return false;
+    }
+    const std::string_view space = HostActionCatalog::NamespaceOf(action);
+    const RedXeActionDescriptor* descriptor = nullptr;
+    if (HostActionCatalog::IsDefaultNamespace(space))
+    {
+        descriptor = HostActionCatalog::Find(action);
+    }
+    else if (const PublisherSlot* publisher = FindPublisher(space))
+    {
+        // Binding validation reads a publisher's contract; an action whose contract is still unread is not dropped.
+        descriptor = FindPublishedAction(*publisher, action);
+    }
+    return descriptor && (descriptor->flags & RedXeActionFlagInjectsInput) != 0;
+}
+
 void PluginHost::DrainHostActions() noexcept
 {
     _pendingHostActionPost.store(0, std::memory_order_release);
+    _launches.DrainCompletions(Interface());
+    uint32_t expired = 0;
+    std::array<char, kRedXeMaximumActionNameBytes + 1> firstExpired{};
     for (;;)
     {
         HostActionSlot action{};
@@ -2054,7 +2109,7 @@ void PluginHost::DrainHostActions() noexcept
             const auto guard = wil::AcquireSRWLockExclusive(&_hostActionLock);
             if (_hostActionCount == 0)
             {
-                return;
+                break;
             }
             action = _hostActions[_hostActionHead];
             _hostActions[_hostActionHead] = HostActionSlot{};
@@ -2063,12 +2118,32 @@ void PluginHost::DrainHostActions() noexcept
         }
         if (action.used)
         {
-            (void)ExecuteNow(action.action.data(), action.target.data());
+            // Input requested before a stall would land in whatever window is foreground now, not the one the user
+            // pressed it for.
+            if (IsExpiredInput(action, GetTickCount64()))
+            {
+                if (expired++ == 0)
+                {
+                    firstExpired = action.action;
+                }
+            }
+            else
+            {
+                (void)ExecuteNow(action.action.data(), action.target.data());
+            }
             if (_hostActionCompleted)
             {
                 _hostActionCompleted(_hostActionContext);
             }
         }
+    }
+    if (expired != 0)
+    {
+        std::array<char, kRedXeMaximumLogMessageBytes> message{};
+        (void)StringCchPrintfA(message.data(), message.size(),
+                               "%u queued input action(s) waited more than %llu ms and were dropped (first \"%s\").",
+                               expired, kMaximumQueuedInputAgeMilliseconds, firstExpired.data());
+        (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, nullptr, nullptr, "action-expired", message.data());
     }
 }
 

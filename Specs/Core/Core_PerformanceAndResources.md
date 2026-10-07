@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-09-28
+Last reviewed: 2026-10-07
 
 ## Mandate
 
@@ -44,10 +44,20 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   an armed camera route; that route captures only while consumer sample requests maintain a 250-ms demand lease.
 - Named actions (`Specs/Plugins/Plugins_Actions.md`) use one static 16-slot ring drained by one posted message; every
   host-native action and every publisher `Execute` returns within 20 ms on the UI thread without waiting, pumping,
-  or showing UI, and defers longer work to the control lane or the publisher's own device lane through bounded
-  slots. Input injection batches at most 32 `INPUT`s per call and never sleeps; validation maps only the publisher
-  modules a document binds, at the same moment as their settings contracts; between executions a dedicated action
-  DLL owns no thread, timer, window, or hook.
+  or showing UI, and defers longer work to the control lane, the launch worker, or the publisher's own device lane
+  through bounded slots. Input injection batches at most 32 `INPUT`s per call and never sleeps; validation maps only
+  the publisher modules a document binds, at the same moment as their settings contracts; between executions a
+  dedicated action DLL owns no thread, timer, window, or hook.
+- Launches (`system.launch`, `system.open`, `system.run`, `system.taskManager`, and the tray's Edit settings) MUST
+  NOT call `ShellExecuteExW`, `CreateProcessW`, or a file probe on the UI thread, where a target on an offline share
+  froze every frame for about 42 s. They run on one host-owned launch worker (`RedXe/LaunchWorker.*`): a thread
+  created only by the first launch, in a single-threaded COM apartment, with 8 fixed slots of about 3 KiB and two
+  events. Idle, it blocks in one message-aware wait and owns no timer or periodic wake; a full set of slots refuses a
+  launch rather than waiting. Each finished launch posts the existing coalesced host-action message, and the UI
+  thread logs the result. Shutdown waits at most 1000 ms for a launch still in the shell and then retains that
+  thread's storage until process exit instead of joining it.
+- A queued action that injects input and waited more than 1000 ms for the UI thread is dropped, not replayed into
+  whatever window is foreground after the stall; the check is one tick comparison per drained slot.
 - RedXe and plugins must share immutable device resources across compatible widget instances and minimize dynamic
   uploads, state changes, render-target switches, and draw calls without restricting what a GPU widget may render.
 - Derived display state such as DPI, design-canvas transforms, and widget viewports must be cached and recomputed only
@@ -98,8 +108,9 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   and one small-icon `HICON` on the UI thread, with no thread, timer, hook, or periodic wake-up in any state. Shell
   traffic (`Shell_NotifyIconW`) happens only when the icon is added or removed, on `TaskbarCreated`, and on a DPI change
   of the owner; its callbacks, the menu, and the editor launch run only on user interaction, and none of them
-  invalidates a frame. While its menu is open the system's modal menu loop runs on the UI thread and the dashboard
-  presents nothing, like any other modal UI.
+  invalidates a frame. The editor launch, with any Open With picker or shell error box, runs on the launch worker,
+  so the dashboard keeps presenting. While its menu is open the system's modal menu loop runs on the UI thread and the
+  dashboard presents nothing, like any other modal UI.
 - After `Present` reports occlusion, RedXe must stop frame construction, wait for the DXGI factory's registered
   occlusion-status window message, and use `DXGI_PRESENT_TEST` to detect recovery without presenting content.
   Occlusion polling and periodic timers are prohibited.

@@ -1300,6 +1300,26 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
             return 6;
         }
     }
+
+    // A Launcher tile runs redxe.settings.reload and redxe.quit inside its own OnPointer, so neither may release a
+    // widget there: each only posts its message (removed here unprocessed) and returns S_FALSE.
+    {
+        const size_t widgetCount = _pluginManager->WidgetCount();
+        IRedXeWidget* const firstWidget = widgetCount != 0 ? _pluginManager->WidgetAt(0) : nullptr;
+        MSG posted{};
+        const bool deferred = HandleHostAction("redxe.settings.reload", "") == S_FALSE &&
+                              HandleHostAction("redxe.quit", "now") == S_FALSE && _window && _rendererReady &&
+                              _pluginManager->WidgetCount() == widgetCount &&
+                              (widgetCount == 0 || _pluginManager->WidgetAt(0) == firstWidget) &&
+                              PeekMessageW(&posted, _window.get(), SettingsWatcher::kSettingsChangedMessage,
+                                           SettingsWatcher::kSettingsChangedMessage, PM_REMOVE) &&
+                              PeekMessageW(&posted, _window.get(), WM_CLOSE, WM_CLOSE, PM_REMOVE);
+        if (!deferred)
+        {
+            OutputDebugStringW(L"redxe.settings.reload or redxe.quit ran inside the caller instead of being posted.\n");
+            return 6;
+        }
+    }
     return 0;
 }
 
@@ -2754,28 +2774,36 @@ void Application::OnTrayCommand(TrayCommand command) noexcept
 
 // The settings file this process watches (the default file or `--settings`), opened by its default app: the editor
 // the person associated with .json files. Unlike `redxe.settings.edit`, the shell's own UI stays on, so a file type
-// without an association offers the Open With picker and a missing file is reported instead of failing silently. It
-// works while the settings-error dialog is up, which is when the file most needs editing.
+// without an association offers the Open With picker and a missing file is reported instead of failing silently. The
+// host's launch worker runs it, so the picker, an error box, or a file on an unreachable share never stops the
+// dashboard; a failure the worker sees is logged under the same event. It works while the settings-error dialog is up,
+// which is when the file most needs editing.
 void Application::EditSettingsFile() noexcept
 {
     const std::wstring& path = _settingsStore.SettingsPath();
+    const std::wstring& directory = _settingsStore.SettingsDirectory();
     if (path.empty())
     {
         return;
     }
-    // An editor that is already running takes the file over and must be able to come to the front.
-    (void)AllowSetForegroundWindow(ASFW_ANY);
-    SHELLEXECUTEINFOW info{};
-    info.cbSize = sizeof(info);
-    info.lpFile = path.c_str();
-    info.lpDirectory =
-        _settingsStore.SettingsDirectory().empty() ? nullptr : _settingsStore.SettingsDirectory().c_str();
-    info.nShow = SW_SHOWNORMAL;
-    if (!ShellExecuteExW(&info))
+    LaunchWorker::Request request{};
+    request.shellMask = 0;
+    request.failureEvent = "tray-edit-settings-failed";
+    (void)strcpy_s(request.subject.data(), request.subject.size(), "tray Edit settings");
+    // A path longer than a slot (512 characters, well past MAX_PATH) is reported, never truncated.
+    HRESULT result = HRESULT_FROM_WIN32(ERROR_FILENAME_EXCED_RANGE);
+    if (path.size() < request.file.size() && directory.size() < request.directory.size())
+    {
+        (void)wmemcpy(request.file.data(), path.c_str(), path.size());
+        (void)wmemcpy(request.directory.data(), directory.c_str(), directory.size());
+        // An editor that is already running takes the file over and must be able to come to the front.
+        (void)AllowSetForegroundWindow(ASFW_ANY);
+        result = PluginHost::Instance().QueueLaunch(request);
+    }
+    if (FAILED(result))
     {
         (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
-                           "tray-edit-settings-failed", "The settings file could not be opened in its editor.",
-                           HRESULT_FROM_WIN32(GetLastError()));
+                           "tray-edit-settings-failed", "The settings file could not be opened in its editor.", result);
     }
 }
 
@@ -3674,11 +3702,14 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
     }
     if (space == "redxe")
     {
+        // A widget's input callback reaches this through ExecuteAction, and a reload can release that very widget, so
+        // the reload is posted and runs from the message loop once the callback has returned.
         if (verb == "settings.reload")
         {
             _settingsStore.ForgetStamps();
-            OnSettingsChanged();
-            return S_OK;
+            return PostMessageW(_window.get(), SettingsWatcher::kSettingsChangedMessage, 0, 0)
+                       ? S_FALSE
+                       : HRESULT_FROM_WIN32(GetLastError());
         }
         if (verb == "settings.edit" || verb == "logs.open")
         {
@@ -3751,8 +3782,8 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
             {
                 return E_INVALIDARG;
             }
-            CloseMainWindow();
-            return S_OK;
+            // Posted like the reload: closing releases every widget, the calling one included.
+            return PostMessageW(_window.get(), WM_CLOSE, 0, 0) ? S_FALSE : HRESULT_FROM_WIN32(GetLastError());
         }
         if (verb == "dock.show" || verb == "dock.hide" || verb == "dock.toggle")
         {

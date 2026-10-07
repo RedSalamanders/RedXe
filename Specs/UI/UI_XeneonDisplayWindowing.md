@@ -297,9 +297,12 @@ in the Windows notification area for an interactive run. `RedXe/TrayIcon.*` owns
 - A double-click, or Enter or Space on the keyboard-focused icon (`NIN_KEYSELECT`), opens the settings file this
   process watches (the default file or the `--settings` file) with its default app, the editor associated with
   `.json`: `ShellExecuteExW` with the default verb and the shell's UI enabled, so a file type without an association
-  offers the Open With picker and a missing file is reported rather than ignored. An edit within the double-click time
-  of the previous one is dropped, because Enter reports `NIN_KEYSELECT` twice (`TrayIconActionFor`). Unlike the
-  `redxe.settings.edit` action, this works while the settings-error dialog is open, when the file most needs editing.
+  offers the Open With picker and a missing file is reported rather than ignored. The call runs on the host's launch
+  worker (`Specs/Plugins/Plugins_Actions.md` "Launch worker"), never on the UI thread: the picker, a shell error box,
+  or a `--settings` file on an unreachable share MUST NOT stop the dashboard from presenting. An edit within the
+  double-click time of the previous one is dropped, because Enter reports `NIN_KEYSELECT` twice
+  (`TrayIconActionFor`). Unlike the `redxe.settings.edit` action, this works while the settings-error dialog is open,
+  when the file most needs editing.
 - The context-menu request (right-click, Shift+F10, or the menu key: `WM_CONTEXTMENU` at the shell's anchor point)
   opens a menu with **Edit settings**, the default item drawn bold and the same as a double-click, and **Exit**, which
   closes RedXe like `WM_CLOSE`. The owner is foregrounded before the menu and posts itself `WM_NULL` after it. The menu
@@ -312,7 +315,8 @@ in the Windows notification area for an interactive run. `RedXe/TrayIcon.*` owns
   never shows it, whatever the document says; a `--screenshot` run shows it like any interactive run. The
   fatal-process path does not call the shell, so after a crash the icon remains until the pointer passes over it.
 - A failure to create the owner or to add the icon is one Warning record (`tray-icon-failed`), and a failed launch of
-  the editor one Warning record (`tray-edit-settings-failed`); neither affects the dashboard.
+  the editor (refused by the launch worker, or failed in the shell there) one Warning record
+  (`tray-edit-settings-failed`); neither affects the dashboard.
 
 ## Windows shell identity
 
@@ -503,7 +507,7 @@ none.
   `SettleDockSlide`, and `DashboardHost::SetSlideOffset`
 - Notification-area icon: `RedXe/TrayIcon.h` (the owner window, the icon, the menu, and the `TrayIconActionFor`
   callback table), `RedXe/TrayIcon.cpp`; its lifetime and commands: `Application::ApplyTrayIconSettings`,
-  `OnTrayCommand`, and `EditSettingsFile`
+  `OnTrayCommand`, and `EditSettingsFile`, which hands the editor launch to `RedXe/LaunchWorker.*`
 - Physical render-target resizing: `RedXe/Renderer.cpp`, `RedXe/Renderer.h`
 - Automated build, scheduler, production host/plugin, and hidden WARP validation: `build.ps1`, `test.ps1`,
   `Tests/HostPluginTests/`

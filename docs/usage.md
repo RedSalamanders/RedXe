@@ -71,7 +71,7 @@ If RedXe stopped after a crash, the next normal launch may offer to open the loc
 
 The Release build puts the RedXe icon in the notification area of the taskbar (the system tray). Windows may first put it among the hidden icons behind the **^** arrow; drag it onto the taskbar, or turn it on under **Settings > Personalization > Taskbar**, to keep it in view. The Debug build shows it only when you ask for it.
 
-- **Double-click** the icon (or select it with the keyboard and press **Enter**) to open the settings file RedXe is using in your default editor for `.json` files. If no app is associated with `.json` yet, Windows asks which one to use. It works while the settings-error dialog is open, which is when you most need the file.
+- **Double-click** the icon (or select it with the keyboard and press **Enter**) to open the settings file RedXe is using in your default editor for `.json` files. If no app is associated with `.json` yet, Windows asks which one to use; the dashboard keeps running while it asks. It works while the settings-error dialog is open, which is when you most need the file.
 - **Right-click** it (or press **Shift+F10** on it) for the menu: **Edit settings** does the same as a double-click; **Exit** closes RedXe.
 
 Turn it on or off with `trayIcon` in the settings file; the change applies when you save:

@@ -6,9 +6,9 @@
 
 #include <algorithm>
 #include <climits>
+#include <cstdio>
 #include <cstring>
 #include <powrprof.h>
-#include <shellapi.h>
 
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027 28182)
@@ -274,91 +274,73 @@ void ExpireHeld() noexcept
     return Inject(inputs.data(), 2, deviceAccess);
 }
 
-[[nodiscard]] HRESULT Launch(std::string_view target, bool deviceAccess) noexcept
+// Hands a validated, counted launch to the launch worker; S_FALSE once it is queued.
+[[nodiscard]] HRESULT QueueLaunch(LaunchWorker::Request& request, std::string_view verb,
+                                  LaunchWorker* launches) noexcept
 {
-    std::array<wchar_t, kRedXeMaximumActionTargetBytes + 1> wide{};
-    if (!IsPathOrUri(target) || !Utf8ToWide(target, wide.data(), static_cast<int>(wide.size())))
+    if (!launches)
+    {
+        return E_NOT_VALID_STATE;
+    }
+    (void)_snprintf_s(request.subject.data(), request.subject.size(), _TRUNCATE, "action \"system.%.*s\"",
+                      static_cast<int>(verb.size()), verb.data());
+    const HRESULT queued = launches->Enqueue(request);
+    return SUCCEEDED(queued) ? S_FALSE : queued;
+}
+
+[[nodiscard]] HRESULT Launch(std::string_view verb, std::string_view target, bool deviceAccess,
+                             LaunchWorker* launches) noexcept
+{
+    LaunchWorker::Request request{};
+    if (!IsPathOrUri(target) || !Utf8ToWide(target, request.file.data(), static_cast<int>(request.file.size())))
     {
         return E_INVALIDARG;
     }
     ++g_counters.launches;
     if (!deviceAccess)
     {
-        return S_OK;
+        return S_FALSE;
     }
-    SHELLEXECUTEINFOW info{};
-    info.cbSize = sizeof(info);
-    info.fMask = SEE_MASK_FLAG_NO_UI;
-    info.lpFile = wide.data();
-    info.nShow = SW_SHOWNORMAL;
-    // A file launches with its own directory as working directory, as Launcher always did.
-    std::array<wchar_t, kRedXeMaximumActionTargetBytes + 1> directory{};
-    if (IsAbsolutePath(target))
-    {
-        const DWORD attributes = GetFileAttributesW(wide.data());
-        if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
-        {
-            wcscpy_s(directory.data(), directory.size(), wide.data());
-            wchar_t* slash = wcsrchr(directory.data(), L'\\');
-            if (!slash)
-            {
-                slash = wcsrchr(directory.data(), L'/');
-            }
-            if (slash)
-            {
-                *slash = L'\0';
-                info.lpDirectory = directory.data();
-            }
-        }
-    }
-    if (!ShellExecuteExW(&info))
-    {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    return S_OK;
+    // A file launches with its own directory as working directory, as Launcher always did; the worker probes it.
+    request.fileFolder = IsAbsolutePath(target);
+    return QueueLaunch(request, verb, launches);
 }
 
-[[nodiscard]] HRESULT Run(std::string_view target, bool deviceAccess) noexcept
+[[nodiscard]] HRESULT Run(std::string_view verb, std::string_view target, bool deviceAccess,
+                          LaunchWorker* launches) noexcept
 {
     CommandLine parsed{};
     if (!ParseCommandLine(target, parsed))
     {
         return E_INVALIDARG;
     }
-    std::array<wchar_t, kRedXeMaximumActionTargetBytes + 1> executable{};
-    std::array<wchar_t, kRedXeMaximumActionTargetBytes + 4> commandLine{};
+    LaunchWorker::Request request{};
+    request.kind = LaunchWorker::Kind::Process;
     std::array<wchar_t, kRedXeMaximumActionTargetBytes + 1> arguments{};
-    if (!Utf8ToWide(parsed.executable, executable.data(), static_cast<int>(executable.size())) ||
+    if (!Utf8ToWide(parsed.executable, request.file.data(), static_cast<int>(request.file.size())) ||
         !Utf8ToWide(parsed.arguments, arguments.data(), static_cast<int>(arguments.size())))
     {
         return E_INVALIDARG;
     }
     // CreateProcessW wants the executable quoted in the mutable command line so a path with spaces stays one token.
-    swprintf_s(commandLine.data(), commandLine.size(), L"\"%s\"%s%s", executable.data(),
+    swprintf_s(request.commandLine.data(), request.commandLine.size(), L"\"%s\"%s%s", request.file.data(),
                arguments[0] != L'\0' ? L" " : L"", arguments.data());
-    std::array<wchar_t, kRedXeMaximumActionTargetBytes + 1> directory{};
-    wcscpy_s(directory.data(), directory.size(), executable.data());
-    wchar_t* slash = wcsrchr(directory.data(), L'\\');
+    request.directory = request.file;
+    wchar_t* slash = wcsrchr(request.directory.data(), L'\\');
     if (slash)
     {
         *slash = L'\0';
     }
+    else
+    {
+        request.directory[0] = L'\0';
+    }
     ++g_counters.processes;
     if (!deviceAccess)
     {
-        return S_OK;
+        return S_FALSE;
     }
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    PROCESS_INFORMATION process{};
-    if (!CreateProcessW(executable.data(), commandLine.data(), nullptr, nullptr, FALSE, CREATE_DEFAULT_ERROR_MODE,
-                        nullptr, slash ? directory.data() : nullptr, &startup, &process))
-    {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
-    return S_OK;
+    return QueueLaunch(request, verb, launches);
 }
 
 [[nodiscard]] HRESULT EnableShutdownPrivilege() noexcept
@@ -531,29 +513,24 @@ void ExpireHeld() noexcept
     return S_OK;
 }
 
-[[nodiscard]] HRESULT LaunchTaskManager(bool deviceAccess) noexcept
+[[nodiscard]] HRESULT LaunchTaskManager(std::string_view verb, bool deviceAccess, LaunchWorker* launches) noexcept
 {
-    std::array<wchar_t, MAX_PATH> path{};
-    const UINT length = GetSystemDirectoryW(path.data(), static_cast<UINT>(path.size()));
-    if (length == 0 || length >= path.size())
+    LaunchWorker::Request request{};
+    const UINT length = GetSystemDirectoryW(request.file.data(), static_cast<UINT>(request.file.size()));
+    if (length == 0 || length >= request.file.size())
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    if (wcscat_s(path.data(), path.size(), L"\\Taskmgr.exe") != 0)
+    if (wcscat_s(request.file.data(), request.file.size(), L"\\Taskmgr.exe") != 0)
     {
         return E_FAIL;
     }
     ++g_counters.launches;
     if (!deviceAccess)
     {
-        return S_OK;
+        return S_FALSE;
     }
-    SHELLEXECUTEINFOW info{};
-    info.cbSize = sizeof(info);
-    info.fMask = SEE_MASK_FLAG_NO_UI;
-    info.lpFile = path.data();
-    info.nShow = SW_SHOWNORMAL;
-    return ShellExecuteExW(&info) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+    return QueueLaunch(request, verb, launches);
 }
 
 [[nodiscard]] HRESULT SwitchLayout(std::string_view target, bool deviceAccess) noexcept
@@ -870,15 +847,16 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     return result;
 }
 
-[[nodiscard]] HRESULT ExecuteSystem(std::string_view verb, std::string_view target, bool deviceAccess) noexcept
+[[nodiscard]] HRESULT ExecuteSystem(std::string_view verb, std::string_view target, bool deviceAccess,
+                                    LaunchWorker* launches) noexcept
 {
     if (verb == "launch" || verb == "open")
     {
-        return Launch(target, deviceAccess);
+        return Launch(verb, target, deviceAccess, launches);
     }
     if (verb == "run")
     {
-        return Run(target, deviceAccess);
+        return Run(verb, target, deviceAccess, launches);
     }
     if (verb == "lock")
     {
@@ -934,7 +912,7 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     }
     if (verb == "taskManager")
     {
-        return LaunchTaskManager(deviceAccess);
+        return LaunchTaskManager(verb, deviceAccess, launches);
     }
     return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
@@ -1076,7 +1054,8 @@ void OnHeldTimer() noexcept
     ExpireHeld();
 }
 
-HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target, bool deviceAccess) noexcept
+HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target, bool deviceAccess,
+                LaunchWorker* launches) noexcept
 {
     if (descriptor.sizeBytes != sizeof(RedXeActionDescriptor) || !descriptor.name)
     {
@@ -1091,7 +1070,7 @@ HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target
     CountExecution(descriptor);
     if (space == "system")
     {
-        return ExecuteSystem(verb, target, deviceAccess);
+        return ExecuteSystem(verb, target, deviceAccess, launches);
     }
     if (space == "keys")
     {

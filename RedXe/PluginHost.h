@@ -2,6 +2,7 @@
 
 #include "BundledPlugins.h"
 #include "ControlWorkQueue.h"
+#include "LaunchWorker.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Service.h"
@@ -23,10 +24,10 @@
 #pragma warning(pop)
 
 // One process-scoped plugin runtime. It owns every mapped plugin module, every host data provider and plugin data
-// source, the single local acquisition worker, the optional serial network worker, the JSONL diagnostic writer, and
-// subscription drain lifetime. PluginManager instances borrow it through Instance() so that staging an adjacent
-// dashboard page reuses the already-mapped modules, the already-created data sources, and the already-running workers
-// instead of building a second runtime beside them.
+// source, the single local acquisition worker, the optional serial network worker, the lazy launch worker, the JSONL
+// diagnostic writer, and subscription drain lifetime. PluginManager instances borrow it through Instance() so that
+// staging an adjacent dashboard page reuses the already-mapped modules, the already-created data sources, and the
+// already-running workers instead of building a second runtime beside them.
 class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
 {
   public:
@@ -56,8 +57,13 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     PluginHost& operator=(PluginHost&&) = delete;
 
     static constexpr UINT kDataSnapshotInvalidateMessage = WM_APP + 3;
-    // Posted once per batch of queued host actions; the UI thread drains them with DrainHostActions.
+    // Posted once per batch of queued host actions or finished launches; the UI thread drains both with
+    // DrainHostActions.
     static constexpr UINT kHostActionMessage = WM_APP + 5;
+    // A queued action that injects input (RedXeActionFlagInjectsInput) and waited longer than this for the UI thread
+    // is dropped instead of landing in whatever window is foreground by then; keys.up and mouse.up, which only end a
+    // hold, are exempt.
+    static constexpr ULONGLONG kMaximumQueuedInputAgeMilliseconds = 1000;
 
     [[nodiscard]] IRedXeHost* Interface() noexcept;
     [[nodiscard]] HRESULT GetPluginModule(const char* pluginId, uint32_t requiredCapabilities,
@@ -86,9 +92,17 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     using HostActionHandler = HRESULT (*)(void* context, const char* actionUtf8, const char* targetUtf8) noexcept;
     using HostActionCompleted = void (*)(void* context) noexcept;
     void SetHostActionHandler(HostActionHandler handler, HostActionCompleted completed, void* context) noexcept;
-    // UI thread: executes every queued action in submission order, outside any lock.
+    // UI thread: logs every finished launch, then executes every queued action in submission order, outside any lock.
+    // An expired input action is dropped (kMaximumQueuedInputAgeMilliseconds) and one action-expired Warning per
+    // drain counts the drops.
     void DrainHostActions() noexcept;
     [[nodiscard]] uint32_t PendingHostActionCount() const noexcept;
+    // UI thread: hands one launch to the host's launch worker (LaunchWorker.h), which performs it off the UI thread;
+    // the next drain logs its result. S_OK when queued, ERROR_BUSY when its slots are full, E_UNEXPECTED after
+    // shutdown. System actions reach the same worker through HostActions.
+    [[nodiscard]] HRESULT QueueLaunch(const LaunchWorker::Request& request) noexcept;
+    // True while the launch worker's thread exists, including one still finishing a launch after shutdown.
+    [[nodiscard]] bool LaunchWorkerRunning() const noexcept;
 
     // Action publishers (Action.h): the namespace registry in BundledPlugins.h resolved against the contracts of
     // mapped modules. A collision, an unregistered namespace, a registered plugin that does not publish its
@@ -284,6 +298,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     {
         std::array<char, kRedXeMaximumActionNameBytes + 1> action{};
         std::array<char, kRedXeMaximumActionTargetBytes + 1> target{};
+        // GetTickCount64 of the latest request, refreshed when an identical request coalesces into this slot.
+        ULONGLONG queued = 0;
         bool used = false;
     };
 
@@ -332,6 +348,10 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     void PurgeExpiredLogs() noexcept;
     [[nodiscard]] HRESULT EnqueueLogLine(const char* line, uint32_t bytes) noexcept;
     void RequestHostActionDrain() noexcept;
+    // The launch worker's completion callback (any thread): posts the coalesced host-action message.
+    static void NotifyLaunchFinished(void* context) noexcept;
+    // True when a queued slot is older than kMaximumQueuedInputAgeMilliseconds at `now` and its action injects input.
+    [[nodiscard]] bool IsExpiredInput(const HostActionSlot& slot, ULONGLONG now) noexcept;
     // Executes one action now on the UI thread: application namespaces through the handler, system/keys/mouse
     // through HostActions, published namespaces through their executor. Logs a Debug line on failure.
     [[nodiscard]] HRESULT ExecuteNow(const char* actionUtf8, const char* targetUtf8) noexcept;
@@ -400,6 +420,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     HostActionHandler _hostActionHandler = nullptr;
     HostActionCompleted _hostActionCompleted = nullptr;
     void* _hostActionContext = nullptr;
+    // Declared after the members its completion callback posts through, so it is destroyed (joined) before them.
+    LaunchWorker _launches{&PluginHost::NotifyLaunchFinished, this};
     std::array<PublisherSlot, kRedXeBundledActionNamespaces.size()> _publishers;
     std::array<ActionNotice, kMaximumActionNotices> _actionNotices{};
     uint32_t _actionNoticeGeneration = 0;
