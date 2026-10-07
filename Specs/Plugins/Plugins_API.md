@@ -420,10 +420,13 @@ the shipped ones; both also publish an action namespace (`Plugins_Actions.md`).
   before returning, and it MUST NOT replace another user's process-wide registration (today only Logicon registers
   `usage page 1 / usage 2`, and only while its dialpad is connected). The service MAY signal `wakeEvent`
   from any thread while the call runs and MUST NOT touch either handle after it returns. `StopDeviceLane` signals
-  `stopEvent`, waits `kRedXeDeviceWorkerDrainMilliseconds` (3000) for the thread, joins it, and closes the events; at
-  a session end the lanes together wait only for what is left of its deadline (`PluginHost::StopServices` with a
-  budget; `Specs/UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle"), never more than that bound per
-  lane. An overrun logs `device-lane-drain-timeout` once and tombstones the service slot: the thread stays joinable
+  `stopEvent`, waits `kRedXeDeviceWorkerDrainMilliseconds` (3000) for the thread, joins it, and closes the events.
+  `PluginHost::StopServices` signals every lane's `stopEvent` before it waits for the first, so the lanes drain
+  together and a lane stuck past its bound never delays the stop signal of a responsive lane it stops after; at a
+  session end the lanes together wait only for what is left of its deadline (`StopServices` with a budget;
+  `Specs/UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle"), never more than that bound per lane, so
+  a lane waited for after a stuck one gets only what the stuck one left, by when a responsive lane has returned. An
+  overrun logs `device-lane-drain-timeout` once and tombstones the service slot: the thread stays joinable
   and its COM service, worker, module, host, settings, and event handles remain live until `RunDeviceWork` returns. A
   tombstoned slot cannot start a second lane: while it lasts, `StartServices` and `ApplyServiceSettings` return
   `ERROR_BUSY` for it and, when the document configures that service, log `service-start-deferred` (Warning) once
@@ -1518,7 +1521,9 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     lane's return posts `kServiceLaneMessage` and the next apply reaps the slot, and a shutdown with the lane still
     stuck returns with `device-lane-drain-timeout` already in the log file (a test gate holds the writer until a
     flush releases it) while a second shutdown does not flush again, and it still stops the launch worker: a queued
-    launch never starts and one in the shell logs `launch-stop-timeout` (`TestLaunchWorker`). `SettingsTests` MUST cover the `services`
+    launch never starts and one in the shell logs `launch-stop-timeout` (`TestLaunchWorker`); and under a session-end
+    budget a responsive lane stopped after a stuck one still drains and runs `Stop`, and only the stuck one logs
+    `device-lane-drain-timeout` (`TestSessionEndDeadline`). `SettingsTests` MUST cover the `services`
     grammar and rejections and both templates' Logicon and Zoom objects. Plugins_Logicon.md owns the protocol and
     face vectors.
 

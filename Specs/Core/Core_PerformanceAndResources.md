@@ -58,7 +58,7 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   drop queued launches and wait at most 1000 ms (a session end only what is left of its deadline), once per process,
   for a launch still in the shell, and then retain that thread's storage until process exit instead of joining it; a
   later stop (the shutdown after a session end, or the process runtime's second shutdown) only checks whether the
-  thread has exited.
+  thread has exited, unless the earlier wait was zero and found no launch, when it waits for the exiting thread again.
 - A queued action that injects input and waited more than 1000 ms for the UI thread is dropped, not replayed into
   whatever window is foreground after the stall; the check is one tick comparison per drained slot.
 - RedXe and plugins must share immutable device resources across compatible widget instances and minimize dynamic

@@ -324,9 +324,13 @@ through them `redxe.settings.edit`, `redxe.logs.open`, `zoom.open`, and `zoom.jo
   before its log flush, because Windows may end the process before `Shutdown` runs
   (`Specs/UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle"); there it waits only for what is left of
   the session-end deadline before the flush's reserve, never more than the bound, and not at all when nothing is left
-  (the launch is then logged as `launch-stop-timeout` at once). The bound is waited once and the record
-  logged once: a later stop (the shutdown after a session end, or the process runtime's second shutdown at static
-  destruction) only checks whether the thread has exited.
+  (a launch in progress is then logged as `launch-stop-timeout` at once). The record covers only a launch still in
+  progress when the wait runs out (a `Running` slot, which the worker can no longer enter once the stop event is set,
+  because it reads that event under the slot lock): an idle worker that a zero wait gave no time to exit is no launch
+  and logs nothing. The bound is waited once and the record logged once: after a wait that ran out on a launch, or
+  any wait above zero that ran out, a later stop (the shutdown after a session end, or the process runtime's second
+  shutdown at static destruction) only checks whether the thread has exited; after a zero wait that found no launch,
+  the later stop waits for the exiting thread again and joins it.
 
 ### Automated hosts and counters
 
@@ -416,7 +420,8 @@ distinct failure.
   `launch-stop-timeout` that the shutdown after it neither waits for nor logs again; and the real `ShellExecuteExW` on
   a file that does not exist (nothing starts) logs `launch-failed` with `0x80070002`. `TestSessionEndDeadline`: under
   one session-end deadline, a launch stuck in the shell after a stuck device lane used the time before the flush's
-  reserve is not waited for and is still logged as `launch-stop-timeout` before the deadline.
+  reserve is waited for only with what is left and is still logged as `launch-stop-timeout`; and a zero-wait stop of
+  an idle worker logs no `launch-stop-timeout`, the thread exits by itself, and the shutdown after it joins it.
 - `SettingsTests`: document-level acceptance of both templates' bindings (`page.*`, `widget.*`, `keys.media`, dialpad
   `turns`; in Debug also `logicon.keyPage.*`, `logicon.brightness`, and `zoom.open`) and of the `builtin.zoom`
   service object, rejection of unknown names, unknown default verbs, `iconPng`, and a non-launch Launcher item

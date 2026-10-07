@@ -570,9 +570,10 @@ void PluginHost::Shutdown() noexcept
 void PluginHost::StopLaunches(uint32_t timeoutMilliseconds) noexcept
 {
     // One launch blocked in the shell (an offline share) gets a bounded wait, once (LaunchWorker::Stop); after that it
-    // keeps only the launch worker's own slots. Only the first wait that runs out reports it: a later stop (Shutdown
-    // after a session end, or the deleter's second shutdown) finds the same launch still stuck.
-    if (!_launches.Stop(timeoutMilliseconds) && !_launchStopReported)
+    // keeps only the launch worker's own slots. Only the first wait that runs out on it reports it: a later stop
+    // (Shutdown after a session end, or the deleter's second shutdown) finds the same launch still stuck. An idle
+    // worker that a zero wait (a spent session-end deadline) gave no time to exit is no launch and is not reported.
+    if (_launches.Stop(timeoutMilliseconds) == LaunchWorker::StopResult::LaunchInProgress && !_launchStopReported)
     {
         _launchStopReported = true;
         (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, nullptr, nullptr, "launch-stop-timeout",
@@ -2574,8 +2575,17 @@ void PluginHost::PublishHostState(const RedXeHostState& state) noexcept
 
 void PluginHost::StopServices(uint32_t budgetMilliseconds) noexcept
 {
-    // Every lane gets its own drain bound; a budget (a session end's remaining deadline) also bounds them together, so
-    // a lane after one that used its whole bound waits only for what is left.
+    // Every lane is signalled before the first wait, so the lanes drain together: a lane stuck past its bound never
+    // holds back the stop signal of a responsive lane after it. Each lane's wait then gets its own drain bound; a
+    // budget (a session end's remaining deadline) also bounds the waits together, so a lane after one that used the
+    // budget is waited for only with what is left, by when a responsive lane has already returned.
+    for (ServiceSlot& slot : _services)
+    {
+        if (slot.lane.joinable() && slot.stopEvent)
+        {
+            SetEvent(slot.stopEvent.get());
+        }
+    }
     const bool budgeted = budgetMilliseconds != INFINITE;
     const ULONGLONG deadline = budgeted ? GetTickCount64() + budgetMilliseconds : 0;
     for (size_t index = _services.size(); index > 0; --index)

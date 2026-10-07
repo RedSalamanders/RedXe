@@ -71,6 +71,8 @@ struct PluginHostTestAccess final
         wil::unique_event_nothrow release;
         std::atomic<uint32_t> stopped{0};
         std::atomic<uint32_t> destroyed{0};
+        // A responsive lane: RunDeviceWork also returns when the host signals its stopEvent.
+        bool honorStop = false;
     };
 
     class StalledService final : public RedXeComObject<StalledService, IRedXeService, IRedXeDeviceWorker>
@@ -98,9 +100,17 @@ struct PluginHostTestAccess final
             ++_probe.stopped;
             return S_OK;
         }
-        HRESULT STDMETHODCALLTYPE RunDeviceWork(HANDLE, HANDLE) noexcept override
+        HRESULT STDMETHODCALLTYPE RunDeviceWork(HANDLE stopEvent, HANDLE) noexcept override
         {
             (void)SetEvent(_probe.entered.get());
+            if (_probe.honorStop)
+            {
+                const std::array<HANDLE, 2> events{stopEvent, _probe.release.get()};
+                return WaitForMultipleObjects(static_cast<DWORD>(events.size()), events.data(), FALSE, 10'000) <
+                               WAIT_OBJECT_0 + events.size()
+                           ? S_OK
+                           : E_FAIL;
+            }
             return WaitForSingleObject(_probe.release.get(), 10'000) == WAIT_OBJECT_0 ? S_OK : E_FAIL;
         }
 
@@ -108,17 +118,18 @@ struct PluginHostTestAccess final
         StallProbe& _probe;
     };
 
-    // Gives the first service slot of `host` a started stalled service whose lane is inside RunDeviceWork.
-    [[nodiscard]] static bool StartStalledLane(PluginHost& host, StallProbe& probe) noexcept
+    // Gives service slot `index` of `host` (the first by default) a started stalled service whose lane is inside
+    // RunDeviceWork.
+    [[nodiscard]] static bool StartStalledLane(PluginHost& host, StallProbe& probe, size_t index = 0) noexcept
     {
         probe.entered.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
         probe.release.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
-        if (!probe.entered || !probe.release)
+        if (!probe.entered || !probe.release || index >= host._services.size())
         {
             return false;
         }
-        auto& slot = host._services[0];
-        slot.spec = &kRedXeBundledServices[0];
+        auto& slot = host._services[index];
+        slot.spec = &kRedXeBundledServices[index];
         slot.service.attach(new (std::nothrow) StalledService(probe));
         if (!slot.service || FAILED(slot.service.query_to(slot.worker.put())))
         {
@@ -5392,9 +5403,13 @@ void TestSessionEndDeadline(bool& success) noexcept
           L"a teardown stage gets its own bound, cut to what is left before the later stages' reserve", success);
 
     // The whole sequence against that deadline: what ran before the waits (widget collection, shell calls) shortens
-    // them, a device lane stuck past its drain bound and a launch stuck in the shell each wait only for what is left,
-    // and the log flush keeps its reserve, so the sequence ends inside the deadline with both timeouts written out.
-    // The deadline here is shorter than either stage's own bound (3 s, 1 s), so only the shared deadline can hold it.
+    // them; the device lanes are all signalled first and drain together, so a stuck lane uses the lane budget while a
+    // responsive lane stopped after it has already returned; a launch stuck in the shell waits only for what is left;
+    // and the log flush keeps its reserve. The deadline here is shorter than either stage's own bound (3 s, 1 s), so
+    // only the shared deadline can hold it. The checks are on the budget each stage is handed and on the waits timed
+    // around its blocking call, with scheduling margins as in TestLaunchWorker (a wait can end a timer tick early, and
+    // late on a loaded runner). The flush itself is not timed: FlushLog's timeout bounds a hung writer and is not a
+    // latency budget for the disk, so the log is read after a 10 s hang guard instead of the budget the flush gets.
     LaunchProbe probe;
     probe.entered.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
     probe.release.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
@@ -5404,7 +5419,11 @@ void TestSessionEndDeadline(bool& success) noexcept
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() /
         (L"RedXe.SessionEndTests." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()));
-    std::filesystem::create_directories(root, error);
+    std::filesystem::create_directories(root / L"deadline", error);
+    if (!error)
+    {
+        std::filesystem::create_directories(root / L"idle", error);
+    }
     const auto cleanup = wil::scope_exit(
         [&]() noexcept
         {
@@ -5427,55 +5446,116 @@ void TestSessionEndDeadline(bool& success) noexcept
     constexpr uint32_t deadlineMilliseconds = 2'000;
     constexpr uint32_t flushReserveMilliseconds = 800;
     static_assert(deadlineMilliseconds < kRedXeDeviceWorkerDrainMilliseconds);
-    PluginHostTestAccess::StallProbe stall;
-    const std::unique_ptr<PluginHost> owned{new (std::nothrow) PluginHost};
-    if (!owned)
-    {
-        Check(false, L"the session-deadline host can be allocated", success);
-        return;
-    }
-    PluginHost& host = *owned;
-    // Device access stays enabled, as in TestLaunchWorker: without it a launch is only counted, never queued.
-    Check(SUCCEEDED(host.SetLogDirectory(root.c_str())), L"the session-deadline host logs", success);
-    host.SetUiInvalidateTarget(window.get());
-    PluginHostTestAccess::SetLaunchProbe(host, &ProbeLaunch);
     RedXeActionRequest request{};
     request.sizeBytes = sizeof(request);
     request.actionUtf8 = "system.launch";
-    request.targetUtf8 = "C:\\RedXe-launch-test\\ok0";
-    const bool started =
-        host.ExecuteAction(&request) == S_FALSE && WaitForSingleObject(probe.entered.get(), 5'000) == WAIT_OBJECT_0;
-    const bool stalled = PluginHostTestAccess::StartStalledLane(host, stall);
+    {
+        PluginHostTestAccess::StallProbe stuck;
+        PluginHostTestAccess::StallProbe responsive;
+        responsive.honorStop = true;
+        const std::unique_ptr<PluginHost> owned{new (std::nothrow) PluginHost};
+        if (!owned)
+        {
+            Check(false, L"the session-deadline host can be allocated", success);
+            return;
+        }
+        PluginHost& host = *owned;
+        // Let go before the host's destructor joins the launch worker and the stuck lane.
+        const auto release = wil::scope_exit(
+            [&]() noexcept
+            {
+                (void)SetEvent(probe.release.get());
+                (void)SetEvent(stuck.release.get());
+                (void)SetEvent(responsive.release.get());
+            });
+        // Device access stays enabled, as in TestLaunchWorker: without it a launch is only counted, never queued.
+        Check(SUCCEEDED(host.SetLogDirectory((root / L"deadline").c_str())), L"the session-deadline host logs",
+              success);
+        host.SetUiInvalidateTarget(window.get());
+        PluginHostTestAccess::SetLaunchProbe(host, &ProbeLaunch);
+        request.targetUtf8 = "C:\\RedXe-launch-test\\ok0";
+        const bool started =
+            host.ExecuteAction(&request) == S_FALSE && WaitForSingleObject(probe.entered.get(), 5'000) == WAIT_OBJECT_0;
+        // StopServices goes through the slots in reverse, so the stuck lane in the last slot is waited for first.
+        const bool stalled = PluginHostTestAccess::StartStalledLane(host, responsive, 0) &&
+                             PluginHostTestAccess::StartStalledLane(host, stuck, kRedXeBundledServices.size() - 1);
 
-    const ULONGLONG start = GetTickCount64();
-    const ULONGLONG deadline = start + deadlineMilliseconds;
-    Sleep(200);
-    const uint32_t laneBudget = PluginHost::TeardownStageMilliseconds(GetTickCount64(), deadline,
-                                                                      flushReserveMilliseconds, deadlineMilliseconds);
-    ULONGLONG stage = GetTickCount64();
-    host.StopServices(laneBudget);
-    const ULONGLONG laneWaited = GetTickCount64() - stage;
-    const uint32_t launchBudget = PluginHost::TeardownStageMilliseconds(
-        GetTickCount64(), deadline, flushReserveMilliseconds, LaunchWorker::kStopMilliseconds);
-    stage = GetTickCount64();
-    host.StopLaunches(launchBudget);
-    const ULONGLONG launchWaited = GetTickCount64() - stage;
-    const bool flushed = SUCCEEDED(
-        host.FlushLog(PluginHost::TeardownStageMilliseconds(GetTickCount64(), deadline, 0, deadlineMilliseconds)));
-    const ULONGLONG elapsed = GetTickCount64() - start;
-    const std::string log = ReadTodayLog(root);
-    const bool laneKept = host.RunningDeviceWorkerCount() == 1;
+        const ULONGLONG start = GetTickCount64();
+        const ULONGLONG deadline = start + deadlineMilliseconds;
+        Sleep(200);
+        const uint32_t laneBudget = PluginHost::TeardownStageMilliseconds(
+            GetTickCount64(), deadline, flushReserveMilliseconds, deadlineMilliseconds);
+        ULONGLONG stage = GetTickCount64();
+        host.StopServices(laneBudget);
+        const ULONGLONG laneWaited = GetTickCount64() - stage;
+        const uint32_t launchBudget = PluginHost::TeardownStageMilliseconds(
+            GetTickCount64(), deadline, flushReserveMilliseconds, LaunchWorker::kStopMilliseconds);
+        stage = GetTickCount64();
+        host.StopLaunches(launchBudget);
+        const ULONGLONG launchWaited = GetTickCount64() - stage;
+        // What OnEndSession would hand the flush, and the time spent up to it.
+        const ULONGLONG beforeFlush = GetTickCount64();
+        const uint32_t flushBudget =
+            PluginHost::TeardownStageMilliseconds(beforeFlush, deadline, 0, deadlineMilliseconds);
+        const ULONGLONG elapsed = beforeFlush - start;
+        const bool flushed = SUCCEEDED(host.FlushLog(10'000));
+        const std::string log = ReadTodayLog(root / L"deadline");
+        const bool lanes = host.RunningDeviceWorkerCount() == 1 && responsive.stopped.load() == 1 &&
+                           responsive.destroyed.load() == 1 && stuck.stopped.load() == 0;
+        (void)SetEvent(probe.release.get());
+        const bool exited = WaitForSingleObject(PluginHostTestAccess::LaunchThread(host), 5'000) == WAIT_OBJECT_0;
 
-    (void)SetEvent(probe.release.get());
-    (void)SetEvent(stall.release.get());
-    const bool exited = WaitForSingleObject(PluginHostTestAccess::LaunchThread(host), 5'000) == WAIT_OBJECT_0;
-    Check(started && stalled && laneKept && exited && laneBudget > 0 && laneWaited + 32 >= laneBudget &&
-              laneWaited < laneBudget + 500 && launchBudget < 100 && launchWaited < launchBudget + 200 &&
-              elapsed <= deadlineMilliseconds + 100,
-          L"a stuck lane and a stuck launch wait only for what is left of one session-end deadline", success);
-    Check(flushed && CountText(log, "\"event\":\"device-lane-drain-timeout\"") == 1 &&
-              CountText(log, "\"event\":\"launch-stop-timeout\"") == 1,
-          L"the flush keeps its reserve and writes both timeouts out before the deadline", success);
+        Check(started && stalled && laneBudget > 0 && laneWaited + 100 >= laneBudget && laneWaited < laneBudget + 2'000,
+              L"the device lanes together wait the lane budget, cut to what is left before the flush's reserve",
+              success);
+        Check(lanes && CountText(log, "\"event\":\"device-lane-drain-timeout\"") == 1 &&
+                  CountText(log, "\"event\":\"service-stopped\"") == 1,
+              L"a responsive lane stopped after a stuck one drains within that budget; only the stuck one times out",
+              success);
+        Check(exited && launchBudget < LaunchWorker::kStopMilliseconds / 2 && launchWaited < launchBudget + 500 &&
+                  CountText(log, "\"event\":\"launch-stop-timeout\"") == 1,
+              L"a launch stuck in the shell is waited for only with what is left before the reserve, and logged",
+              success);
+        Check(flushed && flushBudget + 400 >= flushReserveMilliseconds && elapsed < deadlineMilliseconds,
+              L"the stages before the flush end inside the deadline and leave the flush its reserve", success);
+    }
+
+    // A spent deadline gives an idle launch worker no time to exit (StopLaunches(0)). That is no launch in progress:
+    // nothing is logged, the thread exits by itself, and the shutdown after it waits for the thread again and joins
+    // it.
+    {
+        const std::unique_ptr<PluginHost> owned{new (std::nothrow) PluginHost};
+        if (!owned)
+        {
+            Check(false, L"the idle-launch host can be allocated", success);
+            return;
+        }
+        PluginHost& host = *owned;
+        Check(SUCCEEDED(host.SetLogDirectory((root / L"idle").c_str())), L"the idle-launch host logs", success);
+        host.SetUiInvalidateTarget(window.get());
+        PluginHostTestAccess::SetLaunchProbe(host, &ProbeLaunch);
+        request.targetUtf8 = "C:\\RedXe-launch-test\\ok1";
+        const bool ran =
+            host.ExecuteAction(&request) == S_FALSE && DrainLaunches(host, window.get()) && host.LaunchWorkerRunning();
+        host.StopLaunches(0);
+        // Logged after the stop, so a launch-stop-timeout it logged would be in the file before this record.
+        const RedXeLogRecord marker{sizeof(RedXeLogRecord),
+                                    RedXeLogLevelInfo,
+                                    nullptr,
+                                    nullptr,
+                                    "idle-stop-checked",
+                                    "the idle launch worker was stopped without a wait.",
+                                    S_OK};
+        const bool marked = host.Interface()->Log(&marker) == S_OK && SUCCEEDED(host.FlushLog(10'000));
+        const std::string log = ReadTodayLog(root / L"idle");
+        const bool exited = WaitForSingleObject(PluginHostTestAccess::LaunchThread(host), 5'000) == WAIT_OBJECT_0;
+        host.Shutdown();
+        Check(ran && marked && CountText(log, "\"event\":\"idle-stop-checked\"") == 1 &&
+                  CountText(log, "\"event\":\"launch-stop-timeout\"") == 0,
+              L"a zero-wait stop of an idle launch worker logs no launch-stop-timeout", success);
+        Check(exited && !host.LaunchWorkerRunning(),
+              L"that worker exits by itself and the shutdown after it joins the thread", success);
+    }
 }
 
 void TestActionValidation(bool& success) noexcept

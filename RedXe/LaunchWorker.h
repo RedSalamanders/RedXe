@@ -62,6 +62,17 @@ class LaunchWorker final
     // Runs on the worker after each launch; it must only post.
     using Notify = void (*)(void* context) noexcept;
 
+    enum class StopResult : uint8_t
+    {
+        // The thread has exited and is joined, or never started.
+        Stopped,
+        // The wait ran out before the thread exited, with no launch in progress: an idle thread, or one between
+        // launches, that the wait gave no time to exit. It exits by itself.
+        Exiting,
+        // The wait ran out with a launch still in progress; the thread is left to finish it.
+        LaunchInProgress,
+    };
+
     LaunchWorker(Notify notify, void* context) noexcept : _notify(notify), _context(context) {}
     ~LaunchWorker();
     LaunchWorker(const LaunchWorker&) = delete;
@@ -76,10 +87,11 @@ class LaunchWorker final
     // Logs every finished launch in order through host (a failure as one Warning record under its failure event, a
     // success as one Debug record) and frees its slot.
     void DrainCompletions(IRedXeHost* host) noexcept;
-    // Drops queued launches and waits at most timeoutMilliseconds for the one in progress. True once the thread has
-    // exited or never started; false leaves it to finish that launch, and the destructor joins it. A Stop after one
-    // that returned false only checks whether the thread has exited since; it never waits again.
-    [[nodiscard]] bool Stop(uint32_t timeoutMilliseconds) noexcept;
+    // Drops queued launches and waits at most timeoutMilliseconds for the thread to exit. A result other than Stopped
+    // leaves the thread running, and the destructor joins it. The bound is waited once: after a wait that ran out with
+    // a launch in progress, or after any wait that ran out with a timeout above zero, a later Stop only checks whether
+    // the thread has exited since; only a zero wait that found no launch in progress leaves a later Stop its wait.
+    [[nodiscard]] StopResult Stop(uint32_t timeoutMilliseconds) noexcept;
     [[nodiscard]] bool Running() const noexcept
     {
         return _thread.joinable();
@@ -116,6 +128,8 @@ class LaunchWorker final
     wil::unique_event_nothrow _stop;
     wil::unique_event_nothrow _wake;
     std::thread _thread;
+    // A Stop's wait ran out after waiting (or on a launch in progress); later Stops do not wait again. UI thread only.
+    bool _waitedOut = false;
     Notify _notify = nullptr;
     void* _context = nullptr;
     // The worker's launch call; tests substitute a probe that never reaches the shell.

@@ -108,7 +108,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // True while the launch worker's thread exists, including one still finishing a launch after shutdown.
     [[nodiscard]] bool LaunchWorkerRunning() const noexcept;
     // UI thread: drops queued launches and waits once, at most timeoutMilliseconds, for one still in the shell; the
-    // first wait that runs out logs launch-stop-timeout. Shutdown calls it after StopServices with
+    // first wait that runs out while a launch is in progress logs launch-stop-timeout (an idle worker that a zero wait
+    // gave no time to exit logs nothing). Shutdown calls it after StopServices with
     // LaunchWorker::kStopMilliseconds, and a session end calls it before its log flush (Application::OnEndSession) with
     // what is left of its deadline, never more than that bound, because Windows may end the process before Shutdown
     // runs.
@@ -150,11 +151,12 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // Headless services (Service.h). All calls run on the UI thread. StartServices creates and starts every
     // service the document configures; ApplyServiceSettings starts, stops, or re-applies services after a live
     // reload; PublishHostState fans one state record out to started services; StopServices signals every device
-    // lane and waits at most kRedXeDeviceWorkerDrainMilliseconds per lane, and with a budget other than INFINITE (a
-    // session end's remaining deadline) at most that long for all lanes together. A late lane retains its service and
-    // host runtime until it returns; Stop runs only after that return, and a document that configures the service
-    // meanwhile gets ERROR_BUSY (service-start-deferred, logged once) until kServiceLaneMessage. Interactive RedXe
-    // leaves device access enabled; --self-test and host tests disable it before StartServices.
+    // lane before it waits for the first, so they drain together, then waits at most
+    // kRedXeDeviceWorkerDrainMilliseconds per lane, and with a budget other than INFINITE (a session end's remaining
+    // deadline) at most that long for all lanes together. A late lane retains its service and host runtime until it
+    // returns; Stop runs only after that return, and a document that configures the service meanwhile gets
+    // ERROR_BUSY (service-start-deferred, logged once) until kServiceLaneMessage. Interactive RedXe leaves device
+    // access enabled; --self-test and host tests disable it before StartServices.
     [[nodiscard]] HRESULT StartServices(const AppSettings& settings) noexcept;
     [[nodiscard]] HRESULT ApplyServiceSettings(const AppSettings& settings) noexcept;
     void PublishHostState(const RedXeHostState& state) noexcept;

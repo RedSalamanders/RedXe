@@ -538,17 +538,18 @@ the repository test entrypoint MUST validate the version fields without desktop 
 - One deadline, `kSessionEndMaximumMilliseconds` (4.5 s) on a monotonic clock from the arrival of `WM_ENDSESSION`,
   covers that whole message: widget collection, the watcher and renderer teardown, and the shell calls that remove the
   tray icon and the app bar count against it. Each blocking stage waits only for what is left of it
-  (`PluginHost::TeardownStageMilliseconds`): the device lanes together (`PluginHost::StopServices` with a budget) and
-  the launch stop wait at most their own bounds (`kRedXeDeviceWorkerDrainMilliseconds`, 3 s, per lane, and
-  `LaunchWorker::kStopMilliseconds`, 1 s) and never into the last `kSessionEndLogFlushMilliseconds` (0.5 s), which the
-  log flush keeps and then takes with whatever else is left. A stage that finds nothing left does not wait: a lane
-  still running is abandoned with `device-lane-drain-timeout`, and a launch still in the shell is logged as
-  `launch-stop-timeout`. Time the other steps take therefore shortens the waits after them instead of adding to them,
-  and the message returns inside Windows' 5 s hung-application timeout unless one call RedXe cannot bound (a shell
-  call or a service's `Stop`) alone outlasts the deadline. `WM_CLOSE` and the process runtime shutdown keep the
-  stages' own bounds. `wParam` `FALSE` (the end was cancelled) changes nothing. The rest of the process runtime
-  teardown, `RedXePluginShutdown` included, is not guaranteed at session end; when it does run, it neither waits for a
-  stuck launch nor logs it again.
+  (`PluginHost::TeardownStageMilliseconds`): the device lanes together (`PluginHost::StopServices` with a budget,
+  every lane signalled before the first wait so they drain in parallel) and the launch stop wait at most their own
+  bounds (`kRedXeDeviceWorkerDrainMilliseconds`, 3 s, per lane, and `LaunchWorker::kStopMilliseconds`, 1 s) and never
+  into the last `kSessionEndLogFlushMilliseconds` (0.5 s), which the log flush keeps and then takes with whatever else
+  is left. A stage that finds nothing left does not wait: a lane still running is abandoned with
+  `device-lane-drain-timeout`, and a launch still in the shell is logged as `launch-stop-timeout` (an idle launch
+  worker given no time to exit is not). Time the other steps take therefore shortens the waits after them instead of
+  adding to them, and the message returns inside Windows' 5 s hung-application timeout unless one call RedXe cannot
+  bound (a shell call or a service's `Stop`) alone outlasts the deadline. `WM_CLOSE` and the process runtime shutdown
+  keep the stages' own bounds. `wParam` `FALSE` (the end was cancelled) changes nothing. The rest of the process
+  runtime teardown, `RedXePluginShutdown` included, is not guaranteed at session end; when it does run, it neither
+  waits for a stuck launch nor logs it again.
 - Fullscreen selection and DPI policy belong to `Application`; swap-chain sizing and presentation belong to
   `Renderer`.
 
@@ -730,17 +731,23 @@ launch stop a session end makes: it waits the bound once for a stuck launch and 
 runtime shutdown after it neither waits nor logs again. `TestSessionEndDeadline` proves the one deadline:
 `PluginHost::TeardownStageMilliseconds` gives a stage its own bound cut to what is left before the later stages'
 reserve, and nothing after that point; and against a 2 s deadline with a 0.8 s flush reserve, 0.2 s already spent
-before the waits, a device lane stuck past its drain bound, and a launch stuck in the shell, the lane drain waits only
-until the reserve, the launch stop does not wait, and the flush still writes `device-lane-drain-timeout` and
-`launch-stop-timeout` out, all inside the deadline. Because the self-test has no log writer, they additionally require
-a live run: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`) running the Zoom service
-under `--screenshot`, sent both messages with `ENDSESSION_LOGOFF` the way Windows sends them, answers `TRUE`, returns
-from `WM_ENDSESSION` with its window destroyed and its JSONL log already holding `session-ending` followed by
-`service-stopped`, leaves the foreground where it was, and exits by itself (8: the run ended before its capture). The
-2026-10-07 check recorded this on the topology above (`WM_ENDSESSION` returned after 26 ms, after 29 ms once the
-session end also stopped the launch worker, and after 37 ms under the one deadline). A real sign-out, restart, or
-shutdown with a Logicon keypad and dialpad bound (the keypad shows the Logi splash on the sign-in screen, and the
-dialpad buttons RedXe bound work normally again) is a manual check.
+before the waits, a device lane stuck past its drain bound, a responsive lane stopped after it, and a launch stuck in
+the shell, the lane drain waits only until the reserve while the responsive lane drains alongside and runs `Stop`,
+the launch stop waits at most what is left, the stages before the flush end inside the deadline and leave it its
+reserve, and the log then holds one `device-lane-drain-timeout` (the stuck lane's) and one `launch-stop-timeout`. The
+waits are checked against the budgets the sequence hands out, with scheduling margins of hundreds of milliseconds;
+the flush is not timed, since `FlushLog`'s timeout bounds a hung writer, not disk latency, and the log is read after a
+10 s hang guard. A zero-wait stop of an idle launch worker logs no `launch-stop-timeout`, and the shutdown after it
+joins the thread. Because the self-test has no log writer, they additionally require a live run: a Debug overlay bar
+(`--dock bottom@primary --dock-mode fixed --dock-reserve off`) running the Zoom service under `--screenshot`, sent
+both messages with `ENDSESSION_LOGOFF` the way Windows sends them, answers `TRUE`, returns from `WM_ENDSESSION` with
+its window destroyed and its JSONL log already holding `session-ending` followed by `service-stopped`, leaves the
+foreground where it was, and exits by itself (8: the run ended before its capture). The 2026-10-07 check recorded
+this on the topology above (`WM_ENDSESSION` returned after 26 ms, after 29 ms once the session end also stopped the
+launch worker, after 37 ms under the one deadline, and after 33 to 416 ms over four runs once every lane was
+signalled before the first wait). A real sign-out, restart, or shutdown with a Logicon keypad and dialpad bound (the
+keypad shows the Logi splash on the sign-in screen, and the dialpad buttons RedXe bound work normally again) is a
+manual check.
 
 Notification-area icon changes MUST keep `HostPluginTests` proving the callback table (`TrayIconActionFor`: a
 double-click and `NIN_KEYSELECT` edit, `WM_CONTEXTMENU` opens the menu, single clicks, hover, and balloon events do
