@@ -1186,17 +1186,53 @@ int FailSelfTest(const wchar_t* check, HRESULT result = S_OK) noexcept
 }
 } // namespace
 
+bool Application::SelfTestWindowKindIs(bool dock) const noexcept
+{
+#if defined(_DEBUG)
+    constexpr bool releaseBuild = false;
+#else
+    constexpr bool releaseBuild = true;
+#endif
+    const HWND window = _window.get();
+    DXGI_SWAP_CHAIN_DESC1 chain{};
+    const SIZE canvas = DashboardCanvasSize();
+    if (!window || IsWindowVisible(window) || _windowVisible || _dockActive != dock || !_rendererReady ||
+        FAILED(_renderer.GetSwapChainDescription(chain)) ||
+        chain.Scaling != (dock ? DXGI_SCALING_NONE : DXGI_SCALING_STRETCH) ||
+        static_cast<LONG>(chain.Width) != canvas.cx || static_cast<LONG>(chain.Height) != canvas.cy)
+    {
+        return false;
+    }
+    const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
+    const DWORD extendedStyle = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_EXSTYLE));
+    const bool popup = (style & WS_POPUP) != 0 && (style & WS_CAPTION) == 0;
+    if (dock)
+    {
+        return popup && (extendedStyle & (WS_EX_APPWINDOW | WS_EX_TOOLWINDOW)) == WS_EX_TOOLWINDOW;
+    }
+    RECT client{};
+    const SIZE exact = ScaleXeneonClientSize(GetDpiForWindow(window));
+    const bool titled = (style & kTitledWindowStyle) == kTitledWindowStyle && (style & WS_POPUP) == 0 &&
+                        GetClientRect(window, &client) && client.right - client.left == exact.cx &&
+                        client.bottom - client.top == exact.cy;
+    return !_dockAppBar.registered &&
+           (extendedStyle & (WS_EX_APPWINDOW | WS_EX_TOOLWINDOW | WS_EX_TOPMOST)) == WS_EX_APPWINDOW &&
+           (releaseBuild && _xeneonFound ? popup : titled);
+}
+
 // Hidden startup validation for `--self-test`. It shares Application's startup steps but never shows a window and
 // never enters the frame loop, so the production Run above carries no test branches and no `selfTest` parameter.
 // It MUST NOT call SetLogDirectory: diagnostics stay off `%LocalAppData%` and the deployed tree; a failed check goes
-// to stderr instead (FailSelfTest).
+// to stderr instead (FailSelfTest), and so do the host's Warning and Error records (PluginHost::SetStandardErrorLog).
 //
-// UI_XeneonDisplayWindowing.md owns this mode: skip display discovery and prompts, create the titled window hidden,
-// validate its DPI-adjusted client dimensions, render one frame, and exit.
+// UI_XeneonDisplayWindowing.md owns this mode: skip the startup display discovery and prompts, create the titled
+// window hidden, validate its DPI-adjusted client dimensions, render one frame, switch the hidden window's kind live
+// and back, and exit.
 int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
 {
     // The self-test keeps its hidden titled window: pinning the edge to none, as `--dock none` does, keeps a document
-    // `dock` from switching the window kind when the smoke test re-applies settings.
+    // `dock` from switching the window kind when the smoke test re-applies settings. Only the window-kind check below
+    // lifts the pin, for the switches it makes itself.
     _dockOverrides = DockOverrides{};
     _dockOverrides.hasEdge = true;
     _dockOverrides.edge = DockEdge::None;
@@ -1205,6 +1241,9 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     // Services start in self-test too, but with device access disabled: no HID handle, hotplug registration, or
     // injected input, so the validation stays hardware-independent.
     PluginHost::Instance().SetDeviceAccessEnabled(false);
+    // No log is opened, so a failed check's log on stderr also holds the host records that explain it, such as the
+    // plugin whose module could not be mapped.
+    PluginHost::Instance().SetStandardErrorLog(true);
     if (!_pluginManager || !_dashboardHost)
     {
         return FailSelfTest(L"Dashboard host allocation failed.", E_OUTOFMEMORY);
@@ -1236,8 +1275,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     // placement (CreateDockWindow), whose refused ABM_NEW it renews.
     if (_taskbarCreatedMessage == 0 || !_taskbarCreatedAdmitted)
     {
-        OutputDebugStringW(L"The window was created before it could hear TaskbarCreated.\n");
-        return 2;
+        return FailSelfTest(L"The window was created before it could hear TaskbarCreated.");
     }
 
     RECT clientBounds{};
@@ -1399,6 +1437,60 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         return FailSelfTest(L"Invalid settings changed the active typed configuration.");
     }
 
+    // Live window-kind switches on this window, which a switch leaves hidden because it was hidden before
+    // (UI_XeneonDisplayWindowing.md "Switching the window kind"): into a bar and back through the dock-only path
+    // (ApplyDockSettings), then a reload that also rebuilds the page, whose page cannot be built (a zero-column grid,
+    // which the settings store never produces), so the combined path switches the window back. The bar is a fixed
+    // overlay on the primary display: it reserves nothing in the work area. Each switch runs XENEON discovery again.
+    {
+        const DockOverrides pinned = _dockOverrides;
+        _dockOverrides = DockOverrides{};
+        std::unique_ptr<AppSettings> toBar{new (std::nothrow) AppSettings{*_settings}};
+        if (toBar)
+        {
+            toBar->dock = DefaultDockSettings();
+            toBar->dock.edge = DockEdge::Bottom;
+            toBar->dock.reserveWorkArea = false;
+        }
+        result = toBar ? ApplySettings(std::move(toBar)) : E_OUTOFMEMORY;
+        if (FAILED(result) || !SelfTestWindowKindIs(true))
+        {
+            return FailSelfTest(L"A live reload did not switch the hidden window into a bar.", result);
+        }
+        std::unique_ptr<AppSettings> toStandard{new (std::nothrow) AppSettings{*_settings}};
+        if (toStandard)
+        {
+            toStandard->dock.edge = DockEdge::None;
+        }
+        result = toStandard ? ApplySettings(std::move(toStandard)) : E_OUTOFMEMORY;
+        if (FAILED(result) || !SelfTestWindowKindIs(false))
+        {
+            return FailSelfTest(L"A live reload did not switch the hidden bar back to the standard window.", result);
+        }
+        const AppSettings* const applied = _settings.get();
+        std::unique_ptr<AppSettings> unbuildable{new (std::nothrow) AppSettings{*_settings}};
+        if (unbuildable)
+        {
+            unbuildable->dock.edge = DockEdge::Bottom;
+            unbuildable->dashboard.gridColumns = 0;
+        }
+        const HRESULT rolledBack = unbuildable ? ApplySettings(std::move(unbuildable)) : E_OUTOFMEMORY;
+        result = _rendererReady ? _renderer.PrepareWidgets() : E_UNEXPECTED;
+        if (SUCCEEDED(result))
+            result = _renderer.Render(0.0f, 0.0f);
+        const size_t gpuWidgetCount = CountGpuWidgets(*_pluginManager);
+        if (rolledBack != E_INVALIDARG || FAILED(result) || _settings.get() != applied ||
+            _settings->dock.edge != DockEdge::None || !SelfTestWindowKindIs(false) ||
+            _renderer.LastFrameWidgetCount() != gpuWidgetCount ||
+            _renderer.LastFrameSuccessfulWidgetCount() != gpuWidgetCount)
+        {
+            return FailSelfTest(L"A reload that switched the window kind and failed to build its page was not rolled "
+                                L"back to the standard window.",
+                                rolledBack != E_INVALIDARG ? rolledBack : result);
+        }
+        _dockOverrides = pinned;
+    }
+
     // The `redxe.screenshot` action keeps RedXe running: an ordinal past the page's widgets fails it, a second request
     // while one is pending is busy, and the finished capture leaves the window up with nothing pending.
     // SaveWindowScreenshot refuses this hidden window before any file I/O, so the path is never written.
@@ -1463,8 +1555,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
             PluginHost::Instance().RunningDeviceWorkerCount() != 0 || PluginHost::Instance().LaunchWorkerRunning() ||
             endMilliseconds > kSessionEndMaximumMilliseconds)
         {
-            OutputDebugStringW(L"WM_ENDSESSION did not close RedXe within the session-end bound.\n");
-            return 6;
+            return FailSelfTest(L"WM_ENDSESSION did not close RedXe within the session-end bound.");
         }
     }
     return 0;
@@ -2098,10 +2189,12 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback, 
     const HWND window = _window.get();
     const bool toDock = next.edge != DockEdge::None;
     // Without a XENEON the standard window lands on the monitor the dock was on, where the person is looking. A
-    // rollback keeps the monitor the forward switch recorded: the window has been moved to the other kind's place.
+    // rollback keeps the monitor the forward switch recorded: the window has been moved to the other kind's place, and
+    // the forward switch has hidden it.
     if (!rollback)
     {
         placement.fallbackMonitor = MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
+        placement.visible = IsWindowVisible(window) != FALSE;
     }
 
     // Every interaction bound to the old geometry ends, then the presentation goes: its swap-chain scaling belongs
@@ -2173,7 +2266,11 @@ HRESULT Application::FinishWindowKindSwitch(bool rollback, const StandardPlaceme
         return E_UNEXPECTED;
     }
     const HWND window = _window.get();
-    (void)ShowWindow(window, SW_SHOWNOACTIVATE);
+    // Shown again only when it was visible before the switch: the self-test's hidden window stays hidden.
+    if (placement.visible)
+    {
+        (void)ShowWindow(window, SW_SHOWNOACTIVATE);
+    }
     _windowVisible = IsWindowVisible(window) != FALSE;
     if (!_dockActive)
     {

@@ -641,5 +641,37 @@ finally {
 
 Write-Host 'Build presentation and streaming tests passed.' -ForegroundColor Green
 
+# Test-process failure routing (Build_Process.md: a test process never waits on a dialog): the wmain of every test
+# executable starts with RedXeFailureReports::RouteAwayFromDialogs(), and RedXe.exe routes an unattended run
+# (--self-test, --screenshot) before its first argument check and before its Application exists, so a failed check in
+# any of them ends with its report rather than a dialog. The rule is proven on a sample that breaks it before the
+# sources are read.
+function Test-RoutedEntryPoint([string] $Text) {
+    $Text -match '\bint\s+wmain\s*\([^)]*\)\s*(?:noexcept\s*)?\{(?:\s*//[^\r\n]*)*\s*RedXeFailureReports::RouteAwayFromDialogs\(\);'
+}
+if (-not (Test-RoutedEntryPoint "int wmain() noexcept`r`n{`r`n    // A comment.`r`n    RedXeFailureReports::RouteAwayFromDialogs();") -or
+    (Test-RoutedEntryPoint "int wmain()`r`n{`r`n    SetErrorMode(0);`r`n    RedXeFailureReports::RouteAwayFromDialogs();")) {
+    throw 'The test-process routing rule misjudges its samples.'
+}
+$entryPoints = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'Tests') -Recurse -Filter '*.cpp' -File |
+    Where-Object { [IO.File]::ReadAllText($_.FullName) -match '\bint\s+wmain\s*\(' })
+if ($entryPoints.Count -eq 0) {
+    throw 'No test executable entry point (wmain) was found under Tests.'
+}
+foreach ($entryPoint in $entryPoints) {
+    if (-not (Test-RoutedEntryPoint ([IO.File]::ReadAllText($entryPoint.FullName)))) {
+        throw "The wmain of $($entryPoint.FullName) must call RedXeFailureReports::RouteAwayFromDialogs() first."
+    }
+}
+$mainSource = [IO.File]::ReadAllText((Join-Path $repoRoot 'RedXe\Main.cpp'))
+$routedRun = [regex]::Match($mainSource,
+    'const bool unattended = RedXeIsUnattendedRun\(selfTest, screenshotSwitch\);\s*if \(unattended\)\s*\{\s*RedXeFailureReports::RouteAwayFromDialogs\(\);\s*\}')
+$firstArgumentCheck = $mainSource.IndexOf('RedXeIsHelpArgument(arguments')
+$applicationCreated = $mainSource.IndexOf('Application(instance, forceWarp)')
+if (-not $routedRun.Success -or $firstArgumentCheck -lt $routedRun.Index -or $applicationCreated -lt $routedRun.Index) {
+    throw 'RedXe/Main.cpp must route an unattended run through RedXeFailureReports::RouteAwayFromDialogs() before its first argument check and before the Application exists.'
+}
+Write-Host "Test-process failure routing: $($entryPoints.Count) test entry points and RedXe.exe route first." -ForegroundColor Green
+
 # The last native command above is a fixture that exits nonzero by design; report the script result explicitly.
 exit 0

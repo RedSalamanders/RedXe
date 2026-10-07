@@ -172,7 +172,7 @@ The bar collapses to a thin line until you rest the pointer on it. Its `thicknes
 | `--self-test` | Hidden startup validation with the deployed template; exits 0 when the host works and 6 when a check fails, which it names on stderr. |
 | `--crash-test`, `--crash-test-stack-overflow`, `--crash-test-directory=<dir>` | Raise a test crash and choose where its dump goes (used by `test.ps1`). |
 
-Exit codes: 0 ok, 1 settings, 2 command line or window, 3 plugins, 5 graphics, 7 settings watcher, 8 screenshot capture. With `--self-test`: 6 a failed check, 3 a failed runtime check of a Debug build, 4 any other `abort()`, each reported on stderr.
+Exit codes: 0 ok, 1 settings, 2 command line or window, 3 plugins, 5 graphics, 7 settings watcher, 8 screenshot capture. With `--self-test`: 6 a failed check, 3 a failed runtime check of a Debug build, 4 any other `abort()`, each reported on stderr. The self-test keeps no log file, so it writes the warnings and errors RedXe would log to stderr too, one JSON line each: a failed check then comes with what explains it, such as a plugin DLL that could not be loaded.
 
 ## Screenshots
 

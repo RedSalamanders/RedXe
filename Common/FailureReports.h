@@ -66,6 +66,46 @@ inline void WriteToStandardError(const wchar_t* text) noexcept
     }
 }
 
+// The same for UTF-8 text, such as a host JSONL record: a pipe or a file takes the bytes as they are in one write, and
+// a console takes them as UTF-16, one chunk at a time from a fixed stack buffer, never splitting a multibyte sequence.
+inline void WriteUtf8ToStandardError(const char* text, size_t bytes) noexcept
+{
+    const HANDLE error = GetStdHandle(STD_ERROR_HANDLE);
+    if (!text || bytes == 0 || !error || error == INVALID_HANDLE_VALUE)
+    {
+        return;
+    }
+    DWORD written = 0;
+    DWORD mode = 0;
+    if (GetConsoleMode(error, &mode) == FALSE)
+    {
+        static_cast<void>(WriteFile(error, text, static_cast<DWORD>(bytes), &written, nullptr));
+        return;
+    }
+    constexpr size_t kChunkBytes = 256;
+    wchar_t characters[kChunkBytes]; // A UTF-8 byte becomes at most one UTF-16 code unit.
+    while (bytes != 0)
+    {
+        size_t count = bytes < kChunkBytes ? bytes : kChunkBytes;
+        while (count < bytes && count != 0 && (static_cast<unsigned char>(text[count]) & 0xC0U) == 0x80U)
+        {
+            --count; // The next chunk would start inside a sequence: end this one before it.
+        }
+        if (count == 0)
+        {
+            count = bytes < kChunkBytes ? bytes : kChunkBytes; // Malformed: a run of continuation bytes.
+        }
+        const int length =
+            MultiByteToWideChar(CP_UTF8, 0, text, static_cast<int>(count), characters, static_cast<int>(kChunkBytes));
+        if (length > 0)
+        {
+            static_cast<void>(WriteConsoleW(error, characters, static_cast<DWORD>(length), &written, nullptr));
+        }
+        text += count;
+        bytes -= count;
+    }
+}
+
 #if defined(_DEBUG)
 // The CRT report hook: a failed check writes its report and ends the process, as the dialog's Abort would.
 inline int __cdecl ReportAndEnd(int reportType, wchar_t* message, int* returnValue) noexcept

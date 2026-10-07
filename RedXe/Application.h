@@ -79,7 +79,8 @@ class Application final
         _unattended = true;
     }
     // --dock* command-line overrides, pinned over the document's `dock` object for this process (DockOptions.h).
-    // RunSelfTest replaces them with an edge pinned to none: the self-test keeps its hidden titled window.
+    // RunSelfTest replaces them with an edge pinned to none: the self-test keeps its hidden titled window, except for
+    // the switches its window-kind check makes.
     void SetDockOverrides(const DockOverrides& overrides) noexcept
     {
         _dockOverrides = overrides;
@@ -134,10 +135,11 @@ class Application final
     // the reload; RedXe exits only when the rollback leaves no renderer.
     HRESULT ApplyDockSettings(const DockSettings& documentDock) noexcept;
     // Live reload between `none` and an edge (UI_XeneonDisplayWindowing.md "Switching the window kind"): the same
-    // window is hidden, restyled, placed as the other kind, and shown again without activation, and the swap chain is
-    // rebuilt for that kind's scaling. Widgets, services, native containers, the settings watcher, and the drop target
-    // stay bound to the window. A failed step leaves the window hidden; the caller rolls back to the previous kind
-    // with `rollback`, which keeps the forward switch's standard-window monitor and logs no switch.
+    // window is hidden, restyled, placed as the other kind, and shown again without activation when it was visible,
+    // and the swap chain is rebuilt for that kind's scaling. Widgets, services, native containers, the settings
+    // watcher, and the drop target stay bound to the window. A failed step leaves the window hidden; the caller rolls
+    // back to the previous kind with `rollback`, which keeps the forward switch's standard-window monitor and
+    // visibility and logs no switch.
     // SwitchWindowKind = RestyleWindowKind, RebuildPresentation, FinishWindowKindSwitch; a reload that also rebuilds
     // the page runs InitializeDashboardRuntime between the two halves instead, so the renderer is created once.
     // Where the standard kind goes (PlaceStandardWindow): RestyleWindowKind decides it when it styles the window, and
@@ -148,19 +150,28 @@ class Application final
         bool fullscreen = false;
         // The monitor the window was on when the forward switch began, for the titled window without a XENEON.
         HMONITOR fallbackMonitor = nullptr;
+        // Whether the window was visible when the forward switch began: only then is it shown again (the self-test's
+        // window is hidden throughout).
+        bool visible = true;
     };
     HRESULT SwitchWindowKind(const DockSettings& next, bool rollback, StandardPlacement& placement) noexcept;
     // Ends the interactions, takes the presentation down, and hides, restyles, and places the window as the kind
-    // `next` selects, recording `placement` (its monitor only when it is not a rollback). The window stays hidden with
-    // no renderer until FinishWindowKindSwitch.
+    // `next` selects, recording `placement` (its monitor and visibility only when it is not a rollback). The window
+    // stays hidden with no renderer until FinishWindowKindSwitch.
     HRESULT RestyleWindowKind(const DockSettings& next, bool rollback, StandardPlacement& placement) noexcept;
-    // Shows the restyled window without activation, settles the standard kind's placement, the holds, and the chrome,
-    // and logs the switch unless it is a rollback. Needs the renderer of the new kind.
+    // Shows the restyled window without activation when it was visible before the switch, settles the standard kind's
+    // placement, the holds, and the chrome, and logs the switch unless it is a rollback. Needs the renderer of the new
+    // kind.
     HRESULT FinishWindowKindSwitch(bool rollback, const StandardPlacement& placement) noexcept;
     // The standard kind for a window that already exists, placed by the startup rows of the mode table without the
     // missing-display prompt: Release fullscreen on the XENEON's rcMonitor; the titled window at the XENEON origin;
     // without a XENEON, the titled window at the work-area origin of `fallbackMonitor`. Idempotent.
     HRESULT PlaceStandardWindow(bool fullscreen, HMONITOR fallbackMonitor) noexcept;
+    // RunSelfTest's window-kind check: the window is hidden and has the kind's styles, app-bar registration, and
+    // swap-chain scaling over its canvas. The standard kind is the mode table's row (fullscreen on a XENEON in Release,
+    // else the titled window with its exact canvas), never topmost. The bar's topmost bit is left to the live switch
+    // check: Windows did not reliably report HWND_TOPMOST on the self-test's window, which is never shown.
+    [[nodiscard]] bool SelfTestWindowKindIs(bool dock) const noexcept;
     // The canvas the dashboard and the swap chain use: the client, or the full bar for a dock (which may be its
     // strip at the moment), at the matching DPI (DockPlacement.h DockDashboardCanvas).
     HRESULT PresentationCanvas(UINT& width, UINT& height, UINT& dpi) const noexcept;

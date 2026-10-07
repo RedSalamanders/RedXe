@@ -451,6 +451,13 @@ $bypassingReturns = @([regex]::Matches($selfTestBody, '\breturn\b\s*([^;]*);') |
 if (-not $selfTestBody -or $bypassingReturns.Count -ne 0 -or $selfTestBody.Contains('OutputDebugStringW')) {
     throw "Every failing check of Application::RunSelfTest must report through FailSelfTest: $(($bypassingReturns | ForEach-Object Value) -join ' | ')"
 }
+# The self-test copies the host's Warning and Error records to stderr. Its window-kind check rolls back one reload
+# whose page cannot be built (E_INVALIDARG), which logs exactly one window-kind-switch-failed Warning.
+$switchFailures = @(Select-String -LiteralPath $smokeLog -SimpleMatch '"event":"window-kind-switch-failed"')
+if ($switchFailures.Count -ne 1 -or $switchFailures[0].Line -notmatch '"level":"warning"' -or
+    $switchFailures[0].Line -notmatch '"hr":"0x80070057"') {
+    throw "The self-test's rolled-back window-kind switch must leave one window-kind-switch-failed Warning on stderr (found $($switchFailures.Count)): $smokeLog"
+}
 # The same diagnosis for a failing check, proven in the product executable: a copy of RedXe.exe with no Settings folder
 # beside it fails its settings check, which must be named in its log, with exit code 6.
 $selfTestFailureDirectory = Join-Path $repoRoot ".build\SelfTestFailure\$([guid]::NewGuid().ToString('N'))"
@@ -477,6 +484,104 @@ if ($selfTestFailureRun -or $selfTestFailureExit -ne 6 -or
     Get-Content -LiteralPath $selfTestFailureLog -Tail 40
     if ($selfTestFailureRun) { throw $selfTestFailureRun }
     throw "A failed self-test check must name itself in the log and exit with code 6 (it exited $selfTestFailureExit): $selfTestFailureLog"
+}
+# The log of a failed check also holds the host records that explain it, which the self-test copies to stderr since it
+# opens no log directory: a copy with its Settings folder but no Plugins folder maps no plugin module, so a check fails
+# with ERROR_MOD_NOT_FOUND (today the configured Logicon service's start), and a module-map-failed Error record names
+# a plugin that could not be mapped with that HRESULT.
+$unmappedDirectory = Join-Path $repoRoot ".build\SelfTestFailure\$([guid]::NewGuid().ToString('N'))"
+$unmappedLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.self-test-unmapped.log"
+[void](New-Item -ItemType Directory -Path $unmappedDirectory -Force)
+$unmappedRun = $null
+try {
+    Copy-Item -LiteralPath $executable -Destination $unmappedDirectory
+    Get-ChildItem -LiteralPath (Split-Path -Parent $executable) -Filter '*.dll' -File | Copy-Item -Destination $unmappedDirectory
+    Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $executable) 'Settings') -Destination $unmappedDirectory -Recurse
+    try {
+        $unmappedExit = Invoke-RedXeStreamingProcess -FilePath (Join-Path $unmappedDirectory 'RedXe.exe') `
+            -Arguments @('--self-test', '--warp') -WorkingDirectory $unmappedDirectory -TimeoutSeconds 120 `
+            -LogPath $unmappedLog -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+    }
+    catch { $unmappedRun = $_ }
+}
+finally {
+    Remove-Item -LiteralPath $unmappedDirectory -Recurse -Force -ErrorAction SilentlyContinue
+}
+$unmappedText = if (Test-Path -LiteralPath $unmappedLog) { Get-Content -LiteralPath $unmappedLog -Raw } else { '' }
+if ($unmappedRun -or $unmappedExit -ne 6 -or $unmappedText -notmatch 'RedXe --self-test: .+ HRESULT 0x8007007E\.' -or
+    $unmappedText -notmatch '"level":"error","plugin":"builtin\.[a-z0-9.-]+","event":"module-map-failed","message":"[^"]*","hr":"0x8007007E"') {
+    Get-Content -LiteralPath $unmappedLog -Tail 40 -ErrorAction SilentlyContinue
+    if ($unmappedRun) { throw $unmappedRun }
+    throw "A self-test that cannot map its plugins must name the failed check and the unmapped plugin in its log, and exit with code 6 (it exited $unmappedExit): $unmappedLog"
+}
+
+# The --screenshot pipeline end to end, as documentation captures run it: the request from the command line, the delay
+# in the frame loop, the capture worker and its completion message, the window's close, and the exit code (0 with the
+# PNG written, 8 without one). A portable settings file keeps the user's own settings and log out of it, and the
+# window is a thin fixed bar on the primary display that reserves nothing in the work area and is shown without
+# taking the focus. The file carries the retired Zoom services entry as v1.0.102 wrote it, so the run also proves
+# Application's startup path for it: the file loads as it is and its log reports the entry once.
+Write-Host 'Running end-to-end screenshot capture check...' -ForegroundColor Cyan
+$captureRoot = Join-Path $repoRoot ".build\$Platform\$Configuration\ScreenshotRun\$([guid]::NewGuid().ToString('N'))"
+$captureSettingsText = @'
+{
+  "version": { "major": 5, "minor": 3 },
+  "trayIcon": false,
+  "services": {
+    "Zoom": { "plugin": "builtin.zoom", "clientId": "sHVWQENoR4qrpuBPgsFsPw", "redirectPort": 48123, "autoConnect": false }
+  },
+  "pages": [ { "id": "capture", "columns": [ { "plugin": "builtin.rotating-triangle" } ] } ]
+}
+'@
+# One bounded capture run in a folder of its own; returns its exit code, PNG path, and JSONL text.
+function Invoke-RedXeCaptureRun([string] $Name, [string[]] $Extra) {
+    $runRoot = Join-Path $captureRoot $Name
+    $settingsPath = Join-Path $runRoot 'Settings\capture.settings.json'
+    [void](New-Item -ItemType Directory -Path (Split-Path -Parent $settingsPath) -Force)
+    [IO.File]::WriteAllText($settingsPath, $captureSettingsText, [Text.UTF8Encoding]::new($false))
+    $png = Join-Path $runRoot 'capture.png'
+    $log = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.screenshot-$Name.log"
+    $arguments = @('--warp', '--settings', $settingsPath, '--dock', 'bottom@primary', '--dock-mode', 'fixed',
+        '--dock-reserve', 'off', '--dock-thickness', '32', '--screenshot', $png, '--after', '200') + $Extra
+    $exit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments $arguments -WorkingDirectory $repoRoot `
+        -TimeoutSeconds 120 -LogPath $log -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+    $jsonl = (@(Get-ChildItem -LiteralPath $runRoot -Recurse -Filter '*.jsonl' -File) |
+        ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join ''
+    [pscustomobject]@{ Exit = $exit; Png = $png; Log = $log; Jsonl = $jsonl }
+}
+try {
+    $capture = Invoke-RedXeCaptureRun 'whole' @()
+    $retiredReports = @([regex]::Matches($capture.Jsonl,
+            '"level":"warning","plugin":"builtin\.zoom","event":"service-retired-settings-ignored"')).Count
+    if ($retiredReports -ne 1 -or $capture.Jsonl.Contains('"event":"settings-fallback-notice"')) {
+        throw "The capture run's settings file with the retired Zoom entry must load as it is and log one service-retired-settings-ignored Warning (found $retiredReports): $($capture.Jsonl)"
+    }
+    if ($capture.Exit -eq 0) {
+        if (-not (Test-Path -LiteralPath $capture.Png -PathType Leaf) -or (Get-Item -LiteralPath $capture.Png).Length -eq 0) {
+            throw "RedXe.exe --screenshot exited 0 without writing its PNG: $($capture.Log)"
+        }
+        Write-Host "PASS screenshot capture (exit 0, $((Get-Item -LiteralPath $capture.Png).Length) bytes)"
+    }
+    elseif ($capture.Exit -eq 8 -and
+        $capture.Jsonl -match '"event":"screenshot-failed","message":"[^"]*","hr":"0x(80004001|887A0004|80070057)"') {
+        # A host without Windows.Graphics.Capture, without a hardware Direct3D device, or whose compositor refuses the
+        # capture item (the GPU-less CI images) ends the request without a PNG, as TestWindowCapture also accepts.
+        Write-Host "PASS screenshot pipeline (exit 8: this host cannot capture, $($Matches[1]))" -ForegroundColor Yellow
+    }
+    else {
+        throw "RedXe.exe --screenshot exited $($capture.Exit) instead of 0 with its PNG (or 8 where the host cannot capture): $($capture.Log) $($capture.Jsonl)"
+    }
+    # A widget ordinal the page does not have ends the request before any capture: exit 8, no PNG, and one
+    # screenshot-failed Warning with ERROR_NOT_FOUND.
+    $missing = Invoke-RedXeCaptureRun 'missing-widget' @('--widget', '511')
+    if ($missing.Exit -ne 8 -or (Test-Path -LiteralPath $missing.Png) -or
+        $missing.Jsonl -notmatch '"level":"warning","event":"screenshot-failed","message":"[^"]*","hr":"0x80070490"') {
+        throw "RedXe.exe --screenshot --widget 511 must exit 8 without a PNG and log screenshot-failed with ERROR_NOT_FOUND (it exited $($missing.Exit)): $($missing.Log) $($missing.Jsonl)"
+    }
+    Write-Host 'PASS screenshot of a missing widget (exit 8)'
+}
+finally {
+    Remove-Item -LiteralPath $captureRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # `--help` writes the RedXe/CommandLine.h catalog to a redirected stdout and exits 0; every switch the catalog

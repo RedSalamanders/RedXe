@@ -1736,15 +1736,21 @@ constexpr std::string_view kRepresentative = R"json(
             std::wprintf(L"--help lacks the usage line, the exit codes, or the help aliases.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        if (!RedXeSwitchInfo(RedXeSwitch::Help).launcherWaitForExit ||
-            !RedXeSwitchInfo(RedXeSwitch::Screenshot).launcherWaitForExit ||
-            !RedXeSwitchInfo(RedXeSwitch::SelfTest).launcherWaitForExit ||
-            !RedXeSwitchInfo(RedXeSwitch::CrashTest).launcherWaitForExit ||
-            !RedXeSwitchInfo(RedXeSwitch::CrashTestStackOverflow).launcherWaitForExit ||
-            RedXeSwitchInfo(RedXeSwitch::CrashTestDirectory).launcherWaitForExit)
+        // The alias launcher waits exactly for the modes that end on their own and forwards their exit code. Every
+        // other switch (--settings, --warp, --dock*, --page, --widget, --after, --crash-test-directory) only modifies
+        // a run: without one of those modes the line starts the dashboard, and waiting for it would hold the terminal
+        // for the whole session.
+        for (const RedXeCommandLineSwitch& entry : kRedXeCommandLineSwitches)
         {
-            std::wprintf(L"The launcher wait policy does not match the self-terminating modes.\n");
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            const bool endsOnItsOwn = entry.id == RedXeSwitch::Help || entry.id == RedXeSwitch::Screenshot ||
+                                      entry.id == RedXeSwitch::SelfTest || entry.id == RedXeSwitch::CrashTest ||
+                                      entry.id == RedXeSwitch::CrashTestStackOverflow;
+            if (entry.launcherWaitForExit != endsOnItsOwn)
+            {
+                std::wprintf(L"The launcher wait policy of %s does not match whether it ends on its own.\n",
+                             entry.name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
         }
         // Main.cpp: --self-test and --screenshot are the unattended runs, which never show a modal box (command-line
         // errors, the settings fallback notice, the prompts, and the exit-code box all follow RedXeIsUnattendedRun); a

@@ -258,9 +258,11 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   sibling `Logs` directory using a UTC-dated file (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`) and
   deletes files older than `logRetentionDays` (default 15) on open, day change, and retention apply. Release omits
   `RedXeLogLevelDebug`. The call is allocation-free on the
-  caller, never blocks on disk, and is forbidden from GPU `Render` and GDI paint. Plugin HTTP bodies that can exceed a
-  few kilobytes MUST live on the heap; a 256 KiB automatic array on the network worker overflows the default thread
-  stack (`STATUS_STACK_OVERFLOW`).
+  caller, never blocks on disk, and is forbidden from GPU `Render` and GDI paint. Only `--self-test`, which opens no
+  log directory, also writes each Warning and Error line to stderr on the calling thread, from the line it formatted
+  on its stack, one write per line under a lock; that test mode's reader drains the pipe. Plugin HTTP bodies that can
+  exceed a few kilobytes MUST live on the heap; a 256 KiB automatic array on the network worker overflows the default
+  thread stack (`STATUS_STACK_OVERFLOW`).
 - A raised overlay creates no HWND and no GDI object. Its dim strips and shadow are host quads drawn after the tiles
   and before the raised widget so plugin pixels stay undimmed; the close control is drawn after the raised widget.
   Raise and restore MAY present for a clamped 160–240 ms ease; that motion is presentation-paced and then idle.

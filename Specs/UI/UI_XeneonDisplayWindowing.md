@@ -53,9 +53,9 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 | Debug without active XENEON | Create the same titled window using normal shell-selected placement. Do not prompt and do not force fullscreen. |
 | Release with active XENEON | Create a `WS_POPUP` borderless window using the detected XENEON monitor's exact `rcMonitor` bounds. |
 | Release without active XENEON | Show the missing-display Yes/No warning. Yes creates the standard titled fallback window; No exits successfully without creating the main window. A default settings file installed at this start because it was missing carries the first-run dock ("First start without a XENEON"), so the Dock row applies instead. |
-| Self-test | Skip display discovery and prompts, create the titled window hidden, validate its DPI-adjusted client dimensions, render one frame, and exit: 0 when every check passed, 6 when one failed, after naming it, with its HRESULT when there is one, on the debugger output and on stderr. A failed Debug runtime check ends the run with its report on stderr and exit code 3, and any other `abort()` with exit code 4 ([`Build_Process.md`](../Build/Build_Process.md)); neither opens a dialog. |
+| Self-test | Skip the startup display discovery and prompts, create the titled window hidden, validate its DPI-adjusted client dimensions, render one frame, switch the window's kind live into a non-reserving bar and back and roll back a failing combined reload while it stays hidden (each switch runs discovery, as a live one does), and exit: 0 when every check passed, 6 when one failed, after naming it, with its HRESULT when there is one, on the debugger output and on stderr. It opens no log directory; the host's Warning and Error records go to stderr as JSONL lines instead (`Plugins_API.md`), so the log of a failed check also names what explains it. A failed Debug runtime check ends the run with its report on stderr and exit code 3, and any other `abort()` with exit code 4 ([`Build_Process.md`](../Build/Build_Process.md)); neither opens a dialog. |
 | Screenshot (`--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]`) | Run exactly as the configuration above prescribes (same discovery, placement, services, and frame loop), jump to the named page through the host `PageGoTo` action once the renderer is live and no settle runs, wait the delay (default 3000 ms, 1–120000) with the frame loop idle-waiting as usual, capture the main window through `Common/WindowCapture.cpp` on a capture worker (Windows.Graphics.Capture of an owned, visible window; a widget ordinal crops to that tile's `PixelBoundsAt` in client space, mapped through the DWM extended frame bounds), then close. The UI thread continues handling input and timers while capture waits for its first frame. Exit 0 only with the PNG written; 8 when the capture failed, when its worker could not start, and when the run ended before the PNG was written (the window closed during the delay or the capture, or a startup, graphics, or rendering failure ended the run first), with one `screenshot-failed` Warning record once the log is open (a failure before the settings load reaches only the debugger output). The run is unattended (`RedXeIsUnattendedRun`, as `--self-test` is) and MUST NOT wait on a modal box: the Release missing-display prompt is not shown and the titled fallback window is created as for its Yes; the settings fallback notice is one Warning record (`settings-fallback-notice`) instead of its box; the previous-crash notice is left for the next interactive start; a command-line error goes to the console or redirected output (exit 2); and a failure exit, whatever its code, is one Error record (`failure-exit`, naming the code) and a debugger line instead of the exit-code message box (`RedXeShowsExitCodeBox`). A failed Debug runtime check ends the run with exit code 3, and any other `abort()` with exit code 4 (`Common/FailureReports.h`). A worker still capturing when the window closes is joined and its result decides the exit code. Only this command-line mode closes after the capture; the `redxe.screenshot` action shares the pipeline and keeps RedXe running (`Plugins_Actions.md`). It MUST NOT activate, move, or resize the window, move the cursor, or send input. |
-| Dock (`dock.edge` other than `none`, or `--dock <edge>[@<monitor>]`) | Debug and Release alike: create the dock window kind below on the selected monitor instead of the row that would otherwise apply, and skip the missing-display prompt. A live reload that turns the dock on or off switches the running window between this row and the one that would otherwise apply ("Switching the window kind"). `--self-test` ignores the dock. |
+| Dock (`dock.edge` other than `none`, or `--dock <edge>[@<monitor>]`) | Debug and Release alike: create the dock window kind below on the selected monitor instead of the row that would otherwise apply, and skip the missing-display prompt. A live reload that turns the dock on or off switches the running window between this row and the one that would otherwise apply ("Switching the window kind"). `--self-test` ignores the document's and the command line's dock; only its window-kind check switches its hidden window. |
 | Help (`--help`, `-h`, `/?`, `-?`) | Print the command-line catalog and exit 0 before any other switch is read: to the console the process was started from (a GUI process attaches to its parent's), to a redirected stdout as UTF-8, or, without either, to a message box. Every other token on the line MUST be a catalogued switch or the value of one; the first unknown token is a command-line error (exit 2, `Unknown argument "<token>". Run RedXe.exe --help for the command line.`) shown the same way, never as a message box when `--self-test` or `--screenshot` is on the line. |
 
 The command line is declared once in `RedXe/CommandLine.h`: the catalog `--help` prints and the names `Main.cpp`
@@ -67,7 +67,14 @@ scanner) and the unattended-run policy `Main.cpp` applies through it (`RedXeIsUn
 8 for a capture run without its PNG, whatever ended it; `RedXeExitCodeName`: the `failure-exit` record names each
 code as `--help` lists it), and `test.ps1` runs `--help` through a redirected stdout, an unknown switch under
 `--self-test`, and a missing switch value under `--self-test` and an invalid one under `--screenshot`, each bounded so
-that a message box fails the step instead of holding it.
+that a message box fails the step instead of holding it. It also runs `--screenshot` end to end, bounded, with a
+portable settings file on a thin fixed bar on the primary display that reserves nothing (`--dock bottom@primary
+--dock-mode fixed --dock-reserve off --dock-thickness 32`, `--after 200`): the run MUST exit 0 with a non-empty PNG,
+or 8 with a `screenshot-failed` record for a host that cannot capture (`E_NOTIMPL`, `DXGI_ERROR_UNSUPPORTED`,
+`E_INVALIDARG`, as `TestWindowCapture` accepts), so a lost completion message fails at the bound; and with `--widget
+511` it MUST exit 8 without a PNG and log `screenshot-failed` with `ERROR_NOT_FOUND`. The settings file carries the
+retired Zoom `services` entry as `v1.0.102` wrote it, so the same run proves the startup path for it: the file loads
+as written, without a `settings-fallback-notice`, and the log holds one `service-retired-settings-ignored` Warning.
 
 Debug and Release display discovery MUST inspect active display paths through
 `QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS)`. A target friendly name containing `XENEON` or `CORSAIR`, compared
@@ -335,8 +342,9 @@ native containers, the settings watcher, the drop target, and accessibility.
   adapter change; no widget instance is recreated. A reload that also rebuilds the active page restyles and places
   the hidden window before the page runtime starts, so its renderer is created once, for the new kind; a failed
   apply restyles the window back before the previous page is restored.
-- The window is shown with `SW_SHOWNOACTIVATE`: the window in which the file was saved keeps the focus. An autohide
-  dock collapses after the hide delay as at launch.
+- The window is shown again with `SW_SHOWNOACTIVATE` when it was visible before the switch: the window in which the
+  file was saved keeps the focus. A window that was hidden (the self-test's) MUST stay hidden, and a rollback keeps
+  what the forward switch recorded. An autohide dock collapses after the hide delay as at launch.
 - A switch logs one Info record (`window-kind-changed`).
 - A failed step MUST NOT end the process or mark the file applied, whether the reload changes only `dock` or also
   rebuilds the active page. The window is switched back to the kind it had and placed as a switch to that kind
@@ -346,7 +354,8 @@ native containers, the settings watcher, the drop target, and accessibility.
   settings-error dialog opens. The failure logs one Warning record (`window-kind-switch-failed`, with the failing
   `HRESULT`) and the rollback logs no `window-kind-changed`. Only a rollback that leaves no renderer is a runtime
   failure: the Error record `settings-apply-failed` and exit code 5.
-- `--self-test` pins the edge to `none`, so a document `dock` never switches its hidden titled window.
+- `--self-test` pins the edge to `none`, so a document `dock` never switches its hidden titled window; only its own
+  window-kind check lifts the pin and switches the hidden window ("Validation").
 
 ### First start without a XENEON
 
@@ -660,8 +669,9 @@ or left translation; every `DockRouteInput` row; `DockForegroundCoversMonitor` f
 captioned window's overhang, a captionless one, another monitor, a spanning window, and a partial cover), proved on a
 real dashboard too (`TestDockCanvasHitTesting`: mid-slide hits on the canvas reach the tile on screen on a bottom and a
 translated top bar where the client size missed, a settled press keeps that tile only with the shift, and a raise on a
-collapsed bar fills the full bar; `TestDashboardSlideOffsetRetry`: a native container that failed to move is moved again
-by an unchanged offset, the zero one included);
+collapsed bar fills the full bar; `TestDashboardSlideOffsetRetry`: a native container moves with a top and a left bar's
+slide by the hidden part at its size and returns at the zero offset, and one that failed to move is moved again by an
+unchanged offset, the zero one included);
 `SettingsTests` proves the `dock` member with `animationMilliseconds` (0 through 1000, default 200), its rejections,
 minor 2, the `secondary` selector in the document and on `--dock`, the `--dock*` grammar with its errors, the merge
 precedence, `PatchDockThickness` (replace, create with the minor bump, range, re-parse), and the first-run install,
@@ -693,6 +703,16 @@ native tiles moving with the GPU tiles; a `page.goto` and a `widget.toggle` key 
 with the page changed or the widget raised over the full bar; a click on a tile while the bar is still sliding in
 reaches that tile; and a wheel over the strip changes no page. These are manual checks and are not recorded yet.
 
+Window-kind switch changes MUST keep the `--self-test` step green: it switches its hidden window into a fixed overlay
+bar on the primary display (reserving nothing) and back through the dock-only path, each time requiring the window
+still hidden with the target kind's styles (the bar without `WS_EX_APPWINDOW`, with `WS_EX_TOOLWINDOW`; the standard
+kind not topmost, without an app-bar registration, at the mode-table row with its exact client), `DXGI_SCALING_NONE` or
+`DXGI_SCALING_STRETCH` over the canvas; then it applies a reload that switches the kind and also rebuilds a page that
+cannot be built (a zero-column grid, which the store never produces) and requires the rollback: `E_INVALIDARG`, the
+previous document, the standard kind, a rendered frame, and one `window-kind-switch-failed` Warning, which `test.ps1`
+finds in the self-test log. The bar's topmost bit is left to the live run below: Windows did not reliably report
+`HWND_TOPMOST` on the self-test's window, which is never shown.
+
 Window-kind switches additionally require a live run with a portable `--settings` file edited while RedXe runs:
 `none` → an edge and back yields the dock styles (`WS_EX_TOOLWINDOW`, topmost, no `WS_EX_APPWINDOW`) and then the
 standard ones (`WS_OVERLAPPEDWINDOW`, `WS_EX_APPWINDOW`, not topmost) at the mode-table placement with its exact
@@ -707,8 +727,9 @@ Changes to the deferred reload additionally require a live run of the same kind:
 activation while a save changes `backgroundColor` stays minimized and running with no `settings-apply-failed`
 record, and once restored without activation its `--screenshot` shows the saved color; a save of only `dock.edge`
 made while it is minimized still turns it into a bar at once. The 2026-10-07 check recorded these on the topology
-above. A failed switch step needs a Direct3D, shell, or `SetWindowPos` fault and a move/size loop needs the real
-cursor, so the rollback and the move/size deferral have no automated or live check.
+above. The rollback of a reload that also rebuilds the page runs in `--self-test` (above); a failed step of a
+dock-only switch needs a Direct3D, shell, or `SetWindowPos` fault and a move/size loop needs the real cursor, so that
+rollback and the move/size deferral have no automated or live check.
 
 First-run changes additionally require a live install without a XENEON, a manual check on a machine without one: on
 two displays side by side with the taskbar on the primary only, the installed `dock` names `bottom` and `secondary`,
@@ -718,16 +739,16 @@ names `top`. Recovery of an invalid default file installs no `dock`, and neither
 Desktop session. These are not recorded yet.
 
 Changes to the dock's `TaskbarCreated` handling MUST keep the `--self-test` step green: its window's `WM_CREATE`
-already finds the message registered and admits it through the message filter (exit 2 otherwise), the order a dock
-created the same way relies on to hear a taskbar created during its first placement. They additionally require a
-live run, because `HostPluginTests` does not build `Application` and `--self-test` never runs a dock: a Debug overlay
-bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`) under `--screenshot`, with the registered
-`TaskbarCreated` message posted twice to its own window (the running-Explorer case), logs two `dock-appbar-renewed`
-records and no `dock-appbar-refused`, leaves the foreground where it was, and exits 0. The 2026-10-07 check recorded
-this on the topology above, and again once the message was registered before the window. A real Explorer restart
-with a reserving bar and with an autohide bar up (the bar or the strip is reserved in the work area again, a
-full-screen window on the bar's monitor puts it beneath again), and one that broadcasts while the dock's first
-placement runs, are manual checks.
+already finds the message registered and admits it through the message filter (otherwise that check fails, exit 6),
+the order a dock created the same way relies on to hear a taskbar created during its first placement. They
+additionally require a live run, because `HostPluginTests` does not build `Application` and the self-test's hidden
+bar is never sent the message: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`)
+under `--screenshot`, with the registered `TaskbarCreated` message posted twice to its own window (the
+running-Explorer case), logs two `dock-appbar-renewed` records and no `dock-appbar-refused`, leaves the foreground
+where it was, and exits 0. The 2026-10-07 check recorded this on the topology above, and again once the message was
+registered before the window. A real Explorer restart with a reserving bar and with an autohide bar up (the bar or the
+strip is reserved in the work area again, a full-screen window on the bar's monitor puts it beneath again), and one
+that broadcasts while the dock's first placement runs, are manual checks.
 
 Placement-request and notice-window changes MUST keep `HostPluginTests` proving `BeginDockPlacement` and
 `NextDockPlacementPass` (a request during a pass is recorded, not run, and replayed as one more pass with the recorded
@@ -739,12 +760,12 @@ client keeps the text block and OK where the fixed layout had them, a notice cut
 and the text above it, and a client below the minimum is laid out at the minimum with no negative coordinate). A
 display change during a placement needs a hot-plug or a real shell delay, so the replay itself has no live check.
 
-Unattended-run changes MUST keep the bounded `test.ps1` command-line error step green, and additionally require a
-live run: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`) under `--screenshot`
-closed by a posted `WM_CLOSE` during its delay exits 8 with a `screenshot-failed` and a `failure-exit` record, shows no
-message box, and leaves the foreground where it was. The 2026-10-07 check recorded this on the topology above. A
-startup failure exit (1, 2, 3, 5, or 7), the settings fallback notice, a present crash marker, and the Release
-missing-display path under `--screenshot` have no automated or live check.
+Unattended-run changes MUST keep the bounded `test.ps1` command-line error and end-to-end capture steps green, and
+additionally require a live run: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`)
+under `--screenshot` closed by a posted `WM_CLOSE` during its delay exits 8 with a `screenshot-failed` and a
+`failure-exit` record, shows no message box, and leaves the foreground where it was. The 2026-10-07 check recorded
+this on the topology above. A startup failure exit (1, 2, 3, 5, or 7), the settings fallback notice, a present crash
+marker, and the Release missing-display path under `--screenshot` have no automated or live check.
 
 Session-end changes MUST keep the `--self-test` step green: `WM_QUERYENDSESSION` and a cancelled `WM_ENDSESSION` sent to
 its hidden window keep the window, renderer, page, and services, and `WM_ENDSESSION` with `wParam` `TRUE` returns with
@@ -758,19 +779,21 @@ before the waits, a device lane stuck past its drain bound, a responsive lane st
 the shell, the lane drain waits only until the reserve while the responsive lane drains alongside and runs `Stop`,
 the launch stop waits at most what is left, the stages before the flush end inside the deadline and leave it its
 reserve, and the log then holds one `device-lane-drain-timeout` (the stuck lane's) and one `launch-stop-timeout`. The
-waits are checked against the budgets the sequence hands out, with scheduling margins of hundreds of milliseconds;
-the flush is not timed, since `FlushLog`'s timeout bounds a hung writer, not disk latency, and the log is read after a
-10 s hang guard. A zero-wait stop of an idle launch worker logs no `launch-stop-timeout`, and the shutdown after it
-joins the thread. Because the self-test has no log writer, they additionally require a live run: a Debug overlay bar
-(`--dock bottom@primary --dock-mode fixed --dock-reserve off`) running the Zoom service under `--screenshot`, sent
-both messages with `ENDSESSION_LOGOFF` the way Windows sends them, answers `TRUE`, returns from `WM_ENDSESSION` with
-its window destroyed and its JSONL log already holding `session-ending` followed by `service-stopped`, leaves the
-foreground where it was, and exits by itself (8: the run ended before its capture). The 2026-10-07 check recorded
-this on the topology above (`WM_ENDSESSION` returned after 26 ms, after 29 ms once the session end also stopped the
-launch worker, after 37 ms under the one deadline, and after 33 to 416 ms over four runs once every lane was
-signalled before the first wait). A real sign-out, restart, or shutdown with a Logicon keypad and dialpad bound (the
-keypad shows the Logi splash on the sign-in screen, and the dialpad buttons RedXe bound work normally again) is a
-manual check.
+responsive lane needs a service slot of its own: with Logicon as the only catalogued service, only the stuck lane runs
+until a second service is catalogued. The waits are checked against the budgets the sequence hands out, with
+scheduling margins of hundreds of milliseconds; the flush is not timed, since `FlushLog`'s timeout bounds a hung
+writer, not disk latency, and the log is read after a 10 s hang guard. A zero-wait stop of an idle launch worker logs
+no `launch-stop-timeout` and leaves the next stop its wait, so the shutdown after it, made without first waiting for
+the thread, joins the exiting thread. Because the self-test has no log writer for these Info records, they
+additionally require a live run: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`)
+running the Zoom service under `--screenshot`, sent both messages with `ENDSESSION_LOGOFF` the way Windows sends them,
+answers `TRUE`, returns from `WM_ENDSESSION` with its window destroyed and its JSONL log already holding
+`session-ending` followed by `service-stopped`, leaves the foreground where it was, and exits by itself (8: the run
+ended before its capture). The 2026-10-07 check recorded this on the topology above (`WM_ENDSESSION` returned after
+26 ms, after 29 ms once the session end also stopped the launch worker, after 37 ms under the one deadline, and after
+33 to 416 ms over four runs once every lane was signalled before the first wait). A real sign-out, restart, or
+shutdown with a Logicon keypad and dialpad bound (the keypad shows the Logi splash on the sign-in screen, and the
+dialpad buttons RedXe bound work normally again) is a manual check.
 
 Notification-area icon changes MUST keep `HostPluginTests` proving the callback table (`TrayIconActionFor`: a
 double-click and `NIN_KEYSELECT` edit, `WM_CONTEXTMENU` opens the menu, single clicks, hover, and balloon events do
@@ -778,14 +801,16 @@ nothing, an edit within the double-click time of the previous one is dropped, an
 the retry schedule (`TrayIconAddRetryDelayMilliseconds`), and the owner against a scripted shell that never reaches the
 taskbar (`TestTrayIconOwner`: `Show` and `Hide` idempotent and the class unregistered, `WM_CLOSE` ignored, `NIM_DELETE`
 on every destruction while the owner exists, `TaskbarCreated` adding again, retries only while a taskbar exists and no
-timer after the last, no update after a timed-out add, and `NIM_SETVERSION` after every add or update before the icon
-counts as added), and `SettingsTests` proving `trayIcon` (`Specs/Core/Core_Settings.md`). Because the shell is not
-automated, they additionally require a live check: a Release run with the shipped template shows the icon with the
-`RedXe` tooltip (`Shell_NotifyIconGetRect` finds it); a double-click, and Enter on the keyboard-focused icon, open the
-settings file once in the default `.json` editor; a right-click and Shift+F10 show Edit settings (bold) and Exit, a
-click elsewhere closes the menu, and Esc after Shift+F10 leaves the keyboard focus on the notification area; Exit
-quits and removes the icon; saving `"trayIcon": false` removes the icon and `true` brings it back without a restart;
-restarting Explorer brings it back; and a Debug run with the shipped template shows none.
+timer after the last, no update after a timed-out add, `NIM_SETVERSION` after every add or update before the icon
+counts as added, and the shell's callbacks on the owner: single clicks post nothing, a double-click posts Edit
+settings to the command target, and Enter or another double-click within the double-click time posts nothing), and
+`SettingsTests` proving `trayIcon` (`Specs/Core/Core_Settings.md`). Because the shell is not automated, they
+additionally require a live check: a Release run with the shipped template shows the icon with the `RedXe` tooltip
+(`Shell_NotifyIconGetRect` finds it); a double-click, and Enter on the keyboard-focused icon, open the settings file
+once in the default `.json` editor; a right-click and Shift+F10 show Edit settings (bold) and Exit, a click elsewhere
+closes the menu, and Esc after Shift+F10 leaves the keyboard focus on the notification area; Exit quits and removes
+the icon; saving `"trayIcon": false` removes the icon and `true` brings it back without a restart; restarting Explorer
+brings it back; and a Debug run with the shipped template shows none.
 
 ## Implementation and validation anchors
 

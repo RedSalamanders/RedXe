@@ -510,9 +510,13 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   variant is deprecated and lists the members as deprecated. A minor 2 document whose Logicon key, dialpad button, and
   turn bind `keys.down` or `mouse.down` loads, validates, and keeps those bindings for the service.
 - Host tests load an empty services Zoom entry and one carrying retired members through the settings store, each at
-  startup and on a live reload in the order `Application` runs them, and prove the JSONL log gains exactly one
-  `service-retired-settings-ignored` Warning from `builtin.zoom` per load or applied reload, and none for an unchanged
-  notification, a repeated service apply, or a reload without the entry.
+  startup and on a live reload, and prove the store records the entry in `retiredServices` at each load and loads
+  nothing for an unchanged notification; that the report both of `Application`'s load paths make
+  (`PluginHost::LogRetiredServiceSettings`, after the startup load and after each applied live reload) logs exactly one
+  `service-retired-settings-ignored` Warning from `builtin.zoom`, without an `HRESULT`, per entry of the document it
+  is given and none for a document without one; and that starting and re-applying the services log none.
+  `test.ps1`'s end-to-end `--screenshot` run starts `RedXe.exe` with a portable file carrying the `v1.0.102` entry,
+  so `Application`'s startup order runs for real: the file loads as written and its log holds that one Warning.
 - Tests prove `trayIcon`: omitted it is `true` in Release and `false` in Debug, also in a minor 2 document; an authored
   `true` or `false` wins; a string, a number, `null`, an object, and a duplicate member are rejected, with the
   diagnostic on `$.trayIcon`; the member changes no other typed setting, and a toggle is a runtime change

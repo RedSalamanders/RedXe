@@ -1,6 +1,7 @@
 #include "PluginHost.h"
 
 #include "Actions/ActionTargets.h"
+#include "FailureReports.h"
 #include "HostActionCatalog.h"
 #include "HostActions.h"
 #include "PlugInterfaces/FactoryImpl.h"
@@ -723,7 +724,18 @@ HRESULT PluginHost::Log(const RedXeLogRecord* record) noexcept
     {
         return E_FAIL;
     }
+    if ((record->level == RedXeLogLevelError || record->level == RedXeLogLevelWarning) &&
+        _standardErrorLog.load(std::memory_order_acquire))
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_standardErrorLock);
+        RedXeFailureReports::WriteUtf8ToStandardError(line.data(), bytes);
+    }
     return EnqueueLogLine(line.data(), bytes);
+}
+
+void PluginHost::SetStandardErrorLog(bool enabled) noexcept
+{
+    _standardErrorLog.store(enabled, std::memory_order_release);
 }
 
 HRESULT PluginHost::SetLogDirectory(const wchar_t* directory) noexcept

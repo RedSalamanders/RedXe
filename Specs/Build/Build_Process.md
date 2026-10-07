@@ -90,13 +90,20 @@ runs, and `AVControlBroker.exe` calls it when it is started as a synthetic helpe
   its HRESULT when there is one, on stderr as well as on the debugger output, and end the run with exit code 6.
   `test.ps1` proves it on a copy of `RedXe.exe` without the `Settings` folder beside it, whose settings check fails,
   and requires that every return of `Application::RunSelfTest` other than its success goes through that one report
-  (`FailSelfTest`) and that none writes to the debugger output alone.
-- Every other run of `RedXe.exe` or `RedXeLauncher.exe` in `test.ps1` (`--help`, an unknown switch, the crash harness
-  and its invalid directory) and in the package smoke of `Build/Package.psm1` goes through
-  `Invoke-RedXeStreamingProcess` with a budget and a log, and keeps its exit-code check.
+  (`FailSelfTest`) and that none writes to the debugger output alone. The self-test opens no log directory, so the
+  host also writes its Warning and Error records to stderr as JSONL lines (`Plugins_API.md`): `test.ps1` requires that
+  a copy with the `Settings` folder but without the `Plugins` folder fails a check with `0x8007007E` beside a
+  `module-map-failed` record naming a plugin, and that the passing smoke log holds the one
+  `window-kind-switch-failed` Warning of the self-test's rolled-back kind switch.
+- Every other run of `RedXe.exe` or `RedXeLauncher.exe` in `test.ps1` (`--help`, an unknown switch, the end-to-end
+  `--screenshot` runs, the crash harness and its invalid directory) and in the package smoke of `Build/Package.psm1`
+  goes through `Invoke-RedXeStreamingProcess` with a budget and a log, and keeps its exit-code check.
 - A test executable never turns an HRESULT into its exit code: its low byte can be 0, which passes the run, or 3. A
   failed suite prints its HRESULT and returns 1.
 - A new test executable calls the header first, so an unattended run on a developer's desktop never holds a dialog.
+  `BuildProcessTests.ps1` checks that every `wmain` under `Tests/` starts with
+  `RedXeFailureReports::RouteAwayFromDialogs()` (comments aside), and that `RedXe/Main.cpp` routes an unattended run
+  before its first argument check and before its `Application` exists; the rule is tried on a sample that breaks it.
 - The header also makes stdout and stderr unbuffered. A process terminated at its budget runs no exit code that would
   flush a CRT buffer, so every line a test process wrote MUST already be in the pipe, and its log names the case that
   hung rather than ending at a 4 KB buffer boundary several cases earlier. `test.ps1` runs
