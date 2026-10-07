@@ -88,7 +88,7 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { throw "Build entrypoint failed with exit code $LASTEXITCODE." }
 }
 Import-Module (Join-Path $repoRoot 'Build/DxUiProvenance.psm1') -Force
-Import-Module (Join-Path $repoRoot 'Build/BuildPresentation.psm1') -Force
+Import-Module (Join-Path $repoRoot 'Build/StreamingProcess.psm1') -Force
 Assert-RedXeDxUiProvenance -OutputRoot (Join-Path $repoRoot ".build/$Platform/$Configuration") -LockFile (Join-Path $repoRoot 'Dependencies/DxUi.lock.json') -Platform $Platform -Configuration $Configuration
 
 $executable = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.exe"
@@ -105,7 +105,9 @@ if ($executableVersion.FileDescription -ne 'RedXe XENEON dashboard' -or
     throw "RedXe.exe is missing its stable Windows executable version identity (expected $expectedFileVersion, found $($executableVersion.FileVersion)). Rebuild, or pass the -BuildNumber it was built with."
 }
 
-
+# Every standalone test executable gets a wall-clock budget: a hung test then fails in minutes with its log,
+# instead of the CI job's timeout cancelling the whole leg without a diagnosis. The longest suite finishes in
+# a small fraction of this on the slowest CI runner.
 $testTimeoutSeconds = 900
 # Every process this script runs through Invoke-RedXeStreamingProcess is RedXe's own, and RedXe writes a redirected
 # stderr as UTF-8: a test executable's or RedXe.exe --self-test's failure report and a failed self-test check
@@ -156,10 +158,6 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if ('PluginContract' -in $Suites) {
-# Every standalone test executable gets a wall-clock budget: a hung test then fails in minutes with its log,
-# instead of the CI job's timeout cancelling the whole leg without a diagnosis. The longest suite finishes in
-# a small fraction of this on the slowest CI runner.
-$testTimeoutSeconds = 900
 $contractTests = Join-Path $repoRoot ".build\$Platform\$Configuration\PluginContractTests.exe"
 if ($Configuration -eq 'ASan Debug') {
     $probeLog = Join-Path $repoRoot ".build\logs\I19-ASan-probe-$Platform-$([guid]::NewGuid().ToString('N')).log"
@@ -199,7 +197,7 @@ $failureReportJob = Start-Job -ScriptBlock {
     Invoke-RedXeStreamingProcess -FilePath $FilePath -Arguments @('--failure-report-self-test') -WorkingDirectory $WorkingDirectory `
         -TimeoutSeconds 120 -LogPath $LogPath -StandardErrorEncoding ([Text.UTF8Encoding]::new($false)) `
         -OutputLineCallback { param([string] $Line, [bool] $IsError) }
-} -ArgumentList (Join-Path $repoRoot 'Build/BuildPresentation.psm1'), $contractTests, $repoRoot, $failureReportLog
+} -ArgumentList (Join-Path $repoRoot 'Build/StreamingProcess.psm1'), $contractTests, $repoRoot, $failureReportLog
 # A stop (Ctrl+C) ends the job too, and with it the fixture's containment job and the fixture.
 try { $failureReportExit = $failureReportJob | Receive-Job -Wait }
 finally { $failureReportJob | Remove-Job -Force }

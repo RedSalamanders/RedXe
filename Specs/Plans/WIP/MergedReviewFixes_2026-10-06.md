@@ -446,8 +446,8 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `host-hardening#9` (low) `RedXe/Application.cpp:2558`: The sameRuntime field list duplicates AppSettings::operator== by hand and silently treats any new member as source-only
 - [ ] `logicon-zoom#10` (low) `Common/Actions/WindowSelector.cpp:153`: RedXeActions::BringToForeground is dead after zoom.focus was removed; it is the only synthetic-Alt focus stealer and its docs still name Zoom
 - [ ] `logicon-zoom#6` (low) `Plugins/Logicon/LogiconHid.h:90`: Dead HID cancel and redundant stop paths after the IoState rewrite: HidPort::Cancel has no caller and races Close, Write's ERROR_BUSY branch is unreachable, and lane exit stops the wheels twice
-- [ ] `process-containment#11` (low) `Build/BuildPresentation.psm1:720`: The process-containment launcher lives in the presentation module; test.ps1 loads BuildPresentation.psm1 only for it
-- [ ] `process-containment#8` (low) `Build/BuildPresentation.psm1:475`: Two argument-quoting implementations for the two launch paths; ConvertTo-RedXeProcessCommandLine matches .NET ArgumentList exactly, so Set-RedXeProcessArguments can be deleted
+- [x] `process-containment#11` (low) `Build/BuildPresentation.psm1:720`: The process-containment launcher lives in the presentation module; test.ps1 loads BuildPresentation.psm1 only for it
+- [x] `process-containment#8` (low) `Build/BuildPresentation.psm1:475`: Two argument-quoting implementations for the two launch paths; ConvertTo-RedXeProcessCommandLine matches .NET ArgumentList exactly, so Set-RedXeProcessArguments can be deleted
 - [ ] `scoped-testing#18` (low) `Build/ScopedTesting.psm1:224`: Code, help text and normative spec text copied from other repositories (DxUi, RedSalamander) is dead or wrong in RedXe
 - [ ] `settings#11` (low) `RedXe/Settings.cpp:2137`: PrepareDockSourcePatch parses the whole document a second time for a check ParseAppSettingsJsonV5 already guarantees
 - [ ] `settings#12` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock queries Explorer on every launch without a XENEON although it is used only when the default file is installed, and it duplicates ResolveDockMonitor's monitor enumeration
@@ -470,11 +470,11 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `host-hardening#16` (nit) `RedXe/PluginHost.cpp:2328`: Simplification: the stopPending retry block is copied in StartServices and ApplyServiceSettings
 - [ ] `host-hardening#17` (nit) `RedXe/Application.h:407`: _dockDashboardResizeTimerArmed duplicates _dockDashboardResizePending
 - [ ] `logicon-zoom#11` (nit) `Specs/Settings.schema.json:323`: Leftovers from the removed Zoom SDK/client path: unreferenced $defs/zoomSettings, a stale .gitignore script reference, and ZoomSettings compiled into the host
-- [ ] `process-containment#10` (nit) `Build/BuildPresentation.psm1:686`: ContainedProcess carries dead members after #26 removed the Kill fallback, and the read/wait logic is duplicated per path; one wait with Timeout.Infinite removes both
-- [ ] `process-containment#16` (nit) `test.ps1:142`: Two assignments of the test budget; the effective value for later suites depends on whether PluginContract was selected
+- [x] `process-containment#10` (nit) `Build/BuildPresentation.psm1:686`: ContainedProcess carries dead members after #26 removed the Kill fallback, and the read/wait logic is duplicated per path; one wait with Timeout.Infinite removes both. Partly resolved by P5 (#37): `-ProcessId` reads `Id` again, the exit grace reads `HasExited`, and one sliced wait replaced both per-path branches; the parameterless `WaitForExit()` was still dead and is removed.
+- [x] `process-containment#16` (nit) `test.ps1:142`: Two assignments of the test budget; the effective value for later suites depends on whether PluginContract was selected
 - [ ] `scoped-testing#19` (nit) `Tests/test-scopes.json:182`: Four scope rules match test folders that do not exist (dead rules)
 - [ ] `scoped-testing#20` (nit) `Build/ScopedTesting.psm1:101`: Top-level Mockups/ is treated as code: it triggers a full run and invalidates native results
-- [ ] `scoped-testing#21` (nit) `test.ps1:142`: Duplicate $testTimeoutSeconds assignment left inside the PluginContract block
+- [x] `scoped-testing#21` (nit) `test.ps1:142`: Duplicate $testTimeoutSeconds assignment left inside the PluginContract block
 - [ ] `settings#18` (nit) `Specs/Settings.schema.json:323`: Dead `zoomSettings` definition left in the schema
 
 ### P7. Spec, user-guide, and test-coverage drift (32)
@@ -496,7 +496,7 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `host-hardening#14` (low) `test.ps1:366`: No automated end-to-end coverage for the new asynchronous --screenshot pipeline
 - [ ] `logicon-zoom#18` (low) `Tests/LogiconTests/Logicon.Tests.Runner.cpp:718`: The new raw-input ownership rules (do not replace a prior owner, do not remove a later one) have no test
 - [ ] `logicon-zoom#8` (low) `Specs/Plugins/Plugins_Zoom.md:34`: Plugins_Zoom.md says removed zoom.* bindings fail settings validation, but documents accept them and they show a red '!'
-- [ ] `process-containment#9` (low) `Tests/BuildProcessTests/BuildProcessTests.ps1:240`: The committed test only checks quoting for one argument with spaces, though every bounded test.ps1 call uses the custom quoter
+- [x] `process-containment#9` (low) `Tests/BuildProcessTests/BuildProcessTests.ps1:240`: The committed test only checks quoting for one argument with spaces, though every bounded test.ps1 call uses the custom quoter
 - [ ] `scoped-testing#22` (low) `Common/AddressSanitizerProbe.h:5`: A test-only ASan fixture header in Common/ escaped the #31 naming migration and native test inventory
 - [ ] `tests#11` (low) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:963`: Slide-offset test covers one GPU tile only; native widget containers moving with a top or left dock slide are untested
 - [ ] `tests#13` (low) `RedXe/HostActions.cpp:698`: Monitor resolution for actions (including the new `secondary` kind) never runs under test: deviceAccess=false swaps in a fixed rectangle

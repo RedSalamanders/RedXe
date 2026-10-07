@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot "CameraPackage.psm1") -Force
 # The bounded child runner for the package smoke. Without -Force: a nested forced import would remove the copy that
 # test.ps1 imported for itself.
-Import-Module (Join-Path $PSScriptRoot "BuildPresentation.psm1")
+Import-Module (Join-Path $PSScriptRoot "StreamingProcess.psm1")
 
 # Portable ZIP packaging. See Specs/Build/Build_Packaging.md for the contract this module implements.
 

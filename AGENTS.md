@@ -165,6 +165,7 @@ Build/
   Versioning.psm1   major.minor from Common/Version.h plus the caller's build number
   Package.psm1      Portable ZIP staging rules, CRT bundling, and the clean-extraction smoke
   Winget.psm1       Manifest generation from Installer/winget/templates and `winget validate`
+  StreamingProcess.psm1 Child-process runner of build.ps1, test.ps1 and the package smoke: one argument quoter, streamed log, budget in a kill-on-close job
 Settings/
   RedXe-debug.settings.json  Shipped Debug default
   RedXe.settings.json        Shipped Release default
