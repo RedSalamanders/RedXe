@@ -5,6 +5,7 @@
 #include "../../RedXe/CommandLine.h"
 #include "../../RedXe/DockOptions.h"
 #include "../../RedXe/SettingsWatcher.h"
+#include "Settings.Tests.ReleasedTemplates.h"
 
 #include <array>
 #include <cstdio>
@@ -420,6 +421,33 @@ constexpr std::string_view kRepresentative = R"json(
         if (!SchemaAcceptsPlugin(root, plugin.pluginId))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
+    // The services Zoom variant keeps the retired v1.0.102 members as deprecated, ignored properties, so an editor does
+    // not flag a file that still carries them.
+    yyjson_val* serviceVariants = yyjson_obj_get(yyjson_obj_get(defs, "serviceDefinition"), "oneOf");
+    bool zoomVariantFound = false;
+    size_t serviceIndex = 0;
+    size_t serviceMax = 0;
+    yyjson_val* serviceVariant = nullptr;
+    yyjson_arr_foreach(serviceVariants, serviceIndex, serviceMax, serviceVariant)
+    {
+        yyjson_val* serviceProperties = yyjson_obj_get(serviceVariant, "properties");
+        const char* plugin = yyjson_get_str(yyjson_obj_get(yyjson_obj_get(serviceProperties, "plugin"), "const"));
+        if (!plugin || std::string_view(plugin) != "builtin.zoom")
+            continue;
+        zoomVariantFound = true;
+        for (const char* retired :
+             {"clientId", "redirectPort", "domain", "displayName", "autoConnect", "mode", "labels"})
+        {
+            const char* reference = yyjson_get_str(yyjson_obj_get(yyjson_obj_get(serviceProperties, retired), "$ref"));
+            if (!reference || std::string_view(reference) != "#/$defs/retiredZoomMember")
+                zoomVariantFound = false;
+        }
+    }
+    if (!zoomVariantFound || !yyjson_is_true(yyjson_obj_get(yyjson_obj_get(defs, "retiredZoomMember"), "deprecated")))
+    {
+        std::wprintf(L"The schema services Zoom variant must accept the retired members as deprecated.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
     return S_OK;
 }
 
@@ -516,12 +544,11 @@ constexpr std::string_view kRepresentative = R"json(
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","keys":[{"slot":0,"action":"page.nowhere"}]}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"turns":[{"control":"dial","direction":"cw","action":"nowhere.go"}]}}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"dial":"page"}}},"pages":[{}]})json",
-        // Zoom model rejections.
-        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc"}},"pages":[{}]})json",
-        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","redirectPort":48123}},"pages":[{}]})json",
-        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","mode":"local"}},"pages":[{}]})json",
-        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","mode":"auto"}},"pages":[{}]})json",
-        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","labels":{"mute":"x"}}},"pages":[{}]})json",
+        // Zoom model rejections: any member other than the retired v1.0.102 ones, which load and are ignored
+        // (ValidateReleasedTemplates), including a retired name in another case.
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","meeting":"abc"}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","ClientID":"abc"}},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"services":{"Z":{"plugin":"builtin.zoom","redirectPort":48123,"sdkPath":"x"}},"pages":[{}]})json",
         // Shape errors.
         R"json({"version":{"major":5},"services":[],"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":"builtin.logicon"},"pages":[{}]})json",
@@ -1960,6 +1987,114 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
     }
 }
 
+// Settings written by the public v1.0.102 release load unchanged (Core_Settings.md "Version 5 document"). Its templates
+// carry the retired Zoom members, which the Zoom model accepts with any value and ignores, and the Debug one binds
+// removed zoom.* verbs, which stay invalid bindings rather than document errors. The default store keeps such a file
+// byte for byte instead of backing it up and replacing it.
+[[nodiscard]] HRESULT ValidateReleasedTemplates() noexcept
+{
+    struct ReleasedTemplate final
+    {
+        const wchar_t* name;
+        std::string_view text;
+        uint32_t pageCount;
+        bool bindsRemovedZoomVerbs;
+    };
+    const ReleasedTemplate releasedTemplates[]{{L"Release", kV102ReleaseTemplate, 4, false},
+                                               {L"Debug", kV102DebugTemplate, 5, true}};
+    for (const ReleasedTemplate& released : releasedTemplates)
+    {
+        AppSettings loaded{};
+        SettingsParseDiagnostic diagnostic{};
+        const HRESULT result = ParseAppSettingsJsonDetailed(released.text, loaded, diagnostic);
+        const ServiceSettings* zoom = SUCCEEDED(result) ? FindServiceSettings(loaded, "builtin.zoom") : nullptr;
+        const ServiceSettings* logicon = SUCCEEDED(result) ? FindServiceSettings(loaded, "builtin.logicon") : nullptr;
+        if (FAILED(result) || FAILED(ValidateAppSettings(loaded)) || loaded.versionMinor != 2 ||
+            loaded.dashboard.pageCount != released.pageCount || !zoom || !zoom->retiredMembersIgnored || !logicon ||
+            logicon->retiredMembersIgnored)
+        {
+            std::wprintf(L"The v1.0.102 %s template did not load unchanged: %S %S\n", released.name,
+                         diagnostic.path.c_str(), diagnostic.message.c_str());
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (released.bindsRemovedZoomVerbs &&
+            logicon->privateConfiguration.View().find("\"zoom.signIn\"") == std::string_view::npos)
+        {
+            std::wprintf(L"The v1.0.102 Debug template lost its removed zoom.* bindings.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
+
+    // Any value of every retired member loads, also in a current-minor document; an entry without them is not flagged.
+    constexpr std::string_view anyRetiredValue =
+        R"json({"version":{"major":5,"minor":3},"services":{"Z":{"plugin":"builtin.zoom","clientId":null,"redirectPort":"48123","domain":[],"displayName":7,"autoConnect":"no","mode":{"x":1},"labels":[{"mute":2}]}},"pages":[{}]})json";
+    constexpr std::string_view noRetiredMember =
+        R"json({"version":{"major":5,"minor":3},"services":{"Z":{"plugin":"builtin.zoom"}},"pages":[{}]})json";
+    AppSettings retired{};
+    AppSettings current{};
+    if (FAILED(ParseAppSettingsJson(anyRetiredValue, retired)) || retired.serviceCount != 1 ||
+        !retired.services[0].retiredMembersIgnored || FAILED(ParseAppSettingsJson(noRetiredMember, current)) ||
+        current.serviceCount != 1 || current.services[0].retiredMembersIgnored)
+    {
+        std::wprintf(L"The retired Zoom members are not accepted with any value and ignored.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    try
+    {
+        const std::filesystem::path localRoot =
+            std::filesystem::temp_directory_path() /
+            (L"RedXe.ReleasedTemplateTests." + std::to_wstring(GetCurrentProcessId()) + L"." +
+             std::to_wstring(GetTickCount64()));
+        const std::filesystem::path settingsDirectory = localRoot / L"RedXe" / L"Settings";
+        std::filesystem::create_directories(settingsDirectory);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code error;
+                std::filesystem::remove_all(localRoot, error);
+            });
+#if defined(_DEBUG)
+        constexpr const wchar_t* selectedName = kRedXeDebugSettingsFileName;
+        constexpr std::string_view releasedBytes = kV102DebugTemplate;
+#else
+        constexpr const wchar_t* selectedName = kRedXeReleaseSettingsFileName;
+        constexpr std::string_view releasedBytes = kV102ReleaseTemplate;
+#endif
+        const std::filesystem::path selected = settingsDirectory / selectedName;
+        {
+            std::ofstream stream(selected, std::ios::binary);
+            stream.write(releasedBytes.data(), static_cast<std::streamsize>(releasedBytes.size()));
+        }
+        SettingsStore store;
+        std::unique_ptr<AppSettings> loaded;
+        HRESULT result = store.Initialize(false, {}, loaded, localRoot.wstring());
+        std::string kept;
+        if (SUCCEEDED(result))
+            result = ReadFile(selected, kept);
+        if (FAILED(result) || !loaded || store.UsedInitialFallback() || kept != releasedBytes ||
+            loaded->versionMinor != 2 || loaded->serviceCount != 2)
+        {
+            std::wprintf(L"The default store did not keep the v1.0.102 settings file.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(settingsDirectory))
+        {
+            if (entry.path().filename().wstring().starts_with(std::filesystem::path(selectedName).stem().wstring() +
+                                                              L".invalid-"))
+            {
+                std::wprintf(L"The v1.0.102 settings file was backed up as invalid.\n");
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
 [[nodiscard]] HRESULT ValidateLegacyReleaseFilenameMigration() noexcept
 {
 #if defined(_DEBUG)
@@ -2557,6 +2692,7 @@ int wmain()
                        {L"watcher", ValidateWatcher},
                        {L"external selection", ValidateExternalSelection},
                        {L"default recovery", ValidateDefaultRecovery},
+                       {L"v1.0.102 settings", ValidateReleasedTemplates},
                        {L"legacy filename", ValidateLegacyReleaseFilenameMigration},
                        {L"first-run dock", ValidateFirstRunDock},
                        {L"logs directory", ValidateLogsDirectory},

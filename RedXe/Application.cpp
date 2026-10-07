@@ -534,6 +534,22 @@ struct DisplayFriendlyName final
     return ValidateAppSettings(settings);
 }
 
+// A service entry may keep members a later RedXe retired (today the v1.0.102 Zoom members): the document still loads,
+// and each load or live apply logs one warning per such entry (Core_Settings.md "Version 5 document").
+void LogRetiredServiceSettings(const AppSettings& settings) noexcept
+{
+    for (const ServiceSettings& service : settings.services)
+    {
+        if (service.retiredMembersIgnored)
+        {
+            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, service.pluginId.utf8.data(),
+                               nullptr, "service-retired-settings-ignored",
+                               "The service entry carries settings members this RedXe retired; they are ignored and "
+                               "can be deleted.");
+        }
+    }
+}
+
 } // namespace
 
 class ApplicationDropTarget final : public IDropTarget
@@ -766,6 +782,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         (void)PluginHost::Instance().SetLogDirectory(_settingsStore.LogsDirectory().c_str());
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
     }
+    LogRetiredServiceSettings(*_settings);
     if (_settingsStore.InstalledFirstRunDock())
     {
         std::array<char, 192> message{};
@@ -5329,6 +5346,7 @@ void Application::OnSettingsChanged() noexcept
     if (SUCCEEDED(applyResult))
     {
         _settingsStore.MarkApplied(stamp);
+        LogRetiredServiceSettings(*_settings);
         CloseSettingsError();
         OutputDebugStringW(L"RedXe settings were reloaded live.\n");
         return;

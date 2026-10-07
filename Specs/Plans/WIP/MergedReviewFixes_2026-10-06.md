@@ -238,12 +238,12 @@ Check a row when its fix lands, or note why it was dropped.
 
 ### B1. Settings written by v1.0.102 must still load (6)
 
-- [ ] `alignment#0` (high) `Plugins/Actions/Zoom/ZoomSettings.cpp:43`: Removing the legacy Zoom settings breaks every v1.0.102 Release settings file, and cold recovery then backs up and replaces the user's whole file
-- [ ] `logicon-zoom#0` (high) `Plugins/Actions/Zoom/ZoomSettings.cpp:43`: Upgrading from v1.0.102 resets the user's whole settings file because the shipped template's Zoom clientId/redirectPort/autoConnect members are now a document error
-- [ ] `settings#0` (high) `Plugins/Actions/Zoom/ZoomSettings.cpp:43`: Upgrading from the public v1.0.102 resets every user's default settings file: Zoom::ParseSettings now rejects the Zoom members that release's templates shipped
+- [x] `alignment#0` (high) `Plugins/Actions/Zoom/ZoomSettings.cpp:43`: Removing the legacy Zoom settings breaks every v1.0.102 Release settings file, and cold recovery then backs up and replaces the user's whole file
+- [x] `logicon-zoom#0` (high) `Plugins/Actions/Zoom/ZoomSettings.cpp:43`: Upgrading from v1.0.102 resets the user's whole settings file because the shipped template's Zoom clientId/redirectPort/autoConnect members are now a document error
+- [x] `settings#0` (high) `Plugins/Actions/Zoom/ZoomSettings.cpp:43`: Upgrading from the public v1.0.102 resets every user's default settings file: Zoom::ParseSettings now rejects the Zoom members that release's templates shipped
 - [ ] `alignment#3` (medium) `Plugins/Logicon/LogiconSettings.cpp:125`: Logicon's keys.down / mouse.down refusal is enforced only in the Logicon parser: it invalidates the whole file with a wrong diagnostic, schema and user docs disagree, and Launcher still accepts holds
 - [ ] `logicon-zoom#3` (medium) `Plugins/Logicon/LogiconSettings.cpp:125`: Logicon rejects keys.down/mouse.down as a whole-document error with a misleading 'is not an action name' diagnostic, and the docs, schema and Launcher disagree
-- [ ] `studioclock#9` (low) `Specs/Core/Core_Settings.md:89`: A document using glowPercent is treated as invalid by the published v1.0.102 build, which then backs up and replaces the user's shared settings file
+- [x] `studioclock#9` (low) `Specs/Core/Core_Settings.md:89`: A document using glowPercent is treated as invalid by the published v1.0.102 build, which then backs up and replaces the user's shared settings file. Closed by D1 as a documented decision: Core_Settings.md and docs/usage.md state that rollback to an older build is unsupported and cold recovery keeps the backup.
 
 ### B2. Release workflow runs the Python tooling suite (3)
 

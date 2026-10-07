@@ -93,6 +93,17 @@ migrated. Version 4 is an incompatible major: cold recovery of a default file ba
 version 5 template; a `--settings` portable version 4 file is left unchanged and the process runs the in-memory deployed
 version 5 default.
 
+A settings file written by an earlier release, back to the public `v1.0.102`, MUST load unchanged after an upgrade.
+Plugin members are not versioned by `minor`, so a plugin settings model that retires a member MUST keep accepting it
+with any value and ignore it, whatever the document's minor. RedXe MUST NOT migrate or rewrite the file for a retired
+member. For a service entry the host logs one Warning record `service-retired-settings-ignored` per load or live apply
+(today the seven Zoom SDK members, `Specs/Plugins/Plugins_Zoom.md`). A binding to a verb a published namespace no
+longer publishes (the removed `zoom.*` controls) stays in the document as an invalid binding
+(`Specs/Plugins/Plugins_Actions.md`), not a document error. Rolling back to an older build is not supported: an older
+build validates plugin members as a closed set, so it may reject a file that uses a newer member (for example Studio
+Clock `glowPercent`, which `v1.0.102` rejects). Its cold recovery then keeps the user's file as the
+`.invalid-<timestamp>.json` backup described in "Cold load and recovery".
+
 User documents MUST NOT contain `layout`, `areas`, `arrangeAlong`, `sizeRatio`, nested `settings`, or `override`.
 Those members reject the complete candidate with a diagnostic on the authored JSON path.
 
@@ -186,8 +197,10 @@ reserved widget keys are rejected. A widget plugin ID, an unknown plugin ID, or 
 twice rejects the complete candidate. The host merges the plugin's published defaults under the authored keys, then
 validates the effective object with the plugin's shared model (`Plugins/Logicon/LogiconSettings.cpp` and
 `Plugins/Actions/Zoom/ZoomSettings.cpp`, compiled into the host); a model rejection is a document error on the
-authored path. Every `action` member the model accepts (Logicon keys, dialpad buttons and turns) is additionally
-checked against the action-name grammar, the default and registered namespaces, and the default verbs
+authored path. A model that accepted and ignored retired members marks the typed `ServiceSettings`
+(`retiredMembersIgnored`), which drives the `service-retired-settings-ignored` warning. Every `action` member the
+model accepts (Logicon keys, dialpad buttons and turns) is additionally checked against the action-name grammar, the
+default and registered namespaces, and the default verbs
 (`RedXe/HostActionCatalog.cpp` `IsKnownActionName`); an unsatisfied target is not a document error
 (`Specs/Plugins/Plugins_Actions.md`). The effective compact object is
 stored per service and reaches the plugin as the `instance` member of the ordinary factory envelope.
@@ -405,6 +418,12 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   plugin-model failures (`slot` 9, `brightness` 0, unknown members), an unknown or malformed `action` name, a
   non-object `services`, a string member, and `use`. Both shipped templates MUST carry the current minor (3) and
   configure every catalogued service.
+- Tests parse the exact `v1.0.102` Release and Debug templates (`Settings.Tests.ReleasedTemplates.h`) and prove they
+  load and validate, with the Debug template's removed `zoom.*` bindings kept, and that the default store keeps such a
+  file byte for byte without a fallback or `.invalid-` backup. They prove the seven retired Zoom members load with any
+  value in a minor 3 document and set `retiredMembersIgnored`, an entry without them does not, any other Zoom member
+  (including a retired name in another case) is rejected, and the schema's services Zoom variant lists them as
+  deprecated.
 - Tests prove `trayIcon`: omitted it is `true` in Release and `false` in Debug, also in a minor 2 document; an authored
   `true` or `false` wins; a string, a number, `null`, an object, and a duplicate member are rejected, with the
   diagnostic on `$.trayIcon`; the member changes no other typed setting; both templates author it (`false` in Debug,
