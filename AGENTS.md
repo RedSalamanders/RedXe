@@ -167,6 +167,7 @@ Build/
   Winget.psm1       Manifest generation from Installer/winget/templates and `winget validate`
   DxUiRestore.psm1  The DxUi pin: lock, verified sparse restore, leases and superseded-restore cleanup, and the MSBuild the build runs
   ScopedTesting.psm1 Scope planner behind Test-Changes.ps1: Git change discovery, scope rules, evidence identity and receipts, PR delegation
+  StreamingProcess.psm1 Child-process runner of build.ps1, test.ps1 and the package smoke: one argument quoter, streamed log, budget in a kill-on-close job
 Settings/
   RedXe-debug.settings.json  Shipped Debug default
   RedXe.settings.json        Shipped Release default

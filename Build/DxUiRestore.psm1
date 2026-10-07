@@ -18,6 +18,10 @@ $script:SparseCheckoutPatterns = @('/*', '!/Measurements/', '!/docs/gallery/', '
 # far longer than any restore or build, so none still using a folder is ever outside it.
 $script:RestoreLeaseWindow = [TimeSpan]::FromDays(7)
 
+# How long Enter-RedXeDxUiLock waits for another process to finish with a folder: far longer than a restore (a clone over a slow
+# network) or a removal of superseded restores takes, so only a holder that is stuck reaches it.
+$script:LockWaitLimit = [TimeSpan]::FromMinutes(30)
+
 function Read-RedXeDxUiLock {
     <# The lock at LockFile, once it names the canonical repository, one exact commit, the API revision this product is adapted to
        and the single DxUi target. #>
@@ -101,44 +105,76 @@ function Test-RedXeDxUiSourceCheckout {
     return $LASTEXITCODE -eq 0 -and $changes.Count -eq 0
 }
 
+function Read-RedXeDxUiLockHolder {
+    <# What the holder of a folder's mutex (Enter-RedXeDxUiLock) recorded about itself at Record, for a process that waits for it. #>
+    param([Parameter(Mandatory)][string] $Record)
+    try { if ([IO.File]::Exists($Record)) { return [IO.File]::ReadAllText($Record) } }
+    catch [IO.IOException] { }
+    catch [UnauthorizedAccessException] { }
+    return 'a RedXe build, restore or test that recorded nothing about itself'
+}
+
 function Enter-RedXeDxUiLock {
-    <# Waits for and returns the machine-wide named mutex of Path, which serializes the work on that folder across threads,
-       processes and logon sessions: its name is a digest of the full path, compared without case as Windows compares paths. The
-       wait is sliced, so Ctrl+C stops it, and says once what it waits for. A holder that ended without releasing the mutex hands it over
-       (Windows reports it abandoned); the caller checks the folder under the mutex anyway. The mutex belongs to the calling thread:
-       Exit-RedXeDxUiLock releases it on that thread, which may also enter it again (a nested restore). #>
+    <# Waits for the machine-wide named mutex of Path, which serializes the work on that folder across threads, processes and logon
+       sessions, and returns the held lock (the mutex and its holder record) for Exit-RedXeDxUiLock. The mutex's name is a digest of
+       the full path, compared without case as Windows compares paths.
+       - The wait is sliced, so Ctrl+C stops it, says once what it waits for and which process holds the mutex, and gives up after
+         Timeout (LockWaitLimit) with a message that names both.
+       - Windows does not report a mutex's owner, so the holder records itself (its process identifier, since when, its command
+         line) in the temporary folder, which every process of its account shares. A holder under another account has no record
+         there and is reported unknown. The record is best effort and never fails the lock.
+       - A holder that ended without releasing the mutex hands it over (Windows reports it abandoned); the caller checks the folder
+         under the mutex anyway.
+       - The mutex belongs to the calling thread: Exit-RedXeDxUiLock releases it on that thread, which may also enter it again (a
+         nested restore). #>
     param(
         [Parameter(Mandatory)][string] $Path,
-        [Parameter(Mandatory)][string] $Purpose
+        [Parameter(Mandatory)][string] $Purpose,
+        [TimeSpan] $Timeout = $script:LockWaitLimit
     )
     $key = [IO.Path]::GetFullPath($Path).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar).ToUpperInvariant()
     $sha256 = [Security.Cryptography.SHA256]::Create()
     try { $digest = [BitConverter]::ToString($sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($key))).Replace('-', '') }
     finally { $sha256.Dispose() }
+    $record = Join-Path ([IO.Path]::GetTempPath()) "RedXe.DxUi.$digest.holder"
     $mutex = [Threading.Mutex]::new($false, "Global\RedXe.DxUi.$digest")
     try {
         $announced = $false
+        $waited = [Diagnostics.Stopwatch]::StartNew()
         while ($true) {
             try { if ($mutex.WaitOne(500)) { break } }
             catch [Threading.AbandonedMutexException] { break }
+            if ($waited.Elapsed -ge $Timeout) {
+                $limit = if ($Timeout.TotalSeconds -ge 120) { "$([Math]::Round($Timeout.TotalMinutes)) minutes" } else { "$([Math]::Round($Timeout.TotalSeconds)) seconds" }
+                throw "Gave up after $limit waiting for $Purpose in another process ($(Read-RedXeDxUiLockHolder -Record $record)). Let that process finish, or end it, then run again."
+            }
             if (-not $announced) {
-                Write-Host "Waiting for $Purpose in another process..." -ForegroundColor DarkGray
+                Write-Host "Waiting for $Purpose in another process ($(Read-RedXeDxUiLockHolder -Record $record))..." -ForegroundColor DarkGray
                 $announced = $true
             }
         }
+        try { [IO.File]::WriteAllText($record, "process $PID since $([DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')): $([Environment]::CommandLine)") }
+        catch [IO.IOException] { }
+        catch [UnauthorizedAccessException] { }
     }
     catch {
         $mutex.Dispose()
         throw
     }
-    return $mutex
+    return [pscustomobject]@{ Mutex = $mutex; Record = $record }
 }
 
 function Exit-RedXeDxUiLock {
-    <# Releases and closes a mutex Enter-RedXeDxUiLock returned, on the thread that entered it. #>
-    param([Parameter(Mandatory)][Threading.Mutex] $Mutex)
-    try { $Mutex.ReleaseMutex() }
-    finally { $Mutex.Dispose() }
+    <# Removes the holder record of a lock Enter-RedXeDxUiLock returned, then releases and closes its mutex, on the thread that
+       entered it. #>
+    param([Parameter(Mandatory)][pscustomobject] $Lock)
+    try {
+        try { [IO.File]::Delete($Lock.Record) }
+        catch [IO.IOException] { }
+        catch [UnauthorizedAccessException] { }
+        $Lock.Mutex.ReleaseMutex()
+    }
+    finally { $Lock.Mutex.Dispose() }
 }
 
 function Restore-RedXeDxUiSource {
@@ -238,7 +274,7 @@ function Restore-RedXeDxUiSource {
             }
         }
     }
-    finally { Exit-RedXeDxUiLock -Mutex $lock }
+    finally { Exit-RedXeDxUiLock -Lock $lock }
 }
 
 function Restore-RedXeDxUiPin {
@@ -298,7 +334,7 @@ function Update-RedXeDxUiLease {
         [IO.File]::WriteAllText($lease, $now.ToString('o'))
         [IO.File]::SetLastWriteTimeUtc($lease, $now)
     }
-    finally { Exit-RedXeDxUiLock -Mutex $lock }
+    finally { Exit-RedXeDxUiLock -Lock $lock }
 }
 
 function Test-RedXeDxUiUsedSince {
@@ -332,11 +368,11 @@ function Remove-RedXeDxUiSupersededRestores {
        - Only folders named the way RedXe's restores name them are candidates: 16- or 64-digit fingerprint roots, the older
          <commit>-api<n>-... roots, source/<commit> and source/~<hex>. Anything else in the folder is left alone.
        - A candidate used within UnusedFor (the seven-day lease window) is kept. Every restore-dxui.ps1 run, which starts every
-         build, renews the lease of the output root and of the source clone it uses before it uses them (Update-RedXeDxUiLease); a
-         folder without a lease counts as used when it or anything in it was written within the window. The folder's own time
-         does not count: a build that reuses a root reads it without writing its top level. The window is far longer than any
-         build, so a root another session still builds with stays when a restore for another fingerprint has since replaced the
-         properties that named it.
+         build.ps1 build, renews the lease of the output root and of the source clone it uses before it uses them
+         (Update-RedXeDxUiLease); a Visual Studio IDE build runs no restore and renews none. A folder without a lease counts as used
+         when it or anything in it was written within the window. The folder's own time does not count: a build that reuses a
+         root reads it without writing its top level. The window is far longer than any build, so a root another session still
+         builds with stays when a restore for another fingerprint has since replaced the properties that named it.
        - The decisions and the removals run under the dependency root's mutex, which Update-RedXeDxUiLease takes too, so a lease
          and a removal never interleave.
        - A removed folder's lease goes with it, and a lease whose folder is gone goes once it is older than the window.
@@ -398,7 +434,7 @@ function Remove-RedXeDxUiSupersededRestores {
             }
         }
     }
-    finally { Exit-RedXeDxUiLock -Mutex $lock }
+    finally { Exit-RedXeDxUiLock -Lock $lock }
 }
 
 function Find-RedXeMSBuild {

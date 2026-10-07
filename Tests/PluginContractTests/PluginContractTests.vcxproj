@@ -64,6 +64,7 @@
     <ClCompile Include="PluginContract.Tests.Runner.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="PluginContract.Tests.AddressSanitizerProbe.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Data.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h" />

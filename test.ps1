@@ -88,7 +88,7 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { throw "Build entrypoint failed with exit code $LASTEXITCODE." }
 }
 Import-Module (Join-Path $repoRoot 'Build/DxUiProvenance.psm1') -Force
-Import-Module (Join-Path $repoRoot 'Build/BuildPresentation.psm1') -Force
+Import-Module (Join-Path $repoRoot 'Build/StreamingProcess.psm1') -Force
 Assert-RedXeDxUiProvenance -OutputRoot (Join-Path $repoRoot ".build/$Platform/$Configuration") -LockFile (Join-Path $repoRoot 'Dependencies/DxUi.lock.json') -Platform $Platform -Configuration $Configuration
 
 $executable = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.exe"
@@ -105,13 +105,53 @@ if ($executableVersion.FileDescription -ne 'RedXe XENEON dashboard' -or
     throw "RedXe.exe is missing its stable Windows executable version identity (expected $expectedFileVersion, found $($executableVersion.FileVersion)). Rebuild, or pass the -BuildNumber it was built with."
 }
 
-
+# Every standalone test executable gets a wall-clock budget: a hung test then fails in minutes with its log,
+# instead of the CI job's timeout cancelling the whole leg without a diagnosis. The longest suite finishes in
+# a small fraction of this on the slowest CI runner.
 $testTimeoutSeconds = 900
-# Every process this script runs through Invoke-RedXeStreamingProcess is RedXe's own, and RedXe writes a redirected
-# stderr as UTF-8: a test executable's or RedXe.exe --self-test's failure report and a failed self-test check
-# (Common/FailureReports.h). Each run names that encoding for stderr; the runner's default, the console output code
-# page, would garble non-ASCII text under a legacy one (Build_Process.md).
+# Every process this script runs through Invoke-RedXeStreamingProcess is RedXe's own, and RedXe writes both redirected
+# streams as UTF-8: stderr a test executable's or RedXe.exe --self-test's failure report and a failed self-test check
+# (Common/FailureReports.h), stdout RedXe.exe's command-line text (--help, an argument error) and a test executable's
+# narrow text, which /utf-8 compiles as UTF-8. Each run names that encoding for both streams; the runner's default,
+# the console output code page, would garble non-ASCII text under a legacy one (Build_Process.md).
 $utf8 = [Text.UTF8Encoding]::new($false)
+
+# A run bounded by two minutes and logged like the others, but from a background job whose hidden console is its own,
+# under console output code page 437: non-ASCII text that a check then finds intact in the log proves the UTF-8
+# decoding whatever code page the caller's console uses. A console another process shares is never changed, and a stop
+# (Ctrl+C) ends the job too, and with it the run's containment job and the run.
+function Invoke-RedXeLegacyConsoleRun {
+    param(
+        [Parameter(Mandatory)]
+        [string] $FilePath,
+
+        [Parameter(Mandatory)]
+        [string[]] $Arguments,
+
+        [Parameter(Mandatory)]
+        [string] $LogPath
+    )
+
+    $job = Start-Job -ScriptBlock {
+        param([string] $ModulePath, [string] $FilePath, [string[]] $Arguments, [string] $WorkingDirectory, [string] $LogPath)
+        $ErrorActionPreference = 'Stop'
+        Add-Type -Namespace RedXeLegacyConsole -Name Native -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern uint GetConsoleProcessList(uint[] list, uint count);
+[DllImport("kernel32.dll")] public static extern bool SetConsoleOutputCP(uint codePage);
+'@
+        if ([RedXeLegacyConsole.Native]::GetConsoleProcessList([uint32[]]::new(2), 2) -ne 1 -or
+            -not [RedXeLegacyConsole.Native]::SetConsoleOutputCP(437)) {
+            throw "The run of $FilePath has no console of its own to set to code page 437."
+        }
+        Import-Module $ModulePath -Force
+        $utf8 = [Text.UTF8Encoding]::new($false)
+        Invoke-RedXeStreamingProcess -FilePath $FilePath -Arguments $Arguments -WorkingDirectory $WorkingDirectory `
+            -TimeoutSeconds 120 -LogPath $LogPath -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 `
+            -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+    } -ArgumentList (Join-Path $repoRoot 'Build/StreamingProcess.psm1'), $FilePath, $Arguments, $repoRoot, $LogPath
+    try { return $job | Receive-Job -Wait }
+    finally { $job | Remove-Job -Force }
+}
 
 if ('LauncherAlias' -in $Suites) {
 # The winget command alias targets RedXeLauncher.exe: it must carry the same version stamp, need nothing but
@@ -126,14 +166,14 @@ Write-Host 'Running command alias launcher check...' -ForegroundColor Cyan
 # Bounded and logged like every other test process; the job that bounds the launcher holds the RedXe.exe it starts too.
 $launcherHelpLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXeLauncher.help.log"
 $launcherHelpExit = Invoke-RedXeStreamingProcess -FilePath $launcher -Arguments @('--help') -WorkingDirectory $repoRoot `
-    -TimeoutSeconds 120 -LogPath $launcherHelpLog -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+    -TimeoutSeconds 120 -LogPath $launcherHelpLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
 if ($launcherHelpExit -ne 0 -or (Get-Content -LiteralPath $launcherHelpLog -Raw) -notmatch '--self-test') {
     throw "RedXeLauncher.exe --help exited with code $launcherHelpExit or did not relay the RedXe help text: $launcherHelpLog"
 }
 # An unknown switch alone, with no awaited mode beside it, is awaited too: its error and exit code 2 reach the caller.
 $launcherUnknownLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXeLauncher.unknown.log"
 $launcherUnknownExit = Invoke-RedXeStreamingProcess -FilePath $launcher -Arguments @('--no-such-switch') -WorkingDirectory $repoRoot `
-    -TimeoutSeconds 120 -LogPath $launcherUnknownLog -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+    -TimeoutSeconds 120 -LogPath $launcherUnknownLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
 if ($launcherUnknownExit -ne 2 -or (Get-Content -LiteralPath $launcherUnknownLog -Raw) -notmatch 'Unknown argument "--no-such-switch"') {
     throw "RedXeLauncher.exe did not await and propagate the unknown-switch exit code 2 (got $launcherUnknownExit): $launcherUnknownLog"
 }
@@ -156,10 +196,6 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if ('PluginContract' -in $Suites) {
-# Every standalone test executable gets a wall-clock budget: a hung test then fails in minutes with its log,
-# instead of the CI job's timeout cancelling the whole leg without a diagnosis. The longest suite finishes in
-# a small fraction of this on the slowest CI runner.
-$testTimeoutSeconds = 900
 $contractTests = Join-Path $repoRoot ".build\$Platform\$Configuration\PluginContractTests.exe"
 if ($Configuration -eq 'ASan Debug') {
     $probeLog = Join-Path $repoRoot ".build\logs\I19-ASan-probe-$Platform-$([guid]::NewGuid().ToString('N')).log"
@@ -168,7 +204,7 @@ if ($Configuration -eq 'ASan Debug') {
         $env:ASAN_OPTIONS='halt_on_error=1:abort_on_error=0:detect_leaks=0'
         # Bounded like every other test process; the sanitizer report is captured in the log for the check below.
         $probeExit = Invoke-RedXeStreamingProcess -FilePath $contractTests -Arguments @('--asan-probe') -WorkingDirectory $repoRoot `
-            -TimeoutSeconds 120 -LogPath $probeLog -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+            -TimeoutSeconds 120 -LogPath $probeLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
     } finally { $env:ASAN_OPTIONS=$previousOptions }
     if ($probeExit -eq 0 -or -not (Select-String -LiteralPath $probeLog -SimpleMatch 'AddressSanitizer: heap-use-after-free')) {
         throw "ASAN failed to diagnose the isolated deliberate defect: $probeLog"
@@ -179,30 +215,12 @@ if ($Configuration -eq 'ASan Debug') {
 # (Common/FailureReports.h). Debug and ASan Debug have such checks; Release has none and exits 0. Bounded like
 # every other test process, so a routing that stopped working fails here, in at most two minutes, not in the suites.
 # The report carries U+0141, as a source path under such a user name would, which must reach the log intact, and the
-# report must go on past it. The run takes place in a background job, whose hidden console is its own, under console
-# output code page 437, which has no such character: only the UTF-8 the run names for stderr keeps it there.
+# report must go on past it. The run goes through Invoke-RedXeLegacyConsoleRun, under code page 437, which has no such
+# character: only the UTF-8 the run names for stderr keeps it there.
 Write-Host 'Running test failure-report routing check...' -ForegroundColor Cyan
 $failureReportLog = Join-Path $repoRoot ".build\logs\failure-report-$Platform-$($Configuration -replace ' ', '')-$([guid]::NewGuid().ToString('N')).log"
-$failureReportJob = Start-Job -ScriptBlock {
-    param([string] $ModulePath, [string] $FilePath, [string] $WorkingDirectory, [string] $LogPath)
-    $ErrorActionPreference = 'Stop'
-    Add-Type -Namespace RedXeRoutingCheck -Name LegacyConsole -MemberDefinition @'
-[DllImport("kernel32.dll")] public static extern uint GetConsoleProcessList(uint[] list, uint count);
-[DllImport("kernel32.dll")] public static extern bool SetConsoleOutputCP(uint codePage);
-'@
-    # A console another process shares is never changed.
-    if ([RedXeRoutingCheck.LegacyConsole]::GetConsoleProcessList([uint32[]]::new(2), 2) -ne 1 -or
-        -not [RedXeRoutingCheck.LegacyConsole]::SetConsoleOutputCP(437)) {
-        throw 'The failure-report routing check has no console of its own to set to code page 437.'
-    }
-    Import-Module $ModulePath -Force
-    Invoke-RedXeStreamingProcess -FilePath $FilePath -Arguments @('--failure-report-self-test') -WorkingDirectory $WorkingDirectory `
-        -TimeoutSeconds 120 -LogPath $LogPath -StandardErrorEncoding ([Text.UTF8Encoding]::new($false)) `
-        -OutputLineCallback { param([string] $Line, [bool] $IsError) }
-} -ArgumentList (Join-Path $repoRoot 'Build/BuildPresentation.psm1'), $contractTests, $repoRoot, $failureReportLog
-# A stop (Ctrl+C) ends the job too, and with it the fixture's containment job and the fixture.
-try { $failureReportExit = $failureReportJob | Receive-Job -Wait }
-finally { $failureReportJob | Remove-Job -Force }
+$failureReportExit = Invoke-RedXeLegacyConsoleRun -FilePath $contractTests -Arguments @('--failure-report-self-test') `
+    -LogPath $failureReportLog
 $failureReportText = [string] (Get-Content -LiteralPath $failureReportLog -Raw -Encoding UTF8)
 if ($Configuration -eq 'Release') {
     if ($failureReportExit -ne 0) {
@@ -220,7 +238,7 @@ Write-Host "PASS test failure-report routing (exit $failureReportExit): $failure
 # the GUI-subsystem RedXe.exe does: a Debug assert() must reach the log first, not a message box.
 $abortLog = Join-Path $repoRoot ".build\logs\abort-$Platform-$($Configuration -replace ' ', '')-$([guid]::NewGuid().ToString('N')).log"
 $abortExit = Invoke-RedXeStreamingProcess -FilePath $contractTests -Arguments @('--abort-self-test') `
-    -WorkingDirectory $repoRoot -TimeoutSeconds 120 -LogPath $abortLog -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+    -WorkingDirectory $repoRoot -TimeoutSeconds 120 -LogPath $abortLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
 $abortText = Get-Content -LiteralPath $abortLog -Raw
 if ($abortExit -ne 4 -or $abortText -notmatch 'abort\(\) was called' -or
     ($Configuration -ne 'Release' -and $abortText -notmatch 'fails this assert\(\) on purpose')) {
@@ -231,13 +249,13 @@ Write-Host "PASS test abort routing (exit $abortExit): $abortLog"
 # hung run, must be in the log, so the log names the case that hung.
 $unbufferedLog = Join-Path $repoRoot ".build\logs\unbuffered-output-$Platform-$($Configuration -replace ' ', '')-$([guid]::NewGuid().ToString('N')).log"
 $unbufferedExit = Invoke-RedXeStreamingProcess -FilePath $contractTests -Arguments @('--unbuffered-output-self-test') `
-    -WorkingDirectory $repoRoot -TimeoutSeconds 120 -LogPath $unbufferedLog -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+    -WorkingDirectory $repoRoot -TimeoutSeconds 120 -LogPath $unbufferedLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
 if ($unbufferedExit -ne 0 -or (Get-Content -LiteralPath $unbufferedLog -Raw) -notmatch 'Unbuffered output reaches the log') {
     throw "A line written before the process was terminated is missing from its log (exit $unbufferedExit): $unbufferedLog"
 }
 Write-Host "PASS unbuffered test output: $unbufferedLog"
 Write-Host 'Running plugin ABI and rendering-interface contract tests...' -ForegroundColor Cyan
-$contractProcess = Invoke-RedXeStreamingProcess -FilePath $contractTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($contractTests + '.log') -StandardErrorEncoding $utf8
+$contractProcess = Invoke-RedXeStreamingProcess -FilePath $contractTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($contractTests + '.log') -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
 if ($contractProcess -ne 0) {
     throw "Plugin contract tests failed with exit code $($contractProcess)."
 }
@@ -248,7 +266,7 @@ if ($contractProcess -ne 0) {
 if ('AVControl' -in $Suites) {
 $avControlTests = Join-Path $repoRoot ".build\$Platform\$Configuration\AVControlTests.exe"
 Write-Host 'Running AV Control model, input and layout tests...' -ForegroundColor Cyan
-$avControlProcess = Invoke-RedXeStreamingProcess -FilePath $avControlTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($avControlTests + '.log') -StandardErrorEncoding $utf8
+$avControlProcess = Invoke-RedXeStreamingProcess -FilePath $avControlTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($avControlTests + '.log') -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
 if ($avControlProcess -ne 0) {
     throw "AV Control tests failed with exit code $($avControlProcess)."
 }
@@ -258,7 +276,7 @@ Write-Host 'Running AV Control stage-watchdog check...' -ForegroundColor Cyan
 $watchdogLog = Join-Path $repoRoot ".build\$Platform\$Configuration\AVControlTests.watchdog.log"
 # Bounded itself: if the watchdog ever failed to fire, this check must report that, not hang in its place.
 $watchdogExit = Invoke-RedXeStreamingProcess -FilePath $avControlTests -Arguments @('--watchdog-fixture', '500') -WorkingDirectory $repoRoot `
-    -TimeoutSeconds 60 -LogPath $watchdogLog -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+    -TimeoutSeconds 60 -LogPath $watchdogLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
 $watchdogText = Get-Content -LiteralPath $watchdogLog -Raw
 if ($watchdogExit -ne 10 -or $watchdogText -notmatch "stage 'watchdog fixture' did not finish within") {
     throw "The AV Control stage watchdog did not end a hung stage (exit $watchdogExit): $watchdogText"
@@ -271,18 +289,18 @@ if ($watchdogExit -ne 10 -or $watchdogText -notmatch "stage 'watchdog fixture' d
 if ('SystemData' -in $Suites) {
 $systemDataTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SystemDataTests.exe"
 Write-Host 'Running local system-data provider contract tests...' -ForegroundColor Cyan
-$systemDataProcess = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($systemDataTests + '.log') -StandardErrorEncoding $utf8
+$systemDataProcess = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($systemDataTests + '.log') -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
 if ($systemDataProcess -ne 0) {
     throw "System-data provider tests failed with exit code $($systemDataProcess)."
 }
 if ($Configuration -eq 'Release' -and $Platform -eq 'x64') {
     Write-Host 'Running Release system-data row-cap resource measurement...' -ForegroundColor Cyan
-    $systemDataBenchmark = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -Arguments @('--benchmark') -TimeoutSeconds $testTimeoutSeconds -LogPath ($systemDataTests + '-benchmark.log') -StandardErrorEncoding $utf8
+    $systemDataBenchmark = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -Arguments @('--benchmark') -TimeoutSeconds $testTimeoutSeconds -LogPath ($systemDataTests + '-benchmark.log') -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
     if ($systemDataBenchmark -ne 0) {
         throw "System-data row-cap measurement failed with exit code $($systemDataBenchmark)."
     }
     Write-Host 'Running Release system-data per-domain measurement...' -ForegroundColor Cyan
-    $systemDataDomains = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -Arguments @('--domains') -TimeoutSeconds $testTimeoutSeconds -LogPath ($systemDataTests + '-domains.log') -StandardErrorEncoding $utf8
+    $systemDataDomains = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -Arguments @('--domains') -TimeoutSeconds $testTimeoutSeconds -LogPath ($systemDataTests + '-domains.log') -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
     if ($systemDataDomains -ne 0) {
         throw "System-data per-domain measurement failed with exit code $($systemDataDomains)."
     }
@@ -294,7 +312,7 @@ if ($Configuration -eq 'Release' -and $Platform -eq 'x64') {
 if ('SystemDataPhase0' -in $Suites) {
 $systemDataPhase0 = Join-Path $repoRoot ".build\$Platform\$Configuration\SystemDataPhase0.exe"
 Write-Host 'Running system-data Phase 0 acquisition spikes...' -ForegroundColor Cyan
-$systemDataPhase0Process = Invoke-RedXeStreamingProcess -FilePath $systemDataPhase0 -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($systemDataPhase0 + '.log') -StandardErrorEncoding $utf8
+$systemDataPhase0Process = Invoke-RedXeStreamingProcess -FilePath $systemDataPhase0 -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($systemDataPhase0 + '.log') -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
 if ($systemDataPhase0Process -ne 0) {
     throw "System-data Phase 0 spikes failed with exit code $($systemDataPhase0Process)."
 }
@@ -305,7 +323,7 @@ if ($systemDataPhase0Process -ne 0) {
 if ('StudioClock' -in $Suites) {
 $studioClockTests = Join-Path $repoRoot ".build\$Platform\$Configuration\StudioClockTests.exe"
 Write-Host 'Running Studio Clock contract, scheduling, WARP, and resource tests...' -ForegroundColor Cyan
-$studioClockProcess = Invoke-RedXeStreamingProcess -FilePath $studioClockTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($studioClockTests + '.log') -StandardErrorEncoding $utf8
+$studioClockProcess = Invoke-RedXeStreamingProcess -FilePath $studioClockTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($studioClockTests + '.log') -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
 if ($studioClockProcess -ne 0) {
     throw "Studio Clock tests failed with exit code $($studioClockProcess)."
 }
@@ -316,7 +334,7 @@ if ($studioClockProcess -ne 0) {
 if ('DeskClock' -in $Suites) {
 $deskClockTests = Join-Path $repoRoot ".build\$Platform\$Configuration\DeskClockTests.exe"
 Write-Host 'Running Desk Clock contract, scheduling, WARP, and resource tests...' -ForegroundColor Cyan
-$deskClockProcess = Invoke-RedXeStreamingProcess -FilePath $deskClockTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($deskClockTests + '.log') -StandardErrorEncoding $utf8
+$deskClockProcess = Invoke-RedXeStreamingProcess -FilePath $deskClockTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($deskClockTests + '.log') -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
 if ($deskClockProcess -ne 0) {
     throw "Desk Clock tests failed with exit code $($deskClockProcess)."
 }
@@ -327,7 +345,7 @@ if ($deskClockProcess -ne 0) {
 if ('Launcher' -in $Suites) {
 $launcherTests = Join-Path $repoRoot ".build\$Platform\$Configuration\LauncherTests.exe"
 Write-Host 'Running Launcher factory, pin fallback, WARP, launch, and drop tests...' -ForegroundColor Cyan
-$launcherProcess = Invoke-RedXeStreamingProcess -FilePath $launcherTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($launcherTests + '.log') -StandardErrorEncoding $utf8
+$launcherProcess = Invoke-RedXeStreamingProcess -FilePath $launcherTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($launcherTests + '.log') -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
 if ($launcherProcess -ne 0) {
     throw "Launcher tests failed with exit code $($launcherProcess)."
 }
@@ -338,7 +356,7 @@ if ($launcherProcess -ne 0) {
 if ('Weather' -in $Suites) {
 $weatherTests = Join-Path $repoRoot ".build\$Platform\$Configuration\WeatherTests.exe"
 Write-Host 'Running Weather HTTP, unit, and label format tests...' -ForegroundColor Cyan
-$weatherProcess = Invoke-RedXeStreamingProcess -FilePath $weatherTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($weatherTests + '.log') -StandardErrorEncoding $utf8
+$weatherProcess = Invoke-RedXeStreamingProcess -FilePath $weatherTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($weatherTests + '.log') -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
 if ($weatherProcess -ne 0) {
     throw "Weather tests failed with exit code $($weatherProcess)."
 }
@@ -349,7 +367,7 @@ if ($weatherProcess -ne 0) {
 if ('Logicon' -in $Suites) {
 $logiconTests = Join-Path $repoRoot ".build\$Platform\$Configuration\LogiconTests.exe"
 Write-Host 'Running Logicon protocol, settings, face, device, and module tests...' -ForegroundColor Cyan
-$logiconProcess = Invoke-RedXeStreamingProcess -FilePath $logiconTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($logiconTests + '.log') -StandardErrorEncoding $utf8
+$logiconProcess = Invoke-RedXeStreamingProcess -FilePath $logiconTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($logiconTests + '.log') -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
 if ($logiconProcess -ne 0) {
     throw "Logicon tests failed with exit code $($logiconProcess)."
 }
@@ -360,7 +378,7 @@ if ($logiconProcess -ne 0) {
 if ('Zoom' -in $Suites) {
 $zoomTests = Join-Path $repoRoot ".build\$Platform\$Configuration\ZoomTests.exe"
 Write-Host 'Running Zoom browser action, meeting URL, and module tests...' -ForegroundColor Cyan
-$zoomProcess = Invoke-RedXeStreamingProcess -FilePath $zoomTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($zoomTests + '.log') -StandardErrorEncoding $utf8
+$zoomProcess = Invoke-RedXeStreamingProcess -FilePath $zoomTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($zoomTests + '.log') -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
 if ($zoomProcess -ne 0) {
     throw "Zoom tests failed with exit code $($zoomProcess)."
 }
@@ -371,7 +389,7 @@ if ($zoomProcess -ne 0) {
 if ('Settings' -in $Suites) {
 $settingsTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SettingsTests.exe"
 Write-Host 'Running settings, schema, stamp, and watcher contract tests...' -ForegroundColor Cyan
-$settingsProcess = Invoke-RedXeStreamingProcess -FilePath $settingsTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($settingsTests + '.log') -StandardErrorEncoding $utf8
+$settingsProcess = Invoke-RedXeStreamingProcess -FilePath $settingsTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($settingsTests + '.log') -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
 if ($settingsProcess -ne 0) {
     throw "Settings tests failed with exit code $($settingsProcess)."
 }
@@ -391,7 +409,7 @@ $hostPluginErrorWriter = [IO.StreamWriter]::new($hostPluginErrors, $false, [Text
 $hostPluginFailure = $null
 try {
     $hostPluginExit = Invoke-RedXeStreamingProcess -FilePath $hostPluginTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds `
-        -LogPath $hostPluginLog -StandardErrorEncoding $utf8 -OutputLineCallback {
+        -LogPath $hostPluginLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback {
             param([string] $Line, [bool] $IsError)
             if ($IsError) { $hostPluginErrorWriter.WriteLine($Line) }
         }
@@ -420,7 +438,7 @@ $smokeLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.self-test
 $smokeFailure = $null
 try {
     $smokeExit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments @('--self-test', '--warp') -WorkingDirectory $repoRoot `
-        -TimeoutSeconds $testTimeoutSeconds -LogPath $smokeLog -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+        -TimeoutSeconds $testTimeoutSeconds -LogPath $smokeLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
 }
 catch { $smokeFailure = $_ }
 if ($smokeFailure -or $smokeExit -ne 0) {
@@ -465,7 +483,7 @@ try {
     try {
         $selfTestFailureExit = Invoke-RedXeStreamingProcess -FilePath (Join-Path $selfTestFailureDirectory 'RedXe.exe') `
             -Arguments @('--self-test', '--warp') -WorkingDirectory $selfTestFailureDirectory -TimeoutSeconds 120 `
-            -LogPath $selfTestFailureLog -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+            -LogPath $selfTestFailureLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
     }
     catch { $selfTestFailureRun = $_ }
 }
@@ -479,17 +497,21 @@ if ($selfTestFailureRun -or $selfTestFailureExit -ne 6 -or
     throw "A failed self-test check must name itself in the log and exit with code 6 (it exited $selfTestFailureExit): $selfTestFailureLog"
 }
 
-# `--help` writes the RedXe/CommandLine.h catalog to a redirected stdout and exits 0; every switch the catalog
-# declares must appear, so a switch added without a catalog entry fails here as well as in SettingsTests. Each run of
-# RedXe.exe below is bounded and logged like every other test process.
+# `--help` writes the RedXe/CommandLine.h catalog to a redirected stdout as UTF-8 and exits 0; every switch the catalog
+# declares must appear, so a switch added without a catalog entry fails here as well as in SettingsTests. Its title
+# carries U+2014, which must reach the log intact: the run goes through Invoke-RedXeLegacyConsoleRun, whose code page
+# 437 reads that character's three UTF-8 bytes as three other characters, so only the UTF-8 the run names for stdout
+# keeps it. Each run of RedXe.exe below is bounded and logged like every other test process.
 Write-Host 'Running command-line help check...' -ForegroundColor Cyan
 $helpLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.help.log"
-$helpExit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments @('--help') -WorkingDirectory $repoRoot `
-    -TimeoutSeconds 120 -LogPath $helpLog -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+$helpExit = Invoke-RedXeLegacyConsoleRun -FilePath $executable -Arguments @('--help') -LogPath $helpLog
 if ($helpExit -ne 0) {
     throw "RedXe.exe --help exited with code $helpExit`: $helpLog"
 }
 $helpText = Get-Content -LiteralPath $helpLog -Raw -Encoding UTF8
+if (-not $helpText.Contains("RedXe $([char] 0x2014) CORSAIR XENEON EDGE dashboard")) {
+    throw "RedXe.exe --help did not reach its log as the UTF-8 it writes: its title with U+2014 is missing: $helpLog"
+}
 foreach ($switch in @('--help', '--settings', '--warp', '--dock', '--dock-mode', '--dock-thickness', '--dock-reserve',
         '--dock-peek', '--screenshot', '--page', '--widget', '--after', '--self-test', '--crash-test',
         '--crash-test-stack-overflow', '--crash-test-directory', 'Exit codes:')) {
@@ -499,7 +521,7 @@ foreach ($switch in @('--help', '--settings', '--warp', '--dock', '--dock-mode',
 }
 $unknownLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.unknown-switch.log"
 $unknownExit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments @('--self-test', '--warp', '--no-such-switch') `
-    -WorkingDirectory $repoRoot -TimeoutSeconds 120 -LogPath $unknownLog -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+    -WorkingDirectory $repoRoot -TimeoutSeconds 120 -LogPath $unknownLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
 if ($unknownExit -ne 2 -or (Get-Content -LiteralPath $unknownLog -Raw) -notmatch 'Unknown argument "--no-such-switch"') {
     throw "An unknown switch exited with code $unknownExit instead of 2, or its log does not name it: $unknownLog"
 }
@@ -512,7 +534,7 @@ foreach ($case in @(
         @{ Arguments = @('--self-test', '--warp', '--settings'); Usage = 'Use --settings followed by exactly one settings file path.' },
         @{ Arguments = @('--screenshot', $unattendedPng, '--after', '0'); Usage = '--after takes a delay of 1 through 120000 milliseconds.' })) {
     $unattendedExit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments $case.Arguments -WorkingDirectory $repoRoot `
-        -TimeoutSeconds 60 -LogPath $unattendedLog -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+        -TimeoutSeconds 60 -LogPath $unattendedLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
     if ($unattendedExit -ne 2 -or -not (Select-String -LiteralPath $unattendedLog -SimpleMatch $case.Usage)) {
         throw "RedXe.exe $($case.Arguments -join ' ') exited with code $unattendedExit without its usage on the redirected output: $unattendedLog"
     }
@@ -549,7 +571,7 @@ function Invoke-RedXeCrashTest {
         $crashProcessId = 0
         $crashExit = Invoke-RedXeStreamingProcess -FilePath $executable `
             -Arguments @($CrashArgument, "--crash-test-directory=$crashTestDirectory") -WorkingDirectory $repoRoot `
-            -TimeoutSeconds $testTimeoutSeconds -LogPath $crashLog -StandardErrorEncoding $utf8 -ProcessId ([ref] $crashProcessId) `
+            -TimeoutSeconds $testTimeoutSeconds -LogPath $crashLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -ProcessId ([ref] $crashProcessId) `
             -OutputLineCallback { param([string] $Line, [bool] $IsError) }
     if ($crashExit -ne 127) {
         throw "Crash harness returned exit code $crashExit; expected 127: $crashLog"
@@ -621,7 +643,7 @@ function Invoke-RedXeCrashTest {
 $invalidOverrideLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.crash-test-invalid-directory.log"
 $invalidOverrideExit = Invoke-RedXeStreamingProcess -FilePath $executable `
     -Arguments @('--crash-test', '--crash-test-directory=relative-path-is-invalid') -WorkingDirectory $repoRoot `
-    -TimeoutSeconds 120 -LogPath $invalidOverrideLog -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+    -TimeoutSeconds 120 -LogPath $invalidOverrideLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
 if ($invalidOverrideExit -ne 2) {
     throw "Invalid crash-directory override returned exit code $invalidOverrideExit; expected 2: $invalidOverrideLog"
 }

@@ -6,8 +6,10 @@ Owner: root build and test entrypoints
 
 ## Scope
 
-This contract owns command-line build output selection and the running-output preflight. Compiler, warning, dependency,
-and generated-output policies remain in `AGENTS.md` and the Visual Studio project files.
+This contract owns the root build and test entrypoints: command-line build output selection and the running-output
+preflight, MSBuild selection, test-process failure reporting, the streaming child-process runner, and scoped test
+selection, reuse and PR coverage. Compiler, warning, dependency, and generated-output policies remain in `AGENTS.md` and
+the Visual Studio project files.
 
 ## Exact-output process preflight
 
@@ -65,7 +67,8 @@ runs, and `AVControlBroker.exe` calls it when it is started as a synthetic helpe
   Abort/Retry/Ignore box. The report MUST NOT go through a CRT stream, whose default "C" locale stops at the first
   character above U+00FF (a source path under such a user or folder name): it is written as UTF-8 to a pipe or a file
   and as UTF-16 to a console, through a fixed stack buffer. Every run of a RedXe process in `test.ps1` and in the
-  package smoke of `Build/Package.psm1` therefore decodes its stderr as UTF-8 (`-StandardErrorEncoding`, below).
+  package smoke of `Build/Package.psm1` therefore decodes its stderr as UTF-8, and its stdout too
+  (`-StandardErrorEncoding` and `-StandardOutputEncoding`, below).
 - In a process that calls the header, exit code 3 MUST mean only a failed runtime check and exit code 4 only an
   `abort()` that no such check reported: no other path of such a process, a fixture child mode or a watchdog
   included, ends with either. That `abort()` (an `assert()`, a direct call, or in a test executable `std::terminate`
@@ -93,7 +96,10 @@ runs, and `AVControlBroker.exe` calls it when it is started as a synthetic helpe
   (`FailSelfTest`) and that none writes to the debugger output alone.
 - Every other run of `RedXe.exe` or `RedXeLauncher.exe` in `test.ps1` (`--help`, an unknown switch, the crash harness
   and its invalid directory) and in the package smoke of `Build/Package.psm1` goes through
-  `Invoke-RedXeStreamingProcess` with a budget and a log, and keeps its exit-code check.
+  `Invoke-RedXeStreamingProcess` with a budget and a log, and keeps its exit-code check. `RedXe.exe --help` writes the
+  catalog to a redirected stdout as UTF-8 ([`UI_XeneonDisplayWindowing.md`](../UI/UI_XeneonDisplayWindowing.md)):
+  `test.ps1` runs it from a background job like the routing check's, under console output code page 437, and requires
+  the catalog's title with its U+2014 intact, which only the UTF-8 decoding of stdout keeps.
 - A test executable never turns an HRESULT into its exit code: its low byte can be 0, which passes the run, or 3. A
   failed suite prints its HRESULT and returns 1.
 - A new test executable calls the header first, so an unattended run on a developer's desktop never holds a dialog.
@@ -120,23 +126,33 @@ its process tree (a descendant of the invocation, never an independently launche
 `TIMEOUT:` record stay in the log, and the call throws naming the executable and the log. A bounded child is created
 suspended and joins the kill-on-close job before its first instruction runs, so nothing it starts can escape the job;
 an unbounded one starts through `Process.Start`, and both paths quote arguments, keep stream identity, propagate the
-exit code, report the child's process identifier through `-ProcessId`, and decode output alike. Both decode the two
-streams with the console output code page by default, as `Process.Start` does, so a build tool's output (MSBuild,
-`cl`) reads the same on either path. `-StandardErrorEncoding` names another encoding for stderr alone: `test.ps1`
-and the package smoke pass UTF-8 for every RedXe process they run, whose stderr carries `Common/FailureReports.h`'s
-UTF-8 reports. `BuildProcessTests.ps1` proves, from a background job whose own console uses code page 437, that the
-named encoding decodes stderr on both paths and that both streams otherwise keep the code page. The survivor check
+exit code, report the child's process identifier through `-ProcessId`, and decode output alike. Both decode each
+stream with the console output code page by default, as `Process.Start` does, so a build tool's output (MSBuild,
+`cl`) reads the same on either path. `-StandardOutputEncoding` and `-StandardErrorEncoding` name another encoding for
+one stream each: `test.ps1` and the package smoke pass UTF-8 for both streams of every RedXe process they run, whose
+stderr carries `Common/FailureReports.h`'s UTF-8 reports and whose stdout carries `RedXe.exe`'s UTF-8 command-line
+text (`--help`, an argument error) or a test executable's narrow text, which `/utf-8` compiles as UTF-8.
+`BuildProcessTests.ps1` proves, from a background job whose own console uses code page 437, that each named encoding
+decodes its own stream alone on both paths and that a stream without one keeps the code page. The survivor check
 follows parent processes, so a descendant that carries no marker (`ping.exe`) still counts. `build.ps1` keeps the
 unbounded default; `test.ps1` applies a fifteen-minute budget to every standalone test executable and to the crash
 harness, two minutes to its `--help`, unknown-switch and routing checks, and shows the HostPlugin and HostSmoke log
 tails, which never stream to the console, for a run ended at its budget as well as for a failing exit code.
 
-`Invoke-RedXeStreamingProcess` MUST also hold to the following. `BuildProcessTests.ps1` covers a child that never
-stops writing, the exit grace with a drained last line, a child that starts nothing and exits while a slow callback
-presents its backlog for longer than the grace (every line presented, its exit code returned, no timeout record), a stop
-of a silent child with and without a budget (stopped within seconds, no survivor), and an edited launcher definition
-imported into a session that compiled the original.
+`Invoke-RedXeStreamingProcess` (`Build/StreamingProcess.psm1`) MUST also hold to the following. `BuildProcessTests.ps1`
+covers a child that never stops writing, the exit grace with a drained last line, a child that starts nothing and exits
+while a slow callback presents its backlog for longer than the grace (every line presented, its exit code returned, no
+timeout record), a stop of a silent child with and without a budget (stopped within seconds, no survivor), and an
+edited launcher definition imported into a session that compiled the original.
 
+- Both start paths MUST build the child's command line with the same quoter. It leaves an argument as it is unless it
+  is empty or holds white space or a quote; otherwise it encloses it in quotes as `ProcessStartInfo.ArgumentList` does,
+  escaping each quote with a backslash and doubling only the backslashes that precede a quote or the closing quote, so
+  the child's C runtime parses every argument back unchanged. A call without arguments, or with `$null` for them,
+  passes none. `BuildProcessTests.ps1` passes, on both paths, every argument shape that `test.ps1`, the package smoke
+  and `build.ps1` use (switches, a switch and its value, a path with spaces, a `name=path` pair, an MSBuild property
+  with a space) and the shapes a quoting mistake breaks (an empty argument, a tab, quotes, backslashes before a quote
+  and at the end of a quoted argument, non-ASCII text), and requires the child to receive each one unchanged.
 - The budget is counted on a monotonic clock from the child's start, so neither the helper's own setup (compiling its
   job type on first use) nor a change of the system time moves it. It is checked on every pass of the read loop, so a
   child that never stops writing is terminated at its budget like a silent one.
@@ -208,13 +224,13 @@ provenance contain no credentials. The existing advisory lookup also works witho
 
 ## Scoped iteration and PR coverage
 
-Active native test sources, helpers, fixtures and seams MUST use `Scope.Tests.Something.h/.cpp`. `Tests/native-test-files.json` owns active membership. Historical archived harnesses and sealed reproduction inputs keep their original identity; they do not define new source naming. Rename project entries, includes, current inventories and callers together. DxUi historical source/test origins retain their original identities and map to current paths separately. Outside `Tests/` and `SelfTest/` folders, a `.cpp` or `.h` file is an active test source, which the inventory MUST then list, when its name has a `.Tests.` segment in any spelling or a `Test`, `Mock` or `Fake` name component spelled as the naming rule spells it (`FakeClock.h`, `MockHost.cpp`, `WeatherTest.cpp`). Those letters inside a word (`Attestation.h`, `LatestRelease.cpp`, `Mockingbird.h`) MUST NOT make a product file a test source.
+Active native test sources, helpers, fixtures and seams MUST use `Scope.Tests.Something.h/.cpp`. `Tests/native-test-files.json` owns active membership. Sources under `Specs/` and `Measurements/` (archived harnesses, sealed reproduction inputs) are historical: they keep their original names, are never taken for active test sources and MUST NOT enter the inventory. Rename project entries, includes, current inventories and callers together. Outside `Tests/` and `SelfTest/` folders, a `.cpp` or `.h` file is an active test source, which the inventory MUST then list, when its name has a `.Tests.` segment in any spelling or a `Test`, `Mock` or `Fake` name component spelled as the naming rule spells it (`FakeClock.h`, `MockHost.cpp`, `WeatherTest.cpp`). Those letters inside a word (`Attestation.h`, `LatestRelease.cpp`, `Mockingbird.h`) MUST NOT make a product file a test source.
 
-`Test-Changes.ps1` is the ordinary iteration entrypoint. Its default is affected coverage, including committed changes since a local merge base and independent staged, unstaged, deletion, rename-side and untracked discovery. No ref is fetched. Unknown executable inputs widen coverage; prose alone does not require native tests. Explanations name paths, consumers and fallback reasons. Explicit selectors reject unknown scopes. Affected, filtered and environment-reduced coverage MUST NOT be reported as a full repository pass.
+`Test-Changes.ps1` is the ordinary iteration entrypoint. Its default is affected coverage, including committed changes since a local merge base and independent staged, unstaged, deletion, rename-side and untracked discovery. No ref is fetched. Unknown executable inputs widen coverage; prose alone does not require native tests. A Markdown file selects only the tooling scope, whose validators read prose, and any other file under `docs/`, `Measurements/` or `Mockups/` selects nothing. Explanations name paths, consumers and fallback reasons. Explicit selectors reject unknown scopes. Affected, filtered and environment-reduced coverage MUST NOT be reported as a full repository pass.
 
 Every `Test-Changes.ps1` run that does not fail ends with a coverage label, except `-Explain`, which ends with the plan. An empty affected plan MUST end with `NOTHING_SELECTED; repository NOT_EVALUATED` and exit 0: it evaluated nothing, so it is never a gate; `test.ps1 -Full` and `-Mode Full` are. A Git failure in scope discovery MUST name the Git command and its exit code. A base ref that does not resolve, or one that shares no history with `HEAD` (a shallow or unrelated clone), fails affected selection with that failure and the remedy: fetch, deepen, pass `-BaseRef`, or run the full gate; so does a tree without Git or a work tree. An ordinary `test.ps1` call (only `-Platform`, `-Configuration` or `-SkipBuild` bound) runs this affected selection; when it cannot compare (no Git, no work tree, no `origin/<default branch>`, no shared history) `test.ps1` MUST say why and run every suite, as `-Full` does.
 
-Successful whole-scope results are reused only for equal repository content, complete executable/DLL/PDB output closure, stable deployed settings/schema and DxUi provenance bytes, architecture, configuration, scope, runner and environment. Every required deployed input must exist and the binary closure must be nonempty before an identity is established. Changes or deletion of those deployed inputs invalidate reuse; generated reports and test-owned fixtures do not enter that stable runtime closure. Build attestation binds source inputs to those artifacts before SkipBuild. Invalid, missing, failed, interrupted or concurrently mutated evidence is never reusable. Force bypasses test-result reuse. Independent tooling receipts are shared across profiles because their execution has no profile argument. Receipt identity is content-based; staging/committing the same source tree does not itself invalidate it.
+Successful whole-scope results are reused only for equal repository content, complete executable/DLL/PDB output closure, stable deployed settings/schema and DxUi provenance bytes, architecture, configuration, scope, runner and environment. Every required deployed input must exist and the binary closure must be nonempty before an identity is established. Changes or deletion of those deployed inputs invalidate reuse; generated reports and test-owned fixtures do not enter that stable runtime closure. Build attestation binds source inputs to those artifacts before SkipBuild. The attestation and native identities leave out Markdown files and the `docs/`, `Measurements/`, `Mockups/` and `Specs/Plans/` folders, which no build reads; tooling identities include them, because the validators read prose. Invalid, missing, failed, interrupted or concurrently mutated evidence is never reusable. Force bypasses test-result reuse. Independent tooling receipts are shared across profiles because their execution has no profile argument. Receipt identity is content-based; staging/committing the same source tree does not itself invalidate it.
 
 `Test-Changes.ps1` MUST resolve one build number per run and pass it to `build.ps1 -BuildNumber` and `test.ps1 -BuildNumber`, and the build attestation MUST bind it. The number is the commit count of the merge base of `HEAD` with `origin/<default branch>`, or the default build number ([`Build_Packaging.md`](Build_Packaging.md)) when that ref does not resolve. A commit therefore leaves the version stamp, the binaries and native receipts unchanged; moving to a newer base changes the stamp, relinks the version-stamped binaries and invalidates native receipts, and SkipBuild then refuses with "Run without -SkipBuild" before any test runs. Binaries built this way carry the base's version, not a release number: `test.ps1 -Full -SkipBuild` or an explicit `-Suites` run on them needs the same `-BuildNumber`, which the run prints.
 
@@ -228,14 +244,14 @@ When the inputs of a scope that passed change while the run executes, `Test-Chan
 
 `-Mode Full` selects the full local obligation. `-Mode PrePush` accounts for full coverage across local execution and the forthcoming PR gate. Each `prCoverage` entry of `Tests/test-scopes.json` is one PR check, named as GitHub reports it. A check that names a platform and configuration (`native (x64, Release)`) covers that native profile only; one that names neither (`tooling`) covers its profile-independent scopes for every local profile, so a Debug PrePush delegates `BuildProcess` too. Delegation requires a clean committed candidate, the enabled GitHub workflow, matching candidate workflow bytes and their reviewed manifest digest, a `pull_request` trigger, and no change on `origin/<default branch>` since the merge base to the workflow, `test.ps1`, the manifest, `Build/ScopedTesting.psm1` (which `test.ps1` reads the manifest through) or the tooling commands, because a PR runs the workflow and runner of its merge with the base. It also requires that the default branch require the check: the rules GitHub reports for that branch (`gh api repos/<repo>/rules/branches/<branch>`) MUST name it as a required status check, since a check that is not required lets a failing or pending run merge. Until the branch requires it, PrePush keeps that check's work local. Staged, unstaged and untracked inputs retain obligations locally; a dirty tree or changed HEAD during the coverage lookup also rejects delegation. Nightly and weekly jobs are not PR coverage. Workflow/API uncertainty keeps obligations local. Every refusal MUST print `PR delegation not used: <reason>`. A delegated run reports `CI_PENDING` (`LOCAL_OBLIGATIONS_PASSED; CI_PENDING`, or `LOCAL_OBLIGATIONS_NONE; CI_PENDING` when nothing runs locally), never repository `PASSED`. Main/release acceptance remains separate because its merge tree, configuration matrix or requirements can differ.
 
-RedSalamander defers only entries whose complete portable entry contracts equal the PR plan, retaining writers, in-product cases and extra scenarios locally. Its `-NonInteractive` option omits focus-taking entries and records incomplete coverage; it cannot alter an exact Resume. DxUi foreground suites remain explicit `test.ps1 -Interactive` work after agreement to the time. Noninteractive iteration and CI do not claim those manual gates. No screenshot or desktop automation is introduced.
+Every suite `Test-Changes.ps1`, `test.ps1` and CI run is noninteractive. Timing, native ARM64 execution, real devices, IME and assistive technology, foreground input and the live checks a domain contract names stay separate qualification work after agreement to the time: noninteractive iteration and CI do not claim those manual gates, and scoped selection adds no screenshot or desktop automation.
 
-`Tests/test-scopes.json` owns the standalone scope and verified PR-profile mapping; RedSalamander's `Tools/validation-impact.json` and canonical plan continue to own its affected execution. Specific standalone test-source rules use their semantic entry tags, while common support and unknown paths retain conservative fan-out. New source/build/runtime/runner dependencies must extend the relevant manifest and focused regression coverage.
+`Tests/test-scopes.json` owns the standalone scope and verified PR-profile mapping. A test project's folder selects its own suite, while common support and unknown paths retain conservative fan-out. New source/build/runtime/runner dependencies must extend the relevant manifest and focused regression coverage.
 
 The manifest's scope names are the suite names. `test.ps1` takes `-Suites` and its default from them and runs each suite in exactly one `if ('<Scope>' -in $Suites)` block. `ScopedTesting.Tests.ps1` MUST check that every manifest scope has exactly one such block and every block names a manifest scope; that every rule matches at least one tracked path; and that every input of a project whose executable a suite runs selects that suite or the full fallback. Those inputs are the project's items, its project references and the quoted `#include` closure, resolved beside the including file, then through the project's include directories and `Common`. A rule that misses a consumer therefore fails the tooling suite instead of narrowing selection.
 
 AVControl, Launcher, Logicon and Zoom edits also select Settings because that suite compiles their models/settings or consumes their shared settings constraints. A test project file (`Tests/<Project>/<Project>.vcxproj`) also selects PluginContract, HostPlugin, HostSmoke and Packaging: every project builds into the shared output folder, where the files it deploys and the product projects it references reach those suites. Its `.filters` file, which only the IDE reads, stays with its own suite. Skill metadata (`.agents/**`), `validate-skills.ps1`, `Build/validate_skills.py` and `Build/requirements-validation.txt` select only `BuildProcess`.
 
-CI invokes explicit full gates rather than the affected default. The forthcoming PR executes its candidate workflow merged with the base; a reviewed local workflow digest, a runner the base has not changed since, the enabled GitHub workflow and checks the default branch requires gate delegation. Workflow edits invalidate that digest until the scope contract is reviewed and updated. RedXe's independent Windows tooling/skill tests execute once in its tooling job. Every RedXe workflow job that runs `test.ps1` MUST pass `-SkipTooling` or install `Build/requirements-validation.txt` itself; `ScopedTesting.Tests.ps1` checks each workflow. DxUi's tooling has one Windows host qualification and one Linux portability qualification; its MSBuild-only staging fixture executes once on Windows; native runner/watchdog checks stay profile-specific. RedSalamander schedules skip unchanged commits only after successful matching workflow history; manual dispatch and unreadable/failed history execute. Hosted timing investigations still use paired, fixture-matched resource evidence; cached historical observations are not new measurements.
+CI invokes explicit full gates rather than the affected default. The forthcoming PR executes its candidate workflow merged with the base; a reviewed local workflow digest, a runner the base has not changed since, the enabled GitHub workflow and checks the default branch requires gate delegation. Workflow edits invalidate that digest until the scope contract is reviewed and updated. RedXe's independent Windows tooling/skill tests execute once in its tooling job. Every RedXe workflow job that runs `test.ps1` MUST pass `-SkipTooling` or install `Build/requirements-validation.txt` itself; `ScopedTesting.Tests.ps1` checks each workflow. Hosted timing investigations still use paired, fixture-matched resource evidence; cached historical observations are not new measurements.
 
-PR delegation MUST account for conditional workflow jobs. DxUi uses the existing NativeScope contract to keep native obligations local when a documentation-only PR skips native CI; always-running Windows/Linux tooling remains covered. Native success identities exclude validator prose while tooling identities include it.
+PR delegation MUST account for conditional workflow jobs: a check covers a scope only for the changes it runs on. Both RedXe PR checks run on every pull request, because `ci.yml` has no path filter and no job condition, so the scopes they cover do not depend on what changed. A workflow edit that adds a filter or a condition changes the reviewed digest, which keeps every obligation local until the manifest accounts for it.
