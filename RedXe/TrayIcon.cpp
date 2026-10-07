@@ -103,9 +103,10 @@ bool TrayIcon::AddIcon() noexcept
     {
         listed = _shellNotify(NIM_MODIFY, &data) != FALSE;
     }
-    // Version 4: WM_CONTEXTMENU for the menu (mouse and keyboard alike) with the anchor point in wParam. It follows
-    // every add or update, and the icon counts as added only once it is set: an icon left on version 0 would never
-    // open its menu, so a retry repairs it.
+    // Version 4: WM_CONTEXTMENU for the menu (mouse and keyboard alike) with the anchor point in wParam. It follows the
+    // add, and the update too, since the icon an update finds may come from an add whose version was never set (one
+    // that landed after its call timed out). The icon counts as added only once it is set: an icon left on version 0
+    // would never open its menu, so a retry repairs it.
     data.uVersion = NOTIFYICON_VERSION_4;
     _iconAdded = listed && _shellNotify(NIM_SETVERSION, &data) != FALSE;
     return _iconAdded;
@@ -287,7 +288,8 @@ LRESULT TrayIcon::HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM
         return 0;
     case WM_DPICHANGED:
         // The taskbar's display changed scale: the icon follows at the new small-icon size. The window stays hidden
-        // and is not moved.
+        // and is not moved. The update keeps version 4: the shell reads the version only from NIM_SETVERSION, which
+        // every NIM_ADD needs and a NIM_MODIFY does not. An icon not added yet takes the image with its next add.
         if (wil::unique_hicon icon = LoadIconForDpi())
         {
             if (_iconAdded)

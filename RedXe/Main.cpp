@@ -205,6 +205,9 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         {
             if (RedXeIsHelpArgument(arguments.get()[index]))
             {
+                // Help wins over every other switch, but `--self-test` or `--screenshot` beside it still means a caller
+                // that never waits on a box: without a console or a redirected stdout the catalog reaches only the
+                // debugger output.
                 EmitCommandLineText(RedXeFormatCommandLineHelp(), false, unattended);
                 return 0;
             }
