@@ -59,6 +59,8 @@ Fix:
 - Turn `keys.down` and `mouse.down` on a Logicon key, dial button or turn into an invalid binding (red `!`, never
   dispatched) instead of a document error, with a precise diagnostic. Align the schema, `docs/actions.md` and
   `docs/plugins/logicon.md`. Launcher taps keep their current behavior (decision D9).
+- `studioclock#9` (a newer file using `glowPercent` read by v1.0.102) closes by documenting D1: rollback to an
+  older build is unsupported.
 - Add SettingsTests that load the exact `v1.0.102` Release and Debug templates and a document with a held binding,
   plus a case that sets all seven retired members with varied JSON value kinds (string, number, boolean, null,
   object, array) and checks that one load logs one warning.
@@ -195,6 +197,8 @@ recommended defaults apply; D6 stays the owner's repository setting and is not c
   - `secondary` can later resolve to a XENEON connected afterwards: **skip a XENEON in `secondary`**, or write the
     chosen display's name at install time?
   - Should recovery of an invalid file install the bar, or **only a missing file**?
+  - A first install while a XENEON is only briefly absent: **log the topology seen and skip the first-run bar in a
+    remote session**; otherwise the bar is accepted behavior, because setting `edge` to `none` applies live.
 - D3, failed kind switch (P2): **roll back and keep running**, or exit as today.
 - D4, `redxe.screenshot` (P2): **keep RedXe running after an action capture**; only `--screenshot` exits.
 - D5, settings comments (P1): **no write when nothing changed plus the stamp check now**; patch source text so
@@ -202,6 +206,8 @@ recommended defaults apply; D6 stays the owner's repository setting and is not c
 - D6, CI gate: **require `native (x64, Release)` and `tooling` in ruleset 23723903** (a repository setting the owner
   changes), so a red PR cannot merge and PrePush delegation rests on a required check.
 - D7, Zoom (P4): Zoom no longer has state. **Move it to the dedicated action-DLL path**, or keep the service wiring.
+  Either way the settings parser keeps accepting a legacy `services` entry for `builtin.zoom` (with or without the
+  retired members) and ignores it with a warning, so the move cannot undo B1.
 - D8, `Application.cpp` (6,338 lines): extracting a `DockController` that owns app bar, placement, reveal and slide
   was judged mostly code movement. **Do only the P6 de-duplication now** and revisit after P3.
 - D9, Launcher taps bound to `keys.down` or `mouse.down` (B1): Launcher taps are press-only like Logicon keys and
