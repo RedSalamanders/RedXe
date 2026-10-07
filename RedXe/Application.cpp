@@ -1266,8 +1266,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     // placement (CreateDockWindow), whose refused ABM_NEW it renews.
     if (_taskbarCreatedMessage == 0 || !_taskbarCreatedAdmitted)
     {
-        OutputDebugStringW(L"The window was created before it could hear TaskbarCreated.\n");
-        return 2;
+        return FailSelfTest(L"The window was created before it could hear TaskbarCreated.");
     }
 
     RECT clientBounds{};
@@ -1494,8 +1493,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
             PluginHost::Instance().RunningDeviceWorkerCount() != 0 || PluginHost::Instance().LaunchWorkerRunning() ||
             endMilliseconds > kSessionEndMaximumMilliseconds)
         {
-            OutputDebugStringW(L"WM_ENDSESSION did not close RedXe within the session-end bound.\n");
-            return 6;
+            return FailSelfTest(L"WM_ENDSESSION did not close RedXe within the session-end bound.");
         }
     }
     return 0;
