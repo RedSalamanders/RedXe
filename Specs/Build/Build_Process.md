@@ -141,9 +141,9 @@ survivor), and an edited launcher definition imported into a session that compil
 - The budget is counted on a monotonic clock that the job starts immediately before it resumes the suspended child,
   the first moment the child can run. Neither the helper's own setup (compiling its job type on first use, creating
   the process) nor a change of the system time moves it, and a calling thread that runs again only some time after
-  the resume finds that time already counted, so a child that outran its budget meanwhile is terminated at the first
-  check. It is checked on every pass of the read loop, so a child that never stops writing is terminated at its
-  budget like a silent one.
+  the resume finds that time already counted, so a child still running past its budget by then is terminated at the
+  first check (one that has already exited is judged by the exit grace below). It is checked on every pass of the read
+  loop, so a child that never stops writing is terminated at its budget like a silent one.
 - A bounded child that has exited while a process it started still holds its output open is terminated with that
   tree ten seconds after its exit, not left to its budget, and the call reports the child's exit code and that a
   process it started kept its output open, instead of a child that did not finish. Once the child has exited only this

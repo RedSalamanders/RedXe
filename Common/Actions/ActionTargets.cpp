@@ -652,9 +652,10 @@ bool ParseMeeting(std::string_view value) noexcept
     }
     // Browsers end the authority at '/', '?', '#', or '\'; the host must therefore be all of it, with no credentials
     // or port, so "https://evil.example#.zoom.us/j/..." cannot pass as a zoom.us subdomain. It must also be a DNS name
-    // before the suffix decides: "a..zoom.us" ends in ".zoom.us" but, with an empty label, is no subdomain.
+    // before the suffix decides: "a..zoom.us" ends in ".zoom.us" but, with an empty label, is no subdomain. A browser
+    // decodes a percent-encoded host first ("a%2e.zoom.us" is "a..zoom.us"), so the host must be written out.
     const std::string_view host = rest.substr(0, slash);
-    if (!HasDnsNameShape(host) || host.find_first_of("@:#?") != std::string_view::npos)
+    if (!HasDnsNameShape(host) || host.find_first_of("@:#?%") != std::string_view::npos)
     {
         return false;
     }

@@ -213,7 +213,7 @@ caller-owned bounded storage.
 | **Point** | `<x>,<y>` (physical virtual-screen pixels), `+<dx>,+<dy>`, or `center`, each optionally `@<monitor>` (`ParsePoint`). |
 | **Monitor** | `primary`, `secondary` (the first display in `EnumDisplayMonitors` order that is not the primary), `xeneon` (the monitor hosting RedXe's window), `all`, `<n>` (1-based `EnumDisplayMonitors` order), `name:<substring>` (`ParseMonitorSelector`). |
 | **Window** | `foreground`, `exe:<image.exe>`, `class:<class>`, `title:<substring>` (`ParseWindowSelector`; `WindowSelector.cpp` selects the first visible non-tool top-level window in Z order without allocating, and `BringToForeground` taps `Alt` synthetically before `SetForegroundWindow`). |
-| **Meeting** | A complete Zoom browser link (`ParseMeeting`, `Plugins_Zoom.md`): `https://`, then `zoom.us` or a subdomain (a DNS name: labels of 1–63 characters, none empty, at most 253 characters) with no `@`, `:`, `#`, or `?` in the authority, then `/j/<id>`, `/wc/join/<id>`, or `/wc/<id>/join` with a 9–11 digit id, ending the path or followed by `?` or `#`; printable ASCII without `"`, `<`, `>`, or `\`. |
+| **Meeting** | A complete Zoom browser link (`ParseMeeting`, `Plugins_Zoom.md`): `https://`, then `zoom.us` or a subdomain (a DNS name: labels of 1–63 characters, none empty, at most 253 characters) with no `@`, `:`, `#`, `?`, or `%` in the authority, then `/j/<id>`, `/wc/join/<id>`, or `/wc/<id>/join` with a 9–11 digit id, ending the path or followed by `?` or `#`; printable ASCII without `"`, `<`, `>`, or `\`. |
 | **NowOrSeconds** | `now`, or a decimal delay in seconds within the bounds (`ParseNowOrSeconds`). |
 
 `FluentGlyphNames.h` (the Segoe Fluent Icons name table shared by Logicon faces and Launcher tiles) and

@@ -31,7 +31,8 @@ exactly `zoom.us` or a subdomain (ASCII case-insensitive) and MUST NOT contain `
 carries no credentials or port and cannot name another host that a browser would open
 (`https://evil.example#.zoom.us/...`). The authority MUST also be a DNS name, checked before the `zoom.us` suffix:
 dot-separated labels of 1 to 63 characters, at most 253 characters in all, so an empty label (`a..zoom.us`, a leading
-or trailing dot) is refused. Its path MUST be `/j/<id>` (an invite), or `/wc/join/<id>` or `/wc/<id>/join`
+or trailing dot) is refused, and written out: a `%` is refused, since a browser decodes a percent-encoded host first
+(`a%2e.zoom.us` is `a..zoom.us`). Its path MUST be `/j/<id>` (an invite), or `/wc/join/<id>` or `/wc/<id>/join`
 (the web-client links that Zoom's **Join from your browser** opens, which skip the desktop-app prompt), where `<id>` is
 9 to 11 digits, followed by the end, `?`, or `#`. The whole link MUST be printable ASCII without `"`, `<`, `>`, or `\`,
 and at most 512 bytes. The query and fragment, including an opaque `pwd` token, pass unchanged. A separate meeting ID
@@ -92,11 +93,11 @@ pack takes no settings, `S_FALSE` for a queued or coalesced launch and a passed-
 ignoring an authored target, unchanged invite and web-client link forwarding, and refusal without a host request. It
 proves `ParseMeeting` against accepted links (`/j/`, both `/wc/` forms, an uppercase host, an 11-digit id, a fragment,
 the 512-byte bound, a 63-character label, a 253-character host) and rejected ones (`http`, an uppercase scheme, other
-hosts, `@`, `:`, `#`, `?`, and `\` in the authority, a port, an empty leading, inner, or trailing label, a 64-character
-label, a 254-character host, short, long, and non-digit ids, other paths, a trailing space or control, a quote, the
-bare `<id>:<passcode>` form), and that the retired entry's model accepts the retired members with any value and
-rejects any other member, also set to `null`, or a non-object. `SettingsTests` proves the two shipped templates carry
-no retired entry, loads the exact `v1.0.102` Release and Debug templates (retired entry, retired members, and
+hosts, `@`, `:`, `#`, `?`, `%`, and `\` in the authority, a port, an empty leading, inner, or trailing label, a
+64-character label, a 254-character host, short, long, and non-digit ids, other paths, a trailing space or control, a
+quote, the bare `<id>:<passcode>` form), and that the retired entry's model accepts the retired members with any value
+and rejects any other member, also set to `null`, or a non-object. `SettingsTests` proves the two shipped templates
+carry no retired entry, loads the exact `v1.0.102` Release and Debug templates (retired entry, retired members, and
 removed-verb bindings included) without a fallback or backup, records the retired entry with and without its members
 and with a sole retired member set to `null`, rejects any other member (also set to `null`) and a duplicate entry, and
 checks the schema's deprecated variant and properties. `HostPluginTests` proves the publisher is registered, the

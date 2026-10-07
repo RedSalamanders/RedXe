@@ -170,6 +170,8 @@ bool TestSettingsAndUrls() noexcept
           // An empty DNS label: the suffix matches, but the host is no zoom.us subdomain.
           "https://a..zoom.us/j/1234567890", "https://..zoom.us/j/1234567890", "https://team..zoom.us/j/1234567890",
           "https://team.zoom.us./j/1234567890",
+          // A percent-encoded host, which a browser decodes first: here to an empty label.
+          "https://a%2e.zoom.us/j/1234567890", "https://a%E3%80%82.zoom.us/j/1234567890",
           // Path and character rules.
           "https://zoom.us/j/123", "https://zoom.us/j/123456789012", "https://zoom.us/j/12345678a0",
           "https://zoom.us/j/1234567890/other", "https://zoom.us/j/1234567890\n", "https://zoom.us/j/1234567890 ",

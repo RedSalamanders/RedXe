@@ -1317,6 +1317,12 @@ class DocumentTemporary final
         return ReadHandleStamp(_file.get(), stamp);
     }
 
+    // Closes the handle; a file a rename committed stays.
+    void Close() noexcept
+    {
+        _file.reset();
+    }
+
   private:
     std::wstring _path;
     wil::unique_hfile _file;
@@ -1356,14 +1362,15 @@ class DocumentTemporary final
 
 // Replaces target with bytes only while it is still the document `expected` identifies (Core_Settings.md "Plugin
 // persist"). A guard with DELETE access that shares only read and delete keeps every other writer out, and cannot open
-// while another program holds the file with write access or without FILE_SHARE_DELETE. The stamp is checked on the
-// guard, the temporary is written and flushed, the path is checked to still name the guarded file, and the temporary
-// replaces it with POSIX semantics while the guard stays open; where the file system or Windows build has no POSIX
-// rename, the guard is released right before a classic replacement instead.
+// while another program holds the file with write access or without FILE_SHARE_DELETE; while it is open, a reader that
+// does not share delete is refused too, for the few milliseconds of the write. The stamp is checked on the guard, the
+// temporary is written and flushed, the path is checked to still name the guarded file, and the temporary replaces it
+// with POSIX semantics while the guard stays open; where the file system or Windows build has no POSIX rename, the
+// guard is released right before a classic replacement instead.
 // S_OK: committed, and `stamp` is the renamed file's stamp, read through the handle that renamed it before any other
-// program could open the file (empty when that read failed). S_FALSE: nothing was written, because target is missing,
-// held, unreadable, or another file; `stamp` is its stamp (zero when missing or unreadable). Otherwise the failure,
-// and nothing was written.
+// program could open the file, or after a classic replacement once that handle closed (empty when that read failed).
+// S_FALSE: nothing was written, because target is missing, held, unreadable, or another file; `stamp` is its stamp
+// (zero when missing or unreadable). Otherwise the failure, and nothing was written.
 [[nodiscard]] HRESULT ReplaceSettingsDocument(const std::wstring& target, const SettingsFileStamp& expected,
                                               std::string_view bytes, std::optional<SettingsFileStamp>& stamp) noexcept
 {
@@ -1419,8 +1426,10 @@ class DocumentTemporary final
         return S_FALSE;
     }
     result = temporary.Rename(target, true, true);
-    if (result == HRESULT_FROM_WIN32(ERROR_INVALID_PARAMETER) || result == HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED) ||
-        result == HRESULT_FROM_WIN32(ERROR_INVALID_FUNCTION) || result == E_ACCESSDENIED)
+    const bool posix = result != HRESULT_FROM_WIN32(ERROR_INVALID_PARAMETER) &&
+                       result != HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED) &&
+                       result != HRESULT_FROM_WIN32(ERROR_INVALID_FUNCTION) && result != E_ACCESSDENIED;
+    if (!posix)
     {
         // No POSIX rename here: a classic replacement refuses any open target, the guard included.
         guard.reset();
@@ -1436,7 +1445,13 @@ class DocumentTemporary final
         g_settingsWriteSeam.checkpoint(SettingsWritePhase::Renamed, g_settingsWriteSeam.context);
     }
 #endif
-    if (SUCCEEDED(temporary.ReadStamp(current)))
+    // After a classic replacement the guard is already gone, and the stamp waits for the renaming handle to close: a
+    // file system without POSIX rename (FAT, exFAT) may set the last write time only then.
+    if (!posix)
+    {
+        temporary.Close();
+    }
+    if (posix ? SUCCEEDED(temporary.ReadStamp(current)) : QuerySettingsFileStamp(target, current) == S_OK)
     {
         stamp = current;
     }

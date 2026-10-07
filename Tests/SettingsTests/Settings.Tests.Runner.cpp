@@ -3301,17 +3301,20 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
         };
 
         // Held by another program: an editor keeping the file open for writing, one holding it without any sharing,
-        // and one holding it without FILE_SHARE_DELETE. Each persist defers (one notice for the one on-disk state),
-        // keeps the change, and leaves the bytes; once the file is free, the next persist writes the held change.
+        // one holding it without FILE_SHARE_DELETE, and a writer that shares everything (as VS Code's file I/O does),
+        // which only the guard's refusal to share write access keeps out. Each persist defers (one notice for the one
+        // on-disk state), keeps the change, and leaves the bytes; once the file is free, the next persist writes the
+        // held change.
         struct Holder final
         {
             DWORD access;
             DWORD share;
         };
-        constexpr std::array<Holder, 3> holders{{
+        constexpr std::array<Holder, 4> holders{{
             {GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE},
             {GENERIC_READ, 0},
             {GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE},
+            {GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE},
         }};
         for (size_t index = 0; index < holders.size(); ++index)
         {
@@ -3329,7 +3332,7 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
         }
-        if (persistSeed(store, *loaded, id, 23) != S_OK || !fileSeed(23) || store.TakeDeferredPersistNotice() ||
+        if (persistSeed(store, *loaded, id, 25) != S_OK || !fileSeed(25) || store.TakeDeferredPersistNotice() ||
             !ownWriteSeen())
         {
             std::wprintf(L"The change held while another program had the file was not written once it was free.\n");

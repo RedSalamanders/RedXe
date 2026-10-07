@@ -361,19 +361,22 @@ replaces that in-memory document instead. An applied load and a write each settl
 taken yet, so no later persist reports it.
 
 The stamp check and the replacement form one guarded step, so that a save another program makes meanwhile is not
-overwritten. The host opens the target with `DELETE` access sharing only read and delete, which keeps every other
-writer out and fails (a deferral) while another program holds the file as above. It checks the stamp through that
+overwritten. The host opens the target with `DELETE` access sharing only read and delete, which keeps every other writer
+out and fails (a deferral) while another program holds the file as above; for the few milliseconds the guard is open, a
+reader that does not share delete (most do not) is refused too and can read again. It checks the stamp through that
 guard, writes and flushes the temporary, checks that the path still names the guarded file, and renames the temporary
 over it with POSIX semantics (`FileRenameInfoEx`) while the guard stays open. An editor's in-place save or classic
 rename during that time is refused; an atomic replacement, rename, or deletion of the name, which the guard's delete
 sharing lets through, makes the persist defer instead of undoing it. Only the instant between that last check and the
-rename stays open. Where the file system or Windows build has no POSIX rename, the guard is released right before a
-classic replacement. The stamp then recorded is the renamed file's own, read through the temporary's handle before any
-other program can open the file, never a later path query that an editor's save could answer. The guard opens without
-data access: measured 2026-10-07 on the same SSD with a probe of both write sequences, 300 interleaved writes of a
-24 KB document each, the guarded replacement took a median 3.5 ms (p95 6.7 ms) against 3.3 ms (p95 6.3 ms) for the
-previous unguarded write, while a guard opened for reading data took a median 4.3 ms to open the just-written file on
-that machine.
+rename stays open. The stamp then recorded is the renamed file's own, read through the temporary's handle before any
+other program can open the file, never a later path query that an editor's save could answer. Where the file system or
+Windows build has no POSIX rename (FAT, exFAT, some network shares), the guard is released right before a classic
+replacement, which fails like any refused replacement while another program holds the file open, and the stamp is read
+by path once the temporary's handle has closed, since such a file system may set the last write time only then. The
+guard opens without data access: measured 2026-10-07 on the same SSD with a probe of both write sequences, 300
+interleaved writes of a 24 KB document each, the guarded replacement took a median 3.5 ms (p95 6.7 ms) against 3.3 ms
+(p95 6.3 ms) for the previous unguarded write, while a guard opened for reading data took a median 4.3 ms to open the
+just-written file on that machine.
 
 Persisted documents MUST use a compact, readable layout with two-space indentation and a final LF newline. Keep
 empty objects and arrays inline. Keep small objects inline when they fit a soft 120-byte line width; a single scalar
@@ -578,15 +581,15 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   reported after an applied load replaced its change (the next unchanged persist reports nothing) or after a write
   carried it.
 - Through the SettingsTests write seam (`SetSettingsWriteSeamForTesting`, compiled only with `REDXE_SETTINGS_TESTS`),
-  tests prove the guarded replacement: a file another program holds for writing, without sharing, or without
-  `FILE_SHARE_DELETE` defers each persist with one notice for the one on-disk state, keeps the change and the bytes,
-  and the next persist writes the change once the file is free; an in-place save attempted while the temporary is
-  flushed fails with `ERROR_SHARING_VIOLATION` and the persist commits; an in-place save and a POSIX replacement
-  attempted right after the rename both fail with `ERROR_SHARING_VIOLATION`, and the stamp recorded is the one the
-  next `TryLoadChanged` sees (`Unchanged`); a POSIX replacement or a deletion while the temporary is flushed goes
-  through and the persist defers without overwriting or recreating the file, and an applied load of the replacing
-  document is then written by the next persist; and with the POSIX rename refused the classic replacement commits.
-  No temporary file stays behind in any case.
+  tests prove the guarded replacement: a file another program holds for writing (also while sharing everything, as VS
+  Code does), without sharing, or without `FILE_SHARE_DELETE` defers each persist with one notice for the one on-disk
+  state, keeps the change and the bytes, and the next persist writes the change once the file is free; an in-place save
+  attempted while the temporary is flushed fails with `ERROR_SHARING_VIOLATION` and the persist commits; an in-place
+  save and a POSIX replacement attempted right after the rename both fail with `ERROR_SHARING_VIOLATION`, and the stamp
+  recorded is the one the next `TryLoadChanged` sees (`Unchanged`); a POSIX replacement or a deletion while the
+  temporary is flushed goes through and the persist defers without overwriting or recreating the file, and an applied
+  load of the replacing document is then written by the next persist; and with the POSIX rename refused the classic
+  replacement commits. No temporary file stays behind in any case.
 - Tests prove compact/idempotent formatting, inline small objects and long single-path records, multiline sections
   and arrays, fewer lines than fully expanded output, escaped/Unicode paths, named/inline/use-object widget round
   trips, compatible unknown-field retention, and transactional rejection of oversized formatted output.

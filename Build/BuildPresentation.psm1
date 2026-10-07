@@ -696,7 +696,8 @@ namespace RedXe.Build
         }
     }
 
-    // The members Invoke-RedXeStreamingProcess uses from System.Diagnostics.Process, over a child the job started.
+    // A child the job started: the members Invoke-RedXeStreamingProcess uses from System.Diagnostics.Process, and the
+    // clock its budget counts (RunClock).
     public sealed class ContainedProcess : IDisposable
     {
         [DllImport("kernel32.dll", SetLastError = true)]
