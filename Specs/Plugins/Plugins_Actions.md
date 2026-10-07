@@ -57,7 +57,8 @@ configured service, a bound namespace validated on first use) and registers ever
 below logs one `Error` line (`IRedXeHost::Log`) and appends one bounded notice (at most 8 notices of 256 characters)
 that `Application::ShowActionNotices` shows in one modeless notice window after the next service apply or drained
 action, only while device access is enabled; once a change clears every notice, an open notice window closes. The
-dashboard remains enabled and its actions continue to run.
+window opens inside the work area of the RedXe window's monitor (`Specs/UI/UI_XeneonDisplayWindowing.md` "Notice
+windows"). The dashboard remains enabled and its actions continue to run.
 
 | Condition | Log event | Effect |
 | --- | --- | --- |
@@ -124,6 +125,11 @@ MUST NOT run them before that callback has returned.
 or while the settings error dialog is up returns `ERROR_BUSY` / `E_NOT_VALID_STATE` and is never queued for later;
 `page.*` also refuses while a widget is raised. Every other namespace executes regardless of dashboard motion.
 
+**Collapsed dock:** on an autohide dock that shows its peek strip or is sliding out, a page change or a raise
+(`NavigateToAdjacentPage`, `NavigateToPage`, `TryRaiseWidgetAt`) reveals and settles the bar first and lays out on
+the full bar, never on the strip (`Specs/UI/UI_XeneonDisplayWindowing.md` "Autohide"). It pins nothing, unlike
+`redxe.dock.show`: the bar collapses again after its hide delay once the settle or the raise no longer holds it.
+
 ### `redxe.*` (`Application`)
 
 | Action | Target | Behavior |
@@ -174,7 +180,9 @@ Ctrl+Alt+Del, or the lock screen owns the input desktop) MUST keep the hold trac
 down, which then presses nothing) returns the failure, and the timer retries the release every
 `kHeldReleaseRetryMilliseconds` (250), at most `kMaximumHeldReleaseAttempts` (40) attempts in all, before the hold
 stops being tracked. The window's close makes the last attempt, before the timer and the host log are detached, so a
-refusal there still logs `held-release-abandoned`; runtime shutdown repeats it for anything held after that. Windows
+refusal there still logs `held-release-abandoned` (a session end runs the same close inside `WM_ENDSESSION` and writes
+that record out with its log flush); runtime shutdown repeats it for anything held after that. A fatal exit releases
+nothing, because no fatal path returns into normal shutdown (`Specs/Core/Core_CrashHandling.md`). Windows
 does not deliver injected input to an elevated window; RedXe never runs elevated and does not work around it.
 
 ### `mouse.*` (`HostActions`, **I** except `mouse.speed`)
@@ -211,7 +219,7 @@ caller-owned bounded storage.
 | **Enum** | One of the descriptor's `\|`-separated `targetOptions`, case-sensitive. |
 | **Chords** | `chord(,chord)*`, at most `kMaximumChords` (8); `chord` = `(Mod+)*Key`; `Mod` ∈ `Ctrl`, `Shift`, `Alt`, `Win`; `Key` is a letter, digit, `F1`–`F24`, one of the named keys in `docs/actions.md`, or `VK:<hex>`; names are case-insensitive (`ParseChords` → `ChordSequence` of `KeyChord`). |
 | **Point** | `<x>,<y>` (physical virtual-screen pixels), `+<dx>,+<dy>`, or `center`, each optionally `@<monitor>` (`ParsePoint`). |
-| **Monitor** | `primary`, `secondary` (the first display in `EnumDisplayMonitors` order that is not the primary), `xeneon` (the monitor hosting RedXe's window), `all`, `<n>` (1-based `EnumDisplayMonitors` order), `name:<substring>` (`ParseMonitorSelector`). |
+| **Monitor** | `primary`, `secondary` (the first display in `EnumDisplayMonitors` order that is neither the primary nor the display XENEON discovery found, and that XENEON only when it is the only display that is not the primary: `SecondaryMonitorRank`, the dock's rule too; the host repeats discovery on every `WM_DISPLAYCHANGE`), `xeneon` (the monitor hosting RedXe's window), `all`, `<n>` (1-based `EnumDisplayMonitors` order), `name:<substring>` (`ParseMonitorSelector`). |
 | **Window** | `foreground`, `exe:<image.exe>`, `class:<class>`, `title:<substring>` (`ParseWindowSelector`; `WindowSelector.cpp` selects the first visible non-tool top-level window in Z order without allocating, and `BringToForeground` taps `Alt` synthetically before `SetForegroundWindow`). |
 | **Meeting** | A complete Zoom browser link (`ParseMeeting`, `Plugins_Zoom.md`): `https://`, then `zoom.us` or a subdomain (a DNS name: labels of 1–63 characters, none empty, at most 253 characters) with no `@`, `:`, `#`, `?`, or `%` in the authority, then `/j/<id>`, `/wc/join/<id>`, or `/wc/<id>/join` with a 9–11 digit id, ending the path or followed by `?` or `#`; printable ASCII without `"`, `<`, `>`, or `\`. |
 | **NowOrSeconds** | `now`, or a decimal delay in seconds within the bounds (`ParseNowOrSeconds`). |
@@ -314,11 +322,21 @@ through them `redxe.settings.edit`, `redxe.logs.open`, `zoom.open`, and `zoom.jo
 - A finished launch keeps its `HRESULT` in its slot and posts the coalesced `WM_APP + 5`; the drain logs a failure as
   one Warning (`launch-failed`, or `tray-edit-settings-failed` for the tray) with the `HRESULT`, and a success as one
   Debug `launch-completed`, and frees the slot.
-- `PluginHost::Shutdown` drops queued launches and waits at most `LaunchWorker::kStopMilliseconds` (1000 ms) for the
-  one in progress, also when a device lane still stuck after its drain budget ends that shutdown early; a launch
-  still in the shell then logs `launch-stop-timeout` (Warning) and keeps only the worker's own slots, and the process
-  runtime is not deleted while that thread exists, so it never frees memory in use. The bound is waited once: a later
-  `Stop` (the process runtime's second shutdown at static destruction) only checks whether the thread has exited.
+- `PluginHost::StopLaunches` drops queued launches and waits at most `LaunchWorker::kStopMilliseconds` (1000 ms) for
+  the one in progress; a launch still in the shell then logs `launch-stop-timeout` (Warning) and keeps only the
+  worker's own slots, and the process runtime is not deleted while that thread exists, so it never frees memory in
+  use. `PluginHost::Shutdown` runs it right after `StopServices`, also when a device lane still stuck after its drain
+  budget ends that shutdown early, and a session end runs it inside `WM_ENDSESSION`, after `CloseMainWindow` and
+  before its log flush, because Windows may end the process before `Shutdown` runs
+  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle"); there it waits only for what is left of
+  the session-end deadline before the flush's reserve, never more than the bound, and not at all when nothing is left
+  (a launch in progress is then logged as `launch-stop-timeout` at once). The record covers only a launch still in
+  progress when the wait runs out (a `Running` slot, which the worker can no longer enter once the stop event is set,
+  because it reads that event under the slot lock): an idle worker that a zero wait gave no time to exit is no launch
+  and logs nothing. The bound is waited once and the record logged once: after a wait that ran out on a launch, or
+  any wait above zero that ran out, a later stop (the shutdown after a session end, or the process runtime's second
+  shutdown at static destruction) only checks whether the thread has exited; after a zero wait that found no launch,
+  the later stop waits for the exiting thread again and joins it.
 
 ### Automated hosts and counters
 
@@ -337,7 +355,7 @@ CI pass condition; `TestLaunchWorker`'s shell call on a missing file starts noth
 `action-expired` (Warning, once per drain that dropped input for age), `held-release-failed` (Warning, the first
 refused release of a hold), `held-release-abandoned` (Warning, a hold dropped after its last refused attempt),
 `launch-failed` (Warning, once per failed launch), `launch-completed` (Debug), `launch-stop-timeout` (Warning, at
-most once per shutdown),
+most once per process runtime, at a session end or shutdown),
 `screenshot-failed` (Warning, once per screenshot request that wrote no PNG). A publisher MAY log a Warning once per
 distinct failure.
 
@@ -408,9 +426,14 @@ distinct failure.
   `TestLaunchWorker`: with a probe in place of the shell, a launch returns `S_FALSE` while it runs on the worker's own
   STA thread, a full worker answers `ERROR_BUSY`, completions drain through the posted message with a
   `launch-failed` Warning for a failure, an idle worker accrues no CPU time, shutdown joins an idle worker at once and
-  waits only the bound for a stuck one, a second shutdown does not wait again, and a shutdown that a stuck device
-  lane ends early still stops the worker (the queued launch never starts) and logs `launch-stop-timeout`; and the
-  real `ShellExecuteExW` on a file that does not exist (nothing starts) logs `launch-failed` with `0x80070002`.
+  waits only the bound for a stuck one, a second shutdown does not wait again, a shutdown that a stuck device lane
+  ends early still stops the worker (the queued launch never starts) and logs `launch-stop-timeout`, and the launch
+  stop a session end makes (`StopLaunches`) drops the queue, waits the bound once for a stuck launch, and logs one
+  `launch-stop-timeout` that the shutdown after it neither waits for nor logs again; and the real `ShellExecuteExW` on
+  a file that does not exist (nothing starts) logs `launch-failed` with `0x80070002`. `TestSessionEndDeadline`: under
+  one session-end deadline, a launch stuck in the shell after a stuck device lane used the time before the flush's
+  reserve is waited for only with what is left and is still logged as `launch-stop-timeout`; and a zero-wait stop of
+  an idle worker logs no `launch-stop-timeout`, the thread exits by itself, and the shutdown after it joins it.
 - `SettingsTests`: document-level acceptance of both templates' bindings (`page.*`, `widget.*`, `keys.media`, dialpad
   `turns`; in Debug also `logicon.keyPage.*`, `logicon.brightness`, and `zoom.open`, without a Zoom `services`
   entry), acceptance and ignoring of a retired `builtin.zoom` services entry, rejection of unknown names, unknown

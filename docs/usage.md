@@ -63,11 +63,11 @@ The first page is selected on every launch. RedXe does not remember which page y
 
 With a `dock` configured (or `--dock` on the command line) both builds run as a bar on a screen edge instead; see [Dock](#dock).
 
-On the very first start without a XENEON (no settings file yet), RedXe skips the prompt and the plain window: it writes an auto-hiding bar into the new settings file, on your second screen when you have more than one and on the edge where your taskbar is not (normally the top), and starts as that bar. See [First start without a XENEON](#first-start-without-a-xeneon).
+On the very first start without a XENEON (no settings file yet), RedXe skips the prompt and the plain window: it writes an auto-hiding bar into the new settings file, on your second screen when you have more than one and on its bottom edge unless that screen's own taskbar is there, and starts as that bar. See [First start without a XENEON](#first-start-without-a-xeneon).
 
-**Escape**, closing the window, or **Exit** in the [notification-area icon](#notification-area-icon)'s menu exits RedXe.
+**Escape**, closing the window, or **Exit** in the [notification-area icon](#notification-area-icon)'s menu exits RedXe. Signing out, restarting, or shutting down Windows closes it the same way, so widget settings are saved and a [Logicon keypad](plugins/logicon.md) gets its own buttons back.
 
-If RedXe stopped after a crash, the next normal launch may offer to open the local crash folder. Dumps stay on this PC; nothing is uploaded.
+If RedXe stopped after a crash, the next normal launch may offer to open the local crash folder. Dumps stay on this PC; nothing is uploaded. When RedXe runs as a [bar](#dock), that question comes before the bar appears.
 
 ## Notification-area icon
 
@@ -83,6 +83,8 @@ Turn it on or off with `trayIcon` in the settings file; the change applies when 
 ```
 
 Without `trayIcon`, Release shows the icon and Debug does not. The shipped files write it out: `true` in the Release file, `false` in the Debug file.
+
+If Windows is still busy when RedXe starts (right after you sign in), the icon can take a few seconds to appear. It also comes back by itself when Windows Explorer restarts.
 
 ## Dock
 
@@ -100,11 +102,11 @@ RedXe.exe --settings C:\Dash\bar.settings.json --dock none
 | Setting (`dock`) | Switch | Default | Meaning |
 | --- | --- | --- | --- |
 | `edge` | `--dock <edge>` | `none` | `top`, `bottom`, `left`, or `right` of the monitor. `none` is the normal window. |
-| `monitor` | `--dock <edge>@<monitor>` | `primary` | `primary`, `secondary` (your second screen: the first display that is not the main one), `xeneon`, a display number (`2`), or `name:<part of the display name>` (`name:DELL`, `name:DISPLAY2`). A display that is not connected falls back to the primary. |
+| `monitor` | `--dock <edge>@<monitor>` | `primary` | `primary`, `secondary` (your second screen: the first display that is not the main one, skipping a XENEON unless it is the only other one), `xeneon`, a display number (`2`), or `name:<part of the display name>` (`name:DELL`, `name:DISPLAY2`). A display that is not connected falls back to the primary. |
 | `thickness` | `--dock-thickness` | `180` | How deep the bar is, in DIPs (scaled with the monitor's display scaling; 180 is 270 px at 150 %). 32–1080, at most half the monitor. |
-| `mode` | `--dock-mode` | `fixed` | `fixed` keeps the bar on screen. `autohide` collapses it to a few pixels until you point at them. |
-| `reserveWorkArea` | `--dock-reserve on\|off` | `true` | `fixed` only. `true`: maximized windows stop at the bar. `false`: the bar floats over the maximized area. |
-| `peek` | `--dock-peek` | `4` | `autohide` only: how many pixels stay visible while the bar is collapsed (1–64). |
+| `mode` | `--dock-mode` | `fixed` | `fixed` keeps the bar on screen. `autohide` collapses it to a few pixels until you point at them; maximized windows stop just inside those pixels. |
+| `reserveWorkArea` | `--dock-reserve on\|off` | `true` | `fixed` only. `true`: maximized windows stop at the bar. `false`: the bar floats over the maximized area. An `autohide` bar always keeps its thin strip clear of maximized windows. |
+| `peek` | `--dock-peek` | `4` | `autohide` only: how many pixels stay visible while the bar is collapsed (1–64); maximized windows stop just inside them. |
 | `revealDelayMilliseconds` | — | `150` | `autohide` only: how long the pointer must rest on the strip before the bar comes back (0–2000; 0 is immediate). |
 | `hideDelayMilliseconds` | — | `800` | `autohide` only: how long after the pointer leaves the bar collapses again (0–10000). |
 | `animationMilliseconds` | — | `200` | `autohide` only: how long the bar takes to slide out of the edge when it appears, and back when it collapses (0–1000; 0 shows and hides it at once). |
@@ -128,34 +130,38 @@ A switch overrides that one setting for the run, even when you edit the file whi
 Good to know:
 
 - The bar has no taskbar button and does not take the focus when it starts. To quit, choose **Exit** in the [notification-area icon](#notification-area-icon)'s menu, click or tap the bar and press **Escape**, or bind `redxe.quit`.
-- **Resize by dragging**: point at the bar's inner edge (the side facing the desktop; the cursor becomes a resize arrow), press, and drag. The bar follows the mouse; when you release, the reserved area follows and the new `thickness` is written to the settings file, so it survives the next start. Only that value changes: your comments and layout stay, and a file without a `dock` gains a `"dock": { "thickness": ... }` line right after `version`. A click on the edge that leaves the size as it was writes nothing. Works in `fixed` and `autohide` (the bar stays open while you drag); a `--dock-thickness` switch is replaced by the dragged value for that run.
-- **Autohide**: rest the mouse on the thin strip at the screen edge and the bar slides out of the edge (it takes `animationMilliseconds`, after the `revealDelayMilliseconds` wait); it collapses again shortly after the pointer leaves and nothing else holds it (a raised widget, a swipe, a text field with the focus, the settings-error dialog). A click or a touch on the strip reveals at once, and a Logicon key or a Launcher tile bound to `redxe.dock.show`, `hide`, or `toggle` does too. If the taskbar sits on the same edge, the strip is just above the taskbar, so aim for that line or use another edge.
-- With `reserveWorkArea` off, or in `autohide`, the bar never covers the taskbar; it hugs the edge of the free area.
-- A full-screen game or video on that monitor pushes the bar beneath it; it returns when you leave full screen. A full-screen window on another display (a XENEON dashboard, a video on a second screen) leaves the bar on top.
+- **Resize by dragging**: point at the bar's inner edge (the side facing the desktop; the cursor becomes a resize arrow), press, and drag. The bar follows the mouse; when you release, a `fixed` bar that reserves its space reserves the new size (an `autohide` bar keeps reserving only its thin strip) and the new `thickness` is written to the settings file, so it survives the next start. Only that value changes: your comments and layout stay, and a file without a `dock` gains a `"dock": { "thickness": ... }` line right after `version`. A click on the edge that leaves the size as it was writes nothing. Works in `fixed` and `autohide` (the bar stays open while you drag); a `--dock-thickness` switch is replaced by the dragged value for that run.
+- **Autohide**: rest the mouse on the thin strip at the screen edge and the bar slides out of the edge (it takes `animationMilliseconds`, after the `revealDelayMilliseconds` wait); it collapses again shortly after the pointer leaves and nothing else holds it (a raised widget, a swipe, a text field with the focus, the settings-error dialog). A click or a touch on the strip reveals at once, and a Logicon key or a Launcher tile bound to `redxe.dock.show`, `hide`, or `toggle` does too; one bound to a `page.*` or `widget.*` [action](actions.md) brings the bar out first so you see the result. A click or a tap while the bar is still sliding out of the edge goes to what you saw under the pointer, and the mouse wheel over the thin strip does nothing. If the taskbar sits on the same edge, the strip is just above the taskbar, so aim for that line or use another edge.
+- **Maximized windows and an auto-hiding bar**: Windows keeps the thin strip free, so a maximized window on that screen stops just inside it: with a bar at the top, its title-bar buttons and tabs sit just below the strip instead of under it; at the bottom or a side, its status bar or scrollbar stays uncovered. When the bar slides out, it covers part of the maximized window until it collapses again; the window does not move. When RedXe exits, maximized windows grow back to the screen edge.
+- The bar never covers the taskbar: with `reserveWorkArea` off it hugs the edge of the free area, and an auto-hiding bar's strip sits next to a taskbar on the same edge.
+- A full-screen game or video on that monitor pushes the bar beneath it; it returns when you leave full screen. A full-screen window on another display (a XENEON dashboard, a video on a second screen), or a maximized window with a title bar, leaves the bar on top.
 - Saving the file applies every change while RedXe runs: `thickness`, `edge`, `monitor`, `mode`, `reserveWorkArea`, `peek`, and the delays re-place the bar, and turning the dock on or off (`edge` between `none` and an edge) turns the running window into the bar, or the bar back into the normal window (fullscreen or titled, as in [Window](#window), without the XENEON prompt). The switch never takes the focus from the editor you saved in. If the switch cannot be completed, RedXe keeps the window it had and shows the settings error dialog instead of closing. A `--dock` switch keeps its edge for that run.
 - `--screenshot` works for a dock too; an auto-hiding bar is held open for the capture.
-- If RedXe crashes while it reserves space, Windows may keep that space reserved until RedXe runs again or you sign out.
+- If Windows Explorer restarts while the bar runs, the bar registers with the new taskbar by itself: the reserved space, auto-hiding, and stepping beneath full-screen windows come back without restarting RedXe.
+- If RedXe crashes while it reserves space (a `fixed` bar with `reserveWorkArea`, or an auto-hiding bar's thin strip), Windows may keep that space reserved until RedXe runs again or you sign out.
 
 ### First start without a XENEON
 
-When RedXe starts with no settings file yet (or replaces an invalid one) and no XENEON display is connected, the settings file it creates already contains a bar, with a comment saying why. This `dock` line is the one to edit: the commented-out `dock` example the shipped template carries further down is left out of this file, so there is no second one to uncomment.
+When RedXe starts with no settings file yet and no XENEON display is connected, the settings file it creates already contains a bar, with a comment saying why. This `dock` line is the one to edit: the commented-out `dock` example the shipped template carries further down is left out of this file, so there is no second one to uncomment.
 
 ```jsonc
   // No XENEON display was found when RedXe installed this file, so this dock runs it as a bar on a screen edge;
   // set "edge" to "none" to use the standard window instead. See docs/usage.md "Dock" for the other members.
-  "dock": { "edge": "top", "monitor": "secondary", "mode": "autohide", "thickness": 720 },
+  "dock": { "edge": "bottom", "monitor": "secondary", "mode": "autohide", "thickness": 720 },
 ```
+
+Only a first start does this. When RedXe replaces an invalid settings file, the new file is the plain shipped one, without a bar, even if no XENEON is connected. A first start in a Remote Desktop session also writes the plain file, because RedXe sees only the remote screens there.
 
 Where the bar goes is decided once, when the file is written:
 
-- **Which screen**: with more than one display, your second screen (`"secondary"`: the first display that is not the main one); with a single display, that display (`"primary"`).
-- **Which edge**: the top or the bottom, whichever your taskbar does not use on that screen — normally the **top**, since the taskbar sits at the bottom. A screen without a taskbar of its own follows where your main taskbar is. So the bar's thin strip normally sits at the screen edge rather than next to the taskbar.
+- **Which screen**: with more than one display, your second screen (`"secondary"`: the first display that is not the main one, skipping a XENEON unless it is the only other one); with a single display, that display (`"primary"`).
+- **Which edge**: the **bottom**, away from the title-bar buttons and tabs at the top of maximized windows, unless that screen's own taskbar is at the bottom; then the top, so the thin strip sits at the screen edge rather than next to the taskbar (maximized windows then stop just below the strip). An edge where another display sits right above or below is used only when both are like that, so moving the mouse from one screen to the other does not cross the strip.
 
-The bar collapses to a thin line until you rest the pointer on it. Its `thickness` gives it the XENEON's 32:9 shape across that display, so the shipped pages look as they do on a XENEON: on a 16:9 display that is half the screen height (720 on a 4K display at 150 %, 540 on a 1920×1080 display at 100 %). Drag its inner edge or edit `thickness` to make it smaller, and edit `edge` or `monitor` to move it. If you connect a XENEON later, the file keeps the bar until you set `"edge": "none"`, which switches to the XENEON window at once. A settings file written by an earlier RedXe keeps its bar where it is.
+The bar collapses to a thin line until you rest the pointer on it. Its `thickness` gives it the XENEON's 32:9 shape across that display, so the shipped pages look as they do on a XENEON: on a 16:9 display that is half the screen height (720 on a 4K display at 150 %, 540 on a 1920×1080 display at 100 %). Drag its inner edge or edit `thickness` to make it smaller, and edit `edge` or `monitor` to move it. If you connect a XENEON later, the bar stays on your second screen (`"secondary"` skips the XENEON) until you set `"edge": "none"`, which switches to the XENEON window at once. A settings file written by an earlier RedXe keeps its bar where it is. The log of that first start (a `dock-first-run` entry) records how many displays RedXe saw and the size of the one it chose.
 
 ## Command line
 
-`RedXe.exe --help` (also `-h`, `/?`, `-?`) prints every switch, grouped, with the exit codes, to the console you ran it from (or to a message box when there is none). Every switch overrides the settings file for that run only; an unknown switch is an error (exit code 2) rather than silently ignored.
+`RedXe.exe --help` (also `-h`, `/?`, `-?`) prints every switch, grouped, with the exit codes, to the console you ran it from (or to a message box when there is none, unless `--self-test` or `--screenshot` is also on the line, since those runs never wait on a box). Every switch overrides the settings file for that run only; an unknown switch is an error (exit code 2) rather than silently ignored.
 
 | Switch | Meaning |
 | --- | --- |
@@ -170,7 +176,7 @@ Exit codes: 0 ok, 1 settings, 2 command line or window, 3 plugins, 5 graphics, 7
 
 ## Screenshots
 
-`RedXe.exe --screenshot <file.png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>]` starts the dashboard as usual, jumps to that page (default: the start page), waits for the delay (default 3000 ms, so widgets and devices have settled), saves its own window — or only the widget at that 0-based position on the page — as a PNG through Windows.Graphics.Capture, and exits. It never takes the focus or moves the mouse. Combine it with `--settings` for a repeatable scene; the exit code is 0 when the file was written and 8 when it was not, including when RedXe was closed, or failed to start or draw, before the capture finished (once the log is open, it has a `screenshot-failed` entry; a failure before the settings load reaches only the debugger output). A screenshot run never ends with an error message box; its exit code and the log report what went wrong. The pictures under `docs/screenshots/` are produced this way. The [`redxe.screenshot`](actions.md#redxe) action saves the same picture from a key or tile and leaves RedXe running.
+`RedXe.exe --screenshot <file.png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>]` starts the dashboard as usual, jumps to that page (default: the start page), waits for the delay (default 3000 ms, so widgets and devices have settled), saves its own window — or only the widget at that 0-based position on the page — as a PNG through Windows.Graphics.Capture, and exits. It never takes the focus or moves the mouse. Combine it with `--settings` for a repeatable scene; the exit code is 0 when the file was written and 8 when it was not, including when RedXe was closed, or failed to start or draw, before the capture finished (once the log is open, it has a `screenshot-failed` entry; a failure before the settings load reaches only the debugger output). A capture never waits for an answer: it shows no message box, so a failure is its exit code plus a `failure-exit` entry in the log, a mistyped switch prints its usage to the console or redirected output (exit code 2), a settings problem is a `settings-fallback-notice` entry, and a Release build without a XENEON captures the standard window without asking. `--self-test` follows the same rule. The pictures under `docs/screenshots/` are produced this way. The [`redxe.screenshot`](actions.md#redxe) action saves the same picture from a key or tile and leaves RedXe running.
 
 ## Pages
 
@@ -201,7 +207,7 @@ The file is UTF-8 JSON; `//` and `/* */` comments and trailing commas are allowe
 
 RedXe writes the file itself only when a widget's own settings actually change (a Launcher importing your taskbar pins, for example) or when you drag the bar's edge, and only while the file on disk is the one it last loaded. A save you make while RedXe writes is practically never lost: for the few milliseconds the write takes your editor is refused (save again), or RedXe keeps its own change for later instead; only a save landing in the very same instant can be replaced, and on a FAT or exFAT drive (a USB stick, for example) that window is a little wider. While your last save is invalid, the file was deleted, another program (an editor, for example) keeps it open for writing, or a `--settings` file could not be loaded, such a change stays in memory and your file is left as it is (the log records `settings-persist-deferred`); RedXe writes it with its next change once the file is free again, and your next valid save takes over from it.
 
-If the default file is missing, RedXe installs the shipped template and continues. If it is invalid, RedXe copies the bytes beside it as `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`, installs a fresh template, and tells you where the backup went. Without a XENEON connected, either installed template also gets an auto-hiding bar; see [First start without a XENEON](#first-start-without-a-xeneon).
+If the default file is missing, RedXe installs the shipped template and continues. If it is invalid, RedXe copies the bytes beside it as `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`, installs a fresh template, and tells you where the backup went. Without a XENEON connected, a template installed because the file was missing also gets an auto-hiding bar; one that replaces an invalid file does not. See [First start without a XENEON](#first-start-without-a-xeneon).
 
 `--settings <path>` uses one portable file instead. A missing or invalid portable file is not rewritten; RedXe reports the problem and runs the shipped default in memory.
 

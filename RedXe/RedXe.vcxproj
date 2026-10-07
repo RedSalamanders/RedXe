@@ -123,6 +123,7 @@
     <ClInclude Include="CommandLine.h" />
     <ClInclude Include="DockOptions.h" />
     <ClInclude Include="DockPlacement.h" />
+    <ClInclude Include="NoticeWindow.h" />
     <ClInclude Include="FrameScheduler.h" />
     <ClInclude Include="PageNavigation.h" />
     <ClInclude Include="PluginManager.h" />

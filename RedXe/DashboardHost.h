@@ -39,7 +39,8 @@ class DashboardHost final
     [[nodiscard]] HRESULT SetHorizontalOffset(LONG offset) noexcept;
     [[nodiscard]] LONG HorizontalOffset() const noexcept;
     // Autohide slide of a top or left dock (DockSlideContentOffset): every tile and native container moves by this
-    // offset on top of the page offset while the bar slides; zero otherwise.
+    // offset on top of the page offset while the bar slides; zero otherwise. After a native container failed to move,
+    // the next SetSlideOffset or SetHorizontalOffset moves the containers again even when its offset is unchanged.
     [[nodiscard]] HRESULT SetSlideOffset(POINT offset) noexcept;
     [[nodiscard]] POINT SlideOffset() const noexcept
     {
@@ -93,6 +94,8 @@ class DashboardHost final
     bool _widgetsVisible = false;
     LONG _horizontalOffset = 0;
     POINT _slideOffset{};
+    // A native container did not reach its PixelBoundsAt origin on the last offset change.
+    bool _nativeContainersStale = false;
     UINT _clientWidth = 0;
     UINT _clientHeight = 0;
     size_t _raisedNativeIndex = SIZE_MAX;

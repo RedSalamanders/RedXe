@@ -179,6 +179,41 @@ inline constexpr std::array<const wchar_t*, 4> kRedXeCommandLineGroups{L"General
     return nullptr;
 }
 
+// Whether a run is unattended: `--self-test` (test.ps1) or `--screenshot` (documentation and agent captures) on the
+// line, found before any value is checked, so a malformed `--screenshot` value counts too. Nobody answers a modal box
+// in such a run, so it never shows one (UI_XeneonDisplayWindowing.md "Configuration behavior"): a command-line error
+// prints its usage to the console or redirected output (exit 2), the settings fallback notice is a Warning record,
+// the Release missing-display prompt takes its Yes answer, the previous-crash notice waits for the next interactive
+// start, a failure exit is a record instead of the exit-code box, and a failed Debug check ends the run with its report
+// (Common/FailureReports.h). The run reports through its exit code, that output, and (a capture) the JSONL log.
+[[nodiscard]] constexpr bool RedXeIsUnattendedRun(bool selfTest, bool screenshot) noexcept
+{
+    return selfTest || screenshot;
+}
+
+// The name the `--help` text gives an exit code Main.cpp reports, for the `failure-exit` record an unattended capture
+// run leaves in the log; "startup" for a code the list does not name.
+[[nodiscard]] constexpr const char* RedXeExitCodeName(int exitCode) noexcept
+{
+    switch (exitCode)
+    {
+    case 1:
+        return "settings";
+    case 2:
+        return "command line or window";
+    case 3:
+        return "plugins";
+    case 5:
+        return "graphics";
+    case 7:
+        return "settings watcher";
+    case 8:
+        return "screenshot capture";
+    default:
+        return "startup";
+    }
+}
+
 // Exit code of a `--screenshot` run that wrote no PNG.
 inline constexpr int kRedXeScreenshotFailedExitCode = 8;
 
@@ -191,10 +226,10 @@ inline constexpr int kRedXeScreenshotFailedExitCode = 8;
 }
 
 // Whether Main.cpp shows the modal error box for a run's exit code once the main window is gone: only for a failed
-// interactive run. `--self-test` and `--screenshot` are scripted and report through the exit code and the log.
+// run that is not unattended (RedXeIsUnattendedRun), whatever its exit code.
 [[nodiscard]] constexpr bool RedXeShowsExitCodeBox(int exitCode, bool selfTest, bool screenshot) noexcept
 {
-    return exitCode != 0 && !selfTest && !screenshot;
+    return exitCode != 0 && !RedXeIsUnattendedRun(selfTest, screenshot);
 }
 
 // The `--help` text: usage line, one block per group, and the exit codes Main.cpp reports.

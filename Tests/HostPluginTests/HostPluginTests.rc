@@ -1,0 +1,4 @@
+#include "../../RedXe/resource.h"
+
+// The product icon, embedded as RedXe/RedXe.rc does: TrayIcon loads it from the running module.
+IDI_REDXE ICON "..\\..\\RedXe\\assets\\redxe-xenon.ico"

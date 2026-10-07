@@ -411,12 +411,14 @@ HRESULT DashboardHost::SetHorizontalOffset(LONG offset) noexcept
     {
         return E_UNEXPECTED;
     }
-    if (_horizontalOffset == offset)
+    if (_horizontalOffset == offset && !_nativeContainersStale)
     {
         return S_OK;
     }
     _horizontalOffset = offset;
-    return MoveNativeContainers();
+    const HRESULT result = MoveNativeContainers();
+    _nativeContainersStale = FAILED(result);
+    return result;
 }
 
 HRESULT DashboardHost::SetSlideOffset(POINT offset) noexcept
@@ -425,12 +427,17 @@ HRESULT DashboardHost::SetSlideOffset(POINT offset) noexcept
     {
         return E_UNEXPECTED;
     }
-    if (_slideOffset.x == offset.x && _slideOffset.y == offset.y)
+    if (_slideOffset.x == offset.x && _slideOffset.y == offset.y && !_nativeContainersStale)
     {
         return S_OK;
     }
+    // The offset is recorded before the move: the move and the renderer's viewports both read it through
+    // PixelBoundsAt. A failed move leaves the containers stale, so the next call moves them again even with an
+    // unchanged offset, such as the zero offset that ends a dock slide.
     _slideOffset = offset;
-    return MoveNativeContainers();
+    const HRESULT result = MoveNativeContainers();
+    _nativeContainersStale = FAILED(result);
+    return result;
 }
 
 HRESULT DashboardHost::MoveNativeContainers() noexcept
@@ -729,6 +736,7 @@ void DashboardHost::Shutdown(bool persistCollectedSettings) noexcept
     _widgetsVisible = false;
     _horizontalOffset = 0;
     _slideOffset = POINT{};
+    _nativeContainersStale = false;
     _clientWidth = 0;
     _clientHeight = 0;
     _raisedNativeIndex = SIZE_MAX;

@@ -2975,23 +2975,20 @@ void SetSettingsWriteSeamForTesting(const SettingsWriteSeam& seam) noexcept
 namespace
 {
 // The selected template with the first-run dock patched in (Core_Settings.md "Cold load and recovery"), validated and
-// then written with the same atomic same-directory replacement as a plain install. Without replaceExisting an
-// existing target wins (S_FALSE), exactly as InstallIfMissing.
+// then written with the same atomic same-directory write as a plain install. Only a missing target is installed: an
+// existing one wins (S_FALSE), exactly as InstallIfMissing.
 [[nodiscard]] HRESULT InstallTemplateWithDock(const std::filesystem::path& source, const std::filesystem::path& target,
-                                              const DockSettings& dock, bool replaceExisting) noexcept
+                                              const DockSettings& dock) noexcept
 {
-    if (!replaceExisting)
+    const DWORD attributes = GetFileAttributesW(target.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES)
     {
-        const DWORD attributes = GetFileAttributesW(target.c_str());
-        if (attributes != INVALID_FILE_ATTRIBUTES)
-        {
-            return (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ? S_FALSE : HRESULT_FROM_WIN32(ERROR_DIRECTORY);
-        }
-        const DWORD error = GetLastError();
-        if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
-        {
-            return HRESULT_FROM_WIN32(error);
-        }
+        return (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ? S_FALSE : HRESULT_FROM_WIN32(ERROR_DIRECTORY);
+    }
+    const DWORD error = GetLastError();
+    if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
+    {
+        return HRESULT_FROM_WIN32(error);
     }
     try
     {
@@ -3019,7 +3016,7 @@ namespace
         {
             return result;
         }
-        return WriteUtf8FileAtomically(target, text, replaceExisting);
+        return WriteUtf8FileAtomically(target, text, false);
     }
     catch (const std::bad_alloc&)
     {
@@ -3148,7 +3145,7 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
         // Without a XENEON the installed default is the template plus the first-run dock, so RedXe starts as a bar
         // on the primary display instead of asking about the missing display. The dock is a convenience: a template
         // it cannot patch still installs plainly.
-        result = firstRunDock ? InstallTemplateWithDock(initialSource, settingsPath, *firstRunDock, false)
+        result = firstRunDock ? InstallTemplateWithDock(initialSource, settingsPath, *firstRunDock)
                               : InstallIfMissing(initialSource, settingsPath);
         _installedFirstRunDock = firstRunDock && result == S_OK;
         if (FAILED(result) && firstRunDock)
@@ -3169,13 +3166,10 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
             {
                 return backupResult;
             }
-            result = firstRunDock ? InstallTemplateWithDock(selectedTemplate, settingsPath, *firstRunDock, true)
-                                  : InstallTemplateFile(selectedTemplate, settingsPath, true);
-            const bool recoveredWithDock = firstRunDock && SUCCEEDED(result);
-            if (FAILED(result) && firstRunDock)
-            {
-                result = InstallTemplateFile(selectedTemplate, settingsPath, true);
-            }
+            // Recovery installs the plain template even without a XENEON: only a missing file gets the first-run dock,
+            // so a file that failed validation never turns the user's XENEON or window configuration into a bar.
+            _installedFirstRunDock = false;
+            result = InstallTemplateFile(selectedTemplate, settingsPath, true);
             if (SUCCEEDED(result))
             {
                 result = LoadAppSettingsFileCandidate(_settingsPath, settings);
@@ -3183,13 +3177,8 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
             if (SUCCEEDED(result))
             {
                 _usedInitialFallback = true;
-                _installedFirstRunDock = recoveredWithDock;
                 _initialNotice = L"The default settings file was incompatible or invalid. It was preserved as:\n" +
                                  backupPath.wstring() + L"\n\nA fresh default configuration was installed.";
-                if (_installedFirstRunDock)
-                {
-                    _initialNotice += L" No XENEON display was found, so it runs RedXe as a bar on a screen edge.";
-                }
             }
         }
         if (FAILED(result))

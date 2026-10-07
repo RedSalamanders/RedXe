@@ -91,21 +91,32 @@ void LaunchWorker::DrainCompletions(IRedXeHost* host) noexcept
     }
 }
 
-bool LaunchWorker::Stop(uint32_t timeoutMilliseconds) noexcept
+LaunchWorker::StopResult LaunchWorker::Stop(uint32_t timeoutMilliseconds) noexcept
 {
     if (!_thread.joinable())
     {
-        return true;
+        return StopResult::Stopped;
     }
-    // The worker takes no further slot once the event is set, so queued launches are dropped and only the one in
-    // progress, if any, still runs. The event is still set only when an earlier Stop timed out: the process runtime
-    // shuts down again at static destruction, and that later call checks the thread without waiting out the bound
-    // a second time.
-    const DWORD wait = _stop.is_signaled() ? 0 : timeoutMilliseconds;
+    // The worker reads the event under the slot lock before it takes a slot, so once it is set queued launches are
+    // dropped, and a slot that is not Running by the time this thread takes the lock never will be. The process
+    // runtime shuts down again at static destruction; after a wait that ran out, that later call checks the thread
+    // without waiting out the bound a second time.
+    const DWORD wait = _waitedOut ? 0 : timeoutMilliseconds;
     _stop.SetEvent();
     if (WaitForSingleObject(_thread.native_handle(), wait) != WAIT_OBJECT_0)
     {
-        return false;
+        bool launching = false;
+        {
+            const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+            for (const Slot& slot : _slots)
+            {
+                launching = launching || slot.state == State::Running;
+            }
+        }
+        // A zero wait (a session end with nothing left of its deadline) gives an idle thread no time to exit; that is
+        // not a stuck launch, and a later Stop may still wait for the thread.
+        _waitedOut = _waitedOut || launching || wait != 0;
+        return launching ? StopResult::LaunchInProgress : StopResult::Exiting;
     }
     _thread.join();
     {
@@ -117,8 +128,9 @@ bool LaunchWorker::Stop(uint32_t timeoutMilliseconds) noexcept
         _head = 0;
         _count = 0;
     }
+    _waitedOut = false;
     _stop.ResetEvent();
-    return true;
+    return StopResult::Stopped;
 }
 
 HRESULT LaunchWorker::Launch(Request& request) noexcept
@@ -201,13 +213,15 @@ void LaunchWorker::Worker() noexcept
         }
         for (;;)
         {
-            if (_stop.is_signaled())
-            {
-                return;
-            }
             Slot* running = nullptr;
             {
                 const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+                // Read under the lock, so a Stop whose wait runs out and then finds no Running slot knows that none
+                // will start.
+                if (_stop.is_signaled())
+                {
+                    return;
+                }
                 for (size_t offset = 0; offset < _count && !running; ++offset)
                 {
                     Slot& slot = _slots[(_head + offset) % kSlots];

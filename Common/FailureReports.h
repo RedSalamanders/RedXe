@@ -13,9 +13,9 @@
 // keeps, and the check ends the process with exit code 3 (the dialog's Abort), with no Windows Error Reporting dialog
 // either. An abort() that no failed check reported (an assert(), std::terminate after an unhandled exception, or a
 // direct call) says so on stderr and ends the process with exit code 4. No other path of a process that calls this
-// header may end with 3 or 4, so each keeps its one meaning. RedXe.exe --self-test is a test process as well, so the
-// header lives beside the product's shared sources rather than with the test executables; there, RedXe.exe's own
-// terminate handler (CrashHandler, exit code 127) takes std::terminate.
+// header may end with 3 or 4, so each keeps its one meaning. RedXe.exe --self-test and --screenshot are
+// unattended runs as well, so the header lives beside the product's shared sources rather than with the test
+// executables; there, RedXe.exe's own terminate handler (CrashHandler, exit code 127) takes std::terminate.
 //
 // A test process never loses its last lines either. Redirected to a pipe, stdout is fully buffered by the CRT, and a
 // process terminated at its time budget runs no exit code that would flush the buffer: the log would end cases before
@@ -91,8 +91,8 @@ inline void __cdecl EndAfterAbort(int) noexcept
     _exit(kAbortExitCode);
 }
 
-// Call first in a test executable's wmain, and in RedXe.exe as soon as --self-test is known: before any output (a
-// stream's buffering can only change before its first use) and before any check can fail.
+// Call first in a test executable's wmain, and in RedXe.exe as soon as --self-test or --screenshot is known: before any
+// output (a stream's buffering can only change before its first use) and before any check can fail.
 inline void RouteAwayFromDialogs() noexcept
 {
     static_cast<void>(std::setvbuf(stdout, nullptr, _IONBF, 0));

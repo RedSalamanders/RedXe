@@ -24,6 +24,10 @@ namespace HostActions
 // log can still record a refusal.
 void SetHostWindow(HWND window, IRedXeHost* log) noexcept;
 
+// The display XENEON discovery found (`found` false without one), after every discovery: the `secondary` monitor
+// selector skips it while another display is not the primary (RedXeActions::SecondaryMonitorRank), as the dock does.
+void SetXeneonDisplay(const RECT& bounds, bool found) noexcept;
+
 // Extra validation for default actions whose target grammar the descriptor cannot express completely
 // (system.power.plan: a named plan or a GUID; keys.layout: a language tag or an 8-digit KLID). S_OK or E_INVALIDARG.
 [[nodiscard]] HRESULT ValidateExtra(const RedXeActionDescriptor& descriptor, std::string_view target) noexcept;

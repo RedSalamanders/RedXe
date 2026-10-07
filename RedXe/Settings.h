@@ -420,9 +420,9 @@ void SetSettingsWriteSeamForTesting(const SettingsWriteSeam& seam) noexcept;
 class SettingsStore final
 {
   public:
-    // firstRunDock: when the default file is installed (missing) or reinstalled (recovery), the template is written
-    // with this dock (PatchFirstRunDock). The caller passes it only when XENEON discovery found no display; a
-    // `--settings` file and the self-test never install and ignore it.
+    // firstRunDock: when the default file is installed because it is missing, the template is written with this dock
+    // (PatchFirstRunDock); the recovery of an invalid file reinstalls the plain template. The caller passes it only
+    // when XENEON discovery found no display; a `--settings` file and the self-test never install and ignore it.
     [[nodiscard]] HRESULT Initialize(bool selfTest, std::wstring_view selectedPath,
                                      std::unique_ptr<AppSettings>& settings,
                                      std::wstring_view localAppDataOverride = {},

@@ -107,6 +107,24 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] HRESULT QueueLaunch(const LaunchWorker::Request& request) noexcept;
     // True while the launch worker's thread exists, including one still finishing a launch after shutdown.
     [[nodiscard]] bool LaunchWorkerRunning() const noexcept;
+    // UI thread: drops queued launches and waits once, at most timeoutMilliseconds, for one still in the shell; the
+    // first wait that runs out while a launch is in progress logs launch-stop-timeout (an idle worker that a zero wait
+    // gave no time to exit logs nothing). Shutdown calls it after StopServices with
+    // LaunchWorker::kStopMilliseconds, and a session end calls it before its log flush (Application::OnEndSession) with
+    // what is left of its deadline, never more than that bound, because Windows may end the process before Shutdown
+    // runs.
+    void StopLaunches(uint32_t timeoutMilliseconds = LaunchWorker::kStopMilliseconds) noexcept;
+    // One blocking stage of a teardown bounded by one deadline (Application::OnEndSession): the smaller of the stage's
+    // own bound and the time left at nowTick before deadlineTick less reserveMilliseconds, which the stages after it
+    // keep; 0 once that point has passed. Ticks are GetTickCount64 values.
+    [[nodiscard]] static constexpr uint32_t TeardownStageMilliseconds(ULONGLONG nowTick, ULONGLONG deadlineTick,
+                                                                      uint32_t reserveMilliseconds,
+                                                                      uint32_t boundMilliseconds) noexcept
+    {
+        const ULONGLONG end = deadlineTick > reserveMilliseconds ? deadlineTick - reserveMilliseconds : 0;
+        const ULONGLONG left = end > nowTick ? end - nowTick : 0;
+        return left < boundMilliseconds ? static_cast<uint32_t>(left) : boundMilliseconds;
+    }
 
     // Action publishers (Action.h): the namespace registry in BundledPlugins.h resolved against the contracts of
     // mapped modules. A collision, an unregistered namespace, a registered plugin that does not publish its
@@ -133,10 +151,12 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // Headless services (Service.h). All calls run on the UI thread. StartServices creates and starts every
     // service the document configures; ApplyServiceSettings starts, stops, or re-applies services after a live
     // reload; PublishHostState fans one state record out to started services; StopServices signals every device
-    // lane and waits at most kRedXeDeviceWorkerDrainMilliseconds per lane. A late lane retains its service and
-    // host runtime until it returns; Stop runs only after that return, and a document that configures the service
-    // meanwhile gets ERROR_BUSY (service-start-deferred, logged once) until kServiceLaneMessage. Interactive RedXe
-    // leaves device access enabled; --self-test and host tests disable it before StartServices.
+    // lane before it waits for the first, so they drain together, then waits at most
+    // kRedXeDeviceWorkerDrainMilliseconds per lane, and with a budget other than INFINITE (a session end's remaining
+    // deadline) at most that long for all lanes together. A late lane retains its service and host runtime until it
+    // returns; Stop runs only after that return, and a document that configures the service meanwhile gets
+    // ERROR_BUSY (service-start-deferred, logged once) until kServiceLaneMessage. Interactive RedXe leaves device
+    // access enabled; --self-test and host tests disable it before StartServices.
     [[nodiscard]] HRESULT StartServices(const AppSettings& settings) noexcept;
     [[nodiscard]] HRESULT ApplyServiceSettings(const AppSettings& settings) noexcept;
     // One service-retired-settings-ignored Warning per retired `services` entry of a document (Core_Settings.md
@@ -144,7 +164,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // reload, never from StartServices or ApplyServiceSettings, which also run for in-process changes.
     void LogRetiredServiceSettings(const AppSettings& settings) noexcept;
     void PublishHostState(const RedXeHostState& state) noexcept;
-    void StopServices() noexcept;
+    void StopServices(uint32_t budgetMilliseconds = INFINITE) noexcept;
     void SetDeviceAccessEnabled(bool enabled) noexcept;
     [[nodiscard]] bool DeviceAccessEnabled() const noexcept;
     [[nodiscard]] uint32_t StartedServiceCount() const noexcept;
@@ -390,9 +410,10 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     void ReleaseActionExecutors() noexcept;
     [[nodiscard]] HRESULT CreateService(ServiceSlot& slot, const ServiceSettings& settings) noexcept;
     [[nodiscard]] HRESULT StartService(ServiceSlot& slot) noexcept;
-    void StopService(ServiceSlot& slot) noexcept;
+    // drainMilliseconds: how long a lane that has not returned yet is waited for before it is tombstoned.
+    void StopService(ServiceSlot& slot, uint32_t drainMilliseconds = kRedXeDeviceWorkerDrainMilliseconds) noexcept;
     [[nodiscard]] HRESULT StartDeviceLane(ServiceSlot& slot) noexcept;
-    [[nodiscard]] bool StopDeviceLane(ServiceSlot& slot) noexcept;
+    [[nodiscard]] bool StopDeviceLane(ServiceSlot& slot, uint32_t drainMilliseconds) noexcept;
     void DeviceLane(ServiceSlot& slot) noexcept;
     // Logs service-start-deferred once per tombstone when the document configures the slot's service.
     void LogDeferredStart(ServiceSlot& slot, const AppSettings& settings) noexcept;
@@ -453,6 +474,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     void* _hostActionContext = nullptr;
     // Declared after the members its completion callback posts through, so it is destroyed (joined) before them.
     LaunchWorker _launches{&PluginHost::NotifyLaunchFinished, this};
+    // StopLaunches logged launch-stop-timeout; a later stop finds the same launch and logs nothing.
+    bool _launchStopReported = false;
     std::array<PublisherSlot, kRedXeBundledActionNamespaces.size()> _publishers;
     std::array<ActionNotice, kMaximumActionNotices> _actionNotices{};
     uint32_t _actionNoticeGeneration = 0;

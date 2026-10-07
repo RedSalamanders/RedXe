@@ -5,6 +5,8 @@
 #include "DockOptions.h"
 #include "PluginHost.h"
 
+#include <array>
+#include <cstdio>
 #include <cwchar>
 #include <memory>
 #include <new>
@@ -108,7 +110,7 @@ CrashDirectoryOverrideStatus ConfigureCrashTestDirectoryOverride(wchar_t* const*
 
 // Command-line text (the `--help` catalog or an argument error) goes to the console this process was started from
 // (a GUI process has none of its own, so it attaches to the parent's), to a redirected stdout as UTF-8, or, without
-// either, to a message box unless `quiet` (a noninteractive `--self-test` line) forbids one.
+// either, to a message box unless `quiet` (an unattended run, RedXeIsUnattendedRun) forbids one.
 void EmitCommandLineText(const std::wstring& text, bool error, bool quiet) noexcept
 {
     HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -155,6 +157,25 @@ void EmitCommandLineText(const std::wstring& text, bool error, bool quiet) noexc
     MessageBoxW(nullptr, text.c_str(), L"RedXe command line", MB_OK | (error ? MB_ICONERROR : MB_ICONINFORMATION));
 }
 
+// A switch with a missing or invalid value (exit 2): a message box for a person; an unattended run
+// (RedXeIsUnattendedRun) gets the text where EmitCommandLineText puts it, never a box.
+void ReportCommandLineError(const wchar_t* text, bool unattended) noexcept
+{
+    if (!unattended)
+    {
+        MessageBoxW(nullptr, text, L"RedXe", MB_OK | MB_ICONERROR);
+        return;
+    }
+    try
+    {
+        EmitCommandLineText(std::wstring{text} + L"\n", true, true);
+    }
+    catch (...)
+    {
+        OutputDebugStringW(text);
+    }
+}
+
 int RunApplication(HINSTANCE instance, int showCommand) noexcept
 {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -169,9 +190,13 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
     // Help wins over everything else on the line, and every other token must be a catalogued switch or its value
     // so a typo never runs the dashboard with a silently ignored option.
     const bool selfTest = HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::SelfTest));
-    if (selfTest)
+    // test.ps1 runs the self-test and agents run captures unattended: such a run never waits on a modal box. Its caller
+    // reads the exit code, the console or redirected output, and (for a capture) the JSONL log, and a failed Debug
+    // check ends it with its report instead of a dialog.
+    const bool screenshotSwitch = HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Screenshot));
+    const bool unattended = RedXeIsUnattendedRun(selfTest, screenshotSwitch);
+    if (unattended)
     {
-        // test.ps1 runs the self-test unattended: a failed Debug check ends it with its report instead of a dialog.
         RedXeFailureReports::RouteAwayFromDialogs();
     }
     try
@@ -180,7 +205,10 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         {
             if (RedXeIsHelpArgument(arguments.get()[index]))
             {
-                EmitCommandLineText(RedXeFormatCommandLineHelp(), false, selfTest);
+                // Help wins over every other switch, but `--self-test` or `--screenshot` beside it still means a caller
+                // that never waits on a box: without a console or a redirected stdout the catalog reaches only the
+                // debugger output.
+                EmitCommandLineText(RedXeFormatCommandLineHelp(), false, unattended);
                 return 0;
             }
         }
@@ -189,7 +217,7 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             std::wstring message = L"Unknown argument \"";
             message += unknown;
             message += L"\". Run RedXe.exe --help for the command line.\n";
-            EmitCommandLineText(message, true, selfTest);
+            EmitCommandLineText(message, true, unattended);
             return 2;
         }
     }
@@ -205,8 +233,7 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
     std::wstring_view settingsPath;
     if (!GetSettingsArgument(arguments.get(), argumentCount, settingsPath))
     {
-        MessageBoxW(nullptr, L"Use --settings followed by exactly one settings file path.", L"RedXe",
-                    MB_OK | MB_ICONERROR);
+        ReportCommandLineError(L"Use --settings followed by exactly one settings file path.", unattended);
         return 2;
     }
     // Documentation capture: --screenshot <png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>] runs
@@ -221,9 +248,8 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         !GetValueArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Widget), screenshotWidget) ||
         !GetValueArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::After), screenshotDelay))
     {
-        MessageBoxW(nullptr,
-                    L"Use --screenshot <file.png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>].",
-                    L"RedXe", MB_OK | MB_ICONERROR);
+        ReportCommandLineError(
+            L"Use --screenshot <file.png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>].", unattended);
         return 2;
     }
     uint32_t screenshotDelayMilliseconds = 3000;
@@ -234,8 +260,7 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         const unsigned long parsed = std::wcstoul(screenshotDelay.data(), &end, 10);
         if (!end || *end != L'\0' || parsed == 0 || parsed > 120'000UL)
         {
-            MessageBoxW(nullptr, L"--after takes a delay of 1 through 120000 milliseconds.", L"RedXe",
-                        MB_OK | MB_ICONERROR);
+            ReportCommandLineError(L"--after takes a delay of 1 through 120000 milliseconds.", unattended);
             return 2;
         }
         screenshotDelayMilliseconds = static_cast<uint32_t>(parsed);
@@ -246,13 +271,12 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         const unsigned long parsed = std::wcstoul(screenshotWidget.data(), &end, 10);
         if (!end || *end != L'\0' || parsed >= 1024UL)
         {
-            MessageBoxW(nullptr, L"--widget takes the 0-based ordinal of a widget on the captured page.", L"RedXe",
-                        MB_OK | MB_ICONERROR);
+            ReportCommandLineError(L"--widget takes the 0-based ordinal of a widget on the captured page.", unattended);
             return 2;
         }
         screenshotWidgetOrdinal = static_cast<uint32_t>(parsed);
     }
-    // A capture run is scripted, so whatever ends it reports through the exit code and the log, never a modal box.
+    // A capture run (the self-test ignores --screenshot): unattended, and exit 8 whenever it wrote no PNG.
     const bool screenshotRun = !screenshotPath.empty() && !selfTest;
     // Screen-edge dock for this run: --dock <edge>[@<monitor>] [--dock-mode fixed|autohide]
     // [--dock-thickness <dips>] [--dock-reserve on|off] [--dock-peek <pixels>]. Each switch overrides the same
@@ -281,7 +305,7 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             if (!GetValueArgument(arguments.get(), argumentCount, dockSwitch.name, value) ||
                 (!value.empty() && !dockSwitch.parse(value, dockOverrides)))
             {
-                MessageBoxW(nullptr, dockSwitch.usage, L"RedXe", MB_OK | MB_ICONERROR);
+                ReportCommandLineError(dockSwitch.usage, unattended);
                 return 2;
             }
         }
@@ -319,6 +343,10 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             {
                 application->SetDockOverrides(dockOverrides);
             }
+            if (unattended)
+            {
+                application->SetUnattended();
+            }
             if (screenshotRun)
             {
                 // The first request of the process, so never busy; the window closes once the capture has run.
@@ -335,17 +363,25 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         }
     }
 
-    // Every widget, provider, and subscription is released with the Application above. Release the process plugin
-    // runtime here so its acquisition worker is joined and optional RedXePluginShutdown runs exactly once per module.
-    PluginHost::ShutdownProcessRuntime();
-
     if (screenshotRun && exitCode != 0)
     {
+        // A capture run's failure is its exit code, this record (once the settings load has opened the log), and the
+        // debugger output, never a message box (RedXeShowsExitCodeBox below).
+        std::array<char, 96> message{};
+        (void)std::snprintf(message.data(), message.size(), "RedXe exited with code %d (%s).", exitCode,
+                            RedXeExitCodeName(exitCode));
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr, nullptr, "failure-exit",
+                           message.data());
         OutputDebugStringW(exitCode == kRedXeScreenshotFailedExitCode
                                ? L"RedXe could not capture the screenshot.\n"
                                : L"RedXe failed after it wrote the screenshot. See the debugger output.\n");
     }
-    if (RedXeShowsExitCodeBox(exitCode, selfTest, screenshotRun))
+
+    // Every widget, provider, and subscription is released with the Application above. Release the process plugin
+    // runtime here so its acquisition worker is joined and optional RedXePluginShutdown runs exactly once per module.
+    PluginHost::ShutdownProcessRuntime();
+
+    if (RedXeShowsExitCodeBox(exitCode, selfTest, screenshotSwitch))
     {
         const wchar_t* message = L"RedXe could not start. See the debugger output.";
         switch (exitCode)
@@ -386,7 +422,10 @@ int RunWithCrashBoundary(HINSTANCE instance, int showCommand) noexcept
     __except (CrashHandler::WriteDumpForException(GetExceptionInformation()))
     {
         OutputDebugStringW(L"RedXe terminated after an unhandled exception; a diagnostic dump was requested.\n");
-        return CrashHandler::kCrashExitCode;
+        // Ended here like every other fatal path: returning from wWinMain would let CRT exit shut the process plugin
+        // runtime down (service drains, worker joins, RedXePluginShutdown) inside the crashed process.
+        TerminateProcess(GetCurrentProcess(), static_cast<UINT>(CrashHandler::kCrashExitCode));
+        __assume(false);
     }
 }
 } // namespace
