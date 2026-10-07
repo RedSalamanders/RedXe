@@ -10,9 +10,9 @@ and the plan moves to `Specs/Plans/Done/` once every batch is closed.
 ## Origin
 
 A production-readiness review of the eleven PRs merged into `main` from 2026-09-26 to 2026-10-06 (#21 to #32; #29
-merged into #30's branch, not into `main`; range `3973fd8..25433ae`, 198 files). The review read each change with the code around it, looking for bugs, side effects
-on code the change did not touch, gaps in resilience and user experience, architecture misfits, and possible
-simplifications.
+merged into #30's branch, not into `main`; range `3973fd8..25433ae`, 198 files). The review read each change with
+the code around it, looking for bugs, side effects on code the change did not touch, gaps in resilience and user
+experience, architecture misfits, and possible simplifications.
 
 Method:
 
