@@ -404,7 +404,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   with the comment lines directly above it that introduce it and tell the reader to uncomment it, each whole line with
   its line break, so the installed file defines the dock once and following its comments cannot add a duplicate
   `dock` member. Every other byte of the template is unchanged; an existing `dock` member would have its value
-  replaced instead, and `version.minor` rises to 2 when lower, or to 3 when the dock names the `secondary` monitor.
+  replaced instead, and `version.minor` rises to 2 when lower, or to 3 when the dock names the `secondary` monitor or
+  a non-default `animationMilliseconds` (both added by minor 3).
   The display spec owns the dock's edge, monitor, and thickness (the free bottom edge first, on the second screen when
   there is more than one display). The patched document is validated before the same atomic same-directory write, and
   an existing file is never patched. The recovery of an invalid or incompatible default MUST install the plain

@@ -132,5 +132,5 @@ classic `zlib1.dll` name. Also copy `Plugins/Weather/Fonts/weathericons-regular-
 Icons, SIL OFL 1.1) beside `Weather.dll` so the tile can atlas-rasterize condition glyphs. `Launcher.dll` also needs
 `yyjson.dll` beside it.
 
-Run `./format.ps1`, `./test.ps1 -Configuration Debug -Platform x64 -Rebuild`,
-`./test.ps1 -Configuration Release -Platform x64 -Rebuild`, an affected ARM64 build, and `./validate-skills.ps1`.
+Run `./format.ps1`, `./test.ps1 -Full -Configuration Debug -Platform x64 -Rebuild`,
+`./test.ps1 -Full -Configuration Release -Platform x64 -Rebuild`, an affected ARM64 build, and `./validate-skills.ps1`.

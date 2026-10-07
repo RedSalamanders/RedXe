@@ -169,4 +169,4 @@ page and a drawn page-control layout through the test diagnostics, and a Down/Up
 forward (`S_FALSE` on Down, `S_OK` on Up) and a tap on the first dot back, each visible in the next render's
 diagnostics. Readback must contain lit pixels and submitted quads must
 fit the tile. Debug steady renders allocate nothing. Save PNG previews under `.build/` for inspection. Run Debug
-and Release x64 `test.ps1 -Rebuild`, an ARM64 build, formatting and skill validation before closeout.
+and Release x64 `test.ps1 -Full -Rebuild`, an ARM64 build, formatting and skill validation before closeout.

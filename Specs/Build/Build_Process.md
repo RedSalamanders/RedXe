@@ -181,6 +181,13 @@ for its whole run (`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_NOSYSTEM`, restored afterwar
 also runs Git on the product checkout, sets `commit.gpgsign`, `core.hooksPath` and `core.autocrlf` locally in each
 fixture repository, which overrides global and system settings, and reports a failing fixture command with its output.
 
+The independent tooling runner, `Tests/BuildProcessTests/Invoke-ToolingTests.ps1`, MUST work on a clean checkout before
+any product build: the CI `tooling` job runs it after installing only Python and `Build/requirements-validation.txt`,
+while `test.ps1` runs it as the `BuildProcess` suite after its own build step. It therefore restores the exact pinned
+DxUi source first, the source only, because the restore tests inspect that source. It builds no product and installs no
+vcpkg package. Its PowerShell suites create their fixtures under `.build`; the Python validator tests use a temporary
+folder.
+
 Changes to this contract require:
 
 ```powershell
