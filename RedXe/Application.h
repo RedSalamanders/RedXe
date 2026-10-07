@@ -70,6 +70,13 @@ class Application final
     // After Run returns for `--screenshot`: joins a capture worker the closed window left running and returns the
     // request's result, ERROR_CANCELLED when the run ended before the capture finished.
     [[nodiscard]] HRESULT FinishScreenshot() noexcept;
+    // `--screenshot`: an unattended run, which Run never holds on a modal prompt (UI_XeneonDisplayWindowing.md mode
+    // table). The settings fallback notice becomes one Warning record, the previous-crash notice waits for the next
+    // interactive start, and the Release missing-display prompt takes its Yes answer, the titled fallback window.
+    void SetUnattended() noexcept
+    {
+        _unattended = true;
+    }
     // --dock* command-line overrides, pinned over the document's `dock` object for this process (DockOptions.h).
     // RunSelfTest replaces them with an edge pinned to none: the self-test keeps its hidden titled window.
     void SetDockOverrides(const DockOverrides& overrides) noexcept
@@ -100,7 +107,10 @@ class Application final
     [[nodiscard]] bool ResolveDockMonitor(DockMonitorPlacement& placement) noexcept;
     // Recomputes the bar rectangle for the current monitor, DPI, mode, and reveal state, registers or updates the
     // app bar, and moves the window. With resizeDashboard the dashboard and swap chain follow the full rectangle.
+    // A request made while a placement runs (a message sent during its shell calls) is recorded and replayed by that
+    // placement as one more pass (DockPlacement.h BeginDockPlacement); the result is the last pass's.
     HRESULT PlaceDock(bool resizeDashboard) noexcept;
+    HRESULT PlaceDockPass(bool resizeDashboard) noexcept;
     HRESULT ResizeDockDashboard() noexcept;
     void RegisterDockAppBar() noexcept;
     void UnregisterDockAppBar() noexcept;
@@ -200,6 +210,10 @@ class Application final
     void OnSettingsChanged() noexcept;
     // Posts the deferred reload once the move/size loop has ended and the window is not minimized.
     void ReplayDeferredSettingsReload() noexcept;
+    // The settings-error and action-notice windows share one creator (NoticeWindow.h): the text and an OK button,
+    // centred on the RedXe window, or on the full bar for a dock (never the peek strip of a collapsed autohide bar),
+    // and kept inside the work area of that window's monitor. Null when the window could not be created.
+    HWND CreateNoticeWindow(DWORD extendedStyle, const wchar_t* title, const wchar_t* text) noexcept;
     void ShowSettingsError(std::wstring_view message) noexcept;
     void CloseSettingsError() noexcept;
     HRESULT UpdateDashboardVisibility() noexcept;
@@ -424,7 +438,7 @@ class Application final
     UINT64 _dockSlideDurationQpc = 0;
     // Set around the SetWindowPos of a reveal or hide so OnSize does not treat the strip as a dashboard resize.
     bool _dockResizing = false;
-    bool _dockPlacing = false;
+    DockPlacementRequests _dockPlacement{};
     bool _dockPointerInside = false;
     bool _dockPinnedByAction = false;
     bool _dockTimerArmed = false;
@@ -439,6 +453,7 @@ class Application final
     // A settings reload waits for the end of the move/size loop or for the restore of a minimized window.
     bool _settingsReloadDeferred = false;
     bool _forceWarp = false;
+    bool _unattended = false;
     bool _classRegistered = false;
     bool _rendererReady = false;
     bool _windowVisible = false;

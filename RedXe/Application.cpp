@@ -8,6 +8,7 @@
 #include "CrashHandler.h"
 #include "FluentIcons.h"
 #include "FrameScheduler.h"
+#include "NoticeWindow.h"
 #include "PageNavigation.h"
 #include "PlugInterfaces/Widget.h"
 #include "Settings.h"
@@ -792,14 +793,25 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         OutputDebugStringW(L"Settings initialization or validation failed.\n");
         return 1;
     }
-    if (_settingsStore.UsedInitialFallback())
-    {
-        MessageBoxW(nullptr, _settingsStore.InitialNotice().c_str(), L"RedXe settings", MB_OK | MB_ICONERROR);
-    }
     if (!_settingsStore.LogsDirectory().empty())
     {
         (void)PluginHost::Instance().SetLogDirectory(_settingsStore.LogsDirectory().c_str());
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
+    }
+    if (_settingsStore.UsedInitialFallback() && !_unattended)
+    {
+        MessageBoxW(nullptr, _settingsStore.InitialNotice().c_str(), L"RedXe settings", MB_OK | MB_ICONERROR);
+    }
+    else if (_settingsStore.UsedInitialFallback())
+    {
+        // Nobody answers a box in an unattended run: the notice is one Warning record instead.
+        std::array<char, 1024> notice{};
+        const bool converted =
+            WideCharToMultiByte(CP_UTF8, 0, _settingsStore.InitialNotice().c_str(), -1, notice.data(),
+                                static_cast<int>(notice.size()), nullptr, nullptr) > 1;
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                           "settings-fallback-notice",
+                           converted ? notice.data() : "The settings file could not be used; a default was loaded.");
     }
     if (_settingsStore.InstalledFirstRunDock())
     {
@@ -826,9 +838,10 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
 #endif
     }
 #if !defined(_DEBUG)
-    else if (!_dockActive)
+    else if (!_dockActive && !_unattended)
     {
-        // Owned by UI_XeneonDisplayWindowing.md: Release prompts for a windowed fallback, Debug never does.
+        // Owned by UI_XeneonDisplayWindowing.md: Release prompts for a windowed fallback, Debug never does, and an
+        // unattended run takes the fallback window without asking.
         const int choice = MessageBoxW(
             nullptr,
             L"A CORSAIR XENEON display was not found.\n\nDo you want to display RedXe anyway in a standard "
@@ -907,9 +920,10 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
 
     // A dock's previous-crash notice comes before the bar is shown and has no owner: under an owned notice the bar
     // would be a topmost window with no presented frame, and closing the notice would activate it, which breaks
-    // show-without-focus and holds an autohide bar open (Core_CrashHandling.md "Previous-crash notice").
+    // show-without-focus and holds an autohide bar open (Core_CrashHandling.md "Previous-crash notice"). An unattended
+    // run shows none and leaves the marker for the next interactive start.
     const bool noticeBeforeShow = _dockActive;
-    if (noticeBeforeShow)
+    if (noticeBeforeShow && !_unattended)
     {
         CrashHandler::ShowPreviousCrashUiIfPresent(nullptr);
     }
@@ -918,7 +932,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     ShowWindow(_window.get(), _dockActive ? SW_SHOWNOACTIVATE : showCommand);
     UpdateWindow(_window.get());
     _windowVisible = IsWindowVisible(_window.get()) != FALSE;
-    if (!noticeBeforeShow)
+    if (!noticeBeforeShow && !_unattended)
     {
         CrashHandler::ShowPreviousCrashUiIfPresent(_window.get());
     }
@@ -1711,7 +1725,7 @@ void Application::OnTaskbarCreated() noexcept
     {
         return;
     }
-    if (_dockPlacing)
+    if (_dockPlacement.placing)
     {
         // Heard inside a placement's shell call: handled once that placement has finished.
         (void)PostMessageW(_window.get(), _taskbarCreatedMessage, 0, 0);
@@ -1761,14 +1775,24 @@ HRESULT Application::PlaceDock(bool resizeDashboard) noexcept
     {
         return S_OK;
     }
-    if (_dockPlacing)
+    if (!BeginDockPlacement(_dockPlacement, resizeDashboard))
     {
+        // Heard inside the running placement's shell or window calls: it places once more when its pass ends.
         return S_OK;
     }
+    HRESULT result = PlaceDockPass(resizeDashboard);
+    bool resizeAgain = false;
+    while (NextDockPlacementPass(_dockPlacement, resizeAgain))
+    {
+        result = _dockActive && _window ? PlaceDockPass(resizeAgain) : S_OK;
+    }
+    return result;
+}
+
+HRESULT Application::PlaceDockPass(bool resizeDashboard) noexcept
+{
     // A placement starts from the size the reveal state asks for, not from a frame of a slide.
     SettleDockSlide();
-    _dockPlacing = true;
-    const auto clearPlacing = wil::scope_exit([this]() noexcept { _dockPlacing = false; });
     DockMonitorPlacement placement{};
     if (!ResolveDockMonitor(placement))
     {
@@ -3637,37 +3661,10 @@ void Application::ShowActionNotices() noexcept
     }
     if (_actionNoticeDialog && IsWindow(_actionNoticeDialog))
     {
-        (void)SetWindowTextW(GetDlgItem(_actionNoticeDialog, 100), text.data());
+        (void)SetWindowTextW(GetDlgItem(_actionNoticeDialog, kNoticeTextControlId), text.data());
         return;
     }
-    RECT owner{};
-    (void)GetWindowRect(_window.get(), &owner);
-    constexpr int width = 600;
-    constexpr int height = 280;
-    const int x = owner.left + ((owner.right - owner.left) - width) / 2;
-    const int y = owner.top + ((owner.bottom - owner.top) - height) / 2;
-    _actionNoticeDialog = CreateWindowExW(WS_EX_TOOLWINDOW, kSettingsDialogClassName, L"RedXe action notice",
-                                          WS_CAPTION | WS_SYSMENU | WS_VISIBLE, x, y, width, height, _window.get(),
-                                          nullptr, _instance, this);
-    if (!_actionNoticeDialog)
-    {
-        return;
-    }
-    const HWND label =
-        CreateWindowExW(0, L"STATIC", text.data(), WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX | SS_EDITCONTROL, 24,
-                        20, width - 48, 170, _actionNoticeDialog, reinterpret_cast<HMENU>(100), _instance, nullptr);
-    const HWND button =
-        CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, width - 120, height - 78, 80, 28,
-                        _actionNoticeDialog, reinterpret_cast<HMENU>(IDOK), _instance, nullptr);
-    const HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-    if (label)
-    {
-        (void)SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-    }
-    if (button)
-    {
-        (void)SendMessageW(button, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-    }
+    _actionNoticeDialog = CreateNoticeWindow(WS_EX_TOOLWINDOW, L"RedXe action notice", text.data());
 }
 
 HRESULT Application::HandleHostAction(std::string_view action, std::string_view target) noexcept
@@ -5570,26 +5567,72 @@ void Application::ReplayDeferredSettingsReload() noexcept
     }
 }
 
+HWND Application::CreateNoticeWindow(DWORD extendedStyle, const wchar_t* title, const wchar_t* text) noexcept
+{
+    // A collapsed autohide bar is its peek strip at the screen edge, and every bar is thinner than the notice: a dock
+    // anchors on its full bar, which the dialog hold reveals. A minimized window has no rectangle on its monitor.
+    RECT anchor{};
+    HMONITOR monitor = nullptr;
+    if (_dockActive && !IsRectEmpty(&_dockFullRect))
+    {
+        anchor = _dockFullRect;
+        monitor = MonitorFromRect(&_dockFullRect, MONITOR_DEFAULTTONEAREST);
+    }
+    else
+    {
+        (void)GetWindowRect(_window.get(), &anchor);
+        monitor = MonitorFromWindow(_window.get(), MONITOR_DEFAULTTONEAREST);
+    }
+    MONITORINFO information{};
+    information.cbSize = sizeof(information);
+    if (!monitor || !GetMonitorInfoW(monitor, &information))
+    {
+        (void)SystemParametersInfoW(SPI_GETWORKAREA, 0, &information.rcWork, 0);
+    }
+    if (IsIconic(_window.get()))
+    {
+        anchor = information.rcWork;
+    }
+    const RECT bounds = NoticeWindowRect(anchor, information.rcWork, kNoticeWindowWidth, kNoticeWindowHeight);
+    const int width = bounds.right - bounds.left;
+    const int height = bounds.bottom - bounds.top;
+    const HWND notice =
+        CreateWindowExW(extendedStyle, kSettingsDialogClassName, title, WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                        bounds.left, bounds.top, width, height, _window.get(), nullptr, _instance, this);
+    if (!notice)
+    {
+        return nullptr;
+    }
+    const HWND label = CreateWindowExW(
+        0, L"STATIC", text, WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX | SS_EDITCONTROL, 24, 20, width - 48, 170,
+        notice, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNoticeTextControlId)), _instance, nullptr);
+    const HWND button = CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, width - 120,
+                                        height - 78, 80, 28, notice, reinterpret_cast<HMENU>(IDOK), _instance, nullptr);
+    const HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    if (label)
+    {
+        (void)SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    }
+    if (button)
+    {
+        (void)SendMessageW(button, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    }
+    return notice;
+}
+
 void Application::ShowSettingsError(std::wstring_view message) noexcept
 {
     try
     {
         if (_settingsErrorDialog && IsWindow(_settingsErrorDialog))
         {
-            const HWND text = GetDlgItem(_settingsErrorDialog, 100);
+            const HWND text = GetDlgItem(_settingsErrorDialog, kNoticeTextControlId);
             if (text)
                 SetWindowTextW(text, std::wstring(message).c_str());
             return;
         }
-        RECT owner{};
-        GetWindowRect(_window.get(), &owner);
-        constexpr int width = 600;
-        constexpr int height = 280;
-        const int x = owner.left + ((owner.right - owner.left) - width) / 2;
-        const int y = owner.top + ((owner.bottom - owner.top) - height) / 2;
-        _settingsErrorDialog = CreateWindowExW(WS_EX_DLGMODALFRAME, kSettingsDialogClassName, L"RedXe settings error",
-                                               WS_CAPTION | WS_SYSMENU | WS_VISIBLE, x, y, width, height, _window.get(),
-                                               nullptr, _instance, this);
+        _settingsErrorDialog =
+            CreateNoticeWindow(WS_EX_DLGMODALFRAME, L"RedXe settings error", std::wstring(message).c_str());
         if (!_settingsErrorDialog)
         {
             return;
@@ -5597,20 +5640,8 @@ void Application::ShowSettingsError(std::wstring_view message) noexcept
         EnableWindow(_window.get(), FALSE);
         if (_accessibility)
             _accessibility->ClearViews();
-        const HWND text = CreateWindowExW(
-            0, L"STATIC", std::wstring(message).c_str(), WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX | SS_EDITCONTROL,
-            24, 20, width - 48, 170, _settingsErrorDialog, reinterpret_cast<HMENU>(100), _instance, nullptr);
-        const HWND button =
-            CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, width - 120, height - 78, 80,
-                            28, _settingsErrorDialog, reinterpret_cast<HMENU>(IDOK), _instance, nullptr);
-        const HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-        if (text)
-            SendMessageW(text, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        if (button)
-        {
-            SendMessageW(button, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        if (const HWND button = GetDlgItem(_settingsErrorDialog, IDOK))
             SetFocus(button);
-        }
     }
     catch (...)
     {

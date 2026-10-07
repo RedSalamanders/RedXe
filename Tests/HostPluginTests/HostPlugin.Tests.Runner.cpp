@@ -8,6 +8,7 @@
 #include "HostActions.h"
 #include "Launcher.Tests.Contract.h"
 #include "MatrixRain.Tests.Contract.h"
+#include "NoticeWindow.h"
 #include "PageEdgeAffordance.h"
 #include "PageIndicator.h"
 #include "PageNavigation.h"
@@ -847,6 +848,100 @@ void TestDockPlacement(bool& success) noexcept
               DockFirstRunEdge(monitor, fullWork, DockAutohideBarHoldsEdge(bar), false, DockEdge::Bottom) ==
                   DockEdge::Top,
           L"an autohide registration holds its edge only while its window exists", success);
+}
+
+// DockPlacement.h placement requests: a request heard while a placement runs (a display, work-area, DPI, or app-bar
+// message sent during its shell calls) is recorded rather than dropped, the running placement makes one more pass for
+// it with the recorded resize flags, and the extra passes stop at kDockMaximumExtraPlacementPasses.
+void TestDockPlacementRequests(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dock placement requests during a placement\n";
+    DockPlacementRequests requests{};
+    bool resize = false;
+    Check(BeginDockPlacement(requests, false) && requests.placing, L"a request with no placement running places now",
+          success);
+    Check(!NextDockPlacementPass(requests, resize) && !requests.placing,
+          L"a pass with nothing recorded ends the placement", success);
+
+    Check(BeginDockPlacement(requests, false), L"a second placement starts", success);
+    Check(!BeginDockPlacement(requests, true) && !BeginDockPlacement(requests, false) && requests.again,
+          L"requests heard during a pass are recorded instead of run or dropped", success);
+    resize = false;
+    Check(NextDockPlacementPass(requests, resize) && resize && requests.placing && !requests.again,
+          L"the placement makes one more pass, resizing when any recorded request asked", success);
+    Check(!NextDockPlacementPass(requests, resize) && !requests.placing,
+          L"an extra pass with nothing recorded ends the placement", success);
+
+    Check(BeginDockPlacement(requests, true) && !BeginDockPlacement(requests, false), L"a resizing placement records",
+          success);
+    resize = true;
+    Check(NextDockPlacementPass(requests, resize) && !resize,
+          L"the extra pass resizes only for the recorded requests, not for the first pass's flag", success);
+    (void)NextDockPlacementPass(requests, resize);
+
+    // A request that every pass raises again (the pass's own move changing the DPI, say) is bounded.
+    Check(BeginDockPlacement(requests, false), L"a looping placement starts", success);
+    uint32_t passes = 1;
+    for (uint32_t guard = 0; guard < 16; ++guard)
+    {
+        (void)BeginDockPlacement(requests, false);
+        if (!NextDockPlacementPass(requests, resize))
+        {
+            break;
+        }
+        ++passes;
+    }
+    Check(passes == 1 + kDockMaximumExtraPlacementPasses && !requests.placing && !requests.again,
+          L"a request every pass raises again stops after the extra-pass bound", success);
+    Check(BeginDockPlacement(requests, false), L"a later request starts a fresh placement", success);
+    (void)NextDockPlacementPass(requests, resize);
+}
+
+// NoticeWindow.h: the settings-error and action-notice windows are centred on the RedXe window (a dock's full bar, not
+// its peek strip) and kept inside the work area, so no bar edge puts the caption, the text, or OK off-screen.
+void TestNoticeWindowPlacement(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] notice window placement\n";
+    const auto inside = [](const RECT& rect, const RECT& area) noexcept
+    {
+        return rect.left >= area.left && rect.top >= area.top && rect.right <= area.right && rect.bottom <= area.bottom;
+    };
+    const auto fullSize = [](const RECT& rect) noexcept
+    { return rect.right - rect.left == kNoticeWindowWidth && rect.bottom - rect.top == kNoticeWindowHeight; };
+
+    const RECT wide{0, 0, 3840, 2100};
+    const RECT titled = NoticeWindowRect(RECT{100, 100, 2660, 820}, wide, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(titled.left == 1080 && titled.top == 320 && fullSize(titled),
+          L"a window inside its work area keeps the notice centred on it", success);
+
+    const RECT work{0, 0, 1920, 1040}; // 40-pixel taskbar at the bottom
+    const RECT topStrip = NoticeWindowRect(RECT{0, 0, 1920, 4}, work, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(topStrip.top == 0 && topStrip.left == 660 && fullSize(topStrip) && inside(topStrip, work),
+          L"a collapsed top strip no longer puts the caption above the screen", success);
+    const RECT topBar = NoticeWindowRect(RECT{0, 0, 1920, 180}, work, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(topBar.top == 0 && inside(topBar, work), L"a thin top bar keeps the caption on the screen", success);
+    const RECT bottomStrip = NoticeWindowRect(RECT{0, 1036, 1920, 1040}, work, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(bottomStrip.bottom == 1040 && fullSize(bottomStrip),
+          L"a collapsed bottom strip keeps the OK button above the work-area edge", success);
+    const RECT rightBar = NoticeWindowRect(RECT{1740, 0, 1920, 1040}, work, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(rightBar.right == 1920 && rightBar.left == 1320 && inside(rightBar, work),
+          L"a right bar keeps the close box and OK on the screen", success);
+    const RECT leftBar = NoticeWindowRect(RECT{0, 0, 180, 1040}, work, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(leftBar.left == 0 && inside(leftBar, work), L"a left bar keeps the start of every line on the screen",
+          success);
+
+    const RECT secondary{-1920, -200, 0, 880}; // off-origin secondary display at negative coordinates
+    const RECT secondaryStrip =
+        NoticeWindowRect(RECT{-1920, -200, 0, -196}, secondary, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(secondaryStrip.left == -1260 && secondaryStrip.top == -200 && inside(secondaryStrip, secondary),
+          L"placement works at negative coordinates", success);
+
+    const RECT smallWork{0, 0, 500, 200};
+    const RECT cut = NoticeWindowRect(RECT{0, 0, 500, 4}, smallWork, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(EqualRect(&cut, &smallWork) != FALSE, L"a work area smaller than the notice cuts it to the work area",
+          success);
+    const RECT unclamped = NoticeWindowRect(RECT{0, 0, 1920, 4}, RECT{}, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(unclamped.top == -138 && fullSize(unclamped), L"an empty work area leaves the centred rectangle", success);
 }
 
 // DockPlacement.h autohide slide: the duration share of a partial travel, the eased visible thickness of a reveal and
@@ -6505,6 +6600,8 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestWidgetRaiseHost(success);
     TestHostChromeComposition(success);
     TestDockPlacement(success);
+    TestDockPlacementRequests(success);
+    TestNoticeWindowPlacement(success);
     TestDockAutohidePolicy(success);
     TestDockSlidePolicy(success);
     TestTrayIconPolicy(success);

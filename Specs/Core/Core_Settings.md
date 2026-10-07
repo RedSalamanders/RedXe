@@ -340,6 +340,9 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   first-run dock never fails startup.
 - A missing, unreadable, or invalid command-line file is never modified. RedXe reports the problem and runs with the
   deployed default configuration in memory.
+- The recovery notice and the command-line file report are a message box before the window is created, except in an
+  unattended `--screenshot` run, which writes the same text as one Warning record (`settings-fallback-notice`) instead
+  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Configuration behavior").
 - If a deployed default cannot be read or validated, startup fails rather than inventing settings.
 - Template/schema installation and recovery use same-directory temporary files and write-through atomic rename.
 
@@ -373,7 +376,9 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   MUST NOT report a generic version-5 schema failure at `path $` when a more specific member is known.
 - At most one modal settings-error dialog may exist. Monitoring continues while visible. A later invalid save refreshes
   it with the newest bounded error list; dialogs never stack. If all errors do not fit, an ellipsis states that more
-  were omitted. A valid save applies and closes the dialog automatically.
+  were omitted. A valid save applies and closes the dialog automatically. The dialog opens inside the work area of the
+  RedXe window's monitor, over the full bar of a dock even while an autohide bar is collapsed
+  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Notice windows").
 - Dismissal suppresses only that rejected stamp. A distinct later invalid save may display again.
 - Shutdown signals and joins the watcher before destroying its target window.
 

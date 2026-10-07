@@ -57,7 +57,8 @@ configured service, a bound namespace validated on first use) and registers ever
 below logs one `Error` line (`IRedXeHost::Log`) and appends one bounded notice (at most 8 notices of 256 characters)
 that `Application::ShowActionNotices` shows in one modeless notice window after the next service apply or drained
 action, only while device access is enabled; once a change clears every notice, an open notice window closes. The
-dashboard remains enabled and its actions continue to run.
+window opens inside the work area of the RedXe window's monitor (`Specs/UI/UI_XeneonDisplayWindowing.md` "Notice
+windows"). The dashboard remains enabled and its actions continue to run.
 
 | Condition | Log event | Effect |
 | --- | --- | --- |

@@ -54,15 +54,17 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 | Release with active XENEON | Create a `WS_POPUP` borderless window using the detected XENEON monitor's exact `rcMonitor` bounds. |
 | Release without active XENEON | Show the missing-display Yes/No warning. Yes creates the standard titled fallback window; No exits successfully without creating the main window. A default settings file installed at this start carries the first-run dock ("First start without a XENEON"), so the Dock row applies instead. |
 | Self-test | Skip display discovery and prompts, create the titled window hidden, validate its DPI-adjusted client dimensions, render one frame, and exit. |
-| Screenshot (`--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]`) | Run exactly as the configuration above prescribes (same discovery, placement, services, and frame loop), jump to the named page through the host `PageGoTo` action once the renderer is live and no settle runs, wait the delay (default 3000 ms, 1–120000) with the frame loop idle-waiting as usual, capture the main window through `Common/WindowCapture.cpp` on a capture worker (Windows.Graphics.Capture of an owned, visible window; a widget ordinal crops to that tile's `PixelBoundsAt` in client space, mapped through the DWM extended frame bounds), then close. The UI thread continues handling input and timers while capture waits for its first frame. Exit 0 only with the PNG written; 8 when the capture failed, when its worker could not start, and when the run ended before the PNG was written (the window closed during the delay or the capture, or the missing-display prompt was answered No), with one `screenshot-failed` Warning record and no modal prompt. A worker still capturing when the window closes is joined and its result decides the exit code. Only this command-line mode closes after the capture; the `redxe.screenshot` action shares the pipeline and keeps RedXe running (`Plugins_Actions.md`). It MUST NOT activate, move, or resize the window, move the cursor, or send input. |
+| Screenshot (`--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]`) | Run exactly as the configuration above prescribes (same discovery, placement, services, and frame loop), jump to the named page through the host `PageGoTo` action once the renderer is live and no settle runs, wait the delay (default 3000 ms, 1–120000) with the frame loop idle-waiting as usual, capture the main window through `Common/WindowCapture.cpp` on a capture worker (Windows.Graphics.Capture of an owned, visible window; a widget ordinal crops to that tile's `PixelBoundsAt` in client space, mapped through the DWM extended frame bounds), then close. The UI thread continues handling input and timers while capture waits for its first frame. Exit 0 only with the PNG written; 8 when the capture failed, when its worker could not start, and when the run ended before the PNG was written (the window closed during the delay or the capture), with one `screenshot-failed` Warning record. The run is unattended and MUST NOT wait on a modal box: the Release missing-display prompt is not shown and the titled fallback window is created as for its Yes; the settings fallback notice is one Warning record (`settings-fallback-notice`) instead of its box; the previous-crash notice is left for the next interactive start; a command-line error goes to the console or redirected output (exit 2); and a failure exit is one Error record (`failure-exit`, naming the code) instead of the error message box. A failed Debug runtime check ends the run with exit code 3 (`Common/FailureReports.h`). A worker still capturing when the window closes is joined and its result decides the exit code. Only this command-line mode closes after the capture; the `redxe.screenshot` action shares the pipeline and keeps RedXe running (`Plugins_Actions.md`). It MUST NOT activate, move, or resize the window, move the cursor, or send input. |
 | Dock (`dock.edge` other than `none`, or `--dock <edge>[@<monitor>]`) | Debug and Release alike: create the dock window kind below on the selected monitor instead of the row that would otherwise apply, and skip the missing-display prompt. A live reload that turns the dock on or off switches the running window between this row and the one that would otherwise apply ("Switching the window kind"). `--self-test` ignores the dock. |
-| Help (`--help`, `-h`, `/?`, `-?`) | Print the command-line catalog and exit 0 before any other switch is read: to the console the process was started from (a GUI process attaches to its parent's), to a redirected stdout as UTF-8, or, without either, to a message box. Every other token on the line MUST be a catalogued switch or the value of one; the first unknown token is a command-line error (exit 2, `Unknown argument "<token>". Run RedXe.exe --help for the command line.`) shown the same way, never as a message box when `--self-test` is on the line. |
+| Help (`--help`, `-h`, `/?`, `-?`) | Print the command-line catalog and exit 0 before any other switch is read: to the console the process was started from (a GUI process attaches to its parent's), to a redirected stdout as UTF-8, or, without either, to a message box. Every other token on the line MUST be a catalogued switch or the value of one; the first unknown token is a command-line error (exit 2, `Unknown argument "<token>". Run RedXe.exe --help for the command line.`) shown the same way, never as a message box when `--self-test` or `--screenshot` is on the line. |
 
 The command line is declared once in `RedXe/CommandLine.h`: the catalog `--help` prints and the names `Main.cpp`
 parses through, so a switch cannot exist without an entry. Adding, renaming, or removing a switch changes that
 catalog, the "Command line" section of `docs/usage.md`, and the owning row of this table in the same change;
 `SettingsTests` pins the catalog (unique well-formed names, every entry printed, the help aliases, the unknown-token
-scanner) and `test.ps1` runs `--help` through a redirected stdout and an unknown switch under `--self-test`.
+scanner) and `test.ps1` runs `--help` through a redirected stdout, an unknown switch under `--self-test`, and a
+missing switch value under `--self-test` and an invalid one under `--screenshot`, each bounded so that a message box
+fails the step instead of holding it.
 
 Debug and Release display discovery MUST inspect active display paths through
 `QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS)`. A target friendly name containing `XENEON` or `CORSAIR`, compared
@@ -83,7 +85,8 @@ display topology.
 ### Command line
 
 Every switch is a `<switch> <value>` pair; a repeated switch, a missing value, or an invalid value is a command-line
-error (exit 2 with the usual message box). Each present switch replaces the same-named document member for the
+error (exit 2 with the usual message box, or with the text on the console or redirected output when `--self-test` or
+`--screenshot` is on the line). Each present switch replaces the same-named document member for the
 process lifetime, including across live reloads; `--dock none` runs the file without its dock. A `--dock-*` switch
 without an effective edge is accepted and inert. `--self-test` validates and ignores them all.
 
@@ -165,6 +168,12 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
   broadcast while it still holds the bar, and `ABM_NEW` refuses a window that is already registered; a new Explorer
   ignores the removal of a bar it does not know. A broadcast heard inside a placement's shell call is handled once
   that placement has finished (`Application::OnTaskbarCreated`).
+- A placement makes cross-process shell calls and moves the window, and the UI thread dispatches sent messages while
+  it waits, so a `WM_DISPLAYCHANGE`, `WM_SETTINGCHANGE`, `WM_DPICHANGED`, or app-bar notification can ask for a
+  placement while one runs. That request MUST NOT be dropped and MUST NOT recurse: it is recorded, and the running
+  placement makes one more pass from the topology as it is then, with the dashboard following when any recorded request
+  asked for it (`BeginDockPlacement` and `NextDockPlacementPass`). At most `kDockMaximumExtraPlacementPasses` (2) extra
+  passes run, so a request that every pass raises again cannot keep the UI thread placing.
 - `WM_SETTINGCHANGE` with `SPI_SETWORKAREA` re-places an overlay or autohide bar; a reserving bar ignores it and
   follows `ABN_POSCHANGED`. `WM_DPICHANGED` re-places from the monitor DPI instead of applying the suggested
   rectangle. Every re-placement re-checks the adapter of output exactly as a move does.
@@ -292,6 +301,21 @@ self-test never install. The file is not revisited later: a XENEON connected aft
 or a taskbar moved changes nothing in it until the user edits `dock` (for example `edge` to `none`), which applies
 live.
 
+## Notice windows
+
+The settings-error dialog (`Specs/Core/Core_Settings.md` "Live reload and diagnostics") and the action-notice window
+(`Specs/Plugins/Plugins_Actions.md` "Contract reading and collisions") are one window class with the text and an OK
+button, created by one helper (`Application::CreateNoticeWindow`; the placement is `NoticeWindowRect` in
+`RedXe/NoticeWindow.h`).
+
+- A notice is 600×280 pixels centred on the RedXe window. A dock anchors it on the full bar, never on the peek strip
+  of a collapsed autohide bar; a minimized window anchors it on its monitor's work area.
+- The notice MUST lie inside the work area (`rcWork`) of the anchor's monitor: it is moved inside after centring, and
+  cut to the work area only when the work area is smaller. A bar on any edge, a collapsed strip, or a window partly
+  off its monitor therefore never puts the caption, the text, or the OK button off-screen.
+- The settings-error dialog disables the RedXe window, focuses OK, and holds an autohide bar revealed; the action
+  notice is a modeless tool window that leaves the dashboard enabled.
+
 ## Notification-area icon
 
 `trayIcon` (`Specs/Core/Core_Settings.md`; omitted, Release shows the icon and Debug hides it) puts the product icon
@@ -373,9 +397,11 @@ the repository test entrypoint MUST validate the version fields without desktop 
   rectangle when it ends, which would undo a window-kind switch or a dock placement made inside it. The watcher's
   notification stays unacknowledged meanwhile, so later saves coalesce into that one reload.
 - A run that ends with a startup or runtime failure exit code shows one error message box after the main window is
-  gone (`RedXe/Main.cpp`; never under `--self-test`, and never for exit code 8, a failed capture), and that box MUST
-  wait for the user: the `WM_QUIT` that destroying the window posted is discarded first, because a modal loop that
-  retrieves it closes the box at once.
+  gone (`RedXe/Main.cpp`), and that box MUST wait for the user: the `WM_QUIT` that destroying the window posted is
+  discarded first, because a modal loop that retrieves it closes the box at once. An unattended run MUST NOT show it:
+  `--self-test` reports through its exit code only, and a `--screenshot` run through its exit code (8 included, a
+  failed capture) and one Error record (`failure-exit`, naming the code) written before the process runtime shuts
+  down.
 - `WM_PAINT` validates the update region; continuous rendering remains on the idle side of the message loop.
 - The window class MUST NOT request `CS_HREDRAW` or `CS_VREDRAW`; resize rendering is driven by `WM_SIZE` and the
   renderer rather than redundant full-client paint invalidation.
@@ -529,6 +555,21 @@ where it was, and exits 0. The 2026-10-07 check recorded this on the topology ab
 reserving bar and with an autohide bar up (the work area is reserved again, a full-screen window on the bar's monitor
 puts it beneath again) is a manual check.
 
+Placement-request and notice-window changes MUST keep `HostPluginTests` proving `BeginDockPlacement` and
+`NextDockPlacementPass` (a request during a pass is recorded, not run, and replayed as one more pass with the recorded
+resize flags and never the first pass's; a request that every pass raises again stops after
+`kDockMaximumExtraPlacementPasses`) and `NoticeWindowRect` (a window inside its work area keeps the notice centred on
+it; a collapsed top or bottom strip, a top bar, and left and right bars keep it inside the work area; negative
+coordinates; a work area smaller than the notice; an empty work area). A display change during a placement needs a
+hot-plug or a real shell delay, so the replay itself has no live check.
+
+Unattended-run changes MUST keep the bounded `test.ps1` command-line error step green, and additionally require a
+live run: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`) under `--screenshot`
+closed by a posted `WM_CLOSE` during its delay exits 8 with a `screenshot-failed` and a `failure-exit` record, shows no
+message box, and leaves the foreground where it was. The 2026-10-07 check recorded this on the topology above. A
+startup failure exit (1, 2, 3, 5, or 7), the settings fallback notice, a present crash marker, and the Release
+missing-display path under `--screenshot` have no automated or live check.
+
 Session-end changes MUST keep the `--self-test` step green: `WM_QUERYENDSESSION` and a cancelled `WM_ENDSESSION`
 sent to its hidden window keep the window, renderer, page, and services, and `WM_ENDSESSION` with `wParam` `TRUE`
 returns with the window destroyed, the page released, and every service and device lane stopped, within
@@ -564,13 +605,17 @@ restarting Explorer brings it back; and a Debug run with the shipped template sh
   window-kind switches: `Application::SwitchWindowKind` (`RestyleWindowKind`, `RebuildPresentation`,
   `FinishWindowKindSwitch`), `PlaceStandardWindow`, the dock-only reload and its rollback in `ApplyDockSettings`, and
   the combined page-and-kind reload in `ApplySettings`; the deferred reload: `OnSettingsChanged` and
-  `ReplayDeferredSettingsReload`; the failure message box: `RunApplication` in `RedXe/Main.cpp`; the first-run dock:
+  `ReplayDeferredSettingsReload`; the failure message box and the unattended runs that never show it:
+  `RunApplication` in `RedXe/Main.cpp` and `Application::SetUnattended`; the first-run dock:
   `MakeFirstRunDock` in `RedXe/Application.cpp`; session end: `Application::OnEndSession`
 - Dock placement, monitor selection, MINMAXINFO, the autohide state machine, the slide, and the first-run monitor,
   edge, and thickness: `RedXe/DockPlacement.h`; the `--dock*` grammar and merge: `RedXe/DockOptions.h`; dock-kind
   presentation: `Renderer::SetDockPresentation`; the slide's frames and translation: `Application::TickDockSlide`,
   `SettleDockSlide`, and `DashboardHost::SetSlideOffset`; the app-bar renewal after an Explorer restart:
-  `Application::OnTaskbarCreated`
+  `Application::OnTaskbarCreated`; placement requests during a placement: `Application::PlaceDock` over
+  `PlaceDockPass`
+- Notice windows: `Application::CreateNoticeWindow`, used by `ShowSettingsError` and `ShowActionNotices`; their
+  placement: `RedXe/NoticeWindow.h`
 - Notification-area icon: `RedXe/TrayIcon.h` (the owner window, the icon, the menu, the `TrayIconActionFor`
   callback table, and the `TrayIconAddRetryDelayMilliseconds` schedule), `RedXe/TrayIcon.cpp`; its lifetime and
   commands: `Application::ApplyTrayIconSettings`, `OnTrayCommand`, and `EditSettingsFile`, which hands the editor

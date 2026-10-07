@@ -438,6 +438,53 @@ constexpr void DockMinMaxInfo(const RECT& monitor, DockEdge edge, LONG peekPx, b
     info.ptMaxSize = info.ptMaxTrackSize;
 }
 
+// Placement requests (UI_XeneonDisplayWindowing.md "Monitor and placement"). A placement makes cross-process shell
+// calls and moves the window, and the UI thread dispatches sent messages while it waits on them, so a display,
+// work-area, DPI, or app-bar change can ask for a placement while one runs. That request is recorded, never dropped:
+// the running placement makes one more pass from the topology as it is then, so the last change wins without recursion.
+// The passes are bounded so that a request each pass raises again cannot keep the UI thread placing.
+inline constexpr uint32_t kDockMaximumExtraPlacementPasses = 2;
+
+struct DockPlacementRequests final
+{
+    bool placing = false;
+    // A request arrived during the running pass; `againResizes` when any of them asked the dashboard to follow.
+    bool again = false;
+    bool againResizes = false;
+    uint32_t extraPasses = 0;
+};
+
+// A placement request. True when the caller runs the first pass now; false when a placement is running and the
+// request was recorded for it.
+[[nodiscard]] constexpr bool BeginDockPlacement(DockPlacementRequests& requests, bool resizeDashboard) noexcept
+{
+    if (requests.placing)
+    {
+        requests.again = true;
+        requests.againResizes = requests.againResizes || resizeDashboard;
+        return false;
+    }
+    requests = DockPlacementRequests{};
+    requests.placing = true;
+    return true;
+}
+
+// After a pass. True when a recorded request asks for one more pass, with `resizeDashboard` from those requests;
+// false ends the placement, dropping a request recorded after the last allowed pass.
+[[nodiscard]] constexpr bool NextDockPlacementPass(DockPlacementRequests& requests, bool& resizeDashboard) noexcept
+{
+    if (!requests.placing || !requests.again || requests.extraPasses >= kDockMaximumExtraPlacementPasses)
+    {
+        requests = DockPlacementRequests{};
+        return false;
+    }
+    resizeDashboard = requests.againResizes;
+    requests.again = false;
+    requests.againResizes = false;
+    ++requests.extraPasses;
+    return true;
+}
+
 // One candidate display for selection. `friendlyName` is the QueryDisplayConfig target name (what the user sees in
 // Settings > Display), `deviceName` the GDI name (\\.\DISPLAYn); `name:<substring>` matches either.
 struct DockMonitorCandidate final

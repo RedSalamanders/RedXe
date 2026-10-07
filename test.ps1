@@ -378,6 +378,20 @@ $unknownProcess = Start-Process -WindowStyle Hidden -FilePath $executable -Argum
 if ($unknownProcess.ExitCode -ne 2) {
     throw "An unknown switch exited with code $($unknownProcess.ExitCode) instead of 2."
 }
+# An unattended run (--self-test, --screenshot) never waits on a message box: a switch with a missing or invalid value
+# exits 2 with its usage on the redirected output before any window exists. Bounded, so a box fails here, never hangs.
+Write-Host 'Running unattended command-line error check...' -ForegroundColor Cyan
+$unattendedLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.unattended-error.log"
+$unattendedPng = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.unattended-error.png"
+foreach ($case in @(
+        @{ Arguments = @('--self-test', '--warp', '--settings'); Usage = 'Use --settings followed by exactly one settings file path.' },
+        @{ Arguments = @('--screenshot', $unattendedPng, '--after', '0'); Usage = '--after takes a delay of 1 through 120000 milliseconds.' })) {
+    $unattendedExit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments $case.Arguments -WorkingDirectory $repoRoot `
+        -TimeoutSeconds 60 -LogPath $unattendedLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+    if ($unattendedExit -ne 2 -or -not (Select-String -LiteralPath $unattendedLog -SimpleMatch $case.Usage)) {
+        throw "RedXe.exe $($case.Arguments -join ' ') exited with code $unattendedExit without its usage on the redirected output: $unattendedLog"
+    }
+}
 
 function Invoke-RedXeCrashTest {
     param(

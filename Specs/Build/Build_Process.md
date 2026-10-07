@@ -49,7 +49,8 @@ The root `test.ps1` exits zero only after every required assertion has passed. E
 negative-test children must not become the test entrypoint's success exit code.
 
 A test process never waits on a dialog. Every native test executable calls `Common/FailureReports.h` first thing in
-`wmain`, and `RedXe.exe` calls it as soon as its command line has `--self-test`, before the self-test runs.
+`wmain`, and `RedXe.exe` calls it as soon as its command line has `--self-test` or `--screenshot`, before either
+runs.
 - In a Debug or ASan Debug build, a failed runtime check (an STL range check, a CRT assertion) writes its report to
   stderr and ends the process with exit code 3, as the CRT's Abort button would, instead of opening its modal
   Abort/Retry/Ignore box. An abort or a fail-fast also ends the process quietly: Windows Error Reporting's dialog and

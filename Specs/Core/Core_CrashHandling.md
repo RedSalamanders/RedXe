@@ -69,8 +69,9 @@ source paths when symbols are available; both MUST be treated as potentially sen
 
 ## Previous-crash notice
 
-After the main window is ready on the next normal launch, RedXe MUST check for `last_crash.txt`. Self-tests and the
-deliberate crash process MUST NOT show or consume the user's marker.
+After the main window is ready on the next normal launch, RedXe MUST check for `last_crash.txt`. Self-tests, an
+unattended `--screenshot` run, and the deliberate crash process MUST NOT show or consume the user's marker; it waits
+for the next interactive start.
 
 When a marker exists, RedXe MUST remove it before presenting a one-shot prompt so another interrupted launch does not
 repeat the notice indefinitely. The prompt MUST identify the saved dump when the bounded marker can be read and MUST
