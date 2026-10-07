@@ -209,8 +209,9 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   contract): one thread per started service that exposes `IRedXeDeviceWorker`, at most four, created at service start
   and joined at stop. Its bounds are normative: the plugin blocks only in one wait on the host stop and wake events
   and its own overlapped-I/O events (message-aware only while the lane owns a registered Raw Input sink window,
-  whose queue it drains on the same thread in bounded batches of 256 messages, and once more when it removes the
-  sink, so input left in the queue never ends a later wait), every device command, write, and feature report
+  whose queue it drains on the same thread in bounded batches of 256 messages, and, when it removes the sink, until
+  empty, at most 16,384 messages, before it destroys the window, so input left in the queue never ends a later wait
+  and every queued packet reaches the window), every device command, write, and feature report
   carries a 1 s timeout followed by `CancelIoEx`, restore at stop gives up at the first command a device does not
   answer, hotplug arrival is a CfgMgr32 notification that sets the wake event rather than a poll, a failed open
   retries at most four times with doubling delays from 1 s counted from the end of the failed attempt and then
@@ -221,11 +222,12 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   queue instead of joining it. A replacement lane cannot start in that slot while tombstoned; the late lane's return
   posts one message that lets the UI thread reap the slot and restart a service the document still configures, with
   no polling in between. A HID request whose cancel is not complete after a 100 ms drain keeps its port's request
-  slot instead of forcing a reconnect; only closing that port retires its I/O block, at most four blocks per process,
-  after which Logicon opens no collection again. Idle cost with a connected keypad is zero wake-ups. A present dialpad
-  with a bound turn requires a process-wide Raw Input mouse sink, so the lane thread wakes for every mouse packet until
-  the dialpad leaves or no turn is bound; packets from other mice are drained inside the wait without a lane turn,
-  snapshot, or frame request, and each drain is capped at 256 messages. The
+  slot instead of forcing a reconnect; only closing that port retires its I/O block. Each block holds one of eight
+  per-process places from the open on, and a retired block keeps it, so open and retired blocks never exceed eight and
+  Logicon opens no collection while all eight are held. Idle cost with a connected keypad is zero wake-ups. A present
+  dialpad with a bound turn requires a process-wide Raw Input mouse sink, so the lane thread wakes for every mouse
+  packet until the dialpad leaves or no turn is bound; packets from other mice are drained inside the wait without a
+  lane turn, snapshot, or frame request, and each drain is capped at 256 messages. The
   lane owns at most one 434×434 BGRA compose surface, one 128 KiB JPEG buffer, one 4095-byte
   report buffer, and the key faces' signatures while a device or a monitor tile needs faces, and releases the
   surfaces at stop. A service's System Data faces ride the shared acquisition worker at the shortest requested

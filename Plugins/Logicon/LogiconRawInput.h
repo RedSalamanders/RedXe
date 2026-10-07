@@ -52,7 +52,8 @@ class RawWheelListener final
     // Creates the hidden window on the calling thread and registers it as a mouse input sink. Pump, Wait, and Stop
     // must run on that same thread.
     [[nodiscard]] HRESULT Start(uint16_t vendorId, uint16_t productId) noexcept;
-    // Unregisters the sink, destroys the window, drains what it left in the thread's queue, and clears the state.
+    // Unregisters the sink, dispatches every message queued on the thread while the window still exists (until
+    // PeekMessage finds none, at most 16384), then destroys the window and clears the state.
     void Stop() noexcept;
     [[nodiscard]] bool Running() const noexcept;
     // Dispatches at most 256 queued messages of the calling thread, window or not. Returns true when a matched
@@ -82,6 +83,8 @@ class RawWheelListener final
     };
 
     static LRESULT CALLBACK Procedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
+    // Dispatches the calling thread's queued messages until none is left, WM_QUIT is taken, or limit were dispatched.
+    void Dispatch(uint32_t limit) noexcept;
     void HandleInput(HRAWINPUT input) noexcept;
     [[nodiscard]] bool Matches(HANDLE device) noexcept;
 

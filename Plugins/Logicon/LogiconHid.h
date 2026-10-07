@@ -24,8 +24,9 @@ namespace Logicon
 inline constexpr uint32_t kMaximumHidCollections = 4;
 inline constexpr uint32_t kMaximumHidPathCharacters = 512;
 inline constexpr uint32_t kMaximumHidReportBytes = 4096;
-// I/O blocks retired by WindowsHidPort::Close in one process; once this many are retired no port opens again.
-inline constexpr uint32_t kMaximumRetiredHidIo = 4;
+// HID I/O blocks one process holds, open or retired: every collection of the keypad and the dialpad fits while none
+// is retired, and retired blocks can never exceed it.
+inline constexpr uint32_t kMaximumHidIoBlocks = 2 * kMaximumHidCollections;
 
 // One HID top-level collection of the keypad. Report-id masks carry one bit per id below 32; every Logicon report
 // id (0x11, 0x13, 0x14, 0x03) fits.
@@ -98,14 +99,39 @@ class HidPort
     virtual void Cancel() noexcept = 0;
 };
 
+// Units of HID I/O blocks. A WindowsHidPort reserves one in Open before it allocates its block and releases it only
+// when Close frees that block; a block Close retires keeps its unit until process exit, so open and retired blocks
+// together never exceed the capacity.
+class HidIoBudget final
+{
+  public:
+    explicit constexpr HidIoBudget(uint32_t capacity) noexcept : _capacity(capacity) {}
+    HidIoBudget(const HidIoBudget&) = delete;
+    HidIoBudget& operator=(const HidIoBudget&) = delete;
+
+    // The process's budget of kMaximumHidIoBlocks units, used by every WindowsHidPort not given another.
+    [[nodiscard]] static HidIoBudget& Process() noexcept;
+    // Takes one unit; false while every unit is held.
+    [[nodiscard]] bool Reserve() noexcept;
+    // Returns a unit taken by Reserve.
+    void Release() noexcept;
+    [[nodiscard]] uint32_t Held() const noexcept;
+
+  private:
+    const uint32_t _capacity;
+    std::atomic<uint32_t> _held{0};
+};
+
 class WindowsHidPort final : public HidPort
 {
   public:
-    WindowsHidPort() = default;
+    // budget MUST outlive the port.
+    explicit WindowsHidPort(HidIoBudget& budget = HidIoBudget::Process()) noexcept : _budget(&budget) {}
     ~WindowsHidPort() override;
     WindowsHidPort(const WindowsHidPort&) = delete;
     WindowsHidPort& operator=(const WindowsHidPort&) = delete;
 
+    // Returns ERROR_TOO_MANY_OPEN_FILES when the budget has no unit left.
     [[nodiscard]] HRESULT Open(const HidCollectionInfo& info) noexcept;
     void Close() noexcept;
 
@@ -128,9 +154,9 @@ class WindowsHidPort final : public HidPort
     [[nodiscard]] HRESULT Submit(bool feature, const uint8_t* report, uint32_t bytes, uint32_t paddedBytes,
                                  HANDLE stopEvent, uint32_t timeoutMilliseconds) noexcept;
 
-    // Keep every buffer, OVERLAPPED, event, and file handle in one backing block. If a broken driver does not
-    // complete canceled I/O within the close budget, that block is retired intact rather than freed under I/O,
-    // at most kMaximumRetiredHidIo times per process.
+    // Keep every buffer, OVERLAPPED, event, and file handle in one backing block, which holds one budget unit while
+    // it exists. If a broken driver does not complete canceled I/O within the close drain, that block is retired
+    // intact with its unit rather than freed under I/O.
     struct IoState final
     {
         wil::unique_hfile handle;
@@ -144,6 +170,7 @@ class WindowsHidPort final : public HidPort
         bool writeArmed = false;
     };
 
+    HidIoBudget* _budget;
     HidCollectionInfo _info{};
     std::unique_ptr<IoState> _io;
     bool _disconnected = false;

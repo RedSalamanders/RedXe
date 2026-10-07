@@ -1,7 +1,7 @@
 // Logicon tests that need no hardware: HID++ framing and the 0x19A1 image stream against the reference byte layout,
 // the shared settings model, key-face composition and JPEG round trips, the device session driven by the synthetic
-// keypad, the HID port's request path over a named pipe, the raw-input wait, and the shipped DLL's factory,
-// contract, service lifetime, device lane, and test exports.
+// keypad, the HID port's request path and I/O budget over named pipes, the raw-input wait and stop drain, and the
+// shipped DLL's factory, contract, service lifetime, device lane, and test exports.
 
 #include "../../Common/FailureReports.h"
 #include "Actions/ActionTargets.h"
@@ -697,7 +697,9 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
                                               PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 0, 0, 0, nullptr)};
     LOGICON_CHECK(device.is_valid(), "the stand-in device pipe is created");
     WindowsHidPort port;
-    LOGICON_CHECK(SUCCEEDED(port.Open(info)) && !port.Disconnected(), "the port opens the pipe");
+    HidIoBudget& budget = HidIoBudget::Process();
+    LOGICON_CHECK(budget.Held() == 0 && SUCCEEDED(port.Open(info)) && !port.Disconnected() && budget.Held() == 1,
+                  "the port opens the pipe and its I/O block holds one unit of the process budget");
     wil::unique_event_nothrow stop;
     wil::unique_event_nothrow readDone;
     LOGICON_CHECK(SUCCEEDED(stop.create(wil::EventOptions::ManualReset)) &&
@@ -729,13 +731,141 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
                       !port.Disconnected(),
                   "the stop event cancels a held write");
     port.Close();
-    LOGICON_CHECK(port.Disconnected(), "closed");
+    LOGICON_CHECK(port.Disconnected() && budget.Held() == 0, "a close whose canceled I/O drained returns the unit");
+    return S_OK;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// HID I/O budget: open blocks count against the same cap as retired ones, so retiring never passes it
+// ---------------------------------------------------------------------------------------------------------------
+
+[[nodiscard]] HRESULT TestHidIoBudget() noexcept
+{
+    using namespace Logicon;
+    HidIoBudget accounting{2};
+    LOGICON_CHECK(accounting.Reserve() && accounting.Reserve() && !accounting.Reserve() && accounting.Held() == 2,
+                  "a budget hands out its capacity and then refuses");
+    accounting.Release();
+    LOGICON_CHECK(accounting.Held() == 1 && accounting.Reserve() && !accounting.Reserve(),
+                  "a released unit is reserved again");
+
+    // Stand-in collections: one pipe instance per open (a closed client does not free its instance), and a pipe
+    // completes canceled I/O at once, so every close below is clean.
+    constexpr uint32_t kInstances = kMaximumHidIoBlocks + 4;
+    HidCollectionInfo info{};
+    (void)swprintf_s(info.path.data(), info.path.size(), L"\\\\.\\pipe\\RedXe.LogiconTests.Budget.%lu",
+                     GetCurrentProcessId());
+    info.inputReportBytes = kLongReportBytes;
+    info.outputReportBytes = kLongReportBytes;
+    std::array<wil::unique_hfile, kInstances> instances{};
+    for (wil::unique_hfile& instance : instances)
+    {
+        instance.reset(CreateNamedPipeW(info.path.data(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                                        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, kInstances, 0, 0, 0, nullptr));
+        LOGICON_CHECK(instance.is_valid(), "a stand-in collection pipe instance is created");
+    }
+
+    // Three units kept by blocks retired earlier leave one: discovery of four collections opens only the first, so
+    // even if all of them were retired later, open and retired blocks would stay at the cap.
+    HidIoBudget budget{kMaximumHidCollections};
+    for (uint32_t retired = 1; retired < kMaximumHidCollections; ++retired)
+    {
+        LOGICON_CHECK(budget.Reserve(), "a retired block keeps its unit");
+    }
+    std::array<std::unique_ptr<WindowsHidPort>, kMaximumHidCollections> ports{};
+    uint32_t opened = 0;
+    uint32_t refused = 0;
+    for (std::unique_ptr<WindowsHidPort>& port : ports)
+    {
+        port.reset(new (std::nothrow) WindowsHidPort(budget));
+        LOGICON_CHECK(port != nullptr, "port");
+        const HRESULT result = port->Open(info);
+        opened += SUCCEEDED(result) ? 1U : 0U;
+        refused += result == HRESULT_FROM_WIN32(ERROR_TOO_MANY_OPEN_FILES) ? 1U : 0U;
+    }
+    LOGICON_CHECK(opened == 1 && refused == kMaximumHidCollections - 1 && budget.Held() == kMaximumHidCollections &&
+                      !ports[0]->Disconnected() && ports[1]->Disconnected(),
+                  "with three units kept by retired blocks only one of four collections opens");
+    ports[0]->Close();
+    LOGICON_CHECK(budget.Held() == kMaximumHidCollections - 1 && SUCCEEDED(ports[1]->Open(info)) &&
+                      budget.Held() == kMaximumHidCollections,
+                  "a clean close returns its unit and the next open takes it");
+    LOGICON_CHECK(ports[2]->Open(info) == HRESULT_FROM_WIN32(ERROR_TOO_MANY_OPEN_FILES) &&
+                      budget.Held() == kMaximumHidCollections,
+                  "a refused open holds no unit");
+    for (std::unique_ptr<WindowsHidPort>& port : ports)
+    {
+        port.reset();
+    }
+    LOGICON_CHECK(budget.Held() == kMaximumHidCollections - 1, "destroying an open port returns its unit");
+
+    // The process budget behind every default port: the keypad's and the dialpad's collections fill it, the next
+    // open is refused (the service logs connect-failed with that result), and a clean close makes room again.
+    HidIoBudget& process = HidIoBudget::Process();
+    LOGICON_CHECK(process.Held() == 0, "earlier ports of this process returned their units");
+    std::array<std::unique_ptr<WindowsHidPort>, kMaximumHidIoBlocks + 1> processPorts{};
+    opened = 0;
+    for (std::unique_ptr<WindowsHidPort>& port : processPorts)
+    {
+        port.reset(new (std::nothrow) WindowsHidPort());
+        LOGICON_CHECK(port != nullptr, "port");
+    }
+    for (uint32_t index = 0; index < kMaximumHidIoBlocks; ++index)
+    {
+        opened += SUCCEEDED(processPorts[index]->Open(info)) ? 1U : 0U;
+    }
+    LOGICON_CHECK(opened == kMaximumHidIoBlocks && process.Held() == kMaximumHidIoBlocks &&
+                      processPorts[kMaximumHidIoBlocks]->Open(info) == HRESULT_FROM_WIN32(ERROR_TOO_MANY_OPEN_FILES),
+                  "open ports count against the process budget and the one past it is refused");
+    processPorts[0]->Close();
+    LOGICON_CHECK(process.Held() == kMaximumHidIoBlocks - 1 && SUCCEEDED(processPorts[kMaximumHidIoBlocks]->Open(info)),
+                  "a clean close lets the refused collection open");
+    for (std::unique_ptr<WindowsHidPort>& port : processPorts)
+    {
+        port.reset();
+    }
+    LOGICON_CHECK(process.Held() == 0, "every unit returns once the ports are gone");
     return S_OK;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // Dialpad: the four diverted buttons over the synthetic vendor collection, and the raw-input wheel helpers
 // ---------------------------------------------------------------------------------------------------------------
+
+// The raw-input listener's window procedure, wrapped so the test counts what reaches it.
+WNDPROC g_listenerProcedure = nullptr;
+uint32_t g_listenerMessages = 0;
+constexpr UINT kListenerProbeMessage = WM_APP + 1;
+
+LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
+{
+    if (message == kListenerProbeMessage)
+    {
+        ++g_listenerMessages;
+    }
+    return CallWindowProcW(g_listenerProcedure, window, message, wParam, lParam);
+}
+
+// The listener's hidden window on the calling thread, or nullptr.
+[[nodiscard]] HWND FindListenerWindow() noexcept
+{
+    HWND found = nullptr;
+    (void)EnumThreadWindows(
+        GetCurrentThreadId(),
+        [](HWND window, LPARAM context) noexcept -> BOOL
+        {
+            std::array<wchar_t, 64> name{};
+            if (GetClassNameW(window, name.data(), static_cast<int>(name.size())) != 0 &&
+                std::wcscmp(name.data(), L"RedXe.Logicon.RawInput") == 0)
+            {
+                *reinterpret_cast<HWND*>(context) = window;
+                return FALSE;
+            }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&found));
+    return found;
+}
 
 [[nodiscard]] HRESULT TestDialpad() noexcept
 {
@@ -816,6 +946,29 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     LOGICON_CHECK(PostThreadMessageW(GetCurrentThreadId(), WM_APP, 0, 0), "a message is queued when the sink stops");
     listener.Stop();
     LOGICON_CHECK(!PeekMessageW(&queued, nullptr, WM_APP, WM_APP, PM_NOREMOVE), "stop drains the thread's queue");
+
+    // More than one pump's worth is queued when the sink stops: stop dispatches the window's messages to its procedure
+    // before destroying it, and drains the thread's queue to the end rather than one 256-message batch.
+    LOGICON_CHECK(SUCCEEDED(listener.Start(0xFFFF, 0xFFFF)), "the listener restarts for the stop drain");
+    const HWND sinkWindow = FindListenerWindow();
+    LOGICON_CHECK(sinkWindow != nullptr, "the listener's window belongs to this thread");
+    g_listenerMessages = 0;
+    g_listenerProcedure = reinterpret_cast<WNDPROC>(
+        SetWindowLongPtrW(sinkWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&CountingListenerProcedure)));
+    LOGICON_CHECK(g_listenerProcedure != nullptr, "the listener's window procedure is wrapped");
+    constexpr uint32_t kQueuedPerTarget = 300;
+    bool posted = true;
+    for (uint32_t index = 0; posted && index < kQueuedPerTarget; ++index)
+    {
+        posted = PostMessageW(sinkWindow, kListenerProbeMessage, 0, 0) &&
+                 PostThreadMessageW(GetCurrentThreadId(), WM_APP, 0, 0);
+    }
+    LOGICON_CHECK(posted, "600 messages wait in the queue, half of them for the listener's window");
+    listener.Stop();
+    LOGICON_CHECK(g_listenerMessages == kQueuedPerTarget && !IsWindow(sinkWindow),
+                  "every message queued for the window reached its procedure before the window was destroyed");
+    LOGICON_CHECK(!PeekMessageW(&queued, nullptr, WM_APP, kListenerProbeMessage, PM_NOREMOVE),
+                  "stop leaves nothing queued past 256 messages");
     LOGICON_CHECK(PostThreadMessageW(GetCurrentThreadId(), WM_APP, 0, 0), "a message arrives while stopped");
     uint32_t wakes = 0;
     for (uint32_t turn = 0; turn < 5; ++turn)
@@ -1720,13 +1873,10 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
         HRESULT (*function)() noexcept;
     };
     const Case cases[] = {
-        {"protocol framing", TestProtocolFraming},
-        {"geometry and VLP stream", TestGeometryAndVlp},
-        {"settings model", TestSettings},
-        {"key faces", TestFaces},
-        {"device session", TestDeviceSession},
-        {"HID port", TestHidPort},
-        {"dialpad", TestDialpad},
+        {"protocol framing", TestProtocolFraming}, {"geometry and VLP stream", TestGeometryAndVlp},
+        {"settings model", TestSettings},          {"key faces", TestFaces},
+        {"device session", TestDeviceSession},     {"HID port", TestHidPort},
+        {"HID I/O budget", TestHidIoBudget},       {"dialpad", TestDialpad},
         {"shipped module", TestShippedModule},
     };
     HRESULT result = S_OK;

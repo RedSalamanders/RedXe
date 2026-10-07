@@ -83,9 +83,12 @@ Verified against the reference implementations named in the active plan. Byte of
 - Requests: output and feature reports of one collection share its single overlapped request slot, with a 1 s
   timeout (or the stop event) followed by `CancelIoEx` and a 100 ms drain. A canceled request the driver has not
   finished by then MUST keep the slot and MUST NOT mark the collection disconnected: later requests return
-  `ERROR_BUSY` until it finishes and then reuse the slot. Closing a collection whose request or read is still
-  unfinished retires its I/O block (handle, events, buffers) until process exit; after four retirements in a
-  process no collection opens again (`ERROR_TOO_MANY_OPEN_FILES`).
+  `ERROR_BUSY` until it finishes and then reuse the slot. Every open collection holds one of eight I/O blocks per
+  process (four collections each for the keypad and the dialpad), reserved before the open and returned only by a
+  close that finds the block's read and request finished. Closing a collection whose request or read is still
+  unfinished retires its I/O block (handle, events, buffers) until process exit with its reservation, so open and
+  retired blocks together never exceed eight. An open that finds all eight held fails with
+  `ERROR_TOO_MANY_OPEN_FILES`, logged as `connect-failed` (`dialpad-connect-failed` for the dialpad).
 - HID++ 2.0 long report `0x11` (20 bytes): `[11][FF][feature index][function << 4 | 0x0B][params…]`. An error reply
   is `[11][FF][FF][feature][function|swid][code]`. Commands are serialized with a 1 s response timeout; unrelated
   input arriving while a command waits is still dispatched.
@@ -151,9 +154,11 @@ receiver child with a HID++ device index other than `0xFF`) is not driven.
   roller, each summed in raw HID units (120 per detent on a classic wheel) with an event count; the monitor prints
   the raw source next to each so a wrong assignment is visible. Raw mouse buttons and X/Y motion are counted for
   diagnostics only. When discovery no longer finds the dialpad, no valid turn is bound any more, or the lane stops,
-  the sink is unregistered, the window destroyed, the messages it left in the lane thread's queue drained, and the
-  wheel state cleared; a later process owner is never unregistered. Raw Input does not divert: the desktop still
-  receives the wheel (`0x4610`, the only candidate for diverting it, stays undecoded by decision).
+  the sink is unregistered, the lane thread's queue is drained while the window still exists (until it is empty, at
+  most 16,384 messages, so every queued `WM_INPUT` reaches the window procedure and `DefWindowProc`), the window is
+  then destroyed, and the wheel state cleared; a later process owner is never unregistered. Raw Input does not
+  divert: the desktop still receives the wheel (`0x4610`, the only candidate for diverting it, stays undecoded by
+  decision).
 - The dialpad never blocks the keypad: discovery, backoff, and disconnects are tracked per device, and either may be
   present alone.
 - Logi Options+ coexistence: the lane never terminates another process or claims exclusive access. When
@@ -222,10 +227,15 @@ cleared by a new settings object. Release builds keep the tile catalogued but re
   drain, restore, splash reset, and a restore that stops at the first unanswered command and skips the splash
   reset); `WindowsHidPort` over a named pipe without buffer quota (an unread write times out, is canceled and
   drained, and leaves the port open; the next write completes zero padded; a feature report is an overlapped request
-  refused at once; the stop event cancels a held write); the dialpad (the captured button event and its mask,
+  refused at once; the stop event cancels a held write; the open port holds one I/O block place and a drained close
+  returns it); the I/O block budget over pipe collections (with three places kept by retired blocks only one of four
+  collections opens, a clean close lets the next open take its place, a refused open holds none, and the process's
+  eight places refuse a ninth open port until one closes); the dialpad (the captured button event and its mask,
   raw-input name matching in both spellings, wheel and button folding, listener start/stop, the lane wait: an
-  unrelated queued message is drained inside it and never ends it, stop drains the thread's queue, and without the
-  sink it blocks on its handles alone and leaves the queue untouched; and the session over the synthetic dialpad:
+  unrelated queued message is drained inside it and never ends it, stop drains the thread's queue, and with 600
+  messages queued, half for its window, stop delivers each of the window's to its procedure before destroying it and
+  leaves nothing queued, and without the sink it blocks on its handles alone and leaves the queue untouched; and the
+  session over the synthetic dialpad:
   `0x1B04` at `0x0A`, four diversions, button edges apart from page buttons, restore, no command without a bound
   button); and the shipped DLL's
   metadata, contract, monitor provider (constructs in Debug, refuses in Release), service creation and rejection,

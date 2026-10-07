@@ -27,8 +27,6 @@ using unique_preparsed =
 
 // How long canceled I/O may take to complete before its block is kept rather than reused or freed.
 constexpr DWORD kCanceledIoDrainMilliseconds = 100;
-// I/O blocks WindowsHidPort::Close retired in this process; each still holds a handle and an unfinished request.
-std::atomic<uint32_t> g_retiredIo{0};
 
 [[nodiscard]] bool IsDeviceGone(DWORD error) noexcept
 {
@@ -197,6 +195,35 @@ HRESULT EnumerateVendorCollections(uint16_t vendorId, uint16_t productId, uint16
     return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 }
 
+HidIoBudget& HidIoBudget::Process() noexcept
+{
+    static HidIoBudget budget{kMaximumHidIoBlocks};
+    return budget;
+}
+
+bool HidIoBudget::Reserve() noexcept
+{
+    uint32_t held = _held.load(std::memory_order_acquire);
+    do
+    {
+        if (held >= _capacity)
+        {
+            return false;
+        }
+    } while (!_held.compare_exchange_weak(held, held + 1, std::memory_order_acq_rel, std::memory_order_acquire));
+    return true;
+}
+
+void HidIoBudget::Release() noexcept
+{
+    (void)_held.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+uint32_t HidIoBudget::Held() const noexcept
+{
+    return _held.load(std::memory_order_acquire);
+}
+
 WindowsHidPort::~WindowsHidPort()
 {
     Close();
@@ -211,15 +238,16 @@ HRESULT WindowsHidPort::Open(const HidCollectionInfo& info) noexcept
     {
         return E_INVALIDARG;
     }
-    if (g_retiredIo.load(std::memory_order_acquire) >= kMaximumRetiredHidIo)
+    // The unit is taken before the block exists, so every block that may later be retired is already counted: past
+    // the budget a driver that keeps canceled I/O leaves the device closed rather than retiring a block per reopen.
+    if (!_budget->Reserve())
     {
-        // Retired blocks are never freed: past the cap a driver that keeps canceled I/O leaves the device closed
-        // rather than retiring a block on every reopen.
         return HRESULT_FROM_WIN32(ERROR_TOO_MANY_OPEN_FILES);
     }
     _io.reset(new (std::nothrow) IoState());
     if (!_io)
     {
+        _budget->Release();
         return E_OUTOFMEMORY;
     }
     _io->readEvent.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
@@ -255,6 +283,7 @@ HRESULT WindowsHidPort::Open(const HidCollectionInfo& info) noexcept
 
 void WindowsHidPort::Close() noexcept
 {
+    bool retired = false;
     if (_io && _io->handle)
     {
         (void)CancelIoEx(_io->handle.get(), nullptr);
@@ -274,16 +303,20 @@ void WindowsHidPort::Close() noexcept
         };
         const bool readDone = drain(_io->readArmed, _io->readEvent.get(), _io->readOverlapped);
         const bool writeDone = drain(_io->writeArmed, _io->writeEvent.get(), _io->writeOverlapped);
-        if (!readDone || !writeDone)
-        {
-            // The driver still owns an OVERLAPPED and buffer. The exceptional backing block is intentionally
-            // retained until process exit and counted so Open stops at kMaximumRetiredHidIo; the host also
-            // tombstones a lane that itself fails to return.
-            g_retiredIo.fetch_add(1, std::memory_order_acq_rel);
-            (void)_io.release();
-        }
+        retired = !readDone || !writeDone;
     }
-    _io.reset();
+    if (retired)
+    {
+        // The driver still owns an OVERLAPPED and buffer. The exceptional backing block is intentionally retained
+        // until process exit and keeps the budget unit Open reserved for it; the host also tombstones a lane that
+        // itself fails to return.
+        (void)_io.release();
+    }
+    else if (_io)
+    {
+        _io.reset();
+        _budget->Release();
+    }
     _info = HidCollectionInfo{};
     _disconnected = false;
 }
