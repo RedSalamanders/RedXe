@@ -1674,8 +1674,9 @@ bool ScriptedTaskbarExists() noexcept
 // TrayIcon.cpp against a scripted shell: Show and Hide are idempotent and Hide unregisters the class; WM_CLOSE leaves
 // the owner, and every destruction deletes the icon first; TaskbarCreated adds again; a refusal retries on the bounded
 // schedule only while a taskbar exists, then arms nothing; a timed-out add makes no second blocking call; the icon
-// counts as added only once NIM_SETVERSION has followed the add or the update an add falls back to; and WM_DPICHANGED
-// updates only the image of an added icon, with no NIM_SETVERSION, and makes no call for an icon not added.
+// counts as added only once NIM_SETVERSION has followed the add or the update an add falls back to; WM_DPICHANGED
+// updates only the image of an added icon, with no NIM_SETVERSION, and makes no call for an icon not added; and an add
+// made outside Show posts its outcome to the command target.
 void TestTrayIconOwner(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] notification-area icon owner lifecycle\n";
@@ -1805,6 +1806,42 @@ void TestTrayIconOwner(bool& success) noexcept
     Check(TrayCallsSince(beforeDestructor, {NIM_DELETE}) && CountTrayOwners() == 0 &&
               GetClassInfoExW(instance, L"RedXe.TrayIcon", &info) == FALSE,
           L"the destructor deletes the icon, destroys the owner, and unregisters the class", success);
+
+    // An add the owner makes outside Show, after TaskbarCreated or on a retry, posts its outcome to the command target
+    // (Application::RecordTrayIconResult logs tray-icon-failed from it): S_FALSE while refused, S_OK once added. Show's
+    // own outcome is returned, not posted.
+    {
+        const wil::unique_hwnd target{
+            CreateWindowExW(0, L"STATIC", L"tray outcome", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, instance, nullptr)};
+        constexpr WPARAM nothingPosted = ~WPARAM{0};
+        const auto takePosted = [&target]() noexcept
+        {
+            MSG message{};
+            return PeekMessageW(&message, target.get(), TrayIcon::kAddResultMessage, TrayIcon::kAddResultMessage,
+                                PM_REMOVE)
+                       ? message.wParam
+                       : nothingPosted;
+        };
+        TrayIcon tray;
+        Access::SetTrayShell(tray, &ScriptedShellNotify, &ScriptedTaskbarExists);
+        script.add = true;
+        script.modify = true;
+        script.version = true;
+        script.taskbar = true;
+        script.addTimesOut = false;
+        const bool shown = target && tray.Show(instance, target.get()) == S_OK && takePosted() == nothingPosted;
+        const HWND owner = Access::TrayOwner(tray);
+        script.add = false;
+        script.modify = false;
+        (void)SendMessageW(owner, taskbarCreated, 0, 0);
+        const WPARAM refused = takePosted();
+        script.add = true;
+        (void)SendMessageW(owner, WM_TIMER, retryTimer, 0);
+        const WPARAM added = takePosted();
+        Check(shown && refused == static_cast<WPARAM>(S_FALSE) && added == static_cast<WPARAM>(S_OK) &&
+                  takePosted() == nothingPosted && Access::TrayIconAdded(tray),
+              L"an add outside Show posts its outcome to the command target: refused, then added", success);
+    }
 }
 
 // DockPlacement.h autohide state machine: every transition of the reveal/hide table, zero delays, holds, and the
