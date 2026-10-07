@@ -38,7 +38,9 @@ void Require(bool condition, const char* description)
 // (locally the whole run takes seconds) so it only ever fires on a genuine hang.
 DWORD StageBudgetMilliseconds = 3 * 60 * 1000;
 constexpr DWORD RunBudgetMilliseconds = 12 * 60 * 1000;
-constexpr int HangExitCode = 3;
+// No other path of this executable ends with this code: 3 and 4 are a failed runtime check and an abort
+// (Common/FailureReports.h), so a hang never reads as either.
+constexpr int HangExitCode = 10;
 std::atomic<const char*> currentStage{"startup"};
 std::atomic<ULONGLONG> stageStartedAt{0};
 ULONGLONG runStartedAt = 0;

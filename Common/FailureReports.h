@@ -12,9 +12,10 @@
 // and an attended one interrupts the person at the desktop. The report goes to stderr, which the executable's log
 // keeps, and the check ends the process with exit code 3 (the dialog's Abort), with no Windows Error Reporting dialog
 // either. An abort() that no failed check reported (an assert(), std::terminate after an unhandled exception, or a
-// direct call) says so on stderr and ends the process with exit code 4, so exit code 3 always means a failed check.
-// RedXe.exe --self-test is a test process as well, so the header lives beside the product's shared sources rather than
-// with the test executables.
+// direct call) says so on stderr and ends the process with exit code 4. No other path of a process that calls this
+// header may end with 3 or 4, so each keeps its one meaning. RedXe.exe --self-test is a test process as well, so the
+// header lives beside the product's shared sources rather than with the test executables; there, RedXe.exe's own
+// terminate handler (CrashHandler, exit code 127) takes std::terminate.
 //
 // A test process never loses its last lines either. Redirected to a pipe, stdout is fully buffered by the CRT, and a
 // process terminated at its time budget runs no exit code that would flush the buffer: the log would end cases before
@@ -82,6 +83,9 @@ inline int __cdecl ReportAndEnd(int reportType, wchar_t* message, int* returnVal
 // The SIGABRT handler: an abort() that did not come from a failed check, which ends through ReportAndEnd instead.
 inline void __cdecl EndAfterAbort(int) noexcept
 {
+    // raise() resets the handler to the CRT's default before calling it, and the default would end a concurrent abort()
+    // on another thread with exit code 3. Re-arming first leaves only the instant before this line to that race.
+    static_cast<void>(std::signal(SIGABRT, &EndAfterAbort));
     WriteToStandardError(L"abort() was called: by assert(), by std::terminate after an unhandled exception, or "
                          L"directly.\n");
     _exit(kAbortExitCode);

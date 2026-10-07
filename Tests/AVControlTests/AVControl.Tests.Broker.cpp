@@ -150,5 +150,23 @@ uint32_t RunBrokerTests()
     Check(FAILED(broker.Start((helper.parent_path() / L"does-not-exist.exe").native(), true)) && !broker.Running(),
           "startup failure cleans partial resources");
     Check(broker.Start(L"bad\"path", true) == E_INVALIDARG, "helper executable quoting cannot inject arguments");
+    {
+        // The checks that run before the helper knows it is synthetic never end with 3 or 4, which a synthetic helper
+        // keeps for a failed check and an abort (Common/FailureReports.h): unusable handle arguments are a bad
+        // command line.
+        std::wstring commandLine = L"\"" + helper.native() + L"\" --broker 0 0 0 0";
+        STARTUPINFOW startup{sizeof(startup)};
+        PROCESS_INFORMATION created{};
+        Check(CreateProcessW(helper.c_str(), commandLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
+                             nullptr, &startup, &created) != FALSE,
+              "start a helper with unusable handle arguments");
+        const wil::unique_handle invalidProcess(created.hProcess), invalidThread(created.hThread);
+        const bool exited = WaitForSingleObject(invalidProcess.get(), 3000) == WAIT_OBJECT_0;
+        if (!exited)
+            (void)TerminateProcess(invalidProcess.get(), ERROR_TIMEOUT);
+        DWORD invalidExitCode = 0;
+        Check(exited && GetExitCodeProcess(invalidProcess.get(), &invalidExitCode) && invalidExitCode == 2,
+              "unusable handle arguments end the helper with exit code 2, never 3 or 4");
+    }
     return brokerChecks;
 }

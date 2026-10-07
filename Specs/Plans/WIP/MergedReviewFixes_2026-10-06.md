@@ -202,8 +202,9 @@ Recommended defaults are in bold. Batches that depend on a decision wait for it.
 
 `Specs/Core/Core_Settings.md`, `Specs/Settings.schema.json`, `Specs/Plugins/Plugins_Zoom.md`,
 `Specs/Plugins/Plugins_Logicon.md`, `Specs/Plugins/Plugins_Actions.md`, `Specs/Plugins/Plugins_API.md`,
-`Specs/UI/UI_XeneonDisplayWindowing.md`, `Specs/Core/Core_PerformanceAndResources.md`,
-`Specs/Core/Core_CrashHandling.md`, `Specs/Core/Core_DxUiIntegration.md`, `Specs/Build/Build_Process.md`, and
+`Specs/Plugins/Plugins_AVControl.md`, `Specs/UI/UI_XeneonDisplayWindowing.md`,
+`Specs/Core/Core_PerformanceAndResources.md`, `Specs/Core/Core_CrashHandling.md`,
+`Specs/Core/Core_DxUiIntegration.md`, `Specs/Build/Build_Process.md`, and
 `Specs/Build/Build_Packaging.md`; user guide pages `docs/usage.md`, `docs/actions.md`, `docs/plugins/logicon.md` and
 `docs/plugins/zoom.md` where an end-user scenario changes.
 

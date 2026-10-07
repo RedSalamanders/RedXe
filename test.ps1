@@ -214,14 +214,15 @@ $avControlProcess = Invoke-RedXeStreamingProcess -FilePath $avControlTests -Work
 if ($avControlProcess -ne 0) {
     throw "AV Control tests failed with exit code $($avControlProcess)."
 }
-# The suite's own stage watchdog must turn a stage that never returns into exit code 3 that names the stage.
+# The suite's own stage watchdog must turn a stage that never returns into exit code 10 that names the stage; 3 and 4
+# stay a failed runtime check and an abort (Common/FailureReports.h).
 Write-Host 'Running AV Control stage-watchdog check...' -ForegroundColor Cyan
 $watchdogLog = Join-Path $repoRoot ".build\$Platform\$Configuration\AVControlTests.watchdog.log"
 # Bounded itself: if the watchdog ever failed to fire, this check must report that, not hang in its place.
 $watchdogExit = Invoke-RedXeStreamingProcess -FilePath $avControlTests -Arguments @('--watchdog-fixture', '500') -WorkingDirectory $repoRoot `
     -TimeoutSeconds 60 -LogPath $watchdogLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
 $watchdogText = Get-Content -LiteralPath $watchdogLog -Raw
-if ($watchdogExit -ne 3 -or $watchdogText -notmatch "stage 'watchdog fixture' did not finish within") {
+if ($watchdogExit -ne 10 -or $watchdogText -notmatch "stage 'watchdog fixture' did not finish within") {
     throw "The AV Control stage watchdog did not end a hung stage (exit $watchdogExit): $watchdogText"
 }
 & (Join-Path $repoRoot 'Tests/AVControlTests/CameraPackageTests.ps1') -Configuration $Configuration -Platform $Platform
@@ -394,19 +395,26 @@ if ($smokeFailure -or $smokeExit -ne 0) {
 $selfTestFailureDirectory = Join-Path $repoRoot ".build\SelfTestFailure\$([guid]::NewGuid().ToString('N'))"
 $selfTestFailureLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.self-test-failure.log"
 [void](New-Item -ItemType Directory -Path $selfTestFailureDirectory -Force)
+$selfTestFailureRun = $null
 try {
     Copy-Item -LiteralPath $executable -Destination $selfTestFailureDirectory
     Get-ChildItem -LiteralPath (Split-Path -Parent $executable) -Filter '*.dll' -File |
         Copy-Item -Destination $selfTestFailureDirectory
-    $selfTestFailureExit = Invoke-RedXeStreamingProcess -FilePath (Join-Path $selfTestFailureDirectory 'RedXe.exe') `
-        -Arguments @('--self-test', '--warp') -WorkingDirectory $selfTestFailureDirectory -TimeoutSeconds 120 `
-        -LogPath $selfTestFailureLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+    # As for the smoke run, the tail is shown for a run ended at its budget as well as for a wrong result.
+    try {
+        $selfTestFailureExit = Invoke-RedXeStreamingProcess -FilePath (Join-Path $selfTestFailureDirectory 'RedXe.exe') `
+            -Arguments @('--self-test', '--warp') -WorkingDirectory $selfTestFailureDirectory -TimeoutSeconds 120 `
+            -LogPath $selfTestFailureLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+    }
+    catch { $selfTestFailureRun = $_ }
 }
 finally {
     Remove-Item -LiteralPath $selfTestFailureDirectory -Recurse -Force -ErrorAction SilentlyContinue
 }
-if ($selfTestFailureExit -ne 6 -or
+if ($selfTestFailureRun -or $selfTestFailureExit -ne 6 -or
     (Get-Content -LiteralPath $selfTestFailureLog -Raw) -notmatch 'Settings initialization or validation failed\. HRESULT 0x8') {
+    Get-Content -LiteralPath $selfTestFailureLog -Tail 40
+    if ($selfTestFailureRun) { throw $selfTestFailureRun }
     throw "A failed self-test check must name itself in the log and exit with code 6 (it exited $selfTestFailureExit): $selfTestFailureLog"
 }
 

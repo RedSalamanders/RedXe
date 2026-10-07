@@ -242,11 +242,13 @@ int RunCameraBridgeChild(const wchar_t* identifier)
     GUID guid{};
     if (!identifier || wcsnlen_s(identifier, 40) != 38 || FAILED(CLSIDFromString(identifier, &guid)))
         return 2;
+    // A fixture child's exit codes skip 3 and 4, a failed runtime check and an abort (Common/FailureReports.h), and
+    // 10, the stage watchdog's.
     if (FAILED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)))
-        return 3;
+        return 11;
     const auto com = wil::scope_exit([] { CoUninitialize(); });
     if (FAILED(MFStartup(MF_VERSION)))
-        return 4;
+        return 12;
     const auto mf = wil::scope_exit([] { (void)MFShutdown(); });
     BridgeIdentity identity;
     if (FAILED(MakeBridgeIdentity(CurrentSid().c_str(), identity, &guid)))
@@ -378,11 +380,12 @@ int RunCameraWatchdogChild(const wchar_t* identifier, const wchar_t* stage)
     if (!identifier || wcsnlen_s(identifier, 40) != 38 || FAILED(CLSIDFromString(identifier, &guid)) || !stage ||
         stage[0] < L'0' || stage[0] > L'2' || stage[1])
         return 2;
+    // As in RunCameraBridgeChild: never 3, 4 or 10.
     if (FAILED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)))
-        return 3;
+        return 11;
     const auto com = wil::scope_exit([] { CoUninitialize(); });
     if (FAILED(MFStartup(MF_VERSION)))
-        return 4;
+        return 12;
     const auto mf = wil::scope_exit([] { (void)MFShutdown(); });
     BridgeIdentity identity;
     if (FAILED(MakeBridgeIdentity(CurrentSid().c_str(), identity, &guid)))

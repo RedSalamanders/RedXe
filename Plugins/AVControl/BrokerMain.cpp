@@ -231,17 +231,20 @@ HRESULT FixtureCommand(const BrokerCommand& command, Inventory& inventory) noexc
 } // namespace
 int RunBroker(int argc, wchar_t** argv)
 {
+    // In a synthetic helper, 3 and 4 mean a failed runtime check and an abort (Common/FailureReports.h), so no other
+    // path ends with either: an unusable handle argument is a bad command line (2), and an unusable shared block ends
+    // as it does in the loop below (6).
     if (argc != 6 || std::wstring_view(argv[1]) != L"--broker")
         return 2;
     wil::unique_handle mapping, request, reply, changed;
     if (!ReadHandle(argv[2], mapping) || !ReadHandle(argv[3], request) || !ReadHandle(argv[4], reply) ||
         !ReadHandle(argv[5], changed))
-        return 3;
+        return 2;
     wil::unique_mapview_ptr<BrokerShared> shared(
         static_cast<BrokerShared*>(MapViewOfFile(mapping.get(), FILE_MAP_ALL_ACCESS, 0, 0, sizeof(BrokerShared))));
     if (!shared || shared->magic != BrokerMagic || shared->version != BrokerProtocolVersion ||
         shared->sizeBytes != sizeof(BrokerShared) || shared->synthetic > 1)
-        return 4;
+        return 6;
     const bool synthetic = shared->synthetic != 0;
     // Only tests start a synthetic helper. Like the test executable that started it, it never waits on a dialog: a
     // failed Debug check ends it with its report and exit code 3, and the test sees the helper end at once instead

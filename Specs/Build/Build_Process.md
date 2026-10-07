@@ -65,11 +65,16 @@ A test process never waits on a dialog. Every native test executable calls `Comm
   Abort/Retry/Ignore box. The report MUST NOT go through a CRT stream, whose default "C" locale stops at the first
   character above U+00FF (a source path under such a user or folder name): it is written as UTF-8 to a pipe or a file
   and as UTF-16 to a console, through a fixed stack buffer.
-- Exit code 3 MUST mean only a failed runtime check. An `abort()` that no such check reported (an `assert()`,
-  `std::terminate` after an unhandled exception, or a direct call) writes one line saying so to stderr and ends the
-  process with exit code 4, in every configuration. `assert()` and the CRT's runtime-error messages go to stderr, never
-  to a message box, in the GUI-subsystem `RedXe.exe` as well. Windows Error Reporting's dialog and critical-error boxes
-  are suppressed.
+- In a process that calls the header, exit code 3 MUST mean only a failed runtime check and exit code 4 only an
+  `abort()` that no such check reported: no other path of such a process, a fixture child mode or a watchdog
+  included, ends with either. That `abort()` (an `assert()`, a direct call, or in a test executable `std::terminate`
+  after an unhandled exception) writes one line saying so to stderr and ends the process with exit code 4, in every
+  configuration. `RedXe.exe` keeps its own terminate handler, which writes a crash dump and ends with exit code 127
+  ([`Core_CrashHandling.md`](../Core/Core_CrashHandling.md)), so in its self-test exit code 4 covers only an `assert()`
+  or a direct `abort()`. The CRT resets the abort handler to its default just before calling it, and the handler
+  re-arms itself first, so only a second `abort()` on another thread in that instant can still end with the CRT's own
+  exit code 3. `assert()` and the CRT's runtime-error messages go to stderr, never to a message box, in the
+  GUI-subsystem `RedXe.exe` as well. Windows Error Reporting's dialog and critical-error boxes are suppressed.
 - `test.ps1` runs `PluginContractTests.exe --failure-report-self-test`, a hidden switch that fails such a check on
   purpose with a report that carries a character above U+00FF. It requires the whole report and exit code 3 in Debug
   and ASan Debug, and exit code 0 in Release, which has no such checks. The run is bounded by two minutes, so a routing

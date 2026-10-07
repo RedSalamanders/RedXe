@@ -64,13 +64,15 @@ explicit open gates until their implementation and evidence are added.
 A hang MUST fail fast and name its stage. `AVControlTests.exe` runs its suites as named stages, each announced on a
 flushed line with the previous stage's duration, under a watchdog thread: a stage that exceeds three minutes, or a
 run that exceeds twelve, is reported on stderr as `FAIL AVControl: stage '<name>' did not finish within ...` and the
-process is terminated with exit code 3 (no CRT shutdown, because the hung thread may hold what it needs). Every
-wait a test performs — event, process, pipe, `Until` polling, thread bodies behind a `join()` — MUST carry a finite
-deadline that fails the enclosing check; `--watchdog-fixture <milliseconds>` hangs deliberately so `test.ps1` can
-prove the watchdog fires. `test.ps1` additionally gives every standalone test executable a fifteen-minute budget
-through `Invoke-RedXeStreamingProcess -TimeoutSeconds`; at the budget the child and everything it started are
-terminated and the call fails naming the executable and its log, so a CI leg reports the culprit within minutes
-instead of being cancelled at the job timeout with no diagnosis.
+process is terminated with exit code 10 (no CRT shutdown, because the hung thread may hold what it needs). The other
+paths of `AVControlTests.exe`, the camera fixture child modes included, MUST NOT end with 10, 3 or 4: 3 and 4 mean a
+failed runtime check and an abort ([`Build_Process.md`](../Build/Build_Process.md)). Every wait a test performs —
+event, process, pipe, `Until` polling, thread bodies behind a `join()` — MUST carry a finite deadline that fails the
+enclosing check; `--watchdog-fixture <milliseconds>` hangs deliberately so `test.ps1` can prove the watchdog fires
+with exit code 10. `test.ps1` additionally gives every standalone test executable a fifteen-minute budget through
+`Invoke-RedXeStreamingProcess -TimeoutSeconds`; at the budget the child and everything it started are terminated and
+the call fails naming the executable and its log, so a CI leg reports the culprit within minutes instead of being
+cancelled at the job timeout with no diagnosis.
 
 ## Module, confirmation and profile editing
 
@@ -261,9 +263,11 @@ surface whenever the widget is not raised, so a settled unraised widget holds on
 level readback, stale commands, malformed replies, crash, timeout, cancellation, partial startup cleanup and no orphan
 child. A synthetic helper, which only tests start, routes a failed Debug runtime check like a test executable
 (`Common/FailureReports.h`): it ends at once with exit code 3 instead of holding a dialog until the call's deadline,
-which the broker tests check through a fixture command that fails such a check. Idle synthetic helper CPU must remain
-below 5 ms over a 120 ms observation. Automated tests never open a real camera or change actual audio defaults, levels
-or mute.
+which the broker tests check through a fixture command that fails such a check. The other paths of
+`AVControlBroker.exe`, including the argument and shared-block checks that run before it knows it is synthetic, MUST
+NOT end with 3 or 4; the broker tests check that unusable handle arguments end it with exit code 2. Idle synthetic
+helper CPU must remain below 5 ms over a 120 ms observation. Automated tests never open a real camera or change actual
+audio defaults, levels or mute.
 
 `ProfileTransaction` preflights all three bindings and capabilities before any write, snapshots endpoint and role
 revisions, and applies the requested roles and optional levels while preserving mute/off. It reserves one third of
