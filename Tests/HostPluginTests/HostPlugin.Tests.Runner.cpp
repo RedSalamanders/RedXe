@@ -184,41 +184,35 @@ struct PluginHostTestAccess final
     }
 
     // Shutdown with a lane still stuck keeps the log writer alive for it, yet the queued lines, the drain timeout
-    // among them, are in the file when Shutdown returns. The idle writer is held suspended until that line is queued
-    // and 200 ms longer, so a shutdown that did not wait for the writer would return before the line is written.
+    // among them, are in the file when Shutdown returns. The writer is held at its test gate from before that line
+    // is queued, and only a FlushLog opens the gate, so a shutdown that did not flush returns with the line unwritten.
+    // A second Shutdown, as the process runtime's deleter makes, does not wait for the writer again.
     [[nodiscard]] static bool RunShutdownFlush(const std::filesystem::path& logRoot) noexcept
     {
         StallProbe probe;
         PluginHost host;
         host.SetDeviceAccessEnabled(false);
-        if (FAILED(host.SetLogDirectory(logRoot.c_str())) || FAILED(host.FlushLog(2000)) ||
-            !StartStalledLane(host, probe))
+        host._shutdownLogFlushMilliseconds = 10'000;
+        host._logWriterGate.reset(CreateEventW(nullptr, TRUE, TRUE, nullptr));
+        if (!host._logWriterGate || FAILED(host.SetLogDirectory(logRoot.c_str())) || !StartStalledLane(host, probe))
         {
             return false;
         }
-        const HANDLE writer = host._logWorker.native_handle();
-        if (SuspendThread(writer) == static_cast<DWORD>(-1))
-        {
-            (void)SetEvent(probe.release.get());
-            return false;
-        }
-        std::thread resumer(
-            [&host, writer]() noexcept
+        // Both are let go before the host's destructor joins the lane and the writer.
+        const auto release = wil::scope_exit(
+            [&]() noexcept
             {
-                const ULONGLONG deadline = GetTickCount64() + 10'000;
-                while (host._logQueued.load(std::memory_order_acquire) == 0 && GetTickCount64() < deadline)
-                {
-                    Sleep(10);
-                }
-                Sleep(200);
-                (void)ResumeThread(writer);
+                (void)SetEvent(host._logWriterGate.get());
+                (void)SetEvent(probe.release.get());
             });
+        (void)ResetEvent(host._logWriterGate.get());
         host.Shutdown();
         const std::string bytes = ReadTodayLog(logRoot);
         const bool writerKept = host._logWorker.joinable() && host.RunningDeviceWorkerCount() == 1;
-        resumer.join();
-        (void)SetEvent(probe.release.get());
-        return writerKept && CountText(bytes, "\"event\":\"device-lane-drain-timeout\"") == 1;
+        (void)ResetEvent(host._logWriterGate.get());
+        host.Shutdown();
+        const bool flushedOnce = WaitForSingleObject(host._logWriterGate.get(), 0) == WAIT_TIMEOUT;
+        return writerKept && flushedOnce && CountText(bytes, "\"event\":\"device-lane-drain-timeout\"") == 1;
     }
 
     // Ages every queued host action by `milliseconds`, as if the UI thread had stalled that long.
@@ -4572,6 +4566,25 @@ void TestHeldInputTimer(bool& success) noexcept
         Check(false, L"message-only timer window was created", success);
         return;
     }
+    // HostActions logs a refused release through the host SetHostWindow names; a private one keeps the records.
+    std::error_code error;
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() /
+        (L"RedXe.HeldInputTests." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()));
+    std::filesystem::create_directories(root, error);
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            std::error_code removeError;
+            std::filesystem::remove_all(root, removeError);
+        });
+    PluginHost logHost;
+    logHost.SetDeviceAccessEnabled(false);
+    if (error || FAILED(logHost.SetLogDirectory(root.c_str())))
+    {
+        Check(false, L"a temporary log directory can be created", success);
+        return;
+    }
     PluginHost& host = PluginHost::Instance();
     const auto findDescriptor = [&host](const char* action, const char* target) noexcept
     {
@@ -4609,7 +4622,7 @@ void TestHeldInputTimer(bool& success) noexcept
         }
     };
     const auto never = []() noexcept { return false; };
-    HostActions::SetHostWindow(window.get(), nullptr);
+    HostActions::SetHostWindow(window.get(), logHost.Interface());
     HostActions::ResetCounters();
     Check(HostActions::Execute(*keyDown, "Ctrl+A", false, nullptr) == S_OK &&
               HostActions::Execute(*keyDown, "Ctrl+B", false, nullptr) == S_OK &&
@@ -4625,7 +4638,7 @@ void TestHeldInputTimer(bool& success) noexcept
               HostActions::Execute(*mouseDown, "left", false, nullptr) == S_OK &&
               HostActions::CopyCounters().injectedInputs == 3,
           L"a held chord and a held button arm the host timer", success);
-    pumpHeldTimer(3000, []() noexcept { return HostActions::CopyCounters().heldReleases == 2; });
+    pumpHeldTimer(10'000, []() noexcept { return HostActions::CopyCounters().heldReleases == 2; });
     Check(HostActions::CopyCounters().heldReleases == 2 && HostActions::CopyCounters().injectedInputs == 6,
           L"a held chord and button release after two seconds without another action", success);
     Check(HostActions::Execute(*keyUp, "Ctrl+C", false, nullptr) == S_FALSE &&
@@ -4647,13 +4660,19 @@ void TestHeldInputTimer(bool& success) noexcept
               HostActions::Execute(*keyDown, "Ctrl+G", false, nullptr) == HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED) &&
               HostActions::CopyCounters().heldReleases == 0 && HostActions::CopyCounters().injectedInputs == 6,
           L"a refused release reports its failure and a new chord is not pressed over the stuck one", success);
+    // Each attempt injects the chord's two key-ups. After the first retry, a measured interval holds at most one
+    // retry per retry period, plus one, where a timer at its minimum period would retry dozens of times.
+    pumpHeldTimer(5000, []() noexcept { return HostActions::CopyCounters().injectedInputs > 6; });
+    const uint32_t firstRetry = HostActions::CopyCounters().injectedInputs;
+    const ULONGLONG measuredSince = GetTickCount64();
     pumpHeldTimer(1000, never);
-    const uint32_t retried = (HostActions::CopyCounters().injectedInputs - 6) / 2;
-    Check(HostActions::CopyCounters().heldReleases == 0 && retried >= 1 &&
-              retried <= 1000 / HostActions::kHeldReleaseRetryMilliseconds + 1,
+    const ULONGLONG measured = GetTickCount64() - measuredSince;
+    const uint32_t retried = (HostActions::CopyCounters().injectedInputs - firstRetry) / 2;
+    Check(firstRetry > 6 && HostActions::CopyCounters().heldReleases == 0 &&
+              retried <= measured / HostActions::kHeldReleaseRetryMilliseconds + 1,
           L"the refused release is retried at the retry interval while it stays tracked", success);
     HostActions::FailInjectionForTesting(S_OK);
-    pumpHeldTimer(2000, []() noexcept { return HostActions::CopyCounters().heldReleases == 1; });
+    pumpHeldTimer(5000, []() noexcept { return HostActions::CopyCounters().heldReleases == 1; });
     const uint32_t injected = HostActions::CopyCounters().injectedInputs;
     Check(HostActions::CopyCounters().heldReleases == 1 &&
               HostActions::Execute(*keyUp, "Ctrl+F", false, nullptr) == S_FALSE &&
@@ -4661,7 +4680,26 @@ void TestHeldInputTimer(bool& success) noexcept
           L"the retry releases the held chord once the desktop accepts input again", success);
     HostActions::ReleaseHeld(false);
     Check(HostActions::CopyCounters().heldReleases == 1, L"nothing else was left held", success);
+
+    // Shutdown makes the last attempt: a release refused then stops being tracked, so nothing retries it later.
+    Check(HostActions::Execute(*keyDown, "Ctrl+H", false, nullptr) == S_OK, L"a chord is held before shutdown",
+          success);
+    HostActions::FailInjectionForTesting(HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED));
+    HostActions::ReleaseHeld(false);
+    HostActions::FailInjectionForTesting(S_OK);
+    const uint32_t abandoned = HostActions::CopyCounters().injectedInputs;
+    HostActions::ReleaseHeld(false);
+    Check(HostActions::CopyCounters().heldReleases == 1 && HostActions::CopyCounters().injectedInputs == abandoned,
+          L"a release refused at shutdown is abandoned", success);
     HostActions::SetHostWindow(nullptr, nullptr);
+    Check(SUCCEEDED(logHost.FlushLog(10'000)), L"the held-input log drains", success);
+    const std::string bytes = ReadTodayLog(root);
+    Check(CountText(bytes, "\"event\":\"held-release-failed\"") == 1 &&
+              CountText(bytes, "\"event\":\"held-release-abandoned\"") == 1 &&
+              CountText(bytes, "\"level\":\"warning\"") == 2,
+          L"a refused hold logs held-release-failed once across its retries, and a release refused at shutdown logs "
+          L"held-release-abandoned once",
+          success);
 }
 
 void TestServiceLifetime(bool& success) noexcept

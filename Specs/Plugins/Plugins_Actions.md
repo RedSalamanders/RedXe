@@ -383,11 +383,12 @@ distinct failure.
   release on the timer after the deadline, their own `up` then injects nothing (`S_FALSE`) while any other `up`
   injects; with injection refused through a test seam, the `up` and a replacement down return the failure and press
   nothing, the release is retried at the retry interval rather than faster, and it releases once input is accepted
-  again. `TestLaunchWorker`: with a probe in place of the shell, a launch returns `S_FALSE` while it runs on the
-  worker's own STA thread, a full worker answers `ERROR_BUSY`, completions drain through the posted message with a
-  `launch-failed` Warning for a failure, an idle worker accrues no CPU time, shutdown joins an idle worker at once and
-  waits only the bound for a stuck one; and the real `ShellExecuteExW` on a file that does not exist (nothing starts)
-  logs `launch-failed` with `0x80070002`.
+  again; a release refused at shutdown is abandoned, and the log then holds exactly one `held-release-failed` and one
+  `held-release-abandoned`. `TestLaunchWorker`: with a probe in place of the shell, a launch returns `S_FALSE` while
+  it runs on the worker's own STA thread, a full worker answers `ERROR_BUSY`, completions drain through the posted
+  message with a `launch-failed` Warning for a failure, an idle worker accrues no CPU time, shutdown joins an idle
+  worker at once and waits only the bound for a stuck one; and the real `ShellExecuteExW` on a file that does not
+  exist (nothing starts) logs `launch-failed` with `0x80070002`.
 - `SettingsTests`: document-level acceptance of both templates' bindings (`page.*`, `widget.*`, `keys.media`, dialpad
   `turns`; in Debug also `logicon.keyPage.*`, `logicon.brightness`, and `zoom.open`) and of the `builtin.zoom`
   service object, rejection of unknown names, unknown default verbs, `iconPng`, and a non-launch Launcher item

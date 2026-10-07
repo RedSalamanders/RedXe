@@ -213,10 +213,10 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   most four times with doubling delays from 1 s and then waits for the next arrival, and stop drains within 3 s or
   the host logs one `device-lane-drain-timeout` and tombstones the slot, service COM object, thread, events, and
   module until `RunDeviceWork` returns. If a driver never returns, that exceptional storage remains until process
-  exit to avoid releasing memory still in use, and shutdown waits at most 1 s for the log writer to empty its queue
-  instead of joining it. A replacement lane cannot start in that slot while tombstoned; the late lane's return posts
-  one message that lets the UI thread reap the slot and restart a service the document still configures, with no
-  polling in between. Idle cost with a
+  exit to avoid releasing memory still in use, and shutdown waits at most 1 s in all for the log writer to empty its
+  queue instead of joining it. A replacement lane cannot start in that slot while tombstoned; the late lane's return
+  posts one message that lets the UI thread reap the slot and restart a service the document still configures, with
+  no polling in between. Idle cost with a
   connected keypad is zero wake-ups. A connected dialpad requires a process-wide Raw Input mouse sink and therefore
   wakes for mouse packets until disconnected; it filters by device and caps each queue drain at 256 messages. The
   lane owns at most one 434×434 BGRA compose surface, one 128 KiB JPEG buffer, one 4095-byte

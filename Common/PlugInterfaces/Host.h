@@ -143,8 +143,10 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     // activation), OnKey/OnCharacter, and OnDrop; forbidden from device, size, visibility, raise, Render, Prepare,
     // and every worker callback. Returns S_OK when done, S_FALSE when the action was deferred (a launch handed to the
     // host's launch worker, or an action that releases widgets, such as redxe.settings.reload, posted to run after the
-    // calling callback returns), or the failure (ERROR_BUSY for a page or widget action during a swipe or settle or a
-    // full launch queue, ERROR_NOT_FOUND for an unknown action, E_INVALIDARG for an unsatisfied target). A deferred
+    // calling callback returns) or when a keys.up or mouse.up names a hold its 2 s deadline already released (nothing
+    // is injected), or the failure (ERROR_BUSY for a page or widget action during a swipe or settle or a full launch
+    // queue, ERROR_NOT_FOUND for an unknown action, E_INVALIDARG for an unsatisfied target, or the injection failure
+    // when the release of a held key or button is refused; the hold stays tracked and the host retries it). A deferred
     // launch that fails later is logged, not returned. It never waits in the RequestAction ring, so it is never
     // coalesced or dropped for age.
     virtual HRESULT STDMETHODCALLTYPE ExecuteAction(const RedXeActionRequest* request) noexcept = 0;

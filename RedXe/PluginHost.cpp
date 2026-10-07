@@ -520,10 +520,12 @@ void PluginHost::Shutdown() noexcept
             // The lane still borrows this host and its module. The process singleton is intentionally retained,
             // and a private host's destructor joins before it releases this storage.
             HostActions::ReleaseHeld(DeviceAccessEnabled());
+            const bool first = !_shutdown;
             _shutdown = true;
             // The writer and its events stay alive because the lane may still log, but process exit would discard
-            // the queue, device-lane-drain-timeout included, so it is written out now within a bound.
-            if (FAILED(FlushLog(kShutdownLogFlushMilliseconds)))
+            // the queue, device-lane-drain-timeout included, so it is written out now within a bound. Only the
+            // first such call waits: the process runtime is shut down again by its deleter at static destruction.
+            if (first && FAILED(FlushLog(_shutdownLogFlushMilliseconds)))
             {
                 OutputDebugStringW(L"RedXe: the log writer did not drain at shutdown; its last lines may be lost.\n");
             }
@@ -767,6 +769,12 @@ HRESULT PluginHost::FlushLog(uint32_t timeoutMilliseconds) noexcept
     {
         return S_OK;
     }
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+    if (_logWriterGate)
+    {
+        SetEvent(_logWriterGate.get());
+    }
+#endif
     if (_logWakeEvent)
     {
         SetEvent(_logWakeEvent.get());
@@ -971,6 +979,12 @@ void PluginHost::LogWorker() noexcept
 
         for (;;)
         {
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+            if (_logWriterGate)
+            {
+                (void)WaitForSingleObject(_logWriterGate.get(), INFINITE);
+            }
+#endif
             LogLineSlot slot{};
             AcquireSRWLockExclusive(&_logLock);
             if (_logCount == 0)

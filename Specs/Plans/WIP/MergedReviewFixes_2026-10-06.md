@@ -286,7 +286,7 @@ Check a row when its fix lands, or note why it was dropped.
 - [x] `host-hardening#12` (low) `RedXe/PluginHost.cpp:2372`: A service re-added while its old device lane is still stuck fails with ERROR_BUSY, the error is discarded, and nothing retries when the lane returns
 - [x] `host-hardening#13` (low) `RedXe/HostActions.cpp:189`: A held key or button stops being tracked even when its release injection fails, so a modifier can stay down with no retry
 - [x] `host-hardening#6` (low) `RedXe/Application.cpp:3052`: If the screenshot worker thread cannot start, an idle --screenshot run can hang instead of exiting 8; the capture flags and atomic are redundant
-- [ ] `host-hardening#7` (low) `RedXe/HostActions.cpp:1088`: Every hold longer than 2 s injects its key-ups twice, and the Execute comment describes an exemption that no longer exists
+- [x] `host-hardening#7` (low) `RedXe/HostActions.cpp:1088`: Every hold longer than 2 s injects its key-ups twice, and the Execute comment describes an exemption that no longer exists
 - [x] `host-hardening#8` (low) `RedXe/Application.cpp:3435`: An open action-notice window is not closed when its notices are cleared, so it keeps showing stale failures
 - [x] `launch-ui-thread#2` (low) `Plugins/Actions/Zoom/Zoom.cpp:133`: zoom.open/zoom.join are flagged Deferred but defer only to the UI-thread ring, not a host-owned lane, so the flag gives no relief
 - [x] `launch-ui-thread#3` (low) `RedXe/Application.cpp:2704`: Tray Edit settings calls ShellExecuteExW with shell UI on the UI thread; an error box or a share-hosted --settings freezes the dashboard

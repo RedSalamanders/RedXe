@@ -274,11 +274,13 @@ object it was supplied to.
   `ExecuteAction` is UI-thread only, synchronous, non-reentrant, allowed from `OnPointer` (committed activation),
   `OnKey` / `OnCharacter`, and `OnDrop`, and never waits in the ring; a deferred action returns `S_FALSE` (a launch
   runs on the host's launch worker, and `redxe.settings.reload` and `redxe.quit` are posted so that a widget is never
-  released inside its own callback); `ValidateAction` resolves a name and checks its target without executing
-  anything and may map a registered publisher's module on first use. A `page.*` or `widget.*` action that arrives
-  during a page swipe, a raise settle, or while the settings error dialog is up is refused (`ERROR_BUSY`) rather than
-  queued, and a queued input action that waited more than 1 s for the UI thread is dropped; every other action still
-  executes. Every drained action is followed by one host-state publication to started services.
+  released inside its own callback), and so does a `keys.up` or `mouse.up` whose hold the 2 s deadline already
+  released (nothing is injected), while a refused release of a held key or button returns the injection failure and
+  stays tracked for retry; `ValidateAction` resolves a name and checks its target without executing anything and may
+  map a registered publisher's module on first use. A `page.*` or `widget.*` action that arrives during a page swipe,
+  a raise settle, or while the settings error dialog is up is refused (`ERROR_BUSY`) rather than queued, and a queued
+  input action that waited more than 1 s for the UI thread is dropped; every other action still executes. Every
+  drained action is followed by one host-state publication to started services.
 - `ReportWidgetStatus` records the condition of one widget instance, named by the instance ID the host passed to
   `CreateWidget`. Status is one of `RedXeWidgetStatusOk`, `Initializing`, `Degraded`, or `Unavailable`, with an
   optional borrowed UTF-16 reason the host copies into bounded storage and truncates. Repeat reports are idempotent;
@@ -427,7 +429,8 @@ the shipped ones; both also publish an action namespace (`Plugins_Actions.md`).
   again if the document still configures it. Process shutdown leaves the process runtime allocated if a lane is
   still active and keeps the log writer alive for it, but MUST write the queued log lines out within
   `kShutdownLogFlushMilliseconds` (1000) before it returns, reporting through `OutputDebugStringW` when the writer
-  does not finish; a private host destructor joins the lane before releasing storage.
+  does not finish. Only the first such `Shutdown` waits, so the process runtime's second shutdown at static
+  destruction adds no wait; a private host destructor joins the lane before releasing storage.
   `RedXeDataSetFlagDeviceLane` for data sources remains unimplemented.
 - **Developer-only widgets** (`kRedXeDebugOnlyBundledWidgetIds`, today `builtin.logicon-monitor`) stay catalogued and
   schema-accepted in every build so both shipped templates parse everywhere. Only the Debug template places them, and
@@ -1504,7 +1507,8 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     coalescing, and `ERROR_BUSY`, and the services' catalog validation, and a stalled lane: the overrun keeps its
     service and refuses a replacement, a re-added service gets `ERROR_BUSY` with one `service-start-deferred`, the
     lane's return posts `kServiceLaneMessage` and the next apply reaps the slot, and a shutdown with the lane still
-    stuck returns with `device-lane-drain-timeout` already in the log file. `SettingsTests` MUST cover the `services`
+    stuck returns with `device-lane-drain-timeout` already in the log file (a test gate holds the writer until a
+    flush releases it) while a second shutdown does not flush again. `SettingsTests` MUST cover the `services`
     grammar and rejections and both templates' Logicon and Zoom objects. Plugins_Logicon.md owns the protocol and
     face vectors.
 

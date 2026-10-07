@@ -203,7 +203,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     static constexpr size_t kMaximumNetworkWidgets = 8;
     static constexpr size_t kLogRingSlots = 32;
     static constexpr size_t kLogLineCapacity = 1024;
-    // The longest a shutdown with a device lane still running waits for the log writer to empty its queue.
+    // The longest the first shutdown with a device lane still running waits for the log writer to empty its queue.
     static constexpr uint32_t kShutdownLogFlushMilliseconds = 1000;
     static constexpr size_t kHostActionRingSlots = 16;
     // ServiceSlot::laneState bits.
@@ -431,6 +431,13 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     SRWLOCK _logLock = SRWLOCK_INIT;
     std::atomic<uint32_t> _logQueued{0};
     std::atomic<uint32_t> _logRetentionDays{kRedXeDefaultLogRetentionDays};
+    // kShutdownLogFlushMilliseconds; tests raise it so a loaded runner cannot miss the bound.
+    uint32_t _shutdownLogFlushMilliseconds = kShutdownLogFlushMilliseconds;
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+    // Test seam, set before the writer starts: while this manual-reset event is reset, the writer waits before it
+    // takes each queued line. FlushLog sets it, so a test sees exactly which lines a flush wrote.
+    wil::unique_event_nothrow _logWriterGate;
+#endif
     std::array<HostActionSlot, kHostActionRingSlots> _hostActions{};
     size_t _hostActionHead = 0;
     size_t _hostActionCount = 0;
