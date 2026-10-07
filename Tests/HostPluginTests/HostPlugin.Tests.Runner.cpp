@@ -6101,6 +6101,8 @@ void TestActionValidation(bool& success) noexcept
     Check(host.ValidateAction(&request, nullptr) == S_OK, L"a monitor-relative point validates", success);
     request.targetUtf8 = "center@secondary";
     Check(host.ValidateAction(&request, nullptr) == S_OK, L"a point on the second screen validates", success);
+    request.targetUtf8 = "center@all";
+    Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a point's own @<monitor> never takes all", success);
     request.targetUtf8 = "+10,20";
     Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a half-relative point is invalid", success);
     request.actionUtf8 = "system.power.plan";
@@ -6112,6 +6114,21 @@ void TestActionValidation(bool& success) noexcept
     request.targetUtf8 = nullptr;
     Check(host.ValidateAction(&request, nullptr) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND),
           L"an unregistered namespace is not found", success);
+    // The monitor grammar Action.h gives publishers (no shipped action uses it yet): a Monitor target takes every
+    // selector but `all`, which only the trailing @<monitor> of an action flagged MonitorSuffix accepts.
+    RedXeActionDescriptor monitorTarget{};
+    monitorTarget.sizeBytes = sizeof(monitorTarget);
+    monitorTarget.targetKind = RedXeActionTargetMonitor;
+    RedXeActionDescriptor monitorSuffix = monitorTarget;
+    monitorSuffix.flags = RedXeActionFlagMonitorSuffix;
+    monitorSuffix.targetKind = RedXeActionTargetInteger;
+    monitorSuffix.targetMinimum = 1;
+    monitorSuffix.targetMaximum = 9;
+    Check(RedXeActions::ValidateTarget(monitorTarget, "secondary") == S_OK &&
+              RedXeActions::ValidateTarget(monitorTarget, "all") == E_INVALIDARG &&
+              RedXeActions::ValidateTarget(monitorSuffix, "3@secondary") == S_OK &&
+              RedXeActions::ValidateTarget(monitorSuffix, "3@all") == S_OK,
+          L"a Monitor target takes secondary but not all; a monitor suffix takes both", success);
 
     // Registered publishers: mapping Logicon.dll reads its contract; the zoom contract comes from zoom.action.dll.
     request.actionUtf8 = "logicon.keyPage.goto";

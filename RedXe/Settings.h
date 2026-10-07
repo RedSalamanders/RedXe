@@ -387,15 +387,16 @@ enum class SettingsReloadStatus : std::uint8_t
                                                   std::string_view settingsJson) noexcept;
 // Sets `dock.thickness` in the typed settings and the retained source document (creating `dock` on its own line after
 // `version`, and raising `version.minor` to 2 when lower, typed minor included); a dragged bar edge persists through
-// this. The formatting contract applies, and the patched source must parse back to the running dock with the new
-// thickness and to the same document otherwise, or nothing changes. S_FALSE when the typed thickness already is
-// `thicknessDips`: typed settings and the source are not touched.
+// this. A source edit, not the widget persist's rewrite: comments, spacing, line breaks, and every other member stay
+// (Core_Settings.md "Dock"), and the patched source must parse back to the running dock with the new thickness and to
+// the same document otherwise, or nothing changes. S_FALSE when the typed thickness already is `thicknessDips`: typed
+// settings and the source are not touched.
 [[nodiscard]] HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept;
 // Writes `dock` into a template's source for the first start without a XENEON (Core_Settings.md "Cold load and
 // recovery"): a new member on its own line after `version`, with a comment naming why and how to turn it off, or the
 // value of an existing `dock`. The commented-out `dock` example and the comment lines introducing it are removed, so
 // the result defines the dock once; other comments and every other member stay. `version.minor` rises to 2 when lower,
-// or to 3 when the dock names the `secondary` monitor.
+// or to 3 when the dock names the `secondary` monitor or sets a non-default `animationMilliseconds`.
 [[nodiscard]] HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcept;
 
 // The first-run dock for SettingsStore::Initialize, made only when the store installs the default file because it is

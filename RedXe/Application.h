@@ -508,7 +508,9 @@ class Application final
     LONG _dockVisiblePx = 0;
     UINT64 _dockSlideStartQpc = 0;
     UINT64 _dockSlideDurationQpc = 0;
-    // Set around the SetWindowPos of a reveal or hide so OnSize does not treat the strip as a dashboard resize.
+    // Set around the host's own SetWindowPos of the bar (a placement, a reveal or hide, every slide step, a drag
+    // preview), so WM_WINDOWPOSCHANGED sends the shell no ABM_WINDOWPOSCHANGED for it: a placement sends its own once,
+    // and the others send none, never one per slide frame.
     bool _dockResizing = false;
     DockPlacementRequests _dockPlacement{};
     bool _dockPointerInside = false;

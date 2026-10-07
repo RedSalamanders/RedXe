@@ -62,12 +62,14 @@ The command line is declared once in `RedXe/CommandLine.h`: the catalog `--help`
 parses through, so a switch cannot exist without an entry. Adding, renaming, or removing a switch changes that
 catalog, the "Command line" section of `docs/usage.md`, and the owning row of this table in the same change;
 `SettingsTests` pins the catalog (unique well-formed names, every entry printed, the help aliases, the unknown-token
-scanner) and the unattended-run policy `Main.cpp` applies through it (`RedXeIsUnattendedRun`: `--self-test` or
+scanner, and the description of a run without switches, which names the bar a `dock` makes and the first-run bar)
+and the unattended-run policy `Main.cpp` applies through it (`RedXeIsUnattendedRun`: `--self-test` or
 `--screenshot` on the line; `RedXeShowsExitCodeBox`: no exit-code box for an unattended run; `RedXeScreenshotExitCode`:
 8 for a capture run without its PNG, whatever ended it; `RedXeExitCodeName`: the `failure-exit` record names each
 code as `--help` lists it), and `test.ps1` runs `--help` through a redirected stdout, an unknown switch under
-`--self-test`, and a missing switch value under `--self-test` and an invalid one under `--screenshot`, each bounded so
-that a message box fails the step instead of holding it. It also runs `--screenshot` end to end, bounded, with a
+`--self-test`, a missing switch value under `--self-test`, an invalid one under `--screenshot`, and an unknown `--dock`
+monitor under `--self-test`, whose usage MUST name every selector the dock accepts, each bounded so that a message box
+fails the step instead of holding it. It also runs `--screenshot` end to end, bounded, with a
 portable settings file on a thin fixed bar on the primary display that reserves nothing (`--dock bottom@primary
 --dock-mode fixed --dock-reserve off --dock-thickness 32`, `--after 200`): the run MUST exit 0 with a non-empty PNG,
 or 8 with a `screenshot-failed` record for a host that cannot capture (`E_NOTIMPL`, `DXGI_ERROR_UNSUPPORTED`,

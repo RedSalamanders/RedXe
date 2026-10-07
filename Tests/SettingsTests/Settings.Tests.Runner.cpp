@@ -1689,9 +1689,9 @@ constexpr std::string_view kRepresentative = R"json(
 }
 
 // The command-line catalog (RedXe/CommandLine.h): every switch is unique, well formed, and printed by --help; the
-// help aliases are recognized; the unattended runs, a capture run's exit code, the exit-code box, and the names the
-// failure-exit record gives the codes follow the policy Main.cpp applies; the argument scanner accepts a full valid
-// line and names the first stray token.
+// help aliases are recognized; the help says a run without switches can be a bar; the unattended runs, a capture run's
+// exit code, the exit-code box, and the names the failure-exit record gives the codes follow the policy Main.cpp
+// applies; the argument scanner accepts a full valid line and names the first stray token.
 [[nodiscard]] HRESULT ValidateCommandLineCatalog() noexcept
 {
     try
@@ -1734,6 +1734,14 @@ constexpr std::string_view kRepresentative = R"json(
             help.find(L"-h, /?, -?") == std::wstring::npos)
         {
             std::wprintf(L"--help lacks the usage line, the exit codes, or the help aliases.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // Without switches RedXe follows the settings file, so a `dock` there, including the one a first start without
+        // a XENEON writes, makes it a bar (the mode table's Dock row): --help names both, not only the two windows.
+        if (help.find(L"bar on a screen edge") == std::wstring::npos ||
+            help.find(L"first start without a XENEON") == std::wstring::npos)
+        {
+            std::wprintf(L"--help does not say that a run without switches can be a bar, or which file writes one.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         // The alias launcher waits exactly for the modes that end on their own and forwards their exit code. Every

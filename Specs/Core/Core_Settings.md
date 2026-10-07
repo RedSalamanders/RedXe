@@ -352,13 +352,18 @@ stay in memory, the host returns `S_FALSE` so the widget keeps its state, and on
 is logged per distinct on-disk state (a missing and an unreadable file count as one state). The next applied load
 replaces that in-memory document; writes resume once the file on disk is again the document last applied.
 
-Persisted documents MUST use a compact, readable layout with two-space indentation and a final LF newline. Keep
+A widget persist that changes the document (collect-on-exit and a queued import included) writes the whole document
+again from its parsed form, which keeps no comments, and that document MUST use a compact, readable layout with
+two-space indentation and a final LF newline. Keep
 empty objects and arrays inline. Keep small objects inline when they fit a soft 120-byte line width; a single scalar
 property stays together even when its indivisible string or path exceeds that width. Keep the root object, nonempty
 `declare`, `pages`, `widgets`, `columns`, `rows`, and `shortcuts` sections multiline, and put each nonempty array item on its own
 line. The internal plugin/factory settings representations remain compact. Reject a formatted result exceeding
 1 MiB and roll back the typed and source state. Preserve semantic values, member order and compatible newer-minor
-fields. Formatting changes only whitespace outside JSON tokens and runs only when saving settings.
+fields. Formatting changes only whitespace outside JSON tokens and runs only when saving settings. The other writes
+keep the document's own text: the `dock.thickness` drag and the first-run dock are source edits that leave every byte
+outside their patch as it was, comments included ("Dock", "Cold load and recovery"), and an install writes the
+template's bytes unchanged.
 If an interactive save arrives while an older patch for that instance is queued, apply the older patch first, then
 the interactive patch. A failed older commit is logged and must not prevent a valid newer save. Neither may run
 under the queue lock. A detached UI delivery batch must not drain newer worker submissions ahead of itself.
@@ -404,7 +409,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   with the comment lines directly above it that introduce it and tell the reader to uncomment it, each whole line with
   its line break, so the installed file defines the dock once and following its comments cannot add a duplicate
   `dock` member. Every other byte of the template is unchanged; an existing `dock` member would have its value
-  replaced instead, and `version.minor` rises to 2 when lower, or to 3 when the dock names the `secondary` monitor.
+  replaced instead, and `version.minor` rises to 2 when lower, or to 3 when the dock names the `secondary` monitor or
+  sets a non-default `animationMilliseconds`.
   The display spec owns the dock's edge, monitor, and thickness (the free bottom edge first, on the second screen when
   there is more than one display). The store MUST ask for that dock (`FirstRunDockProvider`) only once it has found
   the default file missing, at most once per start, so a start that finds the file, a recovery, a `--settings` file,

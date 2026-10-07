@@ -54,7 +54,7 @@ enum RedXeActionTargetKind : uint32_t
     RedXeActionTargetChords = 10,
     // "x,y", "+dx,+dy", or "center", optionally "@<monitor>".
     RedXeActionTargetPoint = 11,
-    // "primary", "xeneon", "all", "<n>", or "name:<substring>".
+    // "primary", "secondary", "xeneon", "<n>" (1-based), or "name:<substring>" (not "all").
     RedXeActionTargetMonitor = 12,
     // "foreground", "exe:<image.exe>", "class:<class>", or "title:<substring>".
     RedXeActionTargetWindow = 13,
@@ -77,7 +77,7 @@ enum RedXeActionFlags : uint32_t
     RedXeActionFlagDeferred = 1U << 2U,
     // The target must name the confirming argument (for example "now"); the host validator enforces it.
     RedXeActionFlagDestructive = 1U << 3U,
-    // The target accepts a trailing "@<monitor>" selector.
+    // The target accepts a trailing "@<monitor>" selector: a RedXeActionTargetMonitor value, or "all".
     RedXeActionFlagMonitorSuffix = 1U << 4U,
     // The target accepts a trailing "@<window>" selector.
     RedXeActionFlagWindowSuffix = 1U << 5U,
