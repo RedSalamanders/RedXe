@@ -499,6 +499,10 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   (including a retired name in another case) and a second Zoom entry are rejected, and that the schema's services Zoom
   variant is deprecated and lists the members as deprecated. A minor 2 document whose Logicon key, dialpad button, and
   turn bind `keys.down` or `mouse.down` loads, validates, and keeps those bindings for the service.
+- Host tests load an empty services Zoom entry and one carrying retired members through the settings store, each at
+  startup and on a live reload in the order `Application` runs them, and prove the JSONL log gains exactly one
+  `service-retired-settings-ignored` Warning from `builtin.zoom` per load or applied reload, and none for an unchanged
+  notification, a repeated service apply, or a reload without the entry.
 - Tests prove `trayIcon`: omitted it is `true` in Release and `false` in Debug, also in a minor 2 document; an authored
   `true` or `false` wins; a string, a number, `null`, an object, and a duplicate member are rejected, with the
   diagnostic on `$.trayIcon`; the member changes no other typed setting; both templates author it (`false` in Debug,

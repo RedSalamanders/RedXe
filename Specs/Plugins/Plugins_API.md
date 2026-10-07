@@ -1411,6 +1411,11 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     moves Desk Clock's glyph atlas to its higher tier and back down when the viewport shrinks, and that the widget
     still renders after a tier change. Also verify one notification for a DPI-only change, none for unchanged DPI,
     correct initial notification for a same-sized replacement page, and cache preservation on promotion.
+    With fault-injecting wrappers around placed GPU widgets on WARP, they MUST prove that a failed `OnDeviceCreated`,
+    at startup and while staging a page, releases the widgets already set up, sets up no later one, keeps the page
+    hidden, and logs one Error `gpu-device-create-failed` with that instance and `HRESULT`; and that a failed
+    `OnTargetSizeChanged` releases nothing, is not retried per frame, leaves that widget and its siblings rendering,
+    and logs one Warning `gpu-target-size-failed` with that instance and `HRESULT`.
     Lifecycle tests MUST prove data/network widgets are hidden during all device callbacks and render after WARP
     recreation. Event-barrier tests MUST prove subscription release and deactivation wait for running and reserved
     callbacks, allow reactivation, and safely reuse released subscription slots.

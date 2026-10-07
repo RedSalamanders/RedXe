@@ -563,20 +563,6 @@ void LogWindowKindSwitchFailed(HRESULT result) noexcept
                        "A settings reload could not switch the window kind; the previous kind is restored.", result);
 }
 
-// A `services` entry may name a service a later RedXe retired (today builtin.zoom, with or without its v1.0.102
-// members): the document still loads, and each load or live apply logs one warning per such entry
-// (Core_Settings.md "Services").
-void LogRetiredServiceSettings(const AppSettings& settings) noexcept
-{
-    for (const SettingsText& pluginId : settings.retiredServices)
-    {
-        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, pluginId.utf8.data(), nullptr,
-                           "service-retired-settings-ignored",
-                           "This services entry is no longer needed: the plugin is not a service any more, so the "
-                           "entry is ignored and can be deleted.");
-    }
-}
-
 } // namespace
 
 class ApplicationDropTarget final : public IDropTarget
@@ -809,7 +795,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         (void)PluginHost::Instance().SetLogDirectory(_settingsStore.LogsDirectory().c_str());
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
     }
-    LogRetiredServiceSettings(*_settings);
+    PluginHost::Instance().LogRetiredServiceSettings(*_settings);
     if (_settingsStore.InstalledFirstRunDock())
     {
         std::array<char, 192> message{};
@@ -5524,7 +5510,7 @@ void Application::OnSettingsChanged() noexcept
     if (SUCCEEDED(applyResult))
     {
         _settingsStore.MarkApplied(stamp);
-        LogRetiredServiceSettings(*_settings);
+        PluginHost::Instance().LogRetiredServiceSettings(*_settings);
         CloseSettingsError();
         OutputDebugStringW(L"RedXe settings were reloaded live.\n");
         return;

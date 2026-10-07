@@ -63,6 +63,9 @@ class PluginManager final
     [[nodiscard]] uint32_t GridRows() const noexcept;
 
   private:
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+    friend struct PluginManagerTestAccess;
+#endif
     struct WidgetSlot final
     {
         wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;

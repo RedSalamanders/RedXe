@@ -160,10 +160,13 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   makes a layered child legal (`UI_XeneonDisplayWindowing.md`). A native child HWND over the swap chain still forces composed presentation for the whole
   window while it exists, which is why no shipped page places one (`Core_Settings.md` template coverage exception).
 - Resolution-dependent plugin resources are rebuilt on `IRedXeGpuWidget::OnTargetSizeChanged`, never in `Render`. That
-  callback is the sanctioned place for rasterization, texture creation, and allocation in a GPU widget, because it is
+  callback is the sanctioned place for rasterizing, creating textures for, and allocating such resources, because it is
   event driven: the host reports only an actual change in the largest viewport it will draw that widget at, never a
   position-only change and never per frame. Freezing such a resource at device-creation size instead is a defect, not
-  a saving -- it produces wrong output at every other size.
+  a saving -- it produces wrong output at every other size. What does not depend on the drawn size, such as per-device
+  lookup tables, is created and drawn once in `OnDeviceCreated`; that callback and the optional
+  `IRedXePreparedGpuWidget::Prepare` phase are the only other GPU callbacks that may allocate or rasterize
+  (`Specs/Plugins/Plugins_API.md` "GPU widget contract").
 - Plugin `Render` calls use borrowed frame and D3D context records. A page-swipe viewport keeps the widget's full
   size and MAY have a negative origin; shrinking it to the visible intersection would rebuild resolution-dependent
   resources and reflow content every frame of the slide. Render, resize, and

@@ -212,9 +212,12 @@ Keep the boundary explicit:
 - GPU widgets receive the borrowed D3D11 device during setup and immediate context during rendering, but never the
   HWND, swap chain, or back buffer. The host binds only render target and viewport before each callback, so a widget
   binds every other state it depends on, including scissor state.
-- A GPU widget rebuilds resolution-dependent resources in `OnTargetSizeChanged`, which the host calls only when the
-  largest viewport it will draw that widget at actually changes. That is the one GPU callback allowed to rasterize,
-  create textures, or allocate; `Render` stays allocation-free.
+- A GPU widget creates its device resources in `OnDeviceCreated`, which MAY allocate bounded resources and rasterize
+  what does not depend on the drawn size, such as per-device lookup tables (5H4D3R5), and rebuilds
+  resolution-dependent resources in `OnTargetSizeChanged`, which the host calls only when the largest viewport it will
+  draw that widget at actually changes. Those two and the optional `IRedXePreparedGpuWidget::Prepare` are the only GPU
+  callbacks allowed to rasterize, create textures, or allocate (`Specs/Plugins/Plugins_API.md`); `Render` stays
+  allocation-free.
 - A window widget receives only a host-owned child container, never the top-level HWND, and destroys all plugin-owned
   children before detach returns.
 - Device-independent state survives swap-chain recreation; device resources are rebuilt together after device loss.

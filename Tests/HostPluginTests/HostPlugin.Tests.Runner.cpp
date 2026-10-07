@@ -242,6 +242,30 @@ struct PluginHostTestAccess final
         const auto guard = wil::AcquireSRWLockExclusive(&host._launches._lock);
         return host._launches._count;
     }
+
+    // Stops the writer and forgets the directory, so later records are dropped again as before SetLogDirectory. A test
+    // that points the process host's log (the one Renderer writes through) at a temporary directory restores it so.
+    static void DetachLog(PluginHost& host) noexcept
+    {
+        host.StopLogService();
+        host._logDirectory.clear();
+        host._logFilePath.clear();
+    }
+};
+
+struct PluginManagerTestAccess final
+{
+    // Replaces the GPU interface the host calls for one placed widget, for a fault-injecting wrapper around it.
+    [[nodiscard]] static bool ReplaceGpuWidget(PluginManager& plugins, size_t index,
+                                               IRedXeGpuWidget* replacement) noexcept
+    {
+        if (index >= plugins._widgetCount || !plugins._widgets[index].gpuWidget || !replacement)
+        {
+            return false;
+        }
+        plugins._widgets[index].gpuWidget = replacement;
+        return true;
+    }
 };
 
 namespace
@@ -3230,6 +3254,231 @@ void TestGpuPageLifetime(bool& success)
           L"all data and network widget device callbacks run while the widget is quiescent", success);
 }
 
+// Wraps one placed GPU widget so a host test can fail its device or size callback on demand and count what the host
+// calls; everything else is forwarded. A failed call never reaches the wrapped widget, which keeps what it had.
+class FaultInjectingGpuWidget final : public RedXeComObject<FaultInjectingGpuWidget, IRedXeGpuWidget>
+{
+  public:
+    explicit FaultInjectingGpuWidget(IRedXeGpuWidget* inner) noexcept : _inner(inner) {}
+
+    HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept override
+    {
+        ++deviceCreatedCalls;
+        return FAILED(deviceCreatedFailure) ? deviceCreatedFailure : _inner->OnDeviceCreated(context);
+    }
+    void STDMETHODCALLTYPE OnDeviceLost() noexcept override
+    {
+        ++deviceLostCalls;
+        _inner->OnDeviceLost();
+    }
+    HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
+    {
+        ++targetSizeCalls;
+        return FAILED(targetSizeFailure) ? targetSizeFailure : _inner->OnTargetSizeChanged(context);
+    }
+    HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
+    {
+        ++renderCalls;
+        return _inner->Render(context);
+    }
+
+    HRESULT deviceCreatedFailure = S_OK;
+    HRESULT targetSizeFailure = S_OK;
+    uint32_t deviceCreatedCalls = 0;
+    uint32_t deviceLostCalls = 0;
+    uint32_t targetSizeCalls = 0;
+    uint32_t renderCalls = 0;
+
+  private:
+    wil::com_ptr_nothrow<IRedXeGpuWidget> _inner;
+};
+
+using GpuFaults = std::array<wil::com_ptr_nothrow<FaultInjectingGpuWidget>, 3>;
+
+// Wraps the three placed GPU widgets of `plugins`; false when one is missing or cannot be wrapped.
+[[nodiscard]] bool WrapGpuWidgets(PluginManager& plugins, GpuFaults& faults) noexcept
+{
+    for (size_t index = 0; index < faults.size(); ++index)
+    {
+        IRedXeGpuWidget* const inner = plugins.GpuWidgetAt(index);
+        if (!inner)
+        {
+            return false;
+        }
+        faults[index].attach(new (std::nothrow) FaultInjectingGpuWidget(inner));
+        if (!faults[index] || !PluginManagerTestAccess::ReplaceGpuWidget(plugins, index, faults[index].get()))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// The JSONL lines in `text` with this level, instance, and event, ending with this HRESULT.
+[[nodiscard]] size_t CountInstanceRecords(std::string_view text, std::string_view level, const char* instance,
+                                          std::string_view event, HRESULT code)
+{
+    std::array<char, 16> hr{};
+    (void)sprintf_s(hr.data(), hr.size(), "0x%08X", static_cast<unsigned int>(code));
+    const std::string head = "\"level\":\"" + std::string(level) + "\",\"instance\":\"" +
+                             std::string(instance ? instance : "") + "\",\"event\":\"" + std::string(event) + "\"";
+    const std::string tail = "\"hr\":\"" + std::string(hr.data()) + "\"}";
+    size_t count = 0;
+    while (!text.empty())
+    {
+        const size_t end = text.find('\n');
+        const std::string_view line = text.substr(0, end);
+        if (line.find(head) != std::string_view::npos && line.ends_with(tail))
+        {
+            ++count;
+        }
+        text = end == std::string_view::npos ? std::string_view{} : text.substr(end + 1);
+    }
+    return count;
+}
+
+// The two GPU callback failures the host logs (Plugins_API.md "GPU widget contract"). A failed OnDeviceCreated fails
+// the device setup of its whole page, at startup and when a page is staged for a swipe: the widgets set up before it
+// are released, the page stays hidden, and one Error gpu-device-create-failed names the instance and the HRESULT. A
+// failed OnTargetSizeChanged is isolated: the widget keeps its previous resources and still renders beside the others,
+// the notification is not retried per frame, and one Warning gpu-target-size-failed names the instance and HRESULT.
+void TestGpuWidgetCallbackFailures(bool& success)
+{
+    std::wcout << L"[ RUN      ] GPU widget device-setup rollback and isolated target-size failure, logged\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":5},"pages":[{"columns":[{"plugin":"builtin.rotating-triangle"},)json"
+        R"json({"plugin":"builtin.rotating-triangle"},{"plugin":"builtin.rotating-triangle"}]}]})json";
+    constexpr HRESULT kStartupFailure = HRESULT_FROM_WIN32(ERROR_GEN_FAILURE);
+    constexpr HRESULT kStagingFailure = HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE);
+    constexpr HRESULT kSizeFailure = HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_MEMORY);
+
+    // Renderer logs through the process host, so its log points at a temporary directory for this test only.
+    std::error_code error;
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() /
+        (L"RedXe.GpuFailureTests." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()));
+    std::filesystem::create_directories(root, error);
+    PluginHost& processHost = PluginHost::Instance();
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            PluginHostTestAccess::DetachLog(processHost);
+            std::error_code removeError;
+            std::filesystem::remove_all(root, removeError);
+        });
+    if (error || FAILED(processHost.SetLogDirectory(root.c_str())))
+    {
+        Check(false, L"the process host logs to a temporary directory", success);
+        return;
+    }
+
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(settingsJson, settings);
+    AttachedHostWindow window;
+    if (SUCCEEDED(result))
+        result = window.Initialize(kHostWidth, kHostHeight);
+    PluginManager plugins;
+    PluginManager stagedPlugins;
+    if (SUCCEEDED(result))
+        result = plugins.Initialize(settings);
+    if (SUCCEEDED(result))
+        result = stagedPlugins.Initialize(settings);
+    GpuFaults faults;
+    GpuFaults stagedFaults;
+    if (SUCCEEDED(result) && (!WrapGpuWidgets(plugins, faults) || !WrapGpuWidgets(stagedPlugins, stagedFaults)))
+        result = E_FAIL;
+    DashboardHost dashboard;
+    DashboardHost staged;
+    if (SUCCEEDED(result))
+        result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
+    if (SUCCEEDED(result))
+        result = staged.Initialize(stagedPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    const char* const firstId = SUCCEEDED(result) ? plugins.WidgetInstanceIdAt(0) : nullptr;
+    const char* const secondId = SUCCEEDED(result) ? plugins.WidgetInstanceIdAt(1) : nullptr;
+    const char* const thirdId = SUCCEEDED(result) ? stagedPlugins.WidgetInstanceIdAt(2) : nullptr;
+    Check(SUCCEEDED(result) && plugins.WidgetCount() == 3 && stagedPlugins.WidgetCount() == 3 && firstId && secondId &&
+              thirdId && std::strcmp(firstId, secondId) != 0 && std::strcmp(secondId, thirdId) != 0 &&
+              std::strcmp(firstId, thirdId) != 0,
+          L"two pages of three wrapped GPU widgets with distinct instance IDs construct", success);
+    if (FAILED(result) || !firstId || !secondId || !thirdId)
+        return;
+
+    // Startup: the second widget fails, so the first is released, the third is never set up, and nothing draws.
+    Renderer renderer;
+    faults[1]->deviceCreatedFailure = kStartupFailure;
+    result = renderer.Initialize(window.Get(), true, dashboard);
+    Check(result == kStartupFailure, L"a failed OnDeviceCreated fails the startup device setup with its HRESULT",
+          success);
+    Check(faults[0]->deviceCreatedCalls == 1 && faults[0]->deviceLostCalls == 1 && faults[1]->deviceCreatedCalls == 1 &&
+              faults[1]->deviceLostCalls == 0 && faults[2]->deviceCreatedCalls == 0 && !dashboard.WidgetsVisible(),
+          L"the startup rollback releases the widget already set up, sets up no later one, and keeps the page hidden",
+          success);
+    (void)renderer.Render(0.0f, 0.0f);
+    const size_t drawnAfterFailure = renderer.LastFrameWidgetCount();
+    renderer.Shutdown();
+    Check(drawnAfterFailure == 0 && faults[0]->renderCalls == 0 && faults[2]->renderCalls == 0 &&
+              faults[0]->deviceLostCalls == 1,
+          L"a page whose setup failed draws nothing and is not released twice", success);
+
+    faults[1]->deviceCreatedFailure = S_OK;
+    result = renderer.Initialize(window.Get(), true, dashboard);
+    if (SUCCEEDED(result))
+        result = dashboard.SetWidgetsVisible(true);
+    if (SUCCEEDED(result))
+        result = renderer.Render(0.0f, 0.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 3,
+          L"the same page sets up and draws once the widget succeeds", success);
+    if (FAILED(result))
+        return;
+
+    // Staging for a swipe: the third widget fails; the staged page is dropped and the current page keeps drawing.
+    stagedFaults[2]->deviceCreatedFailure = kStagingFailure;
+    result = renderer.SetTransitionDashboard(&staged);
+    Check(result == kStagingFailure && stagedFaults[0]->deviceLostCalls == 1 && stagedFaults[1]->deviceLostCalls == 1 &&
+              stagedFaults[2]->deviceCreatedCalls == 1 && stagedFaults[2]->deviceLostCalls == 0 &&
+              !staged.WidgetsVisible(),
+          L"a failed OnDeviceCreated on a staged page releases its widgets already set up and fails the staging",
+          success);
+    result = renderer.Render(0.1f, 0.1f);
+    Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 3 && renderer.LastFrameSuccessfulWidgetCount() == 3 &&
+              stagedFaults[0]->renderCalls == 0,
+          L"the current page keeps drawing and the dropped staged page draws nothing", success);
+
+    // Resize: the first widget's size notification fails; it keeps its resources and draws, and so do the others.
+    std::array<uint32_t, 3> sizes{};
+    for (size_t index = 0; index < sizes.size(); ++index)
+        sizes[index] = faults[index]->targetSizeCalls;
+    const uint32_t releases = faults[0]->deviceLostCalls;
+    const uint32_t renders = faults[0]->renderCalls;
+    faults[0]->targetSizeFailure = kSizeFailure;
+    result = renderer.Resize(kHostWidth / 2, kHostHeight / 2);
+    Check(SUCCEEDED(result) && faults[0]->targetSizeCalls == sizes[0] + 1 &&
+              faults[1]->targetSizeCalls == sizes[1] + 1 && faults[2]->targetSizeCalls == sizes[2] + 1 &&
+              faults[0]->deviceLostCalls == releases,
+          L"a resize notifies each widget once, and a failed notification releases nothing", success);
+    if (SUCCEEDED(result))
+        result = renderer.Render(0.2f, 0.1f);
+    if (SUCCEEDED(result))
+        result = renderer.Render(0.3f, 0.1f);
+    Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 3 && renderer.LastFrameSuccessfulWidgetCount() == 3 &&
+              faults[0]->renderCalls == renders + 2 && faults[0]->targetSizeCalls == sizes[0] + 1,
+          L"the widget whose size notification failed keeps drawing with its previous resources beside the others, "
+          L"and the notification is not retried per frame",
+          success);
+    renderer.Shutdown();
+
+    Check(SUCCEEDED(processHost.FlushLog(10'000)), L"the GPU failure log drains", success);
+    const std::string bytes = ReadTodayLog(root);
+    Check(CountText(bytes, "\"event\":\"gpu-device-create-failed\"") == 2 &&
+              CountInstanceRecords(bytes, "error", secondId, "gpu-device-create-failed", kStartupFailure) == 1 &&
+              CountInstanceRecords(bytes, "error", thirdId, "gpu-device-create-failed", kStagingFailure) == 1,
+          L"each failed device setup logs one gpu-device-create-failed Error naming the instance and HRESULT", success);
+    Check(CountText(bytes, "\"event\":\"gpu-target-size-failed\"") == 1 &&
+              CountInstanceRecords(bytes, "warning", firstId, "gpu-target-size-failed", kSizeFailure) == 1,
+          L"the failed size notification logs one gpu-target-size-failed Warning naming the instance and HRESULT",
+          success);
+}
+
 void TestSharedPluginRuntime(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] one process plugin runtime across current and staged pages\n";
@@ -4943,6 +5192,124 @@ void TestServiceLifetime(bool& success) noexcept
     Check(host.StartedServiceCount() == 0, L"StopServices is idempotent", success);
 }
 
+// A retired services entry (the Zoom one, empty as earlier templates wrote it or with its v1.0.102 members) logs one
+// service-retired-settings-ignored Warning per document load (Core_Settings.md "Services"). The settings store drives
+// the loads exactly as Application sequences them: the startup load, then each applied live reload, each followed by
+// the service start or apply that Application runs with it. An unchanged notification, a repeated service apply, and
+// a document without the entry add none.
+void TestRetiredServiceWarnings(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] retired services entry: one warning per load or live apply\n";
+    constexpr std::string_view emptyEntry =
+        R"json({"version":{"major":5,"minor":2},"services":{"Meet":{"plugin":"builtin.zoom"}},"pages":[{}]})json";
+    constexpr std::string_view retiredMembers =
+        R"json({"version":{"major":5,"minor":2},"services":{"Zoom":{"plugin":"builtin.zoom","clientId":"sHVWQENoR4qrpuBPgsFsPw","redirectPort":48123,"autoConnect":false}},"pages":[{}]})json";
+    constexpr std::string_view noEntry = R"json({"version":{"major":5,"minor":2},"pages":[{}]})json";
+    constexpr std::string_view event = "\"event\":\"service-retired-settings-ignored\"";
+    constexpr std::string_view record =
+        "\"level\":\"warning\",\"plugin\":\"builtin.zoom\",\"event\":\"service-retired-settings-ignored\"";
+
+    std::error_code error;
+    const std::filesystem::path root = std::filesystem::temp_directory_path() /
+                                       (L"RedXe.RetiredServiceTests." + std::to_wstring(GetCurrentProcessId()) + L"." +
+                                        std::to_wstring(GetTickCount64()));
+    const std::filesystem::path settingsPath = root / L"Settings" / L"retired.settings.json";
+    const std::filesystem::path logRoot = root / L"Logs";
+    std::filesystem::create_directories(settingsPath.parent_path(), error);
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            std::error_code removeError;
+            std::filesystem::remove_all(root, removeError);
+        });
+    PluginHost host;
+    host.SetDeviceAccessEnabled(false);
+    if (error || FAILED(host.SetLogDirectory(logRoot.c_str())))
+    {
+        Check(false, L"a temporary settings and log directory can be created", success);
+        return;
+    }
+    const auto write = [&](std::string_view text) noexcept
+    {
+        std::ofstream stream(settingsPath, std::ios::binary | std::ios::trunc);
+        stream.write(text.data(), static_cast<std::streamsize>(text.size()));
+        return static_cast<bool>(stream);
+    };
+    // Every warning so far, after checking that each one is a Warning from builtin.zoom with no HRESULT.
+    const auto warnings = [&]() noexcept -> size_t
+    {
+        if (FAILED(host.FlushLog(10'000)))
+            return SIZE_MAX;
+        const std::string bytes = ReadTodayLog(logRoot);
+        const std::string_view text{bytes};
+        const size_t count = CountText(text, event);
+        size_t exact = 0;
+        for (size_t offset = text.find(record); offset != std::string_view::npos;
+             offset = text.find(record, offset + record.size()))
+        {
+            const size_t end = text.find('\n', offset);
+            if (end != std::string_view::npos &&
+                text.substr(offset, end - offset).find("\"hr\"") == std::string_view::npos)
+                ++exact;
+        }
+        return exact == count ? count : SIZE_MAX;
+    };
+    // The live reload Application::OnSettingsChanged performs for one changed file: load, apply, mark, log.
+    const auto liveApply =
+        [&](SettingsStore& store, std::unique_ptr<AppSettings>& current, std::string_view text) noexcept
+    {
+        std::unique_ptr<AppSettings> candidate;
+        SettingsFileStamp stamp{};
+        SettingsReloadStatus status = SettingsReloadStatus::Unchanged;
+        if (!write(text) || FAILED(store.TryLoadChanged(candidate, stamp, status)) ||
+            status != SettingsReloadStatus::Loaded || !candidate)
+        {
+            return false;
+        }
+        current = std::move(candidate);
+        (void)host.ApplyServiceSettings(*current);
+        store.MarkApplied(stamp);
+        host.LogRetiredServiceSettings(*current);
+        return true;
+    };
+
+    const std::string_view shapes[] = {emptyEntry, retiredMembers};
+    const wchar_t* const names[] = {L"an empty Zoom entry", L"a Zoom entry with retired members"};
+    size_t expected = 0;
+    for (size_t first = 0; first < 2; ++first)
+    {
+        const size_t second = 1 - first;
+        // Startup: Application::Run loads, opens the log, logs, and later starts the services.
+        SettingsStore store;
+        std::unique_ptr<AppSettings> current;
+        HRESULT result = write(shapes[first]) ? store.Initialize(false, settingsPath.wstring(), current) : E_FAIL;
+        Check(SUCCEEDED(result) && current && !store.UsedInitialFallback() && current->retiredServices.size() == 1 &&
+                  current->serviceCount == 0,
+              std::wstring(L"the startup load records ") + names[first] + L" as retired", success);
+        if (FAILED(result) || !current)
+            return;
+        host.LogRetiredServiceSettings(*current);
+        (void)host.StartServices(*current);
+        expected += 1;
+        Check(warnings() == expected, std::wstring(L"the startup load of ") + names[first] + L" logs one warning",
+              success);
+
+        std::unique_ptr<AppSettings> unchanged;
+        SettingsFileStamp stamp{};
+        SettingsReloadStatus status = SettingsReloadStatus::Loaded;
+        result = store.TryLoadChanged(unchanged, stamp, status);
+        (void)host.ApplyServiceSettings(*current);
+        Check(SUCCEEDED(result) && status == SettingsReloadStatus::Unchanged && warnings() == expected,
+              L"an unchanged notification and a repeated service apply log nothing", success);
+
+        expected += 1;
+        Check(liveApply(store, current, shapes[second]) && warnings() == expected,
+              std::wstring(L"a live apply of ") + names[second] + L" logs one warning", success);
+        Check(liveApply(store, current, noEntry) && current->retiredServices.empty() && warnings() == expected,
+              L"a live apply of a document without the entry logs nothing", success);
+    }
+}
+
 void TestLauncherPluginConstructs(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] launcher plugin DLL constructs\n";
@@ -6385,6 +6752,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestReservedSubscriptionDrain(success);
     TestGpuTargetSizeNotification(success);
     TestGpuPageLifetime(success);
+    TestGpuWidgetCallbackFailures(success);
     TestSharedPluginRuntime(success);
     TestHostRequestFrameAndWidgetStatus(success);
     TestWidgetSettingsPersist(success);
@@ -6401,6 +6769,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestActionValidation(success);
     TestHeldInputTimer(success);
     TestServiceLifetime(success);
+    TestRetiredServiceWarnings(success);
     TestLauncherPluginConstructs(success);
     TestPublishedArraySchema(success);
     TestPageEdgeAffordancePolicy(success);
