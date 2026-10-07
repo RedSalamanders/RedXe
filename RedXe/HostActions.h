@@ -41,10 +41,10 @@ void SetXeneonDisplay(const RECT& bounds, bool found) noexcept;
 
 // Releases keys and buttons still held by keys.down / mouse.down. The main window calls OnHeldTimer for the
 // one-shot deadline and for the retry of a release SendInput refused; closing the main window (SetHostWindow) and
-// shutdown make one last attempt at anything still held. Only an `up` naming the held chord or button ends its hold;
-// any other `up` injects its own release. An `up` matching a hold the deadline already released injects nothing and
-// returns S_FALSE.
-void ReleaseHeld(bool deviceAccess) noexcept;
+// shutdown make one last attempt at anything still held. A hold is released with the device access its press was
+// executed with. Only an `up` naming the held chord or button ends its hold; any other `up` injects its own release.
+// An `up` matching a hold the deadline already released injects nothing and returns S_FALSE.
+void ReleaseHeld() noexcept;
 void OnHeldTimer() noexcept;
 
 inline constexpr uint32_t kHeldReleaseMilliseconds = 2000;

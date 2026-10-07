@@ -793,8 +793,10 @@ restarting Explorer brings it back; and a Debug run with the shipped template sh
   `--help`: `RedXe/CommandLine.h`
 - Display discovery, window creation, and DPI transitions: `RedXe/Application.cpp`, `RedXe/Application.h`; live
   window-kind switches: `Application::SwitchWindowKind` (`RestyleWindowKind`, `RebuildPresentation`,
-  `FinishWindowKindSwitch`), `PlaceStandardWindow`, the dock-only reload and its rollback in `ApplyDockSettings`, and
-  the combined page-and-kind reload in `ApplySettings`; the deferred reload: `OnSettingsChanged` and
+  `FinishWindowKindSwitch`, and the `StandardPlacement` a switch and its rollback share), the renderer start
+  `StartPresentation` that `RebuildPresentation` shares with `InitializeDashboardRuntime`, `PlaceStandardWindow`, the
+  dock-only reload and its rollback in `ApplyDockSettings`, and the combined page-and-kind reload in `ApplySettings`;
+  the deferred reload: `OnSettingsChanged` and
   `ReplayDeferredSettingsReload`; the failure message box and the unattended runs that never show it:
   `RunApplication` in `RedXe/Main.cpp` and `Application::SetUnattended`; the first-run dock:
   `MakeFirstRunDock` in `RedXe/Application.cpp`, made through `FirstRunDockProvider` (`RedXe/Settings.h`) only when

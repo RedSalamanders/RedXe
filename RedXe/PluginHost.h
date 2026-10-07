@@ -416,6 +416,10 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     void DeviceLane(ServiceSlot& slot) noexcept;
     // Logs service-start-deferred once per tombstone when the document configures the slot's service.
     void LogDeferredStart(ServiceSlot& slot, const AppSettings& settings) noexcept;
+    // The first step of StartServices and ApplyServiceSettings for the slot of kRedXeBundledServices[index]: binds its
+    // spec and retries a stop whose device lane had not returned. False while that lane is still out: the slot is
+    // skipped, its start deferred (LogDeferredStart), and ERROR_BUSY becomes `first` unless a failure came before.
+    [[nodiscard]] bool PrepareServiceSlot(size_t index, const AppSettings& settings, HRESULT& first) noexcept;
 
     std::atomic<ULONG> _references{1};
     std::array<ModuleSlot, kRedXeBundledPlugins.size()> _modules;

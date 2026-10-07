@@ -5410,7 +5410,7 @@ void TestQueuedInputAge(bool& success) noexcept
         Check(false, L"a temporary log directory can be created", success);
         return;
     }
-    HostActions::ReleaseHeld(false);
+    HostActions::ReleaseHeld();
     HostActions::ResetCounters();
     RedXeActionRequest request{};
     request.sizeBytes = sizeof(request);
@@ -6136,7 +6136,7 @@ void TestHeldInputTimer(bool& success) noexcept
               HostActions::Execute(*mouseUp, "right", false, nullptr) == S_OK &&
               HostActions::CopyCounters().heldReleases == 4,
           L"the held chord and button are released by their own up", success);
-    HostActions::ReleaseHeld(false);
+    HostActions::ReleaseHeld();
     HostActions::ResetCounters();
     Check(HostActions::Execute(*keyDown, "Ctrl+C", false, nullptr) == S_OK &&
               HostActions::Execute(*mouseDown, "left", false, nullptr) == S_OK &&
@@ -6153,7 +6153,7 @@ void TestHeldInputTimer(bool& success) noexcept
               HostActions::Execute(*keyUp, "Ctrl+C", false, nullptr) == S_OK &&
               HostActions::CopyCounters().injectedInputs == 10,
           L"any other stand-alone up still injects its release", success);
-    HostActions::ReleaseHeld(false);
+    HostActions::ReleaseHeld();
 
     // A refused release (the secure desktop) keeps its hold and retries at the retry interval, never faster.
     HostActions::ResetCounters();
@@ -6182,17 +6182,17 @@ void TestHeldInputTimer(bool& success) noexcept
               HostActions::Execute(*keyUp, "Ctrl+F", false, nullptr) == S_FALSE &&
               HostActions::CopyCounters().injectedInputs == injected,
           L"the retry releases the held chord once the desktop accepts input again", success);
-    HostActions::ReleaseHeld(false);
+    HostActions::ReleaseHeld();
     Check(HostActions::CopyCounters().heldReleases == 1, L"nothing else was left held", success);
 
     // Shutdown makes the last attempt: a release refused then stops being tracked, so nothing retries it later.
     Check(HostActions::Execute(*keyDown, "Ctrl+H", false, nullptr) == S_OK, L"a chord is held before shutdown",
           success);
     HostActions::FailInjectionForTesting(HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED));
-    HostActions::ReleaseHeld(false);
+    HostActions::ReleaseHeld();
     HostActions::FailInjectionForTesting(S_OK);
     const uint32_t abandoned = HostActions::CopyCounters().injectedInputs;
-    HostActions::ReleaseHeld(false);
+    HostActions::ReleaseHeld();
     Check(HostActions::CopyCounters().heldReleases == 1 && HostActions::CopyCounters().injectedInputs == abandoned,
           L"a release refused at shutdown is abandoned", success);
 
@@ -6204,7 +6204,7 @@ void TestHeldInputTimer(bool& success) noexcept
     HostActions::SetHostWindow(nullptr, nullptr);
     HostActions::FailInjectionForTesting(S_OK);
     const uint32_t detached = HostActions::CopyCounters().injectedInputs;
-    HostActions::ReleaseHeld(false);
+    HostActions::ReleaseHeld();
     Check(HostActions::CopyCounters().heldReleases == 1 && HostActions::CopyCounters().injectedInputs == detached,
           L"the window's close makes the last release attempt, so shutdown finds nothing left to release", success);
     Check(SUCCEEDED(logHost.FlushLog(10'000)), L"the held-input log drains", success);

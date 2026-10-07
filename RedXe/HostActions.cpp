@@ -1148,9 +1148,8 @@ HRESULT ValidateExtra(const RedXeActionDescriptor& descriptor, std::string_view 
     return S_OK;
 }
 
-void ReleaseHeld(bool deviceAccess) noexcept
+void ReleaseHeld() noexcept
 {
-    (void)deviceAccess;
     // The last attempt: nothing is left to retry a refused release after this.
     (void)ReleaseChord(false, false);
     (void)ReleaseMouse(false, false);

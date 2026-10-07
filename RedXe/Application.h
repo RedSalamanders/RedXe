@@ -140,13 +140,23 @@ class Application final
     // with `rollback`, which keeps the forward switch's standard-window monitor and logs no switch.
     // SwitchWindowKind = RestyleWindowKind, RebuildPresentation, FinishWindowKindSwitch; a reload that also rebuilds
     // the page runs InitializeDashboardRuntime between the two halves instead, so the renderer is created once.
-    HRESULT SwitchWindowKind(const DockSettings& next, bool rollback) noexcept;
+    // Where the standard kind goes (PlaceStandardWindow): RestyleWindowKind decides it when it styles the window, and
+    // FinishWindowKindSwitch places the shown window there again. The caller keeps one on its stack for a switch and
+    // its rollback, so the rollback finds the monitor the forward switch recorded.
+    struct StandardPlacement final
+    {
+        bool fullscreen = false;
+        // The monitor the window was on when the forward switch began, for the titled window without a XENEON.
+        HMONITOR fallbackMonitor = nullptr;
+    };
+    HRESULT SwitchWindowKind(const DockSettings& next, bool rollback, StandardPlacement& placement) noexcept;
     // Ends the interactions, takes the presentation down, and hides, restyles, and places the window as the kind
-    // `next` selects. The window stays hidden with no renderer until FinishWindowKindSwitch.
-    HRESULT RestyleWindowKind(const DockSettings& next, bool rollback) noexcept;
+    // `next` selects, recording `placement` (its monitor only when it is not a rollback). The window stays hidden with
+    // no renderer until FinishWindowKindSwitch.
+    HRESULT RestyleWindowKind(const DockSettings& next, bool rollback, StandardPlacement& placement) noexcept;
     // Shows the restyled window without activation, settles the standard kind's placement, the holds, and the chrome,
     // and logs the switch unless it is a rollback. Needs the renderer of the new kind.
-    HRESULT FinishWindowKindSwitch(bool rollback) noexcept;
+    HRESULT FinishWindowKindSwitch(bool rollback, const StandardPlacement& placement) noexcept;
     // The standard kind for a window that already exists, placed by the startup rows of the mode table without the
     // missing-display prompt: Release fullscreen on the XENEON's rcMonitor; the titled window at the XENEON origin;
     // without a XENEON, the titled window at the work-area origin of `fallbackMonitor`. Idempotent.
@@ -163,6 +173,10 @@ class Application final
     // kind's presentation. Widget instances and native containers stay; GPU widgets see one OnDeviceLost and
     // OnDeviceCreated pair, as on an adapter change.
     HRESULT RebuildPresentation() noexcept;
+    // The renderer start InitializeDashboardRuntime and RebuildPresentation share, for a dashboard host just built or
+    // resized to the `width` x `height` canvas: the renderer with the window kind's presentation (shut down again when
+    // it cannot start), the appearance, the widgets' visibility, and one frame.
+    HRESULT StartPresentation(UINT width, UINT height) noexcept;
     // Ends a dock drag without committing it and kills every dock timer; the placement is left alone.
     void StopDockInteraction() noexcept;
     // Forgets the bar's placement and reveal state so the next PlaceDock starts from a revealed, unplaced bar.
@@ -180,7 +194,8 @@ class Application final
     }
     // Autohide slide (DockPlacement.h DockSlide*): the window's visible thickness travels between the peek strip and
     // the full bar over dock.animationMilliseconds, one SetWindowPos per presented frame, with the full-size
-    // dashboard translated for top and left bars. The reveal state stays the authority; the slide only follows it.
+    // dashboard translated for top and left bars. The reveal state stays the authority; the slide only follows it:
+    // every step reads its direction and end size from that state and the placed bar, and keeps only its start.
     [[nodiscard]] LONG DockFullPixels() const noexcept;
     [[nodiscard]] LONG DockPeekPixels() const noexcept;
     // Sizes the window to `visiblePx` of the full bar and translates the dashboard while a slide runs.
@@ -459,14 +474,9 @@ class Application final
     // `edge` is None for the titled and fullscreen kinds.
     DockSettings _dock{};
     bool _dockActive = false;
-    // Standard-kind placement inputs kept from RestyleWindowKind for FinishWindowKindSwitch. A rollback keeps the
-    // monitor the forward switch recorded, so a restored standard window returns to the monitor it was on.
-    HMONITOR _kindSwitchFallbackMonitor = nullptr;
-    bool _kindSwitchFullscreen = false;
     RECT _xeneonBounds{};
     bool _xeneonFound = false;
     RECT _dockMonitorRect{};
-    RECT _dockWorkRect{};
     RECT _dockFullRect{};
     UINT _dockDpi = USER_DEFAULT_SCREEN_DPI;
     // What the shell holds for the bar (DockPlacement.h PlanDockAppBar): the registration and, for a fixed reserving
@@ -482,9 +492,7 @@ class Application final
     bool _dockFullscreenAppActive = false;
     DockRevealState _dockReveal = DockRevealState::Revealed;
     bool _dockSlideActive = false;
-    bool _dockSlideRevealing = false;
     LONG _dockSlideFromPx = 0;
-    LONG _dockSlideToPx = 0;
     // The window's cross size while a slide runs, so a reversal starts where the bar is.
     LONG _dockVisiblePx = 0;
     UINT64 _dockSlideStartQpc = 0;
@@ -496,8 +504,8 @@ class Application final
     bool _dockPinnedByAction = false;
     bool _dockTimerArmed = false;
     bool _dockResizeDrag = false;
+    // A dashboard resize the drag preview still owes; kDockDashboardResizeTimerId is armed exactly while it is pending.
     bool _dockDashboardResizePending = false;
-    bool _dockDashboardResizeTimerArmed = false;
     // Distance from the inner edge to the pointer at the press, so the edge keeps its offset under the pointer.
     LONG _dockResizeGrabPx = 0;
     DockPress _dockMousePress{};

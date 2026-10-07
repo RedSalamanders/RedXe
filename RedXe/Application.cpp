@@ -1931,7 +1931,6 @@ HRESULT Application::PlaceDockPass(bool resizeDashboard) noexcept
     const bool fullChanged = !EqualRect(&full, &_dockFullRect) || placement.dpi != _dockDpi;
     _dockFullRect = full;
     _dockMonitorRect = placement.monitor;
-    _dockWorkRect = placement.work;
     _dockDpi = placement.dpi;
     // The strip is clamped to the bar just placed (_dockFullRect), as every reveal and hide clamps it.
     const RECT target = DockHidden() ? DockHiddenRect(full, _dock.edge, DockPeekPixels()) : full;
@@ -2006,13 +2005,14 @@ HRESULT Application::ApplyDockSettings(const DockSettings& documentDock) noexcep
         // `none` <-> an edge changes the window kind; the window follows the file at once. A failed step switches
         // back to the kind the window had, like a failed combined reload, and the caller rejects the reload.
         const DockSettings previous = _dock;
-        const HRESULT result = SwitchWindowKind(next, false);
+        StandardPlacement placement{};
+        const HRESULT result = SwitchWindowKind(next, false, placement);
         if (SUCCEEDED(result))
         {
             return S_OK;
         }
         LogWindowKindSwitchFailed(result);
-        const HRESULT restored = SwitchWindowKind(previous, true);
+        const HRESULT restored = SwitchWindowKind(previous, true, placement);
         return FAILED(restored) ? restored : result;
     }
     const DockMode previousMode = _dock.mode;
@@ -2046,11 +2046,10 @@ void Application::StopDockInteraction() noexcept
             (void)ReleaseCapture();
         }
     }
-    if (_dockDashboardResizeTimerArmed && _window)
+    if (_dockDashboardResizePending && _window)
     {
         (void)KillTimer(_window.get(), kDockDashboardResizeTimerId);
     }
-    _dockDashboardResizeTimerArmed = false;
     _dockDashboardResizePending = false;
     KillDockTimer();
     // A slide stops where it is; whoever places the window next sizes it, and the dashboard loses the translation.
@@ -2068,7 +2067,6 @@ void Application::ResetDockPlacementState() noexcept
     _dockVisiblePx = 0;
     _dockFullRect = RECT{};
     _dockMonitorRect = RECT{};
-    _dockWorkRect = RECT{};
     _dockDpi = USER_DEFAULT_SCREEN_DPI;
     _dockMonitorFellBack = false;
     _dockThicknessClamped = false;
@@ -2077,21 +2075,21 @@ void Application::ResetDockPlacementState() noexcept
     _dockPinnedByAction = false;
 }
 
-HRESULT Application::SwitchWindowKind(const DockSettings& next, bool rollback) noexcept
+HRESULT Application::SwitchWindowKind(const DockSettings& next, bool rollback, StandardPlacement& placement) noexcept
 {
-    HRESULT result = RestyleWindowKind(next, rollback);
+    HRESULT result = RestyleWindowKind(next, rollback, placement);
     if (SUCCEEDED(result))
     {
         result = RebuildPresentation();
     }
     if (SUCCEEDED(result))
     {
-        result = FinishWindowKindSwitch(rollback);
+        result = FinishWindowKindSwitch(rollback, placement);
     }
     return result;
 }
 
-HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback) noexcept
+HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback, StandardPlacement& placement) noexcept
 {
     if (!_window || !_dashboardHost)
     {
@@ -2103,7 +2101,7 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback) 
     // rollback keeps the monitor the forward switch recorded: the window has been moved to the other kind's place.
     if (!rollback)
     {
-        _kindSwitchFallbackMonitor = MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
+        placement.fallbackMonitor = MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
     }
 
     // Every interaction bound to the old geometry ends, then the presentation goes: its swap-chain scaling belongs
@@ -2139,7 +2137,7 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback) 
     constexpr bool releaseBuild = true;
 #endif
     const bool fullscreen = !toDock && releaseBuild && _xeneonFound;
-    _kindSwitchFullscreen = fullscreen;
+    placement.fullscreen = fullscreen;
 
     // The taskbar adds or drops the button (WS_EX_APPWINDOW, WS_EX_TOOLWINDOW) only for a window shown after the
     // change, so the window leaves minimized or maximized, hides, takes the other kind's styles, and shows again at
@@ -2149,7 +2147,7 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback) 
         (void)ShowWindow(window, SW_SHOWNOACTIVATE);
     }
     (void)ShowWindow(window, SW_HIDE);
-    const LONG_PTR keptStyle = GetWindowLongPtrW(window, GWL_STYLE) & (WS_VISIBLE | WS_DISABLED);
+    const LONG_PTR keptStyle = GetWindowLongPtrW(window, GWL_STYLE) & WS_DISABLED;
     const LONG_PTR keptExtendedStyle = GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST;
     (void)SetWindowLongPtrW(window, GWL_STYLE,
                             keptStyle |
@@ -2165,10 +2163,10 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback) 
     }
 
     _dockActive = toDock;
-    return toDock ? PlaceDock(false) : PlaceStandardWindow(fullscreen, _kindSwitchFallbackMonitor);
+    return toDock ? PlaceDock(false) : PlaceStandardWindow(fullscreen, placement.fallbackMonitor);
 }
 
-HRESULT Application::FinishWindowKindSwitch(bool rollback) noexcept
+HRESULT Application::FinishWindowKindSwitch(bool rollback, const StandardPlacement& placement) noexcept
 {
     if (!_window || !_rendererReady)
     {
@@ -2181,7 +2179,7 @@ HRESULT Application::FinishWindowKindSwitch(bool rollback) noexcept
     {
         // A DPI change that arrives with the show answers at the suggested position; the standard kind keeps its
         // exact origin and canvas. The dock re-places itself from WM_DPICHANGED.
-        const HRESULT result = PlaceStandardWindow(_kindSwitchFullscreen, _kindSwitchFallbackMonitor);
+        const HRESULT result = PlaceStandardWindow(placement.fullscreen, placement.fallbackMonitor);
         if (FAILED(result))
         {
             return result;
@@ -2315,12 +2313,16 @@ HRESULT Application::RebuildPresentation() noexcept
     {
         result = _dashboardHost->Resize(width, height, dpi);
     }
-    if (FAILED(result))
-    {
-        return result;
-    }
+    return SUCCEEDED(result) ? StartPresentation(width, height) : result;
+}
+
+HRESULT Application::StartPresentation(UINT width, UINT height) noexcept
+{
+    // The dock window shrinks to its peek strip without resizing the swap chain: DXGI_SCALING_NONE clips the
+    // full-size back buffer to the smaller client instead of stretching it, so the buffer is the full bar even when
+    // a live reload rebuilds it while the window is the strip.
     _renderer.SetDockPresentation(_dockActive, width, height);
-    result = _renderer.Initialize(_window.get(), _forceWarp, *_dashboardHost);
+    HRESULT result = _renderer.Initialize(_window.get(), _forceWarp, *_dashboardHost);
     if (FAILED(result))
     {
         _renderer.Shutdown();
@@ -2328,7 +2330,7 @@ HRESULT Application::RebuildPresentation() noexcept
     }
     _rendererReady = true;
     RefreshAppearance();
-    RefreshPageEdgeAffordances();
+    // UpdateDashboardVisibility builds the page-edge bands for the new canvas first.
     result = UpdateDashboardVisibility();
     if (SUCCEEDED(result))
     {
@@ -2450,11 +2452,10 @@ void Application::UpdateDockResize() noexcept
                        _dockFullRect.right - _dockFullRect.left, _dockFullRect.bottom - _dockFullRect.top,
                        SWP_NOACTIVATE | SWP_NOZORDER);
     _dockResizing = false;
-    _dockDashboardResizePending = true;
-    if (!_dockDashboardResizeTimerArmed)
+    if (!_dockDashboardResizePending)
     {
-        _dockDashboardResizeTimerArmed = SetTimer(_window.get(), kDockDashboardResizeTimerId, 16, nullptr) != 0;
-        if (!_dockDashboardResizeTimerArmed)
+        _dockDashboardResizePending = true;
+        if (!SetTimer(_window.get(), kDockDashboardResizeTimerId, 16, nullptr))
         {
             FlushDockDashboardResize();
         }
@@ -2485,10 +2486,9 @@ void Application::EndDockResize() noexcept
         return;
     }
     _dockResizeDrag = false;
-    if (_dockDashboardResizeTimerArmed)
+    if (_dockDashboardResizePending)
     {
         (void)KillTimer(_window.get(), kDockDashboardResizeTimerId);
-        _dockDashboardResizeTimerArmed = false;
     }
     FlushDockDashboardResize();
     if (GetCapture() == _window.get())
@@ -2525,7 +2525,7 @@ DockHolds Application::CurrentDockHolds() const noexcept
     holds.dialogShown = _settingsErrorDialog != nullptr;
     holds.pinned = _screenshot.pending;
     holds.pinnedByAction = _dockPinnedByAction;
-    holds.revealSliding = _dockSlideActive && _dockSlideRevealing;
+    holds.revealSliding = _dockSlideActive && !DockHiddenOrHiding();
     return holds;
 }
 
@@ -2610,9 +2610,7 @@ void Application::ApplyDockRevealState(DockRevealState state) noexcept
         return;
     }
     _dockSlideActive = true;
-    _dockSlideRevealing = !toStrip;
     _dockSlideFromPx = fromPx;
-    _dockSlideToPx = targetPx;
     _dockSlideStartQpc = static_cast<UINT64>(now.QuadPart);
     _dockSlideDurationQpc = std::max<UINT64>(1, _qpcFrequency * durationMilliseconds / 1000);
     // The first frame already shows the bar at its starting size: a reveal makes the dashboard visible now, a hide
@@ -2695,15 +2693,17 @@ void Application::TickDockSlide() noexcept
     }
     if (t < 1.0f)
     {
-        SetDockVisiblePixels(DockSlideVisiblePixels(_dockSlideFromPx, _dockSlideToPx, t, _dockSlideRevealing));
+        // The reveal state gives the direction and the end size, as for SettleDockSlide; a flip of it restarted the
+        // slide from where the bar was (ApplyDockRevealState).
+        const bool revealing = !DockHiddenOrHiding();
+        SetDockVisiblePixels(
+            DockSlideVisiblePixels(_dockSlideFromPx, revealing ? DockFullPixels() : DockPeekPixels(), t, revealing));
         _frameInvalidated = true;
         return;
     }
     // The last step ends the slide before the frame that shows it: a finished hide renders the grip frame at the strip
     // size, and the next turn's holds and frame scheduler see the settled state.
-    _dockSlideActive = false;
-    SetDockVisiblePixels(_dockSlideToPx);
-    FinishDockRevealChange();
+    SettleDockSlide();
 }
 
 void Application::SettleDockSlide() noexcept
@@ -2794,27 +2794,16 @@ HRESULT Application::InitializeDashboardRuntime() noexcept
         return result;
     }
 
-    // The dock window shrinks to its peek strip without resizing the swap chain: DXGI_SCALING_NONE clips the
-    // full-size back buffer to the smaller client instead of stretching it, so the buffer is the full bar even when
-    // a live reload rebuilds it while the window is the strip.
-    _renderer.SetDockPresentation(_dockActive, width, height);
-    result = _renderer.Initialize(_window.get(), _forceWarp, *_dashboardHost);
-    if (FAILED(result))
+    result = StartPresentation(width, height);
+    if (!_rendererReady)
     {
-        _renderer.Shutdown();
         _dashboardHost->Shutdown();
         return result;
     }
-    _rendererReady = true;
-    RefreshAppearance();
+    // Once the window has a renderer, the plugin runtime's wake-ups and the held-input timer target it. A page reload
+    // names the same window again; a kind switch (RebuildPresentation) keeps it.
     PluginHost::Instance().SetUiInvalidateTarget(_window.get());
     HostActions::SetHostWindow(_window.get(), PluginHost::Instance().Interface());
-    RefreshPageEdgeAffordances();
-    result = UpdateDashboardVisibility();
-    if (SUCCEEDED(result))
-    {
-        _frameInvalidated = true;
-    }
     return result;
 }
 
@@ -2863,7 +2852,8 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     const DockSettings previousDock = _dock;
     const DockSettings nextDock = EffectiveDockSettings(settings->dock, _dockOverrides);
     const bool switchKind = (nextDock.edge != DockEdge::None) != _dockActive;
-    HRESULT applyResult = switchKind ? RestyleWindowKind(nextDock, false) : S_OK;
+    StandardPlacement placement{};
+    HRESULT applyResult = switchKind ? RestyleWindowKind(nextDock, false, placement) : S_OK;
     if (SUCCEEDED(applyResult))
     {
         applyResult = _pluginManager->Reconfigure(*settings);
@@ -2874,7 +2864,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     }
     if (SUCCEEDED(applyResult) && switchKind)
     {
-        applyResult = FinishWindowKindSwitch(false);
+        applyResult = FinishWindowKindSwitch(false, placement);
     }
     if (SUCCEEDED(applyResult))
     {
@@ -2896,7 +2886,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     {
         LogWindowKindSwitchFailed(applyResult);
     }
-    HRESULT rollbackResult = switchKind ? RestyleWindowKind(previousDock, true) : S_OK;
+    HRESULT rollbackResult = switchKind ? RestyleWindowKind(previousDock, true, placement) : S_OK;
     if (SUCCEEDED(rollbackResult))
     {
         rollbackResult = _pluginManager->Reconfigure(*_settings);
@@ -2907,7 +2897,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     }
     if (SUCCEEDED(rollbackResult) && switchKind)
     {
-        rollbackResult = FinishWindowKindSwitch(true);
+        rollbackResult = FinishWindowKindSwitch(true, placement);
     }
     if (FAILED(rollbackResult))
     {
@@ -6217,7 +6207,6 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         if (wParam == kDockDashboardResizeTimerId)
         {
             (void)KillTimer(window, kDockDashboardResizeTimerId);
-            _dockDashboardResizeTimerArmed = false;
             FlushDockDashboardResize();
             return 0;
         }
