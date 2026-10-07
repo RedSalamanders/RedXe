@@ -2,6 +2,7 @@
 
 #include "BundledPlugins.h"
 #include "ControlWorkQueue.h"
+#include "LaunchWorker.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Service.h"
@@ -23,10 +24,10 @@
 #pragma warning(pop)
 
 // One process-scoped plugin runtime. It owns every mapped plugin module, every host data provider and plugin data
-// source, the single local acquisition worker, the optional serial network worker, the JSONL diagnostic writer, and
-// subscription drain lifetime. PluginManager instances borrow it through Instance() so that staging an adjacent
-// dashboard page reuses the already-mapped modules, the already-created data sources, and the already-running workers
-// instead of building a second runtime beside them.
+// source, the single local acquisition worker, the optional serial network worker, the lazy launch worker, the JSONL
+// diagnostic writer, and subscription drain lifetime. PluginManager instances borrow it through Instance() so that
+// staging an adjacent dashboard page reuses the already-mapped modules, the already-created data sources, and the
+// already-running workers instead of building a second runtime beside them.
 class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
 {
   public:
@@ -56,8 +57,17 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     PluginHost& operator=(PluginHost&&) = delete;
 
     static constexpr UINT kDataSnapshotInvalidateMessage = WM_APP + 3;
-    // Posted once per batch of queued host actions; the UI thread drains them with DrainHostActions.
+    // Posted once per batch of queued host actions or finished launches; the UI thread drains both with
+    // DrainHostActions.
     static constexpr UINT kHostActionMessage = WM_APP + 5;
+    // A queued action that injects input (RedXeActionFlagInjectsInput) and waited longer than this for the UI thread
+    // is dropped instead of landing in whatever window is foreground by then; keys.up and mouse.up, which only end a
+    // hold, are exempt.
+    static constexpr ULONGLONG kMaximumQueuedInputAgeMilliseconds = 1000;
+    // Posted when a device lane whose stop overran the drain budget finally returns. The UI thread answers with
+    // ApplyServiceSettings for the current document, which reaps the slot and starts the service again if the
+    // document still configures it.
+    static constexpr UINT kServiceLaneMessage = WM_APP + 9;
 
     [[nodiscard]] IRedXeHost* Interface() noexcept;
     [[nodiscard]] HRESULT GetPluginModule(const char* pluginId, uint32_t requiredCapabilities,
@@ -86,9 +96,17 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     using HostActionHandler = HRESULT (*)(void* context, const char* actionUtf8, const char* targetUtf8) noexcept;
     using HostActionCompleted = void (*)(void* context) noexcept;
     void SetHostActionHandler(HostActionHandler handler, HostActionCompleted completed, void* context) noexcept;
-    // UI thread: executes every queued action in submission order, outside any lock.
+    // UI thread: logs every finished launch, then executes every queued action in submission order, outside any lock.
+    // An expired input action is dropped (kMaximumQueuedInputAgeMilliseconds) and one action-expired Warning per
+    // drain counts the drops.
     void DrainHostActions() noexcept;
     [[nodiscard]] uint32_t PendingHostActionCount() const noexcept;
+    // UI thread: hands one launch to the host's launch worker (LaunchWorker.h), which performs it off the UI thread;
+    // the next drain logs its result. S_OK when queued, ERROR_BUSY when its slots are full, E_UNEXPECTED after
+    // shutdown. System actions reach the same worker through HostActions.
+    [[nodiscard]] HRESULT QueueLaunch(const LaunchWorker::Request& request) noexcept;
+    // True while the launch worker's thread exists, including one still finishing a launch after shutdown.
+    [[nodiscard]] bool LaunchWorkerRunning() const noexcept;
 
     // Action publishers (Action.h): the namespace registry in BundledPlugins.h resolved against the contracts of
     // mapped modules. A collision, an unregistered namespace, a registered plugin that does not publish its
@@ -116,8 +134,9 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // service the document configures; ApplyServiceSettings starts, stops, or re-applies services after a live
     // reload; PublishHostState fans one state record out to started services; StopServices signals every device
     // lane and waits at most kRedXeDeviceWorkerDrainMilliseconds per lane. A late lane retains its service and
-    // host runtime until it returns; Stop runs only after that return. Interactive RedXe leaves
-    // device access enabled; --self-test and host tests disable it before StartServices.
+    // host runtime until it returns; Stop runs only after that return, and a document that configures the service
+    // meanwhile gets ERROR_BUSY (service-start-deferred, logged once) until kServiceLaneMessage. Interactive RedXe
+    // leaves device access enabled; --self-test and host tests disable it before StartServices.
     [[nodiscard]] HRESULT StartServices(const AppSettings& settings) noexcept;
     [[nodiscard]] HRESULT ApplyServiceSettings(const AppSettings& settings) noexcept;
     void PublishHostState(const RedXeHostState& state) noexcept;
@@ -157,7 +176,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] HRESULT SetLogDirectory(const wchar_t* directory) noexcept;
     // 1 through 365 days. Omitted settings use 15. Changing retention wakes the writer to delete expired files.
     [[nodiscard]] HRESULT SetLogRetentionDays(uint32_t days) noexcept;
-    // Blocks until queued lines are on disk, or the timeout elapses. Tests use this; production shutdown flushes.
+    // Blocks until queued lines are on disk, or the timeout elapses. Tests use this, and so does a shutdown that must
+    // keep the writer alive for a device lane that is still running; an ordinary shutdown joins the writer instead.
     [[nodiscard]] HRESULT FlushLog(uint32_t timeoutMilliseconds) noexcept;
 
     // Latest status reported by one widget instance. Unknown instances read back as RedXeWidgetStatusOk so a widget
@@ -183,7 +203,12 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     static constexpr size_t kMaximumNetworkWidgets = 8;
     static constexpr size_t kLogRingSlots = 32;
     static constexpr size_t kLogLineCapacity = 1024;
+    // The longest the first shutdown with a device lane still running waits for the log writer to empty its queue.
+    static constexpr uint32_t kShutdownLogFlushMilliseconds = 1000;
     static constexpr size_t kHostActionRingSlots = 16;
+    // ServiceSlot::laneState bits.
+    static constexpr uint32_t kLaneReturned = 1;
+    static constexpr uint32_t kLaneAbandoned = 2;
 
     class DataProvider;
     class Subscription;
@@ -284,6 +309,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     {
         std::array<char, kRedXeMaximumActionNameBytes + 1> action{};
         std::array<char, kRedXeMaximumActionTargetBytes + 1> target{};
+        // GetTickCount64 of the latest request, refreshed when an identical request coalesces into this slot.
+        ULONGLONG queued = 0;
         bool used = false;
     };
 
@@ -298,10 +325,16 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         // The effective compact settings object the service was last given, so a live reload re-applies only when
         // the object actually changed.
         JsonObjectSettings settings;
+        // The lane sets kLaneReturned when RunDeviceWork returns; StopDeviceLane sets kLaneAbandoned when the drain
+        // budget runs out. Each reads the other's bit in the same exchange, so exactly one acts: the UI thread joins
+        // a lane that already returned, or the lane posts kServiceLaneMessage when it returns later.
+        std::atomic<uint32_t> laneState{0};
         bool started = false;
         bool laneRunning = false;
         bool stopPending = false;
         bool laneTombstoned = false;
+        // service-start-deferred was logged for the current tombstone.
+        bool startDeferred = false;
     };
 
     [[nodiscard]] HRESULT LoadModule(const RedXeBundledPluginSpec& spec, ModuleSlot& slot) noexcept;
@@ -332,6 +365,10 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     void PurgeExpiredLogs() noexcept;
     [[nodiscard]] HRESULT EnqueueLogLine(const char* line, uint32_t bytes) noexcept;
     void RequestHostActionDrain() noexcept;
+    // The launch worker's completion callback (any thread): posts the coalesced host-action message.
+    static void NotifyLaunchFinished(void* context) noexcept;
+    // True when a queued slot is older than kMaximumQueuedInputAgeMilliseconds at `now` and its action injects input.
+    [[nodiscard]] bool IsExpiredInput(const HostActionSlot& slot, ULONGLONG now) noexcept;
     // Executes one action now on the UI thread: application namespaces through the handler, system/keys/mouse
     // through HostActions, published namespaces through their executor. Logs a Debug line on failure.
     [[nodiscard]] HRESULT ExecuteNow(const char* actionUtf8, const char* targetUtf8) noexcept;
@@ -352,6 +389,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] HRESULT StartDeviceLane(ServiceSlot& slot) noexcept;
     [[nodiscard]] bool StopDeviceLane(ServiceSlot& slot) noexcept;
     void DeviceLane(ServiceSlot& slot) noexcept;
+    // Logs service-start-deferred once per tombstone when the document configures the slot's service.
+    void LogDeferredStart(ServiceSlot& slot, const AppSettings& settings) noexcept;
 
     std::atomic<ULONG> _references{1};
     std::array<ModuleSlot, kRedXeBundledPlugins.size()> _modules;
@@ -392,6 +431,13 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     SRWLOCK _logLock = SRWLOCK_INIT;
     std::atomic<uint32_t> _logQueued{0};
     std::atomic<uint32_t> _logRetentionDays{kRedXeDefaultLogRetentionDays};
+    // kShutdownLogFlushMilliseconds; tests raise it so a loaded runner cannot miss the bound.
+    uint32_t _shutdownLogFlushMilliseconds = kShutdownLogFlushMilliseconds;
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+    // Test seam, set before the writer starts: while this manual-reset event is reset, the writer waits before it
+    // takes each queued line. FlushLog sets it, so a test sees exactly which lines a flush wrote.
+    wil::unique_event_nothrow _logWriterGate;
+#endif
     std::array<HostActionSlot, kHostActionRingSlots> _hostActions{};
     size_t _hostActionHead = 0;
     size_t _hostActionCount = 0;
@@ -400,6 +446,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     HostActionHandler _hostActionHandler = nullptr;
     HostActionCompleted _hostActionCompleted = nullptr;
     void* _hostActionContext = nullptr;
+    // Declared after the members its completion callback posts through, so it is destroyed (joined) before them.
+    LaunchWorker _launches{&PluginHost::NotifyLaunchFinished, this};
     std::array<PublisherSlot, kRedXeBundledActionNamespaces.size()> _publishers;
     std::array<ActionNotice, kMaximumActionNotices> _actionNotices{};
     uint32_t _actionNoticeGeneration = 0;

@@ -210,8 +210,8 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         return 2;
     }
     // Documentation capture: --screenshot <png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>] runs
-    // the dashboard, jumps to the page, waits, captures its own window (or one tile), and exits (0 on success, 8
-    // when the capture failed).
+    // the dashboard, jumps to the page, waits, captures its own window (or one tile), and exits (0 with the PNG
+    // written, 8 without it).
     std::wstring_view screenshotPath;
     std::wstring_view screenshotPage;
     std::wstring_view screenshotWidget;
@@ -252,6 +252,8 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         }
         screenshotWidgetOrdinal = static_cast<uint32_t>(parsed);
     }
+    // A capture run is scripted, so whatever ends it reports through the exit code and the log, never a modal box.
+    const bool screenshotRun = !screenshotPath.empty() && !selfTest;
     // Screen-edge dock for this run: --dock <edge>[@<monitor>] [--dock-mode fixed|autohide]
     // [--dock-thickness <dips>] [--dock-reserve on|off] [--dock-peek <pixels>]. Each switch overrides the same
     // member of the settings document's `dock` object for the process lifetime (UI_XeneonDisplayWindowing.md).
@@ -304,7 +306,8 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         const std::unique_ptr<Application> application{new (std::nothrow) Application(instance, forceWarp)};
         if (!application)
         {
-            exitCode = 1;
+            // Nothing ran, so a --screenshot run wrote no PNG.
+            exitCode = screenshotRun ? RedXeScreenshotExitCode(1, false) : 1;
         }
         else
         {
@@ -316,15 +319,18 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             {
                 application->SetDockOverrides(dockOverrides);
             }
-            if (!screenshotPath.empty() && !selfTest)
+            if (screenshotRun)
             {
-                application->RequestScreenshot(screenshotPath, screenshotPage, screenshotDelayMilliseconds,
-                                               screenshotWidgetOrdinal);
+                // The first request of the process, so never busy; the window closes once the capture has run.
+                (void)application->RequestScreenshot(screenshotPath, screenshotPage, screenshotDelayMilliseconds,
+                                                     screenshotWidgetOrdinal, true);
             }
             exitCode = selfTest ? application->RunSelfTest(settingsPath) : application->Run(showCommand, settingsPath);
-            if (!screenshotPath.empty() && !selfTest && exitCode == 0 && FAILED(application->ScreenshotResult()))
+            // Exit 8 unless the PNG was written, including a run that ended before its capture finished and one that
+            // a startup, graphics, or rendering failure closed first.
+            if (screenshotRun)
             {
-                exitCode = 8;
+                exitCode = RedXeScreenshotExitCode(exitCode, SUCCEEDED(application->FinishScreenshot()));
             }
         }
     }
@@ -333,7 +339,13 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
     // runtime here so its acquisition worker is joined and optional RedXePluginShutdown runs exactly once per module.
     PluginHost::ShutdownProcessRuntime();
 
-    if (exitCode != 0 && !selfTest)
+    if (screenshotRun && exitCode != 0)
+    {
+        OutputDebugStringW(exitCode == kRedXeScreenshotFailedExitCode
+                               ? L"RedXe could not capture the screenshot.\n"
+                               : L"RedXe failed after it wrote the screenshot. See the debugger output.\n");
+    }
+    if (RedXeShowsExitCodeBox(exitCode, selfTest, screenshotRun))
     {
         const wchar_t* message = L"RedXe could not start. See the debugger output.";
         switch (exitCode)
@@ -353,13 +365,13 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         case 7:
             message = L"RedXe could not watch its settings file. See the debugger output.";
             break;
-        case 8:
-            // A capture run is scripted; its failure is an exit code, never a modal prompt.
-            OutputDebugStringW(L"RedXe could not capture the screenshot.\n");
-            return exitCode;
         default:
             break;
         }
+        // Destroying the main window posted a WM_QUIT that no loop retrieved on these paths, and a modal loop that
+        // finds one ends at once. Discard it so the box waits for the user; wWinMain returns the exit code directly.
+        MSG quit{};
+        (void)PeekMessageW(&quit, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE);
         MessageBoxW(nullptr, message, L"RedXe", MB_OK | MB_ICONERROR);
     }
     return exitCode;

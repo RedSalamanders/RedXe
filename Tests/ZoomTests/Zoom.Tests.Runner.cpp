@@ -245,14 +245,14 @@ bool TestPlugin() noexcept
     RedXeActionRequest request{};
     request.sizeBytes = sizeof(request);
     request.actionUtf8 = "zoom.open";
-    success &= Check(SUCCEEDED(pack->Execute(&request)) && std::strcmp(host.action.data(), "system.launch") == 0 &&
+    success &= Check(pack->Execute(&request) == S_FALSE && std::strcmp(host.action.data(), "system.launch") == 0 &&
                          std::strcmp(host.target.data(), Zoom::kWebJoinPage) == 0,
-                     L"zoom.open forwards the web join page");
+                     L"zoom.open forwards the web join page and reports itself deferred");
     constexpr char meeting[] = "https://team.zoom.us/j/1234567890?pwd=opaque%2Bvalue";
     request.actionUtf8 = "zoom.join";
     request.targetUtf8 = meeting;
-    success &= Check(SUCCEEDED(pack->Execute(&request)) && std::strcmp(host.target.data(), meeting) == 0,
-                     L"zoom.join preserves the invite URL");
+    success &= Check(pack->Execute(&request) == S_FALSE && std::strcmp(host.target.data(), meeting) == 0,
+                     L"zoom.join preserves the invite URL and reports itself deferred");
     const uint32_t before = host.requests;
     request.targetUtf8 = "https://evil.example/j/1234567890";
     success &=

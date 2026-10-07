@@ -37,7 +37,9 @@ winget package the installer registers that folder in place. Upgrade with `winge
 and remove with `winget uninstall RedSalamanders.RedXe`.
 
 The `RedXe` command is a small launcher (`RedXeLauncher.exe`) that starts `RedXe.exe` from the package folder;
-double-clicking `RedXe.exe` itself does the same thing.
+double-clicking `RedXe.exe` itself does the same thing. The command returns at once when it starts the dashboard; for
+`--help`, `--self-test`, `--screenshot`, the crash tests, and a mistyped switch it waits, so you see the output and
+get RedXe's exit code.
 
 ## What you see
 
@@ -71,7 +73,7 @@ If RedXe stopped after a crash, the next normal launch may offer to open the loc
 
 The Release build puts the RedXe icon in the notification area of the taskbar (the system tray). Windows may first put it among the hidden icons behind the **^** arrow; drag it onto the taskbar, or turn it on under **Settings > Personalization > Taskbar**, to keep it in view. The Debug build shows it only when you ask for it.
 
-- **Double-click** the icon (or select it with the keyboard and press **Enter**) to open the settings file RedXe is using in your default editor for `.json` files. If no app is associated with `.json` yet, Windows asks which one to use. It works while the settings-error dialog is open, which is when you most need the file.
+- **Double-click** the icon (or select it with the keyboard and press **Enter**) to open the settings file RedXe is using in your default editor for `.json` files. If no app is associated with `.json` yet, Windows asks which one to use; the dashboard keeps running while it asks. It works while the settings-error dialog is open, which is when you most need the file.
 - **Right-click** it (or press **Shift+F10** on it) for the menu: **Edit settings** does the same as a double-click; **Exit** closes RedXe.
 
 Turn it on or off with `trayIcon` in the settings file; the change applies when you save:
@@ -130,7 +132,7 @@ Good to know:
 - **Autohide**: rest the mouse on the thin strip at the screen edge and the bar slides out of the edge (it takes `animationMilliseconds`, after the `revealDelayMilliseconds` wait); it collapses again shortly after the pointer leaves and nothing else holds it (a raised widget, a swipe, a text field with the focus, the settings-error dialog). A click or a touch on the strip reveals at once, and a Logicon key or a Launcher tile bound to `redxe.dock.show`, `hide`, or `toggle` does too. If the taskbar sits on the same edge, the strip is just above the taskbar, so aim for that line or use another edge.
 - With `reserveWorkArea` off, or in `autohide`, the bar never covers the taskbar; it hugs the edge of the free area.
 - A full-screen game or video on that monitor pushes the bar beneath it; it returns when you leave full screen. A full-screen window on another display (a XENEON dashboard, a video on a second screen) leaves the bar on top.
-- Saving the file applies every change while RedXe runs: `thickness`, `edge`, `monitor`, `mode`, `reserveWorkArea`, `peek`, and the delays re-place the bar, and turning the dock on or off (`edge` between `none` and an edge) turns the running window into the bar, or the bar back into the normal window (fullscreen or titled, as in [Window](#window), without the XENEON prompt). The switch never takes the focus from the editor you saved in. A `--dock` switch keeps its edge for that run.
+- Saving the file applies every change while RedXe runs: `thickness`, `edge`, `monitor`, `mode`, `reserveWorkArea`, `peek`, and the delays re-place the bar, and turning the dock on or off (`edge` between `none` and an edge) turns the running window into the bar, or the bar back into the normal window (fullscreen or titled, as in [Window](#window), without the XENEON prompt). The switch never takes the focus from the editor you saved in. If the switch cannot be completed, RedXe keeps the window it had and shows the settings error dialog instead of closing. A `--dock` switch keeps its edge for that run.
 - `--screenshot` works for a dock too; an auto-hiding bar is held open for the capture.
 - If RedXe crashes while it reserves space, Windows may keep that space reserved until RedXe runs again or you sign out.
 
@@ -168,7 +170,7 @@ Exit codes: 0 ok, 1 settings, 2 command line or window, 3 plugins, 5 graphics, 7
 
 ## Screenshots
 
-`RedXe.exe --screenshot <file.png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>]` starts the dashboard as usual, jumps to that page (default: the start page), waits for the delay (default 3000 ms, so widgets and devices have settled), saves its own window — or only the widget at that 0-based position on the page — as a PNG through Windows.Graphics.Capture, and exits. It never takes the focus or moves the mouse. Combine it with `--settings` for a repeatable scene; the exit code is 0 when the file was written and 8 when the capture failed. The pictures under `docs/screenshots/` are produced this way.
+`RedXe.exe --screenshot <file.png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>]` starts the dashboard as usual, jumps to that page (default: the start page), waits for the delay (default 3000 ms, so widgets and devices have settled), saves its own window — or only the widget at that 0-based position on the page — as a PNG through Windows.Graphics.Capture, and exits. It never takes the focus or moves the mouse. Combine it with `--settings` for a repeatable scene; the exit code is 0 when the file was written and 8 when it was not, including when RedXe was closed, or failed to start or draw, before the capture finished (once the log is open, it has a `screenshot-failed` entry; a failure before the settings load reaches only the debugger output). A screenshot run never ends with an error message box; its exit code and the log report what went wrong. The pictures under `docs/screenshots/` are produced this way. The [`redxe.screenshot`](actions.md#redxe) action saves the same picture from a key or tile and leaves RedXe running.
 
 ## Pages
 
@@ -195,7 +197,7 @@ Without `--settings`, RedXe uses one editable file:
 | Debug | `%LocalAppData%\RedXe\Settings\RedXe-debug.settings.json` |
 | Release | `%LocalAppData%\RedXe\Settings\RedXe.settings.json` |
 
-The file is UTF-8 JSON; `//` and `/* */` comments and trailing commas are allowed, and a file saved with a byte order mark ("UTF-8 with BOM", as Windows PowerShell 5.1 `Set-Content -Encoding UTF8` writes it) works too and keeps its mark when RedXe writes to it. Save the file to apply it. RedXe watches that path; you do not restart. When the [notification-area icon](#notification-area-icon) is shown, double-clicking it is the quickest way to open the file. A valid document keeps the page you were on when that page still exists. An invalid save leaves the last good dashboard running and shows one error dialog with the JSON path and the reason (and line and column when those are known). Dismissing the dialog suppresses only that failed save; a later distinct invalid save can prompt again.
+The file is UTF-8 JSON; `//` and `/* */` comments and trailing commas are allowed, and a file saved with a byte order mark ("UTF-8 with BOM", as Windows PowerShell 5.1 `Set-Content -Encoding UTF8` writes it) works too and keeps its mark when RedXe writes to it. Save the file to apply it. RedXe watches that path; you do not restart. When the [notification-area icon](#notification-area-icon) is shown, double-clicking it is the quickest way to open the file. A valid document keeps the page you were on when that page still exists. A save that changes what the current page shows (its tiles, grid, or background) while the RedXe window is minimized takes effect when you restore the window, and a save made while you drag or resize the window takes effect when you let go. An invalid save leaves the last good dashboard running and shows one error dialog with the JSON path and the reason (and line and column when those are known). Dismissing the dialog suppresses only that failed save; a later distinct invalid save can prompt again.
 
 RedXe writes the file itself only when a widget's own settings actually change (a Launcher importing your taskbar pins, for example) or when you drag the bar's edge, and only while the file on disk is the one it last loaded. While your last save is invalid, the file was deleted, or a `--settings` file could not be loaded, such a change stays in memory and your file is left as it is (the log records `settings-persist-deferred`); your next valid save takes over from it.
 

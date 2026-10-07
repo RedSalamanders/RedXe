@@ -118,6 +118,7 @@
     <ClInclude Include="BundledPlugins.h" />
     <ClInclude Include="CrashHandler.h" />
     <ClInclude Include="PluginHost.h" />
+    <ClInclude Include="LaunchWorker.h" />
     <ClInclude Include="DashboardHost.h" />
     <ClInclude Include="CommandLine.h" />
     <ClInclude Include="DockOptions.h" />
@@ -142,6 +143,7 @@
     <ClCompile Include="CrashHandler.cpp" />
     <ClCompile Include="PluginHost.cpp" />
     <ClCompile Include="ControlWorkQueue.cpp" />
+    <ClCompile Include="LaunchWorker.cpp" />
     <ClCompile Include="DashboardHost.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="PluginManager.cpp" />
