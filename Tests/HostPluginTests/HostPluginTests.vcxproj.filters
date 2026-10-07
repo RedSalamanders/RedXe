@@ -12,6 +12,10 @@
     <ClCompile Include="..\..\RedXe\PluginHost.cpp"><Filter>Host Sources</Filter></ClCompile>
     <ClCompile Include="..\..\RedXe\Renderer.cpp"><Filter>Host Sources</Filter></ClCompile>
     <ClCompile Include="..\..\RedXe\Settings.cpp"><Filter>Host Sources</Filter></ClCompile>
+    <ClCompile Include="..\..\RedXe\TrayIcon.cpp"><Filter>Host Sources</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="HostPluginTests.rc" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Plugins\DeskClock\DeskClock.Tests.Contract.h"><Filter>Header Files</Filter></ClInclude>

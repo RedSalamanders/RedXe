@@ -105,12 +105,15 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   retains the back buffer of its XENEON-proportioned full size (3840×1080, about 16 MiB, on a 150 % 4K display), the
   same buffer as the titled fallback window it replaces there.
 - The notification-area icon (`Specs/UI/UI_XeneonDisplayWindowing.md`) costs one hidden owner window of its own class
-  and one small-icon `HICON` on the UI thread, with no thread, timer, hook, or periodic wake-up in any state. Shell
-  traffic (`Shell_NotifyIconW`) happens only when the icon is added or removed, on `TaskbarCreated`, and on a DPI change
-  of the owner; its callbacks, the menu, and the editor launch run only on user interaction, and none of them
-  invalidates a frame. The editor launch, with any Open With picker or shell error box, runs on the launch worker,
-  so the dashboard keeps presenting. While its menu is open the system's modal menu loop runs on the UI thread and the
-  dashboard presents nothing, like any other modal UI.
+  and one small-icon `HICON` on the UI thread, with no thread, hook, or periodic wake-up in any state. Its only timer
+  is the one-shot retry of an add that a running taskbar refused: at most four, with doubling delays from 1 s, one
+  armed at a time, and none once the icon is added or the tries are spent. Shell traffic (`Shell_NotifyIconW`) happens
+  only when the icon is added or removed, on those retries, on `TaskbarCreated`, on a settings apply while the icon is
+  missing, on a menu cancelled from the keyboard (`NIM_SETFOCUS`), and on a DPI change of the owner; its callbacks, the
+  menu, and the editor launch run only on user interaction, and none of them invalidates a frame. The editor launch,
+  with any Open With picker or shell error box, runs on the launch worker, so the dashboard keeps presenting. While its
+  menu is open the system's modal menu loop runs on the UI thread and the dashboard presents nothing, like any other
+  modal UI.
 - After `Present` reports occlusion, RedXe must stop frame construction, wait for the DXGI factory's registered
   occlusion-status window message, and use `DXGI_PRESENT_TEST` to detect recovery without presenting content.
   Occlusion polling and periodic timers are prohibited.

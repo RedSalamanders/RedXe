@@ -153,6 +153,15 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
   record (`dock-autohide-refused`) and the bar continues as a plain strip. `ABM_REMOVE` runs in `CloseMainWindow`
   before the HWND is destroyed. Changing the registration row (reserve ↔ overlay ↔ autohide, or the autohide edge or
   monitor) removes and re-registers.
+- Explorer keeps app bars in its own process, so a restarted Explorer knows no registration, reserved work area,
+  autohide edge, or full-screen report of the bar. The main window of every kind hears the `TaskbarCreated` broadcast
+  (`RegisterWindowMessageW`, admitted through `ChangeWindowMessageFilterEx` for an elevated run), whatever `trayIcon`
+  says. On it an active dock MUST remove its registration (`ABM_SETAUTOHIDEBAREX` off, `ABM_REMOVE`), forget the
+  full-screen report, place itself again (`ABM_NEW`, `ABM_SETAUTOHIDEBAREX`, `ABM_SETPOS`), re-apply its z-order, and
+  log one Info record (`dock-appbar-renewed`). The removal comes first because a running Explorer can send the
+  broadcast while it still holds the bar, and `ABM_NEW` refuses a window that is already registered; a new Explorer
+  ignores the removal of a bar it does not know. A broadcast heard inside a placement's shell call is handled once
+  that placement has finished (`Application::OnTaskbarCreated`).
 - `WM_SETTINGCHANGE` with `SPI_SETWORKAREA` re-places an overlay or autohide bar; a reserving bar ignores it and
   follows `ABN_POSCHANGED`. `WM_DPICHANGED` re-places from the monitor DPI instead of applying the suggested
   rectangle. Every re-placement re-checks the adapter of output exactly as a move does.
@@ -290,10 +299,19 @@ in the Windows notification area for an interactive run. `RedXe/TrayIcon.*` owns
 - The icon is one `Shell_NotifyIconW` entry identified by the owner and ID 1, never by a GUID (a GUID binds the icon to
   one executable path, which portable copies and the Debug and Release builds do not share), with
   `NOTIFYICON_VERSION_4`, the tooltip `RedXe` (`RedXe (Debug)` in Debug builds), and `IDI_REDXE` at the small-icon
-  size for the owner's DPI, reloaded on `WM_DPICHANGED`. When the shell refuses the icon (no taskbar yet, as at
-  sign-in) the owner stays and adds it when `TaskbarCreated` arrives, which is also how the icon returns after Explorer
-  restarts; `ChangeWindowMessageFilterEx` admits that message for an elevated run. An add refused because the taskbar
-  still shows the icon becomes an update, and removal always deletes, so no icon outlives a clean exit.
+  size for the owner's DPI, reloaded on `WM_DPICHANGED`. `NIM_SETVERSION` follows every add or update, and the icon
+  counts as added only once it succeeds, so the next attempt repairs an icon left on version 0 (whose right-click opens
+  nothing). An add refused because the taskbar still shows the icon becomes an update; an add the shell reports as
+  timed out (last error `ERROR_TIMEOUT`, a busy Explorer) is not followed by an update, which would block the UI thread
+  for a second shell timeout.
+- When the shell refuses the icon and no taskbar exists (as at sign-in) the owner stays and adds it when
+  `TaskbarCreated` arrives, which is also how the icon returns after Explorer restarts; `ChangeWindowMessageFilterEx`
+  admits that message for an elevated run. When a running taskbar refuses the icon or times out, the owner MUST try
+  again on one one-shot timer, at most four times with doubling delays from 1 s (`TrayIconAddRetryDelayMilliseconds`),
+  and then arm nothing more; `TaskbarCreated` and every `Show` start the tries again, and a success ends them.
+- The owner ignores `WM_CLOSE` (Alt+F4 while it is the foreground window after its menu), so only `Hide` ends it, and
+  it deletes the icon (`NIM_DELETE`) on `WM_DESTROY`, while it still exists. Every way the owner ends therefore removes
+  the icon, even after an add that looked refused, and no icon outlives a clean exit.
 - A double-click, or Enter or Space on the keyboard-focused icon (`NIN_KEYSELECT`), opens the settings file this
   process watches (the default file or the `--settings` file) with its default app, the editor associated with
   `.json`: `ShellExecuteExW` with the default verb and the shell's UI enabled, so a file type without an association
@@ -305,18 +323,23 @@ in the Windows notification area for an interactive run. `RedXe/TrayIcon.*` owns
   when the file most needs editing.
 - The context-menu request (right-click, Shift+F10, or the menu key: `WM_CONTEXTMENU` at the shell's anchor point)
   opens a menu with **Edit settings**, the default item drawn bold and the same as a double-click, and **Exit**, which
-  closes RedXe like `WM_CLOSE`. The owner is foregrounded before the menu and posts itself `WM_NULL` after it. The menu
-  runs the system's modal menu loop on the UI thread, so the dashboard presents no frame while it is open. Single
-  clicks, hover, and balloon events do nothing.
+  closes RedXe like `WM_CLOSE`. The owner is foregrounded before the menu and posts itself `WM_NULL` after it. A menu
+  closed without a choice while the owner is still the foreground window (Esc) MUST return the keyboard focus to the
+  notification area (`NIM_SETFOCUS`); a click on another window keeps the foreground it moved. The menu runs the
+  system's modal menu loop on the UI thread, so the dashboard presents no frame while it is open. Single clicks, hover,
+  and balloon events do nothing.
 - Commands reach the main window as a posted `TrayIcon::kCommandMessage`, never as a call from the owner's window
   procedure, so Exit never destroys the owner from inside its own procedure.
-- `Run` shows the icon once the main window is shown; a live reload that changes `trayIcon` shows or removes it
-  without rebuilding the page; `CloseMainWindow` removes it (`NIM_DELETE`) and destroys the owner first. `--self-test`
-  never shows it, whatever the document says; a `--screenshot` run shows it like any interactive run. The
-  fatal-process path does not call the shell, so after a crash the icon remains until the pointer passes over it.
-- A failure to create the owner or to add the icon is one Warning record (`tray-icon-failed`), and a failed launch of
-  the editor (refused by the launch worker, or failed in the shell there) one Warning record
-  (`tray-edit-settings-failed`); neither affects the dashboard.
+- `Run` shows the icon once the main window is shown, and every later settings apply with `trayIcon` on calls `Show`
+  again, which costs no shell call for an icon that is there and tries again for one that is missing; a live reload
+  that changes `trayIcon` shows or removes it without rebuilding the page; `CloseMainWindow` removes it (`NIM_DELETE`)
+  and destroys the owner first. `--self-test` never shows it, whatever the document says; a `--screenshot` run shows
+  it like any interactive run. The fatal-process path does not call the shell, so after a crash the icon remains until
+  the pointer passes over it.
+- A failure to create the owner or to add the icon is one Warning record (`tray-icon-failed`) when the outcome
+  changes, so an apply that meets the same failure again logs nothing; a failed launch of the editor (refused by the
+  launch worker, or failed in the shell there) is one Warning record (`tray-edit-settings-failed`); neither affects
+  the dashboard.
 
 ## Windows shell identity
 
@@ -480,16 +503,28 @@ First-run changes additionally require a live install without a XENEON: on a mac
 taskbar the installed `dock` names `top` and `secondary`, the `dock-first-run` record says so, and the bar collapses
 to its strip at the top of the display that is not the primary.
 
+Changes to the dock's `TaskbarCreated` handling additionally require a live run, because `HostPluginTests` does not
+build `Application` and `--self-test` never runs a dock: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed
+--dock-reserve off`) under `--screenshot`, with the registered `TaskbarCreated` message posted twice to its own window
+(the running-Explorer case), logs two `dock-appbar-renewed` records and no `dock-appbar-refused`, leaves the foreground
+where it was, and exits 0. The 2026-10-07 check recorded this on the topology above. A real Explorer restart with a
+reserving bar and with an autohide bar up (the work area is reserved again, a full-screen window on the bar's monitor
+puts it beneath again) is a manual check.
+
 Notification-area icon changes MUST keep `HostPluginTests` proving the callback table (`TrayIconActionFor`: a
 double-click and `NIN_KEYSELECT` edit, `WM_CONTEXTMENU` opens the menu, single clicks, hover, and balloon events do
-nothing, an edit within the double-click time of the previous one is dropped, and an earlier tick never blocks one)
-and `SettingsTests` proving `trayIcon` (`Specs/Core/Core_Settings.md`). Because the shell is not automated, they
-additionally require a live check: a Release run with the shipped template shows the icon with the `RedXe` tooltip
-(`Shell_NotifyIconGetRect` finds it); a double-click, and Enter on the keyboard-focused icon, open the settings file
-once in the default `.json` editor; a right-click and Shift+F10 show Edit settings (bold) and Exit, and a click
-elsewhere closes the menu; Exit quits and removes the icon; saving `"trayIcon": false` removes the icon and `true`
-brings it back without a restart; restarting Explorer brings it back; and a Debug run with the shipped template shows
-none.
+nothing, an edit within the double-click time of the previous one is dropped, and an earlier tick never blocks one),
+the retry schedule (`TrayIconAddRetryDelayMilliseconds`), and the owner against a scripted shell that never reaches the
+taskbar (`TestTrayIconOwner`: `Show` and `Hide` idempotent and the class unregistered, `WM_CLOSE` ignored, `NIM_DELETE`
+on every destruction while the owner exists, `TaskbarCreated` adding again, retries only while a taskbar exists and no
+timer after the last, no update after a timed-out add, and `NIM_SETVERSION` after every add or update before the icon
+counts as added), and `SettingsTests` proving `trayIcon` (`Specs/Core/Core_Settings.md`). Because the shell is not
+automated, they additionally require a live check: a Release run with the shipped template shows the icon with the
+`RedXe` tooltip (`Shell_NotifyIconGetRect` finds it); a double-click, and Enter on the keyboard-focused icon, open the
+settings file once in the default `.json` editor; a right-click and Shift+F10 show Edit settings (bold) and Exit, a
+click elsewhere closes the menu, and Esc after Shift+F10 leaves the keyboard focus on the notification area; Exit
+quits and removes the icon; saving `"trayIcon": false` removes the icon and `true` brings it back without a restart;
+restarting Explorer brings it back; and a Debug run with the shipped template shows none.
 
 ## Implementation and validation anchors
 
@@ -504,10 +539,12 @@ none.
 - Dock placement, monitor selection, MINMAXINFO, the autohide state machine, the slide, and the first-run monitor,
   edge, and thickness: `RedXe/DockPlacement.h`; the `--dock*` grammar and merge: `RedXe/DockOptions.h`; dock-kind
   presentation: `Renderer::SetDockPresentation`; the slide's frames and translation: `Application::TickDockSlide`,
-  `SettleDockSlide`, and `DashboardHost::SetSlideOffset`
-- Notification-area icon: `RedXe/TrayIcon.h` (the owner window, the icon, the menu, and the `TrayIconActionFor`
-  callback table), `RedXe/TrayIcon.cpp`; its lifetime and commands: `Application::ApplyTrayIconSettings`,
-  `OnTrayCommand`, and `EditSettingsFile`, which hands the editor launch to `RedXe/LaunchWorker.*`
+  `SettleDockSlide`, and `DashboardHost::SetSlideOffset`; the app-bar renewal after an Explorer restart:
+  `Application::OnTaskbarCreated`
+- Notification-area icon: `RedXe/TrayIcon.h` (the owner window, the icon, the menu, the `TrayIconActionFor`
+  callback table, and the `TrayIconAddRetryDelayMilliseconds` schedule), `RedXe/TrayIcon.cpp`; its lifetime and
+  commands: `Application::ApplyTrayIconSettings`, `OnTrayCommand`, and `EditSettingsFile`, which hands the editor
+  launch to `RedXe/LaunchWorker.*`
 - Physical render-target resizing: `RedXe/Renderer.cpp`, `RedXe/Renderer.h`
 - Automated build, scheduler, production host/plugin, and hidden WARP validation: `build.ps1`, `test.ps1`,
   `Tests/HostPluginTests/`

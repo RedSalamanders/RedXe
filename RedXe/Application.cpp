@@ -848,6 +848,13 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         OutputDebugStringW(_dockActive ? L"CreateDockWindow failed.\n" : L"CreateMainWindow failed.\n");
         return 2;
     }
+    // A restarted Explorer announces its new taskbar to top-level windows, whatever `trayIcon` says; an elevated RedXe
+    // admits the broadcast through the message filter. Every window kind listens, since a reload can make it a dock.
+    _taskbarCreatedMessage = RegisterWindowMessageW(L"TaskbarCreated");
+    if (_taskbarCreatedMessage != 0)
+    {
+        (void)ChangeWindowMessageFilterEx(_window.get(), _taskbarCreatedMessage, MSGFLT_ALLOW, nullptr);
+    }
 
     result = OleInitialize(nullptr);
     if (FAILED(result))
@@ -1655,6 +1662,30 @@ void Application::UnregisterDockAppBar() noexcept
         _dockAppBarRegistered = false;
     }
     _dockReserved = false;
+}
+
+void Application::OnTaskbarCreated() noexcept
+{
+    if (!_dockActive || !_window)
+    {
+        return;
+    }
+    if (_dockPlacing)
+    {
+        // Heard inside a placement's shell call: handled once that placement has finished.
+        (void)PostMessageW(_window.get(), _taskbarCreatedMessage, 0, 0);
+        return;
+    }
+    // A restarted Explorer has none of the bar's shell state: the registration, the reserved work area, the autohide
+    // edge, and the full-screen report all start over. The registration is removed first because a running Explorer
+    // can send the broadcast too while it still holds the bar, and it refuses a second ABM_NEW; a new Explorer ignores
+    // the removal of a bar it does not know.
+    UnregisterDockAppBar();
+    _dockFullscreenAppActive = false;
+    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "dock-appbar-renewed",
+                       "The taskbar was created; the dock registers its app bar again.");
+    (void)PlaceDock(true);
+    ApplyDockZOrder();
 }
 
 void Application::ApplyDockZOrder() noexcept
@@ -2738,24 +2769,23 @@ void Application::ApplyTrayIconSettings() noexcept
     if (!_trayIconAllowed || !_settings || !_settings->trayIcon || !_window)
     {
         _trayIcon.Hide();
+        _trayIconResult = S_OK;
         return;
     }
-    if (_trayIcon.Shown())
-    {
-        return;
-    }
-    // S_FALSE: the icon was not added, typically because there is no taskbar yet (a start at sign-in); the owner adds
-    // it when the taskbar announces itself.
+    // Show is idempotent and makes no shell call for an icon already added, so every apply also retries an icon the
+    // shell refused. S_FALSE: the shell refused it (no taskbar yet, or a busy Explorer at sign-in); the owner tries
+    // again while a taskbar exists and adds it when a taskbar announces itself.
     const HRESULT result = _trayIcon.Show(_instance, _window.get());
-    if (result != S_OK)
+    if (result != S_OK && result != _trayIconResult)
     {
         (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
                            "tray-icon-failed",
                            FAILED(result) ? "The notification-area icon could not be created."
-                                          : "The notification-area icon was not added; it is added when the taskbar "
-                                            "next starts.",
+                                          : "The notification-area icon was not added yet; it is tried again for about "
+                                            "15 seconds while the taskbar runs, and when the taskbar is next created.",
                            result);
     }
+    _trayIconResult = result;
 }
 
 void Application::OnTrayCommand(TrayCommand command) noexcept
@@ -5855,6 +5885,11 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             RefreshTextServices();
             return 0;
         }
+    }
+    if (_taskbarCreatedMessage != 0 && message == _taskbarCreatedMessage)
+    {
+        OnTaskbarCreated();
+        return 0;
     }
     switch (message)
     {

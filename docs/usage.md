@@ -84,6 +84,8 @@ Turn it on or off with `trayIcon` in the settings file; the change applies when 
 
 Without `trayIcon`, Release shows the icon and Debug does not. The shipped files write it out: `true` in the Release file, `false` in the Debug file.
 
+If Windows is still busy when RedXe starts (right after you sign in), the icon can take a few seconds to appear. It also comes back by itself when Windows Explorer restarts.
+
 ## Dock
 
 Instead of the window above, RedXe can run as a **bar along one edge of a monitor** — any monitor, not only the XENEON — like a second taskbar. Put a `dock` object in the settings file, or try it for one run from the command line:
@@ -134,6 +136,7 @@ Good to know:
 - A full-screen game or video on that monitor pushes the bar beneath it; it returns when you leave full screen. A full-screen window on another display (a XENEON dashboard, a video on a second screen) leaves the bar on top.
 - Saving the file applies every change while RedXe runs: `thickness`, `edge`, `monitor`, `mode`, `reserveWorkArea`, `peek`, and the delays re-place the bar, and turning the dock on or off (`edge` between `none` and an edge) turns the running window into the bar, or the bar back into the normal window (fullscreen or titled, as in [Window](#window), without the XENEON prompt). The switch never takes the focus from the editor you saved in. If the switch cannot be completed, RedXe keeps the window it had and shows the settings error dialog instead of closing. A `--dock` switch keeps its edge for that run.
 - `--screenshot` works for a dock too; an auto-hiding bar is held open for the capture.
+- If Windows Explorer restarts while the bar runs, the bar registers with the new taskbar by itself: the reserved space, auto-hiding, and stepping beneath full-screen windows come back without restarting RedXe.
 - If RedXe crashes while it reserves space, Windows may keep that space reserved until RedXe runs again or you sign out.
 
 ### First start without a XENEON

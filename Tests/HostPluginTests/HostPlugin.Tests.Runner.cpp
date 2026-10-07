@@ -34,6 +34,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <iterator>
 #include <limits>
@@ -242,6 +243,30 @@ struct PluginHostTestAccess final
         const auto guard = wil::AcquireSRWLockExclusive(&host._launches._lock);
         return host._launches._count;
     }
+
+    // Replaces the tray icon's Shell_NotifyIconW and taskbar probe, so a test never reaches the shell.
+    static void SetTrayShell(TrayIcon& tray, TrayIcon::ShellNotify notify, TrayIcon::TaskbarProbe taskbar) noexcept
+    {
+        tray._shellNotify = notify;
+        tray._taskbarExists = taskbar;
+    }
+
+    [[nodiscard]] static HWND TrayOwner(const TrayIcon& tray) noexcept
+    {
+        return tray._window.get();
+    }
+
+    [[nodiscard]] static bool TrayIconAdded(const TrayIcon& tray) noexcept
+    {
+        return tray._iconAdded;
+    }
+
+    [[nodiscard]] static uint32_t TrayAddRetries(const TrayIcon& tray) noexcept
+    {
+        return tray._addRetries;
+    }
+
+    static constexpr UINT_PTR kTrayAddRetryTimerId = TrayIcon::kAddRetryTimerId;
 };
 
 namespace
@@ -899,6 +924,208 @@ void TestTrayIconPolicy(bool& success) noexcept
     Check(static_cast<UINT>(TrayCommand::EditSettings) != 0 && static_cast<UINT>(TrayCommand::Exit) != 0 &&
               TrayCommand::EditSettings != TrayCommand::Exit,
           L"menu commands are non-zero, so a dismissed menu selects nothing", success);
+    Check(TrayIconAddRetryDelayMilliseconds(0) == 1000 && TrayIconAddRetryDelayMilliseconds(1) == 2000 &&
+              TrayIconAddRetryDelayMilliseconds(2) == 4000 && TrayIconAddRetryDelayMilliseconds(3) == 8000 &&
+              TrayIconAddRetryDelayMilliseconds(4) == 0 && TrayIconAddRetryDelayMilliseconds(UINT32_MAX) == 0,
+          L"a refused add is retried four times with doubling delays from 1 s, then no more", success);
+}
+
+// A scripted Shell_NotifyIconW for TrayIcon: it records every call and answers as the test sets, so the owner's
+// lifecycle runs without reaching the taskbar.
+struct TrayShellScript final
+{
+    std::array<DWORD, 64> calls{};
+    size_t count = 0;
+    bool add = true;
+    bool addTimesOut = false;
+    bool modify = true;
+    bool version = true;
+    bool taskbar = true;
+    // The last NIM_DELETE arrived while its owner window still existed.
+    bool deleteSawOwner = false;
+};
+
+TrayShellScript* g_trayShell = nullptr;
+
+BOOL STDAPICALLTYPE ScriptedShellNotify(DWORD message, PNOTIFYICONDATAW data)
+{
+    TrayShellScript& script = *g_trayShell;
+    if (script.count < script.calls.size())
+    {
+        script.calls[script.count] = message;
+    }
+    ++script.count;
+    switch (message)
+    {
+    case NIM_ADD:
+        if (script.addTimesOut)
+        {
+            SetLastError(ERROR_TIMEOUT);
+            return FALSE;
+        }
+        return script.add ? TRUE : FALSE;
+    case NIM_MODIFY:
+        return script.modify ? TRUE : FALSE;
+    case NIM_SETVERSION:
+        return script.version && data->uVersion == NOTIFYICON_VERSION_4 ? TRUE : FALSE;
+    case NIM_DELETE:
+        script.deleteSawOwner = IsWindow(data->hWnd) != FALSE;
+        return TRUE;
+    default:
+        return TRUE;
+    }
+}
+
+bool ScriptedTaskbarExists() noexcept
+{
+    return g_trayShell->taskbar;
+}
+
+// The shell calls made since call number `from` are exactly `expected`, in order.
+[[nodiscard]] bool TrayCallsSince(size_t from, std::initializer_list<DWORD> expected) noexcept
+{
+    const TrayShellScript& script = *g_trayShell;
+    return script.count <= script.calls.size() && from <= script.count && script.count - from == expected.size() &&
+           std::equal(expected.begin(), expected.end(), script.calls.begin() + static_cast<std::ptrdiff_t>(from));
+}
+
+[[nodiscard]] size_t CountTrayOwners() noexcept
+{
+    size_t count = 0;
+    (void)EnumThreadWindows(
+        GetCurrentThreadId(),
+        [](HWND window, LPARAM context) -> BOOL
+        {
+            std::array<wchar_t, 32> name{};
+            if (GetClassNameW(window, name.data(), static_cast<int>(name.size())) > 0 &&
+                std::wstring_view{name.data()} == L"RedXe.TrayIcon")
+            {
+                ++*reinterpret_cast<size_t*>(context);
+            }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&count));
+    return count;
+}
+
+// TrayIcon.cpp against a scripted shell: Show and Hide are idempotent and Hide unregisters the class; WM_CLOSE leaves
+// the owner, and every destruction deletes the icon first; TaskbarCreated adds again; a refusal retries on the bounded
+// schedule only while a taskbar exists, then arms nothing; a timed-out add makes no second blocking call; and the icon
+// counts as added only once NIM_SETVERSION has followed the add or update.
+void TestTrayIconOwner(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] notification-area icon owner lifecycle\n";
+    using Access = PluginHostTestAccess;
+    constexpr UINT_PTR retryTimer = Access::kTrayAddRetryTimerId;
+    TrayShellScript script;
+    g_trayShell = &script;
+    const auto clearScript = wil::scope_exit([]() noexcept { g_trayShell = nullptr; });
+    const HINSTANCE instance = GetModuleHandleW(nullptr);
+    const UINT taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
+    WNDCLASSEXW info{};
+    info.cbSize = sizeof(info);
+    size_t beforeDestructor = 0;
+    {
+        TrayIcon tray;
+        Access::SetTrayShell(tray, &ScriptedShellNotify, &ScriptedTaskbarExists);
+
+        Check(tray.Show(instance, nullptr) == S_OK && TrayCallsSince(0, {NIM_ADD, NIM_SETVERSION}) &&
+                  Access::TrayIconAdded(tray) && CountTrayOwners() == 1,
+              L"Show creates one owner and adds the icon at version 4", success);
+        Check(tray.Show(instance, nullptr) == S_OK && script.count == 2 && CountTrayOwners() == 1,
+              L"Show again keeps the owner and makes no shell call", success);
+        HWND owner = Access::TrayOwner(tray);
+        tray.Hide();
+        Check(!tray.Shown() && TrayCallsSince(2, {NIM_DELETE}) && script.deleteSawOwner && !IsWindow(owner) &&
+                  CountTrayOwners() == 0 && GetClassInfoExW(instance, L"RedXe.TrayIcon", &info) == FALSE,
+              L"Hide deletes the icon while its owner exists, destroys the owner, and unregisters the class", success);
+        tray.Hide();
+        Check(script.count == 3, L"Hide again makes no shell call", success);
+
+        script.deleteSawOwner = false;
+        Check(tray.Show(instance, nullptr) == S_OK && Access::TrayIconAdded(tray),
+              L"Show after Hide registers the class and adds the icon again", success);
+        owner = Access::TrayOwner(tray);
+        size_t from = script.count;
+        (void)SendMessageW(owner, WM_CLOSE, 0, 0);
+        Check(tray.Shown() && IsWindow(owner) && script.count == from && Access::TrayIconAdded(tray),
+              L"WM_CLOSE (Alt+F4 on the owner after its menu) leaves the owner and its icon", success);
+        (void)DestroyWindow(owner);
+        Check(!tray.Shown() && TrayCallsSince(from, {NIM_DELETE}) && script.deleteSawOwner,
+              L"an owner destroyed from outside deletes its icon while it still exists", success);
+        Check(tray.Show(instance, nullptr) == S_OK && Access::TrayIconAdded(tray) && CountTrayOwners() == 1,
+              L"Show recreates an owner destroyed from outside", success);
+        owner = Access::TrayOwner(tray);
+
+        // The taskbar refuses both the add and the update.
+        script.add = false;
+        script.modify = false;
+        from = script.count;
+        (void)SendMessageW(owner, taskbarCreated, 0, 0);
+        Check(TrayCallsSince(from, {NIM_ADD, NIM_MODIFY}) && !Access::TrayIconAdded(tray) &&
+                  Access::TrayAddRetries(tray) == 1,
+              L"TaskbarCreated adds again, and a refusal by a running taskbar arms the first retry", success);
+        for (uint32_t retry = 1; retry < 4; ++retry)
+        {
+            (void)SendMessageW(owner, WM_TIMER, retryTimer, 0);
+        }
+        Check(Access::TrayAddRetries(tray) == 4 && KillTimer(owner, retryTimer) != FALSE,
+              L"each refused retry arms the next one-shot timer, up to four", success);
+        from = script.count;
+        (void)SendMessageW(owner, WM_TIMER, retryTimer, 0);
+        Check(TrayCallsSince(from, {NIM_ADD, NIM_MODIFY}) && Access::TrayAddRetries(tray) == 4 &&
+                  KillTimer(owner, retryTimer) == FALSE,
+              L"the last retry arms no timer: nothing runs again until a new request", success);
+
+        // Explorer is busy: the add times out.
+        script.addTimesOut = true;
+        from = script.count;
+        Check(tray.Show(instance, nullptr) == S_FALSE && TrayCallsSince(from, {NIM_ADD}) &&
+                  Access::TrayAddRetries(tray) == 1,
+              L"Show starts the retries again, and a timed-out add is not followed by a second blocking call", success);
+        // The timed-out add landed later: the retry's add is refused and its update succeeds.
+        script.addTimesOut = false;
+        script.modify = true;
+        from = script.count;
+        (void)SendMessageW(owner, WM_TIMER, retryTimer, 0);
+        Check(TrayCallsSince(from, {NIM_ADD, NIM_MODIFY, NIM_SETVERSION}) && Access::TrayIconAdded(tray) &&
+                  Access::TrayAddRetries(tray) == 0 && KillTimer(owner, retryTimer) == FALSE,
+              L"a late icon takes an update and version 4, and the retries end", success);
+
+        // The add succeeds but version 4 is not set.
+        script.add = true;
+        script.version = false;
+        from = script.count;
+        (void)SendMessageW(owner, taskbarCreated, 0, 0);
+        Check(TrayCallsSince(from, {NIM_ADD, NIM_SETVERSION}) && !Access::TrayIconAdded(tray) &&
+                  Access::TrayAddRetries(tray) == 1,
+              L"an icon left without version 4 does not count as added and is retried", success);
+        script.add = false;
+        script.version = true;
+        from = script.count;
+        (void)SendMessageW(owner, WM_TIMER, retryTimer, 0);
+        Check(TrayCallsSince(from, {NIM_ADD, NIM_MODIFY, NIM_SETVERSION}) && Access::TrayIconAdded(tray),
+              L"the retry updates that icon and sets version 4", success);
+
+        // No taskbar yet, as at sign-in.
+        tray.Hide();
+        script.modify = false;
+        script.taskbar = false;
+        from = script.count;
+        Check(tray.Show(instance, nullptr) == S_FALSE && TrayCallsSince(from, {NIM_ADD, NIM_MODIFY}) &&
+                  Access::TrayAddRetries(tray) == 0 && KillTimer(Access::TrayOwner(tray), retryTimer) == FALSE,
+              L"without a taskbar a refused add arms no timer", success);
+        script.add = true;
+        script.taskbar = true;
+        from = script.count;
+        (void)SendMessageW(Access::TrayOwner(tray), taskbarCreated, 0, 0);
+        Check(TrayCallsSince(from, {NIM_ADD, NIM_SETVERSION}) && Access::TrayIconAdded(tray),
+              L"the new taskbar's announcement adds it", success);
+        beforeDestructor = script.count;
+    }
+    Check(TrayCallsSince(beforeDestructor, {NIM_DELETE}) && CountTrayOwners() == 0 &&
+              GetClassInfoExW(instance, L"RedXe.TrayIcon", &info) == FALSE,
+          L"the destructor deletes the icon, destroys the owner, and unregisters the class", success);
 }
 
 // DockPlacement.h autohide state machine: every transition of the reveal/hide table, zero delays, holds, and the
@@ -6269,6 +6496,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestDockAutohidePolicy(success);
     TestDockSlidePolicy(success);
     TestTrayIconPolicy(success);
+    TestTrayIconOwner(success);
     TestDockPresentation(success);
     TestDockPresentationRebuild(success);
     TestWidgetRaiseNative(success);

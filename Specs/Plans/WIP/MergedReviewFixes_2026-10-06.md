@@ -294,7 +294,7 @@ Check a row when its fix lands, or note why it was dropped.
 
 ### P3. Dock, tray, Explorer, and session lifecycle (27)
 
-- [ ] `dock-switch#2` (medium) `RedXe/Application.cpp:1538`: After an Explorer restart (or a start before the taskbar exists) the dock's app bar is never registered again; only the tray icon handles TaskbarCreated
+- [x] `dock-switch#2` (medium) `RedXe/Application.cpp:1538`: After an Explorer restart (or a start before the taskbar exists) the dock's app bar is never registered again; only the tray icon handles TaskbarCreated
 - [ ] `dock-switch#21` (medium) `RedXe/Application.cpp:5030`: Page and widget host actions on a collapsed autohide bar lay out against the peek strip; #27's SettleDockSlide guard covers only a sliding bar
 - [ ] `dock-switch#6` (medium) `RedXe/DockPlacement.h:190`: First-run edge ignores displays stacked above or below: the autohide strip can land on an inter-monitor boundary
 - [ ] `dock-switch#7` (medium) `RedXe/DockPlacement.h:197`: First-run autohide strip on the top edge sits over maximized windows' caption buttons and tab strips; a click there steals focus and reveals a half-screen bar
@@ -306,17 +306,17 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `session-end#1` (medium) `RedXe/Main.cpp:377`: After a crash on the main thread, wWinMain returns normally, so CRT exit runs PluginHost::Shutdown and plugin shutdown exports in the crashed process
 - [ ] `settings#19` (medium) `RedXe/Application.cpp:5361`: Settings-error and action-notice dialogs are centred on the dock window, which for the collapsed first-run autohide bar is a 4 px strip, so the dialog lands half off-screen
 - [ ] `settings#5` (medium) `RedXe/Application.cpp:751`: The first-run dock is persisted from a single discovery result, so a XENEON that is briefly absent at install or recovery turns RedXe into a dock permanently
-- [ ] `slide-tray#0` (medium) `RedXe/TrayIcon.cpp:94`: A refused tray icon add is never retried while the taskbar already exists (no timer, reload skips Show, misleading log; NIM_SETVERSION not retried)
-- [ ] `slide-tray#1` (medium) `RedXe/Application.cpp:1538`: Dock app-bar and autohide registrations are lost when Explorer restarts; PR #27 handles TaskbarCreated only in the tray icon
+- [x] `slide-tray#0` (medium) `RedXe/TrayIcon.cpp:94`: A refused tray icon add is never retried while the taskbar already exists (no timer, reload skips Show, misleading log; NIM_SETVERSION not retried)
+- [x] `slide-tray#1` (medium) `RedXe/Application.cpp:1538`: Dock app-bar and autohide registrations are lost when Explorer restarts; PR #27 handles TaskbarCreated only in the tray icon
 - [ ] `slide-tray#2` (medium) `RedXe/Application.cpp:4604`: During a reveal slide, pointer hover/up, accessibility and IME bounds are computed against the partly open window instead of the full dashboard canvas
 - [ ] `slide-tray#3` (medium) `RedXe/Application.cpp:932`: Top/left bar slides: SetWindowPos and native-container moves land one composition before the matching Present (a background band at the leading edge, native tiles drift)
-- [ ] `slide-tray#6` (medium) `RedXe/TrayIcon.cpp:243`: A WM_CLOSE to the hidden tray owner (Alt+F4 after dismissing the menu, or a graceful taskkill) destroys it without NIM_DELETE: ghost icon, and the running app loses its tray icon
+- [x] `slide-tray#6` (medium) `RedXe/TrayIcon.cpp:243`: A WM_CLOSE to the hidden tray owner (Alt+F4 after dismissing the menu, or a graceful taskkill) destroys it without NIM_DELETE: ghost icon, and the running app loses its tray icon
 - [ ] `slide-tray#7` (medium) `RedXe/DockPlacement.h:187`: First-run top-edge strip covers the top 4 px of maximized windows on the second screen (caption buttons, tabs)
 - [ ] `dock-switch#10` (low) `RedXe/Application.cpp:752`: First-run bar is decided from a transient topology: a first start or invalid-file recovery over RDP (or with the XENEON off) permanently writes a bar for a XENEON user
 - [ ] `dock-switch#12` (low) `RedXe/Application.cpp:1607`: DockYieldsToFullscreen counts a maximized window's frame overhang as covering the monitor; the pure rule sits untested in Application
 - [ ] `session-end#2` (low) `RedXe/Application.cpp:407`: AutohideBarOnEdge counts a dead app bar as a taken edge, so a first-run install after a RedXe crash or kill can pick the wrong edge
 - [ ] `session-end#3` (low) `RedXe/Application.cpp:871`: The previous-crash prompt is owned by the unpainted dock and then activates it, which breaks show-without-focus and pins an autohide bar open
-- [ ] `slide-tray#11` (low) `RedXe/TrayIcon.cpp:161`: Keyboard-opened tray menu never returns focus to the notification area (no NIM_SETFOCUS)
+- [x] `slide-tray#11` (low) `RedXe/TrayIcon.cpp:161`: Keyboard-opened tray menu never returns focus to the notification area (no NIM_SETFOCUS)
 - [ ] `slide-tray#19` (low) `RedXe/Application.cpp:5878`: A press, tap or wheel during a reveal slide goes to the tile that the settle moves under it, not the tile the user saw
 - [ ] `slide-tray#4` (low) `RedXe/Application.cpp:5928`: Mouse wheel on the hidden strip or on a bar sliding out snaps the bar shut and scrolls or pages invisible widgets
 - [ ] `slide-tray#5` (low) `RedXe/Application.cpp:1710`: The peek strip is computed two ways: clamped by the slide (DockPeekPixels) but raw in PlaceDock, WM_GETMINMAXINFO and the grip

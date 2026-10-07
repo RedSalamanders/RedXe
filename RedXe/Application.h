@@ -104,6 +104,8 @@ class Application final
     HRESULT ResizeDockDashboard() noexcept;
     void RegisterDockAppBar() noexcept;
     void UnregisterDockAppBar() noexcept;
+    // TaskbarCreated: a restarted Explorer knows no app bar, so an active dock registers and places itself again.
+    void OnTaskbarCreated() noexcept;
     void ApplyDockZOrder() noexcept;
     // True while the shell reports a full-screen application (ABN_FULLSCREENAPP) and the foreground window fills the
     // dock's own monitor: only then does the bar step beneath it.
@@ -350,6 +352,10 @@ class Application final
     TrayIcon _trayIcon;
     // Set by Run once the main window is up; RunSelfTest never shows the icon, whatever the document says.
     bool _trayIconAllowed = false;
+    // The last TrayIcon::Show result, so a reload that gets the same failure logs no second tray-icon-failed.
+    HRESULT _trayIconResult = S_OK;
+    // The registered TaskbarCreated message (OnTaskbarCreated); 0 until Run creates the window.
+    UINT _taskbarCreatedMessage = 0;
     std::unique_ptr<AppSettings> _settings;
     std::unique_ptr<AppSettings> _transitionSettings;
     std::unique_ptr<PluginManager> _transitionPluginManager;
