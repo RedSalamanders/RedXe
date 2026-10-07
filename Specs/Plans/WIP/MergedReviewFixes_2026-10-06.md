@@ -9,8 +9,8 @@ and the plan moves to `Specs/Plans/Done/` once every batch is closed.
 
 ## Origin
 
-A production-readiness review of the eleven PRs merged into `main` from 2026-09-26 to 2026-10-06 (#21 to #32, range
-`3973fd8..25433ae`, 198 files). The review read each change with the code around it, looking for bugs, side effects
+A production-readiness review of the eleven PRs merged into `main` from 2026-09-26 to 2026-10-06 (#21 to #32; #29
+merged into #30's branch, not into `main`; range `3973fd8..25433ae`, 198 files). The review read each change with the code around it, looking for bugs, side effects
 on code the change did not touch, gaps in resilience and user experience, architecture misfits, and possible
 simplifications.
 
@@ -27,7 +27,10 @@ Method:
   reviewer re-checked every high finding and the medium findings that shape this plan against the code, the
   `v1.0.102` tag, and the GitHub release, CI and ruleset state.
 
-Result: 227 open findings (13 high, 66 medium, 121 low, 27 nit; 2 still disputed) and 9 refuted. None is critical.
+Result: 227 open review records (13 high, 66 medium, 121 low, 27 nit; 2 still disputed) and 9 refuted. None is
+critical. Records are per review unit, so a defect that two or three units reported appears as two or three rows
+(for example `settings#0`, `logicon-zoom#0` and `alignment#0` are the same Zoom reset); such rows sit in the same
+batch and close together, so the counts measure review coverage, not distinct defects.
 Several predate the range but are listed because #23 and #27 make them much easier to hit; the register marks the
 PR where known. Line numbers are at `25433ae` and will drift: re-read each anchor before fixing it.
 
@@ -55,7 +58,7 @@ Fix:
   schema as deprecated, ignored properties. Correct `Plugins_Zoom.md`, which currently says they are rejected.
 - Turn `keys.down` and `mouse.down` on a Logicon key, dial button or turn into an invalid binding (red `!`, never
   dispatched) instead of a document error, with a precise diagnostic. Align the schema, `docs/actions.md` and
-  `docs/plugins/logicon.md`, and decide whether Launcher taps get the same rule.
+  `docs/plugins/logicon.md`. Launcher taps keep their current behavior (decision D9).
 - Add SettingsTests that load the exact `v1.0.102` Release and Debug templates and a document with a held binding.
 
 ### B2. Release workflow runs the Python tooling suite
@@ -178,7 +181,8 @@ register rows.
 
 ## Decisions
 
-Recommended defaults are in bold. Batches that depend on a decision wait for it.
+Recommended defaults are in bold. On 2026-10-07 the owner asked for the whole plan to be implemented, so the
+recommended defaults apply; D6 stays the owner's repository setting and is not changed by any batch.
 
 - D1, upgrade policy (B1): **accept and ignore retired members with a warning**, or migrate the file on first load.
   Is a rollback from a newer build to `v1.0.102` supported? Today it resets the file in that direction too.
@@ -197,6 +201,9 @@ Recommended defaults are in bold. Batches that depend on a decision wait for it.
 - D7, Zoom (P4): Zoom no longer has state. **Move it to the dedicated action-DLL path**, or keep the service wiring.
 - D8, `Application.cpp` (6,338 lines): extracting a `DockController` that owns app bar, placement, reveal and slide
   was judged mostly code movement. **Do only the P6 de-duplication now** and revisit after P3.
+- D9, Launcher taps bound to `keys.down` or `mouse.down` (B1): Launcher taps are press-only like Logicon keys and
+  hold the input until the 2 s budget releases it. **Leave Launcher unchanged in B1** (B1 closes without it), or apply
+  the Logicon invalid-binding rule to Launcher too in P4.
 
 ## Contracts expected to change
 
@@ -209,10 +216,12 @@ Recommended defaults are in bold. Batches that depend on a decision wait for it.
 
 ## Validation
 
-- Every batch: the affected build, `Test-Changes.ps1` for the changed scopes, and the validation its owning specs
-  name. P1 to P4 also run `test.ps1 -Full` on x64 Debug and Release before their PR.
-- B1: a SettingsTests case per `v1.0.102` template and a held Logicon binding.
-- B2: the release workflow command in the reviewed-CI assertion, plus the same command run locally on x64 Release.
+- Every batch, B1 and B2 included: the affected build, `Test-Changes.ps1` for the changed scopes, and the validation
+  its owning specs name. B1, B2 and P1 to P4 also run `test.ps1 -Full` on x64 Debug and Release before their PR.
+- B1: a SettingsTests case per `v1.0.102` template and a held Logicon binding, plus the Zoom, Logicon, Settings and
+  HostPlugin suites.
+- B2: the BuildProcess (tooling) scope, run explicitly, because the corrected release command skips it and
+  `ScopedTesting.Tests.ps1` carries the extended assertion; plus the release command run locally on x64 Release.
   Never dispatch `release.yml` as a test: every dispatch creates a GitHub release and, with the default inputs,
   submits it to winget. The next intentional release is the end-to-end check, unless a non-publishing dry-run input
   is added first.
