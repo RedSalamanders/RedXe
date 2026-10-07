@@ -228,7 +228,8 @@ Keep the boundary explicit:
 .\build.ps1 -Platform ARM64
 .\build.ps1 -Rebuild
 .\build.ps1 -Run
-.\test.ps1
+.\test.ps1                                      # affected suites (Test-Changes.ps1); nothing when nothing changed
+.\test.ps1 -Full                                # every suite: the full gate
 .\validate-skills.ps1
 .\package.ps1 -Platform x64                     # portable ZIP stamped 1.0.<commit count>, smoke-tested from a clean extraction
 .\winget-manifest.ps1 -Version 1.0.<n>          # winget manifest from both platform packages
@@ -242,11 +243,12 @@ release and winget workflows are owned by [`Specs/Build/Build_Packaging.md`](Spe
 `.build/<Platform>/<Configuration>/RedXe.exe`. It MUST identify that process and MUST NOT terminate it; same-name
 processes from other paths do not block the build.
 
-Before declaring a change complete, build the affected configuration, run `test.ps1`, and satisfy the validation
-contract in the owning domain spec. Rendering changes must keep the WARP smoke test green so CI and GPU-independent
-hosts can validate device creation, embedded shader bytecode, resize, drawing, and presentation.
-`test.ps1` also validates crash capture by launching an isolated child process; it requires no desktop automation and
-must not write to the user's normal crash directory.
+Before declaring a change complete, build the affected configuration, run `test.ps1 -Full` (or
+`Test-Changes.ps1 -Mode PrePush`, which accounts for the same coverage), and satisfy the validation contract in the
+owning domain spec. Rendering changes must keep the WARP smoke test green so CI and GPU-independent hosts can validate
+device creation, embedded shader bytecode, resize, drawing, and presentation.
+`test.ps1 -Full` also validates crash capture by launching an isolated child process; it requires no desktop automation
+and must not write to the user's normal crash directory.
 
 ## Host chrome iconography
 
@@ -287,4 +289,4 @@ must not write to the user's normal crash directory.
 
 ## Scoped testing policy (2026-10-05)
 
-The user's accepted workflow replaces unconditional full-test iteration. Use `Test-Changes.ps1 -Explain` and the affected default while editing; use `-Mode PrePush` to account for full local/PR coverage without duplicate identical obligations. A forthcoming enabled CI gate is pending acceptance, never an already passed result. Explicit Full remains available. Active native test files use `Scope.Tests.Something.h/.cpp` and the native file inventory. Follow [Specs/Build/Build_Process.md](Specs/Build/Build_Process.md) and [the test guide](Tests/README.md). Focus-taking work requires agreement to the time; no scoped pass closes that gate. Build/runtime/platform qualification still applies to changed behavior, with exact prior evidence reusable only under the owning contract.
+The user's accepted workflow replaces unconditional full-test iteration. Use `Test-Changes.ps1 -Explain` and the affected default while editing; use `-Mode PrePush` to account for full local/PR coverage without duplicate identical obligations. A forthcoming enabled CI gate is pending acceptance, never an already passed result, and only a check `main` requires can take work off the local run. An empty affected plan (`NOTHING_SELECTED`) evaluates nothing; explicit Full (`test.ps1 -Full`) remains the full gate. Active native test files use `Scope.Tests.Something.h/.cpp` and the native file inventory. Follow [Specs/Build/Build_Process.md](Specs/Build/Build_Process.md) and [the test guide](Tests/README.md). Focus-taking work requires agreement to the time; no scoped pass closes that gate. Build/runtime/platform qualification still applies to changed behavior, with exact prior evidence reusable only under the owning contract.

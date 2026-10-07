@@ -3585,6 +3585,8 @@ void TestHostJsonlLog(bool& success) noexcept
     // The timeout only bounds a hung writer; it is not a latency budget. The first drain creates the dated file,
     // purges the expired ones, and flushes to disk, which once took longer than 2 s on a GitHub-hosted x64 runner.
     // A stale idle signal still fails at once with ERROR_IO_PENDING, whatever the timeout.
+    // A writer that did not drain within the timeout may never finish, and returning would leave ~PluginHost joining
+    // it without a bound until test.ps1's budget ends the run: the run reports the timeout and ends here instead.
     const auto flushLog = [&host]() noexcept
     {
         const HRESULT result = host.FlushLog(10'000);
@@ -3593,13 +3595,21 @@ void TestHostJsonlLog(bool& success) noexcept
             std::wcerr << L"[       -- ] FlushLog returned 0x" << std::hex << static_cast<unsigned long>(result)
                        << std::dec << L'\n';
         }
+        if (result == HRESULT_FROM_WIN32(ERROR_TIMEOUT))
+        {
+            std::wcerr << L"[  FAILED  ] the JSONL log writer did not drain within 10 s; ending the run\n";
+            std::wcerr.flush();
+            std::wcout.flush();
+            // The hung writer may hold what an orderly teardown needs: leave immediately, no destructors.
+            static_cast<void>(TerminateProcess(GetCurrentProcess(), 1));
+        }
         return result;
     };
     const HRESULT drained = flushLog();
     Check(SUCCEEDED(drained), L"FlushLog waits for the writer to drain", success);
     if (FAILED(drained))
     {
-        return; // Every later flush would wait out another timeout on a writer that never drained.
+        return; // The checks below need a writer that drained.
     }
     constexpr size_t flushBatches = 64;
     constexpr size_t recordsPerBatch = 4;

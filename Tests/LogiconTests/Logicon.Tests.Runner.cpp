@@ -1580,9 +1580,8 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
 
 int wmain() noexcept
 {
+    // Also unbuffers stdout: progress lines reach a redirected console at once, so a hang is attributable to one case.
     RedXeFailureReports::RouteAwayFromDialogs();
-    // Progress lines must reach a redirected console immediately so a hang is attributable to one case.
-    (void)setvbuf(stdout, nullptr, _IONBF, 0);
     const HRESULT result = Run();
     if (FAILED(result))
     {
