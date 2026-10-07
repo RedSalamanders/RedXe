@@ -65,6 +65,20 @@ enum class BindingSite : uint8_t
     return mask;
 }
 
+// Whether a dial or roller turn can run an action, which is the only reason to read the wheels.
+[[nodiscard]] bool BindsTurns(const Settings& settings) noexcept
+{
+    for (uint32_t index = 0; index < settings.dialpad.turnCount; ++index)
+    {
+        const KeyBinding& turn = settings.dialpad.turns[index];
+        if (turn.HasAction() && turn.valid)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 [[nodiscard]] bool IsDeviceGone(HRESULT result) noexcept
 {
     return result == HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_CONNECTED) ||
@@ -104,6 +118,7 @@ LogiconService* LogiconService::Current() noexcept
 LogiconService::LogiconService(IRedXeHost* host, uint32_t backgroundRgb) noexcept
     : _host(host), _backgroundRgb(backgroundRgb & 0x00FFFFFFU)
 {
+    _syntheticDialpad.ActAsDialpad(true);
     const auto guard = wil::AcquireSRWLockExclusive(&g_currentLock);
     if (!g_current)
     {
@@ -492,6 +507,20 @@ HRESULT LogiconService::SetSynthetic(bool enabled) noexcept
     return S_OK;
 }
 
+HRESULT LogiconService::SetSyntheticDialpad(uint32_t mode) noexcept
+{
+    if (mode > kSyntheticDialpadUnresponsive)
+    {
+        return E_INVALIDARG;
+    }
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+        _syntheticDialpadRequested = mode;
+    }
+    WakeLane();
+    return S_OK;
+}
+
 HRESULT LogiconService::InjectSyntheticReport(const uint8_t* report, uint32_t bytes) noexcept
 {
     return _synthetic.InjectReport(report, bytes);
@@ -820,26 +849,47 @@ void LogiconService::CloseDevice(HANDLE stopEvent, bool restore) noexcept
 HRESULT LogiconService::TryOpenDialpad(HANDLE stopEvent) noexcept
 {
     ++_dialpadAttempts;
-    HidCollections collections{};
-    HRESULT result = EnumerateVendorCollections(kVendorId, kDialpadProductId, kVendorUsagePage, collections);
-    if (SUCCEEDED(result) && collections.count == 0)
+    HRESULT result = S_OK;
+    if (_syntheticDialpadMode != kSyntheticDialpadNone)
     {
-        result = HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_CONNECTED);
-    }
-    for (uint32_t index = 0; SUCCEEDED(result) && index < collections.count; ++index)
-    {
-        const HidCollectionInfo& info = collections.items[index];
-        std::array<char, 200> line{};
-        (void)sprintf_s(line.data(), line.size(),
-                        "dialpad collection %u: usage 0x%04X in %u out %u in-ids 0x%08X out-ids 0x%08X.", index,
-                        info.usage, info.inputReportBytes, info.outputReportBytes, info.inputReportMask,
-                        info.outputReportMask);
-        Log(RedXeLogLevelDebug, "device-collection", line.data());
-        std::unique_ptr<WindowsHidPort> port{new (std::nothrow) WindowsHidPort()};
-        result = port ? port->Open(info) : E_OUTOFMEMORY;
+        result = _syntheticDialpad.Initialize();
+        _dialpadPresent = SUCCEEDED(result);
+        UpdateWheels();
         if (SUCCEEDED(result))
         {
-            result = _dialpad.AttachPort(std::move(port));
+            std::unique_ptr<HidPort> port{new (std::nothrow) SyntheticHidPort(_syntheticDialpad)};
+            result = port ? _dialpad.AttachPort(std::move(port)) : E_OUTOFMEMORY;
+        }
+    }
+    else
+    {
+        HidCollections collections{};
+        result = EnumerateVendorCollections(kVendorId, kDialpadProductId, kVendorUsagePage, collections);
+        if (SUCCEEDED(result))
+        {
+            // The wheels need the dialpad's presence only, never the HID++ session opened below.
+            _dialpadPresent = collections.count != 0;
+            UpdateWheels();
+        }
+        if (SUCCEEDED(result) && collections.count == 0)
+        {
+            result = HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_CONNECTED);
+        }
+        for (uint32_t index = 0; SUCCEEDED(result) && index < collections.count; ++index)
+        {
+            const HidCollectionInfo& info = collections.items[index];
+            std::array<char, 200> line{};
+            (void)sprintf_s(line.data(), line.size(),
+                            "dialpad collection %u: usage 0x%04X in %u out %u in-ids 0x%08X out-ids 0x%08X.", index,
+                            info.usage, info.inputReportBytes, info.outputReportBytes, info.inputReportMask,
+                            info.outputReportMask);
+            Log(RedXeLogLevelDebug, "device-collection", line.data());
+            std::unique_ptr<WindowsHidPort> port{new (std::nothrow) WindowsHidPort()};
+            result = port ? port->Open(info) : E_OUTOFMEMORY;
+            if (SUCCEEDED(result))
+            {
+                result = _dialpad.AttachPort(std::move(port));
+            }
         }
     }
     if (SUCCEEDED(result))
@@ -864,31 +914,47 @@ HRESULT LogiconService::TryOpenDialpad(HANDLE stopEvent) noexcept
     }
     _lastDialpadFailure = S_OK;
     _lastLoggedDialpadFailure = S_OK;
-    // Mouse raw input is process wide. Register it only while the dialpad actually needs its wheel reports.
-    const HRESULT listening = _wheels.Start(kVendorId, kDialpadProductId);
-    if (FAILED(listening))
-    {
-        Log(RedXeLogLevelWarning, "rawinput-unavailable", "the dialpad's wheels cannot be read (raw input).",
-            listening);
-    }
     std::array<char, 160> message{};
-    (void)sprintf_s(
-        message.data(), message.size(),
-        "dialpad connected (bluetooth): controls 0x%02X, %u collection(s), buttons diverted 0x%X; wheels %s.",
-        _dialpad.Features().reprogControls, _dialpad.PortCount(), _dialpad.DivertedDialButtons(),
-        _wheels.Running() ? "through raw input" : "unavailable");
+    (void)sprintf_s(message.data(), message.size(),
+                    "dialpad connected (%s): controls 0x%02X, %u collection(s), buttons diverted 0x%X; wheels %s.",
+                    _syntheticDialpadMode != kSyntheticDialpadNone ? "synthetic" : "bluetooth",
+                    _dialpad.Features().reprogControls, _dialpad.PortCount(), _dialpad.DivertedDialButtons(),
+                    _wheels.Running() ? "through raw input"
+                                      : (_wheelsWanted ? "unavailable" : "not read (no turn bound)"));
     Log(RedXeLogLevelInfo, "dialpad-connected", message.data());
     return S_OK;
 }
 
 void LogiconService::CloseDialpad(HANDLE stopEvent, bool restore) noexcept
 {
+    // Only the HID++ session: the wheels follow the dialpad's presence and the turn bindings (UpdateWheels).
     if (restore && _dialpad.HasPorts())
     {
         (void)_dialpad.Restore(stopEvent, false);
     }
     _dialpad.Detach();
-    _wheels.Stop();
+}
+
+void LogiconService::UpdateWheels() noexcept
+{
+    // Mouse raw input is process wide: register it only while the dialpad is there and a turn needs its wheels.
+    const bool wanted = _dialpadPresent && BindsTurns(_laneSettings);
+    if (wanted == _wheelsWanted)
+    {
+        return;
+    }
+    _wheelsWanted = wanted;
+    if (!wanted)
+    {
+        _wheels.Stop();
+        return;
+    }
+    const HRESULT listening = _wheels.Start(kVendorId, kDialpadProductId);
+    if (FAILED(listening))
+    {
+        Log(RedXeLogLevelWarning, "rawinput-unavailable", "the dialpad's wheels cannot be read (raw input).",
+            listening);
+    }
 }
 
 uint64_t LogiconService::SlotSignature(uint32_t slot, const KeyBinding* binding, const FaceOverride& override,
@@ -1227,12 +1293,18 @@ void LogiconService::PublishSnapshot() noexcept
         HashValue(visibleHash, snapshot.lastFailure);
         HashValue(visibleHash, snapshot.competingWriter);
         HashValue(visibleHash, snapshot.dialpad.connected);
+        HashValue(visibleHash, snapshot.dialpad.wheelsWanted);
         HashValue(visibleHash, snapshot.dialpad.wheelsListening);
         HashValue(visibleHash, snapshot.dialpad.buttons);
         HashValue(visibleHash, snapshot.dialpad.buttonPresses);
         HashValue(visibleHash, snapshot.dialpad.lastFailure);
         HashValue(visibleHash, snapshot.dialpad.counters.reportsIn);
-        HashValue(visibleHash, snapshot.dialpad.wheels);
+        // The wheels themselves, not the diagnostic packet counters: other mice never request a frame.
+        HashValue(visibleHash, snapshot.dialpad.wheels.dialRaw);
+        HashValue(visibleHash, snapshot.dialpad.wheels.rollerRaw);
+        HashValue(visibleHash, snapshot.dialpad.wheels.dialEvents);
+        HashValue(visibleHash, snapshot.dialpad.wheels.rollerEvents);
+        HashValue(visibleHash, snapshot.dialpad.wheels.buttonMask);
         HashValue(visibleHash, snapshot.dialpad.wheelSteps);
         HashValue(visibleHash, snapshot.systemFeed);
         HashValue(visibleHash, snapshot.system);
@@ -1286,6 +1358,7 @@ void LogiconService::FillSnapshot() noexcept
     snapshot.traceCount = _session.CopyTrace(snapshot.trace.data(), static_cast<uint32_t>(snapshot.trace.size()));
     DialpadSnapshot& dialpad = snapshot.dialpad;
     dialpad.connected = _dialpad.Connected();
+    dialpad.wheelsWanted = _wheelsWanted;
     dialpad.wheelsListening = _wheels.Running();
     dialpad.buttons = _dialpad.Controls().dialButtons;
     dialpad.divertedButtons = _dialpad.DivertedDialButtons();
@@ -1391,9 +1464,11 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
     for (;;)
     {
         bool syntheticWanted = false;
+        uint32_t syntheticDialpadWanted = kSyntheticDialpadNone;
         {
             const auto guard = wil::AcquireSRWLockShared(&_lock);
             syntheticWanted = _syntheticRequested;
+            syntheticDialpadWanted = _syntheticDialpadRequested;
         }
         if (syntheticWanted != _syntheticActive)
         {
@@ -1401,6 +1476,16 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
             _syntheticActive = syntheticWanted;
             _synthetic.Reset();
             keypadLink.Rediscover();
+        }
+        if (syntheticDialpadWanted != _syntheticDialpadMode)
+        {
+            CloseDialpad(stopEvent, true);
+            _syntheticDialpadMode = syntheticDialpadWanted;
+            _syntheticDialpad.Reset();
+            _syntheticDialpad.Unresponsive(_syntheticDialpadMode == kSyntheticDialpadUnresponsive);
+            // The next discovery finds out again whether a dialpad is there.
+            _dialpadPresent = false;
+            dialpadLink.Rediscover();
         }
 
         // Adopt new settings and requests first so discovery below connects with the current bindings.
@@ -1480,17 +1565,21 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
             CloseDialpad(stopEvent, false);
             dialpadLink.Rediscover();
         }
+        // A backoff counts from the end of the failed attempt, which can spend a whole 1 s command timeout; the
+        // clock is read after the attempt returns.
         uint64_t now = GetTickCount64();
         if (!_session.HasPorts() && keypadLink.discoverPending && now >= keypadLink.retryDue &&
             (deviceAccess || _syntheticActive))
         {
             const HRESULT opened = TryOpenDevice(stopEvent);
             forceAll = forceAll || SUCCEEDED(opened);
-            keypadLink.Note(opened, now);
+            keypadLink.Note(opened, GetTickCount64());
         }
-        if (!_dialpad.HasPorts() && dialpadLink.discoverPending && now >= dialpadLink.retryDue && deviceAccess)
+        const bool dialpadAccess = deviceAccess || _syntheticDialpadMode != kSyntheticDialpadNone;
+        if (!_dialpad.HasPorts() && dialpadLink.discoverPending && now >= dialpadLink.retryDue && dialpadAccess)
         {
-            dialpadLink.Note(TryOpenDialpad(stopEvent), now);
+            const HRESULT opened = TryOpenDialpad(stopEvent);
+            dialpadLink.Note(opened, GetTickCount64());
         }
 
         // A new document may bind different dialpad buttons: restore the current diversion and reconnect at once.
@@ -1498,11 +1587,14 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
         {
             CloseDialpad(stopEvent, true);
             dialpadLink.Rediscover();
-            if (deviceAccess)
+            if (dialpadAccess)
             {
-                dialpadLink.Note(TryOpenDialpad(stopEvent), GetTickCount64());
+                const HRESULT opened = TryOpenDialpad(stopEvent);
+                dialpadLink.Note(opened, GetTickCount64());
             }
         }
+        // A new document may bind or drop every turn; the HID++ outcome above never stops the wheels.
+        UpdateWheels();
 
         if (brightnessRequest != 0)
         {
@@ -1564,9 +1656,12 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
         DWORD timeout = INFINITE;
         for (const Link* link : {&keypadLink, &dialpadLink})
         {
-            if (link->discoverPending && link->retryDue > now)
+            // A backoff retry that fell due while this turn ran is not skipped. retryDue 0 (discover at once) was
+            // served above, or waits for access or an arrival.
+            if (link->discoverPending && link->retryDue != 0)
             {
-                timeout = std::min(timeout, static_cast<DWORD>(std::min<uint64_t>(link->retryDue - now, 60'000ULL)));
+                const uint64_t remaining = link->retryDue > now ? link->retryDue - now : 0;
+                timeout = std::min(timeout, static_cast<DWORD>(std::min<uint64_t>(remaining, 60'000ULL)));
             }
         }
         if (wantFaces && ClockFaceVisible())
@@ -1583,9 +1678,9 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
             _session.ReadEvents(handles.data() + handleCount, static_cast<uint32_t>(handles.size()) - handleCount);
         handleCount +=
             _dialpad.ReadEvents(handles.data() + handleCount, static_cast<uint32_t>(handles.size()) - handleCount);
-        // Message-aware so the raw-input window on this thread is served; without a window the queue stays empty.
-        const DWORD waited =
-            MsgWaitForMultipleObjectsEx(handleCount, handles.data(), timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+        // Message-aware only while the wheel sink runs; packets from other mice are drained inside the wait and
+        // never cost a lane turn.
+        const DWORD waited = _wheels.Wait(handleCount, handles.data(), timeout);
         if (waited == WAIT_OBJECT_0)
         {
             break;
@@ -1598,16 +1693,13 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
         }
         if (waited == WAIT_OBJECT_0 + handleCount)
         {
-            // Window messages: raw-input packets fold into the wheel state and run the dial and roller actions per
-            // detent; the snapshot publishes on the next turn.
-            if (_wheels.Pump())
-            {
-                const WheelDeltas deltas = _wheels.TakeDeltas();
-                const uint32_t previousPage = _laneKeyPage;
-                DispatchWheel(kControlDial, _dialAccumulator, deltas.dial);
-                DispatchWheel(kControlRoller, _rollerAccumulator, deltas.roller);
-                laneFacesDirty = laneFacesDirty || previousPage != _laneKeyPage;
-            }
+            // Dialpad packets folded into the wheel state: run the dial and roller actions per detent; the snapshot
+            // publishes on the next turn.
+            const WheelDeltas deltas = _wheels.TakeDeltas();
+            const uint32_t previousPage = _laneKeyPage;
+            DispatchWheel(kControlDial, _dialAccumulator, deltas.dial);
+            DispatchWheel(kControlRoller, _rollerAccumulator, deltas.roller);
+            laneFacesDirty = laneFacesDirty || previousPage != _laneKeyPage;
         }
         else if (waited >= WAIT_OBJECT_0 + 2 && waited < WAIT_OBJECT_0 + handleCount)
         {
@@ -1641,6 +1733,8 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
     // Leave the devices as found: the stop event is already signaled, so restore runs with plain timeouts.
     CloseDevice(nullptr, true);
     CloseDialpad(nullptr, true);
+    _dialpadPresent = false;
+    _wheelsWanted = false;
     _wheels.Stop();
     hotplug.Stop();
     _renderer.Reset();

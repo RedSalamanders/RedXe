@@ -82,7 +82,7 @@ durable.
 | AV controls, profiles and camera route | [`Plugins/Plugins_AVControl.md`](Plugins/Plugins_AVControl.md) |
 | Logicon keypad and dialpad service, key faces, and Debug monitor | [`Plugins/Plugins_Logicon.md`](Plugins/Plugins_Logicon.md) |
 | Action bindings, default and published namespaces, the publication ABI, and the host action runtime | [`Plugins/Plugins_Actions.md`](Plugins/Plugins_Actions.md) |
-| Browser-only Zoom service and the `zoom` namespace | [`Plugins/Plugins_Zoom.md`](Plugins/Plugins_Zoom.md) |
+| Browser-only Zoom action DLL, the `zoom` namespace, and the retired Zoom services entry | [`Plugins/Plugins_Zoom.md`](Plugins/Plugins_Zoom.md) |
 | DxUi pin, restore, and host/plugin adapters | [`Core/Core_DxUiIntegration.md`](Core/Core_DxUiIntegration.md) |
 | End-user guide | [`../docs/README.md`](../docs/README.md) |
 

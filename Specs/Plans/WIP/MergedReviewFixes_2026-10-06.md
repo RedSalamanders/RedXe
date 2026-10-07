@@ -260,7 +260,7 @@ Check a row when its fix lands, or note why it was dropped.
 - [x] `alignment#0` (high) `Plugins/Actions/Zoom/ZoomSettings.cpp:43`: Removing the legacy Zoom settings breaks every v1.0.102 Release settings file, and cold recovery then backs up and replaces the user's whole file
 - [x] `logicon-zoom#0` (high) `Plugins/Actions/Zoom/ZoomSettings.cpp:43`: Upgrading from v1.0.102 resets the user's whole settings file because the shipped template's Zoom clientId/redirectPort/autoConnect members are now a document error
 - [x] `settings#0` (high) `Plugins/Actions/Zoom/ZoomSettings.cpp:43`: Upgrading from the public v1.0.102 resets every user's default settings file: Zoom::ParseSettings now rejects the Zoom members that release's templates shipped
-- [ ] `alignment#3` (medium) `Plugins/Logicon/LogiconSettings.cpp:125`: Logicon's keys.down / mouse.down refusal is enforced only in the Logicon parser: it invalidates the whole file with a wrong diagnostic, schema and user docs disagree, and Launcher still accepts holds. Deferred: the Logicon part is fixed with `logicon-zoom#3`; Launcher `shortcuts[]` still accept keys.down / mouse.down, unchanged by instruction until B1's "same rule for Launcher taps" question is decided.
+- [x] `alignment#3` (medium) `Plugins/Logicon/LogiconSettings.cpp:125`: Logicon's keys.down / mouse.down refusal is enforced only in the Logicon parser: it invalidates the whole file with a wrong diagnostic, schema and user docs disagree, and Launcher still accepts holds. Dropped: decision D9 keeps Launcher taps bound to keys.down/mouse.down unchanged. The Logicon part is fixed with `logicon-zoom#3`; `Plugins_Actions.md` "Binding validation" and `docs/actions.md` now state the Launcher hold behavior.
 - [x] `logicon-zoom#3` (medium) `Plugins/Logicon/LogiconSettings.cpp:125`: Logicon rejects keys.down/mouse.down as a whole-document error with a misleading 'is not an action name' diagnostic, and the docs, schema and Launcher disagree
 - [x] `studioclock#9` (low) `Specs/Core/Core_Settings.md:89`: A document using glowPercent is treated as invalid by the published v1.0.102 build, which then backs up and replaces the user's shared settings file. Closed by D1 as a documented decision: Core_Settings.md and docs/usage.md state that rollback to an older build is unsupported and cold recovery keeps the backup.
 
@@ -343,27 +343,27 @@ Check a row when its fix lands, or note why it was dropped.
 
 ### P4. Logicon, Zoom, Studio Clock, and 5H4D3R5 (21)
 
-- [ ] `alignment#2` (medium) `Plugins/Actions/Zoom/Zoom.cpp:36`: zoom.join publishes a free-text target, so an invalid invite never shows the promised red ! or warning tile and fails silently
-- [ ] `logicon-zoom#1` (medium) `Plugins/Actions/Zoom/Zoom.cpp:35`: zoom.join declares a plain Text target, so an invalid invite passes validation (no red '!') and silently does nothing when pressed; the shared Meeting kind/ParseMeeting is now dead and contradicts the Zoom allowlist
-- [ ] `logicon-zoom#12` (medium) `Plugins/Actions/Zoom/Zoom.cpp:28`: Zoom is now stateless but is still wired as a headless service, so zoom.* silently fails without a services entry and the dedicated-action-DLL path stays unused
-- [ ] `logicon-zoom#13` (high, raised) `Plugins/Logicon/LogiconRawInput.cpp:240`: With the raw-input window now destroyed mid-lane, Pump() returns without draining the queue while the lane still waits with QS_ALLINPUT/MWMO_INPUTAVAILABLE, so it can hot-spin
-- [ ] `logicon-zoom#15` (medium) `Plugins/Logicon/LogiconHid.cpp:441`: WindowsHidPort::SetFeature is an unbounded blocking IOCTL on the device lane, contrary to the bounded-I/O contract
-- [ ] `logicon-zoom#4` (medium) `Plugins/Logicon/LogiconService.cpp:834`: Dial/roller turn bindings now depend on a successful HID++ dialpad connect, though Raw Input never needed it
-- [ ] `logicon-zoom#5` (medium) `Tests/ZoomTests/Zoom.Tests.Runner.cpp:136`: ZoomTests never exercise the authority delimiters (@ : # ? and backslash) that block host spoofing in IsMeetingUrl
-- [ ] `shaders-lut#0` (medium) `Plugins/5H4D3R5/Shaders.cpp:1290`: A failed first lookup-table bake is never retried: Sky Atmosphere draws a black sky until the next resize or DPI change
-- [ ] `studioclock#0` (medium) `Plugins/StudioClock/StudioClockDotVertex.hlsl:240`: Date LED halos extend past the 10:9 dated composition and are hard-clipped at the tile's bottom edge
-- [ ] `tests#19` (medium) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:4146`: zoom.join binding validation dropped: a mistyped meeting link is accepted and its key silently does nothing
-- [ ] `logicon-zoom#14` (low) `Plugins/Logicon/LogiconDevice.cpp:542`: Restore keeps sending HID++ commands after a timeout, so an unresponsive device can push lane shutdown past the 3 s drain budget
-- [ ] `logicon-zoom#16` (low) `Plugins/Logicon/LogiconHid.cpp:408`: Retired HID IoState blocks are unbounded: a stuck image write triggers an immediate reconnect that retires another open handle on every lane wake
-- [ ] `logicon-zoom#17` (low) `Plugins/Logicon/LogiconMonitor.cpp:877`: Debug monitor now shows an amber 'wheels: raw input unavailable' warning whenever no dialpad is connected
-- [ ] `logicon-zoom#19` (low) `Plugins/Actions/Zoom/ZoomSettings.cpp:96`: zoom.join rejects Zoom's direct browser-join link, so every browser-only join goes through the desktop-app launch prompt
-- [ ] `logicon-zoom#2` (low) `Plugins/Actions/Zoom/Zoom.cpp:116`: zoom.open fails any authored target even though the TargetNone contract says an authored target is ignored
-- [ ] `logicon-zoom#7` (low) `Plugins/Logicon/LogiconService.cpp:1201`: Every unrelated system mouse packet runs a full Logicon lane turn while the dialpad is connected, and in Debug forces a dashboard frame
-- [ ] `logicon-zoom#9` (low) `Plugins/Actions/Zoom/Zoom.cpp:133`: zoom.open/zoom.join carry RedXeActionFlagDeferred but Execute returns S_OK, so Launcher reports a queued launch as completed and never surfaces a later failure
-- [ ] `shaders-lut#1` (low) `Plugins/5H4D3R5/Shaders.cpp:1544`: BakeLookupTables runs on every size notification and for configurations that can never show Sky Atmosphere
-- [ ] `studioclock#10` (low) `Tests/StudioClockTests/StudioClock.Tests.Runner.cpp:899`: Glow readback never checks secondsColor halos or the 0.55 date weight, and its out-of-extent probe cannot detect a halo extent up to about 5.5 radii
-- [ ] `studioclock#4` (low) `Specs/Core/Core_PerformanceAndResources.md:291`: Glow cost was accepted as a once-per-second cost, but a raised clock next to a continuous widget redraws (and re-uploads constants) twice per frame
-- [ ] `studioclock#5` (low) `Specs/Plugins/Plugins_API.md:1126`: Spec says dimmed ring LEDs keep their brightness under glow, but the five-second companion's halo brightens them; the test only probes the dot center
+- [x] `alignment#2` (medium) `Plugins/Actions/Zoom/Zoom.cpp:36`: zoom.join publishes a free-text target, so an invalid invite never shows the promised red ! or warning tile and fails silently
+- [x] `logicon-zoom#1` (medium) `Plugins/Actions/Zoom/Zoom.cpp:35`: zoom.join declares a plain Text target, so an invalid invite passes validation (no red '!') and silently does nothing when pressed; the shared Meeting kind/ParseMeeting is now dead and contradicts the Zoom allowlist
+- [x] `logicon-zoom#12` (medium) `Plugins/Actions/Zoom/Zoom.cpp:28`: Zoom is now stateless but is still wired as a headless service, so zoom.* silently fails without a services entry and the dedicated-action-DLL path stays unused
+- [x] `logicon-zoom#13` (high, raised) `Plugins/Logicon/LogiconRawInput.cpp:240`: With the raw-input window now destroyed mid-lane, Pump() returns without draining the queue while the lane still waits with QS_ALLINPUT/MWMO_INPUTAVAILABLE, so it can hot-spin
+- [x] `logicon-zoom#15` (medium) `Plugins/Logicon/LogiconHid.cpp:441`: WindowsHidPort::SetFeature is an unbounded blocking IOCTL on the device lane, contrary to the bounded-I/O contract
+- [x] `logicon-zoom#4` (medium) `Plugins/Logicon/LogiconService.cpp:834`: Dial/roller turn bindings now depend on a successful HID++ dialpad connect, though Raw Input never needed it
+- [x] `logicon-zoom#5` (medium) `Tests/ZoomTests/Zoom.Tests.Runner.cpp:136`: ZoomTests never exercise the authority delimiters (@ : # ? and backslash) that block host spoofing in IsMeetingUrl
+- [x] `shaders-lut#0` (medium) `Plugins/5H4D3R5/Shaders.cpp:1290`: A failed first lookup-table bake is never retried: Sky Atmosphere draws a black sky until the next resize or DPI change
+- [x] `studioclock#0` (medium) `Plugins/StudioClock/StudioClockDotVertex.hlsl:240`: Date LED halos extend past the 10:9 dated composition and are hard-clipped at the tile's bottom edge
+- [x] `tests#19` (medium) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:4146`: zoom.join binding validation dropped: a mistyped meeting link is accepted and its key silently does nothing
+- [x] `logicon-zoom#14` (low) `Plugins/Logicon/LogiconDevice.cpp:542`: Restore keeps sending HID++ commands after a timeout, so an unresponsive device can push lane shutdown past the 3 s drain budget
+- [x] `logicon-zoom#16` (low) `Plugins/Logicon/LogiconHid.cpp:408`: Retired HID IoState blocks are unbounded: a stuck image write triggers an immediate reconnect that retires another open handle on every lane wake
+- [x] `logicon-zoom#17` (low) `Plugins/Logicon/LogiconMonitor.cpp:877`: Debug monitor now shows an amber 'wheels: raw input unavailable' warning whenever no dialpad is connected
+- [x] `logicon-zoom#19` (low) `Plugins/Actions/Zoom/ZoomSettings.cpp:96`: zoom.join rejects Zoom's direct browser-join link, so every browser-only join goes through the desktop-app launch prompt
+- [x] `logicon-zoom#2` (low) `Plugins/Actions/Zoom/Zoom.cpp:116`: zoom.open fails any authored target even though the TargetNone contract says an authored target is ignored
+- [x] `logicon-zoom#7` (low) `Plugins/Logicon/LogiconService.cpp:1201`: Every unrelated system mouse packet runs a full Logicon lane turn while the dialpad is connected, and in Debug forces a dashboard frame
+- [x] `logicon-zoom#9` (low) `Plugins/Actions/Zoom/Zoom.cpp:133`: zoom.open/zoom.join carry RedXeActionFlagDeferred but Execute returns S_OK, so Launcher reports a queued launch as completed and never surfaces a later failure
+- [x] `shaders-lut#1` (low) `Plugins/5H4D3R5/Shaders.cpp:1544`: BakeLookupTables runs on every size notification and for configurations that can never show Sky Atmosphere
+- [x] `studioclock#10` (low) `Tests/StudioClockTests/StudioClock.Tests.Runner.cpp:899`: Glow readback never checks secondsColor halos or the 0.55 date weight, and its out-of-extent probe cannot detect a halo extent up to about 5.5 radii
+- [x] `studioclock#4` (low) `Specs/Core/Core_PerformanceAndResources.md:291`: Glow cost was accepted as a once-per-second cost, but a raised clock next to a continuous widget redraws (and re-uploads constants) twice per frame
+- [x] `studioclock#5` (low) `Specs/Plugins/Plugins_API.md:1126`: Spec says dimmed ring LEDs keep their brightness under glow, but the five-second companion's halo brightens them; the test only probes the dot center
 
 ### P5. Build and test tooling (62)
 

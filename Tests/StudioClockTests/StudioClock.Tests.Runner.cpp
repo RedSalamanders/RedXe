@@ -44,6 +44,8 @@ constexpr char kWidgetTypeId[] = "studio-clock";
 constexpr std::string_view kDefaults =
     R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","glowPercent":35})json";
 constexpr uint32_t kDefaultGlowPercent = 35;
+// Row of the date's middle segments and hyphens, in units of the clock square (StudioClockDotVertex.hlsl).
+constexpr float kDateSeparatorY = 1.05f;
 
 void Expect(bool condition, const char* message)
 {
@@ -788,7 +790,7 @@ void ValidateRendering(const Exports& exports)
                               colorfulLayout.originY + 0.053f * colorfulLayout.square, 1) > 180,
            "Studio Clock active five-second emphasis did not use secondsColor");
     const float colorfulClockBottom = colorfulLayout.originY + colorfulLayout.square;
-    const float colorfulDateY = colorfulLayout.originY + 1.062f * colorfulLayout.square;
+    const float colorfulDateY = colorfulLayout.originY + kDateSeparatorY * colorfulLayout.square;
     Expect(colorfulDateY > colorfulClockBottom &&
                MaximumChannelNear(pixels, target.width, target.height,
                                   colorfulLayout.originX + 0.38125f * colorfulLayout.square, colorfulDateY, 2) > 180 &&
@@ -816,7 +818,7 @@ void ValidateRendering(const Exports& exports)
         SetTime(exports, 2024, 12, 31, 20, 59, 46, 0);
         const std::vector<std::uint8_t> datePixels = RenderAndReadback(*dateWidget.gpu, target);
         const ClockLayout dateLayout = LayoutFor(target.width, target.height, true);
-        const float separatorY = dateLayout.originY + 1.062f * dateLayout.square;
+        const float separatorY = dateLayout.originY + kDateSeparatorY * dateLayout.square;
         Expect(separatorY > dateLayout.originY + dateLayout.square &&
                    MaximumChannelNear(datePixels, target.width, target.height,
                                       dateLayout.originX + 0.38125f * dateLayout.square, separatorY, 0) > 180 &&
@@ -867,7 +869,7 @@ void ValidateRendering(const Exports& exports)
         SetTime(exports, 2024, 12, 31, 20, 59, 0, 0);
         const std::vector<std::uint8_t> shapedPixels = RenderAndReadback(*shapedWidget.gpu, shaped);
         const ClockLayout layout = LayoutFor(shaped.width, shaped.height, true);
-        const float separatorY = layout.originY + 1.062f * layout.square;
+        const float separatorY = layout.originY + kDateSeparatorY * layout.square;
         const std::uint8_t dateThreshold = layout.square < 200.0f ? 24U : 100U;
         const std::uint8_t dateMaximum = MaximumChannelNear(shapedPixels, shaped.width, shaped.height,
                                                             layout.originX + 0.38125f * layout.square, separatorY, 0);
@@ -883,6 +885,38 @@ void ValidateRendering(const Exports& exports)
                    dateMaximum > dateThreshold,
                "Studio Clock dated shaped layout did not keep the date below the square");
         shapedWidget.gpu->OnDeviceLost();
+    }
+}
+
+// Checks each color channel of one pixel against `base` plus `scale` times the halo light the listed LED centers (in
+// pixels) add there by the documented formula: the LED channel times 0.6 * glowPercent / 100, the dot's weight, and
+// (1 - d^2 / 16)^4 for a pixel center d LED radii away, zero from four radii on. Every halo and core blend rounds to
+// 8 bits, hence the two-level tolerance.
+void ExpectHaloLight(const std::vector<std::uint8_t>& pixels, uint32_t width, uint32_t x, uint32_t y,
+                     const std::array<std::uint8_t, 4>& base, const std::vector<std::array<float, 2>>& centers,
+                     float radiusPixels, uint32_t glowPercent, double weight, uint32_t color, double scale,
+                     const char* what)
+{
+    double falloffSum = 0.0;
+    for (const std::array<float, 2>& center : centers)
+    {
+        const double dx = (static_cast<double>(x) + 0.5 - center[0]) / radiusPixels;
+        const double dy = (static_cast<double>(y) + 0.5 - center[1]) / radiusPixels;
+        const double falloff = std::max(0.0, 1.0 - (dx * dx + dy * dy) / 16.0);
+        falloffSum += falloff * falloff * falloff * falloff;
+    }
+    const std::array<std::uint8_t, 4> pixel = PixelAt(pixels, width, x, y);
+    for (size_t channel = 0; channel < 3; ++channel)
+    {
+        const double led = static_cast<double>((color >> (16U - 8U * channel)) & 0xFFU);
+        const double expected = static_cast<double>(base[channel]) +
+                                scale * led * 0.6 * static_cast<double>(glowPercent) / 100.0 * weight * falloffSum;
+        if (std::abs(static_cast<double>(pixel[channel]) - expected) > 2.0)
+        {
+            throw std::runtime_error(std::string("Studio Clock ") + what + " is wrong: channel " +
+                                     std::to_string(channel) + " is " + std::to_string(pixel[channel]) +
+                                     ", the documented halo gives " + std::to_string(expected));
+        }
     }
 }
 
@@ -928,7 +962,9 @@ void ValidateGlow(const Exports& exports)
     Expect(naturalHalo[2] >= background[2] + 16 && strongHalo[2] >= naturalHalo[2] + 32 && naturalHalo[3] == 0xFF &&
                naturalHalo[2] - background[2] > 4 * (naturalHalo[0] - background[0]),
            "Studio Clock halo is missing, does not grow with glowPercent, or does not take the LED color");
-    Expect(at(natural, 155, 268) == background && at(strong, 155, 268) == background,
+    // 3.62 radii straight above that LED the four-radius falloff leaves 0.16 of a level even at 100, so the pixel is
+    // the background; a halo only 5 percent wider would add two thirds of a level there and round up.
+    Expect(at(natural, 155, 275) == background && at(strong, 155, 275) == background,
            "Studio Clock halo spread past its bounded extent");
 
     const std::array<std::uint8_t, 4> bareDim = at(bare, 360, 661);
@@ -941,6 +977,64 @@ void ValidateGlow(const Exports& exports)
             Expect(std::abs(static_cast<int>(dim[channel]) - static_cast<int>(bareDim[channel])) <= 1,
                    "Studio Clock glow changed the brightness of a dimmed ring LED");
         }
+    }
+    // The outer rim of that dimmed LED faces its lit five-second companion (360, 681.84), whose halo shows through the
+    // dimmed core's 82 percent transparency and nothing else does.
+    const std::vector<std::array<float, 2>> companion{{360.0f, 0.947f * 720.0f}};
+    ExpectHaloLight(natural, target.width, 360, 665, at(bare, 360, 665), companion, 5.76f, kDefaultGlowPercent, 1.0,
+                    0xFF1616, 0.82, "dimmed ring LED rim at the default glow");
+    ExpectHaloLight(strong, target.width, 360, 665, at(bare, 360, 665), companion, 5.76f, 100, 1.0, 0xFF1616, 0.82,
+                    "dimmed ring LED rim at full glow");
+
+    // Seconds and date at full glow on dated layouts whose height limits the composition, so it fills the tile from
+    // top to bottom: no halo reaches a border pixel, seconds halos take secondsColor, and date halos carry the 0.55
+    // weight. 31-12-2024 lights the bottom segment of the 3, both 2s, and the 0; 20:59:06 lights the seconds 0's top.
+    for (const std::pair dimensions : {std::pair{720U, 800U}, std::pair{900U, 500U}})
+    {
+        RenderTarget dated;
+        Expect(CreateRenderTarget(dimensions.first, dimensions.second, dated) == S_OK,
+               "Studio Clock dated glow target failed");
+        const std::string configuration =
+            Configuration(true, true, true, true, "dd-mm-yyyy", "#11EE44", "#2244FF", 100);
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+        Expect(TryCreateProvider(exports.create, configuration, provider) == S_OK,
+               "Studio Clock dated glow provider failed");
+        WidgetInterfaces widget = CreateWidget(*provider, "studio.dated-glow");
+        const RedXeGpuDeviceContext datedContext = DeviceContextFor(dated);
+        Expect(widget.gpu->OnDeviceCreated(&datedContext) == S_OK, "Studio Clock dated glow device failed");
+        SetTime(exports, 2024, 12, 31, 20, 59, 6, 0);
+        const std::vector<std::uint8_t> pixels = RenderAndReadback(*widget.gpu, dated);
+        widget.gpu->OnDeviceLost();
+        const ClockLayout layout = LayoutFor(dated.width, dated.height, true);
+        Expect(std::abs(layout.originY) < 0.5f, "Studio Clock dated glow layout is not height-limited");
+        for (uint32_t x = 0; x < dated.width; ++x)
+        {
+            Expect(PixelAt(pixels, dated.width, x, 0) == background &&
+                       PixelAt(pixels, dated.width, x, dated.height - 1) == background,
+                   "Studio Clock halo reached the top or bottom edge of a height-limited dated tile");
+        }
+        for (uint32_t y = 0; y < dated.height; ++y)
+        {
+            Expect(PixelAt(pixels, dated.width, 0, y) == background &&
+                       PixelAt(pixels, dated.width, dated.width - 1, y) == background,
+                   "Studio Clock halo reached the side edge of a dated tile");
+        }
+        if (dimensions.first != 720U)
+        {
+            continue;
+        }
+        // On this 720 px square, two radii above the middle LED of the seconds 0's top segment (LED radius 5.76 px)
+        // and above the middle LED of the first date hyphen (LED radius 4.32 px).
+        const std::vector<std::array<float, 2>> secondsTop{{0.4388f * 720.0f, 0.6484f * 720.0f},
+                                                           {0.4564f * 720.0f, 0.6484f * 720.0f},
+                                                           {0.474f * 720.0f, 0.6484f * 720.0f}};
+        ExpectHaloLight(pixels, dated.width, 328, 455, background, secondsTop, 5.76f, 100, 1.0, 0x11EE44, 1.0,
+                        "seconds halo");
+        const std::vector<std::array<float, 2>> hyphen{{0.37525f * 720.0f, kDateSeparatorY * 720.0f},
+                                                       {0.38125f * 720.0f, kDateSeparatorY * 720.0f},
+                                                       {0.38725f * 720.0f, kDateSeparatorY * 720.0f}};
+        ExpectHaloLight(pixels, dated.width, 274, 747, background, hyphen, 4.32f, 100, 0.55, 0x2244FF, 1.0,
+                        "date halo");
     }
 }
 

@@ -34,7 +34,7 @@
       "maxProperties": 8,
       "propertyNames": { "minLength": 1, "maxLength": 128 },
       "additionalProperties": { "$ref": "#/$defs/serviceDefinition" },
-      "description": "Headless service plugins the host starts at launch (settings minor 1). Each catalogued service plugin may appear once."
+      "description": "Headless service plugins the host starts at launch (settings minor 1). Each catalogued service plugin may appear once; a retired builtin.zoom entry is accepted and ignored."
     },
     "pages": {
       "type": "array",
@@ -421,6 +421,8 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["plugin"],
+          "deprecated": true,
+          "description": "Retired: Zoom actions (zoom.open, zoom.join) need no services entry. An entry from an earlier release still loads and is ignored (one warning in the log). Delete it.",
           "properties": {
             "plugin": { "const": "builtin.zoom" },
             "clientId": { "$ref": "#/$defs/retiredZoomMember" },

@@ -62,9 +62,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Zoom.Tests.Runner.cpp" />
+    <ClCompile Include="..\..\Common\Actions\ActionTargets.cpp" />
     <ClCompile Include="..\..\Plugins\Actions\Zoom\ZoomSettings.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\Common\Actions\ActionTargets.h" />
     <ClInclude Include="..\..\Plugins\Actions\Zoom\ZoomSettings.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Action.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />

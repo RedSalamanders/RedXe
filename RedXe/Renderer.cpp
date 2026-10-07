@@ -117,6 +117,9 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
             const HRESULT result = widget->OnDeviceCreated(&context);
             if (FAILED(result))
             {
+                (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr,
+                                   dashboardHost->WidgetInstanceIdAt(index), "gpu-device-create-failed",
+                                   "IRedXeGpuWidget::OnDeviceCreated failed.", result);
                 for (size_t previous = 0; previous < index; ++previous)
                 {
                     if (IRedXeGpuWidget* initialized = dashboardHost->GpuWidgetAt(previous))
@@ -809,9 +812,14 @@ void Renderer::NotifyTargetSizes() noexcept
                 _dpi,
             };
             // A failed rebuild is isolated: the widget keeps whatever resources it already had and still renders.
-            if (FAILED(widget->OnTargetSizeChanged(&context)))
+            const HRESULT sized = widget->OnTargetSizeChanged(&context);
+            if (FAILED(sized))
             {
                 OutputDebugStringW(L"A GPU widget failed to resize its resources; keeping the previous ones.\n");
+                (void)RedXeHostLog(
+                    PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr,
+                    dashboard->WidgetInstanceIdAt(index), "gpu-target-size-failed",
+                    "IRedXeGpuWidget::OnTargetSizeChanged failed; the widget keeps its previous resources.", sized);
             }
             reported[index] = {size.cx, size.cy, _dpi};
         }

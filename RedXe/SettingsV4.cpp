@@ -1536,7 +1536,12 @@ struct DiagnosticSink final
         if (SettingsIdEquals(candidate.pluginId, plugin))
             spec = &candidate;
     }
-    if (!spec)
+    // A retired service (builtin.zoom, now a dedicated action DLL) still loads so an older file keeps working; its
+    // legacy model validates the entry, which is then ignored.
+    static_assert(kRedXeRetiredServices.size() == 1 &&
+                  RedXeBundledTextEquals(kRedXeRetiredServices[0].pluginId, Zoom::kPluginId));
+    const bool retired = !spec && SettingsIdEquals(Zoom::kPluginId, plugin);
+    if (!spec && !retired)
     {
         const auto scope = path.PushName("plugin");
         std::string message = "Unknown service plugin \"";
@@ -1544,15 +1549,18 @@ struct DiagnosticSink final
         message += "\". This build only starts catalogued service plugins.";
         return sink.Fail(path.View(), message);
     }
+    const char* pluginId = retired ? Zoom::kPluginId : spec->pluginId;
     if (settings.serviceCount >= kMaximumSettingsServices)
         return sink.Fail(path.View(), "services may contain at most 8 entries.");
+    bool configured = false;
     for (uint32_t index = 0; index < settings.serviceCount; ++index)
+        configured = configured || SettingsIdEquals(settings.services[index].pluginId.View(), pluginId);
+    for (const SettingsText& retiredService : settings.retiredServices)
+        configured = configured || SettingsIdEquals(retiredService.View(), pluginId);
+    if (configured)
     {
-        if (SettingsIdEquals(settings.services[index].pluginId.View(), spec->pluginId))
-        {
-            const auto scope = path.PushName("plugin");
-            return sink.Fail(path.View(), "A service plugin may be configured only once.");
-        }
+        const auto scope = path.PushName("plugin");
+        return sink.Fail(path.View(), "A service plugin may be configured only once.");
     }
 
     unique_mut_doc extracted{yyjson_mut_doc_new(nullptr)};
@@ -1568,9 +1576,24 @@ struct DiagnosticSink final
     if (!authored)
         return sink.Fail(path.View(), "Service settings could not be copied.");
 
-    const bool isZoom = SettingsIdEquals(spec->pluginId, Zoom::kPluginId);
-    const char* defaultsJson = isZoom ? Zoom::kSettingsDefaults : Logicon::kSettingsDefaults;
-    unique_doc defaults{yyjson_read(defaultsJson, std::strlen(defaultsJson), YYJSON_READ_NOFLAG)};
+    std::array<char, 160> diagnostic{};
+    if (retired)
+    {
+        Zoom::Settings model{};
+        if (FAILED(Zoom::ParseSettings(authored, model, diagnostic.data(), diagnostic.size())))
+            return sink.Fail(path.View(), diagnostic.data());
+        SettingsText retiredService{};
+        if (!CopyText(pluginId, retiredService, true))
+            return sink.Fail(path.View(), "Service settings could not be copied.");
+        settings.retiredServices.push_back(retiredService);
+        return true;
+    }
+
+    // Logicon is the only catalogued service.
+    static_assert(kRedXeBundledServices.size() == 1 &&
+                  RedXeBundledTextEquals(kRedXeBundledServices[0].pluginId, Logicon::kPluginId));
+    unique_doc defaults{
+        yyjson_read(Logicon::kSettingsDefaults, std::strlen(Logicon::kSettingsDefaults), YYJSON_READ_NOFLAG)};
     unique_mut_doc effectiveDocument{yyjson_mut_doc_new(nullptr)};
     yyjson_mut_val* merged = effectiveDocument && defaults
                                  ? MergeValue(effectiveDocument.get(), yyjson_doc_get_root(defaults.get()), authored)
@@ -1586,47 +1609,34 @@ struct DiagnosticSink final
     if (!yyjson_is_obj(effective))
         return sink.Fail(path.View(), "Service settings must be a JSON object.");
 
-    std::array<char, 160> diagnostic{};
-    bool retiredMembersIgnored = false;
-    if (isZoom)
+    Logicon::Settings model{};
+    if (FAILED(Logicon::ParseSettings(effective, model, diagnostic.data(), diagnostic.size())))
+        return sink.Fail(path.View(), diagnostic.data());
+    // The shared model checks the binding grammar; the host also knows which names resolve today.
+    for (uint32_t index = 0; index < model.keyCount; ++index)
     {
-        Zoom::Settings model{};
-        if (FAILED(Zoom::ParseSettings(effective, model, diagnostic.data(), diagnostic.size())))
-            return sink.Fail(path.View(), diagnostic.data());
-        retiredMembersIgnored = model.retiredMembersIgnored;
+        const Logicon::KeyBinding& binding = model.keys[index];
+        if (binding.HasAction() && !HostActionCatalog::IsKnownActionName(binding.Action()))
+            return sink.Fail(path.View(), "keys[].action is not a known action name.");
     }
-    else
+    for (uint32_t index = 0; index < model.dialpad.buttonCount; ++index)
     {
-        Logicon::Settings model{};
-        if (FAILED(Logicon::ParseSettings(effective, model, diagnostic.data(), diagnostic.size())))
-            return sink.Fail(path.View(), diagnostic.data());
-        // The shared model checks the binding grammar; the host also knows which names resolve today.
-        for (uint32_t index = 0; index < model.keyCount; ++index)
-        {
-            const Logicon::KeyBinding& binding = model.keys[index];
-            if (binding.HasAction() && !HostActionCatalog::IsKnownActionName(binding.Action()))
-                return sink.Fail(path.View(), "keys[].action is not a known action name.");
-        }
-        for (uint32_t index = 0; index < model.dialpad.buttonCount; ++index)
-        {
-            const Logicon::KeyBinding& binding = model.dialpad.buttons[index];
-            if (binding.HasAction() && !HostActionCatalog::IsKnownActionName(binding.Action()))
-                return sink.Fail(path.View(), "dialpad.buttons[].action is not a known action name.");
-        }
-        for (uint32_t index = 0; index < model.dialpad.turnCount; ++index)
-        {
-            const Logicon::KeyBinding& binding = model.dialpad.turns[index];
-            if (binding.HasAction() && !HostActionCatalog::IsKnownActionName(binding.Action()))
-                return sink.Fail(path.View(), "dialpad.turns[].action is not a known action name.");
-        }
+        const Logicon::KeyBinding& binding = model.dialpad.buttons[index];
+        if (binding.HasAction() && !HostActionCatalog::IsKnownActionName(binding.Action()))
+            return sink.Fail(path.View(), "dialpad.buttons[].action is not a known action name.");
+    }
+    for (uint32_t index = 0; index < model.dialpad.turnCount; ++index)
+    {
+        const Logicon::KeyBinding& binding = model.dialpad.turns[index];
+        if (binding.HasAction() && !HostActionCatalog::IsKnownActionName(binding.Action()))
+            return sink.Fail(path.View(), "dialpad.turns[].action is not a known action name.");
     }
 
     ServiceSettings service{};
-    if (!CopyText(name, service.name, false) || !CopyText(spec->pluginId, service.pluginId, true))
+    if (!CopyText(name, service.name, false) || !CopyText(pluginId, service.pluginId, true))
         return sink.Fail(path.View(), "A services member name must be 1 through 128 Unicode code points.");
     if (!CompactObject(effective, service.privateConfiguration))
         return sink.Fail(path.View(), "Service settings exceed the 4096-byte compact limit.");
-    service.retiredMembersIgnored = retiredMembersIgnored;
     settings.services.push_back(service);
     settings.serviceCount = static_cast<uint32_t>(settings.services.size());
     return true;
