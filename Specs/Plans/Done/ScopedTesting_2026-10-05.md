@@ -1,8 +1,14 @@
 # Scoped testing and validation cost
 
-Status: ACTIVE: implementation and qualification in progress.
+Status: DONE (2026-10-07)
 Date: 2026-10-05
 Owner: [current validation contract](../../Build/Build_Process.md)
+
+Current requirements live in [`Build_Process.md`](../../Build/Build_Process.md) ("Scoped iteration and PR coverage"),
+[`Tests/README.md`](../../../Tests/README.md) and the "Scoped testing policy" of [`AGENTS.md`](../../../AGENTS.md).
+This plan records how the work was sequenced and qualified. Where it differs from them (the later review fixes changed
+the build-number identity, PR delegation, Git output decoding and the test-source detector), they win. The
+[Closeout](#closeout) holds the evidence that closed it.
 
 ## Accepted request
 
@@ -29,8 +35,8 @@ Before a PR push, full coverage is required across local and CI execution. Deleg
 - [x] Prove conservative fallback, rename/delete/untracked discovery, dependency fan-out and invalid selectors.
 - [x] Prove unchanged reuse, source/binary/configuration/environment invalidation, failures and post-run mutations.
 - [x] Align CI commands and pre-push delegation without weakening existing main/release gates.
-- [ ] Run focused tooling/scenario checks, applicable builds and noninteractive native tests; record unavailable/manual gates separately.
-- [ ] Persist durable requirements in the owning contract and agent guidance; close only after required qualification.
+- [x] Run focused tooling/scenario checks, applicable builds and noninteractive native tests; record unavailable/manual gates separately. The local record is below; the hosted runs and the one gate left manual, the local x64 Release rebuild, are in the Closeout.
+- [x] Persist durable requirements in the owning contract and agent guidance; close only after required qualification. The Closeout maps each requirement to the contract that holds it.
 
 ## Qualification constraints
 
@@ -44,7 +50,7 @@ Qualification completed: the full noninteractive x64 Debug gate, eighteen scope/
 
 The x64 Release build guard refused because independently launched RedXe.exe PID 8060 used that exact output. It was left running. Full Release qualification is delegated to the forthcoming matching PR gate; local Release rebuild remains pending until the person closes the application. Current GitHub main [36950802759](https://github.com/RedSalamanders/RedXe/actions/runs/36950802759) passed on 71107b053be5; it does not prove this candidate workflow. Its reviewed digest and enabled-workflow state permit only pending CI delegation.
 
-Raw logs/receipts are under .build/logs/scoped-testing-* and .build/reports/scoped-tests. No dependency pin, application setting or runtime behavior changed. Pending closeout: required candidate CI/native profile coverage and the blocked local Release build if requested; native ARM64 execution is distinct from cross-compilation. Keep this plan active and preserve focused/CI_PENDING verdicts until qualification is accepted.
+Raw logs/receipts are under .build/logs/scoped-testing-* and .build/reports/scoped-tests. No dependency pin, application setting or runtime behavior changed. Pending at the time, and closed in the [Closeout](#closeout): required candidate CI/native profile coverage and the blocked local Release build if requested; native ARM64 execution is distinct from cross-compilation. The plan stayed active, with focused/CI_PENDING verdicts preserved, until qualification was accepted.
 
 Final receipt review includes documentation, skill Markdown and source-origin mappings in validator identities. Uncommon inline/generator extensions invalidate build attestation. Documentation edits select only independent validators; native scopes remain omitted. The two standalone runner fixtures pass all eighteen cases, including those invalidation boundaries.
 
@@ -55,3 +61,39 @@ The first candidate PR tooling job exposed a clean-checkout prerequisite: the re
 Post-merge review repairs four Settings dependency omissions for AVControl, Launcher, Logicon and Zoom. Exact native evidence now includes stable deployed settings/schema and DxUi provenance bytes while excluding generated reports. A clean committed candidate barrier rejects uncommitted or concurrent changes during PR delegation. All 20 scoped-runner regressions pass, including asset mutation/deletion/restoration and candidate races. Original PR #31 passed its Release/tooling gate; the subsequent main run passed all six profiles and tooling. This tooling-only follow-up does not repeat local native qualification.
 
 Final receipt review requires every deployed Settings/provenance input and a nonempty binary closure before identity creation. Missing initial assets, deleted inputs and JSON-only output profiles are rejected. All 21 owning scoped-runner cases pass after this repair; other independent tooling and Python fixtures retain their prior unchanged passing result.
+
+## Closeout
+
+Closed 2026-10-07 by `alignment#9` of the `MergedReviewFixes_2026-10-06` review plan. Every item above is done:
+
+- **Implementation.** #31 (`508bd3d`) and #32 (`25433ae`) merged into `main` on 2026-10-06. The tooling batch of the
+  review fixes that followed (#37) reworked the build-number identity, PR delegation, Git output decoding and the
+  test-source detector; `Build_Process.md` states the result.
+- **Qualification.** The `RedXe validation` push runs of the two merges, 37491745609 and 37501400691, passed `tooling`
+  and all six native profiles (x64 and ARM64; Debug, Release and ASan Debug). The ARM64 legs run on a native ARM64
+  runner (`windows-11-vs2026-arm`), so that is native ARM64 execution, not cross-compilation. The pull-request runs,
+  37490349686 and 37499179375, passed `tooling` and `native (x64, Release)`.
+- **The local x64 Release rebuild** that the qualification above left pending was refused by the build guard, because an
+  independently launched `RedXe.exe` used that output. The plan asked for it only "if requested", and nothing in the
+  plan or its pull requests records a request. #31's description names the candidate pull request's Release check as the
+  replacement, and that check passed. Nothing is left open.
+- **Durable requirements.** Each lives in a contract, and one was missing: this closeout added it to `Build_Process.md`.
+  - The independent tooling runner restores the exact pinned DxUi source first, so the CI `tooling` job works on a clean
+    checkout before any product build (the clean-checkout prerequisite that the first candidate pull request exposed):
+    `Build_Process.md`, the paragraph after the Git-configuration rule for tooling tests; `Invoke-ToolingTests.ps1`.
+  - Naming, the inventory and the test-source rule: `Build_Process.md` (first paragraph of "Scoped iteration and PR
+    coverage"), `Tests/native-test-files.json`, enforced by `Assert-ScopedTestNames` in every `Test-Changes.ps1` run and
+    by `ScopedTesting.Tests.ps1`.
+  - Affected iteration, explanations, conservative fallbacks and coverage labels (a focused pass is never a full
+    verdict): `Build_Process.md` (second and third paragraphs), `Tests/README.md`.
+  - Exact local reuse, evidence identity, invalidation and post-run mutation: `Build_Process.md` (the paragraphs on
+    reuse, the build number, Git output, the environment identity and changes during a run), `Tests/README.md`.
+  - `-Mode PrePush`, PR delegation and the distinction between PR feedback and main/release acceptance:
+    `Build_Process.md` ("CI invokes explicit full gates" and the `-Mode` paragraph), `Tests/README.md`, `AGENTS.md`.
+  - Focus, platform and provenance constraints: `AGENTS.md` ("Focus-taking work requires agreement to the time; no scoped
+    pass closes that gate", and the crash validation of `test.ps1 -Full` "requires no desktop automation"); native
+    ARM64 execution in `Build_Process.md` ("Output and validation"); no pin change and paired fixture/build provenance
+    for resource comparisons in `Tests/README.md`. This repository defines no desktop-lease harness and its gate is
+    noninteractive, so the "existing harness desktop leases" constraint has no RedXe counterpart.
+  - Agent guidance: `AGENTS.md` ("Scoped testing policy" and the build commands), the `build-redxe` skill and
+    `README.md`.
