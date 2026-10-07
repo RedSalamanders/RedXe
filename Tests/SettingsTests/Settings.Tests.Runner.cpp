@@ -1627,8 +1627,15 @@ constexpr std::string_view kRepresentative = R"json(
                 reloaded->dashboard.pages[0].widgets[0].privateConfiguration.View().find("éditeur.exe") ==
                     std::string_view::npos ||
                 reloaded->dashboard.pages[0].widgets[0].privateConfiguration.View().find(
-                    "\"iconSize\":\"automatic\"") == std::string_view::npos ||
-                FAILED(PatchWidgetInstanceSettings(*settings, id.View(), patch)) ||
+                    "\"iconSize\":\"automatic\"") == std::string_view::npos)
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            // The same patch again changes nothing and leaves the source alone; a real change and its reversal format
+            // back to the same bytes.
+            if (PatchWidgetInstanceSettings(*settings, id.View(), patch) != S_FALSE ||
+                settings->sourceDocument != formatted ||
+                PatchWidgetInstanceSettings(*settings, id.View(), R"json({"iconSize":"large"})json") != S_OK ||
+                settings->sourceDocument == formatted ||
+                PatchWidgetInstanceSettings(*settings, id.View(), R"json({"iconSize":"automatic"})json") != S_OK ||
                 settings->sourceDocument != formatted)
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -2380,6 +2387,187 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
     }
 }
 
+// Core_Settings.md "Plugin persist": the store writes only over the document last applied. Any other file on disk keeps
+// its bytes (or its absence), the change stays in memory without a rollback (S_FALSE), and each distinct on-disk state
+// raises one deferral notice. A merge that changes nothing never rewrites the file.
+[[nodiscard]] HRESULT ValidatePersistWriteGate() noexcept
+{
+    constexpr std::string_view commented =
+        "{\r\n"
+        "  // A note the person wrote; an unchanged persist keeps it.\r\n"
+        "  \"version\": { \"major\": 5 },\r\n"
+        "  \"pages\": [{ \"widgets\": [{ \"plugin\": \"builtin.matrix-rain\", \"seed\": 7 }] }]\r\n"
+        "}\r\n";
+    constexpr std::string_view rejected = "{ \"version\": { \"major\": 5 }, \"pages\": [";
+    constexpr std::string_view external =
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":3}]}]})json";
+    try
+    {
+        const std::filesystem::path directory = std::filesystem::temp_directory_path() /
+                                                (L"RedXe.PersistGateTests." + std::to_wstring(GetCurrentProcessId()) +
+                                                 L"." + std::to_wstring(GetTickCount64()));
+        std::filesystem::create_directory(directory);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code error;
+                std::filesystem::remove_all(directory, error);
+            });
+        const auto write = [](const std::filesystem::path& path, std::string_view bytes)
+        {
+            std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+            stream.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            return static_cast<bool>(stream);
+        };
+        const auto holds = [](const std::filesystem::path& path, std::string_view expected)
+        {
+            std::string bytes;
+            return SUCCEEDED(ReadFile(path, bytes)) && bytes == expected;
+        };
+        const auto privateOf = [](const AppSettings& settings) noexcept
+        { return settings.dashboard.pages[0].widgets[0].privateConfiguration.View(); };
+        const std::filesystem::path file = directory / L"gate.settings.json";
+        if (!write(file, commented))
+            return E_FAIL;
+
+        SettingsStore store;
+        std::unique_ptr<AppSettings> loaded;
+        HRESULT result = store.Initialize(false, file.wstring(), loaded);
+        if (FAILED(result) || !loaded || loaded->dashboard.pages[0].widgets.empty())
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        const std::string id(loaded->dashboard.pages[0].widgets[0].id.View());
+
+        // A collect that resends the stored object, or one member at its current value, changes nothing.
+        const auto before = std::make_unique<AppSettings>(*loaded);
+        const std::string stored(privateOf(*loaded));
+        if (store.PersistWidgetSettings(*loaded, id, stored) != S_FALSE ||
+            store.PersistWidgetSettings(*loaded, id, R"({"seed":7})") != S_FALSE || *loaded != *before ||
+            !holds(file, commented) || store.TakeDeferredPersistNotice())
+        {
+            std::wprintf(L"An unchanged widget persist rewrote the settings file or its document.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // A rejected save stays for the editor: widget persists and a dock drag keep their change in memory.
+        std::unique_ptr<AppSettings> candidate;
+        SettingsFileStamp stamp{};
+        SettingsReloadStatus status = SettingsReloadStatus::Unchanged;
+        if (!write(file, rejected) || FAILED(store.TryLoadChanged(candidate, stamp, status)) ||
+            status != SettingsReloadStatus::Invalid)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        if (store.PersistWidgetSettings(*loaded, id, R"({"seed":17})") != S_FALSE ||
+            !store.TakeDeferredPersistNotice() ||
+            store.PersistWidgetSettings(*loaded, id, R"({"densityPercent":75})") != S_FALSE ||
+            store.PersistDockThickness(*loaded, 200) != S_FALSE || store.TakeDeferredPersistNotice() ||
+            !holds(file, rejected) || privateOf(*loaded).find("\"seed\":17") == std::string_view::npos ||
+            privateOf(*loaded).find("\"densityPercent\":75") == std::string_view::npos ||
+            loaded->dock.thicknessDips != 200)
+        {
+            std::wprintf(L"A persist wrote over a rejected save or rolled back its change.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // A valid save the watcher has not applied yet is not overwritten either. Once applied, its document replaces
+        // the change held in memory, and a later change writes again.
+        if (!write(file, external) || store.PersistWidgetSettings(*loaded, id, R"({"seed":19})") != S_FALSE ||
+            !store.TakeDeferredPersistNotice() || !holds(file, external))
+        {
+            std::wprintf(L"A persist wrote over a save that was not applied yet.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        candidate.reset();
+        if (FAILED(store.TryLoadChanged(candidate, stamp, status)) || status != SettingsReloadStatus::Loaded ||
+            !candidate)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        loaded = std::move(candidate);
+        store.MarkApplied(stamp);
+        auto saved = std::make_unique<AppSettings>();
+        if (store.PersistWidgetSettings(*loaded, id, R"({"densityPercent":80})") != S_OK ||
+            FAILED(LoadAppSettingsFile(file.wstring(), *saved)) ||
+            privateOf(*saved).find("\"seed\":3") == std::string_view::npos ||
+            privateOf(*saved).find("\"densityPercent\":80") == std::string_view::npos ||
+            saved->dock.thicknessDips != kDockDefaultThicknessDips)
+        {
+            std::wprintf(L"A persist after an applied reload did not write the reloaded document.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // A deleted file is not recreated. The same file restored (a Recycle Bin restore keeps its identity and time)
+        // takes the change held in memory with the next persist, even one that changes nothing more.
+        std::string applied;
+        if (FAILED(ReadFile(file, applied)))
+            return E_FAIL;
+        const std::filesystem::path recycled = directory / L"gate.recycled.json";
+        if (!MoveFileExW(file.c_str(), recycled.c_str(), 0))
+            return HRESULT_FROM_WIN32(GetLastError());
+        candidate.reset();
+        if (FAILED(store.TryLoadChanged(candidate, stamp, status)) || status != SettingsReloadStatus::Missing ||
+            store.PersistWidgetSettings(*loaded, id, R"({"seed":23})") != S_FALSE ||
+            !store.TakeDeferredPersistNotice() || store.PersistDockThickness(*loaded, 240) != S_FALSE ||
+            store.TakeDeferredPersistNotice() || std::filesystem::exists(file))
+        {
+            std::wprintf(L"A persist recreated a deleted settings file.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (!MoveFileExW(recycled.c_str(), file.c_str(), 0))
+            return HRESULT_FROM_WIN32(GetLastError());
+        candidate.reset();
+        if (FAILED(store.TryLoadChanged(candidate, stamp, status)) || status != SettingsReloadStatus::Unchanged ||
+            !holds(file, applied) || store.PersistWidgetSettings(*loaded, id, R"({"seed":23})") != S_OK ||
+            FAILED(LoadAppSettingsFile(file.wstring(), *saved)) ||
+            privateOf(*saved).find("\"seed\":23") == std::string_view::npos || saved->dock.thicknessDips != 240)
+        {
+            std::wprintf(L"The change held in memory was not written once the same file was restored.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // A --settings file that fell back to the template keeps its bytes, and a missing one stays missing.
+        const std::filesystem::path portable = directory / L"portable.settings.json";
+        if (!write(portable, rejected))
+            return E_FAIL;
+        SettingsStore fallbackStore;
+        std::unique_ptr<AppSettings> fallback;
+        result = fallbackStore.Initialize(false, portable.wstring(), fallback);
+        if (FAILED(result) || !fallback || !fallbackStore.UsedInitialFallback())
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        std::string launcherId;
+        for (uint32_t page = 0; page < fallback->dashboard.pageCount && launcherId.empty(); ++page)
+        {
+            const auto& layout = fallback->dashboard.pages[page];
+            for (uint32_t item = 0; item < layout.widgetCount && launcherId.empty(); ++item)
+            {
+                if (layout.widgets[item].pluginId.View() == "builtin.launcher")
+                    launcherId = layout.widgets[item].id.View();
+            }
+        }
+        if (launcherId.empty() ||
+            fallbackStore.PersistWidgetSettings(
+                *fallback, launcherId, R"json({"shortcuts":[{"target":"C:\\Windows\\notepad.exe"}]})json") != S_FALSE ||
+            !fallbackStore.TakeDeferredPersistNotice() ||
+            fallbackStore.PersistDockThickness(*fallback, 200) != S_FALSE ||
+            fallbackStore.TakeDeferredPersistNotice() || !holds(portable, rejected))
+        {
+            std::wprintf(L"A persist wrote the template over a --settings file that failed to load.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        const std::filesystem::path absent = directory / L"absent.settings.json";
+        SettingsStore absentStore;
+        std::unique_ptr<AppSettings> absentSettings;
+        result = absentStore.Initialize(false, absent.wstring(), absentSettings);
+        if (FAILED(result) || !absentSettings || absentStore.PersistDockThickness(*absentSettings, 200) != S_FALSE ||
+            !absentStore.TakeDeferredPersistNotice() || std::filesystem::exists(absent))
+        {
+            std::wprintf(L"A persist created a missing --settings file.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
 [[nodiscard]] HRESULT ValidateLogsDirectory() noexcept
 {
     try
@@ -2494,9 +2682,13 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             afterSuppressedPersist != afterValidWrite)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
-        result = store.PersistWidgetSettings(*candidate, instanceId, persistPatch);
+        // As in OnSettingsChanged, the loaded stamp is marked applied once the candidate is live; a later explicit
+        // change may then write the file.
+        store.MarkApplied(stamp);
+        constexpr std::string_view explicitPatch = R"json({"shortcuts":[{"target":"C:\\Windows\\regedit.exe"}]})json";
+        result = store.PersistWidgetSettings(*candidate, instanceId, explicitPatch);
         std::string afterExplicitPersist;
-        if (FAILED(result) || FAILED(ReadFile(file, afterExplicitPersist)) || afterExplicitPersist == afterValidWrite)
+        if (result != S_OK || FAILED(ReadFile(file, afterExplicitPersist)) || afterExplicitPersist == afterValidWrite)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
         constexpr std::string_view invalid = R"json({"version":{"major":4},"pages":[{}]})json";
@@ -2562,6 +2754,7 @@ int wmain()
                        {L"logs directory", ValidateLogsDirectory},
                        {L"persist formatting", ValidatePersistFormatting},
                        {L"persist rollback", ValidatePersistRollback},
+                       {L"persist write gate", ValidatePersistWriteGate},
                        {L"live reload no write", ValidateLiveReloadNoWrite}};
     for (const auto& test : tests)
     {

@@ -1774,6 +1774,13 @@ HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view inst
     const JsonObjectSettings previousPrivate = widget->privateConfiguration;
 
     HRESULT result = MergeSettingsObject(previousPrivate, patchRoot, widget->privateConfiguration);
+    // A merge that changes nothing (an unchanged collect, a repeated import) leaves the already valid typed settings
+    // and the retained source as they are, so the document is not re-serialized and keeps its comments.
+    if (SUCCEEDED(result) && widget->privateConfiguration.View() == previousPrivate.View())
+    {
+        widget->privateConfiguration = previousPrivate;
+        return S_FALSE;
+    }
     if (SUCCEEDED(result))
     {
         result = ValidateAppSettings(settings);
@@ -2535,6 +2542,11 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
     _selfTest = selfTest;
     _suppressDocumentWrites = false;
     _initialNotice.clear();
+    // Only a document this call loads from the selected path may be written over later (PersistPatchedDocument).
+    _lastAppliedStamp.reset();
+    _lastRejectedStamp.reset();
+    _deferredStamp.reset();
+    _deferredNoticePending = false;
     try
     {
         std::filesystem::path moduleDirectory;
@@ -2762,6 +2774,7 @@ void SettingsStore::MarkApplied(const SettingsFileStamp& stamp) noexcept
 {
     _lastAppliedStamp = stamp;
     _lastRejectedStamp.reset();
+    _deferredStamp.reset();
 }
 
 void SettingsStore::MarkRejected(const SettingsFileStamp& stamp) noexcept
@@ -2830,11 +2843,26 @@ HRESULT SettingsStore::PersistPatchedDocument(const AppSettings& settings) noexc
     {
         return E_UNEXPECTED;
     }
+    // Write only over the document last applied. Any other file on disk (rejected, replaced by a save the watcher has
+    // not processed, deleted, unreadable, or a `--settings` file that fell back to the template) belongs to the user:
+    // the patch stays in memory until the next applied load replaces it. A missing or unreadable file keeps the zero
+    // stamp, so each distinct on-disk state is reported once.
+    SettingsFileStamp current{};
+    if (QuerySettingsFileStamp(_settingsPath, current) != S_OK || !_lastAppliedStamp || *_lastAppliedStamp != current)
+    {
+        if (!_deferredStamp || *_deferredStamp != current)
+        {
+            _deferredStamp = current;
+            _deferredNoticePending = true;
+        }
+        return S_FALSE;
+    }
     const HRESULT result = WriteUtf8FileAtomically(_settingsPath, settings.sourceDocument);
     if (FAILED(result))
     {
         return result;
     }
+    _deferredStamp.reset();
     SettingsFileStamp stamp{};
     const HRESULT stampResult = QuerySettingsFileStamp(_settingsPath, stamp);
     if (stampResult != S_OK)
@@ -2884,8 +2912,10 @@ HRESULT SettingsStore::PersistWidgetSettings(AppSettings& settings, std::string_
     try
     {
         std::string previousSource = settings.sourceDocument;
+        // S_FALSE from the patch: nothing changed, so the file is neither rewritten nor reformatted, unless an earlier
+        // deferred write still holds changes in memory.
         HRESULT result = PatchWidgetInstanceSettings(settings, instanceId, settingsJson);
-        if (SUCCEEDED(result) && !_selfTest && !_suppressDocumentWrites)
+        if ((result == S_OK || (result == S_FALSE && _deferredStamp)) && !_selfTest && !_suppressDocumentWrites)
         {
             result = PersistPatchedDocument(settings);
         }
@@ -2900,4 +2930,9 @@ HRESULT SettingsStore::PersistWidgetSettings(AppSettings& settings, std::string_
     {
         return E_OUTOFMEMORY;
     }
+}
+
+bool SettingsStore::TakeDeferredPersistNotice() noexcept
+{
+    return std::exchange(_deferredNoticePending, false);
 }

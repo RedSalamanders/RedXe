@@ -2267,6 +2267,7 @@ void Application::EndDockResize() noexcept
                                "dock-thickness-persist-failed",
                                "The dragged dock thickness could not be written to the settings file.", persisted);
         }
+        LogDeferredSettingsPersist();
     }
     EvaluateDockHolds();
 }
@@ -6325,8 +6326,22 @@ HRESULT Application::ApplyWidgetSettingsPersist(const char* instanceId, const ch
     {
         return PatchWidgetInstanceSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
     }
-    return _settingsStore.PersistWidgetSettings(*_settings, instanceId,
-                                                std::string_view(settingsJsonUtf8, settingsBytes));
+    const HRESULT result =
+        _settingsStore.PersistWidgetSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
+    LogDeferredSettingsPersist();
+    return result;
+}
+
+void Application::LogDeferredSettingsPersist() noexcept
+{
+    if (_settingsStore.TakeDeferredPersistNotice())
+    {
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                           "settings-persist-deferred",
+                           "A settings change was kept in memory and not written, because the settings file on disk "
+                           "is not the document RedXe last loaded; the next successful load of that file replaces it.",
+                           S_FALSE);
+    }
 }
 
 HRESULT Application::SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8,

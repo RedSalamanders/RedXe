@@ -253,8 +253,8 @@ Check a row when its fix lands, or note why it was dropped.
 
 ### P1. Settings integrity (12)
 
-- [ ] `settings#1` (high) `RedXe/Settings.cpp:2833`: PersistPatchedDocument writes the in-memory document over a rejected, unprocessed, deleted or failed --settings file with no stamp check (page swipe, exit, dock drag, Launcher import)
-- [ ] `settings#2` (medium) `RedXe/Settings.cpp:1850`: Widget persist rewrites the whole file through yyjson even when nothing changed: it strips every comment (including the first-run dock guidance) on the first page swipe and does UI-thread write-through I/O
+- [x] `settings#1` (high) `RedXe/Settings.cpp:2833`: PersistPatchedDocument writes the in-memory document over a rejected, unprocessed, deleted or failed --settings file with no stamp check (page swipe, exit, dock drag, Launcher import)
+- [x] `settings#2` (medium) `RedXe/Settings.cpp:1850`: Widget persist rewrites the whole file through yyjson even when nothing changed: it strips every comment (including the first-run dock guidance) on the first page swipe and does UI-thread write-through I/O
 - [ ] `settings#3` (medium) `RedXe/Application.cpp:2565`: A comment-only reload during a page swipe is reverted when the page commits, and the next persist writes the stale text back to disk
 - [ ] `settings#4` (medium) `RedXe/SettingsV4.cpp:1878`: A UTF-8 BOM makes the whole settings file invalid; on the next start cold recovery resets the user's file
 - [ ] `alignment#6` (low) `Settings/RedXe.settings.json:10`: First-run dock file keeps the template's 'Uncomment and edit' dock example, so following it makes a duplicate `dock` that rejects the save

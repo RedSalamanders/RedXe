@@ -197,6 +197,8 @@ Without `--settings`, RedXe uses one editable file:
 
 Save the file to apply it. RedXe watches that path; you do not restart. When the [notification-area icon](#notification-area-icon) is shown, double-clicking it is the quickest way to open the file. A valid document keeps the page you were on when that page still exists. An invalid save leaves the last good dashboard running and shows one error dialog with the JSON path and the reason (and line and column when those are known). Dismissing the dialog suppresses only that failed save; a later distinct invalid save can prompt again.
 
+RedXe writes the file itself only when a widget's own settings actually change (a Launcher importing your taskbar pins, for example) or when you drag the bar's edge, and only while the file on disk is the one it last loaded. While your last save is invalid, the file was deleted, or a `--settings` file could not be loaded, such a change stays in memory and your file is left as it is (the log records `settings-persist-deferred`); your next valid save takes over from it.
+
 If the default file is missing, RedXe installs the shipped template and continues. If it is invalid, RedXe copies the bytes beside it as `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`, installs a fresh template, and tells you where the backup went. Without a XENEON connected, either installed template also gets an auto-hiding bar; see [First start without a XENEON](#first-start-without-a-xeneon).
 
 `--settings <path>` uses one portable file instead. A missing or invalid portable file is not rewritten; RedXe reports the problem and runs the shipped default in memory.

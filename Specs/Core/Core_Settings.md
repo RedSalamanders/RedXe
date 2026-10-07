@@ -161,10 +161,10 @@ including `edge` between `none` and an edge, which switches the window kind with
 (`Specs/UI/UI_XeneonDisplayWindowing.md` "Switching the window kind"). `dock` is a host member: it never enters a plugin
 contract, a factory envelope, or a widget persist. The one host-driven write to an existing document is `dock.thickness`
 after the bar's inner edge is dragged (`PatchDockThickness`): it replaces or adds that member, creates the `dock` object
-when absent, raises `version.minor` to 2 when lower, and uses the same atomic replacement as a widget persist. The
-source edit MUST preserve comments, spacing, and every unrelated member. Both shipped templates author the current minor
-and stay at `edge: none`, carrying a commented-out `dock` example; a default file installed on a machine without a
-XENEON adds the first-run dock ("Cold load and recovery").
+when absent, raises `version.minor` to 2 when lower, and uses the same stamp check and atomic replacement as a widget
+persist ("Plugin persist"). The source edit MUST preserve comments, spacing, and every unrelated member. Both shipped
+templates author the current minor and stay at `edge: none`, carrying a commented-out `dock` example; a default file
+installed on a machine without a XENEON adds the first-run dock ("Cold load and recovery").
 
 ### Notification-area icon
 
@@ -284,6 +284,20 @@ or atomic file replacement fails. A later partial save MUST NOT resurrect a reje
 only the affected private object and source text, rather than copying the entire typed dashboard. Once replacement
 commits, failure to query the file stamp MUST NOT report a failed save; clear deduplication state and allow reload.
 
+A persist whose merge leaves the stored instance object unchanged (an unchanged collect, a repeated import) MUST NOT
+validate, re-serialize, or write the document: typed settings and the retained source, comments included, stay byte
+for byte and the host returns `S_FALSE`. The one exception is an earlier deferred write still held in memory (below),
+which such a persist writes once the file allows it.
+
+The host MUST write the user document, for a widget persist, collect-on-exit, a queued import, or a `dock.thickness`
+drag, only while the file on disk is the document last applied: its current stamp MUST equal the stamp recorded when
+that document was applied or written by the host. With no applied stamp, a different stamp, or a stamp that cannot be
+read, the host MUST NOT write. This covers a rejected save, a save the watcher has not processed yet, a deleted or
+unreadable file, and a `--settings` file that fell back to the deployed default. The patched typed settings and source
+stay in memory, the host returns `S_FALSE` so the widget keeps its state, and one Warning `settings-persist-deferred`
+is logged per distinct on-disk state (a missing and an unreadable file count as one state). The next applied load
+replaces that in-memory document; writes resume once the file on disk is again the document last applied.
+
 Persisted documents MUST use a compact, readable layout with two-space indentation and a final LF newline. Keep
 empty objects and arrays inline. Keep small objects inline when they fit a soft 120-byte line width; a single scalar
 property stays together even when its indivisible string or path exceeds that width. Keep the root object, nonempty
@@ -338,8 +352,9 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   atomic same-directory write, an existing file is never patched, and the recovery notice adds one sentence naming
   the bar. After a failed discovery, or when the patch cannot be applied, the plain template is installed; the
   first-run dock never fails startup.
-- A missing, unreadable, or invalid command-line file is never modified. RedXe reports the problem and runs with the
-  deployed default configuration in memory.
+- A missing, unreadable, or invalid command-line file is never modified. RedXe reports the problem, runs with the
+  deployed default configuration in memory, and writes nothing to that path until a later save of it loads ("Plugin
+  persist").
 - If a deployed default cannot be read or validated, startup fails rather than inventing settings.
 - Template/schema installation and recovery use same-directory temporary files and write-through atomic rename.
 
@@ -357,8 +372,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   persist a widget merge, or collect-on-exit onto that path. The editor's bytes stay until an explicit widget persist
   or other user-driven save. `--self-test` MUST NOT write `%LocalAppData%` and MUST NOT write the deployed template.
 - Invalid, unreadable, or missing live input remains untouched and leaves the exact last-valid in-memory state active.
-  An invalid live load MUST NOT rewrite the invalid file and MUST NOT write the last-good document over it. Monitoring
-  continues until a later distinct save can be loaded.
+  An invalid live load MUST NOT rewrite the invalid file and MUST NOT write the last-good document over it, and neither
+  may a later persist or dock drag ("Plugin persist"). Monitoring continues until a later distinct save can be loaded.
 - Diagnostics MUST name the JSON path and the specific problem in clear user language. When the byte location is
   reliable (JSON syntax errors, or a path the locator can resolve), they MUST also include line and column. The dialog
   MUST NOT report a generic version-5 schema failure at `path $` when a more specific member is known.
@@ -427,6 +442,12 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   the plain template byte for byte when no dock is offered or the offered dock is refused by the patch, and never writes
   a missing `--settings` file.
 - Tests prove a partial widget persist merge keeps unspecified members and rejects unknown plugin members.
+- Tests prove the persist write gate: a widget persist or dock drag over a rejected save, a loaded but not yet applied
+  save, a deleted file, and a `--settings` file that fell back to the default returns `S_FALSE`, leaves the file bytes
+  (or its absence) unchanged, keeps the merge in memory, and raises one deferral notice per on-disk state; a persist
+  after the reload is applied writes again, and a repeated persist writes the changes an earlier deferral held once the
+  same file is back. An unchanged widget persist returns `S_FALSE` and leaves typed settings, source, and file bytes,
+  comments included, unchanged.
 - Tests prove compact/idempotent formatting, inline small objects and long single-path records, multiline sections
   and arrays, fewer lines than fully expanded output, escaped/Unicode paths, named/inline/use-object widget round
   trips, compatible unknown-field retention, and transactional rejection of oversized formatted output.
