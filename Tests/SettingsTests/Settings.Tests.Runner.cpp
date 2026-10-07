@@ -549,8 +549,11 @@ constexpr std::string_view kRepresentative = R"json(
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"turns":[{"control":"dial","direction":"cw","action":"nowhere.go"}]}}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"dial":"page"}}},"pages":[{}]})json",
         // Retired Zoom entry rejections: any member other than the retired v1.0.102 ones, which load and are ignored
-        // (ValidateReleasedTemplates), including a retired name in another case, and the entry twice.
+        // (ValidateReleasedTemplates), including a retired name in another case, and the entry twice. The authored
+        // members are checked, so an unknown one set to null is refused too, alone or beside a null retired member.
         R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","meeting":"abc"}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","meeting":null}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":null,"meeting":null}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","ClientID":"abc"}},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"services":{"Z":{"plugin":"builtin.zoom","redirectPort":48123,"sdkPath":"x"}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"Y":{"plugin":"builtin.zoom"},"Z":{"plugin":"builtin.zoom"}},"pages":[{}]})json",
@@ -2184,22 +2187,26 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         }
     }
 
-    // The retired Zoom entry loads with any value of every retired member, also in a current-minor document, and
-    // without them (the template entry of earlier builds); either way it is recorded for the warning and never started.
+    // The retired Zoom entry loads with any value of every retired member, also in a current-minor document, with a
+    // sole retired member set to null, and without them (the template entry of earlier builds); each time it is
+    // recorded for the warning and never started.
     constexpr std::string_view anyRetiredValue =
         R"json({"version":{"major":5,"minor":3},"services":{"Z":{"plugin":"builtin.zoom","clientId":null,"redirectPort":"48123","domain":[],"displayName":7,"autoConnect":"no","mode":{"x":1},"labels":[{"mute":2}]}},"pages":[{}]})json";
+    constexpr std::string_view soleRetiredNull =
+        R"json({"version":{"major":5,"minor":3},"services":{"Z":{"plugin":"builtin.zoom","clientId":null}},"pages":[{}]})json";
     constexpr std::string_view noRetiredMember =
         R"json({"version":{"major":5,"minor":3},"services":{"Z":{"plugin":"builtin.zoom"}},"pages":[{}]})json";
-    AppSettings retired{};
-    AppSettings current{};
-    if (FAILED(ParseAppSettingsJson(anyRetiredValue, retired)) || FAILED(ValidateAppSettings(retired)) ||
-        retired.serviceCount != 0 || retired.retiredServices.size() != 1 ||
-        FAILED(ParseAppSettingsJson(noRetiredMember, current)) || FAILED(ValidateAppSettings(current)) ||
-        current.serviceCount != 0 || current.retiredServices.size() != 1 ||
-        current.retiredServices[0].View() != "builtin.zoom")
+    for (const std::string_view retiredEntry : {anyRetiredValue, soleRetiredNull, noRetiredMember})
     {
-        std::wprintf(L"The retired Zoom entry is not accepted with any retired member value and ignored.\n");
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        AppSettings retired{};
+        if (FAILED(ParseAppSettingsJson(retiredEntry, retired)) || FAILED(ValidateAppSettings(retired)) ||
+            retired.serviceCount != 0 || retired.retiredServices.size() != 1 ||
+            retired.retiredServices[0].View() != "builtin.zoom")
+        {
+            std::wprintf(L"The retired Zoom entry is not accepted and ignored: %.*S\n",
+                         static_cast<int>(retiredEntry.size()), retiredEntry.data());
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
     }
 
     // v1.0.102 also accepted keys.down and mouse.down on a Logicon key, dialpad button, or turn. They still load: the

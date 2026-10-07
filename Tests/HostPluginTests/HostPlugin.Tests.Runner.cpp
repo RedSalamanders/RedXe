@@ -4864,7 +4864,7 @@ void TestActionValidation(bool& success) noexcept
           "https://zoom.us/my/alice", "https://evil.example/j/1234567890", "https://evil.example?.zoom.us/j/1234567890",
           "https://evil.example#.zoom.us/j/1234567890", "https://evil.example\\.zoom.us/j/1234567890",
           "https://user@team.zoom.us/j/1234567890", "https://zoom.us:443/j/1234567890",
-          "https://zoom.us/j/1234567890 "})
+          "https://a..zoom.us/j/1234567890", "https://team.zoom.us./j/1234567890", "https://zoom.us/j/1234567890 "})
     {
         request.targetUtf8 = invalid;
         Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a malformed or spoofed meeting link is invalid",
@@ -5228,11 +5228,11 @@ void TestServiceLifetime(bool& success) noexcept
     Check(host.StartedServiceCount() == 0, L"StopServices is idempotent", success);
 }
 
-// A retired services entry (the Zoom one, empty as earlier templates wrote it or with its v1.0.102 members) logs one
-// service-retired-settings-ignored Warning per document load (Core_Settings.md "Services"). The settings store drives
-// the loads exactly as Application sequences them: the startup load, then each applied live reload, each followed by
-// the service start or apply that Application runs with it. An unchanged notification, a repeated service apply, and
-// a document without the entry add none.
+// A retired services entry (the Zoom one, empty as earlier templates wrote it, with its v1.0.102 members, or with a
+// retired member set to null) logs one service-retired-settings-ignored Warning per document load (Core_Settings.md
+// "Services"). The settings store drives the loads exactly as Application sequences them: the startup load, then each
+// applied live reload, each followed by the service start or apply that Application runs with it. An unchanged
+// notification, a repeated service apply, and a document without the entry add none.
 void TestRetiredServiceWarnings(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] retired services entry: one warning per load or live apply\n";
@@ -5240,6 +5240,8 @@ void TestRetiredServiceWarnings(bool& success) noexcept
         R"json({"version":{"major":5,"minor":2},"services":{"Meet":{"plugin":"builtin.zoom"}},"pages":[{}]})json";
     constexpr std::string_view retiredMembers =
         R"json({"version":{"major":5,"minor":2},"services":{"Zoom":{"plugin":"builtin.zoom","clientId":"sHVWQENoR4qrpuBPgsFsPw","redirectPort":48123,"autoConnect":false}},"pages":[{}]})json";
+    constexpr std::string_view retiredNull =
+        R"json({"version":{"major":5,"minor":2},"services":{"Zoom":{"plugin":"builtin.zoom","clientId":null}},"pages":[{}]})json";
     constexpr std::string_view noEntry = R"json({"version":{"major":5,"minor":2},"pages":[{}]})json";
     constexpr std::string_view event = "\"event\":\"service-retired-settings-ignored\"";
     constexpr std::string_view record =
@@ -5309,12 +5311,15 @@ void TestRetiredServiceWarnings(bool& success) noexcept
         return true;
     };
 
-    const std::string_view shapes[] = {emptyEntry, retiredMembers};
-    const wchar_t* const names[] = {L"an empty Zoom entry", L"a Zoom entry with retired members"};
+    // Each shape is the startup document once and the next shape's live apply once.
+    const std::string_view shapes[] = {emptyEntry, retiredMembers, retiredNull};
+    const wchar_t* const names[] = {L"an empty Zoom entry", L"a Zoom entry with retired members",
+                                    L"a Zoom entry whose only retired member is null"};
+    static_assert(std::size(shapes) == std::size(names));
     size_t expected = 0;
-    for (size_t first = 0; first < 2; ++first)
+    for (size_t first = 0; first < std::size(shapes); ++first)
     {
-        const size_t second = 1 - first;
+        const size_t second = (first + 1) % std::size(shapes);
         // Startup: Application::Run loads, opens the log, logs, and later starts the services.
         SettingsStore store;
         std::unique_ptr<AppSettings> current;

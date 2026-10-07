@@ -131,12 +131,16 @@ bool TestSettingsAndUrls() noexcept
         R"({"clientId":"sHVWQENoR4qrpuBPgsFsPw","redirectPort":48123,"autoConnect":false})";
     constexpr std::string_view anyRetiredValue =
         R"({"clientId":null,"redirectPort":"x","domain":"evil.example","displayName":[],"autoConnect":1,"mode":"bogus","labels":{"unknown":0}})";
-    for (const std::string_view retired : {std::string_view("{}"), releasedTemplate, anyRetiredValue})
+    for (const std::string_view retired :
+         {std::string_view("{}"), releasedTemplate, anyRetiredValue, std::string_view(R"({"clientId":null})")})
     {
         success &= Check(SUCCEEDED(Zoom::ParseSettingsJson(retired, settings, diagnostic.data(), diagnostic.size())),
                          L"the retired entry loads with or without the v1.0.102 members");
     }
-    for (const std::string_view rejected : {R"({"meeting":"x"})", R"({"clientId":"x","ClientId":"x"})", "[]", "\"x\""})
+    // An unknown member is refused whatever its value, null included.
+    for (const std::string_view rejected :
+         {R"({"meeting":"x"})", R"({"meeting":null})", R"({"clientId":null,"x":null})",
+          R"({"clientId":"x","ClientId":"x"})", "[]", "\"x\""})
     {
         success &= Check(FAILED(Zoom::ParseSettingsJson(rejected, settings, diagnostic.data(), diagnostic.size())),
                          L"another member or a non-object rejected");
@@ -163,6 +167,9 @@ bool TestSettingsAndUrls() noexcept
           "https://evil.example\\.zoom.us/j/1234567890", "https://evil.example@team.zoom.us/j/1234567890",
           "https://user@team.zoom.us/j/1234567890", "https://zoom.us:443/j/1234567890",
           "https://team.zoom.us:8443/j/1234567890", "https://.zoom.us/j/1234567890", "https:///j/1234567890",
+          // An empty DNS label: the suffix matches, but the host is no zoom.us subdomain.
+          "https://a..zoom.us/j/1234567890", "https://..zoom.us/j/1234567890", "https://team..zoom.us/j/1234567890",
+          "https://team.zoom.us./j/1234567890",
           // Path and character rules.
           "https://zoom.us/j/123", "https://zoom.us/j/123456789012", "https://zoom.us/j/12345678a0",
           "https://zoom.us/j/1234567890/other", "https://zoom.us/j/1234567890\n", "https://zoom.us/j/1234567890 ",
@@ -172,6 +179,17 @@ bool TestSettingsAndUrls() noexcept
     {
         success &= Check(!RedXeActions::ParseMeeting(invalid), L"unsafe or malformed meeting link rejected");
     }
+    // The host is a DNS name: labels of 1 to 63 characters, at most 253 characters in all.
+    const std::string label63(63, 'a');
+    const std::string longestHost = label63 + "." + label63 + "." + label63 + "." + std::string(53, 'b') + ".zoom.us";
+    const std::string tooLongHost = label63 + "." + label63 + "." + label63 + "." + std::string(54, 'b') + ".zoom.us";
+    success &= Check(longestHost.size() == 253 && tooLongHost.size() == 254, L"the host length fixtures");
+    success &= Check(RedXeActions::ParseMeeting("https://" + label63 + ".zoom.us/j/1234567890") &&
+                         RedXeActions::ParseMeeting("https://" + longestHost + "/j/1234567890"),
+                     L"a 63-character label and a 253-character host accepted");
+    success &= Check(!RedXeActions::ParseMeeting("https://" + label63 + "a.zoom.us/j/1234567890") &&
+                         !RedXeActions::ParseMeeting("https://" + tooLongHost + "/j/1234567890"),
+                     L"a 64-character label and a 254-character host rejected");
     return success;
 }
 

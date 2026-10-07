@@ -226,9 +226,10 @@ default and registered namespaces, and the default verbs
 stored per service and reaches the plugin as the `instance` member of the ordinary factory envelope.
 
 A member naming a **retired** service plugin (`kRedXeRetiredServices`, today `builtin.zoom`, which became a dedicated
-action DLL that needs no entry) MUST still load so an older file keeps working. Its authored keys are validated with
-the retired plugin's legacy model (`Plugins/Actions/Zoom/ZoomSettings.cpp`, compiled into the host: only the seven
-retired Zoom SDK members, each with any value); any other key, or the same retired plugin configured twice, rejects
+action DLL that needs no entry) MUST still load so an older file keeps working. Its authored keys are validated as
+written, never merged with defaults first (a merge drops `null` members), with the retired plugin's legacy model
+(`Plugins/Actions/Zoom/ZoomSettings.cpp`, compiled into the host: only the seven retired Zoom SDK members, each with
+any value, `null` included); any other key, whatever its value, or the same retired plugin configured twice, rejects
 the complete candidate. A valid entry is recorded in the typed `AppSettings::retiredServices` and otherwise ignored:
 it is never created or started, stores no configuration, and MUST NOT cause the file to be rewritten. Each load or
 live apply logs one Warning record `service-retired-settings-ignored` from that plugin per such entry. Retired entries
@@ -517,14 +518,15 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   load and validate, with the Debug template's removed `zoom.*` bindings kept and the Zoom entry recorded as retired
   rather than configured, and that the default store keeps such a file byte for byte without a fallback or
   `.invalid-` backup. They prove the retired Zoom entry loads with any value of the seven retired members in a minor 3
-  document and without them, is recorded in `retiredServices` and not in `services`, that any other Zoom member
-  (including a retired name in another case) and a second Zoom entry are rejected, and that the schema's services Zoom
-  variant is deprecated and lists the members as deprecated. A minor 2 document whose Logicon key, dialpad button, and
-  turn bind `keys.down` or `mouse.down` loads, validates, and keeps those bindings for the service.
-- Host tests load an empty services Zoom entry and one carrying retired members through the settings store, each at
-  startup and on a live reload in the order `Application` runs them, and prove the JSONL log gains exactly one
-  `service-retired-settings-ignored` Warning from `builtin.zoom` per load or applied reload, and none for an unchanged
-  notification, a repeated service apply, or a reload without the entry.
+  document, with a sole retired member set to `null`, and without them, is recorded in `retiredServices` and not in
+  `services`, that any other Zoom member (including a retired name in another case, and one set to `null`, alone or
+  beside a `null` retired member) and a second Zoom entry are rejected, and that the schema's services Zoom variant is
+  deprecated and lists the members as deprecated. A minor 2 document whose Logicon key, dialpad button, and turn bind
+  `keys.down` or `mouse.down` loads, validates, and keeps those bindings for the service.
+- Host tests load an empty services Zoom entry, one carrying retired members, and one whose only retired member is
+  `null` through the settings store, each at startup and on a live reload in the order `Application` runs them, and
+  prove the JSONL log gains exactly one `service-retired-settings-ignored` Warning from `builtin.zoom` per load or
+  applied reload, and none for an unchanged notification, a repeated service apply, or a reload without the entry.
 - Tests prove `trayIcon`: omitted it is `true` in Release and `false` in Debug, also in a minor 2 document; an authored
   `true` or `false` wins; a string, a number, `null`, an object, and a duplicate member are rejected, with the
   diagnostic on `$.trayIcon`; the member changes no other typed setting; both templates author it (`false` in Debug,

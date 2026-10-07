@@ -37,6 +37,31 @@ namespace
     return true;
 }
 
+// The shape of a DNS name in text form (RFC 1035 section 2.3.4): dot-separated labels of 1 to 63 characters, at most
+// 253 characters in all (255 octets on the wire). The caller checks the characters.
+[[nodiscard]] bool HasDnsNameShape(std::string_view name) noexcept
+{
+    if (name.empty() || name.size() > 253)
+    {
+        return false;
+    }
+    size_t labelStart = 0;
+    for (size_t index = 0; index <= name.size(); ++index)
+    {
+        if (index < name.size() && name[index] != '.')
+        {
+            continue;
+        }
+        const size_t labelLength = index - labelStart;
+        if (labelLength == 0 || labelLength > 63)
+        {
+            return false;
+        }
+        labelStart = index + 1;
+    }
+    return true;
+}
+
 [[nodiscard]] bool ParseUnsigned(std::string_view value, uint64_t maximum, uint64_t& parsed) noexcept
 {
     if (value.empty() || value.size() > 19)
@@ -626,11 +651,16 @@ bool ParseMeeting(std::string_view value) noexcept
         return false;
     }
     // Browsers end the authority at '/', '?', '#', or '\'; the host must therefore be all of it, with no credentials
-    // or port, so "https://evil.example#.zoom.us/j/..." cannot pass as a zoom.us subdomain.
+    // or port, so "https://evil.example#.zoom.us/j/..." cannot pass as a zoom.us subdomain. It must also be a DNS name
+    // before the suffix decides: "a..zoom.us" ends in ".zoom.us" but, with an empty label, is no subdomain.
     const std::string_view host = rest.substr(0, slash);
+    if (!HasDnsNameShape(host) || host.find_first_of("@:#?") != std::string_view::npos)
+    {
+        return false;
+    }
     const bool zoomHost = EqualsIgnoreCase(host, "zoom.us") ||
                           (host.size() > 8 && EqualsIgnoreCase(host.substr(host.size() - 8), ".zoom.us"));
-    if (!zoomHost || host.find_first_of("@:#?") != std::string_view::npos)
+    if (!zoomHost)
     {
         return false;
     }

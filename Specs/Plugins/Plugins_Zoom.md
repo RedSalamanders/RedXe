@@ -29,7 +29,9 @@ The Meeting grammar is `RedXeActions::ParseMeeting` (`Common/Actions`), which ho
 share, so validation and execution agree by construction. A link MUST start with `https://`; its authority MUST be
 exactly `zoom.us` or a subdomain (ASCII case-insensitive) and MUST NOT contain `@`, `:`, `#`, or `?`, so a link
 carries no credentials or port and cannot name another host that a browser would open
-(`https://evil.example#.zoom.us/...`). Its path MUST be `/j/<id>` (an invite), or `/wc/join/<id>` or `/wc/<id>/join`
+(`https://evil.example#.zoom.us/...`). The authority MUST also be a DNS name, checked before the `zoom.us` suffix:
+dot-separated labels of 1 to 63 characters, at most 253 characters in all, so an empty label (`a..zoom.us`, a leading
+or trailing dot) is refused. Its path MUST be `/j/<id>` (an invite), or `/wc/join/<id>` or `/wc/<id>/join`
 (the web-client links that Zoom's **Join from your browser** opens, which skip the desktop-app prompt), where `<id>` is
 9 to 11 digits, followed by the end, `?`, or `#`. The whole link MUST be printable ASCII without `"`, `<`, `>`, or `\`,
 and at most 512 bytes. The query and fragment, including an opaque `pwd` token, pass unchanged. A separate meeting ID
@@ -60,9 +62,10 @@ Earlier releases started `builtin.zoom` as a headless service from a `services` 
 wrote one with Zoom SDK members. Such a file MUST still load (`Core_Settings.md` "Version 5 document" and
 "Services"). `builtin.zoom` is listed in `kRedXeRetiredServices` (`RedXe/BundledPlugins.h`), not in
 `kRedXeBundledServices`. The host validates a `services` entry naming it with `Zoom::ParseSettings`
-(`ZoomSettings.cpp`, compiled into the host): the entry MAY carry the seven retired members `clientId`,
-`redirectPort`, `domain`, `displayName`, `autoConnect`, `mode`, and `labels` with any JSON value, and any other
-member, including a retired name in another case, or a second `builtin.zoom` entry MUST reject the document. A valid
+(`ZoomSettings.cpp`, compiled into the host) on the members as authored, never on a defaults merge, which would drop
+a `null` member: the entry MAY carry the seven retired members `clientId`, `redirectPort`, `domain`, `displayName`,
+`autoConnect`, `mode`, and `labels` with any JSON value, `null` included, and any other member, whatever its value
+and including a retired name in another case, or a second `builtin.zoom` entry MUST reject the document. A valid
 entry is recorded in `AppSettings::retiredServices` and otherwise ignored: the host never creates or starts anything
 for it and passes nothing from it to the DLL, MUST NOT rewrite the file for it, and logs one Warning record
 `service-retired-settings-ignored` from `builtin.zoom` per load or live apply of a document that carries it. The
@@ -88,13 +91,16 @@ the two-action contract with its Meeting and None kinds and Deferred flags, that
 pack takes no settings, `S_FALSE` for a queued or coalesced launch and a passed-through ring failure, `zoom.open`
 ignoring an authored target, unchanged invite and web-client link forwarding, and refusal without a host request. It
 proves `ParseMeeting` against accepted links (`/j/`, both `/wc/` forms, an uppercase host, an 11-digit id, a fragment,
-the 512-byte bound) and rejected ones (`http`, an uppercase scheme, other hosts, `@`, `:`, `#`, `?`, and `\` in the
-authority, a port, an empty label, short, long, and non-digit ids, other paths, a trailing space or control, a quote,
-the bare `<id>:<passcode>` form), and that the retired entry's model accepts the retired members with any value and
-rejects any other member or a non-object. `SettingsTests` proves the two shipped templates carry no retired entry,
-loads the exact `v1.0.102` Release and Debug templates (retired entry, retired members, and removed-verb bindings
-included) without a fallback or backup, records the retired entry with and without its members, rejects any other
-member and a duplicate entry, and checks the schema's deprecated variant and properties. `HostPluginTests` proves the
-publisher is registered, the removed verbs are unknown, `zoom.open` ignores a target, `zoom.join` validates the
-accepted links and refuses malformed and spoofed ones, and both actions execute through the dedicated executor without
-any service and drain as `system.launch`. `BuildProcessTests` keeps stale SDK binaries out of packages.
+the 512-byte bound, a 63-character label, a 253-character host) and rejected ones (`http`, an uppercase scheme, other
+hosts, `@`, `:`, `#`, `?`, and `\` in the authority, a port, an empty leading, inner, or trailing label, a 64-character
+label, a 254-character host, short, long, and non-digit ids, other paths, a trailing space or control, a quote, the
+bare `<id>:<passcode>` form), and that the retired entry's model accepts the retired members with any value and
+rejects any other member, also set to `null`, or a non-object. `SettingsTests` proves the two shipped templates carry
+no retired entry, loads the exact `v1.0.102` Release and Debug templates (retired entry, retired members, and
+removed-verb bindings included) without a fallback or backup, records the retired entry with and without its members
+and with a sole retired member set to `null`, rejects any other member (also set to `null`) and a duplicate entry, and
+checks the schema's deprecated variant and properties. `HostPluginTests` proves the publisher is registered, the
+removed verbs are unknown, `zoom.open` ignores a target, `zoom.join` validates the accepted links and refuses
+malformed, spoofed, and empty-label ones, both actions execute through the dedicated executor without any service and
+drain as `system.launch`, and the retired entry warns once per load, also when its only retired member is `null`.
+`BuildProcessTests` keeps stale SDK binaries out of packages.
