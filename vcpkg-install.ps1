@@ -8,14 +8,15 @@ packages, and installed trees all live beneath .build. Each platform receives a 
 manifest install cannot purge the other platform's package metadata.
 
 vcpkg builds with the Visual Studio installation and MSVC toolset that MSBuild uses, not the newest toolset it finds.
-The installation is the one that holds the MSBuild the build runs (MSBuildPath, else MSBUILD_EXE_PATH, else the newest
-installation with MSBuild) and the toolset is that installation's default
+The installation is the one that holds the MSBuild the build runs (MSBuildPath; run on its own, the script finds the
+MSBuild build.ps1 would, through Find-RedXeMSBuild) and the toolset is that installation's default
 (VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt); a missing or malformed version file fails before vcpkg is
 cloned. Each platform gets an overlay triplet, .build\vcpkg-triplets\<platform>\<triplet>.cmake: the pinned vcpkg
 checkout's triplet plus the two pins (VCPKG_VISUAL_STUDIO_PATH and VCPKG_PLATFORM_TOOLSET_VERSION), rewritten only when
 its contents change. Changing the triplet changes vcpkg's package ABI hash, so the first install after a change rebuilds
-the packages. The discovery and the overlay writer are DxUi's (Tools/VisualStudio.psm1 and Tools/VcpkgTriplet.psm1, part
-of its consumer interface), imported from the pinned DxUi source, which is restored first if it is missing.
+the packages. The toolset reader and the overlay writer are DxUi's (Tools/VisualStudio.psm1 and Tools/VcpkgTriplet.psm1,
+part of its consumer interface), imported from the pinned DxUi source only once that is the clean checkout of the pinned
+commit: a missing, unfinished or changed restore is restored again first.
 
 .PARAMETER Platform
 Target platform: x64, ARM64, or All.
@@ -58,13 +59,14 @@ if ([string]::IsNullOrWhiteSpace($repository) -or $commit -notmatch '^[0-9a-fA-F
 # vcpkg picks the newest MSVC toolset of the Visual Studio installation it prefers; MSBuild compiles with the default
 # toolset of the installation the build runs. Find both the way the build does, here, before vcpkg is cloned or bootstrapped,
 # so a broken installation fails at once and every triplet below is pinned to what MSBuild uses. DxUi's helpers come from the
-# pinned source (restored first, as restore-dxui.ps1 would), so build.ps1 keeps its order: dependencies, then the DxUi restore.
+# pinned source, which Restore-RedXeDxUiPin returns only as the clean checkout of the pinned commit (restored first, or again,
+# as restore-dxui.ps1 would), so build.ps1 keeps its order: dependencies, then the DxUi restore.
 Import-Module (Join-Path $repoRoot 'Build/DxUiRestore.psm1') -Force
 $dxUi = Restore-RedXeDxUiPin -RepoRoot $repoRoot
 Import-Module (Join-Path $dxUi.Source 'Tools/VisualStudio.psm1') -Force
 Import-Module (Join-Path $dxUi.Source 'Tools/VcpkgTriplet.psm1') -Force
-if (-not $MSBuildPath -and $env:MSBUILD_EXE_PATH) { $MSBuildPath = $env:MSBUILD_EXE_PATH }
-$installation = if ($MSBuildPath) { Get-RedXeVisualStudioInstallation -MSBuildPath $MSBuildPath } else { Get-DxUiVisualStudioInstallation }
+if (-not $MSBuildPath) { $MSBuildPath = Find-RedXeMSBuild }
+$installation = Get-RedXeVisualStudioInstallation -MSBuildPath $MSBuildPath
 $toolset = Get-DxUiDefaultToolset -Installation $installation
 Write-Host "Visual Studio: $installation" -ForegroundColor Cyan
 Write-Host "MSVC toolset:  $($toolset.Version), the default MSBuild compiles with; vcpkg is pinned to $($toolset.MajorMinor)" -ForegroundColor Cyan

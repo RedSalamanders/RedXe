@@ -101,15 +101,15 @@ A `@<monitor>` is `primary`, `secondary` (the first monitor that is not the prim
 | `logicon.keyPage.goto` | `0`–`3` | Select a key page |
 | `logicon.brightness` | `1`–`100`, `+n`, or `-n` | Keypad brightness until the next settings change |
 
-### `zoom.*` — the Zoom service
+### `zoom.*` — the Zoom actions
 
-See [Zoom](plugins/zoom.md). These actions open the Zoom web app in the default browser; RedXe needs no Zoom
-Workplace installation or Marketplace application registration.
+See [Zoom](plugins/zoom.md). These actions open the Zoom web app in the default browser; RedXe needs no `services`
+entry, Zoom Workplace installation, or Marketplace application registration.
 
 | `action` | `target` | Effect |
 | --- | --- | --- |
 | `zoom.open` | none | Open the Zoom web join page |
-| `zoom.join` | an HTTPS `zoom.us` or `*.zoom.us` `/j/<meeting id>` invite URL | Open that meeting invite in the browser, preserving its passcode link |
+| `zoom.join` | an HTTPS `zoom.us` or `*.zoom.us` meeting link: an invite (`/j/<meeting id>`) or a browser-join link (`/wc/<meeting id>/join`, `/wc/join/<meeting id>`) | Open that link in the browser, preserving its passcode |
 
 ## When something is wrong
 
@@ -124,7 +124,10 @@ Workplace installation or Marketplace application registration.
   the key or button RedXe itself pressed still runs, so a late release never lifts a key or button you hold yourself.
 - `keys.down` and `mouse.down` hold a key or a button until a release, and a Logicon key, dialpad button, or turn only
   ever sends a press. Bound there, they keep the settings file valid but show a red `!` (the dialpad has no face) and
-  never run; the log names the control. Use `keys.press` or `mouse.click` instead.
+  never run; the log names the control. Use `keys.press` or `mouse.click` instead. A Launcher tile still accepts
+  them: each tap holds the key or button until a tile bound to `keys.up` / `mouse.up` with the same chord or button,
+  another hold, or the 2 s release (an `up` naming a different chord or button sends its own release and leaves the
+  hold in place).
 - If two plugin DLLs beside `RedXe.exe` claim the same action namespace, or one that RedXe does not know, a notice
   names both files and the affected bindings are disabled until the deployment is repaired. The dashboard keeps
   running.

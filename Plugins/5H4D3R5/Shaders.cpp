@@ -203,6 +203,7 @@ std::atomic<uint32_t> gLiveWidgetCount{0};
 std::atomic<uint32_t> gLiveSharedResourceSetCount{0};
 std::atomic<uint32_t> gLastShaderIndex{0};
 std::atomic<uint32_t> gLastShaderFrame{0};
+std::atomic<uint32_t> gLookupTableBakeCount{0};
 
 [[nodiscard]] uint32_t Hash(uint32_t value) noexcept
 {
@@ -561,6 +562,32 @@ inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
     }
 }
 
+// The catalog entries with lookup tables the widget can ever draw, one bit per entry, decided once like the feedback
+// buffers so a widget that never shows such an entry never draws its tables.
+[[nodiscard]] uint32_t ReachableLookupTableEntries(const Configuration& configuration,
+                                                   uint32_t randomShaderIndex) noexcept
+{
+    static_assert(kShaderCount <= 32);
+    uint32_t entries = 0;
+    for (uint32_t index = 0; index < kShaderCount; ++index)
+    {
+        if (kPrograms[index].lookupTables[0].shader.data)
+        {
+            entries |= 1U << index;
+        }
+    }
+    switch (configuration.mode)
+    {
+    case Mode::Single:
+        return entries & (1U << configuration.shaderIndex);
+    case Mode::Random:
+        return entries & (1U << randomShaderIndex);
+    case Mode::Slideshow:
+    default:
+        return entries;
+    }
+}
+
 // The procedural stand-in for the photograph Heartfelt samples on Shadertoy: a night street behind wet glass, dark
 // blue above a warm horizon with soft bokeh lights in headlight, sodium, tail-light, and sign colors. Generated once
 // per device with a full mip chain (the shader blurs by sampling coarse mips), never from Render.
@@ -847,8 +874,8 @@ class SharedDeviceResources final
                 }
             }
         }
-        // Lookup tables: their shaders and their (empty) textures. The tables are drawn by the first widget frame
-        // that needs them, never here, because device creation has no immediate context.
+        // Lookup tables: their shaders and their (empty) textures. The tables are drawn by the OnDeviceCreated of the
+        // first widget that can show their entry, which owns the constant buffer the passes upload through.
         std::array<LookupTableSet, kShaderCount> lookupTables;
         for (uint32_t index = 0; index < kShaderCount; ++index)
         {
@@ -1096,7 +1123,8 @@ class ShadersWidget final
                   uint32_t randomSeed) noexcept
         : _providerOwner(std::move(providerOwner)), _shared(&shared), _configuration(configuration),
           _background(background), _randomSeed(randomSeed), _randomShaderIndex(Hash(randomSeed) % kShaderCount),
-          _mayUseFeedbackBuffers(MayUseFeedbackBuffers(configuration, _randomShaderIndex))
+          _mayUseFeedbackBuffers(MayUseFeedbackBuffers(configuration, _randomShaderIndex)),
+          _lookupTableEntries(ReachableLookupTableEntries(configuration, _randomShaderIndex))
     {
         gLiveWidgetCount.fetch_add(1, std::memory_order_relaxed);
     }
@@ -1240,7 +1268,15 @@ class ShadersWidget final
         _device = context->device;
         _targetFormat = context->targetFormat;
         _shaderFrame = 0;
-        return S_OK;
+        // The lookup tables depend on neither the target size nor the frame, so they are drawn here, once per device,
+        // where a failure fails the device setup instead of leaving them undrawn behind a working tile.
+        result = BakeLookupTables();
+        if (FAILED(result))
+        {
+            _constantBuffer.reset();
+            _device = nullptr;
+        }
+        return result;
     }
 
     void STDMETHODCALLTYPE OnDeviceLost() noexcept override
@@ -1268,7 +1304,7 @@ class ShadersWidget final
         if (sizeUnchanged && (wantOffscreen == static_cast<bool>(_offscreen.texture)) &&
             (_mayUseFeedbackBuffers == static_cast<bool>(_feedback[0].texture)))
         {
-            return BakeLookupTables();
+            return S_OK;
         }
 
         // Build the replacement set completely before swapping it in, so a failure keeps the previous resources.
@@ -1298,7 +1334,7 @@ class ShadersWidget final
         _sizedHeight = height;
         // New buffers hold no simulation state: restart the shader's frame count so it re-initializes.
         _shaderFrame = 0;
-        return BakeLookupTables();
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
@@ -1516,11 +1552,25 @@ class ShadersWidget final
         return static_cast<uint32_t>(std::max<uint64_t>(scaled, 1U));
     }
 
+    // Draws the tables of every entry this widget can show that the provider's shared set has not drawn yet. A widget
+    // with nothing left to draw returns before touching the immediate context.
     [[nodiscard]] HRESULT BakeLookupTables() noexcept
     {
         if (!_device || !_constantBuffer || !_shared->IsReady(_device))
         {
             return E_UNEXPECTED;
+        }
+        uint32_t pending = 0;
+        for (uint32_t index = 0; index < kShaderCount; ++index)
+        {
+            if ((_lookupTableEntries & (1U << index)) != 0 && !_shared->LookupTables(index).built)
+            {
+                pending |= 1U << index;
+            }
+        }
+        if (pending == 0)
+        {
+            return S_OK;
         }
         wil::com_ptr_nothrow<ID3D11DeviceContext> context;
         _device->GetImmediateContext(context.put());
@@ -1547,12 +1597,11 @@ class ShadersWidget final
         FillDate(constants);
         for (uint32_t index = 0; index < kShaderCount; ++index)
         {
-            const ShaderProgram& program = kPrograms[index];
-            SharedDeviceResources::LookupTableSet& tables = _shared->LookupTables(index);
-            if (!program.lookupTables[0].shader.data || tables.built)
+            if ((pending & (1U << index)) == 0)
             {
                 continue;
             }
+            SharedDeviceResources::LookupTableSet& tables = _shared->LookupTables(index);
             for (uint32_t slot = 0; slot < kLookupTableSlots; ++slot)
             {
                 if (!tables.shaders[slot])
@@ -1581,6 +1630,7 @@ class ShadersWidget final
                 UnbindShaderResource(context.get());
             }
             tables.built = true;
+            gLookupTableBakeCount.fetch_add(1, std::memory_order_relaxed);
         }
         return S_OK;
     }
@@ -1736,6 +1786,7 @@ class ShadersWidget final
     uint32_t _randomSeed;
     uint32_t _randomShaderIndex;
     bool _mayUseFeedbackBuffers;
+    uint32_t _lookupTableEntries;
     ID3D11Device* _device = nullptr;
     DXGI_FORMAT _targetFormat = DXGI_FORMAT_UNKNOWN;
     wil::com_ptr_nothrow<ID3D11Buffer> _constantBuffer;
@@ -1911,5 +1962,6 @@ extern "C" HRESULT __stdcall RedXeShadersGetTestDiagnostics(ShadersTestDiagnosti
     diagnostics->liveSharedResourceSetCount = gLiveSharedResourceSetCount.load(std::memory_order_relaxed);
     diagnostics->lastShaderIndex = gLastShaderIndex.load(std::memory_order_relaxed);
     diagnostics->lastShaderFrame = gLastShaderFrame.load(std::memory_order_relaxed);
+    diagnostics->lookupTableBakeCount = gLookupTableBakeCount.load(std::memory_order_relaxed);
     return S_OK;
 }

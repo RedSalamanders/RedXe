@@ -1723,6 +1723,22 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
             }
         }
     }
+    if (settings.serviceCount + settings.retiredServices.size() > kMaximumSettingsServices)
+    {
+        return E_INVALIDARG;
+    }
+    for (const SettingsText& retired : settings.retiredServices)
+    {
+        bool catalogued = false;
+        for (const RedXeBundledServiceSpec& candidate : kRedXeRetiredServices)
+        {
+            catalogued = catalogued || SettingsIdEquals(candidate.pluginId, retired.View());
+        }
+        if (!IsValidStoredText(retired, true) || !catalogued)
+        {
+            return E_INVALIDARG;
+        }
+    }
 
     bool activeFound = false;
     for (uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)

@@ -11,7 +11,8 @@
   // these for one run. See docs/usage.md "Dock".
   // "dock": { "edge": "bottom", "monitor": "primary", "thickness": 180, "mode": "autohide", "peek": 4 },
   // Headless services start with the dashboard. Logicon drives a Logitech MX Creative Console keypad when one is
-  // plugged in (quit Logi Options+ first); the Debug-only Logicon Monitor tile below shows and drives it.
+  // plugged in (quit Logi Options+ first); the Debug-only Logicon Monitor tile below shows and drives it. Zoom web
+  // actions (zoom.open below) open the browser and need no services entry, desktop client, or Marketplace application.
   "services": {
     "Logicon": {
       "plugin": "builtin.logicon",
@@ -54,9 +55,7 @@
           { "button": 3, "action": "logicon.keyPage.next" }
         ]
       }
-    },
-    // Zoom web actions open the browser; no desktop client or Marketplace application is needed.
-    "Zoom": { "plugin": "builtin.zoom" }
+    }
   },
   // Reusable definitions create independent instances wherever they appear.
   // The bundled native-window example is opt-in: { "plugin": "builtin.gdi-orbit" }. A native child HWND over the

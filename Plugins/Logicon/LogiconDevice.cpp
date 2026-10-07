@@ -454,6 +454,14 @@ HRESULT DeviceSession::ConnectDialpad(HANDLE stopEvent, uint32_t buttonMask) noe
     _features = DeviceFeatures{};
     _controls = ControlState{};
     _divertedDialButtons = 0;
+    if ((buttonMask & ((1U << kDialpadButtonCount) - 1U)) == 0)
+    {
+        // Nothing to divert, so no HID++ round trip: the open collection still reports a disconnect.
+        _savedControlCount = 0;
+        _connected = true;
+        _restored = false;
+        return S_OK;
+    }
     HRESULT result = ResolveFeature(kFeatureReprogControls, stopEvent, _features.reprogControls);
     if (FAILED(result))
     {
@@ -531,8 +539,9 @@ HRESULT DeviceSession::Restore(HANDLE stopEvent, bool resetToLogo) noexcept
         return S_OK;
     }
     HRESULT first = S_OK;
+    bool answering = true;
     std::array<uint8_t, kInputBufferBytes> buffer{};
-    for (uint32_t index = 0; index < _savedControlCount; ++index)
+    for (uint32_t index = 0; answering && index < _savedControlCount; ++index)
     {
         const CidReporting& saved = _savedControls[index];
         uint8_t params[6] = {
@@ -545,15 +554,19 @@ HRESULT DeviceSession::Restore(HANDLE stopEvent, bool resetToLogo) noexcept
         {
             first = result;
         }
+        // An error reply still leaves the device answering. A command that timed out, was canceled, or found the
+        // device gone means the rest would only wait as long again, which would push the lane past its drain budget.
+        answering = SUCCEEDED(result) || response.error;
     }
-    if (resetToLogo)
+    if (resetToLogo && answering)
     {
         HidPort* port = PortForFeature(0x03);
         if (port)
         {
             std::array<uint8_t, kFeatureResetReportBytes> reset{};
             (void)BuildResetToLogoFeatureReport(reset.data(), static_cast<uint32_t>(reset.size()));
-            const HRESULT result = port->SetFeature(reset.data(), static_cast<uint32_t>(reset.size()));
+            const HRESULT result = port->SetFeature(reset.data(), static_cast<uint32_t>(reset.size()), stopEvent,
+                                                    kWriteTimeoutMilliseconds);
             if (FAILED(result) && SUCCEEDED(first))
             {
                 first = result;

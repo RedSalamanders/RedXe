@@ -1,7 +1,7 @@
 # DxUi integration
 
 Status: current normative consumer contract
-Last reviewed: 2026-10-01
+Last reviewed: 2026-10-07
 
 This contract owns how RedXe consumes the standalone DxUi library: the exact source pin, restore/build isolation,
 which process modules link `DxUi.lib`, and the COM/POD boundary that keeps DxUi C++ objects inside those modules.
@@ -15,24 +15,56 @@ and matched text/UIA performance remain in [`Plugins_AVControl.md`](../Plugins/P
 revision 3, and lock target `["DxUi"]`. The API revision is DxUi's compatibility number. The pinned source names its own
 in `capabilities.json`, `Tools/validate_consumer.ps1` rejects a lock that names another, and `Build/DxUiRestore.psm1`
 accepts only the revision this product is adapted to. Moving to a new revision is therefore one reviewed change: the
-lock, that number and the adapters the revision needs. `Update-DxUi.ps1` changes only the commit. Revision 3 needed no
-product source change: the product uses none of the renamed `IGridModel`, `IGridDelegate`, `ITreeModel` and
-`ITreeDelegate` interfaces, no Python tool of the library and no `WM_APP` value of DxUi's (see Host bridges), and CI runs
-the library's PowerShell `validate-build-matrix.ps1`.
+lock, that number and the adapters the revision needs. `Update-DxUi.ps1` changes only the commit unless asked to start
+that change (see [Manual update loop](#manual-update-loop)). Revision 3 needed no product source change: the product
+uses none of the renamed `IGridModel`, `IGridDelegate`, `ITreeModel` and `ITreeDelegate` interfaces, no Python tool of
+the library and no `WM_APP` value of DxUi's (see Host bridges), and CI runs the library's PowerShell
+`validate-build-matrix.ps1`.
 
 `build.ps1` runs `vcpkg-install.ps1` and then `restore-dxui.ps1` for the selected platform, and both restore the pin
 through `Build/DxUiRestore.psm1`. Restore clones that exact commit under `.build/dependencies/DxUi/source/<commit>`, from
 a sibling `DxUi` checkout that holds it and otherwise from the canonical repository, and checks it out detached.
+- An existing source folder counts as restored only when it is the clean checkout of the pinned commit: the top of its
+  own Git working tree, at that commit, with nothing changed or added. A folder whose `.git` is incomplete is no
+  repository, and Git would answer for the product checkout around it, so the top level is checked first. Any other
+  folder MUST be removed, Git's read-only pack files included, and restored again: an interrupted or failed restore, an
+  unfinished deletion, another commit or an edited file repairs itself on the next run. Callers receive the source only
+  after that check, so `vcpkg-install.ps1` never imports DxUi's helpers from an unverified folder.
+- A restore MUST be published whole or not at all. The clone, the sparse checkout, the detached checkout and origin are
+  made in a temporary sibling, checked as above and then renamed into place. Its name, `~` and up to eight hex digits,
+  is never longer than the commit, so every path fits wherever it fits at the destination. A failure or an interruption
+  removes the temporary folder. When a concurrent restore publishes first, its checkout is used and the other
+  discarded.
+- Restores of one destination MUST run one at a time on the machine. A machine-wide named mutex derived from the
+  destination's normalized full path (compared without case) is held from a second check of the destination through
+  its removal and the publication, whatever process or logon session runs the restore. Two runs can both find the
+  destination unfinished; the one that waited then finds the checkout the other published and keeps it, instead of
+  removing it while the other's caller imports from it. The first check takes no mutex, so a finished restore costs no
+  wait, and a holder that ended without releasing the mutex hands it over.
 - The clone and its checkout use Git long paths. `git clone -c core.longpaths=true` keeps the setting in that clone's own
   configuration; no user or global Git setting changes.
 - The working tree is sparse. `Measurements/`, `docs/gallery/` and `Specs/` are left out, because the product neither
   builds nor reads them. Everything the restore, the build and DxUi's consumer interface use stays: `capabilities.json`,
   `Tools/`, `Build/`, `src/`, `include/`, the vcpkg files and the root scripts. A sparse checkout reads as clean to
   `git status`, which `Tools/validate_consumer.ps1` requires.
+- A clone of the canonical repository MUST NOT download file contents the checkout leaves out: it uses
+  `--filter=blob:none`, so the checkout fetches the kept files' contents only. Every commit and tree is still fetched,
+  so `HEAD:include`, `git status` and `Tools/validate_consumer.ps1` behave as on a full clone. For the pin at API
+  revision 3 the restore's `.git` holds 2.7 MB instead of 47.8 MB (2026-10-07). A clone from a sibling checkout is
+  local, where Git ignores filters, and copies its objects.
 - DxUi keeps every tracked path within 150 characters, so a product root of up to 35 characters restores even without
   long paths. The setting covers deeper roots, such as a CI runner's, where a longer path made the restore fail as a
-  dirty checkout. `Tests/BuildProcessTests/DxUiRestoreTests.ps1` restores a fixture from a root deep enough to pass 259
-  characters and requires an exact, clean, sparse checkout with the long file written.
+  dirty checkout.
+
+`Tests/BuildProcessTests/DxUiRestoreTests.ps1` restores a fixture from a root deep enough to pass 259 characters and
+requires an exact, clean, sparse checkout with the long file written. It also requires that a clone interrupted before
+its checkout, the read-only pack files of an unfinished deletion, a checkout of another commit and an edited checkout are
+each replaced by the clean checkout, and a pin restore that lost a file is restored again before it is returned; that a
+failed restore leaves neither the destination nor a temporary folder; that a restore whose rename loses to a concurrent
+one (staged deterministically) reports no restore and uses the winner; that of two concurrent repairs of one unfinished
+destination, run on two threads with the second held right after its first check until the first has published, the
+second reports no restore and leaves the first's checkout in place; and that a `file://` clone of a bare copy, Git's
+network path, fetches no content of a left-out file.
 
 Restore isolates vcpkg/library outputs under a
 fingerprint that includes commit, API revision, target architecture, evaluated compiler host, compiler/linker/MSBuild
@@ -41,22 +73,64 @@ hashes, SDK version/header/import-library hashes, CRT family and sanitizer annot
 full fingerprint stays in the identity file and the product provenance. Restore never checks out, resets, or edits a
 sibling `DxUi` working tree. A mismatched or dirty pin fails the consumer restore.
 
+Every pin bump, toolset or SDK update leaves the previous output root behind (from about 70 MB to about 700 MB once
+`DxUi.lib` is built), and a pin bump its source clone. After it writes its platform's resolved properties,
+`restore-dxui.ps1` MUST remove what earlier restores left and nothing uses: output roots that no
+`DxUi.resolved*.props` names, source clones of other commits, and temporary restore folders.
+- Only folders named the way RedXe's restores name them are candidates: 16- or 64-digit fingerprint roots, the older
+  `<commit>-api<n>-...` roots, `source/<commit>` and `source/~<hex>`. Nothing else under the folder is touched.
+- A candidate used within the last seven days (the lease window) MUST be kept. Its last use is its lease,
+  `.build/dependencies/DxUi/leases/<fingerprint>` for an output root and `leases/source.<commit>` for a source clone,
+  which every `restore-dxui.ps1` run, and so the start of every build, rewrites before it uses that folder: the pin
+  restore renews the source's lease before it checks the source, and the script renews the output root's before
+  DxUi's `vcpkg-install.ps1` builds into it. A folder without a lease (one an older restore left, a temporary clone)
+  counts as used when it or anything in it was written within the window. The folder's own time never counts: a build
+  that reuses a root reads it without writing its top level. The window is far longer than any build, so a root that
+  another session still builds with stays after a restore for another fingerprint has replaced the properties that
+  named it, and a restore that another session is still running (a root before its properties exist, a temporary
+  clone) is never removed under it.
+- Leases and removals are serialized by a named mutex of the dependency root: a removal holds it from its first decision
+  to its last deletion, and a lease is written under it, so a removal already under way finishes before the lease (the
+  restore then finds the folder gone and restores it), and none after the lease removes the folder within the window.
+- A removed folder's lease goes with it; a lease whose folder is gone goes once it is older than the window.
+- The removal is best effort: a folder still in use is reported and left to a later restore. A branch with another pin
+  therefore restores and rebuilds that pin's outputs when it is built again.
+
+`DxUiRestoreTests.ps1` requires that superseded roots of each naming, another commit's clone, a stale temporary folder
+and a root whose lease is older than the window although its folder was just written are removed, read-only files
+included, while both platforms' roots, the pin's clone, a root and another pin's clone whose leases are recent although
+nothing in them changed for a month, a root without a lease whose content is recent, a temporary folder being written
+and a folder of another name stay. It also requires that a lease can be renewed before its folder exists and names
+only folders below the dependency root, that the leases of removed and long-gone folders go while those in use stay,
+that the pin restore renews its source's lease, and that `restore-dxui.ps1` renews the output root's lease before
+DxUi's dependencies build into it.
+
 `vcpkg-install.ps1` builds the manifest packages with the Visual Studio installation and the default MSVC toolset that
 MSBuild compiles with, not the newest toolset vcpkg would find. The two differ when a newer toolset is installed beside
 the default and lacks a compiler for a target: a VS 18 Insiders' 14.52 has no x64-hosted ARM64 compiler beside the
 default 14.51, and every fresh ARM64 restore failed.
-- The installation is the one that holds the MSBuild the build runs (`build.ps1` passes its own as `-MSBuildPath`; a
-  standalone run uses `MSBUILD_EXE_PATH`, else the newest installation with MSBuild). The toolset is that installation's
+- The installation is the one that holds the MSBuild the build runs. `build.ps1` passes its own as `-MSBuildPath`, and
+  `vcpkg-install.ps1` or `restore-dxui.ps1` run on its own MUST select the same MSBuild as `build.ps1`
+  (`Find-RedXeMSBuild`, see [`Build_Process.md`](../Build/Build_Process.md#msbuild-selection)), so the overlay triplets
+  and the DxUi identity files do not change with whichever script ran last. The toolset is that installation's
   `VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt`. Neither is hard-coded, and a missing or malformed version
   file fails before vcpkg is cloned.
 - For each triplet it installs, the script writes the overlay `.build/vcpkg-triplets/<platform>/<triplet>.cmake`, which is
   the pinned vcpkg checkout's triplet plus `VCPKG_VISUAL_STUDIO_PATH` and `VCPKG_PLATFORM_TOOLSET_VERSION`, rewritten only
   when its bytes change, and passes `--overlay-triplets`. A changed triplet changes vcpkg's package ABI hash, so the first
   install after a change rebuilds the packages.
-- The discovery and the overlay writer are DxUi's (`Tools/VisualStudio.psm1` and `Tools/VcpkgTriplet.psm1`, part of its
-  consumer interface), imported from the pinned source, which `vcpkg-install.ps1` restores first when it is missing. That
-  keeps `build.ps1`'s order: the dependencies, then the DxUi restore. DxUi's own `vcpkg-install.ps1`, which the DxUi
-  restore runs, applies the same pin to its dependencies.
+- The toolset reader and the overlay writer are DxUi's (`Tools/VisualStudio.psm1` and `Tools/VcpkgTriplet.psm1`, part of
+  its consumer interface), imported from the pinned source once it passed the restore check above; `vcpkg-install.ps1`
+  restores it first when it is missing or broken. That keeps `build.ps1`'s order: the dependencies, then the DxUi
+  restore.
+- DxUi's own `vcpkg-install.ps1`, which `restore-dxui.ps1` runs for DxUi's dependencies, takes no MSBuild or
+  installation at the pin. It pins them to the newest Visual Studio installation with MSBuild and that installation's
+  default toolset, and `MSBUILD_EXE_PATH` does not change its choice. When that installation is not the build's, DxUi's
+  dependencies build with another toolset (harmless while its only dependency is the header-only WIL), and a newest
+  installation without the C++ workload fails the DxUi restore although the build's installation has it. The remedy is
+  upstream: DxUi's `vcpkg-install.ps1` taking `-MSBuildPath` and resolving its installation as
+  `Get-RedXeVisualStudioInstallation` does (or `Get-DxUiVisualStudioInstallation` honoring `MSBUILD_EXE_PATH`), which
+  `restore-dxui.ps1` then passes, adopted with a pin update.
 
 The pinned library releases the cached surface
 of a hidden or zero-extent `EmbeddedHost`, marks a view dirty only through control invalidation, and bounds its
@@ -78,7 +152,14 @@ preserve the chosen configuration and platform, and fail before compilation if t
 differs from the restored identity. Builds produce `DxUi.provenance.json` beside the application: exact source/API,
 public-header tree, archive hash, build identity and linked-module hashes for RedXe, AVControl and AVControlTests.
 The producer locates the archive through the resolved output root and verifies each actual linker command names
-it; test.ps1 rejects wrong pins, profiles, missing/duplicate modules and replaced binaries before product regressions.
+it. It MUST refuse an output root other than the one the restored identity's fingerprint names, because the record would
+otherwise pair that identity with an archive another restore built. The comparison is of the complete paths, both
+normalized to full paths without a trailing separator and compared without case, never of the fingerprint folder name
+alone: a stale or altered properties file can name another directory whose name is the same 16 digits. Properties that
+name no root are refused too. `DxUiProvenanceTests.ps1` requires the refusal of another identity's root, of another
+directory ending in the identity's fingerprint and of an empty root, and the acceptance of the identity's own root
+however it is spelled (case, separators, a redundant segment, a trailing separator).
+test.ps1 rejects wrong pins, profiles, missing/duplicate modules and replaced binaries before product regressions.
 The ordinary sidecar is product evidence, not a separate release or qualification system.
 
 ## Manual update loop
@@ -92,9 +173,15 @@ regression is fixed and tested in DxUi before updating the consumer pin and repe
 configurations using public HTTPS dependency access. No PAT or organization secret is required. The automatic job
 token supplies advisory GitHub API rate allowance. Library success alone does not qualify this product.
 `Update-DxUi.ps1` selects only a current `main` commit with successful completed DxUi CI, atomically changes the
-lock, and runs `test.ps1`; `Update-DxUi.ps1 -UpdateOnly` skips that local product suite only when equivalent product
+lock, and runs `test.ps1 -Full`; `Update-DxUi.ps1 -UpdateOnly` skips that local product suite only when equivalent product
 validation was completed elsewhere. Neither mode auto-commits, and a local validation failure leaves the changed lock
 on the branch for diagnosis.
+Before it changes the lock, `Update-DxUi.ps1` reads the candidate's `capabilities.json`. In either mode a candidate at
+another API revision than the one this product is adapted to MUST be refused with the lock unchanged and a message
+naming both revisions and the adoption steps. `Update-DxUi.ps1 -AllowApiRevisionChange` starts that adoption instead:
+the lock records the commit and its revision, the build refuses that lock until the supported revision in
+`Build/DxUiRestore.psm1` and the adapters change in the same reviewed change, and no product validation runs.
+`DxUiUpdateTests.ps1` covers the refusal in both modes and the asked-for change.
 Pull requests run one x64 Release leg for each update; feature-branch pushes do not start a duplicate matrix.
 Pushes to main and explicit workflow dispatch retain the full six-configuration validation entrypoints.
 After the product tests, every leg runs the pinned library's `validate-build-matrix.ps1 -Root <checkout>`, which fails
@@ -154,5 +241,6 @@ hardware or presented-frame resource gates.
 Native test executables run through the existing streaming-process runner, which captures standard output and
 standard error in per-executable logs alongside the build output. CI retains these logs on failure; a child test
 failure must expose its own assertion message in addition to its exit code. Hidden execution preserves desktop focus.
-A failed runtime check in a Debug-family test ends the process with its report and exit code 3, never a dialog
+A failed runtime check in a Debug-family test ends the process with its report and exit code 3, never a dialog, and
+an `abort()` that no such check reported ends it with a line saying so and exit code 4
 ([`Build_Process.md`](../Build/Build_Process.md)).

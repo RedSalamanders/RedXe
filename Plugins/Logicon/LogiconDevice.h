@@ -107,9 +107,11 @@ class DeviceSession final
     // port that carries 0x11 output; the display feature is required, brightness is optional.
     [[nodiscard]] HRESULT Connect(HANDLE stopEvent) noexcept;
     // Dialpad: resolves 0x1B04, then saves and diverts the buttons in buttonMask (bit n = kDialpadControls[n]);
-    // the others keep their native behavior (mouse Back/Forward, keyboard usages).
+    // the others keep their native behavior (mouse Back/Forward, keyboard usages). An empty mask sends nothing.
     [[nodiscard]] HRESULT ConnectDialpad(HANDLE stopEvent, uint32_t buttonMask) noexcept;
-    // Restores the saved reporting flags and optionally resets the panel to the Logi splash. Idempotent.
+    // Restores the saved reporting flags and optionally resets the panel to the Logi splash. Idempotent. Stops at
+    // the first command the device does not answer (timeout, cancel, device gone) and then skips the reset, so an
+    // unresponsive device costs one command timeout.
     [[nodiscard]] HRESULT Restore(HANDLE stopEvent, bool resetToLogo) noexcept;
     [[nodiscard]] DeviceRole Role() const noexcept
     {

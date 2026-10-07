@@ -137,12 +137,8 @@ struct Point final
 // "x,y", "+dx,+dy" (both signed), or "center", each optionally followed by "@<monitor>".
 [[nodiscard]] bool ParsePoint(std::string_view value, Point& parsed) noexcept;
 
-struct Meeting final
-{
-    // 9 through 11 decimal digits.
-    uint64_t number = 0;
-    std::string_view passcode;
-};
-// "https://<host>/j/<id>[?pwd=<passcode>...]" or "<id>[:<passcode>]".
-[[nodiscard]] bool ParseMeeting(std::string_view value, Meeting& parsed) noexcept;
+// A complete Zoom browser link, opened unchanged (Plugins_Zoom.md): "https://", then zoom.us or a subdomain with no
+// credentials, port, '#', or '?' in the authority, then "/j/<id>", "/wc/join/<id>", or "/wc/<id>/join" with a 9 to 11
+// digit id, ending the path or followed by '?' or '#'. Printable ASCII only, without '"', '<', '>', or '\'.
+[[nodiscard]] bool ParseMeeting(std::string_view value) noexcept;
 } // namespace RedXeActions

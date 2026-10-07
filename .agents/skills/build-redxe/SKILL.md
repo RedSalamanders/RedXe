@@ -17,7 +17,8 @@ Use the repository entrypoints instead of assembling ad hoc MSBuild commands:
 .\build.ps1 -Platform ARM64
 .\build.ps1 -Rebuild
 .\build.ps1 -Run
-.\test.ps1                               # Build + hidden WARP smoke test
+.\test.ps1                               # Build + the suites your changes affect (Test-Changes.ps1)
+.\test.ps1 -Full                         # Build + every suite, hidden WARP smoke test included: the full gate
 .\build.ps1 -Configuration Release                   # Stamps 1.0.<commit count of HEAD>; -BuildNumber 42 overrides
 .\package.ps1 -Platform x64                          # Portable ZIP under .build/packages, smoke-tested
 .\winget-manifest.ps1 -Version 1.0.<n>               # Winget manifest from both packages (the version package.ps1 printed)
@@ -47,13 +48,14 @@ When diagnosing a failure:
 1. For dependency failures, run `vcpkg-install.ps1` for the exact platform and fix the first vcpkg diagnostic.
 2. Re-run `build.ps1` with the exact configuration and platform that failed.
 3. Fix the first project-code diagnostic; warnings are errors.
-4. Run `test.ps1` after a successful x64 build. It validates the factory ABI, borrowed descriptors, COM identity, and
+4. Run `test.ps1 -Full` after a successful x64 build. It validates the factory ABI, borrowed descriptors, COM identity, and
    rendering-IID negotiation, then validates settings parsing, device creation, embedded shader-bytecode loading,
    drawing, and presentation.
    without requiring a hardware GPU.
 5. Build Debug, Release and ASan Debug when changing project properties, manifests, or compiler behavior. Build x64 and ARM64
    when changing vcpkg, platform mapping, or dependency paths.
-   Run ASan Debug tests natively; the deliberate isolated probe must produce an AddressSanitizer diagnostic.
+   Run ASan Debug tests natively (`test.ps1 -Full -Configuration 'ASan Debug'`); the deliberate isolated probe must
+   produce an AddressSanitizer diagnostic.
 
 `build.ps1` discovers stable and prerelease Visual Studio instances. Do not hardcode a developer's installation path
 in project files or scripts.

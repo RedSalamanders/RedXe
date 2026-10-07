@@ -10,9 +10,12 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cassert>
+#include <corecrt_startup.h>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <cwchar>
 #include <limits>
@@ -1430,7 +1433,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
-    diagnostics = ShadersTestDiagnostics{sizeof(ShadersTestDiagnostics), 0, 0, 0, 0, 0};
+    diagnostics = ShadersTestDiagnostics{sizeof(ShadersTestDiagnostics), 0, 0, 0, 0, 0, 0};
     return getDiagnostics(&diagnostics);
 }
 
@@ -1867,6 +1870,253 @@ constexpr std::string_view kDefaultShadersConfiguration =
     return S_OK;
 }
 
+// Lookup tables are drawn once per device by OnDeviceCreated, only for a configuration that can show their entry, and
+// never by a size notification. A failed first size notification (an offscreen texture in a format that cannot back
+// it) therefore cannot leave Sky Atmosphere on a black sky: its next frame matches a widget whose notification
+// succeeded.
+[[nodiscard]] HRESULT ValidateShadersLookupTables(HMODULE module, RedXeCreateFn create) noexcept
+{
+    MatrixRenderTarget target;
+    HRESULT result = CreateMatrixRenderTarget(160, 90, target);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    uint32_t sky = 0;
+    if (!Shaders::TryFindShader("sky-atmosphere", sky))
+    {
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
+    const RedXeGpuDeviceContext deviceContext{
+        sizeof(RedXeGpuDeviceContext),
+        target.device.get(),
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+        target.featureLevel,
+    };
+    const auto notifySize = [](IRedXeGpuWidget& gpuWidget, uint32_t width, uint32_t height) noexcept
+    {
+        const RedXeGpuTargetSizeContext size{sizeof(RedXeGpuTargetSizeContext), width, height, USER_DEFAULT_SCREEN_DPI};
+        return gpuWidget.OnTargetSizeChanged(&size);
+    };
+    ShadersTestDiagnostics initial{};
+    result = ReadShadersDiagnostics(module, initial);
+    uint32_t bakes = initial.lookupTableBakeCount;
+    const auto expectBakes = [&](uint32_t added, const wchar_t* step) noexcept
+    {
+        ShadersTestDiagnostics diagnostics{};
+        const HRESULT read = ReadShadersDiagnostics(module, diagnostics);
+        if (FAILED(read) || diagnostics.lookupTableBakeCount != bakes + added)
+        {
+            std::wprintf(L"5H4D3R5 drew lookup tables %u times instead of %u %ls.\n",
+                         diagnostics.lookupTableBakeCount - bakes, added, step);
+            return FAILED(read) ? read : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        bakes = diagnostics.lookupTableBakeCount;
+        return S_OK;
+    };
+    std::vector<std::uint8_t> pixels;
+
+    // A configuration that can never show Sky Atmosphere draws no table, whatever its size notifications.
+    if (SUCCEEDED(result))
+    {
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+        result = CreateShadersProvider(
+            create,
+            R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json",
+            provider);
+        wil::com_ptr_nothrow<IRedXeWidget> widget;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
+        if (SUCCEEDED(result))
+        {
+            result = PrepareShadersWidget(*provider, target, "shaders.contract.no-tables", widget, gpuWidget);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = notifySize(*gpuWidget, 320, 180);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = expectBakes(0, L"for single seascape");
+        }
+        if (gpuWidget)
+        {
+            gpuWidget->OnDeviceLost();
+        }
+    }
+
+    // A slideshow draws them once at device creation; a sibling and later size notifications reuse them, and device
+    // recreation draws them again.
+    if (SUCCEEDED(result))
+    {
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+        result = CreateShadersProvider(create, kDefaultShadersConfiguration, provider);
+        wil::com_ptr_nothrow<IRedXeWidget> widget;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
+        wil::com_ptr_nothrow<IRedXeWidget> sibling;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> siblingGpu;
+        if (SUCCEEDED(result))
+        {
+            result = PrepareShadersWidget(*provider, target, "shaders.contract.tables", widget, gpuWidget);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = expectBakes(1, L"for a slideshow");
+        }
+        if (SUCCEEDED(result))
+        {
+            result = PrepareShadersWidget(*provider, target, "shaders.contract.tables-sibling", sibling, siblingGpu);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = notifySize(*gpuWidget, 320, 180);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = notifySize(*siblingGpu, 640, 360);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = expectBakes(0, L"for a sibling and size notifications");
+        }
+        if (siblingGpu)
+        {
+            siblingGpu->OnDeviceLost();
+        }
+        if (gpuWidget)
+        {
+            gpuWidget->OnDeviceLost();
+            if (SUCCEEDED(result))
+            {
+                result = gpuWidget->OnDeviceCreated(&deviceContext);
+            }
+            if (SUCCEEDED(result))
+            {
+                result = expectBakes(1, L"after device recreation");
+            }
+            gpuWidget->OnDeviceLost();
+        }
+    }
+
+    // Random draws them only when its pick is Sky Atmosphere.
+    if (SUCCEEDED(result))
+    {
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+        result = CreateShadersProvider(
+            create,
+            R"json({"mode":"random","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json",
+            provider);
+        wil::com_ptr_nothrow<IRedXeWidget> widget;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
+        if (SUCCEEDED(result))
+        {
+            result = PrepareShadersWidget(*provider, target, "shaders.contract.random-tables", widget, gpuWidget);
+        }
+        ShadersTestDiagnostics diagnostics{};
+        if (SUCCEEDED(result))
+        {
+            result = RenderMatrixFrame(*gpuWidget, target, 1.0f, pixels);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = ReadShadersDiagnostics(module, diagnostics);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = expectBakes(diagnostics.lastShaderIndex == sky ? 1U : 0U, L"for a random pick");
+        }
+        if (gpuWidget)
+        {
+            gpuWidget->OnDeviceLost();
+        }
+    }
+
+    // Sky Atmosphere after a failed first size notification renders exactly what a successfully sized widget does.
+    std::vector<std::uint8_t> reference;
+    if (SUCCEEDED(result))
+    {
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+        result = CreateShadersProvider(
+            create,
+            R"json({"mode":"single","shader":"sky-atmosphere","intervalSeconds":120,"shuffle":false,"renderScalePercent":100})json",
+            provider);
+        wil::com_ptr_nothrow<IRedXeWidget> widget;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
+        if (SUCCEEDED(result))
+        {
+            result = PrepareShadersWidget(*provider, target, "shaders.contract.sky-reference", widget, gpuWidget);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = RenderMatrixFrame(*gpuWidget, target, 30.0f, reference);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = expectBakes(1, L"for single sky-atmosphere");
+        }
+        if (gpuWidget)
+        {
+            gpuWidget->OnDeviceLost();
+        }
+    }
+    if (SUCCEEDED(result))
+    {
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+        result = CreateShadersProvider(
+            create,
+            R"json({"mode":"single","shader":"sky-atmosphere","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json",
+            provider);
+        wil::com_ptr_nothrow<IRedXeWidget> widget;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
+        if (SUCCEEDED(result))
+        {
+            result = provider->CreateWidget(Shaders::kWidgetTypeId, "shaders.contract.sky-failed-size", widget.put());
+        }
+        if (SUCCEEDED(result))
+        {
+            result = widget.query_to(gpuWidget.put());
+        }
+        // A block-compressed host format cannot back the half-scale offscreen texture, so every size notification of
+        // this widget fails, the first one included, and it draws straight into the host target like the reference.
+        const RedXeGpuDeviceContext compressedContext{
+            sizeof(RedXeGpuDeviceContext),
+            target.device.get(),
+            DXGI_FORMAT_BC1_UNORM,
+            target.featureLevel,
+        };
+        if (SUCCEEDED(result))
+        {
+            result = gpuWidget->OnDeviceCreated(&compressedContext);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = expectBakes(1, L"at sky-atmosphere device creation");
+        }
+        if (SUCCEEDED(result) && SUCCEEDED(notifySize(*gpuWidget, target.width, target.height)))
+        {
+            std::wprintf(L"5H4D3R5 built an offscreen texture in a block-compressed format.\n");
+            result = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = RenderMatrixFrame(*gpuWidget, target, 30.0f, pixels);
+        }
+        if (SUCCEEDED(result) && pixels != reference)
+        {
+            std::wprintf(L"5H4D3R5 Sky Atmosphere lost its lookup tables to a failed size notification.\n");
+            result = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = expectBakes(0, L"for failed sky-atmosphere size notifications");
+        }
+        if (gpuWidget)
+        {
+            gpuWidget->OnDeviceLost();
+        }
+    }
+    return result;
+}
+
 [[nodiscard]] HRESULT RunShadersContractTests() noexcept
 {
     const bool compilerWasLoaded = GetModuleHandleW(L"d3dcompiler_47.dll") != nullptr;
@@ -1936,7 +2186,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
     ShadersTestDiagnostics diagnostics{};
     const auto getDiagnostics =
         ResolveFunction<ShadersGetTestDiagnosticsFn>(module.get(), kShadersGetTestDiagnosticsExport);
-    ShadersTestDiagnostics shortRecord{sizeof(uint32_t), 0, 0, 0, 0, 0};
+    ShadersTestDiagnostics shortRecord{sizeof(uint32_t), 0, 0, 0, 0, 0, 0};
     if (!getDiagnostics || getDiagnostics(nullptr) != E_POINTER || getDiagnostics(&shortRecord) != E_INVALIDARG)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -1948,6 +2198,11 @@ constexpr std::string_view kDefaultShadersConfiguration =
         return result;
     }
     result = ValidateShadersRendering(module.get(), create);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    result = ValidateShadersLookupTables(module.get(), create);
     if (FAILED(result))
     {
         return result;
@@ -2529,23 +2784,50 @@ struct HeapSnapshot final
     }
     return S_OK;
 }
+
+// A failed suite names itself with its HRESULT and fails the run with exit code 1. The HRESULT is no exit code: its
+// low byte can be 0, which would pass the run, or 3, which means a failed runtime check (Common/FailureReports.h).
+int ReportSuiteFailure(const wchar_t* suite, HRESULT result) noexcept
+{
+    std::wprintf(L"%ls failed: 0x%08X\n", suite, static_cast<unsigned int>(result));
+    return 1;
+}
 } // namespace
 
 int wmain(int argumentCount, wchar_t** arguments)
 {
     RedXeFailureReports::RouteAwayFromDialogs();
     // The failure-report self-test, reached only through --failure-report-self-test, which test.ps1 runs: a failed
-    // runtime check must end the run with its report and exit code 3, never wait on a dialog.
+    // runtime check must end the run with its whole report and exit code 3, never wait on a dialog. The report carries
+    // a character above U+00FF, as a source path under such a user or folder name does, and must not stop there.
     if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--failure-report-self-test")
     {
 #if defined(_DEBUG)
-        _ASSERTE(!L"the failure-report self-test fails this check on purpose");
+        _ASSERT_EXPR(false,
+                     L"the failure-report self-test fails this check on purpose (\u0141), and its report goes on");
         std::fputs("The failed check returned instead of ending the run.\n", stderr);
         return 1;
 #else
         std::fputs("A Release build has no runtime checks to report.\n", stdout);
         return 0;
 #endif
+    }
+    // Reached only through --abort-self-test, which test.ps1 runs in every configuration: an abort() that no failed
+    // check reported says so and ends the run with exit code 4, not 3. Reporting as the GUI-subsystem RedXe.exe does,
+    // a Debug assert() must still go to stderr, not to a message box, before it aborts.
+    if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--abort-self-test")
+    {
+        _set_app_type(_crt_gui_app);
+        assert(!"the abort self-test fails this assert() on purpose");
+        std::abort();
+    }
+    // Reached only through --unbuffered-output-self-test, which test.ps1 runs: a line written just before the process
+    // is terminated, as a time budget ends a hung run, must already be in the pipe rather than in a CRT buffer.
+    if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--unbuffered-output-self-test")
+    {
+        std::wprintf(L"Unbuffered output reaches the log before a termination.\n");
+        static_cast<void>(TerminateProcess(GetCurrentProcess(), 0));
+        return 1;
     }
     if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--asan-probe")
     {
@@ -2558,32 +2840,32 @@ int wmain(int argumentCount, wchar_t** arguments)
         const bool disabledSoak = mode == L"--soak-disabled";
         const bool soak = mode == L"--soak" || disabledSoak;
         const HRESULT benchmarkResult = RunMatrixRainBenchmark(soak, disabledSoak);
-        return FAILED(benchmarkResult) ? static_cast<int>(benchmarkResult & 0xFF) : 0;
+        return FAILED(benchmarkResult) ? ReportSuiteFailure(L"Matrix Rain benchmark", benchmarkResult) : 0;
     }
     const HRESULT result = RunContractTests();
     if (FAILED(result))
     {
-        return static_cast<int>(result & 0xFF);
+        return ReportSuiteFailure(L"Plugin contract tests", result);
     }
     const HRESULT windowResult = RunWindowPluginContractTests();
     if (FAILED(windowResult))
     {
-        return static_cast<int>(windowResult & 0xFF);
+        return ReportSuiteFailure(L"Window plugin contract tests", windowResult);
     }
     const HRESULT matrixResult = RunMatrixRainContractTests();
     if (FAILED(matrixResult))
     {
-        return static_cast<int>(matrixResult & 0xFF);
+        return ReportSuiteFailure(L"Matrix Rain contract tests", matrixResult);
     }
     const HRESULT shadersResult = RunShadersContractTests();
     if (FAILED(shadersResult))
     {
-        return static_cast<int>(shadersResult & 0xFF);
+        return ReportSuiteFailure(L"5H4D3R5 contract tests", shadersResult);
     }
     const HRESULT processViewerResult = RunProcessViewerContractTests();
     if (FAILED(processViewerResult))
     {
-        return static_cast<int>(processViewerResult & 0xFF);
+        return ReportSuiteFailure(L"Process Viewer contract tests", processViewerResult);
     }
     return 0;
 }

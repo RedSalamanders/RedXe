@@ -76,6 +76,12 @@ inline constexpr std::array kRedXeBundledWidgets{
 // Headless service plugins the host may start from the `services` settings root. Each is created once per process.
 inline constexpr std::array kRedXeBundledServices{
     RedXeBundledServiceSpec{"builtin.logicon"},
+};
+
+// Plugin ids that earlier releases started as services and that no longer are (builtin.zoom became a dedicated action
+// DLL). A `services` entry naming one still loads so an older settings file keeps working; the host never starts it
+// and logs one warning that it is no longer needed (Core_Settings.md "Services").
+inline constexpr std::array kRedXeRetiredServices{
     RedXeBundledServiceSpec{"builtin.zoom"},
 };
 
@@ -200,6 +206,22 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
         for (size_t previous = 0; previous < index; ++previous)
         {
             if (RedXeBundledTextEquals(service.pluginId, kRedXeBundledServices[previous].pluginId))
+            {
+                return false;
+            }
+        }
+    }
+
+    // A retired service id is never also a current service.
+    for (const RedXeBundledServiceSpec& retired : kRedXeRetiredServices)
+    {
+        if (!retired.pluginId || retired.pluginId[0] == '\0')
+        {
+            return false;
+        }
+        for (const RedXeBundledServiceSpec& service : kRedXeBundledServices)
+        {
+            if (RedXeBundledTextEquals(retired.pluginId, service.pluginId))
             {
                 return false;
             }

@@ -163,10 +163,10 @@ The bar collapses to a thin line until you rest the pointer on it. Its `thicknes
 | `--warp` | Render on the Microsoft Basic Render Driver (WARP) instead of the GPU. |
 | `--dock <edge>[@<monitor>]` | Run as a bar on that screen edge; see [Dock](#dock) for `--dock-mode`, `--dock-thickness`, `--dock-reserve`, and `--dock-peek`. |
 | `--screenshot <png>` | Start normally, wait, save the window as PNG, and exit; see [Screenshots](#screenshots) for `--page`, `--widget`, and `--after`. |
-| `--self-test` | Hidden startup validation with the deployed template; exits 0 when the host works. |
+| `--self-test` | Hidden startup validation with the deployed template; exits 0 when the host works and 6 when a check fails, which it names on stderr. |
 | `--crash-test`, `--crash-test-stack-overflow`, `--crash-test-directory=<dir>` | Raise a test crash and choose where its dump goes (used by `test.ps1`). |
 
-Exit codes: 0 ok, 1 settings, 2 command line or window, 3 plugins, 5 graphics, 7 settings watcher, 8 screenshot capture.
+Exit codes: 0 ok, 1 settings, 2 command line or window, 3 plugins, 5 graphics, 7 settings watcher, 8 screenshot capture. With `--self-test`: 6 a failed check, 3 a failed runtime check of a Debug build, 4 any other `abort()`, each reported on stderr.
 
 ## Screenshots
 
@@ -220,7 +220,7 @@ Host fields you typically edit:
 
 This build reads `"version": { "major": 5 }` only (minor `1` adds `services`, minor `2` adds `dock`, minor `3` adds `trayIcon` and the `secondary` monitor; older minors still load). A leftover version 4 file is invalid: the default path is backed up and replaced with the shipped template; `--settings` leaves the portable file alone.
 
-A settings file from an earlier release, back to RedXe 1.0.102, keeps working after an upgrade. Settings that a newer release retired, such as the old Zoom `clientId`, `redirectPort`, and `autoConnect`, are ignored, and the log notes them once per load; you can delete them. A Logicon key, dialpad button, or turn bound to `keys.down` or `mouse.down` also keeps loading, but it shows a red `!` and does nothing ([Logicon](plugins/logicon.md)). Going back to an older release is not supported: it may reject settings it does not know, such as the Studio Clock `glowPercent`, and then saves your file as `RedXe.settings.invalid-<date>.json` beside its own fresh template.
+A settings file from an earlier release, back to RedXe 1.0.102, keeps working after an upgrade. Settings that a newer release retired, such as the old `services` entry for Zoom (`builtin.zoom`, with or without its `clientId`, `redirectPort`, and `autoConnect`), are ignored, and the log notes them once per load; you can delete them. Zoom actions need no `services` entry ([Zoom](plugins/zoom.md)). A Logicon key, dialpad button, or turn bound to `keys.down` or `mouse.down` also keeps loading, but it shows a red `!` and does nothing ([Logicon](plugins/logicon.md)). Going back to an older release is not supported: it may reject settings it does not know, such as the Studio Clock `glowPercent`, and then saves your file as `RedXe.settings.invalid-<date>.json` beside its own fresh template.
 
 A page uses exactly one of `widgets`, `columns`, or `rows` (or none, for a blank page). `columns` split along the long side of the window, `rows` along the short side. Omitted `weight` is 1. `widgets` is an equal-share list (omitted `along` is `long-side`). Nested `rows` inside `columns` stack tiles in a column.
 

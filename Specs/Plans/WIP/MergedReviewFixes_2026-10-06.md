@@ -218,8 +218,9 @@ recommended defaults apply; D6 stays the owner's repository setting and is not c
 
 `Specs/Core/Core_Settings.md`, `Specs/Settings.schema.json`, `Specs/Plugins/Plugins_Zoom.md`,
 `Specs/Plugins/Plugins_Logicon.md`, `Specs/Plugins/Plugins_Actions.md`, `Specs/Plugins/Plugins_API.md`,
-`Specs/UI/UI_XeneonDisplayWindowing.md`, `Specs/Core/Core_PerformanceAndResources.md`,
-`Specs/Core/Core_CrashHandling.md`, `Specs/Core/Core_DxUiIntegration.md`, `Specs/Build/Build_Process.md`, and
+`Specs/Plugins/Plugins_AVControl.md`, `Specs/UI/UI_XeneonDisplayWindowing.md`,
+`Specs/Core/Core_PerformanceAndResources.md`, `Specs/Core/Core_CrashHandling.md`,
+`Specs/Core/Core_DxUiIntegration.md`, `Specs/Build/Build_Process.md`, and
 `Specs/Build/Build_Packaging.md`; user guide pages `docs/usage.md`, `docs/actions.md`, `docs/plugins/logicon.md` and
 `docs/plugins/zoom.md` where an end-user scenario changes.
 
@@ -259,7 +260,7 @@ Check a row when its fix lands, or note why it was dropped.
 - [x] `alignment#0` (high) `Plugins/Actions/Zoom/ZoomSettings.cpp:43`: Removing the legacy Zoom settings breaks every v1.0.102 Release settings file, and cold recovery then backs up and replaces the user's whole file
 - [x] `logicon-zoom#0` (high) `Plugins/Actions/Zoom/ZoomSettings.cpp:43`: Upgrading from v1.0.102 resets the user's whole settings file because the shipped template's Zoom clientId/redirectPort/autoConnect members are now a document error
 - [x] `settings#0` (high) `Plugins/Actions/Zoom/ZoomSettings.cpp:43`: Upgrading from the public v1.0.102 resets every user's default settings file: Zoom::ParseSettings now rejects the Zoom members that release's templates shipped
-- [ ] `alignment#3` (medium) `Plugins/Logicon/LogiconSettings.cpp:125`: Logicon's keys.down / mouse.down refusal is enforced only in the Logicon parser: it invalidates the whole file with a wrong diagnostic, schema and user docs disagree, and Launcher still accepts holds. Deferred: the Logicon part is fixed with `logicon-zoom#3`; Launcher `shortcuts[]` still accept keys.down / mouse.down, unchanged by instruction until B1's "same rule for Launcher taps" question is decided.
+- [x] `alignment#3` (medium) `Plugins/Logicon/LogiconSettings.cpp:125`: Logicon's keys.down / mouse.down refusal is enforced only in the Logicon parser: it invalidates the whole file with a wrong diagnostic, schema and user docs disagree, and Launcher still accepts holds. Dropped: decision D9 keeps Launcher taps bound to keys.down/mouse.down unchanged. The Logicon part is fixed with `logicon-zoom#3`; `Plugins_Actions.md` "Binding validation" and `docs/actions.md` now state the Launcher hold behavior.
 - [x] `logicon-zoom#3` (medium) `Plugins/Logicon/LogiconSettings.cpp:125`: Logicon rejects keys.down/mouse.down as a whole-document error with a misleading 'is not an action name' diagnostic, and the docs, schema and Launcher disagree
 - [x] `studioclock#9` (low) `Specs/Core/Core_Settings.md:89`: A document using glowPercent is treated as invalid by the published v1.0.102 build, which then backs up and replaces the user's shared settings file. Closed by D1 as a documented decision: Core_Settings.md and docs/usage.md state that rollback to an older build is unsupported and cold recovery keeps the backup.
 
@@ -342,92 +343,92 @@ Check a row when its fix lands, or note why it was dropped.
 
 ### P4. Logicon, Zoom, Studio Clock, and 5H4D3R5 (21)
 
-- [ ] `alignment#2` (medium) `Plugins/Actions/Zoom/Zoom.cpp:36`: zoom.join publishes a free-text target, so an invalid invite never shows the promised red ! or warning tile and fails silently
-- [ ] `logicon-zoom#1` (medium) `Plugins/Actions/Zoom/Zoom.cpp:35`: zoom.join declares a plain Text target, so an invalid invite passes validation (no red '!') and silently does nothing when pressed; the shared Meeting kind/ParseMeeting is now dead and contradicts the Zoom allowlist
-- [ ] `logicon-zoom#12` (medium) `Plugins/Actions/Zoom/Zoom.cpp:28`: Zoom is now stateless but is still wired as a headless service, so zoom.* silently fails without a services entry and the dedicated-action-DLL path stays unused
-- [ ] `logicon-zoom#13` (high, raised) `Plugins/Logicon/LogiconRawInput.cpp:240`: With the raw-input window now destroyed mid-lane, Pump() returns without draining the queue while the lane still waits with QS_ALLINPUT/MWMO_INPUTAVAILABLE, so it can hot-spin
-- [ ] `logicon-zoom#15` (medium) `Plugins/Logicon/LogiconHid.cpp:441`: WindowsHidPort::SetFeature is an unbounded blocking IOCTL on the device lane, contrary to the bounded-I/O contract
-- [ ] `logicon-zoom#4` (medium) `Plugins/Logicon/LogiconService.cpp:834`: Dial/roller turn bindings now depend on a successful HID++ dialpad connect, though Raw Input never needed it
-- [ ] `logicon-zoom#5` (medium) `Tests/ZoomTests/Zoom.Tests.Runner.cpp:136`: ZoomTests never exercise the authority delimiters (@ : # ? and backslash) that block host spoofing in IsMeetingUrl
-- [ ] `shaders-lut#0` (medium) `Plugins/5H4D3R5/Shaders.cpp:1290`: A failed first lookup-table bake is never retried: Sky Atmosphere draws a black sky until the next resize or DPI change
-- [ ] `studioclock#0` (medium) `Plugins/StudioClock/StudioClockDotVertex.hlsl:240`: Date LED halos extend past the 10:9 dated composition and are hard-clipped at the tile's bottom edge
-- [ ] `tests#19` (medium) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:4146`: zoom.join binding validation dropped: a mistyped meeting link is accepted and its key silently does nothing
-- [ ] `logicon-zoom#14` (low) `Plugins/Logicon/LogiconDevice.cpp:542`: Restore keeps sending HID++ commands after a timeout, so an unresponsive device can push lane shutdown past the 3 s drain budget
-- [ ] `logicon-zoom#16` (low) `Plugins/Logicon/LogiconHid.cpp:408`: Retired HID IoState blocks are unbounded: a stuck image write triggers an immediate reconnect that retires another open handle on every lane wake
-- [ ] `logicon-zoom#17` (low) `Plugins/Logicon/LogiconMonitor.cpp:877`: Debug monitor now shows an amber 'wheels: raw input unavailable' warning whenever no dialpad is connected
-- [ ] `logicon-zoom#19` (low) `Plugins/Actions/Zoom/ZoomSettings.cpp:96`: zoom.join rejects Zoom's direct browser-join link, so every browser-only join goes through the desktop-app launch prompt
-- [ ] `logicon-zoom#2` (low) `Plugins/Actions/Zoom/Zoom.cpp:116`: zoom.open fails any authored target even though the TargetNone contract says an authored target is ignored
-- [ ] `logicon-zoom#7` (low) `Plugins/Logicon/LogiconService.cpp:1201`: Every unrelated system mouse packet runs a full Logicon lane turn while the dialpad is connected, and in Debug forces a dashboard frame
-- [ ] `logicon-zoom#9` (low) `Plugins/Actions/Zoom/Zoom.cpp:133`: zoom.open/zoom.join carry RedXeActionFlagDeferred but Execute returns S_OK, so Launcher reports a queued launch as completed and never surfaces a later failure
-- [ ] `shaders-lut#1` (low) `Plugins/5H4D3R5/Shaders.cpp:1544`: BakeLookupTables runs on every size notification and for configurations that can never show Sky Atmosphere
-- [ ] `studioclock#10` (low) `Tests/StudioClockTests/StudioClock.Tests.Runner.cpp:899`: Glow readback never checks secondsColor halos or the 0.55 date weight, and its out-of-extent probe cannot detect a halo extent up to about 5.5 radii
-- [ ] `studioclock#4` (low) `Specs/Core/Core_PerformanceAndResources.md:291`: Glow cost was accepted as a once-per-second cost, but a raised clock next to a continuous widget redraws (and re-uploads constants) twice per frame
-- [ ] `studioclock#5` (low) `Specs/Plugins/Plugins_API.md:1126`: Spec says dimmed ring LEDs keep their brightness under glow, but the five-second companion's halo brightens them; the test only probes the dot center
+- [x] `alignment#2` (medium) `Plugins/Actions/Zoom/Zoom.cpp:36`: zoom.join publishes a free-text target, so an invalid invite never shows the promised red ! or warning tile and fails silently
+- [x] `logicon-zoom#1` (medium) `Plugins/Actions/Zoom/Zoom.cpp:35`: zoom.join declares a plain Text target, so an invalid invite passes validation (no red '!') and silently does nothing when pressed; the shared Meeting kind/ParseMeeting is now dead and contradicts the Zoom allowlist
+- [x] `logicon-zoom#12` (medium) `Plugins/Actions/Zoom/Zoom.cpp:28`: Zoom is now stateless but is still wired as a headless service, so zoom.* silently fails without a services entry and the dedicated-action-DLL path stays unused
+- [x] `logicon-zoom#13` (high, raised) `Plugins/Logicon/LogiconRawInput.cpp:240`: With the raw-input window now destroyed mid-lane, Pump() returns without draining the queue while the lane still waits with QS_ALLINPUT/MWMO_INPUTAVAILABLE, so it can hot-spin
+- [x] `logicon-zoom#15` (medium) `Plugins/Logicon/LogiconHid.cpp:441`: WindowsHidPort::SetFeature is an unbounded blocking IOCTL on the device lane, contrary to the bounded-I/O contract
+- [x] `logicon-zoom#4` (medium) `Plugins/Logicon/LogiconService.cpp:834`: Dial/roller turn bindings now depend on a successful HID++ dialpad connect, though Raw Input never needed it
+- [x] `logicon-zoom#5` (medium) `Tests/ZoomTests/Zoom.Tests.Runner.cpp:136`: ZoomTests never exercise the authority delimiters (@ : # ? and backslash) that block host spoofing in IsMeetingUrl
+- [x] `shaders-lut#0` (medium) `Plugins/5H4D3R5/Shaders.cpp:1290`: A failed first lookup-table bake is never retried: Sky Atmosphere draws a black sky until the next resize or DPI change
+- [x] `studioclock#0` (medium) `Plugins/StudioClock/StudioClockDotVertex.hlsl:240`: Date LED halos extend past the 10:9 dated composition and are hard-clipped at the tile's bottom edge
+- [x] `tests#19` (medium) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:4146`: zoom.join binding validation dropped: a mistyped meeting link is accepted and its key silently does nothing
+- [x] `logicon-zoom#14` (low) `Plugins/Logicon/LogiconDevice.cpp:542`: Restore keeps sending HID++ commands after a timeout, so an unresponsive device can push lane shutdown past the 3 s drain budget
+- [x] `logicon-zoom#16` (low) `Plugins/Logicon/LogiconHid.cpp:408`: Retired HID IoState blocks are unbounded: a stuck image write triggers an immediate reconnect that retires another open handle on every lane wake
+- [x] `logicon-zoom#17` (low) `Plugins/Logicon/LogiconMonitor.cpp:877`: Debug monitor now shows an amber 'wheels: raw input unavailable' warning whenever no dialpad is connected
+- [x] `logicon-zoom#19` (low) `Plugins/Actions/Zoom/ZoomSettings.cpp:96`: zoom.join rejects Zoom's direct browser-join link, so every browser-only join goes through the desktop-app launch prompt
+- [x] `logicon-zoom#2` (low) `Plugins/Actions/Zoom/Zoom.cpp:116`: zoom.open fails any authored target even though the TargetNone contract says an authored target is ignored
+- [x] `logicon-zoom#7` (low) `Plugins/Logicon/LogiconService.cpp:1201`: Every unrelated system mouse packet runs a full Logicon lane turn while the dialpad is connected, and in Debug forces a dashboard frame
+- [x] `logicon-zoom#9` (low) `Plugins/Actions/Zoom/Zoom.cpp:133`: zoom.open/zoom.join carry RedXeActionFlagDeferred but Execute returns S_OK, so Launcher reports a queued launch as completed and never surfaces a later failure
+- [x] `shaders-lut#1` (low) `Plugins/5H4D3R5/Shaders.cpp:1544`: BakeLookupTables runs on every size notification and for configurations that can never show Sky Atmosphere
+- [x] `studioclock#10` (low) `Tests/StudioClockTests/StudioClock.Tests.Runner.cpp:899`: Glow readback never checks secondsColor halos or the 0.55 date weight, and its out-of-extent probe cannot detect a halo extent up to about 5.5 radii
+- [x] `studioclock#4` (low) `Specs/Core/Core_PerformanceAndResources.md:291`: Glow cost was accepted as a once-per-second cost, but a raised clock next to a continuous widget redraws (and re-uploads constants) twice per frame
+- [x] `studioclock#5` (low) `Specs/Plugins/Plugins_API.md:1126`: Spec says dimmed ring LEDs keep their brightness under glow, but the five-second companion's halo brightens them; the test only probes the dot center
 
 ### P5. Build and test tooling (62)
 
-- [ ] `dxui-restore#0` (high) `Build/DxUiRestore.psm1:72`: A failed, interrupted or leftover DxUi source folder counts as restored: it is never repaired, and vcpkg-install.ps1 runs code from it before anything checks it
-- [ ] `alignment#17` (medium) `Test-Changes.ps1:81`: A commit invalidates every native receipt, and -SkipBuild then fails test.ps1's version check, because the commit-count version stamp is part of the artifact identity
-- [ ] `dxui-restore#1` (medium) `test.ps1:349`: RedXe.self-test.log is empty for every self-test failure except a CRT report, and exit code 3 now means two different things
-- [ ] `dxui-restore#2` (medium) `restore-dxui.ps1:28`: restore-dxui.ps1 runs the pinned DxUi vcpkg-install.ps1, which picks Visual Studio through vswhere -latest instead of the build's MSBuild, contrary to the spec
-- [ ] `dxui-restore#4` (medium) `test.ps1:405`: Several RedXe.exe and launcher runs, including the packaged --self-test and the crash tests, stay unbounded under Start-Process -Wait, and the crash tests do not suppress Windows Error Reporting
-- [ ] `dxui-restore#7` (medium) `Common/FailureReports.h:24`: ReportAndEnd writes through fputws on a narrow "C"-locale stderr, so a report whose path contains a character above U+00FF is cut off and the routing check fails
-- [ ] `dxui-restore#8` (medium, disputed) `Tests/PluginContractTests/PluginContract.Tests.Runner.cpp:2566`: PluginContractTests passes on any failing HRESULT whose low byte is 0x00
-- [ ] `dxui-rev3#0` (medium) `Build/DxUiRestore.psm1:72`: Pin restore treats any existing source/<commit> folder as restored, and vcpkg-install runs DxUi modules from it before anything checks it
-- [ ] `process-containment#0` (medium) `Build/BuildPresentation.psm1:806`: Timeout budget is never enforced while a bounded child keeps writing output (1 ms floor on the remaining wait)
-- [ ] `process-containment#12` (medium) `Common/FailureReports.h:32`: A budget kill drops the hung test's own buffered stdout, so the log cannot say which case hung (10 of 12 test executables)
-- [ ] `process-containment#2` (medium) `Build/BuildPresentation.psm1:861`: If the log writer's Dispose throws in the finally block, the job is never disposed, so kill-on-close never runs and an orphaned child can block
-- [ ] `process-containment#5` (medium) `Build/BuildPresentation.psm1:776`: Pressing Ctrl+C during build.ps1 in Windows Terminal leaves MSBuild building silently in the background
-- [ ] `process-containment#7` (medium) `Build/BuildPresentation.psm1:501`: Nothing enforces the rename-on-change rule for the compiled launcher type: a session that already compiled it keeps stale code, and Test-Changes can save a passing receipt for code that never ran
-- [ ] `scoped-testing#1` (medium) `Test-Changes.ps1:81`: Commit-count build number is outside the evidence identity: every commit invalidates all native receipts, and SkipBuild after a commit passes attestation and then fails with a misleading version error (spec claims the opposite)
-- [ ] `scoped-testing#2` (medium) `Build/ScopedTesting.psm1:7`: Git output is decoded with the console code page, so non-ASCII paths silently drop out of the source identity, the build attestation and the test inventory
-- [ ] `scoped-testing#4` (medium) `test.ps1:47`: Plain test.ps1 exits 0 without building or testing when there is no merge-base diff, docs still call it full validation, and it now fails without Git
-- [ ] `scoped-testing#5` (medium) `Build/ScopedTesting.psm1:245`: PrePush delegates all x64 Release obligations to a CI workflow that main does not require
-- [ ] `scoped-testing#6` (medium) `Tests/BuildProcessTests/ScopedTesting.Tests.ps1:73`: Rule completeness is hand-maintained; a cheap project-closure check would have caught the four Settings edges #31 missed
-- [ ] `tests#17` (medium) `Test-Changes.ps1:79`: Commit-count build number is outside the scoped-test identity: SkipBuild breaks after a commit, and commits defeat reuse
-- [ ] `tests#18` (medium) `Build/ScopedTesting.psm1:245`: PrePush delegates every Release x64 obligation to a PR check that the main ruleset does not require
-- [ ] `tests#4` (medium) `Test-Changes.ps1:125`: Test-Changes turns 'not reusable' into a failed run when any repository file changes while the tests run
-- [ ] `tests#5` (medium) `Build/DxUiRestore.psm1:72`: In-place DxUi clone: an interrupted or concurrent restore poisons every later tooling-test and build run
-- [ ] `alignment#18` (low) `Build/ScopedTesting.psm1:67`: The live test-source detector matches case-insensitively, so any product file whose name contains "test", "mock" or "fake" blocks every Test-Changes run
-- [ ] `alignment#19` (low) `Build/DxUiRestore.psm1:98`: A partially restored DxUi source directory is never repaired, and the new vcpkg-install.ps1 caller then fails with an unrelated module-load error
-- [ ] `alignment#20` (low) `Test-Changes.ps1:74`: The ordinary `./test.ps1` now refuses the default x64 platform on an ARM64 host, which the Full path still allows
-- [ ] `dxui-restore#10` (low) `restore-dxui.ps1:27`: The DxUi restore never removes superseded output folders or source clones: 3.4 GB has built up, most of it unused
-- [ ] `dxui-restore#11` (low) `Build/DxUiRestore.psm1:77`: The sparse restore still clones DxUi's full history, so each network restore downloads about 43 MB of packs for a 6 MB working tree
-- [ ] `dxui-restore#14` (low) `Tests/BuildProcessTests/DxUiRestoreTests.ps1:57`: The DxUi restore test's fixture commits inherit the developer's global Git signing, hook and line-ending settings
-- [ ] `dxui-restore#17` (low) `Common/FailureReports.h:34`: Clearing _WRITE_ABORT_MSG makes every abort that is not a CRT report end with exit 3 and print nothing
-- [ ] `dxui-restore#18` (low) `Build/DxUiUpdate.psm1:52`: Update-DxUi accepts a DxUi main commit at another API revision, so -UpdateOnly writes a lock that can never restore
-- [ ] `dxui-restore#3` (low) `vcpkg-install.ps1:66`: Standalone vcpkg-install.ps1 and restore-dxui.ps1 discover MSBuild / Visual Studio differently from build.ps1, so overlay triplets and DxUi identity files flip between installations
-- [ ] `dxui-restore#5` (low) `Common/FailureReports.h:32`: RouteAwayFromDialogs leaves the standard C assert() message box in place for the GUI-subsystem RedXe.exe
-- [ ] `dxui-restore#9` (low) `Plugins/AVControl/BrokerMain.cpp:353`: AVControlBroker.exe, which AVControlTests starts, does not route failed checks, so a Debug check in it still opens a dialog
-- [ ] `dxui-rev3#1` (low) `Build/DxUiUpdate.psm1:26`: Update-DxUi.ps1 picks a DxUi main commit without checking its API revision, so a revision bump produces a lock every build rejects
-- [ ] `process-containment#1` (low) `Build/BuildPresentation.psm1:773`: The budget uses the wall clock (DateTime.UtcNow), so a clock step can cut it short or stretch it
-- [ ] `process-containment#13` (low) `Build/BuildPresentation.psm1:749`: On timeout the helper stops reading before it terminates the job, so output already in the pipes and a trailing partial line are dropped
-- [ ] `process-containment#14` (low) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:3498`: The FlushLog early return cannot bound a hung writer: ~PluginHost then joins the log worker with no limit
-- [ ] `process-containment#15` (low) `test.ps1:327`: A HostPlugin or HostSmoke timeout shows none of the child's output on the console, not even the tails the PR relies on
-- [ ] `process-containment#3` (low) `Build/BuildPresentation.psm1:747`: Kill-on-close job is created outside the try/finally that disposes it and leaks if creating the log directory fails
-- [ ] `process-containment#4` (low) `Build/BuildPresentation.psm1:807`: Ctrl+C has no effect while a bounded test executable is silent, for up to its 15-minute budget
-- [ ] `process-containment#6` (low) `Build/BuildPresentation.psm1:751`: When the child has exited but a descendant still holds its pipe, the helper waits out the whole budget and then reports the child as hung
-- [ ] `scoped-testing#10` (low) `Build/ScopedTesting.psm1:242`: PR delegation does not check the base/merge-tree workflow equivalence the accepted plan requires
-- [ ] `scoped-testing#11` (low) `Test-Changes.ps1:44`: Test-Changes -Scopes does not split comma lists under pwsh -File, unlike test.ps1 -Suites
-- [ ] `scoped-testing#12` (low) `Tests/test-scopes.json:266`: Rules for test-project folders send a test .vcxproj edit only to its own suite, though all projects build into one shared output folder
-- [ ] `scoped-testing#13` (low) `Tests/BuildProcessTests/ScopedTesting.Tests.ps1:248`: The stale-workflow-digest delegation test cannot fail in CI
-- [ ] `scoped-testing#14` (low) `Build/ScopedTesting.psm1:18`: Git failures in scope discovery give no diagnostic (empty message for unrelated or shallow history; failing command not named)
-- [ ] `scoped-testing#15` (low) `test.ps1:54`: Suite list is maintained in three hand-kept copies; a scope with no test.ps1 block earns a reusable PASSED receipt, and a test.ps1-only suite is never selected
-- [ ] `scoped-testing#16` (low) `Tests/test-scopes.json:336`: Skill metadata and validator-script edits fall through to the full native fallback
-- [ ] `scoped-testing#23` (low) `Build/ScopedTesting.psm1:162`: Evidence environment identity misses OS servicing level, D2D/WIC/DXGI runtimes, and the Python/PyYAML/git that tooling runs under
-- [ ] `scoped-testing#24` (low) `Build/ScopedTesting.psm1:236`: PrePush ties delegation of the profile-independent BuildProcess scope to the x64 Release profile, so the default Debug PrePush repeats the PR tooling job locally
-- [ ] `scoped-testing#3` (low) `Build/ScopedTesting.psm1:67`: Live test-file detector matches 'test'/'mock'/'fake' as a case-insensitive substring, so ordinary production names block every run and cannot be registered
-- [ ] `scoped-testing#7` (low) `Test-Changes.ps1:69`: PrePush with full CI delegation never prints the CI_PENDING verdict the spec requires
-- [ ] `scoped-testing#8` (low) `Build/ScopedTesting.psm1:241`: PR delegation refusals are silent; PrePush Release falls back to a full local Release run with no reason given
-- [ ] `scoped-testing#9` (low) `Test-Changes.ps1:74`: Default test.ps1 on an ARM64 host now throws instead of running x64 tests; the two entrypoints disagree about the same profile
-- [ ] `studioclock#1` (low) `Build/DxUiProvenance.psm1:18`: DxUi provenance no longer binds the recorded build identity to the archive it hashes, and repeats path logic owned elsewhere
-- [ ] `studioclock#2` (low) `restore-dxui.ps1:27`: DxUi restore never removes old output roots; #22's switch to 16-digit folder names orphaned every existing 64-digit root
-- [ ] `tests#10` (low) `Build/BuildPresentation.psm1:752`: Streaming helper timeout path neither waits for the job's processes to exit nor drains buffered output; the stall fixture's immediate survivor scan and log check can fail spuriously
-- [ ] `tests#14` (low) `test.ps1:405`: test.ps1 still runs six RedXe/launcher processes with unbounded Start-Process -Wait despite the bounded-process policy
-- [ ] `tests#15` (low) `Tests/BuildProcessTests/ScopedTesting.Tests.ps1:19`: Tooling-test fixture repositories inherit the developer's global Git config (commit signing, hooks)
-- [ ] `tests#20` (low) `test.ps1:349`: HostSmoke self-test log stays empty on failure, and its exit codes collide with the failure-report code 3
-- [ ] `tests#8` (low) `Tests/test-scopes.json:217`: Scope manifest rules are hand-maintained and never checked against the test projects' real inputs; four rule patterns match nothing
-- [ ] `tests#22` (nit) `Build/ScopedTesting.psm1:67`: Native test-inventory discovery uses a case-insensitive 'Test|Mock|Fake' match that catches ordinary product names
+- [x] `dxui-restore#0` (high) `Build/DxUiRestore.psm1:72`: A failed, interrupted or leftover DxUi source folder counts as restored: it is never repaired, and vcpkg-install.ps1 runs code from it before anything checks it
+- [x] `alignment#17` (medium) `Test-Changes.ps1:81`: A commit invalidates every native receipt, and -SkipBuild then fails test.ps1's version check, because the commit-count version stamp is part of the artifact identity
+- [x] `dxui-restore#1` (medium) `test.ps1:349`: RedXe.self-test.log is empty for every self-test failure except a CRT report, and exit code 3 now means two different things
+- [ ] `dxui-restore#2` (medium) `restore-dxui.ps1:28`: restore-dxui.ps1 runs the pinned DxUi vcpkg-install.ps1, which picks Visual Studio through vswhere -latest instead of the build's MSBuild, contrary to the spec Deferred: the pinned DxUi (271bd54) vcpkg-install.ps1 takes no MSBuild and its Get-DxUiVisualStudioInstallation ignores MSBUILD_EXE_PATH; needs DxUi to accept `-MSBuildPath` (resolving the installation as Get-RedXeVisualStudioInstallation does, or honoring MSBUILD_EXE_PATH), then restore-dxui.ps1 passes it with a pin update. RedXe's side now selects one MSBuild everywhere and Core_DxUiIntegration.md records the limitation.
+- [x] `dxui-restore#4` (medium) `test.ps1:405`: Several RedXe.exe and launcher runs, including the packaged --self-test and the crash tests, stay unbounded under Start-Process -Wait, and the crash tests do not suppress Windows Error Reporting
+- [x] `dxui-restore#7` (medium) `Common/FailureReports.h:24`: ReportAndEnd writes through fputws on a narrow "C"-locale stderr, so a report whose path contains a character above U+00FF is cut off and the routing check fails
+- [x] `dxui-restore#8` (medium, disputed) `Tests/PluginContractTests/PluginContract.Tests.Runner.cpp:2566`: PluginContractTests passes on any failing HRESULT whose low byte is 0x00
+- [x] `dxui-rev3#0` (medium) `Build/DxUiRestore.psm1:72`: Pin restore treats any existing source/<commit> folder as restored, and vcpkg-install runs DxUi modules from it before anything checks it
+- [x] `process-containment#0` (medium) `Build/BuildPresentation.psm1:806`: Timeout budget is never enforced while a bounded child keeps writing output (1 ms floor on the remaining wait)
+- [x] `process-containment#12` (medium) `Common/FailureReports.h:32`: A budget kill drops the hung test's own buffered stdout, so the log cannot say which case hung (10 of 12 test executables)
+- [x] `process-containment#2` (medium) `Build/BuildPresentation.psm1:861`: If the log writer's Dispose throws in the finally block, the job is never disposed, so kill-on-close never runs and an orphaned child can block
+- [x] `process-containment#5` (medium) `Build/BuildPresentation.psm1:776`: Pressing Ctrl+C during build.ps1 in Windows Terminal leaves MSBuild building silently in the background
+- [x] `process-containment#7` (medium) `Build/BuildPresentation.psm1:501`: Nothing enforces the rename-on-change rule for the compiled launcher type: a session that already compiled it keeps stale code, and Test-Changes can save a passing receipt for code that never ran
+- [x] `scoped-testing#1` (medium) `Test-Changes.ps1:81`: Commit-count build number is outside the evidence identity: every commit invalidates all native receipts, and SkipBuild after a commit passes attestation and then fails with a misleading version error (spec claims the opposite)
+- [x] `scoped-testing#2` (medium) `Build/ScopedTesting.psm1:7`: Git output is decoded with the console code page, so non-ASCII paths silently drop out of the source identity, the build attestation and the test inventory
+- [x] `scoped-testing#4` (medium) `test.ps1:47`: Plain test.ps1 exits 0 without building or testing when there is no merge-base diff, docs still call it full validation, and it now fails without Git
+- [x] `scoped-testing#5` (medium) `Build/ScopedTesting.psm1:245`: PrePush delegates all x64 Release obligations to a CI workflow that main does not require
+- [x] `scoped-testing#6` (medium) `Tests/BuildProcessTests/ScopedTesting.Tests.ps1:73`: Rule completeness is hand-maintained; a cheap project-closure check would have caught the four Settings edges #31 missed
+- [x] `tests#17` (medium) `Test-Changes.ps1:79`: Commit-count build number is outside the scoped-test identity: SkipBuild breaks after a commit, and commits defeat reuse
+- [x] `tests#18` (medium) `Build/ScopedTesting.psm1:245`: PrePush delegates every Release x64 obligation to a PR check that the main ruleset does not require
+- [x] `tests#4` (medium) `Test-Changes.ps1:125`: Test-Changes turns 'not reusable' into a failed run when any repository file changes while the tests run
+- [x] `tests#5` (medium) `Build/DxUiRestore.psm1:72`: In-place DxUi clone: an interrupted or concurrent restore poisons every later tooling-test and build run
+- [x] `alignment#18` (low) `Build/ScopedTesting.psm1:67`: The live test-source detector matches case-insensitively, so any product file whose name contains "test", "mock" or "fake" blocks every Test-Changes run
+- [x] `alignment#19` (low) `Build/DxUiRestore.psm1:98`: A partially restored DxUi source directory is never repaired, and the new vcpkg-install.ps1 caller then fails with an unrelated module-load error
+- [x] `alignment#20` (low) `Test-Changes.ps1:74`: The ordinary `./test.ps1` now refuses the default x64 platform on an ARM64 host, which the Full path still allows
+- [x] `dxui-restore#10` (low) `restore-dxui.ps1:27`: The DxUi restore never removes superseded output folders or source clones: 3.4 GB has built up, most of it unused
+- [x] `dxui-restore#11` (low) `Build/DxUiRestore.psm1:77`: The sparse restore still clones DxUi's full history, so each network restore downloads about 43 MB of packs for a 6 MB working tree
+- [x] `dxui-restore#14` (low) `Tests/BuildProcessTests/DxUiRestoreTests.ps1:57`: The DxUi restore test's fixture commits inherit the developer's global Git signing, hook and line-ending settings
+- [x] `dxui-restore#17` (low) `Common/FailureReports.h:34`: Clearing _WRITE_ABORT_MSG makes every abort that is not a CRT report end with exit 3 and print nothing
+- [x] `dxui-restore#18` (low) `Build/DxUiUpdate.psm1:52`: Update-DxUi accepts a DxUi main commit at another API revision, so -UpdateOnly writes a lock that can never restore
+- [x] `dxui-restore#3` (low) `vcpkg-install.ps1:66`: Standalone vcpkg-install.ps1 and restore-dxui.ps1 discover MSBuild / Visual Studio differently from build.ps1, so overlay triplets and DxUi identity files flip between installations
+- [x] `dxui-restore#5` (low) `Common/FailureReports.h:32`: RouteAwayFromDialogs leaves the standard C assert() message box in place for the GUI-subsystem RedXe.exe
+- [x] `dxui-restore#9` (low) `Plugins/AVControl/BrokerMain.cpp:353`: AVControlBroker.exe, which AVControlTests starts, does not route failed checks, so a Debug check in it still opens a dialog
+- [x] `dxui-rev3#1` (low) `Build/DxUiUpdate.psm1:26`: Update-DxUi.ps1 picks a DxUi main commit without checking its API revision, so a revision bump produces a lock every build rejects
+- [x] `process-containment#1` (low) `Build/BuildPresentation.psm1:773`: The budget uses the wall clock (DateTime.UtcNow), so a clock step can cut it short or stretch it
+- [x] `process-containment#13` (low) `Build/BuildPresentation.psm1:749`: On timeout the helper stops reading before it terminates the job, so output already in the pipes and a trailing partial line are dropped
+- [x] `process-containment#14` (low) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:3498`: The FlushLog early return cannot bound a hung writer: ~PluginHost then joins the log worker with no limit
+- [x] `process-containment#15` (low) `test.ps1:327`: A HostPlugin or HostSmoke timeout shows none of the child's output on the console, not even the tails the PR relies on
+- [x] `process-containment#3` (low) `Build/BuildPresentation.psm1:747`: Kill-on-close job is created outside the try/finally that disposes it and leaks if creating the log directory fails
+- [x] `process-containment#4` (low) `Build/BuildPresentation.psm1:807`: Ctrl+C has no effect while a bounded test executable is silent, for up to its 15-minute budget
+- [x] `process-containment#6` (low) `Build/BuildPresentation.psm1:751`: When the child has exited but a descendant still holds its pipe, the helper waits out the whole budget and then reports the child as hung
+- [x] `scoped-testing#10` (low) `Build/ScopedTesting.psm1:242`: PR delegation does not check the base/merge-tree workflow equivalence the accepted plan requires
+- [x] `scoped-testing#11` (low) `Test-Changes.ps1:44`: Test-Changes -Scopes does not split comma lists under pwsh -File, unlike test.ps1 -Suites
+- [x] `scoped-testing#12` (low) `Tests/test-scopes.json:266`: Rules for test-project folders send a test .vcxproj edit only to its own suite, though all projects build into one shared output folder
+- [x] `scoped-testing#13` (low) `Tests/BuildProcessTests/ScopedTesting.Tests.ps1:248`: The stale-workflow-digest delegation test cannot fail in CI
+- [x] `scoped-testing#14` (low) `Build/ScopedTesting.psm1:18`: Git failures in scope discovery give no diagnostic (empty message for unrelated or shallow history; failing command not named)
+- [x] `scoped-testing#15` (low) `test.ps1:54`: Suite list is maintained in three hand-kept copies; a scope with no test.ps1 block earns a reusable PASSED receipt, and a test.ps1-only suite is never selected
+- [x] `scoped-testing#16` (low) `Tests/test-scopes.json:336`: Skill metadata and validator-script edits fall through to the full native fallback
+- [x] `scoped-testing#23` (low) `Build/ScopedTesting.psm1:162`: Evidence environment identity misses OS servicing level, D2D/WIC/DXGI runtimes, and the Python/PyYAML/git that tooling runs under
+- [x] `scoped-testing#24` (low) `Build/ScopedTesting.psm1:236`: PrePush ties delegation of the profile-independent BuildProcess scope to the x64 Release profile, so the default Debug PrePush repeats the PR tooling job locally
+- [x] `scoped-testing#3` (low) `Build/ScopedTesting.psm1:67`: Live test-file detector matches 'test'/'mock'/'fake' as a case-insensitive substring, so ordinary production names block every run and cannot be registered
+- [x] `scoped-testing#7` (low) `Test-Changes.ps1:69`: PrePush with full CI delegation never prints the CI_PENDING verdict the spec requires
+- [x] `scoped-testing#8` (low) `Build/ScopedTesting.psm1:241`: PR delegation refusals are silent; PrePush Release falls back to a full local Release run with no reason given
+- [x] `scoped-testing#9` (low) `Test-Changes.ps1:74`: Default test.ps1 on an ARM64 host now throws instead of running x64 tests; the two entrypoints disagree about the same profile
+- [x] `studioclock#1` (low) `Build/DxUiProvenance.psm1:18`: DxUi provenance no longer binds the recorded build identity to the archive it hashes, and repeats path logic owned elsewhere
+- [x] `studioclock#2` (low) `restore-dxui.ps1:27`: DxUi restore never removes old output roots; #22's switch to 16-digit folder names orphaned every existing 64-digit root
+- [x] `tests#10` (low) `Build/BuildPresentation.psm1:752`: Streaming helper timeout path neither waits for the job's processes to exit nor drains buffered output; the stall fixture's immediate survivor scan and log check can fail spuriously
+- [x] `tests#14` (low) `test.ps1:405`: test.ps1 still runs six RedXe/launcher processes with unbounded Start-Process -Wait despite the bounded-process policy
+- [x] `tests#15` (low) `Tests/BuildProcessTests/ScopedTesting.Tests.ps1:19`: Tooling-test fixture repositories inherit the developer's global Git config (commit signing, hooks)
+- [x] `tests#20` (low) `test.ps1:349`: HostSmoke self-test log stays empty on failure, and its exit codes collide with the failure-report code 3
+- [x] `tests#8` (low) `Tests/test-scopes.json:217`: Scope manifest rules are hand-maintained and never checked against the test projects' real inputs; four rule patterns match nothing
+- [x] `tests#22` (nit) `Build/ScopedTesting.psm1:67`: Native test-inventory discovery uses a case-insensitive 'Test|Mock|Fake' match that catches ordinary product names
 
 ### P6. Behavior-preserving simplifications (41)
 

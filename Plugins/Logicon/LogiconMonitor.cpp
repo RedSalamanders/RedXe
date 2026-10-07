@@ -872,12 +872,15 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
                              wheels.rollerEvents, dialpad.turns[2].data(), dialpad.turns[3].data());
             AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), kTextPrimary, kTextPrimary, kTextPrimary);
         }
+        else if (dialpad.wheelsWanted)
+        {
+            // The dialpad is there and a turn is bound, yet the sink could not be registered.
+            AppendLine(gpu, _list, metrics, x, y, maxWidth, L"wheels: raw input unavailable", 1.0f, 0.78f, 0.35f);
+        }
         else
         {
-            AppendLine(gpu, _list, metrics, x, y, maxWidth, L"wheels: raw input unavailable", 1.0f, 0.78f, 0.35f);
-            (void)swprintf_s(text.data(), text.size(), L"other mice %u", wheels.otherReports);
-            AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), kTextSecondary, kTextSecondary,
-                       kTextSecondary);
+            AppendLine(gpu, _list, metrics, x, y, maxWidth, L"wheels: idle (no dialpad or no turn bound)",
+                       kTextSecondary, kTextSecondary, kTextSecondary);
         }
         // Unbound buttons are not diverted (they keep working as Back/Forward and their keyboard usages) and are
         // shown in brackets; a tap still injects the press so a binding can be exercised without hardware.
