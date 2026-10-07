@@ -393,10 +393,11 @@ the shipped ones; both also publish an action namespace (`Plugins_Actions.md`).
   runs after `Start`, after every promoted page, raise start, dismiss completion, visibility change, settings apply,
   and drained host action, carrying page index/count/id/name, widget count, the raised ordinal, and the
   `Visible`/`Raised`/`Busy` flags. `Stop` runs from `CloseMainWindow` after every dashboard host is shut down and
-  before `PluginHost::ShutdownProcessRuntime`; `PluginHost::Shutdown` repeats it as an idempotent safety net before
-  providers, workers, and modules go. `Start` and `Stop` are idempotent; a failed `Start` logs
-  `service-start-failed` once and keeps the object so a later `ApplySettings` can retry. A service MUST NOT call
-  back into the host from these calls except `RequestAction`, `RequestFrame`, `Log`, and — from `Start`,
+  before `PluginHost::ShutdownProcessRuntime`, and so also inside `WM_ENDSESSION` when Windows ends the session
+  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle"); `PluginHost::Shutdown` repeats it as an
+  idempotent safety net before providers, workers, and modules go. `Start` and `Stop` are idempotent; a failed
+  `Start` logs `service-start-failed` once and keeps the object so a later `ApplySettings` can retry. A service MUST
+  NOT call back into the host from these calls except `RequestAction`, `RequestFrame`, `Log`, and — from `Start`,
   `ApplySettings`, and `Stop` only, on the UI thread — `ValidateAction` and `GetDataProvider` with the provider's `GetDataSets`,
   `Subscribe`, and `IRedXeDataSubscription::SetActive`, under the same sink rules as a widget. A service MUST
   release every subscription in `Stop` (which drains its sink callbacks) so the host holds no reference to it
@@ -730,8 +731,10 @@ already fills the client MUST NOT raise.
   already-created data sources, and the already-running acquisition worker. Staging MUST NOT map a module a second
   time, create a second `IRedXeDataSource` for a provider ID, or start a second acquisition thread.
 - Optional `RedXePluginShutdown` runs exactly once per module, at process teardown, after every widget, provider,
-  source, and subscription has been released. It MUST NOT run while another dashboard page still uses that module. The widget
-  projection MUST remain within the settings limit of 64 plugin declarations.
+  source, and subscription has been released. It never runs after a fatal exception
+  (`Specs/Core/Core_CrashHandling.md`), and a session end can end the process before it, once `WM_ENDSESSION`
+  returns; `IRedXeService::Stop` is the call a service can rely on there. It MUST NOT run while another dashboard
+  page still uses that module. The widget projection MUST remain within the settings limit of 64 plugin declarations.
 - Static discovery validates every referenced plugin and effective widget on every page. `PluginManager` creates only
   the current page, plus its adjacent transition page during a swipe, and may share providers only when doing so is
   behaviorally invisible to independent widget instances.

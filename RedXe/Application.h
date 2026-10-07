@@ -204,6 +204,9 @@ class Application final
     void CloseSettingsError() noexcept;
     HRESULT UpdateDashboardVisibility() noexcept;
     void CloseMainWindow() noexcept;
+    // WM_ENDSESSION with wParam TRUE: logs `session-ending`, runs CloseMainWindow, and flushes the log within a bound
+    // before Windows ends the process (UI_XeneonDisplayWindowing.md "Window and rendering lifecycle").
+    void OnEndSession(LPARAM reason) noexcept;
     [[nodiscard]] bool DashboardRequiresContinuousFrames() const noexcept;
     [[nodiscard]] bool PageNavigationInProgress() const noexcept;
     [[nodiscard]] bool OverlayMotionInProgress() const noexcept;

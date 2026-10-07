@@ -65,9 +65,9 @@ With a `dock` configured (or `--dock` on the command line) both builds run as a 
 
 On the very first start without a XENEON (no settings file yet), RedXe skips the prompt and the plain window: it writes an auto-hiding bar into the new settings file, on your second screen when you have more than one and on the edge where your taskbar is not (normally the top), and starts as that bar. See [First start without a XENEON](#first-start-without-a-xeneon).
 
-**Escape**, closing the window, or **Exit** in the [notification-area icon](#notification-area-icon)'s menu exits RedXe.
+**Escape**, closing the window, or **Exit** in the [notification-area icon](#notification-area-icon)'s menu exits RedXe. Signing out, restarting, or shutting down Windows closes it the same way, so widget settings are saved and a [Logicon keypad](plugins/logicon.md) gets its own buttons back.
 
-If RedXe stopped after a crash, the next normal launch may offer to open the local crash folder. Dumps stay on this PC; nothing is uploaded.
+If RedXe stopped after a crash, the next normal launch may offer to open the local crash folder. Dumps stay on this PC; nothing is uploaded. When RedXe runs as a [bar](#dock), that question comes before the bar appears.
 
 ## Notification-area icon
 

@@ -24,6 +24,13 @@ The top-level structured-exception scope MUST contain no C++ object whose destru
 Normal C++ application lifetime remains inside a separate function below that boundary. Fatal handlers MUST NOT let
 exceptions escape, attempt to resume execution, or present interactive UI from the compromised process.
 
+No fatal path returns into normal shutdown. The top-level boundary, `std::terminate`, and the CRT handlers end the
+process with `TerminateProcess` and the crash exit code once the writer returns; the unhandled-exception filter
+returns `EXCEPTION_EXECUTE_HANDLER` and the system ends the process. In particular the top-level boundary MUST NOT
+return from `wWinMain`: CRT exit would then run static destruction, which shuts the process plugin runtime down
+(service drains, worker joins, `RedXePluginShutdown`) inside the compromised process, with its locks, windows, and
+widgets in whatever state the fault left them.
+
 Before the top-level boundary runs, RedXe MUST request a 128 KiB main-thread stack guarantee with
 `SetThreadStackGuarantee` so a real `EXCEPTION_STACK_OVERFLOW` retains room for bounded capture. Fatal-path dump-name
 scratch MUST live in fixed process storage, not as a large automatic array on the failing thread. Prepared crash,
@@ -69,6 +76,12 @@ When a marker exists, RedXe MUST remove it before presenting a one-shot prompt s
 repeat the notice indefinitely. The prompt MUST identify the saved dump when the bounded marker can be read and MUST
 offer to open the crash directory. Opening the directory requires an explicit user choice; RedXe MUST NOT execute or
 open a path read from the marker itself.
+
+The titled and fullscreen windows own the prompt, which follows their show. A dock MUST NOT own it: the bar is shown
+without activation and presents nothing until the frame loop runs, so an owned prompt would stand over a topmost bar
+with no frame and, when it closes, activate the bar, which keeps an autohide bar revealed with the keyboard focus. For
+a dock the prompt has no owner and is answered before the bar is shown (`Specs/UI/UI_XeneonDisplayWindowing.md`
+"Window").
 
 The settings directory watcher MUST start after this prompt returns. The watcher startup catch-up notification MUST
 reconcile settings edits made while the prompt was open without permitting live reload to run inside the prompt's
@@ -129,3 +142,8 @@ Before this contract is complete:
 
 The two x64 test runs MUST include the isolated real-process crash harness as well as the existing hidden WARP smoke
 test. ARM64 cross-build validation is sufficient on an x64 host; running ARM64 binaries requires ARM64 Windows.
+
+The previous-crash notice has no automated check, because self-tests MUST NOT show or consume the user's marker and
+the prompt takes the foreground. A change to it requires a manual launch with a marker in the normal crash
+directory: for a dock, the prompt appears with no bar on screen, and after it closes the bar appears without taking
+the focus and an autohide bar collapses after its hide delay.

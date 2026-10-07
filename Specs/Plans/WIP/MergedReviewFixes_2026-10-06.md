@@ -302,8 +302,8 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `dock-switch#9` (medium) `RedXe/Application.cpp:5361`: Settings-error dialog is centered on a collapsed autohide strip and opens partly off-screen; with the first-run top bar its caption and the error location are hidden
 - [ ] `host-hardening#3` (medium) `RedXe/Application.cpp:3448`: Action-notice (and settings-error) window can open off-screen or unreachable on a dock, especially a collapsed autohide strip; creation code is duplicated between ShowActionNotices and ShowSettingsError
 - [ ] `host-hardening#5` (medium) `RedXe/Application.cpp:1617`: PlaceDock re-entrancy guard drops a nested placement request, so a display or work-area change that arrives during a placement leaves the dock at stale geometry
-- [ ] `session-end#0` (medium) `RedXe/Application.cpp:6113`: Sign-out, restart and shutdown terminate RedXe without any teardown: no WM_QUERYENDSESSION / WM_ENDSESSION handling, so Logicon never restores the devices
-- [ ] `session-end#1` (medium) `RedXe/Main.cpp:377`: After a crash on the main thread, wWinMain returns normally, so CRT exit runs PluginHost::Shutdown and plugin shutdown exports in the crashed process
+- [x] `session-end#0` (medium) `RedXe/Application.cpp:6113`: Sign-out, restart and shutdown terminate RedXe without any teardown: no WM_QUERYENDSESSION / WM_ENDSESSION handling, so Logicon never restores the devices
+- [x] `session-end#1` (medium) `RedXe/Main.cpp:377`: After a crash on the main thread, wWinMain returns normally, so CRT exit runs PluginHost::Shutdown and plugin shutdown exports in the crashed process
 - [ ] `settings#19` (medium) `RedXe/Application.cpp:5361`: Settings-error and action-notice dialogs are centred on the dock window, which for the collapsed first-run autohide bar is a 4 px strip, so the dialog lands half off-screen
 - [ ] `settings#5` (medium) `RedXe/Application.cpp:751`: The first-run dock is persisted from a single discovery result, so a XENEON that is briefly absent at install or recovery turns RedXe into a dock permanently
 - [x] `slide-tray#0` (medium) `RedXe/TrayIcon.cpp:94`: A refused tray icon add is never retried while the taskbar already exists (no timer, reload skips Show, misleading log; NIM_SETVERSION not retried)
@@ -314,8 +314,8 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `slide-tray#7` (medium) `RedXe/DockPlacement.h:187`: First-run top-edge strip covers the top 4 px of maximized windows on the second screen (caption buttons, tabs)
 - [ ] `dock-switch#10` (low) `RedXe/Application.cpp:752`: First-run bar is decided from a transient topology: a first start or invalid-file recovery over RDP (or with the XENEON off) permanently writes a bar for a XENEON user
 - [ ] `dock-switch#12` (low) `RedXe/Application.cpp:1607`: DockYieldsToFullscreen counts a maximized window's frame overhang as covering the monitor; the pure rule sits untested in Application
-- [ ] `session-end#2` (low) `RedXe/Application.cpp:407`: AutohideBarOnEdge counts a dead app bar as a taken edge, so a first-run install after a RedXe crash or kill can pick the wrong edge
-- [ ] `session-end#3` (low) `RedXe/Application.cpp:871`: The previous-crash prompt is owned by the unpainted dock and then activates it, which breaks show-without-focus and pins an autohide bar open
+- [x] `session-end#2` (low) `RedXe/Application.cpp:407`: AutohideBarOnEdge counts a dead app bar as a taken edge, so a first-run install after a RedXe crash or kill can pick the wrong edge
+- [x] `session-end#3` (low) `RedXe/Application.cpp:871`: The previous-crash prompt is owned by the unpainted dock and then activates it, which breaks show-without-focus and pins an autohide bar open
 - [x] `slide-tray#11` (low) `RedXe/TrayIcon.cpp:161`: Keyboard-opened tray menu never returns focus to the notification area (no NIM_SETFOCUS)
 - [ ] `slide-tray#19` (low) `RedXe/Application.cpp:5878`: A press, tap or wheel during a reveal slide goes to the tile that the settle moves under it, not the tile the user saw
 - [ ] `slide-tray#4` (low) `RedXe/Application.cpp:5928`: Mouse wheel on the hidden strip or on a bar sliding out snaps the bar shut and scrolls or pages invisible widgets

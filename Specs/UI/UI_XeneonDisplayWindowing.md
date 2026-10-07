@@ -99,8 +99,11 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
 
 - Styles: `WS_POPUP | WS_CLIPCHILDREN`; extended `WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP`. A dock
   has no taskbar button and no Alt+Tab entry, like the taskbar itself. It is shown with `SW_SHOWNOACTIVATE`: the
-  user's current window keeps the focus. Exit is Escape while the bar has focus (click or tap it first), `redxe.quit`,
-  or `WM_CLOSE`; there is no close glyph.
+  user's current window keeps the focus. The previous-crash notice (`Specs/Core/Core_CrashHandling.md`) MUST NOT be
+  owned by the bar: it has no owner and is answered before the bar is shown, so the bar never stands topmost without
+  a presented frame under it and closing it activates no RedXe window (an active autohide bar would stay revealed).
+  Exit is Escape while the bar has focus (click or tap it first), `redxe.quit`, or `WM_CLOSE`; there is no close
+  glyph.
 - Activation is unchanged (`MA_ACTIVATE` on click or touch; hover never activates).
 - The dashboard and swap chain are always sized to the **full** bar rectangle; an autohide strip is a window-size
   change only (below). `OnSize` never resizes the dashboard in dock mode; `PlaceDock` does, through the full
@@ -268,10 +271,13 @@ prompt or the Debug titled window. `MakeFirstRunDock` measures the displays once
 - `E` is the horizontal edge the taskbar leaves free on that display (`DockFirstRunEdge`): `top`, unless the top is
   taken and the bottom is not, then `bottom`. An edge is taken when the display's work area is trimmed on that side
   (a taskbar that stays visible, or any reserving app bar) or when an autohide bar is registered on that edge of that
-  display (`ABM_GETAUTOHIDEBAREX`: an auto-hiding taskbar). A display with neither, one without a taskbar of its own,
-  follows the primary taskbar's edge (`ABM_GETTASKBARPOS`), so the bar sits opposite the taskbar the person uses; a
-  side taskbar, both edges taken, or no taskbar at all (Explorer not started) gives `top`. Whenever one horizontal
-  edge is free, the autohide strip therefore sits at the screen edge rather than beside a taskbar.
+  display (`ABM_GETAUTOHIDEBAREX`: an auto-hiding taskbar). A registration counts only while its window exists
+  (`DockAutohideBarHoldsEdge`): Explorer keeps reporting the autohide bar of a process that crashed or was killed, such
+  as RedXe's own first-run bar, until another bar registers on that edge, and that registration MUST NOT take the edge
+  from the install that follows. A display with neither, one without a taskbar of its own, follows the primary
+  taskbar's edge (`ABM_GETTASKBARPOS`), so the bar sits opposite the taskbar the person uses; a side taskbar, both
+  edges taken, or no taskbar at all (Explorer not started) gives `top`. Whenever one horizontal edge is free, the
+  autohide strip therefore sits at the screen edge rather than beside a taskbar.
 - `T` gives the bar the XENEON EDGE's 32:9 proportions along that display's work area, so the shipped 2560×720 pages
   keep their shape (`DockFirstRunThicknessDips`): `MulDiv(workAreaWidth, 720, 2560)` pixels, clamped to half the
   monitor like every dock, converted to DIPs at that display's effective DPI rounding down (so the runtime rescale
@@ -401,6 +407,17 @@ the repository test entrypoint MUST validate the version fields without desktop 
   logs one `device-created` record. The policy and its budgets are owned by
   `Specs/Core/Core_PerformanceAndResources.md`.
 - Escape and `WM_CLOSE` close the application through the HWND owner.
+- Session end: `WM_QUERYENDSESSION` MUST return `TRUE`; RedXe never vetoes or delays a sign-out, restart, or
+  shutdown. Windows may end the process as soon as `WM_ENDSESSION` with `wParam` `TRUE` returns, without `WM_CLOSE`
+  and without `wWinMain` returning, so that message MUST close RedXe before it returns (`Application::OnEndSession`):
+  one Info record (`session-ending`, naming a sign-out, a shutdown or restart, or a close that Windows requested for
+  an update, `ENDSESSION_CLOSEAPP`), then `CloseMainWindow` exactly as `WM_CLOSE` runs it (widget settings collected,
+  services stopped so the Logicon lane restores its devices, the tray icon and the app bar removed, which matters to an
+  Explorer that keeps running), then the queued log lines written out within `kSessionEndLogFlushMilliseconds` (1 s).
+  The service stop waits at most `kRedXeDeviceWorkerDrainMilliseconds` (3 s) per device lane, so with the one bundled
+  lane and a responsive shell the teardown stays inside Windows' 5 s hung-application timeout. `wParam` `FALSE` (the
+  end was cancelled) changes nothing. The rest of the process runtime teardown, `RedXePluginShutdown` included, is
+  not guaranteed at session end.
 - Fullscreen selection and DPI policy belong to `Application`; swap-chain sizing and presentation belong to
   `Renderer`.
 
@@ -464,11 +481,12 @@ display, a side bar, negative coordinates, the minimum, DPI 0, the rescale witho
 under 64 DIPs across where the minimum is still clamped), the first-run monitor (`DockFirstRunMonitor`: the primary
 for zero or one display, `secondary` from two), and the first-run edge (`DockFirstRunEdge`: a visible taskbar at the
 bottom and at the top, an auto-hiding taskbar at either edge, a display without a taskbar following the primary
-taskbar's edge and `top` when that is unknown, a side taskbar, both edges taken, negative coordinates, and the ABE
-mapping back to edges), and the autohide slide (`DockSlideDurationMilliseconds`: whole, partial, reversed, zero,
-and tiny travels; `DockSlideVisiblePixels`: exact ends, clamped progress, the eased halfway points of a reveal and a
-hide, one-way motion within the travel; `DockSlideContentOffset` for every edge), with a dock-kind swap chain
-presenting a slide frame at half the bar with every tile translated and returning in place when the slide ends;
+taskbar's edge and `top` when that is unknown, a side taskbar, both edges taken, negative coordinates, the ABE
+mapping back to edges, and `DockAutohideBarHoldsEdge` counting a registration only while its window exists), and the
+autohide slide (`DockSlideDurationMilliseconds`: whole, partial, reversed, zero, and tiny travels;
+`DockSlideVisiblePixels`: exact ends, clamped progress, the eased halfway points of a reveal and a hide, one-way
+motion within the travel; `DockSlideContentOffset` for every edge), with a dock-kind swap chain presenting a slide
+frame at half the bar with every tile translated and returning in place when the slide ends;
 `SettingsTests` proves the `dock` member with `animationMilliseconds` (0 through 1000, default 200), its rejections,
 minor 2, the `secondary` selector in the document and on `--dock`, the `--dock*` grammar with its errors, the merge
 precedence, `PatchDockThickness` (replace, create with the minor bump, range, re-parse), and the first-run install
@@ -511,6 +529,18 @@ where it was, and exits 0. The 2026-10-07 check recorded this on the topology ab
 reserving bar and with an autohide bar up (the work area is reserved again, a full-screen window on the bar's monitor
 puts it beneath again) is a manual check.
 
+Session-end changes MUST keep the `--self-test` step green: `WM_QUERYENDSESSION` and a cancelled `WM_ENDSESSION`
+sent to its hidden window keep the window, renderer, page, and services, and `WM_ENDSESSION` with `wParam` `TRUE`
+returns with the window destroyed, the page released, and every service and device lane stopped, within
+`kRedXeDeviceWorkerDrainMilliseconds` plus `kSessionEndLogFlushMilliseconds`. Because the self-test has no log
+writer, they additionally require a live run: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed
+--dock-reserve off`) running the Zoom service under `--screenshot`, sent both messages with `ENDSESSION_LOGOFF` the way
+Windows sends them, answers `TRUE`, returns from `WM_ENDSESSION` with its window destroyed and its JSONL log already
+holding `session-ending` followed by `service-stopped`, leaves the foreground where it was, and exits by itself (8:
+the run ended before its capture). The 2026-10-07 check recorded this on the topology above (`WM_ENDSESSION` returned
+after 26 ms). A real sign-out, restart, or shutdown with a Logicon keypad and dialpad bound (the keypad shows the Logi
+splash on the sign-in screen, and the dialpad buttons RedXe bound work normally again) is a manual check.
+
 Notification-area icon changes MUST keep `HostPluginTests` proving the callback table (`TrayIconActionFor`: a
 double-click and `NIN_KEYSELECT` edit, `WM_CONTEXTMENU` opens the menu, single clicks, hover, and balloon events do
 nothing, an edit within the double-click time of the previous one is dropped, and an earlier tick never blocks one),
@@ -535,7 +565,7 @@ restarting Explorer brings it back; and a Debug run with the shipped template sh
   `FinishWindowKindSwitch`), `PlaceStandardWindow`, the dock-only reload and its rollback in `ApplyDockSettings`, and
   the combined page-and-kind reload in `ApplySettings`; the deferred reload: `OnSettingsChanged` and
   `ReplayDeferredSettingsReload`; the failure message box: `RunApplication` in `RedXe/Main.cpp`; the first-run dock:
-  `MakeFirstRunDock` in `RedXe/Application.cpp`
+  `MakeFirstRunDock` in `RedXe/Application.cpp`; session end: `Application::OnEndSession`
 - Dock placement, monitor selection, MINMAXINFO, the autohide state machine, the slide, and the first-run monitor,
   edge, and thickness: `RedXe/DockPlacement.h`; the `--dock*` grammar and merge: `RedXe/DockOptions.h`; dock-kind
   presentation: `Renderer::SetDockPresentation`; the slide's frames and translation: `Application::TickDockSlide`,

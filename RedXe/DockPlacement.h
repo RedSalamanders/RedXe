@@ -197,6 +197,15 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
     return top && !bottom ? DockEdge::Bottom : DockEdge::Top;
 }
 
+// The autohide evidence for DockFirstRunEdge: the bar ABM_GETAUTOHIDEBAREX reports on an edge holds that edge only
+// while its window exists. Explorer keeps the registration of a bar whose process crashed or was killed until another
+// bar registers on the edge, and a first-run install after RedXe's own autohide bar died runs in exactly that gap. This
+// is the one window-manager query in this header; a window that exists belongs to a live thread.
+[[nodiscard]] inline bool DockAutohideBarHoldsEdge(HWND bar) noexcept
+{
+    return bar != nullptr && IsWindow(bar) != FALSE;
+}
+
 // `bounds` trimmed to `thicknessPx` on the edge side. Used for the proposal to the shell (bounds = monitor) and for
 // the re-trim after ABM_QUERYPOS (bounds = the rectangle the shell returned).
 [[nodiscard]] constexpr RECT DockTrimToThickness(const RECT& bounds, DockEdge edge, LONG thicknessPx) noexcept

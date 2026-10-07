@@ -16,7 +16,7 @@ Plug a Logitech MX Creative Console keypad into the PC and RedXe takes it over: 
 
 Quit **Logi Options+** first (or remove the keypad from its profile). Both programs can talk to the keypad at once, but Options+ keeps repainting the keys with its own icons, so the faces fight. RedXe never closes Options+ for you; it only logs a warning when it sees it.
 
-Unplugging and replugging the keypad is fine: the faces come back by themselves. On exit RedXe restores the keypad's own button behavior and, by default, its start-up logo.
+Unplugging and replugging the keypad is fine: the faces come back by themselves. On exit, including when you sign out, restart, or shut down Windows, RedXe restores the keypad's own button behavior and, by default, its start-up logo. After a crash it cannot: replug the keypad, or start and exit RedXe once.
 
 The MX Creative **Dialpad** works too when it is paired over Bluetooth: turning the dial or the roller can run any action per notch (flip dashboard pages, change the volume, switch key pages, dim the keypad, …), and each of its four buttons can do anything a key can. Buttons you do not bind keep their normal meaning (Back, Forward, …), and the dial and roller keep scrolling whatever is under the mouse pointer while they drive RedXe (over the RedXe window itself they act as a horizontal and a vertical mouse wheel, which also change dashboard pages; a notch that is both bound to `page.next` and received as a wheel moves one page, not two). A dialpad paired through a Logi Bolt receiver is not read.
 

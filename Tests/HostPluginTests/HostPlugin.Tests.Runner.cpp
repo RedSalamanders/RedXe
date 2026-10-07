@@ -835,6 +835,18 @@ void TestDockPlacement(bool& success) noexcept
               DockFirstRunEdge(secondary, RECT{-1920, -152, 0, 880}, false, false, DockEdge::Bottom) ==
                   DockEdge::Bottom,
           L"the edge decision works at negative coordinates", success);
+
+    // Explorer keeps reporting the autohide bar of a crashed or killed process on its edge; a window that no longer
+    // exists holds nothing, so the first-run bar still goes opposite the primary taskbar.
+    wil::unique_hwnd autohideBar{
+        CreateWindowExW(0, L"STATIC", L"autohide bar", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, nullptr, nullptr)};
+    const HWND bar = autohideBar.get();
+    const bool liveBarHolds = DockAutohideBarHoldsEdge(bar);
+    autohideBar.reset();
+    Check(bar && liveBarHolds && !DockAutohideBarHoldsEdge(bar) && !DockAutohideBarHoldsEdge(nullptr) &&
+              DockFirstRunEdge(monitor, fullWork, DockAutohideBarHoldsEdge(bar), false, DockEdge::Bottom) ==
+                  DockEdge::Top,
+          L"an autohide registration holds its edge only while its window exists", success);
 }
 
 // DockPlacement.h autohide slide: the duration share of a partial travel, the eased visible thickness of a reveal and

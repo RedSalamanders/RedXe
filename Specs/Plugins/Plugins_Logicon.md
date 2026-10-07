@@ -143,6 +143,12 @@ receiver child with a HID++ device index other than `0xFF`) is not driven.
 
 ## Host integration
 
+- The lane leaves the devices as found when it returns: the page buttons' and bound dialpad buttons' reporting flags,
+  and with `restoreLogoOnExit` the splash reset. Every RedXe exit stops the service, a session end included: Windows
+  ends the process once `WM_ENDSESSION` returns, so the host stops its services inside that message
+  (`../UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle") and a sign-out, restart, or shutdown restores
+  the devices within the lane's drain budget (`kRedXeDeviceWorkerDrainMilliseconds`). A crash or a forced kill does
+  not: the buttons stay diverted until the device is reconnected or RedXe runs and exits again.
 - The lane requests faces only while a keypad is connected or a monitor tile is attached; without either it keeps no
   surfaces. Host state (`IRedXeService::OnHostState`) drives the `pageIndicator` and accent faces and arrives on
   every page, raise, visibility, or settings change.

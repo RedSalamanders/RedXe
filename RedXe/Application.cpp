@@ -48,6 +48,12 @@ constexpr DWORD kPopupWindowStyle = WS_POPUP | WS_CLIPCHILDREN;
 // always be reached; ABN_FULLSCREENAPP lowers it beneath a full-screen application.
 constexpr DWORD kDockExtendedStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
 
+// Session end (UI_XeneonDisplayWindowing.md "Window and rendering lifecycle"): after the close path, whose service stop
+// waits at most kRedXeDeviceWorkerDrainMilliseconds per device lane, the log writer gets this long, which keeps the
+// whole teardown inside Windows' 5 s hung-application timeout.
+constexpr uint32_t kSessionEndLogFlushMilliseconds = 1000;
+static_assert(kRedXeDeviceWorkerDrainMilliseconds + kSessionEndLogFlushMilliseconds < 5000);
+
 // The private messages the main window receives are distinct.
 static_assert(TrayIcon::kCommandMessage != Renderer::kOcclusionStatusMessage &&
               TrayIcon::kCommandMessage != SettingsWatcher::kSettingsChangedMessage &&
@@ -397,15 +403,15 @@ struct DisplayFriendlyName final
     return count;
 }
 
-// Evidence for the first-run edge (DockFirstRunEdge): an autohide bar registered on `appBarEdge` of `monitor`, which is
-// how an auto-hiding taskbar holds its edge without trimming the work area.
+// Evidence for the first-run edge (DockFirstRunEdge): a live autohide bar registered on `appBarEdge` of `monitor`,
+// which is how an auto-hiding taskbar holds its edge without trimming the work area (DockAutohideBarHoldsEdge).
 [[nodiscard]] bool AutohideBarOnEdge(UINT appBarEdge, const RECT& monitor) noexcept
 {
     APPBARDATA data{};
     data.cbSize = sizeof(data);
     data.uEdge = appBarEdge;
     data.rc = monitor;
-    return SHAppBarMessage(ABM_GETAUTOHIDEBAREX, &data) != 0;
+    return DockAutohideBarHoldsEdge(reinterpret_cast<HWND>(SHAppBarMessage(ABM_GETAUTOHIDEBAREX, &data)));
 }
 
 // The primary taskbar's edge, or None without a taskbar (Explorer not started yet).
@@ -899,12 +905,23 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     PublishHostState();
     ShowActionNotices();
 
+    // A dock's previous-crash notice comes before the bar is shown and has no owner: under an owned notice the bar
+    // would be a topmost window with no presented frame, and closing the notice would activate it, which breaks
+    // show-without-focus and holds an autohide bar open (Core_CrashHandling.md "Previous-crash notice").
+    const bool noticeBeforeShow = _dockActive;
+    if (noticeBeforeShow)
+    {
+        CrashHandler::ShowPreviousCrashUiIfPresent(nullptr);
+    }
     // A dock is shown without taking the focus, like the taskbar: the user's current window keeps it, and an autohide
     // bar collapses on its own after the hide delay instead of waiting for a click elsewhere.
     ShowWindow(_window.get(), _dockActive ? SW_SHOWNOACTIVATE : showCommand);
     UpdateWindow(_window.get());
     _windowVisible = IsWindowVisible(_window.get()) != FALSE;
-    CrashHandler::ShowPreviousCrashUiIfPresent(_window.get());
+    if (!noticeBeforeShow)
+    {
+        CrashHandler::ShowPreviousCrashUiIfPresent(_window.get());
+    }
     if (!_window)
     {
         return FAILED(_runtimeFailure) ? 5 : 0;
@@ -1325,6 +1342,30 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         if (!deferred)
         {
             OutputDebugStringW(L"redxe.settings.reload or redxe.quit ran inside the caller instead of being posted.\n");
+            return 6;
+        }
+    }
+
+    // Session end, last because it closes the window: the query never vetoes, a cancelled end changes nothing, and an
+    // ending session runs the close path before WM_ENDSESSION returns, within its bound: the page collected and
+    // released, every service and device lane stopped, and the window gone.
+    {
+        const uint32_t startedServices = PluginHost::Instance().StartedServiceCount();
+        const bool cancelKeepsRunning = SendMessageW(_window.get(), WM_QUERYENDSESSION, 0, ENDSESSION_LOGOFF) == TRUE &&
+                                        SendMessageW(_window.get(), WM_ENDSESSION, FALSE, ENDSESSION_LOGOFF) == 0 &&
+                                        _window && _rendererReady &&
+                                        _dashboardHost->WidgetCount() == _pluginManager->WidgetCount() &&
+                                        PluginHost::Instance().StartedServiceCount() == startedServices;
+        const auto endStart = std::chrono::steady_clock::now();
+        (void)SendMessageW(_window.get(), WM_ENDSESSION, TRUE, ENDSESSION_LOGOFF);
+        const auto endMilliseconds =
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - endStart).count();
+        if (!cancelKeepsRunning || _window || _rendererReady || _dashboardHost->WidgetCount() != 0 ||
+            PluginHost::Instance().StartedServiceCount() != 0 ||
+            PluginHost::Instance().RunningDeviceWorkerCount() != 0 ||
+            endMilliseconds > kRedXeDeviceWorkerDrainMilliseconds + kSessionEndLogFlushMilliseconds)
+        {
+            OutputDebugStringW(L"WM_ENDSESSION did not close RedXe within the session-end bound.\n");
             return 6;
         }
     }
@@ -5815,6 +5856,25 @@ void Application::CloseMainWindow() noexcept
     _window.reset();
 }
 
+// Sign-out, restart, shutdown, or a Restart Manager close: Windows may end the process as soon as WM_ENDSESSION
+// returns, without WM_CLOSE and without wWinMain returning, so the close path runs here. It collects widget settings,
+// stops the services (Logicon's lane restores its devices before it returns), and removes the tray icon and app bar,
+// which still matters to an Explorer that keeps running. The lines logged until then are written out within a bound.
+void Application::OnEndSession(LPARAM reason) noexcept
+{
+    const char* message = (reason & ENDSESSION_CLOSEAPP) != 0 ? "Windows asked RedXe to close; RedXe closes now."
+                          : (reason & ENDSESSION_LOGOFF) != 0
+                              ? "The user is signing out; RedXe closes now."
+                              : "Windows is shutting down or restarting; RedXe closes now.";
+    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "session-ending",
+                       message);
+    CloseMainWindow();
+    if (FAILED(PluginHost::Instance().FlushLog(kSessionEndLogFlushMilliseconds)))
+    {
+        OutputDebugStringW(L"RedXe: the log writer did not drain at session end; its last lines may be lost.\n");
+    }
+}
+
 LRESULT CALLBACK Application::WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
 {
     Application* application = reinterpret_cast<Application*>(GetWindowLongPtrW(window, GWLP_USERDATA));
@@ -6320,6 +6380,15 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         return 0;
     case WM_CLOSE:
         CloseMainWindow();
+        return 0;
+    case WM_QUERYENDSESSION:
+        // RedXe never vetoes sign-out, restart, or shutdown; it closes on WM_ENDSESSION.
+        return TRUE;
+    case WM_ENDSESSION:
+        if (wParam != FALSE)
+        {
+            OnEndSession(lParam);
+        }
         return 0;
     case WM_DESTROY:
         _displayPowerNotification.reset();

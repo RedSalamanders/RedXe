@@ -380,7 +380,10 @@ int RunWithCrashBoundary(HINSTANCE instance, int showCommand) noexcept
     __except (CrashHandler::WriteDumpForException(GetExceptionInformation()))
     {
         OutputDebugStringW(L"RedXe terminated after an unhandled exception; a diagnostic dump was requested.\n");
-        return CrashHandler::kCrashExitCode;
+        // Ended here like every other fatal path: returning from wWinMain would let CRT exit shut the process plugin
+        // runtime down (service drains, worker joins, RedXePluginShutdown) inside the crashed process.
+        TerminateProcess(GetCurrentProcess(), static_cast<UINT>(CrashHandler::kCrashExitCode));
+        __assume(false);
     }
 }
 } // namespace
