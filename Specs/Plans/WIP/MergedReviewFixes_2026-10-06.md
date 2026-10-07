@@ -247,9 +247,9 @@ Check a row when its fix lands, or note why it was dropped.
 
 ### B2. Release workflow runs the Python tooling suite (3)
 
-- [ ] `alignment#1` (high) `.github/workflows/release.yml:124`: The release workflow's test.ps1 call now runs the Python/PyYAML tooling suite without installing Python
-- [ ] `scoped-testing#0` (high) `.github/workflows/release.yml:124`: Release workflow now runs the Python/PyYAML tooling suite in every build job without installing Python dependencies
-- [ ] `tests#16` (high) `.github/workflows/release.yml:124`: Release workflow now runs the Python/PyYAML tooling suite on runners that never install it
+- [x] `alignment#1` (high) `.github/workflows/release.yml:124`: The release workflow's test.ps1 call now runs the Python/PyYAML tooling suite without installing Python
+- [x] `scoped-testing#0` (high) `.github/workflows/release.yml:124`: Release workflow now runs the Python/PyYAML tooling suite in every build job without installing Python dependencies
+- [x] `tests#16` (high) `.github/workflows/release.yml:124`: Release workflow now runs the Python/PyYAML tooling suite on runners that never install it
 
 ### P1. Settings integrity (12)
 

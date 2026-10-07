@@ -18,4 +18,4 @@ For independent resource investigations, force fresh execution and retain paired
 ./test.ps1 -Full
 ```
 
-Repeated unchanged scopes print REUSED. Force reruns them. SkipBuild requires an attestation established by a prior Test-Changes build; stale binaries are rejected. Explicit test.ps1 suite/named-test calls retain the lower-level diagnostic interface. Its ordinary call now routes to affected iteration; Full is explicit. An unknown local comparison ref fails with Git's diagnostic rather than silently selecting no work.
+Repeated unchanged scopes print REUSED. Force reruns them. SkipBuild requires an attestation established by a prior Test-Changes build; stale binaries are rejected. Explicit test.ps1 suite/named-test calls retain the lower-level diagnostic interface. Its ordinary call now routes to affected iteration; Full is explicit. Full includes the BuildProcess tooling suite, which needs Python with `Build/requirements-validation.txt`; SkipTooling leaves that suite to the CI tooling job. An unknown local comparison ref fails with Git's diagnostic rather than silently selecting no work.

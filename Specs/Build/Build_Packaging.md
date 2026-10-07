@@ -141,9 +141,11 @@ ref before resolving a version, because the commit count is monotonic only along
    exists or it failed, then checks out the full history and resolves `major.minor.<commit count>` from `Common/Version.h` and
    `git rev-list --count HEAD`. It fails when the tag `v<version>` already exists: a commit is released at most
    once, and published assets are never replaced. Releasing again means merging a new commit to `main`.
-2. `build` runs `test.ps1 -Configuration Release -Platform <P> -BuildNumber <n>` then
+2. `build` runs `test.ps1 -Full -SkipTooling -Configuration Release -Platform <P> -BuildNumber <n>` then
    `package.ps1 -Platform <P> -BuildNumber <n> -SkipBuild` natively on `windows-2025-vs2026` (x64) and
-   `windows-11-vs2026-arm` (ARM64, unless `build_arm64` is off), and uploads the ZIP and its sidecar.
+   `windows-11-vs2026-arm` (ARM64, unless `build_arm64` is off), and uploads the ZIP and its sidecar. The job
+   installs no Python packages, so it MUST pass `-SkipTooling`: the profile-independent tooling suite, which needs
+   `Build/requirements-validation.txt`, already passed in the `tooling` job of the push run that `version` requires.
 3. `release` requires the exact expected asset set, verifies each sidecar hash, writes `checksums.sha256`, and
    creates the GitHub release `v<version>` at the workflow commit with generated notes. A missing or partial matrix
    never becomes a release.
