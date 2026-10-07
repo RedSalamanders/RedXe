@@ -5756,8 +5756,11 @@ void TestSessionEndDeadline(bool& success) noexcept
         request.targetUtf8 = "C:\\RedXe-launch-test\\ok0";
         const bool started =
             host.ExecuteAction(&request) == S_FALSE && WaitForSingleObject(probe.entered.get(), 5'000) == WAIT_OBJECT_0;
-        // StopServices goes through the slots in reverse, so the stuck lane in the last slot is waited for first.
-        const bool stalled = PluginHostTestAccess::StartStalledLane(host, responsive, 0) &&
+        // StopServices goes through the slots in reverse, so the stuck lane in the last slot is waited for first. A
+        // responsive lane stopped after it needs a second service slot; with one bundled service the stuck lane alone
+        // proves the budget.
+        constexpr bool twoLanes = kRedXeBundledServices.size() >= 2;
+        const bool stalled = (!twoLanes || PluginHostTestAccess::StartStalledLane(host, responsive, 0)) &&
                              PluginHostTestAccess::StartStalledLane(host, stuck, kRedXeBundledServices.size() - 1);
 
         const ULONGLONG start = GetTickCount64();
@@ -5780,8 +5783,9 @@ void TestSessionEndDeadline(bool& success) noexcept
         const ULONGLONG elapsed = beforeFlush - start;
         const bool flushed = SUCCEEDED(host.FlushLog(10'000));
         const std::string log = ReadTodayLog(root / L"deadline");
-        const bool lanes = host.RunningDeviceWorkerCount() == 1 && responsive.stopped.load() == 1 &&
-                           responsive.destroyed.load() == 1 && stuck.stopped.load() == 0;
+        const bool lanes = host.RunningDeviceWorkerCount() == 1 && stuck.stopped.load() == 0 &&
+                           (!twoLanes || (responsive.stopped.load() == 1 && responsive.destroyed.load() == 1));
+        const size_t stoppedServices = twoLanes ? 1U : 0U;
         (void)SetEvent(probe.release.get());
         const bool exited = WaitForSingleObject(PluginHostTestAccess::LaunchThread(host), 5'000) == WAIT_OBJECT_0;
 
@@ -5789,7 +5793,7 @@ void TestSessionEndDeadline(bool& success) noexcept
               L"the device lanes together wait the lane budget, cut to what is left before the flush's reserve",
               success);
         Check(lanes && CountText(log, "\"event\":\"device-lane-drain-timeout\"") == 1 &&
-                  CountText(log, "\"event\":\"service-stopped\"") == 1,
+                  CountText(log, "\"event\":\"service-stopped\"") == stoppedServices,
               L"a responsive lane stopped after a stuck one drains within that budget; only the stuck one times out",
               success);
         Check(exited && launchBudget < LaunchWorker::kStopMilliseconds / 2 && launchWaited < launchBudget + 500 &&

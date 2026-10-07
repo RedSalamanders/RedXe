@@ -738,23 +738,23 @@ launch stop a session end makes: it waits the bound once for a stuck launch and 
 runtime shutdown after it neither waits nor logs again. `TestSessionEndDeadline` proves the one deadline:
 `PluginHost::TeardownStageMilliseconds` gives a stage its own bound cut to what is left before the later stages'
 reserve, and nothing after that point; and against a 2 s deadline with a 0.8 s flush reserve, 0.2 s already spent
-before the waits, a device lane stuck past its drain bound, a responsive lane stopped after it, and a launch stuck in
-the shell, the lane drain waits only until the reserve while the responsive lane drains alongside and runs `Stop`,
-the launch stop waits at most what is left, the stages before the flush end inside the deadline and leave it its
-reserve, and the log then holds one `device-lane-drain-timeout` (the stuck lane's) and one `launch-stop-timeout`. The
-waits are checked against the budgets the sequence hands out, with scheduling margins of hundreds of milliseconds;
-the flush is not timed, since `FlushLog`'s timeout bounds a hung writer, not disk latency, and the log is read after a
-10 s hang guard. A zero-wait stop of an idle launch worker logs no `launch-stop-timeout`, and the shutdown after it
-joins the thread. Because the self-test has no log writer, they additionally require a live run: a Debug overlay bar
-(`--dock bottom@primary --dock-mode fixed --dock-reserve off`) running the Zoom service under `--screenshot`, sent
-both messages with `ENDSESSION_LOGOFF` the way Windows sends them, answers `TRUE`, returns from `WM_ENDSESSION` with
-its window destroyed and its JSONL log already holding `session-ending` followed by `service-stopped`, leaves the
-foreground where it was, and exits by itself (8: the run ended before its capture). The 2026-10-07 check recorded
-this on the topology above (`WM_ENDSESSION` returned after 26 ms, after 29 ms once the session end also stopped the
-launch worker, after 37 ms under the one deadline, and after 33 to 416 ms over four runs once every lane was
-signalled before the first wait). A real sign-out, restart, or shutdown with a Logicon keypad and dialpad bound (the
-keypad shows the Logi splash on the sign-in screen, and the dialpad buttons RedXe bound work normally again) is a
-manual check.
+before the waits, a device lane stuck past its drain bound, a responsive lane stopped after it (when a second bundled
+service exists), and a launch stuck in the shell, the lane drain waits only until the reserve while any responsive lane
+drains alongside and runs `Stop`, the launch stop waits at most what is left, the stages before the flush end inside the
+deadline and leave it its reserve, and the log then holds one `device-lane-drain-timeout` (the stuck lane's) and one
+`launch-stop-timeout`. The waits are checked against the budgets the sequence hands out, with scheduling margins of
+hundreds of milliseconds; the flush is not timed, since `FlushLog`'s timeout bounds a hung writer, not disk latency, and
+the log is read after a 10 s hang guard. A zero-wait stop of an idle launch worker logs no `launch-stop-timeout`, and
+the shutdown after it joins the thread. Because the self-test has no log writer, they additionally require a live run: a
+Debug overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`) running the Logicon service under
+`--screenshot` (the runs recorded below ran the Zoom service, bundled then), sent both messages with `ENDSESSION_LOGOFF`
+the way Windows sends them, answers `TRUE`, returns from `WM_ENDSESSION` with its window destroyed and its JSONL log
+already holding `session-ending` followed by `service-stopped`, leaves the foreground where it was, and exits by itself
+(8: the run ended before its capture). The 2026-10-07 check recorded this on the topology above (`WM_ENDSESSION`
+returned after 26 ms, after 29 ms once the session end also stopped the launch worker, after 37 ms under the one
+deadline, and after 33 to 416 ms over four runs once every lane was signalled before the first wait). A real sign-out,
+restart, or shutdown with a Logicon keypad and dialpad bound (the keypad shows the Logi splash on the sign-in screen,
+and the dialpad buttons RedXe bound work normally again) is a manual check.
 
 Notification-area icon changes MUST keep `HostPluginTests` proving the callback table (`TrayIconActionFor`: a
 double-click and `NIN_KEYSELECT` edit, `WM_CONTEXTMENU` opens the menu, single clicks, hover, and balloon events do
