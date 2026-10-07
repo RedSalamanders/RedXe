@@ -64,7 +64,8 @@ A test process never waits on a dialog. Every native test executable calls `Comm
   stderr and ends the process with exit code 3, as the CRT's Abort button would, instead of opening its modal
   Abort/Retry/Ignore box. The report MUST NOT go through a CRT stream, whose default "C" locale stops at the first
   character above U+00FF (a source path under such a user or folder name): it is written as UTF-8 to a pipe or a file
-  and as UTF-16 to a console, through a fixed stack buffer.
+  and as UTF-16 to a console, through a fixed stack buffer. Every run of a RedXe process in `test.ps1` and in the
+  package smoke of `Build/Package.psm1` therefore decodes its stderr as UTF-8 (`-StandardErrorEncoding`, below).
 - In a process that calls the header, exit code 3 MUST mean only a failed runtime check and exit code 4 only an
   `abort()` that no such check reported: no other path of such a process, a fixture child mode or a watchdog
   included, ends with either. That `abort()` (an `assert()`, a direct call, or in a test executable `std::terminate`
@@ -76,9 +77,11 @@ A test process never waits on a dialog. Every native test executable calls `Comm
   exit code 3. `assert()` and the CRT's runtime-error messages go to stderr, never to a message box, in the
   GUI-subsystem `RedXe.exe` as well. Windows Error Reporting's dialog and critical-error boxes are suppressed.
 - `test.ps1` runs `PluginContractTests.exe --failure-report-self-test`, a hidden switch that fails such a check on
-  purpose with a report that carries a character above U+00FF. It requires the whole report and exit code 3 in Debug
-  and ASan Debug, and exit code 0 in Release, which has no such checks. The run is bounded by two minutes, so a routing
-  that stopped working fails there.
+  purpose with a report that carries a character above U+00FF (U+0141). It requires the whole report, that character
+  intact, and exit code 3 in Debug and ASan Debug, and exit code 0 in Release, which has no such checks. The run is
+  bounded by two minutes, so a routing that stopped working fails there. It takes place in a background job, whose
+  hidden console is its own, under console output code page 437, which has no U+0141, so it proves the UTF-8 decoding
+  whatever code page the caller's console uses. A console another process shares is never changed.
 - `test.ps1` runs `PluginContractTests.exe --abort-self-test`, a hidden switch that reports as a GUI-subsystem process
   does and fails an `assert()` (Debug and ASan Debug) or calls `abort()` (Release). It requires the abort line, the
   assertion's text where `assert()` is compiled in, and exit code 4, within two minutes.
@@ -117,7 +120,12 @@ its process tree (a descendant of the invocation, never an independently launche
 `TIMEOUT:` record stay in the log, and the call throws naming the executable and the log. A bounded child is created
 suspended and joins the kill-on-close job before its first instruction runs, so nothing it starts can escape the job;
 an unbounded one starts through `Process.Start`, and both paths quote arguments, keep stream identity, propagate the
-exit code, report the child's process identifier through `-ProcessId`, and decode output alike. The survivor check
+exit code, report the child's process identifier through `-ProcessId`, and decode output alike. Both decode the two
+streams with the console output code page by default, as `Process.Start` does, so a build tool's output (MSBuild,
+`cl`) reads the same on either path. `-StandardErrorEncoding` names another encoding for stderr alone: `test.ps1`
+and the package smoke pass UTF-8 for every RedXe process they run, whose stderr carries `Common/FailureReports.h`'s
+UTF-8 reports. `BuildProcessTests.ps1` proves, from a background job whose own console uses code page 437, that the
+named encoding decodes stderr on both paths and that both streams otherwise keep the code page. The survivor check
 follows parent processes, so a descendant that carries no marker (`ping.exe`) still counts. `build.ps1` keeps the
 unbounded default; `test.ps1` applies a fifteen-minute budget to every standalone test executable and to the crash
 harness, two minutes to its `--help`, unknown-switch and routing checks, and shows the HostPlugin and HostSmoke log

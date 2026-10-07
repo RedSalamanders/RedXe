@@ -312,6 +312,58 @@ exit 17
         throw "A bounded run decoded the child's output differently from Process.Start: '$($decodedOutput[120])' instead of '$($decodedOutput[0])'."
     }
 
+    # -StandardErrorEncoding decodes stderr alone with the encoding a caller names, on both paths: RedXe's processes
+    # write theirs as UTF-8 (Common/FailureReports.h). Without it both streams keep the console output code page. The
+    # runs take place in a background job, whose hidden console is its own, under code page 437, which has no U+0141
+    # and reads its UTF-8 bytes (C5 81) as U+253C U+00FC. A console another process shares is never changed.
+    [IO.File]::WriteAllBytes((Join-Path $presentationTestRoot 'report.txt'),
+        [Text.Encoding]::UTF8.GetBytes("report:$([char] 0x141)`r`n"))
+    @'
+@echo off
+type "%~dp0report.txt"
+type "%~dp0report.txt" 1>&2
+'@ | Set-Content -LiteralPath (Join-Path $presentationTestRoot 'report.cmd') -Encoding ASCII
+    $legacyJob = Start-Job -ScriptBlock {
+        param([string] $ModulePath, [string] $Root)
+        $ErrorActionPreference = 'Stop'
+        Add-Type -Namespace RedXeEncodingCheck -Name LegacyConsole -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern uint GetConsoleProcessList(uint[] list, uint count);
+[DllImport("kernel32.dll")] public static extern bool SetConsoleOutputCP(uint codePage);
+'@
+        if ([RedXeEncodingCheck.LegacyConsole]::GetConsoleProcessList([uint32[]]::new(2), 2) -ne 1 -or
+            -not [RedXeEncodingCheck.LegacyConsole]::SetConsoleOutputCP(437)) {
+            throw 'The stderr encoding check has no console of its own to set to code page 437.'
+        }
+        Import-Module $ModulePath -Force
+        foreach ($budget in @(0, 120)) {
+            foreach ($named in @($false, $true)) {
+                $lines = [Collections.Generic.List[string]]::new()
+                $encoding = if ($named) { @{ StandardErrorEncoding = [Text.UTF8Encoding]::new($false) } } else { @{} }
+                [void](Invoke-RedXeStreamingProcess -FilePath $env:ComSpec -Arguments @('/d', '/c', (Join-Path $Root 'report.cmd')) `
+                    -WorkingDirectory $Root -LogPath (Join-Path $Root "report-$budget-$named.log") -TimeoutSeconds $budget `
+                    @encoding -OutputLineCallback {
+                    param([string] $Line, [bool] $IsError)
+                    [void] $lines.Add(('{0}|{1}' -f [int] $IsError, $Line))
+                })
+                # Escaped, so the result does not depend on how the job's own output is encoded.
+                $escaped = @($lines | Sort-Object | ForEach-Object {
+                    -join ($_.ToCharArray() | ForEach-Object { if ([int] $_ -lt 128) { [string] $_ } else { '<U+{0:X4}>' -f [int] $_ } })
+                })
+                "$budget|$named|$($escaped -join ' ; ')"
+            }
+        }
+    } -ArgumentList $presentationModulePath, $presentationTestRoot
+    try { $legacyRuns = @($legacyJob | Receive-Job -Wait) }
+    finally { $legacyJob | Remove-Job -Force }
+    $legacy = 'report:<U+253C><U+00FC>'
+    $expectedLegacyRuns = @(foreach ($budget in @(0, 120)) {
+        "$budget|False|0|$legacy ; 1|$legacy"
+        "$budget|True|0|$legacy ; 1|report:<U+0141>"
+    })
+    if (($legacyRuns -join "`n") -cne ($expectedLegacyRuns -join "`n")) {
+        throw "Under console code page 437, stderr was not decoded with the encoding named for it, or the default changed: '$($legacyRuns -join ' | ')' instead of '$($expectedLegacyRuns -join ' | ')'."
+    }
+
     # A bounded child's job ends a process on an unhandled exception instead of leaving it in a Windows Error Reporting
     # dialog until the budget: the child reads the limit flags of its own job (JOBOBJECT_BASIC_LIMIT_INFORMATION's
     # LimitFlags sits at byte 16 on 64-bit Windows) and must find JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION.

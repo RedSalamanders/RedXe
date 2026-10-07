@@ -292,15 +292,17 @@ function Test-RedXePortablePackage {
             return [pscustomobject]@{ Entries = $entries; ExecutionSkipped = $true }
         }
         # Bounded and logged like test.ps1's runs, so a packaged self-test that hangs fails here with its log instead of
-        # holding package.ps1 or the release job until the workflow's timeout. The logs outlive the extraction.
+        # holding package.ps1 or the release job until the workflow's timeout. The logs outlive the extraction. As in
+        # test.ps1, stderr is decoded as UTF-8, which RedXe writes there (Common/FailureReports.h).
         $smokeLogStem = Join-Path $RepoRoot ('.build\logs\package-smoke-' + [guid]::NewGuid().ToString('N'))
+        $utf8 = [Text.UTF8Encoding]::new($false)
         $selfTestLog = "$smokeLogStem-self-test.log"
         $selfTestExit = Invoke-RedXeStreamingProcess -FilePath (Join-Path $extraction 'RedXe.exe') -Arguments @('--self-test', '--warp') `
-            -WorkingDirectory $extraction -TimeoutSeconds 900 -LogPath $selfTestLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+            -WorkingDirectory $extraction -TimeoutSeconds 900 -LogPath $selfTestLog -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
         if ($selfTestExit -ne 0) { throw "The packaged RedXe.exe --self-test --warp exited with $selfTestExit from $extraction (log: $selfTestLog)." }
         $helpLog = "$smokeLogStem-launcher-help.log"
         $helpExit = Invoke-RedXeStreamingProcess -FilePath (Join-Path $extraction 'RedXeLauncher.exe') -Arguments @('--help') `
-            -WorkingDirectory $extraction -TimeoutSeconds 120 -LogPath $helpLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+            -WorkingDirectory $extraction -TimeoutSeconds 120 -LogPath $helpLog -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
         if ($helpExit -ne 0 -or (Get-Content -LiteralPath $helpLog -Raw) -notmatch '--self-test') {
             throw "The packaged RedXeLauncher.exe --help exited with $helpExit or printed no help (log: $helpLog)."
         }
