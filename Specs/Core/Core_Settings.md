@@ -406,11 +406,13 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   `dock` member. Every other byte of the template is unchanged; an existing `dock` member would have its value
   replaced instead, and `version.minor` rises to 2 when lower, or to 3 when the dock names the `secondary` monitor.
   The display spec owns the dock's edge, monitor, and thickness (the free bottom edge first, on the second screen when
-  there is more than one display). The patched document is validated before the same atomic same-directory write, and
-  an existing file is never patched. The recovery of an invalid or incompatible default MUST install the plain
-  template, even without a XENEON, so a file that failed validation never turns the user's XENEON or window
-  configuration into a bar. After a failed discovery, in a remote session, or when the patch cannot be applied, the
-  plain template is installed; the first-run dock never fails startup.
+  there is more than one display). The store MUST ask for that dock (`FirstRunDockProvider`) only once it has found
+  the default file missing, at most once per start, so a start that finds the file, a recovery, a `--settings` file,
+  and the self-test measure no display for it. The patched document is validated before the same atomic
+  same-directory write, and an existing file is never patched. The recovery of an invalid or incompatible default MUST
+  install the plain template, even without a XENEON, so a file that failed validation never turns the user's XENEON or
+  window configuration into a bar. After a failed discovery, in a remote session, when no dock is made, or when the
+  patch cannot be applied, the plain template is installed; the first-run dock never fails startup.
 - A missing, unreadable, or invalid command-line file is never modified. RedXe reports the problem, runs with the
   deployed default configuration in memory, and writes nothing to that path until a later save of it loads ("Plugin
   persist").
@@ -532,8 +534,9 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   incompatible major version, is refused without changing the source. They prove that the store installs the first-run
   dock for a missing default file, keeps an existing file byte for byte, recovers an invalid default file with the
   plain template byte for byte and a notice that names no bar although a dock is offered, installs the plain template
-  byte for byte when no dock is offered or the offered dock is refused by the patch, and never writes a missing
-  `--settings` file.
+  byte for byte when no dock is offered, none is made, or the offered dock is refused by the patch, and never writes a
+  missing `--settings` file; and that it asks its provider for the dock exactly once for a missing default file and
+  never for an existing file, a recovery, a `--settings` file, or the self-test.
 - Tests prove the BOM rule: both shipped templates with a BOM load to the same typed settings with the BOM kept in
   the source; `PatchDockThickness` and `PatchFirstRunDock` produce the BOM followed by the bytes they produce without
   it; a widget persist rewrites the document with exactly one leading BOM; an error after a BOM is reported on its own

@@ -3,6 +3,7 @@
 #include "../../Plugins/Weather/Weather.Tests.Contract.h"
 #include "DashboardHost.h"
 #include "DeskClock.Tests.Contract.h"
+#include "DisplayEnumeration.h"
 #include "DockPlacement.h"
 #include "FrameScheduler.h"
 #include "HostActions.h"
@@ -25,6 +26,7 @@
 #include "WindowCapture.h"
 
 #include <shellapi.h>
+#include <shellscalingapi.h>
 #include <tlhelp32.h>
 
 #include <algorithm>
@@ -933,6 +935,76 @@ void TestDockPlacement(bool& success) noexcept
               DockFirstRunEdge(monitor, fullWork, false, DockAutohideBarHoldsEdge(bar), false, false) ==
                   DockEdge::Bottom,
           L"an autohide registration holds its edge only while its window exists", success);
+}
+
+// DisplayEnumeration.h: the one display walk behind the dock's monitor selection and the first-run bar. On this
+// machine's displays it records what an EnumDisplayMonitors walk reports, in that order, so the display a first-run
+// `secondary` is measured on is the one the selector resolves to at runtime; it skips a display it cannot read, stops
+// at kMaximumDisplays, and counts a DPI it cannot read as 96 (EffectiveMonitorDpi, which the standard window reads
+// too).
+void TestDisplayEnumeration(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] display walk order, rectangles, and DPI\n";
+    struct Walk final
+    {
+        std::array<HMONITOR, kMaximumDisplays> handles{};
+        std::array<MONITORINFOEXW, kMaximumDisplays> info{};
+        size_t count = 0;
+    } walk;
+    const auto collect = [](HMONITOR monitor, HDC, LPRECT, LPARAM data) noexcept -> BOOL
+    {
+        auto& target = *reinterpret_cast<Walk*>(data);
+        MONITORINFOEXW info{};
+        info.cbSize = sizeof(info);
+        if (target.count < target.info.size() && GetMonitorInfoW(monitor, &info))
+        {
+            target.handles[target.count] = monitor;
+            target.info[target.count] = info;
+            ++target.count;
+        }
+        return TRUE;
+    };
+    DisplayEnumeration displays;
+    EnumerateDisplays(displays);
+    (void)EnumDisplayMonitors(nullptr, nullptr, collect, reinterpret_cast<LPARAM>(&walk));
+    bool same = displays.count == walk.count;
+    for (size_t index = 0; same && index < displays.count; ++index)
+    {
+        const DockMonitorCandidate& candidate = displays.candidates[index];
+        const MONITORINFOEXW& expected = walk.info[index];
+        UINT dpiX = 0;
+        UINT dpiY = 0;
+        const UINT dpi = SUCCEEDED(GetDpiForMonitor(walk.handles[index], MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) && dpiX != 0
+                             ? dpiX
+                             : USER_DEFAULT_SCREEN_DPI;
+        same = EqualRect(&candidate.monitor, &expected.rcMonitor) && EqualRect(&candidate.work, &expected.rcWork) &&
+               candidate.primary == ((expected.dwFlags & MONITORINFOF_PRIMARY) != 0) && candidate.dpi == dpi &&
+               EffectiveMonitorDpi(walk.handles[index]) == dpi && candidate.deviceName == expected.szDevice &&
+               candidate.deviceName.data() == displays.info[index].szDevice && !candidate.xeneon &&
+               candidate.friendlyName.empty();
+    }
+    Check(same, L"the display walk records every display EnumDisplayMonitors reports, in its order", success);
+    // The first-run selection over that walk: the primary for one display, a display that is not the primary for more.
+    RedXeActions::MonitorSelector selector{};
+    bool fellBack = true;
+    const size_t chosen = RedXeActions::ParseMonitorSelector(DockFirstRunMonitor(displays.count), false, selector)
+                              ? SelectDockMonitor(selector, {}, displays.candidates.data(), displays.count, fellBack)
+                              : SIZE_MAX;
+    Check(displays.count == 0 ||
+              (chosen < displays.count && !fellBack && displays.candidates[chosen].primary == (displays.count == 1)),
+          L"the first-run monitor resolves over the walk to the primary alone or to the second screen", success);
+
+    DisplayEnumeration bounded;
+    bool continued = AppendDisplay(bounded, nullptr) && bounded.count == 0;
+    for (size_t index = 0; walk.count > 0 && index < kMaximumDisplays; ++index)
+    {
+        continued = continued && AppendDisplay(bounded, walk.handles[0]);
+    }
+    Check(continued &&
+              (walk.count == 0 || (bounded.count == kMaximumDisplays && !AppendDisplay(bounded, walk.handles[0]) &&
+                                   bounded.count == kMaximumDisplays)),
+          L"the display walk skips a display it cannot read and stops after its last slot", success);
+    Check(EffectiveMonitorDpi(nullptr) == USER_DEFAULT_SCREEN_DPI, L"a DPI that cannot be read counts as 96", success);
 }
 
 // DockPlacement.h placement requests: a request heard while a placement runs (a display, work-area, DPI, or app-bar
@@ -7827,6 +7899,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestWidgetRaiseHost(success);
     TestHostChromeComposition(success);
     TestDockPlacement(success);
+    TestDisplayEnumeration(success);
     TestDockPlacementRequests(success);
     TestDockAppBarRegistration(success);
     TestNoticeWindowPlacement(success);

@@ -6,6 +6,7 @@
 #include <UIAutomation.h>
 
 #include "CrashHandler.h"
+#include "DisplayEnumeration.h"
 #include "FailureReports.h"
 #include "FluentIcons.h"
 #include "FrameScheduler.h"
@@ -28,7 +29,6 @@
 #include <new>
 #include <ole2.h>
 #include <shellapi.h>
-#include <shellscalingapi.h>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -376,16 +376,15 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
 }
 
 // Friendly display names for the dock's `name:<substring>` selector: one (GDI source name, target friendly name)
-// pair per active display path, bounded so the lookup allocates nothing on the UI thread after the query buffers.
-constexpr size_t kDockMaximumDisplays = 16;
-
+// pair per active display path, bounded like the display walk (kMaximumDisplays) so the lookup allocates nothing on the
+// UI thread after the query buffers.
 struct DisplayFriendlyName final
 {
     std::array<wchar_t, CCHDEVICENAME> device{};
     std::array<wchar_t, 64> friendly{};
 };
 
-[[nodiscard]] size_t QueryDisplayFriendlyNames(std::array<DisplayFriendlyName, kDockMaximumDisplays>& names) noexcept
+[[nodiscard]] size_t QueryDisplayFriendlyNames(std::array<DisplayFriendlyName, kMaximumDisplays>& names) noexcept
 {
     size_t count = 0;
     try
@@ -466,65 +465,31 @@ struct FirstRunTopology final
 {
     dock = DefaultDockSettings();
     topology = FirstRunTopology{};
-    // Enumeration order is the order the `secondary` selector resolves in at runtime; the primary is the display
-    // flagged MONITORINFOF_PRIMARY, since (0,0) can belong to another display.
-    struct Enumeration final
-    {
-        std::array<HMONITOR, kDockMaximumDisplays> handles{};
-        std::array<DockMonitorCandidate, kDockMaximumDisplays> candidates{};
-        size_t count = 0;
-    } enumeration;
-    const auto collect = [](HMONITOR monitor, HDC, LPRECT, LPARAM context) noexcept -> BOOL
-    {
-        auto* target = reinterpret_cast<Enumeration*>(context);
-        if (target->count >= target->handles.size())
-        {
-            return FALSE;
-        }
-        MONITORINFO info{};
-        info.cbSize = sizeof(info);
-        if (!GetMonitorInfoW(monitor, &info))
-        {
-            return TRUE;
-        }
-        DockMonitorCandidate& candidate = target->candidates[target->count];
-        candidate.monitor = info.rcMonitor;
-        candidate.work = info.rcWork;
-        candidate.primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
-        target->handles[target->count] = monitor;
-        ++target->count;
-        return TRUE;
-    };
-    (void)EnumDisplayMonitors(nullptr, nullptr, collect, reinterpret_cast<LPARAM>(&enumeration));
-    const std::string_view monitorSelector = DockFirstRunMonitor(enumeration.count);
+    // ResolveDockMonitor resolves the written selector over the same walk at runtime, so the display measured here is
+    // the display the bar goes to.
+    DisplayEnumeration displays;
+    EnumerateDisplays(displays);
+    const std::string_view monitorSelector = DockFirstRunMonitor(displays.count);
     RedXeActions::MonitorSelector selector{};
     bool fellBack = false;
-    const size_t chosen =
-        RedXeActions::ParseMonitorSelector(monitorSelector, false, selector)
-            ? SelectDockMonitor(selector, {}, enumeration.candidates.data(), enumeration.count, fellBack)
-            : SIZE_MAX;
+    const size_t chosen = RedXeActions::ParseMonitorSelector(monitorSelector, false, selector)
+                              ? SelectDockMonitor(selector, {}, displays.candidates.data(), displays.count, fellBack)
+                              : SIZE_MAX;
     if (chosen == SIZE_MAX)
     {
         return false;
     }
-    const DockMonitorCandidate& display = enumeration.candidates[chosen];
-    UINT dpiX = USER_DEFAULT_SCREEN_DPI;
-    UINT dpiY = USER_DEFAULT_SCREEN_DPI;
-    if (FAILED(GetDpiForMonitor(enumeration.handles[chosen], MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) || dpiX == 0)
-    {
-        dpiX = USER_DEFAULT_SCREEN_DPI;
-    }
+    const DockMonitorCandidate& display = displays.candidates[chosen];
     bool sharedTop = false;
     bool sharedBottom = false;
-    for (size_t index = 0; index < enumeration.count; ++index)
+    for (size_t index = 0; index < displays.count; ++index)
     {
         if (index != chosen)
         {
-            sharedTop = sharedTop ||
-                        DockDisplayTouchesEdge(display.monitor, enumeration.candidates[index].monitor, DockEdge::Top);
-            sharedBottom =
-                sharedBottom ||
-                DockDisplayTouchesEdge(display.monitor, enumeration.candidates[index].monitor, DockEdge::Bottom);
+            sharedTop =
+                sharedTop || DockDisplayTouchesEdge(display.monitor, displays.candidates[index].monitor, DockEdge::Top);
+            sharedBottom = sharedBottom || DockDisplayTouchesEdge(display.monitor, displays.candidates[index].monitor,
+                                                                  DockEdge::Bottom);
         }
     }
     dock.edge = DockFirstRunEdge(display.monitor, display.work, AutohideBarOnEdge(ABE_TOP, display.monitor),
@@ -533,11 +498,11 @@ struct FirstRunTopology final
     dock.monitor = SettingsText{};
     monitorSelector.copy(dock.monitor.utf8.data(), monitorSelector.size());
     dock.monitor.bytes = static_cast<uint32_t>(monitorSelector.size());
-    dock.thicknessDips = DockFirstRunThicknessDips(display.monitor, display.work, dock.edge, dpiX);
-    topology.displays = enumeration.count;
+    dock.thicknessDips = DockFirstRunThicknessDips(display.monitor, display.work, dock.edge, display.dpi);
+    topology.displays = displays.count;
     topology.monitor = display.monitor;
     topology.work = display.work;
-    topology.dpi = dpiX;
+    topology.dpi = display.dpi;
     return true;
 }
 
@@ -837,13 +802,18 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     _xeneonBounds = xeneonBounds;
     _xeneonFound = xeneonFound;
     HostActions::SetXeneonDisplay(_xeneonBounds, _xeneonFound);
-    DockSettings firstRunDock{};
+    // The store makes the first-run dock only when it installs the default file because it is missing, so a start
+    // that finds the file walks no display and asks Explorer nothing for it.
     FirstRunTopology firstRunTopology{};
-    const bool offerFirstRunDock = DockFirstRunOffered(SUCCEEDED(result), xeneonFound, !settingsPath.empty(),
-                                                       GetSystemMetrics(SM_REMOTESESSION) != 0) &&
-                                   MakeFirstRunDock(firstRunDock, firstRunTopology);
+    const FirstRunDockProvider firstRunDock =
+        DockFirstRunOffered(SUCCEEDED(result), xeneonFound, !settingsPath.empty(),
+                            GetSystemMetrics(SM_REMOTESESSION) != 0)
+            ? FirstRunDockProvider{[](void* topology, DockSettings& dock) noexcept
+                                   { return MakeFirstRunDock(dock, *static_cast<FirstRunTopology*>(topology)); },
+                                   &firstRunTopology}
+            : FirstRunDockProvider{};
 
-    result = _settingsStore.Initialize(false, settingsPath, _settings, {}, offerFirstRunDock ? &firstRunDock : nullptr);
+    result = _settingsStore.Initialize(false, settingsPath, _settings, {}, firstRunDock);
     if (FAILED(result) || !_settings)
     {
         OutputDebugStringW(L"Settings initialization or validation failed.\n");
@@ -1702,48 +1672,22 @@ HRESULT Application::CreateDockWindow(bool visible) noexcept
 bool Application::ResolveDockMonitor(DockMonitorPlacement& placement) noexcept
 {
     placement = DockMonitorPlacement{};
-    struct Enumeration final
-    {
-        std::array<HMONITOR, kDockMaximumDisplays> handles{};
-        std::array<MONITORINFOEXW, kDockMaximumDisplays> info{};
-        size_t count = 0;
-    } enumeration;
-    const auto collect = [](HMONITOR monitor, HDC, LPRECT, LPARAM data) noexcept -> BOOL
-    {
-        auto* target = reinterpret_cast<Enumeration*>(data);
-        if (target->count >= target->handles.size())
-        {
-            return FALSE;
-        }
-        MONITORINFOEXW& info = target->info[target->count];
-        info = MONITORINFOEXW{};
-        info.cbSize = sizeof(info);
-        if (!GetMonitorInfoW(monitor, &info))
-        {
-            return TRUE;
-        }
-        target->handles[target->count] = monitor;
-        ++target->count;
-        return TRUE;
-    };
-    (void)EnumDisplayMonitors(nullptr, nullptr, collect, reinterpret_cast<LPARAM>(&enumeration));
-    if (enumeration.count == 0)
+    DisplayEnumeration displays;
+    EnumerateDisplays(displays);
+    if (displays.count == 0)
     {
         return false;
     }
 
-    std::array<DisplayFriendlyName, kDockMaximumDisplays> names{};
+    // The walk gives each display its rectangles, primary flag, DPI, and GDI name; the dock adds the XENEON and the
+    // friendly name the `xeneon` and `name:` selectors match.
+    std::array<DisplayFriendlyName, kMaximumDisplays> names{};
     const size_t nameCount = QueryDisplayFriendlyNames(names);
-    std::array<DockMonitorCandidate, kDockMaximumDisplays> candidates{};
-    for (size_t index = 0; index < enumeration.count; ++index)
+    for (size_t index = 0; index < displays.count; ++index)
     {
-        const MONITORINFOEXW& info = enumeration.info[index];
-        DockMonitorCandidate& candidate = candidates[index];
-        candidate.monitor = info.rcMonitor;
-        candidate.work = info.rcWork;
-        candidate.primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
+        const MONITORINFOEXW& info = displays.info[index];
+        DockMonitorCandidate& candidate = displays.candidates[index];
         candidate.xeneon = _xeneonFound && EqualRect(&info.rcMonitor, &_xeneonBounds);
-        candidate.deviceName = std::wstring_view{info.szDevice};
         for (size_t nameIndex = 0; nameIndex < nameCount; ++nameIndex)
         {
             if (CompareStringOrdinal(names[nameIndex].device.data(), -1, info.szDevice, -1, TRUE) == CSTR_EQUAL)
@@ -1752,12 +1696,6 @@ bool Application::ResolveDockMonitor(DockMonitorPlacement& placement) noexcept
                 break;
             }
         }
-        UINT dpiX = USER_DEFAULT_SCREEN_DPI;
-        UINT dpiY = USER_DEFAULT_SCREEN_DPI;
-        candidate.dpi =
-            SUCCEEDED(GetDpiForMonitor(enumeration.handles[index], MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) && dpiX != 0
-                ? dpiX
-                : USER_DEFAULT_SCREEN_DPI;
     }
 
     RedXeActions::MonitorSelector selector{};
@@ -1777,15 +1715,15 @@ bool Application::ResolveDockMonitor(DockMonitorPlacement& placement) noexcept
         }
     }
     bool fellBack = false;
-    const size_t chosen =
-        SelectDockMonitor(selector, std::wstring_view{needle.data()}, candidates.data(), enumeration.count, fellBack);
+    const size_t chosen = SelectDockMonitor(selector, std::wstring_view{needle.data()}, displays.candidates.data(),
+                                            displays.count, fellBack);
     if (chosen == SIZE_MAX)
     {
         return false;
     }
-    placement.monitor = candidates[chosen].monitor;
-    placement.work = candidates[chosen].work;
-    placement.dpi = candidates[chosen].dpi;
+    placement.monitor = displays.candidates[chosen].monitor;
+    placement.work = displays.candidates[chosen].work;
+    placement.dpi = displays.candidates[chosen].dpi;
     placement.fellBack = fellBack;
     return true;
 }
@@ -2286,11 +2224,7 @@ HRESULT Application::PlaceStandardWindow(bool fullscreen, HMONITOR fallbackMonit
                 return HRESULT_FROM_WIN32(GetLastError());
             }
         }
-        UINT dpiY = USER_DEFAULT_SCREEN_DPI;
-        if (FAILED(GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &targetDpi, &dpiY)) || targetDpi == 0)
-        {
-            targetDpi = USER_DEFAULT_SCREEN_DPI;
-        }
+        targetDpi = EffectiveMonitorDpi(monitor);
         SIZE size{};
         const HRESULT sized = CalculateWindowSizeForDpi(kTitledWindowStyle, kStandardExtendedStyle, targetDpi, size);
         if (FAILED(sized))

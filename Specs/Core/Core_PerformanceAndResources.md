@@ -100,8 +100,10 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   one-shot timer (dwell or hide delay) is armed and every state exit kills it; no hook and no cursor polling exist, the
   peek strip being the window itself. A collapsed dock presents exactly one grip frame and then blocks like a minimized
   window, retaining its full-size swap chain (about 4 MiB for a 3840×270 bar) so a reveal presents at once without
-  rebuilding it. Shell traffic (`SHAppBarMessage`) happens only on placement, activation, window-position changes, and
-  shell notifications, never per frame and never for a reveal, a hide, or a slide step. The work-area reservation (the
+  rebuilding it. Shell traffic (`SHAppBarMessage`) happens only on placement, activation, window-position changes,
+  shell notifications, and the first-run install (two `ABM_GETAUTOHIDEBAREX` queries, made only when the default
+  settings file is installed because it is missing), never per frame, never at a start that finds the settings file,
+  and never for a reveal, a hide, or a slide step. The work-area reservation (the
   whole bar of a fixed reserving bar, the peek strip of an autohide bar) is queried and set again only when a placement
   changes the reserved rectangle, its edge, row, or monitor DPI, or follows a shell change (`ABN_POSCHANGED`,
   `ABN_STATECHANGE`, `WM_DISPLAYCHANGE`), so the desktop is not re-laid out by the reveal state or by a placement that

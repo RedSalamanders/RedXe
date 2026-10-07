@@ -2344,7 +2344,8 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 // shipped templates as one commented run after `version`, in the file's own line breaks, and removes the template's
 // commented-out `dock` example with the comment that says to uncomment it, leaving every other byte and member; the
 // store writes that document for a missing default file only, never over an existing one, never when it recovers an
-// invalid one, and never for a `--settings` file.
+// invalid one, and never for a `--settings` file, and it asks its provider for the dock only for that missing file,
+// once, so no other start measures the displays for it.
 [[nodiscard]] HRESULT ValidateFirstRunDock() noexcept
 {
     try
@@ -2563,7 +2564,25 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         }
 
         // The store: install a missing file with the dock, keep an existing file, recover an invalid one with the plain
-        // template, install the plain template when no dock is offered, and never write a missing `--settings` file.
+        // template, install the plain template when no dock is offered or none is made, and never write a missing
+        // `--settings` file. The provider counts how often the store asks it for the dock.
+        struct OfferedDock final
+        {
+            DockSettings dock{};
+            bool made = true;
+            uint32_t requests = 0;
+        };
+        const auto offer = [](OfferedDock& offered) noexcept
+        {
+            return FirstRunDockProvider{[](void* context, DockSettings& value) noexcept
+                                        {
+                                            auto& source = *static_cast<OfferedDock*>(context);
+                                            ++source.requests;
+                                            value = source.dock;
+                                            return source.made;
+                                        },
+                                        &offered};
+        };
         const std::filesystem::path localRoot = std::filesystem::temp_directory_path() /
                                                 (L"RedXe.FirstRunDockTests." + std::to_wstring(GetCurrentProcessId()) +
                                                  L"." + std::to_wstring(GetTickCount64()));
@@ -2590,16 +2609,17 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 
         SettingsStore installStore;
         std::unique_ptr<AppSettings> installed;
-        result = installStore.Initialize(false, {}, installed, localRoot.wstring(), &dock);
+        OfferedDock installOffer{dock};
+        result = installStore.Initialize(false, {}, installed, localRoot.wstring(), offer(installOffer));
         std::string installedBytes;
         if (SUCCEEDED(result))
             result = ReadFile(selected, installedBytes);
-        if (FAILED(result) || !installed || !installStore.InstalledFirstRunDock() ||
+        if (FAILED(result) || !installed || installOffer.requests != 1 || !installStore.InstalledFirstRunDock() ||
             installStore.UsedInitialFallback() || !isFirstRunDock(installed->dock) ||
             installedBytes.find("// No XENEON display was found") == std::string::npos ||
             !definesOneDock(installedBytes))
         {
-            std::wprintf(L"A missing default file was not installed with the first-run dock.\n");
+            std::wprintf(L"A missing default file was not installed with the first-run dock, made once.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
@@ -2609,14 +2629,15 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         }
         SettingsStore keepStore;
         std::unique_ptr<AppSettings> kept;
-        result = keepStore.Initialize(false, {}, kept, localRoot.wstring(), &dock);
+        OfferedDock keepOffer{dock};
+        result = keepStore.Initialize(false, {}, kept, localRoot.wstring(), offer(keepOffer));
         std::string keptBytes;
         if (SUCCEEDED(result))
             result = ReadFile(selected, keptBytes);
-        if (FAILED(result) || !kept || keepStore.InstalledFirstRunDock() || kept->dock.edge != DockEdge::None ||
-            keptBytes != templateBytes)
+        if (FAILED(result) || !kept || keepOffer.requests != 0 || keepStore.InstalledFirstRunDock() ||
+            kept->dock.edge != DockEdge::None || keptBytes != templateBytes)
         {
-            std::wprintf(L"An existing default file was changed by the first-run dock.\n");
+            std::wprintf(L"An existing default file was changed or measured for by the first-run dock.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
@@ -2627,11 +2648,12 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         // Recovery reinstalls the plain template even with a dock offered: only a missing file gets the bar.
         SettingsStore recoverStore;
         std::unique_ptr<AppSettings> recovered;
-        result = recoverStore.Initialize(false, {}, recovered, localRoot.wstring(), &dock);
+        OfferedDock recoverOffer{dock};
+        result = recoverStore.Initialize(false, {}, recovered, localRoot.wstring(), offer(recoverOffer));
         std::string recoveredBytes;
         if (SUCCEEDED(result))
             result = ReadFile(selected, recoveredBytes);
-        if (FAILED(result) || !recovered || !recoverStore.UsedInitialFallback() ||
+        if (FAILED(result) || !recovered || recoverOffer.requests != 0 || !recoverStore.UsedInitialFallback() ||
             recoverStore.InstalledFirstRunDock() || recovered->dock.edge != DockEdge::None ||
             recoveredBytes != templateBytes ||
             recoverStore.InitialNotice().find(L"A fresh default configuration was installed.") == std::wstring::npos ||
@@ -2655,32 +2677,59 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
-        // A dock the patch refuses never blocks the install: the plain template goes in instead.
+        // A dock the patch refuses, or no dock at all (no display was chosen), never blocks the install: the plain
+        // template goes in instead.
         const std::filesystem::path refusedRoot = localRoot / L"Refused";
         DockSettings refused = dock;
         refused.thicknessDips = kDockMinimumThicknessDips - 1;
         SettingsStore refusedStore;
         std::unique_ptr<AppSettings> refusedSettings;
-        result = refusedStore.Initialize(false, {}, refusedSettings, refusedRoot.wstring(), &refused);
+        OfferedDock refusedOffer{refused};
+        result = refusedStore.Initialize(false, {}, refusedSettings, refusedRoot.wstring(), offer(refusedOffer));
         std::string refusedBytes;
         if (SUCCEEDED(result))
             result = ReadFile(refusedRoot / L"RedXe" / L"Settings" / selectedName, refusedBytes);
-        if (FAILED(result) || !refusedSettings || refusedStore.InstalledFirstRunDock() ||
+        if (FAILED(result) || !refusedSettings || refusedOffer.requests != 1 || refusedStore.InstalledFirstRunDock() ||
             refusedSettings->dock.edge != DockEdge::None || refusedBytes != templateBytes)
         {
             std::wprintf(L"A first-run dock the patch refuses blocked or changed the plain install.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        const std::filesystem::path unmadeRoot = localRoot / L"Unmade";
+        SettingsStore unmadeStore;
+        std::unique_ptr<AppSettings> unmade;
+        OfferedDock unmadeOffer{dock, false};
+        result = unmadeStore.Initialize(false, {}, unmade, unmadeRoot.wstring(), offer(unmadeOffer));
+        std::string unmadeBytes;
+        if (SUCCEEDED(result))
+            result = ReadFile(unmadeRoot / L"RedXe" / L"Settings" / selectedName, unmadeBytes);
+        if (FAILED(result) || !unmade || unmadeOffer.requests != 1 || unmadeStore.InstalledFirstRunDock() ||
+            unmade->dock.edge != DockEdge::None || unmadeBytes != templateBytes)
+        {
+            std::wprintf(L"A first-run dock that was not made blocked or changed the plain install.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
         const std::filesystem::path portable = localRoot / L"portable.settings.json";
         SettingsStore portableStore;
         std::unique_ptr<AppSettings> portableSettings;
-        result = portableStore.Initialize(false, portable.wstring(), portableSettings, {}, &dock);
-        if (FAILED(result) || !portableSettings || !portableStore.UsedInitialFallback() ||
-            portableStore.InstalledFirstRunDock() || portableSettings->dock.edge != DockEdge::None ||
-            std::filesystem::exists(portable))
+        OfferedDock portableOffer{dock};
+        result = portableStore.Initialize(false, portable.wstring(), portableSettings, {}, offer(portableOffer));
+        if (FAILED(result) || !portableSettings || portableOffer.requests != 0 ||
+            !portableStore.UsedInitialFallback() || portableStore.InstalledFirstRunDock() ||
+            portableSettings->dock.edge != DockEdge::None || std::filesystem::exists(portable))
         {
-            std::wprintf(L"A missing --settings file was written or docked.\n");
+            std::wprintf(L"A missing --settings file was written, docked, or measured for.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // The self-test loads the deployed template and never installs.
+        SettingsStore selfTestStore;
+        std::unique_ptr<AppSettings> selfTestSettings;
+        OfferedDock selfTestOffer{dock};
+        result = selfTestStore.Initialize(true, {}, selfTestSettings, {}, offer(selfTestOffer));
+        if (FAILED(result) || !selfTestSettings || selfTestOffer.requests != 0 || selfTestStore.InstalledFirstRunDock())
+        {
+            std::wprintf(L"The self-test asked for a first-run dock.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         return S_OK;

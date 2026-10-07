@@ -33,6 +33,9 @@
     <ClCompile Include="DashboardHost.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DisplayEnumeration.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -81,6 +84,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="DockOptions.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DisplayEnumeration.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="DockPlacement.h">

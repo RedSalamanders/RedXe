@@ -2762,9 +2762,10 @@ namespace
 {
 // The selected template with the first-run dock patched in (Core_Settings.md "Cold load and recovery"), validated and
 // then written with the same atomic same-directory write as a plain install. Only a missing target is installed: an
-// existing one wins (S_FALSE), exactly as InstallIfMissing.
+// existing one wins (S_FALSE), exactly as InstallIfMissing, and the dock is made only once the target is known to be
+// missing. A dock that is not made fails this install as an unpatchable template does; the caller installs plainly.
 [[nodiscard]] HRESULT InstallTemplateWithDock(const std::filesystem::path& source, const std::filesystem::path& target,
-                                              const DockSettings& dock) noexcept
+                                              const FirstRunDockProvider& firstRunDock) noexcept
 {
     const DWORD attributes = GetFileAttributesW(target.c_str());
     if (attributes != INVALID_FILE_ATTRIBUTES)
@@ -2775,6 +2776,11 @@ namespace
     if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
     {
         return HRESULT_FROM_WIN32(error);
+    }
+    DockSettings dock{};
+    if (!firstRunDock.make(firstRunDock.context, dock))
+    {
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
     try
     {
@@ -2816,7 +2822,7 @@ namespace
 } // namespace
 
 HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath, std::unique_ptr<AppSettings>& settings,
-                                  std::wstring_view localAppDataOverride, const DockSettings* firstRunDock) noexcept
+                                  std::wstring_view localAppDataOverride, FirstRunDockProvider firstRunDock) noexcept
 {
     settings.reset();
     _usedInitialFallback = false;
@@ -2929,12 +2935,13 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
         }
 #endif
         // Without a XENEON the installed default is the template plus the first-run dock, so RedXe starts as a bar
-        // on the primary display instead of asking about the missing display. The dock is a convenience: a template
-        // it cannot patch still installs plainly.
-        result = firstRunDock ? InstallTemplateWithDock(initialSource, settingsPath, *firstRunDock)
-                              : InstallIfMissing(initialSource, settingsPath);
-        _installedFirstRunDock = firstRunDock && result == S_OK;
-        if (FAILED(result) && firstRunDock)
+        // (on the second screen when there is more than one display) instead of asking about the missing display. The
+        // dock is a convenience: no dock, or a template it cannot patch, still installs plainly.
+        const bool offersDock = firstRunDock.make != nullptr;
+        result = offersDock ? InstallTemplateWithDock(initialSource, settingsPath, firstRunDock)
+                            : InstallIfMissing(initialSource, settingsPath);
+        _installedFirstRunDock = offersDock && result == S_OK;
+        if (FAILED(result) && offersDock)
         {
             result = InstallIfMissing(initialSource, settingsPath);
         }

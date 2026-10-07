@@ -438,10 +438,10 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `tests#0` (medium) `Tests/SettingsTests/Settings.Tests.Runner.cpp:1408`: Tray-icon test claims 'a toggle is a runtime change the host applies live' but only checks AppSettings::operator==, which the live-reload path never uses
 - [ ] `alignment#10` (low) `Specs/Build/Build_Process.md:117`: Build_Process.md states normative requirements for RedSalamander and DxUi, which RedXe neither owns nor implements
 - [ ] `alignment#13` (low) `Tests/test-scopes.json:182`: The scoped-testing manifest, module and help carry rules and examples copied from other repositories
-- [ ] `alignment#8` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock measures displays on every launch without a XENEON, though the spec says only at install
-- [ ] `dock-switch#15` (low) `RedXe/Application.cpp:433`: Monitor enumeration and effective-DPI lookup duplicated across MakeFirstRunDock, ResolveDockMonitor and PlaceStandardWindow; the `secondary` order invariant depends on the copies matching
+- [x] `alignment#8` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock measures displays on every launch without a XENEON, though the spec says only at install
+- [x] `dock-switch#15` (low) `RedXe/Application.cpp:433`: Monitor enumeration and effective-DPI lookup duplicated across MakeFirstRunDock, ResolveDockMonitor and PlaceStandardWindow; the `secondary` order invariant depends on the copies matching
 - [ ] `dock-switch#16` (low) `RedXe/Settings.cpp:2477`: Duplicated install-target probe and atomic-commit code in Settings.cpp introduced by the first-run path
-- [ ] `dock-switch#5` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock measures displays and queries Explorer on every start without a XENEON, though its result is used only when a template is installed
+- [x] `dock-switch#5` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock measures displays and queries Explorer on every start without a XENEON, though its result is used only when a template is installed
 - [ ] `dxui-restore#12` (low) `Build/DxUiProvenance.psm1:12`: Lock reading, source-path building and MSBuild discovery are still duplicated after the PR's 'each fact lives once' consolidation, including a pass-through Read-RedXeDxUiUpdateLock
 - [ ] `host-hardening#9` (low) `RedXe/Application.cpp:2558`: The sameRuntime field list duplicates AppSettings::operator== by hand and silently treats any new member as source-only
 - [ ] `logicon-zoom#10` (low) `Common/Actions/WindowSelector.cpp:153`: RedXeActions::BringToForeground is dead after zoom.focus was removed; it is the only synthetic-Alt focus stealer and its docs still name Zoom
@@ -450,13 +450,13 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `process-containment#8` (low) `Build/BuildPresentation.psm1:475`: Two argument-quoting implementations for the two launch paths; ConvertTo-RedXeProcessCommandLine matches .NET ArgumentList exactly, so Set-RedXeProcessArguments can be deleted
 - [ ] `scoped-testing#18` (low) `Build/ScopedTesting.psm1:224`: Code, help text and normative spec text copied from other repositories (DxUi, RedSalamander) is dead or wrong in RedXe
 - [ ] `settings#11` (low) `RedXe/Settings.cpp:2137`: PrepareDockSourcePatch parses the whole document a second time for a check ParseAppSettingsJsonV5 already guarantees
-- [ ] `settings#12` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock queries Explorer on every launch without a XENEON although it is used only when the default file is installed, and it duplicates ResolveDockMonitor's monitor enumeration
+- [x] `settings#12` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock queries Explorer on every launch without a XENEON although it is used only when the default file is installed, and it duplicates ResolveDockMonitor's monitor enumeration
 - [ ] `settings#13` (low) `RedXe/Settings.cpp:1872`: The new source-text JSON scanner duplicates JsonTextCursor already in SettingsV4.cpp
 - [ ] `settings#14` (low) `RedXe/Settings.cpp:2506`: InstallTemplateWithDock checks only 4 dock fields where DockSettings::operator== is available, and repeats the install and commit plumbing
 - [ ] `settings#16` (low) `RedXe/Application.cpp:2261`: Application::_persistSettingsToDisk duplicates the store's self-test write gate
-- [ ] `slide-tray#10` (low) `RedXe/Application.cpp:427`: MakeFirstRunDock duplicates ResolveDockMonitor's display enumeration and round-trips its own constant selector through text
+- [x] `slide-tray#10` (low) `RedXe/Application.cpp:427`: MakeFirstRunDock duplicates ResolveDockMonitor's display enumeration and round-trips its own constant selector through text The text round trip stays on purpose: it parses the selector written into the file, so the display measured is the one that text resolves to over the shared walk.
 - [ ] `slide-tray#13` (low) `RedXe/Application.cpp:2462`: Two slide fields can be derived from existing state, and the end of TickDockSlide repeats SettleDockSlide
-- [ ] `slide-tray#9` (low) `RedXe/Application.cpp:752`: MakeFirstRunDock runs on every launch without a XENEON, including three synchronous Explorer round trips, although only a template install uses its result
+- [x] `slide-tray#9` (low) `RedXe/Application.cpp:752`: MakeFirstRunDock runs on every launch without a XENEON, including three synchronous Explorer round trips, although only a template install uses its result
 - [ ] `studioclock#6` (low) `RedXe/SettingsV4.cpp:54`: Studio Clock settings are spelled out in four places; follow the shared ShadersSettings.h pattern
 - [ ] `studioclock#7` (low) `Plugins/StudioClock/StudioClock.cpp:219`: #22 added a fourth identical copy of JsonCursor::ReadUnsigned; the settings cursor is copied across four plugin DLLs
 - [ ] `tests#12` (low) `RedXe/SettingsV4.cpp:55`: Studio Clock defaults and glowPercent range exist in four copies, each tested only against its own literal
@@ -477,7 +477,7 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `scoped-testing#21` (nit) `test.ps1:142`: Duplicate $testTimeoutSeconds assignment left inside the PluginContract block
 - [ ] `settings#18` (nit) `Specs/Settings.schema.json:323`: Dead `zoomSettings` definition left in the schema
 
-### P7. Spec, user-guide, and test-coverage drift (32)
+### P7. Spec, user-guide, and test-coverage drift (33)
 
 - [ ] `alignment#4` (medium) `test.ps1:47`: test.ps1 now runs only affected scopes, or nothing, but the specs, README and skills still treat it as the full gate
 - [ ] `tests#1` (medium) `RedXe/Application.cpp:2625`: Live window-kind switch and its rollback have no automated coverage (self-test pins edge none; manual checklist has success paths only)
@@ -494,6 +494,7 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `dxui-restore#13` (low) `README.md:88`: The README says vcpkg-install.ps1 is enough before a direct Visual Studio build, but the build also needs restore-dxui.ps1
 - [ ] `dxui-restore#6` (low) `Tests/PluginContractTests/PluginContract.Tests.Runner.cpp:2546`: No test covers RedXe.exe's own failure-report routing, any other runner's call, or the Release abort path
 - [ ] `host-hardening#14` (low) `test.ps1:366`: No automated end-to-end coverage for the new asynchronous --screenshot pipeline
+- [x] `lead#9` (low) `Common/Actions/ActionTargets.h:119`: A TV in standby that keeps its connection, a dummy plug, or a virtual display can still be `secondary`, so the first-run bar or an `@secondary` action can land on a display nobody is looking at Documented: Windows offers no reliable signal to rank them lower. Such a TV stays `DISPLAY_DEVICE_ACTIVE`/`ATTACHED` and `targetAvailable` like a display that is on (this machine's two powered displays report exactly that), its power state is reachable only over slow, optional DDC/CI, and a virtual display's `outputTechnology` is driver-chosen (Microsoft's IddCx sample reports HDMI). `UI_XeneonDisplayWindowing.md` "Monitor and placement", `docs/usage.md` and `docs/actions.md` state the limitation and the `<n>` / `name:` choice.
 - [ ] `logicon-zoom#18` (low) `Tests/LogiconTests/Logicon.Tests.Runner.cpp:718`: The new raw-input ownership rules (do not replace a prior owner, do not remove a later one) have no test
 - [ ] `logicon-zoom#8` (low) `Specs/Plugins/Plugins_Zoom.md:34`: Plugins_Zoom.md says removed zoom.* bindings fail settings validation, but documents accept them and they show a red '!'
 - [ ] `process-containment#9` (low) `Tests/BuildProcessTests/BuildProcessTests.ps1:240`: The committed test only checks quoting for one argument with spaces, though every bounded test.ps1 call uses the custom quoter

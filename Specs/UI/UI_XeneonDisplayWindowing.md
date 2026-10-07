@@ -155,6 +155,21 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
   (`secondary` on a single display included) falls back to the primary display with one Warning log record
   (`dock-monitor-fallback`) and no prompt; `WM_DISPLAYCHANGE` re-runs discovery and the selector, so the bar returns
   when its monitor does.
+- The dock's monitor selection and the first-run measurement ("First start without a XENEON") MUST read one display
+  walk (`EnumerateDisplays` in `RedXe/DisplayEnumeration.h`): the displays in `EnumDisplayMonitors` order, at most 16,
+  a display whose `GetMonitorInfoW` fails (it left during the walk) skipped, each with its rectangle, work area,
+  `MONITORINFOF_PRIMARY` flag, GDI device name, and effective DPI (`EffectiveMonitorDpi`, which the standard window's
+  placement reads too: 96 when `GetDpiForMonitor` fails or reports 0). The walk allocates nothing, and a first-run
+  `secondary` is measured on the display the same selector resolves to at runtime.
+- `secondary` cannot tell a display nobody is looking at from the second screen: a TV in standby that keeps its
+  connection, a dummy plug, and a virtual display (an indirect display driver's monitor) are active displays like any
+  other and rank like one, so the first-run bar or an `@secondary` action can land on one. Windows offers no reliable
+  signal to rank them lower. Such a TV stays an active, available path, reported exactly as a display that is on
+  (`EnumDisplayDevices`: `DISPLAY_DEVICE_ACTIVE` and `DISPLAY_DEVICE_ATTACHED`; `QueryDisplayConfig`:
+  `targetAvailable`), and its power state is reachable only over DDC/CI, which is slow, optional on TVs, and often
+  unanswered in standby. A virtual display's `outputTechnology` is whatever its driver reports; Microsoft's indirect
+  display sample, which many virtual display drivers start from, reports HDMI. A bar or an action meant for another
+  display names it instead (`<n>` or `name:<substring>`).
 - Thickness is `MulDiv(thickness, monitorDpi, 96)` (`GetDpiForMonitor`, effective DPI) and is clamped so at least
   half of the monitor's cross dimension stays free (one Warning record, `dock-thickness-clamped`).
 - What the bar reserves in the monitor's work area is its **registration row** (`DockReservationFor`): `fixed` with
@@ -343,13 +358,16 @@ row of the mode table instead of the Release missing-display prompt or the Debug
 invalid default file MUST install the plain template, even without a XENEON, so a file that failed validation never
 turns a XENEON or window configuration into a bar. A remote session sees only the remote client's displays, so it MUST
 install the plain template too: a bar decided there would stay in the file when the user is back at the XENEON.
-`MakeFirstRunDock` measures the displays once, at that install:
+`MakeFirstRunDock` MUST measure the displays only at that install, once: the settings store asks for the dock
+(`FirstRunDockProvider`) after it finds the default file missing, so a start that finds the file, a recovery, a
+`--settings` file, and the self-test walk no display and send Explorer no query for it. It decides:
 
 - `M` is the second screen when more than one display is active (`DockFirstRunMonitor`): `secondary`, which
   resolves like every selector at runtime, so the bar follows the first display that is neither the primary nor a
   XENEON ("Monitor and placement"). With one display it is `primary`. The primary monitor is identified by
   `MONITORINFOF_PRIMARY` during enumeration, even when another monitor contains screen coordinate `(0,0)`, and the
-  second screen is chosen in the enumeration order the `secondary` selector uses.
+  second screen is chosen over the display walk the `secondary` selector resolves over at runtime (`EnumerateDisplays`).
+  A TV in standby or a virtual display can be that second screen ("Monitor and placement").
 - `E` is the better-ranked horizontal edge of that display (`DockFirstRunEdge`), and `bottom` when both rank the same,
   so the strip stays away from the caption buttons and tabs at the top of maximized windows wherever the bottom is
   free. Maximized windows stop beside the reserved strip on either edge ("Autohide"), so a top strip never covers
@@ -626,7 +644,11 @@ coordinates, and none for displays side by side, at a corner, or on a side edge)
 (`DockFirstRunEdge`: a display without a taskbar on either horizontal edge and a side taskbar taking `bottom`, a visible
 taskbar at the bottom and at the top, an auto-hiding taskbar at either edge, both edges taken, a display under another
 display with and without its own taskbar, one over another display, one between two displays, negative coordinates, and
-`DockAutohideBarHoldsEdge` counting a registration only while its window exists), and the autohide slide
+`DockAutohideBarHoldsEdge` counting a registration only while its window exists), the display walk
+(`TestDisplayEnumeration`: on the machine's own displays it records what an `EnumDisplayMonitors` walk reports, in that
+order, with each rectangle, work area, primary flag, GDI name, and effective DPI, and the first-run monitor resolves
+over it to the primary alone or to a display that is not the primary; it skips a display it cannot read, stops at 16,
+and counts a DPI it cannot read as 96), and the autohide slide
 (`DockSlideDurationMilliseconds`: whole, partial, reversed, zero, and tiny travels; `DockSlideVisiblePixels`: exact
 ends, clamped progress, the eased halfway points of a reveal and a hide, one-way motion within the travel;
 `DockSlideContentOffset` for every edge), with a dock-kind swap chain presenting a slide frame at half the bar with
@@ -642,8 +664,9 @@ collapsed bar fills the full bar; `TestDashboardSlideOffsetRetry`: a native cont
 by an unchanged offset, the zero one included);
 `SettingsTests` proves the `dock` member with `animationMilliseconds` (0 through 1000, default 200), its rejections,
 minor 2, the `secondary` selector in the document and on `--dock`, the `--dock*` grammar with its errors, the merge
-precedence, `PatchDockThickness` (replace, create with the minor bump, range, re-parse), and the first-run install
-(`Specs/Core/Core_Settings.md`). Live, on the machine's topology: a reserving bar shrinks `rcWork` by exactly its
+precedence, `PatchDockThickness` (replace, create with the minor bump, range, re-parse), and the first-run install,
+which asks for the dock once for a missing file and never otherwise (`Specs/Core/Core_Settings.md`). Live, on the
+machine's topology: a reserving bar shrinks `rcWork` by exactly its
 thickness while it runs and restores it on exit; an overlay bar leaves `rcWork` alone and sits against the work-area
 edge; a side bar on a monitor with a bottom taskbar ends above the taskbar; an autohide bar collapses to its strip after
 the hide delay, reveals after the dwell when the real cursor rests on the strip, hides after the pointer leaves, and
@@ -774,8 +797,10 @@ restarting Explorer brings it back; and a Debug run with the shipped template sh
   the combined page-and-kind reload in `ApplySettings`; the deferred reload: `OnSettingsChanged` and
   `ReplayDeferredSettingsReload`; the failure message box and the unattended runs that never show it:
   `RunApplication` in `RedXe/Main.cpp` and `Application::SetUnattended`; the first-run dock:
-  `MakeFirstRunDock` in `RedXe/Application.cpp`; session end: `Application::OnEndSession`, its deadline through
-  `CloseMainWindow` and `PluginHost::TeardownStageMilliseconds`
+  `MakeFirstRunDock` in `RedXe/Application.cpp`, made through `FirstRunDockProvider` (`RedXe/Settings.h`) only when
+  the store installs a missing file; the display walk the dock, the first-run dock, and the standard window read:
+  `EnumerateDisplays` and `EffectiveMonitorDpi` in `RedXe/DisplayEnumeration.*`; session end:
+  `Application::OnEndSession`, its deadline through `CloseMainWindow` and `PluginHost::TeardownStageMilliseconds`
 - Dock placement, monitor selection, MINMAXINFO, the autohide state machine, the slide, and the first-run monitor,
   edge, and thickness: `RedXe/DockPlacement.h`; what each mode reserves and the registration messages of a placement
   pass: `DockReservationFor` and `PlanDockAppBar` in `RedXe/DockPlacement.h`, sent by `Application::PlaceDockPass`

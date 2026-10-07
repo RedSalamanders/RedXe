@@ -395,16 +395,25 @@ enum class SettingsReloadStatus : std::uint8_t
 // or to 3 when the dock names the `secondary` monitor.
 [[nodiscard]] HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcept;
 
+// The first-run dock for SettingsStore::Initialize, made only when the store installs the default file because it is
+// missing, so a start that finds the file measures no display for it. `make` fills `dock` and returns true, or false to
+// install the plain template; it runs at most once per Initialize, on the calling thread. A null `make` offers no dock.
+struct FirstRunDockProvider final
+{
+    bool (*make)(void* context, DockSettings& dock) noexcept = nullptr;
+    void* context = nullptr;
+};
+
 class SettingsStore final
 {
   public:
-    // firstRunDock: when the default file is installed because it is missing, the template is written with this dock
-    // (PatchFirstRunDock); the recovery of an invalid file reinstalls the plain template. The caller passes it only
-    // when XENEON discovery found no display; a `--settings` file and the self-test never install and ignore it.
+    // firstRunDock: when the default file is installed because it is missing, the template is written with the dock it
+    // makes (PatchFirstRunDock); the recovery of an invalid file reinstalls the plain template. The caller offers it
+    // only when XENEON discovery found no display; a `--settings` file and the self-test never install or call it.
     [[nodiscard]] HRESULT Initialize(bool selfTest, std::wstring_view selectedPath,
                                      std::unique_ptr<AppSettings>& settings,
                                      std::wstring_view localAppDataOverride = {},
-                                     const DockSettings* firstRunDock = nullptr) noexcept;
+                                     FirstRunDockProvider firstRunDock = {}) noexcept;
     [[nodiscard]] HRESULT TryLoadChanged(std::unique_ptr<AppSettings>& settings, SettingsFileStamp& stamp,
                                          SettingsReloadStatus& status) noexcept;
     void MarkApplied(const SettingsFileStamp& stamp) noexcept;
