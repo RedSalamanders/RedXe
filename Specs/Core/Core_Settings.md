@@ -99,9 +99,10 @@ with any value and ignore it, whatever the document's minor. RedXe MUST NOT migr
 member. For a service entry the host logs one Warning record `service-retired-settings-ignored` per load or live apply
 (today the seven Zoom SDK members, `Specs/Plugins/Plugins_Zoom.md`). A binding to a verb a published namespace no
 longer publishes (the removed `zoom.*` controls) stays in the document as an invalid binding
-(`Specs/Plugins/Plugins_Actions.md`), not a document error. Rolling back to an older build is not supported: an older
-build validates plugin members as a closed set, so it may reject a file that uses a newer member (for example Studio
-Clock `glowPercent`, which `v1.0.102` rejects). Its cold recovery then keeps the user's file as the
+(`Specs/Plugins/Plugins_Actions.md`), not a document error, and so does a Logicon key, dialpad button, or turn bound
+to `keys.down` or `mouse.down` (`Specs/Plugins/Plugins_Logicon.md`). Rolling back to an older build is not supported:
+an older build validates plugin members as a closed set, so it may reject a file that uses a newer member (for example
+Studio Clock `glowPercent`, which `v1.0.102` rejects). Its cold recovery then keeps the user's file as the
 `.invalid-<timestamp>.json` backup described in "Cold load and recovery".
 
 User documents MUST NOT contain `layout`, `areas`, `arrangeAlong`, `sizeRatio`, nested `settings`, or `override`.
@@ -423,7 +424,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   file byte for byte without a fallback or `.invalid-` backup. They prove the seven retired Zoom members load with any
   value in a minor 3 document and set `retiredMembersIgnored`, an entry without them does not, any other Zoom member
   (including a retired name in another case) is rejected, and the schema's services Zoom variant lists them as
-  deprecated.
+  deprecated. A minor 2 document whose Logicon key, dialpad button, and turn bind `keys.down` or `mouse.down` loads,
+  validates, and keeps those bindings for the service.
 - Tests prove `trayIcon`: omitted it is `true` in Release and `false` in Debug, also in a minor 2 document; an authored
   `true` or `false` wins; a string, a number, `null`, an object, and a duplicate member are rejected, with the
   diagnostic on `$.trayIcon`; the member changes no other typed setting; both templates author it (`false` in Debug,

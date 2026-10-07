@@ -105,6 +105,10 @@ enum class PageButtons : uint8_t
     DashboardPages,
 };
 
+// Why a binding that HoldsInput() is invalid; the service logs it after the control the binding belongs to.
+inline constexpr char kHeldInputReason[] = "keys.down and mouse.down need a release and cannot be bound to a "
+                                           "press-only Logicon control; use keys.press or mouse.click.";
+
 // One binding: a key (page, slot), a dialpad button (slot = button), or a dialpad turn (control, direction).
 struct KeyBinding final
 {
@@ -115,7 +119,7 @@ struct KeyBinding final
     KeyFace face = KeyFace::None;
     bool hasColor = false;
     // Whether the host resolved the action and accepted its target (IRedXeHost::ValidateAction). A binding with
-    // an unsatisfied target or an unknown published verb draws the red "!" face and never dispatches.
+    // an unsatisfied target, an unknown published verb, or a held input draws the red "!" face and never dispatches.
     bool valid = true;
     uint32_t colorRgb = 0;
     uint32_t actionBytes = 0;
@@ -151,6 +155,13 @@ struct KeyBinding final
     [[nodiscard]] bool IsLocal() const noexcept
     {
         return HasAction() && RedXeActionInNamespace(action.data(), kActionNamespace);
+    }
+    // True for keys.down and mouse.down, which hold input until a matching release. Every Logicon control is
+    // press-only and never sends that release, so the document accepts the name but the binding is invalid.
+    [[nodiscard]] bool HoldsInput() const noexcept
+    {
+        const std::string_view name = Action();
+        return name == "keys.down" || name == "mouse.down";
     }
 };
 

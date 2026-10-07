@@ -535,8 +535,6 @@ constexpr std::string_view kRepresentative = R"json(
         // Plugin-model rejections surface as document errors.
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","keys":[{"slot":9}]}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","brightness":0}},"pages":[{}]})json",
-        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","keys":[{"slot":0,"action":"keys.down","target":"Ctrl+K"}]}},"pages":[{}]})json",
-        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"buttons":[{"button":0,"action":"mouse.down","target":"left"}]}}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","extra":true}},"pages":[{}]})json",
         // Action names: the former bare names, an unknown default verb, and an unregistered namespace are document
         // errors; an unsatisfied target is not (Plugins_Actions.md).
@@ -2037,6 +2035,26 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         current.serviceCount != 1 || current.services[0].retiredMembersIgnored)
     {
         std::wprintf(L"The retired Zoom members are not accepted with any value and ignored.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    // v1.0.102 also accepted keys.down and mouse.down on a Logicon key, dialpad button, or turn. They still load: the
+    // service receives them and makes each one an invalid binding (Plugins_Logicon.md).
+    constexpr std::string_view heldBindings = R"json({
+      "version":{"major":5,"minor":2},
+      "services":{"Keypad":{"plugin":"builtin.logicon",
+        "keys":[{"slot":4,"action":"keys.down","target":"Ctrl+Shift+M"}],
+        "dialpad":{"buttons":[{"button":0,"action":"mouse.down","target":"left"}],
+          "turns":[{"control":"dial","direction":"cw","action":"keys.down","target":"Shift"}]}}},
+      "pages":[{"widgets":[{"plugin":"builtin.gdi-orbit"}]}]
+    })json";
+    AppSettings held{};
+    if (FAILED(ParseAppSettingsJson(heldBindings, held)) || FAILED(ValidateAppSettings(held)) ||
+        held.serviceCount != 1 ||
+        held.services[0].privateConfiguration.View().find("\"keys.down\"") == std::string_view::npos ||
+        held.services[0].privateConfiguration.View().find("\"mouse.down\"") == std::string_view::npos)
+    {
+        std::wprintf(L"A Logicon document with keys.down / mouse.down bindings did not load.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
