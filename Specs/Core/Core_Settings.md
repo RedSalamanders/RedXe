@@ -477,7 +477,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 ## Required validation
 
 - Templates and canonical schema agree with version 5 and all syntax, count, size, and depth limits. The Release
-  template System last column compiles Gpu/Thermal/Power short-side ratios 2, 3, and 1.
+  template System last column compiles Gpu/Thermal/Power short-side ratios 2, 3, and 1. Every schema `$defs` entry is
+  referenced.
 - Tests reject version 4 documents, `layout` / `areas` / `arrangeAlong` / `sizeRatio`, nested `settings`, and
   `override`. They reject malformed syntax/version, duplicate and exact-version unknown members, unresolved
   references, invalid merge results, plugin settings failures, Process Viewer `topN` values outside 1 through 32,

@@ -115,7 +115,7 @@ Common/PlugInterfaces/
   Action.h         Action publication ABI: descriptors, namespaces, RedXeGetActionContract, IRedXeActionPack, name grammar
 Common/Actions/
   ActionTargets.*  Shared target grammars (paths, chords, points, monitors, windows, meetings) compiled into the host and every publisher
-  WindowSelector.* Top-level window selection and foregrounding
+  WindowSelector.* Top-level window selection
   FluentGlyphNames.h, GlyphIcon.*  Segoe Fluent Icons name table and DirectWrite glyph rasterization shared by Logicon faces and Launcher tiles
 Plugins/
   RotatingTriangle/ First bundled widget-provider DLL

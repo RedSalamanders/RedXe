@@ -2831,7 +2831,6 @@ int wmain(int argumentCount, wchar_t** arguments)
     }
     if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--asan-probe")
     {
-        SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
         return RunAddressSanitizerProbe();
     }
     if (argumentCount >= 2 && std::wstring_view(arguments[1]) == L"--matrix-benchmark")

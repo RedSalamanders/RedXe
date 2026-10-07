@@ -240,6 +240,20 @@ constexpr std::string_view kRepresentative = R"json(
     return false;
 }
 
+// Whether the schema text points at definition `name` with a "#/$defs/<name>" or "#/$defs/<name>/..." reference.
+[[nodiscard]] bool SchemaReferencesDefinition(std::string_view schema, std::string_view name) noexcept
+{
+    constexpr std::string_view pointerPrefix = "\"#/$defs/";
+    for (size_t at = schema.find(pointerPrefix); at != std::string_view::npos; at = schema.find(pointerPrefix, at + 1))
+    {
+        const std::string_view rest = schema.substr(at + pointerPrefix.size());
+        if (rest.size() > name.size() && rest.starts_with(name) &&
+            (rest[name.size()] == '"' || rest[name.size()] == '/'))
+            return true;
+    }
+    return false;
+}
+
 [[nodiscard]] HRESULT ValidateTemplatesAndSchema() noexcept
 {
     std::filesystem::path debugPath;
@@ -533,6 +547,22 @@ constexpr std::string_view kRepresentative = R"json(
     {
         std::wprintf(L"The schema services Zoom variant must be deprecated and accept the retired members.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    // Every definition is referenced: an orphan validates nothing, yet reads as a settings model to edit (as the
+    // removed Zoom SDK's zoomSettings did).
+    size_t definitionIndex = 0;
+    size_t definitionMax = 0;
+    yyjson_val* definitionName = nullptr;
+    yyjson_val* definition = nullptr;
+    yyjson_obj_foreach(defs, definitionIndex, definitionMax, definitionName, definition)
+    {
+        const std::string_view name{yyjson_get_str(definitionName), yyjson_get_len(definitionName)};
+        if (!SchemaReferencesDefinition(schemaBytes, name))
+        {
+            std::wprintf(L"The schema definition %.*S is never referenced.\n", static_cast<int>(name.size()),
+                         name.data());
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
     }
     return S_OK;
 }

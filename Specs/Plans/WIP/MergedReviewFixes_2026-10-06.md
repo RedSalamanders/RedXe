@@ -444,8 +444,8 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `dock-switch#5` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock measures displays and queries Explorer on every start without a XENEON, though its result is used only when a template is installed
 - [ ] `dxui-restore#12` (low) `Build/DxUiProvenance.psm1:12`: Lock reading, source-path building and MSBuild discovery are still duplicated after the PR's 'each fact lives once' consolidation, including a pass-through Read-RedXeDxUiUpdateLock
 - [ ] `host-hardening#9` (low) `RedXe/Application.cpp:2558`: The sameRuntime field list duplicates AppSettings::operator== by hand and silently treats any new member as source-only
-- [ ] `logicon-zoom#10` (low) `Common/Actions/WindowSelector.cpp:153`: RedXeActions::BringToForeground is dead after zoom.focus was removed; it is the only synthetic-Alt focus stealer and its docs still name Zoom
-- [ ] `logicon-zoom#6` (low) `Plugins/Logicon/LogiconHid.h:90`: Dead HID cancel and redundant stop paths after the IoState rewrite: HidPort::Cancel has no caller and races Close, Write's ERROR_BUSY branch is unreachable, and lane exit stops the wheels twice
+- [x] `logicon-zoom#10` (low) `Common/Actions/WindowSelector.cpp:153`: RedXeActions::BringToForeground is dead after zoom.focus was removed; it is the only synthetic-Alt focus stealer and its docs still name Zoom
+- [x] `logicon-zoom#6` (low) `Plugins/Logicon/LogiconHid.h:90`: Dead HID cancel and redundant stop paths after the IoState rewrite: HidPort::Cancel has no caller and races Close, Write's ERROR_BUSY branch is unreachable, and lane exit stops the wheels twice HidPort::Cancel and its two overrides are removed here. Resolved by P4 (#38, c64e75e) for the rest: a canceled request that misses its drain now keeps the slot, so ERROR_BUSY is the specified reply (`Plugins_Logicon.md`), and CloseDialpad no longer stops the wheels, so the lane exit stops them once.
 - [ ] `process-containment#11` (low) `Build/BuildPresentation.psm1:720`: The process-containment launcher lives in the presentation module; test.ps1 loads BuildPresentation.psm1 only for it
 - [ ] `process-containment#8` (low) `Build/BuildPresentation.psm1:475`: Two argument-quoting implementations for the two launch paths; ConvertTo-RedXeProcessCommandLine matches .NET ArgumentList exactly, so Set-RedXeProcessArguments can be deleted
 - [ ] `scoped-testing#18` (low) `Build/ScopedTesting.psm1:224`: Code, help text and normative spec text copied from other repositories (DxUi, RedSalamander) is dead or wrong in RedXe
@@ -460,22 +460,22 @@ Check a row when its fix lands, or note why it was dropped.
 - [x] `studioclock#6` (low) `RedXe/SettingsV4.cpp:54`: Studio Clock settings are spelled out in four places; follow the shared ShadersSettings.h pattern
 - [x] `studioclock#7` (low) `Plugins/StudioClock/StudioClock.cpp:219`: #22 added a fourth identical copy of JsonCursor::ReadUnsigned; the settings cursor is copied across four plugin DLLs
 - [x] `tests#12` (low) `RedXe/SettingsV4.cpp:55`: Studio Clock defaults and glowPercent range exist in four copies, each tested only against its own literal
-- [ ] `alignment#14` (nit) `Specs/Settings.schema.json:323`: Dead leftovers of the removed Zoom SDK path: unreferenced schema def and stale guidance that ActionTargets is compiled into every publisher
-- [ ] `alignment#15` (nit) `.gitignore:26`: Leftover Zoom SDK ignore entries point at a deleted import script
+- [x] `alignment#14` (nit) `Specs/Settings.schema.json:323`: Dead leftovers of the removed Zoom SDK path: unreferenced schema def and stale guidance that ActionTargets is compiled into every publisher The def and the `WindowSelector.h` Zoom mention are removed here. The `AGENTS.md` ActionTargets line is accurate again since P4 (#38, ec0dd7d) compiles `ActionTargets.cpp` into `zoom.action.dll` for the Meeting target kind.
+- [x] `alignment#15` (nit) `.gitignore:26`: Leftover Zoom SDK ignore entries point at a deleted import script
 - [ ] `dock-switch#17` (nit) `RedXe/Application.cpp:2079`: RebuildPresentation duplicates the renderer start sequence of InitializeDashboardRuntime
 - [ ] `dock-switch#19` (nit) `RedXe/Application.h:373`: Two long-lived members carry the kind-switch placement from RestyleWindowKind to FinishWindowKindSwitch
 - [ ] `dock-switch#20` (nit) `RedXe/Application.h:378`: _dockWorkRect is write-only state, and RestyleWindowKind keeps a WS_VISIBLE bit that is always clear
-- [ ] `dxui-restore#15` (nit) `Tests/PluginContractTests/PluginContract.Tests.Runner.cpp:2552`: The --asan-probe SetErrorMode call is now redundant
+- [x] `dxui-restore#15` (nit) `Tests/PluginContractTests/PluginContract.Tests.Runner.cpp:2552`: The --asan-probe SetErrorMode call is now redundant
 - [ ] `host-hardening#15` (nit) `RedXe/HostActions.cpp:1066`: HostActions::ReleaseHeld ignores its deviceAccess parameter (and the Execute comment describes removed behavior)
 - [ ] `host-hardening#16` (nit) `RedXe/PluginHost.cpp:2328`: Simplification: the stopPending retry block is copied in StartServices and ApplyServiceSettings
 - [ ] `host-hardening#17` (nit) `RedXe/Application.h:407`: _dockDashboardResizeTimerArmed duplicates _dockDashboardResizePending
-- [ ] `logicon-zoom#11` (nit) `Specs/Settings.schema.json:323`: Leftovers from the removed Zoom SDK/client path: unreferenced $defs/zoomSettings, a stale .gitignore script reference, and ZoomSettings compiled into the host
+- [x] `logicon-zoom#11` (nit) `Specs/Settings.schema.json:323`: Leftovers from the removed Zoom SDK/client path: unreferenced $defs/zoomSettings, a stale .gitignore script reference, and ZoomSettings compiled into the host The def and the `.gitignore` reference are removed here. `ZoomSettings.cpp` stays in the host by decision D7: it validates the retired `services` Zoom entry (`Core_Settings.md`, `Plugins_Zoom.md`).
 - [ ] `process-containment#10` (nit) `Build/BuildPresentation.psm1:686`: ContainedProcess carries dead members after #26 removed the Kill fallback, and the read/wait logic is duplicated per path; one wait with Timeout.Infinite removes both
 - [ ] `process-containment#16` (nit) `test.ps1:142`: Two assignments of the test budget; the effective value for later suites depends on whether PluginContract was selected
 - [ ] `scoped-testing#19` (nit) `Tests/test-scopes.json:182`: Four scope rules match test folders that do not exist (dead rules)
 - [ ] `scoped-testing#20` (nit) `Build/ScopedTesting.psm1:101`: Top-level Mockups/ is treated as code: it triggers a full run and invalidates native results
 - [ ] `scoped-testing#21` (nit) `test.ps1:142`: Duplicate $testTimeoutSeconds assignment left inside the PluginContract block
-- [ ] `settings#18` (nit) `Specs/Settings.schema.json:323`: Dead `zoomSettings` definition left in the schema
+- [x] `settings#18` (nit) `Specs/Settings.schema.json:323`: Dead `zoomSettings` definition left in the schema
 
 ### P7. Spec, user-guide, and test-coverage drift (32)
 
@@ -494,20 +494,20 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `dxui-restore#13` (low) `README.md:88`: The README says vcpkg-install.ps1 is enough before a direct Visual Studio build, but the build also needs restore-dxui.ps1
 - [ ] `dxui-restore#6` (low) `Tests/PluginContractTests/PluginContract.Tests.Runner.cpp:2546`: No test covers RedXe.exe's own failure-report routing, any other runner's call, or the Release abort path
 - [ ] `host-hardening#14` (low) `test.ps1:366`: No automated end-to-end coverage for the new asynchronous --screenshot pipeline
-- [ ] `logicon-zoom#18` (low) `Tests/LogiconTests/Logicon.Tests.Runner.cpp:718`: The new raw-input ownership rules (do not replace a prior owner, do not remove a later one) have no test
+- [x] `logicon-zoom#18` (low) `Tests/LogiconTests/Logicon.Tests.Runner.cpp:718`: The new raw-input ownership rules (do not replace a prior owner, do not remove a later one) have no test
 - [ ] `logicon-zoom#8` (low) `Specs/Plugins/Plugins_Zoom.md:34`: Plugins_Zoom.md says removed zoom.* bindings fail settings validation, but documents accept them and they show a red '!'
 - [ ] `process-containment#9` (low) `Tests/BuildProcessTests/BuildProcessTests.ps1:240`: The committed test only checks quoting for one argument with spaces, though every bounded test.ps1 call uses the custom quoter
 - [ ] `scoped-testing#22` (low) `Common/AddressSanitizerProbe.h:5`: A test-only ASan fixture header in Common/ escaped the #31 naming migration and native test inventory
 - [ ] `tests#11` (low) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:963`: Slide-offset test covers one GPU tile only; native widget containers moving with a top or left dock slide are untested
 - [ ] `tests#13` (low) `RedXe/HostActions.cpp:698`: Monitor resolution for actions (including the new `secondary` kind) never runs under test: deviceAccess=false swaps in a fixed rectangle
-- [ ] `tests#21` (low) `Tests/LogiconTests/Logicon.Tests.Runner.cpp:718`: Logicon raw-input ownership rules added in #21 have no test; only plain Start/Stop/restart is exercised
+- [x] `tests#21` (low) `Tests/LogiconTests/Logicon.Tests.Runner.cpp:718`: Logicon raw-input ownership rules added in #21 have no test; only plain Start/Stop/restart is exercised
 - [ ] `tests#7` (low) `test.ps1:116`: Launcher wait-policy tests pin only the self-terminating switches; an unknown argument through the RedXe alias exits 0, and test.ps1 hides this by adding --self-test
 - [ ] `alignment#16` (nit) `Specs/Plans/Done/DxUiFollowUps_2026-10-01.md:52`: Plan hygiene: an unindexed WIP checkpoint edited in the range, and a Done plan naming a header that does not exist
 - [ ] `dock-switch#14` (nit) `RedXe/Settings.cpp:2637`: Stale comment: the first-run bar is no longer always on the primary display
 - [ ] `dxui-restore#16` (nit) `Specs/Plans/Done/DxUiFollowUps_2026-10-01.md:52`: The Done plan names Tests/Support/FailureReports.h, which no longer exists
-- [ ] `host-hardening#18` (nit) `Plugins/5H4D3R5/Shaders.cpp:850`: Stale comment: lookup tables are no longer drawn by the first widget frame
+- [x] `host-hardening#18` (nit) `Plugins/5H4D3R5/Shaders.cpp:850`: Stale comment: lookup tables are no longer drawn by the first widget frame Resolved by P4 (#38, 3e91941): the bake moved to `OnDeviceCreated`, and the comment in `SharedDeviceResources::Initialize` now says the first widget that can show the entry draws the tables there.
 - [ ] `settings#17` (nit) `RedXe/Settings.h:381`: Stale or contradictory persistence contract text for the dock source edit and the first-run minor raise
-- [ ] `shaders-lut#2` (nit) `Plugins/5H4D3R5/Shaders.cpp:850`: Stale comment says lookup tables are drawn by the first widget frame
+- [x] `shaders-lut#2` (nit) `Plugins/5H4D3R5/Shaders.cpp:850`: Stale comment says lookup tables are drawn by the first widget frame Resolved by P4 (#38, 3e91941): the bake moved to `OnDeviceCreated`, and the comment in `SharedDeviceResources::Initialize` now says the first widget that can show the entry draws the tables there.
 - [ ] `slide-tray#16` (nit) `Common/PlugInterfaces/Action.h:57`: Plugin ABI comment for RedXeActionTargetMonitor omits the new `secondary` selector
 - [ ] `slide-tray#17` (nit) `RedXe/Main.cpp:268`: `--dock` error text omits the new `@secondary` selector
 - [ ] `slide-tray#18` (nit) `RedXe/DockPlacement.h:529`: Comments and docs still describe autohide as it worked before the slide
