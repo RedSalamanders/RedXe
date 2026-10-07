@@ -1177,58 +1177,172 @@ template <size_t Count>
     return items && PatchMutableHumanItems(document, items, instanceIndex, targetIndex, settingsObject, declare);
 }
 
-// S_FALSE without replaceExisting when the target already exists (an install that lost the race keeps that file).
-[[nodiscard]] HRESULT WriteUtf8FileAtomically(const std::filesystem::path& target, std::string_view bytes,
-                                              bool replaceExisting = true) noexcept
+#if defined(REDXE_SETTINGS_TESTS)
+SettingsWriteSeam g_settingsWriteSeam{};
+#endif
+
+// The stamp of an open file (the handle needs FILE_READ_ATTRIBUTES).
+[[nodiscard]] HRESULT ReadHandleStamp(HANDLE file, SettingsFileStamp& stamp) noexcept
 {
-    try
+    BY_HANDLE_FILE_INFORMATION information{};
+    if (!GetFileInformationByHandle(file, &information))
     {
-        std::wstring temporary = target.wstring();
-        temporary.append(L".tmp.");
-        temporary.append(std::to_wstring(GetCurrentProcessId()));
-        temporary.push_back(L'.');
-        temporary.append(std::to_wstring(GetTickCount64()));
-        wil::unique_hfile file{CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
-                                           FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
-        if (!file)
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    SettingsFileStamp read{};
+    read.volumeSerialNumber = information.dwVolumeSerialNumber;
+    read.fileIndexHigh = information.nFileIndexHigh;
+    read.fileIndexLow = information.nFileIndexLow;
+    read.lastWriteTime = (static_cast<uint64_t>(information.ftLastWriteTime.dwHighDateTime) << 32U) |
+                         information.ftLastWriteTime.dwLowDateTime;
+    read.fileSize = (static_cast<uint64_t>(information.nFileSizeHigh) << 32U) | information.nFileSizeLow;
+    stamp = read;
+    return S_OK;
+}
+
+// The same-directory temporary file of one document write (Core_Settings.md "Plugin persist"). Its handle shares
+// nothing and holds DELETE access, so no other program can open, change, rename, or delete the file until it is renamed
+// over the target through that handle, and the stamp read through it afterwards is the renamed file's. The handle is
+// write-through, which makes that rename durable when it returns, as MOVEFILE_WRITE_THROUGH does. Destruction closes
+// the handle and deletes the file unless a rename committed it.
+class DocumentTemporary final
+{
+  public:
+    DocumentTemporary() noexcept = default;
+    DocumentTemporary(const DocumentTemporary&) = delete;
+    DocumentTemporary& operator=(const DocumentTemporary&) = delete;
+    ~DocumentTemporary()
+    {
+        _file.reset();
+        if (!_renamed && !_path.empty())
         {
-            return HRESULT_FROM_WIN32(GetLastError());
+            (void)DeleteFileW(_path.c_str());
         }
-        // The handle closes first: the temporary file is not shared, so deleting it while open fails and leaves it.
-        const auto cleanup = wil::scope_exit(
-            [&temporary, &file]() noexcept
+    }
+
+    // Creates the temporary beside target, writes bytes, and flushes them to disk before any rename, so a power loss
+    // right after a save cannot leave the settings name on bytes that never reached the disk. A short write (WriteFile
+    // reporting fewer bytes and no error) is ERROR_WRITE_FAULT: a truncated document is never renamed into place.
+    [[nodiscard]] HRESULT Write(const std::wstring& target, std::string_view bytes) noexcept
+    {
+        try
+        {
+            std::wstring path = target;
+            path.append(L".tmp.");
+            path.append(std::to_wstring(GetCurrentProcessId()));
+            path.push_back(L'.');
+            path.append(std::to_wstring(GetTickCount64()));
+            _file.reset(CreateFileW(path.c_str(), GENERIC_WRITE | DELETE | FILE_READ_ATTRIBUTES, 0, nullptr, CREATE_NEW,
+                                    FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN | FILE_FLAG_WRITE_THROUGH,
+                                    nullptr));
+            if (!_file)
             {
-                file.reset();
-                DeleteFileW(temporary.c_str());
-            });
+                return HRESULT_FROM_WIN32(GetLastError());
+            }
+            _path = std::move(path);
+        }
+        catch (const std::bad_alloc&)
+        {
+            return E_OUTOFMEMORY;
+        }
         DWORD written = 0;
-        if (!WriteFile(file.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr))
+        BOOL wrote = FALSE;
+#if defined(REDXE_SETTINGS_TESTS)
+        if (g_settingsWriteSeam.writeFile)
+        {
+            wrote =
+                g_settingsWriteSeam.writeFile(_file.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &written);
+        }
+        else
+#endif
+        {
+            wrote = WriteFile(_file.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr);
+        }
+        if (!wrote)
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
-        // A short write that reports no error is still a failed write: never rename a truncated document into place.
         if (written != bytes.size())
         {
             return HRESULT_FROM_WIN32(ERROR_WRITE_FAULT);
         }
-        // MOVEFILE_WRITE_THROUGH makes only the rename durable. Flush the data first, so a power loss right after a
-        // save cannot leave the settings name on bytes that never reached the disk.
-        if (!FlushFileBuffers(file.get()))
+        return FlushFileBuffers(_file.get()) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+    }
+
+    // Renames the temporary over target through its own handle. posix (FileRenameInfoEx) replaces a target that other
+    // handles hold open with FILE_SHARE_DELETE, the persist guard among them; a file system without POSIX rename
+    // refuses it. Otherwise a classic rename, which fails while any handle holds the target open.
+    [[nodiscard]] HRESULT Rename(const std::wstring& target, bool posix, bool replaceExisting) noexcept
+    {
+#if defined(REDXE_SETTINGS_TESTS)
+        if (posix && g_settingsWriteSeam.withoutPosixRename)
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_PARAMETER);
+        }
+#endif
+        const size_t nameBytes = target.size() * sizeof(wchar_t);
+        const size_t size = offsetof(FILE_RENAME_INFO, FileName) + nameBytes + sizeof(wchar_t);
+        if (size > MAXDWORD)
+        {
+            return HRESULT_FROM_WIN32(ERROR_FILENAME_EXCED_RANGE);
+        }
+        // uint64_t storage keeps the record's pointer-sized members aligned.
+        const std::unique_ptr<uint64_t[]> storage{new (std::nothrow) uint64_t[(size + 7U) / 8U]{}};
+        if (!storage)
+        {
+            return E_OUTOFMEMORY;
+        }
+        auto* info = reinterpret_cast<FILE_RENAME_INFO*>(storage.get());
+        if (posix)
+        {
+            info->Flags = FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS;
+        }
+        else
+        {
+            info->ReplaceIfExists = replaceExisting ? TRUE : FALSE;
+        }
+        info->FileNameLength = static_cast<DWORD>(nameBytes);
+        std::memcpy(info->FileName, target.c_str(), nameBytes);
+        if (!SetFileInformationByHandle(_file.get(), posix ? FileRenameInfoEx : FileRenameInfo, info,
+                                        static_cast<DWORD>(size)))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
-        file.reset();
-        const DWORD flags = MOVEFILE_WRITE_THROUGH | (replaceExisting ? MOVEFILE_REPLACE_EXISTING : 0U);
-        if (!MoveFileExW(temporary.c_str(), target.c_str(), flags))
-        {
-            const DWORD error = GetLastError();
-            if (!replaceExisting && (error == ERROR_ALREADY_EXISTS || error == ERROR_FILE_EXISTS))
-            {
-                return S_FALSE;
-            }
-            return HRESULT_FROM_WIN32(error);
-        }
+        _renamed = true;
         return S_OK;
+    }
+
+    [[nodiscard]] HRESULT ReadStamp(SettingsFileStamp& stamp) const noexcept
+    {
+        return ReadHandleStamp(_file.get(), stamp);
+    }
+
+  private:
+    std::wstring _path;
+    wil::unique_hfile _file;
+    bool _renamed = false;
+};
+
+// An install or recovery write: the temporary is written, flushed, and renamed over target. S_FALSE without
+// replaceExisting when the target already exists (an install that lost the race keeps that file).
+[[nodiscard]] HRESULT WriteUtf8FileAtomically(const std::filesystem::path& target, std::string_view bytes,
+                                              bool replaceExisting) noexcept
+{
+    try
+    {
+        const std::wstring path = target.wstring();
+        DocumentTemporary temporary;
+        HRESULT result = temporary.Write(path, bytes);
+        if (SUCCEEDED(result))
+        {
+            result = temporary.Rename(path, false, replaceExisting);
+        }
+        if (!replaceExisting &&
+            (result == HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS) || result == HRESULT_FROM_WIN32(ERROR_FILE_EXISTS)))
+        {
+            return S_FALSE;
+        }
+        return result;
     }
     catch (const std::bad_alloc&)
     {
@@ -1238,6 +1352,99 @@ template <size_t Count>
     {
         return E_FAIL;
     }
+}
+
+// Replaces target with bytes only while it is still the document `expected` identifies (Core_Settings.md "Plugin
+// persist"). A guard with DELETE access that shares only read and delete keeps every other writer out, and cannot open
+// while another program holds the file with write access or without FILE_SHARE_DELETE. The stamp is checked on the
+// guard, the temporary is written and flushed, the path is checked to still name the guarded file, and the temporary
+// replaces it with POSIX semantics while the guard stays open; where the file system or Windows build has no POSIX
+// rename, the guard is released right before a classic replacement instead.
+// S_OK: committed, and `stamp` is the renamed file's stamp, read through the handle that renamed it before any other
+// program could open the file (empty when that read failed). S_FALSE: nothing was written, because target is missing,
+// held, unreadable, or another file; `stamp` is its stamp (zero when missing or unreadable). Otherwise the failure,
+// and nothing was written.
+[[nodiscard]] HRESULT ReplaceSettingsDocument(const std::wstring& target, const SettingsFileStamp& expected,
+                                              std::string_view bytes, std::optional<SettingsFileStamp>& stamp) noexcept
+{
+    stamp.reset();
+    const auto stillExpected = [&target, &expected, &stamp]() noexcept
+    {
+        SettingsFileStamp current{};
+        if (QuerySettingsFileStamp(target, current) != S_OK)
+        {
+            current = SettingsFileStamp{};
+        }
+        stamp = current;
+        return current == expected;
+    };
+    wil::unique_hfile guard{CreateFileW(target.c_str(), DELETE | FILE_READ_ATTRIBUTES,
+                                        FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                        FILE_ATTRIBUTE_NORMAL, nullptr)};
+    if (!guard)
+    {
+        // Held, missing, unreadable, or another file: the change waits. The expected file refusing the guard for any
+        // other reason (read-only, or its ACL) fails like a refused replacement.
+        const DWORD error = GetLastError();
+        const bool expectedFile = stillExpected();
+        return error == ERROR_SHARING_VIOLATION || !expectedFile ? S_FALSE : HRESULT_FROM_WIN32(error);
+    }
+    SettingsFileStamp current{};
+    if (FAILED(ReadHandleStamp(guard.get(), current)))
+    {
+        stamp = SettingsFileStamp{};
+        return S_FALSE;
+    }
+    if (current != expected)
+    {
+        stamp = current;
+        return S_FALSE;
+    }
+    DocumentTemporary temporary;
+    HRESULT result = temporary.Write(target, bytes);
+    if (FAILED(result))
+    {
+        return result;
+    }
+#if defined(REDXE_SETTINGS_TESTS)
+    if (g_settingsWriteSeam.checkpoint)
+    {
+        g_settingsWriteSeam.checkpoint(SettingsWritePhase::Flushed, g_settingsWriteSeam.context);
+    }
+#endif
+    // The guard shares delete, which the replacement needs, so another program can still replace, rename, or delete
+    // the name meanwhile; that must not be undone. Only the moment between this check and the rename stays open.
+    if (!stillExpected())
+    {
+        return S_FALSE;
+    }
+    result = temporary.Rename(target, true, true);
+    if (result == HRESULT_FROM_WIN32(ERROR_INVALID_PARAMETER) || result == HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED) ||
+        result == HRESULT_FROM_WIN32(ERROR_INVALID_FUNCTION) || result == E_ACCESSDENIED)
+    {
+        // No POSIX rename here: a classic replacement refuses any open target, the guard included.
+        guard.reset();
+        result = temporary.Rename(target, false, true);
+    }
+    if (FAILED(result))
+    {
+        return result;
+    }
+#if defined(REDXE_SETTINGS_TESTS)
+    if (g_settingsWriteSeam.checkpoint)
+    {
+        g_settingsWriteSeam.checkpoint(SettingsWritePhase::Renamed, g_settingsWriteSeam.context);
+    }
+#endif
+    if (SUCCEEDED(temporary.ReadStamp(current)))
+    {
+        stamp = current;
+    }
+    else
+    {
+        stamp.reset();
+    }
+    return S_OK;
 }
 
 // A plain template install or recovery: the template's bytes through the same flushed atomic write as a persist, so a
@@ -2715,22 +2922,7 @@ HRESULT QuerySettingsFileStamp(std::wstring_view path, SettingsFileStamp& stamp)
             const DWORD error = GetLastError();
             return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND ? S_FALSE : HRESULT_FROM_WIN32(error);
         }
-
-        BY_HANDLE_FILE_INFORMATION information{};
-        if (!GetFileInformationByHandle(file.get(), &information))
-        {
-            return HRESULT_FROM_WIN32(GetLastError());
-        }
-
-        SettingsFileStamp queried{};
-        queried.volumeSerialNumber = information.dwVolumeSerialNumber;
-        queried.fileIndexHigh = information.nFileIndexHigh;
-        queried.fileIndexLow = information.nFileIndexLow;
-        queried.lastWriteTime = (static_cast<uint64_t>(information.ftLastWriteTime.dwHighDateTime) << 32U) |
-                                information.ftLastWriteTime.dwLowDateTime;
-        queried.fileSize = (static_cast<uint64_t>(information.nFileSizeHigh) << 32U) | information.nFileSizeLow;
-        stamp = queried;
-        return S_OK;
+        return ReadHandleStamp(file.get(), stamp);
     }
     catch (const std::bad_alloc&)
     {
@@ -2741,6 +2933,13 @@ HRESULT QuerySettingsFileStamp(std::wstring_view path, SettingsFileStamp& stamp)
         return E_FAIL;
     }
 }
+
+#if defined(REDXE_SETTINGS_TESTS)
+void SetSettingsWriteSeamForTesting(const SettingsWriteSeam& seam) noexcept
+{
+    g_settingsWriteSeam = seam;
+}
+#endif
 
 namespace
 {
@@ -3043,7 +3242,9 @@ void SettingsStore::MarkApplied(const SettingsFileStamp& stamp) noexcept
 {
     _lastAppliedStamp = stamp;
     _lastRejectedStamp.reset();
+    // The applied document replaced whatever a deferred write held, so no deferral notice is due for it any more.
     _deferredStamp.reset();
+    _deferredNoticePending = false;
 }
 
 void SettingsStore::MarkRejected(const SettingsFileStamp& stamp) noexcept
@@ -3113,34 +3314,40 @@ HRESULT SettingsStore::PersistPatchedDocument(const AppSettings& settings) noexc
         return E_UNEXPECTED;
     }
     // Write only over the document last applied. Any other file on disk (rejected, replaced by a save the watcher has
-    // not processed, deleted, unreadable, or a `--settings` file that fell back to the template) belongs to the user:
-    // the patch stays in memory until the next applied load replaces it. A missing or unreadable file keeps the zero
-    // stamp, so each distinct on-disk state is reported once.
-    SettingsFileStamp current{};
-    if (QuerySettingsFileStamp(_settingsPath, current) != S_OK || !_lastAppliedStamp || *_lastAppliedStamp != current)
+    // not processed, deleted, unreadable, held open by another program, or a `--settings` file that fell back to the
+    // template) belongs to the user: the patch stays in memory until a later persist finds the file free again or the
+    // next applied load replaces it. A missing or unreadable file keeps the zero stamp, so each distinct on-disk state
+    // is reported once.
+    std::optional<SettingsFileStamp> stamp;
+    HRESULT result = S_FALSE;
+    if (_lastAppliedStamp)
     {
-        if (!_deferredStamp || *_deferredStamp != current)
+        result = ReplaceSettingsDocument(_settingsPath, *_lastAppliedStamp, settings.sourceDocument, stamp);
+    }
+    else
+    {
+        SettingsFileStamp current{};
+        stamp = QuerySettingsFileStamp(_settingsPath, current) == S_OK ? current : SettingsFileStamp{};
+    }
+    if (result == S_FALSE)
+    {
+        const SettingsFileStamp observed = stamp.value_or(SettingsFileStamp{});
+        if (!_deferredStamp || *_deferredStamp != observed)
         {
-            _deferredStamp = current;
+            _deferredStamp = observed;
             _deferredNoticePending = true;
         }
         return S_FALSE;
     }
-    const HRESULT result = WriteUtf8FileAtomically(_settingsPath, settings.sourceDocument);
     if (FAILED(result))
     {
         return result;
     }
     _deferredStamp.reset();
-    SettingsFileStamp stamp{};
-    const HRESULT stampResult = QuerySettingsFileStamp(_settingsPath, stamp);
-    if (stampResult != S_OK)
-    {
-        // The atomic replacement already committed. Stamp bookkeeping must not turn that successful write into
-        // a reported failure and make a widget roll back its state. Let the watcher read the next notification.
-        _lastAppliedStamp.reset();
-        return S_OK;
-    }
+    _deferredNoticePending = false;
+    // The renamed file's own stamp, read before any other program could change it, never a later path query that an
+    // editor's save could answer. When that read failed the replacement still committed: a widget must not roll back
+    // a saved change, so only the deduplication is cleared and the watcher reads the file at its next notification.
     _lastAppliedStamp = stamp;
     return S_OK;
 }

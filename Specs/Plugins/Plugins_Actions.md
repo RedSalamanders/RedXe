@@ -279,8 +279,12 @@ caller-owned bounded storage.
 dispatch. It first logs every launch the launch worker finished. Then, for each slot, an action that injects input
 (`InjectsInput` on its default or already-read published descriptor) whose request is older than
 `PluginHost::kMaximumQueuedInputAgeMilliseconds` (1000 ms) MUST be dropped rather than executed: after a UI-thread
-stall it would land in whatever window is foreground by then. `keys.up` and `mouse.up` are exempt because they only
-end a hold. One drain that drops any logs one `action-expired` Warning with the count and the first dropped name.
+stall it would land in whatever window is foreground by then. The only exempt input is a `keys.up` or `mouse.up` that
+ends a hold RedXe tracks (`HostActions::ReleasesTrackedHold`, UI thread): its target names the held chord or button,
+or the one whose hold the deadline already released, so it lifts only what RedXe pressed or injects nothing. Any other
+aged `up`, including one whose `down` was itself dropped for age, would be a stand-alone release of whatever the user
+holds in the new foreground window, and MUST be dropped. One drain that drops any logs one `action-expired` Warning
+with the count and the first dropped name.
 Every other slot goes to `PluginHost::ExecuteNow`, which resolves the namespace: `page` / `widget` / `redxe` go to
 the registered application handler (`Application::HandleHostAction`); the other default namespaces validate the
 target, apply `ValidateExtra`, and run `HostActions::Execute(descriptor, target, deviceAccess, launches)`; a
@@ -384,9 +388,11 @@ distinct failure.
   `ERROR_NOT_FOUND`, the `zoom.open` and `zoom.join` browser contract), the shipped catalog
   producing no notice, the **D** flag on launches, `redxe.settings.reload`, and `redxe.quit`, and
   device-access-disabled execution of `keys`, `system`, and `mouse` actions that counts inputs, launches, and power
-  requests without performing them. `TestQueuedInputAge`: an aged key press is dropped while an aged release, an aged
-  non-input action, and fresh input run, a coalesced repeat takes the newer time, and one `action-expired` Warning is
-  logged. `TestHeldInputTimer`: a replacement down releases the previous chord or button; an `up` naming another
+  requests without performing them. `TestQueuedInputAge`: an aged key press, aged downs, and the aged ups of those
+  dropped downs are dropped while an aged non-input action and fresh input run; an aged up of the tracked chord and
+  of the tracked button releases its hold while an aged up of another chord or button is dropped; a coalesced repeat
+  takes the newer time; and each drain that dropped input logs one `action-expired` Warning with its count and first
+  name. `TestHeldInputTimer`: a replacement down releases the previous chord or button; an `up` naming another
   chord or button leaves the hold tracked until its own `up` releases it; a held chord and button release on the
   timer after the deadline, their own `up` then injects nothing (`S_FALSE`) while any other `up` injects; with
   injection refused through a test seam, the `up` and a replacement down return the failure and press nothing, the

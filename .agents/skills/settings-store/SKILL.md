@@ -51,10 +51,13 @@ validation, `wil-raii` for files/events/change notifications, `win32-windowing` 
   `S_FALSE` and touches neither the typed settings nor the source, so comments survive an unchanged collect.
   `PatchDockThickness` does the same for a release at the current thickness. Interactive persist MAY write the user
   file; `--self-test` keeps the merge in memory.
-- `PersistPatchedDocument` writes only while the file's current stamp equals the last applied stamp. A rejected,
-  unprocessed, deleted, or unreadable file and a `--settings` fallback keep the patch in memory and return `S_FALSE`
-  (never a rollback); the caller logs `settings-persist-deferred` once per on-disk state through
-  `TakeDeferredPersistNotice`.
+- `PersistPatchedDocument` writes only while the file's current stamp equals the last applied stamp, checked on a
+  guard (`DELETE` access sharing read and delete) that keeps other writers out until the POSIX rename of the flushed
+  temporary commits; the stamp recorded is read through the renamed file's handle, never a later path query. A
+  rejected, unprocessed, deleted, or unreadable file, a file another program holds for writing or without
+  `FILE_SHARE_DELETE`, and a `--settings` fallback keep the patch in memory and return `S_FALSE` (never a rollback);
+  the caller logs `settings-persist-deferred` once per on-disk state through `TakeDeferredPersistNotice`, and an
+  applied load or a write clears a notice not yet taken. Seam-driven write tests compile with `REDXE_SETTINGS_TESTS`.
 - Cold invalid files are backed up and restored from the deployed template. Invalid live edits preserve both the
   edited file and the last valid runtime configuration.
 

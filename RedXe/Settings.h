@@ -367,7 +367,29 @@ enum class SettingsReloadStatus : std::uint8_t
 [[nodiscard]] HRESULT ParseAppSettingsJsonDetailed(std::string_view json, AppSettings& settings,
                                                    SettingsParseDiagnostic& diagnostic) noexcept;
 [[nodiscard]] HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexcept;
+// S_FALSE when the file is missing; the stamp is then unchanged.
 [[nodiscard]] HRESULT QuerySettingsFileStamp(std::wstring_view path, SettingsFileStamp& stamp) noexcept;
+#if defined(REDXE_SETTINGS_TESTS)
+// SettingsTests seam for the document writer (Core_Settings.md "Plugin persist"). `writeFile` stands in for the
+// WriteFile call that fills a document's temporary file. `checkpoint` runs inside a guarded persist replacement: at
+// Flushed once the temporary is flushed, while the guard on the target is held and before the last identity check and
+// the rename, and at Renamed after the rename, before the new stamp is read through the renamed file's handle.
+// `withoutPosixRename` makes the POSIX replacement fail with ERROR_INVALID_PARAMETER, as a file system without it
+// does. A default-constructed seam restores the production behavior.
+enum class SettingsWritePhase : uint8_t
+{
+    Flushed,
+    Renamed,
+};
+struct SettingsWriteSeam final
+{
+    BOOL (*writeFile)(HANDLE file, const void* bytes, DWORD size, DWORD* written) noexcept = nullptr;
+    void (*checkpoint)(SettingsWritePhase phase, void* context) noexcept = nullptr;
+    void* context = nullptr;
+    bool withoutPosixRename = false;
+};
+void SetSettingsWriteSeamForTesting(const SettingsWriteSeam& seam) noexcept;
+#endif
 [[nodiscard]] HRESULT SerializeFactoryConfigurationJson(const PluginSettings& plugin,
                                                         const WidgetInstanceSettings& instance,
                                                         std::array<char, kFactoryConfigurationCapacity>& json,
@@ -422,10 +444,12 @@ class SettingsStore final
     [[nodiscard]] bool InstalledFirstRunDock() const noexcept;
     [[nodiscard]] const std::wstring& InitialNotice() const noexcept;
     [[nodiscard]] const std::wstring& LastDiagnosticText() const noexcept;
-    // Writes the source document only over the file last applied: its current stamp must equal the applied stamp.
-    // S_FALSE otherwise (a rejected, replaced, deleted, or unreadable file, a `--settings` fallback, or a save the
-    // watcher has not processed yet): nothing is written, and the patched typed and source state stays in memory
-    // until the next applied load replaces it.
+    // Writes the source document only over the file last applied: its stamp must equal the applied stamp, checked on a
+    // guard that keeps every other writer out until the replacement commits, and the stamp then recorded is the
+    // renamed file's own. S_FALSE otherwise (a rejected, replaced, deleted, or unreadable file, a file another program
+    // holds open with write access or without FILE_SHARE_DELETE, a `--settings` fallback, or a save the watcher has
+    // not processed yet): nothing is written, and the patched typed and source state stays in memory until a later
+    // persist finds the file free or the next applied load replaces it.
     [[nodiscard]] HRESULT PersistPatchedDocument(const AppSettings& settings) noexcept;
     // PatchWidgetInstanceSettings plus the document write; rolls both back on failure. S_FALSE: nothing changed and
     // nothing deferred is waiting, or the write was deferred and the merge is kept, so the widget keeps its state.
@@ -446,7 +470,7 @@ class SettingsStore final
     std::optional<SettingsFileStamp> _lastAppliedStamp;
     std::optional<SettingsFileStamp> _lastRejectedStamp;
     // The on-disk state of the last deferred write (zero for a missing or unreadable file) and whether it is
-    // unreported. Set while deferred changes are held in memory; a write or an applied load clears it.
+    // unreported. Set while deferred changes are held in memory; a write or an applied load clears both.
     std::optional<SettingsFileStamp> _deferredStamp;
     bool _deferredNoticePending = false;
     bool _missingObserved = false;

@@ -1142,6 +1142,25 @@ void OnHeldTimer() noexcept
     ExpireHeld();
 }
 
+bool ReleasesTrackedHold(std::string_view action, std::string_view target) noexcept
+{
+    if (action == "keys.up")
+    {
+        ChordSequence sequence{};
+        return (g_chord.held || g_chord.expired) && ParseChords(target, sequence) && sequence.count == 1 &&
+               SameChord(sequence.chords[0], g_heldChord);
+    }
+    if (action == "mouse.up")
+    {
+        uint32_t down = 0;
+        uint32_t up = 0;
+        DWORD data = 0;
+        return (g_mouse.held || g_mouse.expired) && ButtonFlags(target, down, up, data) && up == g_heldMouseFlags &&
+               data == g_heldMouseData;
+    }
+    return false;
+}
+
 HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target, bool deviceAccess,
                 LaunchWorker* launches) noexcept
 {

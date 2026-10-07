@@ -4228,17 +4228,39 @@ void TestQueuedInputAge(bool& success) noexcept
         request.targetUtf8 = target;
         return host.RequestAction(&request);
     };
-    Check(requestAction("keys.press", "Ctrl+W") == S_OK && requestAction("keys.up", "Ctrl+W") == S_OK &&
-              requestAction("system.lock", nullptr) == S_OK,
+    // The down of each pair is dropped for age, so its up would be a stand-alone release into whatever window is
+    // foreground now, lifting a key or button the user may be holding there: it is dropped too.
+    Check(requestAction("keys.press", "Ctrl+W") == S_OK && requestAction("keys.down", "Ctrl+W") == S_OK &&
+              requestAction("keys.up", "Ctrl+W") == S_OK && requestAction("mouse.down", "left") == S_OK &&
+              requestAction("mouse.up", "left") == S_OK && requestAction("system.lock", nullptr) == S_OK,
           L"input and other actions queue", success);
     PluginHostTestAccess::AgeHostActions(host, 2 * PluginHost::kMaximumQueuedInputAgeMilliseconds);
     Check(requestAction("keys.type", "x") == S_OK, L"a fresh input action queues behind them", success);
     host.DrainHostActions();
     HostActions::Counters counters = HostActions::CopyCounters();
-    Check(counters.executed == 3 && counters.injectedInputs == 4 && counters.powerRequests == 1 &&
-              std::strcmp(counters.lastAction.data(), "keys.type") == 0,
-          L"a stale key press is dropped; a stale release, a stale non-input action, and fresh input still run",
+    Check(counters.executed == 2 && counters.injectedInputs == 2 && counters.powerRequests == 1 &&
+              counters.heldReleases == 0 && std::strcmp(counters.lastAction.data(), "keys.type") == 0,
+          L"a stale press, stale downs, and the ups of holds that never began are dropped; a stale non-input action "
+          L"and fresh input still run",
           success);
+
+    // A stale up still ends a hold RedXe tracks, which lifts only what RedXe pressed; a stale up naming another chord
+    // or button is dropped like any stale input.
+    HostActions::ResetCounters();
+    Check(requestAction("keys.down", "Ctrl+A") == S_OK && requestAction("mouse.down", "right") == S_OK,
+          L"a chord and a button hold queue", success);
+    host.DrainHostActions();
+    Check(requestAction("keys.up", "Ctrl+B") == S_OK && requestAction("keys.up", "Ctrl+A") == S_OK &&
+              requestAction("mouse.up", "left") == S_OK && requestAction("mouse.up", "right") == S_OK,
+          L"ups of the held and of other chords and buttons queue", success);
+    PluginHostTestAccess::AgeHostActions(host, 2 * PluginHost::kMaximumQueuedInputAgeMilliseconds);
+    host.DrainHostActions();
+    counters = HostActions::CopyCounters();
+    Check(counters.executed == 4 && counters.heldReleases == 2 && counters.injectedInputs == 6 &&
+              std::strcmp(counters.lastAction.data(), "mouse.up") == 0,
+          L"stale ups of the tracked chord and button release them; stale ups of another chord or button are dropped",
+          success);
+    HostActions::ReleaseHeld(false);
 
     HostActions::ResetCounters();
     Check(requestAction("keys.press", "Ctrl+W") == S_OK, L"a key press queues", success);
@@ -4251,9 +4273,13 @@ void TestQueuedInputAge(bool& success) noexcept
 
     Check(SUCCEEDED(host.FlushLog(10'000)), L"the input-age log drains", success);
     const std::string bytes = ReadTodayLog(root);
-    Check(CountText(bytes, "\"event\":\"action-expired\"") == 1 && CountText(bytes, "\"level\":\"warning\"") == 1 &&
-              bytes.find("first \\\"keys.press\\\"") != std::string::npos,
-          L"one drain that drops input logs one action-expired Warning naming the first dropped action", success);
+    Check(CountText(bytes, "\"event\":\"action-expired\"") == 2 && CountText(bytes, "\"level\":\"warning\"") == 2 &&
+              bytes.find("5 queued input action(s)") != std::string::npos &&
+              bytes.find("first \\\"keys.press\\\"") != std::string::npos &&
+              bytes.find("2 queued input action(s)") != std::string::npos &&
+              bytes.find("first \\\"keys.up\\\"") != std::string::npos,
+          L"each drain that drops input logs one action-expired Warning with the count and the first dropped action",
+          success);
 }
 
 struct LaunchProbe final

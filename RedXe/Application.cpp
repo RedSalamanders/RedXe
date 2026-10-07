@@ -6566,8 +6566,10 @@ void Application::LogDeferredSettingsPersist() noexcept
     {
         (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
                            "settings-persist-deferred",
-                           "A settings change was kept in memory and not written, because the settings file on disk "
-                           "is not the document RedXe last loaded; the next successful load of that file replaces it.",
+                           "A settings change was kept in memory and not written, because another program holds the "
+                           "settings file open or the file on disk is not the document RedXe last loaded; a later "
+                           "change writes it once the file is free and unchanged, and the next successful load of the "
+                           "file replaces it.",
                            S_FALSE);
     }
 }
