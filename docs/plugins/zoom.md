@@ -12,6 +12,12 @@ The shipped service entry needs no settings:
 }
 ```
 
+A settings file from RedXe 1.0.102 still carries the desktop-client settings `clientId`, `redirectPort`, and
+`autoConnect` (and possibly `domain`, `displayName`, `mode`, or `labels`). It keeps loading: RedXe ignores them and
+logs one warning each time it loads the file, so you can delete them when convenient. A Logicon key bound to a removed
+desktop control, such as `zoom.mute` or `zoom.signIn`, shows a red `!` and does nothing (a Launcher shortcut shows a
+warning tile); bind it to `zoom.open` or `zoom.join` instead.
+
 | Action | Target | Effect |
 | --- | --- | --- |
 | `zoom.open` | none | Open `https://app.zoom.us/wc`, where you can enter a meeting ID. |

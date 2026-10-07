@@ -254,6 +254,9 @@ struct ServiceSettings final
     SettingsText name;
     SettingsText pluginId;
     JsonObjectSettings privateConfiguration;
+    // The plugin model accepted and ignored retired members (today the v1.0.102 Zoom members); the host logs one
+    // service-retired-settings-ignored warning per load or live apply.
+    bool retiredMembersIgnored = false;
 
     bool operator==(const ServiceSettings&) const noexcept = default;
 };

@@ -1587,11 +1587,13 @@ struct DiagnosticSink final
         return sink.Fail(path.View(), "Service settings must be a JSON object.");
 
     std::array<char, 160> diagnostic{};
+    bool retiredMembersIgnored = false;
     if (isZoom)
     {
         Zoom::Settings model{};
         if (FAILED(Zoom::ParseSettings(effective, model, diagnostic.data(), diagnostic.size())))
             return sink.Fail(path.View(), diagnostic.data());
+        retiredMembersIgnored = model.retiredMembersIgnored;
     }
     else
     {
@@ -1624,6 +1626,7 @@ struct DiagnosticSink final
         return sink.Fail(path.View(), "A services member name must be 1 through 128 Unicode code points.");
     if (!CompactObject(effective, service.privateConfiguration))
         return sink.Fail(path.View(), "Service settings exceed the 4096-byte compact limit.");
+    service.retiredMembersIgnored = retiredMembersIgnored;
     settings.services.push_back(service);
     settings.serviceCount = static_cast<uint32_t>(settings.services.size());
     return true;

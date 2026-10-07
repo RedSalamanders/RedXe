@@ -9,6 +9,25 @@ function Assert-Scope([bool]$Condition,[string]$Message) {if(-not $Condition){th
 function Run-Case([string]$Name,[scriptblock]$Action) {& $Action;$script:passed++;Write-Host "PASS $Name"}
 function Write-Fixture([string]$Path,[string]$Content) {[void](New-Item -ItemType Directory -Path (Split-Path $Path) -Force);[IO.File]::WriteAllText($Path,$Content,[Text.UTF8Encoding]::new($false))}
 function Invoke-FixtureGit([string[]]$Arguments) {& git -C $fixture @Arguments *> $null;if($LASTEXITCODE){throw "Fixture git failed: $Arguments"}}
+# Each workflow test.ps1 call, by job. A call runs the Python tooling suite unless it passes -SkipTooling, so it is
+# provisioned only then or when its job installs Build/requirements-validation.txt. Comment lines are not calls.
+function Get-WorkflowTestCalls([string]$Directory) {
+    foreach($file in @(Get-ChildItem -LiteralPath $Directory -File | Where-Object {$_.Extension -in '.yml','.yaml'})) {
+        $jobs=[ordered]@{};$job=$null;$indent=-1;$inJobs=$false
+        foreach($line in @([IO.File]::ReadAllLines($file.FullName) | Where-Object {$_ -notmatch '^\s*#'})) {
+            if($line -match '^\S') {$inJobs=$line -match '^jobs:\s*$';$job=$null;continue}
+            if(-not $inJobs) {continue}
+            if($line -match '^(\s+)([\w-]+):\s*$' -and ($indent -lt 0 -or $Matches[1].Length -eq $indent)) {$indent=$Matches[1].Length;$job=$Matches[2];$jobs[$job]=@();continue}
+            if($job) {$jobs[$job]+=$line}
+        }
+        foreach($name in $jobs.Keys) {
+            $installs=@($jobs[$name] -match 'pip\s+install\s.*-r\s+[''"]?Build[\\/]requirements-validation\.txt').Count -gt 0
+            foreach($call in @($jobs[$name] -match '(?<![\w./\\-])(?:\.[\\/])?test\.ps1(?![\w.])')) {
+                [pscustomobject]@{Workflow=$file.Name;Job=$name;Call=$call.Trim();Provisioned=$installs -or $call -match '(?<!\S)-SkipTooling(?!\S)'}
+            }
+        }
+    }
+}
 $fixture=Join-Path $repository ('.build/ToolTests/ScopedTesting-'+[guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $fixture -Force)
 try {
@@ -243,6 +262,27 @@ try {
         } else {
             Assert-Scope ($manifest.prCoverage.Count -eq 1 -and $manifest.prCoverage[0].configuration -eq 'Release' -and $manifest.prCoverage[0].platform -eq 'x64') 'RedXe PR coverage overclaimed'
             Assert-Scope ($workflow.Contains('./Tests/BuildProcessTests/Invoke-ToolingTests.ps1')) 'Independent tooling job missing'
+            # The release workflow runs test.ps1 too: no workflow may run the tooling suite without its Python packages.
+            $calls=@(Get-WorkflowTestCalls (Join-Path $repository '.github/workflows'))
+            foreach($name in @('ci.yml','release.yml')) {Assert-Scope (@($calls | Where-Object Workflow -eq $name).Count -gt 0) "No test.ps1 call found in $name"}
+            foreach($call in $calls) {Assert-Scope $call.Provisioned "$($call.Workflow) job $($call.Job) runs the tooling suite without Build/requirements-validation.txt: $($call.Call)"}
+            Write-Fixture (Join-Path $fixture 'workflows/fixture.yml') @'
+jobs:
+  bare:
+    steps:
+      # ./test.ps1 in a comment is not a call
+      - run: ./test.ps1 -Configuration Release -Platform 'x64' -BuildNumber 7
+  installs:
+    steps:
+      - run: |
+          python -m pip install -r Build/requirements-validation.txt
+          ./test.ps1 -Full
+  skips:
+    steps:
+      - run: ./test.ps1 -Full -SkipTooling -Configuration Release
+'@
+            $calls=@(Get-WorkflowTestCalls (Join-Path $fixture 'workflows'))
+            Assert-Scope ($calls.Count -eq 3 -and (@($calls | Where-Object {-not $_.Provisioned} | ForEach-Object Job) -join ',') -eq 'bare') 'Workflow tooling provisioning was misread'
         }
         $digest=$manifest.prWorkflowDigest
         try {$manifest.prWorkflowDigest='stale';$profile=$manifest.prCoverage[0];Assert-Scope (@(Get-ScopedPrCoverage $repository $manifest $profile.platform $profile.configuration).Count -eq 0) 'Modified workflow was delegated'}

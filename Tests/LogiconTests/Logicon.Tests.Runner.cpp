@@ -359,6 +359,21 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
                       !RedXeIsActionNameSyntax("page..next") && !RedXeIsActionNameSyntax("page.next."),
                   "action-name grammar");
 
+    // keys.down and mouse.down are valid names, so a document that binds them loads (v1.0.102 accepted them); the
+    // binding reports that it holds input, and the service makes it invalid (TestShippedModule).
+    LOGICON_CHECK(SUCCEEDED(ParseSettingsJson(R"json({"keys":[{"slot":0,"action":"keys.down","target":"A"}]})json",
+                                              settings, diagnostic.data(), diagnostic.size())) &&
+                      settings.Find(0, 0) && settings.Find(0, 0)->HoldsInput() && settings.Find(0, 0)->valid,
+                  "a key bound to keys.down loads and holds input");
+    LOGICON_CHECK(SUCCEEDED(ParseSettingsJson(
+                      R"json({"dialpad":{"buttons":[{"button":1,"action":"mouse.down","target":"left"}],)json"
+                      R"json("turns":[{"control":"dial","direction":"cw","action":"keys.up","target":"A"}]}})json",
+                      settings, diagnostic.data(), diagnostic.size())) &&
+                      settings.dialpad.Button(1) && settings.dialpad.Button(1)->HoldsInput() &&
+                      settings.dialpad.Turn(kControlDial, kDirectionForward) &&
+                      !settings.dialpad.Turn(kControlDial, kDirectionForward)->HoldsInput(),
+                  "a dialpad button bound to mouse.down loads and holds input; keys.up does not");
+
     // Rejections.
     LOGICON_CHECK(
         FAILED(ParseSettingsJson(R"json({"brightness":0})json", settings, diagnostic.data(), diagnostic.size())),
@@ -386,13 +401,6 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0,"action":"launch"}]})json", settings,
                                            diagnostic.data(), diagnostic.size())),
                   "the former launch name is not an action name");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0,"action":"keys.down","target":"A"}]})json",
-                                           settings, diagnostic.data(), diagnostic.size())),
-                  "press-only keys cannot hold a keyboard chord");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(
-                      R"json({"dialpad":{"buttons":[{"button":1,"action":"mouse.down","target":"left"}]}})json",
-                      settings, diagnostic.data(), diagnostic.size())),
-                  "press-only dialpad buttons cannot hold a mouse button");
     LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"buttons":[{"button":4}]}})json", settings,
                                            diagnostic.data(), diagnostic.size())),
                   "dial button 4 rejected");
@@ -1079,6 +1087,13 @@ class TestHost final : public IRedXeHost
             return E_INVALIDARG;
         }
         logs.fetch_add(1, std::memory_order_relaxed);
+        if (record->level == RedXeLogLevelWarning && record->eventId && record->messageUtf8 &&
+            std::strcmp(record->eventId, "binding-invalid") == 0)
+        {
+            const auto guard = wil::AcquireSRWLockExclusive(&actionLock);
+            strncpy_s(lastInvalidBinding, record->messageUtf8, _TRUNCATE);
+            invalidBindings.fetch_add(1, std::memory_order_relaxed);
+        }
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork*) noexcept override
@@ -1133,15 +1148,23 @@ class TestHost final : public IRedXeHost
         const auto guard = wil::AcquireSRWLockShared(&actionLock);
         return std::strcmp(lastTarget, target) == 0;
     }
+    // The message of the last Warning record "binding-invalid".
+    bool LastInvalidBindingIs(const char* message) noexcept
+    {
+        const auto guard = wil::AcquireSRWLockShared(&actionLock);
+        return std::strcmp(lastInvalidBinding, message) == 0;
+    }
 
     std::atomic<uint32_t> frames{0};
     std::atomic<uint32_t> logs{0};
     std::atomic<uint32_t> actions{0};
     std::atomic<uint32_t> validations{0};
+    std::atomic<uint32_t> invalidBindings{0};
     SRWLOCK actionLock = SRWLOCK_INIT;
     char lastActionName[65]{};
     std::atomic<uint32_t> providerLookups{0};
     char lastTarget[513]{};
+    char lastInvalidBinding[kRedXeMaximumLogMessageBytes]{};
     FakeSystemData systemData;
 };
 
@@ -1422,6 +1445,40 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     constexpr char invalidApply[] = R"json({"keys":[{"slot":42}]})json";
     LOGICON_CHECK(FAILED(service->ApplySettings(invalidApply, static_cast<uint32_t>(sizeof(invalidApply) - 1))),
                   "invalid settings are rejected without stopping the service");
+
+    // keys.down and mouse.down need a release no Logicon control sends: the object applies, each such binding is
+    // logged as invalid with its control and never reaches ValidateAction, and pressing it requests nothing.
+    constexpr char heldApply[] =
+        R"json({"keys":[{"slot":0,"action":"keys.down","target":"Ctrl+K"},{"slot":1,"action":"page.next"}],)json"
+        R"json("dialpad":{"buttons":[{"button":1,"action":"mouse.down","target":"left"}],)json"
+        R"json("turns":[{"control":"roller","direction":"down","action":"mouse.down","target":"left"}]}})json";
+    const uint32_t validationsBeforeHeld = host.validations.load(std::memory_order_relaxed);
+    const uint32_t invalidBeforeHeld = host.invalidBindings.load(std::memory_order_relaxed);
+    LOGICON_CHECK(SUCCEEDED(service->ApplySettings(heldApply, static_cast<uint32_t>(sizeof(heldApply) - 1))),
+                  "held bindings apply");
+    std::array<char, kRedXeMaximumLogMessageBytes> heldMessage{};
+    (void)sprintf_s(heldMessage.data(), heldMessage.size(), "dialpad.turns[] roller down: %s",
+                    Logicon::kHeldInputReason);
+    LOGICON_CHECK(host.invalidBindings.load(std::memory_order_relaxed) == invalidBeforeHeld + 3 &&
+                      host.LastInvalidBindingIs(heldMessage.data()) &&
+                      host.validations.load(std::memory_order_relaxed) == validationsBeforeHeld + 1,
+                  "each held binding is logged as invalid and only page.next is validated by the host");
+    LOGICON_CHECK(SUCCEEDED(diagnostics(&report)), "diagnostics before the held presses");
+    const uint32_t actionsBeforeHeld = host.actions.load(std::memory_order_relaxed);
+    const uint32_t dialPressesBeforeHeld = report.dialButtonPresses;
+    LOGICON_CHECK(SUCCEEDED(inject(0, 0, TRUE)) && SUCCEEDED(inject(0, 0, FALSE)) && SUCCEEDED(inject(2, 1, TRUE)) &&
+                      SUCCEEDED(inject(2, 1, FALSE)) && SUCCEEDED(inject(0, 1, TRUE)) && SUCCEEDED(inject(0, 1, FALSE)),
+                  "inject the held key, the held dialpad button, then the page.next key");
+    // Injected controls dispatch in order, so once page.next arrives both held bindings were already pressed.
+    LOGICON_CHECK(
+        WaitUntil([&]() noexcept { return host.actions.load(std::memory_order_relaxed) > actionsBeforeHeld; }, 2000) &&
+            host.LastActionIs("page.next") && host.actions.load(std::memory_order_relaxed) == actionsBeforeHeld + 1,
+        "the held key and dialpad button requested nothing");
+    LOGICON_CHECK(
+        WaitUntil([&]() noexcept
+                  { return SUCCEEDED(diagnostics(&report)) && report.dialButtonPresses == dialPressesBeforeHeld + 1; },
+                  2000),
+        "the held dialpad button press was seen");
     LOGICON_CHECK(host.frames.load(std::memory_order_relaxed) == 0, "no frame requests without a monitor tile");
 
     // System Data faces: the feed subscribes only once a system face is bound, values reach the faces, and an

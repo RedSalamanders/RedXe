@@ -324,6 +324,10 @@
       "type": "object",
       "additionalProperties": false
     },
+    "retiredZoomMember": {
+      "deprecated": true,
+      "description": "Retired v1.0.102 Zoom SDK setting: accepted with any value and ignored (one warning in the log). Delete it."
+    },
     "logiconSettings": {
       "type": "object",
       "additionalProperties": false,
@@ -418,7 +422,14 @@
           "additionalProperties": false,
           "required": ["plugin"],
           "properties": {
-            "plugin": { "const": "builtin.zoom" }
+            "plugin": { "const": "builtin.zoom" },
+            "clientId": { "$ref": "#/$defs/retiredZoomMember" },
+            "redirectPort": { "$ref": "#/$defs/retiredZoomMember" },
+            "domain": { "$ref": "#/$defs/retiredZoomMember" },
+            "displayName": { "$ref": "#/$defs/retiredZoomMember" },
+            "autoConnect": { "$ref": "#/$defs/retiredZoomMember" },
+            "mode": { "$ref": "#/$defs/retiredZoomMember" },
+            "labels": { "$ref": "#/$defs/retiredZoomMember" }
           }
         }
       ]
