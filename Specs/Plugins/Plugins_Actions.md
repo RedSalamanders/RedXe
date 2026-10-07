@@ -193,8 +193,8 @@ above, never a private vocabulary.
 
 ## Shared target grammars — `Common/Actions`
 
-`ActionTargets.h/.cpp` is compiled into the host and into publishers that use its grammars (Logicon, Launcher, Zoom) so validation and
-execution agree by construction. `RedXeActions::ValidateTarget(descriptor, target)` dispatches on the descriptor's
+`ActionTargets.h/.cpp` is compiled into the host and into publishers that use its grammars (Logicon, Launcher, Zoom)
+so validation and execution agree by construction. `RedXeActions::ValidateTarget(descriptor, target)` dispatches on the descriptor's
 kind and returns `S_OK`, `E_INVALIDARG`, or (for a null/empty target on a kind other than `None` without
 `TargetOptional`) `E_INVALIDARG`; `SplitSuffix` separates a trailing `@<selector>` when the descriptor carries
 `MonitorSuffix` or `WindowSuffix` (a `Point` handles its own `@monitor`). The parsers allocate nothing and copy into
@@ -389,8 +389,8 @@ distinct failure.
   spoofed ones `E_INVALIDARG`), the shipped catalog producing no notice, the **D** flag on launches,
   `redxe.settings.reload`, and `redxe.quit`, device-access-disabled execution of `keys`, `system`, and `mouse` actions
   that counts inputs, launches, and power requests without performing them, and `zoom.*` executed through the
-  dedicated executor without any service, deferred (`S_FALSE`) and drained as `system.launch`. `TestQueuedInputAge`: an aged key press is dropped while an aged release, an aged
-  non-input action, and fresh input run, a coalesced repeat takes the newer time, and one `action-expired` Warning is
+  dedicated executor without any service, deferred (`S_FALSE`) and drained as `system.launch`. `TestQueuedInputAge`:
+  an aged key press is dropped while an aged release, an aged non-input action, and fresh input run, a coalesced repeat takes the newer time, and one `action-expired` Warning is
   logged. `TestHeldInputTimer`: a replacement down releases the previous chord or button; an `up` naming another
   chord or button leaves the hold tracked until its own `up` releases it; a held chord and button release on the
   timer after the deadline, their own `up` then injects nothing (`S_FALSE`) while any other `up` injects; with

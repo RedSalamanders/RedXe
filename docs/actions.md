@@ -124,8 +124,9 @@ entry, Zoom Workplace installation, or Marketplace application registration.
 - `keys.down` and `mouse.down` hold a key or a button until a release, and a Logicon key, dialpad button, or turn only
   ever sends a press. Bound there, they keep the settings file valid but show a red `!` (the dialpad has no face) and
   never run; the log names the control. Use `keys.press` or `mouse.click` instead. A Launcher tile still accepts
-  them: each tap holds the key or button until a tile bound to `keys.up` / `mouse.up`, another hold, or the 2 s
-  release.
+  them: each tap holds the key or button until a tile bound to `keys.up` / `mouse.up` with the same chord or button,
+  another hold, or the 2 s release (an `up` naming a different chord or button sends its own release and leaves the
+  hold in place).
 - If two plugin DLLs beside `RedXe.exe` claim the same action namespace, or one that RedXe does not know, a notice
   names both files and the affected bindings are disabled until the deployment is repaired. The dashboard keeps
   running.

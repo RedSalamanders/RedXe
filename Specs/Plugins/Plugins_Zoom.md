@@ -42,9 +42,9 @@ Both actions carry `RedXeActionFlagDeferred`: the host drains the queued `system
 returns and opens the browser on its launch worker ([`Plugins_Actions.md`](Plugins_Actions.md) "Launch worker").
 `Execute` therefore returns `S_FALSE` once `RequestAction` accepts the request, whether queued or coalesced with an
 identical pending one, never `S_OK`, and passes a `RequestAction` failure through (`ERROR_BUSY` for a full ring,
-`E_UNEXPECTED` after shutdown). A launch worker that is full at drain time (`action-failed`) and a browser that fails
-to open (`launch-failed`) both happen after the pack has returned, so they reach the host log, never this action's
-result. An unpublished name, or a `zoom.join` target that fails the grammar, returns `E_INVALIDARG` without requesting
+`E_UNEXPECTED` after shutdown). A launch worker that is full at drain time (`action-failed`, a Debug record that Release
+drops) and a browser that fails to open (`launch-failed`, a Warning) both happen after the pack has returned, so they
+are never this action's result. An unpublished name, or a `zoom.join` target that fails the grammar, returns `E_INVALIDARG` without requesting
 a host action.
 
 The namespace does not publish desktop or SDK controls (`zoom.signIn`, `zoom.signOut`, `zoom.start`, `zoom.leave`,
@@ -81,8 +81,7 @@ Zoom's official browser-join help describes the host settings:
 
 The executor allocates no queue, timer, worker, socket, or GPU object and owns nothing between executions. Action
 execution performs bounded link validation and copies no meeting link; the host action ring, and then a launch worker
-slot, own their own bounded copies.
-The obsolete SDK import, OAuth, synthetic session, local MSAA path, and their binaries are absent from this product.
+slot, own their own bounded copies. The obsolete SDK import, OAuth, synthetic session, local MSAA path, and their binaries are absent from this product.
 
 `ZoomTests` loads the shipped DLL with a fake host and proves the actions-only metadata, the absent settings contract,
 the two-action contract with its Meeting and None kinds and Deferred flags, that `IRedXeService` is refused and the
