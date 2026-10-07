@@ -212,7 +212,10 @@ Recommended defaults are in bold. Batches that depend on a decision wait for it.
 - Every batch: the affected build, `Test-Changes.ps1` for the changed scopes, and the validation its owning specs
   name. P1 to P4 also run `test.ps1 -Full` on x64 Debug and Release before their PR.
 - B1: a SettingsTests case per `v1.0.102` template and a held Logicon binding.
-- B2: the release workflow command in the reviewed-CI assertion; one `workflow_dispatch` of Release after merge.
+- B2: the release workflow command in the reviewed-CI assertion, plus the same command run locally on x64 Release.
+  Never dispatch `release.yml` as a test: every dispatch creates a GitHub release and, with the default inputs,
+  submits it to winget. The next intentional release is the end-to-end check, unless a non-publishing dry-run input
+  is added first.
 - P3: the live Explorer-restart and first-run checks above, recorded with date and topology.
 - Spec-only changes: `validate-skills.ps1`.
 
