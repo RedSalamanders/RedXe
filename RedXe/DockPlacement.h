@@ -42,7 +42,8 @@ inline constexpr uint32_t kDockDefaultHideDelayMilliseconds = 800;
 inline constexpr uint32_t kDockMaximumAnimationMilliseconds = 1000;
 inline constexpr uint32_t kDockDefaultAnimationMilliseconds = 200;
 inline constexpr std::string_view kDockDefaultMonitor = "primary";
-// The second screen: the first display in enumeration order that is not the primary (settings minor 3).
+// The second screen: the first display in enumeration order that is neither the primary nor a XENEON, else the XENEON
+// (RedXeActions::SecondaryMonitorRank; settings minor 3).
 inline constexpr std::string_view kDockSecondaryMonitor = "secondary";
 
 [[nodiscard]] constexpr bool DockEdgeParse(std::string_view text, DockEdge& edge) noexcept
@@ -114,24 +115,6 @@ inline constexpr std::string_view kDockSecondaryMonitor = "secondary";
     }
 }
 
-// The edge an ABE_* value names (the taskbar's `uEdge` from ABM_GETTASKBARPOS); None for anything else.
-[[nodiscard]] constexpr DockEdge DockEdgeFromAppBarEdge(UINT appBarEdge) noexcept
-{
-    switch (appBarEdge)
-    {
-    case 0: // ABE_LEFT
-        return DockEdge::Left;
-    case 1: // ABE_TOP
-        return DockEdge::Top;
-    case 2: // ABE_RIGHT
-        return DockEdge::Right;
-    case 3: // ABE_BOTTOM
-        return DockEdge::Bottom;
-    default:
-        return DockEdge::None;
-    }
-}
-
 [[nodiscard]] inline LONG DockThicknessPixels(uint32_t thicknessDips, UINT dpi) noexcept
 {
     const int scaleDpi = dpi == 0 ? USER_DEFAULT_SCREEN_DPI : static_cast<int>(dpi);
@@ -172,29 +155,53 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
         std::clamp(dips, static_cast<LONG>(kDockMinimumThicknessDips), static_cast<LONG>(kDockMaximumThicknessDips)));
 }
 
+// First start without a XENEON (UI_XeneonDisplayWindowing.md "First start without a XENEON"): only a default file
+// installed because it was missing gets the first-run bar, and only when discovery succeeded without finding a XENEON
+// in a session at the machine's own displays. A remote session sees only the remote client's displays, so a bar decided
+// there would stay in the file for the XENEON at the desk.
+[[nodiscard]] constexpr bool DockFirstRunOffered(bool discoverySucceeded, bool xeneonFound, bool settingsFileGiven,
+                                                 bool remoteSession) noexcept
+{
+    return discoverySucceeded && !xeneonFound && !settingsFileGiven && !remoteSession;
+}
+
 // First start without a XENEON: with more than one display the bar goes to the second screen (`secondary`, which
-// keeps following whichever display is not the primary), otherwise to the primary.
+// keeps following the first display that is neither the primary nor a XENEON), otherwise to the primary.
 [[nodiscard]] constexpr std::string_view DockFirstRunMonitor(size_t displayCount) noexcept
 {
     return displayCount > 1 ? kDockSecondaryMonitor : kDockDefaultMonitor;
 }
 
-// First start without a XENEON: the bar takes the horizontal edge the taskbar leaves free on the bar's monitor, the
-// top unless the top is taken and the bottom is not. Evidence of a taken edge, strongest first: the work area trimmed
-// on that side (a taskbar that stays visible, any reserving app bar), then an autohide bar registered on that edge of
-// that monitor (an auto-hiding taskbar). A monitor with neither, one without a taskbar of its own, follows the
-// primary taskbar's edge (`taskbarEdge`, None when unknown), so the bar sits opposite the taskbar the person uses.
-[[nodiscard]] constexpr DockEdge DockFirstRunEdge(const RECT& monitor, const RECT& work, bool autohideTop,
-                                                  bool autohideBottom, DockEdge taskbarEdge) noexcept
+// Whether `other` touches the top or bottom `edge` of `monitor`: it sits right above or right below it and overlaps it
+// along that edge, so the pointer crosses the edge on its way between the two displays. Displays side by side, or
+// meeting only at a corner, share no horizontal edge.
+[[nodiscard]] constexpr bool DockDisplayTouchesEdge(const RECT& monitor, const RECT& other, DockEdge edge) noexcept
 {
-    bool top = work.top > monitor.top || autohideTop;
-    bool bottom = work.bottom < monitor.bottom || autohideBottom;
-    if (!top && !bottom)
+    const bool overlaps = other.left < monitor.right && monitor.left < other.right;
+    switch (edge)
     {
-        top = taskbarEdge == DockEdge::Top;
-        bottom = taskbarEdge == DockEdge::Bottom;
+    case DockEdge::Top:
+        return overlaps && other.bottom == monitor.top;
+    case DockEdge::Bottom:
+        return overlaps && other.top == monitor.bottom;
+    default:
+        return false;
     }
-    return top && !bottom ? DockEdge::Bottom : DockEdge::Top;
+}
+
+// First start without a XENEON: the bar takes the better-ranked horizontal edge of its monitor, the bottom when both
+// rank the same, so the strip stays off the caption buttons and tabs of maximized windows where it can. From best to
+// worst: a free screen edge; an edge beside a taskbar, where the work area is trimmed on that side (a taskbar that
+// stays visible, any reserving app bar) or an autohide bar is registered on that edge of that monitor (an auto-hiding
+// taskbar); an edge another display shares (DockDisplayTouchesEdge), whatever holds it, because the pointer crosses it
+// between the displays.
+[[nodiscard]] constexpr DockEdge DockFirstRunEdge(const RECT& monitor, const RECT& work, bool autohideTop,
+                                                  bool autohideBottom, bool sharedTop, bool sharedBottom) noexcept
+{
+    const auto rank = [](bool taken, bool shared) noexcept { return shared ? 0 : (taken ? 1 : 2); };
+    const int top = rank(work.top > monitor.top || autohideTop, sharedTop);
+    const int bottom = rank(work.bottom < monitor.bottom || autohideBottom, sharedBottom);
+    return bottom >= top ? DockEdge::Bottom : DockEdge::Top;
 }
 
 // The autohide evidence for DockFirstRunEdge: the bar ABM_GETAUTOHIDEBAREX reports on an edge holds that edge only
@@ -603,7 +610,8 @@ struct DockMonitorCandidate final
 
 // Index of the candidate the selector names, else the primary (`fellBack` = true), else the first candidate.
 // SIZE_MAX only when there is no candidate at all. `index` selectors are 1-based in enumeration order; `secondary`
-// is the first candidate in enumeration order that is not the primary.
+// is the first candidate in enumeration order that is neither the primary nor the XENEON, else the XENEON when it is
+// the only candidate that is not the primary (RedXeActions::SecondaryMonitorRank).
 [[nodiscard]] inline size_t SelectDockMonitor(const RedXeActions::MonitorSelector& selector,
                                               std::wstring_view nameNeedle, const DockMonitorCandidate* candidates,
                                               size_t count, bool& fellBack) noexcept
@@ -628,14 +636,25 @@ struct DockMonitorCandidate final
     case Kind::Primary:
         return primary;
     case Kind::Secondary:
-        for (size_t index = 0; index < count; ++index)
+    {
+        size_t best = SIZE_MAX;
+        uint32_t bestRank = 0;
+        for (size_t index = 0; index < count && bestRank < RedXeActions::kSecondaryMonitorTopRank; ++index)
         {
-            if (!candidates[index].primary)
+            const uint32_t rank =
+                RedXeActions::SecondaryMonitorRank(candidates[index].primary, candidates[index].xeneon);
+            if (rank > bestRank)
             {
-                return index;
+                best = index;
+                bestRank = rank;
             }
         }
+        if (best != SIZE_MAX)
+        {
+            return best;
+        }
         break;
+    }
     case Kind::Xeneon:
         for (size_t index = 0; index < count; ++index)
         {

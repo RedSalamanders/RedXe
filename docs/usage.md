@@ -63,7 +63,7 @@ The first page is selected on every launch. RedXe does not remember which page y
 
 With a `dock` configured (or `--dock` on the command line) both builds run as a bar on a screen edge instead; see [Dock](#dock).
 
-On the very first start without a XENEON (no settings file yet), RedXe skips the prompt and the plain window: it writes an auto-hiding bar into the new settings file, on your second screen when you have more than one and on the edge where your taskbar is not (normally the top), and starts as that bar. See [First start without a XENEON](#first-start-without-a-xeneon).
+On the very first start without a XENEON (no settings file yet), RedXe skips the prompt and the plain window: it writes an auto-hiding bar into the new settings file, on your second screen when you have more than one and on its bottom edge unless that screen's own taskbar is there, and starts as that bar. See [First start without a XENEON](#first-start-without-a-xeneon).
 
 **Escape**, closing the window, or **Exit** in the [notification-area icon](#notification-area-icon)'s menu exits RedXe. Signing out, restarting, or shutting down Windows closes it the same way, so widget settings are saved and a [Logicon keypad](plugins/logicon.md) gets its own buttons back.
 
@@ -102,7 +102,7 @@ RedXe.exe --settings C:\Dash\bar.settings.json --dock none
 | Setting (`dock`) | Switch | Default | Meaning |
 | --- | --- | --- | --- |
 | `edge` | `--dock <edge>` | `none` | `top`, `bottom`, `left`, or `right` of the monitor. `none` is the normal window. |
-| `monitor` | `--dock <edge>@<monitor>` | `primary` | `primary`, `secondary` (your second screen: the first display that is not the main one), `xeneon`, a display number (`2`), or `name:<part of the display name>` (`name:DELL`, `name:DISPLAY2`). A display that is not connected falls back to the primary. |
+| `monitor` | `--dock <edge>@<monitor>` | `primary` | `primary`, `secondary` (your second screen: the first display that is not the main one, skipping a XENEON unless it is the only other one), `xeneon`, a display number (`2`), or `name:<part of the display name>` (`name:DELL`, `name:DISPLAY2`). A display that is not connected falls back to the primary. |
 | `thickness` | `--dock-thickness` | `180` | How deep the bar is, in DIPs (scaled with the monitor's display scaling; 180 is 270 px at 150 %). 32–1080, at most half the monitor. |
 | `mode` | `--dock-mode` | `fixed` | `fixed` keeps the bar on screen. `autohide` collapses it to a few pixels until you point at them. |
 | `reserveWorkArea` | `--dock-reserve on\|off` | `true` | `fixed` only. `true`: maximized windows stop at the bar. `false`: the bar floats over the maximized area. |
@@ -141,20 +141,22 @@ Good to know:
 
 ### First start without a XENEON
 
-When RedXe starts with no settings file yet (or replaces an invalid one) and no XENEON display is connected, the settings file it creates already contains a bar, with a comment saying why:
+When RedXe starts with no settings file yet and no XENEON display is connected, the settings file it creates already contains a bar, with a comment saying why:
 
 ```jsonc
   // No XENEON display was found when RedXe installed this file, so this dock runs it as a bar on a screen edge;
   // set "edge" to "none" to use the standard window instead.
-  "dock": { "edge": "top", "monitor": "secondary", "mode": "autohide", "thickness": 720 },
+  "dock": { "edge": "bottom", "monitor": "secondary", "mode": "autohide", "thickness": 720 },
 ```
+
+Only a first start does this. When RedXe replaces an invalid settings file, the new file is the plain shipped one, without a bar, even if no XENEON is connected. A first start in a Remote Desktop session also writes the plain file, because RedXe sees only the remote screens there.
 
 Where the bar goes is decided once, when the file is written:
 
-- **Which screen**: with more than one display, your second screen (`"secondary"`: the first display that is not the main one); with a single display, that display (`"primary"`).
-- **Which edge**: the top or the bottom, whichever your taskbar does not use on that screen — normally the **top**, since the taskbar sits at the bottom. A screen without a taskbar of its own follows where your main taskbar is. So the bar's thin strip normally sits at the screen edge rather than next to the taskbar.
+- **Which screen**: with more than one display, your second screen (`"secondary"`: the first display that is not the main one, skipping a XENEON unless it is the only other one); with a single display, that display (`"primary"`).
+- **Which edge**: the **bottom**, where it stays clear of the title-bar buttons and tabs of maximized windows, unless that screen's own taskbar is at the bottom; then the top, so the thin strip sits at the screen edge rather than next to the taskbar. An edge where another display sits right above or below is used only when both are like that, so moving the mouse from one screen to the other does not cross the strip.
 
-The bar collapses to a thin line until you rest the pointer on it. Its `thickness` gives it the XENEON's 32:9 shape across that display, so the shipped pages look as they do on a XENEON: on a 16:9 display that is half the screen height (720 on a 4K display at 150 %, 540 on a 1920×1080 display at 100 %). Drag its inner edge or edit `thickness` to make it smaller, and edit `edge` or `monitor` to move it. If you connect a XENEON later, the file keeps the bar until you set `"edge": "none"`, which switches to the XENEON window at once. A settings file written by an earlier RedXe keeps its bar where it is.
+The bar collapses to a thin line until you rest the pointer on it. Its `thickness` gives it the XENEON's 32:9 shape across that display, so the shipped pages look as they do on a XENEON: on a 16:9 display that is half the screen height (720 on a 4K display at 150 %, 540 on a 1920×1080 display at 100 %). Drag its inner edge or edit `thickness` to make it smaller, and edit `edge` or `monitor` to move it. If you connect a XENEON later, the bar stays on your second screen (`"secondary"` skips the XENEON) until you set `"edge": "none"`, which switches to the XENEON window at once. A settings file written by an earlier RedXe keeps its bar where it is. The log of that first start (a `dock-first-run` entry) records how many displays RedXe saw and the size of the one it chose.
 
 ## Command line
 
@@ -202,7 +204,7 @@ Without `--settings`, RedXe uses one editable file:
 
 Save the file to apply it. RedXe watches that path; you do not restart. When the [notification-area icon](#notification-area-icon) is shown, double-clicking it is the quickest way to open the file. A valid document keeps the page you were on when that page still exists. A save that changes what the current page shows (its tiles, grid, or background) while the RedXe window is minimized takes effect when you restore the window, and a save made while you drag or resize the window takes effect when you let go. An invalid save leaves the last good dashboard running and shows one error dialog with the JSON path and the reason (and line and column when those are known). Dismissing the dialog suppresses only that failed save; a later distinct invalid save can prompt again.
 
-If the default file is missing, RedXe installs the shipped template and continues. If it is invalid, RedXe copies the bytes beside it as `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`, installs a fresh template, and tells you where the backup went. Without a XENEON connected, either installed template also gets an auto-hiding bar; see [First start without a XENEON](#first-start-without-a-xeneon).
+If the default file is missing, RedXe installs the shipped template and continues. If it is invalid, RedXe copies the bytes beside it as `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`, installs a fresh template, and tells you where the backup went. Without a XENEON connected, a template installed because the file was missing also gets an auto-hiding bar; one that replaces an invalid file does not. See [First start without a XENEON](#first-start-without-a-xeneon).
 
 `--settings <path>` uses one portable file instead. A missing or invalid portable file is not rewritten; RedXe reports the problem and runs the shipped default in memory.
 

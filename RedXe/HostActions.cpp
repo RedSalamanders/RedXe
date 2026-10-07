@@ -32,10 +32,13 @@ struct Hold final
     bool expired = false;
 };
 
-// UI-thread state: the main window, the log, the counters, and whatever keys.down / mouse.down left pressed. The
-// chord and button stay recorded after their release so an expired hold's own `up` can be recognized.
+// UI-thread state: the main window, the log, the discovered XENEON, the counters, and whatever keys.down / mouse.down
+// left pressed. The chord and button stay recorded after their release so an expired hold's own `up` can be
+// recognized.
 HWND g_hostWindow = nullptr;
 IRedXeHost* g_log = nullptr;
+RECT g_xeneonBounds{};
+bool g_xeneonFound = false;
 Counters g_counters{};
 KeyChord g_heldChord{};
 Hold g_chord{};
@@ -641,6 +644,8 @@ struct MonitorSearch final
     const MonitorSelector* selector = nullptr;
     HMONITOR xeneon = nullptr;
     uint32_t index = 0;
+    // The SecondaryMonitorRank of the display `rectangle` holds for a `secondary` selector.
+    uint32_t secondaryRank = 0;
     RECT rectangle{};
     bool found = false;
 };
@@ -662,8 +667,20 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
         matched = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
         break;
     case MonitorSelector::Kind::Secondary:
-        matched = (info.dwFlags & MONITORINFOF_PRIMARY) == 0;
-        break;
+    {
+        // The first display of the highest rank: a XENEON is kept only until another display that is not the
+        // primary turns up, which ends the search.
+        const uint32_t rank = SecondaryMonitorRank((info.dwFlags & MONITORINFOF_PRIMARY) != 0,
+                                                   g_xeneonFound && EqualRect(&info.rcMonitor, &g_xeneonBounds));
+        if (rank <= search.secondaryRank)
+        {
+            return TRUE;
+        }
+        search.secondaryRank = rank;
+        search.rectangle = info.rcMonitor;
+        search.found = true;
+        return rank < kSecondaryMonitorTopRank ? TRUE : FALSE;
+    }
     case MonitorSelector::Kind::Xeneon:
         matched = monitor == search.xeneon;
         break;
@@ -1091,6 +1108,12 @@ void SetHostWindow(HWND window, IRedXeHost* log) noexcept
     g_hostWindow = window;
     g_log = log;
     ArmHeldTimer();
+}
+
+void SetXeneonDisplay(const RECT& bounds, bool found) noexcept
+{
+    g_xeneonBounds = found ? bounds : RECT{};
+    g_xeneonFound = found;
 }
 
 HRESULT ValidateExtra(const RedXeActionDescriptor& descriptor, std::string_view target) noexcept

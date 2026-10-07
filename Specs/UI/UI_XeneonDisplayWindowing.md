@@ -52,7 +52,7 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 | Debug with active XENEON | Create a visible `WS_OVERLAPPEDWINDOW` with the RedXe title bar and DPI-adjusted 2560×720 logical client canvas. Place its outer top-left corner at the detected XENEON `rcMonitor` origin; do not force fullscreen. |
 | Debug without active XENEON | Create the same titled window using normal shell-selected placement. Do not prompt and do not force fullscreen. |
 | Release with active XENEON | Create a `WS_POPUP` borderless window using the detected XENEON monitor's exact `rcMonitor` bounds. |
-| Release without active XENEON | Show the missing-display Yes/No warning. Yes creates the standard titled fallback window; No exits successfully without creating the main window. A default settings file installed at this start carries the first-run dock ("First start without a XENEON"), so the Dock row applies instead. |
+| Release without active XENEON | Show the missing-display Yes/No warning. Yes creates the standard titled fallback window; No exits successfully without creating the main window. A default settings file installed at this start because it was missing carries the first-run dock ("First start without a XENEON"), so the Dock row applies instead. |
 | Self-test | Skip display discovery and prompts, create the titled window hidden, validate its DPI-adjusted client dimensions, render one frame, and exit. |
 | Screenshot (`--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]`) | Run exactly as the configuration above prescribes (same discovery, placement, services, and frame loop), jump to the named page through the host `PageGoTo` action once the renderer is live and no settle runs, wait the delay (default 3000 ms, 1–120000) with the frame loop idle-waiting as usual, capture the main window through `Common/WindowCapture.cpp` on a capture worker (Windows.Graphics.Capture of an owned, visible window; a widget ordinal crops to that tile's `PixelBoundsAt` in client space, mapped through the DWM extended frame bounds), then close. The UI thread continues handling input and timers while capture waits for its first frame. Exit 0 only with the PNG written; 8 when the capture failed, when its worker could not start, and when the run ended before the PNG was written (the window closed during the delay or the capture), with one `screenshot-failed` Warning record. The run is unattended and MUST NOT wait on a modal box: the Release missing-display prompt is not shown and the titled fallback window is created as for its Yes; the settings fallback notice is one Warning record (`settings-fallback-notice`) instead of its box; the previous-crash notice is left for the next interactive start; a command-line error goes to the console or redirected output (exit 2); and a failure exit is one Error record (`failure-exit`, naming the code) instead of the error message box. A failed Debug runtime check ends the run with exit code 3 (`Common/FailureReports.h`). A worker still capturing when the window closes is joined and its result decides the exit code. Only this command-line mode closes after the capture; the `redxe.screenshot` action shares the pipeline and keeps RedXe running (`Plugins_Actions.md`). It MUST NOT activate, move, or resize the window, move the cursor, or send input. |
 | Dock (`dock.edge` other than `none`, or `--dock <edge>[@<monitor>]`) | Debug and Release alike: create the dock window kind below on the selected monitor instead of the row that would otherwise apply, and skip the missing-display prompt. A live reload that turns the dock on or off switches the running window between this row and the one that would otherwise apply ("Switching the window kind"). `--self-test` ignores the dock. |
@@ -141,12 +141,15 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
 ### Monitor and placement
 
 - `monitor` resolves over `EnumDisplayMonitors`: `primary` → the primary display (`MONITORINFOF_PRIMARY`);
-  `secondary` → the second screen, the first display in enumeration order that is not the primary; `<n>` → the n-th
-  in enumeration order (1-based); `name:<substring>` → an ordinal case-insensitive substring of the
-  `QueryDisplayConfig` friendly name or of the GDI device name (`\\.\DISPLAYn`); `xeneon` → the display XENEON
-  discovery found. A selector that resolves to nothing (`secondary` on a single display included) falls back to the
-  primary display with one Warning log record (`dock-monitor-fallback`) and no prompt; `WM_DISPLAYCHANGE` re-runs
-  discovery and the selector, so the bar returns when its monitor does.
+  `secondary` → the second screen, the first display in enumeration order that is neither the primary nor the XENEON
+  discovery found, and the XENEON only when it is the only display that is not the primary
+  (`RedXeActions::SecondaryMonitorRank`, the rule the actions' `@secondary` uses too), so a XENEON connected later
+  never takes a `secondary` bar from the second screen; `<n>` → the n-th in enumeration order (1-based);
+  `name:<substring>` → an ordinal case-insensitive substring of the `QueryDisplayConfig` friendly name or of the GDI
+  device name (`\\.\DISPLAYn`); `xeneon` → the display XENEON discovery found. A selector that resolves to nothing
+  (`secondary` on a single display included) falls back to the primary display with one Warning log record
+  (`dock-monitor-fallback`) and no prompt; `WM_DISPLAYCHANGE` re-runs discovery and the selector, so the bar returns
+  when its monitor does.
 - Thickness is `MulDiv(thickness, monitorDpi, 96)` (`GetDpiForMonitor`, effective DPI) and is clamped so at least
   half of the monitor's cross dimension stays free (one Warning record, `dock-thickness-clamped`).
 - A reserving bar (`fixed` with `reserveWorkArea`) proposes the monitor rectangle trimmed to the thickness on the
@@ -297,27 +300,39 @@ native containers, the settings watcher, the drop target, and accessibility.
 
 ### First start without a XENEON
 
-When RedXe installs its default settings file at startup (the file is missing, or the recovery of an invalid file;
-`Specs/Core/Core_Settings.md` "Cold load and recovery") and XENEON discovery succeeded without finding a display, the
-installed document carries the **first-run dock**: `{ "edge": E, "monitor": M, "mode": "autohide", "thickness": T }`,
-so this start and the following ones show the Dock row of the mode table instead of the Release missing-display
-prompt or the Debug titled window. `MakeFirstRunDock` measures the displays once, at that install:
+When RedXe installs its default settings file at startup because the file is missing (`Specs/Core/Core_Settings.md`
+"Cold load and recovery"), XENEON discovery succeeded without finding a display, and the process does not run in a
+remote session (`SM_REMOTESESSION`, `DockFirstRunOffered`), the installed document carries the **first-run dock**:
+`{ "edge": E, "monitor": M, "mode": "autohide", "thickness": T }`, so this start and the following ones show the Dock
+row of the mode table instead of the Release missing-display prompt or the Debug titled window. The recovery of an
+invalid default file MUST install the plain template, even without a XENEON, so a file that failed validation never
+turns a XENEON or window configuration into a bar. A remote session sees only the remote client's displays, so it MUST
+install the plain template too: a bar decided there would stay in the file when the user is back at the XENEON.
+`MakeFirstRunDock` measures the displays once, at that install:
 
 - `M` is the second screen when more than one display is active (`DockFirstRunMonitor`): `secondary`, which
-  resolves like every selector at runtime, so the bar follows whichever display is not the primary. With one display
-  it is `primary`. The primary monitor is identified by `MONITORINFOF_PRIMARY` during enumeration, even when another
-  monitor contains screen coordinate `(0,0)`, and the second screen is chosen in the enumeration order the
-  `secondary` selector uses.
-- `E` is the horizontal edge the taskbar leaves free on that display (`DockFirstRunEdge`): `top`, unless the top is
-  taken and the bottom is not, then `bottom`. An edge is taken when the display's work area is trimmed on that side
-  (a taskbar that stays visible, or any reserving app bar) or when an autohide bar is registered on that edge of that
-  display (`ABM_GETAUTOHIDEBAREX`: an auto-hiding taskbar). A registration counts only while its window exists
-  (`DockAutohideBarHoldsEdge`): Explorer keeps reporting the autohide bar of a process that crashed or was killed, such
-  as RedXe's own first-run bar, until another bar registers on that edge, and that registration MUST NOT take the edge
-  from the install that follows. A display with neither, one without a taskbar of its own, follows the primary
-  taskbar's edge (`ABM_GETTASKBARPOS`), so the bar sits opposite the taskbar the person uses; a side taskbar, both
-  edges taken, or no taskbar at all (Explorer not started) gives `top`. Whenever one horizontal edge is free, the
-  autohide strip therefore sits at the screen edge rather than beside a taskbar.
+  resolves like every selector at runtime, so the bar follows the first display that is neither the primary nor a
+  XENEON ("Monitor and placement"). With one display it is `primary`. The primary monitor is identified by
+  `MONITORINFOF_PRIMARY` during enumeration, even when another monitor contains screen coordinate `(0,0)`, and the
+  second screen is chosen in the enumeration order the `secondary` selector uses.
+- `E` is the better-ranked horizontal edge of that display (`DockFirstRunEdge`), and `bottom` when both rank the same,
+  so the strip stays off the caption buttons and tabs of maximized windows wherever the bottom is free. From best to
+  worst:
+  1. A free screen edge.
+  2. An edge beside a taskbar: the display's work area is trimmed on that side (a taskbar that stays visible, or any
+     reserving app bar), or an autohide bar is registered on that edge of that display (`ABM_GETAUTOHIDEBAREX`: an
+     auto-hiding taskbar). A registration counts only while its window exists (`DockAutohideBarHoldsEdge`): Explorer
+     keeps reporting the autohide bar of a process that crashed or was killed, such as RedXe's own first-run bar,
+     until another bar registers on that edge, and that registration MUST NOT take the edge from the install that
+     follows.
+  3. An edge another display shares, whatever holds it: a display right above or below that overlaps it along the
+     edge (`DockDisplayTouchesEdge`). The pointer crosses that edge between the displays, so the strip MUST NOT go
+     there while the other edge is not shared.
+
+  A display without a taskbar on either horizontal edge (a second screen without a taskbar of its own, a side
+  taskbar, or Explorer not started) therefore gets `bottom`; a display whose own taskbar holds the bottom gets `top`,
+  at the screen edge rather than beside the taskbar; under another display it gets `bottom`, beside its own taskbar if
+  it has one; and over another display it gets `top`.
 - `T` gives the bar the XENEON EDGE's 32:9 proportions along that display's work area, so the shipped 2560×720 pages
   keep their shape (`DockFirstRunThicknessDips`): `MulDiv(workAreaWidth, 720, 2560)` pixels, clamped to half the
   monitor like every dock, converted to DIPs at that display's effective DPI rounding down (so the runtime rescale
@@ -326,11 +341,13 @@ prompt or the Debug titled window. `MakeFirstRunDock` measures the displays once
   64 DIPs across the edge, where even the 32-DIP settings minimum is more than half of it: the runtime clamps that
   bar like any dock (one `dock-thickness-clamped` record).
 
-The start logs one Info record (`dock-first-run`) naming the edge and the monitor selector. After a failed
+The start logs one Info record (`dock-first-run`) naming the edge, the monitor selector, and the topology the bar was
+decided from: the number of active displays and that display's rectangle, work area, and effective DPI. After a failed
 discovery, or when the template cannot be patched, the plain template is installed; a `--settings` file and the
-self-test never install. The file is not revisited later: a XENEON connected afterwards, a display added or removed,
-or a taskbar moved changes nothing in it until the user edits `dock` (for example `edge` to `none`), which applies
-live.
+self-test never install. The file is not revisited later: a display added or removed, or a taskbar moved, changes
+nothing in it until the user edits `dock` (for example `edge` to `none`), which applies live. A XENEON connected
+afterwards does not take the bar either: `secondary` skips it while the second screen is there, and the bar stays until
+`edge` is `none`.
 
 ## Notice windows
 
@@ -526,8 +543,9 @@ Dock changes MUST keep the pure tables green: `HostPluginTests` proves the place
 (reserving proposal and shell re-trim, overlay against a work area with a taskbar or another bar, negative
 coordinates), the thickness scaling and clamp, the hidden strip, the grip and its accent for every edge, the resize
 band for every edge and the dragged thickness (outer-edge distance, DPI, both clamps), MINMAXINFO, monitor selection
-for every selector kind with the primary fallback (`secondary` before and after an enumerated primary, and on a single
-display), every autohide state-machine row including zero delays and hold
+for every selector kind with the primary fallback (`secondary` before and after an enumerated primary, skipping a
+XENEON that enumerates before the second screen, the XENEON when it is the only display that is not the primary, on a
+single display, and every `SecondaryMonitorRank`), every autohide state-machine row including zero delays and hold
 precedence, the scheduler row that a hidden dock waits after its one grip frame, a dock-kind swap chain
 (`DXGI_SCALING_NONE`) presenting a tile frame and a grip frame while the client is smaller than the back buffer, the
 same swap chain created at the full bar while the window is already the strip and recreated at the last resized bar,
@@ -535,11 +553,15 @@ the rebuild of one renderer and dashboard across kinds (`DXGI_SCALING_STRETCH` a
 `DXGI_SCALING_NONE` at the full bar, the same widget instances presenting), the first-run thickness
 (`DockFirstRunThicknessDips`: 16:9 displays at 100, 125, and 150 %, an ultrawide capped at half its height, a 5:4
 display, a side bar, negative coordinates, the minimum, DPI 0, the rescale without a clamp at 175 %, and the display
-under 64 DIPs across where the minimum is still clamped), the first-run monitor (`DockFirstRunMonitor`: the primary
-for zero or one display, `secondary` from two), and the first-run edge (`DockFirstRunEdge`: a visible taskbar at the
-bottom and at the top, an auto-hiding taskbar at either edge, a display without a taskbar following the primary
-taskbar's edge and `top` when that is unknown, a side taskbar, both edges taken, negative coordinates, the ABE
-mapping back to edges, and `DockAutohideBarHoldsEdge` counting a registration only while its window exists), and the
+under 64 DIPs across where the minimum is still clamped), the first-run offer (`DockFirstRunOffered`: refused after a
+failed discovery, with a XENEON, for a `--settings` file, and in a remote session), the first-run monitor
+(`DockFirstRunMonitor`: the primary for zero or one display, `secondary` from two), the shared edge
+(`DockDisplayTouchesEdge`: a display right above and right below, a partial overlap, negative coordinates, and none for
+displays side by side, at a corner, or on a side edge), and the first-run edge (`DockFirstRunEdge`: a display without a
+taskbar on either horizontal edge and a side taskbar taking `bottom`, a visible taskbar at the bottom and at the top,
+an auto-hiding taskbar at either edge, both edges taken, a display under another display with and without its own
+taskbar, one over another display, one between two displays, negative coordinates, and `DockAutohideBarHoldsEdge`
+counting a registration only while its window exists), and the
 autohide slide (`DockSlideDurationMilliseconds`: whole, partial, reversed, zero, and tiny travels;
 `DockSlideVisiblePixels`: exact ends, clamped progress, the eased halfway points of a reveal and a hide, one-way
 motion within the travel; `DockSlideContentOffset` for every edge), with a dock-kind swap chain presenting a slide
@@ -590,9 +612,12 @@ made while it is minimized still turns it into a bar at once. The 2026-10-07 che
 above. A failed switch step needs a Direct3D, shell, or `SetWindowPos` fault and a move/size loop needs the real
 cursor, so the rollback and the move/size deferral have no automated or live check.
 
-First-run changes additionally require a live install without a XENEON: on a machine with two displays and a bottom
-taskbar the installed `dock` names `top` and `secondary`, the `dock-first-run` record says so, and the bar collapses
-to its strip at the top of the display that is not the primary.
+First-run changes additionally require a live install without a XENEON, a manual check on a machine without one: on
+two displays side by side with the taskbar on the primary only, the installed `dock` names `bottom` and `secondary`,
+the `dock-first-run` record says so and names two active displays with the second screen's rectangle, and the bar
+collapses to its strip at the bottom of the display that is not the primary; with the taskbar on every display it
+names `top`. Recovery of an invalid default file installs no `dock`, and neither does a first start in a Remote
+Desktop session. These are not recorded yet.
 
 Changes to the dock's `TaskbarCreated` handling additionally require a live run, because `HostPluginTests` does not
 build `Application` and `--self-test` never runs a dock: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed

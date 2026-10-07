@@ -349,7 +349,7 @@
           "minLength": 1,
           "maxLength": 128,
           "default": "primary",
-          "description": "primary, secondary (the first display that is not the primary; settings minor 3), xeneon (the discovered XENEON display), a 1-based display number, or name:<substring> of the display name. A display that is not found falls back to the primary."
+          "description": "primary, secondary (the first display that is neither the primary nor the XENEON, the XENEON only when it is the only display that is not the primary; settings minor 3), xeneon (the discovered XENEON display), a 1-based display number, or name:<substring> of the display name. A display that is not found falls back to the primary."
         },
         "thickness": {
           "type": "integer",

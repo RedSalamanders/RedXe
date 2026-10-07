@@ -2006,8 +2006,8 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 
 // First start without a XENEON (Core_Settings.md "Cold load and recovery"): PatchFirstRunDock inserts `dock` into both
 // shipped templates as one commented run after `version`, in the file's own line breaks, leaving every other byte and
-// member; the store writes that document for a missing or invalid default file, never over an existing one, and never
-// for a `--settings` file.
+// member; the store writes that document for a missing default file only, never over an existing one, never when it
+// recovers an invalid one, and never for a `--settings` file.
 [[nodiscard]] HRESULT ValidateFirstRunDock() noexcept
 {
     try
@@ -2187,8 +2187,8 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
-        // The store: install with the dock, keep an existing file, recover an invalid one with the dock, install the
-        // plain template when no dock is offered, and never write a missing `--settings` file.
+        // The store: install a missing file with the dock, keep an existing file, recover an invalid one with the plain
+        // template, install the plain template when no dock is offered, and never write a missing `--settings` file.
         const std::filesystem::path localRoot = std::filesystem::temp_directory_path() /
                                                 (L"RedXe.FirstRunDockTests." + std::to_wstring(GetCurrentProcessId()) +
                                                  L"." + std::to_wstring(GetTickCount64()));
@@ -2248,14 +2248,20 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             std::ofstream stream(selected, std::ios::binary | std::ios::trunc);
             stream << "invalid default bytes";
         }
+        // Recovery reinstalls the plain template even with a dock offered: only a missing file gets the bar.
         SettingsStore recoverStore;
         std::unique_ptr<AppSettings> recovered;
         result = recoverStore.Initialize(false, {}, recovered, localRoot.wstring(), &dock);
+        std::string recoveredBytes;
+        if (SUCCEEDED(result))
+            result = ReadFile(selected, recoveredBytes);
         if (FAILED(result) || !recovered || !recoverStore.UsedInitialFallback() ||
-            !recoverStore.InstalledFirstRunDock() || !isFirstRunDock(recovered->dock) ||
-            recoverStore.InitialNotice().find(L"bar on a screen edge") == std::wstring::npos)
+            recoverStore.InstalledFirstRunDock() || recovered->dock.edge != DockEdge::None ||
+            recoveredBytes != templateBytes ||
+            recoverStore.InitialNotice().find(L"A fresh default configuration was installed.") == std::wstring::npos ||
+            recoverStore.InitialNotice().find(L"bar on a screen edge") != std::wstring::npos)
         {
-            std::wprintf(L"An invalid default file was not recovered with the first-run dock.\n");
+            std::wprintf(L"An invalid default file was not recovered with the plain template.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 

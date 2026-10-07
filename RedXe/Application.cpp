@@ -415,21 +415,25 @@ struct DisplayFriendlyName final
     return DockAutohideBarHoldsEdge(reinterpret_cast<HWND>(SHAppBarMessage(ABM_GETAUTOHIDEBAREX, &data)));
 }
 
-// The primary taskbar's edge, or None without a taskbar (Explorer not started yet).
-[[nodiscard]] DockEdge PrimaryTaskbarEdge() noexcept
+// The displays MakeFirstRunDock decided the bar from, for the dock-first-run record: a bar decided from a passing
+// topology stays in the file, so the log says what was seen.
+struct FirstRunTopology final
 {
-    APPBARDATA data{};
-    data.cbSize = sizeof(data);
-    return SHAppBarMessage(ABM_GETTASKBARPOS, &data) != 0 ? DockEdgeFromAppBarEdge(data.uEdge) : DockEdge::None;
-}
+    size_t displays = 0;
+    RECT monitor{};
+    RECT work{};
+    UINT dpi = USER_DEFAULT_SCREEN_DPI;
+};
 
 // The dock written into a default settings file installed without a XENEON (Core_Settings.md "Cold load and
 // recovery"; UI_XeneonDisplayWindowing.md "First start without a XENEON"): an auto-hiding bar on the second screen
-// when there is more than one display (DockFirstRunMonitor), on the horizontal edge the taskbar leaves free there
-// (DockFirstRunEdge), as deep as the XENEON's proportions make it along that display (DockFirstRunThicknessDips).
-[[nodiscard]] bool MakeFirstRunDock(DockSettings& dock) noexcept
+// when there is more than one display (DockFirstRunMonitor), on the best horizontal edge there (DockFirstRunEdge: the
+// free bottom first, never an edge another display shares unless both are), as deep as the XENEON's proportions make
+// it along that display (DockFirstRunThicknessDips).
+[[nodiscard]] bool MakeFirstRunDock(DockSettings& dock, FirstRunTopology& topology) noexcept
 {
     dock = DefaultDockSettings();
+    topology = FirstRunTopology{};
     // Enumeration order is the order the `secondary` selector resolves in at runtime; the primary is the display
     // flagged MONITORINFOF_PRIMARY, since (0,0) can belong to another display.
     struct Enumeration final
@@ -478,13 +482,30 @@ struct DisplayFriendlyName final
     {
         dpiX = USER_DEFAULT_SCREEN_DPI;
     }
+    bool sharedTop = false;
+    bool sharedBottom = false;
+    for (size_t index = 0; index < enumeration.count; ++index)
+    {
+        if (index != chosen)
+        {
+            sharedTop = sharedTop ||
+                        DockDisplayTouchesEdge(display.monitor, enumeration.candidates[index].monitor, DockEdge::Top);
+            sharedBottom =
+                sharedBottom ||
+                DockDisplayTouchesEdge(display.monitor, enumeration.candidates[index].monitor, DockEdge::Bottom);
+        }
+    }
     dock.edge = DockFirstRunEdge(display.monitor, display.work, AutohideBarOnEdge(ABE_TOP, display.monitor),
-                                 AutohideBarOnEdge(ABE_BOTTOM, display.monitor), PrimaryTaskbarEdge());
+                                 AutohideBarOnEdge(ABE_BOTTOM, display.monitor), sharedTop, sharedBottom);
     dock.mode = DockMode::Autohide;
     dock.monitor = SettingsText{};
     monitorSelector.copy(dock.monitor.utf8.data(), monitorSelector.size());
     dock.monitor.bytes = static_cast<uint32_t>(monitorSelector.size());
     dock.thicknessDips = DockFirstRunThicknessDips(display.monitor, display.work, dock.edge, dpiX);
+    topology.displays = enumeration.count;
+    topology.monitor = display.monitor;
+    topology.work = display.work;
+    topology.dpi = dpiX;
     return true;
 }
 
@@ -766,8 +787,8 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         return 1;
     }
 
-    // Discovery runs before the settings load: a default file installed on a machine without a XENEON (first start,
-    // or recovery of an invalid file) carries the first-run dock instead of leading to the missing-display prompt.
+    // Discovery runs before the settings load: a default file installed because it was missing, on a machine without
+    // a XENEON, carries the first-run dock instead of leading to the missing-display prompt.
     RECT xeneonBounds{};
     const RECT* requestedTargetBounds = nullptr;
     bool requestedFullscreen = false;
@@ -783,9 +804,12 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     }
     _xeneonBounds = xeneonBounds;
     _xeneonFound = xeneonFound;
+    HostActions::SetXeneonDisplay(_xeneonBounds, _xeneonFound);
     DockSettings firstRunDock{};
-    const bool offerFirstRunDock =
-        SUCCEEDED(result) && !xeneonFound && settingsPath.empty() && MakeFirstRunDock(firstRunDock);
+    FirstRunTopology firstRunTopology{};
+    const bool offerFirstRunDock = DockFirstRunOffered(SUCCEEDED(result), xeneonFound, !settingsPath.empty(),
+                                                       GetSystemMetrics(SM_REMOTESESSION) != 0) &&
+                                   MakeFirstRunDock(firstRunDock, firstRunTopology);
 
     result = _settingsStore.Initialize(false, settingsPath, _settings, {}, offerFirstRunDock ? &firstRunDock : nullptr);
     if (FAILED(result) || !_settings)
@@ -815,12 +839,19 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     }
     if (_settingsStore.InstalledFirstRunDock())
     {
-        std::array<char, 192> message{};
+        // The topology the bar was decided from: the file keeps it after a display that was off or still enumerating
+        // comes back.
+        const RECT& monitor = firstRunTopology.monitor;
+        const RECT& work = firstRunTopology.work;
+        std::array<char, 384> message{};
         (void)std::snprintf(message.data(), message.size(),
                             "No XENEON display was found; the installed settings run RedXe as an auto-hiding bar on "
-                            "the %s edge of the %.*s display.",
+                            "the %s edge of the %.*s display, decided from %zu active displays: that display is "
+                            "%ldx%ld at (%ld,%ld), its work area %ldx%ld at (%ld,%ld), %u DPI.",
                             DockEdgeName(_settings->dock.edge), static_cast<int>(_settings->dock.monitor.bytes),
-                            _settings->dock.monitor.utf8.data());
+                            _settings->dock.monitor.utf8.data(), firstRunTopology.displays,
+                            monitor.right - monitor.left, monitor.bottom - monitor.top, monitor.left, monitor.top,
+                            work.right - work.left, work.bottom - work.top, work.left, work.top, firstRunTopology.dpi);
         (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "dock-first-run",
                            message.data());
     }
@@ -2084,6 +2115,7 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback) 
         UnregisterDockAppBar();
     }
     (void)FindXeneonDisplay(_xeneonBounds, _xeneonFound);
+    HostActions::SetXeneonDisplay(_xeneonBounds, _xeneonFound);
     _dock = next;
     ResetDockPlacementState();
 #if defined(_DEBUG)
@@ -6080,10 +6112,12 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         ReplayDeferredSettingsReload();
         break;
     case WM_DISPLAYCHANGE:
+        // Topology change: a XENEON may have come or gone, which the `secondary` selector of the dock and of the
+        // actions skips, and a dock's selected monitor may have too; re-resolve the selector and re-place.
+        (void)FindXeneonDisplay(_xeneonBounds, _xeneonFound);
+        HostActions::SetXeneonDisplay(_xeneonBounds, _xeneonFound);
         if (_dockActive)
         {
-            // Topology change: the selected monitor may have come or gone; re-resolve the selector and re-place.
-            (void)FindXeneonDisplay(_xeneonBounds, _xeneonFound);
             (void)PlaceDock(true);
         }
         CheckDeviceAdapter();

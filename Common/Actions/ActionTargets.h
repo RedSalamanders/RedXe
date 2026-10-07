@@ -100,7 +100,8 @@ struct MonitorSelector final
         All,
         Index,
         Name,
-        // The second screen: the first display in enumeration order that is not the primary.
+        // The second screen: the first display in enumeration order that is neither the primary nor a XENEON, else
+        // the XENEON (SecondaryMonitorRank).
         Secondary,
     };
     Kind kind = Kind::Primary;
@@ -109,6 +110,16 @@ struct MonitorSelector final
 };
 // "primary", "secondary", "xeneon", "all", "<n>" (1-based), or "name:<substring>". allowAll rejects "all" when false.
 [[nodiscard]] bool ParseMonitorSelector(std::string_view value, bool allowAll, MonitorSelector& parsed) noexcept;
+
+// How well a display answers `secondary`, one rule for the dock's monitor selection and the host's action resolver:
+// `secondary` is the first display in enumeration order with the highest nonzero rank. The primary never answers; a
+// XENEON ranks below every other display, so one connected later never takes the second screen's place, and answers
+// only when it is the only display that is not the primary.
+inline constexpr uint32_t kSecondaryMonitorTopRank = 2;
+[[nodiscard]] constexpr uint32_t SecondaryMonitorRank(bool primary, bool xeneon) noexcept
+{
+    return primary ? 0U : (xeneon ? 1U : kSecondaryMonitorTopRank);
+}
 
 struct WindowSelector final
 {

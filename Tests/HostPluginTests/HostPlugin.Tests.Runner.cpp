@@ -783,8 +783,14 @@ void TestDockPlacement(bool& success) noexcept
     Check(SelectDockMonitor(selector, {}, nullptr, 0, fellBack) == SIZE_MAX, L"no display means no selection", success);
     Check(!RedXeActions::ParseMonitorSelector("all", false, selector), L"the dock never accepts all", success);
 
-    // `secondary` is the second screen: the first display in enumeration order that is not the primary, wherever the
-    // primary enumerates; a single display falls back to the primary and reports it.
+    // `secondary` is the second screen: the first display in enumeration order that is neither the primary nor the
+    // XENEON, wherever those enumerate; the XENEON only when no other display is not the primary; a single display
+    // falls back to the primary and reports it.
+    Check(RedXeActions::SecondaryMonitorRank(true, false) == 0 && RedXeActions::SecondaryMonitorRank(true, true) == 0 &&
+              RedXeActions::SecondaryMonitorRank(false, true) == 1 &&
+              RedXeActions::SecondaryMonitorRank(false, false) == RedXeActions::kSecondaryMonitorTopRank &&
+              RedXeActions::kSecondaryMonitorTopRank > 1,
+          L"secondary never ranks the primary and ranks a XENEON below every other display", success);
     Check(RedXeActions::ParseMonitorSelector("secondary", false, selector) &&
               selector.kind == RedXeActions::MonitorSelector::Kind::Secondary &&
               SelectDockMonitor(selector, {}, candidates.data(), candidates.size(), fellBack) == 0 && !fellBack,
@@ -798,55 +804,99 @@ void TestDockPlacement(bool& success) noexcept
           L"secondary skips a primary that enumerates first", success);
     Check(SelectDockMonitor(selector, {}, noXeneon.data(), noXeneon.size(), fellBack) == 0 && fellBack,
           L"secondary on a single display falls back to the primary", success);
+    // A XENEON connected after the first-run bar named `secondary`, enumerating before the second screen (an
+    // integrated GPU output), never takes the bar from it.
+    std::array<DockMonitorCandidate, 3> xeneonFirst{};
+    xeneonFirst[0].monitor = RECT{2560, 0, 5120, 720};
+    xeneonFirst[0].xeneon = true;
+    xeneonFirst[1].monitor = monitor;
+    xeneonFirst[1].primary = true;
+    xeneonFirst[2].monitor = secondary;
+    Check(SelectDockMonitor(selector, {}, xeneonFirst.data(), xeneonFirst.size(), fellBack) == 2 && !fellBack,
+          L"secondary skips a XENEON that enumerates before the second screen", success);
+    std::array<DockMonitorCandidate, 2> xeneonOnly{};
+    xeneonOnly[0].monitor = monitor;
+    xeneonOnly[0].primary = true;
+    xeneonOnly[1].monitor = RECT{2560, 0, 5120, 720};
+    xeneonOnly[1].xeneon = true;
+    Check(SelectDockMonitor(selector, {}, xeneonOnly.data(), xeneonOnly.size(), fellBack) == 1 && !fellBack,
+          L"secondary is the XENEON when it is the only display that is not the primary", success);
     Check(!RedXeActions::ParseMonitorSelector("Secondary", false, selector) &&
               !RedXeActions::ParseMonitorSelector("second", false, selector),
           L"secondary is matched exactly", success);
 
-    // First start without a XENEON: the second screen when there is one, and the horizontal edge its taskbar leaves
-    // free, the top unless only the top is taken.
+    // First start without a XENEON: the bar is offered only after a discovery that found none, without `--settings`,
+    // outside a remote session, and goes to the second screen when there is one.
+    Check(DockFirstRunOffered(true, false, false, false) && !DockFirstRunOffered(false, false, false, false) &&
+              !DockFirstRunOffered(true, true, false, false) && !DockFirstRunOffered(true, false, true, false) &&
+              !DockFirstRunOffered(true, false, false, true),
+          L"a failed discovery, a XENEON, a --settings file, or a remote session offers no first-run bar", success);
     Check(DockFirstRunMonitor(0) == kDockDefaultMonitor && DockFirstRunMonitor(1) == kDockDefaultMonitor &&
               DockFirstRunMonitor(2) == kDockSecondaryMonitor && DockFirstRunMonitor(4) == kDockSecondaryMonitor,
           L"a first-run bar goes to the second screen only when there is more than one display", success);
-    Check(DockEdgeFromAppBarEdge(ABE_TOP) == DockEdge::Top && DockEdgeFromAppBarEdge(ABE_BOTTOM) == DockEdge::Bottom &&
-              DockEdgeFromAppBarEdge(ABE_LEFT) == DockEdge::Left &&
-              DockEdgeFromAppBarEdge(ABE_RIGHT) == DockEdge::Right && DockEdgeFromAppBarEdge(7) == DockEdge::None &&
-              DockEdgeFromAppBarEdge(DockAppBarEdge(DockEdge::Top)) == DockEdge::Top,
-          L"ABE values map back to edges", success);
+
+    // A display right above or below shares that edge when the two overlap along it; side by side or at a corner
+    // they share none.
+    const RECT below{0, 1440, 1920, 2520};
+    Check(DockDisplayTouchesEdge(below, monitor, DockEdge::Top) &&
+              !DockDisplayTouchesEdge(below, monitor, DockEdge::Bottom) &&
+              DockDisplayTouchesEdge(monitor, below, DockEdge::Bottom) &&
+              !DockDisplayTouchesEdge(monitor, below, DockEdge::Top),
+          L"stacked displays share the edge between them", success);
+    Check(DockDisplayTouchesEdge(monitor, RECT{2000, 1440, 3920, 2520}, DockEdge::Bottom) &&
+              DockDisplayTouchesEdge(RECT{-1920, 0, 0, 1080}, RECT{-1920, -1080, 0, 0}, DockEdge::Top),
+          L"a partly overlapping display below and one above at negative coordinates share the edge", success);
+    Check(!DockDisplayTouchesEdge(monitor, RECT{2560, 0, 4480, 1080}, DockEdge::Top) &&
+              !DockDisplayTouchesEdge(monitor, RECT{2560, 0, 4480, 1080}, DockEdge::Bottom) &&
+              !DockDisplayTouchesEdge(monitor, RECT{2560, 1440, 4480, 2520}, DockEdge::Bottom) &&
+              !DockDisplayTouchesEdge(monitor, below, DockEdge::Left),
+          L"side-by-side displays, a corner, and a side edge share no horizontal edge", success);
+
+    // The edge: a free screen edge, then one beside a taskbar, then one another display shares; the bottom on a tie.
     const RECT fullWork{0, 0, 2560, 1440};
     const RECT topTaskbarWork{0, 48, 2560, 1440};
     const RECT bothBarsWork{0, 48, 2560, 1392};
     const RECT leftTaskbarWork{62, 0, 2560, 1440};
-    Check(DockFirstRunEdge(monitor, work, false, false, DockEdge::Bottom) == DockEdge::Top &&
-              DockFirstRunEdge(monitor, work, false, false, DockEdge::None) == DockEdge::Top &&
-              DockFirstRunEdge(monitor, topTaskbarWork, false, false, DockEdge::Top) == DockEdge::Bottom &&
-              DockFirstRunEdge(monitor, topTaskbarWork, false, false, DockEdge::Bottom) == DockEdge::Bottom,
-          L"a visible taskbar trims the work area and the bar takes the other horizontal edge", success);
-    Check(DockFirstRunEdge(monitor, fullWork, false, true, DockEdge::None) == DockEdge::Top &&
-              DockFirstRunEdge(monitor, fullWork, true, false, DockEdge::Bottom) == DockEdge::Bottom,
+    Check(DockFirstRunEdge(monitor, fullWork, false, false, false, false) == DockEdge::Bottom &&
+              DockFirstRunEdge(monitor, leftTaskbarWork, false, false, false, false) == DockEdge::Bottom,
+          L"a display without a taskbar on either horizontal edge takes the free bottom", success);
+    Check(DockFirstRunEdge(monitor, work, false, false, false, false) == DockEdge::Top &&
+              DockFirstRunEdge(monitor, topTaskbarWork, false, false, false, false) == DockEdge::Bottom,
+          L"a visible taskbar trims the work area and the bar takes the free edge across from it", success);
+    Check(DockFirstRunEdge(monitor, fullWork, false, true, false, false) == DockEdge::Top &&
+              DockFirstRunEdge(monitor, fullWork, true, false, false, false) == DockEdge::Bottom,
           L"an auto-hiding taskbar holds its edge through its autohide registration", success);
-    Check(DockFirstRunEdge(monitor, fullWork, false, false, DockEdge::Bottom) == DockEdge::Top &&
-              DockFirstRunEdge(monitor, fullWork, false, false, DockEdge::Top) == DockEdge::Bottom &&
-              DockFirstRunEdge(monitor, fullWork, false, false, DockEdge::None) == DockEdge::Top,
-          L"a display without a taskbar of its own follows the primary taskbar's edge, top when unknown", success);
-    Check(DockFirstRunEdge(monitor, leftTaskbarWork, false, false, DockEdge::Left) == DockEdge::Top &&
-              DockFirstRunEdge(monitor, bothBarsWork, false, false, DockEdge::Bottom) == DockEdge::Top &&
-              DockFirstRunEdge(monitor, topTaskbarWork, false, true, DockEdge::Top) == DockEdge::Top,
-          L"a side taskbar leaves the top, and with both edges taken the bar stays on top", success);
-    Check(DockFirstRunEdge(secondary, RECT{-1920, -200, 0, 832}, false, false, DockEdge::None) == DockEdge::Top &&
-              DockFirstRunEdge(secondary, RECT{-1920, -152, 0, 880}, false, false, DockEdge::Bottom) ==
-                  DockEdge::Bottom,
+    Check(DockFirstRunEdge(monitor, bothBarsWork, false, false, false, false) == DockEdge::Bottom &&
+              DockFirstRunEdge(monitor, topTaskbarWork, false, true, false, false) == DockEdge::Bottom,
+          L"with both edges taken the bar takes the bottom", success);
+    Check(DockFirstRunEdge(below, below, false, false, true, false) == DockEdge::Bottom &&
+              DockFirstRunEdge(below, RECT{0, 1440, 1920, 2472}, false, false, true, false) == DockEdge::Bottom &&
+              DockFirstRunEdge(below, below, false, true, true, false) == DockEdge::Bottom,
+          L"under another display the bar never takes the shared top, even beside its own taskbar", success);
+    const RECT above{0, -1080, 1920, 0};
+    Check(DockFirstRunEdge(above, above, false, false, false, true) == DockEdge::Top &&
+              DockFirstRunEdge(above, RECT{0, -1080, 1920, -48}, false, false, false, true) == DockEdge::Top,
+          L"over another display the bar takes the free top rather than the shared bottom", success);
+    Check(DockFirstRunEdge(below, RECT{0, 1440, 1920, 2472}, false, false, true, true) == DockEdge::Bottom &&
+              DockFirstRunEdge(below, RECT{0, 1488, 1920, 2520}, false, false, true, true) == DockEdge::Bottom,
+          L"between two displays both edges are shared and the bar takes the bottom", success);
+    Check(DockFirstRunEdge(secondary, RECT{-1920, -200, 0, 832}, false, false, false, false) == DockEdge::Top &&
+              DockFirstRunEdge(secondary, RECT{-1920, -152, 0, 880}, false, false, false, false) == DockEdge::Bottom &&
+              DockFirstRunEdge(secondary, secondary, false, false, false, false) == DockEdge::Bottom,
           L"the edge decision works at negative coordinates", success);
 
     // Explorer keeps reporting the autohide bar of a crashed or killed process on its edge; a window that no longer
-    // exists holds nothing, so the first-run bar still goes opposite the primary taskbar.
+    // exists holds nothing, so the first-run bar still takes that free bottom.
     wil::unique_hwnd autohideBar{
         CreateWindowExW(0, L"STATIC", L"autohide bar", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, nullptr, nullptr)};
     const HWND bar = autohideBar.get();
     const bool liveBarHolds = DockAutohideBarHoldsEdge(bar);
+    const DockEdge liveBarEdge = DockFirstRunEdge(monitor, fullWork, false, liveBarHolds, false, false);
     autohideBar.reset();
-    Check(bar && liveBarHolds && !DockAutohideBarHoldsEdge(bar) && !DockAutohideBarHoldsEdge(nullptr) &&
-              DockFirstRunEdge(monitor, fullWork, DockAutohideBarHoldsEdge(bar), false, DockEdge::Bottom) ==
-                  DockEdge::Top,
+    Check(bar && liveBarHolds && liveBarEdge == DockEdge::Top && !DockAutohideBarHoldsEdge(bar) &&
+              !DockAutohideBarHoldsEdge(nullptr) &&
+              DockFirstRunEdge(monitor, fullWork, false, DockAutohideBarHoldsEdge(bar), false, false) ==
+                  DockEdge::Bottom,
           L"an autohide registration holds its edge only while its window exists", success);
 }
 
