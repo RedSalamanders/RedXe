@@ -350,7 +350,7 @@ Check a row when its fix lands, or note why it was dropped.
 ### P5. Build and test tooling (62)
 
 - [x] `dxui-restore#0` (high) `Build/DxUiRestore.psm1:72`: A failed, interrupted or leftover DxUi source folder counts as restored: it is never repaired, and vcpkg-install.ps1 runs code from it before anything checks it
-- [ ] `alignment#17` (medium) `Test-Changes.ps1:81`: A commit invalidates every native receipt, and -SkipBuild then fails test.ps1's version check, because the commit-count version stamp is part of the artifact identity
+- [x] `alignment#17` (medium) `Test-Changes.ps1:81`: A commit invalidates every native receipt, and -SkipBuild then fails test.ps1's version check, because the commit-count version stamp is part of the artifact identity
 - [x] `dxui-restore#1` (medium) `test.ps1:349`: RedXe.self-test.log is empty for every self-test failure except a CRT report, and exit code 3 now means two different things
 - [ ] `dxui-restore#2` (medium) `restore-dxui.ps1:28`: restore-dxui.ps1 runs the pinned DxUi vcpkg-install.ps1, which picks Visual Studio through vswhere -latest instead of the build's MSBuild, contrary to the spec Deferred: the pinned DxUi (271bd54) vcpkg-install.ps1 takes no MSBuild and its Get-DxUiVisualStudioInstallation ignores MSBUILD_EXE_PATH; needs DxUi to accept `-MSBuildPath` (resolving the installation as Get-RedXeVisualStudioInstallation does, or honoring MSBUILD_EXE_PATH), then restore-dxui.ps1 passes it with a pin update. RedXe's side now selects one MSBuild everywhere and Core_DxUiIntegration.md records the limitation.
 - [x] `dxui-restore#4` (medium) `test.ps1:405`: Several RedXe.exe and launcher runs, including the packaged --self-test and the crash tests, stay unbounded under Start-Process -Wait, and the crash tests do not suppress Windows Error Reporting
@@ -362,18 +362,18 @@ Check a row when its fix lands, or note why it was dropped.
 - [x] `process-containment#2` (medium) `Build/BuildPresentation.psm1:861`: If the log writer's Dispose throws in the finally block, the job is never disposed, so kill-on-close never runs and an orphaned child can block
 - [x] `process-containment#5` (medium) `Build/BuildPresentation.psm1:776`: Pressing Ctrl+C during build.ps1 in Windows Terminal leaves MSBuild building silently in the background
 - [x] `process-containment#7` (medium) `Build/BuildPresentation.psm1:501`: Nothing enforces the rename-on-change rule for the compiled launcher type: a session that already compiled it keeps stale code, and Test-Changes can save a passing receipt for code that never ran
-- [ ] `scoped-testing#1` (medium) `Test-Changes.ps1:81`: Commit-count build number is outside the evidence identity: every commit invalidates all native receipts, and SkipBuild after a commit passes attestation and then fails with a misleading version error (spec claims the opposite)
-- [ ] `scoped-testing#2` (medium) `Build/ScopedTesting.psm1:7`: Git output is decoded with the console code page, so non-ASCII paths silently drop out of the source identity, the build attestation and the test inventory
+- [x] `scoped-testing#1` (medium) `Test-Changes.ps1:81`: Commit-count build number is outside the evidence identity: every commit invalidates all native receipts, and SkipBuild after a commit passes attestation and then fails with a misleading version error (spec claims the opposite)
+- [x] `scoped-testing#2` (medium) `Build/ScopedTesting.psm1:7`: Git output is decoded with the console code page, so non-ASCII paths silently drop out of the source identity, the build attestation and the test inventory
 - [ ] `scoped-testing#4` (medium) `test.ps1:47`: Plain test.ps1 exits 0 without building or testing when there is no merge-base diff, docs still call it full validation, and it now fails without Git
 - [ ] `scoped-testing#5` (medium) `Build/ScopedTesting.psm1:245`: PrePush delegates all x64 Release obligations to a CI workflow that main does not require
 - [ ] `scoped-testing#6` (medium) `Tests/BuildProcessTests/ScopedTesting.Tests.ps1:73`: Rule completeness is hand-maintained; a cheap project-closure check would have caught the four Settings edges #31 missed
-- [ ] `tests#17` (medium) `Test-Changes.ps1:79`: Commit-count build number is outside the scoped-test identity: SkipBuild breaks after a commit, and commits defeat reuse
+- [x] `tests#17` (medium) `Test-Changes.ps1:79`: Commit-count build number is outside the scoped-test identity: SkipBuild breaks after a commit, and commits defeat reuse
 - [ ] `tests#18` (medium) `Build/ScopedTesting.psm1:245`: PrePush delegates every Release x64 obligation to a PR check that the main ruleset does not require
-- [ ] `tests#4` (medium) `Test-Changes.ps1:125`: Test-Changes turns 'not reusable' into a failed run when any repository file changes while the tests run
+- [x] `tests#4` (medium) `Test-Changes.ps1:125`: Test-Changes turns 'not reusable' into a failed run when any repository file changes while the tests run
 - [x] `tests#5` (medium) `Build/DxUiRestore.psm1:72`: In-place DxUi clone: an interrupted or concurrent restore poisons every later tooling-test and build run
 - [ ] `alignment#18` (low) `Build/ScopedTesting.psm1:67`: The live test-source detector matches case-insensitively, so any product file whose name contains "test", "mock" or "fake" blocks every Test-Changes run
 - [x] `alignment#19` (low) `Build/DxUiRestore.psm1:98`: A partially restored DxUi source directory is never repaired, and the new vcpkg-install.ps1 caller then fails with an unrelated module-load error
-- [ ] `alignment#20` (low) `Test-Changes.ps1:74`: The ordinary `./test.ps1` now refuses the default x64 platform on an ARM64 host, which the Full path still allows
+- [x] `alignment#20` (low) `Test-Changes.ps1:74`: The ordinary `./test.ps1` now refuses the default x64 platform on an ARM64 host, which the Full path still allows
 - [x] `dxui-restore#10` (low) `restore-dxui.ps1:27`: The DxUi restore never removes superseded output folders or source clones: 3.4 GB has built up, most of it unused
 - [x] `dxui-restore#11` (low) `Build/DxUiRestore.psm1:77`: The sparse restore still clones DxUi's full history, so each network restore downloads about 43 MB of packs for a 6 MB working tree
 - [x] `dxui-restore#14` (low) `Tests/BuildProcessTests/DxUiRestoreTests.ps1:57`: The DxUi restore test's fixture commits inherit the developer's global Git signing, hook and line-ending settings
@@ -391,18 +391,18 @@ Check a row when its fix lands, or note why it was dropped.
 - [x] `process-containment#4` (low) `Build/BuildPresentation.psm1:807`: Ctrl+C has no effect while a bounded test executable is silent, for up to its 15-minute budget
 - [x] `process-containment#6` (low) `Build/BuildPresentation.psm1:751`: When the child has exited but a descendant still holds its pipe, the helper waits out the whole budget and then reports the child as hung
 - [ ] `scoped-testing#10` (low) `Build/ScopedTesting.psm1:242`: PR delegation does not check the base/merge-tree workflow equivalence the accepted plan requires
-- [ ] `scoped-testing#11` (low) `Test-Changes.ps1:44`: Test-Changes -Scopes does not split comma lists under pwsh -File, unlike test.ps1 -Suites
+- [x] `scoped-testing#11` (low) `Test-Changes.ps1:44`: Test-Changes -Scopes does not split comma lists under pwsh -File, unlike test.ps1 -Suites
 - [ ] `scoped-testing#12` (low) `Tests/test-scopes.json:266`: Rules for test-project folders send a test .vcxproj edit only to its own suite, though all projects build into one shared output folder
 - [ ] `scoped-testing#13` (low) `Tests/BuildProcessTests/ScopedTesting.Tests.ps1:248`: The stale-workflow-digest delegation test cannot fail in CI
 - [ ] `scoped-testing#14` (low) `Build/ScopedTesting.psm1:18`: Git failures in scope discovery give no diagnostic (empty message for unrelated or shallow history; failing command not named)
 - [ ] `scoped-testing#15` (low) `test.ps1:54`: Suite list is maintained in three hand-kept copies; a scope with no test.ps1 block earns a reusable PASSED receipt, and a test.ps1-only suite is never selected
 - [ ] `scoped-testing#16` (low) `Tests/test-scopes.json:336`: Skill metadata and validator-script edits fall through to the full native fallback
-- [ ] `scoped-testing#23` (low) `Build/ScopedTesting.psm1:162`: Evidence environment identity misses OS servicing level, D2D/WIC/DXGI runtimes, and the Python/PyYAML/git that tooling runs under
+- [x] `scoped-testing#23` (low) `Build/ScopedTesting.psm1:162`: Evidence environment identity misses OS servicing level, D2D/WIC/DXGI runtimes, and the Python/PyYAML/git that tooling runs under
 - [ ] `scoped-testing#24` (low) `Build/ScopedTesting.psm1:236`: PrePush ties delegation of the profile-independent BuildProcess scope to the x64 Release profile, so the default Debug PrePush repeats the PR tooling job locally
 - [ ] `scoped-testing#3` (low) `Build/ScopedTesting.psm1:67`: Live test-file detector matches 'test'/'mock'/'fake' as a case-insensitive substring, so ordinary production names block every run and cannot be registered
 - [ ] `scoped-testing#7` (low) `Test-Changes.ps1:69`: PrePush with full CI delegation never prints the CI_PENDING verdict the spec requires
 - [ ] `scoped-testing#8` (low) `Build/ScopedTesting.psm1:241`: PR delegation refusals are silent; PrePush Release falls back to a full local Release run with no reason given
-- [ ] `scoped-testing#9` (low) `Test-Changes.ps1:74`: Default test.ps1 on an ARM64 host now throws instead of running x64 tests; the two entrypoints disagree about the same profile
+- [x] `scoped-testing#9` (low) `Test-Changes.ps1:74`: Default test.ps1 on an ARM64 host now throws instead of running x64 tests; the two entrypoints disagree about the same profile
 - [x] `studioclock#1` (low) `Build/DxUiProvenance.psm1:18`: DxUi provenance no longer binds the recorded build identity to the archive it hashes, and repeats path logic owned elsewhere
 - [x] `studioclock#2` (low) `restore-dxui.ps1:27`: DxUi restore never removes old output roots; #22's switch to 16-digit folder names orphaned every existing 64-digit root
 - [x] `tests#10` (low) `Build/BuildPresentation.psm1:752`: Streaming helper timeout path neither waits for the job's processes to exit nor drains buffered output; the stall fixture's immediate survivor scan and log check can fail spuriously

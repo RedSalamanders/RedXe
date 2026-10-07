@@ -91,7 +91,7 @@ if ($executableVersion.FileDescription -ne 'RedXe XENEON dashboard' -or
     $executableVersion.OriginalFilename -ne 'RedXe.exe' -or
     $executableVersion.ProductName -ne 'RedXe' -or
     $executableVersion.FileVersion -ne $expectedFileVersion) {
-    throw "RedXe.exe is missing its stable Windows executable version identity (expected $expectedFileVersion)."
+    throw "RedXe.exe is missing its stable Windows executable version identity (expected $expectedFileVersion, found $($executableVersion.FileVersion)). Rebuild, or pass the -BuildNumber it was built with."
 }
 
 

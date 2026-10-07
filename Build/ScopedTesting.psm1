@@ -8,6 +8,10 @@ function Invoke-ScopedGit {
     $start.UseShellExecute = $false
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
+    # Git writes paths as UTF-8. The default decoder is the console code page, which turns a non-ASCII name into one
+    # that does not exist.
+    $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+    $start.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
     foreach ($argument in @('-c','core.quotepath=false','-C',$Root) + $Arguments) { $start.ArgumentList.Add($argument) }
     $process = [Diagnostics.Process]::Start($start)
     try {
@@ -33,6 +37,28 @@ function Get-ScopedChangedPaths {
     $working = Invoke-ScopedGit $Root @('diff','--name-only','--no-renames','-z','--')
     $untracked = Invoke-ScopedGit $Root @('ls-files','--others','--exclude-standard','-z')
     return @(($committed + $staged + $working + $untracked) -split '\x00' | Where-Object { $_ } | Sort-Object -Unique)
+}
+
+function Get-ScopedBuildNumber {
+    # The version stamp of scoped builds: the commit count of HEAD's merge base with BaseRef, not of HEAD, so a commit
+    # neither relinks the version-stamped binaries nor invalidates native evidence; a rebase does. Without that base,
+    # the default every entrypoint resolves (the commit count of HEAD).
+    param([string] $Root, [string] $BaseRef)
+    try { $base = (Invoke-ScopedGit $Root @('merge-base',$BaseRef,'HEAD')).Trim() }
+    catch [System.Management.Automation.RuntimeException] {
+        Import-Module (Join-Path $Root 'Build/Versioning.psm1') -Force
+        return Resolve-RedXeBuildNumber -RepoRoot $Root
+    }
+    return [int](Invoke-ScopedGit $Root @('rev-list','--count',$base)).Trim()
+}
+
+function Assert-ScopedRuntimePlatform {
+    # The rule test.ps1 applies: ARM64 runtime tests need an ARM64 host, and x64 runs on one under emulation. The
+    # architecture in the environment identity keeps emulated evidence apart from native x64 evidence.
+    param([string] $Platform, [string] $HostArchitecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString())
+    if ($Platform -eq 'ARM64' -and $HostArchitecture -ne 'Arm64') {
+        throw 'ARM64 runtime qualification requires a native ARM64 host; use build.ps1 for cross-compilation.'
+    }
 }
 
 function Test-ScopedPattern {
@@ -119,14 +145,22 @@ function Get-ScopedDigest {
 function Get-ScopedSourceIdentity {
     param([string] $Root, [switch] $CompiledOnly)
     $rows = [Collections.Generic.List[string]]::new()
+    $deleted = $null
     foreach ($path in @(Get-ScopedTrackedPaths $Root)) {
         # Validators read prose, skills and archived mappings too. Their full identity includes every versioned input.
         if ($path -match '^\.build/') { continue }
         # Build attestation excludes immutable evidence/prose, but has no extension whitelist: .inl and new generators count.
         if ($CompiledOnly -and ($path -match '^(Measurements|docs|Changes|legacy|Specs/(Plans|Done|TestRuns|Reviews|Mockups))/' -or $path -match '\.md$')) { continue }
         $full = Join-Path $Root $path
-        # Staging a deletion changes Git's index, not the current source tree. Removed files simply leave the closure.
-        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+            # A nested repository is listed as its directory; its files are not inputs of this tree.
+            if (Test-Path -LiteralPath $full -PathType Container) { continue }
+            # A tracked file deleted from the working tree leaves the closure. Any other path that does not resolve (a name
+            # decoded wrongly, a file removed while this runs) must not silently drop out of the identity.
+            if ($null -eq $deleted) { $deleted = @((Invoke-ScopedGit $Root @('ls-files','--deleted','-z')) -split '\x00' | Where-Object { $_ }) }
+            if ($path -cin $deleted) { continue }
+            throw "Source identity input '$path' is listed by Git but is neither on disk nor deleted. Run again once concurrent edits settle."
+        }
         $value = (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash
         $rows.Add("$path`0$value")
     }
@@ -153,17 +187,30 @@ function Get-ScopedArtifactIdentity {
     return Get-ScopedDigest ($rows -join "`n")
 }
 
-function Get-ScopedEnvironmentIdentity {
-    # No secrets are stored. Different machines, OS/PowerShell, graphics runtime or sanitizer options cannot reuse evidence.
+function Get-ScopedEnvironmentInputs {
+    # Only the digest of these rows is stored, never a secret. Different machines, OS builds or servicing levels,
+    # PowerShell, graphics, text or imaging runtimes, Git or sanitizer options cannot reuse evidence. Tooling evidence
+    # also depends on the Python interpreter and PyYAML that the validators run under.
+    param([switch] $Tooling)
     $values = @([Environment]::MachineName,[Runtime.InteropServices.RuntimeInformation]::OSDescription,
         [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString(),$PSVersionTable.PSVersion.ToString(),
         $env:ASAN_OPTIONS,$env:CI,$env:GITHUB_ACTIONS,$env:PROCESSOR_IDENTIFIER,$env:PATH,
         $env:VCToolsVersion,$env:WindowsSDKVersion)
-    foreach ($file in @('d3d10warp.dll','d3d11.dll','dwrite.dll')) {
+    $currentVersion = 'HKLM:/SOFTWARE/Microsoft/Windows NT/CurrentVersion'
+    if ($env:SystemRoot -and (Test-Path -LiteralPath $currentVersion)) {
+        # The update revision changes with every cumulative update, including one that services only unhashed DLLs.
+        $build = Get-ItemProperty -LiteralPath $currentVersion | Select-Object CurrentBuildNumber,UBR
+        $values += "os-build=$($build.CurrentBuildNumber).$($build.UBR)"
+    }
+    # The suites draw through Direct2D (DxUi), Direct3D, WARP and DirectWrite, present through DXGI and decode through WIC.
+    foreach ($file in @('d2d1.dll','d3d10warp.dll','d3d11.dll','dwrite.dll','dxgi.dll','windowscodecs.dll')) {
         if (-not $env:SystemRoot) { continue }
         $path = Join-Path $env:SystemRoot "System32/$file"
-        if (Test-Path -LiteralPath $path) { $values += (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash }
+        $values += "$file=" + $(if (Test-Path -LiteralPath $path) { (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash } else { 'absent' })
     }
+    # Scope discovery and the Git fixtures run the installed Git.
+    $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    $values += 'git=' + $(if ($git) { (& $git.Source --version) -join ' ' } else { 'absent' })
     # Tooling fixtures can discover or invoke the installed compiler. Updates must invalidate their receipts too.
     $vswhere = @(${env:ProgramFiles(x86)},$env:ProgramFiles | Where-Object { $_ } | ForEach-Object {
         Join-Path $_ 'Microsoft Visual Studio/Installer/vswhere.exe'
@@ -180,7 +227,20 @@ function Get-ScopedEnvironmentIdentity {
     if ($env:SystemRoot -and (Test-Path 'HKLM:/SOFTWARE/Microsoft/Windows Kits/Installed Roots')) {
         $values += (Get-ChildItem 'HKLM:/SOFTWARE/Microsoft/Windows Kits/Installed Roots' | Sort-Object Name | ForEach-Object Name) -join "`n"
     }
-    return Get-ScopedDigest ($values -join "`n")
+    if ($Tooling) {
+        # The interpreter validate-skills.ps1 and Invoke-ToolingTests.ps1 select: the py launcher's Python 3, else python.exe.
+        $python = Get-Command py.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        $selector = @(if ($python) { '-3' })
+        if (-not $python) { $python = Get-Command python.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 }
+        $probe = 'import sys,importlib.util as u;print(sys.executable,sys.version,u.find_spec(''yaml'') and __import__(''yaml'').__version__)'
+        $values += 'python=' + $(if ($python) { "$((& $python.Source @selector -c $probe 2>$null) -join ' ') exit $LASTEXITCODE" } else { 'absent' })
+    }
+    return $values
+}
+
+function Get-ScopedEnvironmentIdentity {
+    param([switch] $Tooling)
+    return Get-ScopedDigest ((Get-ScopedEnvironmentInputs -Tooling:$Tooling) -join "`n")
 }
 
 function Get-ScopedRunIdentity {
@@ -252,6 +312,7 @@ function Get-ScopedPrCoverage {
     catch [ArgumentException] { return @() }
 }
 
-Export-ModuleMember -Function Get-ScopedChangedPaths, Read-ScopedTestManifest, Assert-ScopedTestNames, Get-ScopedTestPlan,
-    Get-ScopedSourceIdentity, Get-ScopedArtifactIdentity, Get-ScopedRunIdentity, Get-ScopedDigest,
-    Test-ScopedReceipt, Write-ScopedReceipt, Get-ScopedPrCoverage, Get-ScopedPrCandidateScopes, Get-ScopedEnvironmentIdentity
+Export-ModuleMember -Function Get-ScopedChangedPaths, Get-ScopedBuildNumber, Assert-ScopedRuntimePlatform, Read-ScopedTestManifest,
+    Assert-ScopedTestNames, Get-ScopedTestPlan, Get-ScopedSourceIdentity, Get-ScopedArtifactIdentity, Get-ScopedRunIdentity,
+    Get-ScopedDigest, Test-ScopedReceipt, Write-ScopedReceipt, Get-ScopedPrCoverage, Get-ScopedPrCandidateScopes,
+    Get-ScopedEnvironmentInputs, Get-ScopedEnvironmentIdentity

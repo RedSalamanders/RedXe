@@ -172,6 +172,58 @@ try {
         Write-Fixture (Join-Path $fixture 'code.cpp') 'another implementation'
         Assert-Scope (-not(Test-ScopedReceipt $path (Get-ScopedDigest ((Get-ScopedSourceIdentity $fixture -CompiledOnly)+"`n"+$binary)))) 'Stale source accepted'
     }
+    Run-Case 'non-ASCII paths stay in the change set and the source identity under a legacy console code page' {
+        $name="M$([char]0xE9)t$([char]0xE9)o.cpp"
+        $path=Join-Path $fixture $name
+        Write-Fixture $path 'initial'
+        # Git writes UTF-8. A decoder that follows the console code page turns this name into one that does not exist.
+        $previous=[Console]::OutputEncoding;$legacy=$false
+        try {
+            try {[Console]::OutputEncoding=[Text.Encoding]::GetEncoding(850);$legacy=$true} catch [System.Management.Automation.RuntimeException] {}
+            $listed=@(Get-ScopedChangedPaths $fixture $baseline) -ccontains $name
+            $before=Get-ScopedSourceIdentity $fixture -CompiledOnly
+            Write-Fixture $path 'edited'
+            $after=Get-ScopedSourceIdentity $fixture -CompiledOnly
+        } finally {if($legacy){[Console]::OutputEncoding=$previous}}
+        Assert-Scope $listed 'A non-ASCII path was missing from the change set'
+        Assert-Scope ($after -cne $before) 'Editing a non-ASCII path left the source identity unchanged'
+    }
+    Run-Case 'only paths Git reports deleted may leave the source identity' {
+        $absent=Join-Path $fixture 'absent'
+        foreach($file in @('kept.cpp','deleted.cpp','unresolvable.cpp')) {Write-Fixture (Join-Path $absent $file) 'initial'}
+        Initialize-FixtureRepository $absent
+        # A skip-worktree entry stands in for a name that does not resolve: Git lists it, it is not on disk, and Git does
+        # not report it deleted.
+        foreach($arguments in @(@('config','user.name','Absent fixture'),@('config','user.email','fixture@example.invalid'),@('add','-A'),@('commit','-q','-m','baseline'),@('update-index','--skip-worktree','unresolvable.cpp'))) {
+            $output=& git -C $absent @arguments 2>&1;if($LASTEXITCODE){throw "Fixture git failed: $arguments`n$($output -join "`n")"}
+        }
+        $before=Get-ScopedSourceIdentity $absent
+        Remove-Item -LiteralPath (Join-Path $absent 'deleted.cpp')
+        Assert-Scope ((Get-ScopedSourceIdentity $absent) -cne $before) 'A deleted file did not leave the source identity'
+        Remove-Item -LiteralPath (Join-Path $absent 'unresolvable.cpp')
+        $message='';try {Get-ScopedSourceIdentity $absent | Out-Null} catch [System.Management.Automation.RuntimeException] {$message=$_.Exception.Message}
+        Assert-Scope ($message -like "Source identity input 'unresolvable.cpp' is listed by Git but is neither on disk nor deleted.*") "An unresolvable path silently left the source identity: $message"
+    }
+    Run-Case 'scoped builds are stamped with the merge base commit count, which a commit leaves unchanged' {
+        Assert-Scope ((Get-ScopedBuildNumber $fixture $baseline) -eq 1) 'The scoped build number followed HEAD instead of the merge base'
+        Import-Module (Join-Path $repository 'Build/Versioning.psm1') -Force
+        $default=Resolve-RedXeBuildNumber -RepoRoot $repository -WarningAction SilentlyContinue
+        Assert-Scope ((Get-ScopedBuildNumber $repository 'refs/remotes/origin/no-such-fixture-branch') -eq $default) 'A missing base did not fall back to the default build number'
+    }
+    Run-Case 'environment identity covers OS servicing, graphics and imaging runtimes, Git and the tooling interpreter' {
+        $inputs=@(Get-ScopedEnvironmentInputs)
+        foreach($label in @('os-build=','d2d1.dll=','dxgi.dll=','windowscodecs.dll=','git=')) {
+            Assert-Scope (@($inputs | Where-Object {"$_".StartsWith($label)}).Count -eq 1) "Environment identity omits $label"
+        }
+        $tooling=@(Get-ScopedEnvironmentInputs -Tooling)
+        Assert-Scope (@($tooling | Where-Object {"$_".StartsWith('python=')}).Count -eq 1 -and @($inputs | Where-Object {"$_".StartsWith('python=')}).Count -eq 0) 'The Python identity is not limited to tooling evidence'
+        Assert-Scope ((Get-ScopedEnvironmentIdentity -Tooling) -cne (Get-ScopedEnvironmentIdentity)) 'Tooling evidence ignores its interpreter'
+    }
+    Run-Case 'runtime platform rule matches test.ps1 on x64 and ARM64 hosts' {
+        foreach($pair in @(@('x64','X64'),@('x64','Arm64'),@('ARM64','Arm64'))) {Assert-ScopedRuntimePlatform $pair[0] $pair[1]}
+        $message='';try {Assert-ScopedRuntimePlatform ARM64 X64} catch [System.Management.Automation.RuntimeException] {$message=$_.Exception.Message}
+        Assert-Scope ($message -and [IO.File]::ReadAllText((Join-Path $repository 'test.ps1')).Contains("throw '$message'")) "ARM64 on an x64 host is not refused as test.ps1 refuses it: $message"
+    }
     Run-Case 'PR delegation binds clean committed bytes and rejects concurrent changes' {
         $delegate=Join-Path $fixture 'delegation'
         function Invoke-DelegateGit([string[]]$Arguments) {$output=& git -C $delegate @Arguments 2>&1;if($LASTEXITCODE){throw "Delegation fixture git failed: $Arguments`n$($output -join "`n")"}}
@@ -256,7 +308,7 @@ try {
         try {$manifest.prWorkflowDigest='stale';$profile=$manifest.prCoverage[0];Assert-Scope (@(Get-ScopedPrCoverage $repository $manifest $profile.platform $profile.configuration).Count -eq 0) 'Modified workflow was delegated'}
         finally {$manifest.prWorkflowDigest=$digest}
     }
-    Run-Case 'public runner executes once, reuses success and never retains failed or mutated runs' {
+    Run-Case 'public runner executes once, reuses success across commits and never records failed or mutated runs' {
         $sandbox=Join-Path $fixture 'runner'
         Write-Fixture (Join-Path $sandbox '.gitignore') '.build/'
         Copy-Item -LiteralPath (Join-Path $repository 'Test-Changes.ps1') -Destination (Join-Path $sandbox 'Test-Changes.ps1')
@@ -264,13 +316,17 @@ try {
         Write-Fixture (Join-Path $sandbox $moduleRelative) ([IO.File]::ReadAllText((Join-Path $repository $moduleRelative)))
         Write-Fixture (Join-Path $sandbox 'Tests/Example.Tests.Case.cpp') 'int example;'
         Write-Fixture (Join-Path $sandbox 'Specs/TestRuns/history/SelfTest/Old.SelfTest.cpp') 'immutable historical source;'
+        Write-Fixture (Join-Path $sandbox 'README.md') 'fixture guide'
         Write-Fixture (Join-Path $sandbox 'Tests/native-test-files.json') '["Tests/Example.Tests.Case.cpp"]'
-        Write-Fixture (Join-Path $sandbox 'Tests/test-scopes.json') '{"version":1,"defaultBranch":"main","repository":"fixture/example","scopes":[{"name":"Example","native":true,"reuse":true}],"rules":[],"toolingCommands":[],"prCoverage":[],"prWorkflowDigest":"none"}'
+        Write-Fixture (Join-Path $sandbox 'Tests/test-scopes.json') '{"version":1,"defaultBranch":"main","repository":"fixture/example","scopes":[{"name":"Example","native":true,"reuse":true},{"name":"Docs","native":false,"reuse":true}],"rules":[],"toolingCommands":["tooling.ps1"],"prCoverage":[],"prWorkflowDigest":"none"}'
+        # Like the real entrypoints, the fixture build stamps -BuildNumber (by default the commit count of HEAD) into its
+        # binary, and the fixture test requires the stamp of its own -BuildNumber.
         Write-Fixture (Join-Path $sandbox 'build.ps1') @'
-param($Platform,$Configuration)
+param($Platform,$Configuration,[int]$BuildNumber)
+if(-not $BuildNumber){$BuildNumber=[int](git -C $PSScriptRoot rev-list --count HEAD)}
 $output=Join-Path $PSScriptRoot ".build/$Platform/$Configuration"
 New-Item -ItemType Directory -Path $output -Force|Out-Null
-[IO.File]::WriteAllText((Join-Path $output 'example.exe'),'fixture binary')
+[IO.File]::WriteAllText((Join-Path $output 'example.exe'),"fixture binary $BuildNumber")
 foreach($relative in @('Settings/RedXe-debug.settings.json','Settings/RedXe.settings.json','Settings/RedXe.settings.schema.json','DxUi.provenance.json')) {
     $path=Join-Path $output $relative
     [void](New-Item -ItemType Directory -Path (Split-Path $path) -Force)
@@ -279,34 +335,61 @@ foreach($relative in @('Settings/RedXe-debug.settings.json','Settings/RedXe.sett
 exit 0
 '@
         Write-Fixture (Join-Path $sandbox 'test.ps1') @'
-param($Platform,$Configuration,[switch]$SkipBuild,[string[]]$Suites,[switch]$SkipTooling)
+param($Platform,$Configuration,[switch]$SkipBuild,[string[]]$Suites,[switch]$SkipTooling,[int]$BuildNumber)
+if(-not $BuildNumber){$BuildNumber=[int](git -C $PSScriptRoot rev-list --count HEAD)}
 [IO.File]::AppendAllText((Join-Path $PSScriptRoot '.build/calls.txt'),"execute`n")
+if([IO.File]::ReadAllText((Join-Path $PSScriptRoot ".build/$Platform/$Configuration/example.exe")) -cne "fixture binary $BuildNumber"){Write-Host "Version identity mismatch: expected $BuildNumber";exit 5}
 if(Test-Path (Join-Path $PSScriptRoot '.build/fail')){exit 1}
 if(Test-Path (Join-Path $PSScriptRoot '.build/mutate')){[IO.File]::AppendAllText((Join-Path $PSScriptRoot 'Tests/Example.Tests.Case.cpp'),'changed')}
 exit 0
 '@
-        & git -C $sandbox init -q
-        if ($LASTEXITCODE) {throw 'Runner fixture git init failed'}
+        Write-Fixture (Join-Path $sandbox 'tooling.ps1') @'
+[IO.File]::AppendAllText((Join-Path $PSScriptRoot '.build/calls.txt'),"tooling`n")
+if(Test-Path (Join-Path $PSScriptRoot '.build/mutate-prose')){[IO.File]::AppendAllText((Join-Path $PSScriptRoot 'README.md'),' changed')}
+exit 0
+'@
+        Initialize-FixtureRepository $sandbox
+        function Invoke-SandboxGit([string[]]$Arguments) {$output=& git -C $sandbox @Arguments 2>&1;if($LASTEXITCODE){throw "Runner fixture git failed: $Arguments`n$($output -join "`n")"}}
+        Invoke-SandboxGit @('config','user.name','Runner fixture')
+        Invoke-SandboxGit @('config','user.email','fixture@example.invalid')
+        Invoke-SandboxGit @('add','-A');Invoke-SandboxGit @('commit','-q','-m','baseline')
+        Invoke-SandboxGit @('update-ref','refs/remotes/origin/main','HEAD')
         $fixturePlatform=if([Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() -eq 'Arm64') {'ARM64'} else {'x64'}
-        function Invoke-PublicRunner([string[]]$Arguments) {
+        function Invoke-PublicRunner([string[]]$Arguments,[string]$Scopes='Example') {
             $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $PSHOME 'pwsh.exe'))
             if (-not(Test-Path $start.FileName)) {$start.FileName=Join-Path $PSHOME 'pwsh'}
             $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
-            foreach($argument in @('-NoProfile','-File',(Join-Path $sandbox 'Test-Changes.ps1'),'-Scopes','Example','-Platform',$fixturePlatform)+$Arguments){$start.ArgumentList.Add($argument)}
+            foreach($argument in @('-NoProfile','-File',(Join-Path $sandbox 'Test-Changes.ps1'),'-Scopes',$Scopes,'-Platform',$fixturePlatform)+$Arguments){$start.ArgumentList.Add($argument)}
             $process=[Diagnostics.Process]::Start($start)
             try {$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync();$process.WaitForExit();return [pscustomobject]@{Exit=$process.ExitCode;Text=$stdout.GetAwaiter().GetResult()+$stderr.GetAwaiter().GetResult()}}
             finally {$process.Dispose()}
         }
-        $run=Invoke-PublicRunner @();Assert-Scope ($run.Exit -eq 0) "Initial execution failed: $($run.Text)"
+        function Get-RuntimeCalls {@(Get-Content (Join-Path $sandbox '.build/calls.txt') | Where-Object {$_ -eq 'execute'}).Count}
+        $run=Invoke-PublicRunner @();Assert-Scope ($run.Exit -eq 0 -and $run.Text.Contains('Build number: 1')) "Initial execution failed: $($run.Text)"
         $run=Invoke-PublicRunner @('-SkipBuild');Assert-Scope ($run.Exit -eq 0 -and $run.Text.Contains('REUSED Example')) "Identical success was executed again: $($run.Text)"
-        Assert-Scope (@(Get-Content (Join-Path $sandbox '.build/calls.txt')).Count -eq 1) 'Cached call executed runtime'
+        Assert-Scope ((Get-RuntimeCalls) -eq 1) 'Cached call executed runtime'
+        # A commit leaves the merge base, so the version stamp, the binaries and their evidence, unchanged.
+        Invoke-SandboxGit @('commit','-q','--allow-empty','-m','candidate')
+        $run=Invoke-PublicRunner @();Assert-Scope ($run.Exit -eq 0 -and $run.Text.Contains('REUSED Example')) "A commit invalidated identical evidence: $($run.Text)"
+        $run=Invoke-PublicRunner @('-Force','-SkipBuild');Assert-Scope ($run.Exit -eq 0 -and (Get-RuntimeCalls) -eq 2) "SkipBuild after a commit did not test the attested stamp: $($run.Text)"
+        # A newer base changes the stamp: SkipBuild refuses before any test runs, and a build restamps.
+        Invoke-SandboxGit @('update-ref','refs/remotes/origin/main','HEAD')
+        $run=Invoke-PublicRunner @('-SkipBuild');Assert-Scope ($run.Exit -ne 0 -and $run.Text.Contains('SkipBuild refused') -and (Get-RuntimeCalls) -eq 2) "A changed build number passed the attestation: $($run.Text)"
+        $run=Invoke-PublicRunner @();Assert-Scope ($run.Exit -eq 0 -and $run.Text.Contains('Build number: 2') -and (Get-RuntimeCalls) -eq 3) "A changed build number did not restamp and rerun: $($run.Text)"
         $receipt=Join-Path $sandbox ".build/reports/scoped-tests/$fixturePlatform-Debug/Example.json"
         Write-Fixture (Join-Path $sandbox '.build/fail') 'fail'
         $run=Invoke-PublicRunner @('-Force','-SkipBuild');Assert-Scope ($run.Exit -ne 0 -and -not(Test-Path $receipt)) 'Failure retained earlier reusable success'
         Remove-Item -LiteralPath (Join-Path $sandbox '.build/fail')
         $run=Invoke-PublicRunner @('-SkipBuild');Assert-Scope ($run.Exit -eq 0 -and -not $run.Text.Contains('REUSED Example')) 'Failed run was reused'
+        # A comma list under pwsh -File selects both scopes. Prose edited while they run changes only the tooling scope's
+        # inputs: the run passes unrecorded for Docs and keeps the native receipt.
+        $docs=Join-Path $sandbox '.build/reports/scoped-tests/independent/Docs.json'
+        Write-Fixture (Join-Path $sandbox '.build/mutate-prose') 'mutate'
+        $run=Invoke-PublicRunner @('-Force','-SkipBuild') 'Example,Docs'
+        Assert-Scope ($run.Exit -eq 0 -and $run.Text.Contains('SELECTED_PASSED; NOT_RECORDED') -and (Test-Path $receipt) -and -not(Test-Path $docs)) "Prose edited during the run failed it or recorded the changed scope: $($run.Text)"
+        Remove-Item -LiteralPath (Join-Path $sandbox '.build/mutate-prose')
         Write-Fixture (Join-Path $sandbox '.build/mutate') 'mutate'
-        $run=Invoke-PublicRunner @('-Force','-SkipBuild');Assert-Scope ($run.Exit -ne 0 -and -not(Test-Path $receipt)) 'Post-run mutation published success'
+        $run=Invoke-PublicRunner @('-Force','-SkipBuild');Assert-Scope ($run.Exit -eq 0 -and $run.Text.Contains('SELECTED_PASSED; NOT_RECORDED') -and -not(Test-Path $receipt)) "Source edited during the run failed it or published success: $($run.Text)"
         Remove-Item -LiteralPath (Join-Path $sandbox '.build/mutate')
         $run=Invoke-PublicRunner @('-SkipBuild');Assert-Scope ($run.Exit -ne 0 -and $run.Text.Contains('SkipBuild refused')) 'Stale compiled input accepted'
     }
