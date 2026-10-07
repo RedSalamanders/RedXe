@@ -1552,10 +1552,10 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     stuck returns with `device-lane-drain-timeout` already in the log file (a test gate holds the writer until a
     flush releases it) while a second shutdown does not flush again, and it still stops the launch worker: a queued
     launch never starts and one in the shell logs `launch-stop-timeout` (`TestLaunchWorker`); and under a session-end
-    budget a responsive lane stopped after a stuck one still drains and runs `Stop`, and only the stuck one logs
-    `device-lane-drain-timeout` (`TestSessionEndDeadline`). `SettingsTests` MUST cover the `services` grammar and
-    rejections, both templates' Logicon objects, and the retired `builtin.zoom` entry. Plugins_Logicon.md owns the
-    protocol and face vectors.
+    budget a responsive lane stopped after a stuck one (when a second bundled service exists) still drains and runs
+    `Stop`, and only the stuck one logs `device-lane-drain-timeout` (`TestSessionEndDeadline`). `SettingsTests` MUST
+    cover the `services` grammar and rejections, both templates' Logicon objects, and the retired `builtin.zoom` entry.
+    Plugins_Logicon.md owns the protocol and face vectors.
 
 21. Verify the action contract, registry, validation, and execution through `HostPluginTests` and the Zoom action
     DLL through `ZoomTests` as [`Plugins_Actions.md`](Plugins_Actions.md) and [`Plugins_Zoom.md`](Plugins_Zoom.md)
