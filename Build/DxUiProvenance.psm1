@@ -1,6 +1,9 @@
 # Bind ordinary product outputs to the exact restored source/archive and actual linker inputs.
 Set-StrictMode -Version Latest
 
+# The lock, the source path and the output root's name are the restore's (DxUiRestore.psm1).
+Import-Module (Join-Path $PSScriptRoot 'DxUiRestore.psm1') -Force -ErrorAction Stop
+
 function Write-RedXeDxUiProvenance {
     [CmdletBinding()]
     param(
@@ -9,15 +12,22 @@ function Write-RedXeDxUiProvenance {
         [Parameter(Mandatory)][ValidateSet('Debug','Release','ASan Debug')][string] $Configuration
     )
     $ErrorActionPreference='Stop'
-    $pin=Get-Content -Raw -LiteralPath (Join-Path $RepoRoot 'Dependencies/DxUi.lock.json') | ConvertFrom-Json
-    $dependencyRoot=Join-Path $RepoRoot '.build/dependencies/DxUi'
+    $lockFile=Join-Path $RepoRoot 'Dependencies/DxUi.lock.json'
+    $pin=Read-RedXeDxUiLock -LockFile $lockFile
+    $dependencyRoot=Get-RedXeDxUiDependencyRoot -RepoRoot $RepoRoot
     $identity=Get-Content -Raw -LiteralPath (Join-Path $dependencyRoot "DxUi.identity.$Platform.json") | ConvertFrom-Json
     if ($identity.Identity.commit -cne $pin.commit -or $identity.Identity.platform -cne $Platform) { throw 'Restored DxUi identity does not match the product pin/profile.' }
-    # The archive sits under the output root MSBuild was given; restore-dxui.ps1 alone owns that folder name.
+    # The archive sits under the output root MSBuild was given. It must be the root the restore named after this identity's
+    # fingerprint; otherwise the record would pair this identity with an archive another restore built.
     [xml]$props=Get-Content -Raw -LiteralPath (Join-Path $dependencyRoot "DxUi.resolved.$Platform.props")
-    $archive=Join-Path ([string]$props.Project.PropertyGroup.DxUiConsumerOutputRoot) "$Platform/$Configuration/DxUi.lib"
-    $source=Join-Path $dependencyRoot "source/$($pin.commit)"
-    & (Join-Path $source 'Tools/validate_consumer.ps1') -DxUiRoot $source -LockFile (Join-Path $RepoRoot 'Dependencies/DxUi.lock.json')
+    $outputRoot=[string]$props.Project.PropertyGroup.DxUiConsumerOutputRoot
+    $identityRoot=Get-RedXeDxUiOutputRoot -RepoRoot $RepoRoot -Fingerprint ([string]$identity.Fingerprint)
+    if ((Split-Path -Leaf $outputRoot.TrimEnd('\','/')) -ine (Split-Path -Leaf $identityRoot.TrimEnd('\','/'))) {
+        throw "Restored DxUi identity does not match the resolved output root: $outputRoot"
+    }
+    $archive=Join-Path $outputRoot "$Platform/$Configuration/DxUi.lib"
+    $source=Get-RedXeDxUiSourcePath -RepoRoot $RepoRoot -Commit $pin.commit
+    & (Join-Path $source 'Tools/validate_consumer.ps1') -DxUiRoot $source -LockFile $lockFile
     $output=Join-Path $RepoRoot ".build/$Platform/$Configuration"
     $modules=foreach ($module in @(@{name='RedXe';path='RedXe.exe'},@{name='AVControl';path='Plugins/AVControl.dll'},@{name='AVControlTests';path='AVControlTests.exe'})) {
         $tlog=Join-Path $RepoRoot ".build/Intermediate/$Platform/$Configuration/$($module.name)/$($module.name).tlog/link.command.1.tlog"

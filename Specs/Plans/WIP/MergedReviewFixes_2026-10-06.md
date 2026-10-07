@@ -348,14 +348,14 @@ Check a row when its fix lands, or note why it was dropped.
 
 ### P5. Build and test tooling (62)
 
-- [ ] `dxui-restore#0` (high) `Build/DxUiRestore.psm1:72`: A failed, interrupted or leftover DxUi source folder counts as restored: it is never repaired, and vcpkg-install.ps1 runs code from it before anything checks it
+- [x] `dxui-restore#0` (high) `Build/DxUiRestore.psm1:72`: A failed, interrupted or leftover DxUi source folder counts as restored: it is never repaired, and vcpkg-install.ps1 runs code from it before anything checks it
 - [ ] `alignment#17` (medium) `Test-Changes.ps1:81`: A commit invalidates every native receipt, and -SkipBuild then fails test.ps1's version check, because the commit-count version stamp is part of the artifact identity
 - [ ] `dxui-restore#1` (medium) `test.ps1:349`: RedXe.self-test.log is empty for every self-test failure except a CRT report, and exit code 3 now means two different things
-- [ ] `dxui-restore#2` (medium) `restore-dxui.ps1:28`: restore-dxui.ps1 runs the pinned DxUi vcpkg-install.ps1, which picks Visual Studio through vswhere -latest instead of the build's MSBuild, contrary to the spec
+- [ ] `dxui-restore#2` (medium) `restore-dxui.ps1:28`: restore-dxui.ps1 runs the pinned DxUi vcpkg-install.ps1, which picks Visual Studio through vswhere -latest instead of the build's MSBuild, contrary to the spec Deferred: the pinned DxUi (271bd54) vcpkg-install.ps1 takes no MSBuild and its Get-DxUiVisualStudioInstallation ignores MSBUILD_EXE_PATH; needs DxUi to accept `-MSBuildPath` (resolving the installation as Get-RedXeVisualStudioInstallation does, or honoring MSBUILD_EXE_PATH), then restore-dxui.ps1 passes it with a pin update. RedXe's side now selects one MSBuild everywhere and Core_DxUiIntegration.md records the limitation.
 - [ ] `dxui-restore#4` (medium) `test.ps1:405`: Several RedXe.exe and launcher runs, including the packaged --self-test and the crash tests, stay unbounded under Start-Process -Wait, and the crash tests do not suppress Windows Error Reporting
 - [ ] `dxui-restore#7` (medium) `Common/FailureReports.h:24`: ReportAndEnd writes through fputws on a narrow "C"-locale stderr, so a report whose path contains a character above U+00FF is cut off and the routing check fails
 - [ ] `dxui-restore#8` (medium, disputed) `Tests/PluginContractTests/PluginContract.Tests.Runner.cpp:2566`: PluginContractTests passes on any failing HRESULT whose low byte is 0x00
-- [ ] `dxui-rev3#0` (medium) `Build/DxUiRestore.psm1:72`: Pin restore treats any existing source/<commit> folder as restored, and vcpkg-install runs DxUi modules from it before anything checks it
+- [x] `dxui-rev3#0` (medium) `Build/DxUiRestore.psm1:72`: Pin restore treats any existing source/<commit> folder as restored, and vcpkg-install runs DxUi modules from it before anything checks it
 - [x] `process-containment#0` (medium) `Build/BuildPresentation.psm1:806`: Timeout budget is never enforced while a bounded child keeps writing output (1 ms floor on the remaining wait)
 - [x] `process-containment#12` (medium) `Common/FailureReports.h:32`: A budget kill drops the hung test's own buffered stdout, so the log cannot say which case hung (10 of 12 test executables)
 - [x] `process-containment#2` (medium) `Build/BuildPresentation.psm1:861`: If the log writer's Dispose throws in the finally block, the job is never disposed, so kill-on-close never runs and an orphaned child can block
@@ -369,19 +369,19 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `tests#17` (medium) `Test-Changes.ps1:79`: Commit-count build number is outside the scoped-test identity: SkipBuild breaks after a commit, and commits defeat reuse
 - [ ] `tests#18` (medium) `Build/ScopedTesting.psm1:245`: PrePush delegates every Release x64 obligation to a PR check that the main ruleset does not require
 - [ ] `tests#4` (medium) `Test-Changes.ps1:125`: Test-Changes turns 'not reusable' into a failed run when any repository file changes while the tests run
-- [ ] `tests#5` (medium) `Build/DxUiRestore.psm1:72`: In-place DxUi clone: an interrupted or concurrent restore poisons every later tooling-test and build run
+- [x] `tests#5` (medium) `Build/DxUiRestore.psm1:72`: In-place DxUi clone: an interrupted or concurrent restore poisons every later tooling-test and build run
 - [ ] `alignment#18` (low) `Build/ScopedTesting.psm1:67`: The live test-source detector matches case-insensitively, so any product file whose name contains "test", "mock" or "fake" blocks every Test-Changes run
-- [ ] `alignment#19` (low) `Build/DxUiRestore.psm1:98`: A partially restored DxUi source directory is never repaired, and the new vcpkg-install.ps1 caller then fails with an unrelated module-load error
+- [x] `alignment#19` (low) `Build/DxUiRestore.psm1:98`: A partially restored DxUi source directory is never repaired, and the new vcpkg-install.ps1 caller then fails with an unrelated module-load error
 - [ ] `alignment#20` (low) `Test-Changes.ps1:74`: The ordinary `./test.ps1` now refuses the default x64 platform on an ARM64 host, which the Full path still allows
-- [ ] `dxui-restore#10` (low) `restore-dxui.ps1:27`: The DxUi restore never removes superseded output folders or source clones: 3.4 GB has built up, most of it unused
-- [ ] `dxui-restore#11` (low) `Build/DxUiRestore.psm1:77`: The sparse restore still clones DxUi's full history, so each network restore downloads about 43 MB of packs for a 6 MB working tree
-- [ ] `dxui-restore#14` (low) `Tests/BuildProcessTests/DxUiRestoreTests.ps1:57`: The DxUi restore test's fixture commits inherit the developer's global Git signing, hook and line-ending settings
+- [x] `dxui-restore#10` (low) `restore-dxui.ps1:27`: The DxUi restore never removes superseded output folders or source clones: 3.4 GB has built up, most of it unused
+- [x] `dxui-restore#11` (low) `Build/DxUiRestore.psm1:77`: The sparse restore still clones DxUi's full history, so each network restore downloads about 43 MB of packs for a 6 MB working tree
+- [x] `dxui-restore#14` (low) `Tests/BuildProcessTests/DxUiRestoreTests.ps1:57`: The DxUi restore test's fixture commits inherit the developer's global Git signing, hook and line-ending settings
 - [ ] `dxui-restore#17` (low) `Common/FailureReports.h:34`: Clearing _WRITE_ABORT_MSG makes every abort that is not a CRT report end with exit 3 and print nothing
-- [ ] `dxui-restore#18` (low) `Build/DxUiUpdate.psm1:52`: Update-DxUi accepts a DxUi main commit at another API revision, so -UpdateOnly writes a lock that can never restore
-- [ ] `dxui-restore#3` (low) `vcpkg-install.ps1:66`: Standalone vcpkg-install.ps1 and restore-dxui.ps1 discover MSBuild / Visual Studio differently from build.ps1, so overlay triplets and DxUi identity files flip between installations
+- [x] `dxui-restore#18` (low) `Build/DxUiUpdate.psm1:52`: Update-DxUi accepts a DxUi main commit at another API revision, so -UpdateOnly writes a lock that can never restore
+- [x] `dxui-restore#3` (low) `vcpkg-install.ps1:66`: Standalone vcpkg-install.ps1 and restore-dxui.ps1 discover MSBuild / Visual Studio differently from build.ps1, so overlay triplets and DxUi identity files flip between installations
 - [ ] `dxui-restore#5` (low) `Common/FailureReports.h:32`: RouteAwayFromDialogs leaves the standard C assert() message box in place for the GUI-subsystem RedXe.exe
 - [ ] `dxui-restore#9` (low) `Plugins/AVControl/BrokerMain.cpp:353`: AVControlBroker.exe, which AVControlTests starts, does not route failed checks, so a Debug check in it still opens a dialog
-- [ ] `dxui-rev3#1` (low) `Build/DxUiUpdate.psm1:26`: Update-DxUi.ps1 picks a DxUi main commit without checking its API revision, so a revision bump produces a lock every build rejects
+- [x] `dxui-rev3#1` (low) `Build/DxUiUpdate.psm1:26`: Update-DxUi.ps1 picks a DxUi main commit without checking its API revision, so a revision bump produces a lock every build rejects
 - [x] `process-containment#1` (low) `Build/BuildPresentation.psm1:773`: The budget uses the wall clock (DateTime.UtcNow), so a clock step can cut it short or stretch it
 - [x] `process-containment#13` (low) `Build/BuildPresentation.psm1:749`: On timeout the helper stops reading before it terminates the job, so output already in the pipes and a trailing partial line are dropped
 - [x] `process-containment#14` (low) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:3498`: The FlushLog early return cannot bound a hung writer: ~PluginHost then joins the log worker with no limit
@@ -402,11 +402,11 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `scoped-testing#7` (low) `Test-Changes.ps1:69`: PrePush with full CI delegation never prints the CI_PENDING verdict the spec requires
 - [ ] `scoped-testing#8` (low) `Build/ScopedTesting.psm1:241`: PR delegation refusals are silent; PrePush Release falls back to a full local Release run with no reason given
 - [ ] `scoped-testing#9` (low) `Test-Changes.ps1:74`: Default test.ps1 on an ARM64 host now throws instead of running x64 tests; the two entrypoints disagree about the same profile
-- [ ] `studioclock#1` (low) `Build/DxUiProvenance.psm1:18`: DxUi provenance no longer binds the recorded build identity to the archive it hashes, and repeats path logic owned elsewhere
-- [ ] `studioclock#2` (low) `restore-dxui.ps1:27`: DxUi restore never removes old output roots; #22's switch to 16-digit folder names orphaned every existing 64-digit root
+- [x] `studioclock#1` (low) `Build/DxUiProvenance.psm1:18`: DxUi provenance no longer binds the recorded build identity to the archive it hashes, and repeats path logic owned elsewhere
+- [x] `studioclock#2` (low) `restore-dxui.ps1:27`: DxUi restore never removes old output roots; #22's switch to 16-digit folder names orphaned every existing 64-digit root
 - [x] `tests#10` (low) `Build/BuildPresentation.psm1:752`: Streaming helper timeout path neither waits for the job's processes to exit nor drains buffered output; the stall fixture's immediate survivor scan and log check can fail spuriously
 - [ ] `tests#14` (low) `test.ps1:405`: test.ps1 still runs six RedXe/launcher processes with unbounded Start-Process -Wait despite the bounded-process policy
-- [ ] `tests#15` (low) `Tests/BuildProcessTests/ScopedTesting.Tests.ps1:19`: Tooling-test fixture repositories inherit the developer's global Git config (commit signing, hooks)
+- [x] `tests#15` (low) `Tests/BuildProcessTests/ScopedTesting.Tests.ps1:19`: Tooling-test fixture repositories inherit the developer's global Git config (commit signing, hooks)
 - [ ] `tests#20` (low) `test.ps1:349`: HostSmoke self-test log stays empty on failure, and its exit codes collide with the failure-report code 3
 - [ ] `tests#8` (low) `Tests/test-scopes.json:217`: Scope manifest rules are hand-maintained and never checked against the test projects' real inputs; four rule patterns match nothing
 - [ ] `tests#22` (nit) `Build/ScopedTesting.psm1:67`: Native test-inventory discovery uses a case-insensitive 'Test|Mock|Fake' match that catches ordinary product names

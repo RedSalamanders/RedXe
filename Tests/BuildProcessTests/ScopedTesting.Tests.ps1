@@ -8,11 +8,19 @@ $passed=0
 function Assert-Scope([bool]$Condition,[string]$Message) {if(-not $Condition){throw $Message}}
 function Run-Case([string]$Name,[scriptblock]$Action) {& $Action;$script:passed++;Write-Host "PASS $Name"}
 function Write-Fixture([string]$Path,[string]$Content) {[void](New-Item -ItemType Directory -Path (Split-Path $Path) -Force);[IO.File]::WriteAllText($Path,$Content,[Text.UTF8Encoding]::new($false))}
-function Invoke-FixtureGit([string[]]$Arguments) {& git -C $fixture @Arguments *> $null;if($LASTEXITCODE){throw "Fixture git failed: $Arguments"}}
+function Invoke-FixtureGit([string[]]$Arguments) {$output=& git -C $fixture @Arguments 2>&1;if($LASTEXITCODE){throw "Fixture git failed: $Arguments`n$($output -join "`n")"}}
+# A fixture repository ignores the developer's Git settings that change or block a commit: signing (a key prompt would hang the
+# run), hooks (core.hooksPath, or an init template's) and line-ending conversion. Local settings override global and system ones.
+function Initialize-FixtureRepository([string]$Root) {
+    foreach($arguments in @(@('init','-q'),@('config','commit.gpgsign','false'),@('config','core.hooksPath',(Join-Path $Root '.git/no-hooks')),@('config','core.autocrlf','false'))) {
+        $output=& git -C $Root @arguments 2>&1;if($LASTEXITCODE){throw "Fixture git failed: $arguments`n$($output -join "`n")"}
+    }
+    [void](New-Item -ItemType Directory -Path (Join-Path $Root '.git/no-hooks') -Force)
+}
 $fixture=Join-Path $repository ('.build/ToolTests/ScopedTesting-'+[guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $fixture -Force)
 try {
-    Invoke-FixtureGit @('init','-q')
+    Initialize-FixtureRepository $fixture
     Invoke-FixtureGit @('config','user.name','Scoped testing fixture')
     Invoke-FixtureGit @('config','user.email','fixture@example.invalid')
     foreach($file in @('code.cpp','staged.cpp','deleted.cpp','renamed.cpp')) {Write-Fixture (Join-Path $fixture $file) 'initial'}
@@ -166,13 +174,13 @@ try {
     }
     Run-Case 'PR delegation binds clean committed bytes and rejects concurrent changes' {
         $delegate=Join-Path $fixture 'delegation'
-        function Invoke-DelegateGit([string[]]$Arguments) {& git -C $delegate @Arguments *> $null;if($LASTEXITCODE){throw "Delegation fixture git failed: $Arguments"}}
+        function Invoke-DelegateGit([string[]]$Arguments) {$output=& git -C $delegate @Arguments 2>&1;if($LASTEXITCODE){throw "Delegation fixture git failed: $Arguments`n$($output -join "`n")"}}
         [void](New-Item -ItemType Directory -Path $delegate -Force)
         $workflow="name: fixture`non:`n  pull_request:`n"
         [void](New-Item -ItemType Directory -Path (Join-Path $delegate '.github/workflows') -Force)
         [IO.File]::WriteAllText((Join-Path $delegate '.github/workflows/ci.yml'),$workflow)
         [IO.File]::WriteAllText((Join-Path $delegate 'code.cpp'),'initial')
-        Invoke-DelegateGit @('init','-q')
+        Initialize-FixtureRepository $delegate
         Invoke-DelegateGit @('config','user.name','Delegation fixture')
         Invoke-DelegateGit @('config','user.email','fixture@example.invalid')
         Invoke-DelegateGit @('add','-A');Invoke-DelegateGit @('commit','-q','-m','baseline')

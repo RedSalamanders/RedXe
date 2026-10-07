@@ -34,6 +34,24 @@ try {
     $record.modules=@($modules); Write-Record
     Add-Content -LiteralPath (Join-Path $fixture 'Plugins/AVControl.dll') -Value 'replacement'
     Reject 'changed binary'
+
+    # The writer records the restored build identity beside the archive's hash only when the output root MSBuild was given is the
+    # one the restore named after that identity's fingerprint.
+    $product=Join-Path $fixture 'product'
+    $dependencyRoot=Join-Path $product '.build/dependencies/DxUi'
+    [void](New-Item -ItemType Directory -Path (Join-Path $product 'Dependencies'),$dependencyRoot -Force)
+    @{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=3;targets=@('DxUi')} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $product 'Dependencies/DxUi.lock.json')
+    @{Fingerprint=('c'*64);Identity=@{commit=('a'*40);platform='x64'}} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $dependencyRoot 'DxUi.identity.x64.json')
+    function Write-OutputRoot([string]$Leaf) {
+        Set-Content -LiteralPath (Join-Path $dependencyRoot 'DxUi.resolved.x64.props') -Value "<Project><PropertyGroup><DxUiConsumerOutputRoot>$(Join-Path $dependencyRoot $Leaf)\</DxUiConsumerOutputRoot></PropertyGroup></Project>"
+        $message=''
+        try { Write-RedXeDxUiProvenance -RepoRoot $product -Platform x64 -Configuration Debug | Out-Null } catch { $message=$_.Exception.Message }
+        return $message
+    }
+    if ((Write-OutputRoot ('d'*16)) -notlike 'Restored DxUi identity does not match the resolved output root*') { throw 'Provenance paired an identity with another restore''s archive.' }
+    Write-Host 'PASS provenance writer rejects an output root another identity named'
+    if ((Write-OutputRoot ('c'*16)) -like '*does not match the resolved output root*') { throw 'Provenance rejected the output root its identity named.' }
+    Write-Host 'PASS provenance writer accepts the output root its identity named'
 } finally {
     $path=[IO.Path]::GetFullPath($fixture)
     $parent=[IO.Path]::GetFullPath((Join-Path $repo '.build/BuildProcessTests')).TrimEnd('\')+'\'

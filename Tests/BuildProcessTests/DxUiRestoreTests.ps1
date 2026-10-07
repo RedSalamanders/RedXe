@@ -1,9 +1,10 @@
 [CmdletBinding()]
 param()
 
-# Restoring the DxUi pin: the lock the product accepts, the sparse long-path checkout restored from a deep root, the Visual Studio
-# installation vcpkg builds with, and the wiring that keeps build.ps1's order. Everything runs on fixtures or on the files the build
-# already restored; nothing needs the network or a window.
+# Restoring the DxUi pin: the lock the product accepts, the sparse long-path checkout restored from a deep root, the repair of an
+# unfinished or changed restore, a restore that loses to a concurrent one, the filtered clone, the removal of superseded restores, the
+# Visual Studio installation vcpkg builds with, and the wiring that keeps build.ps1's order. Everything runs on fixtures or on the
+# files the build already restored; nothing needs the network or a window.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -65,8 +66,27 @@ function New-DxUiLockFile([string] $Path, [hashtable] $Override = @{}) {
     [IO.File]::WriteAllText($Path, ($lock | ConvertTo-Json))
 }
 
+function Assert-CleanRestore([string] $Path, [string] $Commit, [string] $Message) {
+    # The restore is the top of its own working tree, at the commit, unchanged, sparse, and no temporary folder is left beside it.
+    $location = @(& git -C $Path rev-parse --show-cdup HEAD)
+    $changes = @(& git -C $Path status --porcelain --untracked-files=normal)
+    Assert-That ($location.Count -eq 2 -and -not $location[0] -and $location[1] -ceq $Commit -and $changes.Count -eq 0 -and
+        [IO.File]::Exists((Join-Path $Path 'Tools/VisualStudio.psm1')) -and -not [IO.Directory]::Exists((Join-Path $Path 'Specs'))) $Message
+    Assert-That (@(Get-ChildItem -LiteralPath (Split-Path -Parent $Path) -Force | Where-Object Name -like '~*').Count -eq 0) "$Message; no temporary folder is left"
+}
+
+# Fixture Git ignores the developer's global and system configuration: commit signing (a key prompt would hang the run), hooks
+# (core.hooksPath, or an init template's) and line-ending conversion would otherwise change or block the fixture commits and the
+# restores under test. The finally below puts the previous values back.
+$savedGitConfigGlobal = $env:GIT_CONFIG_GLOBAL
+$savedGitConfigNoSystem = $env:GIT_CONFIG_NOSYSTEM
+
 try {
     [void][IO.Directory]::CreateDirectory($testRoot)
+    $emptyGitConfig = Join-Path $testRoot 'empty.gitconfig'
+    [IO.File]::WriteAllText($emptyGitConfig, '')
+    $env:GIT_CONFIG_GLOBAL = $emptyGitConfig
+    $env:GIT_CONFIG_NOSYSTEM = '1'
 
     # --- The lock ---
     $lockPath = Join-Path $testRoot 'locks/DxUi.lock.json'
@@ -156,6 +176,135 @@ try {
     Assert-That (-not (Restore-RedXeDxUiSource -Repository 'https://github.com/RedSalamanders/DxUi' -Commit $commit -Destination $destination -CloneFrom $fixture)) `
         'an existing restore is left alone'
 
+    # --- An existing destination counts as restored only when it is the clean checkout of the commit ---
+    $repair = Join-Path $testRoot "repairs/source/$commit"
+    $brokenStates = [ordered]@{
+        # A restore by an older build, interrupted after its clone: no working tree.
+        'a clone interrupted before its checkout' = { Invoke-Git clone -q --no-checkout --no-hardlinks $fixture $repair | Out-Null }
+        # A deletion that did not finish: Git's pack files are read-only. The folder is no repository, so Git answers for the
+        # product checkout around the test root.
+        'the read-only pack files of an unfinished deletion' = {
+            $pack = Join-Path $repair '.git/objects/pack/pack-remnant.pack'
+            [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($pack))
+            [IO.File]::WriteAllText($pack, 'remnant')
+            [IO.File]::SetAttributes($pack, [IO.FileAttributes]::ReadOnly)
+        }
+        'a checkout of another commit' = {
+            Invoke-Git clone -q --no-hardlinks $fixture $repair | Out-Null
+            [IO.File]::AppendAllText((Join-Path $repair 'README.md'), "another commit`n")
+            Invoke-Git -C $repair -c user.name=fixture -c user.email=fixture@example.invalid commit -q -a -m 'another commit' | Out-Null
+        }
+        'a checkout with an edited file' = {
+            [void](Restore-RedXeDxUiSource -Repository 'https://github.com/RedSalamanders/DxUi' -Commit $commit -Destination $repair -CloneFrom $fixture)
+            [IO.File]::AppendAllText((Join-Path $repair 'Tools/VisualStudio.psm1'), "edited`n")
+        }
+    }
+    foreach ($state in $brokenStates.Keys) {
+        if (Test-Path -LiteralPath $repair) { Remove-Item -LiteralPath $repair -Recurse -Force }
+        & $brokenStates[$state]
+        $repaired = Restore-RedXeDxUiSource -Repository 'https://github.com/RedSalamanders/DxUi' -Commit $commit -Destination $repair -CloneFrom $fixture 3>$null
+        Assert-That ($repaired -is [bool] -and $repaired) "$state is removed and restored again"
+        Assert-CleanRestore $repair $commit "the restore that replaced $state is the clean checkout of the commit"
+    }
+
+    # --- A failed restore leaves nothing behind ---
+    $missingCommit = 'e' * 40
+    $failed = Join-Path $testRoot "failures/source/$missingCommit"
+    Assert-Throws { Restore-RedXeDxUiSource -Repository 'https://github.com/RedSalamanders/DxUi' -Commit $missingCommit -Destination $failed -CloneFrom $fixture } `
+        'could not be checked out' 'a restore of a commit the source lacks fails'
+    Assert-That (-not (Test-Path -LiteralPath $failed) -and @(Get-ChildItem -LiteralPath (Split-Path -Parent $failed) -Force).Count -eq 0) `
+        'the failed restore leaves neither the destination nor its temporary folder'
+
+    # --- A restore that loses the rename to a concurrent one uses the winner ---
+    # The concurrent restore is played deterministically. A stand-in for git inside the module runs each command and, once this
+    # restore has recorded origin (its last step before the check and the rename), publishes the same commit at the destination as
+    # a concurrent run would, by restoring it.
+    $raced = Join-Path $testRoot "races/source/$commit"
+    $module = Get-Module DxUiRestore
+    & $module {
+        param([string] $Winner, [string] $From, [string] $Commit)
+        $script:FixtureRaceWinner = $Winner
+        $script:FixtureRaceFrom = $From
+        $script:FixtureRaceCommit = $Commit
+        function script:git {
+            if ($MyInvocation.ExpectingInput) { $input | & git.exe @args } else { & git.exe @args }
+            $exitCode = $LASTEXITCODE
+            if ($script:FixtureRaceWinner -and $args -contains 'set-url') {
+                $winner = $script:FixtureRaceWinner
+                $script:FixtureRaceWinner = ''
+                [void](Restore-RedXeDxUiSource -Repository 'https://github.com/RedSalamanders/DxUi' -Commit $script:FixtureRaceCommit `
+                        -Destination $winner -CloneFrom $script:FixtureRaceFrom)
+            }
+            $global:LASTEXITCODE = $exitCode
+        }
+    } $raced $fixture $commit
+    try {
+        $won = Restore-RedXeDxUiSource -Repository 'https://github.com/RedSalamanders/DxUi' -Commit $commit -Destination $raced -CloneFrom $fixture
+        $raceStaged = & $module { -not $script:FixtureRaceWinner }
+    }
+    finally {
+        & $module {
+            Remove-Item -LiteralPath Function:\git
+            Remove-Variable -Name FixtureRaceWinner, FixtureRaceFrom, FixtureRaceCommit -Scope Script
+        }
+    }
+    Assert-That ($raceStaged -and $won -is [bool] -and -not $won) 'a restore whose rename loses to a concurrent restore reports that it restored nothing'
+    Assert-CleanRestore $raced $commit 'the concurrent restore''s checkout is used'
+
+    # --- A clone of the repository itself fetches only the kept files' contents ---
+    # A bare copy of the fixture stands in for the canonical repository. file:// is Git's network path (a local path is cloned
+    # locally, where filters are ignored), and the copy accepts filtered fetches as GitHub does.
+    $remote = Join-Path $testRoot 'remote/DxUi.git'
+    Invoke-Git clone -q --bare $fixture $remote | Out-Null
+    Invoke-Git -C $remote config uploadpack.allowFilter true | Out-Null
+    $repository = 'file:///' + (Join-Path $testRoot 'remote/DxUi').Replace('\', '/')
+    $filtered = Join-Path $testRoot "filtered/source/$commit"
+    $cloned = Restore-RedXeDxUiSource -Repository $repository -Commit $commit -Destination $filtered
+    Assert-That ($cloned -is [bool] -and $cloned) 'a restore without a sibling checkout clones the repository'
+    Assert-CleanRestore $filtered $commit 'the filtered clone is the clean checkout of the commit'
+    $missing = @(& git -C $filtered rev-list --objects --missing=print HEAD | Where-Object { $_.StartsWith('?') } | ForEach-Object { $_.Substring(1) })
+    $blobs = { param([string[]] $Paths) @($Paths | ForEach-Object { ((Invoke-Git -C $fixture rev-parse "HEAD:$_") -join '').Trim() }) }
+    Assert-That (@(& $blobs $leftOut | Where-Object { $_ -notin $missing }).Count -eq 0 -and @(& $blobs $kept | Where-Object { $_ -in $missing }).Count -eq 0) `
+        'the clone fetched the contents of the kept files only, never those the sparse checkout leaves out'
+    Assert-That (((& git -C $filtered remote get-url origin) -join '').Trim() -ceq "$repository.git") 'the filtered clone records the repository as origin'
+
+    # --- Superseded restores are removed; what a platform builds with, a restore in progress and other folders stay ---
+    $pruneRoot = Join-Path $testRoot 'prune/RedXe'
+    $dependencyRoot = Get-RedXeDxUiDependencyRoot -RepoRoot $pruneRoot
+    $pinned = '8' * 40
+    $old = [DateTime]::UtcNow.AddDays(-2)
+    $folders = [ordered]@{
+        ('1' * 16) = @{ Age = $old; Kept = 'the x64 properties name it' }
+        ('2' * 16) = @{ Age = $old; Kept = 'the ARM64 properties name it' }
+        ('3' * 16) = @{ Age = $old; Kept = '' }
+        ('4' * 64) = @{ Age = $old; Kept = '' }
+        (('5' * 40) + '-api2-v145-sdk26100-md') = @{ Age = $old; Kept = '' }
+        ('7' * 16) = @{ Age = [DateTime]::UtcNow; Kept = 'a restore may still be writing it' }
+        'notes' = @{ Age = $old; Kept = 'a restore never names a folder so' }
+        "source/$pinned" = @{ Age = $old; Kept = 'it is the pinned commit' }
+        "source/$('6' * 40)" = @{ Age = $old; Kept = '' }
+        'source/~0123abcd' = @{ Age = $old; Kept = '' }
+        'source/~89abcdef' = @{ Age = [DateTime]::UtcNow; Kept = 'a restore may still be writing it' }
+    }
+    foreach ($name in $folders.Keys) {
+        $file = Join-Path $dependencyRoot "$name/.git/objects/pack/pack-old.pack"
+        [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($file))
+        [IO.File]::WriteAllText($file, 'old')
+        [IO.File]::SetAttributes($file, [IO.FileAttributes]::ReadOnly)
+        [IO.Directory]::SetLastWriteTimeUtc((Join-Path $dependencyRoot $name), $folders[$name].Age)
+    }
+    foreach ($platform in @(@{ Name = 'x64'; Root = '1' * 16 }, @{ Name = 'ARM64'; Root = '2' * 16 })) {
+        [IO.File]::WriteAllText((Join-Path $dependencyRoot "DxUi.resolved.$($platform.Name).props"),
+            "<Project><PropertyGroup><DxUiConsumerOutputRoot>$(Join-Path $dependencyRoot $platform.Root)\</DxUiConsumerOutputRoot></PropertyGroup></Project>")
+    }
+    Remove-RedXeDxUiSupersededRestores -RepoRoot $pruneRoot -Commit $pinned 6>$null
+    foreach ($name in $folders.Keys) {
+        $exists = [IO.Directory]::Exists((Join-Path $dependencyRoot $name))
+        if ($folders[$name].Kept) { Assert-That $exists "$name stays: $($folders[$name].Kept)" }
+        else { Assert-That (-not $exists) "the superseded $name is removed, read-only files included" }
+    }
+    Assert-That (@(Get-ChildItem -LiteralPath $dependencyRoot -File).Count -eq 2) 'the resolved properties stay'
+
     # --- The pin restore from a sibling checkout ---
     $productRoot = Join-Path $testRoot 'product-root/RedXe'
     $siblingRoot = Join-Path $testRoot 'product-root'
@@ -173,6 +322,10 @@ try {
         (((& git -C (Join-Path $siblingRoot 'DxUi') rev-parse HEAD) -join '').Trim() -ceq $siblingCommit)) 'the sibling checkout is read, never changed'
     $again = Restore-RedXeDxUiPin -RepoRoot $productRoot
     Assert-That ($again.Source -ieq $pinRestore.Source) 'a second pin restore finds the first'
+    # vcpkg-install.ps1 imports Tools/VisualStudio.psm1 from what the pin restore returns.
+    Remove-Item -LiteralPath (Join-Path $pinRestore.Source 'Tools/VisualStudio.psm1')
+    $repairedPin = Restore-RedXeDxUiPin -RepoRoot $productRoot 3>$null
+    Assert-CleanRestore $repairedPin.Source $siblingCommit 'a pin restore that lost a file is restored again before a caller imports from it'
 
     # --- What the product consumes from the pinned DxUi: the discovery and the overlay writer ---
     $realPin = Read-RedXeDxUiLock -LockFile (Join-Path $repoRoot 'Dependencies/DxUi.lock.json')
@@ -199,24 +352,34 @@ try {
 
     # --- The wiring ---
     $vcpkgInstall = Get-Content -LiteralPath (Join-Path $repoRoot 'vcpkg-install.ps1') -Raw
-    foreach ($needle in @('Restore-RedXeDxUiPin', 'Get-DxUiVisualStudioInstallation', 'Get-RedXeVisualStudioInstallation',
+    foreach ($needle in @('Restore-RedXeDxUiPin', 'Find-RedXeMSBuild', 'Get-RedXeVisualStudioInstallation',
             'Get-DxUiDefaultToolset', 'Update-DxUiVcpkgOverlayTriplet', '--overlay-triplets=')) {
         Assert-That ($vcpkgInstall.Contains($needle)) "vcpkg-install.ps1 uses $needle"
     }
+    Assert-That (-not $vcpkgInstall.Contains('Get-DxUiVisualStudioInstallation')) `
+        'vcpkg-install.ps1 run on its own builds with the MSBuild build.ps1 would choose, not the newest Visual Studio'
     $overlayCalls = [regex]::Matches($vcpkgInstall, 'Update-DxUiVcpkgOverlayTriplet').Count
     $overlayArguments = [regex]::Matches($vcpkgInstall, '--overlay-triplets=').Count
     Assert-That ($overlayCalls -eq 1 -and $overlayArguments -eq 1 -and $vcpkgInstall.IndexOf('foreach ($targetPlatform') -lt $vcpkgInstall.IndexOf('Update-DxUiVcpkgOverlayTriplet')) `
         'every triplet the script installs is pinned: the overlay is written and passed inside the platform loop'
     $restoreScript = Get-Content -LiteralPath (Join-Path $repoRoot 'restore-dxui.ps1') -Raw
     Assert-That ($restoreScript.Contains('Restore-RedXeDxUiPin') -and $restoreScript -notmatch 'git clone') 'restore-dxui.ps1 restores through the shared module, never its own clone'
+    Assert-That ($restoreScript.Contains('Find-RedXeMSBuild') -and $restoreScript -notmatch 'vswhere') 'restore-dxui.ps1 run on its own resolves MSBuild as build.ps1 does'
+    $propsWrite = $restoreScript.IndexOf('WriteAllText($propsPath')
+    Assert-That ($propsWrite -gt 0 -and $restoreScript.IndexOf('Remove-RedXeDxUiSupersededRestores') -gt $propsWrite) `
+        'restore-dxui.ps1 removes superseded restores only after its platform''s properties name the root it builds with'
     $buildScript = Get-Content -LiteralPath (Join-Path $repoRoot 'build.ps1') -Raw
     $installerCall = $buildScript.IndexOf('& $dependencyInstaller')
     $restoreCall = $buildScript.IndexOf("restore-dxui.ps1')")
     Assert-That ($installerCall -gt 0 -and $restoreCall -gt $installerCall) 'build.ps1 still installs the vcpkg dependencies before it restores DxUi'
     Assert-That ($buildScript -match '& \$dependencyInstaller -Platform \$Platform -MSBuildPath \$msbuild') `
         'build.ps1 gives vcpkg-install.ps1 the MSBuild it runs, so vcpkg builds with that installation'
+    Assert-That ($buildScript.Contains('$msbuild = Find-RedXeMSBuild') -and $buildScript -notmatch 'function Find-MSBuild') `
+        'build.ps1 resolves MSBuild through the shared module'
 }
 finally {
+    $env:GIT_CONFIG_GLOBAL = $savedGitConfigGlobal
+    $env:GIT_CONFIG_NOSYSTEM = $savedGitConfigNoSystem
     $path = [IO.Path]::GetFullPath($testRoot)
     if (-not $path.StartsWith($expectedPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe DxUi restore fixture cleanup path.' }
     if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }

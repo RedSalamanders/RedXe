@@ -1,7 +1,7 @@
 # RedXe build-process contract
 
 Status: current normative repository contract
-Last reviewed: 2026-10-01
+Last reviewed: 2026-10-07
 Owner: root build and test entrypoints
 
 ## Scope
@@ -26,6 +26,15 @@ selected target `.build/<Platform>/<Configuration>/RedXe.exe` using an ordinal c
 
 This policy prevents an opaque `LNK1168` output replacement failure while ensuring the build never terminates an
 independently launched or unrelated RedXe process.
+
+## MSBuild selection
+
+`build.ps1`, `vcpkg-install.ps1` and `restore-dxui.ps1` MUST select MSBuild the same way, through `Find-RedXeMSBuild` in
+`Build/DxUiRestore.psm1`: `MSBUILD_EXE_PATH` when that file exists, then `msbuild.exe` on `PATH` (a Developer
+PowerShell's), then the first x64 MSBuild of an installation `vswhere -all -prerelease` reports, then a scan of the Visual
+Studio folders. `build.ps1` passes its choice to both scripts as `-MSBuildPath`; run on their own, they select the same
+one. The vcpkg overlay triplets and the DxUi identity files therefore do not depend on which entrypoint ran last
+([`Core_DxUiIntegration.md`](../Core/Core_DxUiIntegration.md)).
 
 ## Output and validation
 
@@ -118,6 +127,13 @@ and exits, so the pipe never reaches end of file and only job containment can re
 the child ample time to get that far on a loaded machine, and the child marks that it did, so the run MUST end on the
 exit grace well before the budget, report the exited child, keep every line the child wrote (the last one without a
 newline) in the log, and leave no survivor.
+
+Tooling tests that create Git repositories MUST NOT depend on the developer's Git configuration. Their fixture commits
+and restores run with commit signing, hooks and line-ending conversion off, so a signing prompt cannot hang a run and a
+hook or `core.safecrlf` cannot fail one. `DxUiRestoreTests.ps1` gives Git an empty global configuration and no system one
+for its whole run (`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_NOSYSTEM`, restored afterwards). `ScopedTesting.Tests.ps1`, which
+also runs Git on the product checkout, sets `commit.gpgsign`, `core.hooksPath` and `core.autocrlf` locally in each
+fixture repository, which overrides global and system settings, and reports a failing fixture command with its output.
 
 Changes to this contract require:
 
