@@ -254,9 +254,6 @@ struct ServiceSettings final
     SettingsText name;
     SettingsText pluginId;
     JsonObjectSettings privateConfiguration;
-    // The plugin model accepted and ignored retired members (today the v1.0.102 Zoom members); the host logs one
-    // service-retired-settings-ignored warning per load or live apply.
-    bool retiredMembersIgnored = false;
 
     bool operator==(const ServiceSettings&) const noexcept = default;
 };
@@ -303,6 +300,10 @@ struct AppSettings final
     uint32_t pluginCount = 0;
     std::vector<ServiceSettings> services;
     uint32_t serviceCount = 0;
+    // Plugin ids of the `services` entries that name a retired service (kRedXeRetiredServices, today builtin.zoom):
+    // accepted and never started; the host logs one service-retired-settings-ignored warning for each per load or
+    // live apply.
+    std::vector<SettingsText> retiredServices;
     DashboardSettings dashboard;
 
     bool operator==(const AppSettings&) const noexcept = default;

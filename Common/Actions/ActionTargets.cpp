@@ -604,67 +604,54 @@ bool ParsePoint(std::string_view value, Point& parsed) noexcept
     return true;
 }
 
-bool ParseMeeting(std::string_view value, Meeting& parsed) noexcept
+bool ParseMeeting(std::string_view value) noexcept
 {
-    parsed = Meeting{};
-    if (value.empty())
+    constexpr std::string_view kScheme = "https://";
+    if (value.size() > kRedXeMaximumActionTargetBytes || !value.starts_with(kScheme))
     {
         return false;
     }
-    std::string_view digits;
-    std::string_view passcode;
-    if (value.starts_with("https://") || value.starts_with("http://"))
+    for (const char character : value)
     {
-        const size_t join = value.find("/j/");
-        if (join == std::string_view::npos)
+        const unsigned char byte = static_cast<unsigned char>(character);
+        if (byte < 0x21 || byte > 0x7e || character == '"' || character == '<' || character == '>' || character == '\\')
         {
             return false;
         }
-        std::string_view rest = value.substr(join + 3);
-        const size_t end = rest.find_first_of("?/#");
-        digits = rest.substr(0, end);
-        if (end != std::string_view::npos && rest[end] == '?')
-        {
-            std::string_view query = rest.substr(end + 1);
-            while (!query.empty())
-            {
-                const size_t amp = query.find('&');
-                const std::string_view pair = query.substr(0, amp);
-                if (pair.starts_with("pwd="))
-                {
-                    passcode = pair.substr(4);
-                    const size_t hash = passcode.find('#');
-                    if (hash != std::string_view::npos)
-                    {
-                        passcode = passcode.substr(0, hash);
-                    }
-                }
-                if (amp == std::string_view::npos)
-                {
-                    break;
-                }
-                query.remove_prefix(amp + 1);
-            }
-        }
     }
-    else
-    {
-        const size_t colon = value.find(':');
-        digits = value.substr(0, colon);
-        passcode = colon == std::string_view::npos ? std::string_view{} : value.substr(colon + 1);
-    }
-    if (digits.size() < 9 || digits.size() > 11 || passcode.size() > 64)
+    const std::string_view rest = value.substr(kScheme.size());
+    const size_t slash = rest.find('/');
+    if (slash == std::string_view::npos)
     {
         return false;
+    }
+    // Browsers end the authority at '/', '?', '#', or '\'; the host must therefore be all of it, with no credentials
+    // or port, so "https://evil.example#.zoom.us/j/..." cannot pass as a zoom.us subdomain.
+    const std::string_view host = rest.substr(0, slash);
+    const bool zoomHost = EqualsIgnoreCase(host, "zoom.us") ||
+                          (host.size() > 8 && EqualsIgnoreCase(host.substr(host.size() - 8), ".zoom.us"));
+    if (!zoomHost || host.find_first_of("@:#?") != std::string_view::npos)
+    {
+        return false;
+    }
+    // The query and fragment (an invite's opaque pwd token) pass unchanged; only the path is checked.
+    std::string_view path = rest.substr(slash);
+    path = path.substr(0, path.find_first_of("?#"));
+    std::string_view id;
+    if (path.starts_with("/j/"))
+    {
+        id = path.substr(3);
+    }
+    else if (path.starts_with("/wc/join/"))
+    {
+        id = path.substr(9);
+    }
+    else if (path.size() > 9 && path.starts_with("/wc/") && path.ends_with("/join"))
+    {
+        id = path.substr(4, path.size() - 9);
     }
     uint64_t number = 0;
-    if (!ParseUnsigned(digits, 99999999999ULL, number) || number == 0)
-    {
-        return false;
-    }
-    parsed.number = number;
-    parsed.passcode = passcode;
-    return true;
+    return id.size() >= 9 && id.size() <= 11 && ParseUnsigned(id, 99999999999ULL, number);
 }
 
 HRESULT ValidateTarget(const RedXeActionDescriptor& descriptor, std::string_view target) noexcept
@@ -764,11 +751,8 @@ HRESULT ValidateTarget(const RedXeActionDescriptor& descriptor, std::string_view
         break;
     }
     case RedXeActionTargetMeeting:
-    {
-        Meeting parsed{};
-        valid = ParseMeeting(value, parsed);
+        valid = ParseMeeting(value);
         break;
-    }
     case RedXeActionTargetNowOrSeconds:
     {
         NowOrSeconds parsed{};

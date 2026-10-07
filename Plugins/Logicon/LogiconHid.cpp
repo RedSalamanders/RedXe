@@ -7,10 +7,13 @@
 
 #include <initguid.h>
 
-// hidusage.h defines USAGE before hidpi.h and hidsdi.h need it; hidclass.h supplies GUID_DEVINTERFACE_HID.
+// hidusage.h defines USAGE before hidpi.h and hidsdi.h need it; hidclass.h supplies GUID_DEVINTERFACE_HID and
+// IOCTL_HID_SET_FEATURE, whose CTL_CODE comes from winioctl.h.
 #include <hidusage.h>
 
 #include <hidpi.h>
+
+#include <winioctl.h>
 
 #include <hidclass.h>
 #include <hidsdi.h>
@@ -21,6 +24,9 @@ namespace
 {
 using unique_preparsed =
     wil::unique_any<PHIDP_PREPARSED_DATA, decltype(&HidD_FreePreparsedData), HidD_FreePreparsedData>;
+
+// How long canceled I/O may take to complete before its block is kept rather than reused or freed.
+constexpr DWORD kCanceledIoDrainMilliseconds = 100;
 
 [[nodiscard]] bool IsDeviceGone(DWORD error) noexcept
 {
@@ -189,6 +195,35 @@ HRESULT EnumerateVendorCollections(uint16_t vendorId, uint16_t productId, uint16
     return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 }
 
+HidIoBudget& HidIoBudget::Process() noexcept
+{
+    static HidIoBudget budget{kMaximumHidIoBlocks};
+    return budget;
+}
+
+bool HidIoBudget::Reserve() noexcept
+{
+    uint32_t held = _held.load(std::memory_order_acquire);
+    do
+    {
+        if (held >= _capacity)
+        {
+            return false;
+        }
+    } while (!_held.compare_exchange_weak(held, held + 1, std::memory_order_acq_rel, std::memory_order_acquire));
+    return true;
+}
+
+void HidIoBudget::Release() noexcept
+{
+    (void)_held.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+uint32_t HidIoBudget::Held() const noexcept
+{
+    return _held.load(std::memory_order_acquire);
+}
+
 WindowsHidPort::~WindowsHidPort()
 {
     Close();
@@ -203,9 +238,16 @@ HRESULT WindowsHidPort::Open(const HidCollectionInfo& info) noexcept
     {
         return E_INVALIDARG;
     }
+    // The unit is taken before the block exists, so every block that may later be retired is already counted: past
+    // the budget a driver that keeps canceled I/O leaves the device closed rather than retiring a block per reopen.
+    if (!_budget->Reserve())
+    {
+        return HRESULT_FROM_WIN32(ERROR_TOO_MANY_OPEN_FILES);
+    }
     _io.reset(new (std::nothrow) IoState());
     if (!_io)
     {
+        _budget->Release();
         return E_OUTOFMEMORY;
     }
     _io->readEvent.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
@@ -241,11 +283,11 @@ HRESULT WindowsHidPort::Open(const HidCollectionInfo& info) noexcept
 
 void WindowsHidPort::Close() noexcept
 {
+    bool retired = false;
     if (_io && _io->handle)
     {
         (void)CancelIoEx(_io->handle.get(), nullptr);
         DWORD transferred = 0;
-        constexpr DWORD kCanceledIoDrainMilliseconds = 100;
         const auto drain = [&](bool armed, HANDLE event, OVERLAPPED& overlapped) noexcept
         {
             if (!armed)
@@ -261,14 +303,20 @@ void WindowsHidPort::Close() noexcept
         };
         const bool readDone = drain(_io->readArmed, _io->readEvent.get(), _io->readOverlapped);
         const bool writeDone = drain(_io->writeArmed, _io->writeEvent.get(), _io->writeOverlapped);
-        if (!readDone || !writeDone)
-        {
-            // The driver still owns an OVERLAPPED and buffer. The exceptional backing block is intentionally
-            // retained until process exit; the host also tombstones a lane that itself fails to return.
-            (void)_io.release();
-        }
+        retired = !readDone || !writeDone;
     }
-    _io.reset();
+    if (retired)
+    {
+        // The driver still owns an OVERLAPPED and buffer. The exceptional backing block is intentionally retained
+        // until process exit and keeps the budget unit Open reserved for it; the host also tombstones a lane that
+        // itself fails to return.
+        (void)_io.release();
+    }
+    else if (_io)
+    {
+        _io.reset();
+        _budget->Release();
+    }
     _info = HidCollectionInfo{};
     _disconnected = false;
 }
@@ -371,57 +419,11 @@ HRESULT WindowsHidPort::Write(const uint8_t* report, uint32_t bytes, HANDLE stop
     {
         return E_INVALIDARG;
     }
-    // The HID class driver requires exactly OutputReportByteLength bytes; shorter reports are zero padded.
-    if (_io->writeArmed)
-    {
-        return HRESULT_FROM_WIN32(ERROR_BUSY);
-    }
-    std::memset(_io->writeBuffer.data(), 0, _info.outputReportBytes);
-    std::memcpy(_io->writeBuffer.data(), report, bytes);
-    _io->writeOverlapped = OVERLAPPED{};
-    _io->writeOverlapped.hEvent = _io->writeEvent.get();
-    ResetEvent(_io->writeEvent.get());
-    if (!WriteFile(_io->handle.get(), _io->writeBuffer.data(), _info.outputReportBytes, nullptr, &_io->writeOverlapped))
-    {
-        const DWORD error = GetLastError();
-        if (error != ERROR_IO_PENDING)
-        {
-            NoteFailure(error);
-            return HRESULT_FROM_WIN32(error);
-        }
-    }
-    _io->writeArmed = true;
-    HANDLE handles[2] = {stopEvent, _io->writeEvent.get()};
-    const DWORD handleCount = stopEvent ? 2U : 1U;
-    const DWORD waited =
-        WaitForMultipleObjects(handleCount, stopEvent ? handles : &handles[1], FALSE, timeoutMilliseconds);
-    const bool completed = stopEvent ? waited == WAIT_OBJECT_0 + 1 : waited == WAIT_OBJECT_0;
-    DWORD transferred = 0;
-    if (!completed)
-    {
-        (void)CancelIoEx(_io->handle.get(), &_io->writeOverlapped);
-        if (WaitForSingleObject(_io->writeEvent.get(), 100) == WAIT_OBJECT_0)
-        {
-            (void)GetOverlappedResult(_io->handle.get(), &_io->writeOverlapped, &transferred, FALSE);
-            _io->writeArmed = false;
-        }
-        else
-        {
-            _disconnected = true;
-        }
-        return HRESULT_FROM_WIN32(waited == WAIT_TIMEOUT ? ERROR_TIMEOUT : ERROR_CANCELLED);
-    }
-    _io->writeArmed = false;
-    if (!GetOverlappedResult(_io->handle.get(), &_io->writeOverlapped, &transferred, FALSE))
-    {
-        const DWORD error = GetLastError();
-        NoteFailure(error);
-        return HRESULT_FROM_WIN32(error);
-    }
-    return S_OK;
+    return Submit(false, report, bytes, _info.outputReportBytes, stopEvent, timeoutMilliseconds);
 }
 
-HRESULT WindowsHidPort::SetFeature(const uint8_t* report, uint32_t bytes) noexcept
+HRESULT WindowsHidPort::SetFeature(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
+                                   uint32_t timeoutMilliseconds) noexcept
 {
     if (!report || bytes == 0)
     {
@@ -436,9 +438,63 @@ HRESULT WindowsHidPort::SetFeature(const uint8_t* report, uint32_t bytes) noexce
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
     }
-    std::array<uint8_t, kMaximumHidReportBytes> padded{};
-    std::memcpy(padded.data(), report, bytes);
-    if (!HidD_SetFeature(_io->handle.get(), padded.data(), _info.featureReportBytes))
+    return Submit(true, report, bytes, _info.featureReportBytes, stopEvent, timeoutMilliseconds);
+}
+
+HRESULT WindowsHidPort::Submit(bool feature, const uint8_t* report, uint32_t bytes, uint32_t paddedBytes,
+                               HANDLE stopEvent, uint32_t timeoutMilliseconds) noexcept
+{
+    DWORD transferred = 0;
+    if (_io->writeArmed)
+    {
+        // A canceled request that missed its drain still owns the buffer; the slot is reused once it finished.
+        if (WaitForSingleObject(_io->writeEvent.get(), 0) != WAIT_OBJECT_0)
+        {
+            return HRESULT_FROM_WIN32(ERROR_BUSY);
+        }
+        (void)GetOverlappedResult(_io->handle.get(), &_io->writeOverlapped, &transferred, FALSE);
+        _io->writeArmed = false;
+    }
+    // The HID class driver requires exactly the collection's report length; shorter reports are zero padded.
+    std::memset(_io->writeBuffer.data(), 0, paddedBytes);
+    std::memcpy(_io->writeBuffer.data(), report, bytes);
+    _io->writeOverlapped = OVERLAPPED{};
+    _io->writeOverlapped.hEvent = _io->writeEvent.get();
+    ResetEvent(_io->writeEvent.get());
+    // HidD_SetFeature issues the same IOCTL with the report as its input buffer, but waits without a bound.
+    const BOOL issued =
+        feature ? DeviceIoControl(_io->handle.get(), IOCTL_HID_SET_FEATURE, _io->writeBuffer.data(), paddedBytes,
+                                  nullptr, 0, nullptr, &_io->writeOverlapped)
+                : WriteFile(_io->handle.get(), _io->writeBuffer.data(), paddedBytes, nullptr, &_io->writeOverlapped);
+    if (!issued)
+    {
+        const DWORD error = GetLastError();
+        if (error != ERROR_IO_PENDING)
+        {
+            NoteFailure(error);
+            return HRESULT_FROM_WIN32(error);
+        }
+    }
+    _io->writeArmed = true;
+    HANDLE handles[2] = {stopEvent, _io->writeEvent.get()};
+    const DWORD handleCount = stopEvent ? 2U : 1U;
+    const DWORD waited =
+        WaitForMultipleObjects(handleCount, stopEvent ? handles : &handles[1], FALSE, timeoutMilliseconds);
+    const bool completed = stopEvent ? waited == WAIT_OBJECT_0 + 1 : waited == WAIT_OBJECT_0;
+    if (!completed)
+    {
+        (void)CancelIoEx(_io->handle.get(), &_io->writeOverlapped);
+        if (WaitForSingleObject(_io->writeEvent.get(), kCanceledIoDrainMilliseconds) == WAIT_OBJECT_0)
+        {
+            (void)GetOverlappedResult(_io->handle.get(), &_io->writeOverlapped, &transferred, FALSE);
+            _io->writeArmed = false;
+        }
+        // Otherwise the request stays armed in this block: the port stays open, later requests return ERROR_BUSY
+        // until it finishes, and only Close retires the block if it never does.
+        return HRESULT_FROM_WIN32(waited == WAIT_TIMEOUT ? ERROR_TIMEOUT : ERROR_CANCELLED);
+    }
+    _io->writeArmed = false;
+    if (!GetOverlappedResult(_io->handle.get(), &_io->writeOverlapped, &transferred, FALSE))
     {
         const DWORD error = GetLastError();
         NoteFailure(error);

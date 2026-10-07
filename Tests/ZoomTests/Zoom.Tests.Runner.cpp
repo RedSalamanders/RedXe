@@ -1,4 +1,5 @@
 #include "../../Common/FailureReports.h"
+#include "Actions/ActionTargets.h"
 #include "PlugInterfaces/Action.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
@@ -8,6 +9,7 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <string_view>
 #include <windows.h>
 
@@ -90,7 +92,7 @@ class TestHost final : public IRedXeHost
         (void)strncpy_s(action.data(), action.size(), request->actionUtf8, _TRUNCATE);
         (void)strncpy_s(target.data(), target.size(), request->targetUtf8 ? request->targetUtf8 : "", _TRUNCATE);
         ++requests;
-        return S_OK;
+        return requestResult;
     }
     HRESULT STDMETHODCALLTYPE ExecuteAction(const RedXeActionRequest* request) noexcept override
     {
@@ -109,6 +111,8 @@ class TestHost final : public IRedXeHost
     std::array<char, 64> action{};
     std::array<char, 1025> target{};
     uint32_t requests = 0;
+    // What RequestAction returns: S_OK queued, S_FALSE coalesced, or a failure such as a full ring.
+    HRESULT requestResult = S_OK;
 };
 
 template <typename Function> Function Resolve(HMODULE module, const char* name) noexcept
@@ -121,36 +125,52 @@ bool TestSettingsAndUrls() noexcept
     bool success = true;
     Zoom::Settings settings{};
     std::array<char, 160> diagnostic{};
-    success &= Check(
-        SUCCEEDED(Zoom::ParseSettingsJson(Zoom::kSettingsDefaults, settings, diagnostic.data(), diagnostic.size())) &&
-            !settings.retiredMembersIgnored,
-        L"empty browser settings accepted");
-    // A v1.0.102 settings file keeps its Zoom SDK members: each one loads with any value and is ignored.
+    // The retired services entry of earlier releases: { "plugin": "builtin.zoom" } leaves an empty object, and a
+    // v1.0.102 file keeps its Zoom SDK members, each of which loads with any value.
     constexpr std::string_view releasedTemplate =
         R"({"clientId":"sHVWQENoR4qrpuBPgsFsPw","redirectPort":48123,"autoConnect":false})";
     constexpr std::string_view anyRetiredValue =
         R"({"clientId":null,"redirectPort":"x","domain":"evil.example","displayName":[],"autoConnect":1,"mode":"bogus","labels":{"unknown":0}})";
-    for (const std::string_view retired : {releasedTemplate, anyRetiredValue})
+    for (const std::string_view retired : {std::string_view("{}"), releasedTemplate, anyRetiredValue})
     {
-        success &= Check(SUCCEEDED(Zoom::ParseSettingsJson(retired, settings, diagnostic.data(), diagnostic.size())) &&
-                             settings.retiredMembersIgnored,
-                         L"retired v1.0.102 members ignored");
+        success &= Check(SUCCEEDED(Zoom::ParseSettingsJson(retired, settings, diagnostic.data(), diagnostic.size())),
+                         L"the retired entry loads with or without the v1.0.102 members");
     }
     for (const std::string_view rejected : {R"({"meeting":"x"})", R"({"clientId":"x","ClientId":"x"})", "[]", "\"x\""})
     {
-        success &= Check(FAILED(Zoom::ParseSettingsJson(rejected, settings, diagnostic.data(), diagnostic.size())) &&
-                             !settings.retiredMembersIgnored,
+        success &= Check(FAILED(Zoom::ParseSettingsJson(rejected, settings, diagnostic.data(), diagnostic.size())),
                          L"another member or a non-object rejected");
     }
-    success &= Check(Zoom::IsMeetingUrl("https://zoom.us/j/1234567890?pwd=opaque%2Bvalue") &&
-                         Zoom::IsMeetingUrl("https://team.zoom.us/j/987654321"),
-                     L"Zoom meeting links accepted");
-    for (const std::string_view invalid :
-         {"http://zoom.us/j/1234567890", "https://evil.example/j/1234567890",
-          "https://zoom.us.evil.example/j/1234567890", "https://zoom.us@evil.example/j/1234567890",
-          "https://zoom.us/j/123", "https://zoom.us/j/1234567890/other", "https://zoom.us/j/1234567890\n"})
+
+    // RedXeActions::ParseMeeting is the zoom.join grammar for host validation and the pack alike.
+    for (const std::string_view valid :
+         {"https://zoom.us/j/1234567890?pwd=opaque%2Bvalue", "https://team.zoom.us/j/987654321",
+          "https://Team.Zoom.US/j/123456789", "https://us06web.zoom.us/j/12345678901#success",
+          "https://app.zoom.us/wc/12345678901/join?fromPWA=1&pwd=opaque", "https://zoom.us/wc/join/1234567890",
+          "https://us02web.zoom.us/wc/join/1234567890?pwd=a@b"})
     {
-        success &= Check(!Zoom::IsMeetingUrl(invalid), L"unsafe or malformed meeting link rejected");
+        success &= Check(RedXeActions::ParseMeeting(valid), L"Zoom meeting and browser-join links accepted");
+    }
+    std::string overlong = "https://zoom.us/j/1234567890?pwd=";
+    overlong.append(kRedXeMaximumActionTargetBytes - overlong.size(), 'a');
+    success &= Check(RedXeActions::ParseMeeting(overlong) && !RedXeActions::ParseMeeting(overlong + "a"),
+                     L"a meeting link is at most 512 bytes");
+    for (const std::string_view invalid :
+         {"http://zoom.us/j/1234567890", "HTTPS://zoom.us/j/1234567890", "https://evil.example/j/1234567890",
+          "https://zoom.us.evil.example/j/1234567890", "https://zoom.us@evil.example/j/1234567890",
+          // Authority delimiters a browser ends the host at: each would otherwise open evil.example.
+          "https://evil.example?.zoom.us/j/1234567890", "https://evil.example#.zoom.us/j/1234567890",
+          "https://evil.example\\.zoom.us/j/1234567890", "https://evil.example@team.zoom.us/j/1234567890",
+          "https://user@team.zoom.us/j/1234567890", "https://zoom.us:443/j/1234567890",
+          "https://team.zoom.us:8443/j/1234567890", "https://.zoom.us/j/1234567890", "https:///j/1234567890",
+          // Path and character rules.
+          "https://zoom.us/j/123", "https://zoom.us/j/123456789012", "https://zoom.us/j/12345678a0",
+          "https://zoom.us/j/1234567890/other", "https://zoom.us/j/1234567890\n", "https://zoom.us/j/1234567890 ",
+          "https://zoom.us/j/1234567890?pwd=a\"b", "https://zoom.us/my/alice", "https://us06web.zoom.us/w/81234567890",
+          "https://zoom.us/wc/join/123", "https://zoom.us/wc/1234567890/start", "https://zoom.us/wc/join/1234567890/x",
+          "https://zoom.us/wc/join", "https://zoom.us", "zoom.us/j/1234567890", "1234567890:passcode", ""})
+    {
+        success &= Check(!RedXeActions::ParseMeeting(invalid), L"unsafe or malformed meeting link rejected");
     }
     return success;
 }
@@ -177,29 +197,30 @@ bool TestPlugin() noexcept
     }
     const auto enumerate = Resolve<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
     const auto create = Resolve<RedXeCreateFn>(module.get(), kRedXeCreateExport);
-    const auto settingsContract =
-        Resolve<RedXeGetPluginSettingsContractFn>(module.get(), kRedXeGetPluginSettingsContractExport);
     const auto actionContract = Resolve<RedXeGetActionContractFn>(module.get(), kRedXeGetActionContractExport);
-    if (!Check(enumerate && create && settingsContract && actionContract, L"Zoom exports"))
+    if (!Check(enumerate && create && actionContract, L"Zoom exports"))
     {
         return false;
     }
     bool success = true;
+    success &= Check(!Resolve<RedXeGetPluginSettingsContractFn>(module.get(), kRedXeGetPluginSettingsContractExport),
+                     L"the dedicated action DLL publishes no settings contract");
     const RedXePluginMetadata* metadata = nullptr;
     uint32_t count = 0;
     success &= Check(SUCCEEDED(enumerate(&metadata, &count)) && count == 1 && metadata &&
-                         std::strcmp(metadata[0].id, Zoom::kPluginId) == 0,
-                     L"one Zoom service metadata row");
-    const RedXePluginSettingsContract* settings = nullptr;
-    success &= Check(SUCCEEDED(settingsContract(Zoom::kPluginId, &settings)) && settings &&
-                         std::string_view(settings->defaultsJsonUtf8, settings->defaultsBytes) == "{}",
-                     L"Zoom has empty settings defaults");
+                         std::strcmp(metadata[0].id, Zoom::kPluginId) == 0 &&
+                         metadata[0].capabilities == RedXePluginCapabilityActions,
+                     L"one Zoom metadata row that only publishes actions");
     const RedXeActionContract* actions = nullptr;
     success &= Check(SUCCEEDED(actionContract(Zoom::kPluginId, &actions)) && actions && actions->namespaceCount == 1 &&
                          actions->namespaces[0].actionCount == 2 &&
                          std::strcmp(actions->namespaces[0].actions[0].name, "zoom.open") == 0 &&
-                         std::strcmp(actions->namespaces[0].actions[1].name, "zoom.join") == 0,
-                     L"only browser actions are published");
+                         actions->namespaces[0].actions[0].targetKind == RedXeActionTargetNone &&
+                         actions->namespaces[0].actions[0].flags == RedXeActionFlagDeferred &&
+                         std::strcmp(actions->namespaces[0].actions[1].name, "zoom.join") == 0 &&
+                         actions->namespaces[0].actions[1].targetKind == RedXeActionTargetMeeting &&
+                         actions->namespaces[0].actions[1].flags == RedXeActionFlagDeferred,
+                     L"only the deferred browser actions are published, zoom.join with the meeting grammar");
 
     TestHost host;
     constexpr char envelope[] = R"({"plugin":{},"instance":{}})";
@@ -207,58 +228,70 @@ bool TestPlugin() noexcept
     options.sizeBytes = sizeof(options);
     options.configurationJsonUtf8 = envelope;
     options.configurationBytes = sizeof(envelope) - 1;
+    wil::com_ptr_nothrow<IUnknown> service;
+    success &=
+        Check(create(__uuidof(IRedXeService), &options, &host, Zoom::kPluginId, service.put_void()) == E_NOINTERFACE &&
+                  !service,
+              L"Zoom is not a service");
+    // The host creates the executor once, with the empty envelope, on the first zoom.* execution.
     void* object = nullptr;
-    success &= Check(SUCCEEDED(create(__uuidof(IRedXeService), &options, &host, Zoom::kPluginId, &object)) && object,
-                     L"browser service created");
+    success &= Check(SUCCEEDED(create(__uuidof(IRedXeActionPack), &options, &host, Zoom::kPluginId, &object)) && object,
+                     L"the action pack is created from the empty envelope");
     if (!object)
     {
         return false;
     }
-    wil::com_ptr_nothrow<IRedXeService> service;
-    service.attach(static_cast<IRedXeService*>(object));
     wil::com_ptr_nothrow<IRedXeActionPack> pack;
-    success &= Check(SUCCEEDED(service.query_to(pack.put())) && pack, L"action pack shares service object");
-    if (!pack)
-    {
-        return false;
-    }
-    RedXeServiceStartContext start{};
-    start.sizeBytes = sizeof(start);
-    success &= Check(SUCCEEDED(service->Start(&start)), L"browser service starts without a device lane");
-    // The host hands a v1.0.102 entry's retired members through unchanged; create and apply both ignore them.
-    constexpr char retiredSettings[] =
-        R"({"clientId":"sHVWQENoR4qrpuBPgsFsPw","redirectPort":48123,"autoConnect":false})";
-    constexpr char retiredEnvelope[] =
-        R"({"plugin":{},"instance":{"clientId":"sHVWQENoR4qrpuBPgsFsPw","redirectPort":48123,"autoConnect":false}})";
-    constexpr char unknownSettings[] = R"({"meeting":"x"})";
-    success &= Check(SUCCEEDED(service->ApplySettings(retiredSettings, sizeof(retiredSettings) - 1)) &&
-                         FAILED(service->ApplySettings(unknownSettings, sizeof(unknownSettings) - 1)),
-                     L"service applies v1.0.102 settings and rejects another member");
-    RedXeFactoryOptions retiredOptions = options;
-    retiredOptions.configurationJsonUtf8 = retiredEnvelope;
-    retiredOptions.configurationBytes = sizeof(retiredEnvelope) - 1;
-    wil::com_ptr_nothrow<IRedXeService> retiredService;
-    success &= Check(SUCCEEDED(create(__uuidof(IRedXeService), &retiredOptions, &host, Zoom::kPluginId,
-                                      retiredService.put_void())) &&
-                         retiredService,
-                     L"v1.0.102 service settings create the service");
+    pack.attach(static_cast<IRedXeActionPack*>(object));
+    wil::com_ptr_nothrow<IRedXeService> serviceIdentity;
+    success &= Check(FAILED(pack.query_to(serviceIdentity.put())) && !serviceIdentity,
+                     L"the action pack has no service identity");
+    constexpr char settingsEnvelope[] = R"({"plugin":{},"instance":{"clientId":"sHVWQENoR4qrpuBPgsFsPw"}})";
+    RedXeFactoryOptions settingsOptions = options;
+    settingsOptions.configurationJsonUtf8 = settingsEnvelope;
+    settingsOptions.configurationBytes = sizeof(settingsEnvelope) - 1;
+    wil::com_ptr_nothrow<IRedXeActionPack> withSettings;
+    success &= Check(
+        FAILED(create(__uuidof(IRedXeActionPack), &settingsOptions, &host, Zoom::kPluginId, withSettings.put_void())) &&
+            !withSettings,
+        L"the action pack takes no settings");
+
+    // Both actions are deferred: a queued or coalesced launch is S_FALSE, never completion.
     RedXeActionRequest request{};
     request.sizeBytes = sizeof(request);
     request.actionUtf8 = "zoom.open";
     success &= Check(pack->Execute(&request) == S_FALSE && std::strcmp(host.action.data(), "system.launch") == 0 &&
                          std::strcmp(host.target.data(), Zoom::kWebJoinPage) == 0,
                      L"zoom.open forwards the web join page and reports itself deferred");
+    request.targetUtf8 = "https://zoom.us/j/1234567890";
+    success &= Check(pack->Execute(&request) == S_FALSE && std::strcmp(host.target.data(), Zoom::kWebJoinPage) == 0,
+                     L"zoom.open ignores an authored target");
     constexpr char meeting[] = "https://team.zoom.us/j/1234567890?pwd=opaque%2Bvalue";
     request.actionUtf8 = "zoom.join";
     request.targetUtf8 = meeting;
     success &= Check(pack->Execute(&request) == S_FALSE && std::strcmp(host.target.data(), meeting) == 0,
                      L"zoom.join preserves the invite URL and reports itself deferred");
+    constexpr char browserJoin[] = "https://app.zoom.us/wc/12345678901/join?fromPWA=1&pwd=opaque";
+    request.targetUtf8 = browserJoin;
+    success &= Check(pack->Execute(&request) == S_FALSE && std::strcmp(host.target.data(), browserJoin) == 0,
+                     L"zoom.join preserves a browser-join link");
+    host.requestResult = S_FALSE;
+    success &= Check(pack->Execute(&request) == S_FALSE, L"a coalesced launch is still deferred");
+    host.requestResult = HRESULT_FROM_WIN32(ERROR_BUSY);
+    success &= Check(pack->Execute(&request) == HRESULT_FROM_WIN32(ERROR_BUSY), L"a full host ring is reported");
+    host.requestResult = S_OK;
     const uint32_t before = host.requests;
-    request.targetUtf8 = "https://evil.example/j/1234567890";
+    for (const char* invalid : {"https://evil.example/j/1234567890", "https://evil.example#.zoom.us/j/1234567890",
+                                static_cast<const char*>(nullptr)})
+    {
+        request.targetUtf8 = invalid;
+        success &= Check(pack->Execute(&request) == E_INVALIDARG && host.requests == before,
+                         L"a bad or missing meeting link cannot launch");
+    }
+    request.actionUtf8 = "zoom.mute";
+    request.targetUtf8 = nullptr;
     success &=
-        Check(pack->Execute(&request) == E_INVALIDARG && host.requests == before, L"bad meeting URL cannot launch");
-    success &= Check(SUCCEEDED(service->Stop()) && pack->Execute(&request) == E_NOT_VALID_STATE,
-                     L"stopped service rejects actions");
+        Check(pack->Execute(&request) == E_INVALIDARG && host.requests == before, L"an unpublished verb cannot launch");
     return success;
 }
 } // namespace

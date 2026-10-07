@@ -160,10 +160,13 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   makes a layered child legal (`UI_XeneonDisplayWindowing.md`). A native child HWND over the swap chain still forces composed presentation for the whole
   window while it exists, which is why no shipped page places one (`Core_Settings.md` template coverage exception).
 - Resolution-dependent plugin resources are rebuilt on `IRedXeGpuWidget::OnTargetSizeChanged`, never in `Render`. That
-  callback is the sanctioned place for rasterization, texture creation, and allocation in a GPU widget, because it is
+  callback is the sanctioned place for rasterizing, creating textures for, and allocating such resources, because it is
   event driven: the host reports only an actual change in the largest viewport it will draw that widget at, never a
   position-only change and never per frame. Freezing such a resource at device-creation size instead is a defect, not
-  a saving -- it produces wrong output at every other size.
+  a saving -- it produces wrong output at every other size. What does not depend on the drawn size, such as per-device
+  lookup tables, is created and drawn once in `OnDeviceCreated`; that callback and the optional
+  `IRedXePreparedGpuWidget::Prepare` phase are the only other GPU callbacks that may allocate or rasterize
+  (`Specs/Plugins/Plugins_API.md` "GPU widget contract").
 - Plugin `Render` calls use borrowed frame and D3D context records. A page-swipe viewport keeps the widget's full
   size and MAY have a negative origin; shrinking it to the visible intersection would rebuild resolution-dependent
   resources and reflow content every frame of the slide. Render, resize, and
@@ -208,18 +211,26 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   dedicated device-I/O lane is host-owned (`PluginHost` service slots, `Specs/Plugins/Plugins_API.md` service
   contract): one thread per started service that exposes `IRedXeDeviceWorker`, at most four, created at service start
   and joined at stop. Its bounds are normative: the plugin blocks only in one wait on the host stop and wake events
-  and its own overlapped-I/O events (a message-aware wait when the lane owns a hidden Raw Input sink window, whose
-  queue it drains on the same thread in bounded batches of 256 messages), every device command and write carries a 1 s timeout followed by `CancelIoEx`,
-  hotplug arrival is a CfgMgr32 notification that sets the wake event rather than a poll, a failed open retries at
-  most four times with doubling delays from 1 s and then waits for the next arrival, and stop drains within 3 s or
+  and its own overlapped-I/O events (message-aware only while the lane owns a registered Raw Input sink window,
+  whose queue it drains on the same thread in bounded batches of 256 messages, and, when it removes the sink, until
+  empty, at most 16,384 messages, before it destroys the window, so input left in the queue never ends a later wait
+  and every queued packet reaches the window), every device command, write, and feature report
+  carries a 1 s timeout followed by `CancelIoEx`, restore at stop gives up at the first command a device does not
+  answer, hotplug arrival is a CfgMgr32 notification that sets the wake event rather than a poll, a failed open
+  retries at most four times with doubling delays from 1 s counted from the end of the failed attempt and then
+  waits for the next arrival, and stop drains within 3 s or
   the host logs one `device-lane-drain-timeout` and tombstones the slot, service COM object, thread, events, and
   module until `RunDeviceWork` returns. If a driver never returns, that exceptional storage remains until process
   exit to avoid releasing memory still in use, and shutdown waits at most 1 s in all for the log writer to empty its
   queue instead of joining it. A replacement lane cannot start in that slot while tombstoned; the late lane's return
   posts one message that lets the UI thread reap the slot and restart a service the document still configures, with
-  no polling in between. Idle cost with a
-  connected keypad is zero wake-ups. A connected dialpad requires a process-wide Raw Input mouse sink and therefore
-  wakes for mouse packets until disconnected; it filters by device and caps each queue drain at 256 messages. The
+  no polling in between. A HID request whose cancel is not complete after a 100 ms drain keeps its port's request
+  slot instead of forcing a reconnect; only closing that port retires its I/O block. Each block holds one of eight
+  per-process places from the open on, and a retired block keeps it, so open and retired blocks never exceed eight and
+  Logicon opens no collection while all eight are held. Idle cost with a connected keypad is zero wake-ups. A present
+  dialpad with a bound turn requires a process-wide Raw Input mouse sink, so the lane thread wakes for every mouse
+  packet until the dialpad leaves or no turn is bound; packets from other mice are drained inside the wait without a
+  lane turn, snapshot, or frame request, and each drain is capped at 256 messages. The
   lane owns at most one 434×434 BGRA compose surface, one 128 KiB JPEG buffer, one 4095-byte
   report buffer, and the key faces' signatures while a device or a monitor tile needs faces, and releases the
   surfaces at stop. A service's System Data faces ride the shared acquisition worker at the shortest requested
@@ -287,8 +298,9 @@ consumer exists, the design review MUST first evaluate a host-owned bounded comm
 widget root must not absorb plugin-specific drawing records.
 
 The measured Studio Clock is an accepted low-cadence `IRedXeGpuWidget`: one instance uses two draws, no more than 402
-dots (804 submitted instances with LED glow), one 160-byte map only when cached visual state changes, one shared
-immutable device-resource set, and one per-widget constant buffer. It owns no texture, font, HWND, timer, or worker.
+dots (804 submitted instances with LED glow), one 160-byte map only when cached visual state changes (which the two
+differently sized views of a raised clock do on every frame they are drawn), one shared immutable device-resource set,
+and one per-widget constant buffer. It owns no texture, font, HWND, timer, or worker.
 This bounded consumer does not by itself justify a host primitive-batching IID; a materially larger family must be
 measured again before that decision.
 At 2560×720, three Release WARP runs of the overlay-aligned 228-instance default produced a representative median CPU
@@ -304,10 +316,16 @@ the same draw, so the 228-dot default submits 456 instances. On 2026-09-26, six 
 2560×720 benchmark (a 720-pixel clock, the raised size) produced medians of 499.845 microseconds/frame and
 0.2212 ms/frame against 241.912 microseconds/frame and 0.0800 ms/frame with `glowPercent` 0 in the same build. The
 software rasterizer's cost grows with the halo pixels, about 16 times each dot's core quad; draws, maps,
-constant-buffer size, allocations, resources, and wake frequency are unchanged. The increase is accepted because the
-clock renders once per second, the regression is fill-rate only, and `glowPercent` 0 submits no halo at all. Beside a
-continuous sibling in the shipped galleries its tile is about 256 pixels square, where the halos cover about 50,000
-pixels per frame.
+constant-buffer size, allocations, resources, and wake frequency are unchanged. The clock alone renders once per
+second, but the host redraws every widget on every presented frame, so beside a continuous sibling (the shipped
+galleries put it on one page with Matrix Rain and the rotating triangle) it pays the halo fill at that sibling's frame
+rate. Its tile there is about 256 pixels square, where the halos cover about 50,000 pixels per frame. Raised beside
+such a sibling it draws twice per frame, the tile and the 720-pixel overlay slice (the benchmarked size), and because
+the two sizes differ each draw rebuilds and maps its 160-byte constants, two maps per frame. That combination was not
+measured separately; from the figures above it costs about 0.22 ms of WARP GPU time and 0.5 ms of WARP CPU submission
+per frame for the overlay draw plus the much smaller tile draw, about 3 percent of a 60 Hz frame on WARP and
+negligible on a hardware GPU. The increase is accepted because it is fill-rate only, stays at the 256-pixel tile's
+cost except while the clock is raised next to a continuous widget, and `glowPercent` 0 submits no halo at all.
 
 The measured Desk Clock is also an accepted bounded low-cadence `IRedXeGpuWidget`. One static instance uses three
 draws and 40 submitted instances; its configured 250–800 ms split-flap burst uses four draws and 46 submitted

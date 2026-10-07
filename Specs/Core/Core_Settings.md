@@ -104,9 +104,10 @@ version 5 default.
 A settings file written by an earlier release, back to the public `v1.0.102`, MUST load unchanged after an upgrade.
 Plugin members are not versioned by `minor`, so a plugin settings model that retires a member MUST keep accepting it
 with any value and ignore it, whatever the document's minor. RedXe MUST NOT migrate or rewrite the file for a retired
-member. For a service entry the host logs one Warning record `service-retired-settings-ignored` per load or live apply
-(today the seven Zoom SDK members, `Specs/Plugins/Plugins_Zoom.md`). A binding to a verb a published namespace no
-longer publishes (the removed `zoom.*` controls) stays in the document as an invalid binding
+member. Likewise a `services` entry naming a plugin that is no longer a service (today `builtin.zoom`, with or without
+the seven retired Zoom SDK members, `Specs/Plugins/Plugins_Zoom.md`) loads and is ignored, and the host logs one
+Warning record `service-retired-settings-ignored` for it per load or live apply ("Services"). A binding to a verb a
+published namespace no longer publishes (the removed `zoom.*` controls) stays in the document as an invalid binding
 (`Specs/Plugins/Plugins_Actions.md`), not a document error, and so does a Logicon key, dialpad button, or turn bound
 to `keys.down` or `mouse.down` (`Specs/Plugins/Plugins_Logicon.md`). Rolling back to an older build is not supported:
 an older build validates plugin members as a closed set, so it may reject a file that uses a newer member (for example
@@ -213,23 +214,30 @@ settings file in its default editor), and its menu.
 
 `services` is optional and has at most 8 members. A member name follows the declaration-name rules. Every value is a
 flattened plugin object naming a catalogued **service** plugin (`RedXe/BundledPlugins.h` `kRedXeBundledServices`,
-today `builtin.logicon` and `builtin.zoom`) plus that plugin's settings keys on the same object; `use`, nested `settings`, and the
+today `builtin.logicon`) plus that plugin's settings keys on the same object; `use`, nested `settings`, and the
 reserved widget keys are rejected. A widget plugin ID, an unknown plugin ID, or the same service plugin configured
 twice rejects the complete candidate. The host merges the plugin's published defaults under the authored keys, then
-validates the effective object with the plugin's shared model (`Plugins/Logicon/LogiconSettings.cpp` and
-`Plugins/Actions/Zoom/ZoomSettings.cpp`, compiled into the host); a model rejection is a document error on the
-authored path. A model that accepted and ignored retired members marks the typed `ServiceSettings`
-(`retiredMembersIgnored`), which drives the `service-retired-settings-ignored` warning. Every `action` member the
+validates the effective object with the plugin's shared model (`Plugins/Logicon/LogiconSettings.cpp`, compiled into
+the host); a model rejection is a document error on the authored path. Every `action` member the
 model accepts (Logicon keys, dialpad buttons and turns) is additionally checked against the action-name grammar, the
 default and registered namespaces, and the default verbs
 (`RedXe/HostActionCatalog.cpp` `IsKnownActionName`); an unsatisfied target is not a document error
 (`Specs/Plugins/Plugins_Actions.md`). The effective compact object is
 stored per service and reaches the plugin as the `instance` member of the ordinary factory envelope.
 
+A member naming a **retired** service plugin (`kRedXeRetiredServices`, today `builtin.zoom`, which became a dedicated
+action DLL that needs no entry) MUST still load so an older file keeps working. Its authored keys are validated with
+the retired plugin's legacy model (`Plugins/Actions/Zoom/ZoomSettings.cpp`, compiled into the host: only the seven
+retired Zoom SDK members, each with any value); any other key, or the same retired plugin configured twice, rejects
+the complete candidate. A valid entry is recorded in the typed `AppSettings::retiredServices` and otherwise ignored:
+it is never created or started, stores no configuration, and MUST NOT cause the file to be rewritten. Each load or
+live apply logs one Warning record `service-retired-settings-ignored` from that plugin per such entry. Retired entries
+count toward the 8 members.
+
 Services are not widgets: they are never placed, never counted as referenced widget plugins, own no instance ID, and
 persist nothing. A service settings change on a live reload re-applies only that service; adding or removing a member
 starts or stops it without rebuilding the dashboard. `Specs/Plugins/Plugins_API.md` owns the service lifetime, `Specs/Plugins/Plugins_Logicon.md` the Logicon members,
-and `Specs/Plugins/Plugins_Zoom.md` the Zoom members.
+and `Specs/Plugins/Plugins_Zoom.md` the retired Zoom entry.
 
 Every authored settings object, effective settings object, plugin schema, and plugin defaults object MUST have a
 compact representation no larger than 4096 bytes.
@@ -481,15 +489,20 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 - Tests accept a `services` member with defaults merged and the plugin model applied, prove it adds no referenced
   widget plugin, and reject a widget plugin as a service, an unknown service plugin, a duplicated service plugin,
   plugin-model failures (`slot` 9, `brightness` 0, unknown members), an unknown or malformed `action` name, a
-  non-object `services`, a string member, and `use`. Both shipped templates MUST carry the current minor (3) and
-  configure every catalogued service.
+  non-object `services`, a string member, and `use`. Both shipped templates MUST carry the current minor (3),
+  configure every catalogued service, and carry no retired service entry.
 - Tests parse the exact `v1.0.102` Release and Debug templates (`Settings.Tests.ReleasedTemplates.h`) and prove they
-  load and validate, with the Debug template's removed `zoom.*` bindings kept, and that the default store keeps such a
-  file byte for byte without a fallback or `.invalid-` backup. They prove the seven retired Zoom members load with any
-  value in a minor 3 document and set `retiredMembersIgnored`, an entry without them does not, any other Zoom member
-  (including a retired name in another case) is rejected, and the schema's services Zoom variant lists them as
-  deprecated. A minor 2 document whose Logicon key, dialpad button, and turn bind `keys.down` or `mouse.down` loads,
-  validates, and keeps those bindings for the service.
+  load and validate, with the Debug template's removed `zoom.*` bindings kept and the Zoom entry recorded as retired
+  rather than configured, and that the default store keeps such a file byte for byte without a fallback or
+  `.invalid-` backup. They prove the retired Zoom entry loads with any value of the seven retired members in a minor 3
+  document and without them, is recorded in `retiredServices` and not in `services`, that any other Zoom member
+  (including a retired name in another case) and a second Zoom entry are rejected, and that the schema's services Zoom
+  variant is deprecated and lists the members as deprecated. A minor 2 document whose Logicon key, dialpad button, and
+  turn bind `keys.down` or `mouse.down` loads, validates, and keeps those bindings for the service.
+- Host tests load an empty services Zoom entry and one carrying retired members through the settings store, each at
+  startup and on a live reload in the order `Application` runs them, and prove the JSONL log gains exactly one
+  `service-retired-settings-ignored` Warning from `builtin.zoom` per load or applied reload, and none for an unchanged
+  notification, a repeated service apply, or a reload without the entry.
 - Tests prove `trayIcon`: omitted it is `true` in Release and `false` in Debug, also in a minor 2 document; an authored
   `true` or `false` wins; a string, a number, `null`, an object, and a duplicate member are rejected, with the
   diagnostic on `$.trayIcon`; the member changes no other typed setting; both templates author it (`false` in Debug,

@@ -14,6 +14,8 @@ struct ShadersTestDiagnostics final
     // feedback buffer) has run since it started.
     uint32_t lastShaderIndex;
     uint32_t lastShaderFrame;
+    // How many times any widget has drawn one catalog entry's lookup tables since the DLL was loaded.
+    uint32_t lookupTableBakeCount;
 };
 
 #if defined(REDXE_PLUGIN_EXPORTS)

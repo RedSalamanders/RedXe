@@ -29,7 +29,8 @@ its `FxCompile` item to `5H4D3R5.vcxproj`, its `ShaderInfo` row to `kShaders` an
   Flammes 3) have a "Buffer A" feedback pass; Heartfelt samples a photograph on Shadertoy, replaced here by a
   procedural night-street texture the plugin builds once per device.
 - An entry may declare up to two lookup-table passes (`LookupTablePass` in `Shaders.cpp`): fixed-size textures
-  drawn once per device by the first frame that shows the entry, the second pass reading the first on `iChannel0`,
+  drawn once per device, in the `OnDeviceCreated` of the first widget that can show the entry (never in
+  `OnTargetSizeChanged`, never for a widget that cannot show it), the second pass reading the first on `iChannel0`,
   the image pass reading both on `iChannel0` and `iChannel1`. Sky Atmosphere uses them for Hillaire's transmittance
   (256x64) and multiple-scattering (32x32) tables; its image pass then ray-marches the sky per pixel and, below the
   horizon, once more along the reflected ray for the sea. Two float32 corner cases of a 6360 km planet are handled

@@ -208,6 +208,9 @@ extern "C" HRESULT __stdcall RedXeLogiconGetTestDiagnostics(RedXeLogiconTestDiag
     out.wheelsListening = snapshot.dialpad.wheelsListening ? 1U : 0U;
     out.dialRaw = snapshot.dialpad.wheels.dialRaw;
     out.rollerRaw = snapshot.dialpad.wheels.rollerRaw;
+    out.wheelsWanted = snapshot.dialpad.wheelsWanted ? 1U : 0U;
+    out.dialpadAttempts = snapshot.dialpad.connectAttempts;
+    out.dialpadLastFailure = static_cast<int32_t>(snapshot.dialpad.lastFailure);
     out.wheelSteps = snapshot.dialpad.wheelSteps;
     out.systemFeed = snapshot.systemFeed ? 1U : 0U;
     out.cpuPercent = snapshot.system.cpuPercent;
@@ -229,6 +232,12 @@ extern "C" HRESULT __stdcall RedXeLogiconUseSyntheticDevice(BOOL enabled) noexce
 {
     Logicon::LogiconService* service = Logicon::LogiconService::Current();
     return service ? service->SetSynthetic(enabled != FALSE) : HRESULT_FROM_WIN32(ERROR_NOT_READY);
+}
+
+extern "C" HRESULT __stdcall RedXeLogiconUseSyntheticDialpad(uint32_t mode) noexcept
+{
+    Logicon::LogiconService* service = Logicon::LogiconService::Current();
+    return service ? service->SetSyntheticDialpad(mode) : HRESULT_FROM_WIN32(ERROR_NOT_READY);
 }
 
 extern "C" HRESULT __stdcall RedXeLogiconInjectControl(uint32_t kind, uint32_t index, BOOL down) noexcept

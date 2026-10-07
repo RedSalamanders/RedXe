@@ -24,9 +24,10 @@ Each bundled widget has a settings `plugin` id, a screenshot, and a parameter ta
 | [Rotating Triangle](rotating-triangle.md) | `builtin.rotating-triangle` | None |
 | [GDI Orbit](gdi-orbit.md) | `builtin.gdi-orbit` | None |
 | [Logicon](logicon.md) | `builtin.logicon` (service) / `builtin.logicon-monitor` (Debug tile) | Brightness, page buttons, key faces and actions, dialpad bindings, System Data faces |
-| [Zoom](zoom.md) | `builtin.zoom` (service) | Opens the Zoom web join page and meeting invites in the default browser |
+| [Zoom](zoom.md) | `builtin.zoom` (actions only) | None; opens the Zoom web join page and meeting links in the default browser |
 
 `builtin.system-data` is the shared metrics source behind the System widgets. It is not a dashboard tile.
 `builtin.logicon` is a background service configured under `services`; it drives a Logitech MX Creative Console
-keypad and dialpad and has no tile of its own outside developer builds. `builtin.zoom` is a background service that
-opens browser links; what a key or tile can do is listed in [Actions](../actions.md).
+keypad and dialpad and has no tile of its own outside developer builds. `builtin.zoom` only provides the `zoom.*`
+actions, which open browser links and need no settings entry; what a key or tile can do is listed in
+[Actions](../actions.md).
