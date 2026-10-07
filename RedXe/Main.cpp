@@ -110,7 +110,7 @@ CrashDirectoryOverrideStatus ConfigureCrashTestDirectoryOverride(wchar_t* const*
 
 // Command-line text (the `--help` catalog or an argument error) goes to the console this process was started from
 // (a GUI process has none of its own, so it attaches to the parent's), to a redirected stdout as UTF-8, or, without
-// either, to a message box unless `quiet` (an unattended run, RedXeIsUnattendedRun) forbids one.
+// either, to a message box unless `quiet` (RedXeCommandLineTextIsQuiet: an error in an unattended run) forbids one.
 void EmitCommandLineText(const std::wstring& text, bool error, bool quiet) noexcept
 {
     HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -205,7 +205,10 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         {
             if (RedXeIsHelpArgument(arguments.get()[index]))
             {
-                EmitCommandLineText(RedXeFormatCommandLineHelp(), false, unattended);
+                // Answered as if nothing else were on the line: an unattended switch beside it leaves the catalog its
+                // message box when there is neither a console nor a redirected stdout.
+                EmitCommandLineText(RedXeFormatCommandLineHelp(), false,
+                                    RedXeCommandLineTextIsQuiet(RedXeCommandLineText::Help, unattended));
                 return 0;
             }
         }
@@ -214,7 +217,7 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             std::wstring message = L"Unknown argument \"";
             message += unknown;
             message += L"\". Run RedXe.exe --help for the command line.\n";
-            EmitCommandLineText(message, true, unattended);
+            EmitCommandLineText(message, true, RedXeCommandLineTextIsQuiet(RedXeCommandLineText::Error, unattended));
             return 2;
         }
     }

@@ -1601,9 +1601,9 @@ constexpr std::string_view kRepresentative = R"json(
 }
 
 // The command-line catalog (RedXe/CommandLine.h): every switch is unique, well formed, and printed by --help; the
-// help aliases are recognized; the unattended runs, a capture run's exit code, the exit-code box, and the names the
-// failure-exit record gives the codes follow the policy Main.cpp applies; the argument scanner accepts a full valid
-// line and names the first stray token.
+// help aliases are recognized; the unattended runs, the help catalog's message box beside an unattended switch, a
+// capture run's exit code, the exit-code box, and the names the failure-exit record gives the codes follow the policy
+// Main.cpp applies; the argument scanner accepts a full valid line and names the first stray token.
 [[nodiscard]] HRESULT ValidateCommandLineCatalog() noexcept
 {
     try
@@ -1672,6 +1672,22 @@ constexpr std::string_view kRepresentative = R"json(
             RedXeShowsExitCodeBox(2, true, true))
         {
             std::wprintf(L"The unattended-run policy, the --screenshot exit code, or the exit-code box is wrong.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // Help is answered before any other switch is read: with --screenshot or --self-test beside it, the catalog
+        // still falls back to a message box when there is neither a console nor a redirected stdout. A command-line
+        // error reaches only the debugger output in an unattended run, and a box otherwise.
+        using Text = RedXeCommandLineText;
+        if (RedXeCommandLineTextIsQuiet(Text::Help, RedXeIsUnattendedRun(false, true)) ||
+            RedXeCommandLineTextIsQuiet(Text::Help, RedXeIsUnattendedRun(true, false)) ||
+            RedXeCommandLineTextIsQuiet(Text::Help, RedXeIsUnattendedRun(true, true)) ||
+            RedXeCommandLineTextIsQuiet(Text::Help, RedXeIsUnattendedRun(false, false)) ||
+            !RedXeCommandLineTextIsQuiet(Text::Error, RedXeIsUnattendedRun(false, true)) ||
+            !RedXeCommandLineTextIsQuiet(Text::Error, RedXeIsUnattendedRun(true, false)) ||
+            RedXeCommandLineTextIsQuiet(Text::Error, RedXeIsUnattendedRun(false, false)))
+        {
+            std::wprintf(L"--help beside an unattended switch lost its message box, or a command-line error's box is "
+                         L"wrong.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         // The failure-exit record names each code the way --help lists it.

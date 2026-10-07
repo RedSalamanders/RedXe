@@ -56,18 +56,20 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 | Self-test | Skip display discovery and prompts, create the titled window hidden, validate its DPI-adjusted client dimensions, render one frame, and exit. |
 | Screenshot (`--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]`) | Run exactly as the configuration above prescribes (same discovery, placement, services, and frame loop), jump to the named page through the host `PageGoTo` action once the renderer is live and no settle runs, wait the delay (default 3000 ms, 1–120000) with the frame loop idle-waiting as usual, capture the main window through `Common/WindowCapture.cpp` on a capture worker (Windows.Graphics.Capture of an owned, visible window; a widget ordinal crops to that tile's `PixelBoundsAt` in client space, mapped through the DWM extended frame bounds), then close. The UI thread continues handling input and timers while capture waits for its first frame. Exit 0 only with the PNG written; 8 when the capture failed, when its worker could not start, and when the run ended before the PNG was written (the window closed during the delay or the capture, or a startup, graphics, or rendering failure ended the run first), with one `screenshot-failed` Warning record once the log is open (a failure before the settings load reaches only the debugger output). The run is unattended (`RedXeIsUnattendedRun`, as `--self-test` is) and MUST NOT wait on a modal box: the Release missing-display prompt is not shown and the titled fallback window is created as for its Yes; the settings fallback notice is one Warning record (`settings-fallback-notice`) instead of its box; the previous-crash notice is left for the next interactive start; a command-line error goes to the console or redirected output (exit 2); and a failure exit, whatever its code, is one Error record (`failure-exit`, naming the code) and a debugger line instead of the exit-code message box (`RedXeShowsExitCodeBox`). A failed Debug runtime check ends the run with exit code 3 (`Common/FailureReports.h`). A worker still capturing when the window closes is joined and its result decides the exit code. Only this command-line mode closes after the capture; the `redxe.screenshot` action shares the pipeline and keeps RedXe running (`Plugins_Actions.md`). It MUST NOT activate, move, or resize the window, move the cursor, or send input. |
 | Dock (`dock.edge` other than `none`, or `--dock <edge>[@<monitor>]`) | Debug and Release alike: create the dock window kind below on the selected monitor instead of the row that would otherwise apply, and skip the missing-display prompt. A live reload that turns the dock on or off switches the running window between this row and the one that would otherwise apply ("Switching the window kind"). `--self-test` ignores the dock. |
-| Help (`--help`, `-h`, `/?`, `-?`) | Print the command-line catalog and exit 0 before any other switch is read: to the console the process was started from (a GUI process attaches to its parent's), to a redirected stdout as UTF-8, or, without either, to a message box. Every other token on the line MUST be a catalogued switch or the value of one; the first unknown token is a command-line error (exit 2, `Unknown argument "<token>". Run RedXe.exe --help for the command line.`) shown the same way, never as a message box when `--self-test` or `--screenshot` is on the line. |
+| Help (`--help`, `-h`, `/?`, `-?`) | Print the command-line catalog and exit 0 before any other switch is read: to the console the process was started from (a GUI process attaches to its parent's), to a redirected stdout as UTF-8, or, without either, to a message box, also when `--self-test` or `--screenshot` is on the line, since no other switch counts beside help. Every other token on the line MUST be a catalogued switch or the value of one; the first unknown token is a command-line error (exit 2, `Unknown argument "<token>". Run RedXe.exe --help for the command line.`) shown the same way, never as a message box when `--self-test` or `--screenshot` is on the line (`RedXeCommandLineTextIsQuiet`). |
 
 The command line is declared once in `RedXe/CommandLine.h`: the catalog `--help` prints and the names `Main.cpp`
 parses through, so a switch cannot exist without an entry. Adding, renaming, or removing a switch changes that
 catalog, the "Command line" section of `docs/usage.md`, and the owning row of this table in the same change;
 `SettingsTests` pins the catalog (unique well-formed names, every entry printed, the help aliases, the unknown-token
 scanner) and the unattended-run policy `Main.cpp` applies through it (`RedXeIsUnattendedRun`: `--self-test` or
-`--screenshot` on the line; `RedXeShowsExitCodeBox`: no exit-code box for an unattended run; `RedXeScreenshotExitCode`:
-8 for a capture run without its PNG, whatever ended it; `RedXeExitCodeName`: the `failure-exit` record names each
-code as `--help` lists it), and `test.ps1` runs `--help` through a redirected stdout, an unknown switch under
-`--self-test`, and a missing switch value under `--self-test` and an invalid one under `--screenshot`, each bounded so
-that a message box fails the step instead of holding it.
+`--screenshot` on the line; `RedXeCommandLineTextIsQuiet`: without a console or a redirected stdout, a command-line
+error in an unattended run reaches only the debugger output, while the help catalog keeps its message box beside either
+switch; `RedXeShowsExitCodeBox`: no exit-code box for an unattended run; `RedXeScreenshotExitCode`: 8 for a capture
+run without its PNG, whatever ended it; `RedXeExitCodeName`: the `failure-exit` record names each code as `--help`
+lists it), and `test.ps1` runs `--help` through a redirected stdout, an unknown switch under `--self-test`, and a
+missing switch value under `--self-test` and an invalid one under `--screenshot`, each bounded so that a message box
+fails the step instead of holding it.
 
 Debug and Release display discovery MUST inspect active display paths through
 `QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS)`. A target friendly name containing `XENEON` or `CORSAIR`, compared
@@ -421,11 +423,16 @@ in the Windows notification area for an interactive run. `RedXe/TrayIcon.*` owns
 - The icon is one `Shell_NotifyIconW` entry identified by the owner and ID 1, never by a GUID (a GUID binds the icon to
   one executable path, which portable copies and the Debug and Release builds do not share), with
   `NOTIFYICON_VERSION_4`, the tooltip `RedXe` (`RedXe (Debug)` in Debug builds), and `IDI_REDXE` at the small-icon
-  size for the owner's DPI, reloaded on `WM_DPICHANGED`. `NIM_SETVERSION` follows every add or update, and the icon
-  counts as added only once it succeeds, so the next attempt repairs an icon left on version 0 (whose right-click opens
-  nothing). An add refused because the taskbar still shows the icon becomes an update; an add the shell reports as
-  timed out (last error `ERROR_TIMEOUT`, a busy Explorer) is not followed by an update, which would block the UI thread
-  for a second shell timeout.
+  size for the owner's DPI. An add refused because the taskbar still shows the icon becomes an update; an add the shell
+  reports as timed out (last error `ERROR_TIMEOUT`, a busy Explorer) is not followed by an update, which would block
+  the UI thread for a second shell timeout. `NIM_SETVERSION` follows every add and every update an add falls back to,
+  because the icon that update finds may come from an add whose version was never set (one that landed after its call
+  timed out), and the icon counts as added only once it succeeds, so the next attempt repairs an icon left on version 0
+  (whose right-click opens nothing).
+- `WM_DPICHANGED` reloads the icon at the small-icon size for the new DPI. An icon that counts as added takes it by one
+  `NIM_MODIFY` of the image alone (`NIF_ICON`) and no `NIM_SETVERSION`: the shell reads the version only from
+  `NIM_SETVERSION`, which every `NIM_ADD` needs and a `NIM_MODIFY` does not, so the update keeps version 4. An icon not
+  added yet makes no shell call and takes the new image with its next add.
 - When the shell refuses the icon and no taskbar exists (as at sign-in) the owner stays and adds it when
   `TaskbarCreated` arrives, which is also how the icon returns after Explorer restarts; `ChangeWindowMessageFilterEx`
   admits that message for an elevated run. When a running taskbar refuses the icon or times out, the owner MUST try
@@ -755,14 +762,16 @@ nothing, an edit within the double-click time of the previous one is dropped, an
 the retry schedule (`TrayIconAddRetryDelayMilliseconds`), and the owner against a scripted shell that never reaches the
 taskbar (`TestTrayIconOwner`: `Show` and `Hide` idempotent and the class unregistered, `WM_CLOSE` ignored, `NIM_DELETE`
 on every destruction while the owner exists, `TaskbarCreated` adding again, retries only while a taskbar exists and no
-timer after the last, no update after a timed-out add, and `NIM_SETVERSION` after every add or update before the icon
-counts as added), and `SettingsTests` proving `trayIcon` (`Specs/Core/Core_Settings.md`). Because the shell is not
-automated, they additionally require a live check: a Release run with the shipped template shows the icon with the
-`RedXe` tooltip (`Shell_NotifyIconGetRect` finds it); a double-click, and Enter on the keyboard-focused icon, open the
-settings file once in the default `.json` editor; a right-click and Shift+F10 show Edit settings (bold) and Exit, a
-click elsewhere closes the menu, and Esc after Shift+F10 leaves the keyboard focus on the notification area; Exit
-quits and removes the icon; saving `"trayIcon": false` removes the icon and `true` brings it back without a restart;
-restarting Explorer brings it back; and a Debug run with the shipped template shows none.
+timer after the last, no update after a timed-out add, `NIM_SETVERSION` after every add and every update an add falls
+back to before the icon counts as added, and a `WM_DPICHANGED` that updates an added icon by one `NIM_MODIFY` of
+`NIF_ICON` alone, with no `NIM_SETVERSION`, and makes no shell call for an icon not added), and `SettingsTests` proving
+`trayIcon` (`Specs/Core/Core_Settings.md`). Because the shell is not automated, they additionally require a live check:
+a Release run with the shipped template shows the icon with the `RedXe` tooltip (`Shell_NotifyIconGetRect` finds it);
+a double-click, and Enter on the keyboard-focused icon, open the settings file once in the default `.json` editor; a
+right-click and Shift+F10 show Edit settings (bold) and Exit, a click elsewhere closes the menu, and Esc after
+Shift+F10 leaves the keyboard focus on the notification area; Exit quits and removes the icon; saving
+`"trayIcon": false` removes the icon and `true` brings it back without a restart; restarting Explorer brings it back;
+and a Debug run with the shipped template shows none.
 
 ## Implementation and validation anchors
 

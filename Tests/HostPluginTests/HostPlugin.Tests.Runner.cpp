@@ -1577,6 +1577,9 @@ struct TrayShellScript final
     bool taskbar = true;
     // The last NIM_DELETE arrived while its owner window still existed.
     bool deleteSawOwner = false;
+    // What the last NIM_MODIFY carried.
+    UINT modifyFlags = 0;
+    HICON modifyIcon = nullptr;
 };
 
 TrayShellScript* g_trayShell = nullptr;
@@ -1599,6 +1602,8 @@ BOOL STDAPICALLTYPE ScriptedShellNotify(DWORD message, PNOTIFYICONDATAW data)
         }
         return script.add ? TRUE : FALSE;
     case NIM_MODIFY:
+        script.modifyFlags = data->uFlags;
+        script.modifyIcon = data->hIcon;
         return script.modify ? TRUE : FALSE;
     case NIM_SETVERSION:
         return script.version && data->uVersion == NOTIFYICON_VERSION_4 ? TRUE : FALSE;
@@ -1644,8 +1649,9 @@ bool ScriptedTaskbarExists() noexcept
 
 // TrayIcon.cpp against a scripted shell: Show and Hide are idempotent and Hide unregisters the class; WM_CLOSE leaves
 // the owner, and every destruction deletes the icon first; TaskbarCreated adds again; a refusal retries on the bounded
-// schedule only while a taskbar exists, then arms nothing; a timed-out add makes no second blocking call; and the icon
-// counts as added only once NIM_SETVERSION has followed the add or update.
+// schedule only while a taskbar exists, then arms nothing; a timed-out add makes no second blocking call; the icon
+// counts as added only once NIM_SETVERSION has followed the add or the update an add falls back to; and WM_DPICHANGED
+// updates only the image of an added icon, with no NIM_SETVERSION, and makes no call for an icon not added.
 void TestTrayIconOwner(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] notification-area icon owner lifecycle\n";
@@ -1691,6 +1697,17 @@ void TestTrayIconOwner(bool& success) noexcept
               L"Show recreates an owner destroyed from outside", success);
         owner = Access::TrayOwner(tray);
 
+        // The taskbar's display changed scale. The update keeps version 4: the shell reads the version only from
+        // NIM_SETVERSION, which a NIM_MODIFY does not need.
+        RECT suggested{};
+        script.modifyFlags = 0;
+        script.modifyIcon = nullptr;
+        from = script.count;
+        (void)SendMessageW(owner, WM_DPICHANGED, MAKEWPARAM(144, 144), reinterpret_cast<LPARAM>(&suggested));
+        Check(TrayCallsSince(from, {NIM_MODIFY}) && script.modifyFlags == NIF_ICON && script.modifyIcon != nullptr &&
+                  Access::TrayIconAdded(tray),
+              L"WM_DPICHANGED updates an added icon's image alone, with no NIM_SETVERSION", success);
+
         // The taskbar refuses both the add and the update.
         script.add = false;
         script.modify = false;
@@ -1699,6 +1716,10 @@ void TestTrayIconOwner(bool& success) noexcept
         Check(TrayCallsSince(from, {NIM_ADD, NIM_MODIFY}) && !Access::TrayIconAdded(tray) &&
                   Access::TrayAddRetries(tray) == 1,
               L"TaskbarCreated adds again, and a refusal by a running taskbar arms the first retry", success);
+        from = script.count;
+        (void)SendMessageW(owner, WM_DPICHANGED, MAKEWPARAM(96, 96), reinterpret_cast<LPARAM>(&suggested));
+        Check(script.count == from && !Access::TrayIconAdded(tray) && Access::TrayAddRetries(tray) == 1,
+              L"WM_DPICHANGED makes no shell call for an icon not added", success);
         for (uint32_t retry = 1; retry < 4; ++retry)
         {
             (void)SendMessageW(owner, WM_TIMER, retryTimer, 0);
