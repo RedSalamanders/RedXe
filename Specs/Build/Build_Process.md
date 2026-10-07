@@ -132,14 +132,18 @@ harness, two minutes to its `--help`, unknown-switch and routing checks, and sho
 tails, which never stream to the console, for a run ended at its budget as well as for a failing exit code.
 
 `Invoke-RedXeStreamingProcess` MUST also hold to the following. `BuildProcessTests.ps1` covers a child that never
-stops writing, the exit grace with a drained last line, a child that starts nothing and exits while a slow callback
-presents its backlog for longer than the grace (every line presented, its exit code returned, no timeout record), a stop
-of a silent child with and without a budget (stopped within seconds, no survivor), and an edited launcher definition
-imported into a session that compiled the original.
+stops writing, a caller held up after the resume until the child has run past its budget (the child is terminated at
+the first check and never finishes on its own), the exit grace with a drained last line, a child that starts nothing
+and exits while a slow callback presents its backlog for longer than the grace (every line presented, its exit code
+returned, no timeout record), a stop of a silent child with and without a budget (stopped within seconds, no
+survivor), and an edited launcher definition imported into a session that compiled the original.
 
-- The budget is counted on a monotonic clock from the child's start, so neither the helper's own setup (compiling its
-  job type on first use) nor a change of the system time moves it. It is checked on every pass of the read loop, so a
-  child that never stops writing is terminated at its budget like a silent one.
+- The budget is counted on a monotonic clock that the job starts immediately before it resumes the suspended child,
+  the first moment the child can run. Neither the helper's own setup (compiling its job type on first use, creating
+  the process) nor a change of the system time moves it, and a calling thread that runs again only some time after
+  the resume finds that time already counted, so a child that outran its budget meanwhile is terminated at the first
+  check. It is checked on every pass of the read loop, so a child that never stops writing is terminated at its
+  budget like a silent one.
 - A bounded child that has exited while a process it started still holds its output open is terminated with that
   tree ten seconds after its exit, not left to its budget, and the call reports the child's exit code and that a
   process it started kept its output open, instead of a child that did not finish. Once the child has exited only this
