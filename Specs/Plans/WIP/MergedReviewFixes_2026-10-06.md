@@ -331,8 +331,8 @@ Check a row when its fix lands, or note why it was dropped.
 - [x] `logicon-zoom#15` (medium) `Plugins/Logicon/LogiconHid.cpp:441`: WindowsHidPort::SetFeature is an unbounded blocking IOCTL on the device lane, contrary to the bounded-I/O contract
 - [x] `logicon-zoom#4` (medium) `Plugins/Logicon/LogiconService.cpp:834`: Dial/roller turn bindings now depend on a successful HID++ dialpad connect, though Raw Input never needed it
 - [x] `logicon-zoom#5` (medium) `Tests/ZoomTests/Zoom.Tests.Runner.cpp:136`: ZoomTests never exercise the authority delimiters (@ : # ? and backslash) that block host spoofing in IsMeetingUrl
-- [ ] `shaders-lut#0` (medium) `Plugins/5H4D3R5/Shaders.cpp:1290`: A failed first lookup-table bake is never retried: Sky Atmosphere draws a black sky until the next resize or DPI change
-- [ ] `studioclock#0` (medium) `Plugins/StudioClock/StudioClockDotVertex.hlsl:240`: Date LED halos extend past the 10:9 dated composition and are hard-clipped at the tile's bottom edge
+- [x] `shaders-lut#0` (medium) `Plugins/5H4D3R5/Shaders.cpp:1290`: A failed first lookup-table bake is never retried: Sky Atmosphere draws a black sky until the next resize or DPI change
+- [x] `studioclock#0` (medium) `Plugins/StudioClock/StudioClockDotVertex.hlsl:240`: Date LED halos extend past the 10:9 dated composition and are hard-clipped at the tile's bottom edge
 - [x] `tests#19` (medium) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:4146`: zoom.join binding validation dropped: a mistyped meeting link is accepted and its key silently does nothing
 - [x] `logicon-zoom#14` (low) `Plugins/Logicon/LogiconDevice.cpp:542`: Restore keeps sending HID++ commands after a timeout, so an unresponsive device can push lane shutdown past the 3 s drain budget
 - [x] `logicon-zoom#16` (low) `Plugins/Logicon/LogiconHid.cpp:408`: Retired HID IoState blocks are unbounded: a stuck image write triggers an immediate reconnect that retires another open handle on every lane wake
@@ -341,10 +341,10 @@ Check a row when its fix lands, or note why it was dropped.
 - [x] `logicon-zoom#2` (low) `Plugins/Actions/Zoom/Zoom.cpp:116`: zoom.open fails any authored target even though the TargetNone contract says an authored target is ignored
 - [x] `logicon-zoom#7` (low) `Plugins/Logicon/LogiconService.cpp:1201`: Every unrelated system mouse packet runs a full Logicon lane turn while the dialpad is connected, and in Debug forces a dashboard frame
 - [x] `logicon-zoom#9` (low) `Plugins/Actions/Zoom/Zoom.cpp:133`: zoom.open/zoom.join carry RedXeActionFlagDeferred but Execute returns S_OK, so Launcher reports a queued launch as completed and never surfaces a later failure
-- [ ] `shaders-lut#1` (low) `Plugins/5H4D3R5/Shaders.cpp:1544`: BakeLookupTables runs on every size notification and for configurations that can never show Sky Atmosphere
-- [ ] `studioclock#10` (low) `Tests/StudioClockTests/StudioClock.Tests.Runner.cpp:899`: Glow readback never checks secondsColor halos or the 0.55 date weight, and its out-of-extent probe cannot detect a halo extent up to about 5.5 radii
-- [ ] `studioclock#4` (low) `Specs/Core/Core_PerformanceAndResources.md:291`: Glow cost was accepted as a once-per-second cost, but a raised clock next to a continuous widget redraws (and re-uploads constants) twice per frame
-- [ ] `studioclock#5` (low) `Specs/Plugins/Plugins_API.md:1126`: Spec says dimmed ring LEDs keep their brightness under glow, but the five-second companion's halo brightens them; the test only probes the dot center
+- [x] `shaders-lut#1` (low) `Plugins/5H4D3R5/Shaders.cpp:1544`: BakeLookupTables runs on every size notification and for configurations that can never show Sky Atmosphere
+- [x] `studioclock#10` (low) `Tests/StudioClockTests/StudioClock.Tests.Runner.cpp:899`: Glow readback never checks secondsColor halos or the 0.55 date weight, and its out-of-extent probe cannot detect a halo extent up to about 5.5 radii
+- [x] `studioclock#4` (low) `Specs/Core/Core_PerformanceAndResources.md:291`: Glow cost was accepted as a once-per-second cost, but a raised clock next to a continuous widget redraws (and re-uploads constants) twice per frame
+- [x] `studioclock#5` (low) `Specs/Plugins/Plugins_API.md:1126`: Spec says dimmed ring LEDs keep their brightness under glow, but the five-second companion's halo brightens them; the test only probes the dot center
 
 ### P5. Build and test tooling (62)
 

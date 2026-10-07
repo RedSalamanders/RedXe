@@ -277,8 +277,9 @@ consumer exists, the design review MUST first evaluate a host-owned bounded comm
 widget root must not absorb plugin-specific drawing records.
 
 The measured Studio Clock is an accepted low-cadence `IRedXeGpuWidget`: one instance uses two draws, no more than 402
-dots (804 submitted instances with LED glow), one 160-byte map only when cached visual state changes, one shared
-immutable device-resource set, and one per-widget constant buffer. It owns no texture, font, HWND, timer, or worker.
+dots (804 submitted instances with LED glow), one 160-byte map only when cached visual state changes (which the two
+differently sized views of a raised clock do on every frame they are drawn), one shared immutable device-resource set,
+and one per-widget constant buffer. It owns no texture, font, HWND, timer, or worker.
 This bounded consumer does not by itself justify a host primitive-batching IID; a materially larger family must be
 measured again before that decision.
 At 2560×720, three Release WARP runs of the overlay-aligned 228-instance default produced a representative median CPU
@@ -294,10 +295,16 @@ the same draw, so the 228-dot default submits 456 instances. On 2026-09-26, six 
 2560×720 benchmark (a 720-pixel clock, the raised size) produced medians of 499.845 microseconds/frame and
 0.2212 ms/frame against 241.912 microseconds/frame and 0.0800 ms/frame with `glowPercent` 0 in the same build. The
 software rasterizer's cost grows with the halo pixels, about 16 times each dot's core quad; draws, maps,
-constant-buffer size, allocations, resources, and wake frequency are unchanged. The increase is accepted because the
-clock renders once per second, the regression is fill-rate only, and `glowPercent` 0 submits no halo at all. Beside a
-continuous sibling in the shipped galleries its tile is about 256 pixels square, where the halos cover about 50,000
-pixels per frame.
+constant-buffer size, allocations, resources, and wake frequency are unchanged. The clock alone renders once per
+second, but the host redraws every widget on every presented frame, so beside a continuous sibling (the shipped
+galleries put it on one page with Matrix Rain and the rotating triangle) it pays the halo fill at that sibling's frame
+rate. Its tile there is about 256 pixels square, where the halos cover about 50,000 pixels per frame. Raised beside
+such a sibling it draws twice per frame, the tile and the 720-pixel overlay slice (the benchmarked size), and because
+the two sizes differ each draw rebuilds and maps its 160-byte constants, two maps per frame. That combination was not
+measured separately; from the figures above it costs about 0.22 ms of WARP GPU time and 0.5 ms of WARP CPU submission
+per frame for the overlay draw plus the much smaller tile draw, about 3 percent of a 60 Hz frame on WARP and
+negligible on a hardware GPU. The increase is accepted because it is fill-rate only, stays at the 256-pixel tile's
+cost except while the clock is raised next to a continuous widget, and `glowPercent` 0 submits no halo at all.
 
 The measured Desk Clock is also an accepted bounded low-cadence `IRedXeGpuWidget`. One static instance uses three
 draws and 40 submitted instances; its configured 250–800 ms split-flap burst uses four draws and 46 submitted
