@@ -54,6 +54,7 @@ static_assert(TrayIcon::kCommandMessage != Renderer::kOcclusionStatusMessage &&
               TrayIcon::kCommandMessage != PluginHost::kDataSnapshotInvalidateMessage &&
               TrayIcon::kCommandMessage != Application::kPageEdgeHoverMessage &&
               TrayIcon::kCommandMessage != PluginHost::kHostActionMessage &&
+              TrayIcon::kCommandMessage != PluginHost::kServiceLaneMessage &&
               TrayIcon::kCommandMessage != Application::kDockAppBarMessage &&
               TrayIcon::kCommandMessage != Application::kScreenshotCompleteMessage);
 
@@ -2617,7 +2618,7 @@ HRESULT Application::InitializeDashboardRuntime() noexcept
     _rendererReady = true;
     RefreshAppearance();
     PluginHost::Instance().SetUiInvalidateTarget(_window.get());
-    HostActions::SetHostWindow(_window.get());
+    HostActions::SetHostWindow(_window.get(), PluginHost::Instance().Interface());
     RefreshPageEdgeAffordances();
     result = UpdateDashboardVisibility();
     if (SUCCEEDED(result))
@@ -5754,7 +5755,7 @@ void Application::CloseMainWindow() noexcept
     ClearKeyboardFocus();
     _textServices.reset();
     PluginHost::Instance().SetUiInvalidateTarget(nullptr);
-    HostActions::SetHostWindow(nullptr);
+    HostActions::SetHostWindow(nullptr, nullptr);
     if (_dropRegistered && _window)
     {
         (void)RevokeDragDrop(_window.get());
@@ -6021,6 +6022,15 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         return 0;
     case PluginHost::kHostActionMessage:
         PluginHost::Instance().DrainHostActions();
+        return 0;
+    case PluginHost::kServiceLaneMessage:
+        // A device lane that overran its stop has returned: the apply reaps its slot and starts the service again
+        // when the document still configures it.
+        if (_settings)
+        {
+            (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
+            PublishHostState();
+        }
         return 0;
     case SettingsWatcher::kSettingsChangedMessage:
         OnSettingsChanged();

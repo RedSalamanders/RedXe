@@ -161,8 +161,14 @@ Chords are injected as scan codes (`MapVirtualKeyW`, extended flag for the navig
 `kMaximumInputBatch` (32) `INPUT`s per `SendInput`, never sleeping between batches. Anything held by `keys.down` or
 `mouse.down` is released by the matching `up`, by a one-shot host timer at `kHeldReleaseMilliseconds` (2000), by a
 later execution after that deadline, and at runtime shutdown (`HostActions::ReleaseHeld`). A replacement down
-releases the previous hold first. Windows does not deliver injected input to an elevated window; RedXe
-never runs elevated and does not work around it.
+releases the previous hold first. Each hold MUST be released exactly once: once the deadline has released a hold,
+the `up` naming the same chord or button injects nothing and returns `S_FALSE`; any other stand-alone `up` still
+injects its release. A release that `SendInput` refuses (a UAC prompt, Ctrl+Alt+Del, or the lock screen owns the
+input desktop) MUST keep the hold tracked: the `up` (or the replacement down, which then presses nothing) returns
+the failure, and the timer retries the release every `kHeldReleaseRetryMilliseconds` (250), at most
+`kMaximumHeldReleaseAttempts` (40) attempts in all, before the hold stops being tracked. Shutdown makes one last
+attempt. Windows does not deliver injected input to an elevated window; RedXe never runs elevated and does not work
+around it.
 
 ### `mouse.*` (`HostActions`, **I** except `mouse.speed`)
 
@@ -315,8 +321,10 @@ CI pass condition; `TestLaunchWorker`'s shell call on a missing file starts noth
 `IRedXeHost::Log`, never per detent: `action-contract-loaded` (Info), `action-contract-invalid`,
 `action-namespace-collision`, `action-namespace-unregistered`, `action-namespace-missing`,
 `action-publisher-unavailable` (Error, once per condition per process), `action-failed` (Debug),
-`action-expired` (Warning, once per drain that dropped input for age), `launch-failed` (Warning, once per failed
-launch), `launch-completed` (Debug), `launch-stop-timeout` (Warning, at most once per shutdown),
+`action-expired` (Warning, once per drain that dropped input for age), `held-release-failed` (Warning, the first
+refused release of a hold), `held-release-abandoned` (Warning, a hold dropped after its last refused attempt),
+`launch-failed` (Warning, once per failed launch), `launch-completed` (Debug), `launch-stop-timeout` (Warning, at
+most once per shutdown),
 `screenshot-failed` (Warning, once per screenshot request that wrote no PNG). A publisher MAY log a Warning once per
 distinct failure.
 
@@ -347,7 +355,8 @@ distinct failure.
 - Validation maps at most the modules whose namespaces a document binds, at the same moment and cost as reading a
   settings contract; a document that binds only default namespaces maps no module for actions.
 - No polling: the ring drains on one posted message; a timer is armed only while an injected hold exists and is
-  killed when the hold is released. Execution and shutdown also check for expired holds.
+  killed when the hold is released. Execution and shutdown also check for expired holds. A refused release re-arms
+  it at the retry interval, never at the timer's minimum period, and only for the bounded number of attempts.
 
 ## Safety
 
@@ -370,7 +379,11 @@ distinct failure.
   device-access-disabled execution of `keys`, `system`, and `mouse` actions that counts inputs, launches, and power
   requests without performing them. `TestQueuedInputAge`: an aged key press is dropped while an aged release, an aged
   non-input action, and fresh input run, a coalesced repeat takes the newer time, and one `action-expired` Warning is
-  logged. `TestLaunchWorker`: with a probe in place of the shell, a launch returns `S_FALSE` while it runs on the
+  logged. `TestHeldInputTimer`: a replacement down releases the previous chord or button; a held chord and button
+  release on the timer after the deadline, their own `up` then injects nothing (`S_FALSE`) while any other `up`
+  injects; with injection refused through a test seam, the `up` and a replacement down return the failure and press
+  nothing, the release is retried at the retry interval rather than faster, and it releases once input is accepted
+  again. `TestLaunchWorker`: with a probe in place of the shell, a launch returns `S_FALSE` while it runs on the
   worker's own STA thread, a full worker answers `ERROR_BUSY`, completions drain through the posted message with a
   `launch-failed` Warning for a failure, an idle worker accrues no CPU time, shutdown joins an idle worker at once and
   waits only the bound for a stuck one; and the real `ShellExecuteExW` on a file that does not exist (nothing starts)

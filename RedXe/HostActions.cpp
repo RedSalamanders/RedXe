@@ -21,18 +21,30 @@ namespace
 {
 using namespace RedXeActions;
 
-// UI-thread state: the main window, the counters, and whatever keys.down / mouse.down left pressed.
+// One input pressed by keys.down or mouse.down. `due` is its release deadline, or the next retry of a release that
+// SendInput refused. `expired` marks a hold the deadline released, so the matching `up` that follows injects nothing.
+struct Hold final
+{
+    ULONGLONG due = 0;
+    uint32_t failedReleases = 0;
+    bool held = false;
+    bool deviceAccess = false;
+    bool expired = false;
+};
+
+// UI-thread state: the main window, the log, the counters, and whatever keys.down / mouse.down left pressed. The
+// chord and button stay recorded after their release so an expired hold's own `up` can be recognized.
 HWND g_hostWindow = nullptr;
+IRedXeHost* g_log = nullptr;
 Counters g_counters{};
 KeyChord g_heldChord{};
-bool g_chordHeld = false;
+Hold g_chord{};
 uint32_t g_heldMouseFlags = 0;
 DWORD g_heldMouseData = 0;
-bool g_mouseHeld = false;
-ULONGLONG g_chordSince = 0;
-ULONGLONG g_mouseSince = 0;
-bool g_chordDeviceAccess = false;
-bool g_mouseDeviceAccess = false;
+Hold g_mouse{};
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+HRESULT g_injectionFailure = S_OK;
+#endif
 
 void CountExecution(const RedXeActionDescriptor& descriptor) noexcept
 {
@@ -84,6 +96,12 @@ void CountExecution(const RedXeActionDescriptor& descriptor) noexcept
 [[nodiscard]] HRESULT Inject(const INPUT* inputs, uint32_t count, bool deviceAccess) noexcept
 {
     g_counters.injectedInputs += count;
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+    if (FAILED(g_injectionFailure))
+    {
+        return g_injectionFailure;
+    }
+#endif
     if (!deviceAccess)
     {
         return S_OK;
@@ -166,58 +184,99 @@ void ArmHeldTimer() noexcept
         return;
     }
     (void)KillTimer(g_hostWindow, kHeldInputTimerId);
-    if (!g_chordHeld && !g_mouseHeld)
+    if (!g_chord.held && !g_mouse.held)
     {
         return;
     }
-    const ULONGLONG chordDue = g_chordHeld ? g_chordSince + kHeldReleaseMilliseconds : ULLONG_MAX;
-    const ULONGLONG mouseDue = g_mouseHeld ? g_mouseSince + kHeldReleaseMilliseconds : ULLONG_MAX;
+    const ULONGLONG chordDue = g_chord.held ? g_chord.due : ULLONG_MAX;
+    const ULONGLONG mouseDue = g_mouse.held ? g_mouse.due : ULLONG_MAX;
     const ULONGLONG now = GetTickCount64();
     const ULONGLONG due = std::min(chordDue, mouseDue);
     const UINT delay = static_cast<UINT>(std::max<ULONGLONG>(1, due > now ? due - now : 1));
     (void)SetTimer(g_hostWindow, kHeldInputTimerId, delay, nullptr);
 }
 
-void ReleaseChord() noexcept
+void BeginHold(Hold& hold, bool deviceAccess) noexcept
 {
-    if (!g_chordHeld)
+    hold = Hold{};
+    hold.due = GetTickCount64() + kHeldReleaseMilliseconds;
+    hold.held = true;
+    hold.deviceAccess = deviceAccess;
+}
+
+// Settles one release attempt. SendInput refuses input while a UAC prompt or the lock screen owns the input desktop;
+// such a hold stays tracked and is retried kHeldReleaseRetryMilliseconds later (never at the timer's minimum
+// period), so an injected modifier is not left down for every application. `retry` false (shutdown), or the last
+// allowed attempt, stops tracking it instead.
+[[nodiscard]] HRESULT SettleRelease(Hold& hold, HRESULT result, bool expired, bool retry) noexcept
+{
+    if (FAILED(result) && retry && ++hold.failedReleases < kMaximumHeldReleaseAttempts)
     {
-        return;
+        if (hold.failedReleases == 1)
+        {
+            (void)RedXeHostLog(g_log, RedXeLogLevelWarning, nullptr, nullptr, "held-release-failed",
+                               "a held key or button could not be released; RedXe retries the release.", result);
+        }
+        hold.due = GetTickCount64() + kHeldReleaseRetryMilliseconds;
+        return result;
+    }
+    if (FAILED(result))
+    {
+        (void)RedXeHostLog(g_log, RedXeLogLevelWarning, nullptr, nullptr, "held-release-abandoned",
+                           "a held key or button could not be released and is no longer tracked.", result);
+    }
+    else
+    {
+        ++g_counters.heldReleases;
+    }
+    hold.held = false;
+    hold.expired = expired && SUCCEEDED(result);
+    hold.failedReleases = 0;
+    return result;
+}
+
+// `expired` is true when the deadline (or a retry the timer scheduled) releases the hold rather than an action.
+[[nodiscard]] HRESULT ReleaseChord(bool expired, bool retry) noexcept
+{
+    if (!g_chord.held)
+    {
+        return S_FALSE;
     }
     std::array<INPUT, 5> inputs{};
     const uint32_t count = FillChord(g_heldChord, true, inputs.data());
-    (void)Inject(inputs.data(), count, g_chordDeviceAccess);
-    g_chordHeld = false;
-    ++g_counters.heldReleases;
+    return SettleRelease(g_chord, Inject(inputs.data(), count, g_chord.deviceAccess), expired, retry);
 }
 
-void ReleaseMouse() noexcept
+[[nodiscard]] HRESULT ReleaseMouse(bool expired, bool retry) noexcept
 {
-    if (!g_mouseHeld)
+    if (!g_mouse.held)
     {
-        return;
+        return S_FALSE;
     }
     INPUT input{};
     input.type = INPUT_MOUSE;
     input.mi.dwFlags = g_heldMouseFlags;
     input.mi.mouseData = g_heldMouseData;
-    (void)Inject(&input, 1, g_mouseDeviceAccess);
-    g_mouseHeld = false;
-    ++g_counters.heldReleases;
+    return SettleRelease(g_mouse, Inject(&input, 1, g_mouse.deviceAccess), expired, retry);
 }
 
 void ExpireHeld() noexcept
 {
     const ULONGLONG now = GetTickCount64();
-    if (g_chordHeld && now - g_chordSince >= kHeldReleaseMilliseconds)
+    if (g_chord.held && now >= g_chord.due)
     {
-        ReleaseChord();
+        (void)ReleaseChord(true, true);
     }
-    if (g_mouseHeld && now - g_mouseSince >= kHeldReleaseMilliseconds)
+    if (g_mouse.held && now >= g_mouse.due)
     {
-        ReleaseMouse();
+        (void)ReleaseMouse(true, true);
     }
     ArmHeldTimer();
+}
+
+[[nodiscard]] bool SameChord(const KeyChord& left, const KeyChord& right) noexcept
+{
+    return left.modifiers == right.modifiers && left.virtualKey == right.virtualKey && left.extended == right.extended;
 }
 
 [[nodiscard]] HRESULT PressChords(const ChordSequence& sequence, bool deviceAccess) noexcept
@@ -769,33 +828,39 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     {
         return E_INVALIDARG;
     }
-    if (release && g_mouseHeld)
+    if (release && g_mouse.held)
     {
-        ReleaseMouse();
+        const HRESULT released = ReleaseMouse(false, true);
         ArmHeldTimer();
-        return S_OK;
+        return released;
     }
-    if (!release && g_mouseHeld)
+    if (release && g_mouse.expired && up == g_heldMouseFlags && data == g_heldMouseData)
     {
-        ReleaseMouse();
+        // The deadline already released this button; a second up would end a press the user makes meanwhile.
+        g_mouse.expired = false;
+        return S_FALSE;
+    }
+    if (!release && g_mouse.held)
+    {
+        // A refused release keeps its hold for the retry; the new button is not pressed over it.
+        if (const HRESULT released = ReleaseMouse(false, true); FAILED(released))
+        {
+            ArmHeldTimer();
+            return released;
+        }
     }
     INPUT input{};
     input.type = INPUT_MOUSE;
     input.mi.dwFlags = release ? up : down;
     input.mi.mouseData = data;
     const HRESULT result = Inject(&input, 1, deviceAccess);
-    if (SUCCEEDED(result))
+    if (SUCCEEDED(result) && !release)
     {
-        g_mouseHeld = !release;
-        if (!release)
-        {
-            g_heldMouseFlags = up;
-            g_heldMouseData = data;
-            g_mouseSince = GetTickCount64();
-            g_mouseDeviceAccess = deviceAccess;
-        }
-        ArmHeldTimer();
+        g_heldMouseFlags = up;
+        g_heldMouseData = data;
+        BeginHold(g_mouse, deviceAccess);
     }
+    ArmHeldTimer();
     return result;
 }
 
@@ -820,30 +885,37 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     {
         return E_INVALIDARG;
     }
-    if (release && g_chordHeld)
+    if (release && g_chord.held)
     {
-        ReleaseChord();
+        const HRESULT released = ReleaseChord(false, true);
         ArmHeldTimer();
-        return S_OK;
+        return released;
     }
-    if (!release && g_chordHeld)
+    if (release && g_chord.expired && SameChord(sequence.chords[0], g_heldChord))
     {
-        ReleaseChord();
+        // The deadline already released this chord; its key-ups again would also lift a modifier the user is
+        // physically holding meanwhile.
+        g_chord.expired = false;
+        return S_FALSE;
+    }
+    if (!release && g_chord.held)
+    {
+        // A refused release keeps its hold for the retry; the new chord is not pressed over it.
+        if (const HRESULT released = ReleaseChord(false, true); FAILED(released))
+        {
+            ArmHeldTimer();
+            return released;
+        }
     }
     std::array<INPUT, 5> inputs{};
     const uint32_t count = FillChord(sequence.chords[0], release, inputs.data());
     const HRESULT result = Inject(inputs.data(), count, deviceAccess);
-    if (SUCCEEDED(result))
+    if (SUCCEEDED(result) && !release)
     {
-        g_chordHeld = !release;
-        if (!release)
-        {
-            g_heldChord = sequence.chords[0];
-            g_chordSince = GetTickCount64();
-            g_chordDeviceAccess = deviceAccess;
-        }
-        ArmHeldTimer();
+        g_heldChord = sequence.chords[0];
+        BeginHold(g_chord, deviceAccess);
     }
+    ArmHeldTimer();
     return result;
 }
 
@@ -1010,13 +1082,14 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
 }
 } // namespace
 
-void SetHostWindow(HWND window) noexcept
+void SetHostWindow(HWND window, IRedXeHost* log) noexcept
 {
     if (g_hostWindow)
     {
         (void)KillTimer(g_hostWindow, kHeldInputTimerId);
     }
     g_hostWindow = window;
+    g_log = log;
     ArmHeldTimer();
 }
 
@@ -1044,8 +1117,11 @@ HRESULT ValidateExtra(const RedXeActionDescriptor& descriptor, std::string_view 
 void ReleaseHeld(bool deviceAccess) noexcept
 {
     (void)deviceAccess;
-    ReleaseChord();
-    ReleaseMouse();
+    // The last attempt: nothing is left to retry a refused release after this.
+    (void)ReleaseChord(false, false);
+    (void)ReleaseMouse(false, false);
+    g_chord = Hold{};
+    g_mouse = Hold{};
     ArmHeldTimer();
 }
 
@@ -1064,8 +1140,8 @@ HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target
     const std::string_view name{descriptor.name};
     const std::string_view space = HostActionCatalog::NamespaceOf(name);
     const std::string_view verb = name.substr(space.size() + 1);
-    // Anything left pressed by an earlier keys.down / mouse.down is released once it is older than the budget,
-    // unless this execution is the matching release itself.
+    // Whatever an earlier keys.down / mouse.down left pressed past its deadline (or due for a release retry) is
+    // released first, as the timer would. When this execution is that hold's own `up`, it then injects nothing.
     ExpireHeld();
     CountExecution(descriptor);
     if (space == "system")
@@ -1092,4 +1168,11 @@ void ResetCounters() noexcept
 {
     g_counters = Counters{};
 }
+
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+void FailInjectionForTesting(HRESULT failure) noexcept
+{
+    g_injectionFailure = failure;
+}
+#endif
 } // namespace HostActions

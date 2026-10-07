@@ -37,7 +37,9 @@ winget package the installer registers that folder in place. Upgrade with `winge
 and remove with `winget uninstall RedSalamanders.RedXe`.
 
 The `RedXe` command is a small launcher (`RedXeLauncher.exe`) that starts `RedXe.exe` from the package folder;
-double-clicking `RedXe.exe` itself does the same thing.
+double-clicking `RedXe.exe` itself does the same thing. The command returns at once when it starts the dashboard; for
+`--help`, `--self-test`, `--screenshot`, the crash tests, and a mistyped switch it waits, so you see the output and
+get RedXe's exit code.
 
 ## What you see
 

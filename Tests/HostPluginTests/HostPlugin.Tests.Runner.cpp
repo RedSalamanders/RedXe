@@ -55,6 +55,12 @@
 #include <wil/resource.h>
 #pragma warning(pop)
 
+namespace
+{
+[[nodiscard]] std::string ReadTodayLog(const std::filesystem::path& root) noexcept;
+[[nodiscard]] size_t CountText(std::string_view text, std::string_view needle) noexcept;
+} // namespace
+
 struct PluginHostTestAccess final
 {
     struct StallProbe final
@@ -100,16 +106,15 @@ struct PluginHostTestAccess final
         StallProbe& _probe;
     };
 
-    [[nodiscard]] static bool Run() noexcept
+    // Gives the first service slot of `host` a started stalled service whose lane is inside RunDeviceWork.
+    [[nodiscard]] static bool StartStalledLane(PluginHost& host, StallProbe& probe) noexcept
     {
-        StallProbe probe;
         probe.entered.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
         probe.release.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
         if (!probe.entered || !probe.release)
         {
             return false;
         }
-        PluginHost host;
         auto& slot = host._services[0];
         slot.spec = &kRedXeBundledServices[0];
         slot.service.attach(new (std::nothrow) StalledService(probe));
@@ -127,17 +132,93 @@ struct PluginHostTestAccess final
             (void)SetEvent(probe.release.get());
             return false;
         }
+        return true;
+    }
+
+    // A lane overrun keeps its service and refuses a replacement; a document that configures the service again is
+    // deferred (ERROR_BUSY, one service-start-deferred in `logRoot`) until the lane returns and posts
+    // kServiceLaneMessage, and the next apply then reaps the slot.
+    [[nodiscard]] static bool Run(const std::filesystem::path& logRoot) noexcept
+    {
+        const wil::unique_hwnd window{CreateWindowExW(0, L"STATIC", L"service lane", 0, 0, 0, 0, 0, HWND_MESSAGE,
+                                                      nullptr, GetModuleHandleW(nullptr), nullptr)};
+        const auto configured = std::make_unique<AppSettings>();
+        const auto removed = std::make_unique<AppSettings>();
+        if (!window ||
+            FAILED(ParseAppSettingsJson(
+                R"json({"version":{"major":5},"services":{"Keypad":{"plugin":"builtin.logicon"}},"pages":[{}]})json",
+                *configured)) ||
+            FAILED(ParseAppSettingsJson(R"json({"version":{"major":5},"pages":[{}]})json", *removed)))
+        {
+            return false;
+        }
+        StallProbe probe;
+        PluginHost host;
+        host.SetDeviceAccessEnabled(false);
+        host.SetUiInvalidateTarget(window.get());
+        if (FAILED(host.SetLogDirectory(logRoot.c_str())) || !StartStalledLane(host, probe))
+        {
+            return false;
+        }
+        auto& slot = host._services[0];
         host.StopService(slot);
         const bool tombstoned = slot.stopPending && slot.lane.joinable() && slot.service && slot.worker &&
                                 probe.stopped.load() == 0 && probe.destroyed.load() == 0 &&
                                 host.RunningDeviceWorkerCount() == 1;
         const bool noRestart = host.StartService(slot) == HRESULT_FROM_WIN32(ERROR_BUSY) &&
                                host.StartDeviceLane(slot) == S_FALSE && host.RunningDeviceWorkerCount() == 1;
+        MSG message{};
+        const bool deferred = host.ApplyServiceSettings(*configured) == HRESULT_FROM_WIN32(ERROR_BUSY) &&
+                              host.StartServices(*configured) == HRESULT_FROM_WIN32(ERROR_BUSY) && slot.stopPending &&
+                              probe.stopped.load() == 0 && host.RunningDeviceWorkerCount() == 1 &&
+                              !PeekMessageW(&message, window.get(), PluginHost::kServiceLaneMessage,
+                                            PluginHost::kServiceLaneMessage, PM_NOREMOVE);
         (void)SetEvent(probe.release.get());
         const bool returned = WaitForSingleObject(slot.lane.native_handle(), 2000) == WAIT_OBJECT_0;
-        host.StopService(slot);
-        return tombstoned && noRestart && returned && !slot.stopPending && !slot.lane.joinable() && !slot.service &&
-               !slot.worker && probe.stopped.load() == 1 && probe.destroyed.load() == 1;
+        const bool posted = PeekMessageW(&message, window.get(), PluginHost::kServiceLaneMessage,
+                                         PluginHost::kServiceLaneMessage, PM_REMOVE) != FALSE;
+        const bool reaped = host.ApplyServiceSettings(*removed) == S_OK;
+        return tombstoned && noRestart && deferred && returned && posted && reaped && !slot.stopPending &&
+               !slot.lane.joinable() && !slot.service && !slot.worker && probe.stopped.load() == 1 &&
+               probe.destroyed.load() == 1;
+    }
+
+    // Shutdown with a lane still stuck keeps the log writer alive for it, yet the queued lines, the drain timeout
+    // among them, are in the file when Shutdown returns. The idle writer is held suspended until that line is queued
+    // and 200 ms longer, so a shutdown that did not wait for the writer would return before the line is written.
+    [[nodiscard]] static bool RunShutdownFlush(const std::filesystem::path& logRoot) noexcept
+    {
+        StallProbe probe;
+        PluginHost host;
+        host.SetDeviceAccessEnabled(false);
+        if (FAILED(host.SetLogDirectory(logRoot.c_str())) || FAILED(host.FlushLog(2000)) ||
+            !StartStalledLane(host, probe))
+        {
+            return false;
+        }
+        const HANDLE writer = host._logWorker.native_handle();
+        if (SuspendThread(writer) == static_cast<DWORD>(-1))
+        {
+            (void)SetEvent(probe.release.get());
+            return false;
+        }
+        std::thread resumer(
+            [&host, writer]() noexcept
+            {
+                const ULONGLONG deadline = GetTickCount64() + 10'000;
+                while (host._logQueued.load(std::memory_order_acquire) == 0 && GetTickCount64() < deadline)
+                {
+                    Sleep(10);
+                }
+                Sleep(200);
+                (void)ResumeThread(writer);
+            });
+        host.Shutdown();
+        const std::string bytes = ReadTodayLog(logRoot);
+        const bool writerKept = host._logWorker.joinable() && host.RunningDeviceWorkerCount() == 1;
+        resumer.join();
+        (void)SetEvent(probe.release.get());
+        return writerKept && CountText(bytes, "\"event\":\"device-lane-drain-timeout\"") == 1;
     }
 
     // Ages every queued host action by `milliseconds`, as if the UI thread had stalled that long.
@@ -4483,7 +4564,7 @@ void TestActionValidation(bool& success) noexcept
 
 void TestHeldInputTimer(bool& success) noexcept
 {
-    std::wcout << L"[ RUN      ] held input: replacement and release without a later action\n";
+    std::wcout << L"[ RUN      ] held input: replacement, release without a later action, and refused releases\n";
     wil::unique_hwnd window{CreateWindowExW(0, L"STATIC", L"held input timer", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
                                             GetModuleHandleW(nullptr), nullptr)};
     if (!window)
@@ -4492,23 +4573,43 @@ void TestHeldInputTimer(bool& success) noexcept
         return;
     }
     PluginHost& host = PluginHost::Instance();
-    RedXeActionRequest request{};
-    request.sizeBytes = sizeof(request);
-    request.actionUtf8 = "keys.down";
-    request.targetUtf8 = "Ctrl+A";
-    const RedXeActionDescriptor* keyDown = nullptr;
-    Check(host.ValidateAction(&request, &keyDown) == S_OK && keyDown, L"held key action descriptor is available",
-          success);
-    request.actionUtf8 = "mouse.down";
-    request.targetUtf8 = "left";
-    const RedXeActionDescriptor* mouseDown = nullptr;
-    Check(host.ValidateAction(&request, &mouseDown) == S_OK && mouseDown, L"held mouse action descriptor is available",
-          success);
-    if (!keyDown || !mouseDown)
+    const auto findDescriptor = [&host](const char* action, const char* target) noexcept
+    {
+        RedXeActionRequest request{};
+        request.sizeBytes = sizeof(request);
+        request.actionUtf8 = action;
+        request.targetUtf8 = target;
+        const RedXeActionDescriptor* descriptor = nullptr;
+        return host.ValidateAction(&request, &descriptor) == S_OK ? descriptor : nullptr;
+    };
+    const RedXeActionDescriptor* keyDown = findDescriptor("keys.down", "Ctrl+A");
+    const RedXeActionDescriptor* keyUp = findDescriptor("keys.up", "Ctrl+A");
+    const RedXeActionDescriptor* mouseDown = findDescriptor("mouse.down", "left");
+    const RedXeActionDescriptor* mouseUp = findDescriptor("mouse.up", "left");
+    Check(keyDown && keyUp && mouseDown && mouseUp, L"held key and mouse action descriptors are available", success);
+    if (!keyDown || !keyUp || !mouseDown || !mouseUp)
     {
         return;
     }
-    HostActions::SetHostWindow(window.get());
+    // Delivers the held-input timer until `done` or `milliseconds` pass, as the main window's WM_TIMER would.
+    const auto pumpHeldTimer = [&window](ULONGLONG milliseconds, auto done) noexcept
+    {
+        const ULONGLONG deadline = GetTickCount64() + milliseconds;
+        while (GetTickCount64() < deadline && !done())
+        {
+            (void)MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_TIMER, MWMO_INPUTAVAILABLE);
+            MSG message{};
+            while (PeekMessageW(&message, window.get(), WM_TIMER, WM_TIMER, PM_REMOVE))
+            {
+                if (message.wParam == HostActions::kHeldInputTimerId)
+                {
+                    HostActions::OnHeldTimer();
+                }
+            }
+        }
+    };
+    const auto never = []() noexcept { return false; };
+    HostActions::SetHostWindow(window.get(), nullptr);
     HostActions::ResetCounters();
     Check(HostActions::Execute(*keyDown, "Ctrl+A", false, nullptr) == S_OK &&
               HostActions::Execute(*keyDown, "Ctrl+B", false, nullptr) == S_OK &&
@@ -4520,32 +4621,78 @@ void TestHeldInputTimer(bool& success) noexcept
           L"replacing a button releases the original button", success);
     HostActions::ReleaseHeld(false);
     HostActions::ResetCounters();
-    Check(HostActions::Execute(*keyDown, "Ctrl+C", false, nullptr) == S_OK, L"one held chord arms the host timer",
-          success);
-    const ULONGLONG deadline = GetTickCount64() + 3000;
-    while (GetTickCount64() < deadline && HostActions::CopyCounters().heldReleases == 0)
-    {
-        (void)MsgWaitForMultipleObjectsEx(0, nullptr, 100, QS_TIMER, MWMO_INPUTAVAILABLE);
-        MSG message{};
-        while (PeekMessageW(&message, window.get(), WM_TIMER, WM_TIMER, PM_REMOVE))
-        {
-            if (message.wParam == HostActions::kHeldInputTimerId)
-            {
-                HostActions::OnHeldTimer();
-            }
-        }
-    }
-    Check(HostActions::CopyCounters().heldReleases == 1,
-          L"a held chord releases after two seconds without another action", success);
+    Check(HostActions::Execute(*keyDown, "Ctrl+C", false, nullptr) == S_OK &&
+              HostActions::Execute(*mouseDown, "left", false, nullptr) == S_OK &&
+              HostActions::CopyCounters().injectedInputs == 3,
+          L"a held chord and a held button arm the host timer", success);
+    pumpHeldTimer(3000, []() noexcept { return HostActions::CopyCounters().heldReleases == 2; });
+    Check(HostActions::CopyCounters().heldReleases == 2 && HostActions::CopyCounters().injectedInputs == 6,
+          L"a held chord and button release after two seconds without another action", success);
+    Check(HostActions::Execute(*keyUp, "Ctrl+C", false, nullptr) == S_FALSE &&
+              HostActions::Execute(*mouseUp, "left", false, nullptr) == S_FALSE &&
+              HostActions::CopyCounters().injectedInputs == 6,
+          L"the up of a hold the deadline released injects nothing a second time", success);
+    Check(HostActions::Execute(*keyUp, "Ctrl+D", false, nullptr) == S_OK &&
+              HostActions::Execute(*keyUp, "Ctrl+C", false, nullptr) == S_OK &&
+              HostActions::CopyCounters().injectedInputs == 10,
+          L"any other stand-alone up still injects its release", success);
     HostActions::ReleaseHeld(false);
-    HostActions::SetHostWindow(nullptr);
+
+    // A refused release (the secure desktop) keeps its hold and retries at the retry interval, never faster.
+    HostActions::ResetCounters();
+    Check(HostActions::Execute(*keyDown, "Ctrl+F", false, nullptr) == S_OK, L"a chord is held before the refusal",
+          success);
+    HostActions::FailInjectionForTesting(HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED));
+    Check(HostActions::Execute(*keyUp, "Ctrl+F", false, nullptr) == HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED) &&
+              HostActions::Execute(*keyDown, "Ctrl+G", false, nullptr) == HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED) &&
+              HostActions::CopyCounters().heldReleases == 0 && HostActions::CopyCounters().injectedInputs == 6,
+          L"a refused release reports its failure and a new chord is not pressed over the stuck one", success);
+    pumpHeldTimer(1000, never);
+    const uint32_t retried = (HostActions::CopyCounters().injectedInputs - 6) / 2;
+    Check(HostActions::CopyCounters().heldReleases == 0 && retried >= 1 &&
+              retried <= 1000 / HostActions::kHeldReleaseRetryMilliseconds + 1,
+          L"the refused release is retried at the retry interval while it stays tracked", success);
+    HostActions::FailInjectionForTesting(S_OK);
+    pumpHeldTimer(2000, []() noexcept { return HostActions::CopyCounters().heldReleases == 1; });
+    const uint32_t injected = HostActions::CopyCounters().injectedInputs;
+    Check(HostActions::CopyCounters().heldReleases == 1 &&
+              HostActions::Execute(*keyUp, "Ctrl+F", false, nullptr) == S_FALSE &&
+              HostActions::CopyCounters().injectedInputs == injected,
+          L"the retry releases the held chord once the desktop accepts input again", success);
+    HostActions::ReleaseHeld(false);
+    Check(HostActions::CopyCounters().heldReleases == 1, L"nothing else was left held", success);
+    HostActions::SetHostWindow(nullptr, nullptr);
 }
 
 void TestServiceLifetime(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] device lane overrun retains its service and prevents replacement\n";
-    Check(PluginHostTestAccess::Run(),
-          L"a timed-out lane owns its service until return and cannot start a replacement lane", success);
+    {
+        std::error_code error;
+        const std::filesystem::path root = std::filesystem::temp_directory_path() /
+                                           (L"RedXe.LaneOverrunTests." + std::to_wstring(GetCurrentProcessId()) + L"." +
+                                            std::to_wstring(GetTickCount64()));
+        const std::filesystem::path deferredRoot = root / L"deferred";
+        const std::filesystem::path shutdownRoot = root / L"shutdown";
+        std::filesystem::create_directories(deferredRoot, error);
+        std::filesystem::create_directories(shutdownRoot, error);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code removeError;
+                std::filesystem::remove_all(root, removeError);
+            });
+        Check(!error && PluginHostTestAccess::Run(deferredRoot),
+              L"a timed-out lane owns its service until return, defers a re-added service with ERROR_BUSY, and posts "
+              L"its return so the next apply reaps it",
+              success);
+        const std::string deferredLog = ReadTodayLog(deferredRoot);
+        Check(CountText(deferredLog, "\"event\":\"device-lane-drain-timeout\"") == 1 &&
+                  CountText(deferredLog, "\"event\":\"service-start-deferred\"") == 1,
+              L"the overrun and the deferred start of the re-added service are each logged once", success);
+        Check(!error && PluginHostTestAccess::RunShutdownFlush(shutdownRoot),
+              L"shutdown with a stuck lane writes the queued log lines out before it returns", success);
+    }
     std::wcout << L"[ RUN      ] service lifetime: start, device lane, host state, settings apply, stop\n";
     PluginHost& host = PluginHost::Instance();
     host.SetDeviceAccessEnabled(false);

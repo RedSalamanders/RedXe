@@ -521,6 +521,12 @@ void PluginHost::Shutdown() noexcept
             // and a private host's destructor joins before it releases this storage.
             HostActions::ReleaseHeld(DeviceAccessEnabled());
             _shutdown = true;
+            // The writer and its events stay alive because the lane may still log, but process exit would discard
+            // the queue, device-lane-drain-timeout included, so it is written out now within a bound.
+            if (FAILED(FlushLog(kShutdownLogFlushMilliseconds)))
+            {
+                OutputDebugStringW(L"RedXe: the log writer did not drain at shutdown; its last lines may be lost.\n");
+            }
             return;
         }
     }
@@ -2290,6 +2296,7 @@ void PluginHost::StopService(ServiceSlot& slot) noexcept
     }
     slot.started = false;
     slot.stopPending = false;
+    slot.startDeferred = false;
     slot.worker.reset();
     slot.service.reset();
     slot.settings = JsonObjectSettings{};
@@ -2352,6 +2359,15 @@ void PluginHost::DeviceLane(ServiceSlot& slot) noexcept
     {
         CoUninitialize();
     }
+    // A lane StopDeviceLane gave up on tells the UI thread that the slot can be reaped and the service started again.
+    if ((slot.laneState.fetch_or(kLaneReturned, std::memory_order_acq_rel) & kLaneAbandoned) != 0)
+    {
+        const HWND window = _uiWindow.load(std::memory_order_acquire);
+        if (window)
+        {
+            (void)PostMessageW(window, kServiceLaneMessage, 0, 0);
+        }
+    }
 }
 
 bool PluginHost::StopDeviceLane(ServiceSlot& slot) noexcept
@@ -2368,13 +2384,17 @@ bool PluginHost::StopDeviceLane(ServiceSlot& slot) noexcept
     }
     const DWORD waited =
         WaitForSingleObject(slot.lane.native_handle(), slot.laneTombstoned ? 0U : kRedXeDeviceWorkerDrainMilliseconds);
-    if (waited == WAIT_OBJECT_0)
+    // A lane that already left RunDeviceWork has only its thread exit left, so joining it does not wait on the
+    // plugin; otherwise the same exchange tells it to post kServiceLaneMessage when it returns.
+    if (waited == WAIT_OBJECT_0 ||
+        (slot.laneState.fetch_or(kLaneAbandoned, std::memory_order_acq_rel) & kLaneReturned) != 0)
     {
         slot.lane.join();
         slot.lane = std::jthread{};
         slot.wakeEvent.reset();
         slot.stopEvent.reset();
         slot.laneTombstoned = false;
+        slot.laneState.store(0, std::memory_order_release);
         return true;
     }
     if (!slot.laneTombstoned)
@@ -2384,6 +2404,17 @@ bool PluginHost::StopDeviceLane(ServiceSlot& slot) noexcept
         slot.laneTombstoned = true;
     }
     return false;
+}
+
+void PluginHost::LogDeferredStart(ServiceSlot& slot, const AppSettings& settings) noexcept
+{
+    if (slot.startDeferred || !FindServiceSettings(settings, slot.spec->pluginId))
+    {
+        return;
+    }
+    slot.startDeferred = true;
+    (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, slot.spec->pluginId, nullptr, "service-start-deferred",
+                       "service starts when its previous device lane returns.", HRESULT_FROM_WIN32(ERROR_BUSY));
 }
 
 HRESULT PluginHost::StartServices(const AppSettings& settings) noexcept
@@ -2405,6 +2436,7 @@ HRESULT PluginHost::StartServices(const AppSettings& settings) noexcept
             StopService(slot);
             if (slot.stopPending)
             {
+                LogDeferredStart(slot, settings);
                 if (SUCCEEDED(first))
                 {
                     first = HRESULT_FROM_WIN32(ERROR_BUSY);
@@ -2449,6 +2481,7 @@ HRESULT PluginHost::ApplyServiceSettings(const AppSettings& settings) noexcept
             StopService(slot);
             if (slot.stopPending)
             {
+                LogDeferredStart(slot, settings);
                 if (SUCCEEDED(first))
                 {
                     first = HRESULT_FROM_WIN32(ERROR_BUSY);

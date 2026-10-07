@@ -418,10 +418,17 @@ the shipped ones; both also publish an action namespace (`Plugins_Actions.md`).
   `stopEvent`, waits `kRedXeDeviceWorkerDrainMilliseconds` (3000) for the thread, joins it, and closes the events; an
   overrun logs `device-lane-drain-timeout` once and tombstones the service slot: the thread stays joinable and its
   COM service, worker, module, host, settings, and event handles remain live until `RunDeviceWork` returns. A
-  tombstoned slot cannot start a second lane. Process shutdown leaves the process runtime allocated if a lane is
-  still active; a private host destructor joins it before releasing storage. A later service apply can reap a
-  completed tombstone. `RedXeDataSetFlagDeviceLane` for data
-  sources remains unimplemented.
+  tombstoned slot cannot start a second lane: while it lasts, `StartServices` and `ApplyServiceSettings` return
+  `ERROR_BUSY` for it and, when the document configures that service, log `service-start-deferred` (Warning) once
+  per tombstone. The lane and `StopDeviceLane` each set one bit of one atomic word (`laneState`) and read the other's
+  in the same exchange, so exactly one acts: `StopDeviceLane` joins a lane that already left `RunDeviceWork`, or the
+  lane, when it returns later, posts `PluginHost::kServiceLaneMessage` (`WM_APP + 9`) to the main window, which runs
+  `ApplyServiceSettings` with the current document: the slot is reaped (`Stop` runs then) and the service starts
+  again if the document still configures it. Process shutdown leaves the process runtime allocated if a lane is
+  still active and keeps the log writer alive for it, but MUST write the queued log lines out within
+  `kShutdownLogFlushMilliseconds` (1000) before it returns, reporting through `OutputDebugStringW` when the writer
+  does not finish; a private host destructor joins the lane before releasing storage.
+  `RedXeDataSetFlagDeviceLane` for data sources remains unimplemented.
 - **Developer-only widgets** (`kRedXeDebugOnlyBundledWidgetIds`, today `builtin.logicon-monitor`) stay catalogued and
   schema-accepted in every build so both shipped templates parse everywhere. Only the Debug template places them, and
   only Debug builds of their DLL construct them: a Release build publishes the metadata and contract, lists the type,
@@ -1494,7 +1501,10 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     buttons, dialpad turns dispatch their `turns` bindings, `ApplySettings`
     re-applies and rejects without stopping, the monitor provider constructs in Debug and refuses in Release, and
     `--self-test` starts every configured service. `PluginHost` tests MUST cover the named action ring's bounds,
-    coalescing, and `ERROR_BUSY`, and the services' catalog validation. `SettingsTests` MUST cover the `services`
+    coalescing, and `ERROR_BUSY`, and the services' catalog validation, and a stalled lane: the overrun keeps its
+    service and refuses a replacement, a re-added service gets `ERROR_BUSY` with one `service-start-deferred`, the
+    lane's return posts `kServiceLaneMessage` and the next apply reaps the slot, and a shutdown with the lane still
+    stuck returns with `device-lane-drain-timeout` already in the log file. `SettingsTests` MUST cover the `services`
     grammar and rejections and both templates' Logicon and Zoom objects. Plugins_Logicon.md owns the protocol and
     face vectors.
 

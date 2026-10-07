@@ -64,6 +64,10 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // is dropped instead of landing in whatever window is foreground by then; keys.up and mouse.up, which only end a
     // hold, are exempt.
     static constexpr ULONGLONG kMaximumQueuedInputAgeMilliseconds = 1000;
+    // Posted when a device lane whose stop overran the drain budget finally returns. The UI thread answers with
+    // ApplyServiceSettings for the current document, which reaps the slot and starts the service again if the
+    // document still configures it.
+    static constexpr UINT kServiceLaneMessage = WM_APP + 9;
 
     [[nodiscard]] IRedXeHost* Interface() noexcept;
     [[nodiscard]] HRESULT GetPluginModule(const char* pluginId, uint32_t requiredCapabilities,
@@ -130,8 +134,9 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // service the document configures; ApplyServiceSettings starts, stops, or re-applies services after a live
     // reload; PublishHostState fans one state record out to started services; StopServices signals every device
     // lane and waits at most kRedXeDeviceWorkerDrainMilliseconds per lane. A late lane retains its service and
-    // host runtime until it returns; Stop runs only after that return. Interactive RedXe leaves
-    // device access enabled; --self-test and host tests disable it before StartServices.
+    // host runtime until it returns; Stop runs only after that return, and a document that configures the service
+    // meanwhile gets ERROR_BUSY (service-start-deferred, logged once) until kServiceLaneMessage. Interactive RedXe
+    // leaves device access enabled; --self-test and host tests disable it before StartServices.
     [[nodiscard]] HRESULT StartServices(const AppSettings& settings) noexcept;
     [[nodiscard]] HRESULT ApplyServiceSettings(const AppSettings& settings) noexcept;
     void PublishHostState(const RedXeHostState& state) noexcept;
@@ -171,7 +176,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] HRESULT SetLogDirectory(const wchar_t* directory) noexcept;
     // 1 through 365 days. Omitted settings use 15. Changing retention wakes the writer to delete expired files.
     [[nodiscard]] HRESULT SetLogRetentionDays(uint32_t days) noexcept;
-    // Blocks until queued lines are on disk, or the timeout elapses. Tests use this; production shutdown flushes.
+    // Blocks until queued lines are on disk, or the timeout elapses. Tests use this, and so does a shutdown that must
+    // keep the writer alive for a device lane that is still running; an ordinary shutdown joins the writer instead.
     [[nodiscard]] HRESULT FlushLog(uint32_t timeoutMilliseconds) noexcept;
 
     // Latest status reported by one widget instance. Unknown instances read back as RedXeWidgetStatusOk so a widget
@@ -197,7 +203,12 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     static constexpr size_t kMaximumNetworkWidgets = 8;
     static constexpr size_t kLogRingSlots = 32;
     static constexpr size_t kLogLineCapacity = 1024;
+    // The longest a shutdown with a device lane still running waits for the log writer to empty its queue.
+    static constexpr uint32_t kShutdownLogFlushMilliseconds = 1000;
     static constexpr size_t kHostActionRingSlots = 16;
+    // ServiceSlot::laneState bits.
+    static constexpr uint32_t kLaneReturned = 1;
+    static constexpr uint32_t kLaneAbandoned = 2;
 
     class DataProvider;
     class Subscription;
@@ -314,10 +325,16 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         // The effective compact settings object the service was last given, so a live reload re-applies only when
         // the object actually changed.
         JsonObjectSettings settings;
+        // The lane sets kLaneReturned when RunDeviceWork returns; StopDeviceLane sets kLaneAbandoned when the drain
+        // budget runs out. Each reads the other's bit in the same exchange, so exactly one acts: the UI thread joins
+        // a lane that already returned, or the lane posts kServiceLaneMessage when it returns later.
+        std::atomic<uint32_t> laneState{0};
         bool started = false;
         bool laneRunning = false;
         bool stopPending = false;
         bool laneTombstoned = false;
+        // service-start-deferred was logged for the current tombstone.
+        bool startDeferred = false;
     };
 
     [[nodiscard]] HRESULT LoadModule(const RedXeBundledPluginSpec& spec, ModuleSlot& slot) noexcept;
@@ -372,6 +389,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] HRESULT StartDeviceLane(ServiceSlot& slot) noexcept;
     [[nodiscard]] bool StopDeviceLane(ServiceSlot& slot) noexcept;
     void DeviceLane(ServiceSlot& slot) noexcept;
+    // Logs service-start-deferred once per tombstone when the document configures the slot's service.
+    void LogDeferredStart(ServiceSlot& slot, const AppSettings& settings) noexcept;
 
     std::atomic<ULONG> _references{1};
     std::array<ModuleSlot, kRedXeBundledPlugins.size()> _modules;

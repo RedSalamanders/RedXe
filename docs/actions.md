@@ -65,7 +65,7 @@ is never a dialog, because a keypad key is a deliberate control.
 | `action` | `target` | Effect |
 | --- | --- | --- |
 | `keys.press` | one or more chords: `Ctrl+Shift+Esc`, `Win+D`, `Ctrl+K,Ctrl+S` | Press and release them in order |
-| `keys.down`, `keys.up` | one chord | Hold / release it (anything still held is released after 2 s) |
+| `keys.down`, `keys.up` | one chord | Hold / release it (anything still held is released after 2 s, and its later `up` then does nothing) |
 | `keys.type` | text | Type it |
 | `keys.media` | `play-pause`, `stop`, `next-track`, `previous-track`, `volume-up`, `volume-down`, `mute` | Send that media key |
 | `keys.lock` | `caps`, `num`, `scroll` | Toggle that lock key |
@@ -76,6 +76,8 @@ Chord modifiers are `Ctrl`, `Shift`, `Alt`, `Win`; keys are letters, digits, `F1
 `ScrollLock`, `Apps`, `Num0`–`Num9`, `NumAdd`, `NumSub`, `NumMul`, `NumDiv`, `NumDot`, `Plus`, `Minus`, `Comma`, `Period`,
 `Semicolon`, `Quote`, `Slash`, `Backslash`, `LBracket`, `RBracket`, `Grave`, or `VK:<hex>`. Windows does not deliver injected
 input to a window that runs elevated (as administrator); RedXe never runs elevated, so such a window ignores these actions.
+While a UAC prompt or the lock screen is up, Windows refuses injected input altogether: a held key or button that cannot be
+released then is retried every quarter second for about 10 s, so a modifier is not left pressed after the prompt closes.
 
 ### `mouse.*`
 
@@ -83,7 +85,7 @@ input to a window that runs elevated (as administrator); RedXe never runs elevat
 | --- | --- | --- |
 | `mouse.move` | `x,y` (screen pixels), `+dx,+dy` (relative), or `center`, each optionally `@<monitor>` | Move the pointer |
 | `mouse.click`, `mouse.doubleClick` | `left`, `right`, `middle`, `x1`, `x2` | Click where the pointer is |
-| `mouse.down`, `mouse.up` | same | Hold / release a button |
+| `mouse.down`, `mouse.up` | same | Hold / release a button (released after 2 s like a held chord) |
 | `mouse.scroll`, `mouse.scroll.horizontal` | `+n` or `-n` notches | Scroll |
 | `mouse.speed` | `1`–`20` | Pointer speed |
 
