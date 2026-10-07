@@ -28,7 +28,7 @@ class LaunchWorker final
     static constexpr size_t kSlots = 8;
     // A UTF-8 action target of kRedXeMaximumActionTargetBytes never needs more UTF-16 units than it has bytes.
     static constexpr size_t kTextCharacters = kRedXeMaximumActionTargetBytes + 1;
-    // Process teardown waits this long for a launch in progress (Stop).
+    // Process teardown waits this long, once, for a launch in progress (Stop).
     static constexpr uint32_t kStopMilliseconds = 1000;
 
     enum class Kind : uint8_t
@@ -77,7 +77,8 @@ class LaunchWorker final
     // success as one Debug record) and frees its slot.
     void DrainCompletions(IRedXeHost* host) noexcept;
     // Drops queued launches and waits at most timeoutMilliseconds for the one in progress. True once the thread has
-    // exited or never started; false leaves it to finish that launch, and the destructor joins it.
+    // exited or never started; false leaves it to finish that launch, and the destructor joins it. A Stop after one
+    // that returned false only checks whether the thread has exited since; it never waits again.
     [[nodiscard]] bool Stop(uint32_t timeoutMilliseconds) noexcept;
     [[nodiscard]] bool Running() const noexcept
     {

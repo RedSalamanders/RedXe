@@ -4321,6 +4321,10 @@ void TestLaunchWorker(bool& success) noexcept
     {
         std::filesystem::create_directories(root / L"shell", error);
     }
+    if (!error)
+    {
+        std::filesystem::create_directories(root / L"lane", error);
+    }
     const auto cleanup = wil::scope_exit(
         [&]() noexcept
         {
@@ -4411,10 +4415,46 @@ void TestLaunchWorker(bool& success) noexcept
         Check(started && waited + 100 >= LaunchWorker::kStopMilliseconds &&
                   waited < LaunchWorker::kStopMilliseconds + 2'000 && host.LaunchWorkerRunning(),
               L"shutdown waits a bounded time for a launch stuck in the shell and leaves it running", success);
+        // The process runtime's deleter shuts down a second time; that one only checks the stuck launch.
+        const ULONGLONG again = GetTickCount64();
+        host.Shutdown();
+        Check(GetTickCount64() - again < LaunchWorker::kStopMilliseconds / 2 && host.LaunchWorkerRunning(),
+              L"a second shutdown does not wait for the stuck launch again", success);
         (void)SetEvent(probe.release.get());
     }
     Check(probe.calls.load() == LaunchWorker::kSlots + 1, L"the stuck launch finished before its host was destroyed",
           success);
+
+    // A device lane still stuck at shutdown ends it early, after the launch worker has stopped: the queued launch
+    // never starts, and the one in the shell gets the bounded wait and its launch-stop-timeout record.
+    (void)ResetEvent(probe.entered.get());
+    (void)ResetEvent(probe.release.get());
+    {
+        PluginHostTestAccess::StallProbe stall;
+        PluginHost host;
+        Check(SUCCEEDED(host.SetLogDirectory((root / L"lane").c_str())), L"the stalled-lane host logs", success);
+        host.SetUiInvalidateTarget(window.get());
+        PluginHostTestAccess::SetLaunchProbe(host, &ProbeLaunch);
+        request.targetUtf8 = targets[0].c_str();
+        const bool started =
+            host.ExecuteAction(&request) == S_FALSE && WaitForSingleObject(probe.entered.get(), 5'000) == WAIT_OBJECT_0;
+        request.targetUtf8 = targets[2].c_str();
+        const bool queued = host.ExecuteAction(&request) == S_FALSE;
+        const bool stalled = PluginHostTestAccess::StartStalledLane(host, stall);
+        const uint32_t calls = probe.calls.load();
+        host.Shutdown();
+        const std::string laneLog = ReadTodayLog(root / L"lane");
+        (void)SetEvent(probe.release.get());
+        const bool exited = WaitForSingleObject(PluginHostTestAccess::LaunchThread(host), 5'000) == WAIT_OBJECT_0;
+        Check(started && queued && stalled && host.RunningDeviceWorkerCount() == 1 && exited &&
+                  probe.calls.load() == calls,
+              L"a shutdown that a stuck device lane ends early still stops the launch worker and drops its queue",
+              success);
+        Check(CountText(laneLog, "\"event\":\"launch-stop-timeout\"") == 1 &&
+                  CountText(laneLog, "\"event\":\"device-lane-drain-timeout\"") == 1,
+              L"that shutdown logs launch-stop-timeout beside device-lane-drain-timeout", success);
+        (void)SetEvent(stall.release.get());
+    }
     g_launchProbe = nullptr;
 
     // The real shell call, on a file that does not exist: nothing starts, and the failure reaches the log.
@@ -4632,6 +4672,15 @@ void TestHeldInputTimer(bool& success) noexcept
               HostActions::Execute(*mouseDown, "right", false, nullptr) == S_OK &&
               HostActions::CopyCounters().heldReleases == 2,
           L"replacing a button releases the original button", success);
+    // An up naming another chord or button is a stand-alone release: it injects its own records, not the held ones.
+    Check(HostActions::Execute(*keyUp, "Ctrl+G", false, nullptr) == S_OK &&
+              HostActions::Execute(*mouseUp, "left", false, nullptr) == S_OK &&
+              HostActions::CopyCounters().heldReleases == 2,
+          L"an up naming another chord or button leaves the held chord and button tracked", success);
+    Check(HostActions::Execute(*keyUp, "Ctrl+B", false, nullptr) == S_OK &&
+              HostActions::Execute(*mouseUp, "right", false, nullptr) == S_OK &&
+              HostActions::CopyCounters().heldReleases == 4,
+          L"the held chord and button are released by their own up", success);
     HostActions::ReleaseHeld(false);
     HostActions::ResetCounters();
     Check(HostActions::Execute(*keyDown, "Ctrl+C", false, nullptr) == S_OK &&
@@ -4691,14 +4740,25 @@ void TestHeldInputTimer(bool& success) noexcept
     HostActions::ReleaseHeld(false);
     Check(HostActions::CopyCounters().heldReleases == 1 && HostActions::CopyCounters().injectedInputs == abandoned,
           L"a release refused at shutdown is abandoned", success);
+
+    // Closing the main window detaches the timer and the log. The button still held gets its last attempt first, so
+    // the refusal is recorded instead of reaching no log when runtime shutdown releases it later.
+    Check(HostActions::Execute(*mouseDown, "left", false, nullptr) == S_OK, L"a button is held when the window closes",
+          success);
+    HostActions::FailInjectionForTesting(HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED));
     HostActions::SetHostWindow(nullptr, nullptr);
+    HostActions::FailInjectionForTesting(S_OK);
+    const uint32_t detached = HostActions::CopyCounters().injectedInputs;
+    HostActions::ReleaseHeld(false);
+    Check(HostActions::CopyCounters().heldReleases == 1 && HostActions::CopyCounters().injectedInputs == detached,
+          L"the window's close makes the last release attempt, so shutdown finds nothing left to release", success);
     Check(SUCCEEDED(logHost.FlushLog(10'000)), L"the held-input log drains", success);
     const std::string bytes = ReadTodayLog(root);
     Check(CountText(bytes, "\"event\":\"held-release-failed\"") == 1 &&
-              CountText(bytes, "\"event\":\"held-release-abandoned\"") == 1 &&
-              CountText(bytes, "\"level\":\"warning\"") == 2,
-          L"a refused hold logs held-release-failed once across its retries, and a release refused at shutdown logs "
-          L"held-release-abandoned once",
+              CountText(bytes, "\"event\":\"held-release-abandoned\"") == 2 &&
+              CountText(bytes, "\"level\":\"warning\"") == 3,
+          L"a refused hold logs held-release-failed once across its retries, and a release refused at shutdown or at "
+          L"the window's close logs held-release-abandoned once each",
           success);
 }
 

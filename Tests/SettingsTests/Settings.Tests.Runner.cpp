@@ -1601,7 +1601,8 @@ constexpr std::string_view kRepresentative = R"json(
 }
 
 // The command-line catalog (RedXe/CommandLine.h): every switch is unique, well formed, and printed by --help; the
-// help aliases are recognized; the argument scanner accepts a full valid line and names the first stray token.
+// help aliases are recognized; a capture run's exit code and the exit-code box follow the scripted-mode policy; the
+// argument scanner accepts a full valid line and names the first stray token.
 [[nodiscard]] HRESULT ValidateCommandLineCatalog() noexcept
 {
     try
@@ -1654,6 +1655,17 @@ constexpr std::string_view kRepresentative = R"json(
             RedXeSwitchInfo(RedXeSwitch::CrashTestDirectory).launcherWaitForExit)
         {
             std::wprintf(L"The launcher wait policy does not match the self-terminating modes.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // Main.cpp: a --screenshot run exits 8 whenever no PNG was written, also when a startup or graphics failure
+        // ended it first, and neither scripted mode shows the modal exit-code box.
+        if (RedXeScreenshotExitCode(0, true) != 0 || RedXeScreenshotExitCode(0, false) != 8 ||
+            RedXeScreenshotExitCode(5, false) != 8 || RedXeScreenshotExitCode(1, false) != 8 ||
+            RedXeScreenshotExitCode(5, true) != 5 || !RedXeShowsExitCodeBox(5, false, false) ||
+            RedXeShowsExitCodeBox(0, false, false) || RedXeShowsExitCodeBox(5, false, true) ||
+            RedXeShowsExitCodeBox(8, false, true) || RedXeShowsExitCodeBox(5, true, false))
+        {
+            std::wprintf(L"The --screenshot exit code or the exit-code box policy is wrong.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         for (const wchar_t* alias : kRedXeHelpArguments)

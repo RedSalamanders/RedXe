@@ -431,8 +431,10 @@ the shipped ones; both also publish an action namespace (`Plugins_Actions.md`).
   again if the document still configures it. Process shutdown leaves the process runtime allocated if a lane is
   still active and keeps the log writer alive for it, but MUST write the queued log lines out within
   `kShutdownLogFlushMilliseconds` (1000) before it returns, reporting through `OutputDebugStringW` when the writer
-  does not finish. Only the first such `Shutdown` waits, so the process runtime's second shutdown at static
-  destruction adds no wait; a private host destructor joins the lane before releasing storage.
+  does not finish. It stops the launch worker before it returns that way: queued launches are dropped and one still
+  in the shell gets the bounded wait and its `launch-stop-timeout` record (`Plugins_Actions.md`). Only the first such
+  `Shutdown` waits, so the process runtime's second shutdown at static destruction adds no wait; a private host
+  destructor joins the lane before releasing storage.
   `RedXeDataSetFlagDeviceLane` for data sources remains unimplemented.
 - **Developer-only widgets** (`kRedXeDebugOnlyBundledWidgetIds`, today `builtin.logicon-monitor`) stay catalogued and
   schema-accepted in every build so both shipped templates parse everywhere. Only the Debug template places them, and
@@ -1510,7 +1512,8 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     service and refuses a replacement, a re-added service gets `ERROR_BUSY` with one `service-start-deferred`, the
     lane's return posts `kServiceLaneMessage` and the next apply reaps the slot, and a shutdown with the lane still
     stuck returns with `device-lane-drain-timeout` already in the log file (a test gate holds the writer until a
-    flush releases it) while a second shutdown does not flush again. `SettingsTests` MUST cover the `services`
+    flush releases it) while a second shutdown does not flush again, and it still stops the launch worker: a queued
+    launch never starts and one in the shell logs `launch-stop-timeout` (`TestLaunchWorker`). `SettingsTests` MUST cover the `services`
     grammar and rejections and both templates' Logicon and Zoom objects. Plugins_Logicon.md owns the protocol and
     face vectors.
 

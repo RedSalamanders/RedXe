@@ -33,7 +33,8 @@ struct Hold final
 };
 
 // UI-thread state: the main window, the log, the counters, and whatever keys.down / mouse.down left pressed. The
-// chord and button stay recorded after their release so an expired hold's own `up` can be recognized.
+// chord and button identify the hold's own `up`, and stay recorded after their release so that of an expired hold is
+// still recognized.
 HWND g_hostWindow = nullptr;
 IRedXeHost* g_log = nullptr;
 Counters g_counters{};
@@ -828,13 +829,15 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     {
         return E_INVALIDARG;
     }
-    if (release && g_mouse.held)
+    // Only the up of the recorded button ends its hold; any other button's up is the stand-alone release below.
+    const bool heldButton = up == g_heldMouseFlags && data == g_heldMouseData;
+    if (release && g_mouse.held && heldButton)
     {
         const HRESULT released = ReleaseMouse(false, true);
         ArmHeldTimer();
         return released;
     }
-    if (release && g_mouse.expired && up == g_heldMouseFlags && data == g_heldMouseData)
+    if (release && g_mouse.expired && heldButton)
     {
         // The deadline already released this button; a second up would end a press the user makes meanwhile.
         g_mouse.expired = false;
@@ -885,13 +888,15 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     {
         return E_INVALIDARG;
     }
-    if (release && g_chord.held)
+    // Only the up of the recorded chord ends its hold; any other chord's up is the stand-alone release below.
+    const bool heldChord = SameChord(sequence.chords[0], g_heldChord);
+    if (release && g_chord.held && heldChord)
     {
         const HRESULT released = ReleaseChord(false, true);
         ArmHeldTimer();
         return released;
     }
-    if (release && g_chord.expired && SameChord(sequence.chords[0], g_heldChord))
+    if (release && g_chord.expired && heldChord)
     {
         // The deadline already released this chord; its key-ups again would also lift a modifier the user is
         // physically holding meanwhile.
@@ -1084,6 +1089,13 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
 
 void SetHostWindow(HWND window, IRedXeHost* log) noexcept
 {
+    if (!window)
+    {
+        // The main window is closing: no timer releases a hold any more, so this is the last attempt, made while the
+        // outgoing log still records a refusal (held-release-abandoned). Runtime shutdown then finds nothing held.
+        (void)ReleaseChord(false, false);
+        (void)ReleaseMouse(false, false);
+    }
     if (g_hostWindow)
     {
         (void)KillTimer(g_hostWindow, kHeldInputTimerId);

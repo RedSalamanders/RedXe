@@ -54,8 +54,9 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   created only by the first launch, in a single-threaded COM apartment, with 8 fixed slots of about 3 KiB and two
   events. Idle, it blocks in one message-aware wait and owns no timer or periodic wake; a full set of slots refuses a
   launch rather than waiting. Each finished launch posts the existing coalesced host-action message, and the UI
-  thread logs the result. Shutdown waits at most 1000 ms for a launch still in the shell and then retains that
-  thread's storage until process exit instead of joining it.
+  thread logs the result. Shutdown, also one a stuck device lane ends early, drops queued launches and waits at most
+  1000 ms, once per process, for a launch still in the shell, and then retains that thread's storage until process
+  exit instead of joining it; the process runtime's second shutdown only checks whether the thread has exited.
 - A queued action that injects input and waited more than 1000 ms for the UI thread is dropped, not replayed into
   whatever window is foreground after the stall; the check is one tick comparison per drained slot.
 - RedXe and plugins must share immutable device resources across compatible widget instances and minimize dynamic
