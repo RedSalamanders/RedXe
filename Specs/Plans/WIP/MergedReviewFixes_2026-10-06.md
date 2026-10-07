@@ -436,8 +436,8 @@ Check a row when its fix lands, or note why it was dropped.
 ### P6. Behavior-preserving simplifications (41)
 
 - [ ] `tests#0` (medium) `Tests/SettingsTests/Settings.Tests.Runner.cpp:1408`: Tray-icon test claims 'a toggle is a runtime change the host applies live' but only checks AppSettings::operator==, which the live-reload path never uses
-- [ ] `alignment#10` (low) `Specs/Build/Build_Process.md:117`: Build_Process.md states normative requirements for RedSalamander and DxUi, which RedXe neither owns nor implements
-- [ ] `alignment#13` (low) `Tests/test-scopes.json:182`: The scoped-testing manifest, module and help carry rules and examples copied from other repositories
+- [x] `alignment#10` (low) `Specs/Build/Build_Process.md:117`: Build_Process.md states normative requirements for RedSalamander and DxUi, which RedXe neither owns nor implements
+- [x] `alignment#13` (low) `Tests/test-scopes.json:182`: The scoped-testing manifest, module and help carry rules and examples copied from other repositories. P5 (#37, 9dae761) removed the four dead rules; the TerminalEngine exemption and the `legacy`, `External`, `Changes` and `Specs/(Done|TestRuns|Reviews|Mockups)` alternatives are gone, and a ScopedTesting case checks that the help examples name manifest scopes.
 - [ ] `alignment#8` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock measures displays on every launch without a XENEON, though the spec says only at install
 - [ ] `dock-switch#15` (low) `RedXe/Application.cpp:433`: Monitor enumeration and effective-DPI lookup duplicated across MakeFirstRunDock, ResolveDockMonitor and PlaceStandardWindow; the `secondary` order invariant depends on the copies matching
 - [ ] `dock-switch#16` (low) `RedXe/Settings.cpp:2477`: Duplicated install-target probe and atomic-commit code in Settings.cpp introduced by the first-run path
@@ -448,7 +448,7 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `logicon-zoom#6` (low) `Plugins/Logicon/LogiconHid.h:90`: Dead HID cancel and redundant stop paths after the IoState rewrite: HidPort::Cancel has no caller and races Close, Write's ERROR_BUSY branch is unreachable, and lane exit stops the wheels twice
 - [x] `process-containment#11` (low) `Build/BuildPresentation.psm1:720`: The process-containment launcher lives in the presentation module; test.ps1 loads BuildPresentation.psm1 only for it
 - [x] `process-containment#8` (low) `Build/BuildPresentation.psm1:475`: Two argument-quoting implementations for the two launch paths; ConvertTo-RedXeProcessCommandLine matches .NET ArgumentList exactly, so Set-RedXeProcessArguments can be deleted
-- [ ] `scoped-testing#18` (low) `Build/ScopedTesting.psm1:224`: Code, help text and normative spec text copied from other repositories (DxUi, RedSalamander) is dead or wrong in RedXe
+- [x] `scoped-testing#18` (low) `Build/ScopedTesting.psm1:224`: Code, help text and normative spec text copied from other repositories (DxUi, RedSalamander) is dead or wrong in RedXe
 - [ ] `settings#11` (low) `RedXe/Settings.cpp:2137`: PrepareDockSourcePatch parses the whole document a second time for a check ParseAppSettingsJsonV5 already guarantees
 - [ ] `settings#12` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock queries Explorer on every launch without a XENEON although it is used only when the default file is installed, and it duplicates ResolveDockMonitor's monitor enumeration
 - [ ] `settings#13` (low) `RedXe/Settings.cpp:1872`: The new source-text JSON scanner duplicates JsonTextCursor already in SettingsV4.cpp
@@ -472,8 +472,8 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `logicon-zoom#11` (nit) `Specs/Settings.schema.json:323`: Leftovers from the removed Zoom SDK/client path: unreferenced $defs/zoomSettings, a stale .gitignore script reference, and ZoomSettings compiled into the host
 - [x] `process-containment#10` (nit) `Build/BuildPresentation.psm1:686`: ContainedProcess carries dead members after #26 removed the Kill fallback, and the read/wait logic is duplicated per path; one wait with Timeout.Infinite removes both. Partly resolved by P5 (#37): `-ProcessId` reads `Id` again, the exit grace reads `HasExited`, and one sliced wait replaced both per-path branches; the parameterless `WaitForExit()` was still dead and is removed.
 - [x] `process-containment#16` (nit) `test.ps1:142`: Two assignments of the test budget; the effective value for later suites depends on whether PluginContract was selected
-- [ ] `scoped-testing#19` (nit) `Tests/test-scopes.json:182`: Four scope rules match test folders that do not exist (dead rules)
-- [ ] `scoped-testing#20` (nit) `Build/ScopedTesting.psm1:101`: Top-level Mockups/ is treated as code: it triggers a full run and invalidates native results
+- [x] `scoped-testing#19` (nit) `Tests/test-scopes.json:182`: Four scope rules match test folders that do not exist (dead rules). Resolved by P5 (#37, 9dae761): the four rules are gone, and ScopedTesting.Tests.ps1 fails on a rule that matches no tracked path.
+- [x] `scoped-testing#20` (nit) `Build/ScopedTesting.psm1:101`: Top-level Mockups/ is treated as code: it triggers a full run and invalidates native results
 - [x] `scoped-testing#21` (nit) `test.ps1:142`: Duplicate $testTimeoutSeconds assignment left inside the PluginContract block
 - [ ] `settings#18` (nit) `Specs/Settings.schema.json:323`: Dead `zoomSettings` definition left in the schema
 
@@ -497,7 +497,7 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `logicon-zoom#18` (low) `Tests/LogiconTests/Logicon.Tests.Runner.cpp:718`: The new raw-input ownership rules (do not replace a prior owner, do not remove a later one) have no test
 - [ ] `logicon-zoom#8` (low) `Specs/Plugins/Plugins_Zoom.md:34`: Plugins_Zoom.md says removed zoom.* bindings fail settings validation, but documents accept them and they show a red '!'
 - [x] `process-containment#9` (low) `Tests/BuildProcessTests/BuildProcessTests.ps1:240`: The committed test only checks quoting for one argument with spaces, though every bounded test.ps1 call uses the custom quoter
-- [ ] `scoped-testing#22` (low) `Common/AddressSanitizerProbe.h:5`: A test-only ASan fixture header in Common/ escaped the #31 naming migration and native test inventory
+- [x] `scoped-testing#22` (low) `Common/AddressSanitizerProbe.h:5`: A test-only ASan fixture header in Common/ escaped the #31 naming migration and native test inventory
 - [ ] `tests#11` (low) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:963`: Slide-offset test covers one GPU tile only; native widget containers moving with a top or left dock slide are untested
 - [ ] `tests#13` (low) `RedXe/HostActions.cpp:698`: Monitor resolution for actions (including the new `secondary` kind) never runs under test: deviceAccess=false swaps in a fixed rectangle
 - [ ] `tests#21` (low) `Tests/LogiconTests/Logicon.Tests.Runner.cpp:718`: Logicon raw-input ownership rules added in #21 have no test; only plain Start/Stop/restart is exercised

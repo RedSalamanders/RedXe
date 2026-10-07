@@ -1,9 +1,9 @@
 #include "../../Common/FailureReports.h"
-#include "AddressSanitizerProbe.h"
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
+#include "PluginContract.Tests.AddressSanitizerProbe.h"
 #include "Shaders.Tests.Contract.h"
 #include "ShadersSettings.h"
 
