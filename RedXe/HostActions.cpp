@@ -6,9 +6,9 @@
 
 #include <algorithm>
 #include <climits>
+#include <cstdio>
 #include <cstring>
 #include <powrprof.h>
-#include <shellapi.h>
 
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027 28182)
@@ -21,18 +21,31 @@ namespace
 {
 using namespace RedXeActions;
 
-// UI-thread state: the main window, the counters, and whatever keys.down / mouse.down left pressed.
+// One input pressed by keys.down or mouse.down. `due` is its release deadline, or the next retry of a release that
+// SendInput refused. `expired` marks a hold the deadline released, so the matching `up` that follows injects nothing.
+struct Hold final
+{
+    ULONGLONG due = 0;
+    uint32_t failedReleases = 0;
+    bool held = false;
+    bool deviceAccess = false;
+    bool expired = false;
+};
+
+// UI-thread state: the main window, the log, the counters, and whatever keys.down / mouse.down left pressed. The
+// chord and button identify the hold's own `up`, and stay recorded after their release so that of an expired hold is
+// still recognized.
 HWND g_hostWindow = nullptr;
+IRedXeHost* g_log = nullptr;
 Counters g_counters{};
 KeyChord g_heldChord{};
-bool g_chordHeld = false;
+Hold g_chord{};
 uint32_t g_heldMouseFlags = 0;
 DWORD g_heldMouseData = 0;
-bool g_mouseHeld = false;
-ULONGLONG g_chordSince = 0;
-ULONGLONG g_mouseSince = 0;
-bool g_chordDeviceAccess = false;
-bool g_mouseDeviceAccess = false;
+Hold g_mouse{};
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+HRESULT g_injectionFailure = S_OK;
+#endif
 
 void CountExecution(const RedXeActionDescriptor& descriptor) noexcept
 {
@@ -84,6 +97,12 @@ void CountExecution(const RedXeActionDescriptor& descriptor) noexcept
 [[nodiscard]] HRESULT Inject(const INPUT* inputs, uint32_t count, bool deviceAccess) noexcept
 {
     g_counters.injectedInputs += count;
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+    if (FAILED(g_injectionFailure))
+    {
+        return g_injectionFailure;
+    }
+#endif
     if (!deviceAccess)
     {
         return S_OK;
@@ -166,58 +185,99 @@ void ArmHeldTimer() noexcept
         return;
     }
     (void)KillTimer(g_hostWindow, kHeldInputTimerId);
-    if (!g_chordHeld && !g_mouseHeld)
+    if (!g_chord.held && !g_mouse.held)
     {
         return;
     }
-    const ULONGLONG chordDue = g_chordHeld ? g_chordSince + kHeldReleaseMilliseconds : ULLONG_MAX;
-    const ULONGLONG mouseDue = g_mouseHeld ? g_mouseSince + kHeldReleaseMilliseconds : ULLONG_MAX;
+    const ULONGLONG chordDue = g_chord.held ? g_chord.due : ULLONG_MAX;
+    const ULONGLONG mouseDue = g_mouse.held ? g_mouse.due : ULLONG_MAX;
     const ULONGLONG now = GetTickCount64();
     const ULONGLONG due = std::min(chordDue, mouseDue);
     const UINT delay = static_cast<UINT>(std::max<ULONGLONG>(1, due > now ? due - now : 1));
     (void)SetTimer(g_hostWindow, kHeldInputTimerId, delay, nullptr);
 }
 
-void ReleaseChord() noexcept
+void BeginHold(Hold& hold, bool deviceAccess) noexcept
 {
-    if (!g_chordHeld)
+    hold = Hold{};
+    hold.due = GetTickCount64() + kHeldReleaseMilliseconds;
+    hold.held = true;
+    hold.deviceAccess = deviceAccess;
+}
+
+// Settles one release attempt. SendInput refuses input while a UAC prompt or the lock screen owns the input desktop;
+// such a hold stays tracked and is retried kHeldReleaseRetryMilliseconds later (never at the timer's minimum
+// period), so an injected modifier is not left down for every application. `retry` false (shutdown), or the last
+// allowed attempt, stops tracking it instead.
+[[nodiscard]] HRESULT SettleRelease(Hold& hold, HRESULT result, bool expired, bool retry) noexcept
+{
+    if (FAILED(result) && retry && ++hold.failedReleases < kMaximumHeldReleaseAttempts)
     {
-        return;
+        if (hold.failedReleases == 1)
+        {
+            (void)RedXeHostLog(g_log, RedXeLogLevelWarning, nullptr, nullptr, "held-release-failed",
+                               "a held key or button could not be released; RedXe retries the release.", result);
+        }
+        hold.due = GetTickCount64() + kHeldReleaseRetryMilliseconds;
+        return result;
+    }
+    if (FAILED(result))
+    {
+        (void)RedXeHostLog(g_log, RedXeLogLevelWarning, nullptr, nullptr, "held-release-abandoned",
+                           "a held key or button could not be released and is no longer tracked.", result);
+    }
+    else
+    {
+        ++g_counters.heldReleases;
+    }
+    hold.held = false;
+    hold.expired = expired && SUCCEEDED(result);
+    hold.failedReleases = 0;
+    return result;
+}
+
+// `expired` is true when the deadline (or a retry the timer scheduled) releases the hold rather than an action.
+[[nodiscard]] HRESULT ReleaseChord(bool expired, bool retry) noexcept
+{
+    if (!g_chord.held)
+    {
+        return S_FALSE;
     }
     std::array<INPUT, 5> inputs{};
     const uint32_t count = FillChord(g_heldChord, true, inputs.data());
-    (void)Inject(inputs.data(), count, g_chordDeviceAccess);
-    g_chordHeld = false;
-    ++g_counters.heldReleases;
+    return SettleRelease(g_chord, Inject(inputs.data(), count, g_chord.deviceAccess), expired, retry);
 }
 
-void ReleaseMouse() noexcept
+[[nodiscard]] HRESULT ReleaseMouse(bool expired, bool retry) noexcept
 {
-    if (!g_mouseHeld)
+    if (!g_mouse.held)
     {
-        return;
+        return S_FALSE;
     }
     INPUT input{};
     input.type = INPUT_MOUSE;
     input.mi.dwFlags = g_heldMouseFlags;
     input.mi.mouseData = g_heldMouseData;
-    (void)Inject(&input, 1, g_mouseDeviceAccess);
-    g_mouseHeld = false;
-    ++g_counters.heldReleases;
+    return SettleRelease(g_mouse, Inject(&input, 1, g_mouse.deviceAccess), expired, retry);
 }
 
 void ExpireHeld() noexcept
 {
     const ULONGLONG now = GetTickCount64();
-    if (g_chordHeld && now - g_chordSince >= kHeldReleaseMilliseconds)
+    if (g_chord.held && now >= g_chord.due)
     {
-        ReleaseChord();
+        (void)ReleaseChord(true, true);
     }
-    if (g_mouseHeld && now - g_mouseSince >= kHeldReleaseMilliseconds)
+    if (g_mouse.held && now >= g_mouse.due)
     {
-        ReleaseMouse();
+        (void)ReleaseMouse(true, true);
     }
     ArmHeldTimer();
+}
+
+[[nodiscard]] bool SameChord(const KeyChord& left, const KeyChord& right) noexcept
+{
+    return left.modifiers == right.modifiers && left.virtualKey == right.virtualKey && left.extended == right.extended;
 }
 
 [[nodiscard]] HRESULT PressChords(const ChordSequence& sequence, bool deviceAccess) noexcept
@@ -274,91 +334,73 @@ void ExpireHeld() noexcept
     return Inject(inputs.data(), 2, deviceAccess);
 }
 
-[[nodiscard]] HRESULT Launch(std::string_view target, bool deviceAccess) noexcept
+// Hands a validated, counted launch to the launch worker; S_FALSE once it is queued.
+[[nodiscard]] HRESULT QueueLaunch(LaunchWorker::Request& request, std::string_view verb,
+                                  LaunchWorker* launches) noexcept
 {
-    std::array<wchar_t, kRedXeMaximumActionTargetBytes + 1> wide{};
-    if (!IsPathOrUri(target) || !Utf8ToWide(target, wide.data(), static_cast<int>(wide.size())))
+    if (!launches)
+    {
+        return E_NOT_VALID_STATE;
+    }
+    (void)_snprintf_s(request.subject.data(), request.subject.size(), _TRUNCATE, "action \"system.%.*s\"",
+                      static_cast<int>(verb.size()), verb.data());
+    const HRESULT queued = launches->Enqueue(request);
+    return SUCCEEDED(queued) ? S_FALSE : queued;
+}
+
+[[nodiscard]] HRESULT Launch(std::string_view verb, std::string_view target, bool deviceAccess,
+                             LaunchWorker* launches) noexcept
+{
+    LaunchWorker::Request request{};
+    if (!IsPathOrUri(target) || !Utf8ToWide(target, request.file.data(), static_cast<int>(request.file.size())))
     {
         return E_INVALIDARG;
     }
     ++g_counters.launches;
     if (!deviceAccess)
     {
-        return S_OK;
+        return S_FALSE;
     }
-    SHELLEXECUTEINFOW info{};
-    info.cbSize = sizeof(info);
-    info.fMask = SEE_MASK_FLAG_NO_UI;
-    info.lpFile = wide.data();
-    info.nShow = SW_SHOWNORMAL;
-    // A file launches with its own directory as working directory, as Launcher always did.
-    std::array<wchar_t, kRedXeMaximumActionTargetBytes + 1> directory{};
-    if (IsAbsolutePath(target))
-    {
-        const DWORD attributes = GetFileAttributesW(wide.data());
-        if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
-        {
-            wcscpy_s(directory.data(), directory.size(), wide.data());
-            wchar_t* slash = wcsrchr(directory.data(), L'\\');
-            if (!slash)
-            {
-                slash = wcsrchr(directory.data(), L'/');
-            }
-            if (slash)
-            {
-                *slash = L'\0';
-                info.lpDirectory = directory.data();
-            }
-        }
-    }
-    if (!ShellExecuteExW(&info))
-    {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    return S_OK;
+    // A file launches with its own directory as working directory, as Launcher always did; the worker probes it.
+    request.fileFolder = IsAbsolutePath(target);
+    return QueueLaunch(request, verb, launches);
 }
 
-[[nodiscard]] HRESULT Run(std::string_view target, bool deviceAccess) noexcept
+[[nodiscard]] HRESULT Run(std::string_view verb, std::string_view target, bool deviceAccess,
+                          LaunchWorker* launches) noexcept
 {
     CommandLine parsed{};
     if (!ParseCommandLine(target, parsed))
     {
         return E_INVALIDARG;
     }
-    std::array<wchar_t, kRedXeMaximumActionTargetBytes + 1> executable{};
-    std::array<wchar_t, kRedXeMaximumActionTargetBytes + 4> commandLine{};
+    LaunchWorker::Request request{};
+    request.kind = LaunchWorker::Kind::Process;
     std::array<wchar_t, kRedXeMaximumActionTargetBytes + 1> arguments{};
-    if (!Utf8ToWide(parsed.executable, executable.data(), static_cast<int>(executable.size())) ||
+    if (!Utf8ToWide(parsed.executable, request.file.data(), static_cast<int>(request.file.size())) ||
         !Utf8ToWide(parsed.arguments, arguments.data(), static_cast<int>(arguments.size())))
     {
         return E_INVALIDARG;
     }
     // CreateProcessW wants the executable quoted in the mutable command line so a path with spaces stays one token.
-    swprintf_s(commandLine.data(), commandLine.size(), L"\"%s\"%s%s", executable.data(),
+    swprintf_s(request.commandLine.data(), request.commandLine.size(), L"\"%s\"%s%s", request.file.data(),
                arguments[0] != L'\0' ? L" " : L"", arguments.data());
-    std::array<wchar_t, kRedXeMaximumActionTargetBytes + 1> directory{};
-    wcscpy_s(directory.data(), directory.size(), executable.data());
-    wchar_t* slash = wcsrchr(directory.data(), L'\\');
+    request.directory = request.file;
+    wchar_t* slash = wcsrchr(request.directory.data(), L'\\');
     if (slash)
     {
         *slash = L'\0';
     }
+    else
+    {
+        request.directory[0] = L'\0';
+    }
     ++g_counters.processes;
     if (!deviceAccess)
     {
-        return S_OK;
+        return S_FALSE;
     }
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    PROCESS_INFORMATION process{};
-    if (!CreateProcessW(executable.data(), commandLine.data(), nullptr, nullptr, FALSE, CREATE_DEFAULT_ERROR_MODE,
-                        nullptr, slash ? directory.data() : nullptr, &startup, &process))
-    {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
-    return S_OK;
+    return QueueLaunch(request, verb, launches);
 }
 
 [[nodiscard]] HRESULT EnableShutdownPrivilege() noexcept
@@ -531,29 +573,24 @@ void ExpireHeld() noexcept
     return S_OK;
 }
 
-[[nodiscard]] HRESULT LaunchTaskManager(bool deviceAccess) noexcept
+[[nodiscard]] HRESULT LaunchTaskManager(std::string_view verb, bool deviceAccess, LaunchWorker* launches) noexcept
 {
-    std::array<wchar_t, MAX_PATH> path{};
-    const UINT length = GetSystemDirectoryW(path.data(), static_cast<UINT>(path.size()));
-    if (length == 0 || length >= path.size())
+    LaunchWorker::Request request{};
+    const UINT length = GetSystemDirectoryW(request.file.data(), static_cast<UINT>(request.file.size()));
+    if (length == 0 || length >= request.file.size())
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    if (wcscat_s(path.data(), path.size(), L"\\Taskmgr.exe") != 0)
+    if (wcscat_s(request.file.data(), request.file.size(), L"\\Taskmgr.exe") != 0)
     {
         return E_FAIL;
     }
     ++g_counters.launches;
     if (!deviceAccess)
     {
-        return S_OK;
+        return S_FALSE;
     }
-    SHELLEXECUTEINFOW info{};
-    info.cbSize = sizeof(info);
-    info.fMask = SEE_MASK_FLAG_NO_UI;
-    info.lpFile = path.data();
-    info.nShow = SW_SHOWNORMAL;
-    return ShellExecuteExW(&info) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+    return QueueLaunch(request, verb, launches);
 }
 
 [[nodiscard]] HRESULT SwitchLayout(std::string_view target, bool deviceAccess) noexcept
@@ -792,33 +829,41 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     {
         return E_INVALIDARG;
     }
-    if (release && g_mouseHeld)
+    // Only the up of the recorded button ends its hold; any other button's up is the stand-alone release below.
+    const bool heldButton = up == g_heldMouseFlags && data == g_heldMouseData;
+    if (release && g_mouse.held && heldButton)
     {
-        ReleaseMouse();
+        const HRESULT released = ReleaseMouse(false, true);
         ArmHeldTimer();
-        return S_OK;
+        return released;
     }
-    if (!release && g_mouseHeld)
+    if (release && g_mouse.expired && heldButton)
     {
-        ReleaseMouse();
+        // The deadline already released this button; a second up would end a press the user makes meanwhile.
+        g_mouse.expired = false;
+        return S_FALSE;
+    }
+    if (!release && g_mouse.held)
+    {
+        // A refused release keeps its hold for the retry; the new button is not pressed over it.
+        if (const HRESULT released = ReleaseMouse(false, true); FAILED(released))
+        {
+            ArmHeldTimer();
+            return released;
+        }
     }
     INPUT input{};
     input.type = INPUT_MOUSE;
     input.mi.dwFlags = release ? up : down;
     input.mi.mouseData = data;
     const HRESULT result = Inject(&input, 1, deviceAccess);
-    if (SUCCEEDED(result))
+    if (SUCCEEDED(result) && !release)
     {
-        g_mouseHeld = !release;
-        if (!release)
-        {
-            g_heldMouseFlags = up;
-            g_heldMouseData = data;
-            g_mouseSince = GetTickCount64();
-            g_mouseDeviceAccess = deviceAccess;
-        }
-        ArmHeldTimer();
+        g_heldMouseFlags = up;
+        g_heldMouseData = data;
+        BeginHold(g_mouse, deviceAccess);
     }
+    ArmHeldTimer();
     return result;
 }
 
@@ -843,42 +888,52 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     {
         return E_INVALIDARG;
     }
-    if (release && g_chordHeld)
+    // Only the up of the recorded chord ends its hold; any other chord's up is the stand-alone release below.
+    const bool heldChord = SameChord(sequence.chords[0], g_heldChord);
+    if (release && g_chord.held && heldChord)
     {
-        ReleaseChord();
+        const HRESULT released = ReleaseChord(false, true);
         ArmHeldTimer();
-        return S_OK;
+        return released;
     }
-    if (!release && g_chordHeld)
+    if (release && g_chord.expired && heldChord)
     {
-        ReleaseChord();
+        // The deadline already released this chord; its key-ups again would also lift a modifier the user is
+        // physically holding meanwhile.
+        g_chord.expired = false;
+        return S_FALSE;
+    }
+    if (!release && g_chord.held)
+    {
+        // A refused release keeps its hold for the retry; the new chord is not pressed over it.
+        if (const HRESULT released = ReleaseChord(false, true); FAILED(released))
+        {
+            ArmHeldTimer();
+            return released;
+        }
     }
     std::array<INPUT, 5> inputs{};
     const uint32_t count = FillChord(sequence.chords[0], release, inputs.data());
     const HRESULT result = Inject(inputs.data(), count, deviceAccess);
-    if (SUCCEEDED(result))
+    if (SUCCEEDED(result) && !release)
     {
-        g_chordHeld = !release;
-        if (!release)
-        {
-            g_heldChord = sequence.chords[0];
-            g_chordSince = GetTickCount64();
-            g_chordDeviceAccess = deviceAccess;
-        }
-        ArmHeldTimer();
+        g_heldChord = sequence.chords[0];
+        BeginHold(g_chord, deviceAccess);
     }
+    ArmHeldTimer();
     return result;
 }
 
-[[nodiscard]] HRESULT ExecuteSystem(std::string_view verb, std::string_view target, bool deviceAccess) noexcept
+[[nodiscard]] HRESULT ExecuteSystem(std::string_view verb, std::string_view target, bool deviceAccess,
+                                    LaunchWorker* launches) noexcept
 {
     if (verb == "launch" || verb == "open")
     {
-        return Launch(target, deviceAccess);
+        return Launch(verb, target, deviceAccess, launches);
     }
     if (verb == "run")
     {
-        return Run(target, deviceAccess);
+        return Run(verb, target, deviceAccess, launches);
     }
     if (verb == "lock")
     {
@@ -934,7 +989,7 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     }
     if (verb == "taskManager")
     {
-        return LaunchTaskManager(deviceAccess);
+        return LaunchTaskManager(verb, deviceAccess, launches);
     }
     return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
@@ -1032,13 +1087,21 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
 }
 } // namespace
 
-void SetHostWindow(HWND window) noexcept
+void SetHostWindow(HWND window, IRedXeHost* log) noexcept
 {
+    if (!window)
+    {
+        // The main window is closing: no timer releases a hold any more, so this is the last attempt, made while the
+        // outgoing log still records a refusal (held-release-abandoned). Runtime shutdown then finds nothing held.
+        (void)ReleaseChord(false, false);
+        (void)ReleaseMouse(false, false);
+    }
     if (g_hostWindow)
     {
         (void)KillTimer(g_hostWindow, kHeldInputTimerId);
     }
     g_hostWindow = window;
+    g_log = log;
     ArmHeldTimer();
 }
 
@@ -1066,8 +1129,11 @@ HRESULT ValidateExtra(const RedXeActionDescriptor& descriptor, std::string_view 
 void ReleaseHeld(bool deviceAccess) noexcept
 {
     (void)deviceAccess;
-    ReleaseChord();
-    ReleaseMouse();
+    // The last attempt: nothing is left to retry a refused release after this.
+    (void)ReleaseChord(false, false);
+    (void)ReleaseMouse(false, false);
+    g_chord = Hold{};
+    g_mouse = Hold{};
     ArmHeldTimer();
 }
 
@@ -1076,7 +1142,8 @@ void OnHeldTimer() noexcept
     ExpireHeld();
 }
 
-HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target, bool deviceAccess) noexcept
+HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target, bool deviceAccess,
+                LaunchWorker* launches) noexcept
 {
     if (descriptor.sizeBytes != sizeof(RedXeActionDescriptor) || !descriptor.name)
     {
@@ -1085,13 +1152,13 @@ HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target
     const std::string_view name{descriptor.name};
     const std::string_view space = HostActionCatalog::NamespaceOf(name);
     const std::string_view verb = name.substr(space.size() + 1);
-    // Anything left pressed by an earlier keys.down / mouse.down is released once it is older than the budget,
-    // unless this execution is the matching release itself.
+    // Whatever an earlier keys.down / mouse.down left pressed past its deadline (or due for a release retry) is
+    // released first, as the timer would. When this execution is that hold's own `up`, it then injects nothing.
     ExpireHeld();
     CountExecution(descriptor);
     if (space == "system")
     {
-        return ExecuteSystem(verb, target, deviceAccess);
+        return ExecuteSystem(verb, target, deviceAccess, launches);
     }
     if (space == "keys")
     {
@@ -1113,4 +1180,11 @@ void ResetCounters() noexcept
 {
     g_counters = Counters{};
 }
+
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+void FailInjectionForTesting(HRESULT failure) noexcept
+{
+    g_injectionFailure = failure;
+}
+#endif
 } // namespace HostActions

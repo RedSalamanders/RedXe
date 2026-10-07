@@ -94,7 +94,8 @@ class ZoomActions final : public RedXeComObject<ZoomActions, IRedXeActionPack>
         launch.actionUtf8 = "system.launch";
         launch.targetUtf8 = url;
         launch.sourcePluginId = Zoom::kPluginId;
-        // Both actions are Deferred: the host drains the queued (or coalesced) launch after this returns.
+        // Both actions are Deferred: the host drains the queued (or coalesced) system.launch after this returns and
+        // opens the browser on its launch worker; a refused request is returned unchanged.
         const HRESULT queued = _host->RequestAction(&launch);
         return FAILED(queued) ? queued : S_FALSE;
     }

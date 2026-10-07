@@ -1,6 +1,6 @@
 # Review fixes for PRs #21 to #32
 
-Status: `ACTIVE`, with open product decisions (see [Decisions](#decisions)).
+Status: `ACTIVE`. Decisions D1 to D9 are resolved (see [Decisions](#decisions)); D6 is the owner's repository setting.
 Date: 2026-10-06
 Owner: the domain specs listed under [Contracts expected to change](#contracts-expected-to-change).
 
@@ -9,10 +9,10 @@ and the plan moves to `Specs/Plans/Done/` once every batch is closed.
 
 ## Origin
 
-A production-readiness review of the eleven PRs merged into `main` from 2026-09-26 to 2026-10-06 (#21 to #32, range
-`3973fd8..25433ae`, 198 files). The review read each change with the code around it, looking for bugs, side effects
-on code the change did not touch, gaps in resilience and user experience, architecture misfits, and possible
-simplifications.
+A production-readiness review of the eleven PRs merged into `main` from 2026-09-26 to 2026-10-06 (#21 to #32; #29
+merged into #30's branch, not into `main`; range `3973fd8..25433ae`, 198 files). The review read each change with
+the code around it, looking for bugs, side effects on code the change did not touch, gaps in resilience and user
+experience, architecture misfits, and possible simplifications.
 
 Method:
 
@@ -27,7 +27,10 @@ Method:
   reviewer re-checked every high finding and the medium findings that shape this plan against the code, the
   `v1.0.102` tag, and the GitHub release, CI and ruleset state.
 
-Result: 227 open findings (13 high, 66 medium, 121 low, 27 nit; 2 still disputed) and 9 refuted. None is critical.
+Result: 227 open review records (13 high, 66 medium, 121 low, 27 nit; 2 still disputed) and 9 refuted. None is
+critical. Records are per review unit, so a defect that two or three units reported appears as two or three rows
+(for example `settings#0`, `logicon-zoom#0` and `alignment#0` are the same Zoom reset); such rows sit in the same
+batch and close together, so the counts measure review coverage, not distinct defects.
 Several predate the range but are listed because #23 and #27 make them much easier to hit; the register marks the
 PR where known. Line numbers are at `25433ae` and will drift: re-read each anchor before fixing it.
 
@@ -55,8 +58,12 @@ Fix:
   schema as deprecated, ignored properties. Correct `Plugins_Zoom.md`, which currently says they are rejected.
 - Turn `keys.down` and `mouse.down` on a Logicon key, dial button or turn into an invalid binding (red `!`, never
   dispatched) instead of a document error, with a precise diagnostic. Align the schema, `docs/actions.md` and
-  `docs/plugins/logicon.md`, and decide whether Launcher taps get the same rule.
-- Add SettingsTests that load the exact `v1.0.102` Release and Debug templates and a document with a held binding.
+  `docs/plugins/logicon.md`. Launcher taps keep their current behavior (decision D9).
+- `studioclock#9` (a newer file using `glowPercent` read by v1.0.102) closes by documenting D1: rollback to an
+  older build is unsupported.
+- Add SettingsTests that load the exact `v1.0.102` Release and Debug templates and a document with a held binding,
+  plus a case that sets all seven retired members with varied JSON value kinds (string, number, boolean, null,
+  object, array) and checks that one load logs one warning.
 
 ### B2. Release workflow runs the Python tooling suite
 
@@ -178,16 +185,20 @@ register rows.
 
 ## Decisions
 
-Recommended defaults are in bold. Batches that depend on a decision wait for it.
+Recommended defaults are in bold. On 2026-10-07 the owner asked for the whole plan to be implemented, so the
+recommended defaults apply; D6 stays the owner's repository setting and is not changed by any batch.
 
 - D1, upgrade policy (B1): **accept and ignore retired members with a warning**, or migrate the file on first load.
-  Is a rollback from a newer build to `v1.0.102` supported? Today it resets the file in that direction too.
+  Rollback from a newer build to an older one: **not supported**; `Core_Settings.md` says an older build may reject a
+  newer file and that cold recovery keeps the backup.
 - D2, first-run bar (P3):
   - The top edge of the second screen covers maximized windows' caption buttons: **prefer the free bottom edge**, or
     keep the top edge and inset the strip's corners?
   - `secondary` can later resolve to a XENEON connected afterwards: **skip a XENEON in `secondary`**, or write the
     chosen display's name at install time?
   - Should recovery of an invalid file install the bar, or **only a missing file**?
+  - A first install while a XENEON is only briefly absent: **log the topology seen and skip the first-run bar in a
+    remote session**; otherwise the bar is accepted behavior, because setting `edge` to `none` applies live.
 - D3, failed kind switch (P2): **roll back and keep running**, or exit as today.
 - D4, `redxe.screenshot` (P2): **keep RedXe running after an action capture**; only `--screenshot` exits.
 - D5, settings comments (P1): **no write when nothing changed plus the stamp check now**; patch source text so
@@ -195,8 +206,13 @@ Recommended defaults are in bold. Batches that depend on a decision wait for it.
 - D6, CI gate: **require `native (x64, Release)` and `tooling` in ruleset 23723903** (a repository setting the owner
   changes), so a red PR cannot merge and PrePush delegation rests on a required check.
 - D7, Zoom (P4): Zoom no longer has state. **Move it to the dedicated action-DLL path**, or keep the service wiring.
+  Either way the settings parser keeps accepting a legacy `services` entry for `builtin.zoom` (with or without the
+  retired members) and ignores it with a warning, so the move cannot undo B1.
 - D8, `Application.cpp` (6,338 lines): extracting a `DockController` that owns app bar, placement, reveal and slide
   was judged mostly code movement. **Do only the P6 de-duplication now** and revisit after P3.
+- D9, Launcher taps bound to `keys.down` or `mouse.down` (B1): Launcher taps are press-only like Logicon keys and
+  hold the input until the 2 s budget releases it. **Leave Launcher unchanged in B1** (B1 closes without it), or apply
+  the Logicon invalid-binding rule to Launcher too in P4.
 
 ## Contracts expected to change
 
@@ -209,10 +225,12 @@ Recommended defaults are in bold. Batches that depend on a decision wait for it.
 
 ## Validation
 
-- Every batch: the affected build, `Test-Changes.ps1` for the changed scopes, and the validation its owning specs
-  name. P1 to P4 also run `test.ps1 -Full` on x64 Debug and Release before their PR.
-- B1: a SettingsTests case per `v1.0.102` template and a held Logicon binding.
-- B2: the release workflow command in the reviewed-CI assertion, plus the same command run locally on x64 Release.
+- Every batch, B1 and B2 included: the affected build, `Test-Changes.ps1` for the changed scopes, and the validation
+  its owning specs name. B1, B2 and P1 to P4 also run `test.ps1 -Full` on x64 Debug and Release before their PR.
+- B1: a SettingsTests case per `v1.0.102` template, the all-retired-members case with varied value kinds and one
+  warning per load, and a held Logicon binding, plus the Zoom, Logicon, Settings and HostPlugin suites.
+- B2: the BuildProcess (tooling) scope, run explicitly, because the corrected release command skips it and
+  `ScopedTesting.Tests.ps1` carries the extended assertion; plus the release command run locally on x64 Release.
   Never dispatch `release.yml` as a test: every dispatch creates a GitHub release and, with the default inputs,
   submits it to winget. The next intentional release is the end-to-end check, unless a non-publishing dry-run input
   is added first.
@@ -253,44 +271,44 @@ Check a row when its fix lands, or note why it was dropped.
 
 ### P1. Settings integrity (12)
 
-- [ ] `settings#1` (high) `RedXe/Settings.cpp:2833`: PersistPatchedDocument writes the in-memory document over a rejected, unprocessed, deleted or failed --settings file with no stamp check (page swipe, exit, dock drag, Launcher import)
-- [ ] `settings#2` (medium) `RedXe/Settings.cpp:1850`: Widget persist rewrites the whole file through yyjson even when nothing changed: it strips every comment (including the first-run dock guidance) on the first page swipe and does UI-thread write-through I/O
-- [ ] `settings#3` (medium) `RedXe/Application.cpp:2565`: A comment-only reload during a page swipe is reverted when the page commits, and the next persist writes the stale text back to disk
-- [ ] `settings#4` (medium) `RedXe/SettingsV4.cpp:1878`: A UTF-8 BOM makes the whole settings file invalid; on the next start cold recovery resets the user's file
-- [ ] `alignment#6` (low) `Settings/RedXe.settings.json:10`: First-run dock file keeps the template's 'Uncomment and edit' dock example, so following it makes a duplicate `dock` that rejects the save
-- [ ] `dock-switch#22` (low) `RedXe/Settings.cpp:2310`: First-run settings file holds a live `dock` and the template's commented example whose instruction ('Uncomment and edit') produces a duplicate-member rejection
-- [ ] `host-hardening#19` (low) `RedXe/Application.cpp:2565`: A comment-only reload during a page swipe is overwritten by the staged page copy when the swipe commits; the next dock-edge drag then writes the old text back to disk
-- [ ] `settings#10` (low) `RedXe/Settings.cpp:2327`: First-run file holds a live dock next to the template's 'Uncomment and edit' dock example; following that instruction makes a duplicate member and invalidates the file
-- [ ] `settings#15` (low) `RedXe/Settings.cpp:2194`: PatchDockThickness appends a new dock object as a compact fragment on the root's closing-brace line
-- [ ] `settings#7` (low) `RedXe/Settings.cpp:2207`: PatchDockThickness raises version.minor in the source but leaves the typed settings.versionMinor stale, so the next comment-only edit takes the full reload path
-- [ ] `settings#8` (low) `RedXe/Settings.cpp:1887`: Text patcher ends // comments only at LF while yyjson also ends them at CR; PatchDockThickness persists its output without re-validating
-- [ ] `settings#9` (low) `RedXe/Settings.cpp:1212`: Atomic settings writes do not flush the temporary file before the rename; a short write can report S_OK
+- [x] `settings#1` (high) `RedXe/Settings.cpp:2833`: PersistPatchedDocument writes the in-memory document over a rejected, unprocessed, deleted or failed --settings file with no stamp check (page swipe, exit, dock drag, Launcher import)
+- [x] `settings#2` (medium) `RedXe/Settings.cpp:1850`: Widget persist rewrites the whole file through yyjson even when nothing changed: it strips every comment (including the first-run dock guidance) on the first page swipe and does UI-thread write-through I/O
+- [x] `settings#3` (medium) `RedXe/Application.cpp:2565`: A comment-only reload during a page swipe is reverted when the page commits, and the next persist writes the stale text back to disk
+- [x] `settings#4` (medium) `RedXe/SettingsV4.cpp:1878`: A UTF-8 BOM makes the whole settings file invalid; on the next start cold recovery resets the user's file
+- [x] `alignment#6` (low) `Settings/RedXe.settings.json:10`: First-run dock file keeps the template's 'Uncomment and edit' dock example, so following it makes a duplicate `dock` that rejects the save
+- [x] `dock-switch#22` (low) `RedXe/Settings.cpp:2310`: First-run settings file holds a live `dock` and the template's commented example whose instruction ('Uncomment and edit') produces a duplicate-member rejection
+- [x] `host-hardening#19` (low) `RedXe/Application.cpp:2565`: A comment-only reload during a page swipe is overwritten by the staged page copy when the swipe commits; the next dock-edge drag then writes the old text back to disk
+- [x] `settings#10` (low) `RedXe/Settings.cpp:2327`: First-run file holds a live dock next to the template's 'Uncomment and edit' dock example; following that instruction makes a duplicate member and invalidates the file
+- [x] `settings#15` (low) `RedXe/Settings.cpp:2194`: PatchDockThickness appends a new dock object as a compact fragment on the root's closing-brace line
+- [x] `settings#7` (low) `RedXe/Settings.cpp:2207`: PatchDockThickness raises version.minor in the source but leaves the typed settings.versionMinor stale, so the next comment-only edit takes the full reload path
+- [x] `settings#8` (low) `RedXe/Settings.cpp:1887`: Text patcher ends // comments only at LF while yyjson also ends them at CR; PatchDockThickness persists its output without re-validating
+- [x] `settings#9` (low) `RedXe/Settings.cpp:1212`: Atomic settings writes do not flush the temporary file before the rename; a short write can report S_OK
 
 ### P2. RedXe exits, freezes, or re-enters at runtime (23)
 
-- [ ] `dock-switch#0` (high) `RedXe/Application.cpp:2058`: A live reload that rebuilds the page while the titled window is minimized closes RedXe
-- [ ] `host-hardening#0` (high) `RedXe/Application.cpp:936`: The redxe.screenshot action quits RedXe after the capture, a second press during a capture is dropped but reports S_OK, and a failed capture is not logged
-- [ ] `launch-ui-thread#0` (high) `RedXe/HostActions.cpp:314`: system.launch runs GetFileAttributesW and ShellExecuteExW on the UI thread; a target on an offline share freezes the dashboard for about 42 s
-- [ ] `modal-reentrancy#2` (high) `RedXe/Application.cpp:3597`: A Launcher tile bound to redxe.settings.reload can free the Launcher widget while its own OnPointer is still running
-- [ ] `dock-switch#1` (medium) `RedXe/Application.cpp:1784`: A kind switch that fails on the fast (dock-only) reload path exits RedXe and marks the file applied, while the same failure in a full reload rolls back
-- [ ] `dock-switch#3` (medium) `RedXe/Application.cpp:2625`: A rolled-back kind switch logs window-kind-changed as if it succeeded, never logs window-kind-switch-failed, and restores the titled window on another monitor
-- [ ] `host-hardening#1` (medium) `RedXe/Main.cpp:325`: --screenshot exits 0 with no PNG when the run ends before the async capture completes, and the worker's real HRESULT is read too late
-- [ ] `host-hardening#2` (medium) `RedXeLauncher/Main.cpp:152`: The launcher does not wait when an argument is unknown, so exit code 2 is lost and the error prints after the prompt; test.ps1 masks it
-- [ ] `launch-ui-thread#1` (medium) `RedXe/PluginHost.cpp:2047`: Queued actions have no age bound, so key injections requested during a UI stall replay into whatever window is foreground afterwards
-- [ ] `modal-reentrancy#0` (medium) `RedXe/Application.cpp:5862`: A window-kind switch dispatched inside the titled window's move/size loop is undone when the loop ends: the dock is left at the titled window's rectangle
-- [ ] `modal-reentrancy#1` (medium) `RedXe/Main.cpp:363`: The startup and runtime failure message box is dismissed at once by the WM_QUIT that destroying the main window leaves in the queue
-- [ ] `settings#6` (medium) `RedXe/Application.cpp:1784`: An edge-only live dock reload that fails the window-kind switch quits RedXe and is reported as a successful reload
-- [ ] `dock-switch#11` (low, disputed) `RedXe/Application.cpp:5862`: A kind switch can run inside the titled window's own modal move/size loop
-- [ ] `host-hardening#10` (low) `RedXeLauncher/Main.cpp:259`: The launcher reports an NTSTATUS crash exit code (above INT_MAX) as 1, the documented settings-failure code
-- [ ] `host-hardening#11` (low) `RedXe/PluginHost.cpp:523`: Exiting with a stuck device lane skips the log drain, so the drain-timeout line can be lost
-- [ ] `host-hardening#12` (low) `RedXe/PluginHost.cpp:2372`: A service re-added while its old device lane is still stuck fails with ERROR_BUSY, the error is discarded, and nothing retries when the lane returns
-- [ ] `host-hardening#13` (low) `RedXe/HostActions.cpp:189`: A held key or button stops being tracked even when its release injection fails, so a modifier can stay down with no retry
-- [ ] `host-hardening#6` (low) `RedXe/Application.cpp:3052`: If the screenshot worker thread cannot start, an idle --screenshot run can hang instead of exiting 8; the capture flags and atomic are redundant
-- [ ] `host-hardening#7` (low) `RedXe/HostActions.cpp:1088`: Every hold longer than 2 s injects its key-ups twice, and the Execute comment describes an exemption that no longer exists
-- [ ] `host-hardening#8` (low) `RedXe/Application.cpp:3435`: An open action-notice window is not closed when its notices are cleared, so it keeps showing stale failures
-- [ ] `launch-ui-thread#2` (low) `Plugins/Actions/Zoom/Zoom.cpp:133`: zoom.open/zoom.join are flagged Deferred but defer only to the UI-thread ring, not a host-owned lane, so the flag gives no relief
-- [ ] `launch-ui-thread#3` (low) `RedXe/Application.cpp:2704`: Tray Edit settings calls ShellExecuteExW with shell UI on the UI thread; an error box or a share-hosted --settings freezes the dashboard
-- [ ] `slide-tray#12` (low) `RedXe/Application.cpp:2704`: Tray 'Edit settings' runs ShellExecuteExW with shell UI on the render thread; an error box freezes the dashboard
+- [x] `dock-switch#0` (high) `RedXe/Application.cpp:2058`: A live reload that rebuilds the page while the titled window is minimized closes RedXe
+- [x] `host-hardening#0` (high) `RedXe/Application.cpp:936`: The redxe.screenshot action quits RedXe after the capture, a second press during a capture is dropped but reports S_OK, and a failed capture is not logged
+- [x] `launch-ui-thread#0` (high) `RedXe/HostActions.cpp:314`: system.launch runs GetFileAttributesW and ShellExecuteExW on the UI thread; a target on an offline share freezes the dashboard for about 42 s
+- [x] `modal-reentrancy#2` (high) `RedXe/Application.cpp:3597`: A Launcher tile bound to redxe.settings.reload can free the Launcher widget while its own OnPointer is still running
+- [x] `dock-switch#1` (medium) `RedXe/Application.cpp:1784`: A kind switch that fails on the fast (dock-only) reload path exits RedXe and marks the file applied, while the same failure in a full reload rolls back
+- [x] `dock-switch#3` (medium) `RedXe/Application.cpp:2625`: A rolled-back kind switch logs window-kind-changed as if it succeeded, never logs window-kind-switch-failed, and restores the titled window on another monitor
+- [x] `host-hardening#1` (medium) `RedXe/Main.cpp:325`: --screenshot exits 0 with no PNG when the run ends before the async capture completes, and the worker's real HRESULT is read too late
+- [x] `host-hardening#2` (medium) `RedXeLauncher/Main.cpp:152`: The launcher does not wait when an argument is unknown, so exit code 2 is lost and the error prints after the prompt; test.ps1 masks it
+- [x] `launch-ui-thread#1` (medium) `RedXe/PluginHost.cpp:2047`: Queued actions have no age bound, so key injections requested during a UI stall replay into whatever window is foreground afterwards
+- [x] `modal-reentrancy#0` (medium) `RedXe/Application.cpp:5862`: A window-kind switch dispatched inside the titled window's move/size loop is undone when the loop ends: the dock is left at the titled window's rectangle
+- [x] `modal-reentrancy#1` (medium) `RedXe/Main.cpp:363`: The startup and runtime failure message box is dismissed at once by the WM_QUIT that destroying the main window leaves in the queue
+- [x] `settings#6` (medium) `RedXe/Application.cpp:1784`: An edge-only live dock reload that fails the window-kind switch quits RedXe and is reported as a successful reload
+- [x] `dock-switch#11` (low, disputed) `RedXe/Application.cpp:5862`: A kind switch can run inside the titled window's own modal move/size loop
+- [x] `host-hardening#10` (low) `RedXeLauncher/Main.cpp:259`: The launcher reports an NTSTATUS crash exit code (above INT_MAX) as 1, the documented settings-failure code
+- [x] `host-hardening#11` (low) `RedXe/PluginHost.cpp:523`: Exiting with a stuck device lane skips the log drain, so the drain-timeout line can be lost
+- [x] `host-hardening#12` (low) `RedXe/PluginHost.cpp:2372`: A service re-added while its old device lane is still stuck fails with ERROR_BUSY, the error is discarded, and nothing retries when the lane returns
+- [x] `host-hardening#13` (low) `RedXe/HostActions.cpp:189`: A held key or button stops being tracked even when its release injection fails, so a modifier can stay down with no retry
+- [x] `host-hardening#6` (low) `RedXe/Application.cpp:3052`: If the screenshot worker thread cannot start, an idle --screenshot run can hang instead of exiting 8; the capture flags and atomic are redundant
+- [x] `host-hardening#7` (low) `RedXe/HostActions.cpp:1088`: Every hold longer than 2 s injects its key-ups twice, and the Execute comment describes an exemption that no longer exists
+- [x] `host-hardening#8` (low) `RedXe/Application.cpp:3435`: An open action-notice window is not closed when its notices are cleared, so it keeps showing stale failures
+- [x] `launch-ui-thread#2` (low) `Plugins/Actions/Zoom/Zoom.cpp:133`: zoom.open/zoom.join are flagged Deferred but defer only to the UI-thread ring, not a host-owned lane, so the flag gives no relief
+- [x] `launch-ui-thread#3` (low) `RedXe/Application.cpp:2704`: Tray Edit settings calls ShellExecuteExW with shell UI on the UI thread; an error box or a share-hosted --settings freezes the dashboard
+- [x] `slide-tray#12` (low) `RedXe/Application.cpp:2704`: Tray 'Edit settings' runs ShellExecuteExW with shell UI on the render thread; an error box freezes the dashboard
 
 ### P3. Dock, tray, Explorer, and session lifecycle (27)
 

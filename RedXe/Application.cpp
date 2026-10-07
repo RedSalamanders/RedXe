@@ -54,6 +54,7 @@ static_assert(TrayIcon::kCommandMessage != Renderer::kOcclusionStatusMessage &&
               TrayIcon::kCommandMessage != PluginHost::kDataSnapshotInvalidateMessage &&
               TrayIcon::kCommandMessage != Application::kPageEdgeHoverMessage &&
               TrayIcon::kCommandMessage != PluginHost::kHostActionMessage &&
+              TrayIcon::kCommandMessage != PluginHost::kServiceLaneMessage &&
               TrayIcon::kCommandMessage != Application::kDockAppBarMessage &&
               TrayIcon::kCommandMessage != Application::kScreenshotCompleteMessage);
 
@@ -490,6 +491,26 @@ struct DisplayFriendlyName final
     return count;
 }
 
+// The page a `page.goto` or `redxe.screenshot` target names: a page id, else a 0-based page index. UINT32_MAX when
+// it names no page.
+[[nodiscard]] uint32_t ResolveDashboardPageIndex(const AppSettings& settings, std::string_view target) noexcept
+{
+    for (uint32_t index = 0; index < settings.dashboard.pageCount; ++index)
+    {
+        if (SettingsIdEquals(settings.dashboard.pages[index].id.View(), target))
+        {
+            return index;
+        }
+    }
+    int32_t parsed = 0;
+    if (RedXeActions::ParseInteger(target, 0, 15, parsed) &&
+        static_cast<uint32_t>(parsed) < settings.dashboard.pageCount)
+    {
+        return static_cast<uint32_t>(parsed);
+    }
+    return UINT32_MAX;
+}
+
 [[nodiscard]] bool PluginEnabled(const AppSettings& settings, std::string_view pluginId) noexcept
 {
     const PluginSettings* plugin = FindPluginSettings(settings, pluginId);
@@ -532,6 +553,14 @@ struct DisplayFriendlyName final
     settings.dashboard.pageCount = pageWrite;
     settings.dashboard.pages.resize(pageWrite);
     return ValidateAppSettings(settings);
+}
+
+// Logged before a failed live window-kind switch is rolled back: the reload is rejected and the previous kind stays.
+void LogWindowKindSwitchFailed(HRESULT result) noexcept
+{
+    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                       "window-kind-switch-failed",
+                       "A settings reload could not switch the window kind; the previous kind is restored.", result);
 }
 
 // A `services` entry may name a service a later RedXe retired (today builtin.zoom, with or without its v1.0.102
@@ -1255,11 +1284,89 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         }
     }
 
+    // A source-only reload (a comment saved mid-swipe) keeps a staged swipe and becomes the document; committing the
+    // swipe then changes only the active page.
+    if (pageCount > 1)
+    {
+        constexpr uint32_t firstPage = 0;
+        std::unique_ptr<AppSettings> annotated{new (std::nothrow) AppSettings{*_settings}};
+        std::string expectedSource;
+        try
+        {
+            if (annotated)
+            {
+                annotated->sourceDocument.append("\n// Saved during a swipe.\n");
+                expectedSource = annotated->sourceDocument;
+            }
+        }
+        catch (...)
+        {
+            annotated.reset();
+        }
+        result = annotated ? StageTransitionPage(-1, &firstPage) : E_OUTOFMEMORY;
+        if (SUCCEEDED(result))
+            result = ApplySettings(std::move(annotated));
+        if (SUCCEEDED(result))
+            result = (result == S_FALSE && _transitionSettings) ? PromoteTransitionPage() : E_UNEXPECTED;
+        if (FAILED(result) || _transitionSettings || _settings->dashboard.activePageIndex != firstPage ||
+            _settings->sourceDocument != expectedSource)
+        {
+            OutputDebugStringW(L"A source-only reload during a staged swipe did not survive the page commit.\n");
+            return 6;
+        }
+    }
+
     std::unique_ptr<AppSettings> rejected{new (std::nothrow) AppSettings{*_settings}};
     if (!rejected || SUCCEEDED(ParseAppSettingsJson("{}", *rejected)) || *rejected != *_settings)
     {
         OutputDebugStringW(L"Invalid settings changed the active typed configuration.\n");
         return 6;
+    }
+
+    // The `redxe.screenshot` action keeps RedXe running: an ordinal past the page's widgets fails it, a second request
+    // while one is pending is busy, and the finished capture leaves the window up with nothing pending.
+    // SaveWindowScreenshot refuses this hidden window before any file I/O, so the path is never written.
+    {
+        constexpr std::string_view capturePath = "C:\\RedXe-self-test\\capture.png";
+        bool keptRunning = HandleHostAction("redxe.screenshot", "C:\\RedXe-self-test\\capture.png@0/511") ==
+                               HRESULT_FROM_WIN32(ERROR_NOT_FOUND) &&
+                           !_screenshot.pending && HandleHostAction("redxe.screenshot", capturePath) == S_OK &&
+                           HandleHostAction("redxe.screenshot", capturePath) == HRESULT_FROM_WIN32(ERROR_BUSY);
+        // The first tick jumps and arms the zero delay; the second starts the capture worker.
+        keptRunning = keptRunning && !TickScreenshot() && !TickScreenshot() && _screenshotWorker.joinable() &&
+                      WaitForSingleObject(_screenshotWorker.native_handle(), 10'000) == WAIT_OBJECT_0;
+        MSG completion{};
+        keptRunning = keptRunning && PeekMessageW(&completion, _window.get(), kScreenshotCompleteMessage,
+                                                  kScreenshotCompleteMessage, PM_REMOVE);
+        if (keptRunning)
+        {
+            (void)DispatchMessageW(&completion);
+        }
+        if (!keptRunning || TickScreenshot() || _screenshot.pending || !_window || SUCCEEDED(_screenshot.result))
+        {
+            OutputDebugStringW(L"The redxe.screenshot action did not keep RedXe running after its capture.\n");
+            return 6;
+        }
+    }
+
+    // A Launcher tile runs redxe.settings.reload and redxe.quit inside its own OnPointer, so neither may release a
+    // widget there: each only posts its message (removed here unprocessed) and returns S_FALSE.
+    {
+        const size_t widgetCount = _pluginManager->WidgetCount();
+        IRedXeWidget* const firstWidget = widgetCount != 0 ? _pluginManager->WidgetAt(0) : nullptr;
+        MSG posted{};
+        const bool deferred = HandleHostAction("redxe.settings.reload", "") == S_FALSE &&
+                              HandleHostAction("redxe.quit", "now") == S_FALSE && _window && _rendererReady &&
+                              _pluginManager->WidgetCount() == widgetCount &&
+                              (widgetCount == 0 || _pluginManager->WidgetAt(0) == firstWidget) &&
+                              PeekMessageW(&posted, _window.get(), SettingsWatcher::kSettingsChangedMessage,
+                                           SettingsWatcher::kSettingsChangedMessage, PM_REMOVE) &&
+                              PeekMessageW(&posted, _window.get(), WM_CLOSE, WM_CLOSE, PM_REMOVE);
+        if (!deferred)
+        {
+            OutputDebugStringW(L"redxe.settings.reload or redxe.quit ran inside the caller instead of being posted.\n");
+            return 6;
+        }
     }
     return 0;
 }
@@ -1782,35 +1889,32 @@ HRESULT Application::ResizeDockDashboard() noexcept
     return result;
 }
 
-void Application::ApplyDockSettings() noexcept
+HRESULT Application::ApplyDockSettings(const DockSettings& documentDock) noexcept
 {
-    if (!_settings)
-    {
-        return;
-    }
-    const DockSettings next = EffectiveDockSettings(_settings->dock, _dockOverrides);
+    const DockSettings next = EffectiveDockSettings(documentDock, _dockOverrides);
     if (next == _dock)
     {
-        return;
+        return S_OK;
     }
     if ((next.edge != DockEdge::None) != _dockActive)
     {
-        // `none` <-> an edge changes the window kind; the window follows the file at once.
-        if (const HRESULT result = SwitchWindowKind(next); FAILED(result))
+        // `none` <-> an edge changes the window kind; the window follows the file at once. A failed step switches
+        // back to the kind the window had, like a failed combined reload, and the caller rejects the reload.
+        const DockSettings previous = _dock;
+        const HRESULT result = SwitchWindowKind(next, false);
+        if (SUCCEEDED(result))
         {
-            RecordRuntimeFailure(result, "window-kind-switch-failed");
-            if (_window)
-            {
-                (void)PostMessageW(_window.get(), WM_CLOSE, 0, 0);
-            }
+            return S_OK;
         }
-        return;
+        LogWindowKindSwitchFailed(result);
+        const HRESULT restored = SwitchWindowKind(previous, true);
+        return FAILED(restored) ? restored : result;
     }
     const DockMode previousMode = _dock.mode;
     _dock = next;
     if (!_dockActive)
     {
-        return;
+        return S_OK;
     }
     if (previousMode != _dock.mode && _dock.mode == DockMode::Fixed)
     {
@@ -1823,6 +1927,7 @@ void Application::ApplyDockSettings() noexcept
     {
         EvaluateDockHolds();
     }
+    return S_OK;
 }
 
 void Application::StopDockInteraction() noexcept
@@ -1864,21 +1969,21 @@ void Application::ResetDockPlacementState() noexcept
     _dockPinnedByAction = false;
 }
 
-HRESULT Application::SwitchWindowKind(const DockSettings& next) noexcept
+HRESULT Application::SwitchWindowKind(const DockSettings& next, bool rollback) noexcept
 {
-    HRESULT result = RestyleWindowKind(next);
+    HRESULT result = RestyleWindowKind(next, rollback);
     if (SUCCEEDED(result))
     {
         result = RebuildPresentation();
     }
     if (SUCCEEDED(result))
     {
-        result = FinishWindowKindSwitch();
+        result = FinishWindowKindSwitch(rollback);
     }
     return result;
 }
 
-HRESULT Application::RestyleWindowKind(const DockSettings& next) noexcept
+HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback) noexcept
 {
     if (!_window || !_dashboardHost)
     {
@@ -1886,8 +1991,12 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next) noexcept
     }
     const HWND window = _window.get();
     const bool toDock = next.edge != DockEdge::None;
-    // Without a XENEON the standard window lands on the monitor the dock was on, where the person is looking.
-    _kindSwitchFallbackMonitor = MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
+    // Without a XENEON the standard window lands on the monitor the dock was on, where the person is looking. A
+    // rollback keeps the monitor the forward switch recorded: the window has been moved to the other kind's place.
+    if (!rollback)
+    {
+        _kindSwitchFallbackMonitor = MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
+    }
 
     // Every interaction bound to the old geometry ends, then the presentation goes: its swap-chain scaling belongs
     // to the old kind. Shell notifications that arrive while the dock unregisters find no dock.
@@ -1950,7 +2059,7 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next) noexcept
     return toDock ? PlaceDock(false) : PlaceStandardWindow(fullscreen, _kindSwitchFallbackMonitor);
 }
 
-HRESULT Application::FinishWindowKindSwitch() noexcept
+HRESULT Application::FinishWindowKindSwitch(bool rollback) noexcept
 {
     if (!_window || !_rendererReady)
     {
@@ -1973,9 +2082,13 @@ HRESULT Application::FinishWindowKindSwitch() noexcept
     PushHostChrome();
     PublishHostState();
     _frameInvalidated = true;
-    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "window-kind-changed",
-                       _dockActive ? "A settings reload turned the window into the dock."
-                                   : "A settings reload turned the dock into the standard window.");
+    if (!rollback)
+    {
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr,
+                           "window-kind-changed",
+                           _dockActive ? "A settings reload turned the window into the dock."
+                                       : "A settings reload turned the dock into the standard window.");
+    }
     return S_OK;
 }
 
@@ -2268,7 +2381,7 @@ void Application::EndDockResize() noexcept
         (void)ReleaseCapture();
     }
     // The dragged size replaces a --dock-thickness pin for the rest of the run, is committed to the shell, and is
-    // written to the settings file so it survives the next launch.
+    // written to the settings file so it survives the next launch (a size the document already has writes nothing).
     _dockOverrides.hasThickness = false;
     (void)PlaceDock(true);
     if (_settings)
@@ -2282,6 +2395,7 @@ void Application::EndDockResize() noexcept
                                "dock-thickness-persist-failed",
                                "The dragged dock thickness could not be written to the settings file.", persisted);
         }
+        LogDeferredSettingsPersist();
     }
     EvaluateDockHolds();
 }
@@ -2552,7 +2666,7 @@ HRESULT Application::InitializeDashboardRuntime() noexcept
     _rendererReady = true;
     RefreshAppearance();
     PluginHost::Instance().SetUiInvalidateTarget(_window.get());
-    HostActions::SetHostWindow(_window.get());
+    HostActions::SetHostWindow(_window.get(), PluginHost::Instance().Interface());
     RefreshPageEdgeAffordances();
     result = UpdateDashboardVisibility();
     if (SUCCEEDED(result))
@@ -2590,10 +2704,15 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     _wheel.Reset();
     if (ActiveDashboardRuntimeEquals(*settings, *_settings))
     {
+        // The dock goes first: a window-kind switch that fails is rolled back before anything is committed, so the
+        // rejected reload leaves the previous document, services, and log retention active.
+        if (const HRESULT result = ApplyDockSettings(settings->dock); FAILED(result))
+        {
+            return result;
+        }
         _settings = std::move(settings);
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
-        ApplyDockSettings();
         ApplyTrayIconSettings();
         PublishHostState();
         ShowActionNotices();
@@ -2609,7 +2728,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     const DockSettings previousDock = _dock;
     const DockSettings nextDock = EffectiveDockSettings(settings->dock, _dockOverrides);
     const bool switchKind = (nextDock.edge != DockEdge::None) != _dockActive;
-    HRESULT applyResult = switchKind ? RestyleWindowKind(nextDock) : S_OK;
+    HRESULT applyResult = switchKind ? RestyleWindowKind(nextDock, false) : S_OK;
     if (SUCCEEDED(applyResult))
     {
         applyResult = _pluginManager->Reconfigure(*settings);
@@ -2620,14 +2739,15 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     }
     if (SUCCEEDED(applyResult) && switchKind)
     {
-        applyResult = FinishWindowKindSwitch();
+        applyResult = FinishWindowKindSwitch(false);
     }
     if (SUCCEEDED(applyResult))
     {
         _settings = std::move(settings);
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
-        ApplyDockSettings();
+        // The window already has the candidate's kind, so only same-kind dock members remain, and they never fail.
+        (void)ApplyDockSettings(_settings->dock);
         ApplyTrayIconSettings();
         PublishHostState();
         ShowActionNotices();
@@ -2637,7 +2757,11 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     _renderer.Shutdown();
     _rendererReady = false;
     _dashboardHost->Shutdown(false);
-    HRESULT rollbackResult = switchKind ? RestyleWindowKind(previousDock) : S_OK;
+    if (switchKind)
+    {
+        LogWindowKindSwitchFailed(applyResult);
+    }
+    HRESULT rollbackResult = switchKind ? RestyleWindowKind(previousDock, true) : S_OK;
     if (SUCCEEDED(rollbackResult))
     {
         rollbackResult = _pluginManager->Reconfigure(*_settings);
@@ -2648,7 +2772,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     }
     if (SUCCEEDED(rollbackResult) && switchKind)
     {
-        rollbackResult = FinishWindowKindSwitch();
+        rollbackResult = FinishWindowKindSwitch(true);
     }
     if (FAILED(rollbackResult))
     {
@@ -2699,28 +2823,36 @@ void Application::OnTrayCommand(TrayCommand command) noexcept
 
 // The settings file this process watches (the default file or `--settings`), opened by its default app: the editor
 // the person associated with .json files. Unlike `redxe.settings.edit`, the shell's own UI stays on, so a file type
-// without an association offers the Open With picker and a missing file is reported instead of failing silently. It
-// works while the settings-error dialog is up, which is when the file most needs editing.
+// without an association offers the Open With picker and a missing file is reported instead of failing silently. The
+// host's launch worker runs it, so the picker, an error box, or a file on an unreachable share never stops the
+// dashboard; a failure the worker sees is logged under the same event. It works while the settings-error dialog is up,
+// which is when the file most needs editing.
 void Application::EditSettingsFile() noexcept
 {
     const std::wstring& path = _settingsStore.SettingsPath();
+    const std::wstring& directory = _settingsStore.SettingsDirectory();
     if (path.empty())
     {
         return;
     }
-    // An editor that is already running takes the file over and must be able to come to the front.
-    (void)AllowSetForegroundWindow(ASFW_ANY);
-    SHELLEXECUTEINFOW info{};
-    info.cbSize = sizeof(info);
-    info.lpFile = path.c_str();
-    info.lpDirectory =
-        _settingsStore.SettingsDirectory().empty() ? nullptr : _settingsStore.SettingsDirectory().c_str();
-    info.nShow = SW_SHOWNORMAL;
-    if (!ShellExecuteExW(&info))
+    LaunchWorker::Request request{};
+    request.shellMask = 0;
+    request.failureEvent = "tray-edit-settings-failed";
+    (void)strcpy_s(request.subject.data(), request.subject.size(), "tray Edit settings");
+    // A path longer than a slot (512 characters, well past MAX_PATH) is reported, never truncated.
+    HRESULT result = HRESULT_FROM_WIN32(ERROR_FILENAME_EXCED_RANGE);
+    if (path.size() < request.file.size() && directory.size() < request.directory.size())
+    {
+        (void)wmemcpy(request.file.data(), path.c_str(), path.size());
+        (void)wmemcpy(request.directory.data(), directory.c_str(), directory.size());
+        // An editor that is already running takes the file over and must be able to come to the front.
+        (void)AllowSetForegroundWindow(ASFW_ANY);
+        result = PluginHost::Instance().QueueLaunch(request);
+    }
+    if (FAILED(result))
     {
         (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
-                           "tray-edit-settings-failed", "The settings file could not be opened in its editor.",
-                           HRESULT_FROM_WIN32(GetLastError()));
+                           "tray-edit-settings-failed", "The settings file could not be opened in its editor.", result);
     }
 }
 
@@ -2859,8 +2991,8 @@ void Application::FlushPendingTransitionStage() noexcept
 
 HRESULT Application::PromoteTransitionPage() noexcept
 {
-    if (!_transitionDashboardHost || !_transitionPluginManager || !_transitionSettings || !_pluginManager ||
-        !_dashboardHost)
+    if (!_transitionDashboardHost || !_transitionPluginManager || !_transitionSettings || !_settings ||
+        !_pluginManager || !_dashboardHost)
     {
         return E_UNEXPECTED;
     }
@@ -2876,7 +3008,12 @@ HRESULT Application::PromoteTransitionPage() noexcept
     std::unique_ptr<PluginManager> retiringPlugins = std::move(_pluginManager);
     _dashboardHost = std::move(_transitionDashboardHost);
     _pluginManager = std::move(_transitionPluginManager);
-    _settings = std::move(_transitionSettings);
+    // The staged copy differs from the document only in the active page (StageTransitionPage), and every change to
+    // the page list cancels navigation first. Take only the page, so a source-only reload, a dock drag, or a widget
+    // persist made during the swipe stays in the document.
+    _settings->dashboard.activePageIndex = _transitionSettings->dashboard.activePageIndex;
+    _settings->dashboard.activePageId = _transitionSettings->dashboard.activePageId;
+    _transitionSettings.reset();
     _pageTransitionDirection = 0;
     _pageStagePendingDirection = 0;
     _pageCurrentOffset = 0;
@@ -2954,15 +3091,16 @@ void Application::BeginPageSettle(LONG targetOffset, bool commit) noexcept
     _frameInvalidated = true;
 }
 
-void Application::RequestScreenshot(std::wstring_view pngPath, std::wstring_view pageId, uint32_t delayMilliseconds,
-                                    uint32_t widgetOrdinal) noexcept
+HRESULT Application::RequestScreenshot(std::wstring_view pngPath, std::wstring_view pageId, uint32_t delayMilliseconds,
+                                       uint32_t widgetOrdinal, bool closeWhenDone) noexcept
 {
     if (_screenshot.pending)
     {
         // A capture worker may still own the previous request and its HWND. Keep it alive until completion.
-        return;
+        return HRESULT_FROM_WIN32(ERROR_BUSY);
     }
     _screenshot = ScreenshotRequest{};
+    _screenshot.closeWhenDone = closeWhenDone;
     _screenshot.widgetOrdinal = widgetOrdinal;
     _screenshot.path.assign(pngPath);
     if (!pageId.empty())
@@ -2980,6 +3118,36 @@ void Application::RequestScreenshot(std::wstring_view pngPath, std::wstring_view
     _screenshot.pending = true;
     // An autohide dock is held revealed for the capture (the pending request is a hold) so the PNG shows the bar.
     OnDockEvent(DockRevealEvent::Pin);
+    return S_OK;
+}
+
+bool Application::EndScreenshot(HRESULT result) noexcept
+{
+    _screenshot.result = result;
+    _screenshot.pending = false;
+    if (FAILED(result))
+    {
+        OutputDebugStringW(L"Screenshot capture failed.\n");
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                           "screenshot-failed", "The screenshot was not written.", result);
+    }
+    // Clearing `pending` drops the capture's dock hold at the loop's next EvaluateDockHolds.
+    return _screenshot.closeWhenDone;
+}
+
+HRESULT Application::FinishScreenshot() noexcept
+{
+    if (_screenshotWorker.joinable())
+    {
+        // The window closed while the worker captured, so its completion message found no window: its result decides.
+        _screenshotWorker.join();
+        _screenshot.result = _screenshotWorkerResult;
+    }
+    if (_screenshot.pending)
+    {
+        (void)EndScreenshot(_screenshot.result);
+    }
+    return _screenshot.result;
 }
 
 bool Application::TickScreenshot() noexcept
@@ -2990,14 +3158,9 @@ bool Application::TickScreenshot() noexcept
     }
     if (_screenshot.complete)
     {
-        _screenshot.pending = false;
-        if (FAILED(_screenshot.result))
-        {
-            OutputDebugStringW(L"Screenshot capture failed.\n");
-        }
-        return true;
+        return EndScreenshot(_screenshot.result);
     }
-    if (_screenshot.capturing)
+    if (_screenshotWorker.joinable())
     {
         return false;
     }
@@ -3034,16 +3197,13 @@ bool Application::TickScreenshot() noexcept
     {
         if (_screenshot.widgetOrdinal >= _dashboardHost->WidgetCount())
         {
-            _screenshot.result = HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
-            _screenshot.pending = false;
             OutputDebugStringW(L"Screenshot widget ordinal is out of range for the captured page.\n");
-            return true;
+            return EndScreenshot(HRESULT_FROM_WIN32(ERROR_NOT_FOUND));
         }
         crop = _dashboardHost->PixelBoundsAt(_screenshot.widgetOrdinal, static_cast<UINT>(client.right),
                                              static_cast<UINT>(client.bottom));
         cropPointer = &crop;
     }
-    _screenshot.capturing = true;
     try
     {
         const HWND window = _window.get();
@@ -3060,15 +3220,14 @@ bool Application::TickScreenshot() noexcept
                 {
                     CoUninitialize();
                 }
-                _screenshotWorkerResult.store(result, std::memory_order_release);
+                _screenshotWorkerResult = result;
                 (void)PostMessageW(window, kScreenshotCompleteMessage, 0, 0);
             });
     }
     catch (...)
     {
-        _screenshot.capturing = false;
-        _screenshot.result = E_OUTOFMEMORY;
-        _screenshot.complete = true;
+        // No worker will post a completion, and the idle loop may already block: end the request on this turn.
+        return EndScreenshot(E_OUTOFMEMORY);
     }
     return false;
 }
@@ -3449,6 +3608,13 @@ void Application::ShowActionNotices() noexcept
     std::array<wchar_t, PluginHost::kMaximumActionNotices * PluginHost::kActionNoticeCharacters + 64> text{};
     if (host.CopyActionNotices(text.data(), text.size()) == 0)
     {
+        // A changed settings apply cleared every notice (ResetActionPublishers): an open window now shows stale ones.
+        if (_actionNoticeDialog && IsWindow(_actionNoticeDialog))
+        {
+            const HWND dialog = _actionNoticeDialog;
+            _actionNoticeDialog = nullptr;
+            (void)DestroyWindow(dialog);
+        }
         return;
     }
     if (_actionNoticeDialog && IsWindow(_actionNoticeDialog))
@@ -3515,24 +3681,8 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
         }
         if (verb == "goto")
         {
-            uint32_t pageIndex = UINT32_MAX;
-            for (uint32_t index = 0; index < _settings->dashboard.pageCount; ++index)
-            {
-                if (SettingsIdEquals(_settings->dashboard.pages[index].id.View(), target))
-                {
-                    pageIndex = index;
-                    break;
-                }
-            }
+            const uint32_t pageIndex = ResolveDashboardPageIndex(*_settings, target);
             if (pageIndex == UINT32_MAX)
-            {
-                int32_t parsed = 0;
-                if (RedXeActions::ParseInteger(target, 0, 15, parsed))
-                {
-                    pageIndex = static_cast<uint32_t>(parsed);
-                }
-            }
-            if (pageIndex == UINT32_MAX || pageIndex >= _settings->dashboard.pageCount)
             {
                 return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
             }
@@ -3606,11 +3756,14 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
     }
     if (space == "redxe")
     {
+        // A widget's input callback reaches this through ExecuteAction, and a reload can release that very widget, so
+        // the reload is posted and runs from the message loop once the callback has returned.
         if (verb == "settings.reload")
         {
             _settingsStore.ForgetStamps();
-            OnSettingsChanged();
-            return S_OK;
+            return PostMessageW(_window.get(), SettingsWatcher::kSettingsChangedMessage, 0, 0)
+                       ? S_FALSE
+                       : HRESULT_FROM_WIN32(GetLastError());
         }
         if (verb == "settings.edit" || verb == "logs.open")
         {
@@ -3650,6 +3803,14 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
                 widgetOrdinal = static_cast<uint32_t>(parsed);
                 pageId = pageAndWidget.substr(0, slash);
             }
+            // A page that does not exist, or an ordinal past its widgets, fails the action before anything is captured.
+            const uint32_t pageIndex =
+                pageId.empty() ? _settings->dashboard.activePageIndex : ResolveDashboardPageIndex(*_settings, pageId);
+            if (pageIndex >= _settings->dashboard.pageCount ||
+                (widgetOrdinal != UINT32_MAX && widgetOrdinal >= _settings->dashboard.pages[pageIndex].widgetCount))
+            {
+                return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+            }
             std::array<wchar_t, kRedXeMaximumActionTargetBytes + 1> widePath{};
             std::array<wchar_t, 129> widePage{};
             const int pathLength =
@@ -3664,9 +3825,10 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
             {
                 return E_INVALIDARG;
             }
-            RequestScreenshot(std::wstring_view{widePath.data(), static_cast<size_t>(pathLength)},
-                              std::wstring_view{widePage.data(), static_cast<size_t>(pageLength)}, 0, widgetOrdinal);
-            return S_OK;
+            // RedXe keeps running after an action's capture; a press while a capture is pending is ERROR_BUSY.
+            return RequestScreenshot(std::wstring_view{widePath.data(), static_cast<size_t>(pathLength)},
+                                     std::wstring_view{widePage.data(), static_cast<size_t>(pageLength)}, 0,
+                                     widgetOrdinal, false);
         }
         if (verb == "quit")
         {
@@ -3674,8 +3836,8 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
             {
                 return E_INVALIDARG;
             }
-            CloseMainWindow();
-            return S_OK;
+            // Posted like the reload: closing releases every widget, the calling one included.
+            return PostMessageW(_window.get(), WM_CLOSE, 0, 0) ? S_FALSE : HRESULT_FROM_WIN32(GetLastError());
         }
         if (verb == "dock.show" || verb == "dock.hide" || verb == "dock.toggle")
         {
@@ -5298,6 +5460,14 @@ void Application::SetRaiseCloseHovered(bool hovered) noexcept
 
 void Application::OnSettingsChanged() noexcept
 {
+    if (_inSizeMove)
+    {
+        // The system move/size loop applies its own rectangle when it ends, which would undo a kind switch or a dock
+        // placement made now. The notification stays unacknowledged, so the watcher keeps coalescing, and
+        // WM_EXITSIZEMOVE replays it once.
+        _settingsReloadDeferred = true;
+        return;
+    }
     _settingsWatcher.AcknowledgeNotification();
 
     std::unique_ptr<AppSettings> candidate;
@@ -5338,6 +5508,16 @@ void Application::OnSettingsChanged() noexcept
         return;
     }
 
+    // A minimized standard window has a 0x0 client, which cannot size a rebuilt page. A candidate that rebuilds it
+    // without switching the window kind (a switch restores the window first) is neither applied nor rejected; the
+    // restore reads the file again.
+    if (!_dockActive && _window && IsIconic(_window.get()) && !ActiveDashboardRuntimeEquals(*candidate, *_settings) &&
+        EffectiveDockSettings(candidate->dock, _dockOverrides).edge == DockEdge::None)
+    {
+        _settingsReloadDeferred = true;
+        return;
+    }
+
     _settingsStore.SuppressDocumentWrites(true);
     const auto resumeWrites = wil::scope_exit([&]() noexcept { _settingsStore.SuppressDocumentWrites(false); });
     const HRESULT applyResult = ApplySettings(std::move(candidate));
@@ -5356,6 +5536,20 @@ void Application::OnSettingsChanged() noexcept
     {
         RecordRuntimeFailure(applyResult, "settings-apply-failed");
         CloseMainWindow();
+    }
+}
+
+void Application::ReplayDeferredSettingsReload() noexcept
+{
+    if (!_settingsReloadDeferred || _inSizeMove || !_window || IsIconic(_window.get()))
+    {
+        return;
+    }
+    // Posted, not called: WM_SIZE and WM_EXITSIZEMOVE stay short, and the reload runs from the message loop. A failed
+    // post keeps the deferral for the next size or loop end.
+    if (PostMessageW(_window.get(), SettingsWatcher::kSettingsChangedMessage, 0, 0))
+    {
+        _settingsReloadDeferred = false;
     }
 }
 
@@ -5615,7 +5809,7 @@ void Application::CloseMainWindow() noexcept
     ClearKeyboardFocus();
     _textServices.reset();
     PluginHost::Instance().SetUiInvalidateTarget(nullptr);
-    HostActions::SetHostWindow(nullptr);
+    HostActions::SetHostWindow(nullptr, nullptr);
     if (_dropRegistered && _window)
     {
         (void)RevokeDragDrop(_window.get());
@@ -5728,15 +5922,27 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         }
         break;
     case WM_SIZE:
-        return OnSize(window, LOWORD(lParam), HIWORD(lParam));
+    {
+        const LRESULT sizeResult = OnSize(window, LOWORD(lParam), HIWORD(lParam));
+        if (wParam != SIZE_MINIMIZED)
+        {
+            ReplayDeferredSettingsReload();
+        }
+        return sizeResult;
+    }
     case WM_DPICHANGED:
     {
         const LRESULT dpiResult = OnDpiChanged(window, LOWORD(wParam), reinterpret_cast<const RECT*>(lParam));
         CheckDeviceAdapter();
         return dpiResult;
     }
+    case WM_ENTERSIZEMOVE:
+        _inSizeMove = true;
+        break;
     case WM_EXITSIZEMOVE:
+        _inSizeMove = false;
         CheckDeviceAdapter();
+        ReplayDeferredSettingsReload();
         break;
     case WM_DISPLAYCHANGE:
         if (_dockActive)
@@ -5857,14 +6063,10 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         _occlusionStatusChanged = true;
         return 0;
     case kScreenshotCompleteMessage:
-        if (_screenshot.capturing)
+        if (_screenshotWorker.joinable())
         {
-            if (_screenshotWorker.joinable())
-            {
-                _screenshotWorker.join();
-            }
-            _screenshot.result = _screenshotWorkerResult.load(std::memory_order_acquire);
-            _screenshot.capturing = false;
+            _screenshotWorker.join();
+            _screenshot.result = _screenshotWorkerResult;
             _screenshot.complete = true;
         }
         return 0;
@@ -5874,6 +6076,15 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         return 0;
     case PluginHost::kHostActionMessage:
         PluginHost::Instance().DrainHostActions();
+        return 0;
+    case PluginHost::kServiceLaneMessage:
+        // A device lane that overran its stop has returned: the apply reaps its slot and starts the service again
+        // when the document still configures it.
+        if (_settings)
+        {
+            (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
+            PublishHostState();
+        }
         return 0;
     case SettingsWatcher::kSettingsChangedMessage:
         OnSettingsChanged();
@@ -6341,8 +6552,22 @@ HRESULT Application::ApplyWidgetSettingsPersist(const char* instanceId, const ch
     {
         return PatchWidgetInstanceSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
     }
-    return _settingsStore.PersistWidgetSettings(*_settings, instanceId,
-                                                std::string_view(settingsJsonUtf8, settingsBytes));
+    const HRESULT result =
+        _settingsStore.PersistWidgetSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
+    LogDeferredSettingsPersist();
+    return result;
+}
+
+void Application::LogDeferredSettingsPersist() noexcept
+{
+    if (_settingsStore.TakeDeferredPersistNotice())
+    {
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                           "settings-persist-deferred",
+                           "A settings change was kept in memory and not written, because the settings file on disk "
+                           "is not the document RedXe last loaded; the next successful load of that file replaces it.",
+                           S_FALSE);
+    }
 }
 
 HRESULT Application::SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8,

@@ -68,6 +68,7 @@
     <ClCompile Include="..\..\Common\Actions\WindowSelector.cpp" />
     <ClCompile Include="..\..\RedXe\HostActionCatalog.cpp" />
     <ClCompile Include="..\..\RedXe\HostActions.cpp" />
+    <ClCompile Include="..\..\RedXe\LaunchWorker.cpp" />
     <ClCompile Include="..\..\RedXe\SettingsV4.cpp" />
     <ClCompile Include="..\..\RedXe\SettingsWatcher.cpp" />
   </ItemGroup>

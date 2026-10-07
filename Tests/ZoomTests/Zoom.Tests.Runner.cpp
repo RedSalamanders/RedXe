@@ -262,7 +262,7 @@ bool TestPlugin() noexcept
     request.actionUtf8 = "zoom.open";
     success &= Check(pack->Execute(&request) == S_FALSE && std::strcmp(host.action.data(), "system.launch") == 0 &&
                          std::strcmp(host.target.data(), Zoom::kWebJoinPage) == 0,
-                     L"zoom.open queues the web join page");
+                     L"zoom.open forwards the web join page and reports itself deferred");
     request.targetUtf8 = "https://zoom.us/j/1234567890";
     success &= Check(pack->Execute(&request) == S_FALSE && std::strcmp(host.target.data(), Zoom::kWebJoinPage) == 0,
                      L"zoom.open ignores an authored target");
@@ -270,7 +270,7 @@ bool TestPlugin() noexcept
     request.actionUtf8 = "zoom.join";
     request.targetUtf8 = meeting;
     success &= Check(pack->Execute(&request) == S_FALSE && std::strcmp(host.target.data(), meeting) == 0,
-                     L"zoom.join preserves the invite URL");
+                     L"zoom.join preserves the invite URL and reports itself deferred");
     constexpr char browserJoin[] = "https://app.zoom.us/wc/12345678901/join?fromPWA=1&pwd=opaque";
     request.targetUtf8 = browserJoin;
     success &= Check(pack->Execute(&request) == S_FALSE && std::strcmp(host.target.data(), browserJoin) == 0,

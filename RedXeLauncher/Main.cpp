@@ -7,14 +7,13 @@
 // by absolute path with the package as working directory and every argument passed through unchanged.
 //
 // A normal dashboard launch returns to the console at once. Modes that finish on their own (--help, --self-test,
-// --screenshot, the crash harness) are awaited so the caller sees their output and exit code.
+// --screenshot, the crash harness, an unknown argument) are awaited so the caller sees their output and exit code.
 #include <windows.h>
 
 #include "../RedXe/CommandLine.h"
 
 #include <shellapi.h>
 
-#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -151,6 +150,11 @@ void ShowError(std::wstring_view message) noexcept
 
 [[nodiscard]] bool ShouldAwaitTarget(wchar_t* const* arguments, int argumentCount) noexcept
 {
+    // RedXe.exe reports an unknown argument and exits 2 at once, through the same scanner.
+    if (RedXeFindUnknownArgument(arguments, argumentCount) != nullptr)
+    {
+        return true;
+    }
     for (int index = 1; index < argumentCount; ++index)
     {
         if (!arguments[index])
@@ -256,7 +260,8 @@ int Launch()
         ShowError(FormatWin32Failure(L"Could not read the exit code of " + targetPath, GetLastError()));
         return 1;
     }
-    return exitCode <= static_cast<DWORD>((std::numeric_limits<int>::max)()) ? static_cast<int>(exitCode) : 1;
+    // The CRT hands wmain's int to ExitProcess unchanged, so an NTSTATUS crash code reaches the caller bit for bit.
+    return static_cast<int>(exitCode);
 }
 } // namespace
 

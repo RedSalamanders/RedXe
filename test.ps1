@@ -113,9 +113,12 @@ $launcherHelp = Start-Process -WindowStyle Hidden -FilePath $launcher -ArgumentL
 if ($launcherHelp.ExitCode -ne 0 -or (Get-Content -LiteralPath $launcherHelpLog -Raw) -notmatch '--self-test') {
     throw "RedXeLauncher.exe --help exited with code $($launcherHelp.ExitCode) or did not relay the RedXe help text."
 }
-$launcherUnknown = Start-Process -WindowStyle Hidden -FilePath $launcher -ArgumentList @('--self-test', '--warp', '--no-such-switch') -Wait -PassThru
-if ($launcherUnknown.ExitCode -ne 2) {
-    throw "RedXeLauncher.exe did not propagate the unknown-switch exit code 2 (got $($launcherUnknown.ExitCode))."
+# An unknown switch alone, with no awaited mode beside it, is awaited too: its error and exit code 2 reach the caller.
+$launcherUnknownLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXeLauncher.unknown.log"
+$launcherUnknown = Start-Process -WindowStyle Hidden -FilePath $launcher -ArgumentList @('--no-such-switch') -Wait -PassThru `
+    -RedirectStandardOutput $launcherUnknownLog
+if ($launcherUnknown.ExitCode -ne 2 -or (Get-Content -LiteralPath $launcherUnknownLog -Raw) -notmatch 'Unknown argument "--no-such-switch"') {
+    throw "RedXeLauncher.exe did not await and propagate the unknown-switch exit code 2 (got $($launcherUnknown.ExitCode))."
 }
 
 

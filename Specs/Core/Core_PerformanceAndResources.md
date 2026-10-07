@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-09-28
+Last reviewed: 2026-10-07
 
 ## Mandate
 
@@ -44,10 +44,21 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   an armed camera route; that route captures only while consumer sample requests maintain a 250-ms demand lease.
 - Named actions (`Specs/Plugins/Plugins_Actions.md`) use one static 16-slot ring drained by one posted message; every
   host-native action and every publisher `Execute` returns within 20 ms on the UI thread without waiting, pumping,
-  or showing UI, and defers longer work to the control lane or the publisher's own device lane through bounded
-  slots. Input injection batches at most 32 `INPUT`s per call and never sleeps; validation maps only the publisher
-  modules a document binds, at the same moment as their settings contracts; between executions a dedicated action
-  DLL owns no thread, timer, window, or hook.
+  or showing UI, and defers longer work to the control lane, the launch worker, or the publisher's own device lane
+  through bounded slots. Input injection batches at most 32 `INPUT`s per call and never sleeps; validation maps only
+  the publisher modules a document binds, at the same moment as their settings contracts; between executions a
+  dedicated action DLL owns no thread, timer, window, or hook.
+- Launches (`system.launch`, `system.open`, `system.run`, `system.taskManager`, and the tray's Edit settings) MUST
+  NOT call `ShellExecuteExW`, `CreateProcessW`, or a file probe on the UI thread, where a target on an offline share
+  froze every frame for about 42 s. They run on one host-owned launch worker (`RedXe/LaunchWorker.*`): a thread
+  created only by the first launch, in a single-threaded COM apartment, with 8 fixed slots of about 3 KiB and two
+  events. Idle, it blocks in one message-aware wait and owns no timer or periodic wake; a full set of slots refuses a
+  launch rather than waiting. Each finished launch posts the existing coalesced host-action message, and the UI
+  thread logs the result. Shutdown, also one a stuck device lane ends early, drops queued launches and waits at most
+  1000 ms, once per process, for a launch still in the shell, and then retains that thread's storage until process
+  exit instead of joining it; the process runtime's second shutdown only checks whether the thread has exited.
+- A queued action that injects input and waited more than 1000 ms for the UI thread is dropped, not replayed into
+  whatever window is foreground after the stall; the check is one tick comparison per drained slot.
 - RedXe and plugins must share immutable device resources across compatible widget instances and minimize dynamic
   uploads, state changes, render-target switches, and draw calls without restricting what a GPU widget may render.
 - Derived display state such as DPI, design-canvas transforms, and widget viewports must be cached and recomputed only
@@ -98,8 +109,9 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   and one small-icon `HICON` on the UI thread, with no thread, timer, hook, or periodic wake-up in any state. Shell
   traffic (`Shell_NotifyIconW`) happens only when the icon is added or removed, on `TaskbarCreated`, and on a DPI change
   of the owner; its callbacks, the menu, and the editor launch run only on user interaction, and none of them
-  invalidates a frame. While its menu is open the system's modal menu loop runs on the UI thread and the dashboard
-  presents nothing, like any other modal UI.
+  invalidates a frame. The editor launch, with any Open With picker or shell error box, runs on the launch worker,
+  so the dashboard keeps presenting. While its menu is open the system's modal menu loop runs on the UI thread and the
+  dashboard presents nothing, like any other modal UI.
 - After `Present` reports occlusion, RedXe must stop frame construction, wait for the DXGI factory's registered
   occlusion-status window message, and use `DXGI_PRESENT_TEST` to detect recovery without presenting content.
   Occlusion polling and periodic timers are prohibited.
@@ -205,13 +217,15 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   waits for the next arrival, and stop drains within 3 s or
   the host logs one `device-lane-drain-timeout` and tombstones the slot, service COM object, thread, events, and
   module until `RunDeviceWork` returns. If a driver never returns, that exceptional storage remains until process
-  exit to avoid releasing memory still in use. A replacement lane cannot start in that slot while tombstoned. A HID
-  request whose cancel is not complete after a 100 ms drain keeps its port's request slot instead of forcing a
-  reconnect; only closing that port retires its I/O block, at most four blocks per process, after which Logicon
-  opens no collection again. Idle cost with a connected keypad is zero wake-ups. A present dialpad with a bound turn
-  requires a process-wide Raw Input mouse sink, so the lane thread wakes for every mouse packet until the dialpad
-  leaves or no turn is bound; packets from other mice are drained inside the wait without a lane turn, snapshot, or
-  frame request, and each drain is capped at 256 messages. The
+  exit to avoid releasing memory still in use, and shutdown waits at most 1 s in all for the log writer to empty its
+  queue instead of joining it. A replacement lane cannot start in that slot while tombstoned; the late lane's return
+  posts one message that lets the UI thread reap the slot and restart a service the document still configures, with
+  no polling in between. A HID request whose cancel is not complete after a 100 ms drain keeps its port's request
+  slot instead of forcing a reconnect; only closing that port retires its I/O block, at most four blocks per process,
+  after which Logicon opens no collection again. Idle cost with a connected keypad is zero wake-ups. A present dialpad
+  with a bound turn requires a process-wide Raw Input mouse sink, so the lane thread wakes for every mouse packet until
+  the dialpad leaves or no turn is bound; packets from other mice are drained inside the wait without a lane turn,
+  snapshot, or frame request, and each drain is capped at 256 messages. The
   lane owns at most one 434×434 BGRA compose surface, one 128 KiB JPEG buffer, one 4095-byte
   report buffer, and the key faces' signatures while a device or a monitor tile needs faces, and releases the
   surfaces at stop. A service's System Data faces ride the shared acquisition worker at the shortest requested
@@ -219,8 +233,10 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   `RedXeDataSetFlagDeviceLane` for data sources remains unimplemented.
 - Screenshot capture owns at most one temporary worker and one pending request. The worker waits for the first
   Windows.Graphics.Capture frame; the UI thread continues dispatching messages and its normal frame policy. A second
-  screenshot request while one is pending is ignored, so replacing the worker cannot synchronously join on the UI
-  thread. Completion posts one UI message and releases the worker before the request closes the window.
+  screenshot request while one is pending is refused (`ERROR_BUSY`), so replacing the worker cannot synchronously join
+  on the UI thread. Completion posts one UI message and releases the worker before a `--screenshot` request closes the
+  window; an action request leaves it open. A worker that cannot start ends its request on the same loop turn, so an
+  idle loop never waits for a completion that will not come.
 - Logging and diagnostics must not format or emit per-frame success messages. `IRedXeHost::Log` copies a bounded
   record into a 32-slot 1024-byte ring and wakes one event-blocked writer. The writer appends JSONL under the settings
   sibling `Logs` directory using a UTC-dated file (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`) and

@@ -35,20 +35,24 @@ constexpr std::array kWidgetActions{
 };
 
 constexpr std::array kRedXeActions{
-    Action("redxe.settings.reload", L"Reload settings", RedXeActionTargetNone, L""),
-    Action("redxe.settings.edit", L"Edit settings file", RedXeActionTargetNone, L""),
-    Action("redxe.logs.open", L"Open logs folder", RedXeActionTargetNone, L""),
+    Action("redxe.settings.reload", L"Reload settings", RedXeActionTargetNone, L"", RedXeActionFlagDeferred),
+    Action("redxe.settings.edit", L"Edit settings file", RedXeActionTargetNone, L"", RedXeActionFlagDeferred),
+    Action("redxe.logs.open", L"Open logs folder", RedXeActionTargetNone, L"", RedXeActionFlagDeferred),
     Action("redxe.screenshot", L"Save screenshot", RedXeActionTargetText, L"<png path>[@<pageId>[/<ordinal>]]"),
-    Action("redxe.quit", L"Quit RedXe", RedXeActionTargetEnum, L"now", RedXeActionFlagDestructive, 0, 0, "now"),
+    Action("redxe.quit", L"Quit RedXe", RedXeActionTargetEnum, L"now",
+           RedXeActionFlagDestructive | RedXeActionFlagDeferred, 0, 0, "now"),
     Action("redxe.dock.show", L"Reveal the dock", RedXeActionTargetNone, L""),
     Action("redxe.dock.hide", L"Hide the dock", RedXeActionTargetNone, L""),
     Action("redxe.dock.toggle", L"Reveal or hide the dock", RedXeActionTargetNone, L""),
 };
 
 constexpr std::array kSystemActions{
-    Action("system.launch", L"Launch", RedXeActionTargetPathOrUri, L"<absolute path> or <scheme>:<uri>"),
-    Action("system.open", L"Open", RedXeActionTargetPathOrUri, L"<absolute path> or <scheme>:<uri>"),
-    Action("system.run", L"Run process", RedXeActionTargetCommandLine, L"<absolute exe> [arguments]"),
+    Action("system.launch", L"Launch", RedXeActionTargetPathOrUri, L"<absolute path> or <scheme>:<uri>",
+           RedXeActionFlagDeferred),
+    Action("system.open", L"Open", RedXeActionTargetPathOrUri, L"<absolute path> or <scheme>:<uri>",
+           RedXeActionFlagDeferred),
+    Action("system.run", L"Run process", RedXeActionTargetCommandLine, L"<absolute exe> [arguments]",
+           RedXeActionFlagDeferred),
     Action("system.lock", L"Lock workstation", RedXeActionTargetNone, L""),
     Action("system.sleep", L"Sleep", RedXeActionTargetEnum, L"now", RedXeActionFlagDestructive, 0, 0, "now"),
     Action("system.hibernate", L"Hibernate", RedXeActionTargetEnum, L"now", RedXeActionFlagDestructive, 0, 0, "now"),
@@ -64,7 +68,7 @@ constexpr std::array kSystemActions{
            L"balanced, highPerformance, powerSaver, or <GUID>"),
     Action("system.theme", L"Windows theme", RedXeActionTargetEnum, L"light, dark, or toggle", RedXeActionFlagNone, 0,
            0, "light|dark|toggle"),
-    Action("system.taskManager", L"Task Manager", RedXeActionTargetNone, L""),
+    Action("system.taskManager", L"Task Manager", RedXeActionTargetNone, L"", RedXeActionFlagDeferred),
 };
 
 constexpr std::array kKeysActions{

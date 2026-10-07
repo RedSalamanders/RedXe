@@ -8,8 +8,8 @@ Status: normative. Owner: `Plugins/Actions/Zoom` (`zoom.action.dll`), the retire
 `builtin.zoom`. It publishes the `zoom` namespace and nothing else: no service, widget, settings contract, device
 worker, network worker, OAuth listener, credential store, Zoom Plugin SDK, or dependency on an installed Zoom
 Workplace client. It delegates browser opening to the host's `system.launch` action, which already enforces the
-automated-host device-access policy. Execution runs on the UI thread, and no background work or persistent connection
-exists between actions.
+automated-host device-access policy and performs the shell call on the host's launch worker, never the UI thread.
+`Execute` runs on the UI thread, and the DLL owns no background work or persistent connection between actions.
 
 ## Publication
 
@@ -39,10 +39,13 @@ fails the grammar is an invalid binding: drawn as Logicon's red `!` face or Laun
 dispatched.
 
 Both actions carry `RedXeActionFlagDeferred`: the host drains the queued `system.launch` request after `Execute`
-returns. `Execute` therefore returns `S_FALSE` when the request is queued or coalesced with an identical pending one,
-never `S_OK`, and passes a `RequestAction` failure through (`ERROR_BUSY` for a full ring, `E_UNEXPECTED` after
-shutdown). An unpublished name, or a `zoom.join` target that fails the grammar, returns `E_INVALIDARG` without
-requesting a host action.
+returns and opens the browser on its launch worker ([`Plugins_Actions.md`](Plugins_Actions.md) "Launch worker").
+`Execute` therefore returns `S_FALSE` once `RequestAction` accepts the request, whether queued or coalesced with an
+identical pending one, never `S_OK`, and passes a `RequestAction` failure through (`ERROR_BUSY` for a full ring,
+`E_UNEXPECTED` after shutdown). A launch worker that is full at drain time (`action-failed`) and a browser that fails
+to open (`launch-failed`) both happen after the pack has returned, so they reach the host log, never this action's
+result. An unpublished name, or a `zoom.join` target that fails the grammar, returns `E_INVALIDARG` without requesting
+a host action.
 
 The namespace does not publish desktop or SDK controls (`zoom.signIn`, `zoom.signOut`, `zoom.start`, `zoom.leave`,
 `zoom.end`, `zoom.audio`, `zoom.mute`, `zoom.video`, `zoom.share`, `zoom.record`, `zoom.raiseHand`, `zoom.reaction`,
@@ -77,7 +80,8 @@ Zoom's official browser-join help describes the host settings:
 ## Resource and validation contract
 
 The executor allocates no queue, timer, worker, socket, or GPU object and owns nothing between executions. Action
-execution performs bounded link validation and copies no meeting link; the host action ring owns its own bounded copy.
+execution performs bounded link validation and copies no meeting link; the host action ring, and then a launch worker
+slot, own their own bounded copies.
 The obsolete SDK import, OAuth, synthetic session, local MSAA path, and their binaries are absent from this product.
 
 `ZoomTests` loads the shipped DLL with a fake host and proves the actions-only metadata, the absent settings contract,

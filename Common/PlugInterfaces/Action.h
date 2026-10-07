@@ -71,7 +71,9 @@ enum RedXeActionFlags : uint32_t
     RedXeActionFlagTargetOptional = 1U << 0U,
     // Executing the action injects input with SendInput.
     RedXeActionFlagInjectsInput = 1U << 1U,
-    // Execute returns S_FALSE and completes later on a host-owned lane.
+    // Execute returns S_FALSE and the action completes later: on a host-owned lane (the control lane, the host's launch
+    // worker, or the publisher's device lane), or, for a host action that releases widgets, from the UI thread's
+    // message loop once the caller has returned.
     RedXeActionFlagDeferred = 1U << 2U,
     // The target must name the confirming argument (for example "now"); the host validator enforces it.
     RedXeActionFlagDestructive = 1U << 3U,
@@ -172,7 +174,8 @@ static_assert(offsetof(RedXeActionRequest, sourcePluginId) == 24);
 // Threading: Execute runs synchronously on the RedXe UI thread inside the host-action drain, is non-reentrant, and
 // MUST return within kRedXeActionExecuteBudgetMilliseconds without waiting on another thread, pumping messages, or
 // showing UI. An action flagged RedXeActionFlagDeferred returns S_FALSE after handing the work to a host-owned lane
-// (IRedXeHost::QueueControlWork, or the publisher's own device lane through a bounded slot and its wake event). The
+// (IRedXeHost::QueueControlWork, a RequestAction of a deferred host action such as system.launch, which the host's
+// launch worker performs, or the publisher's own device lane through a bounded slot and its wake event). The
 // executor MUST NOT call back into the host from Execute except QueueControlWork, Log, and RequestAction. Between
 // executions a dedicated action DLL owns no thread, timer, window, hook, or COM registration. The request carries
 // RedXeActionRequestFlagDeviceAccessDisabled on automated hosts; the executor then acts on nothing.

@@ -84,6 +84,7 @@
     <ClCompile Include="HostPlugin.Tests.Runner.cpp" />
     <ClCompile Include="..\..\RedXe\PluginHost.cpp" />
     <ClCompile Include="..\..\RedXe\ControlWorkQueue.cpp" />
+    <ClCompile Include="..\..\RedXe\LaunchWorker.cpp" />
     <ClCompile Include="..\..\RedXe\DashboardHost.cpp" />
     <ClCompile Include="..\..\RedXe\PluginManager.cpp" />
     <ClCompile Include="..\..\RedXe\Renderer.cpp" />
