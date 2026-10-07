@@ -567,12 +567,12 @@ void PluginHost::Shutdown() noexcept
     _shutdown = true;
 }
 
-void PluginHost::StopLaunches() noexcept
+void PluginHost::StopLaunches(uint32_t timeoutMilliseconds) noexcept
 {
     // One launch blocked in the shell (an offline share) gets a bounded wait, once (LaunchWorker::Stop); after that it
     // keeps only the launch worker's own slots. Only the first wait that runs out reports it: a later stop (Shutdown
     // after a session end, or the deleter's second shutdown) finds the same launch still stuck.
-    if (!_launches.Stop(LaunchWorker::kStopMilliseconds) && !_launchStopReported)
+    if (!_launches.Stop(timeoutMilliseconds) && !_launchStopReported)
     {
         _launchStopReported = true;
         (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, nullptr, nullptr, "launch-stop-timeout",
@@ -2302,10 +2302,10 @@ HRESULT PluginHost::StartService(ServiceSlot& slot) noexcept
     return S_OK;
 }
 
-void PluginHost::StopService(ServiceSlot& slot) noexcept
+void PluginHost::StopService(ServiceSlot& slot, uint32_t drainMilliseconds) noexcept
 {
     const bool wasStarted = slot.started || slot.stopPending;
-    if (!StopDeviceLane(slot))
+    if (!StopDeviceLane(slot, drainMilliseconds))
     {
         slot.stopPending = wasStarted;
         slot.started = false;
@@ -2394,7 +2394,7 @@ void PluginHost::DeviceLane(ServiceSlot& slot) noexcept
     }
 }
 
-bool PluginHost::StopDeviceLane(ServiceSlot& slot) noexcept
+bool PluginHost::StopDeviceLane(ServiceSlot& slot, uint32_t drainMilliseconds) noexcept
 {
     if (!slot.lane.joinable())
     {
@@ -2406,8 +2406,7 @@ bool PluginHost::StopDeviceLane(ServiceSlot& slot) noexcept
     {
         SetEvent(slot.stopEvent.get());
     }
-    const DWORD waited =
-        WaitForSingleObject(slot.lane.native_handle(), slot.laneTombstoned ? 0U : kRedXeDeviceWorkerDrainMilliseconds);
+    const DWORD waited = WaitForSingleObject(slot.lane.native_handle(), slot.laneTombstoned ? 0U : drainMilliseconds);
     // A lane that already left RunDeviceWork has only its thread exit left, so joining it does not wait on the
     // plugin; otherwise the same exchange tells it to post kServiceLaneMessage when it returns.
     if (waited == WAIT_OBJECT_0 ||
@@ -2573,11 +2572,17 @@ void PluginHost::PublishHostState(const RedXeHostState& state) noexcept
     }
 }
 
-void PluginHost::StopServices() noexcept
+void PluginHost::StopServices(uint32_t budgetMilliseconds) noexcept
 {
+    // Every lane gets its own drain bound; a budget (a session end's remaining deadline) also bounds them together, so
+    // a lane after one that used its whole bound waits only for what is left.
+    const bool budgeted = budgetMilliseconds != INFINITE;
+    const ULONGLONG deadline = budgeted ? GetTickCount64() + budgetMilliseconds : 0;
     for (size_t index = _services.size(); index > 0; --index)
     {
-        StopService(_services[index - 1]);
+        StopService(_services[index - 1], budgeted ? TeardownStageMilliseconds(GetTickCount64(), deadline, 0,
+                                                                               kRedXeDeviceWorkerDrainMilliseconds)
+                                                   : kRedXeDeviceWorkerDrainMilliseconds);
     }
 }
 

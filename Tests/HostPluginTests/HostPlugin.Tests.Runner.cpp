@@ -1142,7 +1142,8 @@ void TestDockAppBarRegistration(bool& success) noexcept
 }
 
 // NoticeWindow.h: the settings-error and action-notice windows are centred on the RedXe window (a dock's full bar, not
-// its peek strip) and kept inside the work area, so no bar edge puts the caption, the text, or OK off-screen.
+// its peek strip) and kept inside the work area, so no bar edge puts the caption, the text, or OK off-screen; their
+// controls are laid out in the client area that is left.
 void TestNoticeWindowPlacement(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] notice window placement\n";
@@ -1186,6 +1187,34 @@ void TestNoticeWindowPlacement(bool& success) noexcept
           success);
     const RECT unclamped = NoticeWindowRect(RECT{0, 0, 1920, 4}, RECT{}, kNoticeWindowWidth, kNoticeWindowHeight);
     Check(unclamped.top == -138 && fullSize(unclamped), L"an empty work area leaves the centred rectangle", success);
+
+    // The controls follow the client area (NoticeControlsForClient), which the caption and frame shrink and a cut
+    // window shrinks further: OK stays whole in the bottom-right corner and the text fills the client above it.
+    const auto laidOut = [](LONG clientWidth, LONG clientHeight) noexcept
+    {
+        const NoticeControlLayout layout = NoticeControlsForClient(clientWidth, clientHeight);
+        const RECT& text = layout.text;
+        const RECT& button = layout.button;
+        const LONG width = std::max(clientWidth, kNoticeMinimumClientWidth);
+        const LONG height = std::max(clientHeight, kNoticeMinimumClientHeight);
+        return text.left == kNoticeMarginX && text.top == kNoticeMarginTop && text.right == width - kNoticeMarginX &&
+               text.bottom - text.top >= kNoticeMinimumTextHeight && text.bottom + kNoticeButtonGap == button.top &&
+               button.left >= 0 && button.top >= 0 && button.right - button.left == kNoticeButtonWidth &&
+               button.bottom - button.top == kNoticeButtonHeight && button.right == width - kNoticeMarginX &&
+               button.bottom == height - kNoticeMarginBottom;
+    };
+    const NoticeControlLayout full = NoticeControlsForClient(586, 249); // a 600x280 notice with caption and frame
+    Check(laidOut(586, 249) && full.text.bottom - full.text.top == 169 && full.button.top == 201 &&
+              full.button.right == 562,
+          L"a full-size notice keeps the text block and OK where the fixed layout had them", success);
+    const NoticeControlLayout cutClient = NoticeControlsForClient(486, 169); // a 500x200 notice, cut by its work area
+    Check(laidOut(486, 169) && cutClient.button.bottom <= 169 && cutClient.button.right <= 486 &&
+              cutClient.text.bottom < cutClient.button.top,
+          L"a cut notice keeps OK inside its client and the text above it instead of clipping both", success);
+    const NoticeControlLayout tiny = NoticeControlsForClient(40, 10);
+    Check(laidOut(40, 10) && laidOut(0, 0) && laidOut(-5, -5) && tiny.button.left == kNoticeMarginX &&
+              tiny.text.bottom - tiny.text.top == kNoticeMinimumTextHeight,
+          L"a client below the minimum is laid out at the minimum, never at a negative coordinate", success);
 }
 
 // DockPlacement.h autohide slide: the duration share of a partial travel, the eased visible thickness of a reveal and
@@ -5346,6 +5375,109 @@ void TestLaunchWorker(bool& success) noexcept
     HostActions::ResetCounters();
 }
 
+// A session end runs every blocking stage against one deadline taken when WM_ENDSESSION arrives
+// (Application::OnEndSession): each stage waits the smaller of its own bound and what is left before the reserve the
+// stages after it keep, and nothing once that point has passed. A function of its own, because TestLaunchWorker's frame
+// already holds four hosts.
+void TestSessionEndDeadline(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] session-end deadline: lane drain, launch stop, and log flush share one deadline\n";
+    Check(PluginHost::TeardownStageMilliseconds(1'000, 5'500, 500, 3'000) == 3'000 &&
+              PluginHost::TeardownStageMilliseconds(3'000, 5'500, 500, 3'000) == 2'000 &&
+              PluginHost::TeardownStageMilliseconds(4'999, 5'500, 500, 1'000) == 1 &&
+              PluginHost::TeardownStageMilliseconds(5'000, 5'500, 500, 1'000) == 0 &&
+              PluginHost::TeardownStageMilliseconds(5'200, 5'500, 0, 4'500) == 300 &&
+              PluginHost::TeardownStageMilliseconds(6'000, 5'500, 0, 4'500) == 0 &&
+              PluginHost::TeardownStageMilliseconds(0, 400, 500, 1'000) == 0,
+          L"a teardown stage gets its own bound, cut to what is left before the later stages' reserve", success);
+
+    // The whole sequence against that deadline: what ran before the waits (widget collection, shell calls) shortens
+    // them, a device lane stuck past its drain bound and a launch stuck in the shell each wait only for what is left,
+    // and the log flush keeps its reserve, so the sequence ends inside the deadline with both timeouts written out.
+    // The deadline here is shorter than either stage's own bound (3 s, 1 s), so only the shared deadline can hold it.
+    LaunchProbe probe;
+    probe.entered.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
+    probe.release.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    const wil::unique_hwnd window{CreateWindowExW(0, L"STATIC", L"session end", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
+                                                  GetModuleHandleW(nullptr), nullptr)};
+    std::error_code error;
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() /
+        (L"RedXe.SessionEndTests." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()));
+    std::filesystem::create_directories(root, error);
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            std::error_code removeError;
+            std::filesystem::remove_all(root, removeError);
+        });
+    if (!probe.entered || !probe.release || !window || error)
+    {
+        Check(false, L"session-end test events, window, and log directory can be created", success);
+        return;
+    }
+    g_launchProbe = &probe;
+    HostActions::ResetCounters();
+    const auto unhook = wil::scope_exit(
+        []() noexcept
+        {
+            g_launchProbe = nullptr;
+            HostActions::ResetCounters();
+        });
+    constexpr uint32_t deadlineMilliseconds = 2'000;
+    constexpr uint32_t flushReserveMilliseconds = 800;
+    static_assert(deadlineMilliseconds < kRedXeDeviceWorkerDrainMilliseconds);
+    PluginHostTestAccess::StallProbe stall;
+    const std::unique_ptr<PluginHost> owned{new (std::nothrow) PluginHost};
+    if (!owned)
+    {
+        Check(false, L"the session-deadline host can be allocated", success);
+        return;
+    }
+    PluginHost& host = *owned;
+    // Device access stays enabled, as in TestLaunchWorker: without it a launch is only counted, never queued.
+    Check(SUCCEEDED(host.SetLogDirectory(root.c_str())), L"the session-deadline host logs", success);
+    host.SetUiInvalidateTarget(window.get());
+    PluginHostTestAccess::SetLaunchProbe(host, &ProbeLaunch);
+    RedXeActionRequest request{};
+    request.sizeBytes = sizeof(request);
+    request.actionUtf8 = "system.launch";
+    request.targetUtf8 = "C:\\RedXe-launch-test\\ok0";
+    const bool started =
+        host.ExecuteAction(&request) == S_FALSE && WaitForSingleObject(probe.entered.get(), 5'000) == WAIT_OBJECT_0;
+    const bool stalled = PluginHostTestAccess::StartStalledLane(host, stall);
+
+    const ULONGLONG start = GetTickCount64();
+    const ULONGLONG deadline = start + deadlineMilliseconds;
+    Sleep(200);
+    const uint32_t laneBudget = PluginHost::TeardownStageMilliseconds(GetTickCount64(), deadline,
+                                                                      flushReserveMilliseconds, deadlineMilliseconds);
+    ULONGLONG stage = GetTickCount64();
+    host.StopServices(laneBudget);
+    const ULONGLONG laneWaited = GetTickCount64() - stage;
+    const uint32_t launchBudget = PluginHost::TeardownStageMilliseconds(
+        GetTickCount64(), deadline, flushReserveMilliseconds, LaunchWorker::kStopMilliseconds);
+    stage = GetTickCount64();
+    host.StopLaunches(launchBudget);
+    const ULONGLONG launchWaited = GetTickCount64() - stage;
+    const bool flushed = SUCCEEDED(
+        host.FlushLog(PluginHost::TeardownStageMilliseconds(GetTickCount64(), deadline, 0, deadlineMilliseconds)));
+    const ULONGLONG elapsed = GetTickCount64() - start;
+    const std::string log = ReadTodayLog(root);
+    const bool laneKept = host.RunningDeviceWorkerCount() == 1;
+
+    (void)SetEvent(probe.release.get());
+    (void)SetEvent(stall.release.get());
+    const bool exited = WaitForSingleObject(PluginHostTestAccess::LaunchThread(host), 5'000) == WAIT_OBJECT_0;
+    Check(started && stalled && laneKept && exited && laneBudget > 0 && laneWaited + 32 >= laneBudget &&
+              laneWaited < laneBudget + 500 && launchBudget < 100 && launchWaited < launchBudget + 200 &&
+              elapsed <= deadlineMilliseconds + 100,
+          L"a stuck lane and a stuck launch wait only for what is left of one session-end deadline", success);
+    Check(flushed && CountText(log, "\"event\":\"device-lane-drain-timeout\"") == 1 &&
+              CountText(log, "\"event\":\"launch-stop-timeout\"") == 1,
+          L"the flush keeps its reserve and writes both timeouts out before the deadline", success);
+}
+
 void TestActionValidation(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] action validation: default catalog, target grammars, registry, publishers\n";
@@ -7238,6 +7370,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestHostActionQueue(success);
     TestQueuedInputAge(success);
     TestLaunchWorker(success);
+    TestSessionEndDeadline(success);
     TestActionValidation(success);
     TestHeldInputTimer(success);
     TestServiceLifetime(success);

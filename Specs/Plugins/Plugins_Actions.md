@@ -322,7 +322,9 @@ through them `redxe.settings.edit`, `redxe.logs.open`, `zoom.open`, and `zoom.jo
   use. `PluginHost::Shutdown` runs it right after `StopServices`, also when a device lane still stuck after its drain
   budget ends that shutdown early, and a session end runs it inside `WM_ENDSESSION`, after `CloseMainWindow` and
   before its log flush, because Windows may end the process before `Shutdown` runs
-  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle"). The bound is waited once and the record
+  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle"); there it waits only for what is left of
+  the session-end deadline before the flush's reserve, never more than the bound, and not at all when nothing is left
+  (the launch is then logged as `launch-stop-timeout` at once). The bound is waited once and the record
   logged once: a later stop (the shutdown after a session end, or the process runtime's second shutdown at static
   destruction) only checks whether the thread has exited.
 
@@ -412,7 +414,9 @@ distinct failure.
   ends early still stops the worker (the queued launch never starts) and logs `launch-stop-timeout`, and the launch
   stop a session end makes (`StopLaunches`) drops the queue, waits the bound once for a stuck launch, and logs one
   `launch-stop-timeout` that the shutdown after it neither waits for nor logs again; and the real `ShellExecuteExW` on
-  a file that does not exist (nothing starts) logs `launch-failed` with `0x80070002`.
+  a file that does not exist (nothing starts) logs `launch-failed` with `0x80070002`. `TestSessionEndDeadline`: under
+  one session-end deadline, a launch stuck in the shell after a stuck device lane used the time before the flush's
+  reserve is not waited for and is still logged as `launch-stop-timeout` before the deadline.
 - `SettingsTests`: document-level acceptance of both templates' bindings (`page.*`, `widget.*`, `keys.media`, dialpad
   `turns`; in Debug also `logicon.keyPage.*`, `logicon.brightness`, and `zoom.open`) and of the `builtin.zoom`
   service object, rejection of unknown names, unknown default verbs, `iconPng`, and a non-launch Launcher item

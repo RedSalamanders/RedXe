@@ -420,9 +420,11 @@ the shipped ones; both also publish an action namespace (`Plugins_Actions.md`).
   before returning, and it MUST NOT replace another user's process-wide registration (today only Logicon registers
   `usage page 1 / usage 2`, and only while its dialpad is connected). The service MAY signal `wakeEvent`
   from any thread while the call runs and MUST NOT touch either handle after it returns. `StopDeviceLane` signals
-  `stopEvent`, waits `kRedXeDeviceWorkerDrainMilliseconds` (3000) for the thread, joins it, and closes the events; an
-  overrun logs `device-lane-drain-timeout` once and tombstones the service slot: the thread stays joinable and its
-  COM service, worker, module, host, settings, and event handles remain live until `RunDeviceWork` returns. A
+  `stopEvent`, waits `kRedXeDeviceWorkerDrainMilliseconds` (3000) for the thread, joins it, and closes the events; at
+  a session end the lanes together wait only for what is left of its deadline (`PluginHost::StopServices` with a
+  budget; `Specs/UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle"), never more than that bound per
+  lane. An overrun logs `device-lane-drain-timeout` once and tombstones the service slot: the thread stays joinable
+  and its COM service, worker, module, host, settings, and event handles remain live until `RunDeviceWork` returns. A
   tombstoned slot cannot start a second lane: while it lasts, `StartServices` and `ApplyServiceSettings` return
   `ERROR_BUSY` for it and, when the document configures that service, log `service-start-deferred` (Warning) once
   per tombstone. The lane and `StopDeviceLane` each set one bit of one atomic word (`laneState`) and read the other's

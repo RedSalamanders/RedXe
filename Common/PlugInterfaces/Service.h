@@ -93,9 +93,10 @@ interface __declspec(uuid("9D7C1E52-4B8A-4F6E-A1C3-7E2F5B9D0A64")) __declspec(no
 // block only in a wait on stopEvent, wakeEvent, and its own I/O events; it MUST NOT poll, sleep-loop, touch
 // Direct3D, wait on the UI thread, create a thread, or re-enter the host except through RequestAction,
 // RequestFrame, and Log. When stopEvent is signaled it MUST cancel outstanding I/O (CancelIoEx) and return within
-// kRedXeDeviceWorkerDrainMilliseconds; the host logs an overrun once and continues shutdown. Both events are host
-// owned: the service MAY signal wakeEvent from any thread while the call is running (for example after
-// ApplySettings or OnHostState on the UI thread) and MUST NOT use either handle after the call returns.
+// kRedXeDeviceWorkerDrainMilliseconds (a session end may wait less: only what is left of its deadline); the host logs
+// an overrun once and continues shutdown. Both events are host owned: the service MAY signal wakeEvent from any thread
+// while the call is running (for example after ApplySettings or OnHostState on the UI thread) and MUST NOT use either
+// handle after the call returns.
 interface __declspec(uuid("5A3E8C41-2D97-4B6F-9E15-C7D0F2A8B3E6")) __declspec(novtable) IRedXeDeviceWorker : IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexcept = 0;

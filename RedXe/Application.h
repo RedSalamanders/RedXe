@@ -258,10 +258,13 @@ class Application final
     void ShowSettingsError(std::wstring_view message) noexcept;
     void CloseSettingsError() noexcept;
     HRESULT UpdateDashboardVisibility() noexcept;
-    void CloseMainWindow() noexcept;
+    // deadlineTick (GetTickCount64) 0: the normal close, whose service stop waits each device lane's own bound. A
+    // session end passes its deadline, and the lanes then share only what is left of it before the log flush's reserve.
+    void CloseMainWindow(ULONGLONG deadlineTick = 0) noexcept;
     // WM_ENDSESSION with wParam TRUE: logs `session-ending`, runs CloseMainWindow, stops the launch worker
-    // (PluginHost::StopLaunches), and flushes the log within a bound before Windows ends the process
-    // (UI_XeneonDisplayWindowing.md "Window and rendering lifecycle").
+    // (PluginHost::StopLaunches), and flushes the log, all within one deadline taken on arrival
+    // (kSessionEndMaximumMilliseconds), before Windows ends the process (UI_XeneonDisplayWindowing.md "Window and
+    // rendering lifecycle").
     void OnEndSession(LPARAM reason) noexcept;
     [[nodiscard]] bool DashboardRequiresContinuousFrames() const noexcept;
     [[nodiscard]] bool PageNavigationInProgress() const noexcept;
@@ -416,8 +419,11 @@ class Application final
     bool _trayIconAllowed = false;
     // The last TrayIcon::Show result, so a reload that gets the same failure logs no second tray-icon-failed.
     HRESULT _trayIconResult = S_OK;
-    // The registered TaskbarCreated message (OnTaskbarCreated); 0 until Run creates the window.
+    // The registered TaskbarCreated message (OnTaskbarCreated); 0 until RegisterWindowClass, before any window exists.
     UINT _taskbarCreatedMessage = 0;
+    // The main window's WM_CREATE admitted that message through its message filter, so the broadcast is heard from
+    // before the dock's first placement; RunSelfTest checks it.
+    bool _taskbarCreatedAdmitted = false;
     std::unique_ptr<AppSettings> _settings;
     std::unique_ptr<AppSettings> _transitionSettings;
     std::unique_ptr<PluginManager> _transitionPluginManager;

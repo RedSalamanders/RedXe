@@ -191,12 +191,14 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
 - Explorer keeps app bars in its own process, so a restarted Explorer knows no registration, reserved bar or strip,
   or full-screen report of the bar. The main window of every kind hears the `TaskbarCreated` broadcast
   (`RegisterWindowMessageW`, admitted through `ChangeWindowMessageFilterEx` for an elevated run), whatever `trayIcon`
-  says. On it an active dock MUST remove its registration (`ABM_REMOVE`), forget the full-screen report, place itself
-  again (`ABM_NEW`, then `ABM_QUERYPOS` and `ABM_SETPOS` for a reserving bar or an autohide strip), re-apply its
-  z-order, and log one Info record (`dock-appbar-renewed`). The removal comes first because a running Explorer can
-  send the broadcast while it still holds the bar, and `ABM_NEW` refuses a window that is already registered; a new
-  Explorer ignores the removal of a bar it does not know. A broadcast heard inside a placement's shell call is handled
-  once that placement has finished (`Application::OnTaskbarCreated`).
+  says, from its `WM_CREATE` on: the message is registered with the window class, before any window exists, and
+  admitted there, so a taskbar created during the dock's first placement (`CreateDockWindow`, whose `ABM_NEW` it may
+  refuse) is heard. On it an active dock MUST remove its registration (`ABM_REMOVE`), forget the full-screen report,
+  place itself again (`ABM_NEW`, then `ABM_QUERYPOS` and `ABM_SETPOS` for a reserving bar or an autohide strip),
+  re-apply its z-order, and log one Info record (`dock-appbar-renewed`). The removal comes first because a running
+  Explorer can send the broadcast while it still holds the bar, and `ABM_NEW` refuses a window that is already
+  registered; a new Explorer ignores the removal of a bar it does not know. A broadcast heard inside a placement's
+  shell call is handled once that placement has finished (`Application::OnTaskbarCreated`).
 - A placement makes cross-process shell calls and moves the window, and the UI thread dispatches sent messages while
   it waits, so a `WM_DISPLAYCHANGE`, `WM_SETTINGCHANGE`, `WM_DPICHANGED`, or app-bar notification can ask for a
   placement while one runs. That request MUST NOT be dropped and MUST NOT recurse: it is recorded, and the running
@@ -389,14 +391,20 @@ afterwards does not take the bar either: `secondary` skips it while the second s
 
 The settings-error dialog (`Specs/Core/Core_Settings.md` "Live reload and diagnostics") and the action-notice window
 (`Specs/Plugins/Plugins_Actions.md` "Contract reading and collisions") are one window class with the text and an OK
-button, created by one helper (`Application::CreateNoticeWindow`; the placement is `NoticeWindowRect` in
-`RedXe/NoticeWindow.h`).
+button, created by one helper (`Application::CreateNoticeWindow`; the placement is `NoticeWindowRect` and the control
+layout `NoticeControlsForClient` in `RedXe/NoticeWindow.h`).
 
 - A notice is 600×280 pixels centred on the RedXe window. A dock anchors it on the full bar, never on the peek strip
   of a collapsed autohide bar; a minimized window anchors it on its monitor's work area.
 - The notice MUST lie inside the work area (`rcWork`) of the anchor's monitor: it is moved inside after centring, and
   cut to the work area only when the work area is smaller. A bar on any edge, a collapsed strip, or a window partly
   off its monitor therefore never puts the caption, the text, or the OK button off-screen.
+- The controls MUST be laid out in the notice's client area (`GetClientRect`), which the caption and frame and a cut
+  window shrink, when it is created and again on `WM_SIZE` and `WM_DPICHANGED` (a monitor of another DPI rescales
+  the caption and frame): OK keeps its 80×28 size 24 pixels from the right and 20 from the bottom, and the text fills
+  the client above it inside 24-pixel side margins, a 20-pixel top margin, and a 12-pixel gap. A client smaller than
+  the layout minimum (one 16-pixel line of text with every margin, 128×96) is laid out at that minimum, so no control
+  gets a negative position or size; what does not fit is clipped at the right and bottom edges.
 - The settings-error dialog disables the RedXe window, focuses OK, and holds an autohide bar revealed; the action
   notice is a modeless tool window that leaves the dashboard enabled.
 
@@ -525,15 +533,22 @@ the repository test entrypoint MUST validate the version fields without desktop 
   the last release of anything `keys.down` or `mouse.down` still holds made while the log still records a refusal,
   services stopped so the Logicon lane restores its devices, the tray icon and the app bar removed, which matters to an
   Explorer that keeps running), then the launch worker stopped as runtime shutdown stops it
-  (`PluginHost::StopLaunches`: queued launches dropped, one still in the shell waited for at most
-  `LaunchWorker::kStopMilliseconds` (1 s), once, and logged as `launch-stop-timeout`; `Plugins_Actions.md`), then the
-  queued log lines written out within `kSessionEndLogFlushMilliseconds` (0.5 s). The service stop waits at most
-  `kRedXeDeviceWorkerDrainMilliseconds` (3 s) per device lane, so with the one bundled lane and a responsive shell the
-  whole teardown stays inside Windows' 5 s hung-application timeout: `kSessionEndMaximumMilliseconds` (4.5 s) counts
-  only the device-lane drain, the launch stop, and the log flush, not the shell calls that remove the tray icon and
-  the app bar. `wParam` `FALSE` (the end was cancelled) changes nothing. The rest of the process runtime teardown,
-  `RedXePluginShutdown` included, is not guaranteed at session end; when it does run, it neither waits for a stuck
-  launch nor logs it again.
+  (`PluginHost::StopLaunches`: queued launches dropped, one still in the shell waited for once and logged as
+  `launch-stop-timeout`; `Plugins_Actions.md`), then the queued log lines written out (`PluginHost::FlushLog`).
+- One deadline, `kSessionEndMaximumMilliseconds` (4.5 s) on a monotonic clock from the arrival of `WM_ENDSESSION`,
+  covers that whole message: widget collection, the watcher and renderer teardown, and the shell calls that remove the
+  tray icon and the app bar count against it. Each blocking stage waits only for what is left of it
+  (`PluginHost::TeardownStageMilliseconds`): the device lanes together (`PluginHost::StopServices` with a budget) and
+  the launch stop wait at most their own bounds (`kRedXeDeviceWorkerDrainMilliseconds`, 3 s, per lane, and
+  `LaunchWorker::kStopMilliseconds`, 1 s) and never into the last `kSessionEndLogFlushMilliseconds` (0.5 s), which the
+  log flush keeps and then takes with whatever else is left. A stage that finds nothing left does not wait: a lane
+  still running is abandoned with `device-lane-drain-timeout`, and a launch still in the shell is logged as
+  `launch-stop-timeout`. Time the other steps take therefore shortens the waits after them instead of adding to them,
+  and the message returns inside Windows' 5 s hung-application timeout unless one call RedXe cannot bound (a shell
+  call or a service's `Stop`) alone outlasts the deadline. `WM_CLOSE` and the process runtime shutdown keep the
+  stages' own bounds. `wParam` `FALSE` (the end was cancelled) changes nothing. The rest of the process runtime
+  teardown, `RedXePluginShutdown` included, is not guaranteed at session end; when it does run, it neither waits for a
+  stuck launch nor logs it again.
 - Fullscreen selection and DPI policy belong to `Application`; swap-chain sizing and presentation belong to
   `Renderer`.
 
@@ -678,21 +693,27 @@ collapses to its strip at the bottom of the display that is not the primary; wit
 names `top`. Recovery of an invalid default file installs no `dock`, and neither does a first start in a Remote
 Desktop session. These are not recorded yet.
 
-Changes to the dock's `TaskbarCreated` handling additionally require a live run, because `HostPluginTests` does not
-build `Application` and `--self-test` never runs a dock: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed
---dock-reserve off`) under `--screenshot`, with the registered `TaskbarCreated` message posted twice to its own window
-(the running-Explorer case), logs two `dock-appbar-renewed` records and no `dock-appbar-refused`, leaves the foreground
-where it was, and exits 0. The 2026-10-07 check recorded this on the topology above. A real Explorer restart with a
-reserving bar and with an autohide bar up (the bar or the strip is reserved in the work area again, a full-screen
-window on the bar's monitor puts it beneath again) is a manual check.
+Changes to the dock's `TaskbarCreated` handling MUST keep the `--self-test` step green: its window's `WM_CREATE`
+already finds the message registered and admits it through the message filter (exit 2 otherwise), the order a dock
+created the same way relies on to hear a taskbar created during its first placement. They additionally require a
+live run, because `HostPluginTests` does not build `Application` and `--self-test` never runs a dock: a Debug overlay
+bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`) under `--screenshot`, with the registered
+`TaskbarCreated` message posted twice to its own window (the running-Explorer case), logs two `dock-appbar-renewed`
+records and no `dock-appbar-refused`, leaves the foreground where it was, and exits 0. The 2026-10-07 check recorded
+this on the topology above, and again once the message was registered before the window. A real Explorer restart
+with a reserving bar and with an autohide bar up (the bar or the strip is reserved in the work area again, a
+full-screen window on the bar's monitor puts it beneath again), and one that broadcasts while the dock's first
+placement runs, are manual checks.
 
 Placement-request and notice-window changes MUST keep `HostPluginTests` proving `BeginDockPlacement` and
 `NextDockPlacementPass` (a request during a pass is recorded, not run, and replayed as one more pass with the recorded
 resize flags and never the first pass's; a request that every pass raises again stops after
-`kDockMaximumExtraPlacementPasses`) and `NoticeWindowRect` (a window inside its work area keeps the notice centred on
+`kDockMaximumExtraPlacementPasses`), `NoticeWindowRect` (a window inside its work area keeps the notice centred on
 it; a collapsed top or bottom strip, a top bar, and left and right bars keep it inside the work area; negative
-coordinates; a work area smaller than the notice; an empty work area). A display change during a placement needs a
-hot-plug or a real shell delay, so the replay itself has no live check.
+coordinates; a work area smaller than the notice; an empty work area), and `NoticeControlsForClient` (a full-size
+client keeps the text block and OK where the fixed layout had them, a notice cut to 500×200 keeps OK inside its client
+and the text above it, and a client below the minimum is laid out at the minimum with no negative coordinate). A
+display change during a placement needs a hot-plug or a real shell delay, so the replay itself has no live check.
 
 Unattended-run changes MUST keep the bounded `test.ps1` command-line error step green, and additionally require a
 live run: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`) under `--screenshot`
@@ -704,16 +725,22 @@ missing-display path under `--screenshot` have no automated or live check.
 Session-end changes MUST keep the `--self-test` step green: `WM_QUERYENDSESSION` and a cancelled `WM_ENDSESSION` sent to
 its hidden window keep the window, renderer, page, and services, and `WM_ENDSESSION` with `wParam` `TRUE` returns with
 the window destroyed, the page released, every service and device lane stopped, and no launch worker left, within
-`kSessionEndMaximumMilliseconds`. `HostPluginTests` (`TestLaunchWorker`) proves the launch stop a session end makes: it
-waits the bound once for a stuck launch and logs `launch-stop-timeout`, and the runtime shutdown after it neither waits
-nor logs again. Because the self-test has no log writer, they additionally require a live run: a Debug overlay bar
-(`--dock bottom@primary --dock-mode fixed --dock-reserve off`) running the Zoom service under `--screenshot`, sent both
-messages with `ENDSESSION_LOGOFF` the way Windows sends them, answers `TRUE`, returns from `WM_ENDSESSION` with its
-window destroyed and its JSONL log already holding `session-ending` followed by `service-stopped`, leaves the foreground
-where it was, and exits by itself (8: the run ended before its capture). The 2026-10-07 check recorded this on the
-topology above (`WM_ENDSESSION` returned after 26 ms, and after 29 ms once the session end also stopped the launch
-worker). A real sign-out, restart, or shutdown with a Logicon keypad and dialpad bound (the keypad shows the Logi splash
-on the sign-in screen, and the dialpad buttons RedXe bound work normally again) is a manual check.
+`kSessionEndMaximumMilliseconds` measured around the whole send. `HostPluginTests` (`TestLaunchWorker`) proves the
+launch stop a session end makes: it waits the bound once for a stuck launch and logs `launch-stop-timeout`, and the
+runtime shutdown after it neither waits nor logs again. `TestSessionEndDeadline` proves the one deadline:
+`PluginHost::TeardownStageMilliseconds` gives a stage its own bound cut to what is left before the later stages'
+reserve, and nothing after that point; and against a 2 s deadline with a 0.8 s flush reserve, 0.2 s already spent
+before the waits, a device lane stuck past its drain bound, and a launch stuck in the shell, the lane drain waits only
+until the reserve, the launch stop does not wait, and the flush still writes `device-lane-drain-timeout` and
+`launch-stop-timeout` out, all inside the deadline. Because the self-test has no log writer, they additionally require
+a live run: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`) running the Zoom service
+under `--screenshot`, sent both messages with `ENDSESSION_LOGOFF` the way Windows sends them, answers `TRUE`, returns
+from `WM_ENDSESSION` with its window destroyed and its JSONL log already holding `session-ending` followed by
+`service-stopped`, leaves the foreground where it was, and exits by itself (8: the run ended before its capture). The
+2026-10-07 check recorded this on the topology above (`WM_ENDSESSION` returned after 26 ms, after 29 ms once the
+session end also stopped the launch worker, and after 37 ms under the one deadline). A real sign-out, restart, or
+shutdown with a Logicon keypad and dialpad bound (the keypad shows the Logi splash on the sign-in screen, and the
+dialpad buttons RedXe bound work normally again) is a manual check.
 
 Notification-area icon changes MUST keep `HostPluginTests` proving the callback table (`TrayIconActionFor`: a
 double-click and `NIN_KEYSELECT` edit, `WM_CONTEXTMENU` opens the menu, single clicks, hover, and balloon events do
@@ -740,7 +767,8 @@ restarting Explorer brings it back; and a Debug run with the shipped template sh
   the combined page-and-kind reload in `ApplySettings`; the deferred reload: `OnSettingsChanged` and
   `ReplayDeferredSettingsReload`; the failure message box and the unattended runs that never show it:
   `RunApplication` in `RedXe/Main.cpp` and `Application::SetUnattended`; the first-run dock:
-  `MakeFirstRunDock` in `RedXe/Application.cpp`; session end: `Application::OnEndSession`
+  `MakeFirstRunDock` in `RedXe/Application.cpp`; session end: `Application::OnEndSession`, its deadline through
+  `CloseMainWindow` and `PluginHost::TeardownStageMilliseconds`
 - Dock placement, monitor selection, MINMAXINFO, the autohide state machine, the slide, and the first-run monitor,
   edge, and thickness: `RedXe/DockPlacement.h`; what each mode reserves and the registration messages of a placement
   pass: `DockReservationFor` and `PlanDockAppBar` in `RedXe/DockPlacement.h`, sent by `Application::PlaceDockPass`
@@ -749,10 +777,12 @@ restarting Explorer brings it back; and a Debug run with the shipped template sh
   `SettleDockSlide`, and `DashboardHost::SetSlideOffset`; the dashboard canvas: `Application::DashboardCanvasSize`;
   the reveal before a page or widget change: `Application::RevealDockForChange`; input on a collapsed or sliding bar:
   `Application::BeginDockPress` and `DockPressPoint` in `HandleMessage` and `TryPointerClientPosition`; the app-bar
-  renewal after an Explorer restart: `Application::OnTaskbarCreated`; placement requests during a placement:
+  renewal after an Explorer restart: `Application::OnTaskbarCreated`, the message registered in
+  `RegisterWindowClass` and admitted in `WM_CREATE`; placement requests during a placement:
   `Application::PlaceDock` over `PlaceDockPass`
 - Notice windows: `Application::CreateNoticeWindow`, used by `ShowSettingsError` and `ShowActionNotices`; their
-  placement: `RedXe/NoticeWindow.h`
+  placement and control layout: `RedXe/NoticeWindow.h`, applied on `WM_SIZE` and `WM_DPICHANGED` by
+  `Application::SettingsDialogProcedure`
 - Notification-area icon: `RedXe/TrayIcon.h` (the owner window, the icon, the menu, the `TrayIconActionFor`
   callback table, and the `TrayIconAddRetryDelayMilliseconds` schedule), `RedXe/TrayIcon.cpp`; its lifetime and
   commands: `Application::ApplyTrayIconSettings`, `OnTrayCommand`, and `EditSettingsFile`, which hands the editor

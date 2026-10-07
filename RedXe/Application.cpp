@@ -49,14 +49,15 @@ constexpr DWORD kPopupWindowStyle = WS_POPUP | WS_CLIPCHILDREN;
 // always be reached; ABN_FULLSCREENAPP lowers it beneath a full-screen application.
 constexpr DWORD kDockExtendedStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
 
-// Session end (UI_XeneonDisplayWindowing.md "Window and rendering lifecycle"): after the close path, whose service stop
-// waits at most kRedXeDeviceWorkerDrainMilliseconds per device lane, and the launch stop, which waits at most
-// LaunchWorker::kStopMilliseconds for a launch still in the shell, the log writer gets this long, which keeps the
-// whole teardown inside Windows' 5 s hung-application timeout.
+// Session end (UI_XeneonDisplayWindowing.md "Window and rendering lifecycle"): one deadline, taken when WM_ENDSESSION
+// arrives, bounds the whole teardown inside Windows' 5 s hung-application timeout. Each blocking stage waits only for
+// what is left of it (PluginHost::TeardownStageMilliseconds): the device-lane drain and the launch stop at most their
+// own bounds and never into the last kSessionEndLogFlushMilliseconds, which the log flush keeps and then takes with
+// whatever else is left.
+constexpr uint32_t kSessionEndMaximumMilliseconds = 4500;
 constexpr uint32_t kSessionEndLogFlushMilliseconds = 500;
-constexpr uint32_t kSessionEndMaximumMilliseconds =
-    kRedXeDeviceWorkerDrainMilliseconds + LaunchWorker::kStopMilliseconds + kSessionEndLogFlushMilliseconds;
-static_assert(kSessionEndMaximumMilliseconds < 5000);
+static_assert(kSessionEndMaximumMilliseconds < 5000 &&
+              kSessionEndLogFlushMilliseconds < kSessionEndMaximumMilliseconds);
 
 // The private messages the main window receives are distinct.
 static_assert(TrayIcon::kCommandMessage != Renderer::kOcclusionStatusMessage &&
@@ -71,6 +72,27 @@ static_assert(TrayIcon::kCommandMessage != Renderer::kOcclusionStatusMessage &&
 // PlanDockAppBar's messages are the shell's ABM_* values; PlaceDockPass sends them as listed.
 static_assert(kDockAppBarNew == ABM_NEW && kDockAppBarRemove == ABM_REMOVE && kDockAppBarQueryPos == ABM_QUERYPOS &&
               kDockAppBarSetPos == ABM_SETPOS);
+
+// Places a notice's text control and OK button in its current client area (NoticeWindow.h NoticeControlsForClient).
+void LayoutNoticeControls(HWND notice) noexcept
+{
+    RECT client{};
+    if (!GetClientRect(notice, &client))
+    {
+        return;
+    }
+    const NoticeControlLayout layout = NoticeControlsForClient(client.right - client.left, client.bottom - client.top);
+    if (const HWND text = GetDlgItem(notice, kNoticeTextControlId))
+    {
+        (void)MoveWindow(text, layout.text.left, layout.text.top, layout.text.right - layout.text.left,
+                         layout.text.bottom - layout.text.top, TRUE);
+    }
+    if (const HWND button = GetDlgItem(notice, IDOK))
+    {
+        (void)MoveWindow(button, layout.button.left, layout.button.top, layout.button.right - layout.button.left,
+                         layout.button.bottom - layout.button.top, TRUE);
+    }
+}
 
 [[nodiscard]] BOOL HostSetPointerCapture(HWND window, UINT32 pointerId) noexcept
 {
@@ -924,13 +946,6 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         OutputDebugStringW(_dockActive ? L"CreateDockWindow failed.\n" : L"CreateMainWindow failed.\n");
         return 2;
     }
-    // A restarted Explorer announces its new taskbar to top-level windows, whatever `trayIcon` says; an elevated RedXe
-    // admits the broadcast through the message filter. Every window kind listens, since a reload can make it a dock.
-    _taskbarCreatedMessage = RegisterWindowMessageW(L"TaskbarCreated");
-    if (_taskbarCreatedMessage != 0)
-    {
-        (void)ChangeWindowMessageFilterEx(_window.get(), _taskbarCreatedMessage, MSGFLT_ALLOW, nullptr);
-    }
 
     result = OleInitialize(nullptr);
     if (FAILED(result))
@@ -1239,6 +1254,13 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         OutputDebugStringW(L"CreateMainWindow failed.\n");
         return 2;
     }
+    // TaskbarCreated is registered with the class and admitted in WM_CREATE, so a dock hears it from before its first
+    // placement (CreateDockWindow), whose refused ABM_NEW it renews.
+    if (_taskbarCreatedMessage == 0 || !_taskbarCreatedAdmitted)
+    {
+        OutputDebugStringW(L"The window was created before it could hear TaskbarCreated.\n");
+        return 2;
+    }
 
     RECT clientBounds{};
     const UINT windowDpi = GetDpiForWindow(_window.get());
@@ -1459,8 +1481,9 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     }
 
     // Session end, last because it closes the window: the query never vetoes, a cancelled end changes nothing, and an
-    // ending session runs the close path before WM_ENDSESSION returns, within its bound: the page collected and
-    // released, every service and device lane stopped, no launch worker left, and the window gone.
+    // ending session runs the close path before WM_ENDSESSION returns, within its one deadline for the whole message
+    // (kSessionEndMaximumMilliseconds, measured here around the send): the page collected and released, every service
+    // and device lane stopped, no launch worker left, and the window gone.
     {
         const uint32_t startedServices = PluginHost::Instance().StartedServiceCount();
         const bool cancelKeepsRunning = SendMessageW(_window.get(), WM_QUERYENDSESSION, 0, ENDSESSION_LOGOFF) == TRUE &&
@@ -1529,6 +1552,11 @@ HRESULT Application::RegisterWindowClass() noexcept
         return HRESULT_FROM_WIN32(GetLastError());
     }
     _classRegistered = true;
+    // A restarted Explorer announces its new taskbar to top-level windows, whatever `trayIcon` says. Every window kind
+    // listens, since a reload can make it a dock, and from its WM_CREATE on (which admits the broadcast through the
+    // message filter for an elevated RedXe): a dock's first placement already attempts ABM_NEW, so a taskbar created
+    // during it must be heard for a refused registration to be renewed.
+    _taskbarCreatedMessage = RegisterWindowMessageW(L"TaskbarCreated");
     return S_OK;
 }
 
@@ -5761,11 +5789,13 @@ HWND Application::CreateNoticeWindow(DWORD extendedStyle, const wchar_t* title, 
     {
         return nullptr;
     }
+    // The controls follow the client area, which the caption, the frame, and a work area that cut the window shrink.
     const HWND label = CreateWindowExW(
-        0, L"STATIC", text, WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX | SS_EDITCONTROL, 24, 20, width - 48, 170,
-        notice, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNoticeTextControlId)), _instance, nullptr);
-    const HWND button = CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, width - 120,
-                                        height - 78, 80, 28, notice, reinterpret_cast<HMENU>(IDOK), _instance, nullptr);
+        0, L"STATIC", text, WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX | SS_EDITCONTROL, 0, 0, 0, 0, notice,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNoticeTextControlId)), _instance, nullptr);
+    const HWND button = CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0,
+                                        notice, reinterpret_cast<HMENU>(IDOK), _instance, nullptr);
+    LayoutNoticeControls(notice);
     const HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
     if (label)
     {
@@ -6004,7 +6034,7 @@ HRESULT Application::UpdateDashboardVisibility() noexcept
     return result;
 }
 
-void Application::CloseMainWindow() noexcept
+void Application::CloseMainWindow(ULONGLONG deadlineTick) noexcept
 {
     // The icon goes with the window it commands; a crash skips this and the shell drops the icon on the next hover.
     _trayIconAllowed = false;
@@ -6041,8 +6071,13 @@ void Application::CloseMainWindow() noexcept
     {
         _dashboardHost->Shutdown();
     }
-    // Widgets are gone; services stop now so their device lanes drain before the process runtime tears down.
-    PluginHost::Instance().StopServices();
+    // Widgets are gone; services stop now so their device lanes drain before the process runtime tears down. A session
+    // end's lanes share what is left of its deadline, less the log flush's reserve.
+    PluginHost::Instance().StopServices(deadlineTick == 0
+                                            ? INFINITE
+                                            : PluginHost::TeardownStageMilliseconds(GetTickCount64(), deadlineTick,
+                                                                                    kSessionEndLogFlushMilliseconds,
+                                                                                    kSessionEndMaximumMilliseconds));
     PluginHost::Instance().SetHostActionHandler(nullptr, nullptr, nullptr);
     PluginHost::Instance().SetSettingsPersistHandler(nullptr, nullptr);
     _window.reset();
@@ -6053,19 +6088,23 @@ void Application::CloseMainWindow() noexcept
 // makes the last release of held input while the log still records a refusal, stops the services (Logicon's lane
 // restores its devices before it returns), and removes the tray icon and app bar, which still matters to an Explorer
 // that keeps running. Queued launches are then dropped as runtime shutdown drops them, so none starts while the session
-// ends, and the lines logged until then (launch-stop-timeout and held-release-abandoned included) are written out
-// within a bound.
+// ends, and the lines logged until then (launch-stop-timeout and held-release-abandoned included) are written out.
+// One deadline taken on arrival bounds all of it: every blocking stage waits only for what is left of it, so slow
+// widget collection or shell calls shorten the waits after them instead of pushing the return past the bound.
 void Application::OnEndSession(LPARAM reason) noexcept
 {
+    const ULONGLONG deadline = GetTickCount64() + kSessionEndMaximumMilliseconds;
     const char* message = (reason & ENDSESSION_CLOSEAPP) != 0 ? "Windows asked RedXe to close; RedXe closes now."
                           : (reason & ENDSESSION_LOGOFF) != 0
                               ? "The user is signing out; RedXe closes now."
                               : "Windows is shutting down or restarting; RedXe closes now.";
     (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "session-ending",
                        message);
-    CloseMainWindow();
-    PluginHost::Instance().StopLaunches();
-    if (FAILED(PluginHost::Instance().FlushLog(kSessionEndLogFlushMilliseconds)))
+    CloseMainWindow(deadline);
+    PluginHost::Instance().StopLaunches(PluginHost::TeardownStageMilliseconds(
+        GetTickCount64(), deadline, kSessionEndLogFlushMilliseconds, LaunchWorker::kStopMilliseconds));
+    if (FAILED(PluginHost::Instance().FlushLog(
+            PluginHost::TeardownStageMilliseconds(GetTickCount64(), deadline, 0, kSessionEndMaximumMilliseconds))))
     {
         OutputDebugStringW(L"RedXe: the log writer did not drain at session end; its last lines may be lost.\n");
     }
@@ -6114,6 +6153,13 @@ LRESULT CALLBACK Application::SettingsDialogProcedure(HWND window, UINT message,
     if (application && message == WM_NCDESTROY && window == application->_actionNoticeDialog)
     {
         application->_actionNoticeDialog = nullptr;
+    }
+    if (message == WM_SIZE || message == WM_DPICHANGED)
+    {
+        // A monitor of another DPI rescales the caption and frame, and with them the client the controls fill.
+        const LRESULT result = DefWindowProcW(window, message, wParam, lParam);
+        LayoutNoticeControls(window);
+        return result;
     }
     return DefWindowProcW(window, message, wParam, lParam);
 }
@@ -6635,6 +6681,12 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         _frameInvalidated = true;
         ValidateRect(window, nullptr);
         return 0;
+    case WM_CREATE:
+        // Before CreateDockWindow's first placement and its ABM_NEW (RegisterWindowClass registered the message).
+        _taskbarCreatedAdmitted =
+            _taskbarCreatedMessage != 0 &&
+            ChangeWindowMessageFilterEx(window, _taskbarCreatedMessage, MSGFLT_ALLOW, nullptr) != FALSE;
+        break;
     case WM_CLOSE:
         CloseMainWindow();
         return 0;
