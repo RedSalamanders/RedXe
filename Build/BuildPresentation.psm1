@@ -794,6 +794,9 @@ function Invoke-RedXeStreamingProcess {
     # tree's pipes may take to deliver what is left in them.
     $exitGraceMilliseconds = 10000
     $drainMilliseconds = 5000
+    # How long the pipes of an exited child may stay open without delivering a line once no process of the job runs:
+    # only a handle that left the job can hold them then, and nothing else would ever end the wait.
+    $orphanedOutputMilliseconds = 30000
     $hungMessage = "'$FilePath' did not finish within $TimeoutSeconds s and was terminated with its child processes (log: $resolvedLogPath)."
 
     $job = $null
@@ -841,6 +844,7 @@ function Invoke-RedXeStreamingProcess {
         $failure = $null
         $drainClock = $null
         $childExitedAt = -1
+        $lastOutputAt = 0
 
         while ($standardOutputOpen -or $standardErrorOpen) {
             $pendingTasks = [Collections.Generic.List[Threading.Tasks.Task[string]]]::new()
@@ -868,6 +872,9 @@ function Invoke-RedXeStreamingProcess {
                     }
                 }
                 else {
+                    if ($budgetClock) {
+                        $lastOutputAt = $budgetClock.ElapsedMilliseconds
+                    }
                     $logWriter.WriteLine($line)
                     if ($OutputLineCallback) {
                         & $OutputLineCallback $line $isError
@@ -905,6 +912,11 @@ function Invoke-RedXeStreamingProcess {
                     # with none left, the pipes hold only what the tree wrote, and draining them reaches end of file.
                     if ($elapsed - $childExitedAt -ge $exitGraceMilliseconds -and -not $job.WaitUntilEmpty(0)) {
                         $failure = "'$FilePath' exited with code $($process.ExitCode), but a process it started kept its output open and was terminated with its own child processes (log: $resolvedLogPath)."
+                    }
+                    # A draining backlog keeps delivering lines. Pipes that stay open and silent with the job empty are
+                    # held by a handle outside it, so the wait would never end; the budget no longer applies here.
+                    elseif ($elapsed - [Math]::Max($childExitedAt, $lastOutputAt) -ge $orphanedOutputMilliseconds) {
+                        $failure = "'$FilePath' exited with code $($process.ExitCode), but its output stayed open for $([int]($orphanedOutputMilliseconds / 1000)) s with no line and no process of its own left, so the wait was abandoned (log: $resolvedLogPath)."
                     }
                 }
                 elseif ($elapsed -ge $budgetMilliseconds) {

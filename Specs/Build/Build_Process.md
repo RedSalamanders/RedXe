@@ -139,7 +139,9 @@ imported into a session that compiled the original.
 - An open pipe at the end of the grace is no such process by itself: a backlog the child left, or a slow callback
   presenting it, can outlast ten seconds. The grace therefore ends the run only while a process of the job still runs
   (the job's accounting reports an active process); with none left, the pipes hold only what the tree already wrote,
-  and the helper keeps draining them to end of file and returns the child's exit code.
+  and the helper keeps draining them to end of file and returns the child's exit code. Draining is bounded by progress,
+  not by the budget: pipes that deliver no line for 30 seconds while no process of the job runs can only be held by a
+  handle outside the job, so the helper abandons the wait and reports the exited child's code and the stalled output.
 - After a termination the helper drains both pipes, for at most five seconds, so output already written, a last line
   without a newline included, reaches the log and the callback before the `TIMEOUT:` record. The call throws only once
   no process of the job is left (or after five more seconds), so a caller that looks for survivors finds none.

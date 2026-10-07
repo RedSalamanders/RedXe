@@ -1358,8 +1358,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         }
         if (!keptRunning || TickScreenshot() || _screenshot.pending || !_window || SUCCEEDED(_screenshot.result))
         {
-            OutputDebugStringW(L"The redxe.screenshot action did not keep RedXe running after its capture.\n");
-            return 6;
+            return FailSelfTest(L"The redxe.screenshot action did not keep RedXe running after its capture.");
         }
     }
 
@@ -1378,8 +1377,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
                               PeekMessageW(&posted, _window.get(), WM_CLOSE, WM_CLOSE, PM_REMOVE);
         if (!deferred)
         {
-            OutputDebugStringW(L"redxe.settings.reload or redxe.quit ran inside the caller instead of being posted.\n");
-            return 6;
+            return FailSelfTest(L"redxe.settings.reload or redxe.quit ran inside the caller instead of being posted.");
         }
     }
     return 0;
