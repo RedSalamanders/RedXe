@@ -110,7 +110,7 @@ CrashDirectoryOverrideStatus ConfigureCrashTestDirectoryOverride(wchar_t* const*
 
 // Command-line text (the `--help` catalog or an argument error) goes to the console this process was started from
 // (a GUI process has none of its own, so it attaches to the parent's), to a redirected stdout as UTF-8, or, without
-// either, to a message box unless `quiet` (a noninteractive `--self-test` line) forbids one.
+// either, to a message box unless `quiet` (an unattended run, RedXeIsUnattendedRun) forbids one.
 void EmitCommandLineText(const std::wstring& text, bool error, bool quiet) noexcept
 {
     HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -157,8 +157,8 @@ void EmitCommandLineText(const std::wstring& text, bool error, bool quiet) noexc
     MessageBoxW(nullptr, text.c_str(), L"RedXe command line", MB_OK | (error ? MB_ICONERROR : MB_ICONINFORMATION));
 }
 
-// A switch with a missing or invalid value (exit 2): a message box for a person; an unattended run (`--self-test`,
-// `--screenshot`) gets the text where EmitCommandLineText puts it, never a box.
+// A switch with a missing or invalid value (exit 2): a message box for a person; an unattended run
+// (RedXeIsUnattendedRun) gets the text where EmitCommandLineText puts it, never a box.
 void ReportCommandLineError(const wchar_t* text, bool unattended) noexcept
 {
     if (!unattended)
@@ -173,28 +173,6 @@ void ReportCommandLineError(const wchar_t* text, bool unattended) noexcept
     catch (...)
     {
         OutputDebugStringW(text);
-    }
-}
-
-// The exit codes `--help` lists (CommandLine.h), for the record an unattended run's failure leaves in the log.
-[[nodiscard]] const char* FailureExitName(int exitCode) noexcept
-{
-    switch (exitCode)
-    {
-    case 1:
-        return "settings";
-    case 2:
-        return "command line or window";
-    case 3:
-        return "plugins";
-    case 5:
-        return "graphics";
-    case 7:
-        return "settings watcher";
-    case 8:
-        return "screenshot capture";
-    default:
-        return "startup";
     }
 }
 
@@ -215,8 +193,8 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
     // test.ps1 runs the self-test and agents run captures unattended: such a run never waits on a modal box. Its caller
     // reads the exit code, the console or redirected output, and (for a capture) the JSONL log, and a failed Debug
     // check ends it with its report instead of a dialog.
-    const bool unattended =
-        selfTest || HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Screenshot));
+    const bool screenshotSwitch = HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Screenshot));
+    const bool unattended = RedXeIsUnattendedRun(selfTest, screenshotSwitch);
     if (unattended)
     {
         RedXeFailureReports::RouteAwayFromDialogs();
@@ -295,6 +273,8 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         }
         screenshotWidgetOrdinal = static_cast<uint32_t>(parsed);
     }
+    // A capture run (the self-test ignores --screenshot): unattended, and exit 8 whenever it wrote no PNG.
+    const bool screenshotRun = !screenshotPath.empty() && !selfTest;
     // Screen-edge dock for this run: --dock <edge>[@<monitor>] [--dock-mode fixed|autohide]
     // [--dock-thickness <dips>] [--dock-reserve on|off] [--dock-peek <pixels>]. Each switch overrides the same
     // member of the settings document's `dock` object for the process lifetime (UI_XeneonDisplayWindowing.md).
@@ -347,7 +327,8 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         const std::unique_ptr<Application> application{new (std::nothrow) Application(instance, forceWarp)};
         if (!application)
         {
-            exitCode = 1;
+            // Nothing ran, so a --screenshot run wrote no PNG.
+            exitCode = screenshotRun ? RedXeScreenshotExitCode(1, false) : 1;
         }
         else
         {
@@ -359,37 +340,45 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             {
                 application->SetDockOverrides(dockOverrides);
             }
-            if (!screenshotPath.empty() && !selfTest)
+            if (unattended)
+            {
+                application->SetUnattended();
+            }
+            if (screenshotRun)
             {
                 // The first request of the process, so never busy; the window closes once the capture has run.
-                application->SetUnattended();
                 (void)application->RequestScreenshot(screenshotPath, screenshotPage, screenshotDelayMilliseconds,
                                                      screenshotWidgetOrdinal, true);
             }
             exitCode = selfTest ? application->RunSelfTest(settingsPath) : application->Run(showCommand, settingsPath);
-            // Exit 8 unless the PNG was written, including a run that ended before its capture finished.
-            if (!screenshotPath.empty() && !selfTest && exitCode == 0 && FAILED(application->FinishScreenshot()))
+            // Exit 8 unless the PNG was written, including a run that ended before its capture finished and one that
+            // a startup, graphics, or rendering failure closed first.
+            if (screenshotRun)
             {
-                exitCode = 8;
+                exitCode = RedXeScreenshotExitCode(exitCode, SUCCEEDED(application->FinishScreenshot()));
             }
         }
     }
 
-    if (exitCode != 0 && unattended && !selfTest)
+    if (screenshotRun && exitCode != 0)
     {
-        // A capture run's failure is its exit code and this record (the self-test has no log), never a message box.
+        // A capture run's failure is its exit code, this record (once the settings load has opened the log), and the
+        // debugger output, never a message box (RedXeShowsExitCodeBox below).
         std::array<char, 96> message{};
         (void)std::snprintf(message.data(), message.size(), "RedXe exited with code %d (%s).", exitCode,
-                            FailureExitName(exitCode));
+                            RedXeExitCodeName(exitCode));
         (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr, nullptr, "failure-exit",
                            message.data());
+        OutputDebugStringW(exitCode == kRedXeScreenshotFailedExitCode
+                               ? L"RedXe could not capture the screenshot.\n"
+                               : L"RedXe failed after it wrote the screenshot. See the debugger output.\n");
     }
 
     // Every widget, provider, and subscription is released with the Application above. Release the process plugin
     // runtime here so its acquisition worker is joined and optional RedXePluginShutdown runs exactly once per module.
     PluginHost::ShutdownProcessRuntime();
 
-    if (exitCode != 0 && !unattended)
+    if (RedXeShowsExitCodeBox(exitCode, selfTest, screenshotSwitch))
     {
         const wchar_t* message = L"RedXe could not start. See the debugger output.";
         switch (exitCode)

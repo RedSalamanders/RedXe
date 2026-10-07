@@ -14,8 +14,14 @@ exists between actions.
 ## Settings and publication
 
 The flattened service entry is `{ "plugin": "builtin.zoom" }`. Its private settings contract is a closed empty
-object (`{}` defaults); legacy `clientId`, `redirectPort`, `domain`, `displayName`, `autoConnect`, `mode`, and `labels`
-are rejected. No secret or token is read or stored. The DLL advertises `Service | Actions` and publishes exactly:
+object (`{}` defaults, and the published schema admits no member). A settings file written by `v1.0.102` MUST still
+load (`Core_Settings.md` "Version 5 document"), so the shared model `Zoom::ParseSettings`, used by the host validator
+and the DLL alike, MUST accept the seven retired Zoom SDK members `clientId`, `redirectPort`, `domain`, `displayName`,
+`autoConnect`, `mode`, and `labels` with any JSON value and ignore them. Any other member, including a retired name in
+another case, MUST reject the document. The host passes the retired members through in the effective settings, MUST
+NOT rewrite the file for them, and logs one Warning record `service-retired-settings-ignored` from `builtin.zoom` per
+load or live apply of a document that carries them. The schema lists them as deprecated, ignored properties. No secret
+or token is read or stored. The DLL advertises `Service | Actions` and publishes exactly:
 
 | Action | Target | Result |
 | --- | --- | --- |
@@ -33,8 +39,10 @@ host action. A stopped service returns `E_NOT_VALID_STATE`.
 
 The namespace does not publish desktop or SDK controls (`zoom.signIn`, `zoom.signOut`, `zoom.start`, `zoom.leave`,
 `zoom.end`, `zoom.audio`, `zoom.mute`, `zoom.video`, `zoom.share`, `zoom.record`, `zoom.raiseHand`, `zoom.reaction`,
-`zoom.chat.send`, `zoom.captions`, `zoom.participants.*`, `zoom.focus`). Existing bindings to those names fail
-settings validation as unknown actions; migration removes them from both shipped templates.
+`zoom.chat.send`, `zoom.captions`, `zoom.participants.*`, `zoom.focus`), and neither shipped template binds them.
+Because document validation does not check a published namespace's verbs (`Plugins_Actions.md`), an existing binding
+to one of those names still loads; binding validation reports it as an unknown verb (`ERROR_NOT_FOUND`), so it is an
+invalid binding: drawn as Logicon's red `!` face or Launcher's `Warning` tile and never dispatched.
 
 ## Browser boundary
 
@@ -50,7 +58,11 @@ The service allocates no queue, timer, worker, socket, or GPU object. Action exe
 validation and copies no meeting URL; the host action ring owns its own bounded copy. The obsolete SDK import,
 OAuth, synthetic session, local MSAA path, and their binaries are absent from this product.
 
-`ZoomTests` loads the shipped DLL with a fake host and proves the two-action contract, empty settings, URL allowlist,
-unchanged invite forwarding with `S_FALSE`, refusal without a host request, and stopped-service behavior. `SettingsTests` proves
-the two shipped templates and rejects legacy private members. `HostPluginTests` proves the publisher is registered
+`ZoomTests` loads the shipped DLL with a fake host and proves the two-action contract, empty settings, the retired
+members (any value accepted and ignored by the model, the factory, and `ApplySettings`; any other member or a
+non-object rejected), URL allowlist, unchanged invite forwarding with `S_FALSE`, refusal without a host request, and
+stopped-service behavior. `SettingsTests` proves the two shipped templates, loads the exact `v1.0.102` Release and
+Debug templates (retired members and removed-verb bindings included) without a fallback or backup, flags the retired
+members, rejects any other member, and checks the schema's deprecated properties. `HostPluginTests` proves the
+publisher is registered
 and the removed verbs are unknown. `BuildProcessTests` keeps stale SDK binaries out of packages.

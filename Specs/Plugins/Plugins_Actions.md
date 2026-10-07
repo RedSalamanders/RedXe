@@ -91,7 +91,9 @@ Two layers decide what a document may say and what a control does:
    `keys.up` carry exactly one chord, `mouse.scroll*` is non-zero). `S_OK` means dispatchable; `ERROR_NOT_FOUND`
    (unknown verb), `E_INVALIDARG` (unsatisfied target), and `ERROR_NOT_READY` (publisher missing or unavailable) make
    the binding **invalid**: Logicon draws the red `!` face, Launcher draws the `Warning` glyph tile, and neither ever
-   dispatches it. No object, thread, or window is created for validation.
+   dispatches it. No object, thread, or window is created for validation. Logicon controls are press-only, so a
+   Logicon binding to `keys.down` or `mouse.down` is invalid the same way without a `ValidateAction` call
+   (`Plugins_Logicon.md`).
 
 An unsatisfied target therefore never rejects a document (including a Launcher launch target that is not an absolute
 path or URI); only the closed shape, the grammar, and the namespace do.
@@ -166,15 +168,20 @@ the full bar, never on the strip (`Specs/UI/UI_XeneonDisplayWindowing.md` "Autoh
 Chords are injected as scan codes (`MapVirtualKeyW`, extended flag for the navigation cluster) in batches of at most
 `kMaximumInputBatch` (32) `INPUT`s per `SendInput`, never sleeping between batches. Anything held by `keys.down` or
 `mouse.down` is released by the matching `up`, by a one-shot host timer at `kHeldReleaseMilliseconds` (2000), by a
-later execution after that deadline, and at runtime shutdown (`HostActions::ReleaseHeld`). A replacement down
-releases the previous hold first. Each hold MUST be released exactly once: once the deadline has released a hold,
-the `up` naming the same chord or button injects nothing and returns `S_FALSE`; any other stand-alone `up` still
-injects its release. A release that `SendInput` refuses (a UAC prompt, Ctrl+Alt+Del, or the lock screen owns the
-input desktop) MUST keep the hold tracked: the `up` (or the replacement down, which then presses nothing) returns
-the failure, and the timer retries the release every `kHeldReleaseRetryMilliseconds` (250), at most
-`kMaximumHeldReleaseAttempts` (40) attempts in all, before the hold stops being tracked. Shutdown makes one last
-attempt. Windows does not deliver injected input to an elevated window; RedXe never runs elevated and does not work
-around it.
+later execution after that deadline, when the main window closes (`HostActions::SetHostWindow(nullptr, …)`), and at
+runtime shutdown (`HostActions::ReleaseHeld`). A replacement down releases the previous hold first. Only an `up`
+naming the held chord or button ends the hold; an `up` naming any other chord or button is a stand-alone release
+that injects its own key-ups or button-up and leaves the hold tracked. Each hold MUST be released exactly once: once
+the deadline has released a hold, the `up` naming the same chord or button injects nothing and returns `S_FALSE`;
+any other stand-alone `up` still injects its release. A release that `SendInput` refuses (a UAC prompt,
+Ctrl+Alt+Del, or the lock screen owns the input desktop) MUST keep the hold tracked: the `up` (or the replacement
+down, which then presses nothing) returns the failure, and the timer retries the release every
+`kHeldReleaseRetryMilliseconds` (250), at most `kMaximumHeldReleaseAttempts` (40) attempts in all, before the hold
+stops being tracked. The window's close makes the last attempt, before the timer and the host log are detached, so a
+refusal there still logs `held-release-abandoned` (a session end runs the same close inside `WM_ENDSESSION` and writes
+that record out with its log flush); runtime shutdown repeats it for anything held after that. A fatal exit releases
+nothing, because no fatal path returns into normal shutdown (`Specs/Core/Core_CrashHandling.md`). Windows
+does not deliver injected input to an elevated window; RedXe never runs elevated and does not work around it.
 
 ### `mouse.*` (`HostActions`, **I** except `mouse.speed`)
 
@@ -309,9 +316,15 @@ through them `redxe.settings.edit`, `redxe.logs.open`, `zoom.open`, and `zoom.jo
 - A finished launch keeps its `HRESULT` in its slot and posts the coalesced `WM_APP + 5`; the drain logs a failure as
   one Warning (`launch-failed`, or `tray-edit-settings-failed` for the tray) with the `HRESULT`, and a success as one
   Debug `launch-completed`, and frees the slot.
-- `PluginHost::Shutdown` drops queued launches and waits at most `LaunchWorker::kStopMilliseconds` (1000 ms) for the
-  one in progress; a launch still in the shell then logs `launch-stop-timeout` (Warning) and keeps only the worker's
-  own slots, and the process runtime is not deleted while that thread exists, so it never frees memory in use.
+- `PluginHost::StopLaunches` drops queued launches and waits at most `LaunchWorker::kStopMilliseconds` (1000 ms) for
+  the one in progress; a launch still in the shell then logs `launch-stop-timeout` (Warning) and keeps only the
+  worker's own slots, and the process runtime is not deleted while that thread exists, so it never frees memory in
+  use. `PluginHost::Shutdown` runs it right after `StopServices`, also when a device lane still stuck after its drain
+  budget ends that shutdown early, and a session end runs it inside `WM_ENDSESSION`, after `CloseMainWindow` and
+  before its log flush, because Windows may end the process before `Shutdown` runs
+  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle"). The bound is waited once and the record
+  logged once: a later stop (the shutdown after a session end, or the process runtime's second shutdown at static
+  destruction) only checks whether the thread has exited.
 
 ### Automated hosts and counters
 
@@ -330,7 +343,7 @@ CI pass condition; `TestLaunchWorker`'s shell call on a missing file starts noth
 `action-expired` (Warning, once per drain that dropped input for age), `held-release-failed` (Warning, the first
 refused release of a hold), `held-release-abandoned` (Warning, a hold dropped after its last refused attempt),
 `launch-failed` (Warning, once per failed launch), `launch-completed` (Debug), `launch-stop-timeout` (Warning, at
-most once per shutdown),
+most once per process runtime, at a session end or shutdown),
 `screenshot-failed` (Warning, once per screenshot request that wrote no PNG). A publisher MAY log a Warning once per
 distinct failure.
 
@@ -385,16 +398,21 @@ distinct failure.
   device-access-disabled execution of `keys`, `system`, and `mouse` actions that counts inputs, launches, and power
   requests without performing them. `TestQueuedInputAge`: an aged key press is dropped while an aged release, an aged
   non-input action, and fresh input run, a coalesced repeat takes the newer time, and one `action-expired` Warning is
-  logged. `TestHeldInputTimer`: a replacement down releases the previous chord or button; a held chord and button
-  release on the timer after the deadline, their own `up` then injects nothing (`S_FALSE`) while any other `up`
-  injects; with injection refused through a test seam, the `up` and a replacement down return the failure and press
-  nothing, the release is retried at the retry interval rather than faster, and it releases once input is accepted
-  again; a release refused at shutdown is abandoned, and the log then holds exactly one `held-release-failed` and one
-  `held-release-abandoned`. `TestLaunchWorker`: with a probe in place of the shell, a launch returns `S_FALSE` while
-  it runs on the worker's own STA thread, a full worker answers `ERROR_BUSY`, completions drain through the posted
-  message with a `launch-failed` Warning for a failure, an idle worker accrues no CPU time, shutdown joins an idle
-  worker at once and waits only the bound for a stuck one; and the real `ShellExecuteExW` on a file that does not
-  exist (nothing starts) logs `launch-failed` with `0x80070002`.
+  logged. `TestHeldInputTimer`: a replacement down releases the previous chord or button; an `up` naming another
+  chord or button leaves the hold tracked until its own `up` releases it; a held chord and button release on the
+  timer after the deadline, their own `up` then injects nothing (`S_FALSE`) while any other `up` injects; with
+  injection refused through a test seam, the `up` and a replacement down return the failure and press nothing, the
+  release is retried at the retry interval rather than faster, and it releases once input is accepted again; a
+  release refused at shutdown or when the window detaches is abandoned (after the detach, shutdown finds nothing
+  left), and the log then holds exactly one `held-release-failed` and two `held-release-abandoned`.
+  `TestLaunchWorker`: with a probe in place of the shell, a launch returns `S_FALSE` while it runs on the worker's own
+  STA thread, a full worker answers `ERROR_BUSY`, completions drain through the posted message with a
+  `launch-failed` Warning for a failure, an idle worker accrues no CPU time, shutdown joins an idle worker at once and
+  waits only the bound for a stuck one, a second shutdown does not wait again, a shutdown that a stuck device lane
+  ends early still stops the worker (the queued launch never starts) and logs `launch-stop-timeout`, and the launch
+  stop a session end makes (`StopLaunches`) drops the queue, waits the bound once for a stuck launch, and logs one
+  `launch-stop-timeout` that the shutdown after it neither waits for nor logs again; and the real `ShellExecuteExW` on
+  a file that does not exist (nothing starts) logs `launch-failed` with `0x80070002`.
 - `SettingsTests`: document-level acceptance of both templates' bindings (`page.*`, `widget.*`, `keys.media`, dialpad
   `turns`; in Debug also `logicon.keyPage.*`, `logicon.brightness`, and `zoom.open`) and of the `builtin.zoom`
   service object, rejection of unknown names, unknown default verbs, `iconPng`, and a non-launch Launcher item

@@ -67,7 +67,7 @@ On an auto-hiding [dock](usage.md#dock) that is collapsed, these actions bring t
 | `action` | `target` | Effect |
 | --- | --- | --- |
 | `keys.press` | one or more chords: `Ctrl+Shift+Esc`, `Win+D`, `Ctrl+K,Ctrl+S` | Press and release them in order |
-| `keys.down`, `keys.up` | one chord | Hold / release it (anything still held is released after 2 s, and its later `up` then does nothing) |
+| `keys.down`, `keys.up` | one chord | Hold / release it (anything still held is released after 2 s, and its later `up` then does nothing). Not on a Logicon control: `keys.down` there shows a red `!` and does nothing ([why](#when-something-is-wrong)) |
 | `keys.type` | text | Type it |
 | `keys.media` | `play-pause`, `stop`, `next-track`, `previous-track`, `volume-up`, `volume-down`, `mute` | Send that media key |
 | `keys.lock` | `caps`, `num`, `scroll` | Toggle that lock key |
@@ -87,7 +87,7 @@ released then is retried every quarter second for about 10 s, so a modifier is n
 | --- | --- | --- |
 | `mouse.move` | `x,y` (screen pixels), `+dx,+dy` (relative), or `center`, each optionally `@<monitor>` | Move the pointer |
 | `mouse.click`, `mouse.doubleClick` | `left`, `right`, `middle`, `x1`, `x2` | Click where the pointer is |
-| `mouse.down`, `mouse.up` | same | Hold / release a button (released after 2 s like a held chord) |
+| `mouse.down`, `mouse.up` | same | Hold / release a button (released after 2 s like a held chord). Not on a Logicon control: `mouse.down` there shows a red `!` and does nothing ([why](#when-something-is-wrong)) |
 | `mouse.scroll`, `mouse.scroll.horizontal` | `+n` or `-n` notches | Scroll |
 | `mouse.speed` | `1`–`20` | Pointer speed |
 
@@ -123,6 +123,9 @@ Workplace installation or Marketplace application registration.
   records `launch-failed`.
 - A key or mouse action that waited more than a second because RedXe was busy is skipped rather than typed into
   whatever window you switched to meanwhile; the log records `action-expired`.
+- `keys.down` and `mouse.down` hold a key or a button until a release, and a Logicon key, dialpad button, or turn only
+  ever sends a press. Bound there, they keep the settings file valid but show a red `!` (the dialpad has no face) and
+  never run; the log names the control. Use `keys.press` or `mouse.click` instead.
 - If two plugin DLLs beside `RedXe.exe` claim the same action namespace, or one that RedXe does not know, a notice
   names both files and the affected bindings are disabled until the deployment is repaired. The dashboard keeps
   running.

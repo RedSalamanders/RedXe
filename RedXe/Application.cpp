@@ -50,10 +50,13 @@ constexpr DWORD kPopupWindowStyle = WS_POPUP | WS_CLIPCHILDREN;
 constexpr DWORD kDockExtendedStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
 
 // Session end (UI_XeneonDisplayWindowing.md "Window and rendering lifecycle"): after the close path, whose service stop
-// waits at most kRedXeDeviceWorkerDrainMilliseconds per device lane, the log writer gets this long, which keeps the
+// waits at most kRedXeDeviceWorkerDrainMilliseconds per device lane, and the launch stop, which waits at most
+// LaunchWorker::kStopMilliseconds for a launch still in the shell, the log writer gets this long, which keeps the
 // whole teardown inside Windows' 5 s hung-application timeout.
-constexpr uint32_t kSessionEndLogFlushMilliseconds = 1000;
-static_assert(kRedXeDeviceWorkerDrainMilliseconds + kSessionEndLogFlushMilliseconds < 5000);
+constexpr uint32_t kSessionEndLogFlushMilliseconds = 500;
+constexpr uint32_t kSessionEndMaximumMilliseconds =
+    kRedXeDeviceWorkerDrainMilliseconds + LaunchWorker::kStopMilliseconds + kSessionEndLogFlushMilliseconds;
+static_assert(kSessionEndMaximumMilliseconds < 5000);
 
 // The private messages the main window receives are distinct.
 static_assert(TrayIcon::kCommandMessage != Renderer::kOcclusionStatusMessage &&
@@ -591,6 +594,22 @@ void LogWindowKindSwitchFailed(HRESULT result) noexcept
                        "A settings reload could not switch the window kind; the previous kind is restored.", result);
 }
 
+// A service entry may keep members a later RedXe retired (today the v1.0.102 Zoom members): the document still loads,
+// and each load or live apply logs one warning per such entry (Core_Settings.md "Version 5 document").
+void LogRetiredServiceSettings(const AppSettings& settings) noexcept
+{
+    for (const ServiceSettings& service : settings.services)
+    {
+        if (service.retiredMembersIgnored)
+        {
+            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, service.pluginId.utf8.data(),
+                               nullptr, "service-retired-settings-ignored",
+                               "The service entry carries settings members this RedXe retired; they are ignored and "
+                               "can be deleted.");
+        }
+    }
+}
+
 } // namespace
 
 class ApplicationDropTarget final : public IDropTarget
@@ -837,6 +856,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
                            "settings-fallback-notice",
                            converted ? notice.data() : "The settings file could not be used; a default was loaded.");
     }
+    LogRetiredServiceSettings(*_settings);
     if (_settingsStore.InstalledFirstRunDock())
     {
         // The topology the bar was decided from: the file keeps it after a display that was off or still enumerating
@@ -1347,6 +1367,38 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         }
     }
 
+    // A source-only reload (a comment saved mid-swipe) keeps a staged swipe and becomes the document; committing the
+    // swipe then changes only the active page.
+    if (pageCount > 1)
+    {
+        constexpr uint32_t firstPage = 0;
+        std::unique_ptr<AppSettings> annotated{new (std::nothrow) AppSettings{*_settings}};
+        std::string expectedSource;
+        try
+        {
+            if (annotated)
+            {
+                annotated->sourceDocument.append("\n// Saved during a swipe.\n");
+                expectedSource = annotated->sourceDocument;
+            }
+        }
+        catch (...)
+        {
+            annotated.reset();
+        }
+        result = annotated ? StageTransitionPage(-1, &firstPage) : E_OUTOFMEMORY;
+        if (SUCCEEDED(result))
+            result = ApplySettings(std::move(annotated));
+        if (SUCCEEDED(result))
+            result = (result == S_FALSE && _transitionSettings) ? PromoteTransitionPage() : E_UNEXPECTED;
+        if (FAILED(result) || _transitionSettings || _settings->dashboard.activePageIndex != firstPage ||
+            _settings->sourceDocument != expectedSource)
+        {
+            OutputDebugStringW(L"A source-only reload during a staged swipe did not survive the page commit.\n");
+            return 6;
+        }
+    }
+
     std::unique_ptr<AppSettings> rejected{new (std::nothrow) AppSettings{*_settings}};
     if (!rejected || SUCCEEDED(ParseAppSettingsJson("{}", *rejected)) || *rejected != *_settings)
     {
@@ -1402,7 +1454,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
 
     // Session end, last because it closes the window: the query never vetoes, a cancelled end changes nothing, and an
     // ending session runs the close path before WM_ENDSESSION returns, within its bound: the page collected and
-    // released, every service and device lane stopped, and the window gone.
+    // released, every service and device lane stopped, no launch worker left, and the window gone.
     {
         const uint32_t startedServices = PluginHost::Instance().StartedServiceCount();
         const bool cancelKeepsRunning = SendMessageW(_window.get(), WM_QUERYENDSESSION, 0, ENDSESSION_LOGOFF) == TRUE &&
@@ -1416,8 +1468,8 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - endStart).count();
         if (!cancelKeepsRunning || _window || _rendererReady || _dashboardHost->WidgetCount() != 0 ||
             PluginHost::Instance().StartedServiceCount() != 0 ||
-            PluginHost::Instance().RunningDeviceWorkerCount() != 0 ||
-            endMilliseconds > kRedXeDeviceWorkerDrainMilliseconds + kSessionEndLogFlushMilliseconds)
+            PluginHost::Instance().RunningDeviceWorkerCount() != 0 || PluginHost::Instance().LaunchWorkerRunning() ||
+            endMilliseconds > kSessionEndMaximumMilliseconds)
         {
             OutputDebugStringW(L"WM_ENDSESSION did not close RedXe within the session-end bound.\n");
             return 6;
@@ -2485,7 +2537,7 @@ void Application::EndDockResize() noexcept
         (void)ReleaseCapture();
     }
     // The dragged size replaces a --dock-thickness pin for the rest of the run, is committed to the shell, and is
-    // written to the settings file so it survives the next launch.
+    // written to the settings file so it survives the next launch (a size the document already has writes nothing).
     _dockOverrides.hasThickness = false;
     (void)PlaceDock(true);
     if (_settings)
@@ -2499,6 +2551,7 @@ void Application::EndDockResize() noexcept
                                "dock-thickness-persist-failed",
                                "The dragged dock thickness could not be written to the settings file.", persisted);
         }
+        LogDeferredSettingsPersist();
     }
     EvaluateDockHolds();
 }
@@ -3124,8 +3177,8 @@ void Application::FlushPendingTransitionStage() noexcept
 
 HRESULT Application::PromoteTransitionPage() noexcept
 {
-    if (!_transitionDashboardHost || !_transitionPluginManager || !_transitionSettings || !_pluginManager ||
-        !_dashboardHost)
+    if (!_transitionDashboardHost || !_transitionPluginManager || !_transitionSettings || !_settings ||
+        !_pluginManager || !_dashboardHost)
     {
         return E_UNEXPECTED;
     }
@@ -3141,7 +3194,12 @@ HRESULT Application::PromoteTransitionPage() noexcept
     std::unique_ptr<PluginManager> retiringPlugins = std::move(_pluginManager);
     _dashboardHost = std::move(_transitionDashboardHost);
     _pluginManager = std::move(_transitionPluginManager);
-    _settings = std::move(_transitionSettings);
+    // The staged copy differs from the document only in the active page (StageTransitionPage), and every change to
+    // the page list cancels navigation first. Take only the page, so a source-only reload, a dock drag, or a widget
+    // persist made during the swipe stays in the document.
+    _settings->dashboard.activePageIndex = _transitionSettings->dashboard.activePageIndex;
+    _settings->dashboard.activePageId = _transitionSettings->dashboard.activePageId;
+    _transitionSettings.reset();
     _pageTransitionDirection = 0;
     _pageStagePendingDirection = 0;
     _pageCurrentOffset = 0;
@@ -5634,6 +5692,7 @@ void Application::OnSettingsChanged() noexcept
     if (SUCCEEDED(applyResult))
     {
         _settingsStore.MarkApplied(stamp);
+        LogRetiredServiceSettings(*_settings);
         CloseSettingsError();
         OutputDebugStringW(L"RedXe settings were reloaded live.\n");
         return;
@@ -5984,8 +6043,11 @@ void Application::CloseMainWindow() noexcept
 
 // Sign-out, restart, shutdown, or a Restart Manager close: Windows may end the process as soon as WM_ENDSESSION
 // returns, without WM_CLOSE and without wWinMain returning, so the close path runs here. It collects widget settings,
-// stops the services (Logicon's lane restores its devices before it returns), and removes the tray icon and app bar,
-// which still matters to an Explorer that keeps running. The lines logged until then are written out within a bound.
+// makes the last release of held input while the log still records a refusal, stops the services (Logicon's lane
+// restores its devices before it returns), and removes the tray icon and app bar, which still matters to an Explorer
+// that keeps running. Queued launches are then dropped as runtime shutdown drops them, so none starts while the session
+// ends, and the lines logged until then (launch-stop-timeout and held-release-abandoned included) are written out
+// within a bound.
 void Application::OnEndSession(LPARAM reason) noexcept
 {
     const char* message = (reason & ENDSESSION_CLOSEAPP) != 0 ? "Windows asked RedXe to close; RedXe closes now."
@@ -5995,6 +6057,7 @@ void Application::OnEndSession(LPARAM reason) noexcept
     (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "session-ending",
                        message);
     CloseMainWindow();
+    PluginHost::Instance().StopLaunches();
     if (FAILED(PluginHost::Instance().FlushLog(kSessionEndLogFlushMilliseconds)))
     {
         OutputDebugStringW(L"RedXe: the log writer did not drain at session end; its last lines may be lost.\n");
@@ -6782,8 +6845,22 @@ HRESULT Application::ApplyWidgetSettingsPersist(const char* instanceId, const ch
     {
         return PatchWidgetInstanceSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
     }
-    return _settingsStore.PersistWidgetSettings(*_settings, instanceId,
-                                                std::string_view(settingsJsonUtf8, settingsBytes));
+    const HRESULT result =
+        _settingsStore.PersistWidgetSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
+    LogDeferredSettingsPersist();
+    return result;
+}
+
+void Application::LogDeferredSettingsPersist() noexcept
+{
+    if (_settingsStore.TakeDeferredPersistNotice())
+    {
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                           "settings-persist-deferred",
+                           "A settings change was kept in memory and not written, because the settings file on disk "
+                           "is not the document RedXe last loaded; the next successful load of that file replaces it.",
+                           S_FALSE);
+    }
 }
 
 HRESULT Application::SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8,

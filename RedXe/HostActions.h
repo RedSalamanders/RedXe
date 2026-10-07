@@ -19,7 +19,9 @@
 namespace HostActions
 {
 // The main window, so `xeneon` monitor selectors resolve to the monitor RedXe sits on and the held-input timer has a
-// target, and the host log that records a release SendInput refused. Both null before the window exists.
+// target, and the host log that records a release SendInput refused. Both null before the window exists. A null
+// window (the main window closes) first makes the last release attempt at anything still held, while the outgoing
+// log can still record a refusal.
 void SetHostWindow(HWND window, IRedXeHost* log) noexcept;
 
 // The display XENEON discovery found (`found` false without one), after every discovery: the `secondary` monitor
@@ -38,8 +40,10 @@ void SetXeneonDisplay(const RECT& bounds, bool found) noexcept;
                               LaunchWorker* launches) noexcept;
 
 // Releases keys and buttons still held by keys.down / mouse.down. The main window calls OnHeldTimer for the
-// one-shot deadline and for the retry of a release SendInput refused; shutdown makes one last attempt at anything
-// still held. An `up` matching a hold the deadline already released injects nothing and returns S_FALSE.
+// one-shot deadline and for the retry of a release SendInput refused; closing the main window (SetHostWindow) and
+// shutdown make one last attempt at anything still held. Only an `up` naming the held chord or button ends its hold;
+// any other `up` injects its own release. An `up` matching a hold the deadline already released injects nothing and
+// returns S_FALSE.
 void ReleaseHeld(bool deviceAccess) noexcept;
 void OnHeldTimer() noexcept;
 

@@ -70,9 +70,10 @@ class Application final
     // After Run returns for `--screenshot`: joins a capture worker the closed window left running and returns the
     // request's result, ERROR_CANCELLED when the run ended before the capture finished.
     [[nodiscard]] HRESULT FinishScreenshot() noexcept;
-    // `--screenshot`: an unattended run, which Run never holds on a modal prompt (UI_XeneonDisplayWindowing.md mode
-    // table). The settings fallback notice becomes one Warning record, the previous-crash notice waits for the next
-    // interactive start, and the Release missing-display prompt takes its Yes answer, the titled fallback window.
+    // An unattended run (RedXeIsUnattendedRun: `--screenshot` or `--self-test`), which Run never holds on a modal
+    // prompt (UI_XeneonDisplayWindowing.md mode table). The settings fallback notice becomes one Warning record, the
+    // previous-crash notice waits for the next interactive start, and the Release missing-display prompt takes its Yes
+    // answer, the titled fallback window. RunSelfTest shows none of them either way.
     void SetUnattended() noexcept
     {
         _unattended = true;
@@ -250,8 +251,9 @@ class Application final
     void CloseSettingsError() noexcept;
     HRESULT UpdateDashboardVisibility() noexcept;
     void CloseMainWindow() noexcept;
-    // WM_ENDSESSION with wParam TRUE: logs `session-ending`, runs CloseMainWindow, and flushes the log within a bound
-    // before Windows ends the process (UI_XeneonDisplayWindowing.md "Window and rendering lifecycle").
+    // WM_ENDSESSION with wParam TRUE: logs `session-ending`, runs CloseMainWindow, stops the launch worker
+    // (PluginHost::StopLaunches), and flushes the log within a bound before Windows ends the process
+    // (UI_XeneonDisplayWindowing.md "Window and rendering lifecycle").
     void OnEndSession(LPARAM reason) noexcept;
     [[nodiscard]] bool DashboardRequiresContinuousFrames() const noexcept;
     [[nodiscard]] bool PageNavigationInProgress() const noexcept;
@@ -358,6 +360,8 @@ class Application final
     HRESULT HandleOleDrop(POINT client, const wchar_t* const* targets, uint32_t count, DWORD* effect) noexcept;
     HRESULT ApplyWidgetSettingsPersist(const char* instanceId, const char* settingsJsonUtf8,
                                        uint32_t settingsBytes) noexcept;
+    // One Warning record per on-disk state that made the store keep a persist in memory instead of writing it.
+    void LogDeferredSettingsPersist() noexcept;
     static HRESULT SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8,
                                         uint32_t settingsBytes) noexcept;
     // The page, widget, and redxe action namespaces (HostActionCatalog.h), executed on the UI thread from the

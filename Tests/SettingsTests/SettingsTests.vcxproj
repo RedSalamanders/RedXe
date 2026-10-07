@@ -73,6 +73,7 @@
     <ClCompile Include="..\..\RedXe\SettingsWatcher.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Settings.Tests.ReleasedTemplates.h" />
     <ClInclude Include="..\..\RedXe\Settings.h" />
     <ClInclude Include="..\..\RedXe\CommandLine.h" />
     <ClInclude Include="..\..\RedXe\DockOptions.h" />

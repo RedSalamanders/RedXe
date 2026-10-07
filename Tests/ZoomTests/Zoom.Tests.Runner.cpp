@@ -122,14 +122,26 @@ bool TestSettingsAndUrls() noexcept
     Zoom::Settings settings{};
     std::array<char, 160> diagnostic{};
     success &= Check(
-        SUCCEEDED(Zoom::ParseSettingsJson(Zoom::kSettingsDefaults, settings, diagnostic.data(), diagnostic.size())),
+        SUCCEEDED(Zoom::ParseSettingsJson(Zoom::kSettingsDefaults, settings, diagnostic.data(), diagnostic.size())) &&
+            !settings.retiredMembersIgnored,
         L"empty browser settings accepted");
-    success &=
-        Check(FAILED(Zoom::ParseSettingsJson(R"({"clientId":"x"})", settings, diagnostic.data(), diagnostic.size())),
-              L"Marketplace client id rejected");
-    success &= Check(
-        FAILED(Zoom::ParseSettingsJson(R"({"domain":"evil.example"})", settings, diagnostic.data(), diagnostic.size())),
-        L"token domain removed");
+    // A v1.0.102 settings file keeps its Zoom SDK members: each one loads with any value and is ignored.
+    constexpr std::string_view releasedTemplate =
+        R"({"clientId":"sHVWQENoR4qrpuBPgsFsPw","redirectPort":48123,"autoConnect":false})";
+    constexpr std::string_view anyRetiredValue =
+        R"({"clientId":null,"redirectPort":"x","domain":"evil.example","displayName":[],"autoConnect":1,"mode":"bogus","labels":{"unknown":0}})";
+    for (const std::string_view retired : {releasedTemplate, anyRetiredValue})
+    {
+        success &= Check(SUCCEEDED(Zoom::ParseSettingsJson(retired, settings, diagnostic.data(), diagnostic.size())) &&
+                             settings.retiredMembersIgnored,
+                         L"retired v1.0.102 members ignored");
+    }
+    for (const std::string_view rejected : {R"({"meeting":"x"})", R"({"clientId":"x","ClientId":"x"})", "[]", "\"x\""})
+    {
+        success &= Check(FAILED(Zoom::ParseSettingsJson(rejected, settings, diagnostic.data(), diagnostic.size())) &&
+                             !settings.retiredMembersIgnored,
+                         L"another member or a non-object rejected");
+    }
     success &= Check(Zoom::IsMeetingUrl("https://zoom.us/j/1234567890?pwd=opaque%2Bvalue") &&
                          Zoom::IsMeetingUrl("https://team.zoom.us/j/987654321"),
                      L"Zoom meeting links accepted");
@@ -213,6 +225,23 @@ bool TestPlugin() noexcept
     RedXeServiceStartContext start{};
     start.sizeBytes = sizeof(start);
     success &= Check(SUCCEEDED(service->Start(&start)), L"browser service starts without a device lane");
+    // The host hands a v1.0.102 entry's retired members through unchanged; create and apply both ignore them.
+    constexpr char retiredSettings[] =
+        R"({"clientId":"sHVWQENoR4qrpuBPgsFsPw","redirectPort":48123,"autoConnect":false})";
+    constexpr char retiredEnvelope[] =
+        R"({"plugin":{},"instance":{"clientId":"sHVWQENoR4qrpuBPgsFsPw","redirectPort":48123,"autoConnect":false}})";
+    constexpr char unknownSettings[] = R"({"meeting":"x"})";
+    success &= Check(SUCCEEDED(service->ApplySettings(retiredSettings, sizeof(retiredSettings) - 1)) &&
+                         FAILED(service->ApplySettings(unknownSettings, sizeof(unknownSettings) - 1)),
+                     L"service applies v1.0.102 settings and rejects another member");
+    RedXeFactoryOptions retiredOptions = options;
+    retiredOptions.configurationJsonUtf8 = retiredEnvelope;
+    retiredOptions.configurationBytes = sizeof(retiredEnvelope) - 1;
+    wil::com_ptr_nothrow<IRedXeService> retiredService;
+    success &= Check(SUCCEEDED(create(__uuidof(IRedXeService), &retiredOptions, &host, Zoom::kPluginId,
+                                      retiredService.put_void())) &&
+                         retiredService,
+                     L"v1.0.102 service settings create the service");
     RedXeActionRequest request{};
     request.sizeBytes = sizeof(request);
     request.actionUtf8 = "zoom.open";

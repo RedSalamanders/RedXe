@@ -107,6 +107,11 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] HRESULT QueueLaunch(const LaunchWorker::Request& request) noexcept;
     // True while the launch worker's thread exists, including one still finishing a launch after shutdown.
     [[nodiscard]] bool LaunchWorkerRunning() const noexcept;
+    // UI thread: drops queued launches and waits once, at most LaunchWorker::kStopMilliseconds, for one still in the
+    // shell; the first wait that runs out logs launch-stop-timeout. Shutdown calls it after StopServices, and a session
+    // end calls it before its log flush (Application::OnEndSession), because Windows may end the process before
+    // Shutdown runs.
+    void StopLaunches() noexcept;
 
     // Action publishers (Action.h): the namespace registry in BundledPlugins.h resolved against the contracts of
     // mapped modules. A collision, an unregistered namespace, a registered plugin that does not publish its
@@ -448,6 +453,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     void* _hostActionContext = nullptr;
     // Declared after the members its completion callback posts through, so it is destroyed (joined) before them.
     LaunchWorker _launches{&PluginHost::NotifyLaunchFinished, this};
+    // StopLaunches logged launch-stop-timeout; a later stop finds the same launch and logs nothing.
+    bool _launchStopReported = false;
     std::array<PublisherSlot, kRedXeBundledActionNamespaces.size()> _publishers;
     std::array<ActionNotice, kMaximumActionNotices> _actionNotices{};
     uint32_t _actionNoticeGeneration = 0;

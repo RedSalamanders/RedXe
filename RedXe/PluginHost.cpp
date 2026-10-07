@@ -513,6 +513,9 @@ void PluginHost::Shutdown() noexcept
     // Services go first: a stopped service releases its device lane and any provider subscription before the
     // acquisition worker and providers below are torn down.
     StopServices();
+    // Queued launches are dropped, also when a stuck device lane ends this shutdown early below; this host's post
+    // target, which a launch still in the shell keeps, is already cleared.
+    StopLaunches();
     for (const ServiceSlot& slot : _services)
     {
         if (slot.lane.joinable())
@@ -523,8 +526,9 @@ void PluginHost::Shutdown() noexcept
             const bool first = !_shutdown;
             _shutdown = true;
             // The writer and its events stay alive because the lane may still log, but process exit would discard
-            // the queue, device-lane-drain-timeout included, so it is written out now within a bound. Only the
-            // first such call waits: the process runtime is shut down again by its deleter at static destruction.
+            // the queue, device-lane-drain-timeout and launch-stop-timeout included, so it is written out now within
+            // a bound. Only the first such call waits: the process runtime is shut down again by its deleter at
+            // static destruction.
             if (first && FAILED(FlushLog(_shutdownLogFlushMilliseconds)))
             {
                 OutputDebugStringW(L"RedXe: the log writer did not drain at shutdown; its last lines may be lost.\n");
@@ -539,13 +543,6 @@ void PluginHost::Shutdown() noexcept
         _hostActionHead = 0;
         _hostActionCount = 0;
         _pendingHostActionPost.store(0, std::memory_order_release);
-    }
-    // Queued launches are dropped. One blocked in the shell (an offline share) gets a bounded wait; after that it
-    // keeps only the launch worker's own slots and this host's post target, which is already cleared.
-    if (!_launches.Stop(LaunchWorker::kStopMilliseconds))
-    {
-        (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, nullptr, nullptr, "launch-stop-timeout",
-                           "a launch was still in progress at shutdown; RedXe exits without waiting for it.");
     }
     _controlWork.Stop();
     // Executors go after the control lane has drained so no deferred action can still reference a pack object.
@@ -568,6 +565,19 @@ void PluginHost::Shutdown() noexcept
     ShutdownModules();
     StopLogService();
     _shutdown = true;
+}
+
+void PluginHost::StopLaunches() noexcept
+{
+    // One launch blocked in the shell (an offline share) gets a bounded wait, once (LaunchWorker::Stop); after that it
+    // keeps only the launch worker's own slots. Only the first wait that runs out reports it: a later stop (Shutdown
+    // after a session end, or the deleter's second shutdown) finds the same launch still stuck.
+    if (!_launches.Stop(LaunchWorker::kStopMilliseconds) && !_launchStopReported)
+    {
+        _launchStopReported = true;
+        (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, nullptr, nullptr, "launch-stop-timeout",
+                           "a launch was still in progress at shutdown; RedXe exits without waiting for it.");
+    }
 }
 
 IRedXeHost* PluginHost::Interface() noexcept

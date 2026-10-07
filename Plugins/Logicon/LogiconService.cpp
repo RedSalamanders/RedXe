@@ -43,6 +43,14 @@ template <typename Value> void HashValue(uint64_t& hash, const Value& value) noe
     return static_cast<uint32_t>(local.wHour) * 60U + local.wMinute;
 }
 
+// Which control list a binding comes from, to name it in a log record.
+enum class BindingSite : uint8_t
+{
+    Key,
+    DialButton,
+    Turn,
+};
+
 // Bit n set = dialpad button n has a binding (even "none"), so it is diverted; unbound buttons stay native.
 [[nodiscard]] uint32_t BoundDialButtons(const Settings& settings) noexcept
 {
@@ -161,11 +169,37 @@ void LogiconService::ValidateBindings(Settings& settings) noexcept
 {
     // UI thread. The host resolves every name (default namespaces and registered publishers, mapping a publisher
     // on first use) and checks the target against its descriptor; the lane only reads the result.
-    const auto validate = [this](KeyBinding& binding) noexcept
+    const auto validate = [this](KeyBinding& binding, BindingSite site) noexcept
     {
         if (!binding.HasAction())
         {
             binding.valid = true;
+            return;
+        }
+        if (binding.HoldsInput())
+        {
+            // A held input would stay down until the host's safety timer, because no control sends its release.
+            // The document still loads; the binding is invalid, never reaches the host, and is logged by control.
+            binding.valid = false;
+            std::array<char, kRedXeMaximumLogMessageBytes> message{};
+            if (site == BindingSite::Key)
+            {
+                (void)sprintf_s(message.data(), message.size(), "keys[] page %u slot %u: %s",
+                                static_cast<unsigned>(binding.page), static_cast<unsigned>(binding.slot),
+                                kHeldInputReason);
+            }
+            else if (site == BindingSite::DialButton)
+            {
+                (void)sprintf_s(message.data(), message.size(), "dialpad.buttons[] button %u: %s",
+                                static_cast<unsigned>(binding.slot), kHeldInputReason);
+            }
+            else
+            {
+                (void)sprintf_s(message.data(), message.size(), "dialpad.turns[] %s %s: %s",
+                                ControlName(binding.control), DirectionName(binding.control, binding.direction),
+                                kHeldInputReason);
+            }
+            Log(RedXeLogLevelWarning, "binding-invalid", message.data());
             return;
         }
         RedXeActionRequest request{};
@@ -177,15 +211,15 @@ void LogiconService::ValidateBindings(Settings& settings) noexcept
     };
     for (uint32_t index = 0; index < settings.keyCount; ++index)
     {
-        validate(settings.keys[index]);
+        validate(settings.keys[index], BindingSite::Key);
     }
     for (uint32_t index = 0; index < settings.dialpad.buttonCount; ++index)
     {
-        validate(settings.dialpad.buttons[index]);
+        validate(settings.dialpad.buttons[index], BindingSite::DialButton);
     }
     for (uint32_t index = 0; index < settings.dialpad.turnCount; ++index)
     {
-        validate(settings.dialpad.turns[index]);
+        validate(settings.dialpad.turns[index], BindingSite::Turn);
     }
 }
 

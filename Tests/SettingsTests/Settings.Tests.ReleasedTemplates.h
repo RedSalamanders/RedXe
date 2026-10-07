@@ -1,0 +1,255 @@
+#pragma once
+
+// The exact settings templates the public v1.0.102 release installed (`git show v1.0.102:Settings/<file>`). Every later
+// build MUST load them unchanged (Core_Settings.md "Version 5 document"), so this text is never edited.
+
+#include <string_view>
+
+inline constexpr std::string_view kV102ReleaseTemplate = R"json({
+  "$schema": "RedXe.settings.schema.json",
+  "version": { "major": 5, "minor": 2 },
+  "wrapPages": false,
+  "logRetentionDays": 15,
+  "backgroundColor": "#000000",
+  // Screen-edge dock (minor 2): run RedXe as a bar along one edge of a monitor instead of the XENEON window.
+  // Uncomment and edit; every member is optional. --dock <edge>[@<monitor>] and the other --dock* switches override
+  // these for one run. See docs/usage.md "Dock".
+  // "dock": { "edge": "bottom", "monitor": "primary", "thickness": 180, "mode": "autohide", "peek": 4 },
+  // Headless services start with the dashboard. Logicon drives a Logitech MX Creative Console keypad when one is
+  // plugged in (quit Logi Options+ first) and does nothing visible without it.
+  "services": {
+    "Logicon": {
+      "plugin": "builtin.logicon",
+      "brightness": 70,
+      "restoreLogoOnExit": true,
+      "pageButtons": "dashboardPages",
+      "keys": [
+        { "slot": 0, "action": "page.previous", "label": "Previous", "icon": "ChevronLeft" },
+        { "slot": 1, "face": "pageIndicator" },
+        { "slot": 2, "action": "page.next", "label": "Next", "icon": "ChevronRight" },
+        { "slot": 3, "action": "keys.media", "target": "mute", "label": "Mute", "icon": "Mute" },
+        { "slot": 4, "action": "keys.media", "target": "play-pause", "label": "Play", "icon": "Play" },
+        { "slot": 5, "action": "widget.dismiss", "label": "Close", "icon": "BackToWindow" },
+        { "slot": 6, "action": "keys.media", "target": "volume-down", "label": "Vol -", "icon": "Volume" },
+        { "slot": 7, "face": "clock" },
+        { "slot": 8, "action": "keys.media", "target": "volume-up", "label": "Vol +", "icon": "Volume" }
+      ],
+      "dialpad": {
+        "turns": [
+          { "control": "dial", "direction": "cw", "action": "page.next" },
+          { "control": "dial", "direction": "ccw", "action": "page.previous" }
+        ],
+        "buttons": [
+          { "button": 2, "action": "widget.dismiss" },
+          { "button": 3, "action": "keys.media", "target": "mute" }
+        ]
+      }
+    },
+    // Zoom drives the Zoom Workplace client through the Zoom Plugin SDK (see docs/plugins/zoom.md). clientId is the
+    // RedXe Marketplace app (a public PKCE client id, never a secret); bind zoom.signIn to a key to sign in.
+    "Zoom": {
+      "plugin": "builtin.zoom",
+      "clientId": "sHVWQENoR4qrpuBPgsFsPw",
+      "redirectPort": 48123,
+      "autoConnect": false
+    }
+  },
+  "declare": {
+    "Matrix": { "plugin": "builtin.matrix-rain" },
+    // 5H4D3R5: a slideshow of the bundled shaders (docs/plugins/5h4d3r5.md shows them all).
+    "Shaders": { "plugin": "builtin.5h4d3r5", "intervalSeconds": 120, "renderScalePercent": 50 },
+    "Triangle": { "plugin": "builtin.rotating-triangle" },
+    "StudioClock": { "plugin": "builtin.studio-clock", "externalDotsAlwaysOn": true },
+    "DeskClock": { "plugin": "builtin.desk-clock" },
+    "Weather": { "plugin": "builtin.weather" },
+    "Launcher": { "plugin": "builtin.launcher", "shortcuts": [] },
+    "AVControl": { "plugin": "builtin.av-control", "profiles": [] },
+    "Processes": { "plugin": "builtin.process-viewer", "topN": 10 },
+    "Pulse": { "plugin": "builtin.system-pulse" },
+    "Cpu": { "plugin": "builtin.cpu-meter" },
+    "Memory": { "plugin": "builtin.memory-meter" },
+    "Network": { "plugin": "builtin.network-meter", "topN": 8 },
+    "Storage": { "plugin": "builtin.storage-meter" },
+    "Gpu": { "plugin": "builtin.gpu-meter" },
+    "GpuProcesses": { "plugin": "builtin.gpu-processes", "topN": 8 },
+    "Power": { "plugin": "builtin.power-meter" },
+    "Thermal": { "plugin": "builtin.thermal-meter" }
+  },
+  "pages": [
+    { "name": "Matrix Focus", "widgets": ["Matrix"] },
+    {
+      "name": "Plugin Gallery",
+      "columns": [
+        { "weight": 2, "widget": "Triangle" },
+        {
+          "weight": 5,
+          "widget": {
+            "use": "Matrix",
+            "seed": 4242,
+            "densityPercent": 55,
+            "speedPercent": 75,
+            "headColor": "#B8E8FF",
+            "trailColor": "#2388D1"
+          }
+        },
+        { "weight": 2, "rows": ["StudioClock", "DeskClock"] },
+        { "weight": 5, "widget": "Weather" },
+        { "weight": 2, "widget": "Launcher" },
+        { "weight": 4, "widget": "AVControl" }
+      ]
+    },
+    {
+      "name": "System",
+      "columns": [
+        { "weight": 3, "rows": ["Pulse", "Cpu", "Memory"] },
+        { "weight": 4, "rows": ["Processes", "GpuProcesses"] },
+        { "weight": 3, "rows": ["Network", "Storage"] },
+        {
+          "weight": 3,
+          "rows": [
+            { "weight": 2, "widget": "Gpu" },
+            { "weight": 3, "widget": "Thermal" },
+            { "weight": 1, "widget": "Power" }
+          ]
+        }
+      ]
+    },
+    { "name": "Shaders", "widgets": ["Shaders"] }
+  ]
+}
+)json";
+
+inline constexpr std::string_view kV102DebugTemplate = R"json({
+  "$schema": "RedXe.settings.schema.json",
+  "version": { "major": 5, "minor": 2 },
+  "wrapPages": false,
+  "logRetentionDays": 15,
+  "backgroundColor": "#000000",
+  // Screen-edge dock (minor 2): run RedXe as a bar along one edge of a monitor instead of the XENEON window.
+  // Uncomment and edit; every member is optional. --dock <edge>[@<monitor>] and the other --dock* switches override
+  // these for one run. See docs/usage.md "Dock".
+  // "dock": { "edge": "bottom", "monitor": "primary", "thickness": 180, "mode": "autohide", "peek": 4 },
+  // Headless services start with the dashboard. Logicon drives a Logitech MX Creative Console keypad when one is
+  // plugged in (quit Logi Options+ first); the Debug-only Logicon Monitor tile below shows and drives it.
+  "services": {
+    "Logicon": {
+      "plugin": "builtin.logicon",
+      "brightness": 70,
+      "restoreLogoOnExit": true,
+      "pageButtons": "keyPages",
+      "keys": [
+        { "page": 0, "slot": 0, "action": "page.previous", "label": "Previous", "icon": "ChevronLeft" },
+        { "page": 0, "slot": 1, "face": "pageIndicator" },
+        { "page": 0, "slot": 2, "action": "page.next", "label": "Next", "icon": "ChevronRight" },
+        { "page": 0, "slot": 3, "action": "widget.toggle", "target": "0", "label": "Widget 1", "icon": "FullScreen" },
+        { "page": 0, "slot": 4, "action": "widget.toggle", "target": "1", "label": "Widget 2", "icon": "FullScreen" },
+        { "page": 0, "slot": 5, "action": "widget.dismiss", "label": "Close", "icon": "BackToWindow" },
+        { "page": 0, "slot": 6, "action": "page.goto", "target": "development", "label": "Dev", "icon": "Home" },
+        { "page": 0, "slot": 7, "face": "clock" },
+        { "page": 0, "slot": 8, "action": "logicon.keyPage.next", "label": "Media", "icon": "Music", "color": "#1F3A5F" },
+        { "page": 1, "slot": 0, "action": "keys.media", "target": "previous-track", "label": "Prev", "icon": "Previous" },
+        { "page": 1, "slot": 1, "action": "keys.media", "target": "play-pause", "label": "Play", "icon": "Play" },
+        { "page": 1, "slot": 2, "action": "keys.media", "target": "next-track", "label": "Next", "icon": "Next" },
+        { "page": 1, "slot": 3, "action": "keys.media", "target": "volume-down", "label": "Vol -", "icon": "Volume" },
+        { "page": 1, "slot": 4, "action": "keys.media", "target": "mute", "label": "Mute", "icon": "Mute" },
+        { "page": 1, "slot": 5, "action": "keys.media", "target": "volume-up", "label": "Vol +", "icon": "Volume" },
+        { "page": 1, "slot": 6, "face": "cpu" },
+        { "page": 1, "slot": 7, "face": "memory", "label": "RAM" },
+        { "page": 1, "slot": 8, "action": "logicon.keyPage.next", "label": "Zoom", "icon": "Video", "color": "#1F3A5F" },
+        { "page": 2, "slot": 0, "action": "zoom.signIn", "label": "Sign in", "icon": "Accept" },
+        { "page": 2, "slot": 1, "action": "zoom.mute", "target": "toggle", "label": "Mic", "icon": "Microphone" },
+        { "page": 2, "slot": 2, "action": "zoom.video", "target": "toggle", "label": "Cam", "icon": "Camera" },
+        { "page": 2, "slot": 3, "action": "zoom.raiseHand", "target": "toggle", "label": "Hand", "icon": "Emoji" },
+        { "page": 2, "slot": 4, "action": "zoom.reaction", "target": "thumbsUp", "label": "Thumbs", "icon": "Star" },
+        { "page": 2, "slot": 5, "action": "zoom.focus", "label": "Zoom", "icon": "Video" },
+        { "page": 2, "slot": 6, "action": "zoom.leave", "target": "now", "label": "Leave", "icon": "Cancel", "color": "#7A1E1E" },
+        { "page": 2, "slot": 7, "action": "zoom.signOut", "target": "now", "label": "Sign out", "icon": "Lock" },
+        { "page": 2, "slot": 8, "action": "logicon.keyPage.goto", "target": "0", "label": "Home", "icon": "Home", "color": "#1F3A5F" }
+      ],
+      "dialpad": {
+        "turns": [
+          { "control": "dial", "direction": "cw", "action": "page.next" },
+          { "control": "dial", "direction": "ccw", "action": "page.previous" },
+          { "control": "roller", "direction": "up", "action": "logicon.brightness", "target": "+5" },
+          { "control": "roller", "direction": "down", "action": "logicon.brightness", "target": "-5" }
+        ],
+        "buttons": [
+          { "button": 0, "action": "page.previous" },
+          { "button": 1, "action": "page.next" },
+          { "button": 2, "action": "zoom.mute", "target": "toggle" },
+          { "button": 3, "action": "logicon.keyPage.next" }
+        ]
+      }
+    },
+    // Zoom drives the Zoom Workplace client through the Zoom Plugin SDK (see docs/plugins/zoom.md). clientId is the
+    // RedXe Marketplace app (a public PKCE client id, never a secret); bind zoom.signIn to a key to sign in.
+    "Zoom": {
+      "plugin": "builtin.zoom",
+      "clientId": "sHVWQENoR4qrpuBPgsFsPw",
+      "redirectPort": 48123,
+      "autoConnect": false
+    }
+  },
+  // Reusable definitions create independent instances wherever they appear.
+  // The bundled native-window example is opt-in: { "plugin": "builtin.gdi-orbit" }. A native child HWND over the
+  // swap chain forces composed presentation for the whole window while it is placed, so no shipped page uses it.
+  "declare": {
+    "LogiconMonitor": { "plugin": "builtin.logicon-monitor" },
+    "Triangle": { "plugin": "builtin.rotating-triangle" },
+    "Matrix": { "plugin": "builtin.matrix-rain" },
+    // 5H4D3R5: a shuffled slideshow of the bundled shaders (docs/plugins/5h4d3r5.md shows them all).
+    "Shaders": { "plugin": "builtin.5h4d3r5", "intervalSeconds": 60, "shuffle": true },
+    "StudioClock": { "plugin": "builtin.studio-clock", "externalDotsAlwaysOn": true },
+    "DeskClock": { "plugin": "builtin.desk-clock" },
+    "Weather": { "plugin": "builtin.weather" },
+    "Launcher": { "plugin": "builtin.launcher", "shortcuts": [] },
+    "AVControl": { "plugin": "builtin.av-control", "profiles": [] },
+    "Processes": { "plugin": "builtin.process-viewer", "topN": 10 },
+    "Pulse": { "plugin": "builtin.system-pulse" },
+    "Cpu": { "plugin": "builtin.cpu-meter" },
+    "Memory": { "plugin": "builtin.memory-meter" },
+    "Network": { "plugin": "builtin.network-meter", "topN": 8 },
+    "Storage": { "plugin": "builtin.storage-meter" },
+    "Gpu": { "plugin": "builtin.gpu-meter" },
+    "GpuProcesses": { "plugin": "builtin.gpu-processes", "topN": 8 },
+    "Power": { "plugin": "builtin.power-meter" },
+    "Thermal": { "plugin": "builtin.thermal-meter" }
+  },
+  "pages": [
+    {
+      "id": "development",
+      "name": "Development",
+      "columns": ["Launcher", "Triangle", { "weight": 2, "widget": "Matrix" }]
+    },
+    {
+      "id": "logicon",
+      "name": "Logicon",
+      "columns": [{ "weight": 3, "widget": "LogiconMonitor" }, { "weight": 1, "widget": "StudioClock" }]
+    },
+    {
+      "name": "Alternate Gallery",
+      "columns": [
+        { "weight": 2, "widget": "Triangle" },
+        {
+          "weight": 5,
+          "widget": { "use": "Matrix", "seed": 2000, "densityPercent": 80 }
+        },
+        { "weight": 2, "rows": ["StudioClock", "DeskClock"] },
+        { "weight": 5, "widget": "Weather" },
+        { "weight": 2, "widget": "Launcher" },
+        { "weight": 4, "widget": "AVControl" }
+      ]
+    },
+    {
+      "name": "System",
+      "columns": [
+        { "weight": 3, "rows": ["Pulse", "Cpu", "Memory"] },
+        { "weight": 4, "rows": ["Processes", "GpuProcesses"] },
+        { "weight": 3, "rows": ["Network", "Storage"] },
+        { "weight": 3, "rows": ["Gpu", "Thermal", "Power"] }
+      ]
+    },
+    { "name": "Shaders", "widgets": ["Shaders"] }
+  ]
+}
+)json";

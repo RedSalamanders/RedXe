@@ -105,6 +105,8 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     // send the complete object or a subset of members. The host merges supplied members into the stored instance
     // settings, validates the complete result, and may write the user document. It MUST NOT destroy or detach the
     // calling widget. A failed validation or file replacement leaves typed settings and the source document intact.
+    // S_FALSE means nothing was written: the merge changed nothing, or the host keeps it in memory because the settings
+    // file on disk is not the document it last loaded. The widget keeps its state either way.
     // An older queued patch for this instance is delivered first, so it cannot later overwrite this newer edit.
     //
     // UI thread only, synchronous, non-reentrant. Forbidden from device, size, visibility, raise, Render, and

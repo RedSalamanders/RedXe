@@ -38,6 +38,8 @@ using unique_malloc_string = wil::unique_any<char*, decltype(&free), free>;
 [[nodiscard]] unique_yyjson_doc ParseStoredObject(const JsonObjectSettings& settings) noexcept;
 
 constexpr size_t kMaximumSettingsBytes = 1024U * 1024U;
+// A user document MAY start with it (Core_Settings.md "Version 5 document"); a host write keeps it there.
+constexpr std::string_view kUtf8ByteOrderMark = "\xEF\xBB\xBF";
 
 // Input is valid compact JSON from yyjson. Only whitespace outside tokens changes here.
 [[nodiscard]] size_t JsonTokenEnd(std::string_view json, size_t begin, size_t limit) noexcept
@@ -129,12 +131,16 @@ constexpr size_t kMaximumSettingsBytes = 1024U * 1024U;
     return false;
 }
 
-[[nodiscard]] HRESULT FormatCompactSettingsJson(std::string_view json, std::string& formatted) noexcept
+// `byteOrderMark` starts the output with the UTF-8 BOM, which counts toward the size cap but not the line width.
+[[nodiscard]] HRESULT FormatCompactSettingsJson(std::string_view json, bool byteOrderMark,
+                                                std::string& formatted) noexcept
 {
     try
     {
         std::string output;
         output.reserve(json.size() < kMaximumSettingsBytes ? json.size() : kMaximumSettingsBytes);
+        if (byteOrderMark)
+            output.append(kUtf8ByteOrderMark);
         std::vector<uint8_t> inlineContainers;
         inlineContainers.reserve(32);
         size_t column = 0;
@@ -803,6 +809,8 @@ template <size_t Count>
     }
 }
 
+// The schema copy, refreshed from the deployed file on every start. It skips the data flush a settings document gets
+// (InstallTemplateFile): a schema that a power loss empties is copied again at the next start.
 [[nodiscard]] HRESULT CopyFileAtomically(const std::filesystem::path& source, const std::filesystem::path& target,
                                          bool replaceExisting) noexcept
 {
@@ -839,22 +847,6 @@ template <size_t Count>
     {
         return E_FAIL;
     }
-}
-
-[[nodiscard]] HRESULT InstallIfMissing(const std::filesystem::path& source,
-                                       const std::filesystem::path& target) noexcept
-{
-    const DWORD attributes = GetFileAttributesW(target.c_str());
-    if (attributes != INVALID_FILE_ATTRIBUTES)
-    {
-        return (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ? S_FALSE : HRESULT_FROM_WIN32(ERROR_DIRECTORY);
-    }
-    const DWORD error = GetLastError();
-    if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
-    {
-        return HRESULT_FROM_WIN32(error);
-    }
-    return CopyFileAtomically(source, target, false);
 }
 
 #if !defined(_DEBUG)
@@ -1202,10 +1194,26 @@ template <size_t Count>
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
-        const auto cleanup = wil::scope_exit([&temporary]() noexcept { DeleteFileW(temporary.c_str()); });
+        // The handle closes first: the temporary file is not shared, so deleting it while open fails and leaves it.
+        const auto cleanup = wil::scope_exit(
+            [&temporary, &file]() noexcept
+            {
+                file.reset();
+                DeleteFileW(temporary.c_str());
+            });
         DWORD written = 0;
-        if (!WriteFile(file.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr) ||
-            written != bytes.size())
+        if (!WriteFile(file.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr))
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+        // A short write that reports no error is still a failed write: never rename a truncated document into place.
+        if (written != bytes.size())
+        {
+            return HRESULT_FROM_WIN32(ERROR_WRITE_FAULT);
+        }
+        // MOVEFILE_WRITE_THROUGH makes only the rename durable. Flush the data first, so a power loss right after a
+        // save cannot leave the settings name on bytes that never reached the disk.
+        if (!FlushFileBuffers(file.get()))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
@@ -1230,6 +1238,35 @@ template <size_t Count>
     {
         return E_FAIL;
     }
+}
+
+// A plain template install or recovery: the template's bytes through the same flushed atomic write as a persist, so a
+// power loss right after it cannot leave an empty settings file that the next start backs up and replaces. S_FALSE
+// without replaceExisting when the target already exists.
+[[nodiscard]] HRESULT InstallTemplateFile(const std::filesystem::path& source, const std::filesystem::path& target,
+                                          bool replaceExisting) noexcept
+{
+    std::vector<char> bytes;
+    const HRESULT result = ReadFileBytes(source.native(), bytes);
+    return FAILED(result)
+               ? result
+               : WriteUtf8FileAtomically(target, std::string_view(bytes.data(), bytes.size()), replaceExisting);
+}
+
+[[nodiscard]] HRESULT InstallIfMissing(const std::filesystem::path& source,
+                                       const std::filesystem::path& target) noexcept
+{
+    const DWORD attributes = GetFileAttributesW(target.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES)
+    {
+        return (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ? S_FALSE : HRESULT_FROM_WIN32(ERROR_DIRECTORY);
+    }
+    const DWORD error = GetLastError();
+    if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
+    {
+        return HRESULT_FROM_WIN32(error);
+    }
+    return InstallTemplateFile(source, target, false);
 }
 } // namespace
 
@@ -1774,6 +1811,13 @@ HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view inst
     const JsonObjectSettings previousPrivate = widget->privateConfiguration;
 
     HRESULT result = MergeSettingsObject(previousPrivate, patchRoot, widget->privateConfiguration);
+    // A merge that changes nothing (an unchanged collect, a repeated import) leaves the already valid typed settings
+    // and the retained source as they are, so the document is not re-serialized and keeps its comments.
+    if (SUCCEEDED(result) && widget->privateConfiguration.View() == previousPrivate.View())
+    {
+        widget->privateConfiguration = previousPrivate;
+        return S_FALSE;
+    }
     if (SUCCEEDED(result))
     {
         result = ValidateAppSettings(settings);
@@ -1795,8 +1839,9 @@ HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view inst
     {
         std::vector<char> mutableSource(settings.sourceDocument.begin(), settings.sourceDocument.end());
         yyjson_read_err error{};
-        source.reset(yyjson_read_opts(mutableSource.data(), mutableSource.size(),
-                                      YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS, nullptr, &error));
+        source.reset(yyjson_read_opts(
+            mutableSource.data(), mutableSource.size(),
+            YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS | YYJSON_READ_ALLOW_BOM, nullptr, &error));
     }
     catch (const std::bad_alloc&)
     {
@@ -1847,7 +1892,10 @@ HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view inst
         widget->privateConfiguration = previousPrivate;
         return E_OUTOFMEMORY;
     }
-    result = FormatCompactSettingsJson(std::string_view(written.get(), length), settings.sourceDocument);
+    // The rewritten document keeps a BOM the user's file starts with.
+    result =
+        FormatCompactSettingsJson(std::string_view(written.get(), length),
+                                  settings.sourceDocument.starts_with(kUtf8ByteOrderMark), settings.sourceDocument);
     if (FAILED(result))
     {
         widget->privateConfiguration = previousPrivate;
@@ -1864,9 +1912,11 @@ struct SourceMember final
     size_t valueBegin = 0;
     size_t valueEnd = 0;
     size_t closingBrace = 0;
+    // The object's last member, where a new member is appended.
+    size_t lastKeyBegin = 0;
+    size_t lastValueEnd = 0;
     bool found = false;
     bool hasMembers = false;
-    bool trailingComma = false;
 };
 
 [[nodiscard]] bool SkipSourceTrivia(std::string_view source, size_t& position) noexcept
@@ -1883,8 +1933,9 @@ struct SourceMember final
         }
         if (source[position + 1] == '/')
         {
+            // A line comment ends at CR or LF, exactly where the parser ends it.
             position += 2;
-            while (position < source.size() && source[position] != '\n')
+            while (position < source.size() && source[position] != '\n' && source[position] != '\r')
             {
                 ++position;
             }
@@ -2071,7 +2122,8 @@ struct SourceMember final
             return false;
         }
         found.hasMembers = true;
-        found.trailingComma = false;
+        found.lastKeyBegin = keyBegin;
+        found.lastValueEnd = position;
         if (matching)
         {
             found.found = true;
@@ -2086,7 +2138,6 @@ struct SourceMember final
         if (source[position] == ',')
         {
             ++position;
-            found.trailingComma = true;
         }
         else if (source[position] != '}')
         {
@@ -2095,8 +2146,29 @@ struct SourceMember final
     }
 }
 
+// The document's own line break: CRLF when it has one, CR in a document that breaks lines only with CR, otherwise LF.
+[[nodiscard]] std::string_view SourceLineBreak(std::string_view source) noexcept
+{
+    if (source.find("\r\n") != std::string_view::npos)
+    {
+        return "\r\n";
+    }
+    return source.find('\r') != std::string_view::npos && source.find('\n') == std::string_view::npos ? "\r" : "\n";
+}
+
+// The start of the line holding `position`; a line ends at CR or LF.
+[[nodiscard]] size_t SourceLineBegin(std::string_view source, size_t position) noexcept
+{
+    const size_t lineBreak = source.find_last_of("\r\n", position);
+    return lineBreak == std::string_view::npos ? 0 : lineBreak + 1;
+}
+
+// Replaces the value of `key`, or appends `"key": replacement` in the object's own layout: right after the last
+// member's value (its trailing comma or comment then follows the new member), on a new line at that member's
+// indentation when the member starts its own line, otherwise on the same line. In an empty object whose closing brace
+// starts its own line, the member gets a line of its own one level deeper than the brace. Throws only std::bad_alloc.
 [[nodiscard]] bool PatchSourceMember(std::string& source, size_t objectBegin, std::string_view key,
-                                     std::string_view replacement) noexcept
+                                     std::string_view replacement)
 {
     SourceMember member{};
     if (!FindSourceMember(source, objectBegin, key, member))
@@ -2106,47 +2178,74 @@ struct SourceMember final
     if (member.found)
     {
         source.replace(member.valueBegin, member.valueEnd - member.valueBegin, replacement);
+        return true;
+    }
+    std::string addition;
+    size_t insertAt = member.closingBrace;
+    const size_t anchor = member.hasMembers ? member.lastKeyBegin : member.closingBrace;
+    const size_t lineBegin = SourceLineBegin(source, anchor);
+    const bool ownLine = lineBegin > objectBegin + 1 && source.find_first_not_of(" \t", lineBegin) == anchor;
+    if (member.hasMembers)
+    {
+        insertAt = member.lastValueEnd;
+        addition.push_back(',');
+        if (ownLine)
+        {
+            addition.append(SourceLineBreak(source)).append(source, lineBegin, anchor - lineBegin);
+        }
+        else
+        {
+            addition.push_back(' ');
+        }
+        addition.append(key).append(": ").append(replacement);
+    }
+    else if (ownLine)
+    {
+        insertAt = lineBegin;
+        const bool tabs = source.find('\t', lineBegin) < anchor;
+        addition.append(source, lineBegin, anchor - lineBegin).append(tabs ? "\t" : "  ");
+        addition.append(key).append(": ").append(replacement).append(SourceLineBreak(source));
     }
     else
     {
-        std::string addition;
-        if (member.hasMembers && !member.trailingComma)
+        if (!std::isspace(static_cast<unsigned char>(source[insertAt - 1])))
         {
-            addition.push_back(',');
+            addition.push_back(' ');
         }
-        addition.append(key);
-        addition.push_back(':');
-        addition.append(replacement);
-        source.insert(member.closingBrace, addition);
+        addition.append(key).append(": ").append(replacement).push_back(' ');
     }
+    source.insert(insertAt, addition);
     return true;
 }
 
-// Preconditions shared by the dock source patches: the whole source is a valid v5 document. `raiseMinor` reports
-// a minor below `requiredMinor` (2 added `dock`, 3 the `secondary` monitor selector); `rootBegin` is the root's '{'.
+// Preconditions shared by the dock source patches: the whole source is a valid v5 document, parsed into `validated`.
+// `raiseMinor` reports a minor below `requiredMinor` (2 added `dock`, 3 the `secondary` monitor selector);
+// `rootBegin` is the root's '{', after a leading UTF-8 BOM, which the patch leaves in place.
 [[nodiscard]] HRESULT PrepareDockSourcePatch(std::string& source, uint32_t requiredMinor, bool& raiseMinor,
-                                             size_t& rootBegin) noexcept
+                                             size_t& rootBegin, std::unique_ptr<AppSettings>& validated) noexcept
 {
     raiseMinor = false;
     rootBegin = 0;
-    std::unique_ptr<AppSettings> validated;
     if (const HRESULT result = ParseAppSettingsJsonV5(source, validated); FAILED(result))
     {
         return result;
     }
     yyjson_read_err error{};
     unique_yyjson_doc document{yyjson_read_opts(
-        source.data(), source.size(), YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS, nullptr, &error)};
+        source.data(), source.size(),
+        YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS | YYJSON_READ_ALLOW_BOM, nullptr, &error)};
     yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
     if (!yyjson_is_obj(root))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     raiseMinor = validated->versionMinor < requiredMinor;
+    rootBegin = source.starts_with(kUtf8ByteOrderMark) ? kUtf8ByteOrderMark.size() : 0;
     return SkipSourceTrivia(source, rootBegin) ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 }
 
-[[nodiscard]] bool RaiseDockSourceMinor(std::string& source, size_t rootBegin, uint32_t minor) noexcept
+// Throws only std::bad_alloc.
+[[nodiscard]] bool RaiseDockSourceMinor(std::string& source, size_t rootBegin, uint32_t minor)
 {
     std::array<char, 16> digits{};
     const int length = std::snprintf(digits.data(), digits.size(), "%u", minor);
@@ -2155,6 +2254,167 @@ struct SourceMember final
            PatchSourceMember(source, version.valueBegin, "\"minor\"",
                              std::string_view(digits.data(), static_cast<size_t>(length)));
 }
+
+// The end of the line holding `position` when only spaces and comments follow it there, so a comment that ends the
+// line stays on it; otherwise `position` itself.
+[[nodiscard]] size_t SourceTrailingTriviaEnd(std::string_view source, size_t position) noexcept
+{
+    size_t scan = position;
+    for (;;)
+    {
+        while (scan < source.size() && (source[scan] == ' ' || source[scan] == '\t'))
+        {
+            ++scan;
+        }
+        if (scan >= source.size() || source[scan] == '\r' || source[scan] == '\n')
+        {
+            return scan;
+        }
+        if (source.substr(scan, 2) == "//")
+        {
+            return std::min(source.find_first_of("\r\n", scan), source.size());
+        }
+        const size_t commentEnd = source.substr(scan, 2) == "/*" ? source.find("*/", scan + 2) : std::string_view::npos;
+        if (commentEnd == std::string_view::npos || source.find_first_of("\r\n", scan) < commentEnd)
+        {
+            return position;
+        }
+        scan = commentEnd + 2;
+    }
+}
+
+// A new root member (`"key": value`) on its own line right after `version`, at that member's indentation and in the
+// file's own line breaks, below the given whole comment lines. A comment that ends version's line stays there.
+// Throws only std::bad_alloc.
+[[nodiscard]] bool InsertRootMemberAfterVersion(std::string& source, size_t rootBegin, std::string_view member,
+                                                std::initializer_list<std::string_view> comments)
+{
+    SourceMember version{};
+    if (!FindSourceMember(source, rootBegin, "\"version\"", version) || !version.found)
+    {
+        return false;
+    }
+    const size_t lineBegin = SourceLineBegin(source, version.keyBegin);
+    std::string indentation = source.substr(lineBegin, version.keyBegin - lineBegin);
+    if (indentation.find_first_not_of(" \t") != std::string::npos)
+    {
+        indentation = "  ";
+    }
+    const std::string_view lineBreak = SourceLineBreak(source);
+    std::string lines;
+    for (const std::string_view comment : comments)
+    {
+        lines.append(lineBreak).append(indentation).append(comment);
+    }
+    lines.append(lineBreak).append(indentation).append(member);
+    size_t after = version.valueEnd;
+    if (!SkipSourceTrivia(source, after) || after >= source.size())
+    {
+        return false;
+    }
+    if (source[after] == ',')
+    {
+        source.insert(SourceTrailingTriviaEnd(source, after + 1), lines + ",");
+    }
+    else
+    {
+        source.insert(SourceTrailingTriviaEnd(source, version.valueEnd), lines);
+        source.insert(version.valueEnd, ",");
+    }
+    return true;
+}
+
+// Removes every commented-out example of the root member `key`: a `//` comment alone on its line whose text starts with
+// `key` and a colon (the templates' `// "dock": { ... },`), together with the comment lines right above it that
+// introduce it, each line with its line break. Only comments between root members count; a member or a blank line
+// ends an introduction. Throws only std::bad_alloc.
+[[nodiscard]] bool RemoveCommentedRootExamples(std::string& source, std::string_view key)
+{
+    size_t depth = 0;
+    // The start of the line that begins the current run of root comment lines, and whether the line being read is one.
+    size_t runBegin = std::string::npos;
+    bool commentLine = false;
+    size_t position = 0;
+    while (position < source.size())
+    {
+        const char character = source[position];
+        if (character == '"')
+        {
+            if (!SkipSourceString(source, position))
+            {
+                return false;
+            }
+            runBegin = std::string::npos;
+            continue;
+        }
+        if (character == '/' && source.compare(position, 2, "/*") == 0)
+        {
+            const size_t end = source.find("*/", position + 2);
+            if (end == std::string::npos)
+            {
+                return false;
+            }
+            position = end + 2;
+            runBegin = std::string::npos;
+            continue;
+        }
+        if (character == '/' && source.compare(position, 2, "//") == 0)
+        {
+            // A line comment ends at CR or LF, exactly where the parser ends it.
+            const size_t lineBegin = SourceLineBegin(source, position);
+            const size_t lineEnd = std::min(source.find_first_of("\r\n", position), source.size());
+            if (depth != 1 || source.find_first_not_of(" \t", lineBegin) != position)
+            {
+                runBegin = std::string::npos;
+                position = lineEnd;
+                continue;
+            }
+            runBegin = runBegin == std::string::npos ? lineBegin : runBegin;
+            commentLine = true;
+            size_t text = source.find_first_not_of(" \t", position + 2);
+            if (text < lineEnd && source.compare(text, key.size(), key) == 0)
+            {
+                text = source.find_first_not_of(" \t", text + key.size());
+                if (text < lineEnd && source[text] == ':')
+                {
+                    size_t next = lineEnd;
+                    next += next < source.size() && source[next] == '\r' ? 1U : 0U;
+                    next += next < source.size() && source[next] == '\n' ? 1U : 0U;
+                    source.erase(runBegin, next - runBegin);
+                    position = runBegin;
+                    runBegin = std::string::npos;
+                    commentLine = false;
+                    continue;
+                }
+            }
+            position = lineEnd;
+            continue;
+        }
+        if (character == '\r' || character == '\n')
+        {
+            // CRLF is one line break.
+            if (character == '\r' || position == 0 || source[position - 1] != '\r')
+            {
+                runBegin = commentLine ? runBegin : std::string::npos;
+                commentLine = false;
+            }
+        }
+        else if (!std::isspace(static_cast<unsigned char>(character)))
+        {
+            runBegin = std::string::npos;
+            if (character == '{' || character == '[')
+            {
+                ++depth;
+            }
+            else if ((character == '}' || character == ']') && depth != 0)
+            {
+                --depth;
+            }
+        }
+        ++position;
+    }
+    return true;
+}
 } // namespace
 
 HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept
@@ -2162,6 +2422,12 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
     if (thicknessDips < kDockMinimumThicknessDips || thicknessDips > kDockMaximumThicknessDips)
     {
         return E_INVALIDARG;
+    }
+    // A release at the thickness the document already has (a click on the edge) changes nothing: no `dock` or minor
+    // is added and nothing is written.
+    if (settings.dock.thicknessDips == thicknessDips)
+    {
+        return S_FALSE;
     }
     if (settings.sourceDocument.empty())
     {
@@ -2173,7 +2439,9 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
         std::string updated = settings.sourceDocument;
         bool raiseMinor = false;
         size_t rootBegin = 0;
-        if (const HRESULT prepared = PrepareDockSourcePatch(updated, kRedXeSettingsDockMinor, raiseMinor, rootBegin);
+        std::unique_ptr<AppSettings> original;
+        if (const HRESULT prepared =
+                PrepareDockSourcePatch(updated, kRedXeSettingsDockMinor, raiseMinor, rootBegin, original);
             FAILED(prepared))
         {
             return prepared;
@@ -2183,6 +2451,8 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
+        // An existing dock gains or replaces `thickness`; a new one goes where the first-run dock goes, on its own line
+        // after `version`.
         const std::string thickness = std::to_string(thicknessDips);
         if (dock.found)
         {
@@ -2191,7 +2461,8 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
         }
-        else if (!PatchSourceMember(updated, rootBegin, "\"dock\"", "{\"thickness\":" + thickness + "}"))
+        else if (!InsertRootMemberAfterVersion(updated, rootBegin, "\"dock\": { \"thickness\": " + thickness + " }",
+                                               {}))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -2203,8 +2474,36 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
         {
             return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
         }
+        // The patched text is what gets written, so it must parse back to the running dock with the new thickness, and
+        // to the document it was made from with only that thickness and the raised minor changed. A scanner that read
+        // the document differently from the parser would otherwise persist a file the next start rejects and resets,
+        // or one that changes another member.
+        DockSettings expected = settings.dock;
+        expected.thicknessDips = thicknessDips;
+        std::unique_ptr<AppSettings> patched;
+        if (const HRESULT validated = ParseAppSettingsJsonV5(updated, patched); FAILED(validated))
+        {
+            return validated;
+        }
+        if (!patched || !original)
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        original->dock.thicknessDips = thicknessDips;
+        if (raiseMinor)
+        {
+            original->versionMinor = kRedXeSettingsDockMinor;
+        }
+        original->sourceDocument.clear();
+        patched->sourceDocument.clear();
+        if (patched->dock != expected || *patched != *original)
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
         settings.sourceDocument = std::move(updated);
         settings.dock.thicknessDips = thicknessDips;
+        // A raised source minor is the typed minor too, so the next comment-only reload still matches the runtime.
+        settings.versionMinor = patched->versionMinor;
         return S_OK;
     }
     catch (const std::bad_alloc&)
@@ -2291,58 +2590,35 @@ HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcep
         std::string updated = source;
         bool raiseMinor = false;
         size_t rootBegin = 0;
-        if (const HRESULT prepared = PrepareDockSourcePatch(updated, requiredMinor, raiseMinor, rootBegin);
+        std::unique_ptr<AppSettings> validated;
+        if (const HRESULT prepared = PrepareDockSourcePatch(updated, requiredMinor, raiseMinor, rootBegin, validated);
             FAILED(prepared))
         {
             return prepared;
         }
+        // The template's commented-out `dock` example goes with the comment that says to uncomment it: the file then
+        // defines the bar once, and following its comments cannot add a second, duplicate `dock` member.
         SourceMember existing{};
-        if (!FindSourceMember(updated, rootBegin, "\"dock\"", existing))
+        if (!RemoveCommentedRootExamples(updated, "\"dock\"") ||
+            !FindSourceMember(updated, rootBegin, "\"dock\"", existing))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
+        // An existing value is replaced. A new member goes on its own line after `version`, with the reason above it
+        // so the person who opens the file knows where the bar came from, how to turn it off, and where the rest of
+        // its members are described.
         if (existing.found)
         {
             updated.replace(existing.valueBegin, existing.valueEnd - existing.valueBegin, member);
         }
-        else
+        else if (!InsertRootMemberAfterVersion(
+                     updated, rootBegin, "\"dock\": " + member,
+                     {"// No XENEON display was found when RedXe installed this file, so this dock runs it as a bar on "
+                      "a screen edge;",
+                      "// set \"edge\" to \"none\" to use the standard window instead. See docs/usage.md \"Dock\" for "
+                      "the other members."}))
         {
-            // A new line after `version`, at its indentation and in the file's own line breaks, with the reason
-            // above it so the person who opens the file knows where the bar came from and how to turn it off.
-            SourceMember version{};
-            if (!FindSourceMember(updated, rootBegin, "\"version\"", version) || !version.found)
-            {
-                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-            }
-            const size_t newline = updated.find_last_of('\n', version.keyBegin);
-            const size_t lineBegin = newline == std::string::npos ? 0 : newline + 1;
-            std::string indentation = updated.substr(lineBegin, version.keyBegin - lineBegin);
-            if (indentation.find_first_not_of(" \t") != std::string::npos)
-            {
-                indentation = "  ";
-            }
-            const std::string_view lineBreak = updated.find("\r\n") != std::string::npos ? "\r\n" : "\n";
-            std::string lines;
-            lines.append(lineBreak).append(indentation);
-            lines.append(
-                "// No XENEON display was found when RedXe installed this file, so this dock runs it as a bar on "
-                "a screen edge;");
-            lines.append(lineBreak).append(indentation);
-            lines.append("// set \"edge\" to \"none\" to use the standard window instead.");
-            lines.append(lineBreak).append(indentation).append("\"dock\": ").append(member);
-            size_t after = version.valueEnd;
-            if (!SkipSourceTrivia(updated, after) || after >= updated.size())
-            {
-                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-            }
-            if (updated[after] == ',')
-            {
-                updated.insert(after + 1, lines + ",");
-            }
-            else
-            {
-                updated.insert(version.valueEnd, "," + lines);
-            }
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         if (raiseMinor && !RaiseDockSourceMinor(updated, rootBegin, requiredMinor))
         {
@@ -2532,6 +2808,11 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
     _selfTest = selfTest;
     _suppressDocumentWrites = false;
     _initialNotice.clear();
+    // Only a document this call loads from the selected path may be written over later (PersistPatchedDocument).
+    _lastAppliedStamp.reset();
+    _lastRejectedStamp.reset();
+    _deferredStamp.reset();
+    _deferredNoticePending = false;
     try
     {
         std::filesystem::path moduleDirectory;
@@ -2658,7 +2939,7 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
             // Recovery installs the plain template even without a XENEON: only a missing file gets the first-run dock,
             // so a file that failed validation never turns the user's XENEON or window configuration into a bar.
             _installedFirstRunDock = false;
-            result = CopyFileAtomically(selectedTemplate, settingsPath, true);
+            result = InstallTemplateFile(selectedTemplate, settingsPath, true);
             if (SUCCEEDED(result))
             {
                 result = LoadAppSettingsFileCandidate(_settingsPath, settings);
@@ -2751,6 +3032,7 @@ void SettingsStore::MarkApplied(const SettingsFileStamp& stamp) noexcept
 {
     _lastAppliedStamp = stamp;
     _lastRejectedStamp.reset();
+    _deferredStamp.reset();
 }
 
 void SettingsStore::MarkRejected(const SettingsFileStamp& stamp) noexcept
@@ -2819,11 +3101,26 @@ HRESULT SettingsStore::PersistPatchedDocument(const AppSettings& settings) noexc
     {
         return E_UNEXPECTED;
     }
+    // Write only over the document last applied. Any other file on disk (rejected, replaced by a save the watcher has
+    // not processed, deleted, unreadable, or a `--settings` file that fell back to the template) belongs to the user:
+    // the patch stays in memory until the next applied load replaces it. A missing or unreadable file keeps the zero
+    // stamp, so each distinct on-disk state is reported once.
+    SettingsFileStamp current{};
+    if (QuerySettingsFileStamp(_settingsPath, current) != S_OK || !_lastAppliedStamp || *_lastAppliedStamp != current)
+    {
+        if (!_deferredStamp || *_deferredStamp != current)
+        {
+            _deferredStamp = current;
+            _deferredNoticePending = true;
+        }
+        return S_FALSE;
+    }
     const HRESULT result = WriteUtf8FileAtomically(_settingsPath, settings.sourceDocument);
     if (FAILED(result))
     {
         return result;
     }
+    _deferredStamp.reset();
     SettingsFileStamp stamp{};
     const HRESULT stampResult = QuerySettingsFileStamp(_settingsPath, stamp);
     if (stampResult != S_OK)
@@ -2840,17 +3137,21 @@ HRESULT SettingsStore::PersistPatchedDocument(const AppSettings& settings) noexc
 HRESULT SettingsStore::PersistDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept
 {
     const uint32_t previousThickness = settings.dock.thicknessDips;
+    const uint32_t previousMinor = settings.versionMinor;
     try
     {
         std::string previousSource = settings.sourceDocument;
+        // S_FALSE from the patch: the thickness is unchanged, so nothing is written, unless an earlier deferred write
+        // still holds changes in memory.
         HRESULT result = PatchDockThickness(settings, thicknessDips);
-        if (SUCCEEDED(result) && !_selfTest && !_suppressDocumentWrites)
+        if ((result == S_OK || (result == S_FALSE && _deferredStamp)) && !_selfTest && !_suppressDocumentWrites)
         {
             result = PersistPatchedDocument(settings);
         }
         if (FAILED(result))
         {
             settings.dock.thicknessDips = previousThickness;
+            settings.versionMinor = previousMinor;
             settings.sourceDocument = std::move(previousSource);
         }
         return result;
@@ -2873,8 +3174,10 @@ HRESULT SettingsStore::PersistWidgetSettings(AppSettings& settings, std::string_
     try
     {
         std::string previousSource = settings.sourceDocument;
+        // S_FALSE from the patch: nothing changed, so the file is neither rewritten nor reformatted, unless an earlier
+        // deferred write still holds changes in memory.
         HRESULT result = PatchWidgetInstanceSettings(settings, instanceId, settingsJson);
-        if (SUCCEEDED(result) && !_selfTest && !_suppressDocumentWrites)
+        if ((result == S_OK || (result == S_FALSE && _deferredStamp)) && !_selfTest && !_suppressDocumentWrites)
         {
             result = PersistPatchedDocument(settings);
         }
@@ -2889,4 +3192,9 @@ HRESULT SettingsStore::PersistWidgetSettings(AppSettings& settings, std::string_
     {
         return E_OUTOFMEMORY;
     }
+}
+
+bool SettingsStore::TakeDeferredPersistNotice() noexcept
+{
+    return std::exchange(_deferredNoticePending, false);
 }

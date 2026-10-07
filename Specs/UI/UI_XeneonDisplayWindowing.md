@@ -54,7 +54,7 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 | Release with active XENEON | Create a `WS_POPUP` borderless window using the detected XENEON monitor's exact `rcMonitor` bounds. |
 | Release without active XENEON | Show the missing-display Yes/No warning. Yes creates the standard titled fallback window; No exits successfully without creating the main window. A default settings file installed at this start because it was missing carries the first-run dock ("First start without a XENEON"), so the Dock row applies instead. |
 | Self-test | Skip display discovery and prompts, create the titled window hidden, validate its DPI-adjusted client dimensions, render one frame, and exit. |
-| Screenshot (`--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]`) | Run exactly as the configuration above prescribes (same discovery, placement, services, and frame loop), jump to the named page through the host `PageGoTo` action once the renderer is live and no settle runs, wait the delay (default 3000 ms, 1–120000) with the frame loop idle-waiting as usual, capture the main window through `Common/WindowCapture.cpp` on a capture worker (Windows.Graphics.Capture of an owned, visible window; a widget ordinal crops to that tile's `PixelBoundsAt` in client space, mapped through the DWM extended frame bounds), then close. The UI thread continues handling input and timers while capture waits for its first frame. Exit 0 only with the PNG written; 8 when the capture failed, when its worker could not start, and when the run ended before the PNG was written (the window closed during the delay or the capture), with one `screenshot-failed` Warning record. The run is unattended and MUST NOT wait on a modal box: the Release missing-display prompt is not shown and the titled fallback window is created as for its Yes; the settings fallback notice is one Warning record (`settings-fallback-notice`) instead of its box; the previous-crash notice is left for the next interactive start; a command-line error goes to the console or redirected output (exit 2); and a failure exit is one Error record (`failure-exit`, naming the code) instead of the error message box. A failed Debug runtime check ends the run with exit code 3 (`Common/FailureReports.h`). A worker still capturing when the window closes is joined and its result decides the exit code. Only this command-line mode closes after the capture; the `redxe.screenshot` action shares the pipeline and keeps RedXe running (`Plugins_Actions.md`). It MUST NOT activate, move, or resize the window, move the cursor, or send input. |
+| Screenshot (`--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]`) | Run exactly as the configuration above prescribes (same discovery, placement, services, and frame loop), jump to the named page through the host `PageGoTo` action once the renderer is live and no settle runs, wait the delay (default 3000 ms, 1–120000) with the frame loop idle-waiting as usual, capture the main window through `Common/WindowCapture.cpp` on a capture worker (Windows.Graphics.Capture of an owned, visible window; a widget ordinal crops to that tile's `PixelBoundsAt` in client space, mapped through the DWM extended frame bounds), then close. The UI thread continues handling input and timers while capture waits for its first frame. Exit 0 only with the PNG written; 8 when the capture failed, when its worker could not start, and when the run ended before the PNG was written (the window closed during the delay or the capture, or a startup, graphics, or rendering failure ended the run first), with one `screenshot-failed` Warning record once the log is open (a failure before the settings load reaches only the debugger output). The run is unattended (`RedXeIsUnattendedRun`, as `--self-test` is) and MUST NOT wait on a modal box: the Release missing-display prompt is not shown and the titled fallback window is created as for its Yes; the settings fallback notice is one Warning record (`settings-fallback-notice`) instead of its box; the previous-crash notice is left for the next interactive start; a command-line error goes to the console or redirected output (exit 2); and a failure exit, whatever its code, is one Error record (`failure-exit`, naming the code) and a debugger line instead of the exit-code message box (`RedXeShowsExitCodeBox`). A failed Debug runtime check ends the run with exit code 3 (`Common/FailureReports.h`). A worker still capturing when the window closes is joined and its result decides the exit code. Only this command-line mode closes after the capture; the `redxe.screenshot` action shares the pipeline and keeps RedXe running (`Plugins_Actions.md`). It MUST NOT activate, move, or resize the window, move the cursor, or send input. |
 | Dock (`dock.edge` other than `none`, or `--dock <edge>[@<monitor>]`) | Debug and Release alike: create the dock window kind below on the selected monitor instead of the row that would otherwise apply, and skip the missing-display prompt. A live reload that turns the dock on or off switches the running window between this row and the one that would otherwise apply ("Switching the window kind"). `--self-test` ignores the dock. |
 | Help (`--help`, `-h`, `/?`, `-?`) | Print the command-line catalog and exit 0 before any other switch is read: to the console the process was started from (a GUI process attaches to its parent's), to a redirected stdout as UTF-8, or, without either, to a message box. Every other token on the line MUST be a catalogued switch or the value of one; the first unknown token is a command-line error (exit 2, `Unknown argument "<token>". Run RedXe.exe --help for the command line.`) shown the same way, never as a message box when `--self-test` or `--screenshot` is on the line. |
 
@@ -62,9 +62,12 @@ The command line is declared once in `RedXe/CommandLine.h`: the catalog `--help`
 parses through, so a switch cannot exist without an entry. Adding, renaming, or removing a switch changes that
 catalog, the "Command line" section of `docs/usage.md`, and the owning row of this table in the same change;
 `SettingsTests` pins the catalog (unique well-formed names, every entry printed, the help aliases, the unknown-token
-scanner) and `test.ps1` runs `--help` through a redirected stdout, an unknown switch under `--self-test`, and a
-missing switch value under `--self-test` and an invalid one under `--screenshot`, each bounded so that a message box
-fails the step instead of holding it.
+scanner) and the unattended-run policy `Main.cpp` applies through it (`RedXeIsUnattendedRun`: `--self-test` or
+`--screenshot` on the line; `RedXeShowsExitCodeBox`: no exit-code box for an unattended run; `RedXeScreenshotExitCode`:
+8 for a capture run without its PNG, whatever ended it; `RedXeExitCodeName`: the `failure-exit` record names each
+code as `--help` lists it), and `test.ps1` runs `--help` through a redirected stdout, an unknown switch under
+`--self-test`, and a missing switch value under `--self-test` and an invalid one under `--screenshot`, each bounded so
+that a message box fails the step instead of holding it.
 
 Debug and Release display discovery MUST inspect active display paths through
 `QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS)`. A target friendly name containing `XENEON` or `CORSAIR`, compared
@@ -135,8 +138,9 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
   window and dashboard follow the pointer live with the outer edge fixed and the shell reservation untouched; the
   release (or a lost capture) commits through `PlaceDock`, replaces a `--dock-thickness` pin for the run, and
   persists `dock.thickness` into the settings document (`SettingsStore::PersistDockThickness`, which creates the
-  `dock` object and raises `version.minor` to 2 when needed; a failed write is one Warning record,
-  `dock-thickness-persist-failed`). A drag is a hold for an autohide bar. Touch and pen do not resize.
+  `dock` object and raises `version.minor` to 2 when needed, and writes nothing for a release at the thickness the
+  document already has; a failed write is one Warning record, `dock-thickness-persist-failed`). A drag is a hold for
+  an autohide bar. Touch and pen do not resize.
 
 ### Monitor and placement
 
@@ -446,10 +450,10 @@ the repository test entrypoint MUST validate the version fields without desktop 
   notification stays unacknowledged meanwhile, so later saves coalesce into that one reload.
 - A run that ends with a startup or runtime failure exit code shows one error message box after the main window is
   gone (`RedXe/Main.cpp`), and that box MUST wait for the user: the `WM_QUIT` that destroying the window posted is
-  discarded first, because a modal loop that retrieves it closes the box at once. An unattended run MUST NOT show it:
-  `--self-test` reports through its exit code only, and a `--screenshot` run through its exit code (8 included, a
-  failed capture) and one Error record (`failure-exit`, naming the code) written before the process runtime shuts
-  down.
+  discarded first, because a modal loop that retrieves it closes the box at once. An unattended run
+  (`RedXeIsUnattendedRun`) MUST NOT show it, whatever its exit code (`RedXeShowsExitCodeBox`): `--self-test` reports
+  through its exit code only, and a `--screenshot` run through its exit code (8 whenever it wrote no PNG), one Error
+  record (`failure-exit`, naming the code) written before the process runtime shuts down, and a debugger line.
 - `WM_PAINT` validates the update region; continuous rendering remains on the idle side of the message loop.
 - The window class MUST NOT request `CS_HREDRAW` or `CS_VREDRAW`; resize rendering is driven by `WM_SIZE` and the
   renderer rather than redundant full-client paint invalidation.
@@ -486,12 +490,16 @@ the repository test entrypoint MUST validate the version fields without desktop 
   and without `wWinMain` returning, so that message MUST close RedXe before it returns (`Application::OnEndSession`):
   one Info record (`session-ending`, naming a sign-out, a shutdown or restart, or a close that Windows requested for
   an update, `ENDSESSION_CLOSEAPP`), then `CloseMainWindow` exactly as `WM_CLOSE` runs it (widget settings collected,
+  the last release of anything `keys.down` or `mouse.down` still holds made while the log still records a refusal,
   services stopped so the Logicon lane restores its devices, the tray icon and the app bar removed, which matters to an
-  Explorer that keeps running), then the queued log lines written out within `kSessionEndLogFlushMilliseconds` (1 s).
-  The service stop waits at most `kRedXeDeviceWorkerDrainMilliseconds` (3 s) per device lane, so with the one bundled
-  lane and a responsive shell the teardown stays inside Windows' 5 s hung-application timeout. `wParam` `FALSE` (the
+  Explorer that keeps running), then the launch worker stopped as runtime shutdown stops it
+  (`PluginHost::StopLaunches`: queued launches dropped, one still in the shell waited for at most
+  `LaunchWorker::kStopMilliseconds` (1 s), once, and logged as `launch-stop-timeout`; `Plugins_Actions.md`), then the
+  queued log lines written out within `kSessionEndLogFlushMilliseconds` (0.5 s). The service stop waits at most
+  `kRedXeDeviceWorkerDrainMilliseconds` (3 s) per device lane, so with the one bundled lane the whole teardown
+  (`kSessionEndMaximumMilliseconds`, 4.5 s) stays inside Windows' 5 s hung-application timeout. `wParam` `FALSE` (the
   end was cancelled) changes nothing. The rest of the process runtime teardown, `RedXePluginShutdown` included, is
-  not guaranteed at session end.
+  not guaranteed at session end; when it does run, it neither waits for a stuck launch nor logs it again.
 - Fullscreen selection and DPI policy belong to `Application`; swap-chain sizing and presentation belong to
   `Renderer`.
 
@@ -644,14 +652,16 @@ missing-display path under `--screenshot` have no automated or live check.
 
 Session-end changes MUST keep the `--self-test` step green: `WM_QUERYENDSESSION` and a cancelled `WM_ENDSESSION`
 sent to its hidden window keep the window, renderer, page, and services, and `WM_ENDSESSION` with `wParam` `TRUE`
-returns with the window destroyed, the page released, and every service and device lane stopped, within
-`kRedXeDeviceWorkerDrainMilliseconds` plus `kSessionEndLogFlushMilliseconds`. Because the self-test has no log
-writer, they additionally require a live run: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed
---dock-reserve off`) running the Zoom service under `--screenshot`, sent both messages with `ENDSESSION_LOGOFF` the way
+returns with the window destroyed, the page released, every service and device lane stopped, and no launch worker
+left, within `kSessionEndMaximumMilliseconds`. `HostPluginTests` (`TestLaunchWorker`) proves the launch stop a session
+end makes: it waits the bound once for a stuck launch and logs `launch-stop-timeout`, and the runtime shutdown after it
+neither waits nor logs again. Because the self-test has no log writer, they additionally require a live run: a Debug
+overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`) running the Zoom service under
+`--screenshot`, sent both messages with `ENDSESSION_LOGOFF` the way
 Windows sends them, answers `TRUE`, returns from `WM_ENDSESSION` with its window destroyed and its JSONL log already
 holding `session-ending` followed by `service-stopped`, leaves the foreground where it was, and exits by itself (8:
 the run ended before its capture). The 2026-10-07 check recorded this on the topology above (`WM_ENDSESSION` returned
-after 26 ms). A real sign-out, restart, or shutdown with a Logicon keypad and dialpad bound (the keypad shows the Logi
+after 26 ms, and after 29 ms once the session end also stopped the launch worker). A real sign-out, restart, or shutdown with a Logicon keypad and dialpad bound (the keypad shows the Logi
 splash on the sign-in screen, and the dialpad buttons RedXe bound work normally again) is a manual check.
 
 Notification-area icon changes MUST keep `HostPluginTests` proving the callback table (`TrayIconActionFor`: a

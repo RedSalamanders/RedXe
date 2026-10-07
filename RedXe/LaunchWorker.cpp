@@ -98,9 +98,12 @@ bool LaunchWorker::Stop(uint32_t timeoutMilliseconds) noexcept
         return true;
     }
     // The worker takes no further slot once the event is set, so queued launches are dropped and only the one in
-    // progress, if any, still runs.
+    // progress, if any, still runs. The event is still set only when an earlier Stop timed out: the process runtime
+    // shuts down again at static destruction, and that later call checks the thread without waiting out the bound
+    // a second time.
+    const DWORD wait = _stop.is_signaled() ? 0 : timeoutMilliseconds;
     _stop.SetEvent();
-    if (WaitForSingleObject(_thread.native_handle(), timeoutMilliseconds) != WAIT_OBJECT_0)
+    if (WaitForSingleObject(_thread.native_handle(), wait) != WAIT_OBJECT_0)
     {
         return false;
     }
