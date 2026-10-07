@@ -10,9 +10,12 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cassert>
+#include <corecrt_startup.h>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <cwchar>
 #include <limits>
@@ -2529,23 +2532,42 @@ struct HeapSnapshot final
     }
     return S_OK;
 }
+
+// A failed suite names itself with its HRESULT and fails the run with exit code 1. The HRESULT is no exit code: its
+// low byte can be 0, which would pass the run, or 3, which means a failed runtime check (Common/FailureReports.h).
+int ReportSuiteFailure(const wchar_t* suite, HRESULT result) noexcept
+{
+    std::wprintf(L"%ls failed: 0x%08X\n", suite, static_cast<unsigned int>(result));
+    return 1;
+}
 } // namespace
 
 int wmain(int argumentCount, wchar_t** arguments)
 {
     RedXeFailureReports::RouteAwayFromDialogs();
     // The failure-report self-test, reached only through --failure-report-self-test, which test.ps1 runs: a failed
-    // runtime check must end the run with its report and exit code 3, never wait on a dialog.
+    // runtime check must end the run with its whole report and exit code 3, never wait on a dialog. The report carries
+    // a character above U+00FF, as a source path under such a user or folder name does, and must not stop there.
     if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--failure-report-self-test")
     {
 #if defined(_DEBUG)
-        _ASSERTE(!L"the failure-report self-test fails this check on purpose");
+        _ASSERT_EXPR(false,
+                     L"the failure-report self-test fails this check on purpose (\u0141), and its report goes on");
         std::fputs("The failed check returned instead of ending the run.\n", stderr);
         return 1;
 #else
         std::fputs("A Release build has no runtime checks to report.\n", stdout);
         return 0;
 #endif
+    }
+    // Reached only through --abort-self-test, which test.ps1 runs in every configuration: an abort() that no failed
+    // check reported says so and ends the run with exit code 4, not 3. Reporting as the GUI-subsystem RedXe.exe does,
+    // a Debug assert() must still go to stderr, not to a message box, before it aborts.
+    if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--abort-self-test")
+    {
+        _set_app_type(_crt_gui_app);
+        assert(!"the abort self-test fails this assert() on purpose");
+        std::abort();
     }
     // Reached only through --unbuffered-output-self-test, which test.ps1 runs: a line written just before the process
     // is terminated, as a time budget ends a hung run, must already be in the pipe rather than in a CRT buffer.
@@ -2566,32 +2588,32 @@ int wmain(int argumentCount, wchar_t** arguments)
         const bool disabledSoak = mode == L"--soak-disabled";
         const bool soak = mode == L"--soak" || disabledSoak;
         const HRESULT benchmarkResult = RunMatrixRainBenchmark(soak, disabledSoak);
-        return FAILED(benchmarkResult) ? static_cast<int>(benchmarkResult & 0xFF) : 0;
+        return FAILED(benchmarkResult) ? ReportSuiteFailure(L"Matrix Rain benchmark", benchmarkResult) : 0;
     }
     const HRESULT result = RunContractTests();
     if (FAILED(result))
     {
-        return static_cast<int>(result & 0xFF);
+        return ReportSuiteFailure(L"Plugin contract tests", result);
     }
     const HRESULT windowResult = RunWindowPluginContractTests();
     if (FAILED(windowResult))
     {
-        return static_cast<int>(windowResult & 0xFF);
+        return ReportSuiteFailure(L"Window plugin contract tests", windowResult);
     }
     const HRESULT matrixResult = RunMatrixRainContractTests();
     if (FAILED(matrixResult))
     {
-        return static_cast<int>(matrixResult & 0xFF);
+        return ReportSuiteFailure(L"Matrix Rain contract tests", matrixResult);
     }
     const HRESULT shadersResult = RunShadersContractTests();
     if (FAILED(shadersResult))
     {
-        return static_cast<int>(shadersResult & 0xFF);
+        return ReportSuiteFailure(L"5H4D3R5 contract tests", shadersResult);
     }
     const HRESULT processViewerResult = RunProcessViewerContractTests();
     if (FAILED(processViewerResult))
     {
-        return static_cast<int>(processViewerResult & 0xFF);
+        return ReportSuiteFailure(L"Process Viewer contract tests", processViewerResult);
     }
     return 0;
 }

@@ -58,16 +58,34 @@ The root `test.ps1` exits zero only after every required assertion has passed. E
 negative-test children must not become the test entrypoint's success exit code.
 
 A test process never waits on a dialog. Every native test executable calls `Common/FailureReports.h` first thing in
-`wmain`, and `RedXe.exe` calls it as soon as its command line has `--self-test`, before the self-test runs.
+`wmain`, `RedXe.exe` calls it as soon as its command line has `--self-test`, before the self-test runs, and
+`AVControlBroker.exe` calls it when it is started as a synthetic helper, which only tests do.
 - In a Debug or ASan Debug build, a failed runtime check (an STL range check, a CRT assertion) writes its report to
   stderr and ends the process with exit code 3, as the CRT's Abort button would, instead of opening its modal
-  Abort/Retry/Ignore box. An abort or a fail-fast also ends the process quietly: Windows Error Reporting's dialog and
-  critical-error boxes are suppressed.
+  Abort/Retry/Ignore box. The report MUST NOT go through a CRT stream, whose default "C" locale stops at the first
+  character above U+00FF (a source path under such a user or folder name): it is written as UTF-8 to a pipe or a file
+  and as UTF-16 to a console, through a fixed stack buffer.
+- Exit code 3 MUST mean only a failed runtime check. An `abort()` that no such check reported (an `assert()`,
+  `std::terminate` after an unhandled exception, or a direct call) writes one line saying so to stderr and ends the
+  process with exit code 4, in every configuration. `assert()` and the CRT's runtime-error messages go to stderr, never
+  to a message box, in the GUI-subsystem `RedXe.exe` as well. Windows Error Reporting's dialog and critical-error boxes
+  are suppressed.
 - `test.ps1` runs `PluginContractTests.exe --failure-report-self-test`, a hidden switch that fails such a check on
-  purpose. It requires the report and exit code 3 in Debug and ASan Debug, and exit code 0 in Release, which has no
-  such checks. The run is bounded by two minutes, so a routing that stopped working fails there.
+  purpose with a report that carries a character above U+00FF. It requires the whole report and exit code 3 in Debug
+  and ASan Debug, and exit code 0 in Release, which has no such checks. The run is bounded by two minutes, so a routing
+  that stopped working fails there.
+- `test.ps1` runs `PluginContractTests.exe --abort-self-test`, a hidden switch that reports as a GUI-subsystem process
+  does and fails an `assert()` (Debug and ASan Debug) or calls `abort()` (Release). It requires the abort line, the
+  assertion's text where `assert()` is compiled in, and exit code 4, within two minutes.
 - `test.ps1` runs `RedXe.exe --self-test --warp` bounded by the same budget as the test executables and keeps its
-  output in `.build/<Platform>/<Configuration>/RedXe.self-test.log`.
+  output in `.build/<Platform>/<Configuration>/RedXe.self-test.log`. A failed self-test check MUST name itself, with
+  its HRESULT when there is one, on stderr as well as on the debugger output, and end the run with exit code 6.
+  `test.ps1` proves it on a copy of `RedXe.exe` without the `Settings` folder beside it, whose settings check fails.
+- Every other run of `RedXe.exe` or `RedXeLauncher.exe` in `test.ps1` (`--help`, an unknown switch, the crash harness
+  and its invalid directory) and in the package smoke of `Build/Package.psm1` goes through
+  `Invoke-RedXeStreamingProcess` with a budget and a log, and keeps its exit-code check.
+- A test executable never turns an HRESULT into its exit code: its low byte can be 0, which passes the run, or 3. A
+  failed suite prints its HRESULT and returns 1.
 - A new test executable calls the header first, so an unattended run on a developer's desktop never holds a dialog.
 - The header also makes stdout and stderr unbuffered. A process terminated at its budget runs no exit code that would
   flush a CRT buffer, so every line a test process wrote MUST already be in the pipe, and its log names the case that
@@ -92,10 +110,11 @@ its process tree (a descendant of the invocation, never an independently launche
 `TIMEOUT:` record stay in the log, and the call throws naming the executable and the log. A bounded child is created
 suspended and joins the kill-on-close job before its first instruction runs, so nothing it starts can escape the job;
 an unbounded one starts through `Process.Start`, and both paths quote arguments, keep stream identity, propagate the
-exit code, and decode output alike. The survivor check follows parent processes, so a descendant that carries no
-marker (`ping.exe`) still counts. `build.ps1` keeps the unbounded default; `test.ps1` applies a fifteen-minute
-budget to every standalone test executable, and shows the HostPlugin and HostSmoke log tails, which never stream to
-the console, for a run ended at its budget as well as for a failing exit code.
+exit code, report the child's process identifier through `-ProcessId`, and decode output alike. The survivor check
+follows parent processes, so a descendant that carries no marker (`ping.exe`) still counts. `build.ps1` keeps the
+unbounded default; `test.ps1` applies a fifteen-minute budget to every standalone test executable and to the crash
+harness, two minutes to its `--help`, unknown-switch and routing checks, and shows the HostPlugin and HostSmoke log
+tails, which never stream to the console, for a run ended at its budget as well as for a failing exit code.
 
 `Invoke-RedXeStreamingProcess` MUST also hold to the following. `BuildProcessTests.ps1` covers a child that never
 stops writing, the exit grace with a drained last line, a stop of a silent child with and without a budget (stopped
@@ -118,6 +137,10 @@ within seconds, no survivor), and an edited launcher definition imported into a 
   reusable nodes. Closing the terminal itself can end PowerShell before this cleanup runs.
 - Every disposal runs even when an earlier one throws, and the job, whose last handle kills what the tree still runs,
   is created inside the guarded block and disposed last.
+- The job also sets `JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION`: an unhandled exception ends the bounded process it
+  happens in, even one that never calls `Common/FailureReports.h` (the crash harness, `--help`) and whatever error mode
+  it inherited, instead of holding it in a Windows Error Reporting dialog. `BuildProcessTests.ps1` checks the flag
+  from inside a bounded child.
 - The compiled launcher's type names carry a digest of its C# source. A session cannot unload a compiled type, so an
   edited definition compiles under new names and a session that loaded an earlier one never runs stale code (nor
   records test evidence for it).

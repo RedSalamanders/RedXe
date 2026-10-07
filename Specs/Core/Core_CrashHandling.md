@@ -1,7 +1,7 @@
 # Crash handling specification
 
 Status: current normative product contract
-Last reviewed: 2026-08-31
+Last reviewed: 2026-10-07
 
 ## Scope
 
@@ -82,14 +82,18 @@ or plugin initialization. `--crash-test-stack-overflow` MUST exhaust the main-th
 directory only for either deliberate crash invocation. An invalid override MUST fail without deliberately crashing
 or falling back to the user's normal crash directory.
 
-The repository test entrypoint MUST launch each crash mode into its own unique directory beneath `.build`, then verify
-all of the following for both modes:
+The repository test entrypoint MUST launch each crash mode, and the invalid-override case, through its bounded child
+runner (`Invoke-RedXeStreamingProcess`, [`Build_Process.md`](../Build/Build_Process.md)) with a time budget and a log
+under `.build/<Platform>/<Configuration>/`. The runner's job keeps Windows Error Reporting's dialog away, so a crash
+path that stops handling its exception ends the run at once instead of holding it. Each crash mode writes into its own
+unique directory beneath `.build`, and the entrypoint then verifies all of the following for both modes:
 
-- the process exits through the top-level fatal boundary with the documented nonzero crash exit code;
+- the process exits through the top-level fatal boundary with the documented nonzero crash exit code (127);
 - exactly one non-empty `.dmp` exists, starts with the `MDMP` signature, and has a non-empty in-bounds stream
   directory;
-- exactly one sibling UTF-16 `.txt` report exists and contains the deliberate exception code, process/thread
-  metadata, a `Callstack` section, at least one numbered address frame, and a positive bounded frame count;
+- exactly one sibling UTF-16 `.txt` report exists and contains the deliberate exception code, the identifier of the
+  process the runner started, the thread identifier, a `Callstack` section, at least one numbered address frame, and a
+  positive bounded frame count;
 - `last_crash.txt` exists and identifies that dump; and
 - the isolated crash directory is removed after validation.
 

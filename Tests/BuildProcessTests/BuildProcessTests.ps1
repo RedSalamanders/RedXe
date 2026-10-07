@@ -263,21 +263,25 @@ param([string] $Message)
 Write-Output "stdout:$Message"
 Write-Output ('stdout:caf' + [char] 0xE9)
 [Console]::Error.WriteLine("stderr:$Message")
+Write-Output "pid:$PID"
 exit 17
 '@ | Set-Content -LiteralPath $emitterPath -Encoding UTF8
     $powershellPath = (Get-Process -Id $PID -ErrorAction Stop).Path
     # An unbounded run uses Process.Start and a bounded one the job's own start, so both must quote arguments, keep
-    # stream identity, propagate the exit code, and decode the same bytes into the same text.
+    # stream identity, propagate the exit code, report the child's process identifier, and decode the same bytes into
+    # the same text.
     $decodedOutput = @{}
     foreach ($streamBudget in @(0, 120)) {
         $streamLogPath = Join-Path $presentationTestRoot "streamed-$streamBudget.log"
         $receivedLines = [Collections.Generic.List[psobject]]::new()
+        $streamProcessId = 0
         $streamExitCode = Invoke-RedXeStreamingProcess `
             -FilePath $powershellPath `
             -Arguments @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $emitterPath, 'argument with spaces') `
             -WorkingDirectory $presentationTestRoot `
             -LogPath $streamLogPath `
             -TimeoutSeconds $streamBudget `
+            -ProcessId ([ref] $streamProcessId) `
             -OutputLineCallback {
             param([string] $Line, [bool] $IsError)
             [void] $receivedLines.Add([pscustomobject]@{ Line = $Line; IsError = $IsError })
@@ -285,6 +289,9 @@ exit 17
 
         if ($streamExitCode -ne 17 -or $LASTEXITCODE -ne 17) {
             throw "Streaming with a $streamBudget s budget did not propagate the child exit code; expected 17, got $streamExitCode."
+        }
+        if ($streamProcessId -le 0 -or -not ($receivedLines | Where-Object { $_.Line -eq "pid:$streamProcessId" })) {
+            throw "Streaming with a $streamBudget s budget did not report the child's process identifier (got $streamProcessId): $($receivedLines | Out-String)"
         }
         $stdoutRecord = $receivedLines | Where-Object { $_.Line -eq 'stdout:argument with spaces' -and -not $_.IsError }
         $stderrRecord = $receivedLines | Where-Object { $_.Line -eq 'stderr:argument with spaces' -and $_.IsError }
@@ -297,10 +304,32 @@ exit 17
             $streamLogText.Contains([char] 0x1b)) {
             throw "The captured streaming log with a $streamBudget s budget omitted output or contained terminal control sequences."
         }
-        $decodedOutput[$streamBudget] = @($receivedLines | ForEach-Object { '{0}|{1}' -f [int] $_.IsError, $_.Line } | Sort-Object) -join "`n"
+        # Each run has its own process identifier, so that line is left out of the comparison.
+        $decodedOutput[$streamBudget] = @($receivedLines | Where-Object { -not $_.Line.StartsWith('pid:') } |
+            ForEach-Object { '{0}|{1}' -f [int] $_.IsError, $_.Line } | Sort-Object) -join "`n"
     }
     if ($decodedOutput[0] -cne $decodedOutput[120]) {
         throw "A bounded run decoded the child's output differently from Process.Start: '$($decodedOutput[120])' instead of '$($decodedOutput[0])'."
+    }
+
+    # A bounded child's job ends a process on an unhandled exception instead of leaving it in a Windows Error Reporting
+    # dialog until the budget: the child reads the limit flags of its own job (JOBOBJECT_BASIC_LIMIT_INFORMATION's
+    # LimitFlags sits at byte 16 on 64-bit Windows) and must find JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION.
+    $jobProbePath = Join-Path $presentationTestRoot 'job-probe.ps1'
+    @'
+Add-Type -Namespace RedXeJobProbe -Name Native -MemberDefinition '[DllImport("kernel32.dll")] public static extern bool QueryInformationJobObject(IntPtr job, int infoClass, byte[] info, int size, IntPtr returnLength);'
+$limits = [byte[]]::new(64)
+$queried = [RedXeJobProbe.Native]::QueryInformationJobObject([IntPtr]::Zero, 2, $limits, $limits.Length, [IntPtr]::Zero)
+'job:{0}:{1}' -f $queried, [BitConverter]::ToUInt32($limits, 16)
+'@ | Set-Content -LiteralPath $jobProbePath -Encoding UTF8
+    $jobProbeLines = [Collections.Generic.List[string]]::new()
+    [void](Invoke-RedXeStreamingProcess -FilePath $powershellPath `
+        -Arguments @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $jobProbePath) `
+        -WorkingDirectory $presentationTestRoot -LogPath (Join-Path $presentationTestRoot 'job-probe.log') -TimeoutSeconds 120 `
+        -OutputLineCallback { param([string] $Line, [bool] $IsError) [void] $jobProbeLines.Add($Line) })
+    $jobProbeRecord = @($jobProbeLines | Where-Object { $_ -match '^job:True:(\d+)$' })
+    if ($jobProbeRecord.Count -ne 1 -or -not ([uint32] ($jobProbeRecord[0] -replace '^job:True:', '') -band 0x400)) {
+        throw "A bounded child's job does not end a process on an unhandled exception: $($jobProbeLines -join ' | ')"
     }
 
     # A session cannot unload a compiled type, so the launcher's type follows its source: an edited copy of the module,

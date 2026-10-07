@@ -494,7 +494,10 @@ function Set-RedXeProcessArguments {
 # A Windows job object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE that starts the bounded child itself, so the child and
 # every process it starts end together: Terminate() at a budget, and Dispose() (the last handle closing) for whatever
 # is left. Start() creates the child suspended and resumes it only once it belongs to the job, so no process the child
-# creates can come into being outside the job. Nothing launched independently can be in this job.
+# creates can come into being outside the job. Nothing launched independently can be in this job. The job also sets
+# JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION: an unhandled exception in any of its processes ends that process
+# instead of holding it in a Windows Error Reporting dialog until the budget runs out, even in a child that never calls
+# Common/FailureReports.h (RedXe.exe's crash harness and help runs) and whatever error mode it inherited.
 # A session cannot unload a compiled type, so the namespace carries a digest of this source: an edited definition
 # compiles under new type names, and a session that loaded an earlier one never keeps running it.
 $script:ContainmentJobSource = @'
@@ -569,7 +572,7 @@ namespace RedXe.Build
         [StructLayout(LayoutKind.Sequential)]
         struct ProcessInformation { public IntPtr hProcess, hThread; public int dwProcessId, dwThreadId; }
         const int JobObjectBasicAccountingInformation = 1, JobObjectExtendedLimitInformation = 9;
-        const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
+        const uint JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION = 0x400, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
         const uint HANDLE_FLAG_INHERIT = 0x1;
         const int STD_INPUT_HANDLE = -10;
         const int STARTF_USESTDHANDLES = 0x100;
@@ -582,7 +585,7 @@ namespace RedXe.Build
             handle = CreateJobObjectW(IntPtr.Zero, null);
             if (handle == IntPtr.Zero) throw new Win32Exception();
             var limits = new ExtendedLimits();
-            limits.Basic.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            limits.Basic.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION;
             if (!SetInformationJobObject(handle, JobObjectExtendedLimitInformation, ref limits, Marshal.SizeOf(typeof(ExtendedLimits))))
             {
                 var error = new Win32Exception(); CloseHandle(handle); handle = IntPtr.Zero; throw error;
@@ -770,7 +773,11 @@ function Invoke-RedXeStreamingProcess {
         # started still holds its output open is ended the same way after a short grace, and the call says so. Zero
         # keeps the wait unbounded, as build.ps1 needs.
         [ValidateRange(0, 86400)]
-        [int] $TimeoutSeconds = 0
+        [int] $TimeoutSeconds = 0,
+
+        # Receives the child's process identifier once it has started, for a caller that checks what the child
+        # reported about itself (test.ps1's crash harness compares it with the crash report's ProcessId).
+        [ref] $ProcessId
     )
 
     $resolvedLogPath = [IO.Path]::GetFullPath($LogPath)
@@ -821,6 +828,9 @@ function Invoke-RedXeStreamingProcess {
             if (-not $process.Start()) {
                 throw "Unable to start '$FilePath'."
             }
+        }
+        if ($null -ne $ProcessId) {
+            $ProcessId.Value = $process.Id
         }
 
         $standardOutputOpen = $true

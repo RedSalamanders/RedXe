@@ -1,3 +1,4 @@
+#include "../../Common/FailureReports.h"
 #include "AVControlBroker.h"
 #include <filesystem>
 #include <stdexcept>
@@ -108,6 +109,22 @@ uint32_t RunBrokerTests()
           "notification handle survives connection restart for parent wait safety");
     Check(broker.Execute(command, *reply, cancel.get(), 3000) == HRESULT_FROM_WIN32(ERROR_PROCESS_ABORTED),
           "helper crash produces local failure");
+    start();
+    process.reset(OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, broker.ProcessId()));
+    Check(bool(process), "retain the failed-check helper handle");
+    command.operation = BrokerOperation::FixtureFailedCheck;
+#if defined(_DEBUG)
+    // A failed Debug check in a synthetic helper ends it with its report (Common/FailureReports.h): a modal dialog
+    // would hold the helper until the call's deadline instead.
+    DWORD helperExitCode = 0;
+    Check(broker.Execute(command, *reply, cancel.get(), 3000) == HRESULT_FROM_WIN32(ERROR_PROCESS_ABORTED) &&
+              WaitForSingleObject(process.get(), 500) == WAIT_OBJECT_0 &&
+              GetExitCodeProcess(process.get(), &helperExitCode) &&
+              helperExitCode == static_cast<DWORD>(RedXeFailureReports::kFailedCheckExitCode),
+          "a failed check ends the synthetic helper with exit code 3, never a dialog");
+#else
+    Check(broker.Execute(command, *reply, cancel.get(), 3000) == E_NOTIMPL, "a Release helper has no runtime checks");
+#endif
     start();
     command.operation = BrokerOperation::FixtureMalformedReply;
     Check(broker.Execute(command, *reply, cancel.get(), 3000) == HRESULT_FROM_WIN32(ERROR_INVALID_DATA) &&

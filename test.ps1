@@ -107,15 +107,18 @@ if ($launcherVersion.OriginalFilename -ne 'RedXeLauncher.exe' -or $launcherVersi
     throw "RedXeLauncher.exe is missing its stable Windows executable version identity (expected $expectedFileVersion)."
 }
 Write-Host 'Running command alias launcher check...' -ForegroundColor Cyan
+# Bounded and logged like every other test process; the job that bounds the launcher holds the RedXe.exe it starts too.
 $launcherHelpLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXeLauncher.help.log"
-$launcherHelp = Start-Process -WindowStyle Hidden -FilePath $launcher -ArgumentList @('--help') -Wait -PassThru `
-    -RedirectStandardOutput $launcherHelpLog
-if ($launcherHelp.ExitCode -ne 0 -or (Get-Content -LiteralPath $launcherHelpLog -Raw) -notmatch '--self-test') {
-    throw "RedXeLauncher.exe --help exited with code $($launcherHelp.ExitCode) or did not relay the RedXe help text."
+$launcherHelpExit = Invoke-RedXeStreamingProcess -FilePath $launcher -Arguments @('--help') -WorkingDirectory $repoRoot `
+    -TimeoutSeconds 120 -LogPath $launcherHelpLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+if ($launcherHelpExit -ne 0 -or (Get-Content -LiteralPath $launcherHelpLog -Raw) -notmatch '--self-test') {
+    throw "RedXeLauncher.exe --help exited with code $launcherHelpExit or did not relay the RedXe help text: $launcherHelpLog"
 }
-$launcherUnknown = Start-Process -WindowStyle Hidden -FilePath $launcher -ArgumentList @('--self-test', '--warp', '--no-such-switch') -Wait -PassThru
-if ($launcherUnknown.ExitCode -ne 2) {
-    throw "RedXeLauncher.exe did not propagate the unknown-switch exit code 2 (got $($launcherUnknown.ExitCode))."
+$launcherUnknownLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXeLauncher.unknown-switch.log"
+$launcherUnknownExit = Invoke-RedXeStreamingProcess -FilePath $launcher -Arguments @('--self-test', '--warp', '--no-such-switch') `
+    -WorkingDirectory $repoRoot -TimeoutSeconds 120 -LogPath $launcherUnknownLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+if ($launcherUnknownExit -ne 2) {
+    throw "RedXeLauncher.exe did not propagate the unknown-switch exit code 2 (got $launcherUnknownExit): $launcherUnknownLog"
 }
 
 
@@ -158,6 +161,7 @@ if ($Configuration -eq 'ASan Debug') {
 # A test process never waits on a dialog: a failed runtime check ends it with its report and exit code 3
 # (Common/FailureReports.h). Debug and ASan Debug have such checks; Release has none and exits 0. Bounded like
 # every other test process, so a routing that stopped working fails here, in at most two minutes, not in the suites.
+# The report carries a character above U+00FF, as a source path under such a user name would, and must go on past it.
 Write-Host 'Running test failure-report routing check...' -ForegroundColor Cyan
 $failureReportLog = Join-Path $repoRoot ".build\logs\failure-report-$Platform-$($Configuration -replace ' ', '')-$([guid]::NewGuid().ToString('N')).log"
 $failureReportExit = Invoke-RedXeStreamingProcess -FilePath $contractTests -Arguments @('--failure-report-self-test') `
@@ -169,10 +173,22 @@ if ($Configuration -eq 'Release') {
     }
 }
 elseif ($failureReportExit -ne 3 -or $failureReportText -notmatch 'fails this check on purpose' -or
-    $failureReportText -match 'returned instead of ending') {
-    throw "A failed runtime check must end the run with its report and exit code 3 (it exited $failureReportExit): $failureReportLog"
+    $failureReportText -notmatch 'and its report goes on' -or $failureReportText -match 'returned instead of ending') {
+    throw "A failed runtime check must end the run with its whole report and exit code 3 (it exited $failureReportExit): $failureReportLog"
 }
 Write-Host "PASS test failure-report routing (exit $failureReportExit): $failureReportLog"
+# An abort() that no failed check reported (an assert(), std::terminate after an unhandled exception) says so and ends
+# the run with exit code 4 in every configuration, so exit code 3 keeps meaning a failed check. The fixture reports as
+# the GUI-subsystem RedXe.exe does: a Debug assert() must reach the log first, not a message box.
+$abortLog = Join-Path $repoRoot ".build\logs\abort-$Platform-$($Configuration -replace ' ', '')-$([guid]::NewGuid().ToString('N')).log"
+$abortExit = Invoke-RedXeStreamingProcess -FilePath $contractTests -Arguments @('--abort-self-test') `
+    -WorkingDirectory $repoRoot -TimeoutSeconds 120 -LogPath $abortLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+$abortText = Get-Content -LiteralPath $abortLog -Raw
+if ($abortExit -ne 4 -or $abortText -notmatch 'abort\(\) was called' -or
+    ($Configuration -ne 'Release' -and $abortText -notmatch 'fails this assert\(\) on purpose')) {
+    throw "An abort() must say so and end the run with exit code 4 (it exited $abortExit): $abortLog"
+}
+Write-Host "PASS test abort routing (exit $abortExit): $abortLog"
 # The same header leaves stdout unbuffered: a line written just before the process is terminated, as a budget ends a
 # hung run, must be in the log, so the log names the case that hung.
 $unbufferedLog = Join-Path $repoRoot ".build\logs\unbuffered-output-$Platform-$($Configuration -replace ' ', '')-$([guid]::NewGuid().ToString('N')).log"
@@ -356,8 +372,9 @@ Write-Host "Host integration log: $hostPluginLog" -ForegroundColor DarkGray
 
 if ('HostSmoke' -in $Suites) {
 Write-Host 'Running hidden Direct3D 11 WARP smoke test...' -ForegroundColor Cyan
-# Bounded and logged like every other test process. RedXe.exe routes a --self-test run's failed Debug checks through
-# Common/FailureReports.h, so such a check ends the run with its report in this log and exit code 3, never a dialog.
+# Bounded and logged like every other test process. A failed self-test check names itself on stderr, so in this log,
+# and exits 6. RedXe.exe routes a --self-test run through Common/FailureReports.h, so a failed Debug runtime check ends
+# it with its report here and exit code 3, and another abort() with exit code 4, never a dialog.
 # The self-test's window stays hidden: its first ShowWindow is SW_HIDE, whatever the start information says.
 $smokeLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.self-test.log"
 # Nothing streams to the console, so the tail is shown for a run ended at its budget as well as for a failing one.
@@ -372,15 +389,36 @@ if ($smokeFailure -or $smokeExit -ne 0) {
     if ($smokeFailure) { throw $smokeFailure }
     throw "Smoke test failed with exit code $smokeExit`: $smokeLog"
 }
+# The same diagnosis for a failing check, proven in the product executable: a copy of RedXe.exe with no Settings folder
+# beside it fails its settings check, which must be named in its log, with exit code 6.
+$selfTestFailureDirectory = Join-Path $repoRoot ".build\SelfTestFailure\$([guid]::NewGuid().ToString('N'))"
+$selfTestFailureLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.self-test-failure.log"
+[void](New-Item -ItemType Directory -Path $selfTestFailureDirectory -Force)
+try {
+    Copy-Item -LiteralPath $executable -Destination $selfTestFailureDirectory
+    Get-ChildItem -LiteralPath (Split-Path -Parent $executable) -Filter '*.dll' -File |
+        Copy-Item -Destination $selfTestFailureDirectory
+    $selfTestFailureExit = Invoke-RedXeStreamingProcess -FilePath (Join-Path $selfTestFailureDirectory 'RedXe.exe') `
+        -Arguments @('--self-test', '--warp') -WorkingDirectory $selfTestFailureDirectory -TimeoutSeconds 120 `
+        -LogPath $selfTestFailureLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+}
+finally {
+    Remove-Item -LiteralPath $selfTestFailureDirectory -Recurse -Force -ErrorAction SilentlyContinue
+}
+if ($selfTestFailureExit -ne 6 -or
+    (Get-Content -LiteralPath $selfTestFailureLog -Raw) -notmatch 'Settings initialization or validation failed\. HRESULT 0x8') {
+    throw "A failed self-test check must name itself in the log and exit with code 6 (it exited $selfTestFailureExit): $selfTestFailureLog"
+}
 
 # `--help` writes the RedXe/CommandLine.h catalog to a redirected stdout and exits 0; every switch the catalog
-# declares must appear, so a switch added without a catalog entry fails here as well as in SettingsTests.
+# declares must appear, so a switch added without a catalog entry fails here as well as in SettingsTests. Each run of
+# RedXe.exe below is bounded and logged like every other test process.
 Write-Host 'Running command-line help check...' -ForegroundColor Cyan
 $helpLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.help.log"
-$helpProcess = Start-Process -WindowStyle Hidden -FilePath $executable -ArgumentList @('--help') -Wait -PassThru `
-    -RedirectStandardOutput $helpLog
-if ($helpProcess.ExitCode -ne 0) {
-    throw "RedXe.exe --help exited with code $($helpProcess.ExitCode)."
+$helpExit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments @('--help') -WorkingDirectory $repoRoot `
+    -TimeoutSeconds 120 -LogPath $helpLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+if ($helpExit -ne 0) {
+    throw "RedXe.exe --help exited with code $helpExit`: $helpLog"
 }
 $helpText = Get-Content -LiteralPath $helpLog -Raw -Encoding UTF8
 foreach ($switch in @('--help', '--settings', '--warp', '--dock', '--dock-mode', '--dock-thickness', '--dock-reserve',
@@ -390,10 +428,11 @@ foreach ($switch in @('--help', '--settings', '--warp', '--dock', '--dock-mode',
         throw "RedXe.exe --help does not mention $switch."
     }
 }
-$unknownProcess = Start-Process -WindowStyle Hidden -FilePath $executable -ArgumentList @('--self-test', '--warp', '--no-such-switch') `
-    -Wait -PassThru
-if ($unknownProcess.ExitCode -ne 2) {
-    throw "An unknown switch exited with code $($unknownProcess.ExitCode) instead of 2."
+$unknownLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.unknown-switch.log"
+$unknownExit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments @('--self-test', '--warp', '--no-such-switch') `
+    -WorkingDirectory $repoRoot -TimeoutSeconds 120 -LogPath $unknownLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+if ($unknownExit -ne 2 -or (Get-Content -LiteralPath $unknownLog -Raw) -notmatch 'Unknown argument "--no-such-switch"') {
+    throw "An unknown switch exited with code $unknownExit instead of 2, or its log does not name it: $unknownLog"
 }
 
 function Invoke-RedXeCrashTest {
@@ -421,11 +460,16 @@ function Invoke-RedXeCrashTest {
     Write-Host "Running isolated $Label crash diagnostics test..." -ForegroundColor Cyan
     [void](New-Item -ItemType Directory -Path $crashTestDirectory -Force)
     try {
-        $quotedDirectoryArgument = '"--crash-test-directory={0}"' -f $crashTestDirectory
-        $crashProcess = Start-Process -WindowStyle Hidden -FilePath $executable `
-            -ArgumentList @($CrashArgument, $quotedDirectoryArgument) -Wait -PassThru
-    if ($crashProcess.ExitCode -ne 127) {
-        throw "Crash harness returned exit code $($crashProcess.ExitCode); expected 127."
+        # Bounded and logged like every other test process. The bounding job also keeps Windows Error Reporting's
+        # dialog away, so a crash path that stopped handling its exception ends the run instead of holding it.
+        $crashLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.crash-test-$Label.log"
+        $crashProcessId = 0
+        $crashExit = Invoke-RedXeStreamingProcess -FilePath $executable `
+            -Arguments @($CrashArgument, "--crash-test-directory=$crashTestDirectory") -WorkingDirectory $repoRoot `
+            -TimeoutSeconds $testTimeoutSeconds -LogPath $crashLog -ProcessId ([ref] $crashProcessId) `
+            -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+    if ($crashExit -ne 127) {
+        throw "Crash harness returned exit code $crashExit; expected 127: $crashLog"
     }
 
     $dumps = @(Get-ChildItem -LiteralPath $crashTestDirectory -Filter '*.dmp' -File)
@@ -463,7 +507,7 @@ function Invoke-RedXeCrashTest {
     $reportText = [IO.File]::ReadAllText($reports[0].FullName)
     $exceptionPattern = '(?m)^ExceptionCode=0x{0:X8}\r?$' -f $ExpectedExceptionCode
     if ($reportText -notmatch $exceptionPattern -or
-        $reportText -notmatch "(?m)^ProcessId=$($crashProcess.Id)\r?$" -or
+        $reportText -notmatch "(?m)^ProcessId=$crashProcessId\r?$" -or
         $reportText -notmatch '(?m)^ThreadId=[1-9][0-9]*\r?$' -or
         $reportText -notmatch '(?m)^Callstack:\r?$' -or
         $reportText -notmatch '(?m)^00 0x[0-9A-F]{16} ' -or
@@ -491,10 +535,12 @@ function Invoke-RedXeCrashTest {
     }
 }
 
-$invalidOverrideProcess = Start-Process -WindowStyle Hidden -FilePath $executable `
-    -ArgumentList @('--crash-test', '--crash-test-directory=relative-path-is-invalid') -Wait -PassThru
-if ($invalidOverrideProcess.ExitCode -ne 2) {
-    throw "Invalid crash-directory override returned exit code $($invalidOverrideProcess.ExitCode); expected 2."
+$invalidOverrideLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.crash-test-invalid-directory.log"
+$invalidOverrideExit = Invoke-RedXeStreamingProcess -FilePath $executable `
+    -Arguments @('--crash-test', '--crash-test-directory=relative-path-is-invalid') -WorkingDirectory $repoRoot `
+    -TimeoutSeconds 120 -LogPath $invalidOverrideLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+if ($invalidOverrideExit -ne 2) {
+    throw "Invalid crash-directory override returned exit code $invalidOverrideExit; expected 2: $invalidOverrideLog"
 }
 
 Invoke-RedXeCrashTest -CrashArgument '--crash-test' -ExpectedExceptionCode 0xE000CAFEl `

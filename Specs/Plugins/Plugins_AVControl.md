@@ -259,8 +259,11 @@ side: a visible tile reports `surfaceBytes` equal to its extent × 4, a hidden v
 while hidden, and showing it again reallocates exactly one surface. The same library rule releases the overlay
 surface whenever the widget is not raised, so a settled unraised widget holds only its tile surface. Broker tests cover explicit synthetic inventory, mute-preserving
 level readback, stale commands, malformed replies, crash, timeout, cancellation, partial startup cleanup and no orphan
-child. Idle synthetic helper CPU must remain below 5 ms over a 120 ms observation. Automated tests never open a real
-camera or change actual audio defaults, levels or mute.
+child. A synthetic helper, which only tests start, routes a failed Debug runtime check like a test executable
+(`Common/FailureReports.h`): it ends at once with exit code 3 instead of holding a dialog until the call's deadline,
+which the broker tests check through a fixture command that fails such a check. Idle synthetic helper CPU must remain
+below 5 ms over a 120 ms observation. Automated tests never open a real camera or change actual audio defaults, levels
+or mute.
 
 `ProfileTransaction` preflights all three bindings and capabilities before any write, snapshots endpoint and role
 revisions, and applies the requested roles and optional levels while preserving mute/off. It reserves one third of

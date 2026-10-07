@@ -3,6 +3,9 @@ $ErrorActionPreference = 'Stop'
 
 # PE machine probe shared with the camera package tooling.
 Import-Module (Join-Path $PSScriptRoot "CameraPackage.psm1") -Force
+# The bounded child runner for the package smoke. Without -Force: a nested forced import would remove the copy that
+# test.ps1 imported for itself.
+Import-Module (Join-Path $PSScriptRoot "BuildPresentation.psm1")
 
 # Portable ZIP packaging. See Specs/Build/Build_Packaging.md for the contract this module implements.
 
@@ -288,12 +291,18 @@ function Test-RedXePortablePackage {
         if ($SkipExecution -or -not $canExecute) {
             return [pscustomobject]@{ Entries = $entries; ExecutionSkipped = $true }
         }
-        $selfTest = Start-Process -FilePath (Join-Path $extraction 'RedXe.exe') -ArgumentList @('--self-test', '--warp') -WorkingDirectory $extraction -WindowStyle Hidden -Wait -PassThru
-        if ($selfTest.ExitCode -ne 0) { throw "The packaged RedXe.exe --self-test --warp exited with $($selfTest.ExitCode) from $extraction." }
-        $helpLog = Join-Path $extraction 'launcher-help.log'
-        $help = Start-Process -FilePath (Join-Path $extraction 'RedXeLauncher.exe') -ArgumentList @('--help') -WorkingDirectory $extraction -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput $helpLog
-        if ($help.ExitCode -ne 0 -or (Get-Content -LiteralPath $helpLog -Raw) -notmatch '--self-test') {
-            throw "The packaged RedXeLauncher.exe --help exited with $($help.ExitCode) or printed no help."
+        # Bounded and logged like test.ps1's runs, so a packaged self-test that hangs fails here with its log instead of
+        # holding package.ps1 or the release job until the workflow's timeout. The logs outlive the extraction.
+        $smokeLogStem = Join-Path $RepoRoot ('.build\logs\package-smoke-' + [guid]::NewGuid().ToString('N'))
+        $selfTestLog = "$smokeLogStem-self-test.log"
+        $selfTestExit = Invoke-RedXeStreamingProcess -FilePath (Join-Path $extraction 'RedXe.exe') -Arguments @('--self-test', '--warp') `
+            -WorkingDirectory $extraction -TimeoutSeconds 900 -LogPath $selfTestLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+        if ($selfTestExit -ne 0) { throw "The packaged RedXe.exe --self-test --warp exited with $selfTestExit from $extraction (log: $selfTestLog)." }
+        $helpLog = "$smokeLogStem-launcher-help.log"
+        $helpExit = Invoke-RedXeStreamingProcess -FilePath (Join-Path $extraction 'RedXeLauncher.exe') -Arguments @('--help') `
+            -WorkingDirectory $extraction -TimeoutSeconds 120 -LogPath $helpLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+        if ($helpExit -ne 0 -or (Get-Content -LiteralPath $helpLog -Raw) -notmatch '--self-test') {
+            throw "The packaged RedXeLauncher.exe --help exited with $helpExit or printed no help (log: $helpLog)."
         }
         return [pscustomobject]@{ Entries = $entries; ExecutionSkipped = $false }
     } finally {

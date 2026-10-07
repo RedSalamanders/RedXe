@@ -1,5 +1,6 @@
 #include "AVControlProtocol.h"
 #include "AVControlProtocolValidation.h"
+#include "FailureReports.h"
 #include "WindowsAudioBackend.h"
 #include "WindowsCameraBackend.h"
 #include <bit>
@@ -75,6 +76,13 @@ HRESULT FixtureCommand(const BrokerCommand& command, Inventory& inventory) noexc
     }
     if (command.operation == BrokerOperation::FixtureExit)
         ExitProcess(42);
+    if (command.operation == BrokerOperation::FixtureFailedCheck)
+    {
+        // A Debug check that fails in a synthetic helper ends it with its report (RunBroker routes it); a Release
+        // build has no such checks.
+        _ASSERT_EXPR(false, L"the helper's failed-check fixture fails this check on purpose");
+        return E_NOTIMPL;
+    }
     if (command.operation == BrokerOperation::FixtureMalformedReply)
     {
         switch (command.value)
@@ -235,6 +243,11 @@ int RunBroker(int argc, wchar_t** argv)
         shared->sizeBytes != sizeof(BrokerShared) || shared->synthetic > 1)
         return 4;
     const bool synthetic = shared->synthetic != 0;
+    // Only tests start a synthetic helper. Like the test executable that started it, it never waits on a dialog: a
+    // failed Debug check ends it with its report and exit code 3, and the test sees the helper end at once instead
+    // of a timeout. A product helper keeps the CRT's dialog, so a debugger can still be attached.
+    if (synthetic)
+        RedXeFailureReports::RouteAwayFromDialogs();
     const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(initialized))
         return 5;
