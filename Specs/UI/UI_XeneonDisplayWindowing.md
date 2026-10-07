@@ -54,7 +54,7 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 | Release with active XENEON | Create a `WS_POPUP` borderless window using the detected XENEON monitor's exact `rcMonitor` bounds. |
 | Release without active XENEON | Show the missing-display Yes/No warning. Yes creates the standard titled fallback window; No exits successfully without creating the main window. A default settings file installed at this start carries the first-run dock ("First start without a XENEON"), so the Dock row applies instead. |
 | Self-test | Skip display discovery and prompts, create the titled window hidden, validate its DPI-adjusted client dimensions, render one frame, and exit: 0 when every check passed, 6 when one failed, after naming it, with its HRESULT when there is one, on the debugger output and on stderr. A failed Debug runtime check ends the run with its report on stderr and exit code 3, and any other `abort()` with exit code 4 ([`Build_Process.md`](../Build/Build_Process.md)); neither opens a dialog. |
-| Screenshot (`--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]`) | Run exactly as the configuration above prescribes (same discovery, placement, services, and frame loop), jump to the named page through the host `PageGoTo` action once the renderer is live and no settle runs, wait the delay (default 3000 ms, 1–120000) with the frame loop idle-waiting as usual, capture the main window through `Common/WindowCapture.cpp` on a capture worker (Windows.Graphics.Capture of an owned, visible window; a widget ordinal crops to that tile's `PixelBoundsAt` in client space, mapped through the DWM extended frame bounds), then close. The UI thread continues handling input and timers while capture waits for its first frame. Exit 0 with the PNG written, 8 when the capture failed (no modal prompt). It MUST NOT activate, move, or resize the window, move the cursor, or send input. |
+| Screenshot (`--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]`) | Run exactly as the configuration above prescribes (same discovery, placement, services, and frame loop), jump to the named page through the host `PageGoTo` action once the renderer is live and no settle runs, wait the delay (default 3000 ms, 1–120000) with the frame loop idle-waiting as usual, capture the main window through `Common/WindowCapture.cpp` on a capture worker (Windows.Graphics.Capture of an owned, visible window; a widget ordinal crops to that tile's `PixelBoundsAt` in client space, mapped through the DWM extended frame bounds), then close. The UI thread continues handling input and timers while capture waits for its first frame. Exit 0 only with the PNG written; 8 when the capture failed, when its worker could not start, and when the run ended before the PNG was written (the window closed during the delay or the capture, a startup, graphics, or rendering failure ended the run first, or the missing-display prompt was answered No), with one `screenshot-failed` Warning record once the log is open (a failure before the settings load reaches only the debugger output) and no modal prompt: a capture run never shows the exit-code message box, whatever its exit code. A worker still capturing when the window closes is joined and its result decides the exit code. Only this command-line mode closes after the capture; the `redxe.screenshot` action shares the pipeline and keeps RedXe running (`Plugins_Actions.md`). It MUST NOT activate, move, or resize the window, move the cursor, or send input. |
 | Dock (`dock.edge` other than `none`, or `--dock <edge>[@<monitor>]`) | Debug and Release alike: create the dock window kind below on the selected monitor instead of the row that would otherwise apply, and skip the missing-display prompt. A live reload that turns the dock on or off switches the running window between this row and the one that would otherwise apply ("Switching the window kind"). `--self-test` ignores the dock. |
 | Help (`--help`, `-h`, `/?`, `-?`) | Print the command-line catalog and exit 0 before any other switch is read: to the console the process was started from (a GUI process attaches to its parent's), to a redirected stdout as UTF-8, or, without either, to a message box. Every other token on the line MUST be a catalogued switch or the value of one; the first unknown token is a command-line error (exit 2, `Unknown argument "<token>". Run RedXe.exe --help for the command line.`) shown the same way, never as a message box when `--self-test` is on the line. |
 
@@ -62,7 +62,9 @@ The command line is declared once in `RedXe/CommandLine.h`: the catalog `--help`
 parses through, so a switch cannot exist without an entry. Adding, renaming, or removing a switch changes that
 catalog, the "Command line" section of `docs/usage.md`, and the owning row of this table in the same change;
 `SettingsTests` pins the catalog (unique well-formed names, every entry printed, the help aliases, the unknown-token
-scanner) and `test.ps1` runs `--help` through a redirected stdout and an unknown switch under `--self-test`.
+scanner) and the exit-code policy `Main.cpp` applies through it (`RedXeScreenshotExitCode`: 8 for a capture run
+without its PNG, whatever ended it; `RedXeShowsExitCodeBox`: no box under `--self-test` or `--screenshot`), and
+`test.ps1` runs `--help` through a redirected stdout and an unknown switch under `--self-test`.
 
 Debug and Release display discovery MUST inspect active display paths through
 `QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS)`. A target friendly name containing `XENEON` or `CORSAIR`, compared
@@ -233,8 +235,15 @@ native containers, the settings watcher, the drop target, and accessibility.
   apply restyles the window back before the previous page is restored.
 - The window is shown with `SW_SHOWNOACTIVATE`: the window in which the file was saved keeps the focus. An autohide
   dock collapses after the hide delay as at launch.
-- A switch logs one Info record (`window-kind-changed`). A failed step logs one Error record
-  (`window-kind-switch-failed`) and closes the window like any other runtime failure (exit code 5).
+- A switch logs one Info record (`window-kind-changed`).
+- A failed step MUST NOT end the process or mark the file applied, whether the reload changes only `dock` or also
+  rebuilds the active page. The window is switched back to the kind it had and placed as a switch to that kind
+  places it, except that a standard window without a XENEON returns to the monitor it was on, not to the monitor of
+  the failed dock. The reload is rejected like any failed apply (`Specs/Core/Core_Settings.md` "Live reload and
+  diagnostics"): the previous document, page, services, and dock stay active, its stamp is not applied, and the
+  settings-error dialog opens. The failure logs one Warning record (`window-kind-switch-failed`, with the failing
+  `HRESULT`) and the rollback logs no `window-kind-changed`. Only a rollback that leaves no renderer is a runtime
+  failure: the Error record `settings-apply-failed` and exit code 5.
 - `--self-test` pins the edge to `none`, so a document `dock` never switches its hidden titled window.
 
 ### First start without a XENEON
@@ -291,9 +300,12 @@ in the Windows notification area for an interactive run. `RedXe/TrayIcon.*` owns
 - A double-click, or Enter or Space on the keyboard-focused icon (`NIN_KEYSELECT`), opens the settings file this
   process watches (the default file or the `--settings` file) with its default app, the editor associated with
   `.json`: `ShellExecuteExW` with the default verb and the shell's UI enabled, so a file type without an association
-  offers the Open With picker and a missing file is reported rather than ignored. An edit within the double-click time
-  of the previous one is dropped, because Enter reports `NIN_KEYSELECT` twice (`TrayIconActionFor`). Unlike the
-  `redxe.settings.edit` action, this works while the settings-error dialog is open, when the file most needs editing.
+  offers the Open With picker and a missing file is reported rather than ignored. The call runs on the host's launch
+  worker (`Specs/Plugins/Plugins_Actions.md` "Launch worker"), never on the UI thread: the picker, a shell error box,
+  or a `--settings` file on an unreachable share MUST NOT stop the dashboard from presenting. An edit within the
+  double-click time of the previous one is dropped, because Enter reports `NIN_KEYSELECT` twice
+  (`TrayIconActionFor`). Unlike the `redxe.settings.edit` action, this works while the settings-error dialog is open,
+  when the file most needs editing.
 - The context-menu request (right-click, Shift+F10, or the menu key: `WM_CONTEXTMENU` at the shell's anchor point)
   opens a menu with **Edit settings**, the default item drawn bold and the same as a double-click, and **Exit**, which
   closes RedXe like `WM_CLOSE`. The owner is foregrounded before the menu and posts itself `WM_NULL` after it. The menu
@@ -306,7 +318,8 @@ in the Windows notification area for an interactive run. `RedXe/TrayIcon.*` owns
   never shows it, whatever the document says; a `--screenshot` run shows it like any interactive run. The
   fatal-process path does not call the shell, so after a crash the icon remains until the pointer passes over it.
 - A failure to create the owner or to add the icon is one Warning record (`tray-icon-failed`), and a failed launch of
-  the editor one Warning record (`tray-edit-settings-failed`); neither affects the dashboard.
+  the editor (refused by the launch worker, or failed in the shell there) one Warning record
+  (`tray-edit-settings-failed`); neither affects the dashboard.
 
 ## Windows shell identity
 
@@ -324,6 +337,19 @@ the repository test entrypoint MUST validate the version fields without desktop 
   delivered to the dashboard. The first tap on an inactive window MUST NOT be eaten.
 - Debug and fallback windows MUST retain standard resize, minimize, maximize, move, and title-bar behavior.
 - `WM_SIZE` with a zero client dimension is suspension, not failure.
+- A live reload MUST NOT size a rebuilt page from the 0×0 client of a minimized standard window. A valid save that
+  would rebuild the active page without switching the window kind waits while the window is minimized, neither
+  applied nor rejected, and is read again once when a `WM_SIZE` other than `SIZE_MINIMIZED` restores it. Every other
+  save applies at once: an invalid one opens the settings-error dialog, one that rebuilds no page applies in place,
+  and a window-kind switch restores the window itself ("Switching the window kind").
+- A live reload or `redxe.settings.reload` that arrives inside the titled window's system move/size loop (between
+  `WM_ENTERSIZEMOVE` and `WM_EXITSIZEMOVE`) MUST wait and run once after `WM_EXITSIZEMOVE`: the loop applies its own
+  rectangle when it ends, which would undo a window-kind switch or a dock placement made inside it. The watcher's
+  notification stays unacknowledged meanwhile, so later saves coalesce into that one reload.
+- A run that ends with a startup or runtime failure exit code shows one error message box after the main window is
+  gone (`RedXe/Main.cpp`; never under `--self-test` or `--screenshot`, scripted runs that report through the exit
+  code and the log), and that box MUST wait for the user: the `WM_QUIT` that destroying the window posted is
+  discarded first, because a modal loop that retrieves it closes the box at once.
 - `WM_PAINT` validates the update region; continuous rendering remains on the idle side of the message loop.
 - The window class MUST NOT request `CS_HREDRAW` or `CS_VREDRAW`; resize rendering is driven by `WM_SIZE` and the
   renderer rather than redundant full-client paint invalidation.
@@ -446,6 +472,13 @@ and `--screenshot` taken after a switch in either direction shows the tiles. The
 a 3840×2160 150 % primary (NVIDIA) plus a 2560×720 100 % XENEON on the integrated GPU (AMD), with a Release RedXe
 fullscreen on the XENEON.
 
+Changes to the deferred reload additionally require a live run of the same kind: a titled window minimized without
+activation while a save changes `backgroundColor` stays minimized and running with no `settings-apply-failed`
+record, and once restored without activation its `--screenshot` shows the saved color; a save of only `dock.edge`
+made while it is minimized still turns it into a bar at once. The 2026-10-07 check recorded these on the topology
+above. A failed switch step needs a Direct3D, shell, or `SetWindowPos` fault and a move/size loop needs the real
+cursor, so the rollback and the move/size deferral have no automated or live check.
+
 First-run changes additionally require a live install without a XENEON: on a machine with two displays and a bottom
 taskbar the installed `dock` names `top` and `secondary`, the `dock-first-run` record says so, and the bar collapses
 to its strip at the top of the display that is not the primary.
@@ -467,15 +500,17 @@ none.
   `--help`: `RedXe/CommandLine.h`
 - Display discovery, window creation, and DPI transitions: `RedXe/Application.cpp`, `RedXe/Application.h`; live
   window-kind switches: `Application::SwitchWindowKind` (`RestyleWindowKind`, `RebuildPresentation`,
-  `FinishWindowKindSwitch`), `PlaceStandardWindow`, and the combined page-and-kind reload in `ApplySettings`; the
-  first-run dock: `MakeFirstRunDock` in `RedXe/Application.cpp`
+  `FinishWindowKindSwitch`), `PlaceStandardWindow`, the dock-only reload and its rollback in `ApplyDockSettings`, and
+  the combined page-and-kind reload in `ApplySettings`; the deferred reload: `OnSettingsChanged` and
+  `ReplayDeferredSettingsReload`; the failure message box: `RunApplication` in `RedXe/Main.cpp`; the first-run dock:
+  `MakeFirstRunDock` in `RedXe/Application.cpp`
 - Dock placement, monitor selection, MINMAXINFO, the autohide state machine, the slide, and the first-run monitor,
   edge, and thickness: `RedXe/DockPlacement.h`; the `--dock*` grammar and merge: `RedXe/DockOptions.h`; dock-kind
   presentation: `Renderer::SetDockPresentation`; the slide's frames and translation: `Application::TickDockSlide`,
   `SettleDockSlide`, and `DashboardHost::SetSlideOffset`
 - Notification-area icon: `RedXe/TrayIcon.h` (the owner window, the icon, the menu, and the `TrayIconActionFor`
   callback table), `RedXe/TrayIcon.cpp`; its lifetime and commands: `Application::ApplyTrayIconSettings`,
-  `OnTrayCommand`, and `EditSettingsFile`
+  `OnTrayCommand`, and `EditSettingsFile`, which hands the editor launch to `RedXe/LaunchWorker.*`
 - Physical render-target resizing: `RedXe/Renderer.cpp`, `RedXe/Renderer.h`
 - Automated build, scheduler, production host/plugin, and hidden WARP validation: `build.ps1`, `test.ps1`,
   `Tests/HostPluginTests/`

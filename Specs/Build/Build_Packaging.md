@@ -45,11 +45,14 @@ that link resolves app-local DLLs and `GetModuleFileNameW` against the link's di
   passed through with `CommandLineToArgvW`-compatible quoting. It hands its standard handles to the child so
   `RedXe --help > file` and terminal output work although `RedXe.exe` is a GUI-subsystem image.
 - A normal dashboard launch returns immediately with exit code 0. For `--help`, `-h`, `/?`, `-?`, `--self-test`,
-  `--screenshot`, `--crash-test`, and `--crash-test-stack-overflow` it waits for `RedXe.exe` and returns its exit
-  code. `--crash-test-directory=` only changes where a crash writes its dump; it does not make an ordinary launch
-  self-terminating. `RedXe/CommandLine.h` owns the launcher's wait flag for each switch.
+  `--screenshot`, `--crash-test`, and `--crash-test-stack-overflow`, and for any line with an argument that
+  `RedXeFindUnknownArgument` rejects (RedXe.exe reports it and exits 2 at once), it waits for `RedXe.exe` and returns
+  its exit code unchanged, including an `NTSTATUS` above `INT_MAX` such as `0xC0000409` from a fail-fast exit.
+  `--crash-test-directory=` only changes where a crash writes its dump; it does not make an ordinary launch
+  self-terminating. `RedXe/CommandLine.h` owns the launcher's wait flag for each switch and the unknown-argument
+  scanner both executables use.
 - `test.ps1` MUST run `RedXeLauncher.exe --help` and check that the RedXe help text is relayed with exit code 0, and
-  that an unknown switch through the launcher yields exit code 2.
+  that an unknown switch alone through the launcher relays its error with exit code 2.
 
 ## Portable ZIP (`package.ps1`, `Build/Package.psm1`)
 

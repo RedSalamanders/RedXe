@@ -38,7 +38,7 @@ is never a dialog, because a keypad key is a deliberate control.
 | `redxe.settings.reload` | none | Re-read the settings file now |
 | `redxe.settings.edit` | none | Open the settings file in its default editor |
 | `redxe.logs.open` | none | Open the `Logs` folder |
-| `redxe.screenshot` | `<png path>[@<pageId>[/<ordinal>]]` | Save a screenshot of a page (or one widget) exactly like `--screenshot` |
+| `redxe.screenshot` | `<png path>[@<pageId>[/<ordinal>]]` | Save a screenshot of a page (or one widget) like `--screenshot`, without its delay; RedXe keeps running. A press while a capture is still in progress, or a page or widget that does not exist, is refused and captures nothing; a failed capture is noted in the log as `screenshot-failed` |
 | `redxe.quit` | `now` | Quit RedXe |
 | `redxe.dock.show` | none | Reveal an auto-hiding [dock](usage.md#dock); it stays until you visit it with the mouse and leave, or click it and click elsewhere |
 | `redxe.dock.hide` | none | Collapse the dock to its peek strip (does nothing while a widget is raised or being dragged) |
@@ -65,7 +65,7 @@ is never a dialog, because a keypad key is a deliberate control.
 | `action` | `target` | Effect |
 | --- | --- | --- |
 | `keys.press` | one or more chords: `Ctrl+Shift+Esc`, `Win+D`, `Ctrl+K,Ctrl+S` | Press and release them in order |
-| `keys.down`, `keys.up` | one chord | Hold / release it (anything still held is released after 2 s). Not on a Logicon control: `keys.down` there shows a red `!` and does nothing ([why](#when-something-is-wrong)) |
+| `keys.down`, `keys.up` | one chord | Hold / release it (anything still held is released after 2 s, and its later `up` then does nothing). Not on a Logicon control: `keys.down` there shows a red `!` and does nothing ([why](#when-something-is-wrong)) |
 | `keys.type` | text | Type it |
 | `keys.media` | `play-pause`, `stop`, `next-track`, `previous-track`, `volume-up`, `volume-down`, `mute` | Send that media key |
 | `keys.lock` | `caps`, `num`, `scroll` | Toggle that lock key |
@@ -76,6 +76,8 @@ Chord modifiers are `Ctrl`, `Shift`, `Alt`, `Win`; keys are letters, digits, `F1
 `ScrollLock`, `Apps`, `Num0`–`Num9`, `NumAdd`, `NumSub`, `NumMul`, `NumDiv`, `NumDot`, `Plus`, `Minus`, `Comma`, `Period`,
 `Semicolon`, `Quote`, `Slash`, `Backslash`, `LBracket`, `RBracket`, `Grave`, or `VK:<hex>`. Windows does not deliver injected
 input to a window that runs elevated (as administrator); RedXe never runs elevated, so such a window ignores these actions.
+While a UAC prompt or the lock screen is up, Windows refuses injected input altogether: a held key or button that cannot be
+released then is retried every quarter second for about 10 s, so a modifier is not left pressed after the prompt closes.
 
 ### `mouse.*`
 
@@ -83,7 +85,7 @@ input to a window that runs elevated (as administrator); RedXe never runs elevat
 | --- | --- | --- |
 | `mouse.move` | `x,y` (screen pixels), `+dx,+dy` (relative), or `center`, each optionally `@<monitor>` | Move the pointer |
 | `mouse.click`, `mouse.doubleClick` | `left`, `right`, `middle`, `x1`, `x2` | Click where the pointer is |
-| `mouse.down`, `mouse.up` | same | Hold / release a button. Not on a Logicon control: `mouse.down` there shows a red `!` and does nothing ([why](#when-something-is-wrong)) |
+| `mouse.down`, `mouse.up` | same | Hold / release a button (released after 2 s like a held chord). Not on a Logicon control: `mouse.down` there shows a red `!` and does nothing ([why](#when-something-is-wrong)) |
 | `mouse.scroll`, `mouse.scroll.horizontal` | `+n` or `-n` notches | Scroll |
 | `mouse.speed` | `1`–`20` | Pointer speed |
 
@@ -113,6 +115,12 @@ Workplace installation or Marketplace application registration.
 
 - A misspelled or unknown `action` rejects the settings file; the message names the entry.
 - A `target` that does not fit is shown on the control (red `!` / warning tile) and never runs.
+- Launches (`system.launch`, `system.open`, `system.run`, `system.taskManager`, and the Zoom actions) start in the
+  background, so the dashboard never freezes, even for a file on a share that does not answer. A launch whose file is
+  missing, has no app for it, or cannot be reached does nothing visible; the log (`redxe.logs.open` opens its folder)
+  records `launch-failed`.
+- A key or mouse action that waited more than a second because RedXe was busy is skipped rather than typed into
+  whatever window you switched to meanwhile; the log records `action-expired`.
 - `keys.down` and `mouse.down` hold a key or a button until a release, and a Logicon key, dialpad button, or turn only
   ever sends a press. Bound there, they keep the settings file valid but show a red `!` (the dialpad has no face) and
   never run; the log names the control. Use `keys.press` or `mouse.click` instead.

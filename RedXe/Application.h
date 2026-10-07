@@ -13,7 +13,6 @@
 #include "WidgetRaise.h"
 
 #include <array>
-#include <atomic>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -61,15 +60,16 @@ class Application final
     // frame loop, so Run itself carries no test branches.
     int RunSelfTest(std::wstring_view settingsPath = {}) noexcept;
 
-    // Documentation capture for `--screenshot`: Run shows the dashboard normally, jumps to pageId (empty = the
-    // start page) once the renderer is live, waits delayMilliseconds for widgets and services to settle, captures
-    // its own window through Windows.Graphics.Capture into pngPath, and closes. ScreenshotResult reports it.
-    void RequestScreenshot(std::wstring_view pngPath, std::wstring_view pageId, uint32_t delayMilliseconds,
-                           uint32_t widgetOrdinal) noexcept;
-    [[nodiscard]] HRESULT ScreenshotResult() const noexcept
-    {
-        return _screenshot.result;
-    }
+    // Documentation capture for `--screenshot` and the `redxe.screenshot` action: the frame loop jumps to pageId
+    // (empty = the start page) once the renderer is live, waits delayMilliseconds for widgets and services to settle,
+    // and captures its own window through Windows.Graphics.Capture into pngPath. Only closeWhenDone (the command
+    // line) closes the window after the capture; an action capture keeps RedXe running. ERROR_BUSY while another
+    // request is pending.
+    HRESULT RequestScreenshot(std::wstring_view pngPath, std::wstring_view pageId, uint32_t delayMilliseconds,
+                              uint32_t widgetOrdinal, bool closeWhenDone) noexcept;
+    // After Run returns for `--screenshot`: joins a capture worker the closed window left running and returns the
+    // request's result, ERROR_CANCELLED when the run ended before the capture finished.
+    [[nodiscard]] HRESULT FinishScreenshot() noexcept;
     // --dock* command-line overrides, pinned over the document's `dock` object for this process (DockOptions.h).
     // RunSelfTest replaces them with an edge pinned to none: the self-test keeps its hidden titled window.
     void SetDockOverrides(const DockOverrides& overrides) noexcept
@@ -108,21 +108,24 @@ class Application final
     // True while the shell reports a full-screen application (ABN_FULLSCREENAPP) and the foreground window fills the
     // dock's own monitor: only then does the bar step beneath it.
     [[nodiscard]] bool DockYieldsToFullscreen() const noexcept;
-    // Live reload: re-places the bar for changed members, and `none` <-> an edge switches the window kind.
-    void ApplyDockSettings() noexcept;
+    // Live reload: re-places the bar for the document's changed `dock` members, and `none` <-> an edge switches the
+    // window kind. A failed switch is rolled back to the previous kind and its failure returned, so the caller rejects
+    // the reload; RedXe exits only when the rollback leaves no renderer.
+    HRESULT ApplyDockSettings(const DockSettings& documentDock) noexcept;
     // Live reload between `none` and an edge (UI_XeneonDisplayWindowing.md "Switching the window kind"): the same
     // window is hidden, restyled, placed as the other kind, and shown again without activation, and the swap chain is
     // rebuilt for that kind's scaling. Widgets, services, native containers, the settings watcher, and the drop target
-    // stay bound to the window. A failure is a runtime failure (the caller closes the window).
+    // stay bound to the window. A failed step leaves the window hidden; the caller rolls back to the previous kind
+    // with `rollback`, which keeps the forward switch's standard-window monitor and logs no switch.
     // SwitchWindowKind = RestyleWindowKind, RebuildPresentation, FinishWindowKindSwitch; a reload that also rebuilds
     // the page runs InitializeDashboardRuntime between the two halves instead, so the renderer is created once.
-    HRESULT SwitchWindowKind(const DockSettings& next) noexcept;
+    HRESULT SwitchWindowKind(const DockSettings& next, bool rollback) noexcept;
     // Ends the interactions, takes the presentation down, and hides, restyles, and places the window as the kind
     // `next` selects. The window stays hidden with no renderer until FinishWindowKindSwitch.
-    HRESULT RestyleWindowKind(const DockSettings& next) noexcept;
+    HRESULT RestyleWindowKind(const DockSettings& next, bool rollback) noexcept;
     // Shows the restyled window without activation, settles the standard kind's placement, the holds, and the chrome,
-    // and logs the switch. Needs the renderer of the new kind.
-    HRESULT FinishWindowKindSwitch() noexcept;
+    // and logs the switch unless it is a rollback. Needs the renderer of the new kind.
+    HRESULT FinishWindowKindSwitch(bool rollback) noexcept;
     // The standard kind for a window that already exists, placed by the startup rows of the mode table without the
     // missing-display prompt: Release fullscreen on the XENEON's rcMonitor; the titled window at the XENEON origin;
     // without a XENEON, the titled window at the work-area origin of `fallbackMonitor`. Idempotent.
@@ -189,7 +192,12 @@ class Application final
     void OnTrayCommand(TrayCommand command) noexcept;
     // Opens the settings file this process watches with its default app, the shell's UI allowed.
     void EditSettingsFile() noexcept;
+    // Loads and applies a changed settings file. A reload that arrives inside the titled window's move/size loop, or
+    // that would rebuild the page of a minimized standard window (whose 0x0 client cannot size it), is neither
+    // applied nor rejected: it waits for ReplayDeferredSettingsReload.
     void OnSettingsChanged() noexcept;
+    // Posts the deferred reload once the move/size loop has ended and the window is not minimized.
+    void ReplayDeferredSettingsReload() noexcept;
     void ShowSettingsError(std::wstring_view message) noexcept;
     void CloseSettingsError() noexcept;
     HRESULT UpdateDashboardVisibility() noexcept;
@@ -256,9 +264,11 @@ class Application final
     void FlushPendingTransitionStage() noexcept;
     void BeginPageSettle(LONG targetOffset, bool commit) noexcept;
     void TickPageSettle() noexcept;
-    // Advances a `--screenshot` request from the frame loop: jump, wait, capture. Returns true once the capture
-    // has run (successfully or not) so the loop closes the window.
+    // Advances a screenshot request from the frame loop: jump, wait, capture. Returns true once a closeWhenDone
+    // capture has run (successfully or not) so the loop closes the window; an action's capture returns false.
     [[nodiscard]] bool TickScreenshot() noexcept;
+    // Ends the pending request with `result`, logs `screenshot-failed` for a failure, and returns closeWhenDone.
+    bool EndScreenshot(HRESULT result) noexcept;
     HRESULT PromoteTransitionPage() noexcept;
     // Stages the adjacent page in `direction`, or, when targetPageIndex is supplied, that page directly (a host
     // action jump); the direction then only decides which side the staged page slides in from.
@@ -300,14 +310,16 @@ class Application final
     void LogDeferredSettingsPersist() noexcept;
     static HRESULT SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8,
                                         uint32_t settingsBytes) noexcept;
-    // The page, widget, and redxe action namespaces (HostActionCatalog.h), executed on the UI thread outside input
-    // and render dispatch from the host-action drain or IRedXeHost::ExecuteAction. A page or widget action during
-    // a swipe, raise settle, or settings error returns ERROR_BUSY / E_NOT_VALID_STATE and is dropped.
+    // The page, widget, and redxe action namespaces (HostActionCatalog.h), executed on the UI thread from the
+    // host-action drain or from IRedXeHost::ExecuteAction inside a widget's own input callback. Actions that release
+    // widgets (redxe.settings.reload, redxe.quit) are therefore only posted and return S_FALSE. A page or widget
+    // action during a swipe, raise settle, or settings error returns ERROR_BUSY / E_NOT_VALID_STATE and is dropped.
     static HRESULT HostActionThunk(void* context, const char* actionUtf8, const char* targetUtf8) noexcept;
     static void HostActionCompletedThunk(void* context) noexcept;
     HRESULT HandleHostAction(std::string_view action, std::string_view target) noexcept;
-    // Shows the host's action publisher notices (namespace collisions, missing or unloadable publishers) in the
-    // settings-error dialog once per change; the dashboard stays active.
+    // Shows the host's action publisher notices (namespace collisions, missing or unloadable publishers) in one
+    // modeless notice window once per change, and closes that window once a change clears them; the dashboard stays
+    // active.
     void ShowActionNotices() noexcept;
     // Slides directly to a non-adjacent page: stages it as the transition page and settles once.
     HRESULT NavigateToPage(uint32_t pageIndex) noexcept;
@@ -352,11 +364,13 @@ class Application final
         // Crop to this widget ordinal on the captured page; UINT32_MAX captures the whole window.
         uint32_t widgetOrdinal = UINT32_MAX;
         bool pending = false;
+        // Set only by the `--screenshot` command line: the window closes once the capture has run.
+        bool closeWhenDone = false;
         bool navigated = false;
-        bool capturing = false;
         bool complete = false;
         ULONGLONG dueTick = 0;
-        HRESULT result = S_OK;
+        // A request that ends before its capture finishes reports this; the capture's own result replaces it.
+        HRESULT result = HRESULT_FROM_WIN32(ERROR_CANCELLED);
     };
     static constexpr UINT_PTR kScreenshotTimerId = 0x5C5;
     // One-shot dwell or hide timer of the autohide dock; at most one is armed and every state exit kills it.
@@ -364,14 +378,17 @@ class Application final
     static constexpr UINT_PTR kDockDashboardResizeTimerId = 0x5C8;
 
     ScreenshotRequest _screenshot{};
+    // Joinable exactly while a capture runs. The worker writes its result before it ends, and the UI thread reads it
+    // only after join(), which orders the two.
     std::jthread _screenshotWorker;
-    std::atomic<HRESULT> _screenshotWorkerResult{S_OK};
+    HRESULT _screenshotWorkerResult = S_OK;
     DockOverrides _dockOverrides{};
     // Effective dock: the document's `dock` with the command-line overrides applied, re-merged on every live reload.
     // `edge` is None for the titled and fullscreen kinds.
     DockSettings _dock{};
     bool _dockActive = false;
-    // Standard-kind placement inputs kept from RestyleWindowKind for FinishWindowKindSwitch.
+    // Standard-kind placement inputs kept from RestyleWindowKind for FinishWindowKindSwitch. A rollback keeps the
+    // monitor the forward switch recorded, so a restored standard window returns to the monitor it was on.
     HMONITOR _kindSwitchFallbackMonitor = nullptr;
     bool _kindSwitchFullscreen = false;
     RECT _xeneonBounds{};
@@ -410,6 +427,10 @@ class Application final
     // Distance from the inner edge to the pointer at the press, so the edge keeps its offset under the pointer.
     LONG _dockResizeGrabPx = 0;
     bool _windowActive = false;
+    // Between WM_ENTERSIZEMOVE and WM_EXITSIZEMOVE: the system move/size loop owns the window's rectangle.
+    bool _inSizeMove = false;
+    // A settings reload waits for the end of the move/size loop or for the restore of a minimized window.
+    bool _settingsReloadDeferred = false;
     bool _forceWarp = false;
     bool _classRegistered = false;
     bool _rendererReady = false;

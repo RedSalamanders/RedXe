@@ -86,8 +86,8 @@ inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwi
                            L"Autohide only: pixels that stay visible while hidden, 1 through 64 (default 4).", L"Dock"},
     RedXeCommandLineSwitch{
         RedXeSwitch::Screenshot, L"--screenshot", nullptr, RedXeSwitchValue::Separate, L"<png>",
-        L"Start normally, wait, save the window (or one widget) as PNG, and exit: 0 written, 8 failed.", L"Screenshot",
-        true},
+        L"Start normally, wait, save the window (or one widget) as PNG, and exit: 0 written, 8 not written.",
+        L"Screenshot", true},
     RedXeCommandLineSwitch{RedXeSwitch::Page, L"--page", nullptr, RedXeSwitchValue::Separate, L"<id>",
                            L"Page to show before the capture (default: the first page).", L"Screenshot"},
     RedXeCommandLineSwitch{RedXeSwitch::Widget, L"--widget", nullptr, RedXeSwitchValue::Separate, L"<ordinal>",
@@ -177,6 +177,24 @@ inline constexpr std::array<const wchar_t*, 4> kRedXeCommandLineGroups{L"General
         }
     }
     return nullptr;
+}
+
+// Exit code of a `--screenshot` run that wrote no PNG.
+inline constexpr int kRedXeScreenshotFailedExitCode = 8;
+
+// The exit code Main.cpp returns for a `--screenshot` run: 8 whenever no PNG was written, whatever ended the run (a
+// failed capture, a window closed before it, or a startup, graphics, or rendering failure that closed it first);
+// with the PNG written, the run's own code.
+[[nodiscard]] constexpr int RedXeScreenshotExitCode(int runExitCode, bool pngWritten) noexcept
+{
+    return pngWritten ? runExitCode : kRedXeScreenshotFailedExitCode;
+}
+
+// Whether Main.cpp shows the modal error box for a run's exit code once the main window is gone: only for a failed
+// interactive run. `--self-test` and `--screenshot` are scripted and report through the exit code and the log.
+[[nodiscard]] constexpr bool RedXeShowsExitCodeBox(int exitCode, bool selfTest, bool screenshot) noexcept
+{
+    return exitCode != 0 && !selfTest && !screenshot;
 }
 
 // The `--help` text: usage line, one block per group, and the exit codes Main.cpp reports.

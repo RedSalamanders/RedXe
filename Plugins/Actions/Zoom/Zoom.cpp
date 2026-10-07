@@ -130,7 +130,9 @@ class ZoomService final : public RedXeComObject<ZoomService, IRedXeService, IRed
         launch.actionUtf8 = "system.launch";
         launch.targetUtf8 = url;
         launch.sourcePluginId = Zoom::kPluginId;
-        return _host->RequestAction(&launch);
+        // Deferred: the host drains system.launch after this returns and opens the browser on its launch worker.
+        const HRESULT requested = _host->RequestAction(&launch);
+        return SUCCEEDED(requested) ? S_FALSE : requested;
     }
 
   private:
