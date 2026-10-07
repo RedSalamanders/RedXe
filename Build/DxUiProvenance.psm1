@@ -59,7 +59,7 @@ function Assert-RedXeDxUiProvenance {
         [Parameter(Mandatory)][ValidateSet('x64','ARM64')][string] $Platform,
         [Parameter(Mandatory)][ValidateSet('Debug','Release','ASan Debug')][string] $Configuration
     )
-    $pin=Get-Content -Raw -LiteralPath $LockFile | ConvertFrom-Json
+    $pin=Read-RedXeDxUiLock -LockFile $LockFile
     $record=Get-Content -Raw -LiteralPath (Join-Path $OutputRoot 'DxUi.provenance.json') | ConvertFrom-Json
     if ($record.repository -cne $pin.repository -or $record.commit -cne $pin.commit -or $record.apiRevision -ne $pin.apiRevision -or
         $record.platform -cne $Platform -or $record.configuration -cne $Configuration) { throw 'Stale DxUi product provenance.' }
