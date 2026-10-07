@@ -188,10 +188,11 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   `RedXeDeskClockGetTestDiagnostics`, `RedXeDeskClockSetTestTime`, `RedXeWeatherGetTestDiagnostics`, and
   `RedXeWeatherProbeHttpGetOnSmallStack`, `RedXeWeatherBuildTestLocationSearchUrl`,
   `RedXeAVControlUseSyntheticBackend` and `RedXeAVControlTestSnapshot`, and the Logicon surface
-  `RedXeLogiconGetTestDiagnostics`, `RedXeLogiconUseSyntheticDevice`, `RedXeLogiconInjectControl`,
-  `RedXeLogiconInjectSyntheticReport`, `RedXeLogiconSetFaceOverride`, and `RedXeLogiconSetBrightness`. AV synthetic
-  mode is accepted only before providers exist and is never exposed as a user setting or environment toggle; the
-  Logicon synthetic keypad is selected only through its exports or the Debug monitor tile, never by a setting.
+  `RedXeLogiconGetTestDiagnostics`, `RedXeLogiconUseSyntheticDevice`, `RedXeLogiconUseSyntheticDialpad`,
+  `RedXeLogiconInjectControl`, `RedXeLogiconInjectSyntheticReport`, `RedXeLogiconSetFaceOverride`, and
+  `RedXeLogiconSetBrightness`. AV synthetic mode is accepted only before providers exist and is never exposed as a
+  user setting or environment toggle; the Logicon synthetic keypad is selected only through its exports or the Debug
+  monitor tile, and the synthetic dialpad only through its export, never by a setting.
 - Every factory call names one non-empty plugin ID. Null and empty IDs are invalid, including in single-plugin DLLs.
 - Factory, enumeration, widget creation, device notification, GPU rendering, native-window lifecycle, host-service,
   data-source, provider, and data-sink calls are synchronous and non-reentrant. Widget visibility, collect-on-exit,
@@ -408,10 +409,11 @@ the shipped ones; both also publish an action namespace (`Plugins_Actions.md`).
   its own I/O events; it MUST NOT poll, sleep-loop, touch Direct3D, wait on the UI thread, create a thread, or
   re-enter the host except through `RequestAction`, `RequestFrame`, and `Log`. A lane that needs Raw Input (a
   device Windows opens exclusively, such as a mouse collection) MAY own one hidden, never-shown top-level window on
-  the lane thread, registered with `RIDEV_INPUTSINK`, and then waits with `MsgWaitForMultipleObjectsEx` and drains
-  at most 256 queued messages per turn on the same thread; it MUST unregister its sink and destroy the window
-  before returning, and it MUST NOT replace another user's process-wide registration (today only Logicon registers
-  `usage page 1 / usage 2`, and only while its dialpad is connected). The service MAY signal `wakeEvent`
+  the lane thread, registered with `RIDEV_INPUTSINK`, and then waits with `MsgWaitForMultipleObjectsEx`, message-aware
+  only while that sink is registered, and drains at most 256 queued messages per batch on the same thread; it MUST
+  unregister its sink, destroy the window, and drain what it left queued before returning, and it MUST NOT replace
+  another user's process-wide registration (today only Logicon registers `usage page 1 / usage 2`, and only while
+  its dialpad is present and a turn is bound). The service MAY signal `wakeEvent`
   from any thread while the call runs and MUST NOT touch either handle after it returns. `StopDeviceLane` signals
   `stopEvent`, waits `kRedXeDeviceWorkerDrainMilliseconds` (3000) for the thread, joins it, and closes the events; an
   overrun logs `device-lane-drain-timeout` once and tombstones the service slot: the thread stays joinable and its

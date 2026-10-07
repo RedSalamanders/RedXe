@@ -2,7 +2,8 @@
 
 // Raw Input reader for the dialpad's wheels. The MX Creative Dialpad reports its dial and roller as the wheels of a
 // mouse collection that Windows opens exclusively, so the lane owns a hidden top-level window, registers it as a
-// mouse raw-input sink, and pumps its queue between waits. The name match and the packet fold are pure and testable.
+// mouse raw-input sink, and waits on its queue only while that sink runs. The name match and the packet fold are pure
+// and testable.
 
 #include <array>
 #include <cstdint>
@@ -13,9 +14,9 @@ namespace Logicon
 inline constexpr uint32_t kMaximumRawDevices = 8;
 inline constexpr uint32_t kMaximumRawDeviceNameCharacters = 512;
 
-// What the dialpad's wheels reported since the listener started. Raw units are the HID deltas (120 per detent on
-// a classic wheel). Which wheel is the dial follows the first observation on hardware; the labels stay visible in
-// the monitor so a wrong guess is obvious rather than hidden.
+// What the dialpad's wheels reported since the listener started; all zero while it is stopped. Raw units are the
+// HID deltas (120 per detent on a classic wheel). Which wheel is the dial follows the first observation on
+// hardware; the labels stay visible in the monitor so a wrong guess is obvious rather than hidden.
 struct WheelState final
 {
     // Horizontal wheel (AC Pan).
@@ -48,13 +49,20 @@ class RawWheelListener final
     RawWheelListener(const RawWheelListener&) = delete;
     RawWheelListener& operator=(const RawWheelListener&) = delete;
 
-    // Creates the hidden window on the calling thread and registers it as a mouse input sink. Pump and Stop must
-    // run on that same thread.
+    // Creates the hidden window on the calling thread and registers it as a mouse input sink. Pump, Wait, and Stop
+    // must run on that same thread.
     [[nodiscard]] HRESULT Start(uint16_t vendorId, uint16_t productId) noexcept;
+    // Unregisters the sink, destroys the window, drains what it left in the thread's queue, and clears the state.
     void Stop() noexcept;
     [[nodiscard]] bool Running() const noexcept;
-    // Dispatches at most 256 queued messages per turn. Returns true when a matched packet arrived.
+    // Dispatches at most 256 queued messages of the calling thread, window or not. Returns true when a matched
+    // packet arrived.
     bool Pump() noexcept;
+    // The lane's one blocking wait: on handles, plus the thread's message queue only while the sink runs (input left
+    // in the queue would otherwise end every wait). Messages are pumped here and unrelated packets go straight back
+    // to the wait, so it returns WAIT_OBJECT_0 + count only once a matched packet arrived; a timeout counts from the
+    // call. Otherwise it returns what MsgWaitForMultipleObjectsEx returned.
+    [[nodiscard]] DWORD Wait(uint32_t count, const HANDLE* handles, DWORD timeoutMilliseconds) noexcept;
     [[nodiscard]] const WheelState& State() const noexcept;
     [[nodiscard]] WheelDeltas TakeDeltas() noexcept;
     // Drops the cached device matches; call after a hotplug change so a re-enumerated handle is looked up again.

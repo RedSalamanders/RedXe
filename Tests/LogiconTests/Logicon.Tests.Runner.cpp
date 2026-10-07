@@ -1,6 +1,7 @@
 // Logicon tests that need no hardware: HID++ framing and the 0x19A1 image stream against the reference byte layout,
 // the shared settings model, key-face composition and JPEG round trips, the device session driven by the synthetic
-// keypad, and the shipped DLL's factory, contract, service lifetime, device lane, and test exports.
+// keypad, the HID port's request path over a named pipe, the raw-input wait, and the shipped DLL's factory,
+// contract, service lifetime, device lane, and test exports.
 
 #include "../../Common/FailureReports.h"
 #include "Actions/ActionTargets.h"
@@ -660,6 +661,75 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     LOGICON_CHECK(SUCCEEDED(session.Restore(stop.get(), false)), "restore after the hidden lookup");
     session.Detach();
     keypad.HideDisplayFromRoot(false);
+
+    // A keypad that stops answering costs restore one command timeout: the second page button and the splash reset
+    // are skipped, so a stopping lane stays inside the host's drain budget.
+    keypad.Reset();
+    std::unique_ptr<HidPort> silentPort{new (std::nothrow) SyntheticHidPort(keypad)};
+    LOGICON_CHECK(silentPort != nullptr && SUCCEEDED(session.AttachPort(std::move(silentPort))) &&
+                      SUCCEEDED(session.Connect(stop.get())),
+                  "connect before the keypad goes silent");
+    keypad.Unresponsive(true);
+    const uint32_t commandsBeforeRestore = keypad.CommandsReceived();
+    LOGICON_CHECK(session.Restore(stop.get(), true) == HRESULT_FROM_WIN32(ERROR_TIMEOUT) &&
+                      keypad.CommandsReceived() == commandsBeforeRestore + 1 && !keypad.ResetToLogoSeen(),
+                  "restore stops at the first unanswered command and skips the splash reset");
+    keypad.Unresponsive(false);
+    session.Detach();
+    return S_OK;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// WindowsHidPort over a named pipe: the request path output and feature reports share (timeout, cancel, drain)
+// ---------------------------------------------------------------------------------------------------------------
+
+[[nodiscard]] HRESULT TestHidPort() noexcept
+{
+    using namespace Logicon;
+    // A pipe without buffer quota holds every write until the other end reads it, like a device that stopped taking
+    // reports; a pipe refuses HID IOCTLs at once.
+    HidCollectionInfo info{};
+    (void)swprintf_s(info.path.data(), info.path.size(), L"\\\\.\\pipe\\RedXe.LogiconTests.%lu", GetCurrentProcessId());
+    info.inputReportBytes = kLongReportBytes;
+    info.outputReportBytes = kLongReportBytes;
+    info.featureReportBytes = kFeatureResetReportBytes;
+    wil::unique_hfile device{CreateNamedPipeW(info.path.data(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                                              PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 0, 0, 0, nullptr)};
+    LOGICON_CHECK(device.is_valid(), "the stand-in device pipe is created");
+    WindowsHidPort port;
+    LOGICON_CHECK(SUCCEEDED(port.Open(info)) && !port.Disconnected(), "the port opens the pipe");
+    wil::unique_event_nothrow stop;
+    wil::unique_event_nothrow readDone;
+    LOGICON_CHECK(SUCCEEDED(stop.create(wil::EventOptions::ManualReset)) &&
+                      SUCCEEDED(readDone.create(wil::EventOptions::ManualReset)),
+                  "events");
+    const uint8_t report[3] = {kReportLong, kDeviceIndexWired, 0x00};
+    LOGICON_CHECK(port.Write(report, sizeof(report), stop.get(), 100) == HRESULT_FROM_WIN32(ERROR_TIMEOUT) &&
+                      !port.Disconnected(),
+                  "an unread write times out, is canceled and drained, and leaves the port open");
+
+    std::array<uint8_t, 64> received{};
+    OVERLAPPED overlapped{};
+    overlapped.hEvent = readDone.get();
+    const BOOL read =
+        ReadFile(device.get(), received.data(), static_cast<DWORD>(received.size()), nullptr, &overlapped);
+    LOGICON_CHECK(read || GetLastError() == ERROR_IO_PENDING, "the other end starts reading");
+    DWORD readBytes = 0;
+    LOGICON_CHECK(SUCCEEDED(port.Write(report, sizeof(report), stop.get(), 1000)) &&
+                      GetOverlappedResult(device.get(), &overlapped, &readBytes, TRUE) &&
+                      readBytes == kLongReportBytes && received[0] == kReportLong && received[3] == 0,
+                  "the next write completes, zero padded to the output length");
+
+    const uint8_t feature[2] = {0x03, 0x02};
+    const HRESULT refused = port.SetFeature(feature, sizeof(feature), stop.get(), 1000);
+    LOGICON_CHECK(refused == HRESULT_FROM_WIN32(ERROR_INVALID_FUNCTION) && !port.Disconnected(),
+                  "a feature report is an overlapped request whose refusal returns at once");
+    LOGICON_CHECK(SetEvent(stop.get()) &&
+                      port.Write(report, sizeof(report), stop.get(), 1000) == HRESULT_FROM_WIN32(ERROR_CANCELLED) &&
+                      !port.Disconnected(),
+                  "the stop event cancels a held write");
+    port.Close();
+    LOGICON_CHECK(port.Disconnected(), "closed");
     return S_OK;
 }
 
@@ -732,6 +802,34 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     LOGICON_CHECK(SUCCEEDED(listener.Start(kVendorId, kDialpadProductId)), "raw input listener restarts");
     listener.Stop();
 
+    // The lane's wait watches this thread's queue only while the sink runs and drains it itself. A thread message
+    // stands in for queued input; the listener matches no device, so the user's own mice can only add unrelated
+    // packets.
+    wil::unique_event_nothrow never;
+    LOGICON_CHECK(SUCCEEDED(never.create(wil::EventOptions::ManualReset)), "wait event");
+    const HANDLE waitHandles[1] = {never.get()};
+    MSG queued{};
+    LOGICON_CHECK(SUCCEEDED(listener.Start(0xFFFF, 0xFFFF)) && PostThreadMessageW(GetCurrentThreadId(), WM_APP, 0, 0) &&
+                      listener.Wait(1, waitHandles, 50) == WAIT_TIMEOUT &&
+                      !PeekMessageW(&queued, nullptr, WM_APP, WM_APP, PM_NOREMOVE),
+                  "an unrelated message is drained inside the wait and never ends it");
+    LOGICON_CHECK(PostThreadMessageW(GetCurrentThreadId(), WM_APP, 0, 0), "a message is queued when the sink stops");
+    listener.Stop();
+    LOGICON_CHECK(!PeekMessageW(&queued, nullptr, WM_APP, WM_APP, PM_NOREMOVE), "stop drains the thread's queue");
+    LOGICON_CHECK(PostThreadMessageW(GetCurrentThreadId(), WM_APP, 0, 0), "a message arrives while stopped");
+    uint32_t wakes = 0;
+    for (uint32_t turn = 0; turn < 5; ++turn)
+    {
+        wakes += listener.Wait(1, waitHandles, 20) == WAIT_TIMEOUT ? 0U : 1U;
+    }
+    LOGICON_CHECK(wakes == 0 && PeekMessageW(&queued, nullptr, WM_APP, WM_APP, PM_NOREMOVE),
+                  "without the sink the wait blocks on its handles alone and leaves the queue untouched");
+    while (PeekMessageW(&queued, nullptr, 0, 0, PM_REMOVE))
+    {
+    }
+    LOGICON_CHECK(SetEvent(never.get()) && listener.Wait(1, waitHandles, INFINITE) == WAIT_OBJECT_0,
+                  "a signaled handle still ends the wait");
+
     // The dialpad session over the synthetic vendor collection: 0x1B04 resolved at 0x0A, four controls diverted.
     SyntheticKeypad dialpad;
     dialpad.ActAsDialpad(true);
@@ -774,6 +872,16 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
                       dialpad.CommandsReceived() == 3,
                   "one bound button means one get/set pair");
     LOGICON_CHECK(SUCCEEDED(session.Restore(stop.get(), false)), "partial restore");
+    session.Detach();
+
+    // No bound button: nothing to divert, so the connect sends nothing at all.
+    dialpad.Reset();
+    std::unique_ptr<HidPort> idlePort{new (std::nothrow) SyntheticHidPort(dialpad)};
+    LOGICON_CHECK(idlePort != nullptr && SUCCEEDED(session.AttachPort(std::move(idlePort))), "port re-attaches");
+    LOGICON_CHECK(SUCCEEDED(session.ConnectDialpad(stop.get(), 0)) && session.Connected() &&
+                      session.DivertedDialButtons() == 0 && dialpad.CommandsReceived() == 0 &&
+                      SUCCEEDED(session.Restore(stop.get(), false)) && dialpad.CommandsReceived() == 0,
+                  "no bound button means no 0x1B04 lookup and nothing to restore");
     session.Detach();
 
     // The keypad persona is unchanged by the dialpad additions: a dial control is rejected there.
@@ -1518,11 +1626,65 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
         WaitUntil([&]() noexcept { return host.actions.load(std::memory_order_relaxed) > actionsBeforeDial; }, 2000) &&
             host.LastActionIs("page.next"),
         "dialpad Forward requested page.next");
+
+    // The wheels follow the dialpad's presence and the turn bindings, never its HID++ session: a dialpad that
+    // answers no HID++ command keeps them read across failed connects and retries; no dialpad or no bound turn
+    // stops them. The bound button above makes every connect send HID++ commands.
+    const auto useSyntheticDialpad =
+        Resolve<RedXeLogiconUseSyntheticDialpadFn>(module.get(), kRedXeLogiconUseSyntheticDialpadExport);
+    LOGICON_CHECK(useSyntheticDialpad != nullptr && useSyntheticDialpad(3) == E_INVALIDARG &&
+                      SUCCEEDED(diagnostics(&report)) && report.wheelsWanted == 0 && report.wheelsListening == 0,
+                  "synthetic dialpad export, wheels idle without a dialpad");
+    const uint32_t dialpadAttemptsBefore = report.dialpadAttempts;
+    LOGICON_CHECK(SUCCEEDED(useSyntheticDialpad(2)), "a dialpad that answers no HID++ command appears");
+    LOGICON_CHECK(
+        WaitUntil([&]() noexcept
+                  { return SUCCEEDED(diagnostics(&report)) && report.dialpadAttempts >= dialpadAttemptsBefore + 2; },
+                  8000),
+        "its HID++ connect failed and was retried");
+    LOGICON_CHECK(report.dialpadConnected == 0 &&
+                      report.dialpadLastFailure == static_cast<int32_t>(HRESULT_FROM_WIN32(ERROR_TIMEOUT)) &&
+                      report.wheelsWanted == 1 && report.wheelsListening == 1,
+                  "the wheels are read although the dialpad's HID++ session failed");
+    LOGICON_CHECK(SUCCEEDED(useSyntheticDialpad(1)), "the dialpad answers");
+    LOGICON_CHECK(
+        WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 1; }, 5000) &&
+            report.wheelsListening == 1,
+        "the dialpad connects and its wheels stay read");
+    LOGICON_CHECK(SUCCEEDED(useSyntheticDialpad(0)), "the dialpad goes away");
+    LOGICON_CHECK(WaitUntil(
+                      [&]() noexcept
+                      {
+                          return SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 0 &&
+                                 report.wheelsWanted == 0 && report.wheelsListening == 0;
+                      },
+                      5000),
+                  "without the dialpad the wheels stop");
+    LOGICON_CHECK(SUCCEEDED(useSyntheticDialpad(1)), "the dialpad is back");
+    LOGICON_CHECK(
+        WaitUntil(
+            [&]() noexcept
+            { return SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 1 && report.wheelsListening == 1; },
+            5000),
+        "the dialpad reconnects with its wheels read");
+
     LOGICON_CHECK(SUCCEEDED(service->ApplySettings(applied, static_cast<uint32_t>(sizeof(applied) - 1))),
                   "settings without system faces apply");
     LOGICON_CHECK(!host.systemData.AnyActive() && host.systemData.AnySink(), "feed paused, subscriptions kept");
     LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.systemFeed == 0; }, 2000),
                   "diagnostics report the paused feed");
+    LOGICON_CHECK(WaitUntil(
+                      [&]() noexcept
+                      {
+                          return SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 1 &&
+                                 report.wheelsWanted == 0 && report.wheelsListening == 0;
+                      },
+                      5000),
+                  "without a bound turn the wheels stop while the dialpad stays connected");
+    LOGICON_CHECK(
+        SUCCEEDED(useSyntheticDialpad(0)) &&
+            WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 0; }, 5000),
+        "the synthetic dialpad is closed again");
 
     // Stop: the lane drains well inside the host's 3 s budget and restores the device.
     const ULONGLONG stopStarted = GetTickCount64();
@@ -1558,9 +1720,13 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
         HRESULT (*function)() noexcept;
     };
     const Case cases[] = {
-        {"protocol framing", TestProtocolFraming}, {"geometry and VLP stream", TestGeometryAndVlp},
-        {"settings model", TestSettings},          {"key faces", TestFaces},
-        {"device session", TestDeviceSession},     {"dialpad", TestDialpad},
+        {"protocol framing", TestProtocolFraming},
+        {"geometry and VLP stream", TestGeometryAndVlp},
+        {"settings model", TestSettings},
+        {"key faces", TestFaces},
+        {"device session", TestDeviceSession},
+        {"HID port", TestHidPort},
+        {"dialpad", TestDialpad},
         {"shipped module", TestShippedModule},
     };
     HRESULT result = S_OK;
@@ -1589,6 +1755,6 @@ int wmain() noexcept
         std::wprintf(L"Logicon tests failed: 0x%08X\n", static_cast<unsigned int>(result));
         return 1;
     }
-    std::wprintf(L"Logicon protocol, settings, face, device, dialpad, and module tests passed.\n");
+    std::wprintf(L"Logicon protocol, settings, face, device, HID port, dialpad, and module tests passed.\n");
     return 0;
 }

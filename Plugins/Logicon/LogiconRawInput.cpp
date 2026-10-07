@@ -218,8 +218,14 @@ void RawWheelListener::Stop() noexcept
     }
     if (_window)
     {
-        (void)DestroyWindow(_window);
+        const bool destroyed = DestroyWindow(_window) != FALSE;
         _window = nullptr;
+        if (destroyed)
+        {
+            // Packets queued before the removal stay in this thread's queue; drain them here, because the lane's
+            // wait stops watching the queue once the sink is gone.
+            (void)Pump();
+        }
     }
     if (_classRegistered)
     {
@@ -228,6 +234,9 @@ void RawWheelListener::Stop() noexcept
     }
     _module = nullptr;
     _deviceCount = 0;
+    _state = WheelState{};
+    _pending = WheelDeltas{};
+    _arrived = false;
 }
 
 bool RawWheelListener::Running() const noexcept
@@ -235,12 +244,33 @@ bool RawWheelListener::Running() const noexcept
     return _window != nullptr && _sinkRegistered;
 }
 
+DWORD RawWheelListener::Wait(uint32_t count, const HANDLE* handles, DWORD timeoutMilliseconds) noexcept
+{
+    const uint64_t started = GetTickCount64();
+    DWORD remaining = timeoutMilliseconds;
+    for (;;)
+    {
+        // A wake mask of 0 waits on the handles alone; MWMO_INPUTAVAILABLE also reports input already seen.
+        const DWORD waited =
+            MsgWaitForMultipleObjectsEx(count, handles, remaining, Running() ? QS_ALLINPUT : 0, MWMO_INPUTAVAILABLE);
+        if (waited != WAIT_OBJECT_0 + count || Pump())
+        {
+            return waited;
+        }
+        if (timeoutMilliseconds != INFINITE)
+        {
+            const uint64_t elapsed = GetTickCount64() - started;
+            if (elapsed >= timeoutMilliseconds)
+            {
+                return WAIT_TIMEOUT;
+            }
+            remaining = static_cast<DWORD>(timeoutMilliseconds - elapsed);
+        }
+    }
+}
+
 bool RawWheelListener::Pump() noexcept
 {
-    if (!_window)
-    {
-        return false;
-    }
     MSG message{};
     for (uint32_t drained = 0; drained < 256 && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE); ++drained)
     {

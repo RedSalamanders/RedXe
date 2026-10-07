@@ -1,8 +1,9 @@
 #pragma once
 
 // Windows HID transport for Logicon: collection discovery through CfgMgr32 + hid.dll, one overlapped read kept
-// armed per opened collection, bounded padded writes with cancellation, and a hotplug watcher that only signals an
-// event. HidPort is the seam the device session talks through so tests substitute an in-memory device.
+// armed per opened collection, bounded padded writes and feature reports with cancellation, and a hotplug watcher
+// that only signals an event. HidPort is the seam the device session talks through so tests substitute an in-memory
+// device.
 
 #include <array>
 #include <atomic>
@@ -23,6 +24,8 @@ namespace Logicon
 inline constexpr uint32_t kMaximumHidCollections = 4;
 inline constexpr uint32_t kMaximumHidPathCharacters = 512;
 inline constexpr uint32_t kMaximumHidReportBytes = 4096;
+// I/O blocks retired by WindowsHidPort::Close in one process; once this many are retired no port opens again.
+inline constexpr uint32_t kMaximumRetiredHidIo = 4;
 
 // One HID top-level collection of the keypad. Report-id masks carry one bit per id below 32; every Logicon report
 // id (0x11, 0x13, 0x14, 0x03) fits.
@@ -68,8 +71,8 @@ struct HidCollections final
 [[nodiscard]] HRESULT EnumerateVendorCollections(uint16_t vendorId, uint16_t productId, uint16_t usagePage,
                                                  HidCollectionInfo* items, uint32_t capacity, uint32_t& count) noexcept;
 
-// Transport seam. Every method runs on the device lane; nothing blocks except Write, which honors stopEvent and its
-// timeout. Reports carry the report id in byte 0.
+// Transport seam. Every method runs on the device lane; nothing blocks except Write and SetFeature, which honor
+// stopEvent and their timeout. Reports carry the report id in byte 0.
 class HidPort
 {
   public:
@@ -82,9 +85,14 @@ class HidPort
     [[nodiscard]] virtual HRESULT TakeReport(uint8_t* buffer, uint32_t capacity, uint32_t& bytes) noexcept = 0;
     // Writes one output report, padded to the collection's output length. Returns ERROR_CANCELLED when stopEvent
     // fires first and ERROR_TIMEOUT when the write does not complete in time; both cancel the I/O before returning.
+    // A canceled request the driver has not finished keeps the port's one request slot: later writes and feature
+    // reports return ERROR_BUSY until it finishes.
     [[nodiscard]] virtual HRESULT Write(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
                                         uint32_t timeoutMilliseconds) noexcept = 0;
-    [[nodiscard]] virtual HRESULT SetFeature(const uint8_t* report, uint32_t bytes) noexcept = 0;
+    // Sends one feature report, padded to the collection's feature length, with Write's request slot, timeout, and
+    // cancellation.
+    [[nodiscard]] virtual HRESULT SetFeature(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
+                                             uint32_t timeoutMilliseconds) noexcept = 0;
     [[nodiscard]] virtual bool Disconnected() const noexcept = 0;
     // Cancels outstanding I/O so a blocked lane can return.
     virtual void Cancel() noexcept = 0;
@@ -106,16 +114,23 @@ class WindowsHidPort final : public HidPort
     [[nodiscard]] HRESULT TakeReport(uint8_t* buffer, uint32_t capacity, uint32_t& bytes) noexcept override;
     [[nodiscard]] HRESULT Write(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
                                 uint32_t timeoutMilliseconds) noexcept override;
-    [[nodiscard]] HRESULT SetFeature(const uint8_t* report, uint32_t bytes) noexcept override;
+    [[nodiscard]] HRESULT SetFeature(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
+                                     uint32_t timeoutMilliseconds) noexcept override;
     [[nodiscard]] bool Disconnected() const noexcept override;
     void Cancel() noexcept override;
 
   private:
     [[nodiscard]] HRESULT ArmRead() noexcept;
     void NoteFailure(DWORD error) noexcept;
+    // Sends the report zero padded to paddedBytes as an output report (WriteFile) or a feature report
+    // (IOCTL_HID_SET_FEATURE) through the port's one request slot, and waits with the shared timeout, cancellation,
+    // and drain.
+    [[nodiscard]] HRESULT Submit(bool feature, const uint8_t* report, uint32_t bytes, uint32_t paddedBytes,
+                                 HANDLE stopEvent, uint32_t timeoutMilliseconds) noexcept;
 
     // Keep every buffer, OVERLAPPED, event, and file handle in one backing block. If a broken driver does not
-    // complete canceled I/O within the close budget, that block is retired intact rather than freed under I/O.
+    // complete canceled I/O within the close budget, that block is retired intact rather than freed under I/O,
+    // at most kMaximumRetiredHidIo times per process.
     struct IoState final
     {
         wil::unique_hfile handle;

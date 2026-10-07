@@ -1,7 +1,7 @@
 # Logicon service and monitor
 
 Status: current normative product contract
-Last reviewed: 2026-09-17
+Last reviewed: 2026-10-07
 Owner: `Plugins/Logicon`, `Tests/LogiconTests`, the `services` root of `../Core/Core_Settings.md`
 
 The service ABI, device lane, and developer-only widget class are owned by [`Plugins_API.md`](Plugins_API.md); the
@@ -80,6 +80,12 @@ Verified against the reference implementations named in the active plan. Byte of
 - Collections: every present HID collection of `046D:C354` on usage page `0xFF43` is opened non-exclusively with
   overlapped I/O. Output reports route by report id to the collection whose descriptor lists that id, else to the
   collection with the widest output report; every write is padded to that collection's `OutputReportByteLength`.
+- Requests: output and feature reports of one collection share its single overlapped request slot, with a 1 s
+  timeout (or the stop event) followed by `CancelIoEx` and a 100 ms drain. A canceled request the driver has not
+  finished by then MUST keep the slot and MUST NOT mark the collection disconnected: later requests return
+  `ERROR_BUSY` until it finishes and then reuse the slot. Closing a collection whose request or read is still
+  unfinished retires its I/O block (handle, events, buffers) until process exit; after four retirements in a
+  process no collection opens again (`ERROR_TOO_MANY_OPEN_FILES`).
 - HID++ 2.0 long report `0x11` (20 bytes): `[11][FF][feature index][function << 4 | 0x0B][params…]`. An error reply
   is `[11][FF][FF][feature][function|swid][code]`. Commands are serialized with a 1 s response timeout; unrelated
   input arriving while a command waits is still dispatched.
@@ -101,11 +107,17 @@ Verified against the reference implementations named in the active plan. Byte of
   cached by a signature over their inputs; a change touching three or more slots (or a reconnect) writes the 434×434
   composite once, otherwise each changed tile is written with `defer` set until the last. After a batch the lane
   pauses 10 ms before the next write, as the references do. Brightness is `0x8040` function 2 with a big-endian u16.
-- Splash reset: feature report `0x03` `[03][02][00…]` (32 bytes) on the collection that carries it.
+- Splash reset: feature report `0x03` `[03][02][00…]` (32 bytes) on the collection that carries it, sent as an
+  overlapped `IOCTL_HID_SET_FEATURE` request (never the unbounded `HidD_SetFeature`).
+- Restore (at stop, and before a dialpad re-divert) sends the stored flags, then the splash reset. It MUST stop at
+  the first command the device does not answer (timeout, cancel, or device gone; an error reply is an answer) and
+  skip the splash reset, so an unresponsive device costs one command timeout and the lane drains inside the host's
+  3 s.
 - Hotplug: `CM_Register_Notification` on `GUID_DEVINTERFACE_HID` counts the change and signals the lane's wake
   event; the lane re-enumerates whatever is not open only for wakes that carry a change (settings and host-state
   wakes do not enumerate). A device-gone error (`ERROR_DEVICE_NOT_CONNECTED` and friends) on read or write detaches
-  and waits for the next arrival. A failed open or connect retries after 1, 2, 4, and 8 s, then only on arrival.
+  and waits for the next arrival. A failed open or connect retries after 1, 2, 4, and 8 s counted from the end of
+  the failed attempt, then only on arrival.
 
 ## Device protocol (dialpad)
 
@@ -118,25 +130,30 @@ receiver child with a HID++ device index other than `0xFF`) is not driven.
   the keypad apply.
 - Feature set: 29 features; `0x1B04` at `0x0A` (v6) and `0x4610` at `0x0D` (v1, undocumented; its functions answer
   `02` / `28 00 1F 00` / zeros, and a `setMode`-style write of `0x29` is rejected). The root answers index 0 for
-  `0x19A1`, `0x8040`, `0x2121`, `0x2150`, and `0x2110`. Connect resolves `0x1B04` only.
+  `0x19A1`, `0x8040`, `0x2121`, `0x2150`, and `0x2110`. Connect resolves `0x1B04` only, and only when a button is
+  bound: with no bound button it sends no HID++ command.
 - Buttons: the four `0x1B04` controls are `0x0053` (Back), `0x0056` (Forward), `0x0059` ("Button 6"), `0x005A`
   ("Left Scroll As Button 7"), all flags `0x31`, group 1. Connect stores the reporting of every button the settings
   bind and diverts those with `| 0x03`; they then arrive as `[11][FF][0A][00][cid][cid]…` and are folded into a
   four-bit dial-button mask with the same press-edge rule as the page buttons. Stop or disconnect restores the
   stored flags; a settings apply that binds a different set restores and reconnects at once.
 - Dial and roller: no HID++ event arrives for either while turning them (75 s capture with every control diverted),
-  so they are read as the mouse collection's wheels through Raw Input: only while the dialpad is connected, the lane
-  creates one hidden top-level window (class `RedXe.Logicon.RawInput`) on the lane thread and registers
-  `usage page 1 / usage 2` with `RIDEV_INPUTSINK` if no process user already owns that registration. It waits with
-  `MsgWaitForMultipleObjectsEx`, dispatches at most 256 messages per turn, and folds every `RIM_TYPEMOUSE` packet whose device name carries
+  so they are read as the mouse collection's wheels through Raw Input. While the dialpad is present (the last
+  discovery enumerated its vendor collection) and at least one `turns` binding has a valid action, the lane creates
+  one hidden top-level window (class `RedXe.Logicon.RawInput`) on the lane thread and registers
+  `usage page 1 / usage 2` with `RIDEV_INPUTSINK` if no process user already owns that registration. The sink MUST
+  NOT depend on the HID++ session: a failed or retried button connect, or a re-divert after a settings apply, leaves
+  it running. The lane waits with `MsgWaitForMultipleObjectsEx`, message-aware only while the sink is registered;
+  it dispatches at most 256 messages per drain and returns to the wait, without a lane turn, when the drained
+  packets came only from other mice. It folds every `RIM_TYPEMOUSE` packet whose device name carries
   `VID&02046d_PID&bc00` (Bluetooth) or `VID_046D&PID_BC00` (USB) — matched case-insensitively and cached per
   `hDevice`, forgotten on every hotplug change. `RI_MOUSE_HWHEEL` is taken as the dial and `RI_MOUSE_WHEEL` as the
   roller, each summed in raw HID units (120 per detent on a classic wheel) with an event count; the monitor prints
   the raw source next to each so a wrong assignment is visible. Raw mouse buttons and X/Y motion are counted for
-  diagnostics only. The window is destroyed and its sink unregistered on dialpad disconnect; a later process owner
-  is never unregistered. Raw Input does
-  not divert: the desktop still receives the wheel (`0x4610`, the only candidate for diverting it, stays undecoded by
-  decision).
+  diagnostics only. When discovery no longer finds the dialpad, no valid turn is bound any more, or the lane stops,
+  the sink is unregistered, the window destroyed, the messages it left in the lane thread's queue drained, and the
+  wheel state cleared; a later process owner is never unregistered. Raw Input does not divert: the desktop still
+  receives the wheel (`0x4610`, the only candidate for diverting it, stays undecoded by decision).
 - The dialpad never blocks the keypad: discovery, backoff, and disconnects are tracked per device, and either may be
   present alone.
 - Logi Options+ coexistence: the lane never terminates another process or claims exclusive access. When
@@ -174,12 +191,15 @@ number and action name of every key, both page buttons with their held state, th
 `disconnected`), device access, feature indexes, port count, key page, brightness, faces written, in/out report
 counts, image count, HID++ errors, the last host state, the last action, the Options+ warning or last failure, a
 dialpad section (connection and `0x1B04` index or the last failure, the dial and the roller as detents with their
-raw sum, event count, and raw-input source, and the four buttons as chips lit while held), and the newest HID++
+raw sum, event count, and raw-input source while the wheels are read, otherwise one line: an amber
+`wheels: raw input unavailable` only while they should be read and the sink could not be registered, else a neutral
+`wheels: idle (no dialpad or no turn bound)`, and the four buttons as chips lit while held), and the newest HID++
 frames of both devices merged by tick (`k`/`d` prefixes) as many as fit, at most eight. Text and chips size from the
 tile: 18 px text on a 22 px line and 30 px chips at the descriptor's 420 px, scaled up to 1.6× for taller tiles and
 down to 0.9× when the status column is narrower than 400 px; key labels sit on a dark pill so faces never hide
-them. It redraws only when the service publishes a changed snapshot (`RequestFrame`), uploads the face texture in
-`Prepare` when the face generation changed, and allocates nothing in `Render`.
+them. It redraws only when the service publishes a changed snapshot (`RequestFrame`); the raw-input packet counters
+(matched reports, motion, other mice) are not part of that comparison, so packets from other mice never request a
+frame. It uploads the face texture in `Prepare` when the face generation changed and allocates nothing in `Render`.
 
 Taps: a key cell in `Press` mode injects a press on pointer down and the release on pointer up, running that key's
 binding exactly as the hardware would; `Color` mode pushes the next palette color to the key; `Picture` mode pushes a
@@ -199,15 +219,24 @@ cleared by a new settings object. Release builds keep the tile catalogued but re
   including 37 keys and the former `launch`/`keys`/`dial`/`roller` names; the face renderer's compose, ellipsis, accent ring, invalid
   face, JPEG markers, WIC round trips at 118×118 and 434×434, and strided sub-rectangle encoding; the device session
   over the synthetic keypad (feature resolution, diversion, brightness, image reassembly, press edges across one
-  drain, restore, splash reset); the dialpad (the captured button event and its mask, raw-input name matching in
-  both spellings, wheel and button folding, listener start/stop, and the session over the synthetic dialpad:
-  `0x1B04` at `0x0A`, four diversions, button edges apart from page buttons, restore); and the shipped DLL's
+  drain, restore, splash reset, and a restore that stops at the first unanswered command and skips the splash
+  reset); `WindowsHidPort` over a named pipe without buffer quota (an unread write times out, is canceled and
+  drained, and leaves the port open; the next write completes zero padded; a feature report is an overlapped request
+  refused at once; the stop event cancels a held write); the dialpad (the captured button event and its mask,
+  raw-input name matching in both spellings, wheel and button folding, listener start/stop, the lane wait: an
+  unrelated queued message is drained inside it and never ends it, stop drains the thread's queue, and without the
+  sink it blocks on its handles alone and leaves the queue untouched; and the session over the synthetic dialpad:
+  `0x1B04` at `0x0A`, four diversions, button edges apart from page buttons, restore, no command without a bound
+  button); and the shipped DLL's
   metadata, contract, monitor provider (constructs in Debug, refuses in Release), service creation and rejection,
   identity, lane start and drain, host state, synthetic connect, faces, actions from injected and raw presses reaching the fake host's `RequestAction`,
   bindings validated through the fake host's `ValidateAction`, `keys.down` / `mouse.down` bindings on a key, a
   dialpad button, and a turn that apply, log `binding-invalid` naming their control, skip `ValidateAction`, and request
   nothing when pressed, key pages and brightness through the published
-  `logicon.*` actions executed locally, a dialpad button binding and dial/roller `turns` bindings, System Data faces through a fake provider (lookup only once a face is bound,
+  `logicon.*` actions executed locally, a dialpad button binding and dial/roller `turns` bindings, the wheels of a
+  synthetic dialpad (`RedXeLogiconUseSyntheticDialpad`: read while its HID++ connect fails and is retried and once
+  it connects, stopped without the dialpad and without a bound turn), System Data faces through a fake provider
+  (lookup only once a face is bound,
   three one-second subscriptions, a pushed value reaching the face, pause without faces, release on stop),
   overrides, brightness, settings apply, and release.
 - `HostPluginTests`: the action ring, the `logicon` contract, and the service lifetime (`Plugins_API.md` items 20

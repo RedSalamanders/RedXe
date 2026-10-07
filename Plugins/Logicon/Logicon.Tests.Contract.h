@@ -51,6 +51,11 @@ struct RedXeLogiconTestDiagnostics final
     uint32_t wheelsListening;
     int32_t dialRaw;
     int32_t rollerRaw;
+    // Whether the lane wants the wheels (the dialpad is present and a turn is bound), dialpad open attempts, and the
+    // last dialpad open or HID++ connect failure.
+    uint32_t wheelsWanted;
+    uint32_t dialpadAttempts;
+    int32_t dialpadLastFailure;
     // Detents dispatched to dial/roller actions, and the System Data feed (active flag, rounded percentages, -1
     // while unknown).
     uint32_t wheelSteps;
@@ -62,7 +67,7 @@ struct RedXeLogiconTestDiagnostics final
     char lastAction[65];
 };
 
-static_assert(sizeof(RedXeLogiconTestDiagnostics) == 220);
+static_assert(sizeof(RedXeLogiconTestDiagnostics) == 232);
 
 extern "C"
 {
@@ -71,6 +76,9 @@ extern "C"
         RedXeLogiconTestDiagnostics* diagnostics) noexcept;
     // Routes the device lane to the in-memory synthetic keypad (TRUE) or back to USB discovery (FALSE).
     REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconUseSyntheticDevice(BOOL enabled) noexcept;
+    // Presents an in-memory dialpad to the device lane, with or without device access: 0 none (Bluetooth discovery),
+    // 1 answering HID++, 2 present but answering no HID++ command.
+    REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconUseSyntheticDialpad(uint32_t mode) noexcept;
     // Simulates a control: kind 0 = LCD key slot 0..8, kind 1 = page button (0 previous, 1 next), kind 2 = dialpad
     // button 0..3.
     REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconInjectControl(uint32_t kind, uint32_t index,
@@ -86,6 +94,7 @@ extern "C"
 
 using RedXeLogiconGetTestDiagnosticsFn = decltype(&RedXeLogiconGetTestDiagnostics);
 using RedXeLogiconUseSyntheticDeviceFn = decltype(&RedXeLogiconUseSyntheticDevice);
+using RedXeLogiconUseSyntheticDialpadFn = decltype(&RedXeLogiconUseSyntheticDialpad);
 using RedXeLogiconInjectControlFn = decltype(&RedXeLogiconInjectControl);
 using RedXeLogiconInjectSyntheticReportFn = decltype(&RedXeLogiconInjectSyntheticReport);
 using RedXeLogiconSetFaceOverrideFn = decltype(&RedXeLogiconSetFaceOverride);
@@ -93,6 +102,7 @@ using RedXeLogiconSetBrightnessFn = decltype(&RedXeLogiconSetBrightness);
 
 inline constexpr char kRedXeLogiconGetTestDiagnosticsExport[] = "RedXeLogiconGetTestDiagnostics";
 inline constexpr char kRedXeLogiconUseSyntheticDeviceExport[] = "RedXeLogiconUseSyntheticDevice";
+inline constexpr char kRedXeLogiconUseSyntheticDialpadExport[] = "RedXeLogiconUseSyntheticDialpad";
 inline constexpr char kRedXeLogiconInjectControlExport[] = "RedXeLogiconInjectControl";
 inline constexpr char kRedXeLogiconInjectSyntheticReportExport[] = "RedXeLogiconInjectSyntheticReport";
 inline constexpr char kRedXeLogiconSetFaceOverrideExport[] = "RedXeLogiconSetFaceOverride";
