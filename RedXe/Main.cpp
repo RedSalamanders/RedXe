@@ -306,7 +306,8 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         const std::unique_ptr<Application> application{new (std::nothrow) Application(instance, forceWarp)};
         if (!application)
         {
-            exitCode = 1;
+            // Nothing ran, so a --screenshot run wrote no PNG.
+            exitCode = screenshotRun ? RedXeScreenshotExitCode(1, false) : 1;
         }
         else
         {

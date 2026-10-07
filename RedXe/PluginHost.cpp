@@ -515,8 +515,9 @@ void PluginHost::Shutdown() noexcept
     StopServices();
     // Queued launches are dropped, also when a stuck device lane ends this shutdown early below. One blocked in the
     // shell (an offline share) gets a bounded wait, once; after that it keeps only the launch worker's own slots and
-    // this host's post target, which is already cleared.
-    if (!_launches.Stop(LaunchWorker::kStopMilliseconds))
+    // this host's post target, which is already cleared. Only the first shutdown reports it: the deleter's second one
+    // finds the same launch still stuck.
+    if (!_launches.Stop(LaunchWorker::kStopMilliseconds) && !_shutdown)
     {
         (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, nullptr, nullptr, "launch-stop-timeout",
                            "a launch was still in progress at shutdown; RedXe exits without waiting for it.");

@@ -4672,10 +4672,13 @@ void TestHeldInputTimer(bool& success) noexcept
               HostActions::Execute(*mouseDown, "right", false, nullptr) == S_OK &&
               HostActions::CopyCounters().heldReleases == 2,
           L"replacing a button releases the original button", success);
-    // An up naming another chord or button is a stand-alone release: it injects its own records, not the held ones.
+    // An up naming another chord or button is a stand-alone release: it injects its own records (two key-ups for
+    // Ctrl+G, one button-up for left), not the held ones.
+    const uint32_t injectedBeforeOtherUps = HostActions::CopyCounters().injectedInputs;
     Check(HostActions::Execute(*keyUp, "Ctrl+G", false, nullptr) == S_OK &&
               HostActions::Execute(*mouseUp, "left", false, nullptr) == S_OK &&
-              HostActions::CopyCounters().heldReleases == 2,
+              HostActions::CopyCounters().heldReleases == 2 &&
+              HostActions::CopyCounters().injectedInputs == injectedBeforeOtherUps + 3,
           L"an up naming another chord or button leaves the held chord and button tracked", success);
     Check(HostActions::Execute(*keyUp, "Ctrl+B", false, nullptr) == S_OK &&
               HostActions::Execute(*mouseUp, "right", false, nullptr) == S_OK &&
