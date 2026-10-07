@@ -1916,12 +1916,14 @@ HRESULT Application::PlaceDockPass(bool resizeDashboard) noexcept
     reserve.cbSize = sizeof(reserve);
     reserve.hWnd = _window.get();
     reserve.uEdge = DockAppBarEdge(_dock.edge);
+    bool reservationDropped = false;
     for (size_t index = 0; index < plan.count; ++index)
     {
         switch (plan.messages[index])
         {
         case ABM_REMOVE:
             UnregisterDockAppBar();
+            reservationDropped = true;
             break;
         case ABM_NEW:
             RegisterDockAppBar();
@@ -1949,6 +1951,16 @@ HRESULT Application::PlaceDockPass(bool resizeDashboard) noexcept
         }
     }
 
+    // The work area read above still excluded the reservation this pass just returned with ABM_REMOVE; an overlay is
+    // placed against the work area without it.
+    if (reservationDropped && !DockReservesWorkArea())
+    {
+        DockMonitorPlacement refreshed{};
+        if (ResolveDockMonitor(refreshed))
+        {
+            placement.work = refreshed.work;
+        }
+    }
     // A reserved strip is the outer `peek` of the full bar, which lies over the work area when it reveals.
     const RECT full = DockReservesWorkArea() ? DockFullRectFromReserved(_dockAppBar.reserved, _dock.edge, thicknessPx)
                                              : DockOverlayRect(placement.work, _dock.edge, thicknessPx);
@@ -6012,6 +6024,9 @@ void Application::CloseMainWindow() noexcept
     _pageEdgeMouseTracking = false;
     DestroyPageEdgeAffordances();
     StopDockInteraction();
+    // No longer a dock before the bar unregisters, as in a kind switch: the work-area broadcast its ABM_REMOVE causes,
+    // dispatched by a later teardown step, must not place and register the closing bar again.
+    _dockActive = false;
     UnregisterDockAppBar();
     _settingsWatcher.Stop();
     DismissWidgetRaise(false);

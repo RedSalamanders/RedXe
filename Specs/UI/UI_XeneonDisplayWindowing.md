@@ -284,7 +284,8 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
 - A live reload applies every `dock` member in place (thickness, edge, monitor, mode, reserve, peek, delays, slide) by
   re-placing with the registration `PlanDockAppBar` gives it ("Monitor and placement"): `autohide` ↔ a fixed reserving
   bar moves the reservation between the strip and the whole bar, either to a fixed overlay removes the bar and registers
-  it again so the work area comes back, and a member that leaves the reservation alone sends no shell call; an edge
+  it again so the work area comes back, and a member that leaves the reservation alone sends no registration or
+  reservation message (only the `ABM_WINDOWPOSCHANGED` every placement of a registered bar sends); an edge
   change that flips orientation reflows the dashboard through the full rectangle. Switching between `none` and an edge
   switches the window kind live (next section) while the rest of the document applies as usual. Command-line-pinned
   members are re-applied after every merge, so `--dock none` or `--dock <edge>` keeps the kind for the run.
