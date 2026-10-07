@@ -368,13 +368,15 @@ Logicon publishes its closed service schema (`brightness` 1–100, `restoreLogoO
 object with `turns` and `buttons` arrays) and defaults
 `{"brightness":70,"restoreLogoOnExit":true,"pageButtons":"keyPages","keys":[],"dialpad":{"turns":[],"buttons":[]}}`;
 the Logicon Monitor publishes a closed empty object. `Specs/Plugins/Plugins_Logicon.md` owns the member semantics.
-Zoom publishes a closed empty service schema and `{}` defaults; `Specs/Plugins/Plugins_Zoom.md` owns the
-browser action semantics.
+Zoom is a dedicated action DLL and publishes no settings contract; `Specs/Plugins/Plugins_Zoom.md` owns the browser
+action semantics and the retired `builtin.zoom` services entry.
 
 ## Service contract
 
-A service is a plugin object the host runs without a placed widget. `Plugins/Logicon` and `Plugins/Actions/Zoom` are
-the shipped ones; both also publish an action namespace (`Plugins_Actions.md`).
+A service is a plugin object the host runs without a placed widget. `Plugins/Logicon` is the shipped one; it also
+publishes an action namespace (`Plugins_Actions.md`). `RedXe/BundledPlugins.h` lists plugin ids that are no longer
+services in `kRedXeRetiredServices` (today `builtin.zoom`); a `services` entry naming one loads and is never started
+(`Core_Settings.md` "Services").
 
 - A DLL advertises `RedXePluginCapabilityService` and creates the object through
   `RedXeCreate(IID_IRedXeService, …)` with the same compact `{"plugin":{},"instance":<effective-settings>}` envelope
@@ -768,11 +770,11 @@ device lane and turns key presses and dialpad detents into named actions (`Plugi
 protocol, faces, and validation are owned by [`Plugins_Logicon.md`](Plugins_Logicon.md). `Logicon.dll` imports
 `hid.dll`, `cfgmgr32.dll`, `windowscodecs.dll`, `ole32.dll`, and `yyjson.dll` (copied beside it); Debug builds also
 construct the monitor widget when it is placed in the Debug template.
-`Plugins/Actions/Zoom` builds `zoom.action.dll`, the first dedicated action DLL: service plugin ID `builtin.zoom`
-(`RedXePluginCapabilityService | RedXePluginCapabilityActions`, `IRedXeService` plus `IRedXeActionPack`) publishing
-only `zoom.open` and `zoom.join`. It opens the Zoom web join page or a meeting invite through `system.launch` and
-requires no Zoom installation, SDK, registration, or token. Behavior and validation are owned by
-[`Plugins_Zoom.md`](Plugins_Zoom.md). The DLL imports `yyjson.dll` (copied beside it).
+`Plugins/Actions/Zoom` builds `zoom.action.dll`, the first dedicated action DLL: plugin ID `builtin.zoom`
+(`RedXePluginCapabilityActions` only, one `IRedXeActionPack` created on first execution, no settings contract)
+publishing only `zoom.open` and `zoom.join`. It opens the Zoom web join page or a meeting link through
+`system.launch` and requires no Zoom installation, SDK, registration, token, or `services` entry. Behavior and
+validation are owned by [`Plugins_Zoom.md`](Plugins_Zoom.md). The DLL imports `yyjson.dll` (copied beside it).
 
 `Plugins/RotatingTriangle` exposes settings-visible plugin ID `builtin.rotating-triangle`, internally maps it to type
 ID `rotating-triangle`, publishes closed `{}` settings and defaults, and exposes sibling `IRedXeGpuWidget` and
@@ -1494,11 +1496,11 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     re-applies and rejects without stopping, the monitor provider constructs in Debug and refuses in Release, and
     `--self-test` starts every configured service. `PluginHost` tests MUST cover the named action ring's bounds,
     coalescing, and `ERROR_BUSY`, and the services' catalog validation. `SettingsTests` MUST cover the `services`
-    grammar and rejections and both templates' Logicon and Zoom objects. Plugins_Logicon.md owns the protocol and
-    face vectors.
+    grammar and rejections, both templates' Logicon objects, and the retired `builtin.zoom` entry. Plugins_Logicon.md
+    owns the protocol and face vectors.
 
-21. Verify the action contract, registry, validation, and execution through `HostPluginTests` and the Zoom service
-    through `ZoomTests` as [`Plugins_Actions.md`](Plugins_Actions.md) and [`Plugins_Zoom.md`](Plugins_Zoom.md)
+21. Verify the action contract, registry, validation, and execution through `HostPluginTests` and the Zoom action
+    DLL through `ZoomTests` as [`Plugins_Actions.md`](Plugins_Actions.md) and [`Plugins_Zoom.md`](Plugins_Zoom.md)
     require; `HostPluginTests` MUST map every catalogued module and prove no action namespace collides.
 
 The automated Debug host composition must contain the GPU launcher, one rotating-triangle GPU fixture, the GDI

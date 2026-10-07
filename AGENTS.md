@@ -127,7 +127,7 @@ Plugins/
   Weather/          GPU weather widget with host-owned network lane
   AVControl/        DxUi retained controls, isolated audio/camera helper, profiles and virtual-camera source
   Logicon/          Headless MX Creative Console keypad and dialpad service (HID++ and Raw Input over the device lane, key faces, the `logicon` action namespace) plus the Debug monitor tile and the Probe tool
-  Actions/Zoom/     zoom.action.dll: browser-only service publishing `zoom.open` and `zoom.join`; no Zoom installation, SDK, OAuth, or Marketplace application registration
+  Actions/Zoom/     zoom.action.dll: browser-only dedicated action DLL publishing `zoom.open` and `zoom.join` (no service or settings); no Zoom installation, SDK, OAuth, or Marketplace application registration
 RedXeLauncher/
   Main.cpp          Dependency-free shim behind the winget `RedXe` alias: resolves its final path, starts the package-root RedXe.exe
 Installer/
@@ -158,7 +158,7 @@ Tests/
   WeatherTests/        Weather HTTP heap-body and small-stack overflow regression
   AVControlTests/      Synthetic AV/IPC/MF faults, native controls, camera packaging and bounded control work
   LogiconTests/        HID++ framing, image stream, settings model, faces, synthetic keypad and dialpad sessions, raw-input helpers, and the shipped service DLL
-  ZoomTests/           Browser URL validation, empty settings model, and the shipped Zoom service/action DLL
+  ZoomTests/           Meeting-link grammar, the retired services entry model, and the shipped Zoom action DLL
   BuildProcessTests/   Build preflight, DxUi provenance/update, and packaging (version, ZIP rules, winget manifest, in-package installer round-trip)
 Build/
   Versioning.psm1   major.minor from Common/Version.h plus the caller's build number

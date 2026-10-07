@@ -4139,12 +4139,30 @@ void TestActionValidation(bool& success) noexcept
     request.targetUtf8 = "toggle";
     Check(host.ValidateAction(&request, nullptr) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND),
           L"client-only Zoom controls are absent from the browser contract", success);
+    request.actionUtf8 = "zoom.open";
+    request.targetUtf8 = "https://zoom.us/j/1234567890";
+    Check(host.ValidateAction(&request, nullptr) == S_OK, L"zoom.open ignores an authored target", success);
+    // zoom.join validates with the shared meeting grammar, so a link the pack would refuse is an invalid binding.
     request.actionUtf8 = "zoom.join";
-    request.targetUtf8 = "https://zoom.us/j/1234567890?pwd=abc";
-    Check(host.ValidateAction(&request, nullptr) == S_OK, L"a meeting URL validates as text", success);
-    request.targetUtf8 = "12";
-    Check(host.ValidateAction(&request, nullptr) == S_OK, L"the pack performs strict URL validation at execution",
-          success);
+    for (const char* meeting :
+         {"https://zoom.us/j/1234567890?pwd=abc", "https://team.zoom.us/j/987654321",
+          "https://app.zoom.us/wc/12345678901/join?fromPWA=1&pwd=abc", "https://zoom.us/wc/join/1234567890"})
+    {
+        request.targetUtf8 = meeting;
+        Check(host.ValidateAction(&request, nullptr) == S_OK, L"a Zoom meeting or browser-join link validates",
+              success);
+    }
+    for (const char* invalid :
+         {"12", "1234567890:passcode", "http://zoom.us/j/1234567890", "https://zoom.us/j/12345",
+          "https://zoom.us/my/alice", "https://evil.example/j/1234567890", "https://evil.example?.zoom.us/j/1234567890",
+          "https://evil.example#.zoom.us/j/1234567890", "https://evil.example\\.zoom.us/j/1234567890",
+          "https://user@team.zoom.us/j/1234567890", "https://zoom.us:443/j/1234567890",
+          "https://zoom.us/j/1234567890 "})
+    {
+        request.targetUtf8 = invalid;
+        Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a malformed or spoofed meeting link is invalid",
+              success);
+    }
     std::array<wchar_t, 2048> notices{};
     Check(host.CopyActionNotices(notices.data(), notices.size()) == 0,
           L"the bundled publishers register without a collision notice", success);
@@ -4171,6 +4189,26 @@ void TestActionValidation(bool& success) noexcept
     Check(counters.executed == 4 && counters.injectedInputs == 3 && counters.launches == 1 &&
               counters.powerRequests == 1 && std::strcmp(counters.lastAction.data(), "system.shutdown") == 0,
           L"automated hosts count injected inputs, launches, and power requests without performing them", success);
+
+    // zoom.action.dll is a dedicated action DLL: no service is configured here, yet zoom.* executes through the
+    // executor the host creates on first use, and each action defers its launch to the host action ring.
+    Check(!host.ServiceFor("builtin.zoom"), L"no Zoom service exists", success);
+    HostActions::ResetCounters();
+    request.actionUtf8 = "zoom.open";
+    request.targetUtf8 = "ignored";
+    Check(host.ExecuteAction(&request) == S_FALSE && host.PendingHostActionCount() == 1,
+          L"zoom.open runs without a services entry and queues its launch", success);
+    request.actionUtf8 = "zoom.join";
+    request.targetUtf8 = "https://zoom.us/j/1234567890?pwd=abc";
+    Check(host.ExecuteAction(&request) == S_FALSE && host.PendingHostActionCount() == 2, L"zoom.join queues the invite",
+          success);
+    request.targetUtf8 = "https://evil.example#.zoom.us/j/1234567890";
+    Check(host.ExecuteAction(&request) == E_INVALIDARG && host.PendingHostActionCount() == 2,
+          L"a spoofed invite is refused before the pack", success);
+    host.DrainHostActions();
+    const HostActions::Counters zoomCounters = HostActions::CopyCounters();
+    Check(host.PendingHostActionCount() == 0 && zoomCounters.launches == 2 && zoomCounters.executed == 2,
+          L"the queued Zoom launches drain through system.launch without launching", success);
     host.SetDeviceAccessEnabled(true);
 }
 

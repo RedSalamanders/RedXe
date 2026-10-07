@@ -119,7 +119,8 @@ constexpr std::string_view kRepresentative = R"json(
 
 // Every bundled widget is placed in both shipped templates, except the catalog's opt-in native-window examples,
 // which stay out of every shipped page (Core_Settings.md) and are covered by HostPluginTests instead, and the
-// Debug-only widgets, which only the Debug template places. Every catalogued service is configured by both.
+// Debug-only widgets, which only the Debug template places. Every catalogued service is configured by both, and no
+// retired one.
 [[nodiscard]] bool CoversBundledPluginCatalog(const AppSettings& settings, bool debugTemplate) noexcept
 {
     const size_t debugOnlyExcluded = debugTemplate ? 0 : kRedXeDebugOnlyBundledWidgetIds.size();
@@ -136,7 +137,7 @@ constexpr std::string_view kRepresentative = R"json(
         if (!FindPluginSettings(settings, plugin.pluginId) || !HasWidgetExample(settings, plugin.pluginId))
             return false;
     }
-    if (settings.serviceCount != kRedXeBundledServices.size())
+    if (settings.serviceCount != kRedXeBundledServices.size() || !settings.retiredServices.empty())
         return false;
     for (const RedXeBundledServiceSpec& service : kRedXeBundledServices)
     {
@@ -421,8 +422,8 @@ constexpr std::string_view kRepresentative = R"json(
         if (!SchemaAcceptsPlugin(root, plugin.pluginId))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    // The services Zoom variant keeps the retired v1.0.102 members as deprecated, ignored properties, so an editor does
-    // not flag a file that still carries them.
+    // The retired services Zoom variant is deprecated as a whole and keeps the retired v1.0.102 members as deprecated,
+    // ignored properties, so an editor flags the entry as no longer needed but accepts a file that still carries it.
     yyjson_val* serviceVariants = yyjson_obj_get(yyjson_obj_get(defs, "serviceDefinition"), "oneOf");
     bool zoomVariantFound = false;
     size_t serviceIndex = 0;
@@ -434,7 +435,7 @@ constexpr std::string_view kRepresentative = R"json(
         const char* plugin = yyjson_get_str(yyjson_obj_get(yyjson_obj_get(serviceProperties, "plugin"), "const"));
         if (!plugin || std::string_view(plugin) != "builtin.zoom")
             continue;
-        zoomVariantFound = true;
+        zoomVariantFound = yyjson_is_true(yyjson_obj_get(serviceVariant, "deprecated"));
         for (const char* retired :
              {"clientId", "redirectPort", "domain", "displayName", "autoConnect", "mode", "labels"})
         {
@@ -445,7 +446,7 @@ constexpr std::string_view kRepresentative = R"json(
     }
     if (!zoomVariantFound || !yyjson_is_true(yyjson_obj_get(yyjson_obj_get(defs, "retiredZoomMember"), "deprecated")))
     {
-        std::wprintf(L"The schema services Zoom variant must accept the retired members as deprecated.\n");
+        std::wprintf(L"The schema services Zoom variant must be deprecated and accept the retired members.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     return S_OK;
@@ -494,7 +495,8 @@ constexpr std::string_view kRepresentative = R"json(
     }
 
     // services (minor 1): a flattened plugin object per catalogued service, defaults merged, validated by the
-    // plugin's shared model, never counted as a widget plugin.
+    // plugin's shared model, never counted as a widget plugin. The retired builtin.zoom entry loads and is ignored:
+    // it is not a service, and zoom.* bindings need no entry.
     constexpr std::string_view servicesDocument = R"json({
       "version":{"major":5,"minor":1},
       "services":{
@@ -507,23 +509,24 @@ constexpr std::string_view kRepresentative = R"json(
       "pages":[{"widgets":[{"plugin":"builtin.gdi-orbit"}]}]
     })json";
     AppSettings services{};
-    if (FAILED(ParseAppSettingsJson(servicesDocument, services)) || services.serviceCount != 2 ||
-        services.services.size() != 2 || services.services[0].name.View() != "Keypad" ||
+    if (FAILED(ParseAppSettingsJson(servicesDocument, services)) || services.serviceCount != 1 ||
+        services.services.size() != 1 || services.services[0].name.View() != "Keypad" ||
         services.services[0].pluginId.View() != "builtin.logicon" || services.pluginCount != 1 ||
         services.services[0].privateConfiguration.View().find("\"brightness\":40") == std::string_view::npos ||
         services.services[0].privateConfiguration.View().find("\"restoreLogoOnExit\":true") == std::string_view::npos ||
         services.services[0].privateConfiguration.View().find("\"page.next\"") == std::string_view::npos ||
         services.services[0].privateConfiguration.View().find("\"not-a-path\"") == std::string_view::npos ||
-        services.services[1].pluginId.View() != "builtin.zoom" ||
-        services.services[1].privateConfiguration.View() != "{}" || !FindServiceSettings(services, "builtin.logicon") ||
-        !FindServiceSettings(services, "builtin.zoom") || FindServiceSettings(services, "builtin.launcher") ||
-        FAILED(ValidateAppSettings(services)))
+        services.services[0].privateConfiguration.View().find("\"zoom.open\"") == std::string_view::npos ||
+        services.retiredServices.size() != 1 || services.retiredServices[0].View() != "builtin.zoom" ||
+        !FindServiceSettings(services, "builtin.logicon") || FindServiceSettings(services, "builtin.zoom") ||
+        FindServiceSettings(services, "builtin.launcher") || FAILED(ValidateAppSettings(services)))
     {
         std::wprintf(L"The services root did not parse as expected.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     AppSettings noServices{};
-    if (FAILED(ParseAppSettingsJson(retentionDocument, noServices)) || noServices.serviceCount != 0)
+    if (FAILED(ParseAppSettingsJson(retentionDocument, noServices)) || noServices.serviceCount != 0 ||
+        !noServices.retiredServices.empty())
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     const std::string_view rejectedServices[] = {
         // A widget plugin is not a service.
@@ -542,11 +545,12 @@ constexpr std::string_view kRepresentative = R"json(
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","keys":[{"slot":0,"action":"page.nowhere"}]}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"turns":[{"control":"dial","direction":"cw","action":"nowhere.go"}]}}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"dial":"page"}}},"pages":[{}]})json",
-        // Zoom model rejections: any member other than the retired v1.0.102 ones, which load and are ignored
-        // (ValidateReleasedTemplates), including a retired name in another case.
+        // Retired Zoom entry rejections: any member other than the retired v1.0.102 ones, which load and are ignored
+        // (ValidateReleasedTemplates), including a retired name in another case, and the entry twice.
         R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","meeting":"abc"}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","ClientID":"abc"}},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"services":{"Z":{"plugin":"builtin.zoom","redirectPort":48123,"sdkPath":"x"}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Y":{"plugin":"builtin.zoom"},"Z":{"plugin":"builtin.zoom"}},"pages":[{}]})json",
         // Shape errors.
         R"json({"version":{"major":5},"services":[],"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":"builtin.logicon"},"pages":[{}]})json",
@@ -1986,7 +1990,7 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 }
 
 // Settings written by the public v1.0.102 release load unchanged (Core_Settings.md "Version 5 document"). Its templates
-// carry the retired Zoom members, which the Zoom model accepts with any value and ignores, and the Debug one binds
+// carry the retired services Zoom entry with its retired members, which loads and is ignored, and the Debug one binds
 // removed zoom.* verbs, which stay invalid bindings rather than document errors. The default store keeps such a file
 // byte for byte instead of backing it up and replacing it.
 [[nodiscard]] HRESULT ValidateReleasedTemplates() noexcept
@@ -2005,11 +2009,10 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         AppSettings loaded{};
         SettingsParseDiagnostic diagnostic{};
         const HRESULT result = ParseAppSettingsJsonDetailed(released.text, loaded, diagnostic);
-        const ServiceSettings* zoom = SUCCEEDED(result) ? FindServiceSettings(loaded, "builtin.zoom") : nullptr;
         const ServiceSettings* logicon = SUCCEEDED(result) ? FindServiceSettings(loaded, "builtin.logicon") : nullptr;
         if (FAILED(result) || FAILED(ValidateAppSettings(loaded)) || loaded.versionMinor != 2 ||
-            loaded.dashboard.pageCount != released.pageCount || !zoom || !zoom->retiredMembersIgnored || !logicon ||
-            logicon->retiredMembersIgnored)
+            loaded.dashboard.pageCount != released.pageCount || !logicon || loaded.serviceCount != 1 ||
+            loaded.retiredServices.size() != 1 || loaded.retiredServices[0].View() != "builtin.zoom")
         {
             std::wprintf(L"The v1.0.102 %s template did not load unchanged: %S %S\n", released.name,
                          diagnostic.path.c_str(), diagnostic.message.c_str());
@@ -2023,18 +2026,21 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         }
     }
 
-    // Any value of every retired member loads, also in a current-minor document; an entry without them is not flagged.
+    // The retired Zoom entry loads with any value of every retired member, also in a current-minor document, and
+    // without them (the template entry of earlier builds); either way it is recorded for the warning and never started.
     constexpr std::string_view anyRetiredValue =
         R"json({"version":{"major":5,"minor":3},"services":{"Z":{"plugin":"builtin.zoom","clientId":null,"redirectPort":"48123","domain":[],"displayName":7,"autoConnect":"no","mode":{"x":1},"labels":[{"mute":2}]}},"pages":[{}]})json";
     constexpr std::string_view noRetiredMember =
         R"json({"version":{"major":5,"minor":3},"services":{"Z":{"plugin":"builtin.zoom"}},"pages":[{}]})json";
     AppSettings retired{};
     AppSettings current{};
-    if (FAILED(ParseAppSettingsJson(anyRetiredValue, retired)) || retired.serviceCount != 1 ||
-        !retired.services[0].retiredMembersIgnored || FAILED(ParseAppSettingsJson(noRetiredMember, current)) ||
-        current.serviceCount != 1 || current.services[0].retiredMembersIgnored)
+    if (FAILED(ParseAppSettingsJson(anyRetiredValue, retired)) || FAILED(ValidateAppSettings(retired)) ||
+        retired.serviceCount != 0 || retired.retiredServices.size() != 1 ||
+        FAILED(ParseAppSettingsJson(noRetiredMember, current)) || FAILED(ValidateAppSettings(current)) ||
+        current.serviceCount != 0 || current.retiredServices.size() != 1 ||
+        current.retiredServices[0].View() != "builtin.zoom")
     {
-        std::wprintf(L"The retired Zoom members are not accepted with any value and ignored.\n");
+        std::wprintf(L"The retired Zoom entry is not accepted with any retired member value and ignored.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
@@ -2091,7 +2097,7 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         if (SUCCEEDED(result))
             result = ReadFile(selected, kept);
         if (FAILED(result) || !loaded || store.UsedInitialFallback() || kept != releasedBytes ||
-            loaded->versionMinor != 2 || loaded->serviceCount != 2)
+            loaded->versionMinor != 2 || loaded->serviceCount != 1 || loaded->retiredServices.size() != 1)
         {
             std::wprintf(L"The default store did not keep the v1.0.102 settings file.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);

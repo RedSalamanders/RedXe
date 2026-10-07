@@ -58,7 +58,7 @@ enum RedXeActionTargetKind : uint32_t
     RedXeActionTargetMonitor = 12,
     // "foreground", "exe:<image.exe>", "class:<class>", or "title:<substring>".
     RedXeActionTargetWindow = 13,
-    // A Zoom meeting URL or "<id>[:<passcode>]".
+    // A complete HTTPS Zoom browser link on zoom.us or a subdomain: "/j/<id>", "/wc/join/<id>", or "/wc/<id>/join".
     RedXeActionTargetMeeting = 14,
     // "now", or a decimal delay in seconds within [targetMinimum, targetMaximum].
     RedXeActionTargetNowOrSeconds = 15,

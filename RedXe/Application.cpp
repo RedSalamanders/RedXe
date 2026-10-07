@@ -534,19 +534,17 @@ struct DisplayFriendlyName final
     return ValidateAppSettings(settings);
 }
 
-// A service entry may keep members a later RedXe retired (today the v1.0.102 Zoom members): the document still loads,
-// and each load or live apply logs one warning per such entry (Core_Settings.md "Version 5 document").
+// A `services` entry may name a service a later RedXe retired (today builtin.zoom, with or without its v1.0.102
+// members): the document still loads, and each load or live apply logs one warning per such entry
+// (Core_Settings.md "Services").
 void LogRetiredServiceSettings(const AppSettings& settings) noexcept
 {
-    for (const ServiceSettings& service : settings.services)
+    for (const SettingsText& pluginId : settings.retiredServices)
     {
-        if (service.retiredMembersIgnored)
-        {
-            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, service.pluginId.utf8.data(),
-                               nullptr, "service-retired-settings-ignored",
-                               "The service entry carries settings members this RedXe retired; they are ignored and "
-                               "can be deleted.");
-        }
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, pluginId.utf8.data(), nullptr,
+                           "service-retired-settings-ignored",
+                           "This services entry is no longer needed: the plugin is not a service any more, so the "
+                           "entry is ignored and can be deleted.");
     }
 }
 
