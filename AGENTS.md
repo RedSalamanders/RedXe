@@ -160,11 +160,13 @@ Tests/
   AVControlTests/      Synthetic AV/IPC/MF faults, native controls, camera packaging and bounded control work
   LogiconTests/        HID++ framing, image stream, settings model, faces, synthetic keypad and dialpad sessions, raw-input helpers, and the shipped service DLL
   ZoomTests/           Meeting-link grammar, the retired services entry model, and the shipped Zoom action DLL
-  BuildProcessTests/   Build preflight, DxUi provenance/update, and packaging (version, ZIP rules, winget manifest, in-package installer round-trip)
+  BuildProcessTests/   Build preflight and the bounded process helper, DxUi provenance/restore/update, the scoped-test planner and receipts, and packaging (version, ZIP rules, winget manifest, in-package installer round-trip)
 Build/
   Versioning.psm1   major.minor from Common/Version.h plus the caller's build number
   Package.psm1      Portable ZIP staging rules, CRT bundling, and the clean-extraction smoke
   Winget.psm1       Manifest generation from Installer/winget/templates and `winget validate`
+  DxUiRestore.psm1  The DxUi pin: lock, verified sparse restore, leases and superseded-restore cleanup, and the MSBuild the build runs
+  ScopedTesting.psm1 Scope planner behind Test-Changes.ps1: Git change discovery, scope rules, evidence identity and receipts, PR delegation
 Settings/
   RedXe-debug.settings.json  Shipped Debug default
   RedXe.settings.json        Shipped Release default
@@ -231,6 +233,7 @@ Keep the boundary explicit:
 .\build.ps1 -Platform ARM64
 .\build.ps1 -Rebuild
 .\build.ps1 -Run
+.\Test-Changes.ps1 -Explain                     # which suites your changes select, and why; builds and runs nothing
 .\test.ps1                                      # affected suites (Test-Changes.ps1); nothing when nothing changed
 .\test.ps1 -Full                                # every suite: the full gate
 .\validate-skills.ps1

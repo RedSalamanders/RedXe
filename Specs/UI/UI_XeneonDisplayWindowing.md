@@ -50,7 +50,7 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 | Mode | Required behavior |
 | --- | --- |
 | Debug with active XENEON | Create a visible `WS_OVERLAPPEDWINDOW` with the RedXe title bar and DPI-adjusted 2560×720 logical client canvas. Place its outer top-left corner at the detected XENEON `rcMonitor` origin; do not force fullscreen. |
-| Debug without active XENEON | Create the same titled window using normal shell-selected placement. Do not prompt and do not force fullscreen. |
+| Debug without active XENEON | Create the same titled window using normal shell-selected placement. Do not prompt and do not force fullscreen. A default settings file installed at this start because it was missing carries the first-run dock ("First start without a XENEON"), so the Dock row applies instead. |
 | Release with active XENEON | Create a `WS_POPUP` borderless window using the detected XENEON monitor's exact `rcMonitor` bounds. |
 | Release without active XENEON | Show the missing-display Yes/No warning. Yes creates the standard titled fallback window; No exits successfully without creating the main window. A default settings file installed at this start because it was missing carries the first-run dock ("First start without a XENEON"), so the Dock row applies instead. |
 | Self-test | Skip display discovery and prompts, create the titled window hidden, validate its DPI-adjusted client dimensions, render one frame, and exit: 0 when every check passed, 6 when one failed, after naming it, with its HRESULT when there is one, on the debugger output and on stderr. A failed Debug runtime check ends the run with its report on stderr and exit code 3, and any other `abort()` with exit code 4 ([`Build_Process.md`](../Build/Build_Process.md)); neither opens a dialog. |
@@ -559,8 +559,8 @@ Changes to display selection, window styles, initial sizing, DPI handling, resiz
 startup policy MUST run:
 
 ```powershell
-.\test.ps1 -Configuration Debug -Platform x64 -Rebuild
-.\test.ps1 -Configuration Release -Platform x64 -Rebuild
+.\test.ps1 -Full -Configuration Debug -Platform x64 -Rebuild
+.\test.ps1 -Full -Configuration Release -Platform x64 -Rebuild
 .\build.ps1 -Configuration Release -Platform ARM64 -Rebuild
 ```
 

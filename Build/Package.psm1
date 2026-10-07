@@ -107,7 +107,10 @@ on any screen edge. Everything it needs is in this folder; nothing is written ou
 
 RUN IT FROM HERE
 ----------------
-  RedXe.exe                Open the dashboard (fullscreen on the XENEON, or a titled window).
+  RedXe.exe                Open the dashboard: fullscreen on the XENEON. With no XENEON connected, the first start
+                           (no settings file yet, not in a Remote Desktop session) runs it as an auto-hiding bar on a
+                           screen edge instead, on the second screen when there is one; set "edge" to "none" in the
+                           settings file to be offered a window instead.
   RedXe.exe --help         Every command-line switch, including --dock, --settings, and --screenshot.
 
 INSTALL (optional)

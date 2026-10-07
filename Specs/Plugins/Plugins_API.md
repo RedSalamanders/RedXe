@@ -181,8 +181,10 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   is optional because most modules need no global shutdown.
 - A plugin MAY additionally export a bounded test-support surface. It is present in Release because the required
   Release validation drives it, so it is part of the shipped export set rather than a debug-only convenience. Each
-  such export MUST be declared in that plugin's `*TestContract.h` behind a single `REDXE_*_TEST_API` macro, never as a
-  raw `__declspec(dllexport)` in the implementation, so the shipped export set is readable from the contract header.
+  such export MUST be declared in that plugin's `<Plugin>.Tests.Contract.h` (an active native test source, so it is
+  listed in `Tests/native-test-files.json`; [`Build_Process.md`](../Build/Build_Process.md) "Scoped iteration and PR
+  coverage") behind a single `REDXE_*_TEST_API` macro, never as a raw `__declspec(dllexport)` in the implementation, so
+  the shipped export set is readable from the contract header.
   The host never calls these exports. The current surface is: `RedXeMatrixRainGetTestDiagnostics`, `RedXeShadersGetTestDiagnostics`,
   `RedXeProcessViewerGetTestDiagnostics`, `RedXeStudioClockGetTestDiagnostics`, `RedXeStudioClockSetTestTime`,
   `RedXeDeskClockGetTestDiagnostics`, `RedXeDeskClockSetTestTime`, `RedXeWeatherGetTestDiagnostics`, and
