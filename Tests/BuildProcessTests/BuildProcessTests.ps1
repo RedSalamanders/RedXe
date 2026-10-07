@@ -347,10 +347,11 @@ exit 17
         throw "A bounded run decoded the child's output differently from Process.Start: '$($decodedOutput[120])' instead of '$($decodedOutput[0])'."
     }
 
-    # -StandardErrorEncoding decodes stderr alone with the encoding a caller names, on both paths: RedXe's processes
-    # write theirs as UTF-8 (Common/FailureReports.h). Without it both streams keep the console output code page. The
-    # runs take place in a background job, whose hidden console is its own, under code page 437, which has no U+0141
-    # and reads its UTF-8 bytes (C5 81) as U+253C U+00FC. A console another process shares is never changed.
+    # -StandardOutputEncoding and -StandardErrorEncoding each decode their own stream alone with the encoding a caller
+    # names, on both paths: RedXe's processes write both as UTF-8 (Common/FailureReports.h on stderr, RedXe.exe's
+    # command-line text on stdout). A stream without one keeps the console output code page. The runs take place in a
+    # background job, whose hidden console is its own, under code page 437, which has no U+0141 and reads its UTF-8
+    # bytes (C5 81) as U+253C U+00FC. A console another process shares is never changed.
     [IO.File]::WriteAllBytes((Join-Path $presentationTestRoot 'report.txt'),
         [Text.Encoding]::UTF8.GetBytes("report:$([char] 0x141)`r`n"))
     @'
@@ -367,13 +368,13 @@ type "%~dp0report.txt" 1>&2
 '@
         if ([RedXeEncodingCheck.LegacyConsole]::GetConsoleProcessList([uint32[]]::new(2), 2) -ne 1 -or
             -not [RedXeEncodingCheck.LegacyConsole]::SetConsoleOutputCP(437)) {
-            throw 'The stderr encoding check has no console of its own to set to code page 437.'
+            throw 'The stream encoding check has no console of its own to set to code page 437.'
         }
         Import-Module $ModulePath -Force
         foreach ($budget in @(0, 120)) {
-            foreach ($named in @($false, $true)) {
+            foreach ($named in @('None', 'StandardOutputEncoding', 'StandardErrorEncoding')) {
                 $lines = [Collections.Generic.List[string]]::new()
-                $encoding = if ($named) { @{ StandardErrorEncoding = [Text.UTF8Encoding]::new($false) } } else { @{} }
+                $encoding = if ($named -ne 'None') { @{ $named = [Text.UTF8Encoding]::new($false) } } else { @{} }
                 [void](Invoke-RedXeStreamingProcess -FilePath $env:ComSpec -Arguments @('/d', '/c', (Join-Path $Root 'report.cmd')) `
                     -WorkingDirectory $Root -LogPath (Join-Path $Root "report-$budget-$named.log") -TimeoutSeconds $budget `
                     @encoding -OutputLineCallback {
@@ -391,12 +392,14 @@ type "%~dp0report.txt" 1>&2
     try { $legacyRuns = @($legacyJob | Receive-Job -Wait) }
     finally { $legacyJob | Remove-Job -Force }
     $legacy = 'report:<U+253C><U+00FC>'
+    $intact = 'report:<U+0141>'
     $expectedLegacyRuns = @(foreach ($budget in @(0, 120)) {
-        "$budget|False|0|$legacy ; 1|$legacy"
-        "$budget|True|0|$legacy ; 1|report:<U+0141>"
+        "$budget|None|0|$legacy ; 1|$legacy"
+        "$budget|StandardOutputEncoding|0|$intact ; 1|$legacy"
+        "$budget|StandardErrorEncoding|0|$legacy ; 1|$intact"
     })
     if (($legacyRuns -join "`n") -cne ($expectedLegacyRuns -join "`n")) {
-        throw "Under console code page 437, stderr was not decoded with the encoding named for it, or the default changed: '$($legacyRuns -join ' | ')' instead of '$($expectedLegacyRuns -join ' | ')'."
+        throw "Under console code page 437, a stream was not decoded with the encoding named for it alone, or the default changed: '$($legacyRuns -join ' | ')' instead of '$($expectedLegacyRuns -join ' | ')'."
     }
 
     # A bounded child's job ends a process on an unhandled exception instead of leaving it in a Windows Error Reporting

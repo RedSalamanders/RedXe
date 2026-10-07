@@ -161,11 +161,12 @@ namespace RedXe.Build
             }
         }
         // Starts the child the way Process.Start does with UseShellExecute off, CreateNoWindow, and both output
-        // streams redirected (quoted file name first, inherited environment and standard input, output decoded with
-        // the console output code page, standard error with standardErrorEncoding instead when one is given, as
-        // ProcessStartInfo.StandardErrorEncoding does), except that the child joins this job before its first
+        // streams redirected (quoted file name first, inherited environment and standard input, each stream decoded
+        // with the encoding given for it or else the console output code page, as ProcessStartInfo's
+        // StandardOutputEncoding and StandardErrorEncoding do), except that the child joins this job before its first
         // instruction runs.
-        public ContainedProcess Start(string fileName, string arguments, string workingDirectory, Encoding standardErrorEncoding)
+        public ContainedProcess Start(string fileName, string arguments, string workingDirectory,
+            Encoding standardOutputEncoding, Encoding standardErrorEncoding)
         {
             string file = fileName.Trim();
             var commandLine = new StringBuilder();
@@ -230,8 +231,8 @@ namespace RedXe.Build
             try { encoding = Encoding.GetEncoding((int)GetConsoleOutputCP()); }
             catch (ArgumentException) { encoding = new UTF8Encoding(false); }
             catch (NotSupportedException) { encoding = new UTF8Encoding(false); }
-            return new ContainedProcess(info.hProcess, info.dwProcessId, outputRead, errorRead, encoding,
-                standardErrorEncoding ?? encoding);
+            return new ContainedProcess(info.hProcess, info.dwProcessId, outputRead, errorRead,
+                standardOutputEncoding ?? encoding, standardErrorEncoding ?? encoding);
         }
         public void Terminate()
         {
@@ -352,10 +353,13 @@ function Invoke-RedXeStreamingProcess {
         # reported about itself (test.ps1's crash harness compares it with the crash report's ProcessId).
         [ref] $ProcessId,
 
-        # Decodes the child's stderr with this encoding. Without it both streams are decoded with the console output
-        # code page, as Process.Start decodes them, so a build tool (MSBuild, cl) reads the same on both paths.
-        # RedXe's own processes write a redirected stderr as UTF-8 (Common/FailureReports.h), so test.ps1 and the
-        # package smoke pass UTF-8 for them: a legacy code page would garble a report's non-ASCII text (U+0141, say).
+        # Decode the child's stdout and stderr with these encodings. A stream without one is decoded with the console
+        # output code page, as Process.Start decodes it, so a build tool (MSBuild, cl) reads the same on both paths.
+        # RedXe's own processes write both redirected streams as UTF-8: stderr carries Common/FailureReports.h's
+        # reports, stdout RedXe.exe's command-line text (--help, an argument error). test.ps1 and the package smoke
+        # therefore pass UTF-8 for both: a legacy code page would garble non-ASCII text (U+0141 or U+2014, say).
+        [Text.Encoding] $StandardOutputEncoding,
+
         [Text.Encoding] $StandardErrorEncoding
     )
 
@@ -391,7 +395,7 @@ function Invoke-RedXeStreamingProcess {
             # terminated at the budget and when this call returns.
             $job = New-RedXeContainmentJob
             $process = $job.Start($FilePath, (ConvertTo-RedXeProcessCommandLine -Arguments $Arguments), $WorkingDirectory,
-                $StandardErrorEncoding)
+                $StandardOutputEncoding, $StandardErrorEncoding)
             # The budget is the child's, so it starts once the child runs. The first bounded call in a session
             # compiles the job type above, which took over a second on a loaded machine, and neither that nor a slow
             # process creation may come out of the child's time. A change of the system time moves neither end.
@@ -405,6 +409,9 @@ function Invoke-RedXeStreamingProcess {
             $startInfo.UseShellExecute = $false
             $startInfo.RedirectStandardOutput = $true
             $startInfo.RedirectStandardError = $true
+            if ($null -ne $StandardOutputEncoding) {
+                $startInfo.StandardOutputEncoding = $StandardOutputEncoding
+            }
             if ($null -ne $StandardErrorEncoding) {
                 $startInfo.StandardErrorEncoding = $StandardErrorEncoding
             }

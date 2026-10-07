@@ -65,9 +65,10 @@ catalog, the "Command line" section of `docs/usage.md`, and the owning row of th
 scanner) and the unattended-run policy `Main.cpp` applies through it (`RedXeIsUnattendedRun`: `--self-test` or
 `--screenshot` on the line; `RedXeShowsExitCodeBox`: no exit-code box for an unattended run; `RedXeScreenshotExitCode`:
 8 for a capture run without its PNG, whatever ended it; `RedXeExitCodeName`: the `failure-exit` record names each
-code as `--help` lists it), and `test.ps1` runs `--help` through a redirected stdout, an unknown switch under
-`--self-test`, and a missing switch value under `--self-test` and an invalid one under `--screenshot`, each bounded so
-that a message box fails the step instead of holding it.
+code as `--help` lists it), and `test.ps1` runs `--help` through a redirected stdout (its UTF-8 title intact under
+console code page 437, [`Build_Process.md`](../Build/Build_Process.md)), an unknown switch under `--self-test`, and a
+missing switch value under `--self-test` and an invalid one under `--screenshot`, each bounded so that a message box
+fails the step instead of holding it.
 
 Debug and Release display discovery MUST inspect active display paths through
 `QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS)`. A target friendly name containing `XENEON` or `CORSAIR`, compared

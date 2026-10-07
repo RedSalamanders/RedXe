@@ -67,7 +67,8 @@ runs, and `AVControlBroker.exe` calls it when it is started as a synthetic helpe
   Abort/Retry/Ignore box. The report MUST NOT go through a CRT stream, whose default "C" locale stops at the first
   character above U+00FF (a source path under such a user or folder name): it is written as UTF-8 to a pipe or a file
   and as UTF-16 to a console, through a fixed stack buffer. Every run of a RedXe process in `test.ps1` and in the
-  package smoke of `Build/Package.psm1` therefore decodes its stderr as UTF-8 (`-StandardErrorEncoding`, below).
+  package smoke of `Build/Package.psm1` therefore decodes its stderr as UTF-8, and its stdout too
+  (`-StandardErrorEncoding` and `-StandardOutputEncoding`, below).
 - In a process that calls the header, exit code 3 MUST mean only a failed runtime check and exit code 4 only an
   `abort()` that no such check reported: no other path of such a process, a fixture child mode or a watchdog
   included, ends with either. That `abort()` (an `assert()`, a direct call, or in a test executable `std::terminate`
@@ -95,7 +96,10 @@ runs, and `AVControlBroker.exe` calls it when it is started as a synthetic helpe
   (`FailSelfTest`) and that none writes to the debugger output alone.
 - Every other run of `RedXe.exe` or `RedXeLauncher.exe` in `test.ps1` (`--help`, an unknown switch, the crash harness
   and its invalid directory) and in the package smoke of `Build/Package.psm1` goes through
-  `Invoke-RedXeStreamingProcess` with a budget and a log, and keeps its exit-code check.
+  `Invoke-RedXeStreamingProcess` with a budget and a log, and keeps its exit-code check. `RedXe.exe --help` writes the
+  catalog to a redirected stdout as UTF-8 ([`UI_XeneonDisplayWindowing.md`](../UI/UI_XeneonDisplayWindowing.md)):
+  `test.ps1` runs it from a background job like the routing check's, under console output code page 437, and requires
+  the catalog's title with its U+2014 intact, which only the UTF-8 decoding of stdout keeps.
 - A test executable never turns an HRESULT into its exit code: its low byte can be 0, which passes the run, or 3. A
   failed suite prints its HRESULT and returns 1.
 - A new test executable calls the header first, so an unattended run on a developer's desktop never holds a dialog.
@@ -122,12 +126,14 @@ its process tree (a descendant of the invocation, never an independently launche
 `TIMEOUT:` record stay in the log, and the call throws naming the executable and the log. A bounded child is created
 suspended and joins the kill-on-close job before its first instruction runs, so nothing it starts can escape the job;
 an unbounded one starts through `Process.Start`, and both paths quote arguments, keep stream identity, propagate the
-exit code, report the child's process identifier through `-ProcessId`, and decode output alike. Both decode the two
-streams with the console output code page by default, as `Process.Start` does, so a build tool's output (MSBuild,
-`cl`) reads the same on either path. `-StandardErrorEncoding` names another encoding for stderr alone: `test.ps1`
-and the package smoke pass UTF-8 for every RedXe process they run, whose stderr carries `Common/FailureReports.h`'s
-UTF-8 reports. `BuildProcessTests.ps1` proves, from a background job whose own console uses code page 437, that the
-named encoding decodes stderr on both paths and that both streams otherwise keep the code page. The survivor check
+exit code, report the child's process identifier through `-ProcessId`, and decode output alike. Both decode each
+stream with the console output code page by default, as `Process.Start` does, so a build tool's output (MSBuild,
+`cl`) reads the same on either path. `-StandardOutputEncoding` and `-StandardErrorEncoding` name another encoding for
+one stream each: `test.ps1` and the package smoke pass UTF-8 for both streams of every RedXe process they run, whose
+stderr carries `Common/FailureReports.h`'s UTF-8 reports and whose stdout carries `RedXe.exe`'s UTF-8 command-line
+text (`--help`, an argument error) or a test executable's narrow text, which `/utf-8` compiles as UTF-8.
+`BuildProcessTests.ps1` proves, from a background job whose own console uses code page 437, that each named encoding
+decodes its own stream alone on both paths and that a stream without one keeps the code page. The survivor check
 follows parent processes, so a descendant that carries no marker (`ping.exe`) still counts. `build.ps1` keeps the
 unbounded default; `test.ps1` applies a fifteen-minute budget to every standalone test executable and to the crash
 harness, two minutes to its `--help`, unknown-switch and routing checks, and shows the HostPlugin and HostSmoke log
