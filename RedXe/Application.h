@@ -296,6 +296,8 @@ class Application final
     HRESULT HandleOleDrop(POINT client, const wchar_t* const* targets, uint32_t count, DWORD* effect) noexcept;
     HRESULT ApplyWidgetSettingsPersist(const char* instanceId, const char* settingsJsonUtf8,
                                        uint32_t settingsBytes) noexcept;
+    // One Warning record per on-disk state that made the store keep a persist in memory instead of writing it.
+    void LogDeferredSettingsPersist() noexcept;
     static HRESULT SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8,
                                         uint32_t settingsBytes) noexcept;
     // The page, widget, and redxe action namespaces (HostActionCatalog.h), executed on the UI thread outside input

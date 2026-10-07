@@ -11,6 +11,7 @@
     <ClCompile Include="..\..\RedXe\SettingsWatcher.cpp"><Filter>Source Files</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Settings.Tests.ReleasedTemplates.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\RedXe\Settings.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\RedXe\BundledPlugins.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\RedXe\SettingsWatcher.h"><Filter>Header Files</Filter></ClInclude>

@@ -89,7 +89,9 @@ Two layers decide what a document may say and what a control does:
    `keys.up` carry exactly one chord, `mouse.scroll*` is non-zero). `S_OK` means dispatchable; `ERROR_NOT_FOUND`
    (unknown verb), `E_INVALIDARG` (unsatisfied target), and `ERROR_NOT_READY` (publisher missing or unavailable) make
    the binding **invalid**: Logicon draws the red `!` face, Launcher draws the `Warning` glyph tile, and neither ever
-   dispatches it. No object, thread, or window is created for validation.
+   dispatches it. No object, thread, or window is created for validation. Logicon controls are press-only, so a
+   Logicon binding to `keys.down` or `mouse.down` is invalid the same way without a `ValidateAction` call
+   (`Plugins_Logicon.md`).
 
 An unsatisfied target therefore never rejects a document (including a Launcher launch target that is not an absolute
 path or URI); only the closed shape, the grammar, and the namespace do.

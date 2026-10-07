@@ -30,6 +30,7 @@
   "Tests/LauncherTests/Launcher.Tests.Runner.cpp",
   "Tests/LogiconTests/Logicon.Tests.Runner.cpp",
   "Tests/PluginContractTests/PluginContract.Tests.Runner.cpp",
+  "Tests/SettingsTests/Settings.Tests.ReleasedTemplates.h",
   "Tests/SettingsTests/Settings.Tests.Runner.cpp",
   "Tests/StudioClockTests/StudioClock.Tests.Runner.cpp",
   "Tests/SystemDataPhase0/SystemDataPhase0.Tests.Runner.cpp",

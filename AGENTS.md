@@ -14,6 +14,8 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 - Unicode Win32 APIs
 - Debug, Release and ASan Debug project configurations on x64 and ARM64, including real sanitizer instrumentation
 - Git for the pinned vcpkg bootstrap
+- Python 3 with `Build/requirements-validation.txt` for `validate-skills.ps1` and the `BuildProcess` tooling suite of
+  `test.ps1` (`-SkipTooling` leaves that suite to the CI `tooling` job)
 
 ## Canonical project guidance
 

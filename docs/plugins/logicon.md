@@ -47,7 +47,7 @@ Each `keys` entry:
 | `color` | string | `#RRGGBB` | dashboard background | Key background |
 | `face` | string | `none`, `clock`, `pageIndicator`, `cpu`, `memory`, `gpu` | `none` | A live face instead of a static icon: the time, the page number, or a load percentage (label defaults to `CPU`, `MEM`, `GPU`) |
 
-Every action in [Actions](../actions.md) can be bound to a key. The ones the keypad itself provides:
+Every action in [Actions](../actions.md) can be bound to a key except `keys.down` and `mouse.down`: a key, a dialpad button, or a dial or roller notch only sends a press, never the release a held key or button needs. Such a binding still loads, but it shows a red `!` (the dialpad has no face), does nothing, and the log names the control; use `keys.press` or `mouse.click` instead. The ones the keypad itself provides:
 
 | `action` | `target` | Effect |
 | --- | --- | --- |

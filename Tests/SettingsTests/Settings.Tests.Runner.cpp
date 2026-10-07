@@ -5,6 +5,7 @@
 #include "../../RedXe/CommandLine.h"
 #include "../../RedXe/DockOptions.h"
 #include "../../RedXe/SettingsWatcher.h"
+#include "Settings.Tests.ReleasedTemplates.h"
 
 #include <array>
 #include <cstdio>
@@ -420,6 +421,33 @@ constexpr std::string_view kRepresentative = R"json(
         if (!SchemaAcceptsPlugin(root, plugin.pluginId))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
+    // The services Zoom variant keeps the retired v1.0.102 members as deprecated, ignored properties, so an editor does
+    // not flag a file that still carries them.
+    yyjson_val* serviceVariants = yyjson_obj_get(yyjson_obj_get(defs, "serviceDefinition"), "oneOf");
+    bool zoomVariantFound = false;
+    size_t serviceIndex = 0;
+    size_t serviceMax = 0;
+    yyjson_val* serviceVariant = nullptr;
+    yyjson_arr_foreach(serviceVariants, serviceIndex, serviceMax, serviceVariant)
+    {
+        yyjson_val* serviceProperties = yyjson_obj_get(serviceVariant, "properties");
+        const char* plugin = yyjson_get_str(yyjson_obj_get(yyjson_obj_get(serviceProperties, "plugin"), "const"));
+        if (!plugin || std::string_view(plugin) != "builtin.zoom")
+            continue;
+        zoomVariantFound = true;
+        for (const char* retired :
+             {"clientId", "redirectPort", "domain", "displayName", "autoConnect", "mode", "labels"})
+        {
+            const char* reference = yyjson_get_str(yyjson_obj_get(yyjson_obj_get(serviceProperties, retired), "$ref"));
+            if (!reference || std::string_view(reference) != "#/$defs/retiredZoomMember")
+                zoomVariantFound = false;
+        }
+    }
+    if (!zoomVariantFound || !yyjson_is_true(yyjson_obj_get(yyjson_obj_get(defs, "retiredZoomMember"), "deprecated")))
+    {
+        std::wprintf(L"The schema services Zoom variant must accept the retired members as deprecated.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
     return S_OK;
 }
 
@@ -507,8 +535,6 @@ constexpr std::string_view kRepresentative = R"json(
         // Plugin-model rejections surface as document errors.
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","keys":[{"slot":9}]}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","brightness":0}},"pages":[{}]})json",
-        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","keys":[{"slot":0,"action":"keys.down","target":"Ctrl+K"}]}},"pages":[{}]})json",
-        R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"buttons":[{"button":0,"action":"mouse.down","target":"left"}]}}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","extra":true}},"pages":[{}]})json",
         // Action names: the former bare names, an unknown default verb, and an unregistered namespace are document
         // errors; an unsatisfied target is not (Plugins_Actions.md).
@@ -516,12 +542,11 @@ constexpr std::string_view kRepresentative = R"json(
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","keys":[{"slot":0,"action":"page.nowhere"}]}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"turns":[{"control":"dial","direction":"cw","action":"nowhere.go"}]}}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"dial":"page"}}},"pages":[{}]})json",
-        // Zoom model rejections.
-        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc"}},"pages":[{}]})json",
-        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","redirectPort":48123}},"pages":[{}]})json",
-        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","mode":"local"}},"pages":[{}]})json",
-        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","mode":"auto"}},"pages":[{}]})json",
-        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","labels":{"mute":"x"}}},"pages":[{}]})json",
+        // Zoom model rejections: any member other than the retired v1.0.102 ones, which load and are ignored
+        // (ValidateReleasedTemplates), including a retired name in another case.
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","meeting":"abc"}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","ClientID":"abc"}},"pages":[{}]})json",
+        R"json({"version":{"major":5,"minor":2},"services":{"Z":{"plugin":"builtin.zoom","redirectPort":48123,"sdkPath":"x"}},"pages":[{}]})json",
         // Shape errors.
         R"json({"version":{"major":5},"services":[],"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":"builtin.logicon"},"pages":[{}]})json",
@@ -1357,12 +1382,14 @@ constexpr std::string_view kRepresentative = R"json(
     }
     AppSettings created{};
     if (FAILED(ParseAppSettingsJson(olderMinor, created)) || FAILED(PatchDockThickness(created, 300)) ||
-        created.dock.thicknessDips != 300 || created.sourceDocument.find("\"dock\"") == std::string::npos ||
+        created.dock.thicknessDips != 300 || created.versionMinor != 2 ||
+        created.sourceDocument.find("\"dock\"") == std::string::npos ||
         created.sourceDocument.find("\"minor\":2") == std::string::npos ||
         FAILED(ParseAppSettingsJson(created.sourceDocument, reparsed)) || reparsed.dock.thicknessDips != 300 ||
         reparsed.versionMinor != 2 || reparsed.dock.edge != DockEdge::None)
     {
-        std::wprintf(L"PatchDockThickness did not create the dock object on a minor 1 document.\n");
+        std::wprintf(
+            L"PatchDockThickness did not create the dock object on a minor 1 document, typed minor included.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     if (SUCCEEDED(PatchDockThickness(created, 31)) || SUCCEEDED(PatchDockThickness(created, 1081)) ||
@@ -1372,6 +1399,140 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     return S_OK;
+}
+
+// A dragged edge writes `dock.thickness` in the document's own layout: a new `dock` on its own line after `version`
+// (one line in each shipped template, in its line breaks) and below a comment that ends version's line, a missing
+// `thickness` after the last dock member, on its line or on a new line at its indentation, or one level deeper than
+// the closing brace of an empty dock, and a missing `minor` the same way inside `version`. The typed minor follows a
+// raised source minor, a line comment ends at a lone CR exactly where the parser ends it, and a CR-only document
+// keeps CR. A release at the current thickness changes nothing, and a patch that would not parse back to the running
+// dock is refused.
+[[nodiscard]] HRESULT ValidateDockThicknessLayout() noexcept
+{
+    try
+    {
+        for (const wchar_t* name : {kRedXeDebugSettingsFileName, kRedXeReleaseSettingsFileName})
+        {
+            std::filesystem::path path;
+            std::string original;
+            HRESULT result = GetDeployedPath(name, path);
+            if (SUCCEEDED(result))
+                result = ReadFile(path, original);
+            if (FAILED(result))
+                return result;
+            constexpr std::string_view versionMember = "\"version\": { \"major\": 5, \"minor\": 3 },";
+            const size_t versionAt = original.find(versionMember);
+            AppSettings dragged{};
+            if (versionAt == std::string::npos || FAILED(ParseAppSettingsJson(original, dragged)) ||
+                FAILED(PatchDockThickness(dragged, 220)))
+            {
+                std::wprintf(L"PatchDockThickness could not patch the %s template.\n", name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            std::string expected = original;
+            expected.insert(versionAt + versionMember.size(),
+                            (original.find("\r\n") != std::string::npos ? "\r\n" : "\n") +
+                                std::string("  \"dock\": { \"thickness\": 220 },"));
+            AppSettings reparsed{};
+            if (dragged.sourceDocument != expected || FAILED(ParseAppSettingsJson(dragged.sourceDocument, reparsed)) ||
+                reparsed.dock.thicknessDips != 220 || reparsed.dock.edge != DockEdge::None ||
+                dragged.versionMinor != kRedXeSettingsVersionMinor)
+            {
+                std::wprintf(L"PatchDockThickness did not add dock to %s as one line after version.\n", name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+
+        struct LayoutCase
+        {
+            std::string_view source;
+            std::string_view expected;
+        };
+        const LayoutCase cases[]{
+            // On the last member's line.
+            {R"json({"version":{"major":5,"minor":2},"dock":{ "edge": "bottom" },"pages":[{}]})json",
+             R"json({"version":{"major":5,"minor":2},"dock":{ "edge": "bottom", "thickness": 220 },"pages":[{}]})json"},
+            // Before the last member's trailing comma and comment, which then follow it.
+            {R"json({"version":{"major":5,"minor":2},"dock":{ "edge": "top", /* keep */ },"pages":[{}]})json",
+             R"json({"version":{"major":5,"minor":2},"dock":{ "edge": "top", "thickness": 220, /* keep */ },)json"
+             R"json("pages":[{}]})json"},
+            // On a new line at the last member's indentation.
+            {"{\n  \"version\": { \"major\": 5, \"minor\": 2 },\n  \"dock\": {\n    \"edge\": \"left\" // keep\n"
+             "  },\n  \"pages\": [{}]\n}\n",
+             "{\n  \"version\": { \"major\": 5, \"minor\": 2 },\n  \"dock\": {\n    \"edge\": \"left\",\n"
+             "    \"thickness\": 220 // keep\n  },\n  \"pages\": [{}]\n}\n"},
+            // An empty dock, and the minor a minor 0 document gains.
+            {R"json({"version":{"major":5},"dock":{},"pages":[{}]})json",
+             R"json({"version":{"major":5, "minor": 2},"dock":{ "thickness": 220 },"pages":[{}]})json"},
+            // A line comment that ends at a lone CR: the dock after it is a member to the parser, so it is patched in
+            // place instead of gaining a duplicate that the next start would reject.
+            {"{\"version\":{\"major\":5,\"minor\":2},// note\r\"dock\":{\"edge\":\"top\",\"thickness\":100},\n"
+             "\"pages\":[{}]}",
+             "{\"version\":{\"major\":5,\"minor\":2},// note\r\"dock\":{\"edge\":\"top\",\"thickness\":220},\n"
+             "\"pages\":[{}]}"},
+            // A comment that ends version's line stays on it; the new dock takes the next line.
+            {"{\n  \"version\": { \"major\": 5, \"minor\": 2 }, // the version\n  \"pages\": [{}]\n}\n",
+             "{\n  \"version\": { \"major\": 5, \"minor\": 2 }, // the version\n"
+             "  \"dock\": { \"thickness\": 220 },\n  \"pages\": [{}]\n}\n"},
+            // The same for a last `version` without a comma, which gains one before its comments.
+            {"{\n  \"pages\": [{}],\n  \"version\": { \"major\": 5, \"minor\": 2 } /* v */ // last\n}\n",
+             "{\n  \"pages\": [{}],\n  \"version\": { \"major\": 5, \"minor\": 2 }, /* v */ // last\n"
+             "  \"dock\": { \"thickness\": 220 }\n}\n"},
+            // An empty dock closed on its own line: the member gets its own line, one level deeper than the brace.
+            {"{\n  \"version\": { \"major\": 5, \"minor\": 2 },\n  \"dock\": {\n  },\n  \"pages\": [{}]\n}\n",
+             "{\n  \"version\": { \"major\": 5, \"minor\": 2 },\n  \"dock\": {\n    \"thickness\": 220\n  },\n"
+             "  \"pages\": [{}]\n}\n"},
+            // A document that breaks lines only with CR: the new lines and their indentation use CR too.
+            {"{\r  \"version\": {\r    \"major\": 5\r  },\r  \"pages\": [{}]\r}\r",
+             "{\r  \"version\": {\r    \"major\": 5,\r    \"minor\": 2\r  },\r  \"dock\": { \"thickness\": 220 },\r"
+             "  \"pages\": [{}]\r}\r"},
+        };
+        for (const LayoutCase& layout : cases)
+        {
+            AppSettings dragged{};
+            AppSettings reparsed{};
+            if (FAILED(ParseAppSettingsJson(layout.source, dragged)) || PatchDockThickness(dragged, 220) != S_OK ||
+                dragged.sourceDocument != layout.expected || dragged.versionMinor != kRedXeSettingsDockMinor ||
+                FAILED(ParseAppSettingsJson(dragged.sourceDocument, reparsed)) || reparsed.dock != dragged.dock ||
+                reparsed.versionMinor != dragged.versionMinor)
+            {
+                std::wprintf(L"PatchDockThickness did not follow the document's layout:\n%hs\n",
+                             dragged.sourceDocument.c_str());
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+
+        // A release at the thickness the document already has (a click on the edge) adds no `dock` and no minor.
+        constexpr std::string_view noDock = R"json({"version":{"major":5,"minor":1},"pages":[{}]})json";
+        AppSettings clicked{};
+        if (FAILED(ParseAppSettingsJson(noDock, clicked)) ||
+            PatchDockThickness(clicked, clicked.dock.thicknessDips) != S_FALSE || clicked.sourceDocument != noDock ||
+            clicked.versionMinor != 1)
+        {
+            std::wprintf(L"PatchDockThickness changed the document for an unchanged thickness.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // Typed settings that no longer describe the document (here a typed edge the text does not have): the patched
+        // text would not parse back to the running dock, so the source, the thickness, and the minor stay.
+        AppSettings diverged{};
+        if (FAILED(ParseAppSettingsJson(noDock, diverged)))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        diverged.dock.edge = DockEdge::Top;
+        if (PatchDockThickness(diverged, 200) != HRESULT_FROM_WIN32(ERROR_INVALID_DATA) ||
+            diverged.sourceDocument != noDock || diverged.dock.thicknessDips != kDockDefaultThicknessDips ||
+            diverged.versionMinor != 1)
+        {
+            std::wprintf(L"PatchDockThickness kept a patch that does not parse back to the running dock.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
 }
 
 // The `trayIcon` root member (minor 3): omitted, it follows the build (Release shows the notification-area icon,
@@ -1627,8 +1788,15 @@ constexpr std::string_view kRepresentative = R"json(
                 reloaded->dashboard.pages[0].widgets[0].privateConfiguration.View().find("éditeur.exe") ==
                     std::string_view::npos ||
                 reloaded->dashboard.pages[0].widgets[0].privateConfiguration.View().find(
-                    "\"iconSize\":\"automatic\"") == std::string_view::npos ||
-                FAILED(PatchWidgetInstanceSettings(*settings, id.View(), patch)) ||
+                    "\"iconSize\":\"automatic\"") == std::string_view::npos)
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            // The same patch again changes nothing and leaves the source alone; a real change and its reversal format
+            // back to the same bytes.
+            if (PatchWidgetInstanceSettings(*settings, id.View(), patch) != S_FALSE ||
+                settings->sourceDocument != formatted ||
+                PatchWidgetInstanceSettings(*settings, id.View(), R"json({"iconSize":"large"})json") != S_OK ||
+                settings->sourceDocument == formatted ||
+                PatchWidgetInstanceSettings(*settings, id.View(), R"json({"iconSize":"automatic"})json") != S_OK ||
                 settings->sourceDocument != formatted)
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -1960,6 +2128,134 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
     }
 }
 
+// Settings written by the public v1.0.102 release load unchanged (Core_Settings.md "Version 5 document"). Its templates
+// carry the retired Zoom members, which the Zoom model accepts with any value and ignores, and the Debug one binds
+// removed zoom.* verbs, which stay invalid bindings rather than document errors. The default store keeps such a file
+// byte for byte instead of backing it up and replacing it.
+[[nodiscard]] HRESULT ValidateReleasedTemplates() noexcept
+{
+    struct ReleasedTemplate final
+    {
+        const wchar_t* name;
+        std::string_view text;
+        uint32_t pageCount;
+        bool bindsRemovedZoomVerbs;
+    };
+    const ReleasedTemplate releasedTemplates[]{{L"Release", kV102ReleaseTemplate, 4, false},
+                                               {L"Debug", kV102DebugTemplate, 5, true}};
+    for (const ReleasedTemplate& released : releasedTemplates)
+    {
+        AppSettings loaded{};
+        SettingsParseDiagnostic diagnostic{};
+        const HRESULT result = ParseAppSettingsJsonDetailed(released.text, loaded, diagnostic);
+        const ServiceSettings* zoom = SUCCEEDED(result) ? FindServiceSettings(loaded, "builtin.zoom") : nullptr;
+        const ServiceSettings* logicon = SUCCEEDED(result) ? FindServiceSettings(loaded, "builtin.logicon") : nullptr;
+        if (FAILED(result) || FAILED(ValidateAppSettings(loaded)) || loaded.versionMinor != 2 ||
+            loaded.dashboard.pageCount != released.pageCount || !zoom || !zoom->retiredMembersIgnored || !logicon ||
+            logicon->retiredMembersIgnored)
+        {
+            std::wprintf(L"The v1.0.102 %s template did not load unchanged: %S %S\n", released.name,
+                         diagnostic.path.c_str(), diagnostic.message.c_str());
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (released.bindsRemovedZoomVerbs &&
+            logicon->privateConfiguration.View().find("\"zoom.signIn\"") == std::string_view::npos)
+        {
+            std::wprintf(L"The v1.0.102 Debug template lost its removed zoom.* bindings.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
+
+    // Any value of every retired member loads, also in a current-minor document; an entry without them is not flagged.
+    constexpr std::string_view anyRetiredValue =
+        R"json({"version":{"major":5,"minor":3},"services":{"Z":{"plugin":"builtin.zoom","clientId":null,"redirectPort":"48123","domain":[],"displayName":7,"autoConnect":"no","mode":{"x":1},"labels":[{"mute":2}]}},"pages":[{}]})json";
+    constexpr std::string_view noRetiredMember =
+        R"json({"version":{"major":5,"minor":3},"services":{"Z":{"plugin":"builtin.zoom"}},"pages":[{}]})json";
+    AppSettings retired{};
+    AppSettings current{};
+    if (FAILED(ParseAppSettingsJson(anyRetiredValue, retired)) || retired.serviceCount != 1 ||
+        !retired.services[0].retiredMembersIgnored || FAILED(ParseAppSettingsJson(noRetiredMember, current)) ||
+        current.serviceCount != 1 || current.services[0].retiredMembersIgnored)
+    {
+        std::wprintf(L"The retired Zoom members are not accepted with any value and ignored.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    // v1.0.102 also accepted keys.down and mouse.down on a Logicon key, dialpad button, or turn. They still load: the
+    // service receives them and makes each one an invalid binding (Plugins_Logicon.md).
+    constexpr std::string_view heldBindings = R"json({
+      "version":{"major":5,"minor":2},
+      "services":{"Keypad":{"plugin":"builtin.logicon",
+        "keys":[{"slot":4,"action":"keys.down","target":"Ctrl+Shift+M"}],
+        "dialpad":{"buttons":[{"button":0,"action":"mouse.down","target":"left"}],
+          "turns":[{"control":"dial","direction":"cw","action":"keys.down","target":"Shift"}]}}},
+      "pages":[{"widgets":[{"plugin":"builtin.gdi-orbit"}]}]
+    })json";
+    AppSettings held{};
+    if (FAILED(ParseAppSettingsJson(heldBindings, held)) || FAILED(ValidateAppSettings(held)) ||
+        held.serviceCount != 1 ||
+        held.services[0].privateConfiguration.View().find("\"keys.down\"") == std::string_view::npos ||
+        held.services[0].privateConfiguration.View().find("\"mouse.down\"") == std::string_view::npos)
+    {
+        std::wprintf(L"A Logicon document with keys.down / mouse.down bindings did not load.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+
+    try
+    {
+        const std::filesystem::path localRoot =
+            std::filesystem::temp_directory_path() /
+            (L"RedXe.ReleasedTemplateTests." + std::to_wstring(GetCurrentProcessId()) + L"." +
+             std::to_wstring(GetTickCount64()));
+        const std::filesystem::path settingsDirectory = localRoot / L"RedXe" / L"Settings";
+        std::filesystem::create_directories(settingsDirectory);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code error;
+                std::filesystem::remove_all(localRoot, error);
+            });
+#if defined(_DEBUG)
+        constexpr const wchar_t* selectedName = kRedXeDebugSettingsFileName;
+        constexpr std::string_view releasedBytes = kV102DebugTemplate;
+#else
+        constexpr const wchar_t* selectedName = kRedXeReleaseSettingsFileName;
+        constexpr std::string_view releasedBytes = kV102ReleaseTemplate;
+#endif
+        const std::filesystem::path selected = settingsDirectory / selectedName;
+        {
+            std::ofstream stream(selected, std::ios::binary);
+            stream.write(releasedBytes.data(), static_cast<std::streamsize>(releasedBytes.size()));
+        }
+        SettingsStore store;
+        std::unique_ptr<AppSettings> loaded;
+        HRESULT result = store.Initialize(false, {}, loaded, localRoot.wstring());
+        std::string kept;
+        if (SUCCEEDED(result))
+            result = ReadFile(selected, kept);
+        if (FAILED(result) || !loaded || store.UsedInitialFallback() || kept != releasedBytes ||
+            loaded->versionMinor != 2 || loaded->serviceCount != 2)
+        {
+            std::wprintf(L"The default store did not keep the v1.0.102 settings file.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(settingsDirectory))
+        {
+            if (entry.path().filename().wstring().starts_with(std::filesystem::path(selectedName).stem().wstring() +
+                                                              L".invalid-"))
+            {
+                std::wprintf(L"The v1.0.102 settings file was backed up as invalid.\n");
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
 [[nodiscard]] HRESULT ValidateLegacyReleaseFilenameMigration() noexcept
 {
 #if defined(_DEBUG)
@@ -2005,13 +2301,23 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 }
 
 // First start without a XENEON (Core_Settings.md "Cold load and recovery"): PatchFirstRunDock inserts `dock` into both
-// shipped templates as one commented run after `version`, in the file's own line breaks, leaving every other byte and
-// member; the store writes that document for a missing or invalid default file, never over an existing one, and never
-// for a `--settings` file.
+// shipped templates as one commented run after `version`, in the file's own line breaks, and removes the template's
+// commented-out `dock` example with the comment that says to uncomment it, leaving every other byte and member; the
+// store writes that document for a missing or invalid default file, never over an existing one, and never for a
+// `--settings` file.
 [[nodiscard]] HRESULT ValidateFirstRunDock() noexcept
 {
     try
     {
+        // The installed file defines the dock once and never tells the reader to uncomment a second one.
+        const auto definesOneDock = [](std::string_view text) noexcept
+        {
+            size_t docks = 0;
+            for (size_t at = text.find("\"dock\""); at != std::string_view::npos; at = text.find("\"dock\"", at + 1))
+                ++docks;
+            return docks == 1 && text.find("Uncomment") == std::string_view::npos &&
+                   text.find("uncomment") == std::string_view::npos;
+        };
         // The first-run dock of a machine with two displays and a bottom taskbar: the top of the second screen.
         const auto withMonitor = [](DockSettings value, std::string_view monitor) noexcept
         {
@@ -2059,24 +2365,37 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
                 std::wprintf(L"The first-run dock did not patch %s into the same document plus the dock.\n", name);
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
-            // One contiguous insertion right after the `version` member, in the template's own line breaks.
+            // The template's commented dock example, from its introduction through the `// "dock":` line, is gone; the
+            // rest of the template is unchanged around one contiguous insertion right after the `version` member, in
+            // the template's own line breaks.
+            const size_t introductionAt = original.find("// Screen-edge dock (minor 2)");
+            const size_t exampleAt = original.find("// \"dock\": {", introductionAt);
+            if (introductionAt == std::string::npos || exampleAt == std::string::npos ||
+                original.find('\n', exampleAt) == std::string::npos || definesOneDock(original) ||
+                !definesOneDock(patched))
+            {
+                std::wprintf(L"The first-run dock in %s is not the only dock definition.\n", name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            std::string kept = original;
+            const size_t removedAt = kept.rfind('\n', introductionAt) + 1;
+            kept.erase(removedAt, kept.find('\n', exampleAt) + 1 - removedAt);
             constexpr std::string_view versionMember = "\"version\": { \"major\": 5, \"minor\": 3 },";
-            const size_t versionAt = original.find(versionMember);
-            if (versionAt == std::string::npos || patched.size() <= original.size())
+            const size_t versionAt = kept.find(versionMember);
+            if (versionAt == std::string::npos || patched.size() <= kept.size())
             {
                 std::wprintf(L"The %s template has no version member to follow.\n", name);
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
             const size_t insertAt = versionAt + versionMember.size();
-            const size_t insertedBytes = patched.size() - original.size();
+            const size_t insertedBytes = patched.size() - kept.size();
             const std::string inserted = patched.substr(insertAt, insertedBytes);
             const std::string_view lineBreak = original.find("\r\n") != std::string::npos ? "\r\n" : "\n";
             size_t bareLineFeeds = 0;
             for (size_t index = 0; index < inserted.size(); ++index)
                 bareLineFeeds += inserted[index] == '\n' && (index == 0 || inserted[index - 1] != '\r') ? 1U : 0U;
-            if (patched.compare(0, insertAt, original, 0, insertAt) != 0 ||
-                patched.compare(insertAt + insertedBytes, std::string::npos, original, insertAt, std::string::npos) !=
-                    0 ||
+            if (patched.compare(0, insertAt, kept, 0, insertAt) != 0 ||
+                patched.compare(insertAt + insertedBytes, std::string::npos, kept, insertAt, std::string::npos) != 0 ||
                 !inserted.starts_with(lineBreak) || !inserted.ends_with("},") ||
                 inserted.find("// No XENEON display was found") == std::string::npos ||
                 inserted.find(
@@ -2154,6 +2473,22 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             std::wprintf(L"The first-run dock did not replace an existing dock value.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
+        // Only a root `// "dock":` example goes, with the comment lines right above it and their line breaks: a comment
+        // a blank line separates from it, an example inside another value, and a comment after a member stay.
+        std::string examples =
+            "{\n  \"version\": { \"major\": 5, \"minor\": 3 },\n  // Kept: a blank line follows.\n\n"
+            "  // Introduces the example;\n  // uncomment it.\n  // \"dock\": { \"edge\": \"bottom\" },\n"
+            "  \"pages\": [{\n    // \"dock\": {}\n  }] // \"dock\": after a member\n}\n";
+        constexpr std::string_view examplesKept = "\n  // Kept: a blank line follows.\n\n  \"pages\": [{\n"
+                                                  "    // \"dock\": {}\n  }] // \"dock\": after a member\n}\n";
+        if (FAILED(PatchFirstRunDock(examples, dock)) || FAILED(ParseAppSettingsJson(examples, parsed)) ||
+            !isFirstRunDock(parsed.dock) || !examples.ends_with(examplesKept) ||
+            examples.find("Introduces the example") != std::string::npos ||
+            examples.find("uncomment it") != std::string::npos || examples.find("\"bottom\"") != std::string::npos)
+        {
+            std::wprintf(L"The first-run dock did not remove exactly the root dock example:\n%hs\n", examples.c_str());
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
         DockSettings none = dock;
         none.edge = DockEdge::None;
         DockSettings thick = dock;
@@ -2221,7 +2556,8 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             result = ReadFile(selected, installedBytes);
         if (FAILED(result) || !installed || !installStore.InstalledFirstRunDock() ||
             installStore.UsedInitialFallback() || !isFirstRunDock(installed->dock) ||
-            installedBytes.find("// No XENEON display was found") == std::string::npos)
+            installedBytes.find("// No XENEON display was found") == std::string::npos ||
+            !definesOneDock(installedBytes))
         {
             std::wprintf(L"A missing default file was not installed with the first-run dock.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -2309,6 +2645,161 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
     }
 }
 
+// A document that starts with a UTF-8 BOM (Core_Settings.md "Version 5 document"), as Windows PowerShell 5.1
+// `Set-Content -Encoding UTF8` saves it: it loads like the same text without one, its diagnostics name the real
+// problem, the dock and first-run patches and a widget persist keep the BOM, and a default file saved that way loads
+// at startup instead of being backed up and replaced.
+[[nodiscard]] HRESULT ValidateByteOrderMark() noexcept
+{
+    constexpr std::string_view bom = "\xEF\xBB\xBF";
+    try
+    {
+        for (const wchar_t* name : {kRedXeDebugSettingsFileName, kRedXeReleaseSettingsFileName})
+        {
+            std::filesystem::path path;
+            std::string original;
+            HRESULT result = GetDeployedPath(name, path);
+            if (SUCCEEDED(result))
+                result = ReadFile(path, original);
+            if (FAILED(result))
+                return result;
+            const std::string marked = std::string(bom) + original;
+            AppSettings plain{};
+            AppSettings withBom{};
+            if (FAILED(ParseAppSettingsJson(original, plain)) || FAILED(ParseAppSettingsJson(marked, withBom)) ||
+                withBom.sourceDocument != marked)
+            {
+                std::wprintf(L"The %s template with a BOM did not load.\n", name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            withBom.sourceDocument = plain.sourceDocument;
+            // The dock drag and the first-run dock patch the text after the BOM exactly as without it.
+            AppSettings dragged = plain;
+            AppSettings markedDragged{};
+            std::string firstRun = original;
+            std::string markedFirstRun = marked;
+            DockSettings firstRunDock = DefaultDockSettings();
+            firstRunDock.edge = DockEdge::Bottom;
+            if (withBom != plain || FAILED(ParseAppSettingsJson(marked, markedDragged)) ||
+                PatchDockThickness(dragged, 220) != S_OK || PatchDockThickness(markedDragged, 220) != S_OK ||
+                markedDragged.sourceDocument != std::string(bom) + dragged.sourceDocument ||
+                markedDragged.versionMinor != dragged.versionMinor ||
+                FAILED(PatchFirstRunDock(firstRun, firstRunDock)) ||
+                FAILED(PatchFirstRunDock(markedFirstRun, firstRunDock)) ||
+                markedFirstRun != std::string(bom) + firstRun ||
+                FAILED(ParseAppSettingsJson(markedFirstRun, withBom)) || withBom.dock.edge != DockEdge::Bottom)
+            {
+                std::wprintf(L"A dock patch of the %s template with a BOM did not keep the BOM.\n", name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+
+        // A widget persist rewrites the document with the BOM it started with, once.
+        const std::string launcher =
+            std::string(bom) +
+            R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher"}]}]})json";
+        AppSettings persisted{};
+        AppSettings reparsed{};
+        if (FAILED(ParseAppSettingsJson(launcher, persisted)) ||
+            PatchWidgetInstanceSettings(persisted, persisted.dashboard.pages[0].widgets[0].id.View(),
+                                        R"json({"iconSize":"large"})json") != S_OK ||
+            !persisted.sourceDocument.starts_with(bom) ||
+            persisted.sourceDocument.compare(bom.size(), bom.size(), bom) == 0 ||
+            FAILED(ParseAppSettingsJson(persisted.sourceDocument, reparsed)) ||
+            reparsed.dashboard.pages[0].widgets[0].privateConfiguration.View().find("\"iconSize\":\"large\"") ==
+                std::string_view::npos)
+        {
+            std::wprintf(L"A widget persist did not keep the document's BOM.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // Diagnostics after a BOM name the real problem, and a BOM alone, or with only comments, is an empty file.
+        const auto diagnose = [](std::string_view json, SettingsParseDiagnostic& diagnostic) noexcept
+        {
+            AppSettings settings{};
+            return FAILED(ParseAppSettingsJsonDetailed(json, settings, diagnostic));
+        };
+        SettingsParseDiagnostic unknown;
+        SettingsParseDiagnostic syntax;
+        SettingsParseDiagnostic empty;
+        SettingsParseDiagnostic commentsOnly;
+        if (!diagnose(std::string(bom) + R"json({"version":{"major":5},"unknown":1,"pages":[{}]})json", unknown) ||
+            unknown.path.find(".unknown") == std::string::npos ||
+            !diagnose(std::string(bom) + "{\n  \"version\": { \"major\": 5 },\n  \"pages\": [{}] x\n}\n", syntax) ||
+            syntax.line != 3 || syntax.message.find("BOM") != std::string::npos || !diagnose(bom, empty) ||
+            empty.message != "The settings file is empty." ||
+            !diagnose(std::string(bom) + "\r\n// Only a comment.\r\n", commentsOnly) ||
+            commentsOnly.message != "The settings file is empty.")
+        {
+            std::wprintf(L"A document with a BOM was diagnosed as '%hs' (line %u), '%hs', '%hs'.\n",
+                         syntax.message.c_str(), syntax.line, empty.message.c_str(), commentsOnly.message.c_str());
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // The store: a default file saved with a BOM loads at startup, untouched and without a backup, and a host write
+        // to a loaded file keeps its BOM on disk.
+        const std::filesystem::path localRoot = std::filesystem::temp_directory_path() /
+                                                (L"RedXe.ByteOrderMarkTests." + std::to_wstring(GetCurrentProcessId()) +
+                                                 L"." + std::to_wstring(GetTickCount64()));
+        const std::filesystem::path settingsDirectory = localRoot / L"RedXe" / L"Settings";
+        std::filesystem::create_directories(settingsDirectory);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code error;
+                std::filesystem::remove_all(localRoot, error);
+            });
+#if defined(_DEBUG)
+        constexpr const wchar_t* selectedName = kRedXeDebugSettingsFileName;
+#else
+        constexpr const wchar_t* selectedName = kRedXeReleaseSettingsFileName;
+#endif
+        std::filesystem::path templatePath;
+        std::string templateBytes;
+        HRESULT result = GetDeployedPath(selectedName, templatePath);
+        if (SUCCEEDED(result))
+            result = ReadFile(templatePath, templateBytes);
+        if (FAILED(result))
+            return result;
+        const std::string markedTemplate = std::string(bom) + templateBytes;
+        const std::filesystem::path selected = settingsDirectory / selectedName;
+        {
+            std::ofstream stream(selected, std::ios::binary | std::ios::trunc);
+            stream.write(markedTemplate.data(), static_cast<std::streamsize>(markedTemplate.size()));
+        }
+        SettingsStore store;
+        std::unique_ptr<AppSettings> loaded;
+        result = store.Initialize(false, {}, loaded, localRoot.wstring());
+        std::string loadedBytes;
+        if (SUCCEEDED(result))
+            result = ReadFile(selected, loadedBytes);
+        size_t backups = 0;
+        for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(settingsDirectory))
+            backups += entry.path().filename().wstring().find(L".invalid-") != std::wstring::npos ? 1U : 0U;
+        if (FAILED(result) || !loaded || store.UsedInitialFallback() || loaded->sourceDocument != markedTemplate ||
+            loadedBytes != markedTemplate || backups != 0 || !store.InitialNotice().empty())
+        {
+            std::wprintf(L"A default file with a BOM was not loaded as it is.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        std::string draggedBytes;
+        result = store.PersistDockThickness(*loaded, 220);
+        if (SUCCEEDED(result))
+            result = ReadFile(selected, draggedBytes);
+        if (result != S_OK || !draggedBytes.starts_with(bom) || draggedBytes != loaded->sourceDocument ||
+            draggedBytes.find("\"dock\": { \"thickness\": 220 }") == std::string::npos)
+        {
+            std::wprintf(L"A dock drag did not keep the BOM of the settings file.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
 [[nodiscard]] HRESULT ValidatePersistRollback() noexcept
 {
     constexpr std::string_view documentJson =
@@ -2352,6 +2843,14 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             std::wprintf(L"Failed persistence changed the authoritative settings or disk.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
+        // A failed dock drag rolls back the same way, including the minor it raised (0 to 2 here).
+        result = store.PersistDockThickness(*loaded, 200);
+        if ((result != HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION) && result != E_ACCESSDENIED) || *loaded != *before ||
+            FAILED(ReadFile(path, disk)) || disk != documentJson)
+        {
+            std::wprintf(L"A failed dock-thickness persist changed the authoritative settings or disk.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
         locked.reset();
         if (SUCCEEDED(store.PersistWidgetSettings(*loaded, id, "[]")) || *loaded != *before)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -2370,6 +2869,216 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             saved != loaded->dashboard.pages[0].widgets[1].privateConfiguration)
         {
             std::wprintf(L"A later save resurrected the rejected patch or lost the new patch.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // A committed drag leaves the typed minor equal to the file's.
+        if (store.PersistDockThickness(*loaded, 200) != S_OK ||
+            FAILED(LoadAppSettingsFile(path.wstring(), *reloaded)) || reloaded->dock.thicknessDips != 200 ||
+            reloaded->versionMinor != kRedXeSettingsDockMinor || loaded->versionMinor != reloaded->versionMinor)
+        {
+            std::wprintf(L"A committed dock-thickness persist left the typed minor apart from the file.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+// Core_Settings.md "Plugin persist": the store writes only over the document last applied. Any other file on disk keeps
+// its bytes (or its absence), the change stays in memory without a rollback (S_FALSE), and each distinct on-disk state
+// raises one deferral notice. A merge or dock drag that changes nothing never rewrites the file.
+[[nodiscard]] HRESULT ValidatePersistWriteGate() noexcept
+{
+    constexpr std::string_view commented =
+        "{\r\n"
+        "  // A note the person wrote; an unchanged persist keeps it.\r\n"
+        "  \"version\": { \"major\": 5 },\r\n"
+        "  \"pages\": [{ \"widgets\": [{ \"plugin\": \"builtin.matrix-rain\", \"seed\": 7 }] }]\r\n"
+        "}\r\n";
+    constexpr std::string_view rejected = "{ \"version\": { \"major\": 5 }, \"pages\": [";
+    constexpr std::string_view external =
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":3}]}]})json";
+    try
+    {
+        const std::filesystem::path directory = std::filesystem::temp_directory_path() /
+                                                (L"RedXe.PersistGateTests." + std::to_wstring(GetCurrentProcessId()) +
+                                                 L"." + std::to_wstring(GetTickCount64()));
+        std::filesystem::create_directory(directory);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code error;
+                std::filesystem::remove_all(directory, error);
+            });
+        const auto write = [](const std::filesystem::path& path, std::string_view bytes)
+        {
+            std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+            stream.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            return static_cast<bool>(stream);
+        };
+        const auto holds = [](const std::filesystem::path& path, std::string_view expected)
+        {
+            std::string bytes;
+            return SUCCEEDED(ReadFile(path, bytes)) && bytes == expected;
+        };
+        const auto privateOf = [](const AppSettings& settings) noexcept
+        { return settings.dashboard.pages[0].widgets[0].privateConfiguration.View(); };
+        const std::filesystem::path file = directory / L"gate.settings.json";
+        if (!write(file, commented))
+            return E_FAIL;
+
+        SettingsStore store;
+        std::unique_ptr<AppSettings> loaded;
+        HRESULT result = store.Initialize(false, file.wstring(), loaded);
+        if (FAILED(result) || !loaded || loaded->dashboard.pages[0].widgets.empty())
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        const std::string id(loaded->dashboard.pages[0].widgets[0].id.View());
+
+        // A collect that resends the stored object, or one member at its current value, changes nothing; neither does a
+        // dock drag released at the current thickness (the document has no `dock` and minor 0 to add here).
+        const auto before = std::make_unique<AppSettings>(*loaded);
+        const std::string stored(privateOf(*loaded));
+        if (store.PersistWidgetSettings(*loaded, id, stored) != S_FALSE ||
+            store.PersistWidgetSettings(*loaded, id, R"({"seed":7})") != S_FALSE ||
+            store.PersistDockThickness(*loaded, loaded->dock.thicknessDips) != S_FALSE || *loaded != *before ||
+            !holds(file, commented) || store.TakeDeferredPersistNotice())
+        {
+            std::wprintf(L"An unchanged widget persist or dock drag rewrote the settings file or its document.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // A rejected save stays for the editor: widget persists and a dock drag keep their change in memory.
+        std::unique_ptr<AppSettings> candidate;
+        SettingsFileStamp stamp{};
+        SettingsReloadStatus status = SettingsReloadStatus::Unchanged;
+        if (!write(file, rejected) || FAILED(store.TryLoadChanged(candidate, stamp, status)) ||
+            status != SettingsReloadStatus::Invalid)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        if (store.PersistWidgetSettings(*loaded, id, R"({"seed":17})") != S_FALSE ||
+            !store.TakeDeferredPersistNotice() ||
+            store.PersistWidgetSettings(*loaded, id, R"({"densityPercent":75})") != S_FALSE ||
+            store.PersistDockThickness(*loaded, 200) != S_FALSE || store.TakeDeferredPersistNotice() ||
+            !holds(file, rejected) || privateOf(*loaded).find("\"seed\":17") == std::string_view::npos ||
+            privateOf(*loaded).find("\"densityPercent\":75") == std::string_view::npos ||
+            loaded->dock.thicknessDips != 200)
+        {
+            std::wprintf(L"A persist wrote over a rejected save or rolled back its change.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // A valid save the watcher has not applied yet is not overwritten either. Once applied, its document replaces
+        // the change held in memory, and a later change writes again.
+        if (!write(file, external) || store.PersistWidgetSettings(*loaded, id, R"({"seed":19})") != S_FALSE ||
+            !store.TakeDeferredPersistNotice() || !holds(file, external))
+        {
+            std::wprintf(L"A persist wrote over a save that was not applied yet.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        candidate.reset();
+        if (FAILED(store.TryLoadChanged(candidate, stamp, status)) || status != SettingsReloadStatus::Loaded ||
+            !candidate)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        loaded = std::move(candidate);
+        store.MarkApplied(stamp);
+        auto saved = std::make_unique<AppSettings>();
+        if (store.PersistWidgetSettings(*loaded, id, R"({"densityPercent":80})") != S_OK ||
+            FAILED(LoadAppSettingsFile(file.wstring(), *saved)) ||
+            privateOf(*saved).find("\"seed\":3") == std::string_view::npos ||
+            privateOf(*saved).find("\"densityPercent\":80") == std::string_view::npos ||
+            saved->dock.thicknessDips != kDockDefaultThicknessDips)
+        {
+            std::wprintf(L"A persist after an applied reload did not write the reloaded document.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // A deleted file is not recreated. The same file restored (a Recycle Bin restore keeps its identity and time)
+        // takes the change held in memory with the next persist, even one that changes nothing more.
+        std::string applied;
+        if (FAILED(ReadFile(file, applied)))
+            return E_FAIL;
+        const std::filesystem::path recycled = directory / L"gate.recycled.json";
+        if (!MoveFileExW(file.c_str(), recycled.c_str(), 0))
+            return HRESULT_FROM_WIN32(GetLastError());
+        candidate.reset();
+        if (FAILED(store.TryLoadChanged(candidate, stamp, status)) || status != SettingsReloadStatus::Missing ||
+            store.PersistWidgetSettings(*loaded, id, R"({"seed":23})") != S_FALSE ||
+            !store.TakeDeferredPersistNotice() || store.PersistDockThickness(*loaded, 240) != S_FALSE ||
+            store.TakeDeferredPersistNotice() || std::filesystem::exists(file))
+        {
+            std::wprintf(L"A persist recreated a deleted settings file.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        if (!MoveFileExW(recycled.c_str(), file.c_str(), 0))
+            return HRESULT_FROM_WIN32(GetLastError());
+        candidate.reset();
+        if (FAILED(store.TryLoadChanged(candidate, stamp, status)) || status != SettingsReloadStatus::Unchanged ||
+            !holds(file, applied) || store.PersistWidgetSettings(*loaded, id, R"({"seed":23})") != S_OK ||
+            FAILED(LoadAppSettingsFile(file.wstring(), *saved)) ||
+            privateOf(*saved).find("\"seed\":23") == std::string_view::npos || saved->dock.thicknessDips != 240)
+        {
+            std::wprintf(L"The change held in memory was not written once the same file was restored.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // A dock drag released at the current thickness writes such a held change too, and after that nothing.
+        if (!MoveFileExW(file.c_str(), recycled.c_str(), 0))
+            return HRESULT_FROM_WIN32(GetLastError());
+        candidate.reset();
+        if (FAILED(store.TryLoadChanged(candidate, stamp, status)) || status != SettingsReloadStatus::Missing ||
+            store.PersistWidgetSettings(*loaded, id, R"({"seed":29})") != S_FALSE || !store.TakeDeferredPersistNotice())
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        if (!MoveFileExW(recycled.c_str(), file.c_str(), 0))
+            return HRESULT_FROM_WIN32(GetLastError());
+        candidate.reset();
+        if (FAILED(store.TryLoadChanged(candidate, stamp, status)) || status != SettingsReloadStatus::Unchanged ||
+            store.PersistDockThickness(*loaded, 240) != S_OK || FAILED(LoadAppSettingsFile(file.wstring(), *saved)) ||
+            privateOf(*saved).find("\"seed\":29") == std::string_view::npos || saved->dock.thicknessDips != 240 ||
+            FAILED(ReadFile(file, applied)) || store.PersistDockThickness(*loaded, 240) != S_FALSE ||
+            !holds(file, applied))
+        {
+            std::wprintf(L"An unchanged dock drag did not write the change held in memory, or wrote again.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // A --settings file that fell back to the template keeps its bytes, and a missing one stays missing.
+        const std::filesystem::path portable = directory / L"portable.settings.json";
+        if (!write(portable, rejected))
+            return E_FAIL;
+        SettingsStore fallbackStore;
+        std::unique_ptr<AppSettings> fallback;
+        result = fallbackStore.Initialize(false, portable.wstring(), fallback);
+        if (FAILED(result) || !fallback || !fallbackStore.UsedInitialFallback())
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        std::string launcherId;
+        for (uint32_t page = 0; page < fallback->dashboard.pageCount && launcherId.empty(); ++page)
+        {
+            const auto& layout = fallback->dashboard.pages[page];
+            for (uint32_t item = 0; item < layout.widgetCount && launcherId.empty(); ++item)
+            {
+                if (layout.widgets[item].pluginId.View() == "builtin.launcher")
+                    launcherId = layout.widgets[item].id.View();
+            }
+        }
+        if (launcherId.empty() ||
+            fallbackStore.PersistWidgetSettings(
+                *fallback, launcherId, R"json({"shortcuts":[{"target":"C:\\Windows\\notepad.exe"}]})json") != S_FALSE ||
+            !fallbackStore.TakeDeferredPersistNotice() ||
+            fallbackStore.PersistDockThickness(*fallback, 200) != S_FALSE ||
+            fallbackStore.TakeDeferredPersistNotice() || !holds(portable, rejected))
+        {
+            std::wprintf(L"A persist wrote the template over a --settings file that failed to load.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        const std::filesystem::path absent = directory / L"absent.settings.json";
+        SettingsStore absentStore;
+        std::unique_ptr<AppSettings> absentSettings;
+        result = absentStore.Initialize(false, absent.wstring(), absentSettings);
+        if (FAILED(result) || !absentSettings || absentStore.PersistDockThickness(*absentSettings, 200) != S_FALSE ||
+            !absentStore.TakeDeferredPersistNotice() || std::filesystem::exists(absent))
+        {
+            std::wprintf(L"A persist created a missing --settings file.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         return S_OK;
@@ -2494,9 +3203,13 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             afterSuppressedPersist != afterValidWrite)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
-        result = store.PersistWidgetSettings(*candidate, instanceId, persistPatch);
+        // As in OnSettingsChanged, the loaded stamp is marked applied once the candidate is live; a later explicit
+        // change may then write the file.
+        store.MarkApplied(stamp);
+        constexpr std::string_view explicitPatch = R"json({"shortcuts":[{"target":"C:\\Windows\\regedit.exe"}]})json";
+        result = store.PersistWidgetSettings(*candidate, instanceId, explicitPatch);
         std::string afterExplicitPersist;
-        if (FAILED(result) || FAILED(ReadFile(file, afterExplicitPersist)) || afterExplicitPersist == afterValidWrite)
+        if (result != S_OK || FAILED(ReadFile(file, afterExplicitPersist)) || afterExplicitPersist == afterValidWrite)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
         constexpr std::string_view invalid = R"json({"version":{"major":4},"pages":[{}]})json";
@@ -2550,6 +3263,7 @@ int wmain()
     const Test tests[]{{L"templates/schema", ValidateTemplatesAndSchema},
                        {L"parser", ValidateParser},
                        {L"dock", ValidateDockSettings},
+                       {L"dock thickness layout", ValidateDockThicknessLayout},
                        {L"tray icon", ValidateTrayIconSettings},
                        {L"command line", ValidateCommandLineCatalog},
                        {L"AV profile configuration", ValidateAvControlSettings},
@@ -2557,11 +3271,14 @@ int wmain()
                        {L"watcher", ValidateWatcher},
                        {L"external selection", ValidateExternalSelection},
                        {L"default recovery", ValidateDefaultRecovery},
+                       {L"v1.0.102 settings", ValidateReleasedTemplates},
                        {L"legacy filename", ValidateLegacyReleaseFilenameMigration},
                        {L"first-run dock", ValidateFirstRunDock},
+                       {L"byte order mark", ValidateByteOrderMark},
                        {L"logs directory", ValidateLogsDirectory},
                        {L"persist formatting", ValidatePersistFormatting},
                        {L"persist rollback", ValidatePersistRollback},
+                       {L"persist write gate", ValidatePersistWriteGate},
                        {L"live reload no write", ValidateLiveReloadNoWrite}};
     for (const auto& test : tests)
     {
