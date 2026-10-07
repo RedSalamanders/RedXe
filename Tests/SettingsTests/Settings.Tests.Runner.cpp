@@ -1377,9 +1377,12 @@ constexpr std::string_view kRepresentative = R"json(
 }
 
 // A dragged edge writes `dock.thickness` in the document's own layout: a new `dock` on its own line after `version`
-// (one line in each shipped template, in its line breaks), a missing `thickness` after the last dock member, on its
-// line or on a new line at its indentation, and a missing `minor` the same way inside `version`. The typed minor
-// follows a raised source minor, and a line comment ends at a lone CR exactly where the parser ends it.
+// (one line in each shipped template, in its line breaks) and below a comment that ends version's line, a missing
+// `thickness` after the last dock member, on its line or on a new line at its indentation, or one level deeper than
+// the closing brace of an empty dock, and a missing `minor` the same way inside `version`. The typed minor follows a
+// raised source minor, a line comment ends at a lone CR exactly where the parser ends it, and a CR-only document
+// keeps CR. A release at the current thickness changes nothing, and a patch that would not parse back to the running
+// dock is refused.
 [[nodiscard]] HRESULT ValidateDockThicknessLayout() noexcept
 {
     try
@@ -1443,12 +1446,28 @@ constexpr std::string_view kRepresentative = R"json(
              "\"pages\":[{}]}",
              "{\"version\":{\"major\":5,\"minor\":2},// note\r\"dock\":{\"edge\":\"top\",\"thickness\":220},\n"
              "\"pages\":[{}]}"},
+            // A comment that ends version's line stays on it; the new dock takes the next line.
+            {"{\n  \"version\": { \"major\": 5, \"minor\": 2 }, // the version\n  \"pages\": [{}]\n}\n",
+             "{\n  \"version\": { \"major\": 5, \"minor\": 2 }, // the version\n"
+             "  \"dock\": { \"thickness\": 220 },\n  \"pages\": [{}]\n}\n"},
+            // The same for a last `version` without a comma, which gains one before its comments.
+            {"{\n  \"pages\": [{}],\n  \"version\": { \"major\": 5, \"minor\": 2 } /* v */ // last\n}\n",
+             "{\n  \"pages\": [{}],\n  \"version\": { \"major\": 5, \"minor\": 2 }, /* v */ // last\n"
+             "  \"dock\": { \"thickness\": 220 }\n}\n"},
+            // An empty dock closed on its own line: the member gets its own line, one level deeper than the brace.
+            {"{\n  \"version\": { \"major\": 5, \"minor\": 2 },\n  \"dock\": {\n  },\n  \"pages\": [{}]\n}\n",
+             "{\n  \"version\": { \"major\": 5, \"minor\": 2 },\n  \"dock\": {\n    \"thickness\": 220\n  },\n"
+             "  \"pages\": [{}]\n}\n"},
+            // A document that breaks lines only with CR: the new lines and their indentation use CR too.
+            {"{\r  \"version\": {\r    \"major\": 5\r  },\r  \"pages\": [{}]\r}\r",
+             "{\r  \"version\": {\r    \"major\": 5,\r    \"minor\": 2\r  },\r  \"dock\": { \"thickness\": 220 },\r"
+             "  \"pages\": [{}]\r}\r"},
         };
         for (const LayoutCase& layout : cases)
         {
             AppSettings dragged{};
             AppSettings reparsed{};
-            if (FAILED(ParseAppSettingsJson(layout.source, dragged)) || FAILED(PatchDockThickness(dragged, 220)) ||
+            if (FAILED(ParseAppSettingsJson(layout.source, dragged)) || PatchDockThickness(dragged, 220) != S_OK ||
                 dragged.sourceDocument != layout.expected || dragged.versionMinor != kRedXeSettingsDockMinor ||
                 FAILED(ParseAppSettingsJson(dragged.sourceDocument, reparsed)) || reparsed.dock != dragged.dock ||
                 reparsed.versionMinor != dragged.versionMinor)
@@ -1457,6 +1476,31 @@ constexpr std::string_view kRepresentative = R"json(
                              dragged.sourceDocument.c_str());
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
+        }
+
+        // A release at the thickness the document already has (a click on the edge) adds no `dock` and no minor.
+        constexpr std::string_view noDock = R"json({"version":{"major":5,"minor":1},"pages":[{}]})json";
+        AppSettings clicked{};
+        if (FAILED(ParseAppSettingsJson(noDock, clicked)) ||
+            PatchDockThickness(clicked, clicked.dock.thicknessDips) != S_FALSE || clicked.sourceDocument != noDock ||
+            clicked.versionMinor != 1)
+        {
+            std::wprintf(L"PatchDockThickness changed the document for an unchanged thickness.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // Typed settings that no longer describe the document (here a typed edge the text does not have): the patched
+        // text would not parse back to the running dock, so the source, the thickness, and the minor stay.
+        AppSettings diverged{};
+        if (FAILED(ParseAppSettingsJson(noDock, diverged)))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        diverged.dock.edge = DockEdge::Top;
+        if (PatchDockThickness(diverged, 200) != HRESULT_FROM_WIN32(ERROR_INVALID_DATA) ||
+            diverged.sourceDocument != noDock || diverged.dock.thicknessDips != kDockDefaultThicknessDips ||
+            diverged.versionMinor != 1)
+        {
+            std::wprintf(L"PatchDockThickness kept a patch that does not parse back to the running dock.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         return S_OK;
     }
@@ -2497,7 +2541,7 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 
 // Core_Settings.md "Plugin persist": the store writes only over the document last applied. Any other file on disk keeps
 // its bytes (or its absence), the change stays in memory without a rollback (S_FALSE), and each distinct on-disk state
-// raises one deferral notice. A merge that changes nothing never rewrites the file.
+// raises one deferral notice. A merge or dock drag that changes nothing never rewrites the file.
 [[nodiscard]] HRESULT ValidatePersistWriteGate() noexcept
 {
     constexpr std::string_view commented =
@@ -2545,14 +2589,16 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         const std::string id(loaded->dashboard.pages[0].widgets[0].id.View());
 
-        // A collect that resends the stored object, or one member at its current value, changes nothing.
+        // A collect that resends the stored object, or one member at its current value, changes nothing; neither does a
+        // dock drag released at the current thickness (the document has no `dock` and minor 0 to add here).
         const auto before = std::make_unique<AppSettings>(*loaded);
         const std::string stored(privateOf(*loaded));
         if (store.PersistWidgetSettings(*loaded, id, stored) != S_FALSE ||
-            store.PersistWidgetSettings(*loaded, id, R"({"seed":7})") != S_FALSE || *loaded != *before ||
+            store.PersistWidgetSettings(*loaded, id, R"({"seed":7})") != S_FALSE ||
+            store.PersistDockThickness(*loaded, loaded->dock.thicknessDips) != S_FALSE || *loaded != *before ||
             !holds(file, commented) || store.TakeDeferredPersistNotice())
         {
-            std::wprintf(L"An unchanged widget persist rewrote the settings file or its document.\n");
+            std::wprintf(L"An unchanged widget persist or dock drag rewrote the settings file or its document.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
@@ -2626,6 +2672,25 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             privateOf(*saved).find("\"seed\":23") == std::string_view::npos || saved->dock.thicknessDips != 240)
         {
             std::wprintf(L"The change held in memory was not written once the same file was restored.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // A dock drag released at the current thickness writes such a held change too, and after that nothing.
+        if (!MoveFileExW(file.c_str(), recycled.c_str(), 0))
+            return HRESULT_FROM_WIN32(GetLastError());
+        candidate.reset();
+        if (FAILED(store.TryLoadChanged(candidate, stamp, status)) || status != SettingsReloadStatus::Missing ||
+            store.PersistWidgetSettings(*loaded, id, R"({"seed":29})") != S_FALSE || !store.TakeDeferredPersistNotice())
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        if (!MoveFileExW(recycled.c_str(), file.c_str(), 0))
+            return HRESULT_FROM_WIN32(GetLastError());
+        candidate.reset();
+        if (FAILED(store.TryLoadChanged(candidate, stamp, status)) || status != SettingsReloadStatus::Unchanged ||
+            store.PersistDockThickness(*loaded, 240) != S_OK || FAILED(LoadAppSettingsFile(file.wstring(), *saved)) ||
+            privateOf(*saved).find("\"seed\":29") == std::string_view::npos || saved->dock.thicknessDips != 240 ||
+            FAILED(ReadFile(file, applied)) || store.PersistDockThickness(*loaded, 240) != S_FALSE ||
+            !holds(file, applied))
+        {
+            std::wprintf(L"An unchanged dock drag did not write the change held in memory, or wrote again.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 

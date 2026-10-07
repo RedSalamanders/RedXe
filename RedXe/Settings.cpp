@@ -803,6 +803,8 @@ template <size_t Count>
     }
 }
 
+// The schema copy, refreshed from the deployed file on every start. It skips the data flush a settings document gets
+// (InstallTemplateFile): a schema that a power loss empties is copied again at the next start.
 [[nodiscard]] HRESULT CopyFileAtomically(const std::filesystem::path& source, const std::filesystem::path& target,
                                          bool replaceExisting) noexcept
 {
@@ -839,22 +841,6 @@ template <size_t Count>
     {
         return E_FAIL;
     }
-}
-
-[[nodiscard]] HRESULT InstallIfMissing(const std::filesystem::path& source,
-                                       const std::filesystem::path& target) noexcept
-{
-    const DWORD attributes = GetFileAttributesW(target.c_str());
-    if (attributes != INVALID_FILE_ATTRIBUTES)
-    {
-        return (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ? S_FALSE : HRESULT_FROM_WIN32(ERROR_DIRECTORY);
-    }
-    const DWORD error = GetLastError();
-    if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
-    {
-        return HRESULT_FROM_WIN32(error);
-    }
-    return CopyFileAtomically(source, target, false);
 }
 
 #if !defined(_DEBUG)
@@ -1202,7 +1188,13 @@ template <size_t Count>
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
-        const auto cleanup = wil::scope_exit([&temporary]() noexcept { DeleteFileW(temporary.c_str()); });
+        // The handle closes first: the temporary file is not shared, so deleting it while open fails and leaves it.
+        const auto cleanup = wil::scope_exit(
+            [&temporary, &file]() noexcept
+            {
+                file.reset();
+                DeleteFileW(temporary.c_str());
+            });
         DWORD written = 0;
         if (!WriteFile(file.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr))
         {
@@ -1240,6 +1232,35 @@ template <size_t Count>
     {
         return E_FAIL;
     }
+}
+
+// A plain template install or recovery: the template's bytes through the same flushed atomic write as a persist, so a
+// power loss right after it cannot leave an empty settings file that the next start backs up and replaces. S_FALSE
+// without replaceExisting when the target already exists.
+[[nodiscard]] HRESULT InstallTemplateFile(const std::filesystem::path& source, const std::filesystem::path& target,
+                                          bool replaceExisting) noexcept
+{
+    std::vector<char> bytes;
+    const HRESULT result = ReadFileBytes(source.native(), bytes);
+    return FAILED(result)
+               ? result
+               : WriteUtf8FileAtomically(target, std::string_view(bytes.data(), bytes.size()), replaceExisting);
+}
+
+[[nodiscard]] HRESULT InstallIfMissing(const std::filesystem::path& source,
+                                       const std::filesystem::path& target) noexcept
+{
+    const DWORD attributes = GetFileAttributesW(target.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES)
+    {
+        return (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ? S_FALSE : HRESULT_FROM_WIN32(ERROR_DIRECTORY);
+    }
+    const DWORD error = GetLastError();
+    if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
+    {
+        return HRESULT_FROM_WIN32(error);
+    }
+    return InstallTemplateFile(source, target, false);
 }
 } // namespace
 
@@ -2115,15 +2136,27 @@ struct SourceMember final
     }
 }
 
-// The document's own line break: CRLF when it has one, otherwise LF.
+// The document's own line break: CRLF when it has one, CR in a document that breaks lines only with CR, otherwise LF.
 [[nodiscard]] std::string_view SourceLineBreak(std::string_view source) noexcept
 {
-    return source.find("\r\n") != std::string_view::npos ? "\r\n" : "\n";
+    if (source.find("\r\n") != std::string_view::npos)
+    {
+        return "\r\n";
+    }
+    return source.find('\r') != std::string_view::npos && source.find('\n') == std::string_view::npos ? "\r" : "\n";
+}
+
+// The start of the line holding `position`; a line ends at CR or LF.
+[[nodiscard]] size_t SourceLineBegin(std::string_view source, size_t position) noexcept
+{
+    const size_t lineBreak = source.find_last_of("\r\n", position);
+    return lineBreak == std::string_view::npos ? 0 : lineBreak + 1;
 }
 
 // Replaces the value of `key`, or appends `"key": replacement` in the object's own layout: right after the last
 // member's value (its trailing comma or comment then follows the new member), on a new line at that member's
-// indentation when the member starts its own line, otherwise on the same line. Throws only std::bad_alloc.
+// indentation when the member starts its own line, otherwise on the same line. In an empty object whose closing brace
+// starts its own line, the member gets a line of its own one level deeper than the brace. Throws only std::bad_alloc.
 [[nodiscard]] bool PatchSourceMember(std::string& source, size_t objectBegin, std::string_view key,
                                      std::string_view replacement)
 {
@@ -2139,43 +2172,50 @@ struct SourceMember final
     }
     std::string addition;
     size_t insertAt = member.closingBrace;
+    const size_t anchor = member.hasMembers ? member.lastKeyBegin : member.closingBrace;
+    const size_t lineBegin = SourceLineBegin(source, anchor);
+    const bool ownLine = lineBegin > objectBegin + 1 && source.find_first_not_of(" \t", lineBegin) == anchor;
     if (member.hasMembers)
     {
         insertAt = member.lastValueEnd;
         addition.push_back(',');
-        const size_t newline = source.find_last_of('\n', member.lastKeyBegin);
-        const size_t lineBegin = newline == std::string::npos ? 0 : newline + 1;
-        if (newline != std::string::npos && newline > objectBegin &&
-            source.find_first_not_of(" \t", lineBegin) == member.lastKeyBegin)
+        if (ownLine)
         {
-            addition.append(SourceLineBreak(source)).append(source, lineBegin, member.lastKeyBegin - lineBegin);
+            addition.append(SourceLineBreak(source)).append(source, lineBegin, anchor - lineBegin);
         }
         else
         {
             addition.push_back(' ');
         }
+        addition.append(key).append(": ").append(replacement);
     }
-    else if (!std::isspace(static_cast<unsigned char>(source[insertAt - 1])))
+    else if (ownLine)
     {
-        addition.push_back(' ');
+        insertAt = lineBegin;
+        const bool tabs = source.find('\t', lineBegin) < anchor;
+        addition.append(source, lineBegin, anchor - lineBegin).append(tabs ? "\t" : "  ");
+        addition.append(key).append(": ").append(replacement).append(SourceLineBreak(source));
     }
-    addition.append(key).append(": ").append(replacement);
-    if (!member.hasMembers)
+    else
     {
-        addition.push_back(' ');
+        if (!std::isspace(static_cast<unsigned char>(source[insertAt - 1])))
+        {
+            addition.push_back(' ');
+        }
+        addition.append(key).append(": ").append(replacement).push_back(' ');
     }
     source.insert(insertAt, addition);
     return true;
 }
 
-// Preconditions shared by the dock source patches: the whole source is a valid v5 document. `raiseMinor` reports
-// a minor below `requiredMinor` (2 added `dock`, 3 the `secondary` monitor selector); `rootBegin` is the root's '{'.
+// Preconditions shared by the dock source patches: the whole source is a valid v5 document, parsed into `validated`.
+// `raiseMinor` reports a minor below `requiredMinor` (2 added `dock`, 3 the `secondary` monitor selector);
+// `rootBegin` is the root's '{'.
 [[nodiscard]] HRESULT PrepareDockSourcePatch(std::string& source, uint32_t requiredMinor, bool& raiseMinor,
-                                             size_t& rootBegin) noexcept
+                                             size_t& rootBegin, std::unique_ptr<AppSettings>& validated) noexcept
 {
     raiseMinor = false;
     rootBegin = 0;
-    std::unique_ptr<AppSettings> validated;
     if (const HRESULT result = ParseAppSettingsJsonV5(source, validated); FAILED(result))
     {
         return result;
@@ -2203,8 +2243,37 @@ struct SourceMember final
                              std::string_view(digits.data(), static_cast<size_t>(length)));
 }
 
+// The end of the line holding `position` when only spaces and comments follow it there, so a comment that ends the
+// line stays on it; otherwise `position` itself.
+[[nodiscard]] size_t SourceTrailingTriviaEnd(std::string_view source, size_t position) noexcept
+{
+    size_t scan = position;
+    for (;;)
+    {
+        while (scan < source.size() && (source[scan] == ' ' || source[scan] == '\t'))
+        {
+            ++scan;
+        }
+        if (scan >= source.size() || source[scan] == '\r' || source[scan] == '\n')
+        {
+            return scan;
+        }
+        if (source.substr(scan, 2) == "//")
+        {
+            return std::min(source.find_first_of("\r\n", scan), source.size());
+        }
+        const size_t commentEnd = source.substr(scan, 2) == "/*" ? source.find("*/", scan + 2) : std::string_view::npos;
+        if (commentEnd == std::string_view::npos || source.find_first_of("\r\n", scan) < commentEnd)
+        {
+            return position;
+        }
+        scan = commentEnd + 2;
+    }
+}
+
 // A new root member (`"key": value`) on its own line right after `version`, at that member's indentation and in the
-// file's own line breaks, below the given whole comment lines. Throws only std::bad_alloc.
+// file's own line breaks, below the given whole comment lines. A comment that ends version's line stays there.
+// Throws only std::bad_alloc.
 [[nodiscard]] bool InsertRootMemberAfterVersion(std::string& source, size_t rootBegin, std::string_view member,
                                                 std::initializer_list<std::string_view> comments)
 {
@@ -2213,8 +2282,7 @@ struct SourceMember final
     {
         return false;
     }
-    const size_t newline = source.find_last_of('\n', version.keyBegin);
-    const size_t lineBegin = newline == std::string::npos ? 0 : newline + 1;
+    const size_t lineBegin = SourceLineBegin(source, version.keyBegin);
     std::string indentation = source.substr(lineBegin, version.keyBegin - lineBegin);
     if (indentation.find_first_not_of(" \t") != std::string::npos)
     {
@@ -2234,11 +2302,12 @@ struct SourceMember final
     }
     if (source[after] == ',')
     {
-        source.insert(after + 1, lines + ",");
+        source.insert(SourceTrailingTriviaEnd(source, after + 1), lines + ",");
     }
     else
     {
-        source.insert(version.valueEnd, "," + lines);
+        source.insert(SourceTrailingTriviaEnd(source, version.valueEnd), lines);
+        source.insert(version.valueEnd, ",");
     }
     return true;
 }
@@ -2250,6 +2319,12 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
     {
         return E_INVALIDARG;
     }
+    // A release at the thickness the document already has (a click on the edge) changes nothing: no `dock` or minor
+    // is added and nothing is written.
+    if (settings.dock.thicknessDips == thicknessDips)
+    {
+        return S_FALSE;
+    }
     if (settings.sourceDocument.empty())
     {
         settings.dock.thicknessDips = thicknessDips;
@@ -2260,7 +2335,9 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
         std::string updated = settings.sourceDocument;
         bool raiseMinor = false;
         size_t rootBegin = 0;
-        if (const HRESULT prepared = PrepareDockSourcePatch(updated, kRedXeSettingsDockMinor, raiseMinor, rootBegin);
+        std::unique_ptr<AppSettings> original;
+        if (const HRESULT prepared =
+                PrepareDockSourcePatch(updated, kRedXeSettingsDockMinor, raiseMinor, rootBegin, original);
             FAILED(prepared))
         {
             return prepared;
@@ -2293,9 +2370,10 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
         {
             return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
         }
-        // The patched text is what gets written, so it must parse back to the same dock with the new thickness. A
-        // scanner that read the document differently from the parser would otherwise persist a file the next start
-        // rejects and resets.
+        // The patched text is what gets written, so it must parse back to the running dock with the new thickness, and
+        // to the document it was made from with only that thickness and the raised minor changed. A scanner that read
+        // the document differently from the parser would otherwise persist a file the next start rejects and resets,
+        // or one that changes another member.
         DockSettings expected = settings.dock;
         expected.thicknessDips = thicknessDips;
         std::unique_ptr<AppSettings> patched;
@@ -2303,7 +2381,18 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
         {
             return validated;
         }
-        if (!patched || patched->dock != expected)
+        if (!patched || !original)
+        {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        original->dock.thicknessDips = thicknessDips;
+        if (raiseMinor)
+        {
+            original->versionMinor = kRedXeSettingsDockMinor;
+        }
+        original->sourceDocument.clear();
+        patched->sourceDocument.clear();
+        if (patched->dock != expected || *patched != *original)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -2397,7 +2486,8 @@ HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcep
         std::string updated = source;
         bool raiseMinor = false;
         size_t rootBegin = 0;
-        if (const HRESULT prepared = PrepareDockSourcePatch(updated, requiredMinor, raiseMinor, rootBegin);
+        std::unique_ptr<AppSettings> validated;
+        if (const HRESULT prepared = PrepareDockSourcePatch(updated, requiredMinor, raiseMinor, rootBegin, validated);
             FAILED(prepared))
         {
             return prepared;
@@ -2741,11 +2831,11 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
                 return backupResult;
             }
             result = firstRunDock ? InstallTemplateWithDock(selectedTemplate, settingsPath, *firstRunDock, true)
-                                  : CopyFileAtomically(selectedTemplate, settingsPath, true);
+                                  : InstallTemplateFile(selectedTemplate, settingsPath, true);
             const bool recoveredWithDock = firstRunDock && SUCCEEDED(result);
             if (FAILED(result) && firstRunDock)
             {
-                result = CopyFileAtomically(selectedTemplate, settingsPath, true);
+                result = InstallTemplateFile(selectedTemplate, settingsPath, true);
             }
             if (SUCCEEDED(result))
             {
@@ -2953,8 +3043,10 @@ HRESULT SettingsStore::PersistDockThickness(AppSettings& settings, uint32_t thic
     try
     {
         std::string previousSource = settings.sourceDocument;
+        // S_FALSE from the patch: the thickness is unchanged, so nothing is written, unless an earlier deferred write
+        // still holds changes in memory.
         HRESULT result = PatchDockThickness(settings, thicknessDips);
-        if (SUCCEEDED(result) && !_selfTest && !_suppressDocumentWrites)
+        if ((result == S_OK || (result == S_FALSE && _deferredStamp)) && !_selfTest && !_suppressDocumentWrites)
         {
             result = PersistPatchedDocument(settings);
         }

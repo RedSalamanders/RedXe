@@ -2285,7 +2285,7 @@ void Application::EndDockResize() noexcept
         (void)ReleaseCapture();
     }
     // The dragged size replaces a --dock-thickness pin for the rest of the run, is committed to the shell, and is
-    // written to the settings file so it survives the next launch.
+    // written to the settings file so it survives the next launch (a size the document already has writes nothing).
     _dockOverrides.hasThickness = false;
     (void)PlaceDock(true);
     if (_settings)

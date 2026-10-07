@@ -162,16 +162,20 @@ including `edge` between `none` and an edge, which switches the window kind with
 contract, a factory envelope, or a widget persist. The one host-driven write to an existing document is `dock.thickness`
 after the bar's inner edge is dragged (`PatchDockThickness`): it replaces or adds that member, creates the `dock` object
 when absent, raises `version.minor` to 2 when lower, and uses the same stamp check and atomic replacement as a widget
-persist ("Plugin persist"). The source edit MUST preserve comments, spacing, and every unrelated member, and MUST follow
-the document's layout: a new `dock` is `"dock": { "thickness": N }` on its own line right after `version`, at that
-member's indentation and in the file's own line breaks (where the first-run dock goes); a missing `thickness`, or a
-missing `version.minor`, follows the object's last member, on a new line at its indentation when that member starts
-its own line and otherwise on the same line. A line comment ends at CR or LF, as the parser ends it. The patched text
-MUST parse back to the same `dock` with the new thickness before it is kept or written; otherwise the drag changes
-nothing in the document. A raised source minor is also the typed minor, so a later comment-only reload still matches
-the running settings. Both shipped templates author the current minor and stay at `edge: none`, carrying a
-commented-out `dock` example; a default file installed on a machine without a XENEON adds the first-run dock ("Cold
-load and recovery").
+persist ("Plugin persist"). A release at the thickness the document already has (a click on the edge) MUST NOT patch
+or write the document and returns `S_FALSE`, unless an earlier deferred write is still held in memory, which it then
+writes as an unchanged widget persist does. The source edit MUST preserve comments, spacing, and every unrelated
+member, and MUST follow the document's layout: a new `dock` is `"dock": { "thickness": N }` on its own line right after
+`version`, at that member's indentation and in the file's own line breaks (CRLF, LF, or CR in a file that uses only
+CR), where the first-run dock goes; a comment that ends `version`'s line stays on that line. A missing `thickness`,
+or a missing `version.minor`, follows the object's last member, on a new line at its indentation when that member
+starts its own line and otherwise on the same line; in an empty object whose closing brace starts its own line, it
+gets its own line one level deeper than the brace. A line comment ends at CR or LF, as the parser ends it. The
+patched text MUST parse back to the running `dock` with the new thickness, and to the document it was made from with
+only `dock.thickness` and a raised minor changed, before it is kept or written; otherwise the drag changes nothing in
+the document. A raised source minor is also the typed minor, so a later comment-only reload still matches the running
+settings. Both shipped templates author the current minor and stay at `edge: none`, carrying a commented-out `dock`
+example; a default file installed on a machine without a XENEON adds the first-run dock ("Cold load and recovery").
 
 ### Notification-area icon
 
@@ -291,11 +295,17 @@ or atomic file replacement fails. A later partial save MUST NOT resurrect a reje
 only the affected private object and source text, rather than copying the entire typed dashboard. Once replacement
 commits, failure to query the file stamp MUST NOT report a failed save; clear deduplication state and allow reload.
 
-A document write (a widget persist, a `dock.thickness` drag, or a first-run install) writes a same-directory temporary
-file, MUST flush it to disk (`FlushFileBuffers`) before the write-through rename, and MUST treat a short write as a
-failure, so a power loss right after a save cannot leave the settings name on unwritten or truncated bytes. The flush
-costs about 3 ms per save (median; p95 under 5 ms for a 24 KB document on an NVMe system SSD, measured 2026-10-07) and
-runs only on these writes, never on a frame, idle, or live-reload path.
+A document write (a widget persist, a `dock.thickness` drag, or a template install or recovery, with or without the
+first-run dock) writes a same-directory temporary file, MUST flush it to disk (`FlushFileBuffers`) before the
+write-through rename, and MUST treat a short write as a failure, so a power loss right after a save cannot leave the
+settings name on unwritten or truncated bytes. A failed write MUST NOT leave its temporary file behind. The flush runs
+synchronously on the UI thread, once for each actual document write: the release of a dock drag that changed the
+thickness, a widget persist or queued import that changed the document, collect-on-exit only when the collect changed
+something (including when a page swipe commits, inside that frame's tick), and an install at startup. It never runs
+per frame, while idle, or on a live reload. Measured 2026-10-07 for a 24 KB document on an NVMe system SSD: median
+about 2 ms and p95 under 2.5 ms, but the worst of 3,300 flushes took about 235 ms while parallel builds ran on the
+machine, which a swipe commit shows as a visible hitch. The schema copy, refreshed from the deployed file on every
+start, is not flushed: a schema lost to a power loss is copied again at the next start.
 
 A persist whose merge leaves the stored instance object unchanged (an unchanged collect, a repeated import) MUST NOT
 validate, re-serialize, or write the document: typed settings and the retained source, comments included, stay byte
@@ -369,7 +379,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   deployed default configuration in memory, and writes nothing to that path until a later save of it loads ("Plugin
   persist").
 - If a deployed default cannot be read or validated, startup fails rather than inventing settings.
-- Template/schema installation and recovery use same-directory temporary files and write-through atomic rename.
+- Template/schema installation and recovery use same-directory temporary files and write-through atomic rename; a
+  settings template is written and flushed like any document write ("Plugin persist"), the schema copy is not.
 
 ## Live reload and diagnostics
 
@@ -458,18 +469,23 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   the plain template byte for byte when no dock is offered or the offered dock is refused by the patch, and never writes
   a missing `--settings` file.
 - Tests prove `PatchDockThickness` adds a new `dock` to both shipped templates as one line right after `version` in the
-  template's line breaks; appends a missing `thickness` after the last dock member on its line, before a trailing comma
-  and comment, and on a new line at its indentation; fills an empty `dock` and appends a missing `version.minor`;
-  patches a `dock` that follows a line comment ended by a lone CR in place; and raises the typed minor with the source
-  minor. A dock drag whose write fails restores the typed minor with the thickness and source, and a committed drag
-  leaves the typed minor equal to the file's.
+  template's line breaks, and below a comment that ends `version`'s line, with or without a comma after `version`;
+  appends a missing `thickness` after the last dock member on its line, before a trailing comma and comment, and on a
+  new line at its indentation; fills an empty `dock`, on a line of its own one level deeper when the closing brace
+  starts its own line, and appends a missing `version.minor`; keeps CR line breaks in a CR-only document; patches a
+  `dock` that follows a line comment ended by a lone CR in place; and raises the typed minor with the source minor. A
+  release at the current thickness returns `S_FALSE` and leaves the source and typed minor unchanged, and typed
+  settings whose dock differs from the document's are refused with `ERROR_INVALID_DATA` and leave the source,
+  thickness, and minor unchanged. A dock drag whose write fails restores the typed minor with the thickness and
+  source, and a committed drag leaves the typed minor equal to the file's.
 - Tests prove a partial widget persist merge keeps unspecified members and rejects unknown plugin members.
 - Tests prove the persist write gate: a widget persist or dock drag over a rejected save, a loaded but not yet applied
   save, a deleted file, and a `--settings` file that fell back to the default returns `S_FALSE`, leaves the file bytes
   (or its absence) unchanged, keeps the merge in memory, and raises one deferral notice per on-disk state; a persist
   after the reload is applied writes again, and a repeated persist writes the changes an earlier deferral held once the
-  same file is back. An unchanged widget persist returns `S_FALSE` and leaves typed settings, source, and file bytes,
-  comments included, unchanged.
+  same file is back. An unchanged widget persist and a dock drag released at the current thickness return `S_FALSE`
+  and leave typed settings, source, and file bytes, comments included, unchanged; such a drag still writes a change an
+  earlier deferral held once the same file is back, and then nothing.
 - Tests prove compact/idempotent formatting, inline small objects and long single-path records, multiline sections
   and arrays, fewer lines than fully expanded output, escaped/Unicode paths, named/inline/use-object widget round
   trips, compatible unknown-field retention, and transactional rejection of oversized formatted output.

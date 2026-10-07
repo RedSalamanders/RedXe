@@ -46,7 +46,8 @@ validation, `wil-raii` for files/events/change notifications, `win32-windowing` 
 - `PatchWidgetInstanceSettings` merges supplied members into the stored instance object, validates the complete
   result, and patches `sourceDocument`. It MUST NOT replace unspecified members. A merge that changes nothing returns
   `S_FALSE` and touches neither the typed settings nor the source, so comments survive an unchanged collect.
-  Interactive persist MAY write the user file; `--self-test` keeps the merge in memory.
+  `PatchDockThickness` does the same for a release at the current thickness. Interactive persist MAY write the user
+  file; `--self-test` keeps the merge in memory.
 - `PersistPatchedDocument` writes only while the file's current stamp equals the last applied stamp. A rejected,
   unprocessed, deleted, or unreadable file and a `--settings` fallback keep the patch in memory and return `S_FALSE`
   (never a rollback); the caller logs `settings-persist-deferred` once per on-disk state through
