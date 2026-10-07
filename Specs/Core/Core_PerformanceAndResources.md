@@ -212,8 +212,10 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   `RedXeDataSetFlagDeviceLane` for data sources remains unimplemented.
 - Screenshot capture owns at most one temporary worker and one pending request. The worker waits for the first
   Windows.Graphics.Capture frame; the UI thread continues dispatching messages and its normal frame policy. A second
-  screenshot request while one is pending is ignored, so replacing the worker cannot synchronously join on the UI
-  thread. Completion posts one UI message and releases the worker before the request closes the window.
+  screenshot request while one is pending is refused (`ERROR_BUSY`), so replacing the worker cannot synchronously join
+  on the UI thread. Completion posts one UI message and releases the worker before a `--screenshot` request closes the
+  window; an action request leaves it open. A worker that cannot start ends its request on the same loop turn, so an
+  idle loop never waits for a completion that will not come.
 - Logging and diagnostics must not format or emit per-frame success messages. `IRedXeHost::Log` copies a bounded
   record into a 32-slot 1024-byte ring and wakes one event-blocked writer. The writer appends JSONL under the settings
   sibling `Logs` directory using a UTC-dated file (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`) and

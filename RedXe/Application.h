@@ -13,7 +13,6 @@
 #include "WidgetRaise.h"
 
 #include <array>
-#include <atomic>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -61,15 +60,16 @@ class Application final
     // frame loop, so Run itself carries no test branches.
     int RunSelfTest(std::wstring_view settingsPath = {}) noexcept;
 
-    // Documentation capture for `--screenshot`: Run shows the dashboard normally, jumps to pageId (empty = the
-    // start page) once the renderer is live, waits delayMilliseconds for widgets and services to settle, captures
-    // its own window through Windows.Graphics.Capture into pngPath, and closes. ScreenshotResult reports it.
-    void RequestScreenshot(std::wstring_view pngPath, std::wstring_view pageId, uint32_t delayMilliseconds,
-                           uint32_t widgetOrdinal) noexcept;
-    [[nodiscard]] HRESULT ScreenshotResult() const noexcept
-    {
-        return _screenshot.result;
-    }
+    // Documentation capture for `--screenshot` and the `redxe.screenshot` action: the frame loop jumps to pageId
+    // (empty = the start page) once the renderer is live, waits delayMilliseconds for widgets and services to settle,
+    // and captures its own window through Windows.Graphics.Capture into pngPath. Only closeWhenDone (the command
+    // line) closes the window after the capture; an action capture keeps RedXe running. ERROR_BUSY while another
+    // request is pending.
+    HRESULT RequestScreenshot(std::wstring_view pngPath, std::wstring_view pageId, uint32_t delayMilliseconds,
+                              uint32_t widgetOrdinal, bool closeWhenDone) noexcept;
+    // After Run returns for `--screenshot`: joins a capture worker the closed window left running and returns the
+    // request's result, ERROR_CANCELLED when the run ended before the capture finished.
+    [[nodiscard]] HRESULT FinishScreenshot() noexcept;
     // --dock* command-line overrides, pinned over the document's `dock` object for this process (DockOptions.h).
     // RunSelfTest replaces them with an edge pinned to none: the self-test keeps its hidden titled window.
     void SetDockOverrides(const DockOverrides& overrides) noexcept
@@ -264,9 +264,11 @@ class Application final
     void FlushPendingTransitionStage() noexcept;
     void BeginPageSettle(LONG targetOffset, bool commit) noexcept;
     void TickPageSettle() noexcept;
-    // Advances a `--screenshot` request from the frame loop: jump, wait, capture. Returns true once the capture
-    // has run (successfully or not) so the loop closes the window.
+    // Advances a screenshot request from the frame loop: jump, wait, capture. Returns true once a closeWhenDone
+    // capture has run (successfully or not) so the loop closes the window; an action's capture returns false.
     [[nodiscard]] bool TickScreenshot() noexcept;
+    // Ends the pending request with `result`, logs `screenshot-failed` for a failure, and returns closeWhenDone.
+    bool EndScreenshot(HRESULT result) noexcept;
     HRESULT PromoteTransitionPage() noexcept;
     // Stages the adjacent page in `direction`, or, when targetPageIndex is supplied, that page directly (a host
     // action jump); the direction then only decides which side the staged page slides in from.
@@ -312,8 +314,9 @@ class Application final
     static HRESULT HostActionThunk(void* context, const char* actionUtf8, const char* targetUtf8) noexcept;
     static void HostActionCompletedThunk(void* context) noexcept;
     HRESULT HandleHostAction(std::string_view action, std::string_view target) noexcept;
-    // Shows the host's action publisher notices (namespace collisions, missing or unloadable publishers) in the
-    // settings-error dialog once per change; the dashboard stays active.
+    // Shows the host's action publisher notices (namespace collisions, missing or unloadable publishers) in one
+    // modeless notice window once per change, and closes that window once a change clears them; the dashboard stays
+    // active.
     void ShowActionNotices() noexcept;
     // Slides directly to a non-adjacent page: stages it as the transition page and settles once.
     HRESULT NavigateToPage(uint32_t pageIndex) noexcept;
@@ -358,11 +361,13 @@ class Application final
         // Crop to this widget ordinal on the captured page; UINT32_MAX captures the whole window.
         uint32_t widgetOrdinal = UINT32_MAX;
         bool pending = false;
+        // Set only by the `--screenshot` command line: the window closes once the capture has run.
+        bool closeWhenDone = false;
         bool navigated = false;
-        bool capturing = false;
         bool complete = false;
         ULONGLONG dueTick = 0;
-        HRESULT result = S_OK;
+        // A request that ends before its capture finishes reports this; the capture's own result replaces it.
+        HRESULT result = HRESULT_FROM_WIN32(ERROR_CANCELLED);
     };
     static constexpr UINT_PTR kScreenshotTimerId = 0x5C5;
     // One-shot dwell or hide timer of the autohide dock; at most one is armed and every state exit kills it.
@@ -370,8 +375,10 @@ class Application final
     static constexpr UINT_PTR kDockDashboardResizeTimerId = 0x5C8;
 
     ScreenshotRequest _screenshot{};
+    // Joinable exactly while a capture runs. The worker writes its result before it ends, and the UI thread reads it
+    // only after join(), which orders the two.
     std::jthread _screenshotWorker;
-    std::atomic<HRESULT> _screenshotWorkerResult{S_OK};
+    HRESULT _screenshotWorkerResult = S_OK;
     DockOverrides _dockOverrides{};
     // Effective dock: the document's `dock` with the command-line overrides applied, re-merged on every live reload.
     // `edge` is None for the titled and fullscreen kinds.

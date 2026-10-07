@@ -56,7 +56,8 @@ namespace; every plugin id is a row of `kRedXeBundledPlugins`. Adding a publishe
 configured service, a bound namespace validated on first use) and registers every published namespace. Each row
 below logs one `Error` line (`IRedXeHost::Log`) and appends one bounded notice (at most 8 notices of 256 characters)
 that `Application::ShowActionNotices` shows in one modeless notice window after the next service apply or drained
-action, only while device access is enabled. The dashboard remains enabled and its actions continue to run.
+action, only while device access is enabled; once a change clears every notice, an open notice window closes. The
+dashboard remains enabled and its actions continue to run.
 
 | Condition | Log event | Effect |
 | --- | --- | --- |
@@ -122,7 +123,7 @@ or while the settings error dialog is up returns `ERROR_BUSY` / `E_NOT_VALID_STA
 | --- | --- | --- |
 | `redxe.settings.reload` | None | Forgets the dedup stamps and runs the change path (`OnSettingsChanged`). |
 | `redxe.settings.edit`, `redxe.logs.open` | None | `system.launch` of the settings path / logs directory. |
-| `redxe.screenshot` | Text: `<absolute png path>[@<pageId>[/<ordinal>]]` | `RequestScreenshot` (the `--screenshot` pipeline); a relative path is `E_INVALIDARG`. |
+| `redxe.screenshot` | Text: `<absolute png path>[@<pageId>[/<ordinal>]]` | `RequestScreenshot` (the `--screenshot` pipeline, no delay) without its exit: RedXe MUST keep running after the capture, whatever its result. A relative path is `E_INVALIDARG`; a page that is neither a page id nor a page index, or an ordinal past that page's widget count, is `ERROR_NOT_FOUND` and captures nothing; a request while another capture is pending is `ERROR_BUSY`. A capture that fails logs `screenshot-failed` (`Warning`, `HRESULT`). |
 | `redxe.quit` | Enum `now`, **X** | `CloseMainWindow`. |
 | `redxe.dock.show`, `redxe.dock.hide`, `redxe.dock.toggle` | None | Reveal, collapse, or flip an autohide dock (`Specs/UI/UI_XeneonDisplayWindowing.md` "Autohide"): `show` reveals at once and keeps the bar until another hold appears and clears; `hide` collapses even with the pointer inside but is inert while a raise, capture, dialog, or pending screenshot holds it; `toggle` is `show` when the strip shows, else `hide`. `S_FALSE` (counted, inert) without an autohide dock. |
 
@@ -277,8 +278,9 @@ and power effects are manual-only and MUST NOT be a CI pass condition.
 
 `IRedXeHost::Log`, never per detent: `action-contract-loaded` (Info), `action-contract-invalid`,
 `action-namespace-collision`, `action-namespace-unregistered`, `action-namespace-missing`,
-`action-publisher-unavailable` (Error, once per condition per process), `action-failed` (Debug). A publisher MAY
-log a Warning once per distinct failure.
+`action-publisher-unavailable` (Error, once per condition per process), `action-failed` (Debug),
+`screenshot-failed` (Warning, once per screenshot request that wrote no PNG). A publisher MAY log a Warning once per
+distinct failure.
 
 ## Owner integration
 
@@ -329,3 +331,6 @@ log a Warning once per distinct failure.
   without `icon`, and acceptance of a launch target that is not a path (decision D1).
 - `LogiconTests`, `LauncherTests`, `ZoomTests`: their owning specs. `--self-test` renders both templates with device
   access disabled, so every template binding is validated on every run without a side effect.
+- `--self-test` also runs `redxe.screenshot` against its hidden window: an ordinal past the page is `ERROR_NOT_FOUND`
+  with nothing pending, a second request while one is pending is `ERROR_BUSY`, and the finished capture (refused for
+  the hidden window before any file is written) leaves the window open and nothing pending.

@@ -210,8 +210,8 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         return 2;
     }
     // Documentation capture: --screenshot <png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>] runs
-    // the dashboard, jumps to the page, waits, captures its own window (or one tile), and exits (0 on success, 8
-    // when the capture failed).
+    // the dashboard, jumps to the page, waits, captures its own window (or one tile), and exits (0 with the PNG
+    // written, 8 without it).
     std::wstring_view screenshotPath;
     std::wstring_view screenshotPage;
     std::wstring_view screenshotWidget;
@@ -318,11 +318,13 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             }
             if (!screenshotPath.empty() && !selfTest)
             {
-                application->RequestScreenshot(screenshotPath, screenshotPage, screenshotDelayMilliseconds,
-                                               screenshotWidgetOrdinal);
+                // The first request of the process, so never busy; the window closes once the capture has run.
+                (void)application->RequestScreenshot(screenshotPath, screenshotPage, screenshotDelayMilliseconds,
+                                                     screenshotWidgetOrdinal, true);
             }
             exitCode = selfTest ? application->RunSelfTest(settingsPath) : application->Run(showCommand, settingsPath);
-            if (!screenshotPath.empty() && !selfTest && exitCode == 0 && FAILED(application->ScreenshotResult()))
+            // Exit 8 unless the PNG was written, including a run that ended before its capture finished.
+            if (!screenshotPath.empty() && !selfTest && exitCode == 0 && FAILED(application->FinishScreenshot()))
             {
                 exitCode = 8;
             }

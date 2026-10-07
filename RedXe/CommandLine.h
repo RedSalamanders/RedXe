@@ -86,8 +86,8 @@ inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwi
                            L"Autohide only: pixels that stay visible while hidden, 1 through 64 (default 4).", L"Dock"},
     RedXeCommandLineSwitch{
         RedXeSwitch::Screenshot, L"--screenshot", nullptr, RedXeSwitchValue::Separate, L"<png>",
-        L"Start normally, wait, save the window (or one widget) as PNG, and exit: 0 written, 8 failed.", L"Screenshot",
-        true},
+        L"Start normally, wait, save the window (or one widget) as PNG, and exit: 0 written, 8 not written.",
+        L"Screenshot", true},
     RedXeCommandLineSwitch{RedXeSwitch::Page, L"--page", nullptr, RedXeSwitchValue::Separate, L"<id>",
                            L"Page to show before the capture (default: the first page).", L"Screenshot"},
     RedXeCommandLineSwitch{RedXeSwitch::Widget, L"--widget", nullptr, RedXeSwitchValue::Separate, L"<ordinal>",

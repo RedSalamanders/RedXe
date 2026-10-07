@@ -490,6 +490,26 @@ struct DisplayFriendlyName final
     return count;
 }
 
+// The page a `page.goto` or `redxe.screenshot` target names: a page id, else a 0-based page index. UINT32_MAX when
+// it names no page.
+[[nodiscard]] uint32_t ResolveDashboardPageIndex(const AppSettings& settings, std::string_view target) noexcept
+{
+    for (uint32_t index = 0; index < settings.dashboard.pageCount; ++index)
+    {
+        if (SettingsIdEquals(settings.dashboard.pages[index].id.View(), target))
+        {
+            return index;
+        }
+    }
+    int32_t parsed = 0;
+    if (RedXeActions::ParseInteger(target, 0, 15, parsed) &&
+        static_cast<uint32_t>(parsed) < settings.dashboard.pageCount)
+    {
+        return static_cast<uint32_t>(parsed);
+    }
+    return UINT32_MAX;
+}
+
 [[nodiscard]] bool PluginEnabled(const AppSettings& settings, std::string_view pluginId) noexcept
 {
     const PluginSettings* plugin = FindPluginSettings(settings, pluginId);
@@ -1253,6 +1273,32 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     {
         OutputDebugStringW(L"Invalid settings changed the active typed configuration.\n");
         return 6;
+    }
+
+    // The `redxe.screenshot` action keeps RedXe running: an ordinal past the page's widgets fails it, a second request
+    // while one is pending is busy, and the finished capture leaves the window up with nothing pending.
+    // SaveWindowScreenshot refuses this hidden window before any file I/O, so the path is never written.
+    {
+        constexpr std::string_view capturePath = "C:\\RedXe-self-test\\capture.png";
+        bool keptRunning = HandleHostAction("redxe.screenshot", "C:\\RedXe-self-test\\capture.png@0/511") ==
+                               HRESULT_FROM_WIN32(ERROR_NOT_FOUND) &&
+                           !_screenshot.pending && HandleHostAction("redxe.screenshot", capturePath) == S_OK &&
+                           HandleHostAction("redxe.screenshot", capturePath) == HRESULT_FROM_WIN32(ERROR_BUSY);
+        // The first tick jumps and arms the zero delay; the second starts the capture worker.
+        keptRunning = keptRunning && !TickScreenshot() && !TickScreenshot() && _screenshotWorker.joinable() &&
+                      WaitForSingleObject(_screenshotWorker.native_handle(), 10'000) == WAIT_OBJECT_0;
+        MSG completion{};
+        keptRunning = keptRunning && PeekMessageW(&completion, _window.get(), kScreenshotCompleteMessage,
+                                                  kScreenshotCompleteMessage, PM_REMOVE);
+        if (keptRunning)
+        {
+            (void)DispatchMessageW(&completion);
+        }
+        if (!keptRunning || TickScreenshot() || _screenshot.pending || !_window || SUCCEEDED(_screenshot.result))
+        {
+            OutputDebugStringW(L"The redxe.screenshot action did not keep RedXe running after its capture.\n");
+            return 6;
+        }
     }
     return 0;
 }
@@ -2963,15 +3009,16 @@ void Application::BeginPageSettle(LONG targetOffset, bool commit) noexcept
     _frameInvalidated = true;
 }
 
-void Application::RequestScreenshot(std::wstring_view pngPath, std::wstring_view pageId, uint32_t delayMilliseconds,
-                                    uint32_t widgetOrdinal) noexcept
+HRESULT Application::RequestScreenshot(std::wstring_view pngPath, std::wstring_view pageId, uint32_t delayMilliseconds,
+                                       uint32_t widgetOrdinal, bool closeWhenDone) noexcept
 {
     if (_screenshot.pending)
     {
         // A capture worker may still own the previous request and its HWND. Keep it alive until completion.
-        return;
+        return HRESULT_FROM_WIN32(ERROR_BUSY);
     }
     _screenshot = ScreenshotRequest{};
+    _screenshot.closeWhenDone = closeWhenDone;
     _screenshot.widgetOrdinal = widgetOrdinal;
     _screenshot.path.assign(pngPath);
     if (!pageId.empty())
@@ -2989,6 +3036,36 @@ void Application::RequestScreenshot(std::wstring_view pngPath, std::wstring_view
     _screenshot.pending = true;
     // An autohide dock is held revealed for the capture (the pending request is a hold) so the PNG shows the bar.
     OnDockEvent(DockRevealEvent::Pin);
+    return S_OK;
+}
+
+bool Application::EndScreenshot(HRESULT result) noexcept
+{
+    _screenshot.result = result;
+    _screenshot.pending = false;
+    if (FAILED(result))
+    {
+        OutputDebugStringW(L"Screenshot capture failed.\n");
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                           "screenshot-failed", "The screenshot was not written.", result);
+    }
+    // Clearing `pending` drops the capture's dock hold at the loop's next EvaluateDockHolds.
+    return _screenshot.closeWhenDone;
+}
+
+HRESULT Application::FinishScreenshot() noexcept
+{
+    if (_screenshotWorker.joinable())
+    {
+        // The window closed while the worker captured, so its completion message found no window: its result decides.
+        _screenshotWorker.join();
+        _screenshot.result = _screenshotWorkerResult;
+    }
+    if (_screenshot.pending)
+    {
+        (void)EndScreenshot(_screenshot.result);
+    }
+    return _screenshot.result;
 }
 
 bool Application::TickScreenshot() noexcept
@@ -2999,14 +3076,9 @@ bool Application::TickScreenshot() noexcept
     }
     if (_screenshot.complete)
     {
-        _screenshot.pending = false;
-        if (FAILED(_screenshot.result))
-        {
-            OutputDebugStringW(L"Screenshot capture failed.\n");
-        }
-        return true;
+        return EndScreenshot(_screenshot.result);
     }
-    if (_screenshot.capturing)
+    if (_screenshotWorker.joinable())
     {
         return false;
     }
@@ -3043,16 +3115,13 @@ bool Application::TickScreenshot() noexcept
     {
         if (_screenshot.widgetOrdinal >= _dashboardHost->WidgetCount())
         {
-            _screenshot.result = HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
-            _screenshot.pending = false;
             OutputDebugStringW(L"Screenshot widget ordinal is out of range for the captured page.\n");
-            return true;
+            return EndScreenshot(HRESULT_FROM_WIN32(ERROR_NOT_FOUND));
         }
         crop = _dashboardHost->PixelBoundsAt(_screenshot.widgetOrdinal, static_cast<UINT>(client.right),
                                              static_cast<UINT>(client.bottom));
         cropPointer = &crop;
     }
-    _screenshot.capturing = true;
     try
     {
         const HWND window = _window.get();
@@ -3069,15 +3138,14 @@ bool Application::TickScreenshot() noexcept
                 {
                     CoUninitialize();
                 }
-                _screenshotWorkerResult.store(result, std::memory_order_release);
+                _screenshotWorkerResult = result;
                 (void)PostMessageW(window, kScreenshotCompleteMessage, 0, 0);
             });
     }
     catch (...)
     {
-        _screenshot.capturing = false;
-        _screenshot.result = E_OUTOFMEMORY;
-        _screenshot.complete = true;
+        // No worker will post a completion, and the idle loop may already block: end the request on this turn.
+        return EndScreenshot(E_OUTOFMEMORY);
     }
     return false;
 }
@@ -3458,6 +3526,13 @@ void Application::ShowActionNotices() noexcept
     std::array<wchar_t, PluginHost::kMaximumActionNotices * PluginHost::kActionNoticeCharacters + 64> text{};
     if (host.CopyActionNotices(text.data(), text.size()) == 0)
     {
+        // A changed settings apply cleared every notice (ResetActionPublishers): an open window now shows stale ones.
+        if (_actionNoticeDialog && IsWindow(_actionNoticeDialog))
+        {
+            const HWND dialog = _actionNoticeDialog;
+            _actionNoticeDialog = nullptr;
+            (void)DestroyWindow(dialog);
+        }
         return;
     }
     if (_actionNoticeDialog && IsWindow(_actionNoticeDialog))
@@ -3524,24 +3599,8 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
         }
         if (verb == "goto")
         {
-            uint32_t pageIndex = UINT32_MAX;
-            for (uint32_t index = 0; index < _settings->dashboard.pageCount; ++index)
-            {
-                if (SettingsIdEquals(_settings->dashboard.pages[index].id.View(), target))
-                {
-                    pageIndex = index;
-                    break;
-                }
-            }
+            const uint32_t pageIndex = ResolveDashboardPageIndex(*_settings, target);
             if (pageIndex == UINT32_MAX)
-            {
-                int32_t parsed = 0;
-                if (RedXeActions::ParseInteger(target, 0, 15, parsed))
-                {
-                    pageIndex = static_cast<uint32_t>(parsed);
-                }
-            }
-            if (pageIndex == UINT32_MAX || pageIndex >= _settings->dashboard.pageCount)
             {
                 return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
             }
@@ -3659,6 +3718,14 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
                 widgetOrdinal = static_cast<uint32_t>(parsed);
                 pageId = pageAndWidget.substr(0, slash);
             }
+            // A page that does not exist, or an ordinal past its widgets, fails the action before anything is captured.
+            const uint32_t pageIndex =
+                pageId.empty() ? _settings->dashboard.activePageIndex : ResolveDashboardPageIndex(*_settings, pageId);
+            if (pageIndex >= _settings->dashboard.pageCount ||
+                (widgetOrdinal != UINT32_MAX && widgetOrdinal >= _settings->dashboard.pages[pageIndex].widgetCount))
+            {
+                return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+            }
             std::array<wchar_t, kRedXeMaximumActionTargetBytes + 1> widePath{};
             std::array<wchar_t, 129> widePage{};
             const int pathLength =
@@ -3673,9 +3740,10 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
             {
                 return E_INVALIDARG;
             }
-            RequestScreenshot(std::wstring_view{widePath.data(), static_cast<size_t>(pathLength)},
-                              std::wstring_view{widePage.data(), static_cast<size_t>(pageLength)}, 0, widgetOrdinal);
-            return S_OK;
+            // RedXe keeps running after an action's capture; a press while a capture is pending is ERROR_BUSY.
+            return RequestScreenshot(std::wstring_view{widePath.data(), static_cast<size_t>(pathLength)},
+                                     std::wstring_view{widePage.data(), static_cast<size_t>(pageLength)}, 0,
+                                     widgetOrdinal, false);
         }
         if (verb == "quit")
         {
@@ -5909,14 +5977,10 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         _occlusionStatusChanged = true;
         return 0;
     case kScreenshotCompleteMessage:
-        if (_screenshot.capturing)
+        if (_screenshotWorker.joinable())
         {
-            if (_screenshotWorker.joinable())
-            {
-                _screenshotWorker.join();
-            }
-            _screenshot.result = _screenshotWorkerResult.load(std::memory_order_acquire);
-            _screenshot.capturing = false;
+            _screenshotWorker.join();
+            _screenshot.result = _screenshotWorkerResult;
             _screenshot.complete = true;
         }
         return 0;

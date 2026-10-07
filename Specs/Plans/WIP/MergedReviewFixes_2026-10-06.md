@@ -269,12 +269,12 @@ Check a row when its fix lands, or note why it was dropped.
 ### P2. RedXe exits, freezes, or re-enters at runtime (23)
 
 - [x] `dock-switch#0` (high) `RedXe/Application.cpp:2058`: A live reload that rebuilds the page while the titled window is minimized closes RedXe
-- [ ] `host-hardening#0` (high) `RedXe/Application.cpp:936`: The redxe.screenshot action quits RedXe after the capture, a second press during a capture is dropped but reports S_OK, and a failed capture is not logged
+- [x] `host-hardening#0` (high) `RedXe/Application.cpp:936`: The redxe.screenshot action quits RedXe after the capture, a second press during a capture is dropped but reports S_OK, and a failed capture is not logged
 - [ ] `launch-ui-thread#0` (high) `RedXe/HostActions.cpp:314`: system.launch runs GetFileAttributesW and ShellExecuteExW on the UI thread; a target on an offline share freezes the dashboard for about 42 s
 - [ ] `modal-reentrancy#2` (high) `RedXe/Application.cpp:3597`: A Launcher tile bound to redxe.settings.reload can free the Launcher widget while its own OnPointer is still running
 - [x] `dock-switch#1` (medium) `RedXe/Application.cpp:1784`: A kind switch that fails on the fast (dock-only) reload path exits RedXe and marks the file applied, while the same failure in a full reload rolls back
 - [x] `dock-switch#3` (medium) `RedXe/Application.cpp:2625`: A rolled-back kind switch logs window-kind-changed as if it succeeded, never logs window-kind-switch-failed, and restores the titled window on another monitor
-- [ ] `host-hardening#1` (medium) `RedXe/Main.cpp:325`: --screenshot exits 0 with no PNG when the run ends before the async capture completes, and the worker's real HRESULT is read too late
+- [x] `host-hardening#1` (medium) `RedXe/Main.cpp:325`: --screenshot exits 0 with no PNG when the run ends before the async capture completes, and the worker's real HRESULT is read too late
 - [ ] `host-hardening#2` (medium) `RedXeLauncher/Main.cpp:152`: The launcher does not wait when an argument is unknown, so exit code 2 is lost and the error prints after the prompt; test.ps1 masks it
 - [ ] `launch-ui-thread#1` (medium) `RedXe/PluginHost.cpp:2047`: Queued actions have no age bound, so key injections requested during a UI stall replay into whatever window is foreground afterwards
 - [x] `modal-reentrancy#0` (medium) `RedXe/Application.cpp:5862`: A window-kind switch dispatched inside the titled window's move/size loop is undone when the loop ends: the dock is left at the titled window's rectangle
@@ -285,9 +285,9 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `host-hardening#11` (low) `RedXe/PluginHost.cpp:523`: Exiting with a stuck device lane skips the log drain, so the drain-timeout line can be lost
 - [ ] `host-hardening#12` (low) `RedXe/PluginHost.cpp:2372`: A service re-added while its old device lane is still stuck fails with ERROR_BUSY, the error is discarded, and nothing retries when the lane returns
 - [ ] `host-hardening#13` (low) `RedXe/HostActions.cpp:189`: A held key or button stops being tracked even when its release injection fails, so a modifier can stay down with no retry
-- [ ] `host-hardening#6` (low) `RedXe/Application.cpp:3052`: If the screenshot worker thread cannot start, an idle --screenshot run can hang instead of exiting 8; the capture flags and atomic are redundant
+- [x] `host-hardening#6` (low) `RedXe/Application.cpp:3052`: If the screenshot worker thread cannot start, an idle --screenshot run can hang instead of exiting 8; the capture flags and atomic are redundant
 - [ ] `host-hardening#7` (low) `RedXe/HostActions.cpp:1088`: Every hold longer than 2 s injects its key-ups twice, and the Execute comment describes an exemption that no longer exists
-- [ ] `host-hardening#8` (low) `RedXe/Application.cpp:3435`: An open action-notice window is not closed when its notices are cleared, so it keeps showing stale failures
+- [x] `host-hardening#8` (low) `RedXe/Application.cpp:3435`: An open action-notice window is not closed when its notices are cleared, so it keeps showing stale failures
 - [ ] `launch-ui-thread#2` (low) `Plugins/Actions/Zoom/Zoom.cpp:133`: zoom.open/zoom.join are flagged Deferred but defer only to the UI-thread ring, not a host-owned lane, so the flag gives no relief
 - [ ] `launch-ui-thread#3` (low) `RedXe/Application.cpp:2704`: Tray Edit settings calls ShellExecuteExW with shell UI on the UI thread; an error box or a share-hosted --settings freezes the dashboard
 - [ ] `slide-tray#12` (low) `RedXe/Application.cpp:2704`: Tray 'Edit settings' runs ShellExecuteExW with shell UI on the render thread; an error box freezes the dashboard

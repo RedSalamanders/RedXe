@@ -38,7 +38,7 @@ is never a dialog, because a keypad key is a deliberate control.
 | `redxe.settings.reload` | none | Re-read the settings file now |
 | `redxe.settings.edit` | none | Open the settings file in its default editor |
 | `redxe.logs.open` | none | Open the `Logs` folder |
-| `redxe.screenshot` | `<png path>[@<pageId>[/<ordinal>]]` | Save a screenshot of a page (or one widget) exactly like `--screenshot` |
+| `redxe.screenshot` | `<png path>[@<pageId>[/<ordinal>]]` | Save a screenshot of a page (or one widget) like `--screenshot`, without its delay; RedXe keeps running. A press while a capture is still in progress, or a page or widget that does not exist, is refused and captures nothing; a failed capture is noted in the log as `screenshot-failed` |
 | `redxe.quit` | `now` | Quit RedXe |
 | `redxe.dock.show` | none | Reveal an auto-hiding [dock](usage.md#dock); it stays until you visit it with the mouse and leave, or click it and click elsewhere |
 | `redxe.dock.hide` | none | Collapse the dock to its peek strip (does nothing while a widget is raised or being dragged) |
