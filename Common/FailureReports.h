@@ -12,6 +12,10 @@
 // keeps, and the check ends the process with exit code 3 (the dialog's Abort), with no Windows Error Reporting dialog
 // either: a fail-fast or an abort ends the process quietly too. RedXe.exe --self-test is a test process as well, so the
 // header lives beside the product's shared sources rather than with the test executables.
+//
+// A test process never loses its last lines either. Redirected to a pipe, stdout is fully buffered by the CRT, and a
+// process terminated at its time budget runs no exit code that would flush the buffer: the log would end cases before
+// the one that hung. Both standard streams are therefore unbuffered, so every line is in the pipe once written.
 namespace RedXeFailureReports
 {
 #if defined(_DEBUG)
@@ -28,9 +32,12 @@ inline int __cdecl ReportAndEnd(int reportType, wchar_t* message, int* returnVal
 }
 #endif
 
-// Call first in a test executable's wmain, and in RedXe.exe as soon as --self-test is known: before any check can fail.
+// Call first in a test executable's wmain, and in RedXe.exe as soon as --self-test is known: before any output (a
+// stream's buffering can only change before its first use) and before any check can fail.
 inline void RouteAwayFromDialogs() noexcept
 {
+    static_cast<void>(std::setvbuf(stdout, nullptr, _IONBF, 0));
+    static_cast<void>(std::setvbuf(stderr, nullptr, _IONBF, 0));
     static_cast<void>(_set_abort_behavior(0u, _WRITE_ABORT_MSG | _CALL_REPORTFAULT));
     static_cast<void>(SetErrorMode(GetErrorMode() | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX));
 #if defined(_DEBUG)

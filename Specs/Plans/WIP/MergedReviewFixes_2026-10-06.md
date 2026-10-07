@@ -356,11 +356,11 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `dxui-restore#7` (medium) `Common/FailureReports.h:24`: ReportAndEnd writes through fputws on a narrow "C"-locale stderr, so a report whose path contains a character above U+00FF is cut off and the routing check fails
 - [ ] `dxui-restore#8` (medium, disputed) `Tests/PluginContractTests/PluginContract.Tests.Runner.cpp:2566`: PluginContractTests passes on any failing HRESULT whose low byte is 0x00
 - [ ] `dxui-rev3#0` (medium) `Build/DxUiRestore.psm1:72`: Pin restore treats any existing source/<commit> folder as restored, and vcpkg-install runs DxUi modules from it before anything checks it
-- [ ] `process-containment#0` (medium) `Build/BuildPresentation.psm1:806`: Timeout budget is never enforced while a bounded child keeps writing output (1 ms floor on the remaining wait)
-- [ ] `process-containment#12` (medium) `Common/FailureReports.h:32`: A budget kill drops the hung test's own buffered stdout, so the log cannot say which case hung (10 of 12 test executables)
-- [ ] `process-containment#2` (medium) `Build/BuildPresentation.psm1:861`: If the log writer's Dispose throws in the finally block, the job is never disposed, so kill-on-close never runs and an orphaned child can block
-- [ ] `process-containment#5` (medium) `Build/BuildPresentation.psm1:776`: Pressing Ctrl+C during build.ps1 in Windows Terminal leaves MSBuild building silently in the background
-- [ ] `process-containment#7` (medium) `Build/BuildPresentation.psm1:501`: Nothing enforces the rename-on-change rule for the compiled launcher type: a session that already compiled it keeps stale code, and Test-Changes can save a passing receipt for code that never ran
+- [x] `process-containment#0` (medium) `Build/BuildPresentation.psm1:806`: Timeout budget is never enforced while a bounded child keeps writing output (1 ms floor on the remaining wait)
+- [x] `process-containment#12` (medium) `Common/FailureReports.h:32`: A budget kill drops the hung test's own buffered stdout, so the log cannot say which case hung (10 of 12 test executables)
+- [x] `process-containment#2` (medium) `Build/BuildPresentation.psm1:861`: If the log writer's Dispose throws in the finally block, the job is never disposed, so kill-on-close never runs and an orphaned child can block
+- [x] `process-containment#5` (medium) `Build/BuildPresentation.psm1:776`: Pressing Ctrl+C during build.ps1 in Windows Terminal leaves MSBuild building silently in the background
+- [x] `process-containment#7` (medium) `Build/BuildPresentation.psm1:501`: Nothing enforces the rename-on-change rule for the compiled launcher type: a session that already compiled it keeps stale code, and Test-Changes can save a passing receipt for code that never ran
 - [ ] `scoped-testing#1` (medium) `Test-Changes.ps1:81`: Commit-count build number is outside the evidence identity: every commit invalidates all native receipts, and SkipBuild after a commit passes attestation and then fails with a misleading version error (spec claims the opposite)
 - [ ] `scoped-testing#2` (medium) `Build/ScopedTesting.psm1:7`: Git output is decoded with the console code page, so non-ASCII paths silently drop out of the source identity, the build attestation and the test inventory
 - [ ] `scoped-testing#4` (medium) `test.ps1:47`: Plain test.ps1 exits 0 without building or testing when there is no merge-base diff, docs still call it full validation, and it now fails without Git
@@ -382,13 +382,13 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `dxui-restore#5` (low) `Common/FailureReports.h:32`: RouteAwayFromDialogs leaves the standard C assert() message box in place for the GUI-subsystem RedXe.exe
 - [ ] `dxui-restore#9` (low) `Plugins/AVControl/BrokerMain.cpp:353`: AVControlBroker.exe, which AVControlTests starts, does not route failed checks, so a Debug check in it still opens a dialog
 - [ ] `dxui-rev3#1` (low) `Build/DxUiUpdate.psm1:26`: Update-DxUi.ps1 picks a DxUi main commit without checking its API revision, so a revision bump produces a lock every build rejects
-- [ ] `process-containment#1` (low) `Build/BuildPresentation.psm1:773`: The budget uses the wall clock (DateTime.UtcNow), so a clock step can cut it short or stretch it
-- [ ] `process-containment#13` (low) `Build/BuildPresentation.psm1:749`: On timeout the helper stops reading before it terminates the job, so output already in the pipes and a trailing partial line are dropped
-- [ ] `process-containment#14` (low) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:3498`: The FlushLog early return cannot bound a hung writer: ~PluginHost then joins the log worker with no limit
-- [ ] `process-containment#15` (low) `test.ps1:327`: A HostPlugin or HostSmoke timeout shows none of the child's output on the console, not even the tails the PR relies on
-- [ ] `process-containment#3` (low) `Build/BuildPresentation.psm1:747`: Kill-on-close job is created outside the try/finally that disposes it and leaks if creating the log directory fails
-- [ ] `process-containment#4` (low) `Build/BuildPresentation.psm1:807`: Ctrl+C has no effect while a bounded test executable is silent, for up to its 15-minute budget
-- [ ] `process-containment#6` (low) `Build/BuildPresentation.psm1:751`: When the child has exited but a descendant still holds its pipe, the helper waits out the whole budget and then reports the child as hung
+- [x] `process-containment#1` (low) `Build/BuildPresentation.psm1:773`: The budget uses the wall clock (DateTime.UtcNow), so a clock step can cut it short or stretch it
+- [x] `process-containment#13` (low) `Build/BuildPresentation.psm1:749`: On timeout the helper stops reading before it terminates the job, so output already in the pipes and a trailing partial line are dropped
+- [x] `process-containment#14` (low) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:3498`: The FlushLog early return cannot bound a hung writer: ~PluginHost then joins the log worker with no limit
+- [x] `process-containment#15` (low) `test.ps1:327`: A HostPlugin or HostSmoke timeout shows none of the child's output on the console, not even the tails the PR relies on
+- [x] `process-containment#3` (low) `Build/BuildPresentation.psm1:747`: Kill-on-close job is created outside the try/finally that disposes it and leaks if creating the log directory fails
+- [x] `process-containment#4` (low) `Build/BuildPresentation.psm1:807`: Ctrl+C has no effect while a bounded test executable is silent, for up to its 15-minute budget
+- [x] `process-containment#6` (low) `Build/BuildPresentation.psm1:751`: When the child has exited but a descendant still holds its pipe, the helper waits out the whole budget and then reports the child as hung
 - [ ] `scoped-testing#10` (low) `Build/ScopedTesting.psm1:242`: PR delegation does not check the base/merge-tree workflow equivalence the accepted plan requires
 - [ ] `scoped-testing#11` (low) `Test-Changes.ps1:44`: Test-Changes -Scopes does not split comma lists under pwsh -File, unlike test.ps1 -Suites
 - [ ] `scoped-testing#12` (low) `Tests/test-scopes.json:266`: Rules for test-project folders send a test .vcxproj edit only to its own suite, though all projects build into one shared output folder
@@ -404,7 +404,7 @@ Check a row when its fix lands, or note why it was dropped.
 - [ ] `scoped-testing#9` (low) `Test-Changes.ps1:74`: Default test.ps1 on an ARM64 host now throws instead of running x64 tests; the two entrypoints disagree about the same profile
 - [ ] `studioclock#1` (low) `Build/DxUiProvenance.psm1:18`: DxUi provenance no longer binds the recorded build identity to the archive it hashes, and repeats path logic owned elsewhere
 - [ ] `studioclock#2` (low) `restore-dxui.ps1:27`: DxUi restore never removes old output roots; #22's switch to 16-digit folder names orphaned every existing 64-digit root
-- [ ] `tests#10` (low) `Build/BuildPresentation.psm1:752`: Streaming helper timeout path neither waits for the job's processes to exit nor drains buffered output; the stall fixture's immediate survivor scan and log check can fail spuriously
+- [x] `tests#10` (low) `Build/BuildPresentation.psm1:752`: Streaming helper timeout path neither waits for the job's processes to exit nor drains buffered output; the stall fixture's immediate survivor scan and log check can fail spuriously
 - [ ] `tests#14` (low) `test.ps1:405`: test.ps1 still runs six RedXe/launcher processes with unbounded Start-Process -Wait despite the bounded-process policy
 - [ ] `tests#15` (low) `Tests/BuildProcessTests/ScopedTesting.Tests.ps1:19`: Tooling-test fixture repositories inherit the developer's global Git config (commit signing, hooks)
 - [ ] `tests#20` (low) `test.ps1:349`: HostSmoke self-test log stays empty on failure, and its exit codes collide with the failure-report code 3

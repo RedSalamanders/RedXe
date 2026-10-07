@@ -495,16 +495,16 @@ function Set-RedXeProcessArguments {
 # every process it starts end together: Terminate() at a budget, and Dispose() (the last handle closing) for whatever
 # is left. Start() creates the child suspended and resumes it only once it belongs to the job, so no process the child
 # creates can come into being outside the job. Nothing launched independently can be in this job.
-# A session cannot unload a compiled type: rename the classes whenever this definition changes, or a session that
-# loaded the previous one keeps using it.
-function New-RedXeContainmentJob {
-    if (-not ('RedXe.Build.ContainmentJob' -as [type])) {
-        Add-Type -TypeDefinition @'
+# A session cannot unload a compiled type, so the namespace carries a digest of this source: an edited definition
+# compiles under new type names, and a session that loaded an earlier one never keeps running it.
+$script:ContainmentJobSource = @'
 using System;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using Microsoft.Win32.SafeHandles;
 namespace RedXe.Build
 {
@@ -518,6 +518,8 @@ namespace RedXe.Build
         static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool QueryInformationJobObject(IntPtr job, int infoClass, out BasicAccounting info, int size, IntPtr returnLength);
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern bool CloseHandle(IntPtr handle);
         [DllImport("kernel32.dll", SetLastError = true)]
@@ -544,6 +546,12 @@ namespace RedXe.Build
             public UIntPtr Affinity; public uint PriorityClass; public uint SchedulingClass;
         }
         [StructLayout(LayoutKind.Sequential)]
+        struct BasicAccounting
+        {
+            public long TotalUserTime, TotalKernelTime, ThisPeriodTotalUserTime, ThisPeriodTotalKernelTime;
+            public uint TotalPageFaultCount, TotalProcesses, ActiveProcesses, TotalTerminatedProcesses;
+        }
+        [StructLayout(LayoutKind.Sequential)]
         struct IoCounters { public ulong Read, Write, Other, ReadBytes, WriteBytes, OtherBytes; }
         [StructLayout(LayoutKind.Sequential)]
         struct ExtendedLimits
@@ -560,7 +568,7 @@ namespace RedXe.Build
         }
         [StructLayout(LayoutKind.Sequential)]
         struct ProcessInformation { public IntPtr hProcess, hThread; public int dwProcessId, dwThreadId; }
-        const int JobObjectExtendedLimitInformation = 9;
+        const int JobObjectBasicAccountingInformation = 1, JobObjectExtendedLimitInformation = 9;
         const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
         const uint HANDLE_FLAG_INHERIT = 0x1;
         const int STD_INPUT_HANDLE = -10;
@@ -654,6 +662,22 @@ namespace RedXe.Build
         {
             if (handle != IntPtr.Zero) TerminateJobObject(handle, 0xFFFFFFFF);
         }
+        // TerminateJobObject only starts the termination. True once no process of the job is left, false if the
+        // timeout passes first. It runs only after a termination, where the wait is short, so it checks every 10 ms.
+        public bool WaitUntilEmpty(int milliseconds)
+        {
+            var clock = Stopwatch.StartNew();
+            for (;;)
+            {
+                BasicAccounting info;
+                if (!QueryInformationJobObject(handle, JobObjectBasicAccountingInformation, out info,
+                    Marshal.SizeOf(typeof(BasicAccounting)), IntPtr.Zero))
+                    throw new Win32Exception();
+                if (info.ActiveProcesses == 0) return true;
+                if (clock.ElapsedMilliseconds >= milliseconds) return false;
+                Thread.Sleep(10);
+            }
+        }
         public void Dispose()
         {
             if (handle != IntPtr.Zero) { CloseHandle(handle); handle = IntPtr.Zero; }
@@ -713,8 +737,16 @@ namespace RedXe.Build
     }
 }
 '@
+$script:ContainmentJobNamespace = 'RedXe.Build.V' + (Get-FileHash -Algorithm SHA256 -InputStream (
+    [IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes($script:ContainmentJobSource)))).Hash.Substring(0, 16)
+
+function New-RedXeContainmentJob {
+    $typeName = "$script:ContainmentJobNamespace.ContainmentJob"
+    if (-not ($typeName -as [type])) {
+        Add-Type -TypeDefinition $script:ContainmentJobSource.Replace(
+            'namespace RedXe.Build', "namespace $script:ContainmentJobNamespace")
     }
-    return [RedXe.Build.ContainmentJob]::new()
+    return New-Object -TypeName $typeName
 }
 
 function Invoke-RedXeStreamingProcess {
@@ -732,45 +764,48 @@ function Invoke-RedXeStreamingProcess {
 
         [scriptblock] $OutputLineCallback,
 
-        # Total wall-clock budget for the child, counted from its start. When it runs out, the child and every
+        # Total budget for the child, counted from its start on a monotonic clock. When it runs out, the child and every
         # process it started are terminated (they are descendants of this invocation, never an independently launched
-        # process) and the call throws, naming the executable and the log. Zero keeps the wait unbounded, as build.ps1
-        # needs.
+        # process) and the call throws, naming the executable and the log. A child that has exited while a process it
+        # started still holds its output open is ended the same way after a short grace, and the call says so. Zero
+        # keeps the wait unbounded, as build.ps1 needs.
         [ValidateRange(0, 86400)]
         [int] $TimeoutSeconds = 0
     )
 
     $resolvedLogPath = [IO.Path]::GetFullPath($LogPath)
-    # A bounded child is started by a job object with kill-on-close and belongs to it before it runs, so the whole
-    # tree is contained: a descendant that inherited the redirected pipe and outlived the child is still terminated
-    # at the budget and when this call returns.
-    $job = if ($TimeoutSeconds -gt 0) { New-RedXeContainmentJob } else { $null }
-    $deadline = $null
-    $stopChildOnTimeout = {
-        param($Child, [IO.StreamWriter] $Writer)
-        $message = "'$FilePath' did not finish within $TimeoutSeconds s and was terminated with its child processes (log: $resolvedLogPath)."
-        $job.Terminate()
-        try { [void] $Child.WaitForExit(10000) } catch { }
-        if ($Writer) { $Writer.WriteLine("TIMEOUT: $message") }
-        throw $message
-    }
     $logDirectory = Split-Path -Parent $resolvedLogPath
     if (-not [string]::IsNullOrWhiteSpace($logDirectory)) {
         [void](New-Item -ItemType Directory -Path $logDirectory -Force)
     }
+    # Every wait is sliced: PowerShell acts on Ctrl+C only between statements, never inside a .NET wait, so a single
+    # wait on a silent child would hold the stop for the rest of its budget, or for good without one.
+    $waitSliceMilliseconds = 500
+    $budgetMilliseconds = [long] $TimeoutSeconds * 1000
+    # How long an exited bounded child may leave its output open to a process it started, and how long a terminated
+    # tree's pipes may take to deliver what is left in them.
+    $exitGraceMilliseconds = 10000
+    $drainMilliseconds = 5000
+    $hungMessage = "'$FilePath' did not finish within $TimeoutSeconds s and was terminated with its child processes (log: $resolvedLogPath)."
 
+    $job = $null
     $process = $null
     $logWriter = $null
     try {
         $encoding = [Text.UTF8Encoding]::new($false)
         $logWriter = [IO.StreamWriter]::new($resolvedLogPath, $false, $encoding)
 
-        if ($job) {
+        $budgetClock = $null
+        if ($TimeoutSeconds -gt 0) {
+            # A bounded child is started by a job object with kill-on-close and belongs to it before it runs, so the
+            # whole tree is contained: a descendant that inherited the redirected pipe and outlived the child is still
+            # terminated at the budget and when this call returns.
+            $job = New-RedXeContainmentJob
             $process = $job.Start($FilePath, (ConvertTo-RedXeProcessCommandLine -Arguments $Arguments), $WorkingDirectory)
             # The budget is the child's, so it starts once the child runs. The first bounded call in a session
             # compiles the job type above, which took over a second on a loaded machine, and neither that nor a slow
-            # process creation may come out of the child's time.
-            $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+            # process creation may come out of the child's time. A change of the system time moves neither end.
+            $budgetClock = [Diagnostics.Stopwatch]::StartNew()
         }
         else {
             $startInfo = [Diagnostics.ProcessStartInfo]::new()
@@ -792,6 +827,9 @@ function Invoke-RedXeStreamingProcess {
         $standardErrorOpen = $true
         $standardOutputTask = $process.StandardOutput.ReadLineAsync()
         $standardErrorTask = $process.StandardError.ReadLineAsync()
+        $failure = $null
+        $drainClock = $null
+        $childExitedAt = -1
 
         while ($standardOutputOpen -or $standardErrorOpen) {
             $pendingTasks = [Collections.Generic.List[Threading.Tasks.Task[string]]]::new()
@@ -802,70 +840,120 @@ function Invoke-RedXeStreamingProcess {
                 [void] $pendingTasks.Add($standardErrorTask)
             }
 
-            if ($deadline) {
-                $remaining = [int] [Math]::Max(1, [Math]::Min([int]::MaxValue, ($deadline - [DateTime]::UtcNow).TotalMilliseconds))
-                $completedIndex = [Threading.Tasks.Task]::WaitAny($pendingTasks.ToArray(), $remaining)
-                if ($completedIndex -lt 0) {
-                    & $stopChildOnTimeout $process $logWriter
-                }
-            }
-            else {
-                $completedIndex = [Threading.Tasks.Task]::WaitAny($pendingTasks.ToArray())
-            }
-            $completedTask = $pendingTasks[$completedIndex]
-            $isError = $standardErrorOpen -and
-                [object]::ReferenceEquals($completedTask, $standardErrorTask)
-            $line = $completedTask.GetAwaiter().GetResult()
+            # -1 when a slice passes without a line; the pending reads stay armed for the next pass.
+            $completedIndex = [Threading.Tasks.Task]::WaitAny($pendingTasks.ToArray(), $waitSliceMilliseconds)
+            if ($completedIndex -ge 0) {
+                $completedTask = $pendingTasks[$completedIndex]
+                $isError = $standardErrorOpen -and
+                    [object]::ReferenceEquals($completedTask, $standardErrorTask)
+                $line = $completedTask.GetAwaiter().GetResult()
 
-            if ($null -eq $line) {
-                if ($isError) {
-                    $standardErrorOpen = $false
+                if ($null -eq $line) {
+                    if ($isError) {
+                        $standardErrorOpen = $false
+                    }
+                    else {
+                        $standardOutputOpen = $false
+                    }
                 }
                 else {
-                    $standardOutputOpen = $false
+                    $logWriter.WriteLine($line)
+                    if ($OutputLineCallback) {
+                        & $OutputLineCallback $line $isError
+                    }
+                    else {
+                        Write-Host $line
+                    }
+
+                    if ($isError) {
+                        $standardErrorTask = $process.StandardError.ReadLineAsync()
+                    }
+                    else {
+                        $standardOutputTask = $process.StandardOutput.ReadLineAsync()
+                    }
                 }
-                continue
             }
 
-            $logWriter.WriteLine($line)
-            if ($OutputLineCallback) {
-                & $OutputLineCallback $line $isError
+            if ($drainClock) {
+                # Once the tree is terminated, its pipes deliver what is left in them, a last line without a newline
+                # included, and then end.
+                if ($drainClock.ElapsedMilliseconds -ge $drainMilliseconds) {
+                    break
+                }
             }
-            else {
-                Write-Host $line
-            }
-
-            if ($isError) {
-                $standardErrorTask = $process.StandardError.ReadLineAsync()
-            }
-            else {
-                $standardOutputTask = $process.StandardOutput.ReadLineAsync()
+            elseif ($budgetClock) {
+                # Checked on every pass, a line or not, so a child that never stops writing cannot outrun its budget.
+                # Once the child has exited, the grace applies instead: what it left in the pipes is no hang.
+                $elapsed = $budgetClock.ElapsedMilliseconds
+                if ($childExitedAt -lt 0 -and $process.HasExited) {
+                    $childExitedAt = $elapsed
+                }
+                if ($childExitedAt -ge 0) {
+                    if ($elapsed - $childExitedAt -ge $exitGraceMilliseconds) {
+                        $failure = "'$FilePath' exited with code $($process.ExitCode), but a process it started kept its output open and was terminated with its own child processes (log: $resolvedLogPath)."
+                    }
+                }
+                elseif ($elapsed -ge $budgetMilliseconds) {
+                    $failure = $hungMessage
+                }
+                if ($null -ne $failure) {
+                    $job.Terminate()
+                    $drainClock = [Diagnostics.Stopwatch]::StartNew()
+                }
             }
         }
 
-        if ($deadline) {
-            $remaining = [int] [Math]::Max(1, [Math]::Min([int]::MaxValue, ($deadline - [DateTime]::UtcNow).TotalMilliseconds))
-            if (-not $process.WaitForExit($remaining)) {
-                & $stopChildOnTimeout $process $logWriter
+        if ($null -eq $failure) {
+            # Both streams have ended, but the child itself may still run.
+            while (-not $process.WaitForExit($waitSliceMilliseconds)) {
+                if ($budgetClock -and $budgetClock.ElapsedMilliseconds -ge $budgetMilliseconds) {
+                    $failure = $hungMessage
+                    $job.Terminate()
+                    break
+                }
             }
         }
-        else {
-            $process.WaitForExit()
+        if ($null -ne $failure) {
+            # The call throws only once no process of the tree is left, so a caller that looks for survivors right
+            # away finds none.
+            try { [void] $job.WaitUntilEmpty(5000) } catch { }
+            $logWriter.WriteLine("TIMEOUT: $failure")
+            throw $failure
         }
         $exitCode = [int] $process.ExitCode
         $global:LASTEXITCODE = $exitCode
         return $exitCode
     }
     finally {
-        if ($logWriter) {
-            $logWriter.Dispose()
+        # Nested, so a disposal that throws never skips the next one. The job goes last: closing its last handle kills
+        # whatever the tree still runs (kill-on-close).
+        try {
+            if ($logWriter) {
+                $logWriter.Dispose()
+            }
         }
-        if ($process) {
-            $process.Dispose()
-        }
-        if ($job) {
-            # Closing the last handle kills whatever the tree still runs (kill-on-close).
-            $job.Dispose()
+        finally {
+            try {
+                if ($process) {
+                    # An unbounded child has no job. A stop (Ctrl+C) or an error before it exited ends its tree here,
+                    # or MSBuild would go on building unseen. After a normal exit its descendants are left alone, as
+                    # MSBuild's reusable nodes must be.
+                    if ($process -is [Diagnostics.Process]) {
+                        try {
+                            if (-not $process.HasExited) {
+                                $process.Kill($true)
+                            }
+                        }
+                        catch { }
+                    }
+                    $process.Dispose()
+                }
+            }
+            finally {
+                if ($job) {
+                    $job.Dispose()
+                }
+            }
         }
     }
 }

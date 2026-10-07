@@ -60,6 +60,11 @@ A test process never waits on a dialog. Every native test executable calls `Comm
 - `test.ps1` runs `RedXe.exe --self-test --warp` bounded by the same budget as the test executables and keeps its
   output in `.build/<Platform>/<Configuration>/RedXe.self-test.log`.
 - A new test executable calls the header first, so an unattended run on a developer's desktop never holds a dialog.
+- The header also makes stdout and stderr unbuffered. A process terminated at its budget runs no exit code that would
+  flush a CRT buffer, so every line a test process wrote MUST already be in the pipe, and its log names the case that
+  hung rather than ending at a 4 KB buffer boundary several cases earlier. `test.ps1` runs
+  `PluginContractTests.exe --unbuffered-output-self-test`, a hidden switch that writes a line and terminates its own
+  process, and requires that line in the log.
 
 `build.ps1` MUST begin with the framed RedXe product banner and identify the selected platform and configuration. The
 banner MUST color-split RED from XE on color hosts and MUST include the XENEON EDGE build-signal tagline. In a plain
@@ -79,12 +84,40 @@ its process tree (a descendant of the invocation, never an independently launche
 suspended and joins the kill-on-close job before its first instruction runs, so nothing it starts can escape the job;
 an unbounded one starts through `Process.Start`, and both paths quote arguments, keep stream identity, propagate the
 exit code, and decode output alike. The survivor check follows parent processes, so a descendant that carries no
-marker (`ping.exe`) still counts. The budget is counted from
-the child's start, so the helper's own setup (compiling its job type on first use) never shortens it. The stall
-fixture proves containment only once its child has started the pipe-holding grandchild and exited: a run that did not
-get that far inside the budget is inconclusive and is repeated once with a longer budget, and a line the child wrote
-that is missing from the log fails. `build.ps1` keeps the unbounded default; `test.ps1` applies a fifteen-minute
-budget to every standalone test executable.
+marker (`ping.exe`) still counts. `build.ps1` keeps the unbounded default; `test.ps1` applies a fifteen-minute
+budget to every standalone test executable, and shows the HostPlugin and HostSmoke log tails, which never stream to
+the console, for a run ended at its budget as well as for a failing exit code.
+
+`Invoke-RedXeStreamingProcess` MUST also hold to the following. `BuildProcessTests.ps1` covers a child that never
+stops writing, the exit grace with a drained last line, a stop of a silent child with and without a budget (stopped
+within seconds, no survivor), and an edited launcher definition imported into a session that compiled the original.
+
+- The budget is counted on a monotonic clock from the child's start, so neither the helper's own setup (compiling its
+  job type on first use) nor a change of the system time moves it. It is checked on every pass of the read loop, so a
+  child that never stops writing is terminated at its budget like a silent one.
+- A bounded child that has exited while a process it started still holds its output open is terminated with that
+  tree ten seconds after its exit, not left to its budget, and the call reports the child's exit code and that a
+  process it started kept its output open, instead of a child that did not finish. Once the child has exited only this
+  grace applies, so output it left in the pipes as its budget ran out is read, never taken for a hang.
+- After a termination the helper drains both pipes, for at most five seconds, so output already written, a last line
+  without a newline included, reaches the log and the callback before the `TIMEOUT:` record. The call throws only once
+  no process of the job is left (or after five more seconds), so a caller that looks for survivors finds none.
+- Every wait is sliced to at most half a second, because PowerShell honors Ctrl+C (a pipeline stop) only between
+  statements: a stop takes effect within a slice whether or not the child writes. On a stop or an error before the
+  child exited, the job ends a bounded child's tree and an unbounded child's tree is killed, so `build.ps1`'s MSBuild
+  does not go on building unseen. An unbounded child that exited normally keeps its descendants, such as MSBuild's
+  reusable nodes. Closing the terminal itself can end PowerShell before this cleanup runs.
+- Every disposal runs even when an earlier one throws, and the job, whose last handle kills what the tree still runs,
+  is created inside the guarded block and disposed last.
+- The compiled launcher's type names carry a digest of its C# source. A session cannot unload a compiled type, so an
+  edited definition compiles under new names and a session that loaded an earlier one never runs stale code (nor
+  records test evidence for it).
+
+The stall fixture is the hardest containment shape: its child starts a grandchild that inherits the redirected pipe
+and exits, so the pipe never reaches end of file and only job containment can reach the survivor. Its budget leaves
+the child ample time to get that far on a loaded machine, and the child marks that it did, so the run MUST end on the
+exit grace well before the budget, report the exited child, keep every line the child wrote (the last one without a
+newline) in the log, and leave no survivor.
 
 Changes to this contract require:
 

@@ -173,6 +173,15 @@ elseif ($failureReportExit -ne 3 -or $failureReportText -notmatch 'fails this ch
     throw "A failed runtime check must end the run with its report and exit code 3 (it exited $failureReportExit): $failureReportLog"
 }
 Write-Host "PASS test failure-report routing (exit $failureReportExit): $failureReportLog"
+# The same header leaves stdout unbuffered: a line written just before the process is terminated, as a budget ends a
+# hung run, must be in the log, so the log names the case that hung.
+$unbufferedLog = Join-Path $repoRoot ".build\logs\unbuffered-output-$Platform-$($Configuration -replace ' ', '')-$([guid]::NewGuid().ToString('N')).log"
+$unbufferedExit = Invoke-RedXeStreamingProcess -FilePath $contractTests -Arguments @('--unbuffered-output-self-test') `
+    -WorkingDirectory $repoRoot -TimeoutSeconds 120 -LogPath $unbufferedLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+if ($unbufferedExit -ne 0 -or (Get-Content -LiteralPath $unbufferedLog -Raw) -notmatch 'Unbuffered output reaches the log') {
+    throw "A line written before the process was terminated is missing from its log (exit $unbufferedExit): $unbufferedLog"
+}
+Write-Host "PASS unbuffered test output: $unbufferedLog"
 Write-Host 'Running plugin ABI and rendering-interface contract tests...' -ForegroundColor Cyan
 $contractProcess = Invoke-RedXeStreamingProcess -FilePath $contractTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath ($contractTests + '.log')
 if ($contractProcess -ne 0) {
@@ -321,7 +330,10 @@ Write-Host 'Running production host and plugin integration tests...' -Foreground
 $hostPluginLog = Join-Path $repoRoot ".build\$Platform\$Configuration\HostPluginTests.log"
 $hostPluginErrors = Join-Path $repoRoot ".build\$Platform\$Configuration\HostPluginTests.stderr.log"
 # Both streams are captured (stderr also on its own, for the failure summary) under the same budget as the others.
+# Nothing streams to the console, so the tails are shown for a run ended at its budget as well as for a failing one,
+# once the stderr writer is closed.
 $hostPluginErrorWriter = [IO.StreamWriter]::new($hostPluginErrors, $false, [Text.UTF8Encoding]::new($false))
+$hostPluginFailure = $null
 try {
     $hostPluginExit = Invoke-RedXeStreamingProcess -FilePath $hostPluginTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds `
         -LogPath $hostPluginLog -OutputLineCallback {
@@ -329,10 +341,12 @@ try {
             if ($IsError) { $hostPluginErrorWriter.WriteLine($Line) }
         }
 }
+catch { $hostPluginFailure = $_ }
 finally { $hostPluginErrorWriter.Dispose() }
-if ($hostPluginExit -ne 0) {
+if ($hostPluginFailure -or $hostPluginExit -ne 0) {
     Get-Content -LiteralPath $hostPluginLog -Tail 80
     Get-Content -LiteralPath $hostPluginErrors -Tail 40
+    if ($hostPluginFailure) { throw $hostPluginFailure }
     throw "Host/plugin integration tests failed with exit code $hostPluginExit."
 }
 Write-Host "Host integration log: $hostPluginLog" -ForegroundColor DarkGray
@@ -346,10 +360,16 @@ Write-Host 'Running hidden Direct3D 11 WARP smoke test...' -ForegroundColor Cyan
 # Common/FailureReports.h, so such a check ends the run with its report in this log and exit code 3, never a dialog.
 # The self-test's window stays hidden: its first ShowWindow is SW_HIDE, whatever the start information says.
 $smokeLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.self-test.log"
-$smokeExit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments @('--self-test', '--warp') -WorkingDirectory $repoRoot `
-    -TimeoutSeconds $testTimeoutSeconds -LogPath $smokeLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
-if ($smokeExit -ne 0) {
+# Nothing streams to the console, so the tail is shown for a run ended at its budget as well as for a failing one.
+$smokeFailure = $null
+try {
+    $smokeExit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments @('--self-test', '--warp') -WorkingDirectory $repoRoot `
+        -TimeoutSeconds $testTimeoutSeconds -LogPath $smokeLog -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+}
+catch { $smokeFailure = $_ }
+if ($smokeFailure -or $smokeExit -ne 0) {
     Get-Content -LiteralPath $smokeLog -Tail 40
+    if ($smokeFailure) { throw $smokeFailure }
     throw "Smoke test failed with exit code $smokeExit`: $smokeLog"
 }
 

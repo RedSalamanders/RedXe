@@ -2547,6 +2547,14 @@ int wmain(int argumentCount, wchar_t** arguments)
         return 0;
 #endif
     }
+    // Reached only through --unbuffered-output-self-test, which test.ps1 runs: a line written just before the process
+    // is terminated, as a time budget ends a hung run, must already be in the pipe rather than in a CRT buffer.
+    if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--unbuffered-output-self-test")
+    {
+        std::wprintf(L"Unbuffered output reaches the log before a termination.\n");
+        static_cast<void>(TerminateProcess(GetCurrentProcess(), 0));
+        return 1;
+    }
     if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--asan-probe")
     {
         SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
