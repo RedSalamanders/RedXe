@@ -434,10 +434,9 @@ the shipped ones; both also publish an action namespace (`Plugins_Actions.md`).
   `kShutdownLogFlushMilliseconds` (1000) before it returns, reporting through `OutputDebugStringW` when the writer
   does not finish. It stops the launch worker before it returns that way (`PluginHost::StopLaunches`, which a session
   end also runs inside `WM_ENDSESSION`): queued launches are dropped and one still in the shell gets the bounded wait,
-  once, and its `launch-stop-timeout` record, once (`Plugins_Actions.md`). Only the first such
-  `Shutdown` waits, so the process runtime's second shutdown at static destruction adds no wait; a private host
-  destructor joins the lane before releasing storage.
-  `RedXeDataSetFlagDeviceLane` for data sources remains unimplemented.
+  once, and its `launch-stop-timeout` record, once (`Plugins_Actions.md`). Only the first such `Shutdown` waits, so the
+  process runtime's second shutdown at static destruction adds no wait; a private host destructor joins the lane before
+  releasing storage. `RedXeDataSetFlagDeviceLane` for data sources remains unimplemented.
 - **Developer-only widgets** (`kRedXeDebugOnlyBundledWidgetIds`, today `builtin.logicon-monitor`) stay catalogued and
   schema-accepted in every build so both shipped templates parse everywhere. Only the Debug template places them, and
   only Debug builds of their DLL construct them: a Release build publishes the metadata and contract, lists the type,

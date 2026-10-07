@@ -3,14 +3,16 @@
 #include "../Common/Actions/ActionTargets.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
 #include <windows.h>
 
 // Screen-edge dock: RedXe as a bar along one edge of one monitor (UI_XeneonDisplayWindowing.md "Dock window kind").
-// Everything here is a pure function of rectangles, integers, and host state so HostPluginTests proves placement,
-// monitor selection, MINMAXINFO, and the autohide state machine without a display topology or a window.
+// Everything here is a pure function of rectangles, integers, and host state so HostPluginTests proves placement, the
+// app-bar reservation and its message plan, monitor selection, MINMAXINFO, and the autohide state machine without a
+// display topology or a window.
 
 enum class DockEdge : uint8_t
 {
@@ -190,11 +192,12 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
 }
 
 // First start without a XENEON: the bar takes the better-ranked horizontal edge of its monitor, the bottom when both
-// rank the same, so the strip stays off the caption buttons and tabs of maximized windows where it can. From best to
-// worst: a free screen edge; an edge beside a taskbar, where the work area is trimmed on that side (a taskbar that
-// stays visible, any reserving app bar) or an autohide bar is registered on that edge of that monitor (an auto-hiding
-// taskbar); an edge another display shares (DockDisplayTouchesEdge), whatever holds it, because the pointer crosses it
-// between the displays.
+// rank the same, so the strip stays away from the caption buttons and tabs at the top of maximized windows where it
+// can: they stop beside the reserved strip on any edge (DockReservationFor), but a pointer thrown against the top edge
+// for them would land on a top strip. From best to worst: a free screen edge; an edge beside a taskbar, where the work
+// area is trimmed on that side (a taskbar that stays visible, any reserving app bar) or an autohide bar is registered
+// on that edge of that monitor (an auto-hiding taskbar); an edge another display shares (DockDisplayTouchesEdge),
+// whatever holds it, because the pointer crosses it between the displays.
 [[nodiscard]] constexpr DockEdge DockFirstRunEdge(const RECT& monitor, const RECT& work, bool autohideTop,
                                                   bool autohideBottom, bool sharedTop, bool sharedBottom) noexcept
 {
@@ -206,15 +209,17 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
 
 // The autohide evidence for DockFirstRunEdge: the bar ABM_GETAUTOHIDEBAREX reports on an edge holds that edge only
 // while its window exists. Explorer keeps the registration of a bar whose process crashed or was killed until another
-// bar registers on the edge, and a first-run install after RedXe's own autohide bar died runs in exactly that gap. This
-// is the one window-manager query in this header; a window that exists belongs to a live thread.
+// bar registers on the edge, and a first-run install can run in that gap. RedXe's own bar never registers there: an
+// autohide dock reserves its strip instead (DockReservationFor). This is the one window-manager query in this header;
+// a window that exists belongs to a live thread.
 [[nodiscard]] inline bool DockAutohideBarHoldsEdge(HWND bar) noexcept
 {
     return bar != nullptr && IsWindow(bar) != FALSE;
 }
 
-// `bounds` trimmed to `thicknessPx` on the edge side. Used for the proposal to the shell (bounds = monitor) and for
-// the re-trim after ABM_QUERYPOS (bounds = the rectangle the shell returned).
+// `bounds` with its outer edge (the `edge` side) kept and its inner side `thicknessPx` from it: a larger rectangle is
+// trimmed, a smaller one grown. Used for the proposal to the shell (bounds = monitor), for the re-trim after
+// ABM_QUERYPOS (bounds = the rectangle the shell returned), and for the full bar grown from a reserved strip.
 [[nodiscard]] constexpr RECT DockTrimToThickness(const RECT& bounds, DockEdge edge, LONG thicknessPx) noexcept
 {
     RECT rect = bounds;
@@ -238,16 +243,16 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
     return rect;
 }
 
-// Overlay and autohide placement: hug the edge of the work area, spanning the work area along the edge, so the bar
-// never covers the taskbar or another app bar.
+// Overlay placement (a fixed bar without reserveWorkArea, or a bar the shell refused to register): hug the edge of the
+// work area, spanning the work area along the edge, so the bar never covers the taskbar or another app bar.
 [[nodiscard]] constexpr RECT DockOverlayRect(const RECT& workArea, DockEdge edge, LONG thicknessPx) noexcept
 {
     return DockTrimToThickness(workArea, edge, thicknessPx);
 }
 
 // The peek strip of an autohide bar in pixels. `peek` (1–64 physical pixels) and the thickness (32 DIPs and up) are
-// validated apart, so the strip is clamped to the bar it belongs to: at least 1 pixel, at most the full bar. Every
-// hidden window size, the slide, the grip, and MINMAXINFO use this one value.
+// validated apart, so the strip is clamped to the bar it belongs to: at least 1 pixel, at most the full bar. The
+// reserved strip, every hidden window size, the slide, the grip, and MINMAXINFO use this one value.
 [[nodiscard]] constexpr LONG DockClampPeek(uint32_t peekPixels, LONG fullPx) noexcept
 {
     return std::clamp(static_cast<LONG>(peekPixels), 1L, std::max(1L, fullPx));
@@ -275,6 +280,139 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
         break;
     }
     return rect;
+}
+
+// App-bar registration (UI_XeneonDisplayWindowing.md "Monitor and placement"). Every placed dock is an ordinary app
+// bar (ABM_NEW), so the shell reports position changes and full-screen applications to it; what it reserves in the
+// monitor's work area follows the mode. No dock registers ABM_SETAUTOHIDEBAREX: an autohide bar reserves its peek strip
+// as a fixed bar reserves its thickness, so maximized windows stop just inside the strip on every edge, and its
+// revealed bar is a topmost window over the work area beyond the strip, never a larger reservation.
+enum class DockReservation : uint8_t
+{
+    // Registered for the shell's notifications only: a fixed bar without reserveWorkArea overlays the work area.
+    None = 0,
+    // The whole bar: a fixed bar with reserveWorkArea.
+    Bar,
+    // The peek strip: an autohide bar, whatever reserveWorkArea says.
+    Strip,
+};
+
+[[nodiscard]] constexpr DockReservation DockReservationFor(DockMode mode, bool reserveWorkArea) noexcept
+{
+    if (mode == DockMode::Autohide)
+    {
+        return DockReservation::Strip;
+    }
+    return reserveWorkArea ? DockReservation::Bar : DockReservation::None;
+}
+
+// The pixels a reservation holds across the edge: the clamped thickness for the bar, the clamped peek strip
+// (DockClampPeek of that thickness) for an autohide bar, nothing for an overlay.
+[[nodiscard]] constexpr LONG DockReservedPixels(DockReservation reservation, LONG thicknessPx, LONG peekPx) noexcept
+{
+    switch (reservation)
+    {
+    case DockReservation::Bar:
+        return thicknessPx;
+    case DockReservation::Strip:
+        return peekPx;
+    default:
+        return 0;
+    }
+}
+
+// The rectangle proposed to the shell with ABM_QUERYPOS: the monitor trimmed to the reserved pixels on the edge side.
+// An empty rectangle for an overlay, which reserves nothing.
+[[nodiscard]] constexpr RECT DockReservationProposal(DockReservation reservation, const RECT& monitor, DockEdge edge,
+                                                     LONG thicknessPx, LONG peekPx) noexcept
+{
+    const LONG reservedPx = DockReservedPixels(reservation, thicknessPx, peekPx);
+    return reservedPx > 0 ? DockTrimToThickness(monitor, edge, reservedPx) : RECT{};
+}
+
+// The full bar of a reserving dock from the rectangle ABM_SETPOS committed (`reserved`): the shell decides its outer
+// edge (beside a taskbar on the same edge) and its span along the edge, and the bar runs `thicknessPx` inward from that
+// outer edge. A reserved bar is the rectangle itself; a reserved strip grows over the work area beyond it, so the strip
+// is the bar's DockHiddenRect and the collapsed window is exactly the reservation.
+[[nodiscard]] constexpr RECT DockFullRectFromReserved(const RECT& reserved, DockEdge edge, LONG thicknessPx) noexcept
+{
+    return DockTrimToThickness(reserved, edge, thicknessPx);
+}
+
+[[nodiscard]] constexpr bool DockRectEquals(const RECT& a, const RECT& b) noexcept
+{
+    return a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom;
+}
+
+// What the shell holds for the dock window, kept by Application: the registration, and for a reserving bar the
+// reservation it was asked for and the rectangle it committed. Removing the registration resets it.
+struct DockAppBarState final
+{
+    bool registered = false;
+    DockReservation reservation = DockReservation::None;
+    DockEdge edge = DockEdge::None;
+    UINT dpi = 0;
+    // The rectangle proposed with the last ABM_QUERYPOS, and the one ABM_SETPOS committed (DockFullRectFromReserved).
+    RECT proposal{};
+    RECT reserved{};
+};
+
+// The shell messages of one placement pass, as SHAppBarMessage values (shellapi.h), in the order Application sends
+// them. ABM_SETAUTOHIDEBAREX is never one of them.
+inline constexpr DWORD kDockAppBarNew = 0x0;      // ABM_NEW
+inline constexpr DWORD kDockAppBarRemove = 0x1;   // ABM_REMOVE
+inline constexpr DWORD kDockAppBarQueryPos = 0x2; // ABM_QUERYPOS
+inline constexpr DWORD kDockAppBarSetPos = 0x3;   // ABM_SETPOS
+
+struct DockAppBarPlan final
+{
+    std::array<DWORD, 4> messages{};
+    size_t count = 0;
+};
+
+// The registration one placement pass makes for `reservation` on `edge`, proposing `proposal`
+// (DockReservationProposal) at the monitor's `dpi`. `stale` is set when the shell may have moved the reservation since
+// it was committed (ABN_POSCHANGED, ABN_STATECHANGE, WM_DISPLAYCHANGE). The shell keeps the last ABM_SETPOS rectangle
+// until ABM_REMOVE, so dropping a reservation removes the bar and registers it again; a new or changed reservation is
+// one ABM_QUERYPOS and ABM_SETPOS; and a pass that changes nothing reserved and follows no shell change sends nothing,
+// so the release of an autohide bar's thickness drag and a reload that leaves the reservation alone never reset the
+// work area. A reveal, a hide, and a slide step make no placement pass at all.
+[[nodiscard]] constexpr DockAppBarPlan PlanDockAppBar(const DockAppBarState& current, DockReservation reservation,
+                                                      DockEdge edge, const RECT& proposal, UINT dpi,
+                                                      bool stale) noexcept
+{
+    DockAppBarPlan plan{};
+    bool registered = current.registered;
+    DockReservation held = registered ? current.reservation : DockReservation::None;
+    if (held != DockReservation::None && reservation == DockReservation::None)
+    {
+        plan.messages[plan.count++] = kDockAppBarRemove;
+        registered = false;
+        held = DockReservation::None;
+    }
+    if (!registered)
+    {
+        plan.messages[plan.count++] = kDockAppBarNew;
+    }
+    const bool changed = held != reservation || current.edge != edge || current.dpi != dpi ||
+                         !DockRectEquals(current.proposal, proposal);
+    if (reservation != DockReservation::None && (!registered || stale || changed))
+    {
+        plan.messages[plan.count++] = kDockAppBarQueryPos;
+        plan.messages[plan.count++] = kDockAppBarSetPos;
+    }
+    return plan;
+}
+
+// The record after ABM_SETPOS committed `reserved` for the reservation a plan was made for.
+constexpr void DockAppBarCommitted(DockAppBarState& state, DockReservation reservation, DockEdge edge,
+                                   const RECT& proposal, UINT dpi, const RECT& reserved) noexcept
+{
+    state.reservation = reservation;
+    state.edge = edge;
+    state.dpi = dpi;
+    state.proposal = proposal;
+    state.reserved = reserved;
 }
 
 // Cross-axis size of a bar rectangle: its height for a top or bottom dock, its width for a side dock.

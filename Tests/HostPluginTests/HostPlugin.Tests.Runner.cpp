@@ -947,6 +947,200 @@ void TestDockPlacementRequests(bool& success) noexcept
     (void)NextDockPlacementPass(requests, resize);
 }
 
+// DockPlacement.h app-bar registration: what each mode reserves (the whole bar, the autohide peek strip, or nothing),
+// the strip proposed and re-trimmed for every edge with its clamped peek, the full bar grown from the strip the shell
+// committed, and the message sequence PlanDockAppBar hands PlaceDockPass for each registration change. No sequence ever
+// holds ABM_SETAUTOHIDEBAREX, and a pass that changes nothing reserved sends nothing.
+void TestDockAppBarRegistration(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dock app-bar registration and reservation\n";
+    Check(kDockAppBarNew == ABM_NEW && kDockAppBarRemove == ABM_REMOVE && kDockAppBarQueryPos == ABM_QUERYPOS &&
+              kDockAppBarSetPos == ABM_SETPOS,
+          L"the plan's messages are the shell's ABM values", success);
+    Check(DockReservationFor(DockMode::Fixed, true) == DockReservation::Bar &&
+              DockReservationFor(DockMode::Fixed, false) == DockReservation::None &&
+              DockReservationFor(DockMode::Autohide, true) == DockReservation::Strip &&
+              DockReservationFor(DockMode::Autohide, false) == DockReservation::Strip,
+          L"a fixed bar reserves itself or nothing, and an autohide bar its strip whatever reserveWorkArea says",
+          success);
+    Check(DockReservedPixels(DockReservation::Bar, 270, 4) == 270 &&
+              DockReservedPixels(DockReservation::Strip, 270, 4) == 4 &&
+              DockReservedPixels(DockReservation::None, 270, 4) == 0,
+          L"the bar reserves its thickness, the strip its peek, an overlay nothing", success);
+
+    // The strip proposal for every edge, at negative coordinates, and with the peek clamped to a thin bar.
+    const RECT monitor{0, 0, 2560, 1440};
+    const auto equals = [](const RECT& rect, LONG left, LONG top, LONG right, LONG bottom) noexcept
+    { return rect.left == left && rect.top == top && rect.right == right && rect.bottom == bottom; };
+    const LONG thicknessPx = DockThicknessPixels(180, 144);
+    const LONG peekPx = DockClampPeek(kDockDefaultPeekPixels, thicknessPx);
+    Check(thicknessPx == 270 && peekPx == 4 &&
+              equals(DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Top, thicknessPx, peekPx), 0, 0,
+                     2560, 4) &&
+              equals(DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Bottom, thicknessPx, peekPx), 0,
+                     1436, 2560, 1440) &&
+              equals(DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Left, thicknessPx, peekPx), 0,
+                     0, 4, 1440) &&
+              equals(DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Right, thicknessPx, peekPx),
+                     2556, 0, 2560, 1440),
+          L"an autohide bar proposes the monitor's outer peek pixels on every edge", success);
+    Check(equals(DockReservationProposal(DockReservation::Bar, monitor, DockEdge::Bottom, thicknessPx, peekPx), 0, 1170,
+                 2560, 1440) &&
+              equals(DockReservationProposal(DockReservation::None, monitor, DockEdge::Bottom, thicknessPx, peekPx), 0,
+                     0, 0, 0),
+          L"a fixed reserving bar proposes its thickness and an overlay proposes nothing", success);
+    const RECT secondary{-1920, -200, 0, 880};
+    Check(equals(DockReservationProposal(DockReservation::Strip, secondary, DockEdge::Top, 180, 6), -1920, -200, 0,
+                 -194) &&
+              equals(DockReservationProposal(DockReservation::Strip, secondary, DockEdge::Left, 180, 6), -1920, -200,
+                     -1914, 880),
+          L"the strip proposal works at negative coordinates", success);
+    const LONG thinBar = DockThicknessPixels(kDockMinimumThicknessDips, 96);
+    const LONG clampedPeek = DockClampPeek(kDockMaximumPeekPixels, thinBar);
+    Check(clampedPeek == thinBar &&
+              DockRectEquals(
+                  DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Bottom, thinBar, clampedPeek),
+                  DockReservationProposal(DockReservation::Bar, monitor, DockEdge::Bottom, thinBar, clampedPeek)),
+          L"a peek wider than the bar reserves the clamped strip, never more than the bar", success);
+    const LONG thickness96 = DockThicknessPixels(180, 96);
+    Check(
+        DockRectEquals(DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Bottom, thickness96,
+                                               DockClampPeek(kDockDefaultPeekPixels, thickness96)),
+                       DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Bottom, thicknessPx, peekPx)),
+        L"the strip is physical pixels: a DPI change keeps the same strip while the bar rescales", success);
+
+    // The shell's answer: a taskbar on the strip's edge moves the strip beside it, a side taskbar shortens it, and the
+    // re-trim keeps the peek depth. The full bar grows inward from the committed strip, so its hidden rectangle is the
+    // reservation itself and the revealed bar lies over the work area.
+    const RECT bottomQuery{0, 1436, 2560, 1392}; // ABM_QUERYPOS against a 48-pixel bottom taskbar
+    const RECT bottomStrip = DockTrimToThickness(bottomQuery, DockEdge::Bottom, peekPx);
+    const RECT bottomFull = DockFullRectFromReserved(bottomStrip, DockEdge::Bottom, thicknessPx);
+    Check(equals(bottomStrip, 0, 1388, 2560, 1392) && equals(bottomFull, 0, 1122, 2560, 1392) &&
+              DockRectEquals(DockHiddenRect(bottomFull, DockEdge::Bottom, peekPx), bottomStrip),
+          L"a bottom strip beside a bottom taskbar keeps its depth and the bar rises from it", success);
+    const RECT topStrip = DockTrimToThickness(RECT{62, 0, 2560, 4}, DockEdge::Top, peekPx); // a 62-pixel left taskbar
+    const RECT topFull = DockFullRectFromReserved(topStrip, DockEdge::Top, thicknessPx);
+    Check(equals(topFull, 62, 0, 2560, 270) && DockRectEquals(DockHiddenRect(topFull, DockEdge::Top, peekPx), topStrip),
+          L"a top strip shortened by a side taskbar keeps that span when it reveals", success);
+    bool everyEdge = true;
+    for (const DockEdge edge : {DockEdge::Top, DockEdge::Bottom, DockEdge::Left, DockEdge::Right})
+    {
+        const RECT edgeStrip = DockReservationProposal(DockReservation::Strip, secondary, edge, thicknessPx, peekPx);
+        const RECT edgeFull = DockFullRectFromReserved(edgeStrip, edge, thicknessPx);
+        const RECT edgeBar = DockReservationProposal(DockReservation::Bar, secondary, edge, thicknessPx, peekPx);
+        everyEdge = everyEdge && DockCrossPixels(edgeFull, edge) == thicknessPx &&
+                    DockRectEquals(DockHiddenRect(edgeFull, edge, peekPx), edgeStrip) &&
+                    DockRectEquals(DockFullRectFromReserved(edgeBar, edge, thicknessPx), edgeBar);
+    }
+    Check(everyEdge,
+          L"on every edge the collapsed bar is the reserved strip and a reserved bar is its own full rectangle",
+          success);
+
+    // The message sequences. A plan never holds ABM_SETAUTOHIDEBAREX.
+    const auto sequence = [](const DockAppBarPlan& plan, std::initializer_list<DWORD> expected) noexcept
+    {
+        if (plan.count != expected.size())
+        {
+            return false;
+        }
+        size_t index = 0;
+        for (const DWORD message : expected)
+        {
+            if (plan.messages[index] != message || plan.messages[index] == ABM_SETAUTOHIDEBAREX)
+            {
+                return false;
+            }
+            ++index;
+        }
+        return true;
+    };
+    // The record PlaceDockPass keeps after it sends a plan whose ABM_NEW the shell accepts.
+    const auto send = [](DockAppBarState& state, const DockAppBarPlan& plan, DockReservation reservation, DockEdge edge,
+                         const RECT& proposal, UINT dpi, const RECT& committed) noexcept
+    {
+        for (size_t index = 0; index < plan.count; ++index)
+        {
+            if (plan.messages[index] == ABM_REMOVE)
+            {
+                state = DockAppBarState{};
+            }
+            else if (plan.messages[index] == ABM_NEW)
+            {
+                state = DockAppBarState{};
+                state.registered = true;
+            }
+            else if (plan.messages[index] == ABM_SETPOS)
+            {
+                DockAppBarCommitted(state, reservation, edge, proposal, dpi, committed);
+            }
+        }
+    };
+    const RECT strip = DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Bottom, thicknessPx, peekPx);
+    DockAppBarState state{};
+    DockAppBarPlan plan = PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, strip, 144, false);
+    Check(sequence(plan, {ABM_NEW, ABM_QUERYPOS, ABM_SETPOS}),
+          L"a first autohide placement registers, queries, and sets its strip, without ABM_SETAUTOHIDEBAREX", success);
+    send(state, plan, DockReservation::Strip, DockEdge::Bottom, strip, 144, strip);
+    Check(state.registered && state.reservation == DockReservation::Strip && DockRectEquals(state.reserved, strip),
+          L"the committed strip is recorded", success);
+    const RECT draggedStrip = DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Bottom, 360,
+                                                      DockClampPeek(kDockDefaultPeekPixels, 360));
+    Check(sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, strip, 144, false), {}) &&
+              sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, draggedStrip, 144, false), {}),
+          L"a placement that changes nothing reserved (a reload of the delays, a thicker bar) sends nothing", success);
+    Check(sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, strip, 144, true),
+                   {ABM_QUERYPOS, ABM_SETPOS}),
+          L"after ABN_POSCHANGED, ABN_STATECHANGE, or a display change the strip is queried and set again", success);
+    const RECT topProposal =
+        DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Top, thicknessPx, peekPx);
+    const RECT movedStrip =
+        DockReservationProposal(DockReservation::Strip, secondary, DockEdge::Bottom, thicknessPx, peekPx);
+    const RECT widerStrip = DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Bottom, thicknessPx, 8);
+    Check(sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Top, topProposal, 144, false),
+                   {ABM_QUERYPOS, ABM_SETPOS}) &&
+              sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, movedStrip, 144, false),
+                       {ABM_QUERYPOS, ABM_SETPOS}) &&
+              sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, strip, 96, false),
+                       {ABM_QUERYPOS, ABM_SETPOS}) &&
+              sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, widerStrip, 144, false),
+                       {ABM_QUERYPOS, ABM_SETPOS}),
+          L"an edge, monitor, DPI, or peek change moves the reservation without registering again", success);
+
+    // autohide <-> fixed: a reserving bar takes over the registration; dropping to an overlay gives the area back.
+    const RECT bar = DockReservationProposal(DockReservation::Bar, monitor, DockEdge::Bottom, thicknessPx, peekPx);
+    plan = PlanDockAppBar(state, DockReservation::Bar, DockEdge::Bottom, bar, 144, false);
+    Check(sequence(plan, {ABM_QUERYPOS, ABM_SETPOS}), L"autohide to a fixed reserving bar reserves the whole bar",
+          success);
+    send(state, plan, DockReservation::Bar, DockEdge::Bottom, bar, 144, bar);
+    Check(sequence(PlanDockAppBar(state, DockReservation::Bar, DockEdge::Bottom, bar, 144, false), {}) &&
+              sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, strip, 144, false),
+                       {ABM_QUERYPOS, ABM_SETPOS}),
+          L"a placed reserving bar sends nothing, and back to autohide it reserves the strip only", success);
+    plan = PlanDockAppBar(state, DockReservation::None, DockEdge::Bottom, RECT{}, 144, false);
+    Check(sequence(plan, {ABM_REMOVE, ABM_NEW}),
+          L"a fixed overlay removes the reservation and registers again, reserving nothing", success);
+    send(state, plan, DockReservation::None, DockEdge::Bottom, RECT{}, 144, RECT{});
+    Check(state.registered && state.reservation == DockReservation::None &&
+              sequence(PlanDockAppBar(state, DockReservation::None, DockEdge::Top, RECT{}, 144, true), {}),
+          L"a registered overlay sends nothing, even after a shell change", success);
+    plan = PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, strip, 144, false);
+    Check(sequence(plan, {ABM_QUERYPOS, ABM_SETPOS}), L"an overlay switched to autohide reserves its strip", success);
+    send(state, plan, DockReservation::Strip, DockEdge::Bottom, strip, 144, strip);
+    Check(sequence(PlanDockAppBar(state, DockReservation::None, DockEdge::Bottom, RECT{}, 144, false),
+                   {ABM_REMOVE, ABM_NEW}),
+          L"autohide to a fixed overlay gives the strip back", success);
+
+    // The dock becoming the standard window, a session end, and TaskbarCreated remove the registration
+    // (UnregisterDockAppBar resets the record); the next dock placement registers and reserves from scratch.
+    state = DockAppBarState{};
+    Check(sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Top, topProposal, 144, false),
+                   {ABM_NEW, ABM_QUERYPOS, ABM_SETPOS}) &&
+              sequence(PlanDockAppBar(state, DockReservation::Bar, DockEdge::Bottom, bar, 144, false),
+                       {ABM_NEW, ABM_QUERYPOS, ABM_SETPOS}) &&
+              sequence(PlanDockAppBar(state, DockReservation::None, DockEdge::Bottom, RECT{}, 144, false), {ABM_NEW}),
+          L"an unregistered bar registers first and then reserves what its row reserves", success);
+}
+
 // NoticeWindow.h: the settings-error and action-notice windows are centred on the RedXe window (a dock's full bar, not
 // its peek strip) and kept inside the work area, so no bar edge puts the caption, the text, or OK off-screen.
 void TestNoticeWindowPlacement(bool& success) noexcept
@@ -7007,6 +7201,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestHostChromeComposition(success);
     TestDockPlacement(success);
     TestDockPlacementRequests(success);
+    TestDockAppBarRegistration(success);
     TestNoticeWindowPlacement(success);
     TestDockAutohidePolicy(success);
     TestDockSlidePolicy(success);

@@ -193,7 +193,9 @@ recommended defaults apply; D6 stays the owner's repository setting and is not c
   newer file and that cold recovery keeps the backup.
 - D2, first-run bar (P3):
   - The top edge of the second screen covers maximized windows' caption buttons: **prefer the free bottom edge**, or
-    keep the top edge and inset the strip's corners?
+    keep the top edge and inset the strip's corners? Owner decision 2026-10-07: keep the free-bottom rule, and an
+    autohide bar on any edge reserves its peek strip in the work area, so maximized windows stop just inside it
+    (`dock-switch#7`, `slide-tray#7`).
   - `secondary` can later resolve to a XENEON connected afterwards: **skip a XENEON in `secondary`**, or write the
     chosen display's name at install time?
   - Should recovery of an invalid file install the bar, or **only a missing file**?
@@ -315,7 +317,7 @@ Check a row when its fix lands, or note why it was dropped.
 - [x] `dock-switch#2` (medium) `RedXe/Application.cpp:1538`: After an Explorer restart (or a start before the taskbar exists) the dock's app bar is never registered again; only the tray icon handles TaskbarCreated
 - [x] `dock-switch#21` (medium) `RedXe/Application.cpp:5030`: Page and widget host actions on a collapsed autohide bar lay out against the peek strip; #27's SettleDockSlide guard covers only a sliding bar
 - [x] `dock-switch#6` (medium) `RedXe/DockPlacement.h:190`: First-run edge ignores displays stacked above or below: the autohide strip can land on an inter-monitor boundary
-- [ ] `dock-switch#7` (medium) `RedXe/DockPlacement.h:197`: First-run autohide strip on the top edge sits over maximized windows' caption buttons and tab strips; a click there steals focus and reveals a half-screen bar Deferred: D2's free-bottom rule moves the strip off the top wherever the bottom edge is free; a display whose own taskbar holds the bottom (one display, or the taskbar on every display) still gets the top under "free" and the free > beside-a-taskbar rank, which needs an owner call (a bottom strip beside the taskbar, or a corner inset).
+- [x] `dock-switch#7` (medium) `RedXe/DockPlacement.h:197`: First-run autohide strip on the top edge sits over maximized windows' caption buttons and tab strips; a click there steals focus and reveals a half-screen bar Fixed by owner decision 2026-10-07: an autohide bar reserves its peek strip.
 - [x] `dock-switch#8` (medium) `RedXe/DockPlacement.h:177`: `secondary`, written into the first-run file, can later move the bar onto a XENEON connected later or a display nobody is looking at
 - [x] `dock-switch#9` (medium) `RedXe/Application.cpp:5361`: Settings-error dialog is centered on a collapsed autohide strip and opens partly off-screen; with the first-run top bar its caption and the error location are hidden
 - [x] `host-hardening#3` (medium) `RedXe/Application.cpp:3448`: Action-notice (and settings-error) window can open off-screen or unreachable on a dock, especially a collapsed autohide strip; creation code is duplicated between ShowActionNotices and ShowSettingsError
@@ -330,7 +332,7 @@ Check a row when its fix lands, or note why it was dropped.
 - [x] `slide-tray#2` (medium) `RedXe/Application.cpp:4604`: During a reveal slide, pointer hover/up, accessibility and IME bounds are computed against the partly open window instead of the full dashboard canvas
 - [x] `slide-tray#3` (medium) `RedXe/Application.cpp:932`: Top/left bar slides: SetWindowPos and native-container moves land one composition before the matching Present (a background band at the leading edge, native tiles drift)
 - [x] `slide-tray#6` (medium) `RedXe/TrayIcon.cpp:243`: A WM_CLOSE to the hidden tray owner (Alt+F4 after dismissing the menu, or a graceful taskkill) destroys it without NIM_DELETE: ghost icon, and the running app loses its tray icon
-- [ ] `slide-tray#7` (medium) `RedXe/DockPlacement.h:187`: First-run top-edge strip covers the top 4 px of maximized windows on the second screen (caption buttons, tabs) Deferred: fixed for a second screen without a taskbar of its own (now `bottom`); with the taskbar on every display (the Windows default) its own bottom taskbar still sends the strip to the top under D2's "free" bottom, which needs the owner call noted on `dock-switch#7`.
+- [x] `slide-tray#7` (medium) `RedXe/DockPlacement.h:187`: First-run top-edge strip covers the top 4 px of maximized windows on the second screen (caption buttons, tabs) Fixed by owner decision 2026-10-07: an autohide bar reserves its peek strip.
 - [x] `dock-switch#10` (low) `RedXe/Application.cpp:752`: First-run bar is decided from a transient topology: a first start or invalid-file recovery over RDP (or with the XENEON off) permanently writes a bar for a XENEON user
 - [x] `dock-switch#12` (low) `RedXe/Application.cpp:1607`: DockYieldsToFullscreen counts a maximized window's frame overhang as covering the monitor; the pure rule sits untested in Application
 - [x] `session-end#2` (low) `RedXe/Application.cpp:407`: AutohideBarOnEdge counts a dead app bar as a taken edge, so a first-run install after a RedXe crash or kill can pick the wrong edge

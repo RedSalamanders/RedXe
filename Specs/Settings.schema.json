@@ -365,19 +365,19 @@
         "mode": {
           "enum": ["fixed", "autohide"],
           "default": "fixed",
-          "description": "fixed keeps the whole bar on screen; autohide collapses it to a peek strip until the pointer dwells on it."
+          "description": "fixed keeps the whole bar on screen; autohide collapses it to a peek strip until the pointer dwells on it, and reserves that strip in the work area so maximized windows stop just inside it."
         },
         "reserveWorkArea": {
           "type": "boolean",
           "default": true,
-          "description": "fixed only: register the bar with the shell so maximized windows stop at it. Ignored in autohide."
+          "description": "fixed only: reserve the whole bar in the work area so maximized windows stop at it; false overlays. Ignored in autohide, which always reserves its peek strip."
         },
         "peek": {
           "type": "integer",
           "minimum": 1,
           "maximum": 64,
           "default": 4,
-          "description": "autohide only: physical pixels of the bar that stay visible while hidden."
+          "description": "autohide only: physical pixels of the bar that stay visible while hidden and stay reserved in the work area."
         },
         "revealDelayMilliseconds": {
           "type": "integer",

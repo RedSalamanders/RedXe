@@ -576,7 +576,7 @@ void PluginHost::StopLaunches() noexcept
     {
         _launchStopReported = true;
         (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, nullptr, nullptr, "launch-stop-timeout",
-                           "a launch was still in progress at shutdown; RedXe exits without waiting for it.");
+                           "a launch was still in progress when RedXe stopped; RedXe exits without waiting for it.");
     }
 }
 

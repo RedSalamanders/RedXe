@@ -106,15 +106,23 @@ class Application final
     };
     HRESULT CreateDockWindow(bool visible) noexcept;
     [[nodiscard]] bool ResolveDockMonitor(DockMonitorPlacement& placement) noexcept;
-    // Recomputes the bar rectangle for the current monitor, DPI, mode, and reveal state, registers or updates the
-    // app bar, and moves the window. With resizeDashboard the dashboard and swap chain follow the full rectangle.
+    // Recomputes the bar rectangle for the current monitor, DPI, mode, and reveal state, registers the app bar and
+    // reserves what the mode reserves (DockPlacement.h PlanDockAppBar: the whole bar, the autohide strip, or nothing),
+    // and moves the window. With resizeDashboard the dashboard and swap chain follow the full rectangle.
     // A request made while a placement runs (a message sent during its shell calls) is recorded and replayed by that
     // placement as one more pass (DockPlacement.h BeginDockPlacement); the result is the last pass's.
     HRESULT PlaceDock(bool resizeDashboard) noexcept;
     HRESULT PlaceDockPass(bool resizeDashboard) noexcept;
     HRESULT ResizeDockDashboard() noexcept;
     void RegisterDockAppBar() noexcept;
+    // ABM_REMOVE: the shell returns a reserved bar or strip to the work area. Forgets the registration state.
     void UnregisterDockAppBar() noexcept;
+    // The bar holds a reservation in the work area (a fixed reserving bar, or an autohide bar's strip): it follows the
+    // shell's ABN_POSCHANGED rather than SPI_SETWORKAREA, which its own reservation raises too.
+    [[nodiscard]] bool DockReservesWorkArea() const noexcept
+    {
+        return _dockAppBar.registered && _dockAppBar.reservation != DockReservation::None;
+    }
     // TaskbarCreated: a restarted Explorer knows no app bar, so an active dock registers and places itself again.
     void OnTaskbarCreated() noexcept;
     void ApplyDockZOrder() noexcept;
@@ -455,11 +463,13 @@ class Application final
     RECT _dockWorkRect{};
     RECT _dockFullRect{};
     UINT _dockDpi = USER_DEFAULT_SCREEN_DPI;
-    bool _dockAppBarRegistered = false;
-    bool _dockAutohideRegistered = false;
-    DockEdge _dockAutohideEdge = DockEdge::None;
-    RECT _dockAutohideMonitor{};
-    bool _dockReserved = false;
+    // What the shell holds for the bar (DockPlacement.h PlanDockAppBar): the registration and, for a fixed reserving
+    // bar or an autohide strip, the reservation it committed.
+    DockAppBarState _dockAppBar{};
+    // The shell may have moved the reservation (ABN_POSCHANGED, ABN_STATECHANGE, WM_DISPLAYCHANGE): the next placement
+    // pass reserves again even when nothing on RedXe's side changed. A pass clears it before its shell calls, so a
+    // notification heard during them marks the pass it asks for.
+    bool _dockAppBarStale = false;
     bool _dockMonitorFellBack = false;
     bool _dockThicknessClamped = false;
     // The last ABN_FULLSCREENAPP state, for any monitor; DockYieldsToFullscreen narrows it to the dock's.

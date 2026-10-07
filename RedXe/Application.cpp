@@ -68,6 +68,10 @@ static_assert(TrayIcon::kCommandMessage != Renderer::kOcclusionStatusMessage &&
               TrayIcon::kCommandMessage != Application::kDockAppBarMessage &&
               TrayIcon::kCommandMessage != Application::kScreenshotCompleteMessage);
 
+// PlanDockAppBar's messages are the shell's ABM_* values; PlaceDockPass sends them as listed.
+static_assert(kDockAppBarNew == ABM_NEW && kDockAppBarRemove == ABM_REMOVE && kDockAppBarQueryPos == ABM_QUERYPOS &&
+              kDockAppBarSetPos == ABM_SETPOS);
+
 [[nodiscard]] BOOL HostSetPointerCapture(HWND window, UINT32 pointerId) noexcept
 {
     using Function = BOOL(WINAPI*)(HWND, UINT32);
@@ -408,7 +412,9 @@ struct DisplayFriendlyName final
 }
 
 // Evidence for the first-run edge (DockFirstRunEdge): a live autohide bar registered on `appBarEdge` of `monitor`,
-// which is how an auto-hiding taskbar holds its edge without trimming the work area (DockAutohideBarHoldsEdge).
+// which is how an auto-hiding taskbar holds its edge without trimming the work area (DockAutohideBarHoldsEdge). RedXe's
+// own dock never shows here: it reserves its strip instead of registering an autohide edge, and this runs before the
+// window exists.
 [[nodiscard]] bool AutohideBarOnEdge(UINT appBarEdge, const RECT& monitor) noexcept
 {
     APPBARDATA data{};
@@ -1627,7 +1633,7 @@ HRESULT Application::RegisterDisplayPowerNotification(HWND window) noexcept
 }
 
 // Dock window kind. The window is created on the selected monitor at a provisional overlay rectangle and PlaceDock
-// then applies the exact placement (app-bar query for a reserving bar, monitor DPI, autohide strip).
+// then applies the exact placement (the app-bar reservation of a reserving bar or an autohide strip, monitor DPI).
 HRESULT Application::CreateDockWindow(bool visible) noexcept
 {
     if (!_dockActive || _window)
@@ -1764,7 +1770,7 @@ bool Application::ResolveDockMonitor(DockMonitorPlacement& placement) noexcept
 
 void Application::RegisterDockAppBar() noexcept
 {
-    if (_dockAppBarRegistered || !_window)
+    if (_dockAppBar.registered || !_window)
     {
         return;
     }
@@ -1772,8 +1778,9 @@ void Application::RegisterDockAppBar() noexcept
     data.cbSize = sizeof(data);
     data.hWnd = _window.get();
     data.uCallbackMessage = kDockAppBarMessage;
-    _dockAppBarRegistered = SHAppBarMessage(ABM_NEW, &data) != 0;
-    if (!_dockAppBarRegistered)
+    _dockAppBar = DockAppBarState{};
+    _dockAppBar.registered = SHAppBarMessage(ABM_NEW, &data) != 0;
+    if (!_dockAppBar.registered)
     {
         (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
                            "dock-appbar-refused", "The shell refused the app-bar registration; the dock overlays.");
@@ -1782,33 +1789,16 @@ void Application::RegisterDockAppBar() noexcept
 
 void Application::UnregisterDockAppBar() noexcept
 {
-    if (!_window)
-    {
-        _dockAppBarRegistered = false;
-        _dockAutohideRegistered = false;
-        _dockReserved = false;
-        return;
-    }
-    if (_dockAutohideRegistered)
-    {
-        APPBARDATA data{};
-        data.cbSize = sizeof(data);
-        data.hWnd = _window.get();
-        data.uEdge = DockAppBarEdge(_dockAutohideEdge);
-        data.rc = _dockAutohideMonitor;
-        data.lParam = FALSE;
-        (void)SHAppBarMessage(ABM_SETAUTOHIDEBAREX, &data);
-        _dockAutohideRegistered = false;
-    }
-    if (_dockAppBarRegistered)
+    if (_dockAppBar.registered && _window)
     {
         APPBARDATA data{};
         data.cbSize = sizeof(data);
         data.hWnd = _window.get();
         (void)SHAppBarMessage(ABM_REMOVE, &data);
-        _dockAppBarRegistered = false;
     }
-    _dockReserved = false;
+    // A registration made after this one starts with no reservation, so its first placement reserves again.
+    _dockAppBar = DockAppBarState{};
+    _dockAppBarStale = false;
 }
 
 void Application::OnTaskbarCreated() noexcept
@@ -1823,10 +1813,10 @@ void Application::OnTaskbarCreated() noexcept
         (void)PostMessageW(_window.get(), _taskbarCreatedMessage, 0, 0);
         return;
     }
-    // A restarted Explorer has none of the bar's shell state: the registration, the reserved work area, the autohide
-    // edge, and the full-screen report all start over. The registration is removed first because a running Explorer
-    // can send the broadcast too while it still holds the bar, and it refuses a second ABM_NEW; a new Explorer ignores
-    // the removal of a bar it does not know.
+    // A restarted Explorer has none of the bar's shell state: the registration, the reserved bar or strip, and the
+    // full-screen report all start over. The registration is removed first because a running Explorer can send the
+    // broadcast too while it still holds the bar, and it refuses a second ABM_NEW; a new Explorer ignores the removal
+    // of a bar it does not know. The placement then registers the bar and reserves what its mode reserves.
     UnregisterDockAppBar();
     _dockFullscreenAppActive = false;
     (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "dock-appbar-renewed",
@@ -1913,53 +1903,55 @@ HRESULT Application::PlaceDockPass(bool resizeDashboard) noexcept
         }
     }
 
-    const bool reserve = _dock.mode == DockMode::Fixed && _dock.reserveWorkArea;
-    // Dropping a reservation or moving an autohide registration means re-registering: the shell keeps the last
-    // ABM_SETPOS rectangle until ABM_REMOVE.
-    if ((_dockReserved && !reserve) ||
-        (_dockAutohideRegistered && (_dockAutohideEdge != _dock.edge || _dock.mode != DockMode::Autohide ||
-                                     !EqualRect(&_dockAutohideMonitor, &placement.monitor))))
+    // The registration row reserves the whole bar (fixed with reserveWorkArea), the autohide peek strip, or nothing
+    // (DockReservationFor). The pass registers and reserves with exactly the messages PlanDockAppBar lists: a
+    // reservation the shell already holds is kept as it is, so the work area changes only when the reserved rectangle
+    // does or the shell may have moved it.
+    const DockReservation reservation = DockReservationFor(_dock.mode, _dock.reserveWorkArea);
+    const LONG peekPx = DockClampPeek(_dock.peekPixels, thicknessPx);
+    const RECT proposal = DockReservationProposal(reservation, placement.monitor, _dock.edge, thicknessPx, peekPx);
+    const DockAppBarPlan plan = PlanDockAppBar(_dockAppBar, reservation, _dock.edge, proposal, placement.dpi,
+                                               std::exchange(_dockAppBarStale, false));
+    APPBARDATA reserve{};
+    reserve.cbSize = sizeof(reserve);
+    reserve.hWnd = _window.get();
+    reserve.uEdge = DockAppBarEdge(_dock.edge);
+    for (size_t index = 0; index < plan.count; ++index)
     {
-        UnregisterDockAppBar();
-    }
-    RegisterDockAppBar();
-
-    RECT full{};
-    if (reserve && _dockAppBarRegistered)
-    {
-        APPBARDATA data{};
-        data.cbSize = sizeof(data);
-        data.hWnd = _window.get();
-        data.uEdge = DockAppBarEdge(_dock.edge);
-        data.rc = DockTrimToThickness(placement.monitor, _dock.edge, thicknessPx);
-        (void)SHAppBarMessage(ABM_QUERYPOS, &data);
-        data.rc = DockTrimToThickness(data.rc, _dock.edge, thicknessPx);
-        (void)SHAppBarMessage(ABM_SETPOS, &data);
-        full = data.rc;
-        _dockReserved = true;
-    }
-    else
-    {
-        full = DockOverlayRect(placement.work, _dock.edge, thicknessPx);
-        if (_dock.mode == DockMode::Autohide && _dockAppBarRegistered && !_dockAutohideRegistered)
+        switch (plan.messages[index])
         {
-            APPBARDATA data{};
-            data.cbSize = sizeof(data);
-            data.hWnd = _window.get();
-            data.uEdge = DockAppBarEdge(_dock.edge);
-            data.rc = placement.monitor;
-            data.lParam = TRUE;
-            _dockAutohideRegistered = SHAppBarMessage(ABM_SETAUTOHIDEBAREX, &data) != 0;
-            _dockAutohideEdge = _dock.edge;
-            _dockAutohideMonitor = placement.monitor;
-            if (!_dockAutohideRegistered)
+        case ABM_REMOVE:
+            UnregisterDockAppBar();
+            break;
+        case ABM_NEW:
+            RegisterDockAppBar();
+            break;
+        case ABM_QUERYPOS:
+            // A refused ABM_NEW leaves nothing to reserve: the bar overlays the work area below.
+            if (_dockAppBar.registered)
             {
-                (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
-                                   "dock-autohide-refused",
-                                   "Another autohide bar owns this edge; the dock continues as a plain strip.");
+                reserve.rc = proposal;
+                (void)SHAppBarMessage(ABM_QUERYPOS, &reserve);
             }
+            break;
+        case ABM_SETPOS:
+            if (_dockAppBar.registered)
+            {
+                // The shell may move the edge side (beside a taskbar on that edge); the reservation keeps its depth.
+                reserve.rc =
+                    DockTrimToThickness(reserve.rc, _dock.edge, DockReservedPixels(reservation, thicknessPx, peekPx));
+                (void)SHAppBarMessage(ABM_SETPOS, &reserve);
+                DockAppBarCommitted(_dockAppBar, reservation, _dock.edge, proposal, placement.dpi, reserve.rc);
+            }
+            break;
+        default:
+            break;
         }
     }
+
+    // A reserved strip is the outer `peek` of the full bar, which lies over the work area when it reveals.
+    const RECT full = DockReservesWorkArea() ? DockFullRectFromReserved(_dockAppBar.reserved, _dock.edge, thicknessPx)
+                                             : DockOverlayRect(placement.work, _dock.edge, thicknessPx);
     if (full.right <= full.left || full.bottom <= full.top)
     {
         return E_UNEXPECTED;
@@ -1980,7 +1972,7 @@ HRESULT Application::PlaceDockPass(bool resizeDashboard) noexcept
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    if (_dockAppBarRegistered)
+    if (_dockAppBar.registered)
     {
         APPBARDATA data{};
         data.cbSize = sizeof(data);
@@ -6181,15 +6173,18 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         HostActions::SetXeneonDisplay(_xeneonBounds, _xeneonFound);
         if (_dockActive)
         {
+            // A topology change can move what the shell reserved for the bar: reserve again even where nothing on
+            // RedXe's side moved.
+            _dockAppBarStale = true;
             (void)PlaceDock(true);
         }
         CheckDeviceAdapter();
         break;
     case WM_SETTINGCHANGE:
-        if (_dockActive && wParam == SPI_SETWORKAREA && !_dockReserved)
+        if (_dockActive && wParam == SPI_SETWORKAREA && !DockReservesWorkArea())
         {
-            // Another bar or the taskbar changed the work area an overlay or autohide dock hugs. A reserving dock
-            // hears about it through ABN_POSCHANGED instead.
+            // Another bar or the taskbar changed the work area an overlay dock hugs. A reserving bar or autohide strip
+            // hears about it through ABN_POSCHANGED instead; its own reservation changes the work area too.
             (void)PlaceDock(true);
         }
         break;
@@ -6201,6 +6196,8 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         {
             if (wParam == ABN_POSCHANGED || wParam == ABN_STATECHANGE)
             {
+                // Another bar or the taskbar moved: query and set the reservation again, as the shell asks.
+                _dockAppBarStale = true;
                 (void)PlaceDock(true);
             }
             else if (wParam == ABN_FULLSCREENAPP)
@@ -6212,7 +6209,7 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         return 0;
     case WM_ACTIVATE:
         _windowActive = LOWORD(wParam) != WA_INACTIVE;
-        if (_dockAppBarRegistered)
+        if (_dockAppBar.registered)
         {
             APPBARDATA data{};
             data.cbSize = sizeof(data);
@@ -6222,7 +6219,9 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         EvaluateDockHolds();
         break;
     case WM_WINDOWPOSCHANGED:
-        if (_dockAppBarRegistered && !_dockResizing)
+        // A placement, a reveal, a hide, a slide step, and a drag preview move the window under _dockResizing: the
+        // placement reports its move itself, and the others send nothing to the shell.
+        if (_dockAppBar.registered && !_dockResizing)
         {
             APPBARDATA data{};
             data.cbSize = sizeof(data);

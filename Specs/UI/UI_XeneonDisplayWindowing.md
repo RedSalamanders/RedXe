@@ -80,10 +80,10 @@ The dock is RedXe as a bar along one edge of one monitor. The **effective dock**
 object (`Specs/Core/Core_Settings.md`) with the `--dock*` command-line overrides applied, and the window kind follows
 it at startup and on every live reload: an `edge` other than `none` selects the dock in both configurations, on any
 monitor; the XENEON is only what the `xeneon` selector resolves to. `RedXe/DockPlacement.h` owns every pure rule
-below (placement, monitor selection, MINMAXINFO, the full-screen yield, the autohide state machine and slide, the
-peek clamp, the dashboard canvas, input routing on a collapsed or sliding bar, the first-run monitor, edge, and
-thickness) and `RedXe/DockOptions.h` the command line and the merge; `HostPluginTests` and `SettingsTests` prove them
-without a display topology.
+below (placement, what each mode reserves and the app-bar messages that reserve it, monitor selection, MINMAXINFO,
+the full-screen yield, the autohide state machine and slide, the peek clamp, the dashboard canvas, input routing on a
+collapsed or sliding bar, the first-run monitor, edge, and thickness) and `RedXe/DockOptions.h` the command line and
+the merge; `HostPluginTests` and `SettingsTests` prove them without a display topology.
 
 ### Command line
 
@@ -136,11 +136,12 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
   the pointer and drags the thickness (`DockThicknessFromDrag`: the distance from the outer edge in DIPs at the
   monitor DPI, keeping the offset under the pointer, clamped to 32–1080 and half the monitor). During the drag the
   window and dashboard follow the pointer live with the outer edge fixed and the shell reservation untouched; the
-  release (or a lost capture) commits through `PlaceDock`, replaces a `--dock-thickness` pin for the run, and
-  persists `dock.thickness` into the settings document (`SettingsStore::PersistDockThickness`, which creates the
-  `dock` object and raises `version.minor` to 2 when needed, and writes nothing for a release at the thickness the
-  document already has; a failed write is one Warning record, `dock-thickness-persist-failed`). A drag is a hold for
-  an autohide bar. Touch and pen do not resize.
+  release (or a lost capture) commits through `PlaceDock` (a fixed reserving bar reserves its new thickness, an
+  autohide strip stays as it was), replaces a `--dock-thickness` pin for the run, and persists `dock.thickness` into
+  the settings document (`SettingsStore::PersistDockThickness`, which creates the `dock` object and raises
+  `version.minor` to 2 when needed, and writes nothing for a release at the thickness the document already has; a
+  failed write is one Warning record, `dock-thickness-persist-failed`). A drag is a hold for an autohide bar. Touch
+  and pen do not resize.
 
 ### Monitor and placement
 
@@ -156,47 +157,71 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
   when its monitor does.
 - Thickness is `MulDiv(thickness, monitorDpi, 96)` (`GetDpiForMonitor`, effective DPI) and is clamped so at least
   half of the monitor's cross dimension stays free (one Warning record, `dock-thickness-clamped`).
-- A reserving bar (`fixed` with `reserveWorkArea`) proposes the monitor rectangle trimmed to the thickness on the
-  edge side through `ABM_QUERYPOS`, re-trims the returned rectangle to the thickness from its edge, commits it with
-  `ABM_SETPOS`, moves the window there, and sends `ABM_WINDOWPOSCHANGED`. The shell therefore decides the along-edge
-  span (a left bar with a bottom taskbar ends above the taskbar) and maximized windows stop at the bar.
-- An overlay bar (`fixed` without `reserveWorkArea`) and an autohide bar hug the edge of the **work area**, spanning
-  the work area along the edge, so they never cover the taskbar or another app bar. With the taskbar on the same
-  edge the peek strip therefore sits just above the taskbar rather than at the screen edge.
-- The dock always registers as an app bar (`ABM_NEW` with a private `WM_APP` callback) so it receives
-  `ABN_POSCHANGED`, `ABN_STATECHANGE` (both re-place), and `ABN_FULLSCREENAPP`; it sends `ABM_ACTIVATE` on
-  `WM_ACTIVATE` and `ABM_WINDOWPOSCHANGED` on `WM_WINDOWPOSCHANGED`. An autohide bar additionally registers
-  `ABM_SETAUTOHIDEBAREX` for its edge and monitor; a refusal (another autohide bar owns that edge) is one Warning
-  record (`dock-autohide-refused`) and the bar continues as a plain strip. `ABM_REMOVE` runs in `CloseMainWindow`
-  before the HWND is destroyed. Changing the registration row (reserve ↔ overlay ↔ autohide, or the autohide edge or
-  monitor) removes and re-registers.
-- Explorer keeps app bars in its own process, so a restarted Explorer knows no registration, reserved work area,
-  autohide edge, or full-screen report of the bar. The main window of every kind hears the `TaskbarCreated` broadcast
+- What the bar reserves in the monitor's work area is its **registration row** (`DockReservationFor`): `fixed` with
+  `reserveWorkArea` reserves the whole bar, `autohide` reserves its peek strip whatever `reserveWorkArea` says, and
+  `fixed` without `reserveWorkArea` reserves nothing.
+- A reserving bar proposes the monitor rectangle trimmed on the edge side to what it reserves
+  (`DockReservationProposal`: the thickness, or the strip clamped by `DockClampPeek`) through `ABM_QUERYPOS`,
+  re-trims the returned rectangle to that depth from its edge, commits it with `ABM_SETPOS`, moves the window, and
+  sends `ABM_WINDOWPOSCHANGED`. The shell therefore decides the outer edge and the along-edge span (a left bar with a
+  bottom taskbar ends above the taskbar; a strip on the taskbar's edge sits beside the taskbar), and maximized windows
+  stop at the bar, or just inside an autohide strip, on every edge. The full bar runs the thickness inward from the
+  committed rectangle's outer edge (`DockFullRectFromReserved`): a reserved bar is that rectangle, and an autohide
+  bar's strip is exactly its collapsed window (`DockHiddenRect` of the full bar), so the revealed bar is a topmost
+  window lying over the work area beyond the strip, never a larger reservation.
+- An overlay bar (`fixed` without `reserveWorkArea`, or any bar whose `ABM_NEW` the shell refused) hugs the edge of
+  the **work area**, spanning the work area along the edge, so it never covers the taskbar or another app bar.
+- The dock always registers as an ordinary app bar (`ABM_NEW` with a private `WM_APP` callback) so it receives
+  `ABN_POSCHANGED`, `ABN_STATECHANGE` (both re-place and reserve again), and `ABN_FULLSCREENAPP`; it sends
+  `ABM_ACTIVATE` on `WM_ACTIVATE` and `ABM_WINDOWPOSCHANGED` on a `WM_WINDOWPOSCHANGED` it did not cause itself (a
+  placement reports its own move, and a reveal, a hide, a slide step, and a drag preview send nothing). No dock
+  registers `ABM_SETAUTOHIDEBAREX`: an autohide bar is a reserving bar of its strip, not a shell autohide bar, so
+  another autohide bar on its edge (an auto-hiding taskbar) refuses it nothing. A refused `ABM_NEW` is one Warning
+  record (`dock-appbar-refused`) and the bar overlays. `ABM_REMOVE` runs in `CloseMainWindow` before the HWND is
+  destroyed.
+- Each placement pass sends exactly the registration messages `PlanDockAppBar` lists, in order: `ABM_REMOVE` when the
+  row drops a reservation (the shell keeps the last `ABM_SETPOS` rectangle until `ABM_REMOVE`), `ABM_NEW` when the bar
+  is not registered, and `ABM_QUERYPOS` then `ABM_SETPOS` when the row reserves and the reservation is new or its row,
+  edge, proposed rectangle (monitor, thickness, or clamped strip), or monitor DPI changed, or the shell may have moved
+  it (`ABN_POSCHANGED`, `ABN_STATECHANGE`, or `WM_DISPLAYCHANGE` since the last pass; the mark is cleared before a
+  pass's shell calls, so a notification heard during them marks the pass it asks for). Otherwise the committed
+  rectangle is kept and nothing is sent, so the release of an autohide bar's thickness drag and a reload that leaves
+  the reservation alone do not re-lay out the desktop. Autohide ↔ fixed reserving is one `ABM_QUERYPOS` /
+  `ABM_SETPOS`; either to a fixed overlay is `ABM_REMOVE` then `ABM_NEW`.
+- Explorer keeps app bars in its own process, so a restarted Explorer knows no registration, reserved bar or strip,
+  or full-screen report of the bar. The main window of every kind hears the `TaskbarCreated` broadcast
   (`RegisterWindowMessageW`, admitted through `ChangeWindowMessageFilterEx` for an elevated run), whatever `trayIcon`
-  says. On it an active dock MUST remove its registration (`ABM_SETAUTOHIDEBAREX` off, `ABM_REMOVE`), forget the
-  full-screen report, place itself again (`ABM_NEW`, `ABM_SETAUTOHIDEBAREX`, `ABM_SETPOS`), re-apply its z-order, and
-  log one Info record (`dock-appbar-renewed`). The removal comes first because a running Explorer can send the
-  broadcast while it still holds the bar, and `ABM_NEW` refuses a window that is already registered; a new Explorer
-  ignores the removal of a bar it does not know. A broadcast heard inside a placement's shell call is handled once
-  that placement has finished (`Application::OnTaskbarCreated`).
+  says. On it an active dock MUST remove its registration (`ABM_REMOVE`), forget the full-screen report, place itself
+  again (`ABM_NEW`, then `ABM_QUERYPOS` and `ABM_SETPOS` for a reserving bar or an autohide strip), re-apply its
+  z-order, and log one Info record (`dock-appbar-renewed`). The removal comes first because a running Explorer can
+  send the broadcast while it still holds the bar, and `ABM_NEW` refuses a window that is already registered; a new
+  Explorer ignores the removal of a bar it does not know. A broadcast heard inside a placement's shell call is handled
+  once that placement has finished (`Application::OnTaskbarCreated`).
 - A placement makes cross-process shell calls and moves the window, and the UI thread dispatches sent messages while
   it waits, so a `WM_DISPLAYCHANGE`, `WM_SETTINGCHANGE`, `WM_DPICHANGED`, or app-bar notification can ask for a
   placement while one runs. That request MUST NOT be dropped and MUST NOT recurse: it is recorded, and the running
   placement makes one more pass from the topology as it is then, with the dashboard following when any recorded request
   asked for it (`BeginDockPlacement` and `NextDockPlacementPass`). At most `kDockMaximumExtraPlacementPasses` (2) extra
   passes run, so a request that every pass raises again cannot keep the UI thread placing.
-- `WM_SETTINGCHANGE` with `SPI_SETWORKAREA` re-places an overlay or autohide bar; a reserving bar ignores it and
-  follows `ABN_POSCHANGED`. `WM_DPICHANGED` re-places from the monitor DPI instead of applying the suggested
-  rectangle. Every re-placement re-checks the adapter of output exactly as a move does.
-- The fatal-process path MUST NOT call the shell: a crash while reserving can leave the work area shrunk until
-  Explorer next recomputes app-bar positions, which RedXe's next launch triggers.
+- `WM_SETTINGCHANGE` with `SPI_SETWORKAREA` re-places an overlay bar; a reserving bar and an autohide strip ignore it,
+  since their own reservation raises it too, and follow `ABN_POSCHANGED`. `WM_DPICHANGED` re-places from the monitor
+  DPI instead of applying the suggested rectangle. Every re-placement re-checks the adapter of output exactly as a
+  move does.
+- The fatal-process path MUST NOT call the shell: a crash while reserving (a fixed reserving bar or an autohide strip)
+  can leave the work area shrunk until Explorer next recomputes app-bar positions, which RedXe's next launch triggers.
 
 ### Autohide
 
 - In `autohide` mode the window collapses to the outer `peek` physical pixels of the bar (`DockHiddenRect`), same
   along-edge extent, and reveals to the full rectangle. `peek` and the thickness are validated apart, so the strip is
-  clamped to the bar (`DockClampPeek`: at least 1 pixel, at most the full bar); placement, every reveal and hide, the
-  grip, and `WM_GETMINMAXINFO` MUST use that one clamped value. The swap chain is created with `DXGI_SCALING_NONE` at
+  clamped to the bar (`DockClampPeek`: at least 1 pixel, at most the full bar); the reservation, placement, every
+  reveal and hide, the grip, and `WM_GETMINMAXINFO` MUST use that one clamped value.
+- The strip is reserved in the monitor's work area ("Monitor and placement"), so maximized windows stop just inside it
+  on every edge instead of lying under it: a top strip leaves their caption buttons and tabs uncovered, and a bottom or
+  side strip their status bars and scrollbars. A reveal lies over the work area as a topmost window at the full bar,
+  over those maximized windows, exactly as an unreserved bar would; a hide returns to the strip. The reserved rectangle
+  stays the strip throughout: a reveal, a hide, and every slide step move only the window and MUST NOT call the shell,
+  so the work area never changes with the reveal state. The swap chain is created with `DXGI_SCALING_NONE` at
   the full bar size (`Renderer::SetDockPresentation`), so the client can shrink without `ResizeBuffers`: DWM shows the
   back buffer's top-left region, which is the bar's first rows (top and bottom docks) or columns (left and right
   docks). Neither a reveal nor a hide recomputes the layout, calls `OnTargetSizeChanged`, or resizes the buffers.
@@ -257,13 +282,16 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
   minimized window. The full-size swap chain is retained while hidden so a reveal presents at once, without rebuilding
   it.
 - A live reload applies every `dock` member in place (thickness, edge, monitor, mode, reserve, peek, delays, slide) by
-  re-placing and, when the registration row changed, re-registering; an edge change that flips orientation reflows
-  the dashboard through the full rectangle. Switching between `none` and an edge switches the window kind live (next
-  section) while the rest of the document applies as usual. Command-line-pinned members are re-applied after every
-  merge, so `--dock none` or `--dock <edge>` keeps the kind for the run.
+  re-placing with the registration `PlanDockAppBar` gives it ("Monitor and placement"): `autohide` ↔ a fixed reserving
+  bar moves the reservation between the strip and the whole bar, either to a fixed overlay removes the bar and registers
+  it again so the work area comes back, and a member that leaves the reservation alone sends no shell call; an edge
+  change that flips orientation reflows the dashboard through the full rectangle. Switching between `none` and an edge
+  switches the window kind live (next section) while the rest of the document applies as usual. Command-line-pinned
+  members are re-applied after every merge, so `--dock none` or `--dock <edge>` keeps the kind for the run.
 - During an inner-edge drag the window follows the pointer. Dashboard and swap-chain resize work is coalesced to
-  at most one callback per 16 ms, with the final dimensions flushed on release before persisting thickness. The
-  shell work-area reservation is committed on release.
+  at most one callback per 16 ms, with the final dimensions flushed on release before persisting thickness. A fixed
+  reserving bar's work-area reservation is committed on release; an autohide bar's strip does not depend on the
+  thickness (unless the peek is clamped to a thinner bar), so its release reserves nothing new.
 
 ### Switching the window kind
 
@@ -320,15 +348,18 @@ install the plain template too: a bar decided there would stay in the file when 
   `MONITORINFOF_PRIMARY` during enumeration, even when another monitor contains screen coordinate `(0,0)`, and the
   second screen is chosen in the enumeration order the `secondary` selector uses.
 - `E` is the better-ranked horizontal edge of that display (`DockFirstRunEdge`), and `bottom` when both rank the same,
-  so the strip stays off the caption buttons and tabs of maximized windows wherever the bottom is free. From best to
-  worst:
+  so the strip stays away from the caption buttons and tabs at the top of maximized windows wherever the bottom is
+  free. Maximized windows stop beside the reserved strip on either edge ("Autohide"), so a top strip never covers
+  them, but a pointer thrown against the top edge for them would land on it. From best to worst:
   1. A free screen edge.
   2. An edge beside a taskbar: the display's work area is trimmed on that side (a taskbar that stays visible, or any
      reserving app bar), or an autohide bar is registered on that edge of that display (`ABM_GETAUTOHIDEBAREX`: an
      auto-hiding taskbar). A registration counts only while its window exists (`DockAutohideBarHoldsEdge`): Explorer
-     keeps reporting the autohide bar of a process that crashed or was killed, such as RedXe's own first-run bar,
-     until another bar registers on that edge, and that registration MUST NOT take the edge from the install that
-     follows.
+     keeps reporting the autohide bar of a process that crashed or was killed until another bar registers on that
+     edge, and that registration MUST NOT take the edge from the install that follows. RedXe's own bar never
+     registers there, since it reserves its strip; a strip a crashed or killed RedXe left reserved trims the work area
+     like any reserving bar until Explorer next recomputes app-bar positions, so an install in that gap ranks its edge
+     as beside a taskbar, and the `dock-first-run` record shows the trimmed work area.
   3. An edge another display shares, whatever holds it: a display right above or below that overlaps it along the
      edge (`DockDisplayTouchesEdge`). The pointer crosses that edge between the displays, so the strip MUST NOT go
      there while the other edge is not shared.
@@ -496,10 +527,12 @@ the repository test entrypoint MUST validate the version fields without desktop 
   (`PluginHost::StopLaunches`: queued launches dropped, one still in the shell waited for at most
   `LaunchWorker::kStopMilliseconds` (1 s), once, and logged as `launch-stop-timeout`; `Plugins_Actions.md`), then the
   queued log lines written out within `kSessionEndLogFlushMilliseconds` (0.5 s). The service stop waits at most
-  `kRedXeDeviceWorkerDrainMilliseconds` (3 s) per device lane, so with the one bundled lane the whole teardown
-  (`kSessionEndMaximumMilliseconds`, 4.5 s) stays inside Windows' 5 s hung-application timeout. `wParam` `FALSE` (the
-  end was cancelled) changes nothing. The rest of the process runtime teardown, `RedXePluginShutdown` included, is
-  not guaranteed at session end; when it does run, it neither waits for a stuck launch nor logs it again.
+  `kRedXeDeviceWorkerDrainMilliseconds` (3 s) per device lane, so with the one bundled lane and a responsive shell the
+  whole teardown stays inside Windows' 5 s hung-application timeout: `kSessionEndMaximumMilliseconds` (4.5 s) counts
+  only the device-lane drain, the launch stop, and the log flush, not the shell calls that remove the tray icon and
+  the app bar. `wParam` `FALSE` (the end was cancelled) changes nothing. The rest of the process runtime teardown,
+  `RedXePluginShutdown` included, is not guaranteed at session end; when it does run, it neither waits for a stuck
+  launch nor logs it again.
 - Fullscreen selection and DPI policy belong to `Application`; swap-chain sizing and presentation belong to
   `Renderer`.
 
@@ -548,41 +581,48 @@ Changes to the operating-system notification registration or message wiring outs
 require a live inactive/resume check.
 
 Dock changes MUST keep the pure tables green: `HostPluginTests` proves the placement rectangles for every edge
-(reserving proposal and shell re-trim, overlay against a work area with a taskbar or another bar, negative
-coordinates), the thickness scaling and clamp, the hidden strip, the grip and its accent for every edge, the resize
-band for every edge and the dragged thickness (outer-edge distance, DPI, both clamps), MINMAXINFO, monitor selection
-for every selector kind with the primary fallback (`secondary` before and after an enumerated primary, skipping a
-XENEON that enumerates before the second screen, the XENEON when it is the only display that is not the primary, on a
-single display, and every `SecondaryMonitorRank`), every autohide state-machine row including zero delays and hold
-precedence, the scheduler row that a hidden dock waits after its one grip frame, a dock-kind swap chain
-(`DXGI_SCALING_NONE`) presenting a tile frame and a grip frame while the client is smaller than the back buffer, the
-same swap chain created at the full bar while the window is already the strip and recreated at the last resized bar,
-the rebuild of one renderer and dashboard across kinds (`DXGI_SCALING_STRETCH` at the client, then
-`DXGI_SCALING_NONE` at the full bar, the same widget instances presenting), the first-run thickness
-(`DockFirstRunThicknessDips`: 16:9 displays at 100, 125, and 150 %, an ultrawide capped at half its height, a 5:4
-display, a side bar, negative coordinates, the minimum, DPI 0, the rescale without a clamp at 175 %, and the display
-under 64 DIPs across where the minimum is still clamped), the first-run offer (`DockFirstRunOffered`: refused after a
-failed discovery, with a XENEON, for a `--settings` file, and in a remote session), the first-run monitor
-(`DockFirstRunMonitor`: the primary for zero or one display, `secondary` from two), the shared edge
-(`DockDisplayTouchesEdge`: a display right above and right below, a partial overlap, negative coordinates, and none for
-displays side by side, at a corner, or on a side edge), and the first-run edge (`DockFirstRunEdge`: a display without a
-taskbar on either horizontal edge and a side taskbar taking `bottom`, a visible taskbar at the bottom and at the top,
-an auto-hiding taskbar at either edge, both edges taken, a display under another display with and without its own
-taskbar, one over another display, one between two displays, negative coordinates, and `DockAutohideBarHoldsEdge`
-counting a registration only while its window exists), and the
-autohide slide (`DockSlideDurationMilliseconds`: whole, partial, reversed, zero, and tiny travels;
-`DockSlideVisiblePixels`: exact ends, clamped progress, the eased halfway points of a reveal and a hide, one-way
-motion within the travel; `DockSlideContentOffset` for every edge), with a dock-kind swap chain presenting a slide
-frame at half the bar with every tile translated and returning in place when the slide ends, and the collapsed and
-sliding bar (`TestDockCollapsedBarPolicy`: `DockClampPeek` up to and past the bar, with the hidden rectangle and
-MINMAXINFO of a peek larger than the bar; `DockDashboardCanvas` for a collapsed, a sliding, an unplaced, and a
-standard window; the `PageOrWidgetChange` reveal and the holds that follow it; `DockSettleShift` for every edge and as
-the inverse of a top or left translation; every `DockRouteInput` row; `DockForegroundCoversMonitor` for a full-screen
-window, a maximized captioned window's overhang, a captionless one, another monitor, a spanning window, and a partial
-cover), proved on a real dashboard too (`TestDockCanvasHitTesting`: mid-slide hits on the canvas reach the tile on
-screen on a bottom and a translated top bar where the client size missed, a settled press keeps that tile only with the
-shift, and a raise on a collapsed bar fills the full bar; `TestDashboardSlideOffsetRetry`: a native container that
-failed to move is moved again by an unchanged offset, the zero one included);
+(reserving proposal and shell re-trim, overlay against a work area with a taskbar or another bar, negative coordinates),
+the app-bar registration (`TestDockAppBarRegistration`: `DockReservationFor` for both modes and both `reserveWorkArea`
+values; the strip proposal for every edge, at negative coordinates, with a peek clamped to a thin bar, and unchanged by
+a DPI change; the full bar grown from a strip the shell moved beside a taskbar or shortened by a side taskbar, with the
+collapsed window equal to the reserved strip on every edge; and the `PlanDockAppBar` sequences: a first autohide
+placement is `ABM_NEW`, `ABM_QUERYPOS`, `ABM_SETPOS` and no sequence holds `ABM_SETAUTOHIDEBAREX`, a pass that changes
+nothing reserved sends nothing, a stale reservation or an edge, monitor, DPI, or peek change sends `ABM_QUERYPOS` and
+`ABM_SETPOS` only, autohide ↔ a fixed reserving bar re-reserves without `ABM_REMOVE`, either to an overlay is
+`ABM_REMOVE` then `ABM_NEW`, a registered overlay sends nothing even after a shell change, and an unregistered bar
+registers first), the thickness scaling and clamp, the hidden strip, the grip and its accent for every edge, the resize
+band for every edge and the dragged thickness (outer-edge distance, DPI, both clamps), MINMAXINFO, monitor selection for
+every selector kind with the primary fallback (`secondary` before and after an enumerated primary, skipping a XENEON
+that enumerates before the second screen, the XENEON when it is the only display that is not the primary, on a single
+display, and every `SecondaryMonitorRank`), every autohide state-machine row including zero delays and hold precedence,
+the scheduler row that a hidden dock waits after its one grip frame, a dock-kind swap chain (`DXGI_SCALING_NONE`)
+presenting a tile frame and a grip frame while the client is smaller than the back buffer, the same swap chain created
+at the full bar while the window is already the strip and recreated at the last resized bar, the rebuild of one renderer
+and dashboard across kinds (`DXGI_SCALING_STRETCH` at the client, then `DXGI_SCALING_NONE` at the full bar, the same
+widget instances presenting), the first-run thickness (`DockFirstRunThicknessDips`: 16:9 displays at 100, 125, and
+150 %, an ultrawide capped at half its height, a 5:4 display, a side bar, negative coordinates, the minimum, DPI 0, the
+rescale without a clamp at 175 %, and the display under 64 DIPs across where the minimum is still clamped), the
+first-run offer (`DockFirstRunOffered`: refused after a failed discovery, with a XENEON, for a `--settings` file, and in
+a remote session), the first-run monitor (`DockFirstRunMonitor`: the primary for zero or one display, `secondary` from
+two), the shared edge (`DockDisplayTouchesEdge`: a display right above and right below, a partial overlap, negative
+coordinates, and none for displays side by side, at a corner, or on a side edge), and the first-run edge
+(`DockFirstRunEdge`: a display without a taskbar on either horizontal edge and a side taskbar taking `bottom`, a visible
+taskbar at the bottom and at the top, an auto-hiding taskbar at either edge, both edges taken, a display under another
+display with and without its own taskbar, one over another display, one between two displays, negative coordinates, and
+`DockAutohideBarHoldsEdge` counting a registration only while its window exists), and the autohide slide
+(`DockSlideDurationMilliseconds`: whole, partial, reversed, zero, and tiny travels; `DockSlideVisiblePixels`: exact
+ends, clamped progress, the eased halfway points of a reveal and a hide, one-way motion within the travel;
+`DockSlideContentOffset` for every edge), with a dock-kind swap chain presenting a slide frame at half the bar with
+every tile translated and returning in place when the slide ends, and the collapsed and sliding bar
+(`TestDockCollapsedBarPolicy`: `DockClampPeek` up to and past the bar, with the hidden rectangle and MINMAXINFO of a
+peek larger than the bar; `DockDashboardCanvas` for a collapsed, a sliding, an unplaced, and a standard window; the
+`PageOrWidgetChange` reveal and the holds that follow it; `DockSettleShift` for every edge and as the inverse of a top
+or left translation; every `DockRouteInput` row; `DockForegroundCoversMonitor` for a full-screen window, a maximized
+captioned window's overhang, a captionless one, another monitor, a spanning window, and a partial cover), proved on a
+real dashboard too (`TestDockCanvasHitTesting`: mid-slide hits on the canvas reach the tile on screen on a bottom and a
+translated top bar where the client size missed, a settled press keeps that tile only with the shift, and a raise on a
+collapsed bar fills the full bar; `TestDashboardSlideOffsetRetry`: a native container that failed to move is moved again
+by an unchanged offset, the zero one included);
 `SettingsTests` proves the `dock` member with `animationMilliseconds` (0 through 1000, default 200), its rejections,
 minor 2, the `secondary` selector in the document and on `--dock`, the `--dock*` grammar with its errors, the merge
 precedence, `PatchDockThickness` (replace, create with the minor bump, range, re-parse), and the first-run install
@@ -594,7 +634,17 @@ reveals at once on a click; each edge slides in and out over `animationMilliseco
 restores the one-step change; `--screenshot` of an autohide bar yields the full bar; a live reload re-places thickness,
 mode, and edge changes; a real mouse drag on the inner edge grows the bar live, commits the reservation on release, and
 writes `dock.thickness` to the file. The 2026-09-19 closeout recorded all of these on a 3840×2160 150 % primary plus a
-2560×720 150 % XENEON with bottom taskbars.
+2560×720 150 % XENEON with bottom taskbars, before an autohide bar reserved its strip.
+
+Changes to the app-bar registration or to what an autohide bar reserves additionally require a live check on a real
+desktop, a manual check for the owner: a reserving autohide bar changes the work area of the desktop in use and a
+reveal needs the real cursor, so automated and agent runs MUST NOT start one. With a first-run top autohide bar (or
+`--dock top@<display> --dock-mode autohide`), a window maximized on that display has its caption buttons and tabs just
+below the strip, not under it, and that display's `rcWork` is trimmed by exactly the peek (4 px by default) at the top;
+resting the pointer on the strip reveals the full bar over the maximized window, which keeps its size, and the bar
+hides back to the strip after the pointer leaves; exiting RedXe returns the work area and the maximized window grows
+back to the screen edge. A bottom or side autohide bar leaves the status bar or scrollbar of a maximized window
+uncovered the same way. These are not recorded yet.
 
 Changes to the slide step, the dashboard canvas, or input on a collapsed or sliding bar additionally require a live
 check on an autohide bar, because a reveal needs the real cursor or a bound control and `--screenshot` holds the bar
@@ -632,8 +682,8 @@ build `Application` and `--self-test` never runs a dock: a Debug overlay bar (`-
 --dock-reserve off`) under `--screenshot`, with the registered `TaskbarCreated` message posted twice to its own window
 (the running-Explorer case), logs two `dock-appbar-renewed` records and no `dock-appbar-refused`, leaves the foreground
 where it was, and exits 0. The 2026-10-07 check recorded this on the topology above. A real Explorer restart with a
-reserving bar and with an autohide bar up (the work area is reserved again, a full-screen window on the bar's monitor
-puts it beneath again) is a manual check.
+reserving bar and with an autohide bar up (the bar or the strip is reserved in the work area again, a full-screen
+window on the bar's monitor puts it beneath again) is a manual check.
 
 Placement-request and notice-window changes MUST keep `HostPluginTests` proving `BeginDockPlacement` and
 `NextDockPlacementPass` (a request during a pass is recorded, not run, and replayed as one more pass with the recorded
@@ -650,19 +700,19 @@ message box, and leaves the foreground where it was. The 2026-10-07 check record
 startup failure exit (1, 2, 3, 5, or 7), the settings fallback notice, a present crash marker, and the Release
 missing-display path under `--screenshot` have no automated or live check.
 
-Session-end changes MUST keep the `--self-test` step green: `WM_QUERYENDSESSION` and a cancelled `WM_ENDSESSION`
-sent to its hidden window keep the window, renderer, page, and services, and `WM_ENDSESSION` with `wParam` `TRUE`
-returns with the window destroyed, the page released, every service and device lane stopped, and no launch worker
-left, within `kSessionEndMaximumMilliseconds`. `HostPluginTests` (`TestLaunchWorker`) proves the launch stop a session
-end makes: it waits the bound once for a stuck launch and logs `launch-stop-timeout`, and the runtime shutdown after it
-neither waits nor logs again. Because the self-test has no log writer, they additionally require a live run: a Debug
-overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`) running the Zoom service under
-`--screenshot`, sent both messages with `ENDSESSION_LOGOFF` the way
-Windows sends them, answers `TRUE`, returns from `WM_ENDSESSION` with its window destroyed and its JSONL log already
-holding `session-ending` followed by `service-stopped`, leaves the foreground where it was, and exits by itself (8:
-the run ended before its capture). The 2026-10-07 check recorded this on the topology above (`WM_ENDSESSION` returned
-after 26 ms, and after 29 ms once the session end also stopped the launch worker). A real sign-out, restart, or shutdown with a Logicon keypad and dialpad bound (the keypad shows the Logi
-splash on the sign-in screen, and the dialpad buttons RedXe bound work normally again) is a manual check.
+Session-end changes MUST keep the `--self-test` step green: `WM_QUERYENDSESSION` and a cancelled `WM_ENDSESSION` sent to
+its hidden window keep the window, renderer, page, and services, and `WM_ENDSESSION` with `wParam` `TRUE` returns with
+the window destroyed, the page released, every service and device lane stopped, and no launch worker left, within
+`kSessionEndMaximumMilliseconds`. `HostPluginTests` (`TestLaunchWorker`) proves the launch stop a session end makes: it
+waits the bound once for a stuck launch and logs `launch-stop-timeout`, and the runtime shutdown after it neither waits
+nor logs again. Because the self-test has no log writer, they additionally require a live run: a Debug overlay bar
+(`--dock bottom@primary --dock-mode fixed --dock-reserve off`) running the Zoom service under `--screenshot`, sent both
+messages with `ENDSESSION_LOGOFF` the way Windows sends them, answers `TRUE`, returns from `WM_ENDSESSION` with its
+window destroyed and its JSONL log already holding `session-ending` followed by `service-stopped`, leaves the foreground
+where it was, and exits by itself (8: the run ended before its capture). The 2026-10-07 check recorded this on the
+topology above (`WM_ENDSESSION` returned after 26 ms, and after 29 ms once the session end also stopped the launch
+worker). A real sign-out, restart, or shutdown with a Logicon keypad and dialpad bound (the keypad shows the Logi splash
+on the sign-in screen, and the dialpad buttons RedXe bound work normally again) is a manual check.
 
 Notification-area icon changes MUST keep `HostPluginTests` proving the callback table (`TrayIconActionFor`: a
 double-click and `NIN_KEYSELECT` edit, `WM_CONTEXTMENU` opens the menu, single clicks, hover, and balloon events do
@@ -691,7 +741,9 @@ restarting Explorer brings it back; and a Debug run with the shipped template sh
   `RunApplication` in `RedXe/Main.cpp` and `Application::SetUnattended`; the first-run dock:
   `MakeFirstRunDock` in `RedXe/Application.cpp`; session end: `Application::OnEndSession`
 - Dock placement, monitor selection, MINMAXINFO, the autohide state machine, the slide, and the first-run monitor,
-  edge, and thickness: `RedXe/DockPlacement.h`; the `--dock*` grammar and merge: `RedXe/DockOptions.h`; dock-kind
+  edge, and thickness: `RedXe/DockPlacement.h`; what each mode reserves and the registration messages of a placement
+  pass: `DockReservationFor` and `PlanDockAppBar` in `RedXe/DockPlacement.h`, sent by `Application::PlaceDockPass`
+  with the record in `Application::_dockAppBar`; the `--dock*` grammar and merge: `RedXe/DockOptions.h`; dock-kind
   presentation: `Renderer::SetDockPresentation`; the slide's frames and translation: `Application::TickDockSlide`,
   `SettleDockSlide`, and `DashboardHost::SetSlideOffset`; the dashboard canvas: `Application::DashboardCanvasSize`;
   the reveal before a page or widget change: `Application::RevealDockForChange`; input on a collapsed or sliding bar:

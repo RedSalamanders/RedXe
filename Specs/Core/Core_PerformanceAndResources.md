@@ -100,12 +100,16 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   peek strip being the window itself. A collapsed dock presents exactly one grip frame and then blocks like a minimized
   window, retaining its full-size swap chain (about 4 MiB for a 3840×270 bar) so a reveal presents at once without
   rebuilding it. Shell traffic (`SHAppBarMessage`) happens only on placement, activation, window-position changes, and
-  shell notifications, never per frame. An inner-edge drag moves the window per pointer update but coalesces dashboard,
-  swap-chain, and widget size callbacks to one 16 ms timer; release flushes the final size. A live switch between the
-  standard window and the dock is a cold settings-reload path: one renderer rebuild (device and swap chain, as on an
-  adapter change) and one dashboard resize, with no widget re-creation. The first-run bar on a display without a XENEON
-  retains the back buffer of its XENEON-proportioned full size (3840×1080, about 16 MiB, on a 150 % 4K display), the
-  same buffer as the titled fallback window it replaces there.
+  shell notifications, never per frame and never for a reveal, a hide, or a slide step. The work-area reservation (the
+  whole bar of a fixed reserving bar, the peek strip of an autohide bar) is queried and set again only when a placement
+  changes the reserved rectangle, its edge, row, or monitor DPI, or follows a shell change (`ABN_POSCHANGED`,
+  `ABN_STATECHANGE`, `WM_DISPLAYCHANGE`), so the desktop is not re-laid out by the reveal state or by a placement that
+  leaves the reservation alone (`PlanDockAppBar`). An inner-edge drag moves the window per pointer update but coalesces
+  dashboard, swap-chain, and widget size callbacks to one 16 ms timer; release flushes the final size. A live switch
+  between the standard window and the dock is a cold settings-reload path: one renderer rebuild (device and swap chain,
+  as on an adapter change) and one dashboard resize, with no widget re-creation. The first-run bar on a display without
+  a XENEON retains the back buffer of its XENEON-proportioned full size (3840×1080, about 16 MiB, on a 150 % 4K
+  display), the same buffer as the titled fallback window it replaces there.
 - The notification-area icon (`Specs/UI/UI_XeneonDisplayWindowing.md`) costs one hidden owner window of its own class
   and one small-icon `HICON` on the UI thread, with no thread, hook, or periodic wake-up in any state. Its only timer
   is the one-shot retry of an add that a running taskbar refused: at most four, with doubling delays from 1 s, one

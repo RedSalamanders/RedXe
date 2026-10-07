@@ -167,9 +167,9 @@ unknown edge or mode reject the complete candidate with a diagnostic on `$.dock.
 | `edge` | `none`, `top`, `bottom`, `left`, `right` | `none` | Edge of the selected monitor. `none` disables the dock and leaves every other member validated and inert. |
 | `monitor` | `primary`, `secondary` (the first display in `EnumDisplayMonitors` order that is neither the primary nor the XENEON, and the XENEON only when it is the only display that is not the primary; minor 3), `xeneon`, `<n>` (1-based `EnumDisplayMonitors` order), `name:<substring>` | `primary` | Validated with the shared monitor-selector grammar (`Common/Actions/ActionTargets.h`, `all` rejected); resolved at window creation, where an absent display falls back to the primary. |
 | `thickness` | Integer DIPs, 32–1080 | `180` | Cross-axis size, scaled by the monitor DPI and clamped to half of the monitor at runtime. |
-| `mode` | `fixed`, `autohide` | `fixed` | `fixed` keeps the whole bar on screen; `autohide` collapses it to the peek strip. |
-| `reserveWorkArea` | Boolean | `true` | `fixed` only: register the bar with the shell so maximized windows stop at it. Ignored in `autohide`. |
-| `peek` | Integer physical pixels, 1–64 | `4` | `autohide` only: pixels that stay visible while hidden. |
+| `mode` | `fixed`, `autohide` | `fixed` | `fixed` keeps the whole bar on screen; `autohide` collapses it to the peek strip, which it reserves in the monitor's work area so maximized windows stop just inside it, and reveals the full bar over the work area. |
+| `reserveWorkArea` | Boolean | `true` | `fixed` only: reserve the whole bar in the monitor's work area so maximized windows stop at it; `false` reserves nothing and the bar overlays the work area. Ignored in `autohide`, which always reserves its peek strip. |
+| `peek` | Integer physical pixels, 1–64 | `4` | `autohide` only: pixels that stay visible while hidden, clamped to the bar's thickness; the bar reserves exactly that strip in the work area. |
 | `revealDelayMilliseconds` | Integer, 0–2000 | `150` | `autohide` only: pointer dwell on the strip before the bar reveals; 0 reveals on the first mouse move. |
 | `hideDelayMilliseconds` | Integer, 0–10000 | `800` | `autohide` only: delay after the last hold clears before the bar collapses. |
 | `animationMilliseconds` | Integer, 0–1000 | `200` | `autohide` only (minor 3): how long the bar slides out of its edge when it reveals and back when it hides; 0 reveals and hides in one step. |
