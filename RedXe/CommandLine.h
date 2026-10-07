@@ -191,24 +191,6 @@ inline constexpr std::array<const wchar_t*, 4> kRedXeCommandLineGroups{L"General
     return selfTest || screenshot;
 }
 
-// Text Main.cpp prints about the command line instead of running it.
-enum class RedXeCommandLineText : uint8_t
-{
-    // The `--help` catalog (exit 0).
-    Help = 0,
-    // A command-line error, such as an unknown token (exit 2).
-    Error,
-};
-
-// Whether that text, finding neither a console to attach to nor a redirected stdout, goes only to the debugger output
-// instead of a message box. The help catalog never does: help is answered before any other switch is read, so
-// `--self-test` or `--screenshot` beside it changes nothing. A command-line error does in an unattended run
-// (`unattended`, RedXeIsUnattendedRun), which never waits on a box.
-[[nodiscard]] constexpr bool RedXeCommandLineTextIsQuiet(RedXeCommandLineText text, bool unattended) noexcept
-{
-    return text == RedXeCommandLineText::Error && unattended;
-}
-
 // The name the `--help` text gives an exit code Main.cpp reports, for the `failure-exit` record an unattended capture
 // run leaves in the log; "startup" for a code the list does not name.
 [[nodiscard]] constexpr const char* RedXeExitCodeName(int exitCode) noexcept

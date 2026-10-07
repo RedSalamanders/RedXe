@@ -161,7 +161,7 @@ The bar collapses to a thin line until you rest the pointer on it. Its `thicknes
 
 ## Command line
 
-`RedXe.exe --help` (also `-h`, `/?`, `-?`) prints every switch, grouped, with the exit codes, to the console you ran it from (or to a message box when there is none). Every switch overrides the settings file for that run only; an unknown switch is an error (exit code 2) rather than silently ignored.
+`RedXe.exe --help` (also `-h`, `/?`, `-?`) prints every switch, grouped, with the exit codes, to the console you ran it from (or to a message box when there is none, unless `--self-test` or `--screenshot` is also on the line, since those runs never wait on a box). Every switch overrides the settings file for that run only; an unknown switch is an error (exit code 2) rather than silently ignored.
 
 | Switch | Meaning |
 | --- | --- |
