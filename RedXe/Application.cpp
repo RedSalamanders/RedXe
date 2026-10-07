@@ -534,6 +534,14 @@ struct DisplayFriendlyName final
     return ValidateAppSettings(settings);
 }
 
+// Logged before a failed live window-kind switch is rolled back: the reload is rejected and the previous kind stays.
+void LogWindowKindSwitchFailed(HRESULT result) noexcept
+{
+    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                       "window-kind-switch-failed",
+                       "A settings reload could not switch the window kind; the previous kind is restored.", result);
+}
+
 } // namespace
 
 class ApplicationDropTarget final : public IDropTarget
@@ -1767,35 +1775,32 @@ HRESULT Application::ResizeDockDashboard() noexcept
     return result;
 }
 
-void Application::ApplyDockSettings() noexcept
+HRESULT Application::ApplyDockSettings(const DockSettings& documentDock) noexcept
 {
-    if (!_settings)
-    {
-        return;
-    }
-    const DockSettings next = EffectiveDockSettings(_settings->dock, _dockOverrides);
+    const DockSettings next = EffectiveDockSettings(documentDock, _dockOverrides);
     if (next == _dock)
     {
-        return;
+        return S_OK;
     }
     if ((next.edge != DockEdge::None) != _dockActive)
     {
-        // `none` <-> an edge changes the window kind; the window follows the file at once.
-        if (const HRESULT result = SwitchWindowKind(next); FAILED(result))
+        // `none` <-> an edge changes the window kind; the window follows the file at once. A failed step switches
+        // back to the kind the window had, like a failed combined reload, and the caller rejects the reload.
+        const DockSettings previous = _dock;
+        const HRESULT result = SwitchWindowKind(next, false);
+        if (SUCCEEDED(result))
         {
-            RecordRuntimeFailure(result, "window-kind-switch-failed");
-            if (_window)
-            {
-                (void)PostMessageW(_window.get(), WM_CLOSE, 0, 0);
-            }
+            return S_OK;
         }
-        return;
+        LogWindowKindSwitchFailed(result);
+        const HRESULT restored = SwitchWindowKind(previous, true);
+        return FAILED(restored) ? restored : result;
     }
     const DockMode previousMode = _dock.mode;
     _dock = next;
     if (!_dockActive)
     {
-        return;
+        return S_OK;
     }
     if (previousMode != _dock.mode && _dock.mode == DockMode::Fixed)
     {
@@ -1808,6 +1813,7 @@ void Application::ApplyDockSettings() noexcept
     {
         EvaluateDockHolds();
     }
+    return S_OK;
 }
 
 void Application::StopDockInteraction() noexcept
@@ -1849,21 +1855,21 @@ void Application::ResetDockPlacementState() noexcept
     _dockPinnedByAction = false;
 }
 
-HRESULT Application::SwitchWindowKind(const DockSettings& next) noexcept
+HRESULT Application::SwitchWindowKind(const DockSettings& next, bool rollback) noexcept
 {
-    HRESULT result = RestyleWindowKind(next);
+    HRESULT result = RestyleWindowKind(next, rollback);
     if (SUCCEEDED(result))
     {
         result = RebuildPresentation();
     }
     if (SUCCEEDED(result))
     {
-        result = FinishWindowKindSwitch();
+        result = FinishWindowKindSwitch(rollback);
     }
     return result;
 }
 
-HRESULT Application::RestyleWindowKind(const DockSettings& next) noexcept
+HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback) noexcept
 {
     if (!_window || !_dashboardHost)
     {
@@ -1871,8 +1877,12 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next) noexcept
     }
     const HWND window = _window.get();
     const bool toDock = next.edge != DockEdge::None;
-    // Without a XENEON the standard window lands on the monitor the dock was on, where the person is looking.
-    _kindSwitchFallbackMonitor = MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
+    // Without a XENEON the standard window lands on the monitor the dock was on, where the person is looking. A
+    // rollback keeps the monitor the forward switch recorded: the window has been moved to the other kind's place.
+    if (!rollback)
+    {
+        _kindSwitchFallbackMonitor = MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
+    }
 
     // Every interaction bound to the old geometry ends, then the presentation goes: its swap-chain scaling belongs
     // to the old kind. Shell notifications that arrive while the dock unregisters find no dock.
@@ -1935,7 +1945,7 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next) noexcept
     return toDock ? PlaceDock(false) : PlaceStandardWindow(fullscreen, _kindSwitchFallbackMonitor);
 }
 
-HRESULT Application::FinishWindowKindSwitch() noexcept
+HRESULT Application::FinishWindowKindSwitch(bool rollback) noexcept
 {
     if (!_window || !_rendererReady)
     {
@@ -1958,9 +1968,13 @@ HRESULT Application::FinishWindowKindSwitch() noexcept
     PushHostChrome();
     PublishHostState();
     _frameInvalidated = true;
-    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "window-kind-changed",
-                       _dockActive ? "A settings reload turned the window into the dock."
-                                   : "A settings reload turned the dock into the standard window.");
+    if (!rollback)
+    {
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr,
+                           "window-kind-changed",
+                           _dockActive ? "A settings reload turned the window into the dock."
+                                       : "A settings reload turned the dock into the standard window.");
+    }
     return S_OK;
 }
 
@@ -2575,10 +2589,15 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     _wheel.Reset();
     if (ActiveDashboardRuntimeEquals(*settings, *_settings))
     {
+        // The dock goes first: a window-kind switch that fails is rolled back before anything is committed, so the
+        // rejected reload leaves the previous document, services, and log retention active.
+        if (const HRESULT result = ApplyDockSettings(settings->dock); FAILED(result))
+        {
+            return result;
+        }
         _settings = std::move(settings);
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
-        ApplyDockSettings();
         ApplyTrayIconSettings();
         PublishHostState();
         ShowActionNotices();
@@ -2594,7 +2613,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     const DockSettings previousDock = _dock;
     const DockSettings nextDock = EffectiveDockSettings(settings->dock, _dockOverrides);
     const bool switchKind = (nextDock.edge != DockEdge::None) != _dockActive;
-    HRESULT applyResult = switchKind ? RestyleWindowKind(nextDock) : S_OK;
+    HRESULT applyResult = switchKind ? RestyleWindowKind(nextDock, false) : S_OK;
     if (SUCCEEDED(applyResult))
     {
         applyResult = _pluginManager->Reconfigure(*settings);
@@ -2605,14 +2624,15 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     }
     if (SUCCEEDED(applyResult) && switchKind)
     {
-        applyResult = FinishWindowKindSwitch();
+        applyResult = FinishWindowKindSwitch(false);
     }
     if (SUCCEEDED(applyResult))
     {
         _settings = std::move(settings);
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
-        ApplyDockSettings();
+        // The window already has the candidate's kind, so only same-kind dock members remain, and they never fail.
+        (void)ApplyDockSettings(_settings->dock);
         ApplyTrayIconSettings();
         PublishHostState();
         ShowActionNotices();
@@ -2622,7 +2642,11 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     _renderer.Shutdown();
     _rendererReady = false;
     _dashboardHost->Shutdown(false);
-    HRESULT rollbackResult = switchKind ? RestyleWindowKind(previousDock) : S_OK;
+    if (switchKind)
+    {
+        LogWindowKindSwitchFailed(applyResult);
+    }
+    HRESULT rollbackResult = switchKind ? RestyleWindowKind(previousDock, true) : S_OK;
     if (SUCCEEDED(rollbackResult))
     {
         rollbackResult = _pluginManager->Reconfigure(*_settings);
@@ -2633,7 +2657,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     }
     if (SUCCEEDED(rollbackResult) && switchKind)
     {
-        rollbackResult = FinishWindowKindSwitch();
+        rollbackResult = FinishWindowKindSwitch(true);
     }
     if (FAILED(rollbackResult))
     {
@@ -5283,6 +5307,14 @@ void Application::SetRaiseCloseHovered(bool hovered) noexcept
 
 void Application::OnSettingsChanged() noexcept
 {
+    if (_inSizeMove)
+    {
+        // The system move/size loop applies its own rectangle when it ends, which would undo a kind switch or a dock
+        // placement made now. The notification stays unacknowledged, so the watcher keeps coalescing, and
+        // WM_EXITSIZEMOVE replays it once.
+        _settingsReloadDeferred = true;
+        return;
+    }
     _settingsWatcher.AcknowledgeNotification();
 
     std::unique_ptr<AppSettings> candidate;
@@ -5323,6 +5355,16 @@ void Application::OnSettingsChanged() noexcept
         return;
     }
 
+    // A minimized standard window has a 0x0 client, which cannot size a rebuilt page. A candidate that rebuilds it
+    // without switching the window kind (a switch restores the window first) is neither applied nor rejected; the
+    // restore reads the file again.
+    if (!_dockActive && _window && IsIconic(_window.get()) && !ActiveDashboardRuntimeEquals(*candidate, *_settings) &&
+        EffectiveDockSettings(candidate->dock, _dockOverrides).edge == DockEdge::None)
+    {
+        _settingsReloadDeferred = true;
+        return;
+    }
+
     _settingsStore.SuppressDocumentWrites(true);
     const auto resumeWrites = wil::scope_exit([&]() noexcept { _settingsStore.SuppressDocumentWrites(false); });
     const HRESULT applyResult = ApplySettings(std::move(candidate));
@@ -5340,6 +5382,20 @@ void Application::OnSettingsChanged() noexcept
     {
         RecordRuntimeFailure(applyResult, "settings-apply-failed");
         CloseMainWindow();
+    }
+}
+
+void Application::ReplayDeferredSettingsReload() noexcept
+{
+    if (!_settingsReloadDeferred || _inSizeMove || !_window || IsIconic(_window.get()))
+    {
+        return;
+    }
+    // Posted, not called: WM_SIZE and WM_EXITSIZEMOVE stay short, and the reload runs from the message loop. A failed
+    // post keeps the deferral for the next size or loop end.
+    if (PostMessageW(_window.get(), SettingsWatcher::kSettingsChangedMessage, 0, 0))
+    {
+        _settingsReloadDeferred = false;
     }
 }
 
@@ -5712,15 +5768,27 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         }
         break;
     case WM_SIZE:
-        return OnSize(window, LOWORD(lParam), HIWORD(lParam));
+    {
+        const LRESULT sizeResult = OnSize(window, LOWORD(lParam), HIWORD(lParam));
+        if (wParam != SIZE_MINIMIZED)
+        {
+            ReplayDeferredSettingsReload();
+        }
+        return sizeResult;
+    }
     case WM_DPICHANGED:
     {
         const LRESULT dpiResult = OnDpiChanged(window, LOWORD(wParam), reinterpret_cast<const RECT*>(lParam));
         CheckDeviceAdapter();
         return dpiResult;
     }
+    case WM_ENTERSIZEMOVE:
+        _inSizeMove = true;
+        break;
     case WM_EXITSIZEMOVE:
+        _inSizeMove = false;
         CheckDeviceAdapter();
+        ReplayDeferredSettingsReload();
         break;
     case WM_DISPLAYCHANGE:
         if (_dockActive)

@@ -40,7 +40,8 @@ validation, `wil-raii` for files/events/change notifications, `win32-windowing` 
   placeholder, not a settings or startup failure. Without an active XENEON, the installed template (first start or
   recovery) carries the first-run dock through `PatchFirstRunDock`; a `--settings` file is never written.
 - A live `dock` change applies to the running window, including `edge` between `none` and an edge, which restyles
-  the same HWND (`Application::SwitchWindowKind`); never defer it to a restart.
+  the same HWND (`Application::SwitchWindowKind`); never defer it to a restart. A failed switch rolls back to the
+  previous kind and rejects the reload; it never exits unless the rollback leaves no renderer.
 - Validate types, ranges, required members, duplicates, unknown members, schema version, and the 1 MiB limit before
   replacing typed runtime state. yyjson values and strings remain borrowed from their owning document.
 - `PatchWidgetInstanceSettings` merges supplied members into the stored instance object, validates the complete
@@ -56,6 +57,9 @@ validation, `wil-raii` for files/events/change notifications, `win32-windowing` 
   Direct3D remain on the UI thread.
 - Acknowledge the coalesced message before reading so a later edit can post again. Deduplicate applied and rejected
   file stamps.
+- Inside the titled window's move/size loop the reload waits unacknowledged until `WM_EXITSIZEMOVE`; a valid candidate
+  that would rebuild the page of a minimized standard window waits, unmarked, until the restore. Both replay by
+  posting the message again (`ReplayDeferredSettingsReload`).
 - After a valid parse, reselect the page that was current when that page still exists (`PreserveActiveDashboardPage`)
   before applying. Launch still starts on the first page; the active page is not written to the document. A live load
   MUST NOT write the watched file. An invalid live load MUST NOT rewrite the editor file or the last-good document.

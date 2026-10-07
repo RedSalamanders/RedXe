@@ -268,19 +268,19 @@ Check a row when its fix lands, or note why it was dropped.
 
 ### P2. RedXe exits, freezes, or re-enters at runtime (23)
 
-- [ ] `dock-switch#0` (high) `RedXe/Application.cpp:2058`: A live reload that rebuilds the page while the titled window is minimized closes RedXe
+- [x] `dock-switch#0` (high) `RedXe/Application.cpp:2058`: A live reload that rebuilds the page while the titled window is minimized closes RedXe
 - [ ] `host-hardening#0` (high) `RedXe/Application.cpp:936`: The redxe.screenshot action quits RedXe after the capture, a second press during a capture is dropped but reports S_OK, and a failed capture is not logged
 - [ ] `launch-ui-thread#0` (high) `RedXe/HostActions.cpp:314`: system.launch runs GetFileAttributesW and ShellExecuteExW on the UI thread; a target on an offline share freezes the dashboard for about 42 s
 - [ ] `modal-reentrancy#2` (high) `RedXe/Application.cpp:3597`: A Launcher tile bound to redxe.settings.reload can free the Launcher widget while its own OnPointer is still running
-- [ ] `dock-switch#1` (medium) `RedXe/Application.cpp:1784`: A kind switch that fails on the fast (dock-only) reload path exits RedXe and marks the file applied, while the same failure in a full reload rolls back
-- [ ] `dock-switch#3` (medium) `RedXe/Application.cpp:2625`: A rolled-back kind switch logs window-kind-changed as if it succeeded, never logs window-kind-switch-failed, and restores the titled window on another monitor
+- [x] `dock-switch#1` (medium) `RedXe/Application.cpp:1784`: A kind switch that fails on the fast (dock-only) reload path exits RedXe and marks the file applied, while the same failure in a full reload rolls back
+- [x] `dock-switch#3` (medium) `RedXe/Application.cpp:2625`: A rolled-back kind switch logs window-kind-changed as if it succeeded, never logs window-kind-switch-failed, and restores the titled window on another monitor
 - [ ] `host-hardening#1` (medium) `RedXe/Main.cpp:325`: --screenshot exits 0 with no PNG when the run ends before the async capture completes, and the worker's real HRESULT is read too late
 - [ ] `host-hardening#2` (medium) `RedXeLauncher/Main.cpp:152`: The launcher does not wait when an argument is unknown, so exit code 2 is lost and the error prints after the prompt; test.ps1 masks it
 - [ ] `launch-ui-thread#1` (medium) `RedXe/PluginHost.cpp:2047`: Queued actions have no age bound, so key injections requested during a UI stall replay into whatever window is foreground afterwards
-- [ ] `modal-reentrancy#0` (medium) `RedXe/Application.cpp:5862`: A window-kind switch dispatched inside the titled window's move/size loop is undone when the loop ends: the dock is left at the titled window's rectangle
-- [ ] `modal-reentrancy#1` (medium) `RedXe/Main.cpp:363`: The startup and runtime failure message box is dismissed at once by the WM_QUIT that destroying the main window leaves in the queue
-- [ ] `settings#6` (medium) `RedXe/Application.cpp:1784`: An edge-only live dock reload that fails the window-kind switch quits RedXe and is reported as a successful reload
-- [ ] `dock-switch#11` (low, disputed) `RedXe/Application.cpp:5862`: A kind switch can run inside the titled window's own modal move/size loop
+- [x] `modal-reentrancy#0` (medium) `RedXe/Application.cpp:5862`: A window-kind switch dispatched inside the titled window's move/size loop is undone when the loop ends: the dock is left at the titled window's rectangle
+- [x] `modal-reentrancy#1` (medium) `RedXe/Main.cpp:363`: The startup and runtime failure message box is dismissed at once by the WM_QUIT that destroying the main window leaves in the queue
+- [x] `settings#6` (medium) `RedXe/Application.cpp:1784`: An edge-only live dock reload that fails the window-kind switch quits RedXe and is reported as a successful reload
+- [x] `dock-switch#11` (low, disputed) `RedXe/Application.cpp:5862`: A kind switch can run inside the titled window's own modal move/size loop
 - [ ] `host-hardening#10` (low) `RedXeLauncher/Main.cpp:259`: The launcher reports an NTSTATUS crash exit code (above INT_MAX) as 1, the documented settings-failure code
 - [ ] `host-hardening#11` (low) `RedXe/PluginHost.cpp:523`: Exiting with a stuck device lane skips the log drain, so the drain-timeout line can be lost
 - [ ] `host-hardening#12` (low) `RedXe/PluginHost.cpp:2372`: A service re-added while its old device lane is still stuck fails with ERROR_BUSY, the error is discarded, and nothing retries when the lane returns

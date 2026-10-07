@@ -232,8 +232,15 @@ native containers, the settings watcher, the drop target, and accessibility.
   apply restyles the window back before the previous page is restored.
 - The window is shown with `SW_SHOWNOACTIVATE`: the window in which the file was saved keeps the focus. An autohide
   dock collapses after the hide delay as at launch.
-- A switch logs one Info record (`window-kind-changed`). A failed step logs one Error record
-  (`window-kind-switch-failed`) and closes the window like any other runtime failure (exit code 5).
+- A switch logs one Info record (`window-kind-changed`).
+- A failed step MUST NOT end the process or mark the file applied, whether the reload changes only `dock` or also
+  rebuilds the active page. The window is switched back to the kind it had and placed as a switch to that kind
+  places it, except that a standard window without a XENEON returns to the monitor it was on, not to the monitor of
+  the failed dock. The reload is rejected like any failed apply (`Specs/Core/Core_Settings.md` "Live reload and
+  diagnostics"): the previous document, page, services, and dock stay active, its stamp is not applied, and the
+  settings-error dialog opens. The failure logs one Warning record (`window-kind-switch-failed`, with the failing
+  `HRESULT`) and the rollback logs no `window-kind-changed`. Only a rollback that leaves no renderer is a runtime
+  failure: the Error record `settings-apply-failed` and exit code 5.
 - `--self-test` pins the edge to `none`, so a document `dock` never switches its hidden titled window.
 
 ### First start without a XENEON
@@ -323,6 +330,19 @@ the repository test entrypoint MUST validate the version fields without desktop 
   delivered to the dashboard. The first tap on an inactive window MUST NOT be eaten.
 - Debug and fallback windows MUST retain standard resize, minimize, maximize, move, and title-bar behavior.
 - `WM_SIZE` with a zero client dimension is suspension, not failure.
+- A live reload MUST NOT size a rebuilt page from the 0×0 client of a minimized standard window. A valid save that
+  would rebuild the active page without switching the window kind waits while the window is minimized, neither
+  applied nor rejected, and is read again once when a `WM_SIZE` other than `SIZE_MINIMIZED` restores it. Every other
+  save applies at once: an invalid one opens the settings-error dialog, one that rebuilds no page applies in place,
+  and a window-kind switch restores the window itself ("Switching the window kind").
+- A live reload or `redxe.settings.reload` that arrives inside the titled window's system move/size loop (between
+  `WM_ENTERSIZEMOVE` and `WM_EXITSIZEMOVE`) MUST wait and run once after `WM_EXITSIZEMOVE`: the loop applies its own
+  rectangle when it ends, which would undo a window-kind switch or a dock placement made inside it. The watcher's
+  notification stays unacknowledged meanwhile, so later saves coalesce into that one reload.
+- A run that ends with a startup or runtime failure exit code shows one error message box after the main window is
+  gone (`RedXe/Main.cpp`; never under `--self-test`, and never for exit code 8, a failed capture), and that box MUST
+  wait for the user: the `WM_QUIT` that destroying the window posted is discarded first, because a modal loop that
+  retrieves it closes the box at once.
 - `WM_PAINT` validates the update region; continuous rendering remains on the idle side of the message loop.
 - The window class MUST NOT request `CS_HREDRAW` or `CS_VREDRAW`; resize rendering is driven by `WM_SIZE` and the
   renderer rather than redundant full-client paint invalidation.
@@ -445,6 +465,13 @@ and `--screenshot` taken after a switch in either direction shows the tiles. The
 a 3840×2160 150 % primary (NVIDIA) plus a 2560×720 100 % XENEON on the integrated GPU (AMD), with a Release RedXe
 fullscreen on the XENEON.
 
+Changes to the deferred reload additionally require a live run of the same kind: a titled window minimized without
+activation while a save changes `backgroundColor` stays minimized and running with no `settings-apply-failed`
+record, and once restored without activation its `--screenshot` shows the saved color; a save of only `dock.edge`
+made while it is minimized still turns it into a bar at once. The 2026-10-07 check recorded these on the topology
+above. A failed switch step needs a Direct3D, shell, or `SetWindowPos` fault and a move/size loop needs the real
+cursor, so the rollback and the move/size deferral have no automated or live check.
+
 First-run changes additionally require a live install without a XENEON: on a machine with two displays and a bottom
 taskbar the installed `dock` names `top` and `secondary`, the `dock-first-run` record says so, and the bar collapses
 to its strip at the top of the display that is not the primary.
@@ -466,8 +493,10 @@ none.
   `--help`: `RedXe/CommandLine.h`
 - Display discovery, window creation, and DPI transitions: `RedXe/Application.cpp`, `RedXe/Application.h`; live
   window-kind switches: `Application::SwitchWindowKind` (`RestyleWindowKind`, `RebuildPresentation`,
-  `FinishWindowKindSwitch`), `PlaceStandardWindow`, and the combined page-and-kind reload in `ApplySettings`; the
-  first-run dock: `MakeFirstRunDock` in `RedXe/Application.cpp`
+  `FinishWindowKindSwitch`), `PlaceStandardWindow`, the dock-only reload and its rollback in `ApplyDockSettings`, and
+  the combined page-and-kind reload in `ApplySettings`; the deferred reload: `OnSettingsChanged` and
+  `ReplayDeferredSettingsReload`; the failure message box: `RunApplication` in `RedXe/Main.cpp`; the first-run dock:
+  `MakeFirstRunDock` in `RedXe/Application.cpp`
 - Dock placement, monitor selection, MINMAXINFO, the autohide state machine, the slide, and the first-run monitor,
   edge, and thickness: `RedXe/DockPlacement.h`; the `--dock*` grammar and merge: `RedXe/DockOptions.h`; dock-kind
   presentation: `Renderer::SetDockPresentation`; the slide's frames and translation: `Application::TickDockSlide`,

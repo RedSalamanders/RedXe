@@ -360,6 +360,10 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         default:
             break;
         }
+        // Destroying the main window posted a WM_QUIT that no loop retrieved on these paths, and a modal loop that
+        // finds one ends at once. Discard it so the box waits for the user; wWinMain returns the exit code directly.
+        MSG quit{};
+        (void)PeekMessageW(&quit, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE);
         MessageBoxW(nullptr, message, L"RedXe", MB_OK | MB_ICONERROR);
     }
     return exitCode;

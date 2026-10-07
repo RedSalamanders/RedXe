@@ -108,21 +108,24 @@ class Application final
     // True while the shell reports a full-screen application (ABN_FULLSCREENAPP) and the foreground window fills the
     // dock's own monitor: only then does the bar step beneath it.
     [[nodiscard]] bool DockYieldsToFullscreen() const noexcept;
-    // Live reload: re-places the bar for changed members, and `none` <-> an edge switches the window kind.
-    void ApplyDockSettings() noexcept;
+    // Live reload: re-places the bar for the document's changed `dock` members, and `none` <-> an edge switches the
+    // window kind. A failed switch is rolled back to the previous kind and its failure returned, so the caller rejects
+    // the reload; RedXe exits only when the rollback leaves no renderer.
+    HRESULT ApplyDockSettings(const DockSettings& documentDock) noexcept;
     // Live reload between `none` and an edge (UI_XeneonDisplayWindowing.md "Switching the window kind"): the same
     // window is hidden, restyled, placed as the other kind, and shown again without activation, and the swap chain is
     // rebuilt for that kind's scaling. Widgets, services, native containers, the settings watcher, and the drop target
-    // stay bound to the window. A failure is a runtime failure (the caller closes the window).
+    // stay bound to the window. A failed step leaves the window hidden; the caller rolls back to the previous kind
+    // with `rollback`, which keeps the forward switch's standard-window monitor and logs no switch.
     // SwitchWindowKind = RestyleWindowKind, RebuildPresentation, FinishWindowKindSwitch; a reload that also rebuilds
     // the page runs InitializeDashboardRuntime between the two halves instead, so the renderer is created once.
-    HRESULT SwitchWindowKind(const DockSettings& next) noexcept;
+    HRESULT SwitchWindowKind(const DockSettings& next, bool rollback) noexcept;
     // Ends the interactions, takes the presentation down, and hides, restyles, and places the window as the kind
     // `next` selects. The window stays hidden with no renderer until FinishWindowKindSwitch.
-    HRESULT RestyleWindowKind(const DockSettings& next) noexcept;
+    HRESULT RestyleWindowKind(const DockSettings& next, bool rollback) noexcept;
     // Shows the restyled window without activation, settles the standard kind's placement, the holds, and the chrome,
-    // and logs the switch. Needs the renderer of the new kind.
-    HRESULT FinishWindowKindSwitch() noexcept;
+    // and logs the switch unless it is a rollback. Needs the renderer of the new kind.
+    HRESULT FinishWindowKindSwitch(bool rollback) noexcept;
     // The standard kind for a window that already exists, placed by the startup rows of the mode table without the
     // missing-display prompt: Release fullscreen on the XENEON's rcMonitor; the titled window at the XENEON origin;
     // without a XENEON, the titled window at the work-area origin of `fallbackMonitor`. Idempotent.
@@ -189,7 +192,12 @@ class Application final
     void OnTrayCommand(TrayCommand command) noexcept;
     // Opens the settings file this process watches with its default app, the shell's UI allowed.
     void EditSettingsFile() noexcept;
+    // Loads and applies a changed settings file. A reload that arrives inside the titled window's move/size loop, or
+    // that would rebuild the page of a minimized standard window (whose 0x0 client cannot size it), is neither
+    // applied nor rejected: it waits for ReplayDeferredSettingsReload.
     void OnSettingsChanged() noexcept;
+    // Posts the deferred reload once the move/size loop has ended and the window is not minimized.
+    void ReplayDeferredSettingsReload() noexcept;
     void ShowSettingsError(std::wstring_view message) noexcept;
     void CloseSettingsError() noexcept;
     HRESULT UpdateDashboardVisibility() noexcept;
@@ -369,7 +377,8 @@ class Application final
     // `edge` is None for the titled and fullscreen kinds.
     DockSettings _dock{};
     bool _dockActive = false;
-    // Standard-kind placement inputs kept from RestyleWindowKind for FinishWindowKindSwitch.
+    // Standard-kind placement inputs kept from RestyleWindowKind for FinishWindowKindSwitch. A rollback keeps the
+    // monitor the forward switch recorded, so a restored standard window returns to the monitor it was on.
     HMONITOR _kindSwitchFallbackMonitor = nullptr;
     bool _kindSwitchFullscreen = false;
     RECT _xeneonBounds{};
@@ -408,6 +417,10 @@ class Application final
     // Distance from the inner edge to the pointer at the press, so the edge keeps its offset under the pointer.
     LONG _dockResizeGrabPx = 0;
     bool _windowActive = false;
+    // Between WM_ENTERSIZEMOVE and WM_EXITSIZEMOVE: the system move/size loop owns the window's rectangle.
+    bool _inSizeMove = false;
+    // A settings reload waits for the end of the move/size loop or for the restore of a minimized window.
+    bool _settingsReloadDeferred = false;
     bool _forceWarp = false;
     bool _classRegistered = false;
     bool _rendererReady = false;

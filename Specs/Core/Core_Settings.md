@@ -352,7 +352,13 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 - The UI thread compares volume, file identity, last-write time, and size before parsing. Applied and rejected stamps
   are deduplicated; every distinct later change is reconsidered.
 - A valid candidate is applied transactionally after the host reselects the page that was current, when that page
-  still exists in the candidate. Failure preserves or restores the previous settings and dashboard.
+  still exists in the candidate. Failure preserves or restores the previous settings and dashboard and never marks the
+  file applied. That includes a live window-kind switch that fails: the window returns to its previous kind
+  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Switching the window kind").
+- A reload that arrives inside the titled window's move/size loop, and a valid candidate that would rebuild the active
+  page of a minimized standard window, MUST wait: neither applied nor rejected, with no stamp recorded, until the loop
+  ends or the window is restored, when the file is read once more (`Specs/UI/UI_XeneonDisplayWindowing.md` "Window
+  and rendering lifecycle"). `redxe.settings.reload` waits the same way.
 - A successful live load MUST apply the candidate in memory only. It MUST NOT write the watched file, format it,
   persist a widget merge, or collect-on-exit onto that path. The editor's bytes stay until an explicit widget persist
   or other user-driven save. `--self-test` MUST NOT write `%LocalAppData%` and MUST NOT write the deployed template.
