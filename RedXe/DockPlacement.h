@@ -3,14 +3,16 @@
 #include "../Common/Actions/ActionTargets.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
 #include <windows.h>
 
 // Screen-edge dock: RedXe as a bar along one edge of one monitor (UI_XeneonDisplayWindowing.md "Dock window kind").
-// Everything here is a pure function of rectangles, integers, and host state so HostPluginTests proves placement,
-// monitor selection, MINMAXINFO, and the autohide state machine without a display topology or a window.
+// Everything here is a pure function of rectangles, integers, and host state so HostPluginTests proves placement, the
+// app-bar reservation and its message plan, monitor selection, MINMAXINFO, and the autohide state machine without a
+// display topology or a window.
 
 enum class DockEdge : uint8_t
 {
@@ -42,7 +44,8 @@ inline constexpr uint32_t kDockDefaultHideDelayMilliseconds = 800;
 inline constexpr uint32_t kDockMaximumAnimationMilliseconds = 1000;
 inline constexpr uint32_t kDockDefaultAnimationMilliseconds = 200;
 inline constexpr std::string_view kDockDefaultMonitor = "primary";
-// The second screen: the first display in enumeration order that is not the primary (settings minor 3).
+// The second screen: the first display in enumeration order that is neither the primary nor a XENEON, else the XENEON
+// (RedXeActions::SecondaryMonitorRank; settings minor 3).
 inline constexpr std::string_view kDockSecondaryMonitor = "secondary";
 
 [[nodiscard]] constexpr bool DockEdgeParse(std::string_view text, DockEdge& edge) noexcept
@@ -114,24 +117,6 @@ inline constexpr std::string_view kDockSecondaryMonitor = "secondary";
     }
 }
 
-// The edge an ABE_* value names (the taskbar's `uEdge` from ABM_GETTASKBARPOS); None for anything else.
-[[nodiscard]] constexpr DockEdge DockEdgeFromAppBarEdge(UINT appBarEdge) noexcept
-{
-    switch (appBarEdge)
-    {
-    case 0: // ABE_LEFT
-        return DockEdge::Left;
-    case 1: // ABE_TOP
-        return DockEdge::Top;
-    case 2: // ABE_RIGHT
-        return DockEdge::Right;
-    case 3: // ABE_BOTTOM
-        return DockEdge::Bottom;
-    default:
-        return DockEdge::None;
-    }
-}
-
 [[nodiscard]] inline LONG DockThicknessPixels(uint32_t thicknessDips, UINT dpi) noexcept
 {
     const int scaleDpi = dpi == 0 ? USER_DEFAULT_SCREEN_DPI : static_cast<int>(dpi);
@@ -172,33 +157,69 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
         std::clamp(dips, static_cast<LONG>(kDockMinimumThicknessDips), static_cast<LONG>(kDockMaximumThicknessDips)));
 }
 
+// First start without a XENEON (UI_XeneonDisplayWindowing.md "First start without a XENEON"): only a default file
+// installed because it was missing gets the first-run bar, and only when discovery succeeded without finding a XENEON
+// in a session at the machine's own displays. A remote session sees only the remote client's displays, so a bar decided
+// there would stay in the file for the XENEON at the desk.
+[[nodiscard]] constexpr bool DockFirstRunOffered(bool discoverySucceeded, bool xeneonFound, bool settingsFileGiven,
+                                                 bool remoteSession) noexcept
+{
+    return discoverySucceeded && !xeneonFound && !settingsFileGiven && !remoteSession;
+}
+
 // First start without a XENEON: with more than one display the bar goes to the second screen (`secondary`, which
-// keeps following whichever display is not the primary), otherwise to the primary.
+// keeps following the first display that is neither the primary nor a XENEON), otherwise to the primary.
 [[nodiscard]] constexpr std::string_view DockFirstRunMonitor(size_t displayCount) noexcept
 {
     return displayCount > 1 ? kDockSecondaryMonitor : kDockDefaultMonitor;
 }
 
-// First start without a XENEON: the bar takes the horizontal edge the taskbar leaves free on the bar's monitor, the
-// top unless the top is taken and the bottom is not. Evidence of a taken edge, strongest first: the work area trimmed
-// on that side (a taskbar that stays visible, any reserving app bar), then an autohide bar registered on that edge of
-// that monitor (an auto-hiding taskbar). A monitor with neither, one without a taskbar of its own, follows the
-// primary taskbar's edge (`taskbarEdge`, None when unknown), so the bar sits opposite the taskbar the person uses.
-[[nodiscard]] constexpr DockEdge DockFirstRunEdge(const RECT& monitor, const RECT& work, bool autohideTop,
-                                                  bool autohideBottom, DockEdge taskbarEdge) noexcept
+// Whether `other` touches the top or bottom `edge` of `monitor`: it sits right above or right below it and overlaps it
+// along that edge, so the pointer crosses the edge on its way between the two displays. Displays side by side, or
+// meeting only at a corner, share no horizontal edge.
+[[nodiscard]] constexpr bool DockDisplayTouchesEdge(const RECT& monitor, const RECT& other, DockEdge edge) noexcept
 {
-    bool top = work.top > monitor.top || autohideTop;
-    bool bottom = work.bottom < monitor.bottom || autohideBottom;
-    if (!top && !bottom)
+    const bool overlaps = other.left < monitor.right && monitor.left < other.right;
+    switch (edge)
     {
-        top = taskbarEdge == DockEdge::Top;
-        bottom = taskbarEdge == DockEdge::Bottom;
+    case DockEdge::Top:
+        return overlaps && other.bottom == monitor.top;
+    case DockEdge::Bottom:
+        return overlaps && other.top == monitor.bottom;
+    default:
+        return false;
     }
-    return top && !bottom ? DockEdge::Bottom : DockEdge::Top;
 }
 
-// `bounds` trimmed to `thicknessPx` on the edge side. Used for the proposal to the shell (bounds = monitor) and for
-// the re-trim after ABM_QUERYPOS (bounds = the rectangle the shell returned).
+// First start without a XENEON: the bar takes the better-ranked horizontal edge of its monitor, the bottom when both
+// rank the same, so the strip stays away from the caption buttons and tabs at the top of maximized windows where it
+// can: they stop beside the reserved strip on any edge (DockReservationFor), but a pointer thrown against the top edge
+// for them would land on a top strip. From best to worst: a free screen edge; an edge beside a taskbar, where the work
+// area is trimmed on that side (a taskbar that stays visible, any reserving app bar) or an autohide bar is registered
+// on that edge of that monitor (an auto-hiding taskbar); an edge another display shares (DockDisplayTouchesEdge),
+// whatever holds it, because the pointer crosses it between the displays.
+[[nodiscard]] constexpr DockEdge DockFirstRunEdge(const RECT& monitor, const RECT& work, bool autohideTop,
+                                                  bool autohideBottom, bool sharedTop, bool sharedBottom) noexcept
+{
+    const auto rank = [](bool taken, bool shared) noexcept { return shared ? 0 : (taken ? 1 : 2); };
+    const int top = rank(work.top > monitor.top || autohideTop, sharedTop);
+    const int bottom = rank(work.bottom < monitor.bottom || autohideBottom, sharedBottom);
+    return bottom >= top ? DockEdge::Bottom : DockEdge::Top;
+}
+
+// The autohide evidence for DockFirstRunEdge: the bar ABM_GETAUTOHIDEBAREX reports on an edge holds that edge only
+// while its window exists. Explorer keeps the registration of a bar whose process crashed or was killed until another
+// bar registers on the edge, and a first-run install can run in that gap. RedXe's own bar never registers there: an
+// autohide dock reserves its strip instead (DockReservationFor). This is the one window-manager query in this header;
+// a window that exists belongs to a live thread.
+[[nodiscard]] inline bool DockAutohideBarHoldsEdge(HWND bar) noexcept
+{
+    return bar != nullptr && IsWindow(bar) != FALSE;
+}
+
+// `bounds` with its outer edge (the `edge` side) kept and its inner side `thicknessPx` from it: a larger rectangle is
+// trimmed, a smaller one grown. Used for the proposal to the shell (bounds = monitor), for the re-trim after
+// ABM_QUERYPOS (bounds = the rectangle the shell returned), and for the full bar grown from a reserved strip.
 [[nodiscard]] constexpr RECT DockTrimToThickness(const RECT& bounds, DockEdge edge, LONG thicknessPx) noexcept
 {
     RECT rect = bounds;
@@ -222,11 +243,19 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
     return rect;
 }
 
-// Overlay and autohide placement: hug the edge of the work area, spanning the work area along the edge, so the bar
-// never covers the taskbar or another app bar.
+// Overlay placement (a fixed bar without reserveWorkArea, or a bar the shell refused to register): hug the edge of the
+// work area, spanning the work area along the edge, so the bar never covers the taskbar or another app bar.
 [[nodiscard]] constexpr RECT DockOverlayRect(const RECT& workArea, DockEdge edge, LONG thicknessPx) noexcept
 {
     return DockTrimToThickness(workArea, edge, thicknessPx);
+}
+
+// The peek strip of an autohide bar in pixels. `peek` (1–64 physical pixels) and the thickness (32 DIPs and up) are
+// validated apart, so the strip is clamped to the bar it belongs to: at least 1 pixel, at most the full bar. The
+// reserved strip, every hidden window size, the slide, the grip, and MINMAXINFO use this one value.
+[[nodiscard]] constexpr LONG DockClampPeek(uint32_t peekPixels, LONG fullPx) noexcept
+{
+    return std::clamp(static_cast<LONG>(peekPixels), 1L, std::max(1L, fullPx));
 }
 
 // Autohide hidden rectangle: the outer `peekPx` of the full rectangle, same along-edge extent.
@@ -253,10 +282,156 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
     return rect;
 }
 
+// App-bar registration (UI_XeneonDisplayWindowing.md "Monitor and placement"). Every placed dock is an ordinary app
+// bar (ABM_NEW), so the shell reports position changes and full-screen applications to it; what it reserves in the
+// monitor's work area follows the mode. No dock registers ABM_SETAUTOHIDEBAREX: an autohide bar reserves its peek strip
+// as a fixed bar reserves its thickness, so maximized windows stop just inside the strip on every edge, and its
+// revealed bar is a topmost window over the work area beyond the strip, never a larger reservation.
+enum class DockReservation : uint8_t
+{
+    // Registered for the shell's notifications only: a fixed bar without reserveWorkArea overlays the work area.
+    None = 0,
+    // The whole bar: a fixed bar with reserveWorkArea.
+    Bar,
+    // The peek strip: an autohide bar, whatever reserveWorkArea says.
+    Strip,
+};
+
+[[nodiscard]] constexpr DockReservation DockReservationFor(DockMode mode, bool reserveWorkArea) noexcept
+{
+    if (mode == DockMode::Autohide)
+    {
+        return DockReservation::Strip;
+    }
+    return reserveWorkArea ? DockReservation::Bar : DockReservation::None;
+}
+
+// The pixels a reservation holds across the edge: the clamped thickness for the bar, the clamped peek strip
+// (DockClampPeek of that thickness) for an autohide bar, nothing for an overlay.
+[[nodiscard]] constexpr LONG DockReservedPixels(DockReservation reservation, LONG thicknessPx, LONG peekPx) noexcept
+{
+    switch (reservation)
+    {
+    case DockReservation::Bar:
+        return thicknessPx;
+    case DockReservation::Strip:
+        return peekPx;
+    default:
+        return 0;
+    }
+}
+
+// The rectangle proposed to the shell with ABM_QUERYPOS: the monitor trimmed to the reserved pixels on the edge side.
+// An empty rectangle for an overlay, which reserves nothing.
+[[nodiscard]] constexpr RECT DockReservationProposal(DockReservation reservation, const RECT& monitor, DockEdge edge,
+                                                     LONG thicknessPx, LONG peekPx) noexcept
+{
+    const LONG reservedPx = DockReservedPixels(reservation, thicknessPx, peekPx);
+    return reservedPx > 0 ? DockTrimToThickness(monitor, edge, reservedPx) : RECT{};
+}
+
+// The full bar of a reserving dock from the rectangle ABM_SETPOS committed (`reserved`): the shell decides its outer
+// edge (beside a taskbar on the same edge) and its span along the edge, and the bar runs `thicknessPx` inward from that
+// outer edge. A reserved bar is the rectangle itself; a reserved strip grows over the work area beyond it, so the strip
+// is the bar's DockHiddenRect and the collapsed window is exactly the reservation.
+[[nodiscard]] constexpr RECT DockFullRectFromReserved(const RECT& reserved, DockEdge edge, LONG thicknessPx) noexcept
+{
+    return DockTrimToThickness(reserved, edge, thicknessPx);
+}
+
+[[nodiscard]] constexpr bool DockRectEquals(const RECT& a, const RECT& b) noexcept
+{
+    return a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom;
+}
+
+// What the shell holds for the dock window, kept by Application: the registration, and for a reserving bar the
+// reservation it was asked for and the rectangle it committed. Removing the registration resets it.
+struct DockAppBarState final
+{
+    bool registered = false;
+    DockReservation reservation = DockReservation::None;
+    DockEdge edge = DockEdge::None;
+    UINT dpi = 0;
+    // The rectangle proposed with the last ABM_QUERYPOS, and the one ABM_SETPOS committed (DockFullRectFromReserved).
+    RECT proposal{};
+    RECT reserved{};
+};
+
+// The shell messages of one placement pass, as SHAppBarMessage values (shellapi.h), in the order Application sends
+// them. ABM_SETAUTOHIDEBAREX is never one of them.
+inline constexpr DWORD kDockAppBarNew = 0x0;      // ABM_NEW
+inline constexpr DWORD kDockAppBarRemove = 0x1;   // ABM_REMOVE
+inline constexpr DWORD kDockAppBarQueryPos = 0x2; // ABM_QUERYPOS
+inline constexpr DWORD kDockAppBarSetPos = 0x3;   // ABM_SETPOS
+
+struct DockAppBarPlan final
+{
+    std::array<DWORD, 4> messages{};
+    size_t count = 0;
+};
+
+// The registration one placement pass makes for `reservation` on `edge`, proposing `proposal`
+// (DockReservationProposal) at the monitor's `dpi`. `stale` is set when the shell may have moved the reservation since
+// it was committed (ABN_POSCHANGED, ABN_STATECHANGE, WM_DISPLAYCHANGE). The shell keeps the last ABM_SETPOS rectangle
+// until ABM_REMOVE, so dropping a reservation removes the bar and registers it again; a new or changed reservation is
+// one ABM_QUERYPOS and ABM_SETPOS; and a pass that changes nothing reserved and follows no shell change sends nothing,
+// so the release of an autohide bar's thickness drag and a reload that leaves the reservation alone never reset the
+// work area. A reveal, a hide, and a slide step make no placement pass at all.
+[[nodiscard]] constexpr DockAppBarPlan PlanDockAppBar(const DockAppBarState& current, DockReservation reservation,
+                                                      DockEdge edge, const RECT& proposal, UINT dpi,
+                                                      bool stale) noexcept
+{
+    DockAppBarPlan plan{};
+    bool registered = current.registered;
+    DockReservation held = registered ? current.reservation : DockReservation::None;
+    if (held != DockReservation::None && reservation == DockReservation::None)
+    {
+        plan.messages[plan.count++] = kDockAppBarRemove;
+        registered = false;
+        held = DockReservation::None;
+    }
+    if (!registered)
+    {
+        plan.messages[plan.count++] = kDockAppBarNew;
+    }
+    const bool changed = held != reservation || current.edge != edge || current.dpi != dpi ||
+                         !DockRectEquals(current.proposal, proposal);
+    if (reservation != DockReservation::None && (!registered || stale || changed))
+    {
+        plan.messages[plan.count++] = kDockAppBarQueryPos;
+        plan.messages[plan.count++] = kDockAppBarSetPos;
+    }
+    return plan;
+}
+
+// The record after ABM_SETPOS committed `reserved` for the reservation a plan was made for.
+constexpr void DockAppBarCommitted(DockAppBarState& state, DockReservation reservation, DockEdge edge,
+                                   const RECT& proposal, UINT dpi, const RECT& reserved) noexcept
+{
+    state.reservation = reservation;
+    state.edge = edge;
+    state.dpi = dpi;
+    state.proposal = proposal;
+    state.reserved = reserved;
+}
+
 // Cross-axis size of a bar rectangle: its height for a top or bottom dock, its width for a side dock.
 [[nodiscard]] constexpr LONG DockCrossPixels(const RECT& rect, DockEdge edge) noexcept
 {
     return DockEdgeIsHorizontal(edge) ? rect.bottom - rect.top : rect.right - rect.left;
+}
+
+// The size the dashboard is laid out at, and so every host-side geometry built on it: tile bounds, hit tests, raises,
+// page offsets, and accessibility and text-input rectangles. For a placed dock it is the full bar, whatever part of it
+// the window shows (the peek strip while collapsed, a partly open bar while sliding), as for the swap chain; for the
+// titled and fullscreen kinds, and a dock before its first placement, it is the client.
+[[nodiscard]] constexpr SIZE DockDashboardCanvas(bool dockActive, const RECT& full, SIZE client) noexcept
+{
+    if (dockActive && full.right > full.left && full.bottom > full.top)
+    {
+        return SIZE{full.right - full.left, full.bottom - full.top};
+    }
+    return client;
 }
 
 // Autohide slide (UI_XeneonDisplayWindowing.md "Autohide"): over `animationMilliseconds` the window's visible
@@ -304,6 +479,57 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
     default:
         return POINT{0, 0};
     }
+}
+
+// A press on a bar sliding in settles the slide first, and the settle moves the dashboard under a pointer that stays
+// put: a top or left bar drops its translation, a bottom or right bar moves its window's (and so its client's) origin
+// back by the part still hidden. Adding this shift to a client point taken after the settle gives the dashboard point
+// that was on screen under it at `visiblePx`, so the press and the rest of its contact reach what the user aimed at.
+[[nodiscard]] constexpr POINT DockSettleShift(DockEdge edge, LONG fullPx, LONG visiblePx) noexcept
+{
+    const LONG hidden = fullPx > visiblePx ? fullPx - visiblePx : 0;
+    switch (edge)
+    {
+    case DockEdge::Top:
+        return POINT{0, hidden};
+    case DockEdge::Bottom:
+        return POINT{0, -hidden};
+    case DockEdge::Left:
+        return POINT{hidden, 0};
+    case DockEdge::Right:
+        return POINT{-hidden, 0};
+    default:
+        return POINT{0, 0};
+    }
+}
+
+// Where a press or a wheel on the dock goes (UI_XeneonDisplayWindowing.md "Autohide"). The strip and a bar sliding out
+// show no dashboard to aim at: a press there only reveals the bar (the rest of its contact goes nowhere) and a wheel is
+// dropped, so neither snaps a hiding bar shut nor scrolls or pages a widget nobody can see. A press on a bar sliding in
+// settles the slide and keeps DockSettleShift for its contact; a wheel there reaches the tile under it as the frame
+// shows it, without settling. Everything else is routed as on any window.
+enum class DockInput : uint8_t
+{
+    Press = 0,
+    Wheel,
+};
+
+enum class DockInputRoute : uint8_t
+{
+    Dashboard = 0,
+    RevealOnly,
+    Drop,
+    SettleShifted,
+};
+
+// `showsStrip` is DockStateShowsStrip of an active autohide bar (false for a fixed bar and for the standard kinds).
+[[nodiscard]] constexpr DockInputRoute DockRouteInput(DockInput input, bool showsStrip, bool slideActive) noexcept
+{
+    if (showsStrip)
+    {
+        return input == DockInput::Press ? DockInputRoute::RevealOnly : DockInputRoute::Drop;
+    }
+    return input == DockInput::Press && slideActive ? DockInputRoute::SettleShifted : DockInputRoute::Dashboard;
 }
 
 // The part of the full-size back buffer that the hidden window shows. The dock swap chain uses DXGI_SCALING_NONE,
@@ -429,6 +655,67 @@ constexpr void DockMinMaxInfo(const RECT& monitor, DockEdge edge, LONG peekPx, b
     info.ptMaxSize = info.ptMaxTrackSize;
 }
 
+// Full-screen yield (UI_XeneonDisplayWindowing.md "Window"): ABN_FULLSCREENAPP names no monitor, so the bar steps
+// beneath only a foreground window that covers the bar's own monitor. `windowBounds` is GetWindowRect, which includes
+// the invisible resize borders: a maximized window with a caption overhangs a monitor whose work area is the whole
+// monitor (no taskbar there, or an auto-hiding one) by about 8 px on every side, yet it is an ordinary maximized
+// window, never a full-screen one. A captionless window that covers the monitor (a game, a video, a browser in full
+// screen) counts, maximized or not, and so does one spanning several monitors.
+[[nodiscard]] constexpr bool DockForegroundCoversMonitor(const RECT& windowBounds, const RECT& monitor,
+                                                         bool maximizedWithCaption) noexcept
+{
+    return !maximizedWithCaption && monitor.right > monitor.left && monitor.bottom > monitor.top &&
+           windowBounds.left <= monitor.left && windowBounds.top <= monitor.top &&
+           windowBounds.right >= monitor.right && windowBounds.bottom >= monitor.bottom;
+}
+
+// Placement requests (UI_XeneonDisplayWindowing.md "Monitor and placement"). A placement makes cross-process shell
+// calls and moves the window, and the UI thread dispatches sent messages while it waits on them, so a display,
+// work-area, DPI, or app-bar change can ask for a placement while one runs. That request is recorded, never dropped:
+// the running placement makes one more pass from the topology as it is then, so the last change wins without recursion.
+// The passes are bounded so that a request each pass raises again cannot keep the UI thread placing.
+inline constexpr uint32_t kDockMaximumExtraPlacementPasses = 2;
+
+struct DockPlacementRequests final
+{
+    bool placing = false;
+    // A request arrived during the running pass; `againResizes` when any of them asked the dashboard to follow.
+    bool again = false;
+    bool againResizes = false;
+    uint32_t extraPasses = 0;
+};
+
+// A placement request. True when the caller runs the first pass now; false when a placement is running and the
+// request was recorded for it.
+[[nodiscard]] constexpr bool BeginDockPlacement(DockPlacementRequests& requests, bool resizeDashboard) noexcept
+{
+    if (requests.placing)
+    {
+        requests.again = true;
+        requests.againResizes = requests.againResizes || resizeDashboard;
+        return false;
+    }
+    requests = DockPlacementRequests{};
+    requests.placing = true;
+    return true;
+}
+
+// After a pass. True when a recorded request asks for one more pass, with `resizeDashboard` from those requests;
+// false ends the placement, dropping a request recorded after the last allowed pass.
+[[nodiscard]] constexpr bool NextDockPlacementPass(DockPlacementRequests& requests, bool& resizeDashboard) noexcept
+{
+    if (!requests.placing || !requests.again || requests.extraPasses >= kDockMaximumExtraPlacementPasses)
+    {
+        requests = DockPlacementRequests{};
+        return false;
+    }
+    resizeDashboard = requests.againResizes;
+    requests.again = false;
+    requests.againResizes = false;
+    ++requests.extraPasses;
+    return true;
+}
+
 // One candidate display for selection. `friendlyName` is the QueryDisplayConfig target name (what the user sees in
 // Settings > Display), `deviceName` the GDI name (\\.\DISPLAYn); `name:<substring>` matches either.
 struct DockMonitorCandidate final
@@ -461,7 +748,8 @@ struct DockMonitorCandidate final
 
 // Index of the candidate the selector names, else the primary (`fellBack` = true), else the first candidate.
 // SIZE_MAX only when there is no candidate at all. `index` selectors are 1-based in enumeration order; `secondary`
-// is the first candidate in enumeration order that is not the primary.
+// is the first candidate in enumeration order that is neither the primary nor the XENEON, else the XENEON when it is
+// the only candidate that is not the primary (RedXeActions::SecondaryMonitorRank).
 [[nodiscard]] inline size_t SelectDockMonitor(const RedXeActions::MonitorSelector& selector,
                                               std::wstring_view nameNeedle, const DockMonitorCandidate* candidates,
                                               size_t count, bool& fellBack) noexcept
@@ -486,14 +774,25 @@ struct DockMonitorCandidate final
     case Kind::Primary:
         return primary;
     case Kind::Secondary:
-        for (size_t index = 0; index < count; ++index)
+    {
+        size_t best = SIZE_MAX;
+        uint32_t bestRank = 0;
+        for (size_t index = 0; index < count && bestRank < RedXeActions::kSecondaryMonitorTopRank; ++index)
         {
-            if (!candidates[index].primary)
+            const uint32_t rank =
+                RedXeActions::SecondaryMonitorRank(candidates[index].primary, candidates[index].xeneon);
+            if (rank > bestRank)
             {
-                return index;
+                best = index;
+                bestRank = rank;
             }
         }
+        if (best != SIZE_MAX)
+        {
+            return best;
+        }
         break;
+    }
     case Kind::Xeneon:
         for (size_t index = 0; index < count; ++index)
         {
@@ -549,6 +848,10 @@ enum class DockRevealEvent : uint8_t
     ActionShow,
     ActionHide,
     ActionToggle,
+    // A page or widget change (a page.* or widget.* host action, an accessibility raise) while the strip shows: reveal
+    // at once so the change is seen and laid out on the full bar. Unlike ActionShow it pins nothing: the change's own
+    // hold (a page settle, a raise) keeps the bar, and the hide delay starts once no hold is left.
+    PageOrWidgetChange,
     // Any hold input changed; the decision re-reads `holds`.
     HoldsChanged,
     // A --screenshot run, or a live reload to `fixed`: revealed and kept there.
@@ -612,6 +915,7 @@ struct DockHolds final
         return current == DockRevealState::RevealPending ? DockRevealState::Hidden : current;
     case DockRevealEvent::TouchOnStrip:
     case DockRevealEvent::ActionShow:
+    case DockRevealEvent::PageOrWidgetChange:
         return DockRevealState::Revealed;
     case DockRevealEvent::ActionHide:
         if (DockStateShowsStrip(current))

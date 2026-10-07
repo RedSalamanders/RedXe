@@ -398,10 +398,11 @@ services in `kRedXeRetiredServices` (today `builtin.zoom`); a `services` entry n
   runs after `Start`, after every promoted page, raise start, dismiss completion, visibility change, settings apply,
   and drained host action, carrying page index/count/id/name, widget count, the raised ordinal, and the
   `Visible`/`Raised`/`Busy` flags. `Stop` runs from `CloseMainWindow` after every dashboard host is shut down and
-  before `PluginHost::ShutdownProcessRuntime`; `PluginHost::Shutdown` repeats it as an idempotent safety net before
-  providers, workers, and modules go. `Start` and `Stop` are idempotent; a failed `Start` logs
-  `service-start-failed` once and keeps the object so a later `ApplySettings` can retry. A service MUST NOT call
-  back into the host from these calls except `RequestAction`, `RequestFrame`, `Log`, and — from `Start`,
+  before `PluginHost::ShutdownProcessRuntime`, and so also inside `WM_ENDSESSION` when Windows ends the session
+  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle"); `PluginHost::Shutdown` repeats it as an
+  idempotent safety net before providers, workers, and modules go. `Start` and `Stop` are idempotent; a failed
+  `Start` logs `service-start-failed` once and keeps the object so a later `ApplySettings` can retry. A service MUST
+  NOT call back into the host from these calls except `RequestAction`, `RequestFrame`, `Log`, and — from `Start`,
   `ApplySettings`, and `Stop` only, on the UI thread — `ValidateAction` and `GetDataProvider` with the provider's `GetDataSets`,
   `Subscribe`, and `IRedXeDataSubscription::SetActive`, under the same sink rules as a widget. A service MUST
   release every subscription in `Stop` (which drains its sink callbacks) so the host holds no reference to it
@@ -423,9 +424,14 @@ services in `kRedXeRetiredServices` (today `builtin.zoom`); a `services` entry n
   another user's process-wide registration (today only Logicon registers `usage page 1 / usage 2`, and only while
   its dialpad is present and a turn is bound). The service MAY signal `wakeEvent`
   from any thread while the call runs and MUST NOT touch either handle after it returns. `StopDeviceLane` signals
-  `stopEvent`, waits `kRedXeDeviceWorkerDrainMilliseconds` (3000) for the thread, joins it, and closes the events; an
-  overrun logs `device-lane-drain-timeout` once and tombstones the service slot: the thread stays joinable and its
-  COM service, worker, module, host, settings, and event handles remain live until `RunDeviceWork` returns. A
+  `stopEvent`, waits `kRedXeDeviceWorkerDrainMilliseconds` (3000) for the thread, joins it, and closes the events.
+  `PluginHost::StopServices` signals every lane's `stopEvent` before it waits for the first, so the lanes drain
+  together and a lane stuck past its bound never delays the stop signal of a responsive lane it stops after; at a
+  session end the lanes together wait only for what is left of its deadline (`StopServices` with a budget;
+  `Specs/UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle"), never more than that bound per lane, so
+  a lane waited for after a stuck one gets only what the stuck one left, by when a responsive lane has returned. An
+  overrun logs `device-lane-drain-timeout` once and tombstones the service slot: the thread stays joinable
+  and its COM service, worker, module, host, settings, and event handles remain live until `RunDeviceWork` returns. A
   tombstoned slot cannot start a second lane: while it lasts, `StartServices` and `ApplyServiceSettings` return
   `ERROR_BUSY` for it and, when the document configures that service, log `service-start-deferred` (Warning) once
   per tombstone. The lane and `StopDeviceLane` each set one bit of one atomic word (`laneState`) and read the other's
@@ -435,11 +441,11 @@ services in `kRedXeRetiredServices` (today `builtin.zoom`); a `services` entry n
   again if the document still configures it. Process shutdown leaves the process runtime allocated if a lane is
   still active and keeps the log writer alive for it, but MUST write the queued log lines out within
   `kShutdownLogFlushMilliseconds` (1000) before it returns, reporting through `OutputDebugStringW` when the writer
-  does not finish. It stops the launch worker before it returns that way: queued launches are dropped and one still
-  in the shell gets the bounded wait and its `launch-stop-timeout` record (`Plugins_Actions.md`). Only the first such
-  `Shutdown` waits, so the process runtime's second shutdown at static destruction adds no wait; a private host
-  destructor joins the lane before releasing storage.
-  `RedXeDataSetFlagDeviceLane` for data sources remains unimplemented.
+  does not finish. It stops the launch worker before it returns that way (`PluginHost::StopLaunches`, which a session
+  end also runs inside `WM_ENDSESSION`): queued launches are dropped and one still in the shell gets the bounded wait,
+  once, and its `launch-stop-timeout` record, once (`Plugins_Actions.md`). Only the first such `Shutdown` waits, so the
+  process runtime's second shutdown at static destruction adds no wait; a private host destructor joins the lane before
+  releasing storage. `RedXeDataSetFlagDeviceLane` for data sources remains unimplemented.
 - **Developer-only widgets** (`kRedXeDebugOnlyBundledWidgetIds`, today `builtin.logicon-monitor`) stay catalogued and
   schema-accepted in every build so both shipped templates parse everywhere. Only the Debug template places them, and
   only Debug builds of their DLL construct them: a Release build publishes the metadata and contract, lists the type,
@@ -742,8 +748,10 @@ already fills the client MUST NOT raise.
   already-created data sources, and the already-running acquisition worker. Staging MUST NOT map a module a second
   time, create a second `IRedXeDataSource` for a provider ID, or start a second acquisition thread.
 - Optional `RedXePluginShutdown` runs exactly once per module, at process teardown, after every widget, provider,
-  source, and subscription has been released. It MUST NOT run while another dashboard page still uses that module. The widget
-  projection MUST remain within the settings limit of 64 plugin declarations.
+  source, and subscription has been released. It never runs after a fatal exception
+  (`Specs/Core/Core_CrashHandling.md`), and a session end can end the process before it, once `WM_ENDSESSION`
+  returns; `IRedXeService::Stop` is the call a service can rely on there. It MUST NOT run while another dashboard
+  page still uses that module. The widget projection MUST remain within the settings limit of 64 plugin declarations.
 - Static discovery validates every referenced plugin and effective widget on every page. `PluginManager` creates only
   the current page, plus its adjacent transition page during a swipe, and may share providers only when doing so is
   behaviorally invisible to independent widget instances.
@@ -1543,9 +1551,11 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     lane's return posts `kServiceLaneMessage` and the next apply reaps the slot, and a shutdown with the lane still
     stuck returns with `device-lane-drain-timeout` already in the log file (a test gate holds the writer until a
     flush releases it) while a second shutdown does not flush again, and it still stops the launch worker: a queued
-    launch never starts and one in the shell logs `launch-stop-timeout` (`TestLaunchWorker`). `SettingsTests` MUST
-    cover the `services` grammar and rejections, both templates' Logicon objects, and the retired `builtin.zoom`
-    entry. Plugins_Logicon.md owns the protocol and face vectors.
+    launch never starts and one in the shell logs `launch-stop-timeout` (`TestLaunchWorker`); and under a session-end
+    budget a responsive lane stopped after a stuck one still drains and runs `Stop`, and only the stuck one logs
+    `device-lane-drain-timeout` (`TestSessionEndDeadline`). `SettingsTests` MUST cover the `services` grammar and
+    rejections, both templates' Logicon objects, and the retired `builtin.zoom` entry. Plugins_Logicon.md owns the
+    protocol and face vectors.
 
 21. Verify the action contract, registry, validation, and execution through `HostPluginTests` and the Zoom action
     DLL through `ZoomTests` as [`Plugins_Actions.md`](Plugins_Actions.md) and [`Plugins_Zoom.md`](Plugins_Zoom.md)

@@ -31,6 +31,8 @@ is never a dialog, because a keypad key is a deliberate control.
 | `widget.dismiss` | none | Close the raised widget |
 | `widget.next`, `widget.previous` | none | Raise the next / previous widget in page order |
 
+On an auto-hiding [dock](usage.md#dock) that is collapsed, these actions bring the bar out first so you see the page change or the raised widget; it collapses again shortly afterwards unless a raised widget keeps it open.
+
 ### `redxe.*`
 
 | `action` | `target` | Effect |
@@ -89,7 +91,7 @@ released then is retried every quarter second for about 10 s, so a modifier is n
 | `mouse.scroll`, `mouse.scroll.horizontal` | `+n` or `-n` notches | Scroll |
 | `mouse.speed` | `1`–`20` | Pointer speed |
 
-A `@<monitor>` is `primary`, `secondary` (the first monitor that is not the primary), `xeneon` (the monitor RedXe sits on), a 1-based monitor number, or `name:<part of the device name>`.
+A `@<monitor>` is `primary`, `secondary` (your second screen: the first monitor that is not the primary, skipping a XENEON unless it is the only other one), `xeneon` (the monitor RedXe sits on), a 1-based monitor number, or `name:<part of the device name>`.
 
 ## Published by plugins
 

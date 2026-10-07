@@ -8,6 +8,7 @@
 #include "HostActions.h"
 #include "Launcher.Tests.Contract.h"
 #include "MatrixRain.Tests.Contract.h"
+#include "NoticeWindow.h"
 #include "PageEdgeAffordance.h"
 #include "PageIndicator.h"
 #include "PageNavigation.h"
@@ -34,6 +35,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <iterator>
 #include <limits>
@@ -69,6 +71,8 @@ struct PluginHostTestAccess final
         wil::unique_event_nothrow release;
         std::atomic<uint32_t> stopped{0};
         std::atomic<uint32_t> destroyed{0};
+        // A responsive lane: RunDeviceWork also returns when the host signals its stopEvent.
+        bool honorStop = false;
     };
 
     class StalledService final : public RedXeComObject<StalledService, IRedXeService, IRedXeDeviceWorker>
@@ -96,9 +100,17 @@ struct PluginHostTestAccess final
             ++_probe.stopped;
             return S_OK;
         }
-        HRESULT STDMETHODCALLTYPE RunDeviceWork(HANDLE, HANDLE) noexcept override
+        HRESULT STDMETHODCALLTYPE RunDeviceWork(HANDLE stopEvent, HANDLE) noexcept override
         {
             (void)SetEvent(_probe.entered.get());
+            if (_probe.honorStop)
+            {
+                const std::array<HANDLE, 2> events{stopEvent, _probe.release.get()};
+                return WaitForMultipleObjects(static_cast<DWORD>(events.size()), events.data(), FALSE, 10'000) <
+                               WAIT_OBJECT_0 + events.size()
+                           ? S_OK
+                           : E_FAIL;
+            }
             return WaitForSingleObject(_probe.release.get(), 10'000) == WAIT_OBJECT_0 ? S_OK : E_FAIL;
         }
 
@@ -106,17 +118,18 @@ struct PluginHostTestAccess final
         StallProbe& _probe;
     };
 
-    // Gives the first service slot of `host` a started stalled service whose lane is inside RunDeviceWork.
-    [[nodiscard]] static bool StartStalledLane(PluginHost& host, StallProbe& probe) noexcept
+    // Gives service slot `index` of `host` (the first by default) a started stalled service whose lane is inside
+    // RunDeviceWork.
+    [[nodiscard]] static bool StartStalledLane(PluginHost& host, StallProbe& probe, size_t index = 0) noexcept
     {
         probe.entered.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
         probe.release.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
-        if (!probe.entered || !probe.release)
+        if (!probe.entered || !probe.release || index >= host._services.size())
         {
             return false;
         }
-        auto& slot = host._services[0];
-        slot.spec = &kRedXeBundledServices[0];
+        auto& slot = host._services[index];
+        slot.spec = &kRedXeBundledServices[index];
         slot.service.attach(new (std::nothrow) StalledService(probe));
         if (!slot.service || FAILED(slot.service.query_to(slot.worker.put())))
         {
@@ -251,6 +264,30 @@ struct PluginHostTestAccess final
         host._logDirectory.clear();
         host._logFilePath.clear();
     }
+
+    // Replaces the tray icon's Shell_NotifyIconW and taskbar probe, so a test never reaches the shell.
+    static void SetTrayShell(TrayIcon& tray, TrayIcon::ShellNotify notify, TrayIcon::TaskbarProbe taskbar) noexcept
+    {
+        tray._shellNotify = notify;
+        tray._taskbarExists = taskbar;
+    }
+
+    [[nodiscard]] static HWND TrayOwner(const TrayIcon& tray) noexcept
+    {
+        return tray._window.get();
+    }
+
+    [[nodiscard]] static bool TrayIconAdded(const TrayIcon& tray) noexcept
+    {
+        return tray._iconAdded;
+    }
+
+    [[nodiscard]] static uint32_t TrayAddRetries(const TrayIcon& tray) noexcept
+    {
+        return tray._addRetries;
+    }
+
+    static constexpr UINT_PTR kTrayAddRetryTimerId = TrayIcon::kAddRetryTimerId;
 };
 
 struct PluginManagerTestAccess final
@@ -781,8 +818,14 @@ void TestDockPlacement(bool& success) noexcept
     Check(SelectDockMonitor(selector, {}, nullptr, 0, fellBack) == SIZE_MAX, L"no display means no selection", success);
     Check(!RedXeActions::ParseMonitorSelector("all", false, selector), L"the dock never accepts all", success);
 
-    // `secondary` is the second screen: the first display in enumeration order that is not the primary, wherever the
-    // primary enumerates; a single display falls back to the primary and reports it.
+    // `secondary` is the second screen: the first display in enumeration order that is neither the primary nor the
+    // XENEON, wherever those enumerate; the XENEON only when no other display is not the primary; a single display
+    // falls back to the primary and reports it.
+    Check(RedXeActions::SecondaryMonitorRank(true, false) == 0 && RedXeActions::SecondaryMonitorRank(true, true) == 0 &&
+              RedXeActions::SecondaryMonitorRank(false, true) == 1 &&
+              RedXeActions::SecondaryMonitorRank(false, false) == RedXeActions::kSecondaryMonitorTopRank &&
+              RedXeActions::kSecondaryMonitorTopRank > 1,
+          L"secondary never ranks the primary and ranks a XENEON below every other display", success);
     Check(RedXeActions::ParseMonitorSelector("secondary", false, selector) &&
               selector.kind == RedXeActions::MonitorSelector::Kind::Secondary &&
               SelectDockMonitor(selector, {}, candidates.data(), candidates.size(), fellBack) == 0 && !fellBack,
@@ -796,44 +839,417 @@ void TestDockPlacement(bool& success) noexcept
           L"secondary skips a primary that enumerates first", success);
     Check(SelectDockMonitor(selector, {}, noXeneon.data(), noXeneon.size(), fellBack) == 0 && fellBack,
           L"secondary on a single display falls back to the primary", success);
+    // A XENEON connected after the first-run bar named `secondary`, enumerating before the second screen (an
+    // integrated GPU output), never takes the bar from it.
+    std::array<DockMonitorCandidate, 3> xeneonFirst{};
+    xeneonFirst[0].monitor = RECT{2560, 0, 5120, 720};
+    xeneonFirst[0].xeneon = true;
+    xeneonFirst[1].monitor = monitor;
+    xeneonFirst[1].primary = true;
+    xeneonFirst[2].monitor = secondary;
+    Check(SelectDockMonitor(selector, {}, xeneonFirst.data(), xeneonFirst.size(), fellBack) == 2 && !fellBack,
+          L"secondary skips a XENEON that enumerates before the second screen", success);
+    std::array<DockMonitorCandidate, 2> xeneonOnly{};
+    xeneonOnly[0].monitor = monitor;
+    xeneonOnly[0].primary = true;
+    xeneonOnly[1].monitor = RECT{2560, 0, 5120, 720};
+    xeneonOnly[1].xeneon = true;
+    Check(SelectDockMonitor(selector, {}, xeneonOnly.data(), xeneonOnly.size(), fellBack) == 1 && !fellBack,
+          L"secondary is the XENEON when it is the only display that is not the primary", success);
     Check(!RedXeActions::ParseMonitorSelector("Secondary", false, selector) &&
               !RedXeActions::ParseMonitorSelector("second", false, selector),
           L"secondary is matched exactly", success);
 
-    // First start without a XENEON: the second screen when there is one, and the horizontal edge its taskbar leaves
-    // free, the top unless only the top is taken.
+    // First start without a XENEON: the bar is offered only after a discovery that found none, without `--settings`,
+    // outside a remote session, and goes to the second screen when there is one.
+    Check(DockFirstRunOffered(true, false, false, false) && !DockFirstRunOffered(false, false, false, false) &&
+              !DockFirstRunOffered(true, true, false, false) && !DockFirstRunOffered(true, false, true, false) &&
+              !DockFirstRunOffered(true, false, false, true),
+          L"a failed discovery, a XENEON, a --settings file, or a remote session offers no first-run bar", success);
     Check(DockFirstRunMonitor(0) == kDockDefaultMonitor && DockFirstRunMonitor(1) == kDockDefaultMonitor &&
               DockFirstRunMonitor(2) == kDockSecondaryMonitor && DockFirstRunMonitor(4) == kDockSecondaryMonitor,
           L"a first-run bar goes to the second screen only when there is more than one display", success);
-    Check(DockEdgeFromAppBarEdge(ABE_TOP) == DockEdge::Top && DockEdgeFromAppBarEdge(ABE_BOTTOM) == DockEdge::Bottom &&
-              DockEdgeFromAppBarEdge(ABE_LEFT) == DockEdge::Left &&
-              DockEdgeFromAppBarEdge(ABE_RIGHT) == DockEdge::Right && DockEdgeFromAppBarEdge(7) == DockEdge::None &&
-              DockEdgeFromAppBarEdge(DockAppBarEdge(DockEdge::Top)) == DockEdge::Top,
-          L"ABE values map back to edges", success);
+
+    // A display right above or below shares that edge when the two overlap along it; side by side or at a corner
+    // they share none.
+    const RECT below{0, 1440, 1920, 2520};
+    Check(DockDisplayTouchesEdge(below, monitor, DockEdge::Top) &&
+              !DockDisplayTouchesEdge(below, monitor, DockEdge::Bottom) &&
+              DockDisplayTouchesEdge(monitor, below, DockEdge::Bottom) &&
+              !DockDisplayTouchesEdge(monitor, below, DockEdge::Top),
+          L"stacked displays share the edge between them", success);
+    Check(DockDisplayTouchesEdge(monitor, RECT{2000, 1440, 3920, 2520}, DockEdge::Bottom) &&
+              DockDisplayTouchesEdge(RECT{-1920, 0, 0, 1080}, RECT{-1920, -1080, 0, 0}, DockEdge::Top),
+          L"a partly overlapping display below and one above at negative coordinates share the edge", success);
+    Check(!DockDisplayTouchesEdge(monitor, RECT{2560, 0, 4480, 1080}, DockEdge::Top) &&
+              !DockDisplayTouchesEdge(monitor, RECT{2560, 0, 4480, 1080}, DockEdge::Bottom) &&
+              !DockDisplayTouchesEdge(monitor, RECT{2560, 1440, 4480, 2520}, DockEdge::Bottom) &&
+              !DockDisplayTouchesEdge(monitor, below, DockEdge::Left),
+          L"side-by-side displays, a corner, and a side edge share no horizontal edge", success);
+
+    // The edge: a free screen edge, then one beside a taskbar, then one another display shares; the bottom on a tie.
     const RECT fullWork{0, 0, 2560, 1440};
     const RECT topTaskbarWork{0, 48, 2560, 1440};
     const RECT bothBarsWork{0, 48, 2560, 1392};
     const RECT leftTaskbarWork{62, 0, 2560, 1440};
-    Check(DockFirstRunEdge(monitor, work, false, false, DockEdge::Bottom) == DockEdge::Top &&
-              DockFirstRunEdge(monitor, work, false, false, DockEdge::None) == DockEdge::Top &&
-              DockFirstRunEdge(monitor, topTaskbarWork, false, false, DockEdge::Top) == DockEdge::Bottom &&
-              DockFirstRunEdge(monitor, topTaskbarWork, false, false, DockEdge::Bottom) == DockEdge::Bottom,
-          L"a visible taskbar trims the work area and the bar takes the other horizontal edge", success);
-    Check(DockFirstRunEdge(monitor, fullWork, false, true, DockEdge::None) == DockEdge::Top &&
-              DockFirstRunEdge(monitor, fullWork, true, false, DockEdge::Bottom) == DockEdge::Bottom,
+    Check(DockFirstRunEdge(monitor, fullWork, false, false, false, false) == DockEdge::Bottom &&
+              DockFirstRunEdge(monitor, leftTaskbarWork, false, false, false, false) == DockEdge::Bottom,
+          L"a display without a taskbar on either horizontal edge takes the free bottom", success);
+    Check(DockFirstRunEdge(monitor, work, false, false, false, false) == DockEdge::Top &&
+              DockFirstRunEdge(monitor, topTaskbarWork, false, false, false, false) == DockEdge::Bottom,
+          L"a visible taskbar trims the work area and the bar takes the free edge across from it", success);
+    Check(DockFirstRunEdge(monitor, fullWork, false, true, false, false) == DockEdge::Top &&
+              DockFirstRunEdge(monitor, fullWork, true, false, false, false) == DockEdge::Bottom,
           L"an auto-hiding taskbar holds its edge through its autohide registration", success);
-    Check(DockFirstRunEdge(monitor, fullWork, false, false, DockEdge::Bottom) == DockEdge::Top &&
-              DockFirstRunEdge(monitor, fullWork, false, false, DockEdge::Top) == DockEdge::Bottom &&
-              DockFirstRunEdge(monitor, fullWork, false, false, DockEdge::None) == DockEdge::Top,
-          L"a display without a taskbar of its own follows the primary taskbar's edge, top when unknown", success);
-    Check(DockFirstRunEdge(monitor, leftTaskbarWork, false, false, DockEdge::Left) == DockEdge::Top &&
-              DockFirstRunEdge(monitor, bothBarsWork, false, false, DockEdge::Bottom) == DockEdge::Top &&
-              DockFirstRunEdge(monitor, topTaskbarWork, false, true, DockEdge::Top) == DockEdge::Top,
-          L"a side taskbar leaves the top, and with both edges taken the bar stays on top", success);
-    Check(DockFirstRunEdge(secondary, RECT{-1920, -200, 0, 832}, false, false, DockEdge::None) == DockEdge::Top &&
-              DockFirstRunEdge(secondary, RECT{-1920, -152, 0, 880}, false, false, DockEdge::Bottom) ==
-                  DockEdge::Bottom,
+    Check(DockFirstRunEdge(monitor, bothBarsWork, false, false, false, false) == DockEdge::Bottom &&
+              DockFirstRunEdge(monitor, topTaskbarWork, false, true, false, false) == DockEdge::Bottom,
+          L"with both edges taken the bar takes the bottom", success);
+    Check(DockFirstRunEdge(below, below, false, false, true, false) == DockEdge::Bottom &&
+              DockFirstRunEdge(below, RECT{0, 1440, 1920, 2472}, false, false, true, false) == DockEdge::Bottom &&
+              DockFirstRunEdge(below, below, false, true, true, false) == DockEdge::Bottom,
+          L"under another display the bar never takes the shared top, even beside its own taskbar", success);
+    const RECT above{0, -1080, 1920, 0};
+    Check(DockFirstRunEdge(above, above, false, false, false, true) == DockEdge::Top &&
+              DockFirstRunEdge(above, RECT{0, -1080, 1920, -48}, false, false, false, true) == DockEdge::Top,
+          L"over another display the bar takes the free top rather than the shared bottom", success);
+    Check(DockFirstRunEdge(below, RECT{0, 1440, 1920, 2472}, false, false, true, true) == DockEdge::Bottom &&
+              DockFirstRunEdge(below, RECT{0, 1488, 1920, 2520}, false, false, true, true) == DockEdge::Bottom,
+          L"between two displays both edges are shared and the bar takes the bottom", success);
+    Check(DockFirstRunEdge(secondary, RECT{-1920, -200, 0, 832}, false, false, false, false) == DockEdge::Top &&
+              DockFirstRunEdge(secondary, RECT{-1920, -152, 0, 880}, false, false, false, false) == DockEdge::Bottom &&
+              DockFirstRunEdge(secondary, secondary, false, false, false, false) == DockEdge::Bottom,
           L"the edge decision works at negative coordinates", success);
+
+    // Explorer keeps reporting the autohide bar of a crashed or killed process on its edge; a window that no longer
+    // exists holds nothing, so the first-run bar still takes that free bottom.
+    wil::unique_hwnd autohideBar{
+        CreateWindowExW(0, L"STATIC", L"autohide bar", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, nullptr, nullptr)};
+    const HWND bar = autohideBar.get();
+    const bool liveBarHolds = DockAutohideBarHoldsEdge(bar);
+    const DockEdge liveBarEdge = DockFirstRunEdge(monitor, fullWork, false, liveBarHolds, false, false);
+    autohideBar.reset();
+    Check(bar && liveBarHolds && liveBarEdge == DockEdge::Top && !DockAutohideBarHoldsEdge(bar) &&
+              !DockAutohideBarHoldsEdge(nullptr) &&
+              DockFirstRunEdge(monitor, fullWork, false, DockAutohideBarHoldsEdge(bar), false, false) ==
+                  DockEdge::Bottom,
+          L"an autohide registration holds its edge only while its window exists", success);
+}
+
+// DockPlacement.h placement requests: a request heard while a placement runs (a display, work-area, DPI, or app-bar
+// message sent during its shell calls) is recorded rather than dropped, the running placement makes one more pass for
+// it with the recorded resize flags, and the extra passes stop at kDockMaximumExtraPlacementPasses.
+void TestDockPlacementRequests(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dock placement requests during a placement\n";
+    DockPlacementRequests requests{};
+    bool resize = false;
+    Check(BeginDockPlacement(requests, false) && requests.placing, L"a request with no placement running places now",
+          success);
+    Check(!NextDockPlacementPass(requests, resize) && !requests.placing,
+          L"a pass with nothing recorded ends the placement", success);
+
+    Check(BeginDockPlacement(requests, false), L"a second placement starts", success);
+    Check(!BeginDockPlacement(requests, true) && !BeginDockPlacement(requests, false) && requests.again,
+          L"requests heard during a pass are recorded instead of run or dropped", success);
+    resize = false;
+    Check(NextDockPlacementPass(requests, resize) && resize && requests.placing && !requests.again,
+          L"the placement makes one more pass, resizing when any recorded request asked", success);
+    Check(!NextDockPlacementPass(requests, resize) && !requests.placing,
+          L"an extra pass with nothing recorded ends the placement", success);
+
+    Check(BeginDockPlacement(requests, true) && !BeginDockPlacement(requests, false), L"a resizing placement records",
+          success);
+    resize = true;
+    Check(NextDockPlacementPass(requests, resize) && !resize,
+          L"the extra pass resizes only for the recorded requests, not for the first pass's flag", success);
+    (void)NextDockPlacementPass(requests, resize);
+
+    // A request that every pass raises again (the pass's own move changing the DPI, say) is bounded.
+    Check(BeginDockPlacement(requests, false), L"a looping placement starts", success);
+    uint32_t passes = 1;
+    for (uint32_t guard = 0; guard < 16; ++guard)
+    {
+        (void)BeginDockPlacement(requests, false);
+        if (!NextDockPlacementPass(requests, resize))
+        {
+            break;
+        }
+        ++passes;
+    }
+    Check(passes == 1 + kDockMaximumExtraPlacementPasses && !requests.placing && !requests.again,
+          L"a request every pass raises again stops after the extra-pass bound", success);
+    Check(BeginDockPlacement(requests, false), L"a later request starts a fresh placement", success);
+    (void)NextDockPlacementPass(requests, resize);
+}
+
+// DockPlacement.h app-bar registration: what each mode reserves (the whole bar, the autohide peek strip, or nothing),
+// the strip proposed and re-trimmed for every edge with its clamped peek, the full bar grown from the strip the shell
+// committed, and the message sequence PlanDockAppBar hands PlaceDockPass for each registration change. No sequence ever
+// holds ABM_SETAUTOHIDEBAREX, and a pass that changes nothing reserved sends nothing.
+void TestDockAppBarRegistration(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dock app-bar registration and reservation\n";
+    Check(kDockAppBarNew == ABM_NEW && kDockAppBarRemove == ABM_REMOVE && kDockAppBarQueryPos == ABM_QUERYPOS &&
+              kDockAppBarSetPos == ABM_SETPOS,
+          L"the plan's messages are the shell's ABM values", success);
+    Check(DockReservationFor(DockMode::Fixed, true) == DockReservation::Bar &&
+              DockReservationFor(DockMode::Fixed, false) == DockReservation::None &&
+              DockReservationFor(DockMode::Autohide, true) == DockReservation::Strip &&
+              DockReservationFor(DockMode::Autohide, false) == DockReservation::Strip,
+          L"a fixed bar reserves itself or nothing, and an autohide bar its strip whatever reserveWorkArea says",
+          success);
+    Check(DockReservedPixels(DockReservation::Bar, 270, 4) == 270 &&
+              DockReservedPixels(DockReservation::Strip, 270, 4) == 4 &&
+              DockReservedPixels(DockReservation::None, 270, 4) == 0,
+          L"the bar reserves its thickness, the strip its peek, an overlay nothing", success);
+
+    // The strip proposal for every edge, at negative coordinates, and with the peek clamped to a thin bar.
+    const RECT monitor{0, 0, 2560, 1440};
+    const auto equals = [](const RECT& rect, LONG left, LONG top, LONG right, LONG bottom) noexcept
+    { return rect.left == left && rect.top == top && rect.right == right && rect.bottom == bottom; };
+    const LONG thicknessPx = DockThicknessPixels(180, 144);
+    const LONG peekPx = DockClampPeek(kDockDefaultPeekPixels, thicknessPx);
+    Check(thicknessPx == 270 && peekPx == 4 &&
+              equals(DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Top, thicknessPx, peekPx), 0, 0,
+                     2560, 4) &&
+              equals(DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Bottom, thicknessPx, peekPx), 0,
+                     1436, 2560, 1440) &&
+              equals(DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Left, thicknessPx, peekPx), 0,
+                     0, 4, 1440) &&
+              equals(DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Right, thicknessPx, peekPx),
+                     2556, 0, 2560, 1440),
+          L"an autohide bar proposes the monitor's outer peek pixels on every edge", success);
+    Check(equals(DockReservationProposal(DockReservation::Bar, monitor, DockEdge::Bottom, thicknessPx, peekPx), 0, 1170,
+                 2560, 1440) &&
+              equals(DockReservationProposal(DockReservation::None, monitor, DockEdge::Bottom, thicknessPx, peekPx), 0,
+                     0, 0, 0),
+          L"a fixed reserving bar proposes its thickness and an overlay proposes nothing", success);
+    const RECT secondary{-1920, -200, 0, 880};
+    Check(equals(DockReservationProposal(DockReservation::Strip, secondary, DockEdge::Top, 180, 6), -1920, -200, 0,
+                 -194) &&
+              equals(DockReservationProposal(DockReservation::Strip, secondary, DockEdge::Left, 180, 6), -1920, -200,
+                     -1914, 880),
+          L"the strip proposal works at negative coordinates", success);
+    const LONG thinBar = DockThicknessPixels(kDockMinimumThicknessDips, 96);
+    const LONG clampedPeek = DockClampPeek(kDockMaximumPeekPixels, thinBar);
+    Check(clampedPeek == thinBar &&
+              DockRectEquals(
+                  DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Bottom, thinBar, clampedPeek),
+                  DockReservationProposal(DockReservation::Bar, monitor, DockEdge::Bottom, thinBar, clampedPeek)),
+          L"a peek wider than the bar reserves the clamped strip, never more than the bar", success);
+    const LONG thickness96 = DockThicknessPixels(180, 96);
+    Check(
+        DockRectEquals(DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Bottom, thickness96,
+                                               DockClampPeek(kDockDefaultPeekPixels, thickness96)),
+                       DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Bottom, thicknessPx, peekPx)),
+        L"the strip is physical pixels: a DPI change keeps the same strip while the bar rescales", success);
+
+    // The shell's answer: a taskbar on the strip's edge moves the strip beside it, a side taskbar shortens it, and the
+    // re-trim keeps the peek depth. The full bar grows inward from the committed strip, so its hidden rectangle is the
+    // reservation itself and the revealed bar lies over the work area.
+    const RECT bottomQuery{0, 1436, 2560, 1392}; // ABM_QUERYPOS against a 48-pixel bottom taskbar
+    const RECT bottomStrip = DockTrimToThickness(bottomQuery, DockEdge::Bottom, peekPx);
+    const RECT bottomFull = DockFullRectFromReserved(bottomStrip, DockEdge::Bottom, thicknessPx);
+    Check(equals(bottomStrip, 0, 1388, 2560, 1392) && equals(bottomFull, 0, 1122, 2560, 1392) &&
+              DockRectEquals(DockHiddenRect(bottomFull, DockEdge::Bottom, peekPx), bottomStrip),
+          L"a bottom strip beside a bottom taskbar keeps its depth and the bar rises from it", success);
+    const RECT topStrip = DockTrimToThickness(RECT{62, 0, 2560, 4}, DockEdge::Top, peekPx); // a 62-pixel left taskbar
+    const RECT topFull = DockFullRectFromReserved(topStrip, DockEdge::Top, thicknessPx);
+    Check(equals(topFull, 62, 0, 2560, 270) && DockRectEquals(DockHiddenRect(topFull, DockEdge::Top, peekPx), topStrip),
+          L"a top strip shortened by a side taskbar keeps that span when it reveals", success);
+    bool everyEdge = true;
+    for (const DockEdge edge : {DockEdge::Top, DockEdge::Bottom, DockEdge::Left, DockEdge::Right})
+    {
+        const RECT edgeStrip = DockReservationProposal(DockReservation::Strip, secondary, edge, thicknessPx, peekPx);
+        const RECT edgeFull = DockFullRectFromReserved(edgeStrip, edge, thicknessPx);
+        const RECT edgeBar = DockReservationProposal(DockReservation::Bar, secondary, edge, thicknessPx, peekPx);
+        everyEdge = everyEdge && DockCrossPixels(edgeFull, edge) == thicknessPx &&
+                    DockRectEquals(DockHiddenRect(edgeFull, edge, peekPx), edgeStrip) &&
+                    DockRectEquals(DockFullRectFromReserved(edgeBar, edge, thicknessPx), edgeBar);
+    }
+    Check(everyEdge,
+          L"on every edge the collapsed bar is the reserved strip and a reserved bar is its own full rectangle",
+          success);
+
+    // The message sequences. A plan never holds ABM_SETAUTOHIDEBAREX.
+    const auto sequence = [](const DockAppBarPlan& plan, std::initializer_list<DWORD> expected) noexcept
+    {
+        if (plan.count != expected.size())
+        {
+            return false;
+        }
+        size_t index = 0;
+        for (const DWORD message : expected)
+        {
+            if (plan.messages[index] != message || plan.messages[index] == ABM_SETAUTOHIDEBAREX)
+            {
+                return false;
+            }
+            ++index;
+        }
+        return true;
+    };
+    // The record PlaceDockPass keeps after it sends a plan whose ABM_NEW the shell accepts.
+    const auto send = [](DockAppBarState& state, const DockAppBarPlan& plan, DockReservation reservation, DockEdge edge,
+                         const RECT& proposal, UINT dpi, const RECT& committed) noexcept
+    {
+        for (size_t index = 0; index < plan.count; ++index)
+        {
+            if (plan.messages[index] == ABM_REMOVE)
+            {
+                state = DockAppBarState{};
+            }
+            else if (plan.messages[index] == ABM_NEW)
+            {
+                state = DockAppBarState{};
+                state.registered = true;
+            }
+            else if (plan.messages[index] == ABM_SETPOS)
+            {
+                DockAppBarCommitted(state, reservation, edge, proposal, dpi, committed);
+            }
+        }
+    };
+    const RECT strip = DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Bottom, thicknessPx, peekPx);
+    DockAppBarState state{};
+    DockAppBarPlan plan = PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, strip, 144, false);
+    Check(sequence(plan, {ABM_NEW, ABM_QUERYPOS, ABM_SETPOS}),
+          L"a first autohide placement registers, queries, and sets its strip, without ABM_SETAUTOHIDEBAREX", success);
+    send(state, plan, DockReservation::Strip, DockEdge::Bottom, strip, 144, strip);
+    Check(state.registered && state.reservation == DockReservation::Strip && DockRectEquals(state.reserved, strip),
+          L"the committed strip is recorded", success);
+    const RECT draggedStrip = DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Bottom, 360,
+                                                      DockClampPeek(kDockDefaultPeekPixels, 360));
+    Check(sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, strip, 144, false), {}) &&
+              sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, draggedStrip, 144, false), {}),
+          L"a placement that changes nothing reserved (a reload of the delays, a thicker bar) sends nothing", success);
+    Check(sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, strip, 144, true),
+                   {ABM_QUERYPOS, ABM_SETPOS}),
+          L"after ABN_POSCHANGED, ABN_STATECHANGE, or a display change the strip is queried and set again", success);
+    const RECT topProposal =
+        DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Top, thicknessPx, peekPx);
+    const RECT movedStrip =
+        DockReservationProposal(DockReservation::Strip, secondary, DockEdge::Bottom, thicknessPx, peekPx);
+    const RECT widerStrip = DockReservationProposal(DockReservation::Strip, monitor, DockEdge::Bottom, thicknessPx, 8);
+    Check(sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Top, topProposal, 144, false),
+                   {ABM_QUERYPOS, ABM_SETPOS}) &&
+              sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, movedStrip, 144, false),
+                       {ABM_QUERYPOS, ABM_SETPOS}) &&
+              sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, strip, 96, false),
+                       {ABM_QUERYPOS, ABM_SETPOS}) &&
+              sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, widerStrip, 144, false),
+                       {ABM_QUERYPOS, ABM_SETPOS}),
+          L"an edge, monitor, DPI, or peek change moves the reservation without registering again", success);
+
+    // autohide <-> fixed: a reserving bar takes over the registration; dropping to an overlay gives the area back.
+    const RECT bar = DockReservationProposal(DockReservation::Bar, monitor, DockEdge::Bottom, thicknessPx, peekPx);
+    plan = PlanDockAppBar(state, DockReservation::Bar, DockEdge::Bottom, bar, 144, false);
+    Check(sequence(plan, {ABM_QUERYPOS, ABM_SETPOS}), L"autohide to a fixed reserving bar reserves the whole bar",
+          success);
+    send(state, plan, DockReservation::Bar, DockEdge::Bottom, bar, 144, bar);
+    Check(sequence(PlanDockAppBar(state, DockReservation::Bar, DockEdge::Bottom, bar, 144, false), {}) &&
+              sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, strip, 144, false),
+                       {ABM_QUERYPOS, ABM_SETPOS}),
+          L"a placed reserving bar sends nothing, and back to autohide it reserves the strip only", success);
+    plan = PlanDockAppBar(state, DockReservation::None, DockEdge::Bottom, RECT{}, 144, false);
+    Check(sequence(plan, {ABM_REMOVE, ABM_NEW}),
+          L"a fixed overlay removes the reservation and registers again, reserving nothing", success);
+    send(state, plan, DockReservation::None, DockEdge::Bottom, RECT{}, 144, RECT{});
+    Check(state.registered && state.reservation == DockReservation::None &&
+              sequence(PlanDockAppBar(state, DockReservation::None, DockEdge::Top, RECT{}, 144, true), {}),
+          L"a registered overlay sends nothing, even after a shell change", success);
+    plan = PlanDockAppBar(state, DockReservation::Strip, DockEdge::Bottom, strip, 144, false);
+    Check(sequence(plan, {ABM_QUERYPOS, ABM_SETPOS}), L"an overlay switched to autohide reserves its strip", success);
+    send(state, plan, DockReservation::Strip, DockEdge::Bottom, strip, 144, strip);
+    Check(sequence(PlanDockAppBar(state, DockReservation::None, DockEdge::Bottom, RECT{}, 144, false),
+                   {ABM_REMOVE, ABM_NEW}),
+          L"autohide to a fixed overlay gives the strip back", success);
+
+    // The dock becoming the standard window, a session end, and TaskbarCreated remove the registration
+    // (UnregisterDockAppBar resets the record); the next dock placement registers and reserves from scratch.
+    state = DockAppBarState{};
+    Check(sequence(PlanDockAppBar(state, DockReservation::Strip, DockEdge::Top, topProposal, 144, false),
+                   {ABM_NEW, ABM_QUERYPOS, ABM_SETPOS}) &&
+              sequence(PlanDockAppBar(state, DockReservation::Bar, DockEdge::Bottom, bar, 144, false),
+                       {ABM_NEW, ABM_QUERYPOS, ABM_SETPOS}) &&
+              sequence(PlanDockAppBar(state, DockReservation::None, DockEdge::Bottom, RECT{}, 144, false), {ABM_NEW}),
+          L"an unregistered bar registers first and then reserves what its row reserves", success);
+}
+
+// NoticeWindow.h: the settings-error and action-notice windows are centred on the RedXe window (a dock's full bar, not
+// its peek strip) and kept inside the work area, so no bar edge puts the caption, the text, or OK off-screen; their
+// controls are laid out in the client area that is left.
+void TestNoticeWindowPlacement(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] notice window placement\n";
+    const auto inside = [](const RECT& rect, const RECT& area) noexcept
+    {
+        return rect.left >= area.left && rect.top >= area.top && rect.right <= area.right && rect.bottom <= area.bottom;
+    };
+    const auto fullSize = [](const RECT& rect) noexcept
+    { return rect.right - rect.left == kNoticeWindowWidth && rect.bottom - rect.top == kNoticeWindowHeight; };
+
+    const RECT wide{0, 0, 3840, 2100};
+    const RECT titled = NoticeWindowRect(RECT{100, 100, 2660, 820}, wide, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(titled.left == 1080 && titled.top == 320 && fullSize(titled),
+          L"a window inside its work area keeps the notice centred on it", success);
+
+    const RECT work{0, 0, 1920, 1040}; // 40-pixel taskbar at the bottom
+    const RECT topStrip = NoticeWindowRect(RECT{0, 0, 1920, 4}, work, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(topStrip.top == 0 && topStrip.left == 660 && fullSize(topStrip) && inside(topStrip, work),
+          L"a collapsed top strip no longer puts the caption above the screen", success);
+    const RECT topBar = NoticeWindowRect(RECT{0, 0, 1920, 180}, work, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(topBar.top == 0 && inside(topBar, work), L"a thin top bar keeps the caption on the screen", success);
+    const RECT bottomStrip = NoticeWindowRect(RECT{0, 1036, 1920, 1040}, work, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(bottomStrip.bottom == 1040 && fullSize(bottomStrip),
+          L"a collapsed bottom strip keeps the OK button above the work-area edge", success);
+    const RECT rightBar = NoticeWindowRect(RECT{1740, 0, 1920, 1040}, work, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(rightBar.right == 1920 && rightBar.left == 1320 && inside(rightBar, work),
+          L"a right bar keeps the close box and OK on the screen", success);
+    const RECT leftBar = NoticeWindowRect(RECT{0, 0, 180, 1040}, work, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(leftBar.left == 0 && inside(leftBar, work), L"a left bar keeps the start of every line on the screen",
+          success);
+
+    const RECT secondary{-1920, -200, 0, 880}; // off-origin secondary display at negative coordinates
+    const RECT secondaryStrip =
+        NoticeWindowRect(RECT{-1920, -200, 0, -196}, secondary, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(secondaryStrip.left == -1260 && secondaryStrip.top == -200 && inside(secondaryStrip, secondary),
+          L"placement works at negative coordinates", success);
+
+    const RECT smallWork{0, 0, 500, 200};
+    const RECT cut = NoticeWindowRect(RECT{0, 0, 500, 4}, smallWork, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(EqualRect(&cut, &smallWork) != FALSE, L"a work area smaller than the notice cuts it to the work area",
+          success);
+    const RECT unclamped = NoticeWindowRect(RECT{0, 0, 1920, 4}, RECT{}, kNoticeWindowWidth, kNoticeWindowHeight);
+    Check(unclamped.top == -138 && fullSize(unclamped), L"an empty work area leaves the centred rectangle", success);
+
+    // The controls follow the client area (NoticeControlsForClient), which the caption and frame shrink and a cut
+    // window shrinks further: OK stays whole in the bottom-right corner and the text fills the client above it.
+    const auto laidOut = [](LONG clientWidth, LONG clientHeight) noexcept
+    {
+        const NoticeControlLayout layout = NoticeControlsForClient(clientWidth, clientHeight);
+        const RECT& text = layout.text;
+        const RECT& button = layout.button;
+        const LONG width = std::max(clientWidth, kNoticeMinimumClientWidth);
+        const LONG height = std::max(clientHeight, kNoticeMinimumClientHeight);
+        return text.left == kNoticeMarginX && text.top == kNoticeMarginTop && text.right == width - kNoticeMarginX &&
+               text.bottom - text.top >= kNoticeMinimumTextHeight && text.bottom + kNoticeButtonGap == button.top &&
+               button.left >= 0 && button.top >= 0 && button.right - button.left == kNoticeButtonWidth &&
+               button.bottom - button.top == kNoticeButtonHeight && button.right == width - kNoticeMarginX &&
+               button.bottom == height - kNoticeMarginBottom;
+    };
+    const NoticeControlLayout full = NoticeControlsForClient(586, 249); // a 600x280 notice with caption and frame
+    Check(laidOut(586, 249) && full.text.bottom - full.text.top == 169 && full.button.top == 201 &&
+              full.button.right == 562,
+          L"a full-size notice keeps the text block and OK where the fixed layout had them", success);
+    const NoticeControlLayout cutClient = NoticeControlsForClient(486, 169); // a 500x200 notice, cut by its work area
+    Check(laidOut(486, 169) && cutClient.button.bottom <= 169 && cutClient.button.right <= 486 &&
+              cutClient.text.bottom < cutClient.button.top,
+          L"a cut notice keeps OK inside its client and the text above it instead of clipping both", success);
+    const NoticeControlLayout tiny = NoticeControlsForClient(40, 10);
+    Check(laidOut(40, 10) && laidOut(0, 0) && laidOut(-5, -5) && tiny.button.left == kNoticeMarginX &&
+              tiny.text.bottom - tiny.text.top == kNoticeMinimumTextHeight,
+          L"a client below the minimum is laid out at the minimum, never at a negative coordinate", success);
 }
 
 // DockPlacement.h autohide slide: the duration share of a partial travel, the eased visible thickness of a reveal and
@@ -893,6 +1309,249 @@ void TestDockSlidePolicy(bool& success) noexcept
           L"top and left bars are translated by the hidden part, bottom and right bars never", success);
 }
 
+// DockPlacement.h on a collapsed or sliding autohide bar: one clamped peek strip, the dashboard canvas every host-side
+// layout uses, a page or widget change revealing the bar, the settle shift that keeps a press on the tile it was aimed
+// at, where a press or a wheel goes, and the full-screen yield that ignores a maximized window's frame overhang.
+void TestDockCollapsedBarPolicy(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dock collapsed and sliding bar policy\n";
+    // One peek strip: the setting, at least 1 pixel and never more than the bar it belongs to.
+    Check(DockClampPeek(4, 540) == 4 && DockClampPeek(64, 540) == 64 && DockClampPeek(64, 32) == 32 &&
+              DockClampPeek(0, 540) == 1 && DockClampPeek(4, 0) == 1,
+          L"the peek strip is the setting clamped to 1 pixel and to the full bar", success);
+    const RECT monitor{0, 0, 2560, 1440};
+    const RECT thinBar{0, 1360, 2560, 1392}; // a 32-pixel bottom bar above a 48-pixel taskbar
+    const LONG thinPeek = DockClampPeek(64, DockCrossPixels(thinBar, DockEdge::Bottom));
+    const RECT thinHidden = DockHiddenRect(thinBar, DockEdge::Bottom, thinPeek);
+    MINMAXINFO thinInfo{};
+    DockMinMaxInfo(monitor, DockEdge::Bottom, thinPeek, true, thinBar, thinInfo);
+    Check(EqualRect(&thinHidden, &thinBar) != FALSE && thinInfo.ptMinTrackSize.y == 32,
+          L"a 64-pixel peek on a 32-pixel bar hides to the bar itself, for the window and MINMAXINFO alike", success);
+
+    // The dashboard canvas: a placed dock is laid out on its full bar whatever part of it the window shows.
+    const RECT fullBottom{0, 852, 2560, 1392};
+    const SIZE stripCanvas = DockDashboardCanvas(true, fullBottom, SIZE{2560, 4});
+    const SIZE slidingCanvas = DockDashboardCanvas(true, fullBottom, SIZE{2560, 270});
+    const SIZE titledCanvas = DockDashboardCanvas(false, fullBottom, SIZE{1280, 360});
+    const SIZE unplacedCanvas = DockDashboardCanvas(true, RECT{}, SIZE{2560, 4});
+    Check(stripCanvas.cx == 2560 && stripCanvas.cy == 540 && slidingCanvas.cx == 2560 && slidingCanvas.cy == 540 &&
+              titledCanvas.cx == 1280 && titledCanvas.cy == 360 && unplacedCanvas.cx == 2560 && unplacedCanvas.cy == 4,
+          L"a dock's canvas is its full bar, collapsed or sliding; the standard kinds and an unplaced dock keep the "
+          L"client",
+          success);
+
+    // A page or widget change on the strip reveals at once and pins nothing: its own settle or raise holds the bar.
+    using S = DockRevealState;
+    using E = DockRevealEvent;
+    const DockHolds none{};
+    DockHolds settling{};
+    settling.captureActive = true;
+    DockHolds raised{};
+    raised.widgetRaised = true;
+    Check(NextDockRevealState(S::Hidden, E::PageOrWidgetChange, none, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::RevealPending, E::PageOrWidgetChange, none, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::PageOrWidgetChange, none, 150, 800) == S::Revealed,
+          L"a page or widget change on the strip reveals the bar at once, without the dwell", success);
+    Check(NextDockRevealState(S::Revealed, E::HoldsChanged, settling, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::HoldsChanged, raised, 150, 800) == S::Revealed &&
+              NextDockRevealState(S::Revealed, E::HoldsChanged, none, 150, 800) == S::HidePending,
+          L"the change's page settle or raise then holds the bar, and the hide delay starts once no hold is left",
+          success);
+
+    // The settle shift: a settled client point plus the shift is the dashboard point that was on screen under it.
+    const POINT topShift = DockSettleShift(DockEdge::Top, 540, 314);
+    const POINT bottomShift = DockSettleShift(DockEdge::Bottom, 540, 270);
+    const POINT leftShift = DockSettleShift(DockEdge::Left, 240, 40);
+    const POINT rightShift = DockSettleShift(DockEdge::Right, 240, 40);
+    const POINT settledShift = DockSettleShift(DockEdge::Top, 540, 540);
+    const POINT noShift = DockSettleShift(DockEdge::None, 540, 4);
+    Check(topShift.x == 0 && topShift.y == 226 && bottomShift.x == 0 && bottomShift.y == -270 && leftShift.x == 200 &&
+              leftShift.y == 0 && rightShift.x == -200 && rightShift.y == 0 && settledShift.y == 0 && noShift.x == 0 &&
+              noShift.y == 0,
+          L"the settle shift undoes a top or left translation and a bottom or right origin move by the hidden part",
+          success);
+    const POINT topOffset = DockSlideContentOffset(DockEdge::Top, 540, 314);
+    const POINT leftOffset = DockSlideContentOffset(DockEdge::Left, 240, 40);
+    Check(topShift.y == -topOffset.y && leftShift.x == -leftOffset.x,
+          L"for a top or left bar the shift is exactly the translation the settle drops", success);
+
+    // Where a press or a wheel goes.
+    using R = DockInputRoute;
+    Check(DockRouteInput(DockInput::Wheel, true, false) == R::Drop &&
+              DockRouteInput(DockInput::Wheel, true, true) == R::Drop,
+          L"a wheel on the strip or on a bar sliding out is dropped", success);
+    Check(DockRouteInput(DockInput::Press, true, false) == R::RevealOnly &&
+              DockRouteInput(DockInput::Press, true, true) == R::RevealOnly,
+          L"a press on the strip or on a bar sliding out only reveals the bar", success);
+    Check(DockRouteInput(DockInput::Press, false, true) == R::SettleShifted &&
+              DockRouteInput(DockInput::Wheel, false, true) == R::Dashboard,
+          L"on a bar sliding in a press settles with the shift and a wheel reaches the tile under it", success);
+    Check(DockRouteInput(DockInput::Press, false, false) == R::Dashboard &&
+              DockRouteInput(DockInput::Wheel, false, false) == R::Dashboard,
+          L"a settled bar, a fixed bar, and the standard kinds route input as any window", success);
+
+    // Full-screen yield on a taskbar-less display, whose work area is the whole monitor.
+    const RECT dockMonitor{2560, 0, 4480, 1080};
+    const RECT overhang{2552, -8, 4488, 1088};
+    Check(DockForegroundCoversMonitor(dockMonitor, dockMonitor, false),
+          L"a full-screen window covering the bar's monitor puts the bar beneath it", success);
+    Check(!DockForegroundCoversMonitor(overhang, dockMonitor, true),
+          L"a maximized captioned window's resize-border overhang is not full screen", success);
+    Check(DockForegroundCoversMonitor(overhang, dockMonitor, false),
+          L"a captionless window covering the monitor counts, maximized or not", success);
+    Check(!DockForegroundCoversMonitor(RECT{0, 0, 2560, 1440}, dockMonitor, false) &&
+              DockForegroundCoversMonitor(RECT{0, 0, 4480, 1440}, dockMonitor, false) &&
+              !DockForegroundCoversMonitor(RECT{2560, 0, 4480, 1040}, dockMonitor, false) &&
+              !DockForegroundCoversMonitor(dockMonitor, RECT{}, false),
+          L"another monitor's window or a partial cover does not count, a window spanning both does, no monitor never",
+          success);
+}
+
+// A press during a reveal slide reaches the tile the user saw (slide-tray#2, #19), and a raise on a collapsed bar is
+// laid out on the full bar (dock-switch#21): tiles are hit on the dashboard canvas with the slide's translation, never
+// squeezed into the partly open window, and a press that settles the slide keeps DockSettleShift.
+void TestDockCanvasHitTesting(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dock canvas hit testing during a slide and on a collapsed bar\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":5},"pages":[{"rows":[{"plugin":"builtin.matrix-rain"},{"plugin":"builtin.desk-clock"}]}]})json";
+    constexpr UINT barWidth = 1280;
+    constexpr UINT barHeight = 540;
+    AttachedHostWindow window;
+    HRESULT result = window.Initialize(barWidth, barHeight);
+    AppSettings settings{};
+    if (SUCCEEDED(result))
+    {
+        result = ParseAppSettingsJson(settingsJson, settings);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    DashboardHost dashboard;
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.Initialize(plugins, window.Get(), barWidth, barHeight, window.Dpi(), false);
+    }
+    Check(SUCCEEDED(result) && dashboard.WidgetCount() == 2, L"a two-row bar page initializes", success);
+    if (FAILED(result))
+    {
+        return;
+    }
+    const auto hit = [&dashboard](POINT point, UINT width, UINT height) noexcept -> size_t
+    {
+        const std::array<RECT, 2> bounds{dashboard.PixelBoundsAt(0, width, height),
+                                         dashboard.PixelBoundsAt(1, width, height)};
+        return HitTestTopmostWidget(point, bounds.data(), bounds.size());
+    };
+    const RECT upper = dashboard.PixelBoundsAt(0, barWidth, barHeight);
+    const RECT lower = dashboard.PixelBoundsAt(1, barWidth, barHeight);
+    Check(upper.top == 0 && upper.bottom == 270 && lower.top == 270 && lower.bottom == 540,
+          L"the two rows split the 540-pixel bar at 270", success);
+
+    // Bottom bar halfway through a reveal: the window is the outer 270 rows and shows dashboard rows 0..270.
+    const POINT seenBottom{640, 269};
+    Check(hit(seenBottom, barWidth, barHeight) == 0 && hit(seenBottom, barWidth, 270) == 1,
+          L"mid-slide the canvas hits the upper tile on screen, where the client size hit the hidden lower one",
+          success);
+    // The settle grows the window up by the hidden 270, so the same screen point is client row 539.
+    const POINT settledBottom{seenBottom.x, seenBottom.y + 270};
+    const POINT bottomShift = DockSettleShift(DockEdge::Bottom, barHeight, 270);
+    Check(hit(settledBottom, barWidth, barHeight) == 1 &&
+              hit(POINT{settledBottom.x + bottomShift.x, settledBottom.y + bottomShift.y}, barWidth, barHeight) == 0,
+          L"after the settle a bottom bar's press keeps the upper tile only with the shift", success);
+
+    // Top bar at 314 of 540 rows: the dashboard is translated up by the hidden 226, so client row 250 shows row 476.
+    Check(SUCCEEDED(dashboard.SetSlideOffset(DockSlideContentOffset(DockEdge::Top, barHeight, 314))),
+          L"the top bar's slide translates the page", success);
+    const POINT seenTop{640, 250};
+    Check(hit(seenTop, barWidth, barHeight) == 1, L"mid-slide a top bar's client point hits the translated lower tile",
+          success);
+    Check(SUCCEEDED(dashboard.SetSlideOffset(POINT{})), L"the settle drops the translation", success);
+    const POINT topShift = DockSettleShift(DockEdge::Top, barHeight, 314);
+    Check(hit(seenTop, barWidth, barHeight) == 0 &&
+              hit(POINT{seenTop.x + topShift.x, seenTop.y + topShift.y}, barWidth, barHeight) == 1,
+          L"after the settle a top bar's press keeps the lower tile only with the shift", success);
+
+    // widget.raise on the collapsed bar, whose window is a 4-pixel strip: on the canvas the overlay spans the bar's
+    // full height; on the strip the same raise is still allowed but would be 4 pixels tall.
+    const SIZE canvas = DockDashboardCanvas(true, RECT{0, 852, 1280, 1392}, SIZE{1280, 4});
+    const UINT canvasWidth = static_cast<UINT>(canvas.cx);
+    const UINT canvasHeight = static_cast<UINT>(canvas.cy);
+    const RECT canvasTile = dashboard.PixelBoundsAt(0, canvasWidth, canvasHeight);
+    const RaisedLayout canvasRaise =
+        MakeRaisedLayout(canvasWidth, canvasHeight, RedXeRaisedExtentHalf, window.Dpi(), &canvasTile);
+    const RECT stripTile = dashboard.PixelBoundsAt(0, barWidth, 4);
+    const RaisedLayout stripRaise = MakeRaisedLayout(barWidth, 4, RedXeRaisedExtentHalf, window.Dpi(), &stripTile);
+    Check(CanRaiseWidget(canvasTile, canvasWidth, canvasHeight, RedXeRaisedExtentHalf) &&
+              canvasRaise.content.top == 0 && canvasRaise.content.bottom == static_cast<LONG>(barHeight) &&
+              CanRaiseWidget(stripTile, barWidth, 4, RedXeRaisedExtentHalf) && stripRaise.content.bottom == 4,
+          L"a raise on a collapsed bar is laid out on its full bar, not in the strip that would also accept it",
+          success);
+    dashboard.Shutdown();
+}
+
+// DashboardHost::SetSlideOffset after a native container failed to move (slide-tray#15): the next call moves the
+// containers again even with the same offset, so the zero offset that ends a dock slide retries a failed last step.
+// The container is destroyed behind the host here, so every move fails and every call reports it.
+void TestDashboardSlideOffsetRetry(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] dock slide offset retries a failed native container move\n";
+    constexpr std::string_view settingsJson =
+        R"json({"version":{"major":5},"pages":[{"rows":[{"plugin":"builtin.rotating-triangle"},{"plugin":"builtin.gdi-orbit"}]}]})json";
+    constexpr UINT barWidth = 1280;
+    constexpr UINT barHeight = 540;
+    AttachedHostWindow window;
+    HRESULT result = window.Initialize(barWidth, barHeight);
+    AppSettings settings{};
+    if (SUCCEEDED(result))
+    {
+        result = ParseAppSettingsJson(settingsJson, settings);
+    }
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+    {
+        result = plugins.Initialize(settings);
+    }
+    DashboardHost dashboard;
+    if (SUCCEEDED(result))
+    {
+        result = dashboard.Initialize(plugins, window.Get(), barWidth, barHeight, window.Dpi(), false);
+    }
+    const HWND container = SUCCEEDED(result) ? GetWindow(window.Get(), GW_CHILD) : nullptr;
+    Check(SUCCEEDED(result) && dashboard.WindowWidgetAt(1) != nullptr && container != nullptr,
+          L"a bar page with a native container initializes", success);
+    if (FAILED(result) || !container)
+    {
+        dashboard.Shutdown();
+        return;
+    }
+    const auto containerTop = [&window, container]() noexcept -> LONG
+    {
+        RECT bounds{};
+        if (!GetWindowRect(container, &bounds))
+        {
+            return -1;
+        }
+        MapWindowPoints(HWND_DESKTOP, window.Get(), reinterpret_cast<POINT*>(&bounds), 2);
+        return bounds.top;
+    };
+    Check(containerTop() == 270 && SUCCEEDED(dashboard.SetSlideOffset(POINT{0, -90})) && containerTop() == 180 &&
+              SUCCEEDED(dashboard.SetSlideOffset(POINT{})) && containerTop() == 270,
+          L"a slide offset moves the native container and the zero offset puts it back", success);
+
+    Check(DestroyWindow(container) != FALSE, L"the test destroys the container behind the host", success);
+    const HRESULT moved = dashboard.SetSlideOffset(POINT{0, -90});
+    const HRESULT retried = dashboard.SetSlideOffset(POINT{0, -90});
+    const HRESULT reset = dashboard.SetSlideOffset(POINT{});
+    const HRESULT resetAgain = dashboard.SetSlideOffset(POINT{});
+    Check(FAILED(moved) && FAILED(retried), L"a failed move is retried by a call with the same offset", success);
+    Check(FAILED(reset) && FAILED(resetAgain) && dashboard.SlideOffset().x == 0 && dashboard.SlideOffset().y == 0,
+          L"the zero offset that ends a slide keeps retrying, and the offset the renderer reads is recorded", success);
+    dashboard.Shutdown();
+}
+
 // TrayIcon.h: the shell's notification-icon callbacks (NOTIFYICON_VERSION_4 events) as a pure table, including the
 // guard that keeps one keystroke or a quick second double-click from starting two editors.
 void TestTrayIconPolicy(bool& success) noexcept
@@ -923,6 +1582,208 @@ void TestTrayIconPolicy(bool& success) noexcept
     Check(static_cast<UINT>(TrayCommand::EditSettings) != 0 && static_cast<UINT>(TrayCommand::Exit) != 0 &&
               TrayCommand::EditSettings != TrayCommand::Exit,
           L"menu commands are non-zero, so a dismissed menu selects nothing", success);
+    Check(TrayIconAddRetryDelayMilliseconds(0) == 1000 && TrayIconAddRetryDelayMilliseconds(1) == 2000 &&
+              TrayIconAddRetryDelayMilliseconds(2) == 4000 && TrayIconAddRetryDelayMilliseconds(3) == 8000 &&
+              TrayIconAddRetryDelayMilliseconds(4) == 0 && TrayIconAddRetryDelayMilliseconds(UINT32_MAX) == 0,
+          L"a refused add is retried four times with doubling delays from 1 s, then no more", success);
+}
+
+// A scripted Shell_NotifyIconW for TrayIcon: it records every call and answers as the test sets, so the owner's
+// lifecycle runs without reaching the taskbar.
+struct TrayShellScript final
+{
+    std::array<DWORD, 64> calls{};
+    size_t count = 0;
+    bool add = true;
+    bool addTimesOut = false;
+    bool modify = true;
+    bool version = true;
+    bool taskbar = true;
+    // The last NIM_DELETE arrived while its owner window still existed.
+    bool deleteSawOwner = false;
+};
+
+TrayShellScript* g_trayShell = nullptr;
+
+BOOL STDAPICALLTYPE ScriptedShellNotify(DWORD message, PNOTIFYICONDATAW data)
+{
+    TrayShellScript& script = *g_trayShell;
+    if (script.count < script.calls.size())
+    {
+        script.calls[script.count] = message;
+    }
+    ++script.count;
+    switch (message)
+    {
+    case NIM_ADD:
+        if (script.addTimesOut)
+        {
+            SetLastError(ERROR_TIMEOUT);
+            return FALSE;
+        }
+        return script.add ? TRUE : FALSE;
+    case NIM_MODIFY:
+        return script.modify ? TRUE : FALSE;
+    case NIM_SETVERSION:
+        return script.version && data->uVersion == NOTIFYICON_VERSION_4 ? TRUE : FALSE;
+    case NIM_DELETE:
+        script.deleteSawOwner = IsWindow(data->hWnd) != FALSE;
+        return TRUE;
+    default:
+        return TRUE;
+    }
+}
+
+bool ScriptedTaskbarExists() noexcept
+{
+    return g_trayShell->taskbar;
+}
+
+// The shell calls made since call number `from` are exactly `expected`, in order.
+[[nodiscard]] bool TrayCallsSince(size_t from, std::initializer_list<DWORD> expected) noexcept
+{
+    const TrayShellScript& script = *g_trayShell;
+    return script.count <= script.calls.size() && from <= script.count && script.count - from == expected.size() &&
+           std::equal(expected.begin(), expected.end(), script.calls.begin() + static_cast<std::ptrdiff_t>(from));
+}
+
+[[nodiscard]] size_t CountTrayOwners() noexcept
+{
+    size_t count = 0;
+    (void)EnumThreadWindows(
+        GetCurrentThreadId(),
+        [](HWND window, LPARAM context) -> BOOL
+        {
+            std::array<wchar_t, 32> name{};
+            if (GetClassNameW(window, name.data(), static_cast<int>(name.size())) > 0 &&
+                std::wstring_view{name.data()} == L"RedXe.TrayIcon")
+            {
+                ++*reinterpret_cast<size_t*>(context);
+            }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&count));
+    return count;
+}
+
+// TrayIcon.cpp against a scripted shell: Show and Hide are idempotent and Hide unregisters the class; WM_CLOSE leaves
+// the owner, and every destruction deletes the icon first; TaskbarCreated adds again; a refusal retries on the bounded
+// schedule only while a taskbar exists, then arms nothing; a timed-out add makes no second blocking call; and the icon
+// counts as added only once NIM_SETVERSION has followed the add or update.
+void TestTrayIconOwner(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] notification-area icon owner lifecycle\n";
+    using Access = PluginHostTestAccess;
+    constexpr UINT_PTR retryTimer = Access::kTrayAddRetryTimerId;
+    TrayShellScript script;
+    g_trayShell = &script;
+    const auto clearScript = wil::scope_exit([]() noexcept { g_trayShell = nullptr; });
+    const HINSTANCE instance = GetModuleHandleW(nullptr);
+    const UINT taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
+    WNDCLASSEXW info{};
+    info.cbSize = sizeof(info);
+    size_t beforeDestructor = 0;
+    {
+        TrayIcon tray;
+        Access::SetTrayShell(tray, &ScriptedShellNotify, &ScriptedTaskbarExists);
+
+        Check(tray.Show(instance, nullptr) == S_OK && TrayCallsSince(0, {NIM_ADD, NIM_SETVERSION}) &&
+                  Access::TrayIconAdded(tray) && CountTrayOwners() == 1,
+              L"Show creates one owner and adds the icon at version 4", success);
+        Check(tray.Show(instance, nullptr) == S_OK && script.count == 2 && CountTrayOwners() == 1,
+              L"Show again keeps the owner and makes no shell call", success);
+        HWND owner = Access::TrayOwner(tray);
+        tray.Hide();
+        Check(!tray.Shown() && TrayCallsSince(2, {NIM_DELETE}) && script.deleteSawOwner && !IsWindow(owner) &&
+                  CountTrayOwners() == 0 && GetClassInfoExW(instance, L"RedXe.TrayIcon", &info) == FALSE,
+              L"Hide deletes the icon while its owner exists, destroys the owner, and unregisters the class", success);
+        tray.Hide();
+        Check(script.count == 3, L"Hide again makes no shell call", success);
+
+        script.deleteSawOwner = false;
+        Check(tray.Show(instance, nullptr) == S_OK && Access::TrayIconAdded(tray),
+              L"Show after Hide registers the class and adds the icon again", success);
+        owner = Access::TrayOwner(tray);
+        size_t from = script.count;
+        (void)SendMessageW(owner, WM_CLOSE, 0, 0);
+        Check(tray.Shown() && IsWindow(owner) && script.count == from && Access::TrayIconAdded(tray),
+              L"WM_CLOSE (Alt+F4 on the owner after its menu) leaves the owner and its icon", success);
+        (void)DestroyWindow(owner);
+        Check(!tray.Shown() && TrayCallsSince(from, {NIM_DELETE}) && script.deleteSawOwner,
+              L"an owner destroyed from outside deletes its icon while it still exists", success);
+        Check(tray.Show(instance, nullptr) == S_OK && Access::TrayIconAdded(tray) && CountTrayOwners() == 1,
+              L"Show recreates an owner destroyed from outside", success);
+        owner = Access::TrayOwner(tray);
+
+        // The taskbar refuses both the add and the update.
+        script.add = false;
+        script.modify = false;
+        from = script.count;
+        (void)SendMessageW(owner, taskbarCreated, 0, 0);
+        Check(TrayCallsSince(from, {NIM_ADD, NIM_MODIFY}) && !Access::TrayIconAdded(tray) &&
+                  Access::TrayAddRetries(tray) == 1,
+              L"TaskbarCreated adds again, and a refusal by a running taskbar arms the first retry", success);
+        for (uint32_t retry = 1; retry < 4; ++retry)
+        {
+            (void)SendMessageW(owner, WM_TIMER, retryTimer, 0);
+        }
+        Check(Access::TrayAddRetries(tray) == 4 && KillTimer(owner, retryTimer) != FALSE,
+              L"each refused retry arms the next one-shot timer, up to four", success);
+        from = script.count;
+        (void)SendMessageW(owner, WM_TIMER, retryTimer, 0);
+        Check(TrayCallsSince(from, {NIM_ADD, NIM_MODIFY}) && Access::TrayAddRetries(tray) == 4 &&
+                  KillTimer(owner, retryTimer) == FALSE,
+              L"the last retry arms no timer: nothing runs again until a new request", success);
+
+        // Explorer is busy: the add times out.
+        script.addTimesOut = true;
+        from = script.count;
+        Check(tray.Show(instance, nullptr) == S_FALSE && TrayCallsSince(from, {NIM_ADD}) &&
+                  Access::TrayAddRetries(tray) == 1,
+              L"Show starts the retries again, and a timed-out add is not followed by a second blocking call", success);
+        // The timed-out add landed later: the retry's add is refused and its update succeeds.
+        script.addTimesOut = false;
+        script.modify = true;
+        from = script.count;
+        (void)SendMessageW(owner, WM_TIMER, retryTimer, 0);
+        Check(TrayCallsSince(from, {NIM_ADD, NIM_MODIFY, NIM_SETVERSION}) && Access::TrayIconAdded(tray) &&
+                  Access::TrayAddRetries(tray) == 0 && KillTimer(owner, retryTimer) == FALSE,
+              L"a late icon takes an update and version 4, and the retries end", success);
+
+        // The add succeeds but version 4 is not set.
+        script.add = true;
+        script.version = false;
+        from = script.count;
+        (void)SendMessageW(owner, taskbarCreated, 0, 0);
+        Check(TrayCallsSince(from, {NIM_ADD, NIM_SETVERSION}) && !Access::TrayIconAdded(tray) &&
+                  Access::TrayAddRetries(tray) == 1,
+              L"an icon left without version 4 does not count as added and is retried", success);
+        script.add = false;
+        script.version = true;
+        from = script.count;
+        (void)SendMessageW(owner, WM_TIMER, retryTimer, 0);
+        Check(TrayCallsSince(from, {NIM_ADD, NIM_MODIFY, NIM_SETVERSION}) && Access::TrayIconAdded(tray),
+              L"the retry updates that icon and sets version 4", success);
+
+        // No taskbar yet, as at sign-in.
+        tray.Hide();
+        script.modify = false;
+        script.taskbar = false;
+        from = script.count;
+        Check(tray.Show(instance, nullptr) == S_FALSE && TrayCallsSince(from, {NIM_ADD, NIM_MODIFY}) &&
+                  Access::TrayAddRetries(tray) == 0 && KillTimer(Access::TrayOwner(tray), retryTimer) == FALSE,
+              L"without a taskbar a refused add arms no timer", success);
+        script.add = true;
+        script.taskbar = true;
+        from = script.count;
+        (void)SendMessageW(Access::TrayOwner(tray), taskbarCreated, 0, 0);
+        Check(TrayCallsSince(from, {NIM_ADD, NIM_SETVERSION}) && Access::TrayIconAdded(tray),
+              L"the new taskbar's announcement adds it", success);
+        beforeDestructor = script.count;
+    }
+    Check(TrayCallsSince(beforeDestructor, {NIM_DELETE}) && CountTrayOwners() == 0 &&
+              GetClassInfoExW(instance, L"RedXe.TrayIcon", &info) == FALSE,
+          L"the destructor deletes the icon, destroys the owner, and unregisters the class", success);
 }
 
 // DockPlacement.h autohide state machine: every transition of the reveal/hide table, zero delays, holds, and the
@@ -4584,6 +5445,10 @@ void TestLaunchWorker(bool& success) noexcept
     {
         std::filesystem::create_directories(root / L"lane", error);
     }
+    if (!error)
+    {
+        std::filesystem::create_directories(root / L"session", error);
+    }
     const auto cleanup = wil::scope_exit(
         [&]() noexcept
         {
@@ -4714,6 +5579,52 @@ void TestLaunchWorker(bool& success) noexcept
               L"that shutdown logs launch-stop-timeout beside device-lane-drain-timeout", success);
         (void)SetEvent(stall.release.get());
     }
+
+    // A session end stops the launch worker before its log flush (Application::OnEndSession), since Windows may end
+    // the process before Shutdown runs: the queued launch never starts, the stuck one gets the bound once and one
+    // launch-stop-timeout, and the shutdown after it neither waits nor logs again.
+    (void)ResetEvent(probe.entered.get());
+    (void)ResetEvent(probe.release.get());
+    {
+        // On the heap: this function already holds four hosts on its stack frame.
+        const std::unique_ptr<PluginHost> owned{new (std::nothrow) PluginHost};
+        if (!owned)
+        {
+            Check(false, L"the session-end host can be allocated", success);
+            g_launchProbe = nullptr;
+            return;
+        }
+        PluginHost& host = *owned;
+        Check(SUCCEEDED(host.SetLogDirectory((root / L"session").c_str())), L"the session-end host logs", success);
+        host.SetUiInvalidateTarget(window.get());
+        PluginHostTestAccess::SetLaunchProbe(host, &ProbeLaunch);
+        request.targetUtf8 = targets[0].c_str();
+        const bool started =
+            host.ExecuteAction(&request) == S_FALSE && WaitForSingleObject(probe.entered.get(), 5'000) == WAIT_OBJECT_0;
+        request.targetUtf8 = targets[2].c_str();
+        const bool queued = host.ExecuteAction(&request) == S_FALSE;
+        const uint32_t calls = probe.calls.load();
+        ULONGLONG start = GetTickCount64();
+        host.StopLaunches();
+        const ULONGLONG stopWaited = GetTickCount64() - start;
+        const bool flushed = SUCCEEDED(host.FlushLog(10'000));
+        const std::string flushedLog = ReadTodayLog(root / L"session");
+        start = GetTickCount64();
+        host.Shutdown();
+        const ULONGLONG shutdownWaited = GetTickCount64() - start;
+        const std::string finalLog = ReadTodayLog(root / L"session");
+        (void)SetEvent(probe.release.get());
+        const bool exited = WaitForSingleObject(PluginHostTestAccess::LaunchThread(host), 5'000) == WAIT_OBJECT_0;
+        Check(started && queued && stopWaited + 100 >= LaunchWorker::kStopMilliseconds &&
+                  stopWaited < LaunchWorker::kStopMilliseconds + 2'000 &&
+                  shutdownWaited < LaunchWorker::kStopMilliseconds / 2 && exited && probe.calls.load() == calls,
+              L"a session-end launch stop waits the bound once, drops the queue, and the later shutdown does not wait",
+              success);
+        Check(flushed && CountText(flushedLog, "\"event\":\"launch-stop-timeout\"") == 1 &&
+                  CountText(finalLog, "\"event\":\"launch-stop-timeout\"") == 1,
+              L"the session-end launch stop logs one launch-stop-timeout before its flush and shutdown adds none",
+              success);
+    }
     g_launchProbe = nullptr;
 
     // The real shell call, on a file that does not exist: nothing starts, and the failure reaches the log.
@@ -4732,6 +5643,178 @@ void TestLaunchWorker(bool& success) noexcept
               L"ShellExecuteExW's file-not-found failure is logged as a launch-failed Warning", success);
     }
     HostActions::ResetCounters();
+}
+
+// A session end runs every blocking stage against one deadline taken when WM_ENDSESSION arrives
+// (Application::OnEndSession): each stage waits the smaller of its own bound and what is left before the reserve the
+// stages after it keep, and nothing once that point has passed. A function of its own, because TestLaunchWorker's frame
+// already holds four hosts.
+void TestSessionEndDeadline(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] session-end deadline: lane drain, launch stop, and log flush share one deadline\n";
+    Check(PluginHost::TeardownStageMilliseconds(1'000, 5'500, 500, 3'000) == 3'000 &&
+              PluginHost::TeardownStageMilliseconds(3'000, 5'500, 500, 3'000) == 2'000 &&
+              PluginHost::TeardownStageMilliseconds(4'999, 5'500, 500, 1'000) == 1 &&
+              PluginHost::TeardownStageMilliseconds(5'000, 5'500, 500, 1'000) == 0 &&
+              PluginHost::TeardownStageMilliseconds(5'200, 5'500, 0, 4'500) == 300 &&
+              PluginHost::TeardownStageMilliseconds(6'000, 5'500, 0, 4'500) == 0 &&
+              PluginHost::TeardownStageMilliseconds(0, 400, 500, 1'000) == 0,
+          L"a teardown stage gets its own bound, cut to what is left before the later stages' reserve", success);
+
+    // The whole sequence against that deadline: what ran before the waits (widget collection, shell calls) shortens
+    // them; the device lanes are all signalled first and drain together, so a stuck lane uses the lane budget while a
+    // responsive lane stopped after it has already returned; a launch stuck in the shell waits only for what is left;
+    // and the log flush keeps its reserve. The deadline here is shorter than either stage's own bound (3 s, 1 s), so
+    // only the shared deadline can hold it. The checks are on the budget each stage is handed and on the waits timed
+    // around its blocking call, with scheduling margins as in TestLaunchWorker (a wait can end a timer tick early, and
+    // late on a loaded runner). The flush itself is not timed: FlushLog's timeout bounds a hung writer and is not a
+    // latency budget for the disk, so the log is read after a 10 s hang guard instead of the budget the flush gets.
+    LaunchProbe probe;
+    probe.entered.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
+    probe.release.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    const wil::unique_hwnd window{CreateWindowExW(0, L"STATIC", L"session end", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
+                                                  GetModuleHandleW(nullptr), nullptr)};
+    std::error_code error;
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() /
+        (L"RedXe.SessionEndTests." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()));
+    std::filesystem::create_directories(root / L"deadline", error);
+    if (!error)
+    {
+        std::filesystem::create_directories(root / L"idle", error);
+    }
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            std::error_code removeError;
+            std::filesystem::remove_all(root, removeError);
+        });
+    if (!probe.entered || !probe.release || !window || error)
+    {
+        Check(false, L"session-end test events, window, and log directory can be created", success);
+        return;
+    }
+    g_launchProbe = &probe;
+    HostActions::ResetCounters();
+    const auto unhook = wil::scope_exit(
+        []() noexcept
+        {
+            g_launchProbe = nullptr;
+            HostActions::ResetCounters();
+        });
+    constexpr uint32_t deadlineMilliseconds = 2'000;
+    constexpr uint32_t flushReserveMilliseconds = 800;
+    static_assert(deadlineMilliseconds < kRedXeDeviceWorkerDrainMilliseconds);
+    RedXeActionRequest request{};
+    request.sizeBytes = sizeof(request);
+    request.actionUtf8 = "system.launch";
+    {
+        PluginHostTestAccess::StallProbe stuck;
+        PluginHostTestAccess::StallProbe responsive;
+        responsive.honorStop = true;
+        const std::unique_ptr<PluginHost> owned{new (std::nothrow) PluginHost};
+        if (!owned)
+        {
+            Check(false, L"the session-deadline host can be allocated", success);
+            return;
+        }
+        PluginHost& host = *owned;
+        // Let go before the host's destructor joins the launch worker and the stuck lane.
+        const auto release = wil::scope_exit(
+            [&]() noexcept
+            {
+                (void)SetEvent(probe.release.get());
+                (void)SetEvent(stuck.release.get());
+                (void)SetEvent(responsive.release.get());
+            });
+        // Device access stays enabled, as in TestLaunchWorker: without it a launch is only counted, never queued.
+        Check(SUCCEEDED(host.SetLogDirectory((root / L"deadline").c_str())), L"the session-deadline host logs",
+              success);
+        host.SetUiInvalidateTarget(window.get());
+        PluginHostTestAccess::SetLaunchProbe(host, &ProbeLaunch);
+        request.targetUtf8 = "C:\\RedXe-launch-test\\ok0";
+        const bool started =
+            host.ExecuteAction(&request) == S_FALSE && WaitForSingleObject(probe.entered.get(), 5'000) == WAIT_OBJECT_0;
+        // StopServices goes through the slots in reverse, so the stuck lane in the last slot is waited for first.
+        const bool stalled = PluginHostTestAccess::StartStalledLane(host, responsive, 0) &&
+                             PluginHostTestAccess::StartStalledLane(host, stuck, kRedXeBundledServices.size() - 1);
+
+        const ULONGLONG start = GetTickCount64();
+        const ULONGLONG deadline = start + deadlineMilliseconds;
+        Sleep(200);
+        const uint32_t laneBudget = PluginHost::TeardownStageMilliseconds(
+            GetTickCount64(), deadline, flushReserveMilliseconds, deadlineMilliseconds);
+        ULONGLONG stage = GetTickCount64();
+        host.StopServices(laneBudget);
+        const ULONGLONG laneWaited = GetTickCount64() - stage;
+        const uint32_t launchBudget = PluginHost::TeardownStageMilliseconds(
+            GetTickCount64(), deadline, flushReserveMilliseconds, LaunchWorker::kStopMilliseconds);
+        stage = GetTickCount64();
+        host.StopLaunches(launchBudget);
+        const ULONGLONG launchWaited = GetTickCount64() - stage;
+        // What OnEndSession would hand the flush, and the time spent up to it.
+        const ULONGLONG beforeFlush = GetTickCount64();
+        const uint32_t flushBudget =
+            PluginHost::TeardownStageMilliseconds(beforeFlush, deadline, 0, deadlineMilliseconds);
+        const ULONGLONG elapsed = beforeFlush - start;
+        const bool flushed = SUCCEEDED(host.FlushLog(10'000));
+        const std::string log = ReadTodayLog(root / L"deadline");
+        const bool lanes = host.RunningDeviceWorkerCount() == 1 && responsive.stopped.load() == 1 &&
+                           responsive.destroyed.load() == 1 && stuck.stopped.load() == 0;
+        (void)SetEvent(probe.release.get());
+        const bool exited = WaitForSingleObject(PluginHostTestAccess::LaunchThread(host), 5'000) == WAIT_OBJECT_0;
+
+        Check(started && stalled && laneBudget > 0 && laneWaited + 100 >= laneBudget && laneWaited < laneBudget + 2'000,
+              L"the device lanes together wait the lane budget, cut to what is left before the flush's reserve",
+              success);
+        Check(lanes && CountText(log, "\"event\":\"device-lane-drain-timeout\"") == 1 &&
+                  CountText(log, "\"event\":\"service-stopped\"") == 1,
+              L"a responsive lane stopped after a stuck one drains within that budget; only the stuck one times out",
+              success);
+        Check(exited && launchBudget < LaunchWorker::kStopMilliseconds / 2 && launchWaited < launchBudget + 500 &&
+                  CountText(log, "\"event\":\"launch-stop-timeout\"") == 1,
+              L"a launch stuck in the shell is waited for only with what is left before the reserve, and logged",
+              success);
+        Check(flushed && flushBudget + 400 >= flushReserveMilliseconds && elapsed < deadlineMilliseconds,
+              L"the stages before the flush end inside the deadline and leave the flush its reserve", success);
+    }
+
+    // A spent deadline gives an idle launch worker no time to exit (StopLaunches(0)). That is no launch in progress:
+    // nothing is logged, the thread exits by itself, and the shutdown after it waits for the thread again and joins
+    // it.
+    {
+        const std::unique_ptr<PluginHost> owned{new (std::nothrow) PluginHost};
+        if (!owned)
+        {
+            Check(false, L"the idle-launch host can be allocated", success);
+            return;
+        }
+        PluginHost& host = *owned;
+        Check(SUCCEEDED(host.SetLogDirectory((root / L"idle").c_str())), L"the idle-launch host logs", success);
+        host.SetUiInvalidateTarget(window.get());
+        PluginHostTestAccess::SetLaunchProbe(host, &ProbeLaunch);
+        request.targetUtf8 = "C:\\RedXe-launch-test\\ok1";
+        const bool ran =
+            host.ExecuteAction(&request) == S_FALSE && DrainLaunches(host, window.get()) && host.LaunchWorkerRunning();
+        host.StopLaunches(0);
+        // Logged after the stop, so a launch-stop-timeout it logged would be in the file before this record.
+        const RedXeLogRecord marker{sizeof(RedXeLogRecord),
+                                    RedXeLogLevelInfo,
+                                    nullptr,
+                                    nullptr,
+                                    "idle-stop-checked",
+                                    "the idle launch worker was stopped without a wait.",
+                                    S_OK};
+        const bool marked = host.Interface()->Log(&marker) == S_OK && SUCCEEDED(host.FlushLog(10'000));
+        const std::string log = ReadTodayLog(root / L"idle");
+        const bool exited = WaitForSingleObject(PluginHostTestAccess::LaunchThread(host), 5'000) == WAIT_OBJECT_0;
+        host.Shutdown();
+        Check(ran && marked && CountText(log, "\"event\":\"idle-stop-checked\"") == 1 &&
+                  CountText(log, "\"event\":\"launch-stop-timeout\"") == 0,
+              L"a zero-wait stop of an idle launch worker logs no launch-stop-timeout", success);
+        Check(exited && !host.LaunchWorkerRunning(),
+              L"that worker exits by itself and the shutdown after it joins the thread", success);
+    }
 }
 
 void TestActionValidation(bool& success) noexcept
@@ -6744,9 +7827,16 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestWidgetRaiseHost(success);
     TestHostChromeComposition(success);
     TestDockPlacement(success);
+    TestDockPlacementRequests(success);
+    TestDockAppBarRegistration(success);
+    TestNoticeWindowPlacement(success);
     TestDockAutohidePolicy(success);
     TestDockSlidePolicy(success);
+    TestDockCollapsedBarPolicy(success);
+    TestDockCanvasHitTesting(success);
+    TestDashboardSlideOffsetRetry(success);
     TestTrayIconPolicy(success);
+    TestTrayIconOwner(success);
     TestDockPresentation(success);
     TestDockPresentationRebuild(success);
     TestWidgetRaiseNative(success);
@@ -6776,6 +7866,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestHostActionQueue(success);
     TestQueuedInputAge(success);
     TestLaunchWorker(success);
+    TestSessionEndDeadline(success);
     TestActionValidation(success);
     TestHeldInputTimer(success);
     TestServiceLifetime(success);

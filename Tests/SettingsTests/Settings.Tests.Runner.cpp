@@ -1605,8 +1605,9 @@ constexpr std::string_view kRepresentative = R"json(
 }
 
 // The command-line catalog (RedXe/CommandLine.h): every switch is unique, well formed, and printed by --help; the
-// help aliases are recognized; a capture run's exit code and the exit-code box follow the scripted-mode policy; the
-// argument scanner accepts a full valid line and names the first stray token.
+// help aliases are recognized; the unattended runs, a capture run's exit code, the exit-code box, and the names the
+// failure-exit record gives the codes follow the policy Main.cpp applies; the argument scanner accepts a full valid
+// line and names the first stray token.
 [[nodiscard]] HRESULT ValidateCommandLineCatalog() noexcept
 {
     try
@@ -1661,15 +1662,36 @@ constexpr std::string_view kRepresentative = R"json(
             std::wprintf(L"The launcher wait policy does not match the self-terminating modes.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        // Main.cpp: a --screenshot run exits 8 whenever no PNG was written, also when a startup or graphics failure
-        // ended it first, and neither scripted mode shows the modal exit-code box.
-        if (RedXeScreenshotExitCode(0, true) != 0 || RedXeScreenshotExitCode(0, false) != 8 ||
+        // Main.cpp: --self-test and --screenshot are the unattended runs, which never show a modal box (command-line
+        // errors, the settings fallback notice, the prompts, and the exit-code box all follow RedXeIsUnattendedRun); a
+        // --screenshot run exits 8 whenever no PNG was written, also when a startup or graphics failure ended it
+        // first; only a failed interactive run shows the exit-code box.
+        if (RedXeIsUnattendedRun(false, false) || !RedXeIsUnattendedRun(true, false) ||
+            !RedXeIsUnattendedRun(false, true) || !RedXeIsUnattendedRun(true, true) ||
+            RedXeScreenshotExitCode(0, true) != 0 || RedXeScreenshotExitCode(0, false) != 8 ||
             RedXeScreenshotExitCode(5, false) != 8 || RedXeScreenshotExitCode(1, false) != 8 ||
             RedXeScreenshotExitCode(5, true) != 5 || !RedXeShowsExitCodeBox(5, false, false) ||
             RedXeShowsExitCodeBox(0, false, false) || RedXeShowsExitCodeBox(5, false, true) ||
-            RedXeShowsExitCodeBox(8, false, true) || RedXeShowsExitCodeBox(5, true, false))
+            RedXeShowsExitCodeBox(8, false, true) || RedXeShowsExitCodeBox(5, true, false) ||
+            RedXeShowsExitCodeBox(2, true, true))
         {
-            std::wprintf(L"The --screenshot exit code or the exit-code box policy is wrong.\n");
+            std::wprintf(L"The unattended-run policy, the --screenshot exit code, or the exit-code box is wrong.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // The failure-exit record names each code the way --help lists it.
+        for (const int code : {1, 2, 3, 5, 7, 8})
+        {
+            const std::string_view name{RedXeExitCodeName(code)};
+            const std::wstring listed = std::to_wstring(code) + L" " + std::wstring(name.begin(), name.end());
+            if (help.find(listed) == std::wstring::npos)
+            {
+                std::wprintf(L"--help does not list exit code %d as %hs.\n", code, RedXeExitCodeName(code));
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+        if (std::string_view{RedXeExitCodeName(4)} != "startup" || std::string_view{RedXeExitCodeName(6)} != "startup")
+        {
+            std::wprintf(L"An exit code --help does not list has a name of its own.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         for (const wchar_t* alias : kRedXeHelpArguments)
@@ -2321,8 +2343,8 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 // First start without a XENEON (Core_Settings.md "Cold load and recovery"): PatchFirstRunDock inserts `dock` into both
 // shipped templates as one commented run after `version`, in the file's own line breaks, and removes the template's
 // commented-out `dock` example with the comment that says to uncomment it, leaving every other byte and member; the
-// store writes that document for a missing or invalid default file, never over an existing one, and never for a
-// `--settings` file.
+// store writes that document for a missing default file only, never over an existing one, never when it recovers an
+// invalid one, and never for a `--settings` file.
 [[nodiscard]] HRESULT ValidateFirstRunDock() noexcept
 {
     try
@@ -2540,8 +2562,8 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
-        // The store: install with the dock, keep an existing file, recover an invalid one with the dock, install the
-        // plain template when no dock is offered, and never write a missing `--settings` file.
+        // The store: install a missing file with the dock, keep an existing file, recover an invalid one with the plain
+        // template, install the plain template when no dock is offered, and never write a missing `--settings` file.
         const std::filesystem::path localRoot = std::filesystem::temp_directory_path() /
                                                 (L"RedXe.FirstRunDockTests." + std::to_wstring(GetCurrentProcessId()) +
                                                  L"." + std::to_wstring(GetTickCount64()));
@@ -2602,14 +2624,20 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             std::ofstream stream(selected, std::ios::binary | std::ios::trunc);
             stream << "invalid default bytes";
         }
+        // Recovery reinstalls the plain template even with a dock offered: only a missing file gets the bar.
         SettingsStore recoverStore;
         std::unique_ptr<AppSettings> recovered;
         result = recoverStore.Initialize(false, {}, recovered, localRoot.wstring(), &dock);
+        std::string recoveredBytes;
+        if (SUCCEEDED(result))
+            result = ReadFile(selected, recoveredBytes);
         if (FAILED(result) || !recovered || !recoverStore.UsedInitialFallback() ||
-            !recoverStore.InstalledFirstRunDock() || !isFirstRunDock(recovered->dock) ||
-            recoverStore.InitialNotice().find(L"bar on a screen edge") == std::wstring::npos)
+            recoverStore.InstalledFirstRunDock() || recovered->dock.edge != DockEdge::None ||
+            recoveredBytes != templateBytes ||
+            recoverStore.InitialNotice().find(L"A fresh default configuration was installed.") == std::wstring::npos ||
+            recoverStore.InitialNotice().find(L"bar on a screen edge") != std::wstring::npos)
         {
-            std::wprintf(L"An invalid default file was not recovered with the first-run dock.\n");
+            std::wprintf(L"An invalid default file was not recovered with the plain template.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
