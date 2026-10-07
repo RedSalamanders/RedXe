@@ -5,7 +5,8 @@ Runs affected test scopes, reusing identical successful local results.
 The default compares committed work since the local merge base plus staged, unstaged,
 deleted, renamed and untracked files. Unknown inputs select full coverage. Full selects
 every noninteractive scope. PrePush delegates matching scopes only to an enabled and
-reviewed candidate PR workflow; remaining obligations execute locally. CI always uses Force.
+reviewed candidate PR workflow whose checks the default branch requires; remaining
+obligations execute locally. CI always uses Force.
 .PARAMETER Mode
 Affected (default), Full, or PrePush. Partial/delegated coverage is labeled explicitly.
 .PARAMETER BaseRef
@@ -26,10 +27,13 @@ number or artifact bytes fail before tests; run once without this switch to esta
 .OUTPUTS
 Console plan and local receipts under .build/reports/scoped-tests. Exit 0 means the
 selected local work passed; focused/delegated work never establishes repository success.
-SELECTED_PASSED; NOT_RECORDED means inputs changed during the run: the selected work passed
-on the tree as it started, the current tree is not covered and changed scopes are not reusable.
+Except under Explain, the last line is a coverage label. SELECTED_PASSED; NOT_RECORDED means inputs changed during
+the run: the selected work passed on the tree as it started, the current tree is not covered
+and changed scopes are not reusable. NOTHING_SELECTED; repository NOT_EVALUATED means no test
+input changed. CI_PENDING means delegated work awaits the PR's required checks.
 .NOTES
 Requires PowerShell 7 and Git; build toolchain for native work, gh for PR delegation.
+PrePush prints why any PR check's work stays local.
 Builds selected profile, runs repository-owned tests and writes bounded local receipts.
 Does not activate the person's desktop. Uses the canonical build/test entrypoints.
 .EXAMPLE
@@ -60,17 +64,26 @@ $manifest=Read-ScopedTestManifest $root
 $Scopes=@($Scopes | ForEach-Object {$_ -split ','} | ForEach-Object {$_.Trim()} | Where-Object {$_})
 if ($Scopes.Count -and $Mode -ne 'Affected') {throw '-Scopes is only valid for focused Affected iteration.'}
 if (-not $BaseRef) {$BaseRef='origin/'+$manifest.defaultBranch}
-Write-Host "Native test naming: $(Assert-ScopedTestNames $root) files checked."
+# The comparison first: without Git, the base ref or a shared history, its message says what to do instead.
 $changed=if ($Mode -eq 'Affected' -and -not $Scopes.Count) {@(Get-ScopedChangedPaths $root $BaseRef)} else {@()}
+Write-Host "Native test naming: $(Assert-ScopedTestNames $root) files checked."
 $plan=Get-ScopedTestPlan -Manifest $manifest -ChangedPaths $changed -Scopes $Scopes -Full:($Mode -ne 'Affected')
 Write-Host "Test plan: $Mode ($Platform $Configuration); scopes: $($plan.scopes -join ', ')"
 foreach ($reason in $plan.reasons) {Write-Host "  $($reason.path): $($reason.reason) => $($reason.scopes -join ', ')"}
 
-$deferred=@(if ($Mode -eq 'PrePush') {Get-ScopedPrCoverage $root $manifest $Platform $Configuration})
+$refusal=''
+$deferred=@(if ($Mode -eq 'PrePush') {Get-ScopedPrCoverage $root $manifest $Platform $Configuration -Refusal ([ref]$refusal)})
 if ($deferred.Count) {Write-Host "DEFERRED_CI (forthcoming PR, pending success): $($deferred -join ', ')"}
+if ($refusal) {Write-Host "PR delegation not used$(if ($deferred.Count) {' for the rest'}): $refusal" -ForegroundColor Yellow}
 if ($Explain) {exit 0}
 $selected=@($manifest.scopes | Where-Object {$_.name -in $plan.scopes -and $_.name -notin $deferred})
-if (-not $selected.Count) {Write-Host 'No local test execution is required by this plan.';exit 0}
+if (-not $selected.Count) {
+    Write-Host 'No local test execution is required by this plan.'
+    # Every exit ends with a coverage label: an empty plan evaluated nothing, and delegated work is still pending.
+    if ($deferred.Count) {Write-Host 'LOCAL_OBLIGATIONS_NONE; CI_PENDING' -ForegroundColor Green}
+    else {Write-Host "NOTHING_SELECTED; repository NOT_EVALUATED (no test input changed since the merge base with $BaseRef; ./test.ps1 -Full runs every suite)" -ForegroundColor Yellow}
+    exit 0
+}
 $native=@($selected | Where-Object {$_.native})
 $reports=Join-Path $root ".build/reports/scoped-tests/$Platform-$($Configuration -replace ' ','')"
 if ($native.Count) {

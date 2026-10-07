@@ -3,7 +3,7 @@
 Update RedXe's DxUi lock to the current successfully validated DxUi main commit.
 .DESCRIPTION
 Updates only Dependencies/DxUi.lock.json after confirming the exact DxUi main commit has a completed successful
-CI validation. By default it then runs RedXe's test.ps1. -UpdateOnly retains the lock change without running local
+CI validation. By default it then runs RedXe's full test gate (test.ps1 -Full). -UpdateOnly retains the lock change without running local
 product validation, for use when equivalent validation was completed in another environment.
 .PARAMETER UpdateOnly
 Skip RedXe validation after changing the lock. This never bypasses DxUi's own successful CI requirement.
@@ -29,7 +29,7 @@ $validationAction = if ($UpdateOnly) {
 }
 else {
     {
-        & (Join-Path $repoRoot 'test.ps1')
+        & (Join-Path $repoRoot 'test.ps1') -Full
         if ($LASTEXITCODE -ne 0) { throw "RedXe validation failed with exit code $LASTEXITCODE." }
     }
 }

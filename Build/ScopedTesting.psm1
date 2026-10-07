@@ -13,15 +13,42 @@ function Invoke-ScopedGit {
     $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
     $start.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
     foreach ($argument in @('-c','core.quotepath=false','-C',$Root) + $Arguments) { $start.ArgumentList.Add($argument) }
-    $process = [Diagnostics.Process]::Start($start)
+    try { $process = [Diagnostics.Process]::Start($start) }
+    catch [System.Management.Automation.MethodInvocationException] {
+        throw "Git scope discovery needs Git on PATH: $($_.Exception.InnerException.Message)"
+    }
     try {
         $errors = $process.StandardError.ReadToEndAsync()
         $output = $process.StandardOutput.ReadToEnd()
         $process.WaitForExit()
-        $errorText = $errors.GetAwaiter().GetResult()
-        if ($process.ExitCode) { throw "Git scope discovery failed: $errorText" }
+        $errorText = $errors.GetAwaiter().GetResult().Trim()
+        # Name the command and its exit code: merge-base, for one, fails silently when the histories share no commit.
+        if ($process.ExitCode) {
+            throw "Git scope discovery failed: git $($Arguments -join ' ') exited with code $($process.ExitCode): $(if ($errorText) { $errorText } else { '(no message)' })"
+        }
         return $output
     } finally { $process.Dispose() }
+}
+
+function Get-ScopedMergeBase {
+    # A base ref that does not resolve and one that shares no history with HEAD (a shallow or unrelated clone) need
+    # different remedies; both name the full gate, which needs no comparison.
+    param([string] $Root, [string] $BaseRef)
+    try { [void](Invoke-ScopedGit $Root @('rev-parse','--verify','--quiet',"$BaseRef^{commit}")) }
+    catch [System.Management.Automation.RuntimeException] {
+        throw "Scoped testing compares HEAD with '$BaseRef', which does not resolve here: fetch it, pass -BaseRef <ref>, or run the full gate (./test.ps1 -Full). $($_.Exception.Message)"
+    }
+    try { return (Invoke-ScopedGit $Root @('merge-base',$BaseRef,'HEAD')).Trim() }
+    catch [System.Management.Automation.RuntimeException] {
+        throw "HEAD shares no history with '$BaseRef': deepen a shallow clone (git fetch --unshallow), pass -BaseRef <ref>, or run the full gate (./test.ps1 -Full). $($_.Exception.Message)"
+    }
+}
+
+function Get-ScopedComparisonProblem {
+    # Why affected selection cannot run here (no Git, no work tree, no base ref, no shared history), or '' when it can.
+    param([string] $Root, [string] $BaseRef)
+    try { [void](Get-ScopedMergeBase $Root $BaseRef); return '' }
+    catch [System.Management.Automation.RuntimeException] { return $_.Exception.Message }
 }
 
 function Get-ScopedTrackedPaths {
@@ -31,7 +58,7 @@ function Get-ScopedTrackedPaths {
 
 function Get-ScopedChangedPaths {
     param([string] $Root, [string] $BaseRef)
-    $base = (Invoke-ScopedGit $Root @('merge-base',$BaseRef,'HEAD')).Trim()
+    $base = Get-ScopedMergeBase $Root $BaseRef
     $committed = Invoke-ScopedGit $Root @('diff','--name-only','--no-renames','-z',$base,'HEAD','--')
     $staged = Invoke-ScopedGit $Root @('diff','--cached','--name-only','--no-renames','-z','--')
     $working = Invoke-ScopedGit $Root @('diff','--name-only','--no-renames','-z','--')
@@ -76,6 +103,18 @@ function Read-ScopedTestManifest {
     foreach ($rule in $manifest.rules) {
         foreach ($name in $rule.scopes) { if ($name -ne '*' -and $name -notin $names) { throw "Rule selects unknown scope '$name'." } }
     }
+    foreach ($job in $manifest.prCoverage) {
+        # Each entry is one PR check. One that names a profile runs that profile only; one that names none (the tooling
+        # job) runs for every profile, so it can cover only profile-independent scopes.
+        if (-not $job.PSObject.Properties['check'] -or -not $job.check) { throw 'Every prCoverage entry names the PR check that runs it.' }
+        $bound = [bool]$job.PSObject.Properties['platform']
+        if ($bound -ne [bool]$job.PSObject.Properties['configuration']) { throw "PR check '$($job.check)' names a platform or a configuration without the other." }
+        foreach ($name in $job.scopes) {
+            $scope = @($manifest.scopes | Where-Object { $_.name -eq $name })
+            if (-not $scope.Count) { throw "PR check '$($job.check)' covers unknown scope '$name'." }
+            if (-not $bound -and $scope[0].native) { throw "PR check '$($job.check)' names no profile, so it cannot cover the native scope '$name'." }
+        }
+    }
     return $manifest
 }
 
@@ -87,10 +126,14 @@ function Assert-ScopedTestNames {
         if ($path -match '^(Specs|Measurements|legacy|External)/') { throw "Historical/external source cannot enter the active test inventory: $path" }
         if ($path -cnotmatch '(^|/)[^/]+\.Tests\.[^/]+\.(cpp|h)$' -or -not (Test-Path -LiteralPath (Join-Path $Root $path) -PathType Leaf)) { throw "Invalid/missing native test source: $path" }
     }
+    # Outside the test folders a name marks a test source by a `.Tests.` segment in any spelling, or by a Test, Mock or
+    # Fake name component in the case the naming rule uses (FakeClock.h, MockHost.cpp), never by those letters inside
+    # a word (Attestation.h, LatestRelease.cpp, Mockingbird.h).
     $live = @(Get-ScopedTrackedPaths $Root | Where-Object {
         $_ -notmatch '^(Specs|Measurements|legacy|External)/' -and
         $_ -cne 'Tools/TerminalEngine/TerminalEngineGate0ContractTestAdapter.cpp' -and
-        $_ -match '\.(cpp|h)$' -and ($_ -match '^Tests/|/SelfTest/|(^|/)[^/]*(Test|Mock|Fake)[^/]*\.(cpp|h)$') -and
+        $_ -match '\.(cpp|h)$' -and
+        ($_ -match '^Tests/|/SelfTest/|(^|/)[^/]*\.Tests\.[^/]*$' -or $_ -cmatch '(^|/)[^/]*(Tests?|Mocks?|Fakes?)(?=[A-Z0-9_.-])[^/]*$') -and
         (Test-Path -LiteralPath (Join-Path $Root $_) -PathType Leaf)
     })
     foreach ($path in $live) { if ($path -notin $declared) { throw "Native test source is absent from Tests/native-test-files.json: $path" } }
@@ -276,11 +319,19 @@ function Write-ScopedReceipt {
     } finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary } }
 }
 
+function Get-ScopedPrJobs {
+    # The PR checks that run for a local profile: a check that names a platform and configuration runs that native
+    # profile only; one that names neither (the tooling job) runs the same profile-independent work for every profile.
+    param([object] $Manifest, [string] $Platform, [string] $Configuration)
+    return @($Manifest.prCoverage | Where-Object {
+        -not $_.PSObject.Properties['platform'] -or ($_.platform -eq $Platform -and $_.configuration -eq $Configuration)
+    })
+}
+
 function Get-ScopedPrCandidateScopes {
     param([string] $Root, [object] $Manifest, [string] $Platform, [string] $Configuration,
         [AllowEmptyCollection()][string[]] $ChangedPaths)
-    $profile = @($Manifest.prCoverage | Where-Object { $_.platform -eq $Platform -and $_.configuration -eq $Configuration })
-    $covered = @($profile | ForEach-Object { $_.scopes } | Sort-Object -Unique)
+    $covered = @(Get-ScopedPrJobs $Manifest $Platform $Configuration | ForEach-Object { $_.scopes } | Sort-Object -Unique)
     if ($Manifest.PSObject.Properties['prNativeScopeModule']) {
         Import-Module (Join-Path $Root $Manifest.prNativeScopeModule) -Force
         if (-not (Get-NativeScope -ChangedPaths $ChangedPaths).Native) {
@@ -290,29 +341,74 @@ function Get-ScopedPrCandidateScopes {
     return $covered
 }
 
-function Get-ScopedPrCoverage {
+function Invoke-ScopedGhApi {
+    # Returns the parsed response. A failure carries gh's own message: not signed in, offline, no access, not found.
+    param([string] $Path)
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw 'gh (GitHub CLI) is not installed.' }
+    $global:LASTEXITCODE = 0
+    $lines = @(& gh api $Path 2>&1)
+    $errors = @($lines | Where-Object { $_ -is [Management.Automation.ErrorRecord] } | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+    if ($LASTEXITCODE) { throw "gh api $Path exited with code $LASTEXITCODE$(if ($errors.Count) { ': ' + ($errors -join ' ') })" }
+    return @($lines | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] }) -join "`n" | ConvertFrom-Json
+}
+
+function Get-ScopedPrDelegation {
     param([string] $Root, [object] $Manifest, [string] $Platform, [string] $Configuration)
-    $profile = @($Manifest.prCoverage | Where-Object { $_.platform -eq $Platform -and $_.configuration -eq $Configuration })
-    if (-not $profile.Count) { return @() }
+    $keepLocal = { param([string] $Reason) [pscustomobject]@{scopes=@(); refusal=$Reason} }
+    $jobs = @(Get-ScopedPrJobs $Manifest $Platform $Configuration)
+    if (-not $jobs.Count) { return & $keepLocal "no PR check runs $Platform $Configuration" }
     # The forthcoming PR executes its candidate workflow. Its reviewed digest must match; API problems keep work local.
     try {
         # GitHub receives committed bytes. Dirty or concurrently changing work cannot be delegated.
         $candidate = (Invoke-ScopedGit $Root @('rev-parse','HEAD')).Trim()
-        if (Invoke-ScopedGit $Root @('status','--porcelain','--untracked-files=normal')) { return @() }
+        if (Invoke-ScopedGit $Root @('status','--porcelain','--untracked-files=normal')) {
+            return & $keepLocal 'the working tree has uncommitted or untracked changes, and a PR runs committed bytes only'
+        }
         $local = [IO.File]::ReadAllText((Join-Path $Root '.github/workflows/ci.yml')) -replace "`r`n","`n"
-        if ((Get-ScopedDigest $local) -cne $Manifest.prWorkflowDigest -or $local -notmatch '(?m)^  pull_request:') { return @() }
-        $workflow = & gh api "repos/$($Manifest.repository)/actions/workflows/ci.yml" 2>$null | ConvertFrom-Json
-        if ($LASTEXITCODE -ne 0 -or $workflow.state -ne 'active') { return @() }
-        $paths = @(Get-ScopedChangedPaths $Root ('origin/' + $Manifest.defaultBranch))
-        $covered = @(Get-ScopedPrCandidateScopes $Root $Manifest $Platform $Configuration $paths)
+        if ((Get-ScopedDigest $local) -cne $Manifest.prWorkflowDigest) {
+            return & $keepLocal '.github/workflows/ci.yml is not the workflow reviewed in Tests/test-scopes.json (prWorkflowDigest)'
+        }
+        if ($local -notmatch '(?m)^  pull_request:') { return & $keepLocal '.github/workflows/ci.yml has no pull_request trigger' }
+        # A PR runs the workflow and runner of its merge with the base branch: the base must not have changed them since
+        # this branch left it.
+        $baseRef = 'origin/' + $Manifest.defaultBranch
+        $base = Get-ScopedMergeBase $Root $baseRef
+        $runner = @('.github/workflows/ci.yml','test.ps1','Tests/test-scopes.json','Build/ScopedTesting.psm1') + @($Manifest.toolingCommands)
+        $moved = @((Invoke-ScopedGit $Root (@('diff','--name-only','--no-renames','-z',$base,$baseRef,'--') + $runner)) -split '\x00' | Where-Object { $_ })
+        if ($moved.Count) {
+            return & $keepLocal "$baseRef changed $($moved -join ', ') after this branch left it, so the PR would not run the reviewed version; merge or rebase onto $baseRef first"
+        }
+        $workflow = Invoke-ScopedGhApi "repos/$($Manifest.repository)/actions/workflows/ci.yml"
+        if ($workflow.state -ne 'active') { return & $keepLocal "the CI workflow is $($workflow.state) on GitHub" }
+        # A PR check is a gate only when the default branch requires it; otherwise a failing or pending run can merge.
+        $rules = @(Invoke-ScopedGhApi "repos/$($Manifest.repository)/rules/branches/$($Manifest.defaultBranch)?per_page=100")
+        $required = @($rules | Where-Object { $_.type -eq 'required_status_checks' } |
+            ForEach-Object { $_.parameters.required_status_checks } | ForEach-Object { $_.context })
+        $unrequired = @($jobs | Where-Object { $_.check -cnotin $required } | ForEach-Object { "'$($_.check)'" })
+        $refusal = if ($unrequired.Count) { "$($Manifest.defaultBranch) does not require the PR check $($unrequired -join ', '), so a failing run could still merge" } else { '' }
+        $gated = @($jobs | Where-Object { $_.check -cin $required } | ForEach-Object { $_.scopes })
+        if (-not $gated.Count) { return & $keepLocal $refusal }
+        $paths = @(Get-ScopedChangedPaths $Root $baseRef)
+        $covered = @(Get-ScopedPrCandidateScopes $Root $Manifest $Platform $Configuration $paths | Where-Object { $_ -in $gated })
         if ((Invoke-ScopedGit $Root @('rev-parse','HEAD')).Trim() -cne $candidate -or
-            (Invoke-ScopedGit $Root @('status','--porcelain','--untracked-files=normal'))) { return @() }
-        return $covered
-    } catch [System.Management.Automation.RuntimeException] { return @() }
-    catch [ArgumentException] { return @() }
+            (Invoke-ScopedGit $Root @('status','--porcelain','--untracked-files=normal'))) {
+            return & $keepLocal 'HEAD or the working tree changed while delegation was checked'
+        }
+        return [pscustomobject]@{scopes=$covered; refusal=$refusal}
+    } catch [System.Management.Automation.RuntimeException] { return & $keepLocal $_.Exception.Message }
+    catch [ArgumentException] { return & $keepLocal $_.Exception.Message }
 }
 
-Export-ModuleMember -Function Get-ScopedChangedPaths, Get-ScopedBuildNumber, Assert-ScopedRuntimePlatform, Read-ScopedTestManifest,
+function Get-ScopedPrCoverage {
+    # The scopes the forthcoming PR's required checks run for this profile. Refusal receives why the work of any check
+    # that runs for it stays local, or '' when none does.
+    param([string] $Root, [object] $Manifest, [string] $Platform, [string] $Configuration, [ref] $Refusal)
+    $delegation = Get-ScopedPrDelegation $Root $Manifest $Platform $Configuration
+    if ($null -ne $Refusal) { $Refusal.Value = $delegation.refusal }
+    return $delegation.scopes
+}
+
+Export-ModuleMember -Function Get-ScopedChangedPaths, Get-ScopedComparisonProblem, Get-ScopedBuildNumber, Assert-ScopedRuntimePlatform, Read-ScopedTestManifest,
     Assert-ScopedTestNames, Get-ScopedTestPlan, Get-ScopedSourceIdentity, Get-ScopedArtifactIdentity, Get-ScopedRunIdentity,
     Get-ScopedDigest, Test-ScopedReceipt, Write-ScopedReceipt, Get-ScopedPrCoverage, Get-ScopedPrCandidateScopes,
     Get-ScopedEnvironmentInputs, Get-ScopedEnvironmentIdentity

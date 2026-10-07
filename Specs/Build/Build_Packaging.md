@@ -183,7 +183,7 @@ concurrency group. On `windows-latest`:
 Changes to this contract require:
 
 ```powershell
-.\test.ps1 -Configuration Debug -Platform x64          # includes the launcher checks and PackagingTests.ps1
+.\test.ps1 -Full -Configuration Debug -Platform x64    # includes the launcher checks and PackagingTests.ps1
 .\package.ps1 -Platform x64 -BuildNumber 1
 .\winget-manifest.ps1 -Version 1.0.1 -Arm64ZipPath <an ARM64 package or a copy for local validation>
 ```

@@ -13,11 +13,13 @@ frames without touching the user's settings. A final isolated child-process cras
 boundary, minidump, call-stack report, and marker for both an application exception and a real stack overflow without
 touching the user's crash directory. GPU plugins must not load the runtime shader compiler.
 .PARAMETER Suites
-Selects complete component suites. Unknown names fail; explicit scopes are partial coverage.
+Selects complete component suites, by default every scope Tests/test-scopes.json names. Unknown names fail; explicit
+scopes are partial coverage.
 .PARAMETER SkipBuild
 Uses existing pinned profile artifacts. Test-Changes.ps1 additionally verifies source/build attestation.
 .PARAMETER Full
-Runs the complete noninteractive gate; ordinary calls use Test-Changes affected iteration.
+Runs the complete noninteractive gate; ordinary calls use Test-Changes affected iteration, or the full gate when there is
+no Git work tree or comparison base to select from.
 .PARAMETER SkipTooling
 Leaves profile-independent tooling to the CI tooling job or selected BuildProcess scope.
 #>
@@ -35,7 +37,7 @@ param(
     [switch] $Full,
     [switch] $SkipTooling,
 
-    [string[]] $Suites = @('LauncherAlias','BuildProcess','Packaging','PluginContract','AVControl','SystemData','SystemDataPhase0','StudioClock','DeskClock','Launcher','Weather','Logicon','Zoom','Settings','HostPlugin','HostSmoke'),
+    [string[]] $Suites,
 
     [ValidateRange(0, 65535)]
     [int] $BuildNumber = 0
@@ -43,15 +45,24 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$repoRoot = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $repoRoot 'Build/ScopedTesting.psm1') -Force
+$manifest = Read-ScopedTestManifest $repoRoot
 # Ordinary iteration uses source impact. Explicit suites and Full retain the lower-level runner surface.
 if (-not $Full -and -not $PSBoundParameters.ContainsKey('Suites') -and
     @($PSBoundParameters.Keys | Where-Object { $_ -notin @('Platform','Configuration','SkipBuild') }).Count -eq 0) {
-    & (Join-Path $PSScriptRoot 'Test-Changes.ps1') -Configuration $Configuration -Platform $Platform -SkipBuild:$SkipBuild
-    exit $LASTEXITCODE
+    $unselectable = Get-ScopedComparisonProblem $repoRoot ('origin/' + $manifest.defaultBranch)
+    if (-not $unselectable) {
+        & (Join-Path $PSScriptRoot 'Test-Changes.ps1') -Configuration $Configuration -Platform $Platform -SkipBuild:$SkipBuild
+        exit $LASTEXITCODE
+    }
+    # Without a change set (a source archive, no origin, a shallow clone) nothing can be left out: run the full gate.
+    Write-Host "Affected selection is unavailable, so every suite runs as with -Full. $unselectable" -ForegroundColor Yellow
 }
 
-$repoRoot = Split-Path -Parent $PSCommandPath
-$knownSuites = @('LauncherAlias','BuildProcess','Packaging','PluginContract','AVControl','SystemData','SystemDataPhase0','StudioClock','DeskClock','Launcher','Weather','Logicon','Zoom','Settings','HostPlugin','HostSmoke')
+# Tests/test-scopes.json names the suites; each runs only through its one block below.
+$knownSuites = @($manifest.scopes | ForEach-Object { $_.name })
+if (-not $PSBoundParameters.ContainsKey('Suites')) { $Suites = $knownSuites }
 $Suites = @($Suites | ForEach-Object { $_ -split ',' })
 foreach ($suite in $Suites) { if ($suite -notin $knownSuites) { throw "Unknown test suite '$suite'." } }
 if ($SkipTooling) {$Suites=@($Suites | Where-Object {$_ -ne 'BuildProcess'})}

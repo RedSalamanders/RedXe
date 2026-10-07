@@ -125,8 +125,8 @@ Before this contract is complete:
 
 ```powershell
 .\format.ps1
-.\test.ps1 -Configuration Debug -Platform x64
-.\test.ps1 -Configuration Release -Platform x64
+.\test.ps1 -Full -Configuration Debug -Platform x64
+.\test.ps1 -Full -Configuration Release -Platform x64
 .\build.ps1 -Configuration Release -Platform ARM64
 .\validate-skills.ps1
 ```
