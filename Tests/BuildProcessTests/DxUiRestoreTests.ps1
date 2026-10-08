@@ -356,7 +356,8 @@ try {
         $waited.Restart()
         Assert-Throws { & $restoreModule $wait $held $limit } `
             '^Gave up after 1 second waiting for a fixture wait in another process ' 'a one-second wait says "1 second"'
-        Assert-That (Test-WaitEndedAtLimit $waited.Elapsed $limit) "the one-second wait ended at its limit ($($waited.Elapsed))"
+        Assert-That (Test-WaitEndedAtLimit $waited.Elapsed $limit) `
+            "the one-second wait ended at its limit ($($waited.Elapsed))"
         $holderRelease.Set()
         [void]$holderShell.EndInvoke($holderRun)
         $lock = & $restoreModule { param($Path) Enter-RedXeDxUiLock -Path $Path -Purpose 'a fixture wait' -Timeout ([TimeSpan]::FromSeconds(2)) } $held
