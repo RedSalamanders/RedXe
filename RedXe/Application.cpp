@@ -504,6 +504,8 @@ struct FirstRunTopology final
     dock.edge = DockFirstRunEdge(display.monitor, display.work, AutohideBarOnEdge(ABE_TOP, display.monitor),
                                  AutohideBarOnEdge(ABE_BOTTOM, display.monitor), sharedTop, sharedBottom);
     dock.mode = DockMode::Autohide;
+    // Cleared first: SettingsText compares its whole buffer, and the default's text must leave no byte behind the new
+    // one.
     dock.monitor = SettingsText{};
     monitorSelector.copy(dock.monitor.utf8.data(), monitorSelector.size());
     dock.monitor.bytes = static_cast<uint32_t>(monitorSelector.size());

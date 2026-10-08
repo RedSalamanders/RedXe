@@ -64,9 +64,11 @@ Final receipt review requires every deployed Settings/provenance input and a non
 
 ## Closeout
 
-Closed 2026-10-07 by `alignment#9` of the `MergedReviewFixes_2026-10-06` review plan. Every item above is done: the
-plan's qualification gates are closed and each durable requirement has a home. That does not certify the tooling it
-delivered. The review that followed found defects in it, and the last bullet names the ones still open.
+Closed 2026-10-07 by `alignment#9` of the `MergedReviewFixes_2026-10-06` review plan. The plan's qualification gates are
+closed and each durable requirement has a home, and its implementation items are done as written except where the last
+bullet says otherwise: a test-only header escaped the naming migration that the implementation paragraph reports as
+complete (`scoped-testing#22`). That does not certify the tooling it delivered. The review that followed found defects
+in it, and the last bullet names the ones still open.
 
 - **Implementation.** #31 (`508bd3d`) and #32 (`25433ae`) merged into `main` on 2026-10-06. The tooling batch of the
   review fixes that followed (#37) reworked the build-number identity, PR delegation, Git output decoding and the

@@ -31,6 +31,12 @@ function Assert-Throws([scriptblock] $Action, [string] $Pattern, [string] $Messa
     Write-Host "PASS $Message"
 }
 
+# Whether a bounded wait ended at its limit: not before it (a wait that gave up after its first 500 ms slice passes the
+# upper bound alone) and not long after it (a wait that never gave up passes the lower bound alone).
+function Test-WaitEndedAtLimit([TimeSpan] $Elapsed, [TimeSpan] $Limit) {
+    return $Elapsed -ge $Limit - [TimeSpan]::FromMilliseconds(100) -and $Elapsed -lt [TimeSpan]::FromSeconds(30)
+}
+
 function Invoke-Git {
     # Runs git with Git long paths on (the fixtures are deep) and fails on a nonzero exit.
     $output = & git -c core.longpaths=true @args 2>&1
@@ -335,17 +341,51 @@ try {
             $holderRelease)
         $holderRun = $holderShell.BeginInvoke()
         if (-not $holderEntered.Wait(60000)) { throw "FAIL: the fixture holder did not enter the lock within 60 s: $($holderShell.Streams.Error)" }
+        # The fixture holder is a runspace of this process, so the record names this process and its executable.
+        $executable = [IO.Path]::GetFileName((Get-Process -Id $PID).Path)
+        $holderRecord = "\(process $PID since \d{4}-\d\d-\d\d \d\d:\d\d:\d\d: $([regex]::Escape($executable))( .*)?\)"
+        $wait = { param($Path, $Limit) Enter-RedXeDxUiLock -Path $Path -Purpose 'a fixture wait' -Timeout $Limit }
+        $limit = [TimeSpan]::FromSeconds(2)
         $waited = [Diagnostics.Stopwatch]::StartNew()
-        Assert-Throws { & $restoreModule { param($Path) Enter-RedXeDxUiLock -Path $Path -Purpose 'a fixture wait' -Timeout ([TimeSpan]::FromSeconds(2)) } $held } `
-            "^Gave up after 2 seconds waiting for a fixture wait in another process \(process $PID since \d{4}-\d\d-\d\d \d\d:\d\d:\d\d: $([regex]::Escape([Environment]::CommandLine))\)" `
-            'a wait for a folder another process holds gives up at its limit, naming the holder''s process and command line'
-        Assert-That ($waited.Elapsed -lt [TimeSpan]::FromSeconds(30)) "the wait ended at its limit ($($waited.Elapsed))"
+        Assert-Throws { & $restoreModule $wait $held $limit } `
+            ('(?s)^Gave up after 2 seconds waiting for a fixture wait in another process ' + $holderRecord +
+                '\. Let that process finish, or end it, then run again\.$') `
+            'a wait for a held folder gives up at its limit, naming the holder''s process, executable and command line'
+        Assert-That (Test-WaitEndedAtLimit $waited.Elapsed $limit) "the wait ended at its limit ($($waited.Elapsed))"
+        $limit = [TimeSpan]::FromSeconds(1)
+        $waited.Restart()
+        Assert-Throws { & $restoreModule $wait $held $limit } `
+            '^Gave up after 1 second waiting for a fixture wait in another process ' 'a one-second wait says "1 second"'
+        Assert-That (Test-WaitEndedAtLimit $waited.Elapsed $limit) `
+            "the one-second wait ended at its limit ($($waited.Elapsed))"
         $holderRelease.Set()
         [void]$holderShell.EndInvoke($holderRun)
         $lock = & $restoreModule { param($Path) Enter-RedXeDxUiLock -Path $Path -Purpose 'a fixture wait' -Timeout ([TimeSpan]::FromSeconds(2)) } $held
         try { Assert-That ([IO.File]::Exists($lock.Record)) 'a released folder is entered at once, and its new holder records itself' }
         finally { & $restoreModule { param($Lock) Exit-RedXeDxUiLock -Lock $Lock } $lock }
         Assert-That (-not [IO.File]::Exists($lock.Record)) 'a holder removes its record when it releases the folder'
+
+        # The record is built from its parts, so the culture, the executable and the length are tried on known ones.
+        # fi-FI writes the time of a custom format with '.' separators unless the invariant culture is asked for.
+        $record = {
+            param([string] $Culture, [string] $CommandLine)
+            $before = [Threading.Thread]::CurrentThread.CurrentCulture
+            try {
+                [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo($Culture)
+                return Format-RedXeDxUiLockHolder -ProcessId 4242 -Since ([DateTime]::new(2026, 10, 8, 21, 18, 9)) `
+                    -Executable 'C:\Program Files\PowerShell\7\pwsh.exe' -CommandLine $CommandLine
+            }
+            finally { [Threading.Thread]::CurrentThread.CurrentCulture = $before }
+        }
+        $arguments = '-NoProfile -File "Z:\a b\build.ps1" -Configuration Release'
+        $hostLine = '"C:\Program Files\PowerShell\7\pwsh.dll" ' + $arguments
+        $expected = "process 4242 since 2026-10-08 21:18:09: pwsh.exe $arguments"
+        Assert-That ((& $restoreModule $record 'fi-FI' $hostLine) -ceq $expected) `
+            'a holder record writes the invariant time in any culture and names its executable, not the host dll'
+        $long = & $restoreModule $record 'en-US' ('"C:\Program Files\PowerShell\7\pwsh.dll" -File ' + ('x' * 500))
+        $prefix = 'process 4242 since 2026-10-08 21:18:09: '
+        Assert-That ($long.Length -eq $prefix.Length + 200 -and $long -cmatch ': pwsh\.exe -File x+\.\.\.$') `
+            'a holder record cuts a long command line to 200 characters'
     }
     finally {
         $holderRelease.Set()

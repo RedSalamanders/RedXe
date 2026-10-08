@@ -137,6 +137,9 @@ RedXe/
   Main.cpp          Process setup and command-line modes
   CommandLine.h     Command-line switch catalog: --help text, names Main.cpp parses through, unknown-token scanner
   Application.*     Win32 window and message-loop lifetime
+  DisplayEnumeration.* The one bounded walk of the active displays: rectangles, work areas, effective DPI
+  DockPlacement.h   Screen-edge dock as pure functions: app-bar plan, monitor selection, first-run edge, autohide
+  NoticeWindow.h    Settings-error and action-notice window placement inside the monitor's work area
   CrashHandler.*    Fatal-process front door, local minidumps/call stacks, and prior-crash notice
   PluginHost.*      Process plugin runtime: module store, data providers, workers, JSONL log, and settings persist
   PluginManager.*   Widget providers and instance lifetime

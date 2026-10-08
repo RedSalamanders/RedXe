@@ -50,9 +50,9 @@ py -3 -m pip install -r Build/requirements-validation.txt
 ```
 
 A plain `.\test.ps1` hands off to `Test-Changes.ps1`, which runs only the suites your changes affect
-(`.\Test-Changes.ps1 -Explain` shows which and why) and ends with `NOTHING_SELECTED` when nothing needs running; `-Full`
-runs every suite. Affected iteration, full local coverage, exact reuse and pending PR obligations are described in
-[the testing guide](Tests/README.md).
+(`.\Test-Changes.ps1 -Explain` shows which and why) and ends with `NOTHING_SELECTED; repository NOT_EVALUATED` when
+nothing needs running; `-Full` runs every suite. Affected iteration, full local coverage, exact reuse and pending PR
+obligations are described in [the testing guide](Tests/README.md).
 
 ## Package and release
 
@@ -106,9 +106,10 @@ diagnostics and is never terminated. Same-name processes from other checkouts or
 Press **Escape** to close the running sample. Pass `--warp` to force the Windows software renderer. The full test run
 (`test.ps1 -Full`) runs ABI, settings, and production host/plugin harnesses, then uses `--self-test --warp` to create a
 hidden window, load the build-time-compiled embedded shaders, draw and present one frame, then exit. The host/plugin
-harness uses a hidden off-screen HWND and WARP; it does not automate the desktop. The same run launches an
-intentionally crashing child into an isolated `.build` directory and verifies its production minidump and marker
-without touching the user's normal crash directory.
+harness uses a hidden off-screen HWND and WARP. The smoke test also runs `--screenshot` end to end, which briefly shows
+a non-activating, non-reserving 32-DIP bar at the bottom of the primary display while RedXe captures its own window;
+nothing else on the desktop is automated. The same run launches an intentionally crashing child into an isolated
+`.build` directory and verifies its production minidump and marker without touching the user's normal crash directory.
 
 Debug builds open as a standard titled window on the XENEON monitor when one is active, otherwise they use normal
 shell-selected placement. Release builds search the active display topology for a CORSAIR XENEON monitor and open

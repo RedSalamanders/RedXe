@@ -733,15 +733,39 @@ struct DiagnosticSink final
     StudioClock::DateFormat parsedDateFormat = StudioClock::DateFormat::DayMonthYear;
     if (!dateFormat || !StudioClock::TryParseDateFormat(dateFormat, parsedDateFormat))
     {
+        // The accepted values are the catalog's, so the message names exactly those. Built in a fixed buffer: the
+        // validator is noexcept and allocates nothing.
+        std::array<char, 96> message{};
+        size_t used = 0;
+        const auto append = [&message, &used](std::string_view text) noexcept
+        {
+            const size_t take = text.size() < message.size() - used ? text.size() : message.size() - used;
+            std::memcpy(message.data() + used, text.data(), take);
+            used += take;
+        };
+        const size_t names = StudioClock::kDateFormatNames.size();
+        append("dateFormat must be ");
+        for (size_t index = 0; index < names; ++index)
+        {
+            if (index != 0)
+            {
+                append(index + 1 < names ? ", " : names > 2 ? ", or " : " or ");
+            }
+            append(StudioClock::kDateFormatNames[index]);
+        }
+        append(".");
         const auto scope = path.PushName("dateFormat");
-        return sink.Fail(path.View(), "dateFormat must be dd-mm-yyyy, mm-dd-yyyy, or yyyy-mm-dd.");
+        return sink.Fail(path.View(), std::string_view(message.data(), used));
     }
+    char glowMessage[64]{};
+    sprintf_s(glowMessage, "glowPercent must be an integer from %u through %u.", StudioClock::kMinimumGlowPercent,
+              StudioClock::kMaximumGlowPercent);
     return RejectBool(sink, path, settings, "showSecondProgress") &&
            RejectBool(sink, path, settings, "externalDotsAlwaysOn") &&
            RejectBool(sink, path, settings, "showSeconds") && RejectBool(sink, path, settings, "showDate") &&
            RejectColor(sink, path, settings, "secondsColor") && RejectColor(sink, path, settings, "timeColor") &&
            RejectRange(sink, path, settings, "glowPercent", StudioClock::kMinimumGlowPercent,
-                       StudioClock::kMaximumGlowPercent, "glowPercent must be an integer from 0 through 100.");
+                       StudioClock::kMaximumGlowPercent, glowMessage);
 }
 
 [[nodiscard]] bool ValidateShadersSettings(yyjson_val* settings, DiagnosticSink& sink, JsonPathBuffer& path) noexcept

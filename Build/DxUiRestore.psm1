@@ -22,6 +22,10 @@ $script:RestoreLeaseWindow = [TimeSpan]::FromDays(7)
 # network) or a removal of superseded restores takes, so only a holder that is stuck reaches it.
 $script:LockWaitLimit = [TimeSpan]::FromMinutes(30)
 
+# The most a holder of a folder's mutex records of its own command line, which a process waiting for it shows: enough to
+# tell a build from a test run, short enough for one console line.
+$script:HolderCommandLineLimit = 200
+
 function Read-RedXeDxUiLock {
     <# The lock at LockFile, once it names the canonical repository, one exact commit, the API revision this product is adapted to
        and the single DxUi target. #>
@@ -105,6 +109,31 @@ function Test-RedXeDxUiSourceCheckout {
     return $LASTEXITCODE -eq 0 -and $changes.Count -eq 0
 }
 
+function Format-RedXeDxUiLockHolder {
+    <# What a holder of a folder's mutex records about itself: its process, since when, and its command line.
+       - The time is written with the invariant culture: ':' in a custom format is the current culture's time
+         separator (fi-FI writes 21.18.09).
+       - .NET reports a PowerShell host's dll (pwsh.dll) as the first token of the command line, so the executable
+         (pwsh.exe) takes its place, followed by the arguments, and the whole is cut to HolderCommandLineLimit
+         characters. Without an executable the command line is shown as it is. #>
+    param(
+        [Parameter(Mandatory)][int] $ProcessId,
+        [Parameter(Mandatory)][DateTime] $Since,
+        [string] $Executable = '',
+        [string] $CommandLine = ''
+    )
+    $name = [IO.Path]::GetFileName($Executable)
+    $text = $CommandLine
+    if ($name -and $CommandLine -match '(?s)^\s*(?:"[^"]*"|\S+)\s*(?<arguments>.*)$') {
+        $text = "$name $($Matches['arguments'])".TrimEnd()
+    }
+    if ($text.Length -gt $script:HolderCommandLineLimit) {
+        $text = $text.Substring(0, $script:HolderCommandLineLimit - 3) + '...'
+    }
+    $time = $Since.ToString('yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+    return "process $ProcessId since ${time}: $text"
+}
+
 function Read-RedXeDxUiLockHolder {
     <# What the holder of a folder's mutex (Enter-RedXeDxUiLock) recorded about itself at Record, for a process that waits for it. #>
     param([Parameter(Mandatory)][string] $Record)
@@ -120,9 +149,10 @@ function Enter-RedXeDxUiLock {
        the full path, compared without case as Windows compares paths.
        - The wait is sliced, so Ctrl+C stops it, says once what it waits for and which process holds the mutex, and gives up after
          Timeout (LockWaitLimit) with a message that names both.
-       - Windows does not report a mutex's owner, so the holder records itself (its process identifier, since when, its command
-         line) in the temporary folder, which every process of its account shares. A holder under another account has no record
-         there and is reported unknown. The record is best effort and never fails the lock.
+       - Windows does not report a mutex's owner, so the holder records itself (its process identifier, since when, its
+         command line: Format-RedXeDxUiLockHolder) in the temporary folder, which every process of its account shares. A
+         holder under another account has no record there and is reported unknown. The record is best effort and never
+         fails the lock.
        - A holder that ended without releasing the mutex hands it over (Windows reports it abandoned); the caller checks the folder
          under the mutex anyway.
        - The mutex belongs to the calling thread: Exit-RedXeDxUiLock releases it on that thread, which may also enter it again (a
@@ -145,7 +175,9 @@ function Enter-RedXeDxUiLock {
             try { if ($mutex.WaitOne(500)) { break } }
             catch [Threading.AbandonedMutexException] { break }
             if ($waited.Elapsed -ge $Timeout) {
-                $limit = if ($Timeout.TotalSeconds -ge 120) { "$([Math]::Round($Timeout.TotalMinutes)) minutes" } else { "$([Math]::Round($Timeout.TotalSeconds)) seconds" }
+                $seconds = [Math]::Round($Timeout.TotalSeconds)
+                $limit = if ($Timeout.TotalSeconds -ge 120) { "$([Math]::Round($Timeout.TotalMinutes)) minutes" }
+                         else { "$seconds second$(if ($seconds -ne 1) { 's' })" }
                 throw "Gave up after $limit waiting for $Purpose in another process ($(Read-RedXeDxUiLockHolder -Record $record)). Let that process finish, or end it, then run again."
             }
             if (-not $announced) {
@@ -153,7 +185,10 @@ function Enter-RedXeDxUiLock {
                 $announced = $true
             }
         }
-        try { [IO.File]::WriteAllText($record, "process $PID since $([DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')): $([Environment]::CommandLine)") }
+        $executable = try { (Get-Process -Id $PID -ErrorAction Stop).Path } catch { '' }
+        $holder = Format-RedXeDxUiLockHolder -ProcessId $PID -Since ([DateTime]::Now) -Executable "$executable" `
+            -CommandLine ([Environment]::CommandLine)
+        try { [IO.File]::WriteAllText($record, $holder) }
         catch [IO.IOException] { }
         catch [UnauthorizedAccessException] { }
     }

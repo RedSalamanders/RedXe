@@ -138,6 +138,10 @@ inline constexpr size_t kPrivateConfigurationCapacity = 4096;
 inline constexpr size_t kFactoryConfigurationCapacity = 8192;
 inline constexpr uint32_t kMaximumDashboardGridDimension = 64;
 
+// Bounded UTF-8 text. `==` compares the whole buffer, not only `bytes`, so the bytes past the text are part of the
+// value and every producer MUST leave them zero: fill a value-initialized SettingsText, and never shorten `bytes` over
+// text that was already there. The parser does, and the comparisons of settings (`AppSettings::operator==`,
+// RuntimeSettingsEqual, the check of an installed first-run dock) rely on it.
 struct SettingsText final
 {
     std::array<char, kMaximumSettingsTextBytes + 1> utf8{};
@@ -424,6 +428,8 @@ void SetSettingsWriteSeamForTesting(const SettingsWriteSeam& seam) noexcept;
 // The first-run dock for SettingsStore::Initialize, made only when the store installs the default file because it is
 // missing, so a start that finds the file measures no display for it. `make` fills `dock` and returns true, or false to
 // install the plain template; it runs at most once per Initialize, on the calling thread. A null `make` offers no dock.
+// The installed file is checked against the made dock as a whole value, so `make` MUST set every member and leave the
+// bytes of `dock.monitor` past its text zero (SettingsText), as the parser does.
 struct FirstRunDockProvider final
 {
     bool (*make)(void* context, DockSettings& dock) noexcept = nullptr;

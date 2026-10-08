@@ -1668,9 +1668,10 @@ bool ActiveDashboardRuntimeEquals(const AppSettings& left, const AppSettings& ri
 
 bool RuntimeSettingsEqual(const AppSettings& left, const AppSettings& right) noexcept
 {
-    // Every member but the retained source text and the retired services entries, which nothing runs. Binding each
-    // member by name stops compiling when AppSettings gains one, so a new member is classified here instead of
-    // silently counting as a source-only edit.
+    // Every member but the retained source text and the retired services entries, which nothing runs. A structured
+    // binding binds by declaration order, not by name, and stops compiling (C3448) only when AppSettings gains or loses
+    // a member: a new member is then classified here instead of silently counting as a source-only edit, but a
+    // reordered one is not caught, so the names below follow the declaration order in Settings.h.
     const auto runtimeMembers = [](const AppSettings& settings) noexcept
     {
         const auto& [versionMajor, versionMinor, logRetentionDays, backgroundRgb, dock, trayIcon, sourceDocument,
