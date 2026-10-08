@@ -464,9 +464,10 @@ in the Windows notification area for an interactive run. `RedXe/TrayIcon.*` owns
   it like any interactive run. The fatal-process path does not call the shell, so after a crash the icon remains until
   the pointer passes over it.
 - A failure to create the owner or to add the icon is one Warning record (`tray-icon-failed`) when the outcome changes,
-  whether `Show` met it or the owner's later add did (the re-add after `TaskbarCreated`, or a retry, whose outcome the
-  owner posts to the main window as `TrayIcon::kAddResultMessage`), so an apply or a retry that meets the same failure
-  again logs nothing, and an Explorer restart whose re-add and retries all fail is logged once; a failed launch of the
+  whether `Show` met it or the owner's later add did (the re-add after `TaskbarCreated`, or a retry, which the owner
+  announces to the main window as `TrayIcon::kAddResultMessage`; the main window then records the icon's state as it
+  is, since a settings apply in between may have added it), so an apply or a retry that meets the same failure again
+  logs nothing, and an Explorer restart whose re-add and retries all fail is logged once; a failed launch of the
   editor (refused by the launch worker, or failed in the shell there) is one Warning record
   (`tray-edit-settings-failed`); neither affects the dashboard.
 

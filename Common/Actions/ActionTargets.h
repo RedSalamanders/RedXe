@@ -148,9 +148,10 @@ struct Point final
 // "x,y", "+dx,+dy" (both signed), or "center", each optionally followed by "@<monitor>".
 [[nodiscard]] bool ParsePoint(std::string_view value, Point& parsed) noexcept;
 
-// A complete Zoom browser link, opened unchanged (Plugins_Zoom.md): "https://", then zoom.us or a subdomain (a DNS
-// name: labels of 1 to 63 characters, at most 253 in all) with no credentials, port, '#', '?', or '%' in the
-// authority, then "/j/<id>", "/wc/join/<id>", or "/wc/<id>/join" with a 9 to 11 digit id, ending the path or followed
-// by '?' or '#'. Printable ASCII only, without '"', '<', '>', or '\'.
+// A complete Zoom browser link, opened unchanged (Plugins_Zoom.md): "https://", then zoom.us or a subdomain as the
+// whole authority, a DNS host name (labels of 1 to 63 ASCII letters, digits, and hyphens, none starting or ending with
+// a hyphen, at most 253 characters in all), so no credentials, port, or percent-encoding; then "/j/<id>",
+// "/wc/join/<id>", or "/wc/<id>/join" with a 9 to 11 digit id, ending the path or followed by '?' or '#'. Printable
+// ASCII only, without '"', '<', '>', or '\'.
 [[nodiscard]] bool ParseMeeting(std::string_view value) noexcept;
 } // namespace RedXeActions

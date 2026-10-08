@@ -6260,11 +6260,12 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         OnTrayCommand(static_cast<TrayCommand>(wParam));
         return 0;
     case TrayIcon::kAddResultMessage:
-        // Posted by the owner: an icon hidden since then (trayIcon turned off, or the window closing) has nothing
-        // left to record.
+        // Posted by the owner when an add outside Show ended. The icon's state now counts, not the posted outcome: a
+        // settings apply that ran in between may have added the icon, and an icon hidden since then (trayIcon turned
+        // off, or the window closing) has nothing left to record.
         if (_trayIcon.Shown())
         {
-            RecordTrayIconResult(static_cast<HRESULT>(wParam));
+            RecordTrayIconResult(_trayIcon.Added() ? S_OK : S_FALSE);
         }
         return 0;
     case kDockAppBarMessage:

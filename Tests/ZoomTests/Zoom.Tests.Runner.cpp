@@ -151,7 +151,8 @@ bool TestSettingsAndUrls() noexcept
          {"https://zoom.us/j/1234567890?pwd=opaque%2Bvalue", "https://team.zoom.us/j/987654321",
           "https://Team.Zoom.US/j/123456789", "https://us06web.zoom.us/j/12345678901#success",
           "https://app.zoom.us/wc/12345678901/join?fromPWA=1&pwd=opaque", "https://zoom.us/wc/join/1234567890",
-          "https://us02web.zoom.us/wc/join/1234567890?pwd=a@b"})
+          "https://us02web.zoom.us/wc/join/1234567890?pwd=a@b", "https://my-team.zoom.us/j/1234567890",
+          "https://xn--bcher-kva.zoom.us/j/1234567890"})
     {
         success &= Check(RedXeActions::ParseMeeting(valid), L"Zoom meeting and browser-join links accepted");
     }
@@ -172,6 +173,9 @@ bool TestSettingsAndUrls() noexcept
           "https://team.zoom.us./j/1234567890",
           // A percent-encoded host, which a browser decodes first: here to an empty label.
           "https://a%2e.zoom.us/j/1234567890", "https://a%E3%80%82.zoom.us/j/1234567890",
+          // A label of other characters than letters, digits, and hyphens, or with a hyphen at either end.
+          "https://-team.zoom.us/j/1234567890", "https://team-.zoom.us/j/1234567890",
+          "https://_team.zoom.us/j/1234567890", "https://te_am.zoom.us/j/1234567890",
           // Path and character rules.
           "https://zoom.us/j/123", "https://zoom.us/j/123456789012", "https://zoom.us/j/12345678a0",
           "https://zoom.us/j/1234567890/other", "https://zoom.us/j/1234567890\n", "https://zoom.us/j/1234567890 ",

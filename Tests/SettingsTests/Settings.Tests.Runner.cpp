@@ -3257,8 +3257,10 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
 {
     constexpr std::string_view document =
         R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":7}]}]})json";
+    // One byte longer than document: an in-place rewrite of either one changes the stamp (size) even when both writes
+    // land in one tick of a coarse file-system clock with the same file ID.
     constexpr std::string_view editorDocument =
-        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":3}]}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":43}]}]})json";
     try
     {
         const std::filesystem::path directory = std::filesystem::temp_directory_path() /
@@ -3414,7 +3416,7 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         SetSettingsWriteSeamForTesting({});
-        if (!applyChangedFile() || !memorySeed(*loaded, 3) || persistSeed(store, *loaded, id, 35) != S_OK ||
+        if (!applyChangedFile() || !memorySeed(*loaded, 43) || persistSeed(store, *loaded, id, 35) != S_OK ||
             !fileSeed(35) || !ownWriteSeen())
         {
             std::wprintf(L"The applied editor document was not written by the next persist.\n");
@@ -3460,8 +3462,9 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
     constexpr std::string_view document =
         R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":7}]}]})json";
     constexpr std::string_view rejected = "{ \"version\": { \"major\": 5 }, \"pages\": [";
+    // One byte longer than document, so the in-place save changes the stamp (size) even within one coarse clock tick.
     constexpr std::string_view external =
-        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":3}]}]})json";
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":13}]}]})json";
     try
     {
         const std::filesystem::path directory =
@@ -3505,8 +3508,8 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         loaded = std::move(candidate);
         store.MarkApplied(stamp);
-        // The next persist changes nothing (the applied document already has seed 3), so it neither writes nor defers.
-        if (store.PersistWidgetSettings(*loaded, id, R"({"seed":3})") != S_FALSE || store.TakeDeferredPersistNotice())
+        // The next persist changes nothing (the applied document already has seed 13), so it neither writes nor defers.
+        if (store.PersistWidgetSettings(*loaded, id, R"({"seed":13})") != S_FALSE || store.TakeDeferredPersistNotice())
         {
             std::wprintf(L"A persist after an applied load reported the deferral that load had replaced.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
