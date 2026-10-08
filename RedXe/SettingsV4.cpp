@@ -733,20 +733,29 @@ struct DiagnosticSink final
     StudioClock::DateFormat parsedDateFormat = StudioClock::DateFormat::DayMonthYear;
     if (!dateFormat || !StudioClock::TryParseDateFormat(dateFormat, parsedDateFormat))
     {
-        // The accepted values are the catalog's, so the message names exactly those.
-        const size_t count = StudioClock::kDateFormatNames.size();
-        std::string message = "dateFormat must be ";
-        for (size_t index = 0; index < count; ++index)
+        // The accepted values are the catalog's, so the message names exactly those. Built in a fixed buffer: the
+        // validator is noexcept and allocates nothing.
+        std::array<char, 96> message{};
+        size_t used = 0;
+        const auto append = [&message, &used](std::string_view text) noexcept
+        {
+            const size_t take = text.size() < message.size() - used ? text.size() : message.size() - used;
+            std::memcpy(message.data() + used, text.data(), take);
+            used += take;
+        };
+        const size_t names = StudioClock::kDateFormatNames.size();
+        append("dateFormat must be ");
+        for (size_t index = 0; index < names; ++index)
         {
             if (index != 0)
             {
-                message += index + 1 < count ? ", " : count > 2 ? ", or " : " or ";
+                append(index + 1 < names ? ", " : names > 2 ? ", or " : " or ");
             }
-            message += StudioClock::kDateFormatNames[index];
+            append(StudioClock::kDateFormatNames[index]);
         }
-        message += '.';
+        append(".");
         const auto scope = path.PushName("dateFormat");
-        return sink.Fail(path.View(), message);
+        return sink.Fail(path.View(), std::string_view(message.data(), used));
     }
     char glowMessage[64]{};
     sprintf_s(glowMessage, "glowPercent must be an integer from %u through %u.", StudioClock::kMinimumGlowPercent,
