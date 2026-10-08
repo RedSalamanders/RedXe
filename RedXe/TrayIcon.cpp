@@ -223,6 +223,16 @@ void TrayIcon::PostCommand(TrayCommand command) noexcept
     }
 }
 
+void TrayIcon::PostAddResult(bool added) noexcept
+{
+    // Show returns its outcome; an add the owner makes later reaches the main window this way, so a failure is
+    // recorded (tray-icon-failed) whichever path met it.
+    if (_commandTarget)
+    {
+        (void)PostMessageW(_commandTarget, kAddResultMessage, static_cast<WPARAM>(added ? S_OK : S_FALSE), 0);
+    }
+}
+
 LRESULT CALLBACK TrayIcon::WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
 {
     auto* tray = reinterpret_cast<TrayIcon*>(GetWindowLongPtrW(window, GWLP_USERDATA));
@@ -262,7 +272,7 @@ LRESULT TrayIcon::HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM
         _iconAdded = false;
         _icon.reset();
         _addRetries = 0;
-        (void)AddIconOrRetry();
+        PostAddResult(AddIconOrRetry());
         return 0;
     }
     switch (message)
@@ -273,7 +283,7 @@ LRESULT TrayIcon::HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM
             (void)KillTimer(window, kAddRetryTimerId);
             if (!_iconAdded)
             {
-                (void)AddIconOrRetry();
+                PostAddResult(AddIconOrRetry());
             }
             return 0;
         }

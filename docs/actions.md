@@ -122,7 +122,8 @@ entry, Zoom Workplace installation, or Marketplace application registration.
   missing, has no app for it, or cannot be reached does nothing visible; the log (`redxe.logs.open` opens its folder)
   records `launch-failed`.
 - A key or mouse action that waited more than a second because RedXe was busy is skipped rather than typed into
-  whatever window you switched to meanwhile; the log records `action-expired`.
+  whatever window you switched to meanwhile; the log records `action-expired`. Only a late `keys.up` or `mouse.up` for
+  the key or button RedXe itself pressed still runs, so a late release never lifts a key or button you hold yourself.
 - `keys.down` and `mouse.down` hold a key or a button until a release, and a Logicon key, dialpad button, or turn only
   ever sends a press. Bound there, they keep the settings file valid but show a red `!` (the dialpad has no face) and
   never run; the log names the control. Use `keys.press` or `mouse.click` instead. A Launcher tile still accepts

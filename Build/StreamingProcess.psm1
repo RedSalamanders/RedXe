@@ -63,7 +63,8 @@ function ConvertTo-RedXeProcessCommandLine {
 # A Windows job object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE that starts the bounded child itself, so the child and
 # every process it starts end together: Terminate() at a budget, and Dispose() (the last handle closing) for whatever
 # is left. Start() creates the child suspended and resumes it only once it belongs to the job, so no process the child
-# creates can come into being outside the job. Nothing launched independently can be in this job. The job also sets
+# creates can come into being outside the job; the child's clock (ContainedProcess.RunClock), which the budget counts,
+# starts immediately before that resume. Nothing launched independently can be in this job. The job also sets
 # JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION: an unhandled exception in any of its processes ends that process
 # instead of holding it in a Windows Error Reporting dialog until the budget runs out, even in a child that never calls
 # Common/FailureReports.h (RedXe.exe's crash harness and help runs) and whatever error mode it inherited.
@@ -210,9 +211,13 @@ namespace RedXe.Build
                 if (errorWrite != null) errorWrite.Dispose();
                 throw;
             }
+            // The child's clock starts immediately before its first thread can run: the process creation above is not
+            // the child's time, and a caller that runs again only some time after the resume still counts all of it.
+            var clock = new Stopwatch();
             try
             {
                 if (!AssignProcessToJobObject(handle, info.hProcess)) throw new Win32Exception();
+                clock.Start();
                 if (ResumeThread(info.hThread) == uint.MaxValue) throw new Win32Exception();
             }
             catch
@@ -232,7 +237,7 @@ namespace RedXe.Build
             catch (ArgumentException) { encoding = new UTF8Encoding(false); }
             catch (NotSupportedException) { encoding = new UTF8Encoding(false); }
             return new ContainedProcess(info.hProcess, info.dwProcessId, outputRead, errorRead,
-                standardOutputEncoding ?? encoding, standardErrorEncoding ?? encoding);
+                standardOutputEncoding ?? encoding, standardErrorEncoding ?? encoding, clock);
         }
         public void Terminate()
         {
@@ -261,7 +266,8 @@ namespace RedXe.Build
         }
     }
 
-    // The members Invoke-RedXeStreamingProcess uses from System.Diagnostics.Process, over a child the job started.
+    // A child the job started: the members Invoke-RedXeStreamingProcess uses from System.Diagnostics.Process, and the
+    // clock its budget counts (RunClock).
     public sealed class ContainedProcess : IDisposable
     {
         [DllImport("kernel32.dll", SetLastError = true)]
@@ -274,15 +280,19 @@ namespace RedXe.Build
         IntPtr handle;
         readonly int id;
         readonly StreamReader standardOutput, standardError;
+        readonly Stopwatch runClock;
         internal ContainedProcess(IntPtr process, int processId, SafeFileHandle output, SafeFileHandle error,
-            Encoding outputEncoding, Encoding errorEncoding)
+            Encoding outputEncoding, Encoding errorEncoding, Stopwatch clock)
         {
             handle = process;
             id = processId;
             standardOutput = new StreamReader(new FileStream(output, FileAccess.Read, 4096, false), outputEncoding, true, 4096);
             standardError = new StreamReader(new FileStream(error, FileAccess.Read, 4096, false), errorEncoding, true, 4096);
+            runClock = clock;
         }
         public int Id { get { return id; } }
+        // Started immediately before the child's first thread was resumed: how long the child has been able to run.
+        public Stopwatch RunClock { get { return runClock; } }
         public StreamReader StandardOutput { get { return standardOutput; } }
         public StreamReader StandardError { get { return standardError; } }
         public bool HasExited { get { return Wait(0); } }
@@ -341,11 +351,12 @@ function Invoke-RedXeStreamingProcess {
 
         [scriptblock] $OutputLineCallback,
 
-        # Total budget for the child, counted from its start on a monotonic clock. When it runs out, the child and every
-        # process it started are terminated (they are descendants of this invocation, never an independently launched
-        # process) and the call throws, naming the executable and the log. A child that has exited while a process it
-        # started still holds its output open is ended the same way after a short grace, and the call says so. Zero
-        # keeps the wait unbounded, as build.ps1 needs.
+        # Total budget for the child, counted on a monotonic clock from the first moment it can run (the resume of its
+        # suspended start). When it runs out, the child and every process it started are terminated (they are
+        # descendants of this invocation, never an independently launched process) and the call throws, naming the
+        # executable and the log. A child that has exited while a process it started still holds its output open is
+        # ended the same way after a short grace, and the call says so. Zero keeps the wait unbounded, as build.ps1
+        # needs.
         [ValidateRange(0, 86400)]
         [int] $TimeoutSeconds = 0,
 
@@ -396,10 +407,12 @@ function Invoke-RedXeStreamingProcess {
             $job = New-RedXeContainmentJob
             $process = $job.Start($FilePath, (ConvertTo-RedXeProcessCommandLine -Arguments $Arguments), $WorkingDirectory,
                 $StandardOutputEncoding, $StandardErrorEncoding)
-            # The budget is the child's, so it starts once the child runs. The first bounded call in a session
-            # compiles the job type above, which took over a second on a loaded machine, and neither that nor a slow
-            # process creation may come out of the child's time. A change of the system time moves neither end.
-            $budgetClock = [Diagnostics.Stopwatch]::StartNew()
+            # The budget is the child's: the job started this clock immediately before it resumed the child, so it
+            # counts every moment the child can run, even while this thread waits to run again after the resume. The
+            # first bounded call in a session compiles the job type above, which took over a second on a loaded
+            # machine, and neither that nor a slow process creation comes out of the child's time. A change of the
+            # system time moves neither end.
+            $budgetClock = $process.RunClock
         }
         else {
             $startInfo = [Diagnostics.ProcessStartInfo]::new()

@@ -1306,6 +1306,8 @@ struct DiagnosticSink final
     std::array<char, 160> diagnostic{};
     if (retired)
     {
+        // The authored members, never a defaults merge: MergeValue drops a null member, so an unknown one set to null
+        // would pass. The entry is recorded, and warned about, whatever its retired members hold.
         Zoom::Settings model{};
         if (FAILED(Zoom::ParseSettings(authored, model, diagnostic.data(), diagnostic.size())))
             return sink.Fail(path.View(), diagnostic.data());

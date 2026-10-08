@@ -1774,8 +1774,9 @@ bool ScriptedTaskbarExists() noexcept
 // TrayIcon.cpp against a scripted shell: Show and Hide are idempotent and Hide unregisters the class; WM_CLOSE leaves
 // the owner, and every destruction deletes the icon first; TaskbarCreated adds again; a refusal retries on the bounded
 // schedule only while a taskbar exists, then arms nothing; a timed-out add makes no second blocking call; the icon
-// counts as added only once NIM_SETVERSION has followed the add or the update an add falls back to; and WM_DPICHANGED
-// updates only the image of an added icon, with no NIM_SETVERSION, and makes no call for an icon not added.
+// counts as added only once NIM_SETVERSION has followed the add or the update an add falls back to; WM_DPICHANGED
+// updates only the image of an added icon, with no NIM_SETVERSION, and makes no call for an icon not added; and an add
+// made outside Show posts its outcome to the command target.
 void TestTrayIconOwner(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] notification-area icon owner lifecycle\n";
@@ -1940,6 +1941,42 @@ void TestTrayIconOwner(bool& success) noexcept
     Check(TrayCallsSince(beforeDestructor, {NIM_DELETE}) && CountTrayOwners() == 0 &&
               GetClassInfoExW(instance, L"RedXe.TrayIcon", &info) == FALSE,
           L"the destructor deletes the icon, destroys the owner, and unregisters the class", success);
+
+    // An add the owner makes outside Show, after TaskbarCreated or on a retry, posts its outcome to the command target
+    // (Application::RecordTrayIconResult logs tray-icon-failed from it): S_FALSE while refused, S_OK once added. Show's
+    // own outcome is returned, not posted.
+    {
+        const wil::unique_hwnd target{
+            CreateWindowExW(0, L"STATIC", L"tray outcome", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, instance, nullptr)};
+        constexpr WPARAM nothingPosted = ~WPARAM{0};
+        const auto takePosted = [&target]() noexcept
+        {
+            MSG message{};
+            return PeekMessageW(&message, target.get(), TrayIcon::kAddResultMessage, TrayIcon::kAddResultMessage,
+                                PM_REMOVE)
+                       ? message.wParam
+                       : nothingPosted;
+        };
+        TrayIcon tray;
+        Access::SetTrayShell(tray, &ScriptedShellNotify, &ScriptedTaskbarExists);
+        script.add = true;
+        script.modify = true;
+        script.version = true;
+        script.taskbar = true;
+        script.addTimesOut = false;
+        const bool shown = target && tray.Show(instance, target.get()) == S_OK && takePosted() == nothingPosted;
+        const HWND owner = Access::TrayOwner(tray);
+        script.add = false;
+        script.modify = false;
+        (void)SendMessageW(owner, taskbarCreated, 0, 0);
+        const WPARAM refused = takePosted();
+        script.add = true;
+        (void)SendMessageW(owner, WM_TIMER, retryTimer, 0);
+        const WPARAM added = takePosted();
+        Check(shown && refused == static_cast<WPARAM>(S_FALSE) && added == static_cast<WPARAM>(S_OK) &&
+                  takePosted() == nothingPosted && Access::TrayIconAdded(tray),
+              L"an add outside Show posts its outcome to the command target: refused, then added", success);
+    }
 }
 
 // DockPlacement.h autohide state machine: every transition of the reveal/hide table, zero delays, holds, and the
@@ -5593,17 +5630,39 @@ void TestQueuedInputAge(bool& success) noexcept
         request.targetUtf8 = target;
         return host.RequestAction(&request);
     };
-    Check(requestAction("keys.press", "Ctrl+W") == S_OK && requestAction("keys.up", "Ctrl+W") == S_OK &&
-              requestAction("system.lock", nullptr) == S_OK,
+    // The down of each pair is dropped for age, so its up would be a stand-alone release into whatever window is
+    // foreground now, lifting a key or button the user may be holding there: it is dropped too.
+    Check(requestAction("keys.press", "Ctrl+W") == S_OK && requestAction("keys.down", "Ctrl+W") == S_OK &&
+              requestAction("keys.up", "Ctrl+W") == S_OK && requestAction("mouse.down", "left") == S_OK &&
+              requestAction("mouse.up", "left") == S_OK && requestAction("system.lock", nullptr) == S_OK,
           L"input and other actions queue", success);
     PluginHostTestAccess::AgeHostActions(host, 2 * PluginHost::kMaximumQueuedInputAgeMilliseconds);
     Check(requestAction("keys.type", "x") == S_OK, L"a fresh input action queues behind them", success);
     host.DrainHostActions();
     HostActions::Counters counters = HostActions::CopyCounters();
-    Check(counters.executed == 3 && counters.injectedInputs == 4 && counters.powerRequests == 1 &&
-              std::strcmp(counters.lastAction.data(), "keys.type") == 0,
-          L"a stale key press is dropped; a stale release, a stale non-input action, and fresh input still run",
+    Check(counters.executed == 2 && counters.injectedInputs == 2 && counters.powerRequests == 1 &&
+              counters.heldReleases == 0 && std::strcmp(counters.lastAction.data(), "keys.type") == 0,
+          L"a stale press, stale downs, and the ups of holds that never began are dropped; a stale non-input action "
+          L"and fresh input still run",
           success);
+
+    // A stale up still ends a hold RedXe tracks, which lifts only what RedXe pressed; a stale up naming another chord
+    // or button is dropped like any stale input.
+    HostActions::ResetCounters();
+    Check(requestAction("keys.down", "Ctrl+A") == S_OK && requestAction("mouse.down", "right") == S_OK,
+          L"a chord and a button hold queue", success);
+    host.DrainHostActions();
+    Check(requestAction("keys.up", "Ctrl+B") == S_OK && requestAction("keys.up", "Ctrl+A") == S_OK &&
+              requestAction("mouse.up", "left") == S_OK && requestAction("mouse.up", "right") == S_OK,
+          L"ups of the held and of other chords and buttons queue", success);
+    PluginHostTestAccess::AgeHostActions(host, 2 * PluginHost::kMaximumQueuedInputAgeMilliseconds);
+    host.DrainHostActions();
+    counters = HostActions::CopyCounters();
+    Check(counters.executed == 4 && counters.heldReleases == 2 && counters.injectedInputs == 6 &&
+              std::strcmp(counters.lastAction.data(), "mouse.up") == 0,
+          L"stale ups of the tracked chord and button release them; stale ups of another chord or button are dropped",
+          success);
+    HostActions::ReleaseHeld(false);
 
     HostActions::ResetCounters();
     Check(requestAction("keys.press", "Ctrl+W") == S_OK, L"a key press queues", success);
@@ -5616,9 +5675,13 @@ void TestQueuedInputAge(bool& success) noexcept
 
     Check(SUCCEEDED(host.FlushLog(10'000)), L"the input-age log drains", success);
     const std::string bytes = ReadTodayLog(root);
-    Check(CountText(bytes, "\"event\":\"action-expired\"") == 1 && CountText(bytes, "\"level\":\"warning\"") == 1 &&
-              bytes.find("first \\\"keys.press\\\"") != std::string::npos,
-          L"one drain that drops input logs one action-expired Warning naming the first dropped action", success);
+    Check(CountText(bytes, "\"event\":\"action-expired\"") == 2 && CountText(bytes, "\"level\":\"warning\"") == 2 &&
+              bytes.find("5 queued input action(s)") != std::string::npos &&
+              bytes.find("first \\\"keys.press\\\"") != std::string::npos &&
+              bytes.find("2 queued input action(s)") != std::string::npos &&
+              bytes.find("first \\\"keys.up\\\"") != std::string::npos,
+          L"each drain that drops input logs one action-expired Warning with the count and the first dropped action",
+          success);
 }
 
 struct LaunchProbe final
@@ -6189,7 +6252,7 @@ void TestActionValidation(bool& success) noexcept
           "https://zoom.us/my/alice", "https://evil.example/j/1234567890", "https://evil.example?.zoom.us/j/1234567890",
           "https://evil.example#.zoom.us/j/1234567890", "https://evil.example\\.zoom.us/j/1234567890",
           "https://user@team.zoom.us/j/1234567890", "https://zoom.us:443/j/1234567890",
-          "https://zoom.us/j/1234567890 "})
+          "https://a..zoom.us/j/1234567890", "https://team.zoom.us./j/1234567890", "https://zoom.us/j/1234567890 "})
     {
         request.targetUtf8 = invalid;
         Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a malformed or spoofed meeting link is invalid",
@@ -6741,7 +6804,7 @@ void TestServiceLifetime(bool& success) noexcept
     Check(host.StartedServiceCount() == 0, L"StopServices is idempotent", success);
 }
 
-// A retired services entry (the Zoom one, empty as earlier templates wrote it or with its v1.0.102 members) is
+// A retired services entry (the Zoom one, empty as earlier templates wrote it, with its v1.0.102 members, or with a retired member set to null) is
 // recorded by the settings store at the startup load and at a live load, and an unchanged notification loads nothing.
 // Its one Warning per load (Core_Settings.md "Services") comes from the report both of Application's load paths make,
 // PluginHost::LogRetiredServiceSettings: one service-retired-settings-ignored from builtin.zoom, without an HRESULT,
@@ -6756,6 +6819,8 @@ void TestRetiredServiceWarnings(bool& success) noexcept
         R"json({"version":{"major":5,"minor":2},"services":{"Meet":{"plugin":"builtin.zoom"}},"pages":[{}]})json";
     constexpr std::string_view retiredMembers =
         R"json({"version":{"major":5,"minor":2},"services":{"Zoom":{"plugin":"builtin.zoom","clientId":"sHVWQENoR4qrpuBPgsFsPw","redirectPort":48123,"autoConnect":false}},"pages":[{}]})json";
+    constexpr std::string_view retiredNull =
+        R"json({"version":{"major":5,"minor":2},"services":{"Zoom":{"plugin":"builtin.zoom","clientId":null}},"pages":[{}]})json";
     constexpr std::string_view noEntry = R"json({"version":{"major":5,"minor":2},"pages":[{}]})json";
     constexpr std::string_view event = "\"event\":\"service-retired-settings-ignored\"";
     constexpr std::string_view record =
@@ -6824,12 +6889,15 @@ void TestRetiredServiceWarnings(bool& success) noexcept
         return candidate;
     };
 
-    const std::string_view shapes[] = {emptyEntry, retiredMembers};
-    const wchar_t* const names[] = {L"an empty Zoom entry", L"a Zoom entry with retired members"};
+    // Each shape is the startup document once and the next shape's live apply once.
+    const std::string_view shapes[] = {emptyEntry, retiredMembers, retiredNull};
+    const wchar_t* const names[] = {L"an empty Zoom entry", L"a Zoom entry with retired members",
+                                    L"a Zoom entry whose only retired member is null"};
+    static_assert(std::size(shapes) == std::size(names));
     size_t expected = 0;
-    for (size_t first = 0; first < 2; ++first)
+    for (size_t first = 0; first < std::size(shapes); ++first)
     {
-        const size_t second = 1 - first;
+        const size_t second = (first + 1) % std::size(shapes);
         SettingsStore store;
         std::unique_ptr<AppSettings> current;
         HRESULT result = write(shapes[first]) ? store.Initialize(false, settingsPath.wstring(), current) : E_FAIL;

@@ -9,8 +9,11 @@
 #include "Settings.Tests.ReleasedTemplates.h"
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -661,8 +664,11 @@ constexpr std::string_view kRepresentative = R"json(
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"turns":[{"control":"dial","direction":"cw","action":"nowhere.go"}]}}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"dial":"page"}}},"pages":[{}]})json",
         // Retired Zoom entry rejections: any member other than the retired v1.0.102 ones, which load and are ignored
-        // (ValidateReleasedTemplates), including a retired name in another case, and the entry twice.
+        // (ValidateReleasedTemplates), including a retired name in another case, and the entry twice. The authored
+        // members are checked, so an unknown one set to null is refused too, alone or beside a null retired member.
         R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","meeting":"abc"}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","meeting":null}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":null,"meeting":null}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","ClientID":"abc"}},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"services":{"Z":{"plugin":"builtin.zoom","redirectPort":48123,"sdkPath":"x"}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"Y":{"plugin":"builtin.zoom"},"Z":{"plugin":"builtin.zoom"}},"pages":[{}]})json",
@@ -2443,22 +2449,26 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         }
     }
 
-    // The retired Zoom entry loads with any value of every retired member, also in a current-minor document, and
-    // without them (the template entry of earlier builds); either way it is recorded for the warning and never started.
+    // The retired Zoom entry loads with any value of every retired member, also in a current-minor document, with a
+    // sole retired member set to null, and without them (the template entry of earlier builds); each time it is
+    // recorded for the warning and never started.
     constexpr std::string_view anyRetiredValue =
         R"json({"version":{"major":5,"minor":3},"services":{"Z":{"plugin":"builtin.zoom","clientId":null,"redirectPort":"48123","domain":[],"displayName":7,"autoConnect":"no","mode":{"x":1},"labels":[{"mute":2}]}},"pages":[{}]})json";
+    constexpr std::string_view soleRetiredNull =
+        R"json({"version":{"major":5,"minor":3},"services":{"Z":{"plugin":"builtin.zoom","clientId":null}},"pages":[{}]})json";
     constexpr std::string_view noRetiredMember =
         R"json({"version":{"major":5,"minor":3},"services":{"Z":{"plugin":"builtin.zoom"}},"pages":[{}]})json";
-    AppSettings retired{};
-    AppSettings current{};
-    if (FAILED(ParseAppSettingsJson(anyRetiredValue, retired)) || FAILED(ValidateAppSettings(retired)) ||
-        retired.serviceCount != 0 || retired.retiredServices.size() != 1 ||
-        FAILED(ParseAppSettingsJson(noRetiredMember, current)) || FAILED(ValidateAppSettings(current)) ||
-        current.serviceCount != 0 || current.retiredServices.size() != 1 ||
-        current.retiredServices[0].View() != "builtin.zoom")
+    for (const std::string_view retiredEntry : {anyRetiredValue, soleRetiredNull, noRetiredMember})
     {
-        std::wprintf(L"The retired Zoom entry is not accepted with any retired member value and ignored.\n");
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        AppSettings retired{};
+        if (FAILED(ParseAppSettingsJson(retiredEntry, retired)) || FAILED(ValidateAppSettings(retired)) ||
+            retired.serviceCount != 0 || retired.retiredServices.size() != 1 ||
+            retired.retiredServices[0].View() != "builtin.zoom")
+        {
+            std::wprintf(L"The retired Zoom entry is not accepted and ignored: %.*S\n",
+                         static_cast<int>(retiredEntry.size()), retiredEntry.data());
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
     }
 
     // v1.0.102 also accepted keys.down and mouse.down on a Logicon key, dialpad button, or turn. They still load: the
@@ -3165,6 +3175,28 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
     }
 }
 
+// Write seam stand-in for a short write: WriteFile succeeds after writing only the first half of the bytes.
+BOOL WriteHalf(HANDLE file, const void* bytes, DWORD size, DWORD* written) noexcept
+{
+    return WriteFile(file, bytes, size / 2U, written, nullptr);
+}
+
+// Files a document write left beside the settings file (`<name>.tmp.<pid>.<tick>`); none may survive a write.
+[[nodiscard]] size_t CountTemporaries(const std::filesystem::path& directory) noexcept
+{
+    try
+    {
+        size_t count = 0;
+        for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(directory))
+            count += entry.path().filename().wstring().find(L".tmp.") != std::wstring::npos ? 1U : 0U;
+        return count;
+    }
+    catch (...)
+    {
+        return SIZE_MAX;
+    }
+}
+
 [[nodiscard]] HRESULT ValidatePersistRollback() noexcept
 {
     constexpr std::string_view documentJson =
@@ -3195,28 +3227,30 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             return FAILED(result) ? result : E_UNEXPECTED;
         const auto before = std::make_unique<AppSettings>(*loaded);
         const std::string id(loaded->dashboard.pages[0].widgets[1].id.View());
-        // A real open handle without FILE_SHARE_DELETE prevents the atomic replacement from committing.
-        wil::unique_hfile locked{CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
-        if (!locked)
-            return HRESULT_FROM_WIN32(GetLastError());
+        // A short write (WriteFile reporting fewer bytes and no error) fails the replacement with ERROR_WRITE_FAULT:
+        // the typed settings, the source, and the file roll back exactly, and no temporary stays beside the file. (An
+        // open handle no longer fails a persist: it defers it, ValidatePersistCommitGuard.)
+        SettingsWriteSeam shortWrite{};
+        shortWrite.writeFile = &WriteHalf;
+        SetSettingsWriteSeamForTesting(shortWrite);
+        auto resetSeam = wil::scope_exit([]() noexcept { SetSettingsWriteSeamForTesting({}); });
         result = store.PersistWidgetSettings(*loaded, id, R"({"seed":17})");
         std::string disk;
-        if ((result != HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION) && result != E_ACCESSDENIED) || *loaded != *before ||
-            FAILED(ReadFile(path, disk)) || disk != documentJson)
+        if (result != HRESULT_FROM_WIN32(ERROR_WRITE_FAULT) || *loaded != *before || FAILED(ReadFile(path, disk)) ||
+            disk != documentJson || CountTemporaries(directory) != 0 || store.TakeDeferredPersistNotice())
         {
-            std::wprintf(L"Failed persistence changed the authoritative settings or disk.\n");
+            std::wprintf(L"A short write changed the authoritative settings or disk, or left its temporary file.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         // A failed dock drag rolls back the same way, including the minor it raised (0 to 2 here).
         result = store.PersistDockThickness(*loaded, 200);
-        if ((result != HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION) && result != E_ACCESSDENIED) || *loaded != *before ||
-            FAILED(ReadFile(path, disk)) || disk != documentJson)
+        if (result != HRESULT_FROM_WIN32(ERROR_WRITE_FAULT) || *loaded != *before || FAILED(ReadFile(path, disk)) ||
+            disk != documentJson || CountTemporaries(directory) != 0)
         {
             std::wprintf(L"A failed dock-thickness persist changed the authoritative settings or disk.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        locked.reset();
+        resetSeam.reset();
         if (SUCCEEDED(store.PersistWidgetSettings(*loaded, id, "[]")) || *loaded != *before)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         result = store.PersistWidgetSettings(*loaded, id, R"({"densityPercent":75})");
@@ -3454,6 +3488,371 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
     }
 }
 
+// Renames `from` over `to` with POSIX semantics, as an editor saving atomically through FileRenameInfoEx does (Rust's
+// std::fs::rename, for one). ERROR_SUCCESS or the Win32 error.
+[[nodiscard]] DWORD ReplaceWithPosixRename(const std::filesystem::path& from, const std::filesystem::path& to) noexcept
+{
+    wil::unique_hfile file{
+        CreateFileW(from.c_str(), DELETE | SYNCHRONIZE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+    if (!file)
+        return GetLastError();
+    const std::wstring& name = to.native();
+    const size_t size = offsetof(FILE_RENAME_INFO, FileName) + (name.size() + 1U) * sizeof(wchar_t);
+    const std::unique_ptr<uint64_t[]> storage{new (std::nothrow) uint64_t[(size + 7U) / 8U]{}};
+    if (!storage)
+        return ERROR_OUTOFMEMORY;
+    auto* info = reinterpret_cast<FILE_RENAME_INFO*>(storage.get());
+    info->Flags = FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS;
+    info->FileNameLength = static_cast<DWORD>(name.size() * sizeof(wchar_t));
+    std::memcpy(info->FileName, name.c_str(), name.size() * sizeof(wchar_t));
+    return SetFileInformationByHandle(file.get(), FileRenameInfoEx, info, static_cast<DWORD>(size)) ? ERROR_SUCCESS
+                                                                                                    : GetLastError();
+}
+
+// Another program acting on the settings file at one phase of the next guarded replacement (the write seam's
+// checkpoint). `error` is the act's result: ERROR_SUCCESS when it went through.
+struct EditorAtCommit final
+{
+    enum class Act : uint8_t
+    {
+        SaveInPlace,
+        ReplaceAtomically,
+        Delete,
+    };
+    SettingsWritePhase phase = SettingsWritePhase::Flushed;
+    Act act = Act::SaveInPlace;
+    std::filesystem::path file;
+    std::string_view bytes;
+    DWORD error = ERROR_SUCCESS;
+    uint32_t calls = 0;
+};
+
+void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
+{
+    auto& editor = *static_cast<EditorAtCommit*>(context);
+    if (phase != editor.phase)
+        return;
+    ++editor.calls;
+    try
+    {
+        if (editor.act == EditorAtCommit::Act::Delete)
+        {
+            editor.error = DeleteFileW(editor.file.c_str()) ? ERROR_SUCCESS : GetLastError();
+            return;
+        }
+        if (editor.act == EditorAtCommit::Act::SaveInPlace)
+        {
+            wil::unique_hfile file{CreateFileW(editor.file.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+            DWORD written = 0;
+            editor.error = file && SetEndOfFile(file.get()) &&
+                                   WriteFile(file.get(), editor.bytes.data(), static_cast<DWORD>(editor.bytes.size()),
+                                             &written, nullptr)
+                               ? ERROR_SUCCESS
+                               : GetLastError();
+            return;
+        }
+        std::filesystem::path saved = editor.file;
+        saved += L".editor";
+        {
+            std::ofstream stream(saved, std::ios::binary | std::ios::trunc);
+            stream.write(editor.bytes.data(), static_cast<std::streamsize>(editor.bytes.size()));
+        }
+        editor.error = ReplaceWithPosixRename(saved, editor.file);
+        std::error_code ignored;
+        std::filesystem::remove(saved, ignored);
+    }
+    catch (...)
+    {
+        editor.error = ERROR_GEN_FAILURE;
+    }
+}
+
+// Core_Settings.md "Plugin persist": the stamp check and the replacement are one guarded step. A file another program
+// holds defers the persist; an editor cannot save in place while the temporary is written; an atomic replacement or a
+// deletion made meanwhile is never undone; nobody can change the renamed file before its stamp is recorded; and a file
+// system without POSIX rename still commits through a classic one.
+[[nodiscard]] HRESULT ValidatePersistCommitGuard() noexcept
+{
+    constexpr std::string_view document =
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":7}]}]})json";
+    // One byte longer than document: an in-place rewrite of either one changes the stamp (size) even when both writes
+    // land in one tick of a coarse file-system clock with the same file ID.
+    constexpr std::string_view editorDocument =
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":43}]}]})json";
+    try
+    {
+        const std::filesystem::path directory = std::filesystem::temp_directory_path() /
+                                                (L"RedXe.PersistGuardTests." + std::to_wstring(GetCurrentProcessId()) +
+                                                 L"." + std::to_wstring(GetTickCount64()));
+        std::filesystem::create_directory(directory);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                SetSettingsWriteSeamForTesting({});
+                std::error_code error;
+                std::filesystem::remove_all(directory, error);
+            });
+        const std::filesystem::path file = directory / L"guard.settings.json";
+        const auto write = [&file](std::string_view bytes)
+        {
+            std::ofstream stream(file, std::ios::binary | std::ios::trunc);
+            stream.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            return static_cast<bool>(stream);
+        };
+        const auto holds = [&file](std::string_view expected)
+        {
+            std::string bytes;
+            return SUCCEEDED(ReadFile(file, bytes)) && bytes == expected;
+        };
+        const auto fileSeed = [&file](uint32_t seed)
+        {
+            auto saved = std::make_unique<AppSettings>();
+            return SUCCEEDED(LoadAppSettingsFile(file.wstring(), *saved)) &&
+                   saved->dashboard.pages[0].widgets[0].privateConfiguration.View().find(
+                       "\"seed\":" + std::to_string(seed)) != std::string_view::npos;
+        };
+        const auto memorySeed = [](const AppSettings& settings, uint32_t seed)
+        {
+            return settings.dashboard.pages[0].widgets[0].privateConfiguration.View().find(
+                       "\"seed\":" + std::to_string(seed)) != std::string_view::npos;
+        };
+        const auto persistSeed = [](SettingsStore& store, AppSettings& settings, const std::string& id, uint32_t seed)
+        { return store.PersistWidgetSettings(settings, id, "{\"seed\":" + std::to_string(seed) + "}"); };
+        if (!write(document))
+            return E_FAIL;
+
+        SettingsStore store;
+        std::unique_ptr<AppSettings> loaded;
+        HRESULT result = store.Initialize(false, file.wstring(), loaded);
+        if (FAILED(result) || !loaded || loaded->dashboard.pages[0].widgets.empty())
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        const std::string id(loaded->dashboard.pages[0].widgets[0].id.View());
+        std::unique_ptr<AppSettings> candidate;
+        SettingsFileStamp stamp{};
+        SettingsReloadStatus status = SettingsReloadStatus::Unchanged;
+        // The stamp the store recorded for its own write is the one the watcher reads next: no reload of RedXe's write.
+        const auto ownWriteSeen = [&]()
+        {
+            candidate.reset();
+            return SUCCEEDED(store.TryLoadChanged(candidate, stamp, status)) &&
+                   status == SettingsReloadStatus::Unchanged && !candidate;
+        };
+        const auto applyChangedFile = [&]()
+        {
+            candidate.reset();
+            if (FAILED(store.TryLoadChanged(candidate, stamp, status)) || status != SettingsReloadStatus::Loaded ||
+                !candidate)
+                return false;
+            loaded = std::move(candidate);
+            store.MarkApplied(stamp);
+            return true;
+        };
+
+        // Held by another program: an editor keeping the file open for writing, one holding it without any sharing,
+        // one holding it without FILE_SHARE_DELETE, and a writer that shares everything (as VS Code's file I/O does),
+        // which only the guard's refusal to share write access keeps out. Each persist defers (one notice for the one
+        // on-disk state), keeps the change, and leaves the bytes; once the file is free, the next persist writes the
+        // held change.
+        struct Holder final
+        {
+            DWORD access;
+            DWORD share;
+        };
+        constexpr std::array<Holder, 4> holders{{
+            {GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE},
+            {GENERIC_READ, 0},
+            {GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE},
+            {GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE},
+        }};
+        for (size_t index = 0; index < holders.size(); ++index)
+        {
+            wil::unique_hfile held{CreateFileW(file.c_str(), holders[index].access, holders[index].share, nullptr,
+                                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+            if (!held)
+                return HRESULT_FROM_WIN32(GetLastError());
+            const uint32_t seed = 21U + static_cast<uint32_t>(index);
+            const HRESULT persisted = persistSeed(store, *loaded, id, seed);
+            held.reset();
+            if (persisted != S_FALSE || store.TakeDeferredPersistNotice() != (index == 0) ||
+                !memorySeed(*loaded, seed) || !holds(document) || CountTemporaries(directory) != 0)
+            {
+                std::wprintf(L"A persist over a file another program holds (case %zu) did not defer.\n", index);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+        if (persistSeed(store, *loaded, id, 25) != S_OK || !fileSeed(25) || store.TakeDeferredPersistNotice() ||
+            !ownWriteSeen())
+        {
+            std::wprintf(L"The change held while another program had the file was not written once it was free.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // An editor saving in place while the temporary is written is shut out by the guard; the persist commits.
+        EditorAtCommit editor;
+        editor.file = file;
+        editor.bytes = editorDocument;
+        SettingsWriteSeam seam{};
+        seam.checkpoint = &ActAtCommit;
+        seam.context = &editor;
+        SetSettingsWriteSeamForTesting(seam);
+        if (persistSeed(store, *loaded, id, 31) != S_OK || editor.calls != 1 ||
+            editor.error != ERROR_SHARING_VIOLATION || !fileSeed(31) || !ownWriteSeen())
+        {
+            std::wprintf(L"An in-place save during the replacement was not shut out (error %lu).\n", editor.error);
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // Nobody can change the renamed file before its stamp is read: an in-place save and an atomic replacement both
+        // fail right after the rename, and the stamp recorded is the one the watcher sees.
+        editor.phase = SettingsWritePhase::Renamed;
+        for (const EditorAtCommit::Act act : {EditorAtCommit::Act::SaveInPlace, EditorAtCommit::Act::ReplaceAtomically})
+        {
+            editor.act = act;
+            editor.calls = 0;
+            editor.error = ERROR_SUCCESS;
+            const uint32_t seed = act == EditorAtCommit::Act::SaveInPlace ? 32U : 33U;
+            if (persistSeed(store, *loaded, id, seed) != S_OK || editor.calls != 1 ||
+                editor.error != ERROR_SHARING_VIOLATION || !fileSeed(seed) || !ownWriteSeen() ||
+                CountTemporaries(directory) != 0)
+            {
+                std::wprintf(L"Another program changed the renamed file before its stamp was read (error %lu).\n",
+                             editor.error);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+
+        // An atomic replacement while the temporary is written goes through (the guard shares delete, as the
+        // replacement needs) and is not overwritten: the persist defers and keeps its change for later.
+        editor.phase = SettingsWritePhase::Flushed;
+        editor.act = EditorAtCommit::Act::ReplaceAtomically;
+        editor.calls = 0;
+        if (persistSeed(store, *loaded, id, 34) != S_FALSE || editor.calls != 1 || editor.error != ERROR_SUCCESS ||
+            !holds(editorDocument) || !store.TakeDeferredPersistNotice() || !memorySeed(*loaded, 34) ||
+            CountTemporaries(directory) != 0)
+        {
+            std::wprintf(L"A persist overwrote a document another program saved during the replacement.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        SetSettingsWriteSeamForTesting({});
+        if (!applyChangedFile() || !memorySeed(*loaded, 43) || persistSeed(store, *loaded, id, 35) != S_OK ||
+            !fileSeed(35) || !ownWriteSeen())
+        {
+            std::wprintf(L"The applied editor document was not written by the next persist.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // A file deleted while the temporary is written is not recreated.
+        editor.act = EditorAtCommit::Act::Delete;
+        editor.calls = 0;
+        SetSettingsWriteSeamForTesting(seam);
+        if (persistSeed(store, *loaded, id, 36) != S_FALSE || editor.calls != 1 || editor.error != ERROR_SUCCESS ||
+            std::filesystem::exists(file) || !store.TakeDeferredPersistNotice() || CountTemporaries(directory) != 0)
+        {
+            std::wprintf(L"A persist recreated a settings file deleted during the replacement.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        SetSettingsWriteSeamForTesting({});
+        if (!write(document) || !applyChangedFile())
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        // Without POSIX rename the guard is released for a classic replacement, which commits.
+        SettingsWriteSeam classic{};
+        classic.withoutPosixRename = true;
+        SetSettingsWriteSeamForTesting(classic);
+        if (persistSeed(store, *loaded, id, 37) != S_OK || !fileSeed(37) || !ownWriteSeen() ||
+            store.TakeDeferredPersistNotice() || CountTemporaries(directory) != 0)
+        {
+            std::wprintf(L"A persist without POSIX rename did not commit through the classic replacement.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+// TakeDeferredPersistNotice reports a deferral only while its change is still held: an applied load that replaced the
+// change, or a write that carried it, settles the notice even when nobody took it.
+[[nodiscard]] HRESULT ValidateDeferredNoticeSettles() noexcept
+{
+    constexpr std::string_view document =
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":7}]}]})json";
+    constexpr std::string_view rejected = "{ \"version\": { \"major\": 5 }, \"pages\": [";
+    // One byte longer than document, so the in-place save changes the stamp (size) even within one coarse clock tick.
+    constexpr std::string_view external =
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":13}]}]})json";
+    try
+    {
+        const std::filesystem::path directory =
+            std::filesystem::temp_directory_path() /
+            (L"RedXe.DeferredNoticeTests." + std::to_wstring(GetCurrentProcessId()) + L"." +
+             std::to_wstring(GetTickCount64()));
+        std::filesystem::create_directory(directory);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code error;
+                std::filesystem::remove_all(directory, error);
+            });
+        const std::filesystem::path file = directory / L"notice.settings.json";
+        const auto write = [&file](std::string_view bytes)
+        {
+            std::ofstream stream(file, std::ios::binary | std::ios::trunc);
+            stream.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            return static_cast<bool>(stream);
+        };
+        if (!write(document))
+            return E_FAIL;
+        SettingsStore store;
+        std::unique_ptr<AppSettings> loaded;
+        HRESULT result = store.Initialize(false, file.wstring(), loaded);
+        if (FAILED(result) || !loaded || loaded->dashboard.pages[0].widgets.empty())
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        const std::string id(loaded->dashboard.pages[0].widgets[0].id.View());
+
+        // A persist deferred by a rejected save, its notice not taken, then a valid save applied over it.
+        std::unique_ptr<AppSettings> candidate;
+        SettingsFileStamp stamp{};
+        SettingsReloadStatus status = SettingsReloadStatus::Unchanged;
+        if (!write(rejected) || FAILED(store.TryLoadChanged(candidate, stamp, status)) ||
+            status != SettingsReloadStatus::Invalid ||
+            store.PersistWidgetSettings(*loaded, id, R"({"seed":5})") != S_FALSE)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        candidate.reset();
+        if (!write(external) || FAILED(store.TryLoadChanged(candidate, stamp, status)) ||
+            status != SettingsReloadStatus::Loaded || !candidate)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        loaded = std::move(candidate);
+        store.MarkApplied(stamp);
+        // The next persist changes nothing (the applied document already has seed 13), so it neither writes nor defers.
+        if (store.PersistWidgetSettings(*loaded, id, R"({"seed":13})") != S_FALSE || store.TakeDeferredPersistNotice())
+        {
+            std::wprintf(L"A persist after an applied load reported the deferral that load had replaced.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // A persist deferred while the file was away, its notice not taken, then written once the same file is back.
+        const std::filesystem::path away = directory / L"notice.away.json";
+        if (!MoveFileExW(file.c_str(), away.c_str(), 0) ||
+            store.PersistWidgetSettings(*loaded, id, R"({"seed":8})") != S_FALSE ||
+            !MoveFileExW(away.c_str(), file.c_str(), 0))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        if (store.PersistWidgetSettings(*loaded, id, R"({"seed":8})") != S_OK || store.TakeDeferredPersistNotice())
+        {
+            std::wprintf(L"A persist that wrote the held change still reported its deferral.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
 [[nodiscard]] HRESULT ValidateLogsDirectory() noexcept
 {
     try
@@ -3645,6 +4044,8 @@ int wmain()
                        {L"persist formatting", ValidatePersistFormatting},
                        {L"persist rollback", ValidatePersistRollback},
                        {L"persist write gate", ValidatePersistWriteGate},
+                       {L"persist commit guard", ValidatePersistCommitGuard},
+                       {L"persist deferral notice", ValidateDeferredNoticeSettles},
                        {L"live reload no write", ValidateLiveReloadNoWrite}};
     for (const auto& test : tests)
     {

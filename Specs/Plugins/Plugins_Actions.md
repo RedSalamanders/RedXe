@@ -221,7 +221,7 @@ caller-owned bounded storage.
 | **Point** | `<x>,<y>` (physical virtual-screen pixels), `+<dx>,+<dy>`, or `center`, each optionally `@<monitor>` (`ParsePoint`). |
 | **Monitor** | `primary`, `secondary` (the first display in `EnumDisplayMonitors` order that is neither the primary nor the display XENEON discovery found, and that XENEON only when it is the only display that is not the primary: `SecondaryMonitorRank`, the dock's rule too; the host repeats discovery on every `WM_DISPLAYCHANGE`), `xeneon` (the monitor hosting RedXe's window), `<n>` (1-based `EnumDisplayMonitors` order, counting a display whose information cannot be read), `name:<substring>` (`ParseMonitorSelector`; an action matches the GDI device name, `\\.\DISPLAYn`, without case). `all` is accepted only in the trailing `@<monitor>` of an action flagged `MonitorSuffix`; a **Monitor** target and a **Point**'s `@<monitor>` reject it. An action whose selector names no display MUST fail with `ERROR_NOT_FOUND`: unlike the dock it never falls back to the primary, so `secondary` on a single display is not found. `HostActions::VisitMonitor` is the per-display step of that search. |
 | **Window** | `foreground`, `exe:<image.exe>`, `class:<class>`, `title:<substring>` (`ParseWindowSelector`; `WindowSelector.cpp` selects the first visible non-tool top-level window in Z order without allocating). |
-| **Meeting** | A complete Zoom browser link (`ParseMeeting`, `Plugins_Zoom.md`): `https://`, then `zoom.us` or a subdomain with no `@`, `:`, `#`, or `?` in the authority, then `/j/<id>`, `/wc/join/<id>`, or `/wc/<id>/join` with a 9–11 digit id, ending the path or followed by `?` or `#`; printable ASCII without `"`, `<`, `>`, or `\`. |
+| **Meeting** | A complete Zoom browser link (`ParseMeeting`, `Plugins_Zoom.md`): `https://`, then `zoom.us` or a subdomain (a DNS host name: labels of 1–63 ASCII letters, digits, and hyphens, none empty or starting or ending with a hyphen, at most 253 characters), so no `@`, `:`, `#`, `?`, or `%` in the authority, then `/j/<id>`, `/wc/join/<id>`, or `/wc/<id>/join` with a 9–11 digit id, ending the path or followed by `?` or `#`; printable ASCII without `"`, `<`, `>`, or `\`. |
 | **NowOrSeconds** | `now`, or a decimal delay in seconds within the bounds (`ParseNowOrSeconds`). |
 
 `FluentGlyphNames.h` (the Segoe Fluent Icons name table shared by Logicon faces and Launcher tiles) and
@@ -289,8 +289,12 @@ caller-owned bounded storage.
 dispatch. It first logs every launch the launch worker finished. Then, for each slot, an action that injects input
 (`InjectsInput` on its default or already-read published descriptor) whose request is older than
 `PluginHost::kMaximumQueuedInputAgeMilliseconds` (1000 ms) MUST be dropped rather than executed: after a UI-thread
-stall it would land in whatever window is foreground by then. `keys.up` and `mouse.up` are exempt because they only
-end a hold. One drain that drops any logs one `action-expired` Warning with the count and the first dropped name.
+stall it would land in whatever window is foreground by then. The only exempt input is a `keys.up` or `mouse.up` that
+ends a hold RedXe tracks (`HostActions::ReleasesTrackedHold`, UI thread): its target names the held chord or button,
+or the one whose hold the deadline already released, so it lifts only what RedXe pressed or injects nothing. Any other
+aged `up`, including one whose `down` was itself dropped for age, would be a stand-alone release of whatever the user
+holds in the new foreground window, and MUST be dropped. One drain that drops any logs one `action-expired` Warning
+with the count and the first dropped name.
 Every other slot goes to `PluginHost::ExecuteNow`, which resolves the namespace: `page` / `widget` / `redxe` go to
 the registered application handler (`Application::HandleHostAction`); the other default namespaces validate the
 target, apply `ValidateExtra`, and run `HostActions::Execute(descriptor, target, deviceAccess, launches)`; a
@@ -410,37 +414,39 @@ distinct failure.
   `ERROR_NOT_FOUND`, the `zoom.open` and `zoom.join` browser contract with Meeting links accepted and malformed or
   spoofed ones `E_INVALIDARG`), the shipped catalog producing no notice, the **D** flag on launches,
   `redxe.settings.reload`, and `redxe.quit`, device-access-disabled execution of `keys`, `system`, and `mouse` actions
-  that counts inputs, launches, and power requests without performing them, and `zoom.*` executed through the
-  dedicated executor without any service, deferred (`S_FALSE`) and drained as `system.launch`. `TestQueuedInputAge`:
-  an aged key press is dropped while an aged release, an aged non-input action, and fresh input run, a coalesced repeat takes the newer time, and one `action-expired` Warning is
-  logged. `TestActionMonitorSelection`: `HostActions::VisitMonitor` over scripted displays in enumeration order
-  resolves `primary` wherever it enumerates, `secondary` to the first display that is not the primary before or after
-  it, skipping a XENEON for another display and taking the XENEON only when no other display is left, `xeneon` to the
-  display of the main window, `<n>` counting a display that could not be read, and `name:` to the first GDI name
-  containing the text without case and no friendly name; `secondary` on a single display and an absent `<n>` are not
-  found. On the machine's own displays, `mouse.move center@primary` with device access, whose injection a test seam
-  fails before `SendInput`, records an absolute move to the primary's center, and `center@secondary` one to another
-  display, or `ERROR_NOT_FOUND` on a single display. `TestHeldInputTimer` reads the injected records through a test
-  seam: a replacement down releases the previous chord (key, then modifiers) or button before it presses the new
-  one; an `up` naming another chord or button injects its own release and leaves the hold tracked until its own
-  `up` releases it; a held chord and button release on the timer no earlier than 2 s after the press, with a few
-  timer deliveries rather than one per minimum period, and their own `up` then injects nothing (`S_FALSE`) while any
-  other `up` injects; with injection refused through a test seam, the `up` and a replacement down return the failure
-  and press nothing, the release is retried at the retry interval rather than faster, and it releases once input is
-  accepted again; a release refused at shutdown or when the window detaches is abandoned (after the detach, shutdown
-  finds nothing left), and the log then holds exactly one `held-release-failed` and two `held-release-abandoned`.
-  `TestLaunchWorker`: with a probe in place of the shell, a launch returns `S_FALSE` while it runs on the worker's own
-  STA thread, a full worker answers `ERROR_BUSY`, completions drain through the posted message with a
-  `launch-failed` Warning for a failure, an idle worker accrues no CPU time, shutdown joins an idle worker at once and
-  waits only the bound for a stuck one, a second shutdown does not wait again, a shutdown that a stuck device lane
-  ends early still stops the worker (the queued launch never starts) and logs `launch-stop-timeout`, and the launch
+  that counts inputs, launches, and power requests without performing them, and `zoom.*` executed through the dedicated
+  executor without any service, deferred (`S_FALSE`) and drained as `system.launch`. `TestQueuedInputAge`: an aged key
+  press, aged downs, and the aged ups of those dropped downs are dropped while an aged non-input action and fresh input
+  run; an aged up of the tracked chord and of the tracked button releases its hold while an aged up of another chord or
+  button is dropped; a coalesced repeat takes the newer time; and each drain that dropped input logs one
+  `action-expired` Warning with its count and first name. `TestActionMonitorSelection`: `HostActions::VisitMonitor` over
+  scripted displays in enumeration order resolves `primary` wherever it enumerates, `secondary` to the first display
+  that is not the primary before or after it, skipping a XENEON for another display and taking the XENEON only when no
+  other display is left, `xeneon` to the display of the main window, `<n>` counting a display that could not be read,
+  and `name:` to the first GDI name containing the text without case and no friendly name; `secondary` on a single
+  display and an absent `<n>` are not found. On the machine's own displays, `mouse.move center@primary` with device
+  access, whose injection a test seam fails before `SendInput`, records an absolute move to the primary's center, and
+  `center@secondary` one to another display, or `ERROR_NOT_FOUND` on a single display. `TestHeldInputTimer` reads the
+  injected records through a test seam: a replacement down releases the previous chord (key, then modifiers) or button
+  before it presses the new one; an `up` naming another chord or button injects its own release and leaves the hold
+  tracked until its own `up` releases it; a held chord and button release on the timer no earlier than 2 s after the
+  press, with a few timer deliveries rather than one per minimum period, and their own `up` then injects nothing
+  (`S_FALSE`) while any other `up` injects; with injection refused through a test seam, the `up` and a replacement down
+  return the failure and press nothing, the release is retried at the retry interval rather than faster, and it releases
+  once input is accepted again; a release refused at shutdown or when the window detaches is abandoned (after the
+  detach, shutdown finds nothing left), and the log then holds exactly one `held-release-failed` and two
+  `held-release-abandoned`. `TestLaunchWorker`: with a probe in place of the shell, a launch returns `S_FALSE` while it
+  runs on the worker's own STA thread, a full worker answers `ERROR_BUSY`, completions drain through the posted message
+  with a `launch-failed` Warning for a failure, an idle worker accrues no CPU time, shutdown joins an idle worker at
+  once and waits only the bound for a stuck one, a second shutdown does not wait again, a shutdown that a stuck device
+  lane ends early still stops the worker (the queued launch never starts) and logs `launch-stop-timeout`, and the launch
   stop a session end makes (`StopLaunches`) drops the queue, waits the bound once for a stuck launch, and logs one
-  `launch-stop-timeout` that the shutdown after it neither waits for nor logs again; and the real `ShellExecuteExW` on
-  a file that does not exist (nothing starts) logs `launch-failed` with `0x80070002`. `TestSessionEndDeadline`: under
-  one session-end deadline, a launch stuck in the shell after a stuck device lane used the time before the flush's
-  reserve is waited for only with what is left and is still logged as `launch-stop-timeout`; and a zero-wait stop of
-  an idle worker logs no `launch-stop-timeout` and leaves the next stop its wait, so the shutdown after it, made
-  without first waiting for the thread, joins the exiting thread.
+  `launch-stop-timeout` that the shutdown after it neither waits for nor logs again; and the real `ShellExecuteExW` on a
+  file that does not exist (nothing starts) logs `launch-failed` with `0x80070002`. `TestSessionEndDeadline`: under one
+  session-end deadline, a launch stuck in the shell after a stuck device lane used the time before the flush's reserve
+  is waited for only with what is left and is still logged as `launch-stop-timeout`; and a zero-wait stop of an idle
+  worker logs no `launch-stop-timeout` and leaves the next stop its wait, so the shutdown after it, made without first
+  waiting for the thread, joins the exiting thread.
 - `SettingsTests`: document-level acceptance of both templates' bindings (`page.*`, `widget.*`, `keys.media`, dialpad
   `turns`; in Debug also `logicon.keyPage.*`, `logicon.brightness`, and `zoom.open`, without a Zoom `services`
   entry), acceptance and ignoring of a retired `builtin.zoom` services entry, rejection of unknown names, unknown

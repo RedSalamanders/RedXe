@@ -61,8 +61,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // DrainHostActions.
     static constexpr UINT kHostActionMessage = WM_APP + 5;
     // A queued action that injects input (RedXeActionFlagInjectsInput) and waited longer than this for the UI thread
-    // is dropped instead of landing in whatever window is foreground by then; keys.up and mouse.up, which only end a
-    // hold, are exempt.
+    // is dropped instead of landing in whatever window is foreground by then; a keys.up or mouse.up that ends a hold
+    // RedXe tracks (HostActions::ReleasesTrackedHold) is exempt.
     static constexpr ULONGLONG kMaximumQueuedInputAgeMilliseconds = 1000;
     // Posted when a device lane whose stop overran the drain budget finally returns. The UI thread answers with
     // ApplyServiceSettings for the current document, which reaps the slot and starts the service again if the
@@ -396,7 +396,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     void RequestHostActionDrain() noexcept;
     // The launch worker's completion callback (any thread): posts the coalesced host-action message.
     static void NotifyLaunchFinished(void* context) noexcept;
-    // True when a queued slot is older than kMaximumQueuedInputAgeMilliseconds at `now` and its action injects input.
+    // True when a queued slot is older than kMaximumQueuedInputAgeMilliseconds at `now` and its action injects input,
+    // unless it is the up of a tracked hold.
     [[nodiscard]] bool IsExpiredInput(const HostActionSlot& slot, ULONGLONG now) noexcept;
     // Executes one action now on the UI thread: application namespaces through the handler, system/keys/mouse
     // through HostActions, published namespaces through their executor. Logs a Debug line on failure.

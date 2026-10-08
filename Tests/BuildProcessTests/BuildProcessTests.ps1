@@ -455,6 +455,68 @@ $queried = [RedXeJobProbe.Native]::QueryInformationJobObject([IntPtr]::Zero, 2, 
         throw "A session that had compiled the launcher ran its earlier type for an edited definition: $editedMessage"
     }
 
+    # The budget counts every moment the child can run, so a caller whose thread runs again only after the child has
+    # outrun its budget ends the child at its first check instead of granting it the budget again. An edited copy of the
+    # module holds Start() right after the resume, as a caller descheduled there would be, until the child has run for
+    # longer than its 4 s budget and marked that it has (held.ready). The child then finishes on its own two seconds
+    # later, well within a budget counted from Start()'s return, which would let it exit normally with code 0.
+    $heldPath = Join-Path $presentationTestRoot 'held.cmd'
+    $heldReadyPath = Join-Path $presentationTestRoot 'held.ready'
+    @'
+@echo off
+echo held:started
+ping.exe -n 6 127.0.0.1 > nul
+type nul > "%~dp0held.ready"
+ping.exe -n 3 127.0.0.1 > nul
+echo held:finished
+exit /b 0
+'@ | Set-Content -LiteralPath $heldPath -Encoding ASCII
+    $resumeStatement = 'if (ResumeThread(info.hThread) == uint.MaxValue) throw new Win32Exception();'
+    $heldSource = $streamingSource.Replace($resumeStatement, $resumeStatement +
+        ' for (var held = Stopwatch.StartNew(); !File.Exists(@"' + $heldReadyPath +
+        '") && held.ElapsedMilliseconds < 60000;) Thread.Sleep(10);')
+    if ($heldSource -ceq $streamingSource) {
+        throw 'The held caller check found no resume of the child to hold.'
+    }
+    $heldModulePath = Join-Path $presentationTestRoot 'HeldStreamingProcess.psm1'
+    Set-Content -LiteralPath $heldModulePath -Value $heldSource -Encoding UTF8 -NoNewline
+    $heldLogPath = Join-Path $presentationTestRoot 'held.log'
+    $heldShell = [powershell]::Create()
+    try {
+        [void] $heldShell.AddScript({
+            param([string] $ModulePath, [string] $HeldPath, [string] $WorkingDirectory, [string] $LogPath)
+            Import-Module $ModulePath -Force
+            try {
+                $exitCode = Invoke-RedXeStreamingProcess -FilePath $env:ComSpec -Arguments @('/d', '/c', $HeldPath) `
+                    -WorkingDirectory $WorkingDirectory -LogPath $LogPath -TimeoutSeconds 4 `
+                    -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+                "exited with code $exitCode"
+            }
+            catch {
+                $_.Exception.Message
+            }
+        }.ToString()).AddArgument($heldModulePath).AddArgument($heldPath).AddArgument($presentationTestRoot).AddArgument(
+            $heldLogPath)
+        $heldMessage = -join @($heldShell.Invoke())
+    }
+    finally {
+        $heldShell.Dispose()
+    }
+    $survivors = @(Get-FixtureSurvivors -Markers @($heldPath))
+    if ($survivors.Count -ne 0) {
+        foreach ($survivor in $survivors) { Stop-Process -Id $survivor.ProcessId -Force -ErrorAction SilentlyContinue }
+        throw "A process of the held run survived its termination: $(($survivors | ForEach-Object { "$($_.Name) $($_.ProcessId)" }) -join ', ')"
+    }
+    if (-not (Test-Path -LiteralPath $heldReadyPath)) {
+        throw "The held fixture did not run past its budget: $heldMessage"
+    }
+    $heldLogText = if (Test-Path -LiteralPath $heldLogPath) { Get-Content -LiteralPath $heldLogPath -Raw } else { '' }
+    if ($heldMessage -notmatch 'did not finish within 4 s and was terminated' -or
+        $heldMessage -notmatch [regex]::Escape($heldLogPath) -or
+        $heldLogText -notmatch 'held:started' -or $heldLogText -match 'held:finished' -or $heldLogText -notmatch 'TIMEOUT:') {
+        throw "A child that had outrun its budget before the caller's thread ran again was granted the budget anew: '$heldMessage' (log: $heldLogText)"
+    }
+
     # A bounded child that never stops writing is still ended at its budget: the deadline is checked on every line,
     # so reads that always have a line ready cannot keep the run going. The child keeps the pipe full of short lines;
     # a wait that ended only when no line was ready would let it write for minutes.

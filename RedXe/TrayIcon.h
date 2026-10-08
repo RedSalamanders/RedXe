@@ -65,6 +65,10 @@ class TrayIcon final
   public:
     // Posted to the command target with a TrayCommand in wParam.
     static constexpr UINT kCommandMessage = WM_APP + 8;
+    // Posted to the command target when an add made outside Show (the re-add after the taskbar is created, or a retry)
+    // ends: S_OK in wParam once the icon is added, S_FALSE while the shell refuses it. A Show or Hide made after the
+    // post can change that, so the receiver reads Added() when the message arrives.
+    static constexpr UINT kAddResultMessage = WM_APP + 10;
 
     TrayIcon() noexcept = default;
     ~TrayIcon();
@@ -83,6 +87,11 @@ class TrayIcon final
     [[nodiscard]] bool Shown() const noexcept
     {
         return static_cast<bool>(_window);
+    }
+    // The icon is in the notification area at version 4.
+    [[nodiscard]] bool Added() const noexcept
+    {
+        return _iconAdded;
     }
 
   private:
@@ -108,6 +117,7 @@ class TrayIcon final
     [[nodiscard]] wil::unique_hicon LoadIconForDpi() const noexcept;
     void ShowMenu(POINT anchor) noexcept;
     void PostCommand(TrayCommand command) noexcept;
+    void PostAddResult(bool added) noexcept;
 
     HINSTANCE _instance = nullptr;
     HWND _commandTarget = nullptr;
