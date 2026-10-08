@@ -1202,9 +1202,9 @@ SettingsWriteSeam g_settingsWriteSeam{};
 
 // The same-directory temporary file of one document write (Core_Settings.md "Plugin persist"). Its handle shares
 // nothing and holds DELETE access, so no other program can open, change, rename, or delete the file until it is renamed
-// over the target through that handle, and the stamp read through it afterwards is the renamed file's. The handle is
-// write-through, which makes that rename durable when it returns, as MOVEFILE_WRITE_THROUGH does. Destruction closes
-// the handle and deletes the file unless a rename committed it.
+// over the target through that handle, and the stamp read through it afterwards is the renamed file's. The data is
+// flushed before the rename and the renamed file again after it, so the new name is on disk when a write returns.
+// Destruction closes the handle and deletes the file unless a rename committed it.
 class DocumentTemporary final
 {
   public:
@@ -1309,6 +1309,11 @@ class DocumentTemporary final
             return HRESULT_FROM_WIN32(GetLastError());
         }
         _renamed = true;
+        // A rename through a handle is not documented as durable on return, even on a write-through handle. Flushing
+        // the renamed file writes the file system's log through its changes, the new name included (NTFS and ReFS
+        // journal the rename). The rename has committed whatever the flush returns, so a failed flush is no failed
+        // write.
+        (void)FlushFileBuffers(_file.get());
         return S_OK;
     }
 

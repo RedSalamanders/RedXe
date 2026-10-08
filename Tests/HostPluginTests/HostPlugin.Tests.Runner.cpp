@@ -1841,7 +1841,27 @@ void TestTrayIconOwner(bool& success) noexcept
         Check(shown && refused == static_cast<WPARAM>(S_FALSE) && added == static_cast<WPARAM>(S_OK) &&
                   takePosted() == nothingPosted && Access::TrayIconAdded(tray),
               L"an add outside Show posts its outcome to the command target: refused, then added", success);
+
+        // What the main window records on arrival (TrayIconOutcomeOnArrival, then TrayIconFailureIsNew). A refusal
+        // posted after the taskbar restarted, overtaken by a settings apply whose Show added the icon before the post
+        // arrived, records success; once the icon is hidden, an arriving post records nothing.
+        script.add = false;
+        script.modify = false;
+        (void)SendMessageW(owner, taskbarCreated, 0, 0);
+        script.add = true;
+        const bool overtaken = tray.Show(instance, target.get()) == S_OK &&
+                               takePosted() == static_cast<WPARAM>(S_FALSE) &&
+                               TrayIconOutcomeOnArrival(tray.Shown(), tray.Added()) == S_OK;
+        tray.Hide();
+        Check(overtaken && !TrayIconOutcomeOnArrival(tray.Shown(), tray.Added()).has_value(),
+              L"a posted add result records the icon's state on arrival: a refusal a Show overtook records success, "
+              L"and a hidden icon records nothing",
+              success);
     }
+    Check(TrayIconFailureIsNew(S_FALSE, S_OK) && !TrayIconFailureIsNew(S_FALSE, S_FALSE) &&
+              TrayIconFailureIsNew(E_FAIL, S_FALSE) && !TrayIconFailureIsNew(S_OK, S_FALSE) &&
+              !TrayIconFailureIsNew(S_OK, S_OK),
+          L"tray-icon-failed is recorded once per change to a failed outcome, and never for a success", success);
 }
 
 // DockPlacement.h autohide state machine: every transition of the reveal/hide table, zero delays, holds, and the

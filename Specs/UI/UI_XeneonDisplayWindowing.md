@@ -764,9 +764,11 @@ the retry schedule (`TrayIconAddRetryDelayMilliseconds`), and the owner against 
 taskbar (`TestTrayIconOwner`: `Show` and `Hide` idempotent and the class unregistered, `WM_CLOSE` ignored, `NIM_DELETE`
 on every destruction while the owner exists, `TaskbarCreated` adding again, retries only while a taskbar exists and no
 timer after the last, no update after a timed-out add, `NIM_SETVERSION` after every add and every update an add falls
-back to before the icon counts as added, and a `WM_DPICHANGED` that updates an added icon by one `NIM_MODIFY` of
-`NIF_ICON` alone, with no `NIM_SETVERSION`, and makes no shell call for an icon not added, and an add outside `Show`
-posting its outcome, refused then added, to the command target), and `SettingsTests` proving `trayIcon`
+back to before the icon counts as added, a `WM_DPICHANGED` that updates an added icon by one `NIM_MODIFY` of
+`NIF_ICON` alone, with no `NIM_SETVERSION`, and makes no shell call for an icon not added, an add outside `Show` posting
+its outcome, refused then added, to the command target, and what the main window records when that post arrives
+(`TrayIconOutcomeOnArrival`, `TrayIconFailureIsNew`: a refusal a `Show` overtook records success, a hidden icon records
+nothing, and a failure logs once per change of outcome)), and `SettingsTests` proving `trayIcon`
 (`Specs/Core/Core_Settings.md`). Because the shell is not automated, they additionally require a live check: a Release
 run with the shipped template shows the icon with the `RedXe` tooltip (`Shell_NotifyIconGetRect` finds it); a
 double-click, and Enter on the keyboard-focused icon, open the settings file once in the default `.json` editor; a

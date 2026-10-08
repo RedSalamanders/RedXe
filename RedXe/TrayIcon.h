@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <windows.h>
 
 // After windows.h, which it needs; a block of its own so include sorting keeps that order.
@@ -58,6 +59,25 @@ enum class TrayIconAction : uint8_t
 {
     constexpr uint32_t kRetries = 4;
     return retry < kRetries ? 1000u << retry : 0u;
+}
+
+// Whether an add outcome is a failure the log has not recorded yet (tray-icon-failed): one record per change of
+// outcome, so the same failure met again by a settings apply or a retry logs nothing, and a success never logs.
+[[nodiscard]] constexpr bool TrayIconFailureIsNew(HRESULT result, HRESULT recorded) noexcept
+{
+    return result != S_OK && result != recorded;
+}
+
+// The outcome the main window records when the owner's add result (TrayIcon::kAddResultMessage) arrives: nothing for
+// an icon hidden since the post, otherwise the icon's state at arrival, whatever was posted, since a Show in between
+// may have added it.
+[[nodiscard]] constexpr std::optional<HRESULT> TrayIconOutcomeOnArrival(bool shown, bool added) noexcept
+{
+    if (!shown)
+    {
+        return std::nullopt;
+    }
+    return added ? S_OK : S_FALSE;
 }
 
 class TrayIcon final

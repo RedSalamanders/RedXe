@@ -330,15 +330,18 @@ reload.
 
 A document write (a widget persist, a `dock.thickness` drag, or a template install or recovery, with or without the
 first-run dock) writes a same-directory temporary file, MUST flush it to disk (`FlushFileBuffers`) before the
-write-through rename, and MUST treat a short write (`WriteFile` reporting fewer bytes and no error) as the failure
+rename, and MUST treat a short write (`WriteFile` reporting fewer bytes and no error) as the failure
 `ERROR_WRITE_FAULT`, so a power loss right after a save cannot leave the settings name on unwritten or truncated
 bytes. A failed write MUST NOT leave its temporary file behind. The temporary's handle is write-through, shares
-nothing, and renames the file through itself, so no other program can open the temporary before it is renamed and the
-rename is durable when it returns. The flush runs synchronously on the UI thread, once for each actual document write:
-the release of a dock drag that changed the thickness, a widget persist or queued import that changed the document,
-collect-on-exit only when the collect changed something (including when a page swipe commits, inside that frame's
-tick), and an install at startup. It never runs per frame, while idle, or on a live reload. Measured 2026-10-07 for a
-24 KB document on an NVMe system SSD: median about 2 ms and p95 under 2.5 ms, but the worst of 3,300 flushes took
+nothing, and renames the file through itself, so no other program can open the temporary before it is renamed. A
+rename through a handle is not documented as durable when it returns, so the write MUST flush the renamed file again
+after the rename, which writes the file system's log through the new name (NTFS and ReFS journal the rename); the
+rename has committed by then, so a failed second flush MUST NOT report a failed save. The flushes run synchronously on
+the UI thread, before and after the rename of each actual document write: the release of a dock drag that changed the
+thickness, a widget persist or queued import that changed the document, collect-on-exit only when the collect changed
+something (including when a page swipe commits, inside that frame's tick), and an install at startup. They never run
+per frame, while idle, or on a live reload. Measured 2026-10-07 for the data flush of a 24 KB document on an NVMe
+system SSD: median about 2 ms and p95 under 2.5 ms, but the worst of 3,300 flushes took
 about 235 ms while parallel builds ran on the machine, which a swipe commit shows as a visible hitch. The schema copy,
 refreshed from the deployed file on every start, is not flushed: a schema lost to a power loss is copied again at the
 next start.
