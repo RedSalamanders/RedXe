@@ -5662,7 +5662,7 @@ void TestQueuedInputAge(bool& success) noexcept
               std::strcmp(counters.lastAction.data(), "mouse.up") == 0,
           L"stale ups of the tracked chord and button release them; stale ups of another chord or button are dropped",
           success);
-    HostActions::ReleaseHeld(false);
+    HostActions::ReleaseHeld();
 
     HostActions::ResetCounters();
     Check(requestAction("keys.press", "Ctrl+W") == S_OK, L"a key press queues", success);
