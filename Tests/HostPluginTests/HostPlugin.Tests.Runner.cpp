@@ -6505,6 +6505,50 @@ void TestPublishedArraySchema(bool& success) noexcept
           L"unsupported string constraints are rejected even when a defaults array is empty", success);
 }
 
+// A widget that authors no settings gets exactly the defaults its DLL publishes. The host merges its own copy
+// (RedXe/SettingsV4.cpp, or a shared plugin settings header such as StudioClockSettings.h), so a default changed on one
+// side only fails here. Runs last: it maps every catalogued widget DLL into the process.
+void TestHostDefaultsMatchPublishedDefaults(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] host-merged widget defaults match each DLL's published defaults\n";
+    using unique_doc = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
+    for (const RedXeBundledWidgetSpec& widget : kRedXeBundledWidgets)
+    {
+        std::array<char, 160> json{};
+        const int written =
+            sprintf_s(json.data(), json.size(),
+                      R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"%s"}]}]})json", widget.pluginId);
+        AppSettings settings{};
+        HRESULT result =
+            written > 0 ? ParseAppSettingsJson(std::string_view(json.data(), static_cast<size_t>(written)), settings)
+                        : E_FAIL;
+        PluginHost::ModuleView module{};
+        if (SUCCEEDED(result))
+        {
+            result =
+                PluginHost::Instance().GetPluginModule(widget.pluginId, RedXePluginCapabilityWidgetProvider, &module);
+        }
+        const RedXePluginSettingsContract* contract = nullptr;
+        if (SUCCEEDED(result))
+        {
+            result = module.getSettingsContract ? module.getSettingsContract(widget.pluginId, &contract) : E_POINTER;
+        }
+        bool matches = false;
+        if (SUCCEEDED(result) && contract)
+        {
+            const JsonObjectSettings& merged = settings.dashboard.pages[0].widgets[0].privateConfiguration;
+            unique_doc host{yyjson_read(merged.utf8.data(), merged.bytes, YYJSON_READ_NOFLAG)};
+            unique_doc published{yyjson_read(contract->defaultsJsonUtf8, contract->defaultsBytes, YYJSON_READ_NOFLAG)};
+            matches = host && published &&
+                      yyjson_equals(yyjson_doc_get_root(host.get()), yyjson_doc_get_root(published.get()));
+        }
+        std::array<wchar_t, 160> message{};
+        (void)swprintf_s(message.data(), message.size(), L"%hs: the host merges the defaults the DLL publishes",
+                         widget.pluginId);
+        Check(matches, message.data(), success);
+    }
+}
+
 void TestPageEdgeAffordancePolicy(bool& success) noexcept
 {
     // A live multi-page dashboard in the middle of the document offers both directions.
@@ -7908,6 +7952,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestSettingsReloadKeepsCurrentPage(success);
     TestAdoptPrimaryDashboardIsTransactional(success);
     TestNativeWindowNeighborSwipe(success);
+    TestHostDefaultsMatchPublishedDefaults(success);
     std::wcout << (success ? L"HostPluginTests passed.\n" : L"HostPluginTests failed.\n");
     OleUninitialize();
     return success ? 0 : 1;

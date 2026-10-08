@@ -116,7 +116,6 @@ class SyntheticHidPort final : public HidPort
     [[nodiscard]] HRESULT SetFeature(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
                                      uint32_t timeoutMilliseconds) noexcept override;
     [[nodiscard]] bool Disconnected() const noexcept override;
-    void Cancel() noexcept override;
 
   private:
     SyntheticKeypad& _keypad;

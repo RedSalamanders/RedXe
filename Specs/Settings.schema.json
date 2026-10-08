@@ -320,10 +320,6 @@
         "buttons": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/logiconDialButton" } }
       }
     },
-    "zoomSettings": {
-      "type": "object",
-      "additionalProperties": false
-    },
     "retiredZoomMember": {
       "deprecated": true,
       "description": "Retired v1.0.102 Zoom SDK setting: accepted with any value and ignored (one warning in the log). Delete it."

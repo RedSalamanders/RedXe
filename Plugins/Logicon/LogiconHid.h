@@ -95,8 +95,6 @@ class HidPort
     [[nodiscard]] virtual HRESULT SetFeature(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
                                              uint32_t timeoutMilliseconds) noexcept = 0;
     [[nodiscard]] virtual bool Disconnected() const noexcept = 0;
-    // Cancels outstanding I/O so a blocked lane can return.
-    virtual void Cancel() noexcept = 0;
 };
 
 // Units of HID I/O blocks. A WindowsHidPort reserves one in Open before it allocates its block and releases it only
@@ -143,7 +141,6 @@ class WindowsHidPort final : public HidPort
     [[nodiscard]] HRESULT SetFeature(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
                                      uint32_t timeoutMilliseconds) noexcept override;
     [[nodiscard]] bool Disconnected() const noexcept override;
-    void Cancel() noexcept override;
 
   private:
     [[nodiscard]] HRESULT ArmRead() noexcept;

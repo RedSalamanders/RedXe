@@ -508,14 +508,6 @@ bool WindowsHidPort::Disconnected() const noexcept
     return _disconnected || !_io || !_io->handle;
 }
 
-void WindowsHidPort::Cancel() noexcept
-{
-    if (_io && _io->handle)
-    {
-        (void)CancelIoEx(_io->handle.get(), nullptr);
-    }
-}
-
 HotplugWatcher::~HotplugWatcher()
 {
     Stop();

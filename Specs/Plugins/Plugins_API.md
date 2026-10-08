@@ -843,7 +843,10 @@ equivalent complete bundled-plugin gallery.
 The host passes every bundled provider its compact effective settings in the normalized ABI envelope. Matrix Rain strictly rejects malformed,
 duplicate, unknown, and out-of-range members, copies normalized numeric settings during creation, and retains no
 borrowed JSON. A live page or settings change creates required providers and widgets transactionally; successfully
-mapped modules remain loaded.
+mapped modules remain loaded. Matrix Rain, 5H4D3R5, Studio Clock, and Desk Clock read the envelope with one shared
+strict reader, `Common/SettingsCursor.h`: strings without escapes or control characters, `true` and `false`, and
+unsigned 32-bit integers without a sign, fraction, exponent, or leading zero; any other value fails the read, the
+same way in all four.
 
 The plugin owns an original generated 192×288 `R8_UNORM` signed-distance-field atlas (64 vector-polyline glyphs in
 24×36 texel cells, the film's bold 2 : 3 glyph shape: 46 mirrored katakana-inspired shapes, the ten digits, eight
@@ -1141,7 +1144,9 @@ orders are `dd-mm-yyyy`, `mm-dd-yyyy`, and `yyyy-mm-dd`; `glowPercent` is an int
 merges defaults before factory creation. The plugin strictly rejects missing effective members, duplicate or unknown
 members (including `backgroundColor`), malformed booleans, colors, and date formats, a non-integer or out-of-range
 `glowPercent`, converts values once during provider creation, and retains no borrowed JSON. Its opaque background is
-`RedXeFactoryOptions::backgroundColor`.
+`RedXeFactoryOptions::backgroundColor`. The member list, defaults, date formats, `glowPercent` range, and published
+schema exist once in `Plugins/StudioClock/StudioClockSettings.h`, which the host parser compiles in too; a factory call
+without configuration MUST select exactly those defaults.
 
 The clock displays zero-padded local 24-hour `HH:MM` with an always-lit colon. Optional zero-padded seconds and the
 clockwise progress ring use `secondsColor`. The ring contains 60 ordinary second positions and one companion at every
@@ -1463,6 +1468,9 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     defaults to 15 and rejects 0 and 366.
     Long escaped identities/messages, split multibyte boundaries, and malformed UTF-8 MUST remain independently
     parseable JSONL with their HRESULT suffixes and the following record intact.
+12f. Host tests MUST prove, for every catalogued widget plugin, that a widget authoring no settings receives exactly
+    the defaults its DLL publishes through `RedXeGetPluginSettingsContract`, compared as JSON values, so the defaults
+    the host merges and the ones the DLL publishes cannot drift apart.
 13. Compile-time checks MUST validate unique bundled plugin IDs and module names, keep every widget projection entry
     backed by one module entry, and keep that projection within the 64-plugin settings limit.
 14. Keep `/W4`, `/permissive-`, SDL checks, and warnings-as-errors green.
@@ -1514,7 +1522,12 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     falloff, `secondsColor`, and 0.55 date weight, and no light on any border pixel of height-limited dated tiles),
     device recreation, zero steady render allocations with glow, one-upload/two-draw and 402-dot/804-instance bounds,
     resource sharing, five-minute scheduled host soak, and complete teardown through `StudioClockTests` and
-    `HostPluginTests`.
+    `HostPluginTests`. `StudioClockTests` MUST prove the DLL publishes exactly the defaults and schema of
+    `StudioClockSettings.h`; `SettingsTests` MUST prove that the Specs `studioClockSettings` definition (members,
+    defaults, date formats, `glowPercent` range), its widget variant, and the published schema match that catalog,
+    that the host merges its defaults, and that both host validators accept its date formats and `glowPercent`
+    maximum while the parser rejects one above; and a compile-time check MUST prove that the DLL's member table and
+    typed defaults are the catalog's.
 18. Verify Desk Clock defaults and normalized effective settings, strict duration/color validation,
     controlling-IUnknown identity, second-boundary and active-flip scheduling, transactional reconfiguration,
     inactive-gallery absence, deterministic rollover and date-change phases, landscape/portrait/minimum WARP readback,

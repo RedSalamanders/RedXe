@@ -1,7 +1,7 @@
 // Logicon tests that need no hardware: HID++ framing and the 0x19A1 image stream against the reference byte layout,
 // the shared settings model, key-face composition and JPEG round trips, the device session driven by the synthetic
-// keypad, the HID port's request path and I/O budget over named pipes, the raw-input wait and stop drain, and the
-// shipped DLL's factory, contract, service lifetime, device lane, and test exports.
+// keypad, the HID port's request path and I/O budget over named pipes, the raw-input wait, stop drain, and
+// registration ownership, and the shipped DLL's factory, contract, service lifetime, device lane, and test exports.
 
 #include "../../Common/FailureReports.h"
 #include "Actions/ActionTargets.h"
@@ -1120,6 +1120,87 @@ LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wPa
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Raw-input ownership: mouse raw input is one registration per process, so the listener neither replaces a prior
+// owner's registration nor removes a later one
+// ---------------------------------------------------------------------------------------------------------------
+
+constexpr USHORT kGenericDesktopPage = 0x01;
+constexpr USHORT kMouseUsage = 0x02;
+
+// Where this process's mouse raw input goes; registered is false while nothing in the process registered it.
+[[nodiscard]] bool MouseRawInputTarget(HWND& target, bool& registered) noexcept
+{
+    target = nullptr;
+    registered = false;
+    std::array<RAWINPUTDEVICE, 32> devices{};
+    UINT count = static_cast<UINT>(devices.size());
+    const UINT listed = GetRegisteredRawInputDevices(devices.data(), &count, sizeof(RAWINPUTDEVICE));
+    if (listed == static_cast<UINT>(-1))
+    {
+        return false;
+    }
+    for (UINT index = 0; index < listed; ++index)
+    {
+        if (devices[index].usUsagePage == kGenericDesktopPage && devices[index].usUsage == kMouseUsage)
+        {
+            target = devices[index].hwndTarget;
+            registered = true;
+        }
+    }
+    return true;
+}
+
+// Registers this process's mouse raw input to window, as another component of the process would; nullptr removes it.
+[[nodiscard]] bool RegisterMouseRawInput(HWND window) noexcept
+{
+    RAWINPUTDEVICE device{};
+    device.usUsagePage = kGenericDesktopPage;
+    device.usUsage = kMouseUsage;
+    device.dwFlags = window ? RIDEV_INPUTSINK : RIDEV_REMOVE;
+    device.hwndTarget = window;
+    return RegisterRawInputDevices(&device, 1, sizeof(device)) != FALSE;
+}
+
+[[nodiscard]] HRESULT TestRawInputOwners() noexcept
+{
+    using namespace Logicon;
+    // The other owner: a hidden, never-shown top-level window on this thread, like the listener's own.
+    const wil::unique_hwnd owner{CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC", L"raw input owner",
+                                                 WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, GetModuleHandleW(nullptr),
+                                                 nullptr)};
+    LOGICON_CHECK(owner.is_valid(), "the other owner's window is created");
+    // Whichever check fails, the cases after this one find no registration left behind.
+    const auto removeRegistration = wil::scope_exit([]() noexcept { (void)RegisterMouseRawInput(nullptr); });
+    RawWheelListener listener;
+    HWND target = nullptr;
+    bool registered = false;
+    LOGICON_CHECK(RegisterMouseRawInput(owner.get()) &&
+                      listener.Start(kVendorId, kDialpadProductId) == HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS) &&
+                      !listener.Running() && FindListenerWindow() == nullptr,
+                  "the listener refuses to start over a prior owner's registration and creates no window");
+    LOGICON_CHECK(MouseRawInputTarget(target, registered) && registered && target == owner.get(),
+                  "the prior owner keeps its registration");
+
+    LOGICON_CHECK(RegisterMouseRawInput(nullptr) && SUCCEEDED(listener.Start(kVendorId, kDialpadProductId)) &&
+                      MouseRawInputTarget(target, registered) && registered && target != nullptr &&
+                      target == FindListenerWindow(),
+                  "without a prior owner the listener registers its own window");
+    LOGICON_CHECK(RegisterMouseRawInput(owner.get()) && MouseRawInputTarget(target, registered) && registered &&
+                      target == owner.get(),
+                  "a later owner replaces the listener's registration");
+    listener.Stop();
+    LOGICON_CHECK(!listener.Running() && MouseRawInputTarget(target, registered) && registered && target == owner.get(),
+                  "stopping the listener leaves the later owner's registration in place");
+
+    LOGICON_CHECK(RegisterMouseRawInput(nullptr) && SUCCEEDED(listener.Start(kVendorId, kDialpadProductId)),
+                  "the listener starts again once the other owner is gone");
+    listener.Stop();
+    LOGICON_CHECK(MouseRawInputTarget(target, registered) && !registered,
+                  "stopping the listener removes its own registration");
+    return S_OK;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // The shipped DLL: factory, contract, service lifetime, device lane, and test exports
 // ---------------------------------------------------------------------------------------------------------------
 
@@ -1877,7 +1958,7 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
         {"settings model", TestSettings},          {"key faces", TestFaces},
         {"device session", TestDeviceSession},     {"HID port", TestHidPort},
         {"HID I/O budget", TestHidIoBudget},       {"dialpad", TestDialpad},
-        {"shipped module", TestShippedModule},
+        {"raw-input owners", TestRawInputOwners},  {"shipped module", TestShippedModule},
     };
     HRESULT result = S_OK;
     for (const Case& test : cases)
@@ -1904,7 +1985,7 @@ int wmain() noexcept
         std::wprintf(L"Logicon tests failed: 0x%08X\n", static_cast<unsigned int>(result));
         return 1;
     }
-    std::wprintf(
-        L"Logicon protocol, settings, face, device, HID port, HID I/O budget, dialpad, and module tests passed.\n");
+    std::wprintf(L"Logicon protocol, settings, face, device, HID port, HID I/O budget, dialpad, raw-input ownership, "
+                 L"and module tests passed.\n");
     return 0;
 }

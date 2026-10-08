@@ -268,7 +268,8 @@ Studio Clock settings are the closed object `showSecondProgress`, `externalDotsA
 `dd-mm-yyyy`, `mm-dd-yyyy`, and `yyyy-mm-dd`; `glowPercent` is an integer from 0 through 100. The host merges omitted
 members from these defaults before static validation and provider creation. Unknown members (including
 `backgroundColor`, which is host-owned), malformed booleans/colors, another date format, or a non-integer or
-out-of-range `glowPercent` reject the complete candidate.
+out-of-range `glowPercent` reject the complete candidate. The member list, date formats, `glowPercent` range, and
+defaults exist once in `Plugins/StudioClock/StudioClockSettings.h`, compiled into both the host parser and the DLL.
 
 Desk Clock settings are the closed object `flipDurationMilliseconds`, `cardColor`, `digitColor`, and `dateColor`.
 Defaults are respectively `420`, `#FF3B43`, `#FFFFFF`, and `#D8D8D8`. Duration is an integer from 250 through 800 and
@@ -477,7 +478,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 ## Required validation
 
 - Templates and canonical schema agree with version 5 and all syntax, count, size, and depth limits. The Release
-  template System last column compiles Gpu/Thermal/Power short-side ratios 2, 3, and 1.
+  template System last column compiles Gpu/Thermal/Power short-side ratios 2, 3, and 1. Every schema `$defs` entry is
+  referenced.
 - Tests reject version 4 documents, `layout` / `areas` / `arrangeAlong` / `sizeRatio`, nested `settings`, and
   `override`. They reject malformed syntax/version, duplicate and exact-version unknown members, unresolved
   references, invalid merge results, plugin settings failures, Process Viewer `topN` values outside 1 through 32,

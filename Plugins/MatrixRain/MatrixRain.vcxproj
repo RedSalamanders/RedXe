@@ -173,6 +173,7 @@
   <ItemGroup>
     <ClInclude Include="MatrixRainGlyphAtlas.h" />
     <ClInclude Include="MatrixRain.Tests.Contract.h" />
+    <ClInclude Include="..\..\Common\SettingsCursor.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />
