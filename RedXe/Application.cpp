@@ -3030,7 +3030,7 @@ void Application::RecordTrayIconResult(HRESULT result) noexcept
 {
     // One record per change of outcome, whether Show met it or a later add by the owner did (kAddResultMessage), so
     // an apply or a retry that meets the same failure again logs nothing.
-    if (result != S_OK && result != _trayIconResult)
+    if (TrayIconFailureIsNew(result, _trayIconResult))
     {
         (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
                            "tray-icon-failed",
@@ -6276,9 +6276,9 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         // Posted by the owner when an add outside Show ended. The icon's state now counts, not the posted outcome: a
         // settings apply that ran in between may have added the icon, and an icon hidden since then (trayIcon turned
         // off, or the window closing) has nothing left to record.
-        if (_trayIcon.Shown())
+        if (const std::optional<HRESULT> outcome = TrayIconOutcomeOnArrival(_trayIcon.Shown(), _trayIcon.Added()))
         {
-            RecordTrayIconResult(_trayIcon.Added() ? S_OK : S_FALSE);
+            RecordTrayIconResult(*outcome);
         }
         return 0;
     case kDockAppBarMessage:
