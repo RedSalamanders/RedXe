@@ -320,12 +320,13 @@ object it was supplied to.
   MUST NOT open that directory; it MUST instead copy each Warning and Error record, as its JSONL line, to stderr
   (`PluginHost::SetStandardErrorLog`), so the log of a failed check also names what explains it, such as the plugin
   whose module could not be mapped or the widget whose GPU setup failed (the Renderer's records included). The copy
-  is synchronous, one write per line under a lock, from the line formatted on the caller's stack: it allocates
-  nothing, and only this test mode, whose reader drains the pipe, makes it. Release drops `RedXeLogLevelDebug`. A
-  null record, a mismatched `sizeBytes`, a missing event id or message, or an unknown level returns `E_POINTER` /
-  `E_INVALIDARG`. Plugins MUST NOT call `Log` from `Render` or GDI paint and MUST NOT emit per-frame success. Factory
-  create, module map, placeholder construction, native attach, GPU device-create, GPU render failure (once per
-  instance and HRESULT), and weather forecast outcomes are the required coverage.
+  is synchronous and under a lock, from the line formatted on the caller's stack: one write per line to a pipe or a
+  file, and 256-byte chunks, converted to UTF-16, to a console (`WriteUtf8ToStandardError`). It allocates nothing, and
+  only this test mode, whose reader drains the pipe, makes it. Release drops `RedXeLogLevelDebug`. A null record, a
+  mismatched `sizeBytes`, a missing event id or message, or an unknown level returns `E_POINTER` / `E_INVALIDARG`.
+  Plugins MUST NOT call `Log` from `Render` or GDI paint and MUST NOT emit per-frame success. Factory create, module
+  map, placeholder construction, native attach, GPU device-create, GPU render failure (once per instance and HRESULT),
+  and weather forecast outcomes are the required coverage.
   Escaping and truncation MUST preserve complete JSON syntax, the optional HRESULT, one trailing newline, and valid
   UTF-8. Each identity has a bounded escaped-output budget, and message truncation reserves room for the record
   suffix. A partial final UTF-8 sequence is omitted; malformed input bytes are replaced with ASCII `?`.
@@ -1430,13 +1431,12 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     moves Desk Clock's glyph atlas to its higher tier and back down when the viewport shrinks, and that the widget
     still renders after a tier change. Also verify one notification for a DPI-only change, none for unchanged DPI,
     correct initial notification for a same-sized replacement page, and cache preservation on promotion.
-    With fault-injecting wrappers around placed GPU widgets on WARP, they MUST prove that a failed `OnDeviceCreated`,
-    at startup and while staging a page, releases the widgets already set up, sets up no later one, keeps the page
-    hidden (a staged page that was visible, as device recovery stages one again, is hidden for its setup and gets its
-    visibility back only from a staging that succeeds), and logs one Error `gpu-device-create-failed` with that
-    instance and `HRESULT`; and that a failed `OnTargetSizeChanged` releases nothing, is not retried per frame, leaves
-    that widget and its siblings rendering, and logs one Warning `gpu-target-size-failed` with that instance and
-    `HRESULT`.
+    With fault-injecting wrappers around placed GPU widgets on WARP, they MUST prove that a failed `OnDeviceCreated`, at
+    startup and while staging a page, releases the widgets already set up, sets up no later one, keeps the page hidden
+    (a staged page handed over visible is hidden for its setup and gets its visibility back only from a staging that
+    succeeds), and logs one Error `gpu-device-create-failed` with that instance and `HRESULT`; and that a failed
+    `OnTargetSizeChanged` releases nothing, is not retried per frame, leaves that widget and its siblings rendering, and
+    logs one Warning `gpu-target-size-failed` with that instance and `HRESULT`.
     Lifecycle tests MUST prove data/network widgets are hidden during all device callbacks and render after WARP
     recreation. Event-barrier tests MUST prove subscription release and deactivation wait for running and reserved
     callbacks, allow reactivation, and safely reuse released subscription slots.

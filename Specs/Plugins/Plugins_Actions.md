@@ -151,7 +151,7 @@ the full bar, never on the strip (`Specs/UI/UI_XeneonDisplayWindowing.md` "Autoh
 | `system.logoff` | Enum `now`, **X** | `ExitWindowsEx(EWX_LOGOFF)`. |
 | `system.shutdown`, `system.restart` | NowOrSeconds 0–3600, **X** | `InitiateSystemShutdownExW` under `SE_SHUTDOWN_NAME` with the countdown; `now` is 0 s. |
 | `system.shutdown.cancel` | None | `AbortSystemShutdownW`. |
-| `system.process.close` | Window selector | `WM_CLOSE` to the selected window; never terminates a process. |
+| `system.process.close` | Window selector | `WM_CLOSE` to the selected window, or to every window an `exe:` selector matches (at most 16); never terminates a process. |
 | `system.power.plan` | Text: `balanced`, `highPerformance`, `powerSaver`, or a GUID | `PowerSetActiveScheme`. |
 | `system.theme` | Enum `light` / `dark` / `toggle` | `AppsUseLightTheme` and `SystemUsesLightTheme` under `HKCU\...\Themes\Personalize`, then `WM_SETTINGCHANGE` `ImmersiveColorSet`. |
 | `system.taskManager` | None, **D** | Launches `Taskmgr.exe` on the launch worker. |
@@ -220,7 +220,7 @@ caller-owned bounded storage.
 | **Chords** | `chord(,chord)*`, at most `kMaximumChords` (8); `chord` = `(Mod+)*Key`; `Mod` ∈ `Ctrl`, `Shift`, `Alt`, `Win`; `Key` is a letter, digit, `F1`–`F24`, one of the named keys in `docs/actions.md`, or `VK:<hex>`; names are case-insensitive (`ParseChords` → `ChordSequence` of `KeyChord`). |
 | **Point** | `<x>,<y>` (physical virtual-screen pixels), `+<dx>,+<dy>`, or `center`, each optionally `@<monitor>` (`ParsePoint`). |
 | **Monitor** | `primary`, `secondary` (the first display in `EnumDisplayMonitors` order that is neither the primary nor the display XENEON discovery found, and that XENEON only when it is the only display that is not the primary: `SecondaryMonitorRank`, the dock's rule too; the host repeats discovery on every `WM_DISPLAYCHANGE`), `xeneon` (the monitor hosting RedXe's window), `<n>` (1-based `EnumDisplayMonitors` order, counting a display whose information cannot be read), `name:<substring>` (`ParseMonitorSelector`; an action matches the GDI device name, `\\.\DISPLAYn`, without case). `all` is accepted only in the trailing `@<monitor>` of an action flagged `MonitorSuffix`; a **Monitor** target and a **Point**'s `@<monitor>` reject it. An action whose selector names no display MUST fail with `ERROR_NOT_FOUND`: unlike the dock it never falls back to the primary, so `secondary` on a single display is not found. `HostActions::VisitMonitor` is the per-display step of that search. |
-| **Window** | `foreground`, `exe:<image.exe>`, `class:<class>`, `title:<substring>` (`ParseWindowSelector`; `WindowSelector.cpp` selects the first visible non-tool top-level window in Z order without allocating). |
+| **Window** | `foreground`, `exe:<image.exe>`, `class:<class>`, `title:<substring>` (`ParseWindowSelector`; `WindowSelector.cpp` walks the visible, ownerless, non-tool top-level windows in Z order without allocating and selects the first match, except that `system.process.close` takes every match of an `exe:` selector, at most 16; `foreground` is the foreground window itself). |
 | **Meeting** | A complete Zoom browser link (`ParseMeeting`, `Plugins_Zoom.md`): `https://`, then `zoom.us` or a subdomain with no `@`, `:`, `#`, or `?` in the authority, then `/j/<id>`, `/wc/join/<id>`, or `/wc/<id>/join` with a 9–11 digit id, ending the path or followed by `?` or `#`; printable ASCII without `"`, `<`, `>`, or `\`. |
 | **NowOrSeconds** | `now`, or a decimal delay in seconds within the bounds (`ParseNowOrSeconds`). |
 

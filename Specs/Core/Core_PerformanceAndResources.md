@@ -102,7 +102,7 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   window, retaining its full-size swap chain (about 4 MiB for a 3840×270 bar) so a reveal presents at once without
   rebuilding it. Shell traffic (`SHAppBarMessage`) happens only on placement, activation, window-position changes,
   shell notifications, and the first-run install (two `ABM_GETAUTOHIDEBAREX` queries, made only when the default
-  settings file is installed because it is missing), never per frame, never at a start that finds the settings file,
+  settings file is installed because it is missing, so a start that finds the file makes neither), never per frame,
   and never for a reveal, a hide, or a slide step. The work-area reservation (the
   whole bar of a fixed reserving bar, the peek strip of an autohide bar) is queried and set again only when a placement
   changes the reserved rectangle, its edge, row, or monitor DPI, or follows a shell change (`ABN_POSCHANGED`,
@@ -260,9 +260,9 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   `RedXeLogLevelDebug`. The call is allocation-free on the
   caller, never blocks on disk, and is forbidden from GPU `Render` and GDI paint. Only `--self-test`, which opens no
   log directory, also writes each Warning and Error line to stderr on the calling thread, from the line it formatted
-  on its stack, one write per line under a lock; that test mode's reader drains the pipe. Plugin HTTP bodies that can
-  exceed a few kilobytes MUST live on the heap; a 256 KiB automatic array on the network worker overflows the default
-  thread stack (`STATUS_STACK_OVERFLOW`).
+  on its stack, under a lock (one write per line to a pipe or a file, 256-byte chunks to a console); that test mode's
+  reader drains the pipe. Plugin HTTP bodies that can exceed a few kilobytes MUST live on the heap; a 256 KiB automatic
+  array on the network worker overflows the default thread stack (`STATUS_STACK_OVERFLOW`).
 - A raised overlay creates no HWND and no GDI object. Its dim strips and shadow are host quads drawn after the tiles
   and before the raised widget so plugin pixels stay undimmed; the close control is drawn after the raised widget.
   Raise and restore MAY present for a clamped 160–240 ms ease; that motion is presentation-paced and then idle.

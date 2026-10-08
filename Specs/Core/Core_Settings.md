@@ -355,16 +355,16 @@ replaces that in-memory document; writes resume once the file on disk is again t
 
 A widget persist that changes the document (collect-on-exit and a queued import included) writes the whole document
 again from its parsed form, which keeps no comments, and that document MUST use a compact, readable layout with
-two-space indentation and a final LF newline. Keep
-empty objects and arrays inline. Keep small objects inline when they fit a soft 120-byte line width; a single scalar
-property stays together even when its indivisible string or path exceeds that width. Keep the root object, nonempty
-`declare`, `pages`, `widgets`, `columns`, `rows`, and `shortcuts` sections multiline, and put each nonempty array item on its own
-line. The internal plugin/factory settings representations remain compact. Reject a formatted result exceeding
-1 MiB and roll back the typed and source state. Preserve semantic values, member order and compatible newer-minor
-fields. Formatting changes only whitespace outside JSON tokens and runs only when saving settings. The other writes
-keep the document's own text: the `dock.thickness` drag and the first-run dock are source edits that leave every byte
-outside their patch as it was, comments included ("Dock", "Cold load and recovery"), and an install writes the
-template's bytes unchanged.
+two-space indentation and a final LF newline. Keep empty objects and arrays inline. Keep small objects inline when they
+fit a soft 120-byte line width; a single scalar property stays together even when its indivisible string or path exceeds
+that width. Keep the root object, nonempty `declare`, `pages`, `widgets`, `columns`, `rows`, and `shortcuts` sections
+multiline, and put each nonempty array item on its own line. The internal plugin/factory settings representations remain
+compact. Reject a formatted result exceeding 1 MiB and roll back the typed and source state. Preserve semantic values,
+member order and compatible newer-minor fields. Formatting changes only whitespace outside JSON tokens and runs only
+when saving settings. The other writes keep the document's own text: the `dock.thickness` drag and the first-run dock
+are source edits that leave every byte outside their patch as it was, comments included, except that the first-run patch
+removes the template's commented-out `dock` example and the comment lines that introduce it ("Dock", "Cold load and
+recovery"), and an install without the first-run dock writes the template's bytes unchanged.
 If an interactive save arrives while an older patch for that instance is queued, apply the older patch first, then
 the interactive patch. A failed older commit is logged and must not prevent a valid newer save. Neither may run
 under the queue lock. A detached UI delivery batch must not drain newer worker submissions ahead of itself.

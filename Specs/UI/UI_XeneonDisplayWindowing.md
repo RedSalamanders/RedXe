@@ -829,12 +829,11 @@ back without a restart; restarting Explorer brings it back; and a Debug run with
   `FinishWindowKindSwitch`, and the `StandardPlacement` a switch and its rollback share), the renderer start
   `StartPresentation` that `RebuildPresentation` shares with `InitializeDashboardRuntime`, `PlaceStandardWindow`, the
   dock-only reload and its rollback in `ApplyDockSettings`, and the combined page-and-kind reload in `ApplySettings`;
-  the deferred reload: `OnSettingsChanged` and
-  `ReplayDeferredSettingsReload`; the failure message box and the unattended runs that never show it:
-  `RunApplication` in `RedXe/Main.cpp` and `Application::SetUnattended`; the first-run dock:
-  `MakeFirstRunDock` in `RedXe/Application.cpp`, made through `FirstRunDockProvider` (`RedXe/Settings.h`) only when
-  the store installs a missing file; the display walk the dock, the first-run dock, and the standard window read:
-  `EnumerateDisplays` and `EffectiveMonitorDpi` in `RedXe/DisplayEnumeration.*`; session end:
+  the deferred reload: `OnSettingsChanged` and `ReplayDeferredSettingsReload`; the failure message box and the
+  unattended runs that never show it: `RunApplication` in `RedXe/Main.cpp` and `Application::SetUnattended`; the
+  first-run dock: `MakeFirstRunDock` in `RedXe/Application.cpp`, made through `FirstRunDockProvider`
+  (`RedXe/Settings.h`) only when the store installs a missing file; the display walk the dock, the first-run dock, and
+  the standard window read: `EnumerateDisplays` and `EffectiveMonitorDpi` in `RedXe/DisplayEnumeration.*`; session end:
   `Application::OnEndSession`, its deadline through `CloseMainWindow` and `PluginHost::TeardownStageMilliseconds`
 - Dock placement, monitor selection, MINMAXINFO, the autohide state machine, the slide, and the first-run monitor,
   edge, and thickness: `RedXe/DockPlacement.h`; what each mode reserves and the registration messages of a placement

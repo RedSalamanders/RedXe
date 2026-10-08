@@ -103,8 +103,8 @@ runs, and `AVControlBroker.exe` calls it when it is started as a synthetic helpe
   goes through `Invoke-RedXeStreamingProcess` with a budget and a log, and keeps its exit-code check. `RedXe.exe --help`
   writes the catalog to a redirected stdout as UTF-8
   ([`UI_XeneonDisplayWindowing.md`](../UI/UI_XeneonDisplayWindowing.md)): `test.ps1` runs it from a background job like
-  the routing check's, under console output code page 437, and requires the catalog's title with its U+2014 intact,
-  which only the UTF-8 decoding of stdout keeps.
+  the routing check's, under console output code page 437, and requires the U+2014 of the catalog's title line intact,
+  which only the UTF-8 decoding of stdout keeps. The title's wording is the catalog's to change.
 - A test executable never turns an HRESULT into its exit code: its low byte can be 0, which passes the run, or 3. A
   failed suite prints its HRESULT and returns 1.
 - A new test executable calls the header first, so an unattended run on a developer's desktop never holds a dialog.
@@ -224,11 +224,11 @@ Changes to this contract require:
 
 ## Public DxUi access in CI
 
-`RedSalamanders/DxUi` is public. Anonymous HTTPS Git access and public Actions API reads were verified
-on 2026-09-09. Both consumers can restore their exact pin without configuring a secret. Sharing an
-organization does not add any setup requirement. CI may use its automatic `github.token` for API rate
-limits; this is provided by GitHub and is not a personal access token. Source URLs, logs and shipped
-provenance contain no credentials. The existing advisory lookup also works without authentication.
+`RedSalamanders/DxUi` is public. Anonymous HTTPS Git access and public Actions API reads were verified on 2026-09-09.
+RedXe restores its exact pin without configuring a secret. Sharing an organization does not add any setup requirement.
+CI may use its automatic `github.token` for API rate limits; this is provided by GitHub and is not a personal access
+token. Source URLs, logs and shipped provenance contain no credentials. The existing advisory lookup also works without
+authentication.
 
 ## Scoped iteration and PR coverage
 
