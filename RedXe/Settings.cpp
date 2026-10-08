@@ -1438,7 +1438,20 @@ class DocumentTemporary final
     {
         // No POSIX rename here: a classic replacement refuses any open target, the guard included.
         guard.reset();
+#if defined(REDXE_SETTINGS_TESTS)
+        if (g_settingsWriteSeam.checkpoint)
+        {
+            g_settingsWriteSeam.checkpoint(SettingsWritePhase::GuardReleased, g_settingsWriteSeam.context);
+        }
+#endif
         result = temporary.Rename(target, false, true);
+        if (result == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION) || result == E_ACCESSDENIED)
+        {
+            // Another program opened the file in the moment without the guard and holds it now, as one the guard
+            // could not open past: the change waits for a later persist instead of failing and rolling back.
+            (void)stillExpected();
+            return S_FALSE;
+        }
     }
     if (FAILED(result))
     {

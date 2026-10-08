@@ -3199,6 +3199,8 @@ struct EditorAtCommit final
         SaveInPlace,
         ReplaceAtomically,
         Delete,
+        // Opens the file for reading without FILE_SHARE_DELETE and keeps it open in `held`.
+        Hold,
     };
     SettingsWritePhase phase = SettingsWritePhase::Flushed;
     Act act = Act::SaveInPlace;
@@ -3206,6 +3208,7 @@ struct EditorAtCommit final
     std::string_view bytes;
     DWORD error = ERROR_SUCCESS;
     uint32_t calls = 0;
+    wil::unique_hfile held;
 };
 
 void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
@@ -3219,6 +3222,13 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
         if (editor.act == EditorAtCommit::Act::Delete)
         {
             editor.error = DeleteFileW(editor.file.c_str()) ? ERROR_SUCCESS : GetLastError();
+            return;
+        }
+        if (editor.act == EditorAtCommit::Act::Hold)
+        {
+            editor.held.reset(CreateFileW(editor.file.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                          FILE_ATTRIBUTE_NORMAL, nullptr));
+            editor.error = editor.held ? ERROR_SUCCESS : GetLastError();
             return;
         }
         if (editor.act == EditorAtCommit::Act::SaveInPlace)
@@ -3437,7 +3447,29 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
         if (!write(document) || !applyChangedFile())
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
-        // Without POSIX rename the guard is released for a classic replacement, which commits.
+        // Without POSIX rename the guard is released for a classic replacement. A program that opens the file in that
+        // moment holds it as one the guard could not open past: the persist defers and keeps its change instead of
+        // failing and rolling it back, and leaves the file and no temporary behind.
+        editor.phase = SettingsWritePhase::GuardReleased;
+        editor.act = EditorAtCommit::Act::Hold;
+        editor.calls = 0;
+        SettingsWriteSeam classicHeld{};
+        classicHeld.withoutPosixRename = true;
+        classicHeld.checkpoint = &ActAtCommit;
+        classicHeld.context = &editor;
+        SetSettingsWriteSeamForTesting(classicHeld);
+        const HRESULT heldPersist = persistSeed(store, *loaded, id, 38);
+        editor.held.reset();
+        if (heldPersist != S_FALSE || editor.calls != 1 || editor.error != ERROR_SUCCESS || !memorySeed(*loaded, 38) ||
+            !holds(document) || !store.TakeDeferredPersistNotice() || CountTemporaries(directory) != 0)
+        {
+            std::wprintf(L"A file opened while the guard was released for a classic replacement did not defer the "
+                         L"persist (0x%08X, error %lu).\n",
+                         static_cast<unsigned int>(heldPersist), editor.error);
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // Once the file is free, the classic replacement commits.
         SettingsWriteSeam classic{};
         classic.withoutPosixRename = true;
         SetSettingsWriteSeamForTesting(classic);
