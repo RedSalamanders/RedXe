@@ -381,12 +381,14 @@ enum class SettingsReloadStatus : std::uint8_t
 // SettingsTests seam for the document writer (Core_Settings.md "Plugin persist"). `writeFile` stands in for the
 // WriteFile call that fills a document's temporary file. `checkpoint` runs inside a guarded persist replacement: at
 // Flushed once the temporary is flushed, while the guard on the target is held and before the last identity check and
-// the rename, and at Renamed after the rename, before the new stamp is read through the renamed file's handle.
+// the rename; at GuardReleased, without POSIX rename only, after the guard is released and before the classic rename;
+// and at Renamed after the rename, before the new stamp is read through the renamed file's handle.
 // `withoutPosixRename` makes the POSIX replacement fail with ERROR_INVALID_PARAMETER, as a file system without it
 // does. A default-constructed seam restores the production behavior.
 enum class SettingsWritePhase : uint8_t
 {
     Flushed,
+    GuardReleased,
     Renamed,
 };
 struct SettingsWriteSeam final
