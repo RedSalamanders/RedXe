@@ -30,7 +30,8 @@ enum class DockMode : uint8_t
 };
 
 // Settings ranges and defaults (Core_Settings.md "dock"). Thickness is DIPs across the edge; peek is physical pixels
-// because the strip is a screen-edge target whose size only affects how visible it is.
+// because the strip is a screen-edge target the pointer reaches at any size: its size sets only how visible it is and
+// how much of the work area it reserves.
 inline constexpr uint32_t kDockMinimumThicknessDips = 32;
 inline constexpr uint32_t kDockMaximumThicknessDips = 1080;
 inline constexpr uint32_t kDockDefaultThicknessDips = 180;
@@ -825,8 +826,10 @@ struct DockMonitorCandidate final
     return primary;
 }
 
-// Autohide state machine (UI_Dashboard.md "Autohide dock"). The window is the peek strip in Hidden and RevealPending
-// and the full rectangle otherwise; the dashboard is visible only in Revealed and HidePending.
+// Autohide state machine (UI_XeneonDisplayWindowing.md "Autohide"). Once any slide has ended, the window is the peek
+// strip in Hidden and RevealPending and the full rectangle otherwise, and the dashboard is visible only in Revealed and
+// HidePending. A slide (DockSlide* above) sizes the window in between and keeps the dashboard visible from the first
+// frame of a reveal to the last frame of a hide (Application::DockHidden).
 enum class DockRevealState : uint8_t
 {
     Revealed = 0,

@@ -47,6 +47,7 @@ DWORD g_heldMouseData = 0;
 Hold g_mouse{};
 #if defined(REDXE_HOST_PLUGIN_TESTS)
 HRESULT g_injectionFailure = S_OK;
+InjectionLog g_injectionLog{};
 #endif
 
 void CountExecution(const RedXeActionDescriptor& descriptor) noexcept
@@ -100,6 +101,13 @@ void CountExecution(const RedXeActionDescriptor& descriptor) noexcept
 {
     g_counters.injectedInputs += count;
 #if defined(REDXE_HOST_PLUGIN_TESTS)
+    for (uint32_t index = 0; index < count; ++index, ++g_injectionLog.count)
+    {
+        if (g_injectionLog.count < g_injectionLog.records.size())
+        {
+            g_injectionLog.records[g_injectionLog.count] = inputs[index];
+        }
+    }
     if (FAILED(g_injectionFailure))
     {
         return g_injectionFailure;
@@ -639,88 +647,46 @@ void ExpireHeld() noexcept
     return S_OK;
 }
 
-struct MonitorSearch final
+// ResolveMonitor's EnumDisplayMonitors context: the search, and the display the main window is on.
+struct MonitorWalk final
 {
-    const MonitorSelector* selector = nullptr;
-    HMONITOR xeneon = nullptr;
-    uint32_t index = 0;
-    // The SecondaryMonitorRank of the display `rectangle` holds for a `secondary` selector.
-    uint32_t secondaryRank = 0;
-    RECT rectangle{};
-    bool found = false;
+    MonitorSearch search;
+    HMONITOR hostMonitor = nullptr;
 };
 
 BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter) noexcept
 {
-    MonitorSearch& search = *reinterpret_cast<MonitorSearch*>(parameter);
-    ++search.index;
+    MonitorWalk& walk = *reinterpret_cast<MonitorWalk*>(parameter);
     MONITORINFOEXW info{};
     info.cbSize = sizeof(info);
     if (!GetMonitorInfoW(monitor, &info))
     {
-        return TRUE;
+        return VisitMonitor(walk.search, nullptr) ? TRUE : FALSE;
     }
-    bool matched = false;
-    switch (search.selector->kind)
-    {
-    case MonitorSelector::Kind::Primary:
-        matched = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
-        break;
-    case MonitorSelector::Kind::Secondary:
-    {
-        // The first display of the highest rank: a XENEON is kept only until another display that is not the
-        // primary turns up, which ends the search.
-        const uint32_t rank = SecondaryMonitorRank((info.dwFlags & MONITORINFOF_PRIMARY) != 0,
-                                                   g_xeneonFound && EqualRect(&info.rcMonitor, &g_xeneonBounds));
-        if (rank <= search.secondaryRank)
-        {
-            return TRUE;
-        }
-        search.secondaryRank = rank;
-        search.rectangle = info.rcMonitor;
-        search.found = true;
-        return rank < kSecondaryMonitorTopRank ? TRUE : FALSE;
-    }
-    case MonitorSelector::Kind::Xeneon:
-        matched = monitor == search.xeneon;
-        break;
-    case MonitorSelector::Kind::Index:
-        matched = search.index == search.selector->index;
-        break;
-    case MonitorSelector::Kind::Name:
-    {
-        std::array<wchar_t, 129> needle{};
-        matched = Utf8ToWide(search.selector->name, needle.data(), static_cast<int>(needle.size())) &&
-                  ContainsIgnoreCase(info.szDevice, needle.data());
-        break;
-    }
-    default:
-        break;
-    }
-    if (!matched)
-    {
-        return TRUE;
-    }
-    search.rectangle = info.rcMonitor;
-    search.found = true;
-    return FALSE;
+    MonitorCandidate display{};
+    display.bounds = info.rcMonitor;
+    display.device = info.szDevice;
+    display.primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
+    display.hostWindow = monitor == walk.hostMonitor;
+    display.xeneon = g_xeneonFound && EqualRect(&info.rcMonitor, &g_xeneonBounds);
+    return VisitMonitor(walk.search, &display) ? TRUE : FALSE;
 }
 
 [[nodiscard]] bool ResolveMonitor(const MonitorSelector& selector, RECT& rectangle) noexcept
 {
-    MonitorSearch search{};
-    search.selector = &selector;
-    search.xeneon = g_hostWindow ? MonitorFromWindow(g_hostWindow, MONITOR_DEFAULTTOPRIMARY) : nullptr;
-    if (selector.kind == MonitorSelector::Kind::Xeneon && !search.xeneon)
+    MonitorWalk walk{};
+    walk.search.selector = selector;
+    walk.hostMonitor = g_hostWindow ? MonitorFromWindow(g_hostWindow, MONITOR_DEFAULTTOPRIMARY) : nullptr;
+    if (selector.kind == MonitorSelector::Kind::Xeneon && !walk.hostMonitor)
     {
         return false;
     }
-    (void)EnumDisplayMonitors(nullptr, nullptr, EnumerateMonitors, reinterpret_cast<LPARAM>(&search));
-    if (search.found)
+    (void)EnumDisplayMonitors(nullptr, nullptr, EnumerateMonitors, reinterpret_cast<LPARAM>(&walk));
+    if (walk.search.found)
     {
-        rectangle = search.rectangle;
+        rectangle = walk.search.rectangle;
     }
-    return search.found;
+    return walk.search.found;
 }
 
 [[nodiscard]] HRESULT MoveCursor(std::string_view target, bool deviceAccess) noexcept
@@ -1127,6 +1093,59 @@ void SetXeneonDisplay(const RECT& bounds, bool found) noexcept
     g_xeneonFound = found;
 }
 
+bool VisitMonitor(MonitorSearch& search, const MonitorCandidate* display) noexcept
+{
+    using Kind = RedXeActions::MonitorSelector::Kind;
+    ++search.visited;
+    if (!display)
+    {
+        return true;
+    }
+    bool matched = false;
+    switch (search.selector.kind)
+    {
+    case Kind::Primary:
+        matched = display->primary;
+        break;
+    case Kind::Secondary:
+    {
+        // The first display of the highest rank: a XENEON is kept only until another display that is not the
+        // primary turns up, which ends the search.
+        const uint32_t rank = RedXeActions::SecondaryMonitorRank(display->primary, display->xeneon);
+        if (rank <= search.secondaryRank)
+        {
+            return true;
+        }
+        search.secondaryRank = rank;
+        search.rectangle = display->bounds;
+        search.found = true;
+        return rank < RedXeActions::kSecondaryMonitorTopRank;
+    }
+    case Kind::Xeneon:
+        matched = display->hostWindow;
+        break;
+    case Kind::Index:
+        matched = search.visited == search.selector.index;
+        break;
+    case Kind::Name:
+    {
+        std::array<wchar_t, 129> needle{};
+        matched = display->device && Utf8ToWide(search.selector.name, needle.data(), static_cast<int>(needle.size())) &&
+                  ContainsIgnoreCase(display->device, needle.data());
+        break;
+    }
+    default:
+        break;
+    }
+    if (!matched)
+    {
+        return true;
+    }
+    search.rectangle = display->bounds;
+    search.found = true;
+    return false;
+}
+
 HRESULT ValidateExtra(const RedXeActionDescriptor& descriptor, std::string_view target) noexcept
 {
     const std::string_view name{descriptor.name};
@@ -1148,9 +1167,8 @@ HRESULT ValidateExtra(const RedXeActionDescriptor& descriptor, std::string_view 
     return S_OK;
 }
 
-void ReleaseHeld(bool deviceAccess) noexcept
+void ReleaseHeld() noexcept
 {
-    (void)deviceAccess;
     // The last attempt: nothing is left to retry a refused release after this.
     (void)ReleaseChord(false, false);
     (void)ReleaseMouse(false, false);
@@ -1201,12 +1219,20 @@ Counters CopyCounters() noexcept
 void ResetCounters() noexcept
 {
     g_counters = Counters{};
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+    g_injectionLog = InjectionLog{};
+#endif
 }
 
 #if defined(REDXE_HOST_PLUGIN_TESTS)
 void FailInjectionForTesting(HRESULT failure) noexcept
 {
     g_injectionFailure = failure;
+}
+
+InjectionLog CopyInjectionLogForTesting() noexcept
+{
+    return g_injectionLog;
 }
 #endif
 } // namespace HostActions

@@ -113,15 +113,14 @@ without touching the user's normal crash directory.
 Debug builds open as a standard titled window on the XENEON monitor when one is active, otherwise they use normal
 shell-selected placement. Release builds search the active display topology for a CORSAIR XENEON monitor and open
 borderless fullscreen on that monitor. If no XENEON monitor is present, RedXe asks whether it should continue in a
-standard titled window. A `dock` setting (or `--dock`) runs RedXe as a bar on a screen edge instead, in both builds and
-without that prompt ([Dock](docs/usage.md#dock)), and the first start without a XENEON that finds no default settings
-file installs one: an auto-hiding bar on the second display when there is more than one
-([First start without a XENEON](docs/usage.md#first-start-without-a-xeneon)); set `"edge": "none"` in that file for the
-behavior above. Every standard-window path uses a 2560×720 logical client canvas at 96 DPI, matching the
-XENEON EDGE native 32:9 canvas. Per-monitor-v2 scaling derives the initial physical size from the window's actual
-monitor and recalculates the non-client frame during `WM_DPICHANGED`, preserving the exact logical canvas when moving
-between monitors with different zoom levels. The title bar and borders sit outside the render area. The self-test
-remains hidden and noninteractive in every configuration and verifies the DPI-adjusted default client dimensions.
+standard titled window. A `dock` in the settings file (or `--dock`) runs either build as a bar on a screen edge instead,
+without that question, and the settings file a first start without a XENEON creates already holds an auto-hiding bar:
+see [Window](docs/usage.md#window) and [Dock](docs/usage.md#dock). Every standard-window path uses a 2560×720 logical
+client canvas at 96 DPI, matching the XENEON EDGE native 32:9 canvas. Per-monitor-v2 scaling derives the initial
+physical size from the window's actual monitor and recalculates the non-client frame during `WM_DPICHANGED`, preserving
+the exact logical canvas when moving between monitors with different zoom levels. The title bar and borders sit outside
+the render area. The self-test remains hidden and noninteractive in every configuration and verifies the DPI-adjusted
+default client dimensions.
 
 ## Settings and live reload
 

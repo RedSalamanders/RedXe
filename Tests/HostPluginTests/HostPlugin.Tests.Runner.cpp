@@ -3,6 +3,7 @@
 #include "../../Plugins/Weather/Weather.Tests.Contract.h"
 #include "DashboardHost.h"
 #include "DeskClock.Tests.Contract.h"
+#include "DisplayEnumeration.h"
 #include "DockPlacement.h"
 #include "FrameScheduler.h"
 #include "HostActions.h"
@@ -25,6 +26,7 @@
 #include "WindowCapture.h"
 
 #include <shellapi.h>
+#include <shellscalingapi.h>
 #include <tlhelp32.h>
 
 #include <algorithm>
@@ -256,6 +258,12 @@ struct PluginHostTestAccess final
         return host._launches._count;
     }
 
+    // A stop's wait ran out, so a later stop only checks whether the launch thread has exited (LaunchWorker::Stop).
+    [[nodiscard]] static bool LaunchStopWaitedOut(const PluginHost& host) noexcept
+    {
+        return host._launches._waitedOut;
+    }
+
     // Stops the writer and forgets the directory, so later records are dropped again as before SetLogDirectory. A test
     // that points the process host's log (the one Renderer writes through) at a temporary directory restores it so.
     static void DetachLog(PluginHost& host) noexcept
@@ -288,6 +296,9 @@ struct PluginHostTestAccess final
     }
 
     static constexpr UINT_PTR kTrayAddRetryTimerId = TrayIcon::kAddRetryTimerId;
+    // The shell's callback to the owner window, with the icon ID in the high word of lParam.
+    static constexpr UINT kTrayCallbackMessage = TrayIcon::kCallbackMessage;
+    static constexpr UINT kTrayIconId = TrayIcon::kIconId;
 };
 
 struct PluginManagerTestAccess final
@@ -935,6 +946,76 @@ void TestDockPlacement(bool& success) noexcept
           L"an autohide registration holds its edge only while its window exists", success);
 }
 
+// DisplayEnumeration.h: the one display walk behind the dock's monitor selection and the first-run bar. On this
+// machine's displays it records what an EnumDisplayMonitors walk reports, in that order, so the display a first-run
+// `secondary` is measured on is the one the selector resolves to at runtime; it skips a display it cannot read, stops
+// at kMaximumDisplays, and counts a DPI it cannot read as 96 (EffectiveMonitorDpi, which the standard window reads
+// too).
+void TestDisplayEnumeration(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] display walk order, rectangles, and DPI\n";
+    struct Walk final
+    {
+        std::array<HMONITOR, kMaximumDisplays> handles{};
+        std::array<MONITORINFOEXW, kMaximumDisplays> info{};
+        size_t count = 0;
+    } walk;
+    const auto collect = [](HMONITOR monitor, HDC, LPRECT, LPARAM data) noexcept -> BOOL
+    {
+        auto& target = *reinterpret_cast<Walk*>(data);
+        MONITORINFOEXW info{};
+        info.cbSize = sizeof(info);
+        if (target.count < target.info.size() && GetMonitorInfoW(monitor, &info))
+        {
+            target.handles[target.count] = monitor;
+            target.info[target.count] = info;
+            ++target.count;
+        }
+        return TRUE;
+    };
+    DisplayEnumeration displays;
+    EnumerateDisplays(displays);
+    (void)EnumDisplayMonitors(nullptr, nullptr, collect, reinterpret_cast<LPARAM>(&walk));
+    bool same = displays.count == walk.count;
+    for (size_t index = 0; same && index < displays.count; ++index)
+    {
+        const DockMonitorCandidate& candidate = displays.candidates[index];
+        const MONITORINFOEXW& expected = walk.info[index];
+        UINT dpiX = 0;
+        UINT dpiY = 0;
+        const UINT dpi = SUCCEEDED(GetDpiForMonitor(walk.handles[index], MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) && dpiX != 0
+                             ? dpiX
+                             : USER_DEFAULT_SCREEN_DPI;
+        same = EqualRect(&candidate.monitor, &expected.rcMonitor) && EqualRect(&candidate.work, &expected.rcWork) &&
+               candidate.primary == ((expected.dwFlags & MONITORINFOF_PRIMARY) != 0) && candidate.dpi == dpi &&
+               EffectiveMonitorDpi(walk.handles[index]) == dpi && candidate.deviceName == expected.szDevice &&
+               candidate.deviceName.data() == displays.info[index].szDevice && !candidate.xeneon &&
+               candidate.friendlyName.empty();
+    }
+    Check(same, L"the display walk records every display EnumDisplayMonitors reports, in its order", success);
+    // The first-run selection over that walk: the primary for one display, a display that is not the primary for more.
+    RedXeActions::MonitorSelector selector{};
+    bool fellBack = true;
+    const size_t chosen = RedXeActions::ParseMonitorSelector(DockFirstRunMonitor(displays.count), false, selector)
+                              ? SelectDockMonitor(selector, {}, displays.candidates.data(), displays.count, fellBack)
+                              : SIZE_MAX;
+    Check(displays.count == 0 ||
+              (chosen < displays.count && !fellBack && displays.candidates[chosen].primary == (displays.count == 1)),
+          L"the first-run monitor resolves over the walk to the primary alone or to the second screen", success);
+
+    DisplayEnumeration bounded;
+    bool continued = AppendDisplay(bounded, nullptr) && bounded.count == 0;
+    for (size_t index = 0; walk.count > 0 && index < kMaximumDisplays; ++index)
+    {
+        continued = continued && AppendDisplay(bounded, walk.handles[0]);
+    }
+    Check(continued &&
+              (walk.count == 0 || (bounded.count == kMaximumDisplays && !AppendDisplay(bounded, walk.handles[0]) &&
+                                   bounded.count == kMaximumDisplays)),
+          L"the display walk skips a display it cannot read and stops after its last slot", success);
+    Check(EffectiveMonitorDpi(nullptr) == USER_DEFAULT_SCREEN_DPI, L"a DPI that cannot be read counts as 96", success);
+}
+
 // DockPlacement.h placement requests: a request heard while a placement runs (a display, work-area, DPI, or app-bar
 // message sent during its shell calls) is recorded rather than dropped, the running placement makes one more pass for
 // it with the recorded resize flags, and the extra passes stop at kDockMaximumExtraPlacementPasses.
@@ -1527,19 +1608,38 @@ void TestDashboardSlideOffsetRetry(bool& success) noexcept
         dashboard.Shutdown();
         return;
     }
-    const auto containerTop = [&window, container]() noexcept -> LONG
+    // The container's rectangle in the host's client coordinates, empty when it cannot be read.
+    const auto containerBounds = [&window, container]() noexcept -> RECT
     {
         RECT bounds{};
         if (!GetWindowRect(container, &bounds))
         {
-            return -1;
+            return RECT{};
         }
         MapWindowPoints(HWND_DESKTOP, window.Get(), reinterpret_cast<POINT*>(&bounds), 2);
-        return bounds.top;
+        return bounds;
     };
-    Check(containerTop() == 270 && SUCCEEDED(dashboard.SetSlideOffset(POINT{0, -90})) && containerTop() == 180 &&
-              SUCCEEDED(dashboard.SetSlideOffset(POINT{})) && containerTop() == 270,
-          L"a slide offset moves the native container and the zero offset puts it back", success);
+    // `bounds` is `settled` moved by `offset`, at the same size.
+    const auto movedBy = [](const RECT& bounds, const RECT& settled, POINT offset) noexcept
+    {
+        RECT expected = settled;
+        OffsetRect(&expected, offset.x, offset.y);
+        return !IsRectEmpty(&settled) && EqualRect(&bounds, &expected) != FALSE;
+    };
+    const RECT settled = containerBounds();
+    Check(settled.top == 270 && settled.bottom == 540, L"the native container settles in the lower row", success);
+    // A top bar halfway through its slide translates the page up, a left bar's to the left; the container moves with
+    // the GPU tiles by the hidden part and keeps its size.
+    const POINT topSlide = DockSlideContentOffset(DockEdge::Top, static_cast<LONG>(barHeight), 450);
+    const POINT leftSlide = DockSlideContentOffset(DockEdge::Left, static_cast<LONG>(barWidth), 1160);
+    Check(topSlide.x == 0 && topSlide.y == -90 && SUCCEEDED(dashboard.SetSlideOffset(topSlide)) &&
+              movedBy(containerBounds(), settled, topSlide),
+          L"a top bar's slide moves the native container up with the page, at its size", success);
+    Check(leftSlide.x == -120 && leftSlide.y == 0 && SUCCEEDED(dashboard.SetSlideOffset(leftSlide)) &&
+              movedBy(containerBounds(), settled, leftSlide),
+          L"a left bar's slide moves the native container left with the page, at its size", success);
+    Check(SUCCEEDED(dashboard.SetSlideOffset(POINT{})) && movedBy(containerBounds(), settled, POINT{}),
+          L"the zero offset that ends a slide puts the container back where it settled", success);
 
     Check(DestroyWindow(container) != FALSE, L"the test destroys the container behind the host", success);
     const HRESULT moved = dashboard.SetSlideOffset(POINT{0, -90});
@@ -1731,6 +1831,41 @@ void TestTrayIconOwner(bool& success) noexcept
         Check(TrayCallsSince(from, {NIM_MODIFY}) && script.modifyFlags == NIF_ICON && script.modifyIcon != nullptr &&
                   Access::TrayIconAdded(tray),
               L"WM_DPICHANGED updates an added icon's image alone, with no NIM_SETVERSION", success);
+
+        // The owner turns the shell's callbacks into commands posted to the main window. The context menu takes the
+        // foreground, so it is a live check; the callbacks below do not.
+        const wil::unique_hwnd target{CreateWindowExW(0, L"STATIC", L"tray command target", 0, 0, 0, 0, 0, HWND_MESSAGE,
+                                                      nullptr, instance, nullptr)};
+        from = script.count;
+        Check(target && tray.Show(instance, target.get()) == S_OK && script.count == from,
+              L"Show names the command target of a shown icon without a shell call", success);
+        const auto callback = [owner](UINT event) noexcept
+        { (void)SendMessageW(owner, Access::kTrayCallbackMessage, 0, MAKELPARAM(event, Access::kTrayIconId)); };
+        // The commands posted to the target since the last call, and the last one's TrayCommand.
+        const auto takeCommands = [&target](WPARAM& last) noexcept
+        {
+            uint32_t count = 0;
+            MSG message{};
+            while (
+                PeekMessageW(&message, target.get(), TrayIcon::kCommandMessage, TrayIcon::kCommandMessage, PM_REMOVE))
+            {
+                last = message.wParam;
+                ++count;
+            }
+            return count;
+        };
+        WPARAM command = 0;
+        callback(NIN_SELECT);
+        callback(WM_LBUTTONDOWN);
+        callback(WM_LBUTTONUP);
+        Check(takeCommands(command) == 0, L"single clicks on the icon post no command", success);
+        callback(WM_LBUTTONDBLCLK);
+        Check(takeCommands(command) == 1 && command == static_cast<WPARAM>(TrayCommand::EditSettings),
+              L"a double-click on the icon posts Edit settings to the main window", success);
+        callback(NIN_KEYSELECT);
+        callback(WM_LBUTTONDBLCLK);
+        Check(takeCommands(command) == 0,
+              L"Enter on the icon or another double-click within the double-click time posts nothing", success);
 
         // The taskbar refuses both the add and the update.
         script.add = false;
@@ -1963,16 +2098,22 @@ void TestDockPresentation(bool& success) noexcept
 
     // A frame halfway through a top bar's slide: the window is 90 of the 180 rows and the dashboard is translated up by
     // the hidden 90, so the bar's inner edge leads. Tiles keep their size, sit partly above the target, and draw.
-    const RECT settledTile = dashboard.PixelBoundsAt(0, barWidth, barHeight);
+    const std::array<RECT, 2> settledTiles{dashboard.PixelBoundsAt(0, barWidth, barHeight),
+                                           dashboard.PixelBoundsAt(1, barWidth, barHeight)};
     const POINT halfway = DockSlideContentOffset(DockEdge::Top, static_cast<LONG>(barHeight), 90);
     Check(SetWindowPos(window.Get(), nullptr, 0, 0, static_cast<int>(barWidth), 90,
                        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE &&
               SUCCEEDED(dashboard.SetSlideOffset(halfway)) && SUCCEEDED(renderer.RefreshLayout()),
           L"the dock test sizes the window and translates the dashboard for a slide frame", success);
-    const RECT slidTile = dashboard.PixelBoundsAt(0, barWidth, barHeight);
-    Check(slidTile.top == settledTile.top - 90 && slidTile.bottom == settledTile.bottom - 90 &&
-              slidTile.left == settledTile.left && slidTile.right == settledTile.right,
-          L"a slide offset moves every tile by the hidden part without resizing it", success);
+    bool everyTileMoved = dashboard.WidgetCount() == settledTiles.size();
+    for (size_t index = 0; everyTileMoved && index < settledTiles.size(); ++index)
+    {
+        RECT expected = settledTiles[index];
+        OffsetRect(&expected, 0, -90);
+        const RECT slid = dashboard.PixelBoundsAt(index, barWidth, barHeight);
+        everyTileMoved = EqualRect(&slid, &expected) != FALSE;
+    }
+    Check(everyTileMoved, L"a slide offset moves every tile by the hidden part without resizing it", success);
     result = renderer.Render(0.3f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 2 && renderer.LastFrameSuccessfulWidgetCount() == 2,
           L"a slide frame draws every tile at its translated viewport", success);
@@ -1980,9 +2121,11 @@ void TestDockPresentation(bool& success) noexcept
                        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE &&
               SUCCEEDED(dashboard.SetSlideOffset(POINT{})) && SUCCEEDED(renderer.RefreshLayout()),
           L"the dock test ends the slide", success);
-    const RECT restoredTile = dashboard.PixelBoundsAt(0, barWidth, barHeight);
-    Check(EqualRect(&settledTile, &restoredTile) != FALSE, L"the end of the slide leaves the tiles where they were",
-          success);
+    const std::array<RECT, 2> restoredTiles{dashboard.PixelBoundsAt(0, barWidth, barHeight),
+                                            dashboard.PixelBoundsAt(1, barWidth, barHeight)};
+    Check(EqualRect(&settledTiles[0], &restoredTiles[0]) != FALSE &&
+              EqualRect(&settledTiles[1], &restoredTiles[1]) != FALSE,
+          L"the end of the slide leaves the tiles where they were", success);
     result = renderer.Render(0.4f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 2, L"the settled bar presents its tiles", success);
     renderer.Shutdown();
@@ -4221,7 +4364,8 @@ using GpuFaults = std::array<wil::com_ptr_nothrow<FaultInjectingGpuWidget>, 3>;
 
 // The two GPU callback failures the host logs (Plugins_API.md "GPU widget contract"). A failed OnDeviceCreated fails
 // the device setup of its whole page, at startup and when a page is staged for a swipe: the widgets set up before it
-// are released, the page stays hidden, and one Error gpu-device-create-failed names the instance and the HRESULT. A
+// are released, the page stays hidden (a staged page that was visible gets its visibility back only from a staging that
+// succeeds), and one Error gpu-device-create-failed names the instance and the HRESULT. A
 // failed OnTargetSizeChanged is isolated: the widget keeps its previous resources and still renders beside the others,
 // the notification is not retried per frame, and one Warning gpu-target-size-failed names the instance and HRESULT.
 void TestGpuWidgetCallbackFailures(bool& success)
@@ -4273,8 +4417,10 @@ void TestGpuWidgetCallbackFailures(bool& success)
     DashboardHost staged;
     if (SUCCEEDED(result))
         result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
+    // The staged page starts visible, as a staged page is when device recovery stages it again: the host hides it for
+    // its device setup and gives it back its visibility only when the setup succeeds.
     if (SUCCEEDED(result))
-        result = staged.Initialize(stagedPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+        result = staged.Initialize(stagedPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
     const char* const firstId = SUCCEEDED(result) ? plugins.WidgetInstanceIdAt(0) : nullptr;
     const char* const secondId = SUCCEEDED(result) ? plugins.WidgetInstanceIdAt(1) : nullptr;
     const char* const thirdId = SUCCEEDED(result) ? stagedPlugins.WidgetInstanceIdAt(2) : nullptr;
@@ -4315,16 +4461,30 @@ void TestGpuWidgetCallbackFailures(bool& success)
 
     // Staging for a swipe: the third widget fails; the staged page is dropped and the current page keeps drawing.
     stagedFaults[2]->deviceCreatedFailure = kStagingFailure;
+    const bool stagedVisible = staged.WidgetsVisible();
     result = renderer.SetTransitionDashboard(&staged);
-    Check(result == kStagingFailure && stagedFaults[0]->deviceLostCalls == 1 && stagedFaults[1]->deviceLostCalls == 1 &&
-              stagedFaults[2]->deviceCreatedCalls == 1 && stagedFaults[2]->deviceLostCalls == 0 &&
-              !staged.WidgetsVisible(),
-          L"a failed OnDeviceCreated on a staged page releases its widgets already set up and fails the staging",
+    Check(stagedVisible && result == kStagingFailure && stagedFaults[0]->deviceLostCalls == 1 &&
+              stagedFaults[1]->deviceLostCalls == 1 && stagedFaults[2]->deviceCreatedCalls == 1 &&
+              stagedFaults[2]->deviceLostCalls == 0 && !staged.WidgetsVisible(),
+          L"a failed OnDeviceCreated on a visible staged page releases its widgets already set up, leaves the page "
+          L"hidden, and fails the staging",
           success);
     result = renderer.Render(0.1f, 0.1f);
     Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 3 && renderer.LastFrameSuccessfulWidgetCount() == 3 &&
               stagedFaults[0]->renderCalls == 0,
           L"the current page keeps drawing and the dropped staged page draws nothing", success);
+    // Once the widget succeeds, the same visible page stages: its visibility returns after the setup, and dropping it
+    // releases its widgets and hides it.
+    stagedFaults[2]->deviceCreatedFailure = S_OK;
+    result = staged.SetWidgetsVisible(true);
+    if (SUCCEEDED(result))
+        result = renderer.SetTransitionDashboard(&staged);
+    Check(SUCCEEDED(result) && staged.WidgetsVisible() && stagedFaults[0]->deviceCreatedCalls == 2 &&
+              stagedFaults[2]->deviceCreatedCalls == 2,
+          L"a staging that succeeds gives the staged page its visibility back after its device setup", success);
+    Check(SUCCEEDED(renderer.SetTransitionDashboard(nullptr)) && !staged.WidgetsVisible() &&
+              stagedFaults[0]->deviceLostCalls == 2 && stagedFaults[2]->deviceLostCalls == 1,
+          L"dropping the staged page releases its widgets and hides it", success);
 
     // Resize: the first widget's size notification fails; it keeps its resources and draws, and so do the others.
     std::array<uint32_t, 3> sizes{};
@@ -4819,6 +4979,70 @@ void TestHostJsonlLog(bool& success) noexcept
     Check(!std::filesystem::exists(stale, existsError) && !std::filesystem::exists(staleRelease, existsError) &&
               !std::filesystem::exists(legacy, existsError) && !std::filesystem::exists(legacyRotated, existsError),
           L"dated logs older than retention and legacy undated log files are deleted", success);
+}
+
+// PluginHost::SetStandardErrorLog, which --self-test turns on because it opens no log directory: each Warning and
+// Error record is also written to stderr as its JSONL line, Info and Debug records are not, and nothing is written
+// while it is off. The test points the process's standard error handle at a pipe for the duration.
+void TestStandardErrorLog(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] host records on stderr: warnings and errors only, and only when asked\n";
+    wil::unique_handle reader;
+    wil::unique_handle writer;
+    const HANDLE standardError = GetStdHandle(STD_ERROR_HANDLE);
+    if (!CreatePipe(reader.addressof(), writer.addressof(), nullptr, 64 * 1024) ||
+        !SetStdHandle(STD_ERROR_HANDLE, writer.get()))
+    {
+        Check(false, L"stderr can be pointed at a pipe", success);
+        return;
+    }
+    bool restored = false;
+    const auto restore = wil::scope_exit(
+        [&]() noexcept
+        {
+            if (!restored)
+            {
+                (void)SetStdHandle(STD_ERROR_HANDLE, standardError);
+            }
+        });
+    // No log directory, as in the self-test: the records reach no file.
+    PluginHost host;
+    const auto log = [&host](RedXeLogLevel level, const char* event) noexcept
+    {
+        const RedXeLogRecord record{sizeof(RedXeLogRecord),
+                                    level,
+                                    "builtin.matrix-rain",
+                                    nullptr,
+                                    event,
+                                    "a record for the standard error test.",
+                                    level == RedXeLogLevelInfo || level == RedXeLogLevelDebug ? S_OK : E_FAIL};
+        return host.Interface()->Log(&record) == S_OK;
+    };
+    bool logged = log(RedXeLogLevelError, "stderr-before");
+    host.SetStandardErrorLog(true);
+    logged = log(RedXeLogLevelError, "stderr-error") && log(RedXeLogLevelWarning, "stderr-warning") &&
+             log(RedXeLogLevelInfo, "stderr-info") && log(RedXeLogLevelDebug, "stderr-debug") && logged;
+    host.SetStandardErrorLog(false);
+    logged = log(RedXeLogLevelWarning, "stderr-after") && logged;
+    restored = SetStdHandle(STD_ERROR_HANDLE, standardError) != FALSE;
+    writer.reset();
+    std::string text;
+    std::array<char, 4096> chunk{};
+    DWORD read = 0;
+    while (ReadFile(reader.get(), chunk.data(), static_cast<DWORD>(chunk.size()), &read, nullptr) && read != 0)
+    {
+        text.append(chunk.data(), read);
+    }
+    Check(restored && logged && CountText(text, "\n") == 2 && text.starts_with("{\"ts\":\"") &&
+              text.find("\"level\":\"error\",\"plugin\":\"builtin.matrix-rain\",\"event\":\"stderr-error\"") !=
+                  std::string::npos &&
+              text.find("\"level\":\"warning\",\"plugin\":\"builtin.matrix-rain\",\"event\":\"stderr-warning\"") !=
+                  std::string::npos &&
+              CountText(text, "\"hr\":\"0x80004005\"}\n") == 2,
+          L"each Warning and Error record reaches stderr as one complete JSONL line with its HRESULT", success);
+    Check(text.find("stderr-info") == std::string::npos && text.find("stderr-debug") == std::string::npos &&
+              text.find("stderr-before") == std::string::npos && text.find("stderr-after") == std::string::npos,
+          L"Info and Debug records, and every record while the copy is off, stay off stderr", success);
 }
 
 void TestHostOwnedPlaceholderTiles(bool& success) noexcept
@@ -5359,7 +5583,7 @@ void TestQueuedInputAge(bool& success) noexcept
         Check(false, L"a temporary log directory can be created", success);
         return;
     }
-    HostActions::ReleaseHeld(false);
+    HostActions::ReleaseHeld();
     HostActions::ResetCounters();
     RedXeActionRequest request{};
     request.sizeBytes = sizeof(request);
@@ -5684,12 +5908,13 @@ void TestSessionEndDeadline(bool& success) noexcept
 
     // The whole sequence against that deadline: what ran before the waits (widget collection, shell calls) shortens
     // them; the device lanes are all signalled first and drain together, so a stuck lane uses the lane budget while a
-    // responsive lane stopped after it has already returned; a launch stuck in the shell waits only for what is left;
-    // and the log flush keeps its reserve. The deadline here is shorter than either stage's own bound (3 s, 1 s), so
-    // only the shared deadline can hold it. The checks are on the budget each stage is handed and on the waits timed
-    // around its blocking call, with scheduling margins as in TestLaunchWorker (a wait can end a timer tick early, and
-    // late on a loaded runner). The flush itself is not timed: FlushLog's timeout bounds a hung writer and is not a
-    // latency budget for the disk, so the log is read after a 10 s hang guard instead of the budget the flush gets.
+    // responsive lane stopped after it (when a second service is catalogued) has already returned; a launch stuck in
+    // the shell waits only for what is left; and the log flush keeps its reserve. The deadline here is shorter than
+    // either stage's own bound (3 s, 1 s), so only the shared deadline can hold it. The checks are on the budget each
+    // stage is handed and on the waits timed around its blocking call, with scheduling margins as in TestLaunchWorker
+    // (a wait can end a timer tick early, and late on a loaded runner). The flush itself is not timed: FlushLog's
+    // timeout bounds a hung writer and is not a latency budget for the disk, so the log is read after a 10 s hang guard
+    // instead of the budget the flush gets.
     LaunchProbe probe;
     probe.entered.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
     probe.release.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
@@ -5794,7 +6019,7 @@ void TestSessionEndDeadline(bool& success) noexcept
               success);
         Check(lanes && CountText(log, "\"event\":\"device-lane-drain-timeout\"") == 1 &&
                   CountText(log, "\"event\":\"service-stopped\"") == stoppedServices,
-              L"a responsive lane stopped after a stuck one drains within that budget; only the stuck one times out",
+              L"only the stuck lane times out within that budget, and a responsive lane stopped after it (with a second service) drains",
               success);
         Check(exited && launchBudget < LaunchWorker::kStopMilliseconds / 2 && launchWaited < launchBudget + 500 &&
                   CountText(log, "\"event\":\"launch-stop-timeout\"") == 1,
@@ -5805,8 +6030,8 @@ void TestSessionEndDeadline(bool& success) noexcept
     }
 
     // A spent deadline gives an idle launch worker no time to exit (StopLaunches(0)). That is no launch in progress:
-    // nothing is logged, the thread exits by itself, and the shutdown after it waits for the thread again and joins
-    // it.
+    // nothing is logged, and the zero wait leaves the next stop its wait (LaunchWorker::Stop's exemption), so the
+    // shutdown after it, made without waiting for the thread first, waits for the exiting thread and joins it.
     {
         const std::unique_ptr<PluginHost> owned{new (std::nothrow) PluginHost};
         if (!owned)
@@ -5822,6 +6047,7 @@ void TestSessionEndDeadline(bool& success) noexcept
         const bool ran =
             host.ExecuteAction(&request) == S_FALSE && DrainLaunches(host, window.get()) && host.LaunchWorkerRunning();
         host.StopLaunches(0);
+        const bool waitLeft = !PluginHostTestAccess::LaunchStopWaitedOut(host);
         // Logged after the stop, so a launch-stop-timeout it logged would be in the file before this record.
         const RedXeLogRecord marker{sizeof(RedXeLogRecord),
                                     RedXeLogLevelInfo,
@@ -5832,13 +6058,13 @@ void TestSessionEndDeadline(bool& success) noexcept
                                     S_OK};
         const bool marked = host.Interface()->Log(&marker) == S_OK && SUCCEEDED(host.FlushLog(10'000));
         const std::string log = ReadTodayLog(root / L"idle");
-        const bool exited = WaitForSingleObject(PluginHostTestAccess::LaunchThread(host), 5'000) == WAIT_OBJECT_0;
         host.Shutdown();
         Check(ran && marked && CountText(log, "\"event\":\"idle-stop-checked\"") == 1 &&
                   CountText(log, "\"event\":\"launch-stop-timeout\"") == 0,
               L"a zero-wait stop of an idle launch worker logs no launch-stop-timeout", success);
-        Check(exited && !host.LaunchWorkerRunning(),
-              L"that worker exits by itself and the shutdown after it joins the thread", success);
+        Check(waitLeft && !host.LaunchWorkerRunning(),
+              L"that zero wait leaves the next stop its wait, so the shutdown after it joins the exiting thread",
+              success);
     }
 }
 
@@ -5894,6 +6120,8 @@ void TestActionValidation(bool& success) noexcept
     Check(host.ValidateAction(&request, nullptr) == S_OK, L"a monitor-relative point validates", success);
     request.targetUtf8 = "center@secondary";
     Check(host.ValidateAction(&request, nullptr) == S_OK, L"a point on the second screen validates", success);
+    request.targetUtf8 = "center@all";
+    Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a point's own @<monitor> never takes all", success);
     request.targetUtf8 = "+10,20";
     Check(host.ValidateAction(&request, nullptr) == E_INVALIDARG, L"a half-relative point is invalid", success);
     request.actionUtf8 = "system.power.plan";
@@ -5905,6 +6133,21 @@ void TestActionValidation(bool& success) noexcept
     request.targetUtf8 = nullptr;
     Check(host.ValidateAction(&request, nullptr) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND),
           L"an unregistered namespace is not found", success);
+    // The monitor grammar Action.h gives publishers (no shipped action uses it yet): a Monitor target takes every
+    // selector but `all`, which only the trailing @<monitor> of an action flagged MonitorSuffix accepts.
+    RedXeActionDescriptor monitorTarget{};
+    monitorTarget.sizeBytes = sizeof(monitorTarget);
+    monitorTarget.targetKind = RedXeActionTargetMonitor;
+    RedXeActionDescriptor monitorSuffix = monitorTarget;
+    monitorSuffix.flags = RedXeActionFlagMonitorSuffix;
+    monitorSuffix.targetKind = RedXeActionTargetInteger;
+    monitorSuffix.targetMinimum = 1;
+    monitorSuffix.targetMaximum = 9;
+    Check(RedXeActions::ValidateTarget(monitorTarget, "secondary") == S_OK &&
+              RedXeActions::ValidateTarget(monitorTarget, "all") == E_INVALIDARG &&
+              RedXeActions::ValidateTarget(monitorSuffix, "3@secondary") == S_OK &&
+              RedXeActions::ValidateTarget(monitorSuffix, "3@all") == S_OK,
+          L"a Monitor target takes secondary but not all; a monitor suffix takes both", success);
 
     // Registered publishers: mapping Logicon.dll reads its contract; the zoom contract comes from zoom.action.dll.
     request.actionUtf8 = "logicon.keyPage.goto";
@@ -6001,6 +6244,174 @@ void TestActionValidation(bool& success) noexcept
     host.SetDeviceAccessEnabled(true);
 }
 
+// mouse.move's monitor search (Plugins_Actions.md, the Monitor target kind): HostActions::VisitMonitor, the step the
+// EnumDisplayMonitors callback takes for each display, over scripted displays in enumeration order; then the whole
+// search on this machine's displays through mouse.move with device access, whose injection the test seam fails, so
+// SendInput never runs and the record shows where the cursor would have gone.
+void TestActionMonitorSelection(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] action monitor selection: primary, secondary, xeneon, index, and name\n";
+    using HostActions::MonitorCandidate;
+    MonitorCandidate primary{};
+    primary.bounds = RECT{0, 0, 2560, 1440};
+    primary.device = L"\\\\.\\DISPLAY1";
+    primary.primary = true;
+    MonitorCandidate left{};
+    left.bounds = RECT{-1920, 0, 0, 1080};
+    left.device = L"\\\\.\\DISPLAY2";
+    MonitorCandidate right{};
+    right.bounds = RECT{2560, 0, 5120, 1440};
+    right.device = L"\\\\.\\DISPLAY12";
+    MonitorCandidate xeneon{};
+    xeneon.bounds = RECT{0, 1440, 2560, 2160};
+    xeneon.device = L"\\\\.\\DISPLAY3";
+    xeneon.xeneon = true;
+    MonitorCandidate underWindow = right;
+    underWindow.hostWindow = true;
+    // The search over `displays`, as the callback runs it: display by display until it has its answer. A null entry
+    // is a display whose information could not be read.
+    const auto resolves = [](std::string_view selector, std::initializer_list<const MonitorCandidate*> displays,
+                             const MonitorCandidate* expected) noexcept
+    {
+        HostActions::MonitorSearch search{};
+        if (!RedXeActions::ParseMonitorSelector(selector, false, search.selector))
+        {
+            return false;
+        }
+        for (const MonitorCandidate* display : displays)
+        {
+            if (!HostActions::VisitMonitor(search, display))
+            {
+                break;
+            }
+        }
+        return expected ? search.found && EqualRect(&search.rectangle, &expected->bounds) != FALSE : !search.found;
+    };
+    Check(resolves("primary", {&left, &primary, &right}, &primary), L"primary is the primary display wherever it is",
+          success);
+    Check(resolves("secondary", {&primary, &left, &right}, &left) && resolves("secondary", {&left, &primary}, &left),
+          L"secondary is the first display that is not the primary, before or after it", success);
+    Check(resolves("secondary", {&xeneon, &primary, &right}, &right) &&
+              resolves("secondary", {&primary, &xeneon}, &xeneon),
+          L"secondary skips a XENEON for another display, and is the XENEON only when no other display is left",
+          success);
+    Check(resolves("secondary", {&primary}, nullptr) && resolves("4", {&left, &primary, &right}, nullptr),
+          L"a single display has no secondary and an absent number names none: an action never falls back to the "
+          L"primary",
+          success);
+    Check(resolves("xeneon", {&primary, &xeneon, &underWindow}, &underWindow),
+          L"xeneon is the display the main window is on", success);
+    Check(resolves("2", {&left, &primary, &right}, &primary) && resolves("2", {nullptr, &left, &primary}, &left),
+          L"a number counts displays in enumeration order, one that could not be read included", success);
+    Check(resolves("name:display2", {&primary, &left, &right}, &left) &&
+              resolves("name:display1", {&right, &primary}, &right) &&
+              resolves("name:DELL", {&primary, &left}, nullptr),
+          L"name: is the first GDI device name containing the text without case, and no friendly name", success);
+
+    // This machine's displays, through mouse.move with device access.
+    RedXeActionRequest request{};
+    request.sizeBytes = sizeof(request);
+    request.actionUtf8 = "mouse.move";
+    request.targetUtf8 = "center@primary";
+    const RedXeActionDescriptor* move = nullptr;
+    if (PluginHost::Instance().ValidateAction(&request, &move) != S_OK || !move)
+    {
+        Check(false, L"the mouse.move descriptor is available", success);
+        return;
+    }
+    HostActions::ResetCounters();
+    HostActions::FailInjectionForTesting(E_ABORT);
+    const auto restore = wil::scope_exit(
+        []() noexcept
+        {
+            HostActions::FailInjectionForTesting(S_OK);
+            HostActions::ResetCounters();
+        });
+    // The screen point the one absolute virtual-desktop move record targets, within the record's rounding.
+    const auto movedTo = [](POINT& point) noexcept
+    {
+        const HostActions::InjectionLog log = HostActions::CopyInjectionLogForTesting();
+        const INPUT& input = log.records[0];
+        if (log.count != 1 || input.type != INPUT_MOUSE ||
+            input.mi.dwFlags != (MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK))
+        {
+            return false;
+        }
+        const int64_t width = std::max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN));
+        const int64_t height = std::max(1, GetSystemMetrics(SM_CYVIRTUALSCREEN));
+        point.x = GetSystemMetrics(SM_XVIRTUALSCREEN) + static_cast<LONG>(input.mi.dx * width / 65535);
+        point.y = GetSystemMetrics(SM_YVIRTUALSCREEN) + static_cast<LONG>(input.mi.dy * height / 65535);
+        return true;
+    };
+    const HMONITOR primaryMonitor = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+    MONITORINFO primaryInfo{};
+    primaryInfo.cbSize = sizeof(primaryInfo);
+    POINT point{};
+    const bool primaryMoved = HostActions::Execute(*move, "center@primary", true, nullptr) == E_ABORT &&
+                              GetMonitorInfoW(primaryMonitor, &primaryInfo) && movedTo(point);
+    const LONG centerX = primaryInfo.rcMonitor.left + (primaryInfo.rcMonitor.right - primaryInfo.rcMonitor.left) / 2;
+    const LONG centerY = primaryInfo.rcMonitor.top + (primaryInfo.rcMonitor.bottom - primaryInfo.rcMonitor.top) / 2;
+    Check(primaryMoved && std::abs(point.x - centerX) <= 1 && std::abs(point.y - centerY) <= 1 &&
+              MonitorFromPoint(point, MONITOR_DEFAULTTONULL) == primaryMonitor,
+          L"center@primary resolves this machine's primary display and targets its center", success);
+    HostActions::ResetCounters();
+    const HRESULT secondaryMove = HostActions::Execute(*move, "center@secondary", true, nullptr);
+    const HMONITOR secondaryMonitor =
+        secondaryMove == E_ABORT && movedTo(point) ? MonitorFromPoint(point, MONITOR_DEFAULTTONULL) : nullptr;
+    Check(GetSystemMetrics(SM_CMONITORS) > 1 ? secondaryMonitor && secondaryMonitor != primaryMonitor
+                                             : secondaryMove == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) &&
+                                                   HostActions::CopyInjectionLogForTesting().count == 0,
+          L"center@secondary targets a display other than the primary, or is not found on a single display", success);
+}
+
+// One record HostActions injects: a key going down or up (HostActions builds it from the layout's scan code when there
+// is one), or a mouse button flag.
+struct ExpectedInput final
+{
+    bool key = false;
+    UINT virtualKey = 0;
+    bool up = false;
+    DWORD mouseFlags = 0;
+};
+
+[[nodiscard]] constexpr ExpectedInput KeyInput(UINT virtualKey, bool up) noexcept
+{
+    return ExpectedInput{true, virtualKey, up, 0};
+}
+
+[[nodiscard]] constexpr ExpectedInput ButtonInput(DWORD mouseFlags) noexcept
+{
+    return ExpectedInput{false, 0, false, mouseFlags};
+}
+
+[[nodiscard]] bool InputMatches(const INPUT& input, const ExpectedInput& expected) noexcept
+{
+    if (!expected.key)
+    {
+        return input.type == INPUT_MOUSE && input.mi.dwFlags == expected.mouseFlags;
+    }
+    if (input.type != INPUT_KEYBOARD || ((input.ki.dwFlags & KEYEVENTF_KEYUP) != 0) != expected.up)
+    {
+        return false;
+    }
+    const UINT scan = MapVirtualKeyW(expected.virtualKey, MAPVK_VK_TO_VSC);
+    return scan != 0 ? (input.ki.dwFlags & KEYEVENTF_SCANCODE) != 0 && input.ki.wScan == scan
+                     : input.ki.wVk == expected.virtualKey;
+}
+
+// The records injected since the last HostActions::ResetCounters, from record `from` on, are exactly `expected`.
+[[nodiscard]] bool InjectedSince(uint32_t from, std::initializer_list<ExpectedInput> expected) noexcept
+{
+    const HostActions::InjectionLog log = HostActions::CopyInjectionLogForTesting();
+    if (log.count > log.records.size() || from > log.count || log.count - from != expected.size())
+    {
+        return false;
+    }
+    return std::equal(expected.begin(), expected.end(), log.records.begin() + static_cast<std::ptrdiff_t>(from),
+                      [](const ExpectedInput& wanted, const INPUT& input) noexcept
+                      { return InputMatches(input, wanted); });
+}
+
 void TestHeldInputTimer(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] held input: replacement, release without a later action, and refused releases\n";
@@ -6049,8 +6460,10 @@ void TestHeldInputTimer(bool& success) noexcept
     {
         return;
     }
-    // Delivers the held-input timer until `done` or `milliseconds` pass, as the main window's WM_TIMER would.
-    const auto pumpHeldTimer = [&window](ULONGLONG milliseconds, auto done) noexcept
+    // Delivers the held-input timer until `done` or `milliseconds` pass, as the main window's WM_TIMER would, and
+    // counts the deliveries.
+    uint32_t timerDeliveries = 0;
+    const auto pumpHeldTimer = [&window, &timerDeliveries](ULONGLONG milliseconds, auto done) noexcept
     {
         const ULONGLONG deadline = GetTickCount64() + milliseconds;
         while (GetTickCount64() < deadline && !done())
@@ -6061,6 +6474,7 @@ void TestHeldInputTimer(bool& success) noexcept
             {
                 if (message.wParam == HostActions::kHeldInputTimerId)
                 {
+                    ++timerDeliveries;
                     HostActions::OnHeldTimer();
                 }
             }
@@ -6069,35 +6483,52 @@ void TestHeldInputTimer(bool& success) noexcept
     const auto never = []() noexcept { return false; };
     HostActions::SetHostWindow(window.get(), logHost.Interface());
     HostActions::ResetCounters();
+    // The records show which input each step lifts: a replacement releases the held chord, key first, before it
+    // presses the new one, and never releases the new chord in its place.
     Check(HostActions::Execute(*keyDown, "Ctrl+A", false, nullptr) == S_OK &&
               HostActions::Execute(*keyDown, "Ctrl+B", false, nullptr) == S_OK &&
-              HostActions::CopyCounters().heldReleases == 1,
-          L"replacing a chord releases the original chord", success);
+              HostActions::CopyCounters().heldReleases == 1 &&
+              InjectedSince(0, {KeyInput(VK_CONTROL, false), KeyInput('A', false), KeyInput('A', true),
+                                KeyInput(VK_CONTROL, true), KeyInput(VK_CONTROL, false), KeyInput('B', false)}),
+          L"replacing a chord releases the original chord before it presses the new one", success);
     Check(HostActions::Execute(*mouseDown, "left", false, nullptr) == S_OK &&
               HostActions::Execute(*mouseDown, "right", false, nullptr) == S_OK &&
-              HostActions::CopyCounters().heldReleases == 2,
-          L"replacing a button releases the original button", success);
-    // An up naming another chord or button is a stand-alone release: it injects its own records (two key-ups for
-    // Ctrl+G, one button-up for left), not the held ones.
-    const uint32_t injectedBeforeOtherUps = HostActions::CopyCounters().injectedInputs;
+              HostActions::CopyCounters().heldReleases == 2 &&
+              InjectedSince(6, {ButtonInput(MOUSEEVENTF_LEFTDOWN), ButtonInput(MOUSEEVENTF_LEFTUP),
+                                ButtonInput(MOUSEEVENTF_RIGHTDOWN)}),
+          L"replacing a button releases the original button before it presses the new one", success);
+    // An up naming another chord or button is a stand-alone release: it injects its own records (the G and Ctrl
+    // key-ups of Ctrl+G, the left button-up), not the held ones.
     Check(HostActions::Execute(*keyUp, "Ctrl+G", false, nullptr) == S_OK &&
               HostActions::Execute(*mouseUp, "left", false, nullptr) == S_OK &&
               HostActions::CopyCounters().heldReleases == 2 &&
-              HostActions::CopyCounters().injectedInputs == injectedBeforeOtherUps + 3,
-          L"an up naming another chord or button leaves the held chord and button tracked", success);
+              InjectedSince(9, {KeyInput('G', true), KeyInput(VK_CONTROL, true), ButtonInput(MOUSEEVENTF_LEFTUP)}),
+          L"an up naming another chord or button injects its own release and leaves the held chord and button tracked",
+          success);
     Check(HostActions::Execute(*keyUp, "Ctrl+B", false, nullptr) == S_OK &&
               HostActions::Execute(*mouseUp, "right", false, nullptr) == S_OK &&
-              HostActions::CopyCounters().heldReleases == 4,
+              HostActions::CopyCounters().heldReleases == 4 &&
+              InjectedSince(12, {KeyInput('B', true), KeyInput(VK_CONTROL, true), ButtonInput(MOUSEEVENTF_RIGHTUP)}),
           L"the held chord and button are released by their own up", success);
-    HostActions::ReleaseHeld(false);
+    HostActions::ReleaseHeld();
     HostActions::ResetCounters();
+    const ULONGLONG heldAt = GetTickCount64();
     Check(HostActions::Execute(*keyDown, "Ctrl+C", false, nullptr) == S_OK &&
               HostActions::Execute(*mouseDown, "left", false, nullptr) == S_OK &&
               HostActions::CopyCounters().injectedInputs == 3,
           L"a held chord and a held button arm the host timer", success);
+    timerDeliveries = 0;
     pumpHeldTimer(10'000, []() noexcept { return HostActions::CopyCounters().heldReleases == 2; });
-    Check(HostActions::CopyCounters().heldReleases == 2 && HostActions::CopyCounters().injectedInputs == 6,
+    const ULONGLONG releasedAfter = GetTickCount64() - heldAt;
+    Check(HostActions::CopyCounters().heldReleases == 2 &&
+              InjectedSince(3, {KeyInput('C', true), KeyInput(VK_CONTROL, true), ButtonInput(MOUSEEVENTF_LEFTUP)}),
           L"a held chord and button release after two seconds without another action", success);
+    // The deadline is two seconds after the press, and the one-shot timer is armed for it: a few deliveries, where a
+    // timer at its minimum period would deliver more than a hundred.
+    Check(releasedAfter >= 2000 && timerDeliveries >= 1 && timerDeliveries <= 4,
+          L"the timer releases the hold no earlier than two seconds after the press, without waking at its minimum "
+          L"period",
+          success);
     Check(HostActions::Execute(*keyUp, "Ctrl+C", false, nullptr) == S_FALSE &&
               HostActions::Execute(*mouseUp, "left", false, nullptr) == S_FALSE &&
               HostActions::CopyCounters().injectedInputs == 6,
@@ -6106,7 +6537,7 @@ void TestHeldInputTimer(bool& success) noexcept
               HostActions::Execute(*keyUp, "Ctrl+C", false, nullptr) == S_OK &&
               HostActions::CopyCounters().injectedInputs == 10,
           L"any other stand-alone up still injects its release", success);
-    HostActions::ReleaseHeld(false);
+    HostActions::ReleaseHeld();
 
     // A refused release (the secure desktop) keeps its hold and retries at the retry interval, never faster.
     HostActions::ResetCounters();
@@ -6135,17 +6566,17 @@ void TestHeldInputTimer(bool& success) noexcept
               HostActions::Execute(*keyUp, "Ctrl+F", false, nullptr) == S_FALSE &&
               HostActions::CopyCounters().injectedInputs == injected,
           L"the retry releases the held chord once the desktop accepts input again", success);
-    HostActions::ReleaseHeld(false);
+    HostActions::ReleaseHeld();
     Check(HostActions::CopyCounters().heldReleases == 1, L"nothing else was left held", success);
 
     // Shutdown makes the last attempt: a release refused then stops being tracked, so nothing retries it later.
     Check(HostActions::Execute(*keyDown, "Ctrl+H", false, nullptr) == S_OK, L"a chord is held before shutdown",
           success);
     HostActions::FailInjectionForTesting(HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED));
-    HostActions::ReleaseHeld(false);
+    HostActions::ReleaseHeld();
     HostActions::FailInjectionForTesting(S_OK);
     const uint32_t abandoned = HostActions::CopyCounters().injectedInputs;
-    HostActions::ReleaseHeld(false);
+    HostActions::ReleaseHeld();
     Check(HostActions::CopyCounters().heldReleases == 1 && HostActions::CopyCounters().injectedInputs == abandoned,
           L"a release refused at shutdown is abandoned", success);
 
@@ -6157,7 +6588,7 @@ void TestHeldInputTimer(bool& success) noexcept
     HostActions::SetHostWindow(nullptr, nullptr);
     HostActions::FailInjectionForTesting(S_OK);
     const uint32_t detached = HostActions::CopyCounters().injectedInputs;
-    HostActions::ReleaseHeld(false);
+    HostActions::ReleaseHeld();
     Check(HostActions::CopyCounters().heldReleases == 1 && HostActions::CopyCounters().injectedInputs == detached,
           L"the window's close makes the last release attempt, so shutdown finds nothing left to release", success);
     Check(SUCCEEDED(logHost.FlushLog(10'000)), L"the held-input log drains", success);
@@ -6310,14 +6741,17 @@ void TestServiceLifetime(bool& success) noexcept
     Check(host.StartedServiceCount() == 0, L"StopServices is idempotent", success);
 }
 
-// A retired services entry (the Zoom one, empty as earlier templates wrote it or with its v1.0.102 members) logs one
-// service-retired-settings-ignored Warning per document load (Core_Settings.md "Services"). The settings store drives
-// the loads exactly as Application sequences them: the startup load, then each applied live reload, each followed by
-// the service start or apply that Application runs with it. An unchanged notification, a repeated service apply, and
-// a document without the entry add none.
+// A retired services entry (the Zoom one, empty as earlier templates wrote it or with its v1.0.102 members) is
+// recorded by the settings store at the startup load and at a live load, and an unchanged notification loads nothing.
+// Its one Warning per load (Core_Settings.md "Services") comes from the report both of Application's load paths make,
+// PluginHost::LogRetiredServiceSettings: one service-retired-settings-ignored from builtin.zoom, without an HRESULT,
+// per entry of the document it is given, and none for a document without one. Starting the services and applying them
+// again, as Application does with every load and on a returning device lane, never logs it. Application's own startup
+// order (the load, the log, the report) runs for real in test.ps1's --screenshot step, whose file carries such an
+// entry.
 void TestRetiredServiceWarnings(bool& success) noexcept
 {
-    std::wcout << L"[ RUN      ] retired services entry: one warning per load or live apply\n";
+    std::wcout << L"[ RUN      ] retired services entry: recorded per load, one warning per report\n";
     constexpr std::string_view emptyEntry =
         R"json({"version":{"major":5,"minor":2},"services":{"Meet":{"plugin":"builtin.zoom"}},"pages":[{}]})json";
     constexpr std::string_view retiredMembers =
@@ -6372,23 +6806,22 @@ void TestRetiredServiceWarnings(bool& success) noexcept
         }
         return exact == count ? count : SIZE_MAX;
     };
-    // The live reload Application::OnSettingsChanged performs for one changed file: load, apply, mark, log.
-    const auto liveApply =
-        [&](SettingsStore& store, std::unique_ptr<AppSettings>& current, std::string_view text) noexcept
+    // A live load of `text`: the store's candidate, applied (marked) so the next change loads again.
+    const auto liveLoad = [&](SettingsStore& store, std::string_view text) noexcept
     {
         std::unique_ptr<AppSettings> candidate;
         SettingsFileStamp stamp{};
         SettingsReloadStatus status = SettingsReloadStatus::Unchanged;
         if (!write(text) || FAILED(store.TryLoadChanged(candidate, stamp, status)) ||
-            status != SettingsReloadStatus::Loaded || !candidate)
+            status != SettingsReloadStatus::Loaded)
         {
-            return false;
+            candidate.reset();
         }
-        current = std::move(candidate);
-        (void)host.ApplyServiceSettings(*current);
-        store.MarkApplied(stamp);
-        host.LogRetiredServiceSettings(*current);
-        return true;
+        if (candidate)
+        {
+            store.MarkApplied(stamp);
+        }
+        return candidate;
     };
 
     const std::string_view shapes[] = {emptyEntry, retiredMembers};
@@ -6397,7 +6830,6 @@ void TestRetiredServiceWarnings(bool& success) noexcept
     for (size_t first = 0; first < 2; ++first)
     {
         const size_t second = 1 - first;
-        // Startup: Application::Run loads, opens the log, logs, and later starts the services.
         SettingsStore store;
         std::unique_ptr<AppSettings> current;
         HRESULT result = write(shapes[first]) ? store.Initialize(false, settingsPath.wstring(), current) : E_FAIL;
@@ -6406,25 +6838,38 @@ void TestRetiredServiceWarnings(bool& success) noexcept
               std::wstring(L"the startup load records ") + names[first] + L" as retired", success);
         if (FAILED(result) || !current)
             return;
+        Check(SUCCEEDED(host.StartServices(*current)) && SUCCEEDED(host.ApplyServiceSettings(*current)) &&
+                  host.StartedServiceCount() == 0 && warnings() == expected,
+              L"starting the services and applying them again start nothing for the entry and log nothing", success);
         host.LogRetiredServiceSettings(*current);
-        (void)host.StartServices(*current);
         expected += 1;
-        Check(warnings() == expected, std::wstring(L"the startup load of ") + names[first] + L" logs one warning",
+        Check(warnings() == expected, std::wstring(L"the report on the load of ") + names[first] + L" logs one warning",
               success);
 
         std::unique_ptr<AppSettings> unchanged;
         SettingsFileStamp stamp{};
         SettingsReloadStatus status = SettingsReloadStatus::Loaded;
         result = store.TryLoadChanged(unchanged, stamp, status);
-        (void)host.ApplyServiceSettings(*current);
-        Check(SUCCEEDED(result) && status == SettingsReloadStatus::Unchanged && warnings() == expected,
-              L"an unchanged notification and a repeated service apply log nothing", success);
+        Check(SUCCEEDED(result) && status == SettingsReloadStatus::Unchanged && !unchanged && warnings() == expected,
+              L"an unchanged notification loads nothing to report", success);
 
+        std::unique_ptr<AppSettings> loaded = liveLoad(store, shapes[second]);
+        Check(loaded && loaded->retiredServices.size() == 1 && loaded->serviceCount == 0 &&
+                  SUCCEEDED(host.ApplyServiceSettings(*loaded)) && warnings() == expected,
+              std::wstring(L"a live load records ") + names[second] +
+                  L" as retired, and its service apply logs nothing",
+              success);
+        host.LogRetiredServiceSettings(*loaded);
         expected += 1;
-        Check(liveApply(store, current, shapes[second]) && warnings() == expected,
-              std::wstring(L"a live apply of ") + names[second] + L" logs one warning", success);
-        Check(liveApply(store, current, noEntry) && current->retiredServices.empty() && warnings() == expected,
-              L"a live apply of a document without the entry logs nothing", success);
+        Check(warnings() == expected,
+              std::wstring(L"the report on the live load of ") + names[second] + L" logs one warning", success);
+        loaded = liveLoad(store, noEntry);
+        if (loaded)
+        {
+            host.LogRetiredServiceSettings(*loaded);
+        }
+        Check(loaded && loaded->retiredServices.empty() && warnings() == expected,
+              L"a document without the entry records none and its report logs nothing", success);
     }
 }
 
@@ -7896,6 +8341,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestWidgetRaiseHost(success);
     TestHostChromeComposition(success);
     TestDockPlacement(success);
+    TestDisplayEnumeration(success);
     TestDockPlacementRequests(success);
     TestDockAppBarRegistration(success);
     TestNoticeWindowPlacement(success);
@@ -7926,6 +8372,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestHostRequestFrameAndWidgetStatus(success);
     TestWidgetSettingsPersist(success);
     TestHostJsonlLog(success);
+    TestStandardErrorLog(success);
     TestHostOwnedPlaceholderTiles(success);
     TestDashboardBackground(success);
     TestUnmappedCatalogModulePlaceholder(success);
@@ -7937,6 +8384,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestLaunchWorker(success);
     TestSessionEndDeadline(success);
     TestActionValidation(success);
+    TestActionMonitorSelection(success);
     TestHeldInputTimer(success);
     TestServiceLifetime(success);
     TestRetiredServiceWarnings(success);

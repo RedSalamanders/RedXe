@@ -317,11 +317,15 @@ object it was supplied to.
   writes UTC-dated files (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`), opening a new file when the UTC
   day changes and deleting dated files at least `logRetentionDays` old (default 15, range 1–365). Interactive RedXe
   stores those files under the settings sibling `Logs` directory (`%LocalAppData%\RedXe\Logs` by default). `--self-test`
-  MUST NOT open that directory. Release drops `RedXeLogLevelDebug`. A null record, a mismatched `sizeBytes`, a missing
-  event id or message, or an unknown level returns `E_POINTER` / `E_INVALIDARG`. Plugins MUST NOT call `Log` from
-  `Render` or GDI paint and MUST NOT emit per-frame success. Factory create, module map, placeholder construction,
-  native attach, GPU device-create, GPU render failure (once per instance and HRESULT), and weather forecast outcomes
-  are the required coverage.
+  MUST NOT open that directory; it MUST instead copy each Warning and Error record, as its JSONL line, to stderr
+  (`PluginHost::SetStandardErrorLog`), so the log of a failed check also names what explains it, such as the plugin
+  whose module could not be mapped or the widget whose GPU setup failed (the Renderer's records included). The copy
+  is synchronous, one write per line under a lock, from the line formatted on the caller's stack: it allocates
+  nothing, and only this test mode, whose reader drains the pipe, makes it. Release drops `RedXeLogLevelDebug`. A
+  null record, a mismatched `sizeBytes`, a missing event id or message, or an unknown level returns `E_POINTER` /
+  `E_INVALIDARG`. Plugins MUST NOT call `Log` from `Render` or GDI paint and MUST NOT emit per-frame success. Factory
+  create, module map, placeholder construction, native attach, GPU device-create, GPU render failure (once per
+  instance and HRESULT), and weather forecast outcomes are the required coverage.
   Escaping and truncation MUST preserve complete JSON syntax, the optional HRESULT, one trailing newline, and valid
   UTF-8. Each identity has a bounded escaped-output budget, and message truncation reserves room for the record
   suffix. A partial final UTF-8 sequence is omitted; malformed input bytes are replaced with ASCII `?`.
@@ -1428,9 +1432,11 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     correct initial notification for a same-sized replacement page, and cache preservation on promotion.
     With fault-injecting wrappers around placed GPU widgets on WARP, they MUST prove that a failed `OnDeviceCreated`,
     at startup and while staging a page, releases the widgets already set up, sets up no later one, keeps the page
-    hidden, and logs one Error `gpu-device-create-failed` with that instance and `HRESULT`; and that a failed
-    `OnTargetSizeChanged` releases nothing, is not retried per frame, leaves that widget and its siblings rendering,
-    and logs one Warning `gpu-target-size-failed` with that instance and `HRESULT`.
+    hidden (a staged page that was visible, as device recovery stages one again, is hidden for its setup and gets its
+    visibility back only from a staging that succeeds), and logs one Error `gpu-device-create-failed` with that
+    instance and `HRESULT`; and that a failed `OnTargetSizeChanged` releases nothing, is not retried per frame, leaves
+    that widget and its siblings rendering, and logs one Warning `gpu-target-size-failed` with that instance and
+    `HRESULT`.
     Lifecycle tests MUST prove data/network widgets are hidden during all device callbacks and render after WARP
     recreation. Event-barrier tests MUST prove subscription release and deactivation wait for running and reserved
     callbacks, allow reactivation, and safely reuse released subscription slots.
@@ -1463,7 +1469,11 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     an unknown level; that `Log` before `SetLogDirectory` succeeds and writes nothing; that `SetLogDirectory` plus
     `FlushLog` produces a UTC-dated JSONL file containing `ts`, `level`, `event`, and `message`; that retention deletes
     expired dated files and legacy undated names; and that `--self-test` never
-    calls `SetLogDirectory`. Compile-time contract checks MUST pin `sizeof(RedXeLogRecord)` and its pointer offsets.
+    calls `SetLogDirectory`. With the stderr copy on, exactly the Warning and Error records MUST reach stderr, each as
+    one complete JSONL line with its HRESULT, and none while it is off (`TestStandardErrorLog`, on a pipe in place of
+    the process's stderr); `test.ps1` proves it end to end on a copy of `RedXe.exe` without its `Plugins` folder,
+    whose self-test log names the failed check and a `module-map-failed` record with `0x8007007E`. Compile-time
+    contract checks MUST pin `sizeof(RedXeLogRecord)` and its pointer offsets.
     Settings tests MUST prove the default logs directory is the `Logs` sibling of `Settings` and that `logRetentionDays`
     defaults to 15 and rejects 0 and 366.
     Long escaped identities/messages, split multibyte boundaries, and malformed UTF-8 MUST remain independently

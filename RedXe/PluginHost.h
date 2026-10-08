@@ -203,6 +203,11 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // Blocks until queued lines are on disk, or the timeout elapses. Tests use this, and so does a shutdown that must
     // keep the writer alive for a device lane that is still running; an ordinary shutdown joins the writer instead.
     [[nodiscard]] HRESULT FlushLog(uint32_t timeoutMilliseconds) noexcept;
+    // `--self-test`, which opens no log directory: Log also writes each Warning and Error record, as its JSONL line, to
+    // stderr, where test.ps1 keeps it beside the failed check it explains (the plugin whose module could not be mapped,
+    // the widget whose GPU setup failed). The copy is synchronous, one write per line under a lock, from the formatted
+    // line on the caller's stack; it allocates nothing.
+    void SetStandardErrorLog(bool enabled) noexcept;
 
     // Latest status reported by one widget instance. Unknown instances read back as RedXeWidgetStatusOk so a widget
     // that never reports is never drawn as a placeholder.
@@ -416,6 +421,10 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     void DeviceLane(ServiceSlot& slot) noexcept;
     // Logs service-start-deferred once per tombstone when the document configures the slot's service.
     void LogDeferredStart(ServiceSlot& slot, const AppSettings& settings) noexcept;
+    // The first step of StartServices and ApplyServiceSettings for the slot of kRedXeBundledServices[index]: binds its
+    // spec and retries a stop whose device lane had not returned. False while that lane is still out: the slot is
+    // skipped, its start deferred (LogDeferredStart), and ERROR_BUSY becomes `first` unless a failure came before.
+    [[nodiscard]] bool PrepareServiceSlot(size_t index, const AppSettings& settings, HRESULT& first) noexcept;
 
     std::atomic<ULONG> _references{1};
     std::array<ModuleSlot, kRedXeBundledPlugins.size()> _modules;
@@ -458,6 +467,9 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     std::atomic<uint32_t> _logRetentionDays{kRedXeDefaultLogRetentionDays};
     // kShutdownLogFlushMilliseconds; tests raise it so a loaded runner cannot miss the bound.
     uint32_t _shutdownLogFlushMilliseconds = kShutdownLogFlushMilliseconds;
+    // SetStandardErrorLog; the lock keeps the lines of concurrent callers whole.
+    std::atomic<bool> _standardErrorLog{false};
+    SRWLOCK _standardErrorLock = SRWLOCK_INIT;
 #if defined(REDXE_HOST_PLUGIN_TESTS)
     // Test seam, set before the writer starts: while this manual-reset event is reset, the writer waits before it
     // takes each queued line. FlushLog sets it, so a test sees exactly which lines a flush wrote.
