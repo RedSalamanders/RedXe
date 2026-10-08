@@ -1,15 +1,19 @@
 <#!
 .SYNOPSIS
-Builds RedXe and runs its automated plugin and host tests.
+Builds RedXe and runs its automated plugin and host tests: the suites your changes affect, or every suite with -Full.
 
 .DESCRIPTION
-The test validates settings templates, schema, strict parsing, file stamps, and event-driven live-reload notification,
-then validates the factory, generic widget, GPU, and native-window ABI, including Matrix Rain configuration rejection,
-deterministic WARP pixel readback, device recreation, and child-HWND teardown. It finally creates a hidden Win32
-window and drives the production PluginManager, DashboardHost, and Renderer through Release and Debug plugin
-compositions, transactional Matrix reconfiguration, suspend/restore, lifetime teardown, WARP rendering, and frame
-scheduling decisions. The final application smoke test also creates a hidden flip-model WARP swap chain and presents
-frames without touching the user's settings. A final isolated child-process crash validates the production SEH
+A plain call (no -Full, no -Suites, and only -Configuration, -Platform and -SkipBuild bound) hands off to
+Test-Changes.ps1, which runs only the suites your changes affect, and nothing when no test input changed: it then ends
+with NOTHING_SELECTED; repository NOT_EVALUATED. -Full, -Suites, or any other bound parameter (-Rebuild, -SkipTooling,
+-BuildNumber) skips the hand-off and runs the suites named here, every suite by default; so does a plain call with no
+Git change set to select from. The suites validate settings templates, schema, strict parsing, file stamps, and
+event-driven live-reload notification, then validate the factory, generic widget, GPU, and native-window ABI, including
+Matrix Rain configuration rejection, deterministic WARP pixel readback, device recreation, and child-HWND teardown. They
+finally create a hidden Win32 window and drive the production PluginManager, DashboardHost, and Renderer through Release
+and Debug plugin compositions, transactional Matrix reconfiguration, suspend/restore, lifetime teardown, WARP rendering,
+and frame scheduling decisions. The final application smoke test also creates a hidden flip-model WARP swap chain and
+presents frames without touching the user's settings. A final isolated child-process crash validates the production SEH
 boundary, minidump, call-stack report, and marker for both an application exception and a real stack overflow without
 touching the user's crash directory. GPU plugins must not load the runtime shader compiler.
 .PARAMETER Suites
@@ -614,8 +618,10 @@ if ($helpExit -ne 0) {
     throw "RedXe.exe --help exited with code $helpExit`: $helpLog"
 }
 $helpText = Get-Content -LiteralPath $helpLog -Raw -Encoding UTF8
-if (-not $helpText.Contains("RedXe $([char] 0x2014) CORSAIR XENEON EDGE dashboard")) {
-    throw "RedXe.exe --help did not reach its log as the UTF-8 it writes: its title with U+2014 is missing: $helpLog"
+# The first line is the catalog's title, whose wording is the catalog's to change; the U+2014 in it is what this checks.
+$helpTitle = ($helpText -split '\r?\n', 2)[0]
+if (-not $helpTitle.Contains([string] [char] 0x2014)) {
+    throw "RedXe.exe --help did not reach its log as the UTF-8 it writes: its title line lost U+2014: $helpLog"
 }
 foreach ($switch in @('--help', '--settings', '--warp', '--dock', '--dock-mode', '--dock-thickness', '--dock-reserve',
         '--dock-peek', '--screenshot', '--page', '--widget', '--after', '--self-test', '--crash-test',

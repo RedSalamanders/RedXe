@@ -733,15 +733,30 @@ struct DiagnosticSink final
     StudioClock::DateFormat parsedDateFormat = StudioClock::DateFormat::DayMonthYear;
     if (!dateFormat || !StudioClock::TryParseDateFormat(dateFormat, parsedDateFormat))
     {
+        // The accepted values are the catalog's, so the message names exactly those.
+        const size_t count = StudioClock::kDateFormatNames.size();
+        std::string message = "dateFormat must be ";
+        for (size_t index = 0; index < count; ++index)
+        {
+            if (index != 0)
+            {
+                message += index + 1 < count ? ", " : count > 2 ? ", or " : " or ";
+            }
+            message += StudioClock::kDateFormatNames[index];
+        }
+        message += '.';
         const auto scope = path.PushName("dateFormat");
-        return sink.Fail(path.View(), "dateFormat must be dd-mm-yyyy, mm-dd-yyyy, or yyyy-mm-dd.");
+        return sink.Fail(path.View(), message);
     }
+    char glowMessage[64]{};
+    sprintf_s(glowMessage, "glowPercent must be an integer from %u through %u.", StudioClock::kMinimumGlowPercent,
+              StudioClock::kMaximumGlowPercent);
     return RejectBool(sink, path, settings, "showSecondProgress") &&
            RejectBool(sink, path, settings, "externalDotsAlwaysOn") &&
            RejectBool(sink, path, settings, "showSeconds") && RejectBool(sink, path, settings, "showDate") &&
            RejectColor(sink, path, settings, "secondsColor") && RejectColor(sink, path, settings, "timeColor") &&
            RejectRange(sink, path, settings, "glowPercent", StudioClock::kMinimumGlowPercent,
-                       StudioClock::kMaximumGlowPercent, "glowPercent must be an integer from 0 through 100.");
+                       StudioClock::kMaximumGlowPercent, glowMessage);
 }
 
 [[nodiscard]] bool ValidateShadersSettings(yyjson_val* settings, DiagnosticSink& sink, JsonPathBuffer& path) noexcept

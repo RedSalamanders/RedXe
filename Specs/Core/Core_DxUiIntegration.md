@@ -43,10 +43,11 @@ a sibling `DxUi` checkout that holds it and otherwise from the canonical reposit
   wait, and a holder that ended without releasing the mutex hands it over.
 - A wait for this mutex, or for the dependency root's (below), MUST give up after 30 minutes, far longer than a restore
   or a removal takes, so a stuck holder cannot hold a build indefinitely. The wait says once what it waits for and who
-  holds it, Ctrl+C ends it, and at the limit it fails naming both. Windows does not report a mutex's owner, so each holder
-  records its process identifier, the time it took the mutex and its command line in the temporary folder of its
-  account, and removes the record before it releases the mutex; a holder under another account is reported unknown.
-  The record is best effort and never fails the lock.
+  holds it, Ctrl+C ends it, and at the limit it fails naming both. Windows does not report a mutex's owner, so each
+  holder records its process identifier, the time it took the mutex (in the invariant culture) and its command line,
+  which names the executable (`pwsh.exe`, not the `pwsh.dll` that .NET reports) and is cut to 200 characters, in the
+  temporary folder of its account, and removes the record before it releases the mutex; a holder under another account
+  is reported unknown. The record is best effort and never fails the lock.
 - The clone and its checkout use Git long paths. `git clone -c core.longpaths=true` keeps the setting in that clone's own
   configuration; no user or global Git setting changes.
 - The working tree is sparse. `Measurements/`, `docs/gallery/` and `Specs/` are left out, because the product neither
@@ -70,9 +71,10 @@ failed restore leaves neither the destination nor a temporary folder; that a res
 one (staged deterministically) reports no restore and uses the winner; that of two concurrent repairs of one unfinished
 destination, run on two threads with the second held right after its first check until the first has published, the
 second reports no restore and leaves the first's checkout in place; that a wait for a folder another thread holds gives
-up at its limit naming the holder's process and command line, and that once released the folder is entered at once and
-each holder's record goes with its release; and that a `file://` clone of a bare copy, Git's network path, fetches no
-content of a left-out file.
+up at its limit, neither before it nor long after, naming the holder's process, executable and command line (the record
+writes its time in the invariant culture, names the executable instead of the host dll, and cuts the command line to 200
+characters), and that once released the folder is entered at once and each holder's record goes with its release; and
+that a `file://` clone of a bare copy, Git's network path, fetches no content of a left-out file.
 
 Restore isolates vcpkg/library outputs under a
 fingerprint that includes commit, API revision, target architecture, evaluated compiler host, compiler/linker/MSBuild

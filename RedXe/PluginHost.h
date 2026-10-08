@@ -205,8 +205,9 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] HRESULT FlushLog(uint32_t timeoutMilliseconds) noexcept;
     // `--self-test`, which opens no log directory: Log also writes each Warning and Error record, as its JSONL line, to
     // stderr, where test.ps1 keeps it beside the failed check it explains (the plugin whose module could not be mapped,
-    // the widget whose GPU setup failed). The copy is synchronous, one write per line under a lock, from the formatted
-    // line on the caller's stack; it allocates nothing.
+    // the widget whose GPU setup failed). The copy is synchronous and under a lock, from the formatted line on the
+    // caller's stack: one write per line to a pipe or a file, 256-byte chunks to a console
+    // (RedXeFailureReports::WriteUtf8ToStandardError); it allocates nothing.
     void SetStandardErrorLog(bool enabled) noexcept;
 
     // Latest status reported by one widget instance. Unknown instances read back as RedXeWidgetStatusOk so a widget

@@ -176,6 +176,15 @@ constexpr std::string_view kRepresentative = R"json(
     return false;
 }
 
+// Whether `member` bounds a value to the glowPercent range of StudioClockSettings.h.
+[[nodiscard]] bool HasCatalogGlowRange(yyjson_val* member) noexcept
+{
+    yyjson_val* minimum = yyjson_obj_get(member, "minimum");
+    yyjson_val* maximum = yyjson_obj_get(member, "maximum");
+    return yyjson_is_uint(minimum) && yyjson_get_uint(minimum) == StudioClock::kMinimumGlowPercent &&
+           yyjson_is_uint(maximum) && yyjson_get_uint(maximum) == StudioClock::kMaximumGlowPercent;
+}
+
 // A Studio Clock settings schema (the Specs `studioClockSettings` definition, or the schema StudioClock.dll publishes)
 // carries exactly the members, date formats, and glowPercent range of StudioClockSettings.h; given the catalog
 // defaults, every member's `default` is the catalog value.
@@ -192,12 +201,8 @@ constexpr std::string_view kRepresentative = R"json(
                                                                          yyjson_obj_get(catalogDefaults, key))))
             return false;
     }
-    yyjson_val* glowPercent = yyjson_obj_get(members, "glowPercent");
-    yyjson_val* minimum = yyjson_obj_get(glowPercent, "minimum");
-    yyjson_val* maximum = yyjson_obj_get(glowPercent, "maximum");
     yyjson_val* dateFormats = yyjson_obj_get(yyjson_obj_get(members, "dateFormat"), "enum");
-    if (!yyjson_is_uint(minimum) || yyjson_get_uint(minimum) != StudioClock::kMinimumGlowPercent ||
-        !yyjson_is_uint(maximum) || yyjson_get_uint(maximum) != StudioClock::kMaximumGlowPercent ||
+    if (!HasCatalogGlowRange(yyjson_obj_get(members, "glowPercent")) ||
         yyjson_arr_size(dateFormats) != StudioClock::kDateFormatNames.size())
         return false;
     for (size_t index = 0; index < StudioClock::kDateFormatNames.size(); ++index)
@@ -209,11 +214,64 @@ constexpr std::string_view kRepresentative = R"json(
     return true;
 }
 
+// The text of a schema's "$ref" member, empty when it has none.
+[[nodiscard]] std::string_view ReferenceText(yyjson_val* schema) noexcept
+{
+    yyjson_val* reference = yyjson_obj_get(schema, "$ref");
+    return yyjson_is_str(reference) ? std::string_view{yyjson_get_str(reference), yyjson_get_len(reference)}
+                                    : std::string_view{};
+}
+
+// Whether `properties` offers `key` as a reference to the `studioClockSettings` property of that name.
+[[nodiscard]] bool ReferencesStudioClockMember(yyjson_val* properties, const char* key) noexcept
+{
+    constexpr std::string_view referencePrefix = "#/$defs/studioClockSettings/properties/";
+    const std::string_view text = ReferenceText(yyjson_obj_get(properties, key));
+    return text.starts_with(referencePrefix) && text.substr(referencePrefix.size()) == key;
+}
+
+// The property a "#/$defs/<definition>/properties/<member>" reference names, or null for any other reference.
+[[nodiscard]] yyjson_val* ResolvePropertyReference(yyjson_val* root, std::string_view reference) noexcept
+{
+    constexpr std::string_view prefix = "#/$defs/";
+    constexpr std::string_view infix = "/properties/";
+    if (!reference.starts_with(prefix))
+        return nullptr;
+    reference.remove_prefix(prefix.size());
+    const size_t split = reference.find(infix);
+    if (split == std::string_view::npos)
+        return nullptr;
+    const std::string_view definition = reference.substr(0, split);
+    const std::string_view member = reference.substr(split + infix.size());
+    yyjson_val* definitionValue = yyjson_obj_getn(yyjson_obj_get(root, "$defs"), definition.data(), definition.size());
+    return yyjson_obj_getn(yyjson_obj_get(definitionValue, "properties"), member.data(), member.size());
+}
+
+// The Specs widget use (`widgetUse`, an override of a declared widget) offers every catalog member as a reference to
+// its `studioClockSettings` property. The one exception is glowPercent, a name Matrix shares: it may reference either
+// definition, and what it references must carry the catalog's range.
+[[nodiscard]] bool StudioClockUseMatchesCatalog(yyjson_val* root) noexcept
+{
+    yyjson_val* properties = yyjson_obj_get(yyjson_obj_get(yyjson_obj_get(root, "$defs"), "widgetUse"), "properties");
+    for (const char* key : StudioClock::kSettingsKeys)
+    {
+        if (std::string_view{key} == "glowPercent")
+        {
+            if (!HasCatalogGlowRange(ResolvePropertyReference(root, ReferenceText(yyjson_obj_get(properties, key)))))
+                return false;
+        }
+        else if (!ReferencesStudioClockMember(properties, key))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 // The Specs widget variant for Studio Clock offers the host backgroundColor and every catalog member, each a reference
 // to its `studioClockSettings` property.
 [[nodiscard]] bool StudioClockVariantMatchesCatalog(yyjson_val* root) noexcept
 {
-    constexpr std::string_view referencePrefix = "#/$defs/studioClockSettings/properties/";
     yyjson_val* variants = yyjson_obj_get(yyjson_obj_get(yyjson_obj_get(root, "$defs"), "widgetDefinition"), "oneOf");
     size_t index = 0;
     size_t count = 0;
@@ -228,11 +286,7 @@ constexpr std::string_view kRepresentative = R"json(
             return false;
         for (const char* key : StudioClock::kSettingsKeys)
         {
-            yyjson_val* reference = yyjson_obj_get(yyjson_obj_get(properties, key), "$ref");
-            const std::string_view text = yyjson_is_str(reference)
-                                              ? std::string_view{yyjson_get_str(reference), yyjson_get_len(reference)}
-                                              : std::string_view{};
-            if (!text.starts_with(referencePrefix) || text.substr(referencePrefix.size()) != key)
+            if (!ReferencesStudioClockMember(properties, key))
                 return false;
         }
         return true;
@@ -240,16 +294,66 @@ constexpr std::string_view kRepresentative = R"json(
     return false;
 }
 
-// Whether the schema text points at definition `name` with a "#/$defs/<name>" or "#/$defs/<name>/..." reference.
-[[nodiscard]] bool SchemaReferencesDefinition(std::string_view schema, std::string_view name) noexcept
+// Whether a "$ref" at or below `node` points at definition `name` with "#/$defs/<name>" or "#/$defs/<name>/...".
+[[nodiscard]] bool ContainsReferenceTo(yyjson_val* node, std::string_view name) noexcept
 {
-    constexpr std::string_view pointerPrefix = "\"#/$defs/";
-    for (size_t at = schema.find(pointerPrefix); at != std::string_view::npos; at = schema.find(pointerPrefix, at + 1))
+    constexpr std::string_view pointerPrefix = "#/$defs/";
+    size_t index = 0;
+    size_t count = 0;
+    yyjson_val* key = nullptr;
+    yyjson_val* value = nullptr;
+    if (yyjson_is_arr(node))
     {
-        const std::string_view rest = schema.substr(at + pointerPrefix.size());
-        if (rest.size() > name.size() && rest.starts_with(name) &&
-            (rest[name.size()] == '"' || rest[name.size()] == '/'))
+        yyjson_arr_foreach(node, index, count, value)
+        {
+            if (ContainsReferenceTo(value, name))
+                return true;
+        }
+        return false;
+    }
+    yyjson_obj_foreach(node, index, count, key, value)
+    {
+        if (yyjson_equals_str(key, "$ref") && yyjson_is_str(value))
+        {
+            const std::string_view target{yyjson_get_str(value), yyjson_get_len(value)};
+            const std::string_view rest =
+                target.starts_with(pointerPrefix) ? target.substr(pointerPrefix.size()) : std::string_view{};
+            if (rest.starts_with(name) && (rest.size() == name.size() || rest[name.size()] == '/'))
+                return true;
+        }
+        else if (ContainsReferenceTo(value, name))
+        {
             return true;
+        }
+    }
+    return false;
+}
+
+// Whether the schema points at definition `name` from outside that definition's own body: from the root or from
+// another definition. A reference inside the body (a recursive definition that nothing else uses) does not count.
+[[nodiscard]] bool SchemaReferencesDefinition(yyjson_val* root, std::string_view name) noexcept
+{
+    size_t index = 0;
+    size_t count = 0;
+    yyjson_val* key = nullptr;
+    yyjson_val* value = nullptr;
+    yyjson_obj_foreach(root, index, count, key, value)
+    {
+        if (!yyjson_equals_str(key, "$defs"))
+        {
+            if (ContainsReferenceTo(value, name))
+                return true;
+            continue;
+        }
+        size_t definitionIndex = 0;
+        size_t definitionCount = 0;
+        yyjson_val* definitionName = nullptr;
+        yyjson_val* definition = nullptr;
+        yyjson_obj_foreach(value, definitionIndex, definitionCount, definitionName, definition)
+        {
+            if (!yyjson_equals_strn(definitionName, name.data(), name.size()) && ContainsReferenceTo(definition, name))
+                return true;
+        }
     }
     return false;
 }
@@ -490,7 +594,7 @@ constexpr std::string_view kRepresentative = R"json(
     }
     // StudioClockSettings.h is the one Studio Clock catalog the host parser and StudioClock.dll compile in: its
     // defaults name every member, and the Specs definition (members, defaults, date formats, glowPercent range), the
-    // Specs widget variant, and the schema the DLL publishes all match it.
+    // Specs widget variant and widget use, and the schema the DLL publishes all match it.
     {
         unique_doc catalogDefaults{
             yyjson_read(StudioClock::kDefaultsJson, sizeof(StudioClock::kDefaultsJson) - 1, YYJSON_READ_NOFLAG)};
@@ -501,9 +605,9 @@ constexpr std::string_view kRepresentative = R"json(
             !publishedSchema ||
             !StudioClockSchemaMatchesCatalog(yyjson_obj_get(defs, "studioClockSettings"), catalog) ||
             !StudioClockSchemaMatchesCatalog(yyjson_doc_get_root(publishedSchema.get()), nullptr) ||
-            !StudioClockVariantMatchesCatalog(root))
+            !StudioClockVariantMatchesCatalog(root) || !StudioClockUseMatchesCatalog(root))
         {
-            std::wprintf(L"The Studio Clock schema, widget variant, or published schema differs from "
+            std::wprintf(L"The Studio Clock schema, widget variant, widget use, or published schema differs from "
                          L"StudioClockSettings.h.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -549,7 +653,23 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     // Every definition is referenced: an orphan validates nothing, yet reads as a settings model to edit (as the
-    // removed Zoom SDK's zoomSettings did).
+    // removed Zoom SDK's zoomSettings did). A reference from a definition's own body does not count, so the rule is
+    // tried first on a schema where `used` and `nested` are referenced (from the root and from another definition)
+    // and `self` and `unused` are not (`self` only by itself, `unused` by nothing; `use` is just a prefix).
+    {
+        constexpr std::string_view sample =
+            R"json({"properties":{"a":{"$ref":"#/$defs/used/properties/b"}},"$defs":{"used":{"properties":{"b":{"type":"string"}}},"self":{"properties":{"c":{"$ref":"#/$defs/self"}}},"unused":{"items":[{"$ref":"#/$defs/nested/properties/x"}]},"nested":{"properties":{"x":{"type":"string"}}}}})json";
+        unique_doc sampleDocument{yyjson_read(sample.data(), sample.size(), YYJSON_READ_NOFLAG)};
+        yyjson_val* sampleRoot = sampleDocument ? yyjson_doc_get_root(sampleDocument.get()) : nullptr;
+        if (!sampleRoot || !SchemaReferencesDefinition(sampleRoot, "used") ||
+            !SchemaReferencesDefinition(sampleRoot, "nested") || SchemaReferencesDefinition(sampleRoot, "self") ||
+            SchemaReferencesDefinition(sampleRoot, "unused") || SchemaReferencesDefinition(sampleRoot, "use"))
+        {
+            std::wprintf(L"The schema reference check does not tell an outside reference from one inside the "
+                         L"definition.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
     size_t definitionIndex = 0;
     size_t definitionMax = 0;
     yyjson_val* definitionName = nullptr;
@@ -557,7 +677,7 @@ constexpr std::string_view kRepresentative = R"json(
     yyjson_obj_foreach(defs, definitionIndex, definitionMax, definitionName, definition)
     {
         const std::string_view name{yyjson_get_str(definitionName), yyjson_get_len(definitionName)};
-        if (!SchemaReferencesDefinition(schemaBytes, name))
+        if (!SchemaReferencesDefinition(root, name))
         {
             std::wprintf(L"The schema definition %.*S is never referenced.\n", static_cast<int>(name.size()),
                          name.data());
@@ -1264,6 +1384,40 @@ constexpr std::string_view kRepresentative = R"json(
                 R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.gdi-orbit","settings":{}}]}]})json",
                 ".settings", "flattened")))
         {
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // The two Studio Clock range diagnostics are built from StudioClockSettings.h, so each names exactly the date
+        // formats the parser accepts and exactly the glowPercent bounds it enforces.
+        const auto studioClockMessage = [](std::string_view member) -> std::string
+        {
+            AppSettings settings{};
+            SettingsParseDiagnostic diagnostic;
+            const std::string document =
+                std::string(
+                    R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock",)json") +
+                std::string(member) + "}]}]}";
+            return FAILED(ParseAppSettingsJsonDetailed(document, settings, diagnostic)) ? diagnostic.message
+                                                                                        : std::string{};
+        };
+        // The date-format message lists the catalog's names, each once and nothing else: what is left of the list once
+        // every name is removed is only commas, spaces, the joining "or", and the final period.
+        const std::string dateMessage = studioClockMessage("\"dateFormat\":\"locale\"");
+        constexpr std::string_view datePrefix = "dateFormat must be ";
+        std::string dateList = dateMessage.starts_with(datePrefix) ? dateMessage.substr(datePrefix.size()) : "?";
+        for (const std::string_view name : StudioClock::kDateFormatNames)
+        {
+            const size_t at = dateList.find(name);
+            if (at != std::string::npos)
+                dateList.erase(at, name.size());
+            else
+                dateList = "?";
+        }
+        if (dateList.find_first_not_of(", or.") != std::string::npos ||
+            studioClockMessage("\"glowPercent\":" + std::to_string(StudioClock::kMaximumGlowPercent + 1U)) !=
+                "glowPercent must be an integer from " + std::to_string(StudioClock::kMinimumGlowPercent) +
+                    " through " + std::to_string(StudioClock::kMaximumGlowPercent) + ".")
+        {
+            std::wprintf(L"A Studio Clock diagnostic does not name the values of StudioClockSettings.h.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 

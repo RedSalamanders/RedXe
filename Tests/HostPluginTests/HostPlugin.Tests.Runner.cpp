@@ -1859,13 +1859,30 @@ void TestTrayIconOwner(bool& success) noexcept
         callback(WM_LBUTTONDOWN);
         callback(WM_LBUTTONUP);
         Check(takeCommands(command) == 0, L"single clicks on the icon post no command", success);
+        // The icon compares GetTickCount64 against GetDoubleClickTime between the double-click and a repeat, so a
+        // repeat is dropped only while that time has not passed, and a loaded machine can let it pass between these
+        // calls. The tick before the double-click and the tick after the repeats bound the interval the icon measured
+        // (its own ticks lie between them), so the repeats are asserted only when that bound is inside the time.
+        const UINT doubleClickTime = GetDoubleClickTime();
+        const ULONGLONG beforeDoubleClick = GetTickCount64();
         callback(WM_LBUTTONDBLCLK);
         Check(takeCommands(command) == 1 && command == static_cast<WPARAM>(TrayCommand::EditSettings),
               L"a double-click on the icon posts Edit settings to the main window", success);
         callback(NIN_KEYSELECT);
         callback(WM_LBUTTONDBLCLK);
-        Check(takeCommands(command) == 0,
-              L"Enter on the icon or another double-click within the double-click time posts nothing", success);
+        const ULONGLONG elapsedMilliseconds = GetTickCount64() - beforeDoubleClick;
+        const uint32_t repeatCommands = takeCommands(command);
+        if (elapsedMilliseconds < doubleClickTime)
+        {
+            Check(repeatCommands == 0,
+                  L"Enter on the icon or another double-click within the double-click time posts nothing", success);
+        }
+        else
+        {
+            std::wcout << L"[  SKIPPED ] a repeat within the double-click time: " << elapsedMilliseconds
+                       << L" ms passed since the double-click, over the " << doubleClickTime
+                       << L" ms double-click time (a loaded host)\n";
+        }
 
         // The taskbar refuses both the add and the update.
         script.add = false;
@@ -4417,8 +4434,10 @@ void TestGpuWidgetCallbackFailures(bool& success)
     DashboardHost staged;
     if (SUCCEEDED(result))
         result = dashboard.Initialize(plugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
-    // The staged page starts visible, as a staged page is when device recovery stages it again: the host hides it for
-    // its device setup and gives it back its visibility only when the setup succeeds.
+    // The staged page starts visible, as a page handed to the renderer already shown is: the host hides it for its
+    // device setup and gives it back its visibility only when the setup succeeds. (Application hands over a hidden page
+    // and shows it afterwards, and device recovery hides both pages itself, so only a direct call passes a visible
+    // one.)
     if (SUCCEEDED(result))
         result = staged.Initialize(stagedPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), true);
     const char* const firstId = SUCCEEDED(result) ? plugins.WidgetInstanceIdAt(0) : nullptr;
@@ -6019,7 +6038,8 @@ void TestSessionEndDeadline(bool& success) noexcept
               success);
         Check(lanes && CountText(log, "\"event\":\"device-lane-drain-timeout\"") == 1 &&
                   CountText(log, "\"event\":\"service-stopped\"") == stoppedServices,
-              L"only the stuck lane times out within that budget, and a responsive lane stopped after it (with a second service) drains",
+              L"only the stuck lane times out within that budget, and a responsive lane stopped after it (with a "
+              L"second service) drains",
               success);
         Check(exited && launchBudget < LaunchWorker::kStopMilliseconds / 2 && launchWaited < launchBudget + 500 &&
                   CountText(log, "\"event\":\"launch-stop-timeout\"") == 1,
