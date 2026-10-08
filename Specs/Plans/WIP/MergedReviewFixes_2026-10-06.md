@@ -1,7 +1,10 @@
 # Review fixes for PRs #21 to #32
 
 Status: `ACTIVE`. Decisions D1 to D9 are resolved (see [Decisions](#decisions)); D6 keeps the repository ruleset
-unchanged, so local validation is the accepted merge gate for now.
+unchanged, so local validation is the accepted merge gate for now. Every batch is implemented and validated (B1 to P5
+in #34 to #40, P6 and P7 in the phase 3 change). What keeps the plan open is the owner's live checks under
+[Manual checks for the owner](#manual-checks-for-the-owner) and `dxui-restore#2`, which waits on a DxUi change; the
+plan moves to Done when those close ([Closeout](#closeout)).
 Date: 2026-10-06
 Owner: the domain specs listed under [Contracts expected to change](#contracts-expected-to-change).
 
