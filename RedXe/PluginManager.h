@@ -98,11 +98,20 @@ class PluginManager final
 
     struct ProviderBuildKey final
     {
-        std::array<char, kFactoryConfigurationCapacity> configuration{};
+        uint64_t configurationHash = 0;
         uint32_t configurationBytes = 0;
         uint32_t backgroundRgb = kRedXeDefaultBackgroundRgb;
         const char* pluginId = nullptr;
+        uint32_t widgetIndex = 0;
     };
+    static_assert(sizeof(ProviderBuildKey) <= 32);
+
+    [[nodiscard]] static uint64_t HashFactoryConfiguration(const char* json, uint32_t bytes) noexcept;
+    [[nodiscard]] static bool ProviderConfigurationMatches(const ProviderBuildKey& key,
+                                                           const DashboardPageSettings& page,
+                                                           const WidgetInstanceSettings& instance, const char* pluginId,
+                                                           uint64_t hash, uint32_t bytes,
+                                                           uint32_t backgroundRgb) noexcept;
 
     [[nodiscard]] HRESULT CreateBundledProvider(const char* pluginId, const char* configurationJson,
                                                 uint32_t configurationBytes, uint32_t backgroundRgb,

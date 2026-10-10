@@ -65,6 +65,9 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   uploads, state changes, render-target switches, and draw calls without restricting what a GPU widget may render.
 - Derived display state such as DPI, design-canvas transforms, and widget viewports must be cached and recomputed only
   when its inputs change.
+  Provider staging retains at most 1 KiB of compact keys instead of 32 copied 8 KiB envelopes. Key comparisons
+  remain collision-safe by referencing the original immutable staging settings; they allocate and copy nothing.
+  The provider/widget/key transaction arrays together MUST remain below 28 KiB on the construction stack.
 - Subscription deactivation and release MUST drain running and reserved callbacks using an event-blocked wait.
   Per-slot in-flight counters and fixed delivery arrays preserve the 32-subscription bound without heap allocation.
   Widgets MUST be quiescent before GPU teardown. Worker-side GPU lifetime checks and access share the resource lock;

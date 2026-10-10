@@ -316,6 +316,47 @@ struct PluginHostTestAccess final
 
 struct PluginManagerTestAccess final
 {
+    [[nodiscard]] static size_t ProviderKeyBytes() noexcept
+    {
+        return sizeof(PluginManager::ProviderBuildKey) * PluginManager::kMaximumWidgetInstances;
+    }
+
+    [[nodiscard]] static bool CacheComparisonsAreExact(const AppSettings& settings) noexcept
+    {
+        const auto& page = settings.dashboard.pages[0];
+        if (page.widgetCount != 3)
+            return false;
+        const PluginSettings* plugin = FindPluginSettings(settings, page.widgets[0].pluginId.View());
+        if (!plugin)
+            return false;
+        std::array<char, kFactoryConfigurationCapacity> serialized{};
+        uint32_t bytes = 0;
+        if (FAILED(SerializeFactoryConfigurationJson(*plugin, page.widgets[1], serialized, bytes)))
+            return false;
+        constexpr char pluginId[] = "builtin.process-viewer";
+        PluginManager::ProviderBuildKey key;
+        key.pluginId = pluginId;
+        key.widgetIndex = 0;
+        key.configurationBytes = bytes;
+        // Deliberately collide two different instance objects at the filter. Full equality must still reject them.
+        key.configurationHash = PluginManager::HashFactoryConfiguration(serialized.data(), bytes);
+        if (PluginManager::ProviderConfigurationMatches(key, page, page.widgets[1], pluginId, key.configurationHash,
+                                                        bytes, key.backgroundRgb))
+            return false;
+        if (FAILED(SerializeFactoryConfigurationJson(*plugin, page.widgets[2], serialized, bytes)))
+            return false;
+        key.configurationBytes = bytes;
+        key.configurationHash = PluginManager::HashFactoryConfiguration(serialized.data(), bytes);
+        if (!PluginManager::ProviderConfigurationMatches(key, page, page.widgets[2], pluginId, key.configurationHash,
+                                                         bytes, key.backgroundRgb) ||
+            PluginManager::ProviderConfigurationMatches(key, page, page.widgets[2], pluginId, key.configurationHash,
+                                                        bytes, key.backgroundRgb ^ 1U))
+            return false;
+        key.widgetIndex = page.widgetCount;
+        return !PluginManager::ProviderConfigurationMatches(key, page, page.widgets[2], pluginId, key.configurationHash,
+                                                            bytes, key.backgroundRgb);
+    }
+
     // Replaces the GPU interface the host calls for one placed widget, for a fault-injecting wrapper around it.
     [[nodiscard]] static bool ReplaceGpuWidget(PluginManager& plugins, size_t index,
                                                IRedXeGpuWidget* replacement) noexcept
@@ -5386,6 +5427,33 @@ void TestHostOwnedPlaceholderTiles(bool& success) noexcept
           L"every widget draws again after recovery", success);
 }
 
+void TestCompactProviderCache(bool& success) noexcept
+{
+    std::wcout << L"provider_cache key_array_bytes=" << PluginManagerTestAccess::ProviderKeyBytes() << L'\n';
+    Check(PluginManagerTestAccess::ProviderKeyBytes() <= 1024, L"The compact provider key array is bounded to one KiB.",
+          success);
+    constexpr std::string_view json = R"json({"version":{"major":5},"pages":[{"widgets":[)json"
+                                      R"json({"plugin":"builtin.process-viewer","topN":11},)json"
+                                      R"json({"plugin":"builtin.process-viewer","topN":12},)json"
+                                      R"json({"plugin":"builtin.process-viewer","topN":11}]}]})json";
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(json, settings);
+    Check(SUCCEEDED(result) && PluginManagerTestAccess::CacheComparisonsAreExact(settings),
+          L"Compact provider keys reject forced hash collisions, background changes and invalid source indices.",
+          success);
+    if (FAILED(result))
+        return;
+    PluginManager plugins;
+    result = plugins.Initialize(settings);
+    Check(SUCCEEDED(result) && plugins.ProviderCount() == 2 && plugins.WidgetCount() == 3 &&
+              !plugins.IsPlaceholderAt(0) && !plugins.IsPlaceholderAt(1) && !plugins.IsPlaceholderAt(2),
+          L"Equal original configuration shares a provider; a different same-length configuration stays isolated.",
+          success);
+    result = plugins.Reconfigure(settings);
+    Check(SUCCEEDED(result) && plugins.ProviderCount() == 2 && plugins.WidgetCount() == 3,
+          L"Reconfiguration rebuilds compact provider keys from the new staging pass.", success);
+}
+
 void TestDashboardBackground(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] dashboard background resolution ";
@@ -8676,6 +8744,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestLogRetentionTransitions(success);
     TestStandardErrorLog(success);
     TestHostOwnedPlaceholderTiles(success);
+    TestCompactProviderCache(success);
     TestDashboardBackground(success);
     TestUnmappedCatalogModulePlaceholder(success);
     TestShortTilePageControl(success);

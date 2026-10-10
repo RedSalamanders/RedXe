@@ -223,6 +223,10 @@ plugin factory behavior.
   compile in its own; a widget that paints nothing behind its content needs nothing, because the host canvas already
   carries it. The host builds one provider per distinct (plugin, configuration, background) per staging pass. No
   plugin settings contract, defaults object, or factory configuration envelope contains `backgroundColor`.
+  Provider keys use at most 32 bytes each: a 64-bit serialized-envelope filter, byte count, background, canonical
+  plugin identity and original widget index. Hash equality MUST NOT establish identity: the original instance
+  configuration bytes are also compared within the same staging pass, whose canonical plugin settings are shared.
+  Equal configuration still shares a provider; hash collisions and background differences remain distinct.
 - A null configuration pointer with zero bytes selects plugin defaults. Every other null/length mismatch returns
   `E_INVALIDARG`. Plugins that consume configuration JSON MUST parse and copy it before `RedXeCreate` returns;
   no plugin retains the borrowed pointer.

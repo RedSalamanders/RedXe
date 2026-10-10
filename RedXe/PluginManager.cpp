@@ -786,6 +786,34 @@ void PluginManager::ReleaseWidgets() noexcept
     _widgetCount = 0;
 }
 
+uint64_t PluginManager::HashFactoryConfiguration(const char* json, uint32_t bytes) noexcept
+{
+    uint64_t hash = 14695981039346656037ULL;
+    for (uint32_t index = 0; index < bytes; ++index)
+    {
+        hash ^= static_cast<unsigned char>(json[index]);
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+bool PluginManager::ProviderConfigurationMatches(const ProviderBuildKey& key, const DashboardPageSettings& page,
+                                                 const WidgetInstanceSettings& instance, const char* pluginId,
+                                                 uint64_t hash, uint32_t bytes, uint32_t backgroundRgb) noexcept
+{
+    if (key.pluginId != pluginId || key.configurationHash != hash || key.configurationBytes != bytes ||
+        key.backgroundRgb != backgroundRgb || key.widgetIndex >= page.widgetCount)
+    {
+        return false;
+    }
+    // One canonical plugin ID resolves to the same plugin settings throughout this staging pass. The envelope is
+    // the fixed concatenation of that plugin object and the instance object; comparing the latter's original bytes
+    // proves equality even if the 64-bit filter collides, without retaining or re-serializing another 8 KiB buffer.
+    const JsonObjectSettings& original = page.widgets[key.widgetIndex].privateConfiguration;
+    return original.bytes == instance.privateConfiguration.bytes &&
+           std::memcmp(original.utf8.data(), instance.privateConfiguration.utf8.data(), original.bytes) == 0;
+}
+
 HRESULT PluginManager::StageActivePage(const AppSettings& settings,
                                        std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
                                        std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,
@@ -895,14 +923,14 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
         }
         const uint32_t backgroundRgb = EffectiveWidgetBackgroundRgb(settings, instance);
+        const uint64_t configurationHash = HashFactoryConfiguration(configuration.data(), configurationBytes);
 
         size_t providerIndex = providerCount;
         for (size_t candidate = 0; candidate < providerCount; ++candidate)
         {
             const ProviderBuildKey& key = providerKeys[candidate];
-            if (key.pluginId == pluginSpec->pluginId && key.configurationBytes == configurationBytes &&
-                key.backgroundRgb == backgroundRgb &&
-                std::memcmp(key.configuration.data(), configuration.data(), configurationBytes) == 0)
+            if (ProviderConfigurationMatches(key, *page, instance, pluginSpec->pluginId, configurationHash,
+                                             configurationBytes, backgroundRgb))
             {
                 providerIndex = candidate;
                 break;
@@ -926,10 +954,11 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
                 continue;
             }
             ProviderBuildKey& key = providerKeys[providerCount];
-            key.configuration = configuration;
+            key.configurationHash = configurationHash;
             key.configurationBytes = configurationBytes;
             key.backgroundRgb = backgroundRgb;
             key.pluginId = pluginSpec->pluginId;
+            key.widgetIndex = index;
             ++providerCount;
         }
 
@@ -958,6 +987,7 @@ HRESULT PluginManager::Initialize(const AppSettings& settings) noexcept
     std::array<ProviderSlot, kMaximumWidgetInstances> providers;
     std::array<ProviderBuildKey, kMaximumWidgetInstances> providerKeys;
     std::array<WidgetSlot, kMaximumWidgetInstances> widgets;
+    static_assert(sizeof(providers) + sizeof(providerKeys) + sizeof(widgets) < 28U * 1024U);
     size_t providerCount = 0;
     size_t widgetCount = 0;
     const HRESULT result = StageActivePage(settings, providers, providerKeys, providerCount, widgets, widgetCount);
@@ -986,6 +1016,7 @@ HRESULT PluginManager::Reconfigure(const AppSettings& settings) noexcept
     std::array<ProviderSlot, kMaximumWidgetInstances> providers;
     std::array<ProviderBuildKey, kMaximumWidgetInstances> providerKeys;
     std::array<WidgetSlot, kMaximumWidgetInstances> widgets;
+    static_assert(sizeof(providers) + sizeof(providerKeys) + sizeof(widgets) < 28U * 1024U);
     size_t providerCount = 0;
     size_t widgetCount = 0;
     const HRESULT result = StageActivePage(settings, providers, providerKeys, providerCount, widgets, widgetCount);
