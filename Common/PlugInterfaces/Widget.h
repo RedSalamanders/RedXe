@@ -332,6 +332,8 @@ interface __declspec(uuid("231AC0E8-1204-4BFF-BCEA-7CACF11F439D")) __declspec(no
 // OMSetRenderTargets, and this widget's viewport through RSSetViewports. Nothing else is reset between widgets.
 // Blend, depth-stencil, rasterizer state, the scissor rectangle and ScissorEnable, input layout, primitive topology,
 // shaders, shader resource views, samplers, and constant buffers all carry over from whichever widget drew last.
+// Page retirement clears context bindings before OnDeviceLost, after retiring work is quiescent; surviving widgets
+// keep their resources and rebind their required state on the next draw. There is no reset between widget draws.
 //
 // Therefore a widget MUST bind every state it depends on, including scissor state, and MUST NOT rely on any state it
 // did not set itself. Leaving unusual state behind is legal but hostile: it will surface as a rendering defect in a

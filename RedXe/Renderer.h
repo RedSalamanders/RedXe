@@ -95,6 +95,9 @@ class Renderer final
     [[nodiscard]] RECT RaisedContentRect() const noexcept;
 
   private:
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+    friend struct RendererResourceTestAccess;
+#endif
     static constexpr size_t kMaximumWidgetViewports = 32;
     static_assert(kMaximumWidgetViewports <= 32); // One bounded bit per instance in the failure-frame mask.
     static constexpr DXGI_FORMAT kTargetFormat = DXGI_FORMAT_R8G8B8A8_UNORM;

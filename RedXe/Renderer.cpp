@@ -94,6 +94,10 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
         const HRESULT result = _transitionDashboardHost->SetWidgetsVisible(false);
         if (FAILED(result))
             return result;
+        // The context retains bound resources even after their widget owners release them. Clear only at this cold
+        // retirement boundary; the surviving page binds everything it needs on its next draw.
+        if (_context)
+            _context->ClearState();
         for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
         {
             if (IRedXeGpuWidget* widget = _transitionDashboardHost->GpuWidgetAt(index))
@@ -219,9 +223,24 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
         return result;
     }
 
-    if (previousGpuReady && previousPrimary && previousPrimary != &dashboardHost)
+    const bool retirePrimary = previousGpuReady && previousPrimary && previousPrimary != &dashboardHost;
+    const bool retireTransition = previousTransitionReady && previousTransition && previousTransition != &dashboardHost;
+    if (retirePrimary)
     {
         (void)previousPrimary->SetWidgetsVisible(false);
+    }
+    if (retireTransition)
+    {
+        (void)previousTransition->SetWidgetsVisible(false);
+    }
+    if (retirePrimary || retireTransition)
+    {
+        // Successful adoption is the commit point. Drop context-held references after both retiring pages quiesce,
+        // without flushing, rebuilding the device, or disturbing the incoming page's owned resources.
+        _context->ClearState();
+    }
+    if (retirePrimary)
+    {
         for (size_t index = 0; index < previousPrimary->WidgetCount(); ++index)
         {
             if (IRedXeGpuWidget* widget = previousPrimary->GpuWidgetAt(index))
@@ -230,9 +249,8 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
             }
         }
     }
-    if (previousTransitionReady && previousTransition && previousTransition != &dashboardHost)
+    if (retireTransition)
     {
-        (void)previousTransition->SetWidgetsVisible(false);
         for (size_t index = 0; index < previousTransition->WidgetCount(); ++index)
         {
             if (IRedXeGpuWidget* widget = previousTransition->GpuWidgetAt(index))

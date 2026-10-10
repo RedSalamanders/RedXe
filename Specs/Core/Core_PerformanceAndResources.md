@@ -63,6 +63,10 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   whatever window is foreground after the stall; the check is one tick comparison per drained slot.
 - RedXe and plugins must share immutable device resources across compatible widget instances and minimize dynamic
   uploads, state changes, render-target switches, and draw calls without restricting what a GPU widget may render.
+- Page retirement MUST release resources retained by immediate-context bindings. After retiring widget work is
+  quiescent, cancellation/replacement of a prepared neighbor and successful primary adoption clear the context before
+  `OnDeviceLost`. This cold operation does not flush or recreate the device/swap chain, allocate storage or run per
+  frame. Failed adoption retains the existing pages. The next draw rebinds required state under the GPU contract.
 - Derived display state such as DPI, design-canvas transforms, and widget viewports must be cached and recomputed only
   when its inputs change.
   Provider staging retains at most 1 KiB of compact keys instead of 32 copied 8 KiB envelopes. Key comparisons
@@ -318,6 +322,17 @@ source reclamation. Returned Matrix private bytes fall from 124.72 to 110.34 MiB
 usage remains 47.26 MiB versus cold 25.01. Hidden/minimized intervals submit no frames. These measurements support
 the source lifetime change, not the proposed cold-Matrix +4 MiB return budget or attribution of remaining caches.
 Receipts: `.build/receipts/runtime-2026-10-10-p36-before`, `-p36-after`, and `-p36-source`.
+
+The separately validated GPU binding retirement cut clears the context only at page retirement. Hidden WARP tests
+prove release of resources retained in shader, vertex/index and constant-buffer slots; cancellation, replacement
+and promotion preserve the surviving/incoming triangle pixels and device/swap-chain identity. Failed promotion
+retains existing bindings and recovers without a rebuild. Release, Debug and ASan Debug native gates pass; ARM64
+Release compiles. The matched build-282 D capture observes retained private 69.54 / 69.08 MiB, returned working set
+97.36 / 97.37 MiB and local adapter usage 47.26 / 46.26 MiB; cold adapter usage is 25.01 in both. Returned
+submissions remain 60.152 / 60.133 per second, and hidden/minimized phases submit zero. This is structural lifetime
+proof and a small observed return reduction, not heap/driver attribution, a CPU saving or acceptance of cold +4 MiB.
+The first after capture changed pages during its settled return and is rejected. Receipts:
+`.build/receipts/runtime-2026-10-10-p36-gpu-before`, `-p36-gpu-after-idle`, `-p36-gpu-after` and `-p36-gpu`.
 
 On 2026-10-10, an accepted sampled-CPU capture of x64 Release build 282 on the System page uses the same portable
 scene, disabled services, XENEON rectangle/DPI and AMD rendering adapter as the runtime probe. Only the trace

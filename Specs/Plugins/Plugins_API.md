@@ -641,6 +641,10 @@ GPU vtables.
 - The host does not reset state between widgets: that cost is not justified for the shipped widget set, and the
   requirement above is what keeps widgets independent. Debug builds of the host instead verify a bounded subset of the
   contract after each successful widget, currently that no widget leaves `ScissorEnable` set.
+- At a page-resource retirement boundary, the host clears immediate-context bindings after the retiring pages are
+  quiescent and before `OnDeviceLost`. A successful promotion keeps the device, swap chain and incoming widget
+  resources; cancellation/replacement keeps the primary resources. No flush or per-frame state reset is added.
+  Failed promotion retains the existing page lifetimes. The surviving widgets bind their own states on the next draw.
 - A widget must not retain the immediate context or frame records, present, resize the swap chain, or access the
   top-level HWND. It never receives the swap chain or back buffer.
 - Isolation, deferred command lists, and offscreen composition are outside the current contract.

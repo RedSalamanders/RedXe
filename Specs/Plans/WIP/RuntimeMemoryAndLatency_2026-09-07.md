@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-10 against `7c1f72b` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-10 against `ed2b360` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -70,7 +70,7 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P3.2 | Complete | 1,024-byte key array, collision-safe comparison against original instance bytes, no new allocation/re-serialization. Compile-time transaction arrays <28 KiB. Actual PDB frames: Release Initialize/Reconfigure 26,208 bytes, StageActivePage 8,992; Debug 27,912/12,784 (prior Debug Initialize/Reconfigure 289,544). Forced collision, same-length distinct/equal configuration, background and invalid-index tests plus actual provider reuse/reconfiguration pass. Release 16 scopes, Debug 15 native scopes, ARM64 Release compilation and skills pass; `runtime-2026-10-10-p32`. P2.2 commit `abee7cc`. |
 | P0.3 | Complete | Three isolated 60 s soaks now run in the HostPlugin scope. Clocks warm at scheduled cadence for 20 s; Matrix warms for 1,024 frames. Five-second/end samples enforce uninstrumented peak growth of 4 MiB private / 8 MiB working set, plus resource/cadence/teardown bounds in every profile. Release and Debug each pass 16 scopes; ASan Debug passes 15 native scopes with default quarantine and diagnostic byte reporting; ARM64 Release compiles and 10 skills pass. Final Release private peaks: Matrix 0, Studio 1,306,624, Desk 942,080 bytes. `runtime-2026-10-10-p03`. |
 | P2.3 | Complete | Move-only 16-byte status pins; one atomic read per placeholder decision, no locked ID scan in Render/Prepare. Adds at most 1.5 KiB across two full pages, no allocation/thread/wake. 10,000 reads complete under the exclusively held status lock; concurrent reports, move/reuse/shutdown, same-ID replacement and 64-slot capacity pass. Slot destruction/move drains network registration and interface/callback lifetime before final release, including rollback. 100,000 Release reads: cached 72.8 us / last-slot cold lookup 80.6 ms, diagnostic only. Release 16 scopes; Debug and ASan Debug 15 native scopes; ARM64 Release compile; 10 skills. `runtime-2026-10-10-p23`; P3.2 commit `55da17f`. |
-| P3.6 | In progress; source cut complete | `7c1f72b`: last-consumer reclamation uses the existing acquisition worker after collection and reserved callbacks finish. Inactive/staged subscriptions and external facade references retain sources; cold revisit preserves controlling identity. Release 16 scopes, Debug and ASan Debug 15 native scopes and ARM64 Release compile pass. Matched D retention 87.61 → 71.75 MiB (−15.86); working set 114.88 → 98.75 MiB, handles 1395 → 1385. No CPU saving; submissions unchanged. Residual 71.75 MiB and +22.25 MiB local adapter usage keep the whole return budget open. `runtime-2026-10-10-p36-source`, `-p36-before`, `-p36-after`. GPU binding cut is in validation below. |
+| P3.6 | In progress; source and GPU binding cuts complete | `7c1f72b`: quiescent last-consumer source reclamation preserves facade identity, inactive/staged subscriptions and external leases. Matched retained private 87.61 → 71.75 MiB. The separate GPU binding cut proves last-owner release, identical pixels and no device/swap-chain rebuild. All 16 Release scopes, 15 Debug and ASan Debug native scopes, ARM64 Release compilation and 10 skills pass. Its matched retained private is 69.54 → 69.08 MiB and local usage 47.26 → 46.26 MiB, versus cold 25.01. Submissions remain about 60/s, hidden/minimized zero; no CPU saving established. Remaining return budget and cache attribution stay open. `runtime-2026-10-10-p36-source`, `-p36-before`, `-p36-after`, `-p36-gpu`. |
 
 ### P3.6 source cut and remaining retention (2026-10-10)
 
@@ -95,12 +95,23 @@ Cold private 37.11 / 38.59 makes retained private 87.61 / 71.75 MiB. Threads rem
 adapter usage 47.26 versus cold 25.01; AV surfaces are zero. Hidden/minimized phases submit zero frames and retain
 the memory reduction. These are source/artifact-bound production observations, not heap/driver attribution.
 
-The next cut clears immediate-context bindings only at successful page retirement, after retiring widgets quiesce
-and before their device resources are released. Lifetime/pixel tests, all 16 Release scopes, 15 Debug and 15 ASan
-Debug native scopes, ARM64 Release compilation and 10 skills pass. The matched hardware return measurement is
-pending: its first after capture changed pages during the settled return phase and is rejected. This is not yet attribution of the 22.25 MiB local
-delta. Arena work must refresh the old 64 KiB cheap estimate: current compiler layouts show native state without
-its four-MiB process buffer plus the cheap sample already occupy 363,840 bytes before output tables.
+The GPU cut clears immediate-context bindings only at successful page retirement, after retiring widgets quiesce
+and before their device resources are released. Hidden WARP tests bind otherwise unused shader, vertex/index and
+constant-buffer slots, relinquish local owners and prove final destruction after cancellation/replacement/promotion.
+The test alone flushes deferred driver work. Production adds no flush or per-frame reset. Captures inside Render
+before flip-discard Present prove identical primary/incoming pixels, and failed adoption preserves bindings and
+recovers. All 16 Release scopes, 15 Debug and 15 ASan Debug native scopes, ARM64 Release compilation and 10 skills pass.
+
+Matched GPU before/after build 282 has equal initial-settings SHA-256, rectangle/DPI and rendering adapter. Cold
+private is 38.14 / 37.88 MiB; returned private 107.68 / 106.96 makes retained private 69.54 / 69.08. Returned working
+set is 97.36 / 97.37 MiB, handles 1376 in both, threads 43 and modules 102. Local adapter usage falls 47.26 / 46.26
+MiB versus cold 25.01 in both; AV surfaces are zero. Submissions remain 60.152 / 60.133 per second. CPU is 2.004 /
+1.406 percent of one core, but this single pair does not establish a CPU saving. Hidden/minimized phases submit
+zero. The first after capture changed pages during the settled return phase and is rejected; the idle repeat is
+accepted. Receipts: `runtime-2026-10-10-p36-gpu-before`, `-p36-gpu-after-idle`, `-p36-gpu-after` and `-p36-gpu`.
+The residual memory and +21.25 MiB local delta keep the whole cold +4 MiB goal and cache attribution open. Arena work
+must refresh the old 64 KiB cheap estimate: current compiler layouts show native state without its four-MiB process
+buffer plus the cheap sample already occupy 363,840 bytes before output tables.
 
 ### Remaining-proposal reconciliation (2026-10-10)
 
@@ -573,7 +584,7 @@ cold visit to that page, and nothing from the page that was left.
 | P3.3 | **Lazy neighbor.** No `OnDeviceCreated`, `SetVisible(TRUE)`, or `SetNetworkWidgetActive(true)` for the neighbor until its first visible pixel; no teardown on direction flip (`Application.cpp:2215-2222`), stage the other side lazily; a staged-but-still neighbor MUST NOT force `Render` (`Application.cpp:3649`). Stage on gesture recognition (two-finger horizontal lock), not after the first pan frame. | Scenario F; no `gpu-ready`, `forecast-*`, or icon extraction for a cancelled swipe. |
 | P3.4 | **Time-sliced construction with a frame budget.** If P3.1–P3.3 still exceed 8 ms for a shipped page, construct neighbor widgets across frames under a 4 ms per-frame budget, drawing not-yet-ready tiles as a flat page background (not the failure placeholder) until they exist. | No frame > 16.7 ms during any shipped swipe (PresentMon). |
 | P3.5 | **Product option: snapshot slide.** Keep the last presented frame of a visited page as one 2560×720 or 1280×360 texture for its two neighbors (7 MiB or 1.8 MiB each on UMA), slide textures, construct after promote, release the retired page's snapshot at the settle sweep. Only if P3.4 cannot hold the frame budget. | Decision recorded with the memory cost. |
-| P3.6 | **Source cut complete; full retention work remains in progress.** Sources retire after their last external facade/allocated subscription lease and quiescent collection/callback use; revisit preserves identity. Mapped plugin images remain. Module trim (`TrimIdle` / `RedXePluginTrim`) is still unimplemented; inspect GPU context bindings and actual cache ownership before introducing it. AV last-provider destruction already resets its coordinator. | Production revisit, controlled collection/reservation/shutdown tests and full gates pass. Matched retained private 87.61 → 71.75 MiB; working set/handles also fall, CPU saving unestablished, submissions unchanged. Whole D cold-A +4 MiB and residual +22.25 MiB local adapter usage remain open. |
+| P3.6 | **Source and GPU binding cuts complete; full retention work remains in progress.** Sources retire after their last external facade/allocated subscription lease and quiescent collection/callback use; revisit preserves identity. Context bindings clear at successful page retirement, preserving device, swap chain and incoming/surviving pixels. Mapped plugin images remain. Inspect actual cache ownership before adding a trim export. AV last-provider destruction already resets its coordinator. | Production revisit, controlled collection/reservation/shutdown, GPU last-owner/pixel/failure tests and full gates pass. Source retention 87.61 → 71.75 MiB; separate GPU pair 69.54 → 69.08 and local usage 47.26 → 46.26 MiB. No CPU saving established; submissions unchanged. Whole D cold-A +4 MiB and residual +21.25 MiB local adapter usage remain open. |
 
 ### Phase 4 — retained memory and arenas
 

@@ -85,6 +85,7 @@
     <ClCompile Include="HostPlugin.Tests.RuntimeProbe.cpp" />
     <ClCompile Include="HostPlugin.Tests.ProcessViewerScheduling.cpp" />
     <ClCompile Include="HostPlugin.Tests.DataSourceLifetime.cpp" />
+    <ClCompile Include="HostPlugin.Tests.GpuResourceRetirement.cpp" />
     <ClCompile Include="..\..\RedXe\RuntimeProbe.cpp" />
     <ClCompile Include="..\..\RedXe\PluginHost.cpp" />
     <ClCompile Include="..\..\RedXe\ControlWorkQueue.cpp" />

@@ -70,6 +70,7 @@ namespace
 void TestRuntimeProbe(bool& success) noexcept;
 void TestProcessViewerScheduling(bool& success) noexcept;
 void TestDataSourceLifetime(bool& success) noexcept;
+void TestGpuResourceRetirement(bool& success) noexcept;
 
 struct PluginHostTestAccess final
 {
@@ -8933,6 +8934,12 @@ int wmain(int argumentCount, wchar_t** arguments)
     RedXeFailureReports::RouteAwayFromDialogs();
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    if (argumentCount == 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--gpu-resource-retirement")
+    {
+        bool success = true;
+        TestGpuResourceRetirement(success);
+        return success ? 0 : 1;
+    }
     if (argumentCount == 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--data-source-lifetime")
     {
         bool success = true;
@@ -9023,6 +9030,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestReservedSubscriptionDrain(success);
     TestGpuTargetSizeNotification(success);
     TestGpuPageLifetime(success);
+    TestGpuResourceRetirement(success);
     TestGpuWidgetCallbackFailures(success);
     TestSharedPluginRuntime(success);
     TestHostRequestFrameAndWidgetStatus(success);

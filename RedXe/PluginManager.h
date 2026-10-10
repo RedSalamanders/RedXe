@@ -66,6 +66,7 @@ class PluginManager final
   private:
 #if defined(REDXE_HOST_PLUGIN_TESTS)
     friend struct PluginManagerTestAccess;
+    friend struct PluginManagerGpuResourceTestAccess;
 #endif
     struct WidgetSlot final
     {

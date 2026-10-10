@@ -28,6 +28,7 @@
   "Tests/DeskClockTests/DeskClock.Tests.Runner.cpp",
   "Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp",
   "Tests/HostPluginTests/HostPlugin.Tests.DataSourceLifetime.cpp",
+  "Tests/HostPluginTests/HostPlugin.Tests.GpuResourceRetirement.cpp",
   "Tests/HostPluginTests/HostPlugin.Tests.ProcessViewerScheduling.cpp",
   "Tests/HostPluginTests/HostPlugin.Tests.RuntimeProbe.cpp",
   "Tests/LauncherTests/Launcher.Tests.Runner.cpp",
