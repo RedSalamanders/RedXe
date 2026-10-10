@@ -12,6 +12,15 @@ Latest pause checkpoint (2026-09-05 21:15 UTC):
 notes for pins, test results, failed CI/performance evidence, restored negative controls and ordered resume steps. It is
 now a dated snapshot: this RFC's checklist owns the open gates, and `Dependencies/DxUi.lock.json` the current DxUi pin.
 
+The 2026-10-10 branch recovery retains a proposed upstream slider appearance change from the September branch:
+a 24 DIP gray surround with 14/20/16 DIP accent diameters for rest/hover/press, together with model acknowledgement
+snapping an unchanged value and rejecting non-finite numeric configuration. Reassess those behaviors against the
+current DxUi implementation before a separate dependency update. The current pin retains the 20 DIP surround and
+6/16/12 DIP accent. The historical appearance pin and screenshots do not establish current qualification; physical
+touch, presented latency, accessibility and matched resource acceptance remain required by this RFC. RedXe's
+cancellation, independent-endpoint drag and minimum-target fixes are recorded in
+[the recovery plan](../Done/SliderTouchRecovery_2026-10-10.md).
+
 AV Control gives the XENEON EDGE a touch-friendly control surface for selecting an audio output, microphone, and
 webcam together, muting each independently, and adjusting system output volume and microphone input level.
 The user confirmed that video means webcam selection and feed on/off.

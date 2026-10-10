@@ -1,0 +1,49 @@
+Complex UI clean round 1: 2021.82 completed offscreen FPS; p95 0.5731 ms; private 25841664 bytes
+Complex UI clean round 2: 2173.74 completed offscreen FPS; p95 0.5081 ms; private 25382912 bytes
+Complex UI clean round 3: 2259.84 completed offscreen FPS; p95 0.4866 ms; private 25391104 bytes
+Complex UI clean round 4: 2203.91 completed offscreen FPS; p95 0.5188 ms; private 25358336 bytes
+Complex UI clean round 5: 2200.57 completed offscreen FPS; p95 0.5371 ms; private 25387008 bytes
+Complex UI dirty round 1: 439.768 completed offscreen FPS; p95 2.5933 ms; private 28336128 bytes
+Complex UI dirty round 2: 455.558 completed offscreen FPS; p95 2.6126 ms; private 28852224 bytes
+Complex UI dirty round 3: 490.456 completed offscreen FPS; p95 2.2419 ms; private 29048832 bytes
+Complex UI dirty round 4: 438.983 completed offscreen FPS; p95 2.6451 ms; private 29061120 bytes
+Complex UI dirty round 5: 456.663 completed offscreen FPS; p95 2.4522 ms; private 28991488 bytes
+Performance comparison: unpaired
+Performance receipt: Z:\src\DxUi-worktrees\av-high-contrast\.build\reports\Performance-x64-Release.json
+Running Foundation (x64 Release)
+PASS Foundation (0 capability skips recorded)
+Running Embedded (x64 Release)
+PASS Embedded (0 capability skips recorded)
+Running Grid (x64 Release)
+PASS Grid (0 capability skips recorded)
+Running Theme (x64 Release)
+PASS Theme (0 capability skips recorded)
+Running Control (x64 Release)
+PASS Control (0 capability skips recorded)
+Running Menu (x64 Release)
+PASS Menu (9 capability skips recorded)
+Running NewControls (x64 Release)
+PASS NewControls (0 capability skips recorded)
+Running TextField (x64 Release)
+PASS TextField (0 capability skips recorded)
+Running NativeTextInput (x64 Release)
+PASS NativeTextInput (0 capability skips recorded)
+Running MultilineText (x64 Release)
+PASS MultilineText (0 capability skips recorded)
+Running ReadOnly (x64 Release)
+PASS ReadOnly (0 capability skips recorded)
+Running ComboBox (x64 Release)
+PASS ComboBox (0 capability skips recorded)
+Running Tree (x64 Release)
+PASS Tree (0 capability skips recorded)
+Running Tooltip (x64 Release)
+PASS Tooltip (0 capability skips recorded)
+Running Rendering (x64 Release)
+PASS Rendering (0 capability skips recorded)
+Running Animation (x64 Release)
+PASS Animation (0 capability skips recorded)
+Running Accessibility (x64 Release)
+PASS Accessibility (0 capability skips recorded)
+Running WindowHost (x64 Release)
+PASS WindowHost (0 capability skips recorded)
+All 18 requested suites passed.

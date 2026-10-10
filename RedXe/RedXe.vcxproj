@@ -127,6 +127,7 @@
     <ClInclude Include="NoticeWindow.h" />
     <ClInclude Include="FrameScheduler.h" />
     <ClInclude Include="PageNavigation.h" />
+    <ClInclude Include="PointerCancellation.h" />
     <ClInclude Include="PluginManager.h" />
     <ClInclude Include="AdapterSelection.h" />
     <ClInclude Include="HostChrome.h" />
