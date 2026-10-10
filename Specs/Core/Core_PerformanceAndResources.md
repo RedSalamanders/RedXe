@@ -319,6 +319,20 @@ usage remains 47.26 MiB versus cold 25.01. Hidden/minimized intervals submit no 
 the source lifetime change, not the proposed cold-Matrix +4 MiB return budget or attribution of remaining caches.
 Receipts: `.build/receipts/runtime-2026-10-10-p36-before`, `-p36-after`, and `-p36-source`.
 
+On 2026-10-10, an accepted sampled-CPU capture of x64 Release build 282 on the System page uses the same portable
+scene, disabled services, XENEON rectangle/DPI and AMD rendering adapter as the runtime probe. Only the trace
+controller is elevated; RedXe runs as the normal user. The 65-second probe reports 2.392 percent of one core and
+12.364 submissions per second. The ETL has zero lost events/buffers; copied private PDBs and matching Microsoft
+symbols resolve the host, source and OS call chains. The steady window excludes its first eight and last one seconds.
+Of 1,251 named sampled-CPU stacks, 900 include the acquisition worker, 578 include `RedXeNativeQueryWalk`, and 20
+include `OpenProcess`. There are 1,336 owned stacks before the named-event filter; inclusive counts overlap and
+are not exact call durations or whole-process CPU shares. Driver-private symbols remain unavailable.
+The bulk process walk is the first measured CPU investigation target: it owns four MiB but starts at one MiB and
+retries larger lengths each collection. Querying the existing full capacity requires separate query-count/timing,
+correctness and matched production measurements. This capture accepts sampled attribution only; input/presented
+latency, adapter moves and a CPU saving remain unqualified. The earlier broad capture dropped 704,274 events and
+is rejected. Receipts: `.build/receipts/runtime-2026-10-10-p02-cpu-sampled` and `-cpu-stacks-visible`.
+
 The measured baseline System Data source is an accepted bounded local pull source. Its fixed x64 source object is
 786,936 bytes and owns no worker or timer. Three Release row-cap runs of the production per-process row path, using
 2,048 accessible synthetic entries and two steady collections per run, produced 3.806, 3.823, and 3.921 ms average
