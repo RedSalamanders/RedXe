@@ -34,6 +34,8 @@ constexpr size_t kProcessBufferCapBytes = 8 * 1024 * 1024;
 constexpr uint32_t kCheapIterations = 64;
 constexpr uint32_t kWalkIterations = 16;
 constexpr uint32_t kWarmupIterations = 8;
+// Interleaved rounds of the cheap-totals and process-walk timings; each path is judged by its fastest round.
+constexpr uint32_t kTimingRounds = 5;
 
 static_assert(sizeof(void*) == 8);
 static_assert(sizeof(SYSTEM_HANDLECOUNT_INFORMATION) == 12);
@@ -634,36 +636,52 @@ void Run()
         (void)WalkProcesses(querySystem, processBuffer);
     }
 
-    LARGE_INTEGER cheapStart{};
-    LARGE_INTEGER cheapFinish{};
-    Expect(QueryPerformanceCounter(&cheapStart) != FALSE, "QPC start failed");
-    for (uint32_t iteration = 0; iteration < kCheapIterations; ++iteration)
+    // The per-iteration time of one round of each path.
+    const auto timeCheapRound = [&]()
     {
-        Expect(QuerySystem(querySystem, SystemHandleCountInformation, &ignoreHandles,
-                           static_cast<ULONG>(sizeof(ignoreHandles)), nullptr) >= 0,
-               "cheap sample failed");
-        Expect(QuerySystem(querySystem, SystemProcessorPerformanceInformation, processors,
-                           static_cast<ULONG>(sizeof(processors[0]) * activeProcessors), nullptr) >= 0,
-               "cpu sample failed");
-        PERFORMANCE_INFORMATION k32{};
-        k32.cb = static_cast<DWORD>(sizeof(k32));
-        Expect(K32GetPerformanceInfo(&k32, k32.cb) != FALSE, "K32 sample failed");
-    }
-    Expect(QueryPerformanceCounter(&cheapFinish) != FALSE, "QPC finish failed");
-
-    LARGE_INTEGER walkStart{};
-    LARGE_INTEGER walkFinish{};
-    Expect(QueryPerformanceCounter(&walkStart) != FALSE, "QPC start failed");
-    for (uint32_t iteration = 0; iteration < kWalkIterations; ++iteration)
+        LARGE_INTEGER start{};
+        LARGE_INTEGER finish{};
+        Expect(QueryPerformanceCounter(&start) != FALSE, "QPC start failed");
+        for (uint32_t iteration = 0; iteration < kCheapIterations; ++iteration)
+        {
+            Expect(QuerySystem(querySystem, SystemHandleCountInformation, &ignoreHandles,
+                               static_cast<ULONG>(sizeof(ignoreHandles)), nullptr) >= 0,
+                   "cheap sample failed");
+            Expect(QuerySystem(querySystem, SystemProcessorPerformanceInformation, processors,
+                               static_cast<ULONG>(sizeof(processors[0]) * activeProcessors), nullptr) >= 0,
+                   "cpu sample failed");
+            PERFORMANCE_INFORMATION k32{};
+            k32.cb = static_cast<DWORD>(sizeof(k32));
+            Expect(K32GetPerformanceInfo(&k32, k32.cb) != FALSE, "K32 sample failed");
+        }
+        Expect(QueryPerformanceCounter(&finish) != FALSE, "QPC finish failed");
+        return Microseconds(start, finish, frequency) / kCheapIterations;
+    };
+    const auto timeWalkRound = [&]()
     {
-        (void)WalkProcesses(querySystem, processBuffer);
+        LARGE_INTEGER start{};
+        LARGE_INTEGER finish{};
+        Expect(QueryPerformanceCounter(&start) != FALSE, "QPC start failed");
+        for (uint32_t iteration = 0; iteration < kWalkIterations; ++iteration)
+        {
+            (void)WalkProcesses(querySystem, processBuffer);
+        }
+        Expect(QueryPerformanceCounter(&finish) != FALSE, "QPC finish failed");
+        return Microseconds(start, finish, frequency) / kWalkIterations;
+    };
+    // Each path is judged by its fastest of several interleaved rounds. Other work on the machine only ever slows a
+    // round down, so the minimum is the path's own cost: a round that lost the processor (a cheap iteration measured at
+    // 51 ms instead of about 0.2 ms beside two builds on 2026-10-08) cannot invert the comparison, and a cheap path
+    // that really costs more than the walk still fails it.
+    double cheapUs = timeCheapRound();
+    double walkUs = timeWalkRound();
+    for (uint32_t round = 1; round < kTimingRounds; ++round)
+    {
+        cheapUs = (std::min)(cheapUs, timeCheapRound());
+        walkUs = (std::min)(walkUs, timeWalkRound());
     }
-    Expect(QueryPerformanceCounter(&walkFinish) != FALSE, "QPC finish failed");
-
-    const double cheapUs = Microseconds(cheapStart, cheapFinish, frequency) / kCheapIterations;
-    const double walkUs = Microseconds(walkStart, walkFinish, frequency) / kWalkIterations;
     std::wcout << L"cheap_cpu_mem_totals_us=" << cheapUs << L" process_walk_us=" << walkUs << L" ratio_walk_over_cheap="
-               << (cheapUs > 0.0 ? walkUs / cheapUs : 0.0) << L'\n';
+               << (cheapUs > 0.0 ? walkUs / cheapUs : 0.0) << L" timing_rounds=" << kTimingRounds << L'\n';
     Expect(cheapUs < walkUs, "cheap totals path was not cheaper than SystemProcessInformation");
 
     MeasureProductionSnapshots();
