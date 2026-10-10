@@ -6,7 +6,7 @@ The RedXe-specific fixes were recovered onto API revision 3 on 2026-10-10: point
 preserving a captured slider across another endpoint's update, and minimum-tile hit targets.
 The old DxUi appearance pin below was not adopted; the current lock remains authoritative.
 Current port validation and the remaining upstream appearance proposal are recorded in
-[`SliderTouchRecovery_2026-10-10.md`](../WIP/SliderTouchRecovery_2026-10-10.md).
+[`SliderTouchRecovery_2026-10-10.md`](SliderTouchRecovery_2026-10-10.md).
 
 Owners: `Specs/UI/UI_Dashboard.md`, `Specs/Plugins/Plugins_AVControl.md`,
 `Specs/Core/Core_DxUiIntegration.md`, `Specs/Core/Core_PerformanceAndResources.md`.

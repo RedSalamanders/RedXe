@@ -1,5 +1,6 @@
 # Completed plan history
 
+- [`SliderTouchRecovery_2026-10-10.md`](SliderTouchRecovery_2026-10-10.md) — completed 2026-10-10: retained RedXe pointer cancellation, independent-endpoint slider drag and minimum AV touch targets ported onto the current DxUi API revision 3 pin; full x64 Debug/Release gates, Release ARM64 cross-build and skills validation passed. The larger upstream appearance proposal and physical acceptance remain on the AV RFC.
 - [`SliderTouchReview_2026-09-09.md`](SliderTouchReview_2026-09-09.md) — historical September slider/touch validation;
   RedXe behavior recovered on 2026-10-10, with current-pin validation tracked in the recovery plan.
 
