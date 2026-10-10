@@ -658,6 +658,9 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
         return result;
     }
 
+    result = PluginHost::Instance().BindWidgetStatus(settings.id.utf8.data(), widgetSlot.status);
+    if (FAILED(result))
+        return result;
     result = provider.CreateWidget(settings.typeId.utf8.data(), settings.id.utf8.data(), widgetSlot.widget.put());
     if (FAILED(result))
     {
@@ -770,14 +773,63 @@ void PluginManager::ClearWidgetStatuses() noexcept
     }
 }
 
+PluginManager::WidgetSlot::~WidgetSlot() noexcept
+{
+    ReleaseWidgetInterfaces(*this);
+}
+
+PluginManager::WidgetSlot& PluginManager::WidgetSlot::operator=(WidgetSlot&& other) noexcept
+{
+    if (this != &other)
+    {
+        ReleaseWidgetInterfaces(*this);
+        status = std::move(other.status);
+        gpuWidget = std::move(other.gpuWidget);
+        preparedGpuWidget = std::move(other.preparedGpuWidget);
+        scheduledWidget = std::move(other.scheduledWidget);
+        windowWidget = std::move(other.windowWidget);
+        raisedWidget = std::move(other.raisedWidget);
+        interactiveWidget = std::move(other.interactiveWidget);
+        keyboardWidget = std::move(other.keyboardWidget);
+        textInputWidget = std::move(other.textInputWidget);
+        accessibilityWidget = std::move(other.accessibilityWidget);
+        networkWidget = std::move(other.networkWidget);
+        widget = std::move(other.widget);
+        instanceId = std::move(other.instanceId);
+        placement = other.placement;
+        adaptivePlacement = other.adaptivePlacement;
+        usesAdaptivePlacement = other.usesAdaptivePlacement;
+        backgroundRgb = other.backgroundRgb;
+        flags = other.flags;
+        placeholder = other.placeholder;
+        failure = other.failure;
+    }
+    return *this;
+}
+
+void PluginManager::ReleaseWidgetInterfaces(WidgetSlot& slot) noexcept
+{
+    // Keep its status pin until all interface references and widget-owned subscription callbacks are gone. This is
+    // also used before slot move-assignment, whose status member would otherwise release first.
+    if (slot.networkWidget)
+        PluginHost::Instance().UnregisterNetworkWidget(slot.networkWidget.get());
+    slot.gpuWidget.reset();
+    slot.preparedGpuWidget.reset();
+    slot.scheduledWidget.reset();
+    slot.windowWidget.reset();
+    slot.raisedWidget.reset();
+    slot.interactiveWidget.reset();
+    slot.keyboardWidget.reset();
+    slot.textInputWidget.reset();
+    slot.accessibilityWidget.reset();
+    slot.networkWidget.reset();
+    slot.widget.reset();
+}
+
 void PluginManager::ReleaseWidgets() noexcept
 {
     for (size_t index = 0; index < _widgetCount; ++index)
     {
-        if (_widgets[index].networkWidget)
-        {
-            PluginHost::Instance().UnregisterNetworkWidget(_widgets[index].networkWidget.get());
-        }
         const auto instanceId = _widgets[index].instanceId;
         _widgets[index] = WidgetSlot{};
         // Worker callbacks and widget destruction must finish before discarding their queued settings/status.
@@ -1131,6 +1183,11 @@ bool PluginManager::UsesAdaptivePlacementAt(size_t index) const noexcept
 const char* PluginManager::WidgetInstanceIdAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].instanceId.utf8.data() : nullptr;
+}
+
+uint32_t PluginManager::WidgetStatusAt(size_t index) const noexcept
+{
+    return index < _widgetCount ? _widgets[index].status.Status() : RedXeWidgetStatusOk;
 }
 
 uint32_t PluginManager::BackgroundRgb() const noexcept

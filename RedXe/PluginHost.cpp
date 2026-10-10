@@ -553,7 +553,7 @@ void PluginHost::Shutdown() noexcept
     AcquireSRWLockExclusive(&_widgetStatusLock);
     for (WidgetStatusSlot& slot : _widgetStatus)
     {
-        slot = WidgetStatusSlot{};
+        ResetWidgetStatusSlot(slot);
     }
     ReleaseSRWLockExclusive(&_widgetStatusLock);
     StopDataService();
@@ -2664,6 +2664,121 @@ void PluginHost::StopServices(uint32_t budgetMilliseconds) noexcept
     }
 }
 
+PluginHost::WidgetStatusBinding::~WidgetStatusBinding() noexcept
+{
+    Reset();
+}
+
+PluginHost::WidgetStatusBinding::WidgetStatusBinding(WidgetStatusBinding&& other) noexcept
+    : _host(std::exchange(other._host, nullptr)), _key(std::exchange(other._key, 0))
+{
+}
+
+PluginHost::WidgetStatusBinding& PluginHost::WidgetStatusBinding::operator=(WidgetStatusBinding&& other) noexcept
+{
+    if (this != &other)
+    {
+        Reset();
+        _host = std::exchange(other._host, nullptr);
+        _key = std::exchange(other._key, 0);
+    }
+    return *this;
+}
+
+uint32_t PluginHost::WidgetStatusBinding::Status() const noexcept
+{
+    return _host ? _host->BoundWidgetStatus(_key) : RedXeWidgetStatusOk;
+}
+
+void PluginHost::WidgetStatusBinding::Reset() noexcept
+{
+    if (_host)
+        _host->ReleaseWidgetStatusBinding(_key);
+    _host = nullptr;
+    _key = 0;
+}
+
+void PluginHost::ResetWidgetStatusSlot(WidgetStatusSlot& slot) noexcept
+{
+    const uint64_t generation = slot.statusAndGeneration.load(std::memory_order_relaxed) >> 32;
+    // Retire at the generation ceiling, rather than allowing an old key to become valid through wraparound.
+    slot.statusAndGeneration.store(((std::min)(generation + 1, uint64_t{UINT32_MAX}) << 32) | RedXeWidgetStatusOk,
+                                   std::memory_order_release);
+    slot.instanceId.fill('\0');
+    slot.reason.fill(L'\0');
+    slot.bindings = 0;
+    slot.used = false;
+}
+
+HRESULT PluginHost::BindWidgetStatus(const char* instanceId, WidgetStatusBinding& binding) noexcept
+{
+    if (_shutdown)
+        return E_UNEXPECTED;
+    if (!RedXeIsValidMachineId(instanceId))
+        return E_INVALIDARG;
+    binding.Reset();
+    const auto guard = wil::AcquireSRWLockExclusive(&_widgetStatusLock);
+    size_t slotIndex = _widgetStatus.size();
+    size_t freeIndex = _widgetStatus.size();
+    for (size_t index = 0; index < _widgetStatus.size(); ++index)
+    {
+        auto& slot = _widgetStatus[index];
+        if (slot.used && RedXeAsciiEqualsIgnoreCase(slot.instanceId.data(), instanceId))
+        {
+            slotIndex = index;
+            break;
+        }
+        if (!slot.used && freeIndex == _widgetStatus.size() &&
+            (slot.statusAndGeneration.load(std::memory_order_relaxed) >> 32) != UINT32_MAX)
+            freeIndex = index;
+    }
+    if (slotIndex == _widgetStatus.size())
+    {
+        slotIndex = freeIndex;
+        if (slotIndex == _widgetStatus.size())
+            return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
+        auto& slot = _widgetStatus[slotIndex];
+        ResetWidgetStatusSlot(slot);
+        slot.used = true;
+        (void)StringCchCopyNA(slot.instanceId.data(), slot.instanceId.size(), instanceId, slot.instanceId.size() - 1);
+    }
+    auto& slot = _widgetStatus[slotIndex];
+    if (slot.bindings == UINT32_MAX)
+        return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
+    ++slot.bindings;
+    binding._host = this;
+    binding._key = (slot.statusAndGeneration.load(std::memory_order_relaxed) & 0xFFFFFFFF00000000ULL) |
+                   static_cast<uint32_t>(slotIndex + 1);
+    return S_OK;
+}
+
+uint32_t PluginHost::BoundWidgetStatus(uint64_t key) const noexcept
+{
+    const uint32_t encodedIndex = static_cast<uint32_t>(key);
+    if (encodedIndex == 0 || encodedIndex > _widgetStatus.size())
+        return RedXeWidgetStatusOk;
+    const uint64_t state = _widgetStatus[encodedIndex - 1].statusAndGeneration.load(std::memory_order_acquire);
+    return (state >> 32) == (key >> 32) ? static_cast<uint32_t>(state) : RedXeWidgetStatusOk;
+}
+
+void PluginHost::ReleaseWidgetStatusBinding(uint64_t key) noexcept
+{
+    std::array<char, kMaximumWidgetStatusIdBytes> releasedId{};
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_widgetStatusLock);
+        const uint32_t encodedIndex = static_cast<uint32_t>(key);
+        if (encodedIndex == 0 || encodedIndex > _widgetStatus.size())
+            return;
+        auto& slot = _widgetStatus[encodedIndex - 1];
+        if ((slot.statusAndGeneration.load(std::memory_order_relaxed) >> 32) != (key >> 32) || slot.bindings == 0)
+            return;
+        if (--slot.bindings == 0)
+            releasedId = slot.instanceId;
+    }
+    if (releasedId[0] != '\0')
+        ClearWidgetStatus(releasedId.data());
+}
+
 HRESULT PluginHost::ReportWidgetStatus(const char* instanceId, const RedXeWidgetStatusReport* report) noexcept
 {
     if (!RedXeIsValidMachineId(instanceId) || !report || report->sizeBytes != sizeof(RedXeWidgetStatusReport) ||
@@ -2690,7 +2805,8 @@ HRESULT PluginHost::ReportWidgetStatus(const char* instanceId, const RedXeWidget
             slot = &candidate;
             break;
         }
-        if (!candidate.used && !free)
+        if (!candidate.used && !free &&
+            (candidate.statusAndGeneration.load(std::memory_order_relaxed) >> 32) != UINT32_MAX)
         {
             free = &candidate;
         }
@@ -2700,17 +2816,18 @@ HRESULT PluginHost::ReportWidgetStatus(const char* instanceId, const RedXeWidget
         slot = free;
         if (slot)
         {
+            ResetWidgetStatusSlot(*slot);
             slot->used = true;
-            slot->status = RedXeWidgetStatusOk;
             (void)StringCchCopyNA(slot->instanceId.data(), slot->instanceId.size(), instanceId,
                                   slot->instanceId.size() - 1);
         }
     }
     if (slot)
     {
-        changed =
-            slot->status != report->status || std::wcsncmp(slot->reason.data(), reason.data(), reason.size()) != 0;
-        slot->status = report->status;
+        const uint64_t state = slot->statusAndGeneration.load(std::memory_order_relaxed);
+        changed = static_cast<uint32_t>(state) != report->status ||
+                  std::wcsncmp(slot->reason.data(), reason.data(), reason.size()) != 0;
+        slot->statusAndGeneration.store((state & 0xFFFFFFFF00000000ULL) | report->status, std::memory_order_release);
         slot->reason = reason;
     }
     ReleaseSRWLockExclusive(&_widgetStatusLock);
@@ -2738,7 +2855,7 @@ uint32_t PluginHost::WidgetStatus(const char* instanceId) const noexcept
     {
         if (candidate.used && RedXeAsciiEqualsIgnoreCase(candidate.instanceId.data(), instanceId))
         {
-            status = candidate.status;
+            status = static_cast<uint32_t>(candidate.statusAndGeneration.load(std::memory_order_relaxed));
             break;
         }
     }
@@ -2775,21 +2892,23 @@ void PluginHost::ClearWidgetStatus(const char* instanceId) noexcept
         return;
     }
     {
-        const auto guard = wil::AcquireSRWLockExclusive(&_pendingSettingsLock);
-        for (auto& pending : _pendingSettings)
-            if (pending && RedXeAsciiEqualsIgnoreCase(pending->instanceId.data(), instanceId))
-                pending.reset();
-    }
-    AcquireSRWLockExclusive(&_widgetStatusLock);
-    for (WidgetStatusSlot& candidate : _widgetStatus)
-    {
-        if (candidate.used && RedXeAsciiEqualsIgnoreCase(candidate.instanceId.data(), instanceId))
+        const auto guard = wil::AcquireSRWLockExclusive(&_widgetStatusLock);
+        for (WidgetStatusSlot& candidate : _widgetStatus)
         {
-            candidate = WidgetStatusSlot{};
-            break;
+            if (candidate.used && RedXeAsciiEqualsIgnoreCase(candidate.instanceId.data(), instanceId))
+            {
+                // A replacement widget with this ID is already staged; its status and queued settings survive.
+                if (candidate.bindings != 0)
+                    return;
+                ResetWidgetStatusSlot(candidate);
+                break;
+            }
         }
     }
-    ReleaseSRWLockExclusive(&_widgetStatusLock);
+    const auto guard = wil::AcquireSRWLockExclusive(&_pendingSettingsLock);
+    for (auto& pending : _pendingSettings)
+        if (pending && RedXeAsciiEqualsIgnoreCase(pending->instanceId.data(), instanceId))
+            pending.reset();
 }
 
 HRESULT PluginHost::GetDataSets(size_t providerIndex, const RedXeDataSetDescriptor** descriptors,

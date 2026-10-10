@@ -297,6 +297,11 @@ object it was supplied to.
   only a change coalesces a frame. A malformed record, an unknown status value, or an invalid instance ID returns
   `E_INVALIDARG`. Reporting `Unavailable` makes the host own that tile and draw its placeholder; `Degraded` and
   `Initializing` are recorded but leave the widget drawing its own content.
+  The host pins one bounded atomic status slot while the instance is constructed, drawn and torn down. Frame-time
+  placeholder decisions take no status lock and perform no ID scan. A staged same-ID replacement shares that pin:
+  retiring the old widget MUST NOT erase a still-live replacement's latest report or queued settings. All interface
+  references and subscription/network callbacks finish before the final pin is released. Freed slots invalidate old
+  generations; the status and reason storage are reclaimed within the fixed 64-slot table, without allocation.
 - `PersistWidgetSettings` asks the host to persist this instance's plugin settings object, not the factory envelope.
   The widget MAY send the complete object or a subset of members. The host always merges supplied members into the
   stored instance object, validates the complete result against the 4096-byte compact cap and the plugin schema, and

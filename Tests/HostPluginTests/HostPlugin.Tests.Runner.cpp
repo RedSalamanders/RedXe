@@ -72,6 +72,45 @@ void TestProcessViewerScheduling(bool& success) noexcept;
 
 struct PluginHostTestAccess final
 {
+    [[nodiscard]] static size_t RegisteredNetworkWidgets(const PluginHost& host) noexcept
+    {
+        size_t count = 0;
+        for (const auto& slot : host._networkSlots)
+            count += slot.widget ? 1U : 0U;
+        return count;
+    }
+    [[nodiscard]] static uint64_t StatusKeyAt(PluginHost& host, size_t index) noexcept
+    {
+        return (host._widgetStatus[index].statusAndGeneration.load() & 0xFFFFFFFF00000000ULL) | (index + 1);
+    }
+
+    [[nodiscard]] static uint32_t ReadStatusKey(PluginHost& host, uint64_t key) noexcept
+    {
+        return host.BoundWidgetStatus(key);
+    }
+
+    [[nodiscard]] static bool ReadStatusWhileLocked(PluginHost& host,
+                                                    const PluginHost::WidgetStatusBinding& binding) noexcept
+    {
+        wil::unique_event_nothrow completed;
+        if (FAILED(completed.create(wil::EventOptions::ManualReset)))
+            return false;
+        std::atomic<bool> correct{true};
+        AcquireSRWLockExclusive(&host._widgetStatusLock);
+        std::jthread reader(
+            [&]() noexcept
+            {
+                for (uint32_t index = 0; index < 10000; ++index)
+                    if (binding.Status() != RedXeWidgetStatusUnavailable)
+                        correct.store(false);
+                completed.SetEvent();
+            });
+        const bool finished = WaitForSingleObject(completed.get(), 2000) == WAIT_OBJECT_0;
+        ReleaseSRWLockExclusive(&host._widgetStatusLock);
+        reader.join();
+        return finished && correct.load();
+    }
+
     struct StallProbe final
     {
         wil::unique_event_nothrow entered;
@@ -316,6 +355,15 @@ struct PluginHostTestAccess final
 
 struct PluginManagerTestAccess final
 {
+    [[nodiscard]] static HRESULT ConstructTemporaryWidget(PluginManager& plugins,
+                                                          const WidgetInstanceSettings& settings) noexcept
+    {
+        if (plugins._providerCount != 1)
+            return E_UNEXPECTED;
+        PluginManager::WidgetSlot temporary;
+        return plugins.CreateWidgetInstance(*plugins._providers[0].provider, settings, plugins.BackgroundRgb(),
+                                            temporary);
+    }
     [[nodiscard]] static size_t ProviderKeyBytes() noexcept
     {
         return sizeof(PluginManager::ProviderBuildKey) * PluginManager::kMaximumWidgetInstances;
@@ -5427,6 +5475,115 @@ void TestHostOwnedPlaceholderTiles(bool& success) noexcept
           L"every widget draws again after recovery", success);
 }
 
+void TestWidgetSlotRollback(bool& success) noexcept
+{
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.weather"}]}]})json", settings);
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+        result = plugins.Initialize(settings);
+    if (FAILED(result))
+    {
+        Check(false, L"Weather rollback fixture constructs its provider.", success);
+        return;
+    }
+    auto temporary = settings.dashboard.pages[0].widgets[0];
+    temporary.id = SettingsText{};
+    constexpr std::string_view id = "status.rollback.weather";
+    id.copy(temporary.id.utf8.data(), id.size());
+    temporary.id.bytes = static_cast<uint32_t>(id.size());
+    const size_t before = PluginHostTestAccess::RegisteredNetworkWidgets(PluginHost::Instance());
+    result = PluginManagerTestAccess::ConstructTemporaryWidget(plugins, temporary);
+    Check(SUCCEEDED(result) && PluginHostTestAccess::RegisteredNetworkWidgets(PluginHost::Instance()) == before &&
+              PluginHost::Instance().WidgetStatus(temporary.id.utf8.data()) == RedXeWidgetStatusOk,
+          L"A rolled-back temporary widget drains network registration and releases its status pin.", success);
+}
+
+void TestAtomicWidgetStatusBindings(bool& success) noexcept
+{
+    PluginHost host;
+    PluginHost::WidgetStatusBinding first;
+    PluginHost::WidgetStatusBinding replacement;
+    Check(host.BindWidgetStatus("status.bound", first) == S_OK && first.Status() == RedXeWidgetStatusOk,
+          L"A cold status binding defaults to healthy without a report.", success);
+    const uint64_t oldKey = PluginHostTestAccess::StatusKeyAt(host, 0);
+    RedXeWidgetStatusReport report{sizeof(RedXeWidgetStatusReport), RedXeWidgetStatusUnavailable, L"offline"};
+    Check(host.ReportWidgetStatus("STATUS.BOUND", &report) == S_OK && first.Status() == RedXeWidgetStatusUnavailable,
+          L"Worker publication reaches the cached binding with case-insensitive instance identity.", success);
+    Check(PluginHostTestAccess::ReadStatusWhileLocked(host, first),
+          L"Ten thousand status reads finish while the status-table lock is held.", success);
+    Check(host.BindWidgetStatus("status.bound", replacement) == S_OK, L"A staged replacement shares the status pin.",
+          success);
+    first.Reset();
+    host.ClearWidgetStatus("status.bound");
+    Check(replacement.Status() == RedXeWidgetStatusUnavailable,
+          L"Retiring an old widget preserves its live same-ID replacement's status.", success);
+    PluginHost::WidgetStatusBinding moved{std::move(replacement)};
+    Check(replacement.Status() == RedXeWidgetStatusOk && moved.Status() == RedXeWidgetStatusUnavailable,
+          L"Moving the binding transfers its pin exactly once.", success);
+    std::atomic<bool> reportsValid{true};
+    std::jthread writer(
+        [&]() noexcept
+        {
+            for (uint32_t index = 0; index < 20000; ++index)
+            {
+                const RedXeWidgetStatusReport next{sizeof(RedXeWidgetStatusReport), index % 4, nullptr};
+                if (host.ReportWidgetStatus("status.bound", &next) != S_OK)
+                    reportsValid.store(false);
+            }
+        });
+    bool readsValid = true;
+    for (uint32_t index = 0; index < 100000; ++index)
+        readsValid = readsValid && moved.Status() <= RedXeWidgetStatusUnavailable;
+    writer.join();
+    Check(reportsValid.load() && readsValid && moved.Status() == RedXeWidgetStatusUnavailable,
+          L"Concurrent reports publish complete valid status values to atomic readers.", success);
+    moved.Reset();
+    Check(host.BindWidgetStatus("status.reused", first) == S_OK && first.Status() == RedXeWidgetStatusOk &&
+              PluginHostTestAccess::ReadStatusKey(host, oldKey) == RedXeWidgetStatusOk,
+          L"Reusing a freed slot does not revive the previous generation's cached status.", success);
+    host.Shutdown();
+    Check(first.Status() == RedXeWidgetStatusOk,
+          L"Host shutdown invalidates outstanding bindings; later release is harmless.", success);
+
+    PluginHost capacityHost;
+    std::array<PluginHost::WidgetStatusBinding, 64> bindings;
+    bool capacityValid = true;
+    for (size_t index = 0; index < bindings.size(); ++index)
+    {
+        std::array<char, 32> id{};
+        (void)sprintf_s(id.data(), id.size(), "status.capacity.%zu", index);
+        capacityValid = capacityValid && capacityHost.BindWidgetStatus(id.data(), bindings[index]) == S_OK;
+    }
+    PluginHost::WidgetStatusBinding overflow;
+    Check(capacityValid &&
+              capacityHost.BindWidgetStatus("status.overflow", overflow) == HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES),
+          L"The current/staged status table remains bounded to 64 slots.", success);
+    bindings[23].Reset();
+    Check(capacityHost.BindWidgetStatus("status.overflow", overflow) == S_OK,
+          L"Releasing a status pin makes its slot reusable without allocation.", success);
+    report.status = RedXeWidgetStatusDegraded;
+    Check(capacityHost.ReportWidgetStatus("status.capacity.63", &report) == S_OK,
+          L"The last status slot accepts the same report as a cached view.", success);
+    constexpr uint32_t iterations = 100000;
+    uint64_t cachedSum = 0;
+    uint64_t lookupSum = 0;
+    const auto cachedStart = std::chrono::steady_clock::now();
+    for (uint32_t index = 0; index < iterations; ++index)
+        cachedSum += bindings[63].Status();
+    const auto lookupStart = std::chrono::steady_clock::now();
+    for (uint32_t index = 0; index < iterations; ++index)
+        lookupSum += capacityHost.WidgetStatus("status.capacity.63");
+    const auto lookupEnd = std::chrono::steady_clock::now();
+    Check(cachedSum == lookupSum && cachedSum == uint64_t{iterations} * RedXeWidgetStatusDegraded,
+          L"Cached and legacy cold lookups produce identical status values.", success);
+    std::wcout << L"widget_status_read iterations=" << iterations << L" cached_nanoseconds="
+               << std::chrono::duration_cast<std::chrono::nanoseconds>(lookupStart - cachedStart).count()
+               << L" cold_lookup_nanoseconds="
+               << std::chrono::duration_cast<std::chrono::nanoseconds>(lookupEnd - lookupStart).count() << L'\n';
+}
+
 void TestCompactProviderCache(bool& success) noexcept
 {
     std::wcout << L"provider_cache key_array_bytes=" << PluginManagerTestAccess::ProviderKeyBytes() << L'\n';
@@ -8744,6 +8901,8 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestLogRetentionTransitions(success);
     TestStandardErrorLog(success);
     TestHostOwnedPlaceholderTiles(success);
+    TestWidgetSlotRollback(success);
+    TestAtomicWidgetStatusBindings(success);
     TestCompactProviderCache(success);
     TestDashboardBackground(success);
     TestUnmappedCatalogModulePlaceholder(success);

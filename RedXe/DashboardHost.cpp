@@ -860,8 +860,7 @@ bool DashboardHost::RequiresPlaceholderAt(size_t index) const noexcept
         return true;
     }
     // A constructed widget that reported itself unavailable is drawn by the host for as long as it says so.
-    return PluginHost::Instance().WidgetStatus(_pluginManager->WidgetInstanceIdAt(index)) ==
-           RedXeWidgetStatusUnavailable;
+    return _pluginManager->WidgetStatusAt(index) == RedXeWidgetStatusUnavailable;
 }
 
 HRESULT DashboardHost::GetNextFrameDelayMilliseconds(uint32_t* delayMilliseconds) const noexcept

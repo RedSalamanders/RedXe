@@ -214,6 +214,27 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // (RedXeFailureReports::WriteUtf8ToStandardError); it allocates nothing.
     void SetStandardErrorLog(bool enabled) noexcept;
 
+    // UI-thread cold-path registration pins a slot across construction/drawing/teardown. The host outlives the binding.
+    class WidgetStatusBinding final
+    {
+      public:
+        WidgetStatusBinding() noexcept = default;
+        ~WidgetStatusBinding() noexcept;
+        WidgetStatusBinding(WidgetStatusBinding&& other) noexcept;
+        WidgetStatusBinding& operator=(WidgetStatusBinding&& other) noexcept;
+        WidgetStatusBinding(const WidgetStatusBinding&) = delete;
+        WidgetStatusBinding& operator=(const WidgetStatusBinding&) = delete;
+        [[nodiscard]] uint32_t Status() const noexcept;
+        void Reset() noexcept;
+
+      private:
+        friend class PluginHost;
+        PluginHost* _host = nullptr;
+        uint64_t _key = 0;
+    };
+    static_assert(sizeof(WidgetStatusBinding) == 16);
+    [[nodiscard]] HRESULT BindWidgetStatus(const char* instanceId, WidgetStatusBinding& binding) noexcept;
+
     // Latest status reported by one widget instance. Unknown instances read back as RedXeWidgetStatusOk so a widget
     // that never reports is never drawn as a placeholder.
     [[nodiscard]] uint32_t WidgetStatus(const char* instanceId) const noexcept;
@@ -309,9 +330,14 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     {
         std::array<char, kMaximumWidgetStatusIdBytes> instanceId{};
         std::array<wchar_t, kMaximumWidgetStatusReasonCharacters> reason{};
-        uint32_t status = RedXeWidgetStatusOk;
+        std::atomic<uint64_t> statusAndGeneration{RedXeWidgetStatusOk};
+        uint32_t bindings = 0;
         bool used = false;
     };
+    static_assert(sizeof(WidgetStatusSlot) <= 336);
+    [[nodiscard]] uint32_t BoundWidgetStatus(uint64_t key) const noexcept;
+    void ReleaseWidgetStatusBinding(uint64_t key) noexcept;
+    static void ResetWidgetStatusSlot(WidgetStatusSlot& slot) noexcept;
 
     struct SubscriptionSlot final
     {

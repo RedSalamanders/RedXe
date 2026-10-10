@@ -68,6 +68,11 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   Provider staging retains at most 1 KiB of compact keys instead of 32 copied 8 KiB envelopes. Key comparisons
   remain collision-safe by referencing the original immutable staging settings; they allocate and copy nothing.
   The provider/widget/key transaction arrays together MUST remain below 28 KiB on the construction stack.
+- Placeholder decisions in `Render` and `PrepareWidgets` MUST read one atomic status through a pinned per-widget
+  binding; they MUST NOT acquire the status-table lock or scan instance-name strings. Registration/report/reason
+  lookup and release remain cold paths in the existing 64-slot table. Generations reject stale bindings and retire
+  before wraparound; widget callbacks/interfaces drain before the final pin is released. The cache adds at most
+  1.5 KiB across two full 32-widget pages, no allocation, thread, timer or additional invalidation wake.
 - Subscription deactivation and release MUST drain running and reserved callbacks using an event-blocked wait.
   Per-slot in-flight counters and fixed delivery arrays preserve the 32-subscription bound without heap allocation.
   Widgets MUST be quiescent before GPU teardown. Worker-side GPU lifetime checks and access share the resource lock;

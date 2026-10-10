@@ -55,6 +55,7 @@ class PluginManager final
     [[nodiscard]] AdaptiveWidgetPlacement AdaptivePlacementAt(size_t index) const noexcept;
     [[nodiscard]] bool UsesAdaptivePlacementAt(size_t index) const noexcept;
     [[nodiscard]] const char* WidgetInstanceIdAt(size_t index) const noexcept;
+    [[nodiscard]] uint32_t WidgetStatusAt(size_t index) const noexcept;
     // Document background (0xRRGGBB) the renderer clears with, and the color each tile paints: the document color
     // unless that instance authored its own backgroundColor.
     [[nodiscard]] uint32_t BackgroundRgb() const noexcept;
@@ -68,6 +69,13 @@ class PluginManager final
 #endif
     struct WidgetSlot final
     {
+        WidgetSlot() noexcept = default;
+        ~WidgetSlot() noexcept;
+        WidgetSlot(WidgetSlot&&) noexcept = default;
+        WidgetSlot& operator=(WidgetSlot&& other) noexcept;
+        WidgetSlot(const WidgetSlot&) = delete;
+        WidgetSlot& operator=(const WidgetSlot&) = delete;
+        PluginHost::WidgetStatusBinding status;
         wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
         wil::com_ptr_nothrow<IRedXePreparedGpuWidget> preparedGpuWidget;
         wil::com_ptr_nothrow<IRedXeScheduledWidget> scheduledWidget;
@@ -121,6 +129,7 @@ class PluginManager final
     static void MakePlaceholder(WidgetSlot& widgetSlot, const WidgetInstanceSettings& settings, uint32_t backgroundRgb,
                                 HRESULT failure) noexcept;
     void ClearWidgetStatuses() noexcept;
+    static void ReleaseWidgetInterfaces(WidgetSlot& slot) noexcept;
     void ReleaseWidgets() noexcept;
     [[nodiscard]] HRESULT StageActivePage(const AppSettings& settings,
                                           std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
