@@ -342,11 +342,27 @@ symbols resolve the host, source and OS call chains. The steady window excludes 
 Of 1,251 named sampled-CPU stacks, 900 include the acquisition worker, 578 include `RedXeNativeQueryWalk`, and 20
 include `OpenProcess`. There are 1,336 owned stacks before the named-event filter; inclusive counts overlap and
 are not exact call durations or whole-process CPU shares. Driver-private symbols remain unavailable.
-The bulk process walk is the first measured CPU investigation target: it owns four MiB but starts at one MiB and
-retries larger lengths each collection. Querying the existing full capacity requires separate query-count/timing,
-correctness and matched production measurements. This capture accepts sampled attribution only; input/presented
+The bulk process walk is the first measured CPU investigation target: that captured source owns four MiB but starts
+at one MiB and retries larger lengths each collection. The subsequent single-capacity change is measured separately
+below. This capture accepts sampled attribution only; input/presented
 latency, adapter moves and a CPU saving remain unqualified. The earlier broad capture dropped 704,274 events and
 is rejected. Receipts: `.build/receipts/runtime-2026-10-10-p02-cpu-sampled` and `-cpu-stacks-visible`.
+
+The native process/thread walk now queries its existing four-MiB buffer once, with no smaller retry, added storage
+or changed columns/caps/fallback. Failed queries and invalid `ReturnLength` expose no readable bytes. In 64 quiet,
+alternating-order standalone NT-query pairs on 2026-10-10, both paths return the same 647 process rows and at most
+1,592,880 bytes. The old path makes two calls per collection; full capacity makes one. Median wall time is 20.121 /
+11.678 ms and p95 22.054 / 14.018 ms. This is an algorithm diagnostic, not complete-source CPU qualification.
+Matched build-282 normal-user System captures have equal settings, XENEON rectangle/DPI and rendering adapter.
+Before / after-1 / after-2 report CPU 2.186 / 2.653 / 2.238 percent of one core, submissions 12.324 / 13.166 / 11.991
+per second and private 57.84 / 58.39 / 59.01 MiB. Threads 43, modules 78 and local adapter usage 26.26 MiB remain
+equal; handles 1177 / 1178 / 1177. These observations establish no whole-process CPU or submission saving and do not
+accept the proposed System budgets. The capacity test rejects the old retry algorithm and accepts the single query;
+oversized, failed, empty and invalid-length queries expose no bytes. Real DLL field/catalog, row-cap, history and
+allocation checks pass in all 16 Release scopes and 15 Debug/15 ASan Debug native scopes. Source storage remains
+16,437,760 bytes. ARM64 Release compiles and all 10 skills pass. Receipts:
+`.build/receipts/runtime-2026-10-10-p21-nt-query-before`, `-p21-before`,
+`-p21-after-1`, `-p21-after-2` and `-p21`.
 
 The measured baseline System Data source is an accepted bounded local pull source. Its fixed x64 source object is
 786,936 bytes and owns no worker or timer. Three Release row-cap runs of the production per-process row path, using

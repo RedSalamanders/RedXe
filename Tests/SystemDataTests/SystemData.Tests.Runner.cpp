@@ -29,6 +29,8 @@
 #include <wil/resource.h>
 #pragma warning(pop)
 
+void TestNativeProcessQuery();
+
 namespace
 {
 static_assert(std::is_base_of_v<IUnknown, IRedXeDataSource>);
@@ -1400,8 +1402,11 @@ int wmain(int argumentCount, wchar_t** arguments)
         const std::wstring_view argument = argumentCount == 2 ? arguments[1] : L"";
         const bool benchmark = argument == L"--benchmark";
         const bool domains = argument == L"--domains";
-        Expect(argumentCount == 1 || benchmark || domains, "unsupported SystemDataTests argument");
-        Run(benchmark, domains);
+        const bool processQuery = argument == L"--process-query";
+        Expect(argumentCount == 1 || benchmark || domains || processQuery, "unsupported SystemDataTests argument");
+        TestNativeProcessQuery();
+        if (!processQuery)
+            Run(benchmark, domains);
         std::wcout << L"System data tests passed.\n";
         return 0;
     }

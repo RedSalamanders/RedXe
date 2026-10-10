@@ -67,6 +67,7 @@
   <ItemGroup>
     <ClInclude Include="GpuQuery.h" />
     <ClInclude Include="NativeQuery.h" />
+    <ClInclude Include="NativeProcessQuery.h" />
     <ClInclude Include="NtLayout.h" />
     <ClInclude Include="NetStorage.h" />
     <ClInclude Include="PowerSensors.h" />

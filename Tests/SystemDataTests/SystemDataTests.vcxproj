@@ -54,7 +54,10 @@
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="SystemData.Tests.Runner.cpp" /></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="SystemData.Tests.ProcessQuery.cpp" />
+    <ClCompile Include="SystemData.Tests.Runner.cpp" />
+  </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Common\PlugInterfaces\Data.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />

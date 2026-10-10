@@ -1,5 +1,6 @@
 #include "NativeQuery.h"
 
+#include "NativeProcessQuery.h"
 #include "NtLayout.h"
 
 #include <algorithm>
@@ -10,7 +11,6 @@
 
 namespace
 {
-constexpr NTSTATUS kStatusInfoLengthMismatch = static_cast<NTSTATUS>(0xC0000004L);
 constexpr size_t kPerformanceProbeBytes = 1024;
 
 // Microsoft documents PROCESSOR_POWER_INFORMATION on the CallNtPowerInformation reference page and states that its
@@ -618,27 +618,7 @@ bool RedXeNativeQueryWalk(RedXeNativeState& state, RedXeNativeWalkSample& sample
     }
 
     ULONG returned = 0;
-    size_t length = 1024U * 1024U;
-    NTSTATUS status = kStatusInfoLengthMismatch;
-    while (length <= state.processBuffer.size())
-    {
-        status = query(SystemProcessInformation, state.processBuffer.data(), static_cast<ULONG>(length), &returned);
-        if (status >= 0)
-        {
-            break;
-        }
-        if (status != kStatusInfoLengthMismatch)
-        {
-            return false;
-        }
-        const size_t next = length * 2;
-        if (next > state.processBuffer.size())
-        {
-            return false;
-        }
-        length = next;
-    }
-    if (status < 0 || returned == 0 || returned > length)
+    if (!RedXeNativeProcessQuery::Collect(query, state.processBuffer, returned))
     {
         return false;
     }

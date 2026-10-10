@@ -41,6 +41,7 @@
   "Tests/SystemDataPhase0/SystemDataPhase0.Tests.Runner.cpp",
   "Tests/SystemDataPhase0/SystemDataPhase0.Tests.Runner.h",
   "Tests/SystemDataPhase0/SystemDataPhase0.Tests.SystemDataPhase0Surfaces.cpp",
+  "Tests/SystemDataTests/SystemData.Tests.ProcessQuery.cpp",
   "Tests/SystemDataTests/SystemData.Tests.Runner.cpp",
   "Tests/WeatherTests/Weather.Tests.Runner.cpp",
   "Tests/WeatherTests/Weather.Tests.WeatherLocation.cpp",

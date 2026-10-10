@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-10 against `ed2b360` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-10 against `68cd226` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -71,6 +71,7 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P0.3 | Complete | Three isolated 60 s soaks now run in the HostPlugin scope. Clocks warm at scheduled cadence for 20 s; Matrix warms for 1,024 frames. Five-second/end samples enforce uninstrumented peak growth of 4 MiB private / 8 MiB working set, plus resource/cadence/teardown bounds in every profile. Release and Debug each pass 16 scopes; ASan Debug passes 15 native scopes with default quarantine and diagnostic byte reporting; ARM64 Release compiles and 10 skills pass. Final Release private peaks: Matrix 0, Studio 1,306,624, Desk 942,080 bytes. `runtime-2026-10-10-p03`. |
 | P2.3 | Complete | Move-only 16-byte status pins; one atomic read per placeholder decision, no locked ID scan in Render/Prepare. Adds at most 1.5 KiB across two full pages, no allocation/thread/wake. 10,000 reads complete under the exclusively held status lock; concurrent reports, move/reuse/shutdown, same-ID replacement and 64-slot capacity pass. Slot destruction/move drains network registration and interface/callback lifetime before final release, including rollback. 100,000 Release reads: cached 72.8 us / last-slot cold lookup 80.6 ms, diagnostic only. Release 16 scopes; Debug and ASan Debug 15 native scopes; ARM64 Release compile; 10 skills. `runtime-2026-10-10-p23`; P3.2 commit `55da17f`. |
 | P3.6 | In progress; source and GPU binding cuts complete | `7c1f72b`: quiescent last-consumer source reclamation preserves facade identity, inactive/staged subscriptions and external leases. Matched retained private 87.61 → 71.75 MiB. The separate GPU binding cut proves last-owner release, identical pixels and no device/swap-chain rebuild. All 16 Release scopes, 15 Debug and ASan Debug native scopes, ARM64 Release compilation and 10 skills pass. Its matched retained private is 69.54 → 69.08 MiB and local usage 47.26 → 46.26 MiB, versus cold 25.01. Submissions remain about 60/s, hidden/minimized zero; no CPU saving established. Remaining return budget and cache attribution stay open. `runtime-2026-10-10-p36-source`, `-p36-before`, `-p36-after`, `-p36-gpu`. |
+| P2.1 | Single-capacity query cut complete; activity/storage proposal remains | Native walk queries its existing four-MiB buffer once; columns, caps, history and fallback remain. Capacity red/green, failure/invalid-length and real DLL field/catalog/row-cap/history/allocation checks pass. All 16 Release scopes, 15 Debug and 15 ASan Debug native scopes, ARM64 Release compilation and 10 skills pass. Source storage remains 16,437,760 bytes. Standalone 64 pairs: two calls → one, median 20.121 → 11.678 ms. Matched 65 s System control / after-1 / after-2: CPU 2.186 / 2.653 / 2.238%, submissions 12.324 / 13.166 / 11.991/s; no whole-process saving established. `runtime-2026-10-10-p21-*`. |
 
 ### P3.6 source cut and remaining retention (2026-10-10)
 
@@ -116,9 +117,10 @@ buffer plus the cheap sample already occupy 363,840 bytes before output tables.
 ### Remaining-proposal reconciliation (2026-10-10)
 
 The accepted CPU capture points first to the bulk NT walk, not per-process handle opens. The current walk owns a
-four-MiB buffer but restarts at one MiB on every collection and doubles after a length mismatch. Measure a single
-query of the existing full capacity before changing published datasets; keep `ReturnLength` bounds, all columns,
-caps and fallback. A separate eight-column activity dataset remains an option for the two consumers that use only
+four-MiB buffer but restarted at one MiB on every collection and doubled after a length mismatch. The single-capacity
+cut removes that retry without changing published datasets; deterministic/real-DLL oracles and all required profile
+gates pass. Standalone wall time improves; matched production CPU and submission savings remain
+unestablished. A separate eight-column activity dataset remains an option for the two consumers that use only
 PID/name or the leading seven columns, and for P4.1 value-prefix storage. It must preserve the later accepted
 39-column `process.list` contract and one shared walk/history epoch. No CPU saving is established yet.
 
@@ -562,7 +564,7 @@ contract and validation updates.
 
 | ID | Item | Pass condition |
 | --- | --- | --- |
-| P2.1 | **Measured target: bulk process-query cost.** Native walk accounts for 578/1,251 named CPU stacks; `OpenProcess` accounts for 20. First measure querying the already-owned four-MiB buffer once, removing the one/two/four-MiB retry sequence. Preserve the current 39 columns, row caps, strict `ReturnLength` parsing and Toolhelp fallback. A separate activity dataset is a later storage/consumer proposal; the accepted detail contract remains. | Quiet query-count/timing and matched Release CPU/submission receipts; deterministic capacity/failure tests plus existing native-field, row-cap, history, fallback and allocation oracles. |
+| P2.1 | **Single-capacity query cut complete.** Query the already-owned four-MiB buffer once, preserving all 39 columns, row caps, strict `ReturnLength` parsing and Toolhelp fallback. A separate activity dataset remains a later storage/consumer proposal; the accepted detail contract remains. | Quiet standalone 64 pairs: two calls → one, median 20.121 → 11.678 ms. Capacity red/green, real DLL field/catalog/row-cap/history/allocation checks, 16 Release scopes, 15 Debug/15 ASan Debug native scopes, ARM64 Release compilation and 10 skills pass. Matched CPU 2.186 → 2.653/2.238%, submissions 12.324 → 13.166/11.991; no whole-process saving established. |
 | P2.2 | **Complete 2026-10-10.** Cache non-dock reachable geometry; notification invalidation precedes all message handlers. Dock retains its direct client rule. | Production self-test: 1,000 unchanged queries, zero extra display walks; work-area notification adds exactly one. Geometry/policy tests and full Debug/Release gates pass. Matched comparison above establishes no CPU saving. |
 | P2.3 | **Complete 2026-10-10.** Fixed atomic slot bindings remove locked string lookup from placeholder decisions. Cold registration/release and report/reason lookup retain the bounded table. | Reads complete while the status lock is held; full Release/Debug/ASan gates, capacity/concurrency/reuse/reconfiguration and rollback lifetime tests pass. No whole-process CPU improvement is claimed. |
 | P2.4 | **Complete 2026-10-10.** Debug output shares the render-failure transition guard. A recovered drawn frame permits a fresh failure report; partial raised/tile success does not. Successful primary adoption resets slot identity. | 400 failing primary frames emit three diagnostics and preserve healthy siblings; the incoming instance reports once. Debug/Release full gates pass; ARM64 Release compiles. |

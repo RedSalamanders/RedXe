@@ -1041,6 +1041,11 @@ private working set, pagefile use, parent process ID, and the six I/O counters d
 and they are therefore published for every walked row rather than only for processes the caller can open. A transient
 `PROCESS_QUERY_LIMITED_INFORMATION` handle remains only for affinity, architecture, critical-process state, and
 efficiency mode.
+The process/thread walk queries its already-owned four-MiB buffer at full capacity once per shared walk. It MUST NOT
+restart at a smaller size or allocate on a length mismatch. A failed query, zero `ReturnLength` or a successful
+query reporting beyond that capacity exposes no readable bytes and retains the existing Toolhelp fallback. Record,
+thread and image parsing remains bounded by the successful measured `ReturnLength`; all published columns and caps
+are unchanged.
 CPU deltas use fixed prior-sample tables; collection allocates no plugin heap storage after source creation and creates
 no worker, timer, outbound network request, or persistent process handle. The source may retain one IP Helper
 `NotifyIpInterfaceChange` registration (callback sets a dirty flag only) and bounded read-only disk and battery handles,
