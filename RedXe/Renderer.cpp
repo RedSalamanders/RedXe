@@ -4,6 +4,7 @@
 #include "PluginHost.h"
 
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -72,6 +73,7 @@ void Renderer::Shutdown() noexcept
     _raisedTargetSize = {};
     _raisedViewport = {};
     _lastLoggedRenderFailure = {};
+    _failedWidgetMask = 0;
 }
 
 HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
@@ -239,6 +241,8 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
             }
         }
     }
+    _lastLoggedRenderFailure = {};
+    _failedWidgetMask = 0;
     return S_OK;
 }
 
@@ -1154,6 +1158,7 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
     }
 
     const size_t widgetCount = _dashboardHost->WidgetCount();
+    uint32_t failedWidgets = 0;
     const auto drawWidget = [&](size_t index, const D3D11_VIEWPORT& viewport, uint32_t viewId) noexcept -> HRESULT
     {
         if (viewport.Width < 1.0f || viewport.Height < 1.0f)
@@ -1194,10 +1199,11 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
         }
         if (FAILED(widgetResult))
         {
-            OutputDebugStringW(L"A GPU widget failed to render; continuing with remaining widgets.\n");
+            failedWidgets |= uint32_t{1} << index;
             if (index < _lastLoggedRenderFailure.size() && _lastLoggedRenderFailure[index] != widgetResult)
             {
                 _lastLoggedRenderFailure[index] = widgetResult;
+                OutputDebugStringW(L"A GPU widget failed to render; continuing with remaining widgets.\n");
                 (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr,
                                    _dashboardHost->WidgetInstanceIdAt(index), "gpu-render-failed",
                                    "IRedXeGpuWidget::Render failed.", widgetResult);
@@ -1246,6 +1252,16 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
         const HRESULT recoveryResult = RecoverDevice();
         return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
     }
+
+    // A successful raised draw does not recover a still-failing tile (or vice versa). Clear only instances whose
+    // entire drawn frame recovered. The ordinary path has no recovered bits and scans no widget slots.
+    uint32_t recovered = _failedWidgetMask & ~failedWidgets;
+    while (recovered != 0)
+    {
+        _lastLoggedRenderFailure[static_cast<size_t>(std::countr_zero(recovered))] = S_OK;
+        recovered &= recovered - 1;
+    }
+    _failedWidgetMask = failedWidgets;
 
     if (!_raisedOverlayActive && _transitionDashboardHost && _transitionWidgetsDeviceReady)
     {

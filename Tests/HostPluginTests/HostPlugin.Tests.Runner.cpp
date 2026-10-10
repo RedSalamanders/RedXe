@@ -4430,11 +4430,14 @@ class FaultInjectingGpuWidget final : public RedXeComObject<FaultInjectingGpuWid
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
     {
         ++renderCalls;
-        return _inner->Render(context);
+        return FAILED(renderFailure) && (!tileFailureOnly || context->viewId == 0) ? renderFailure
+                                                                                   : _inner->Render(context);
     }
 
     HRESULT deviceCreatedFailure = S_OK;
     HRESULT targetSizeFailure = S_OK;
+    HRESULT renderFailure = S_OK;
+    bool tileFailureOnly = false;
     uint32_t deviceCreatedCalls = 0;
     uint32_t deviceLostCalls = 0;
     uint32_t targetSizeCalls = 0;
@@ -4498,7 +4501,9 @@ void TestGpuWidgetCallbackFailures(bool& success)
 {
     std::wcout << L"[ RUN      ] GPU widget device-setup rollback and isolated target-size failure, logged\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":5},"pages":[{"columns":[{"plugin":"builtin.rotating-triangle"},)json"
+        R"json({"version":{"major":5},"pages":[{"id":"primary","columns":[{"plugin":"builtin.rotating-triangle"},)json"
+        R"json({"plugin":"builtin.rotating-triangle"},{"plugin":"builtin.rotating-triangle"}]},)json"
+        R"json({"id":"incoming","columns":[{"plugin":"builtin.rotating-triangle"},)json"
         R"json({"plugin":"builtin.rotating-triangle"},{"plugin":"builtin.rotating-triangle"}]}]})json";
     constexpr HRESULT kStartupFailure = HRESULT_FROM_WIN32(ERROR_GEN_FAILURE);
     constexpr HRESULT kStagingFailure = HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE);
@@ -4533,6 +4538,8 @@ void TestGpuWidgetCallbackFailures(bool& success)
     PluginManager stagedPlugins;
     if (SUCCEEDED(result))
         result = plugins.Initialize(settings);
+    if (SUCCEEDED(result))
+        result = MoveDashboardPage(settings, 1);
     if (SUCCEEDED(result))
         result = stagedPlugins.Initialize(settings);
     GpuFaults faults;
@@ -4635,6 +4642,43 @@ void TestGpuWidgetCallbackFailures(bool& success)
           L"the widget whose size notification failed keeps drawing with its previous resources beside the others, "
           L"and the notification is not retried per frame",
           success);
+
+    // Each ordinary failure burst emits one diagnostic. Other widgets keep drawing, and recovery permits one
+    // new report if the same instance fails again. Both OutputDebugString and JSONL use this one transition guard.
+    faults[0]->targetSizeFailure = S_OK;
+    bool isolated = true;
+    const auto failureBurst = [&](HRESULT failure)
+    {
+        faults[0]->renderFailure = failure;
+        for (uint32_t frame = 0; frame < 100; ++frame)
+        {
+            isolated = SUCCEEDED(renderer.Render(0.4f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f)) &&
+                       renderer.LastFrameWidgetCount() == 3 && renderer.LastFrameSuccessfulWidgetCount() == 2 &&
+                       isolated;
+        }
+    };
+    failureBurst(E_FAIL);
+    faults[0]->renderFailure = S_OK;
+    Check(SUCCEEDED(renderer.Render(2.1f, 1.0f / 60.0f)) && renderer.LastFrameSuccessfulWidgetCount() == 3,
+          L"a recovered GPU widget draws again", success);
+    failureBurst(E_FAIL);
+    failureBurst(E_INVALIDARG);
+    Check(isolated, L"300 failing widget draws preserve every sibling and the host frame", success);
+    faults[0]->tileFailureOnly = true;
+    const RECT raisedContent{0, 0, static_cast<LONG>(kHostWidth / 2), static_cast<LONG>(kHostHeight)};
+    Check(renderer.SetRaisedOverlay(0, raisedContent) == S_OK, L"a partly failing widget can have a raised view",
+          success);
+    bool partialRecovery = true;
+    for (uint32_t frame = 0; frame < 100; ++frame)
+        partialRecovery = SUCCEEDED(renderer.Render(4.0f, 1.0f / 60.0f)) &&
+                          renderer.LastFrameSuccessfulWidgetCount() == 3 && partialRecovery;
+    Check(partialRecovery, L"successful raised draws do not restart a tile failure diagnostic", success);
+    renderer.ClearRaisedOverlay();
+    stagedFaults[0]->renderFailure = E_INVALIDARG;
+    const char* const incomingId = stagedPlugins.WidgetInstanceIdAt(0);
+    Check(renderer.AdoptPrimaryDashboard(staged) == S_OK && staged.SetWidgetsVisible(true) == S_OK &&
+              SUCCEEDED(renderer.Render(4.1f, 1.0f / 60.0f)),
+          L"promotion gives reused viewport slots a fresh diagnostic identity", success);
     renderer.Shutdown();
 
     Check(SUCCEEDED(processHost.FlushLog(10'000)), L"the GPU failure log drains", success);
@@ -4647,6 +4691,12 @@ void TestGpuWidgetCallbackFailures(bool& success)
               CountInstanceRecords(bytes, "warning", firstId, "gpu-target-size-failed", kSizeFailure) == 1,
           L"the failed size notification logs one gpu-target-size-failed Warning naming the instance and HRESULT",
           success);
+    Check(CountInstanceRecords(bytes, "error", firstId, "gpu-render-failed", E_FAIL) == 2 &&
+              CountInstanceRecords(bytes, "error", firstId, "gpu-render-failed", E_INVALIDARG) == 1,
+          L"300 failing draws emit three reports: initial failure, recurrence after recovery, and changed HRESULT",
+          success);
+    Check(CountInstanceRecords(bytes, "error", incomingId, "gpu-render-failed", E_INVALIDARG) == 1,
+          L"an incoming instance at the same slot reports its own failure", success);
 }
 
 void TestSharedPluginRuntime(bool& success) noexcept

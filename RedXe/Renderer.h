@@ -96,6 +96,7 @@ class Renderer final
 
   private:
     static constexpr size_t kMaximumWidgetViewports = 32;
+    static_assert(kMaximumWidgetViewports <= 32); // One bounded bit per instance in the failure-frame mask.
     static constexpr DXGI_FORMAT kTargetFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 
     struct ReportedTarget final
@@ -169,6 +170,7 @@ class Renderer final
     std::array<ReportedTarget, kMaximumWidgetViewports> _widgetTargetSizes{};
     std::array<ReportedTarget, kMaximumWidgetViewports> _transitionTargetSizes{};
     std::array<HRESULT, kMaximumWidgetViewports> _lastLoggedRenderFailure{};
+    uint32_t _failedWidgetMask = 0;
 
     wil::com_ptr_nothrow<ID3D11Device> _device;
     wil::com_ptr_nothrow<ID3D11DeviceContext> _context;

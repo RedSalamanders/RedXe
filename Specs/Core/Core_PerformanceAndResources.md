@@ -253,7 +253,11 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   on the UI thread. Completion posts one UI message and releases the worker before a `--screenshot` request closes the
   window; an action request leaves it open. A worker that cannot start ends its request on the same loop turn, so an
   idle loop never waits for a completion that will not come.
-- Logging and diagnostics must not format or emit per-frame success messages. `IRedXeHost::Log` copies a bounded
+- Logging and diagnostics must not format or emit per-frame success messages. Repeated GPU render failure MUST
+  share one transition guard for debug output and JSONL; it does no
+  diagnostic work until the HRESULT changes or that instance recovers across its entire drawn frame. The renderer
+  uses its existing fixed HRESULT slots and one 4-byte failed-instance mask, with no steady slot scan or allocation.
+  Primary page adoption resets the diagnostic identity. `IRedXeHost::Log` copies a bounded
   record into a 32-slot 1024-byte ring and wakes one event-blocked writer. The writer appends JSONL under the settings
   sibling `Logs` directory using a UTC-dated file (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`) and
   deletes files older than `logRetentionDays` (default 15) on open, UTC date change, and retention-value change.

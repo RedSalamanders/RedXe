@@ -331,8 +331,12 @@ object it was supplied to.
   only this test mode, whose reader drains the pipe, makes it. Release drops `RedXeLogLevelDebug`. A null record, a
   mismatched `sizeBytes`, a missing event id or message, or an unknown level returns `E_POINTER` / `E_INVALIDARG`.
   Plugins MUST NOT call `Log` from `Render` or GDI paint and MUST NOT emit per-frame success. Factory create, module
-  map, placeholder construction, native attach, GPU device-create, GPU render failure (once per instance and HRESULT),
+  map, placeholder construction, native attach, GPU device-create, GPU render failure (once per instance/HRESULT
+  failure transition),
   and weather forecast outcomes are the required coverage.
+  Repeating the same failed render result MUST emit neither another debug string nor another JSONL record. A
+  changed HRESULT, full drawn-frame recovery followed by failure, or a new primary page instance permits a new
+  report. A successful raised draw does not recover a failing tile; healthy siblings keep drawing.
   Escaping and truncation MUST preserve complete JSON syntax, the optional HRESULT, one trailing newline, and valid
   UTF-8. Each identity has a bounded escaped-output budget, and message truncation reserves room for the record
   suffix. A partial final UTF-8 sequence is omitted; malformed input bytes are replaced with ASCII `?`.
