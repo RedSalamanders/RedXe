@@ -8,6 +8,7 @@
   <ItemGroup>
     <ClCompile Include="HostPlugin.Tests.Runner.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="HostPlugin.Tests.RuntimeProbe.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="HostPlugin.Tests.ProcessViewerScheduling.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\RedXe\RuntimeProbe.cpp"><Filter>Host Sources</Filter></ClCompile>
     <ClCompile Include="..\..\RedXe\DashboardHost.cpp"><Filter>Host Sources</Filter></ClCompile>
     <ClCompile Include="..\..\RedXe\DisplayEnumeration.cpp"><Filter>Host Sources</Filter></ClCompile>

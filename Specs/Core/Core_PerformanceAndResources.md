@@ -360,16 +360,25 @@ settings-visible widgets share one device resource hub: build-time Shader Model 
 1024×1024 `R8` atlas, and one dynamic instance buffer. Each visible widget frame maps that buffer and issues one
 `DrawInstanced`. DirectWrite loads only while filling new atlas glyphs, then releases. Ranked lists copy at most
 `topN` rows; the CPU heatmap stores at most 64 display cells. Sparkline history is 60 samples of widget-local fixed
-storage. Eases last 320 ms. `GetNextFrameDelayMilliseconds` returns the dataset interval, not a 1 ms poll; while an
-ease or pulse is in flight the widget calls `IRedXeHost::RequestFrame` after each presented frame so motion is
-presentation-paced. Glyph rasterization runs when a snapshot arrives or at device creation, never inside `Render`.
+storage. Eases last 320 ms from a fixed displayed start pose; tile and raised draws share the host timestamp. Delivery
+already coalesces a host invalidation. Settled viewers return `S_FALSE` with zero delay; only real easing or the
+bounded 420 ms high-band pulse requests a 33 ms visual deadline, with no Render-side immediate frame request.
+Unchanged targets and sub-pixel projected changes snap to the exact current values in the delivery frame, preserving
+labels, quality, histories and intent colors. Celsius numeral changes of at least one degree still ease even on a
+saturated level track. CPU heat changes below an 8-bit luminance step snap except band
+crossings. Auxiliary data and identical targets do not restart an ease. A continuous sibling/host motion can draw
+sooner without another deadline wake. The fixed target/start pose adds at most 1,320 bytes per widget (12.9 KiB for
+ten), accepted for cadence-independent interpolation and avoiding repeated empty bursts; it adds no allocation,
+thread, timer, GPU resource or synchronization to scheduling. Sample/draw-list storage otherwise remains unchanged.
+Glyph rasterization runs when a snapshot arrives or at device creation, never inside `Render`.
 A settled System page MUST NOT set continuous animation. Hidden, minimized, suspended, occluded, and
 display-off states stop eases and drain subscriptions; recovery draws current values and does not replay missed
 motion. Snapshot copy stays on the acquisition worker. After delivery, the host coalesces one UI-thread invalidation.
-This family remains on the immediate-context GPU path. Release x64 `HostPluginTests` at 2560×720 measured an 8.24 ms
-mean production `Renderer::Render` over 32 frames after warmup and device-loss rebuild (Debug was 8.25 ms). The
-near-identical Debug and Release times show WARP Present of the full swap chain dominates; each visible widget issues
-one instance-buffer map and one `DrawInstanced`. That measurement does not justify a host primitive-batching IID.
+This family remains on the immediate-context GPU path. The 2026-10-10 full gates measured a 0.399 ms Release and
+0.388 ms Debug mean production `Renderer::Render` over the 32-frame hidden WARP fixture at 2560×720 after warmup
+and device-loss rebuild. This is off-screen submission evidence, not hardware presented-frame/input latency or
+CPU-thread attribution. Each visible widget issues one instance-buffer map and one `DrawInstanced`; this fixture
+does not justify a host primitive-batching IID. The older September timings are historical, unmatched evidence.
 
 ## Production resource probe
 

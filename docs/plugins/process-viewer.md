@@ -12,6 +12,10 @@ Ranks running processes by available CPU, with working set and PID as tie-breake
 
 It does not collect command lines, full paths, or user names. Inaccessible values show as muted dashes.
 
+Visible value and rank changes ease into place. Tiny changes and updated labels appear directly; steady readings
+keep the tile still. High load keeps its brief warning pulse. Returning to the page shows current readings without
+replaying earlier motion.
+
 ## Parameters
 
 | Parameter | Type | Range | Default | Meaning |

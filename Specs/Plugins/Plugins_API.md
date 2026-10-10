@@ -1,7 +1,7 @@
 # RedXe plugin API contract
 
 Status: current normative contract
-Last reviewed: 2026-09-18
+Last reviewed: 2026-10-10
 
 ## Purpose and scope
 
@@ -246,6 +246,8 @@ object it was supplied to.
   `RedXeWidgetFlagContinuousAnimation` is a property of the widget *type* and cannot describe an instance whose motion
   starts and stops. A widget MUST use `RequestFrame` rather than declaring continuous animation for intermittent
   motion, and rather than returning a short `IRedXeScheduledWidget` delay purely to be polled.
+  A bounded animation MAY instead schedule its next required visual frame; a settled sample-driven widget MUST
+  return `S_FALSE` when delivery already invalidates the host. A dataset interval is not a reason to redraw it.
 - `RequestFrame` is the only host service a sink may call from inside `OnDataSnapshot` besides `Log`. `RunNetworkWork`
   MAY call `RequestFrame` and `Log` and MUST NOT call `PersistWidgetSettings`.
 - The **network lane** is host-owned scheduling for plugin-owned HTTP. There is no host HTTP ABI: the HTTP client,
@@ -1108,8 +1110,18 @@ utilization or capacity KPI remains at or above 85% stay sample-driven. Decorati
 are not used; history recency fade and a live-edge highlight are sample-driven. Empty and `Unavailable` values
 render as muted em dashes; an AC-only desktop renders compact `AC` status, never invented zeros. Widget-local
 sparkline history is at most 60 samples in fixed storage and MUST NOT move into System Data. Eases use a 320 ms
-ease-out; animation is sample-driven: `GetNextFrameDelayMilliseconds` returns the dataset interval, and while an ease
-or pulse is in flight the widget calls `IRedXeHost::RequestFrame` after each presented frame. DirectWrite fills new
+ease-out. Animation is sample-driven: delivery coalesces the initial host invalidation. Settled viewers return
+`S_FALSE` (zero delay); only a live ease or 420 ms warning pulse returns a 33 ms visual deadline. They do not request
+another immediate frame from `Render`. A continuous sibling or host motion may draw them sooner without another
+timer. Unchanged targets, auxiliary label/count observations, and changes below one physical pixel of conservative
+largest-viewport bar/rank displacement snap to the exact new values in that one delivery frame. Celsius numeral
+changes of at least one degree still ease when their level track is saturated. CPU heat changes
+below one 8-bit luminance step also snap, except intent-band crossings. Labels, quality, ranks, paging, counters and
+60-sample history are never discarded by this animation decision. A changed interpolated target starts from the
+current displayed pose and completes in 320 ms independent of frame rate; an unchanged target does not restart it.
+Tile and raised draws at the same host timestamp advance motion once. A high-band observation still triggers its
+bounded pulse while unchanged; leaving the high band ends it. PID 0 CPU alone never triggers a warning pulse.
+Hide/device loss snaps interrupted motion; the first recovery frame does not replay it. DirectWrite fills new
 atlas glyphs when a snapshot arrives or at device creation, never inside `Render`. A settled System page MUST NOT
 request continuous frames.
 
@@ -1511,6 +1523,11 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
       Verify the ten System Data viewer IDs enumerate from `ProcessViewer.dll`,
     reject factory creation without a host, and that a ten-widget System page attaches as GPU+scheduled widgets,
     renders on hidden WARP, rebuilds after device loss, stays non-continuous, and drains every subscription when hidden.
+    Deterministic production-DLL observations MUST prove no idle deadline for all ten viewers, unchanged and
+    sub-pixel targets, changed labels/quality/history, rank changes, independent auxiliary deliveries and snapshot
+    bursts, frame-rate-independent 320 ms endpoints, identical-time tile/raised pixels, 420 ms repeated high-band
+    pulses, hide/reentry and device recovery, and allocation-free steady/animated Render and scheduling. A scheduled
+    production-host soak MUST exercise coalesced delivery and parked/33 ms deadlines without continuous frames.
     On that page a Process Viewer with `topN` 32 MUST report more than one overflow page and a drawn page-control
     layout through its test diagnostics, and a Down/Up on its second dot MUST page it forward (`S_FALSE` on Down,
     `S_OK` on Up) and a tap on the first dot back, each visible in the next frame's diagnostics; that viewer MUST

@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-10 against `7b38d4b` plus the P0.1 working change on `codex/runtime-probe`
+Refreshed: 2026-10-10 against `7b38d4b` plus the P0.1/P2.7 working changes on `codex/runtime-probe`
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -58,7 +58,7 @@ Coordinate, do not fork:
 | Chrome/native widgets | Both top-level styles use `WS_EX_NOREDIRECTIONBITMAP`; `DashboardHost` creates layered native containers. Release Gallery has Triangle and Matrix, no GdiOrbit. | The September P1.4 rejection is superseded. Two continuous widgets share one host presentation cadence; no template change belongs to P0.1. |
 | DxUi/AV | `Dependencies/DxUi.lock.json` pins `271bd54be24eadf3f03ba5221d1be7be069860f2`, API 3. Views release hidden surfaces; caches/peaks are bounded. The I19 adoption envelope was accepted on 2026-09-13. | Old sibling-worktree and library receipts are dated history. AV real IME/AT/audio/camera gates remain with the HOLD RFC. P0.1 exports only 64-byte read-only POD statistics. |
 | SystemData | `CollectProcessesFromWalk` still opens each process; source members still use fixed zero-initialized arrays. `PluginHost::_providers` owns sources until shutdown. | P2.1, P4.1 and source reclamation in P3.6 remain candidates. The later normative contract accepts the current bounded per-process baseline; changing columns needs a new measured contract change. |
-| ProcessViewer | `Publish` calls `BeginEase` on every successful snapshot; ease lasts 320 ms; `Render` calls `RequestFrame` while easing/pulsing; scheduled rest delay follows the dataset interval. `PluginHost::Deliver` already coalesces a UI invalidation. | Fresh C measures 21.711 submissions/s and 2.291% of one core. P2.7 is the next focused optimization; its savings and visual quality still require a matched after-capture. |
+| ProcessViewer | P2.7 parks settled viewers (`S_FALSE`), snaps unchanged/sub-pixel targets, and schedules only visible easing/pulses at 33 ms. Eases use a fixed start pose and one host timestamp for both views; auxiliary observations do not restart them. `PluginHost::Deliver` still coalesces the initial invalidation. | Matched control: 14.126 submissions/s, 2.986% of one core. Two after-runs: 12.163/12.184 submissions/s, 3.515/3.069% CPU. Submission reduction is 13.7–13.9%; CPU improvement is not established. Proposed System budgets remain open. |
 | Logging/settings | `EnsureCurrentLogFile` still calls `PurgeExpiredLogs` for an unchanged file; it enumerates two wildcards. Settings persistence flushes its temp file and checks the loaded document before replacement, but still runs synchronously. | P2.5 remains open. P2.6 must preserve the current flush, merge and stamp guarantees; the old proposed write-through replacement is obsolete. |
 | Retained plugin work | Launcher still reserves 32 GPU icon slices even for an empty authored list. Viewer/Weather atlas upload paths and DeskClock's 1 ms animation deadline still exist. | P2.8/P4.3/P4.6 need current measurements; the September cost/line-number table below must not be used as current proof. |
 | Probe | Opt-in `RuntimeProbe` shares existing message/frame-latency waits and the 32×1024 JSONL ring; disabled path has no diagnostic deadline/query. AV queries never load a module or prepare a view. | P0.1 changes diagnostics, not page rendering or service behavior. Invalid/unavailable counters stay explicitly marked. |
@@ -121,13 +121,13 @@ these are diagnostic receipts, not latency/timing acceptance. Gallery's settled 
 four preparations and 1474560 live bytes; composition does not allocate another surface. AV has no live widgets or
 surfaces after the return. No builds/tests ran during the visible captures.
 
-**Next focused optimization: P2.7, ProcessViewer wake discipline.** Fresh System submits 10.9 times the proposed
-2/s target and exceeds the 1.5% whole-process CPU target. Current source shows every successful snapshot starting
+**P0.1 selected P2.7, ProcessViewer wake discipline.** Fresh System submits 10.9 times the proposed
+2/s target and exceeds the 1.5% whole-process CPU target. Pre-P2.7 source showed every successful snapshot starting
 320 ms of easing and every easing render requesting another frame; the host already invalidates after delivery.
 First avoid easing unchanged/sub-pixel observations and idle scheduled wakes; then measure a bounded cadence for
 necessary animations while preserving ranks, pulses and visible quality. This is the most direct measured behavior
-to change before more invasive storage/lifetime work. The probe does not attribute CPU by thread or prove how much
-this cut will save; a matched after-capture and P0.2 attribution remain required.
+to change before more invasive storage/lifetime work. The P2.7 comparison below now measures this cut; P0.2 thread
+attribution remains required to choose a CPU optimization.
 
 **Memory follow-up: P3.6, then P4.1 as a separate storage cut.** Returning to Matrix retains **85.80 MiB private**,
 64.37 MiB working set, one thread, 252 handles, 31 modules and 22.25 MiB of device-adapter local usage above the
@@ -155,6 +155,84 @@ Future captures use the corrected collector directly:
 ```powershell
 .\measure-runtime.ps1 -OutputRoot .build/receipts/runtime-p01-next-baseline
 ```
+
+### P2.7 implementation and evidence (2026-10-10)
+
+- [x] Remove dataset-interval redraws while settled; snapshot delivery already coalesces a host invalidation.
+- [x] Retain labels, quality, counters and history samples, but snap unchanged/sub-pixel animation targets exactly.
+- [x] Keep visible value/rank easing and warning pulses through a 33 ms visual deadline; no Render-side immediate
+      frame request, no new timer, thread, GPU resource or allocation. Other continuous widgets/host motion may draw sooner.
+- [x] Fixed 320 ms start/target interpolation, same-time tile/raised stability, coalesced target changes, no auxiliary
+      restart, bounded 420 ms high-band pulses and hide/device-loss recovery. PID 0 CPU is not a high-load warning.
+- [x] Production-DLL tests for all ten viewer types, pixel endpoints, ranks/labels, sub-pixel/heat projection,
+      auxiliary deliveries, quality recovery, pulses, snapshot bursts, independent instances and CRT allocation checks;
+      production-host scheduled soak added to the existing hidden WARP integration scenario.
+- [x] Durable contract and plugin guidance refreshed; Process Viewer user guide explains still/tiny/current readings.
+- [x] Final Debug/Release x64 full gates after the expanded changed-family fixtures, Release ARM64 build and skill validation.
+- [x] Matched Release after-captures, raw counters, closure/context identity and actual CPU/submission comparison.
+
+The pre-change control is `.build/receipts/runtime-2026-10-10-p27-system-before/`: 65 seconds, 13 valid samples,
+60.172 seconds of complete intervals, 14.126 successful submissions/s and 2.986% of one CPU core. It uses the same
+x64 Release 1.0.275 artifacts and measurement variant as P0.1 (2560×720, 96 DPI, XENEON-owning AMD adapter, AC,
+services `{}`, tray off, 5-second probe). It is accepted with unchanged before/after input hashes. The older P0.1
+21.711/s / 2.291% record remains a reference, not a substitute for this fresh matched control.
+
+The fixed motion target/start storage is bounded at 1,320 bytes per instance (12.9 KiB for all ten), accepted to
+preserve the same 320 ms interpolation at the lower cadence and prevent duplicate-view/auxiliary advances. The
+existing sample and draw-list storage, dataset cadence, device sharing, atlas, layouts, fonts, paging and rendering
+pipeline stay in place. P2.8 atlas work and P4.1 source storage are separate cuts.
+
+Matched receipt: `.build/receipts/runtime-2026-10-10-p27-comparison/`. Both after-runs use the same portable scene
+bytes, rectangle, DPI, OS, processor, AC power, probe interval, host executable, dependency archive and other
+production DLLs as the control. The sole changed production input is `ProcessViewer.cpp` / `ProcessViewer.dll`;
+test-source/project/inventory differences are retained separately. Every capture passed its within-run input
+identity, page, display-on, validity and completeness checks. No builds/tests from this task overlapped these
+captures; other machine activity was not controlled.
+
+| Fresh System run | Complete interval seconds | Core CPU % | Successful submissions/s | Private MiB | Threads / modules |
+| --- | --- | --- | --- | --- | --- |
+| Pre-P2.7 control | 60.172 | 2.986 | 14.126 | 58.78 | 43 / 78 |
+| P2.7 after 1 | 60.016 | 3.515 | 12.163 | 58.49 | 43 / 78 |
+| P2.7 after 2 | 60.078 | 3.069 | 12.184 | 58.82 | 45 / 79 |
+
+The observed submission reduction is **13.7–13.9%** against the fresh control. CPU is **2.8–17.7% higher** in these
+two observations; this is not evidence of a CPU saving. They are live-system samples with changing observations,
+coarse process CPU counters and different driver/runtime thread/module counts in after 2, not a controlled CPU
+attribution experiment. Retain both outcomes and the older P0.1 variation; do not substitute its higher 21.711/s
+rate to inflate the matched reduction. Successful submissions are not presented FPS or input latency.
+
+The proposed **≤2 submissions/s and ≤1.5% process CPU targets remain unmet**, and the probe cannot accept the
+proposed ≤0.3% UI-thread budget. Real value/rank changes and 420 ms warning pulses still require frames. P2.7's
+parking/cadence implementation is complete; those budgets require measured follow-up rather than removing visual
+behavior. Next CPU step is P0.2 thread/callback attribution before choosing P2.1 collection or P2.8 atlas work.
+The memory follow-up remains P3.6 retained-cost attribution/source reclamation, then a separately measured P4.1 cut.
+
+Current Release System-page idle validation is retained at `runtime-2026-10-10-p27-system-states`: a generated
+collector copy adds only owned-window hide/restore/minimize phases to C, preserving the production analyzer. Both
+25-second inactive phases have five valid samples and 20.031 seconds of complete intervals with **zero submissions**.
+Hidden CPU is 0.000%, minimized CPU 0.078%, and private memory does not grow. The 20-second visible lead-in and
+10-second recovery establish state transitions only and are excluded from the 65-second matched comparison.
+Display-off/occlusion behavior is covered by the production-host scheduler tests; this live run does not manufacture
+those external states. A Debug application-generated System screenshot is retained in the comparison's `visual/`.
+
+Final validation on the measured production bytes, with the expanded changed-value tests for every family:
+
+- `test.ps1 -Full -Configuration Release`: all 16 scopes passed, including independent tooling and WARP.
+- `test.ps1 -Full -Configuration Debug -SkipTooling`: all 15 native scopes passed; current Release covers tooling.
+- `build.ps1 -Configuration Release -Platform ARM64 -MaxCpuCount 4`: all projects and the updated harness compile,
+  zero warnings/errors; native ARM64 execution is not claimed.
+- `validate-skills.ps1`: all ten skills passed. `git diff --check`: passed.
+- The scheduled System-page production-host soak reports 118 frames / 25 coalesced deliveries in 10 seconds in
+  Release, 122 / 30 in Debug, with no continuous flag. The 32-frame hidden WARP fixture averages 0.399/0.388 ms;
+  those timings are not hardware FPS or CPU-thread attribution.
+
+Logs, source snapshot/patch, native test/artifact hashes and per-profile DxUi provenance are in the comparison's
+`validation/`. Release/Debug/ARM64 build logs are `redxe-build-20261010_182146_951-pid82928-ad50a804.log`,
+`redxe-build-20261010_182521_958-pid20784-a8ebec5d.log` and
+`redxe-build-20261010_182457_478-pid80328-d65314a3.log`. Tests were expanded after the two matched captures;
+the validation record checks that the production source/DLL bytes remain exactly the measured after bytes.
+P2.7 implementation, tests and this comparison are complete. The entire plan remains ACTIVE for its other work
+and unaccepted budgets.
 
 ### P0.1 validation closeout record
 
@@ -322,14 +400,15 @@ smaller one.
 
 ## Sequenced work
 
-Measure before each cut. P1 implementation already exists; finish its open attribution gates under P0.2. P0.1
-is the current scope; later proposed ABI/column/storage changes require their own contract and validation updates.
+Measure before each cut. P0.1 and P2.7 implementation and measurements are recorded above. P1 implementation already
+exists; finish its open attribution gates under P0.2. Later proposed ABI/column/storage changes require their own
+contract and validation updates.
 
 ### Phase 0 — receipts from the real process (no behavior change)
 
 | ID | Item | Pass condition |
 | --- | --- | --- |
-| P0.1 | **Complete 2026-10-10: production probe, tests and Release A/B/C/D plus inactive receipts.** See the evidence checklist and versioned Core record. Unconditional device logging was already present and is preserved. | The next focused cut is P2.7 (21.711 System submissions/s). D retains 85.80 MiB private, supporting P3.6 attribution/source reclamation; P4.1 remains a storage candidate. F/raised-G/presented-H and external attribution stay with P0.2/P0.4. |
+| P0.1 | **Complete 2026-10-10: production probe, tests and Release A/B/C/D plus inactive receipts.** See the evidence checklist and versioned Core record. Unconditional device logging was already present and is preserved. | Selected P2.7; its matched comparison is recorded above. D retains 85.80 MiB private, supporting P3.6 attribution/source reclamation; P4.1 remains a storage candidate. F/raised-G/presented-H and external attribution stay with P0.2/P0.4. |
 | P0.2 | **External captures per selected optimization:** PresentMon for PresentMode, pacing and input-to-present; WPR/WPA for CPU/thread/image attribution and whole-process GPU LUIDs. Use a quiet desktop, fresh matching sources/artifacts and the scenario's real settings/services. Do not reuse September thread totals. | Current thread/module attribution and hardware frame/input table in `.build/receipts/`. |
 | P0.3 | **Soaks become tests.** Wire `--matrix-soak`, `--studio-clock-soak`, `--desk-clock-soak` (60 s variants) into `test.ps1` with asserted `private_bytes_delta` and `working_set_delta`. Investigate the Desk Clock +9.2 MiB before setting the bar. | Soaks fail on growth above the recorded bar. |
 | P0.4 | Record Matrix instance count and present rate on current Focus/Gallery placements; compare current pinned DxUi library receipt identity with AV tile+overlay bytes. | Grid math and pin identity match the measured scene; library composition throughput is not hardware application FPS. |
@@ -355,7 +434,7 @@ is the current scope; later proposed ABI/column/storage changes require their ow
 | P2.4 | Verify and dedupe widget-failure `OutputDebugStringW` transitions against the current error path before changing it. | One debug string per failure transition, with existing log visibility preserved. |
 | P2.5 | `PurgeExpiredLogs` only on log open, date change or retention-policy change. Current `EnsureCurrentLogFile` still enumerates twice for an unchanged file. | Zero directory enumerations per ordinary log line; retention tests include policy changes. |
 | P2.6 | **Candidate: settings persistence latency.** Coalesce and move durable writes off the UI thread only if measured promote stalls justify a bounded owner/worker design. Temp-file flushing and loaded-document/stamp/merge protections already exist; preserve them. Reusing the log worker is undecided. | No UI-thread disk-write stall at promote; concurrent edits, shutdown, failure recovery and stamps retain current guarantees. |
-| P2.7 | **Next: ProcessViewer wake discipline.** Stop idle scheduled wakes and unconditional easing of unchanged/sub-pixel observations; snapshots already coalesce a host invalidation. Use a bounded scheduled cadence for real easing/pulses, preserving ranks and visible quality. Sample/draw-list storage changes need profiling rather than the old cost table. | Improve the matched 21.711 submissions/s and 2.291% core baseline; cover unchanged/changed snapshots, rank changes, pulses, hide/reentry and coalescing. Proposed ≤ 2/s and UI-thread ≤ 0.3% remain targets to validate; animation throttling alone does not establish them. |
+| P2.7 | **Implemented and measured 2026-10-10: ProcessViewer wake discipline.** Settled viewers park; unchanged/sub-pixel values snap; real 320 ms easing and 420 ms pulses use a 33 ms deadline without immediate requests. Fixed-pose interpolation preserves tile/raised timestamps, ranks and endpoints. Tests cover all ten types, auxiliary deliveries, bursts, recovery, allocation and a scheduled production-host soak. | Fresh matched 14.126/s becomes 12.163/12.184/s (13.7–13.9% lower). CPU 2.986% becomes 3.515/3.069%; no CPU saving established. Proposed ≤2/s and ≤1.5% process CPU remain unmet; UI-thread ≤0.3% is unmeasured. Keep budget acceptance open and use P0.2 attribution to choose further work. |
 | P2.8 | **Atlas and DirectWrite discipline (ProcessViewer, Weather).** Upload only dirty 48×48 cells with a destination box, from the snapshot/`Prepare` path, never from `Render`; one cached DirectWrite factory + font face per module for the module's lifetime (released by `RedXePluginTrim`, P3.6); rasterize outside the draw lock; Weather does not re-raster on raise/dismiss when DPI and cell size are unchanged. | No `UpdateSubresource` in `Render` (debug layer capture); no `dwrite.dll` load after the first glyph fill. |
 | P2.9 | Measure callback drain stalls before redesigning waits. Network and subscription drains include `INFINITE` waits; a timeout cannot free state while a callback can still use it. Reuse current bounded/tombstoned control/device-lane patterns only where ownership permits. | Slow-fixture recovery bounds UI delay while preserving callback quiescence, cancellation and teardown lifetimes. |
 

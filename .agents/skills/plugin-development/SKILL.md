@@ -108,7 +108,8 @@ Preserve these boundaries:
 - Keep GPU `Render`, GDI paint, and visibility callbacks allocation-free and non-blocking. Native-window resize may
   rebuild bounded size-dependent buffers and handles, then must reuse them until size or DPI changes again.
   Process Viewer rasterizes new atlas glyphs from snapshot delivery or device creation, never from `Render`. Sample-
-  driven eases call `IRedXeHost::RequestFrame` after each presented frame instead of returning a 1 ms scheduled delay.
+  driven Process Viewer delivery already coalesces one host invalidation. Settled viewers return `S_FALSE`; only a
+  real ease or bounded pulse returns a 33 ms visual deadline, without Render-side immediate requests or idle polling.
 - Use `IRedXeHost::Log` for lifetime and failure diagnostics, never for per-frame success. The call is any-thread,
   allocation-free, and forbidden from `Render` and GDI paint. `OnDataSnapshot` and `RunNetworkWork` MAY log. Factory
   create, placeholders, attach, device-create, and render-failure (once per HRESULT) are host-covered; plugins add

@@ -68,6 +68,7 @@ namespace
 } // namespace
 
 void TestRuntimeProbe(bool& success) noexcept;
+void TestProcessViewerScheduling(bool& success) noexcept;
 
 struct PluginHostTestAccess final
 {
@@ -2511,8 +2512,9 @@ void TestWidgetRaiseHost(bool& success) noexcept
           L"raised Process Viewer keeps every tile drawing and draws itself again at overlay content", success);
     Check(!dashboard.RequiresContinuousFrames(), L"raising Process Viewer does not start continuous frames", success);
     uint32_t delay = 0;
-    Check(dashboard.GetNextFrameDelayMilliseconds(&delay) == S_OK && delay != 0,
-          L"settled raised Process Viewer still publishes a scheduled delay", success);
+    const HRESULT raisedSchedule = dashboard.GetNextFrameDelayMilliseconds(&delay);
+    Check((raisedSchedule == S_FALSE && delay == 0) || (raisedSchedule == S_OK && delay == 33),
+          L"raised viewers publish only a visible animation deadline, never an idle dataset poll", success);
 
     Check(SUCCEEDED(processRaised->SetRaised(FALSE)), L"Process Viewer accepts SetRaised(FALSE)", success);
     renderer.ClearRaisedOverlay();
@@ -3883,8 +3885,66 @@ void TestSystemDataViewers(bool& success) noexcept
     std::wcout << L"[       -- ] System page WARP mean frame " << meanMs << L" ms\n";
 
     uint32_t delay = 0;
-    Check(dashboard.GetNextFrameDelayMilliseconds(&delay) == S_OK && delay > 1U,
-          L"settled System page publishes a rest interval rather than a 1 ms ease poll", success);
+    const HRESULT systemSchedule = dashboard.GetNextFrameDelayMilliseconds(&delay);
+    Check((systemSchedule == S_FALSE && delay == 0) || (systemSchedule == S_OK && delay == 33),
+          L"System page parks when settled and schedules only bounded visible motion", success);
+
+    // Use the actual process runtime's coalesced delivery messages and the dashboard's visual deadline, rather
+    // than drawing unconditionally. This is a hidden WARP production-host soak; it never activates the desktop.
+    PluginHost& runtime = PluginHost::Instance();
+    runtime.SetUiInvalidateTarget(window.Get());
+    const auto clearTarget = wil::scope_exit([&] { runtime.SetUiInvalidateTarget(nullptr); });
+    result = dashboard.SetWidgetsVisible(true); // The manual renderer shutdown above drained subscriptions.
+    const ULONGLONG soakStart = GetTickCount64();
+    const ULONGLONG soakEnd = soakStart + 10'000;
+    ULONGLONG nextFrame = 0;
+    ULONGLONG previousFrame = soakStart;
+    uint32_t soakFrames = 0;
+    uint32_t deliveredInvalidations = 0;
+    bool invalidated = true;
+    bool validDeadlines = true;
+    while (SUCCEEDED(result) && GetTickCount64() < soakEnd)
+    {
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
+        {
+            if (message.hwnd == window.Get() && message.message == PluginHost::kDataSnapshotInvalidateMessage)
+            {
+                runtime.AcknowledgeUiInvalidate();
+                invalidated = true;
+                ++deliveredInvalidations;
+            }
+            else
+            {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+        const ULONGLONG now = GetTickCount64();
+        if (invalidated || (nextFrame != 0 && now >= nextFrame))
+        {
+            result = renderer.Render(2.0f + static_cast<float>(now - soakStart) / 1000.0f,
+                                     static_cast<float>(now - previousFrame) / 1000.0f);
+            previousFrame = now;
+            ++soakFrames;
+            invalidated = false;
+            delay = 0;
+            const HRESULT schedule = dashboard.GetNextFrameDelayMilliseconds(&delay);
+            validDeadlines =
+                validDeadlines && ((schedule == S_FALSE && delay == 0) || (schedule == S_OK && delay == 33));
+            nextFrame = schedule == S_OK ? GetTickCount64() + delay : 0;
+        }
+        const ULONGLONG afterFrame = GetTickCount64();
+        const ULONGLONG wake = nextFrame == 0 ? soakEnd : (std::min)(nextFrame, soakEnd);
+        const DWORD wait = wake > afterFrame ? static_cast<DWORD>(wake - afterFrame) : 0;
+        (void)MsgWaitForMultipleObjectsEx(0, nullptr, wait, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    }
+    Check(SUCCEEDED(result) && validDeadlines && deliveredInvalidations > 0 && soakFrames > 0 &&
+              soakFrames <= 310 + deliveredInvalidations && !dashboard.RequiresContinuousFrames(),
+          L"scheduled System host soak follows coalesced delivery and parked/33 ms deadlines", success);
+    std::wcout << L"[       -- ] System scheduled soak: " << soakFrames << L" frames, " << deliveredInvalidations
+               << L" coalesced deliveries in 10 seconds\n";
+    runtime.SetUiInvalidateTarget(nullptr);
 
     if (SUCCEEDED(result))
     {
@@ -8456,6 +8516,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestProcessViewerSubscription(success);
     TestProcessViewerSubscription(success); // Repeat with nonzero process-lifetime diagnostics.
     TestSystemDataViewers(success);
+    TestProcessViewerScheduling(success);
     TestSubscriptionDrain(success);
     TestReservedSubscriptionDrain(success);
     TestGpuTargetSizeNotification(success);

@@ -42,6 +42,7 @@ constexpr char kTopN16Schema[] =
 constexpr char kTopN16Defaults[] = R"json({"topN":8})json";
 constexpr float kEaseMilliseconds = 320.0f;
 constexpr float kPulseMilliseconds = 420.0f;
+constexpr uint32_t kAnimationFrameMilliseconds = 33;
 constexpr float kHighBand = 85.0f;
 constexpr uint32_t kMaximumNameCharacters = 95;
 constexpr uint32_t kMaximumRows = 32;
@@ -1009,6 +1010,30 @@ struct ViewerSample final
     bool batteryPresent = false;
 };
 
+// Only interpolated state: labels, counters and history still update on every delivered snapshot. Keeping the
+// target separate from the start pose prevents a second dataset (or an identical observation) restarting an ease.
+struct ViewerMotionTarget final
+{
+    std::array<float, 8> values{};
+    std::array<bool, 8> available{};
+    std::array<float, kHeatCapacity> heat{};
+    std::array<uint64_t, kMaximumRows> identities{};
+    std::array<float, kMaximumRows> primary{};
+    std::array<bool, kMaximumRows> primaryAvailable{};
+    uint32_t rowCount = 0;
+    uint32_t heatCount = 0;
+    bool operator==(const ViewerMotionTarget&) const noexcept = default;
+};
+
+struct ViewerMotionPose final
+{
+    std::array<float, 8> values{};
+    std::array<float, kHeatCapacity> heat{};
+    std::array<float, kMaximumRows> primary{};
+    std::array<float, kMaximumRows> rowY{};
+};
+static_assert(sizeof(ViewerMotionTarget) + sizeof(ViewerMotionPose) <= 1320);
+
 void DrawHistoryArea(ViewerDrawList& list, float x, float y, float width, float height, const ViewerSample& sample,
                      float latest, bool latestAvailable, bool percentScale) noexcept
 {
@@ -1110,11 +1135,6 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             g_configuredTopN.store(topN, std::memory_order_relaxed);
         }
-        _restDelay = Catalog(kind).interval0;
-        if (Catalog(kind).dataSet1 && Catalog(kind).interval1 != 0)
-        {
-            _restDelay = std::min(_restDelay, Catalog(kind).interval1);
-        }
     }
 
     ~ViewerWidget()
@@ -1184,7 +1204,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         ViewerSample sample{};
         if (SUCCEEDED(result))
         {
-            BeginEase();
+            _samplePending = true;
+            _pulsePending = HighBandActive(_sample);
             g_sampleCount.fetch_add(1, std::memory_order_relaxed);
             sample = _sample;
         }
@@ -1204,6 +1225,9 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             return S_OK;
         }
+        // Scheduling is UI-thread only. The worker publishes pending state under _lock; it never owns a deadline.
+        _animationScheduled = false;
+        _snapNextFrame = true;
         for (uint32_t index = 0; index < _subscriptionCount; ++index)
         {
             if (_subscriptions[index])
@@ -1220,6 +1244,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             AcquireSRWLockExclusive(&_lock);
             _easing = false;
             _pulse = 0.0f;
+            _pulsePending = false;
+            SnapDisplayed();
             ReleaseSRWLockExclusive(&_lock);
         }
         return S_OK;
@@ -1414,7 +1440,11 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         AcquireSRWLockExclusive(&_lock);
         _easing = false;
         _pulse = 0.0f;
+        _pulsePending = false;
+        SnapDisplayed();
         ReleaseSRWLockExclusive(&_lock);
+        _animationScheduled = false;
+        _snapNextFrame = true;
     }
 
     HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
@@ -1423,6 +1453,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             return E_INVALIDARG;
         }
+        _animationWidth = context->widthPixels;
+        _animationHeight = context->heightPixels;
         // Deliberately no rebuild. Layout already derives every size from the per-frame widget context, so nothing
         // here depends on being told the size in advance.
         //
@@ -1457,13 +1489,49 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         }
 
         AcquireSRWLockExclusive(&_lock);
-        const float deltaMs = frame.deltaSeconds * 1000.0f;
+        if (_samplePending || _snapNextFrame)
+        {
+            const ViewerMotionTarget target = MotionTarget();
+            if (_snapNextFrame)
+            {
+                SnapDisplayed();
+                _easing = false;
+                _pulse = 0.0f;
+                _snapNextFrame = false;
+            }
+            else if (target != _easeTarget)
+            {
+                if (HasVisibleMotion((std::max)(_animationWidth, frame.widthPixels),
+                                     (std::max)(_animationHeight, frame.heightPixels)))
+                {
+                    BeginEase(frame.elapsedSeconds);
+                }
+                else
+                {
+                    // Retain every new value, label, quality and history sample; sub-pixel changes need one draw.
+                    SnapDisplayed();
+                    _easing = false;
+                }
+            }
+            _easeTarget = target;
+            _samplePending = false;
+        }
+        if (!HighBandActive(_sample))
+        {
+            _pulse = 0.0f;
+        }
+        if (_pulsePending)
+        {
+            _pulse = 1.0f;
+            _pulseStartSeconds = frame.elapsedSeconds;
+            _pulsePending = false;
+        }
         if (_easing)
         {
-            _easeElapsed += deltaMs;
-            const float t = SmootherStep(_easeElapsed / kEaseMilliseconds);
+            const float elapsed = (std::max)(0.0f, (frame.elapsedSeconds - _easeStartSeconds) * 1000.0f);
+            const float t = SmootherStep(elapsed / kEaseMilliseconds);
             ApplyEase(t);
-            if (_easeElapsed >= kEaseMilliseconds)
+            if (elapsed >= kEaseMilliseconds)
             {
                 SnapDisplayed();
                 _easing = false;
@@ -1471,7 +1539,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         }
         if (_pulse > 0.0f)
         {
-            _pulse = std::max(0.0f, _pulse - deltaMs / kPulseMilliseconds);
+            _pulse = std::clamp(1.0f - (frame.elapsedSeconds - _pulseStartSeconds) * 1000.0f / kPulseMilliseconds, 0.0f,
+                                1.0f);
         }
         ViewerSample sample = _sample;
         const bool easing = _easing;
@@ -1491,11 +1560,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         if (SUCCEEDED(result))
         {
             g_paintCount.fetch_add(1, std::memory_order_relaxed);
-            if ((easing || pulse > 0.0f) && _host)
-            {
-                (void)_host->RequestFrame();
-            }
         }
+        _animationScheduled = SUCCEEDED(result) && (easing || pulse > 0.0f);
         return result;
     }
 
@@ -1509,24 +1575,153 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             return E_POINTER;
         }
-        if (!_visible.load(std::memory_order_acquire))
+        if (!_visible.load(std::memory_order_acquire) || !_animationScheduled)
         {
-            *delayMilliseconds = kRedXeMaximumScheduledFrameDelayMilliseconds;
-            return S_OK;
+            return S_FALSE;
         }
-        *delayMilliseconds = std::max(1U, _restDelay);
+        *delayMilliseconds = kAnimationFrameMilliseconds;
         return S_OK;
     }
 
   private:
-    void BeginEase() noexcept
+    void BeginEase(float nowSeconds) noexcept
     {
-        _easeElapsed = 0.0f;
+        _easeStartSeconds = nowSeconds;
         _easing = true;
-        if (HighBandActive(_sample))
+        _easeFrom.values = _sample.display;
+        _easeFrom.heat = _sample.heatDisplay;
+        for (uint32_t index = 0; index < _sample.rowCount; ++index)
         {
-            _pulse = 1.0f;
+            _easeFrom.primary[index] = _sample.rows[index].displayPrimary;
+            _easeFrom.rowY[index] = _sample.rows[index].displayY;
         }
+    }
+
+    [[nodiscard]] ViewerMotionTarget MotionTarget() const noexcept
+    {
+        ViewerMotionTarget target;
+        const auto value = [&](uint32_t index) noexcept
+        {
+            target.values[index] = _sample.values[index];
+            target.available[index] = _sample.available[index];
+        };
+        switch (_kind)
+        {
+        case ViewerKind::SystemPulse:
+            value(0);
+            if (_raised)
+                value(4);
+            break;
+        case ViewerKind::CpuMeter:
+            value(0);
+            value(1);
+            value(2);
+            target.heatCount = _sample.heatCount;
+            target.heat = _sample.heat;
+            break;
+        case ViewerKind::MemoryMeter:
+            value(0);
+            value(1);
+            break;
+        case ViewerKind::StorageMeter:
+            value(7);
+            break;
+        case ViewerKind::PowerMeter:
+            if (_sample.batteryPresent)
+                value(0);
+            break;
+        case ViewerKind::ThermalMeter:
+            value(7);
+            break;
+        default:
+            break;
+        }
+        if (_kind != ViewerKind::PowerMeter)
+        {
+            target.rowCount = _sample.rowCount;
+            for (uint32_t index = 0; index < target.rowCount; ++index)
+            {
+                target.identities[index] = _sample.rows[index].identity;
+                target.primary[index] = _sample.rows[index].primary;
+                target.primaryAvailable[index] = _sample.rows[index].primaryAvailable;
+            }
+        }
+        return target;
+    }
+
+    [[nodiscard]] bool HasVisibleMotion(uint32_t width, uint32_t height) const noexcept
+    {
+        // Largest physical viewport is a conservative bound for bars and rank displacement, including a raised
+        // view. Smaller observations snap to their exact target; repeated sub-pixel changes cannot accumulate lag.
+        const float span = static_cast<float>((std::max)(1u, width));
+        const auto percent = [&](uint32_t index) noexcept
+        {
+            return _sample.available[index] &&
+                   std::fabs(_sample.display[index] - _sample.values[index]) * (std::max)(span / 100.0f, 1.0f) >= 1.0f;
+        };
+        switch (_kind)
+        {
+        case ViewerKind::SystemPulse:
+            if (percent(0) || (_raised && percent(4)))
+                return true;
+            break;
+        case ViewerKind::CpuMeter:
+            if (percent(0) || percent(1) || percent(2))
+                return true;
+            for (uint32_t index = 0; index < _sample.heatCount; ++index)
+            {
+                const float from = CpuUnit(_sample.heatDisplay[index]);
+                const float to = CpuUnit(_sample.heat[index]);
+                if (std::fabs(CpuHeatLuminance(from) - CpuHeatLuminance(to)) >= 1.0f / 255.0f ||
+                    (from >= 0.70f) != (to >= 0.70f) || (from >= 0.85f) != (to >= 0.85f))
+                    return true;
+            }
+            break;
+        case ViewerKind::MemoryMeter:
+            if (percent(0) || percent(1))
+                return true;
+            break;
+        case ViewerKind::StorageMeter:
+        case ViewerKind::ThermalMeter:
+            if (percent(7))
+                return true;
+            break;
+        case ViewerKind::PowerMeter:
+            return _sample.batteryPresent && percent(0);
+        default:
+            break;
+        }
+        for (uint32_t index = 0; index < _sample.rowCount; ++index)
+        {
+            const RankedRow& row = _sample.rows[index];
+            if (std::fabs(row.displayY - static_cast<float>(index)) * static_cast<float>(height) >= 1.0f)
+                return true;
+            if (!row.primaryAvailable)
+                continue;
+            float from = CpuUnit(row.displayPrimary);
+            float to = CpuUnit(row.primary);
+            if (_kind == ViewerKind::ProcessViewer || _kind == ViewerKind::GpuProcesses)
+            {
+                from = std::sqrt(from);
+                to = std::sqrt(to);
+            }
+            else if (_kind == ViewerKind::NetworkMeter)
+            {
+                from = LogRateFill(row.displayPrimary, row.secondary);
+                to = LogRateFill(row.primary, row.secondary);
+            }
+            else if (_kind == ViewerKind::GpuMeter || _kind == ViewerKind::ThermalMeter)
+            {
+                // The level track saturates outside its temperature range; large numeral changes still ease.
+                if (std::fabs(row.displayPrimary - row.primary) >= 1.0f)
+                    return true;
+                from = ThermalFill(row.displayPrimary);
+                to = ThermalFill(row.primary);
+            }
+            if (std::fabs(from - to) * span >= 1.0f)
+                return true;
+        }
+        return false;
     }
 
     [[nodiscard]] bool HighBandActive(const ViewerSample& sample) const noexcept
@@ -1541,7 +1736,14 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                    (sample.available[1] && sample.values[1] >= kHighBand);
         case ViewerKind::ProcessViewer:
         case ViewerKind::GpuProcesses:
-            return sample.rowCount > 0 && sample.rows[0].primaryAvailable && sample.rows[0].primary >= kHighBand;
+            for (uint32_t index = 0; index < sample.rowCount; ++index)
+            {
+                const RankedRow& row = sample.rows[index];
+                if ((_kind != ViewerKind::ProcessViewer || row.pid != 0) && row.primaryAvailable &&
+                    row.primary >= kHighBand)
+                    return true;
+            }
+            return false;
         case ViewerKind::StorageMeter:
             for (uint32_t index = 0; index < sample.rowCount; ++index)
             {
@@ -1562,18 +1764,17 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     {
         for (uint32_t index = 0; index < 8; ++index)
         {
-            _sample.display[index] = Lerp(_sample.display[index], _sample.values[index], t);
+            _sample.display[index] = Lerp(_easeFrom.values[index], _sample.values[index], t);
         }
         for (uint32_t index = 0; index < _sample.rowCount; ++index)
         {
-            _sample.rows[index].displayPrimary =
-                Lerp(_sample.rows[index].displayPrimary, _sample.rows[index].primary, t);
+            _sample.rows[index].displayPrimary = Lerp(_easeFrom.primary[index], _sample.rows[index].primary, t);
             const float targetY = static_cast<float>(index);
-            _sample.rows[index].displayY = Lerp(_sample.rows[index].displayY, targetY, t);
+            _sample.rows[index].displayY = Lerp(_easeFrom.rowY[index], targetY, t);
         }
         for (uint32_t index = 0; index < _sample.heatCount; ++index)
         {
-            _sample.heatDisplay[index] = Lerp(_sample.heatDisplay[index], _sample.heat[index], t);
+            _sample.heatDisplay[index] = Lerp(_easeFrom.heat[index], _sample.heat[index], t);
         }
     }
 
@@ -3603,7 +3804,6 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     uint32_t _topN;
     bool _hideIdle;
     ViewerPanelColor _panelColor;
-    uint32_t _restDelay = 1000;
     IRedXeHost* _host = nullptr;
     std::atomic<bool> _visible{false};
     bool _raised = false;
@@ -3628,7 +3828,17 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     std::array<PidNameEntry, kMaximumRows> _pidNames{};
     uint32_t _pidNameCount = 0;
     bool _easing = false;
-    float _easeElapsed = 0.0f;
+    bool _samplePending = false;
+    bool _pulsePending = false;
+    // UI-thread state read by GetNextFrameDelayMilliseconds without a worker lock or host call.
+    bool _animationScheduled = false;
+    bool _snapNextFrame = true;
+    uint32_t _animationWidth = 0;
+    uint32_t _animationHeight = 0;
+    ViewerMotionTarget _easeTarget{};
+    ViewerMotionPose _easeFrom{};
+    float _easeStartSeconds = 0.0f;
+    float _pulseStartSeconds = 0.0f;
     float _pulse = 0.0f;
 };
 
