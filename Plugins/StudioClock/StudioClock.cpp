@@ -2,11 +2,13 @@
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PlugInterfaces/Widget.h"
 
+#include "SettingsCursor.h"
 #include "StudioClock.Tests.Contract.h"
 #include "StudioClockBackgroundPixelShader.h"
 #include "StudioClockBackgroundVertexShader.h"
 #include "StudioClockDotPixelShader.h"
 #include "StudioClockDotVertexShader.h"
+#include "StudioClockSettings.h"
 
 #include <algorithm>
 #include <array>
@@ -15,7 +17,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <limits>
 #include <new>
 #include <string_view>
 #include <utility>
@@ -27,15 +28,15 @@
 
 namespace
 {
-constexpr char kPluginId[] = "builtin.studio-clock";
-constexpr char kWidgetTypeId[] = "studio-clock";
-constexpr char kSettingsSchema[] =
-    R"json({"type":"object","additionalProperties":false,"properties":{"showSecondProgress":{"type":"boolean"},"externalDotsAlwaysOn":{"type":"boolean"},"showSeconds":{"type":"boolean"},"secondsColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"showDate":{"type":"boolean"},"dateFormat":{"type":"string","enum":["dd-mm-yyyy","mm-dd-yyyy","yyyy-mm-dd"]},"timeColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"glowPercent":{"type":"integer","minimum":0,"maximum":100}}})json";
-constexpr char kSettingsDefaults[] =
-    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","glowPercent":35})json";
+using StudioClock::DateFormat;
+using StudioClock::kMaximumGlowPercent;
+using StudioClock::kPluginId;
+using StudioClock::kWidgetTypeId;
+
 constexpr RedXePluginSettingsContract kSettingsContract{
-    sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
-    sizeof(kSettingsDefaults) - 1,
+    sizeof(RedXePluginSettingsContract),    StudioClock::kSchemaJson,
+    sizeof(StudioClock::kSchemaJson) - 1,   StudioClock::kDefaultsJson,
+    sizeof(StudioClock::kDefaultsJson) - 1,
 };
 constexpr uint32_t kTimeDotInstances = 114;
 constexpr uint32_t kSecondsDotInstances = 42;
@@ -45,7 +46,6 @@ constexpr uint32_t kMaximumDotInstances =
     kTimeDotInstances + kSecondsDotInstances + kDateDotInstances + kProgressDotInstances;
 // A nonzero glow submits every dot twice in the same draw: one additive halo, then the LED core.
 constexpr uint32_t kMaximumSubmittedInstances = kMaximumDotInstances * 2U;
-constexpr uint32_t kMaximumGlowPercent = 100;
 // Halo light at glowPercent 100, relative to the LED color, before the falloff. The default 35 keeps the gaps between
 // the dots of a segment clearly darker than the dots, as on a real display; 100 merges each segment into a glowing bar.
 constexpr float kFullGlowStrength = 0.6f;
@@ -95,13 +95,8 @@ constexpr std::array kDatedWidgetTypes{
     },
 };
 
-enum class DateFormat : uint32_t
-{
-    DayMonthYear,
-    MonthDayYear,
-    YearMonthDay,
-};
-
+// The member initializers are the defaults a factory call without configuration selects: StudioClock::kDefaultsJson,
+// as SettingsMatchCatalog checks below.
 struct StudioClockConfiguration final
 {
     bool showSecondProgress = true;
@@ -114,6 +109,8 @@ struct StudioClockConfiguration final
     uint32_t glowPercent = 35;
     // Host-resolved dashboard background from RedXeFactoryOptions, never a settings member of this plugin.
     uint32_t backgroundColor = kRedXeDefaultBackgroundColor & 0x00FFFFFFu;
+
+    [[nodiscard]] constexpr bool operator==(const StudioClockConfiguration&) const noexcept = default;
 };
 
 enum ConfigurationMember : uint32_t
@@ -141,158 +138,7 @@ std::atomic<uint64_t> gTimeSampleCount{0};
 std::atomic<uint64_t> gTestTimePacked{0};
 std::atomic<uint64_t> gTestTimeRevision{0};
 
-class JsonCursor final
-{
-  public:
-    explicit JsonCursor(std::string_view text) noexcept : _text(text) {}
-
-    void SkipWhitespace() noexcept
-    {
-        while (_offset < _text.size())
-        {
-            const char value = _text[_offset];
-            if (value != ' ' && value != '\t' && value != '\r' && value != '\n')
-            {
-                break;
-            }
-            ++_offset;
-        }
-    }
-
-    [[nodiscard]] bool Consume(char expected) noexcept
-    {
-        SkipWhitespace();
-        if (_offset >= _text.size() || _text[_offset] != expected)
-        {
-            return false;
-        }
-        ++_offset;
-        return true;
-    }
-
-    [[nodiscard]] bool ReadString(std::string_view& value) noexcept
-    {
-        SkipWhitespace();
-        if (_offset >= _text.size() || _text[_offset] != '"')
-        {
-            return false;
-        }
-        const size_t start = ++_offset;
-        while (_offset < _text.size() && _text[_offset] != '"')
-        {
-            const unsigned char character = static_cast<unsigned char>(_text[_offset]);
-            if (character < 0x20U || character == '\\')
-            {
-                return false;
-            }
-            ++_offset;
-        }
-        if (_offset >= _text.size())
-        {
-            return false;
-        }
-        value = _text.substr(start, _offset - start);
-        ++_offset;
-        return true;
-    }
-
-    [[nodiscard]] bool ReadBoolean(bool& value) noexcept
-    {
-        SkipWhitespace();
-        constexpr std::string_view trueText = "true";
-        constexpr std::string_view falseText = "false";
-        if (_text.substr(_offset, trueText.size()) == trueText)
-        {
-            _offset += trueText.size();
-            value = true;
-            return true;
-        }
-        if (_text.substr(_offset, falseText.size()) == falseText)
-        {
-            _offset += falseText.size();
-            value = false;
-            return true;
-        }
-        return false;
-    }
-
-    [[nodiscard]] bool ReadUnsigned(uint32_t& value) noexcept
-    {
-        SkipWhitespace();
-        if (_offset >= _text.size() || _text[_offset] < '0' || _text[_offset] > '9')
-        {
-            return false;
-        }
-        const bool leadingZero = _text[_offset] == '0';
-        uint64_t parsed = 0;
-        size_t digits = 0;
-        while (_offset < _text.size() && _text[_offset] >= '0' && _text[_offset] <= '9')
-        {
-            parsed = parsed * 10U + static_cast<uint64_t>(_text[_offset] - '0');
-            if (parsed > std::numeric_limits<uint32_t>::max())
-            {
-                return false;
-            }
-            ++_offset;
-            ++digits;
-        }
-        if (leadingZero && digits != 1)
-        {
-            return false;
-        }
-        value = static_cast<uint32_t>(parsed);
-        return true;
-    }
-
-    [[nodiscard]] bool AtEnd() noexcept
-    {
-        SkipWhitespace();
-        return _offset == _text.size();
-    }
-
-  private:
-    std::string_view _text;
-    size_t _offset = 0;
-};
-
-[[nodiscard]] int HexDigitValue(char value) noexcept
-{
-    if (value >= '0' && value <= '9')
-    {
-        return value - '0';
-    }
-    if (value >= 'A' && value <= 'F')
-    {
-        return value - 'A' + 10;
-    }
-    if (value >= 'a' && value <= 'f')
-    {
-        return value - 'a' + 10;
-    }
-    return -1;
-}
-
-[[nodiscard]] bool ParseColor(std::string_view text, uint32_t& color) noexcept
-{
-    if (text.size() != 7 || text[0] != '#')
-    {
-        return false;
-    }
-    uint32_t parsed = 0;
-    for (size_t index = 1; index < text.size(); ++index)
-    {
-        const int digit = HexDigitValue(text[index]);
-        if (digit < 0)
-        {
-            return false;
-        }
-        parsed = (parsed << 4U) | static_cast<uint32_t>(digit);
-    }
-    color = parsed;
-    return true;
-}
-
-[[nodiscard]] uint32_t ConfigurationMemberForKey(std::string_view key) noexcept
+[[nodiscard]] constexpr uint32_t ConfigurationMemberForKey(std::string_view key) noexcept
 {
     constexpr std::array members{
         std::pair<std::string_view, uint32_t>{"showSecondProgress", ConfigurationShowSecondProgress},
@@ -314,27 +160,8 @@ class JsonCursor final
     return 0;
 }
 
-[[nodiscard]] bool ParseDateFormat(std::string_view value, DateFormat& format) noexcept
-{
-    if (value == "dd-mm-yyyy")
-    {
-        format = DateFormat::DayMonthYear;
-        return true;
-    }
-    if (value == "mm-dd-yyyy")
-    {
-        format = DateFormat::MonthDayYear;
-        return true;
-    }
-    if (value == "yyyy-mm-dd")
-    {
-        format = DateFormat::YearMonthDay;
-        return true;
-    }
-    return false;
-}
-
-[[nodiscard]] bool ParseSettingsObject(JsonCursor& cursor, StudioClockConfiguration& configuration) noexcept
+[[nodiscard]] constexpr bool ParseSettingsObject(RedXeSettingsCursor& cursor,
+                                                 StudioClockConfiguration& configuration) noexcept
 {
     if (!cursor.Consume('{'))
     {
@@ -378,7 +205,7 @@ class JsonCursor final
             parsed.showSeconds = booleanValue;
             break;
         case ConfigurationSecondsColor:
-            if (!cursor.ReadString(text) || !ParseColor(text, parsed.secondsColor))
+            if (!cursor.ReadString(text) || !RedXeParseHexColor(text, parsed.secondsColor))
                 return false;
             break;
         case ConfigurationShowDate:
@@ -387,15 +214,15 @@ class JsonCursor final
             parsed.showDate = booleanValue;
             break;
         case ConfigurationDateFormat:
-            if (!cursor.ReadString(text) || !ParseDateFormat(text, parsed.dateFormat))
+            if (!cursor.ReadString(text) || !StudioClock::TryParseDateFormat(text, parsed.dateFormat))
                 return false;
             break;
         case ConfigurationTimeColor:
-            if (!cursor.ReadString(text) || !ParseColor(text, parsed.timeColor))
+            if (!cursor.ReadString(text) || !RedXeParseHexColor(text, parsed.timeColor))
                 return false;
             break;
         case ConfigurationGlowPercent:
-            if (!cursor.ReadUnsigned(number) || number > kMaximumGlowPercent)
+            if (!cursor.ReadUnsigned(number) || !StudioClock::IsValidGlowPercent(number))
                 return false;
             parsed.glowPercent = number;
             break;
@@ -421,9 +248,31 @@ class JsonCursor final
     return true;
 }
 
+// The parser's member table is the catalog's, and the typed defaults are the published ones: every catalogued member
+// has its own bit, and StudioClock::kDefaultsJson parses to StudioClockConfiguration{}.
+consteval bool SettingsMatchCatalog() noexcept
+{
+    uint32_t members = 0;
+    for (const char* key : StudioClock::kSettingsKeys)
+    {
+        const uint32_t member = ConfigurationMemberForKey(key);
+        if (member == 0 || (members & member) != 0)
+        {
+            return false;
+        }
+        members |= member;
+    }
+    RedXeSettingsCursor cursor(StudioClock::kDefaultsJson);
+    StudioClockConfiguration parsed{};
+    return members == kAllConfigurationMembers && ParseSettingsObject(cursor, parsed) && cursor.AtEnd() &&
+           parsed == StudioClockConfiguration{};
+}
+
+static_assert(SettingsMatchCatalog());
+
 [[nodiscard]] bool ParseNormalizedConfiguration(std::string_view json, StudioClockConfiguration& configuration) noexcept
 {
-    JsonCursor cursor(json);
+    RedXeSettingsCursor cursor(json);
     if (!cursor.Consume('{'))
     {
         return false;

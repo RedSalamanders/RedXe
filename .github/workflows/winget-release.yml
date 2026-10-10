@@ -124,13 +124,18 @@ jobs:
           # only when the launcher found the package root and RedXe.exe loaded its app-local DLLs from there.
           $alias = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\RedXe.exe'
           if (-not (Test-Path -LiteralPath $alias)) { throw "winget did not create the command alias at $alias." }
+          # Each alias run goes through the release's own bounded process runner (Build\StreamingProcess.psm1, which
+          # v1.0.102 predates): at its budget, two and five minutes, well inside this step's timeout, a hung run is
+          # terminated with everything it started and the step says so, and both streams reach this job's log as the
+          # UTF-8 RedXe writes. The runner starts the alias through CreateProcess, never ShellExecute: the extracted
+          # package carries the mark of the web, and ShellExecute would stop at a SmartScreen prompt on a headless runner.
+          Import-Module (Join-Path $env:GITHUB_WORKSPACE 'Build\StreamingProcess.psm1') -Force
+          $utf8 = [Text.UTF8Encoding]::new($false)
           $helpLog = Join-Path $env:RUNNER_TEMP 'alias-help.log'
-          $help = Start-Process -FilePath $alias -ArgumentList @('--help') -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $helpLog
-          if ($help.ExitCode -ne 0 -or (Get-Content -LiteralPath $helpLog -Raw) -notmatch '--self-test') { throw "The RedXe alias exited with $($help.ExitCode) or printed no help." }
-          # Redirecting output makes Start-Process use CreateProcess rather than ShellExecute: the extracted package
-          # carries the mark of the web, and ShellExecute would stop at a SmartScreen prompt on a headless runner.
-          $selfTest = Start-Process -FilePath $alias -ArgumentList @('--self-test', '--warp') -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'alias-selftest.log')
-          if ($selfTest.ExitCode -ne 0) { throw "RedXe --self-test --warp through the alias exited with $($selfTest.ExitCode)." }
+          $help = Invoke-RedXeStreamingProcess -FilePath $alias -Arguments @('--help') -TimeoutSeconds 120 -LogPath $helpLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
+          if ($help -ne 0 -or (Get-Content -LiteralPath $helpLog -Raw) -notmatch '--self-test') { throw "The RedXe alias exited with $help or printed no help." }
+          $selfTest = Invoke-RedXeStreamingProcess -FilePath $alias -Arguments @('--self-test', '--warp') -TimeoutSeconds 300 -LogPath (Join-Path $env:RUNNER_TEMP 'alias-selftest.log') -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
+          if ($selfTest -ne 0) { throw "RedXe --self-test --warp through the alias exited with $selfTest." }
           Write-Host 'The installed alias starts RedXe and its plugins from the winget package root.'
 
           # winget registers what it installed under Apps & features with its package identifier. That is checked

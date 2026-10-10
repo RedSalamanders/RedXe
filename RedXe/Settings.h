@@ -138,6 +138,10 @@ inline constexpr size_t kPrivateConfigurationCapacity = 4096;
 inline constexpr size_t kFactoryConfigurationCapacity = 8192;
 inline constexpr uint32_t kMaximumDashboardGridDimension = 64;
 
+// Bounded UTF-8 text. `==` compares the whole buffer, not only `bytes`, so the bytes past the text are part of the
+// value and every producer MUST leave them zero: fill a value-initialized SettingsText, and never shorten `bytes` over
+// text that was already there. The parser does, and the comparisons of settings (`AppSettings::operator==`,
+// RuntimeSettingsEqual, the check of an installed first-run dock) rely on it.
 struct SettingsText final
 {
     std::array<char, kMaximumSettingsTextBytes + 1> utf8{};
@@ -352,6 +356,9 @@ enum class SettingsReloadStatus : std::uint8_t
 [[nodiscard]] HRESULT MoveDashboardPage(AppSettings& settings, int direction) noexcept;
 [[nodiscard]] HRESULT PreserveActiveDashboardPage(const AppSettings& previous, AppSettings& candidate) noexcept;
 [[nodiscard]] bool ActiveDashboardRuntimeEquals(const AppSettings& left, const AppSettings& right) noexcept;
+// True when the two differ at most in the retained source text and the retired services entries: a live reload of such
+// a candidate only becomes the retained source (Core_Settings.md "Live reload and diagnostics").
+[[nodiscard]] bool RuntimeSettingsEqual(const AppSettings& left, const AppSettings& right) noexcept;
 // The 0xRRGGBB background one widget instance paints: its own override, else the document background.
 [[nodiscard]] inline uint32_t EffectiveWidgetBackgroundRgb(const AppSettings& settings,
                                                            const WidgetInstanceSettings& widget) noexcept
@@ -368,7 +375,31 @@ enum class SettingsReloadStatus : std::uint8_t
 [[nodiscard]] HRESULT ParseAppSettingsJsonDetailed(std::string_view json, AppSettings& settings,
                                                    SettingsParseDiagnostic& diagnostic) noexcept;
 [[nodiscard]] HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexcept;
+// S_FALSE when the file is missing; the stamp is then unchanged.
 [[nodiscard]] HRESULT QuerySettingsFileStamp(std::wstring_view path, SettingsFileStamp& stamp) noexcept;
+#if defined(REDXE_SETTINGS_TESTS)
+// SettingsTests seam for the document writer (Core_Settings.md "Plugin persist"). `writeFile` stands in for the
+// WriteFile call that fills a document's temporary file. `checkpoint` runs inside a guarded persist replacement: at
+// Flushed once the temporary is flushed, while the guard on the target is held and before the last identity check and
+// the rename; at GuardReleased, without POSIX rename only, after the guard is released and before the classic rename;
+// and at Renamed after the rename, before the new stamp is read through the renamed file's handle.
+// `withoutPosixRename` makes the POSIX replacement fail with ERROR_INVALID_PARAMETER, as a file system without it
+// does. A default-constructed seam restores the production behavior.
+enum class SettingsWritePhase : uint8_t
+{
+    Flushed,
+    GuardReleased,
+    Renamed,
+};
+struct SettingsWriteSeam final
+{
+    BOOL (*writeFile)(HANDLE file, const void* bytes, DWORD size, DWORD* written) noexcept = nullptr;
+    void (*checkpoint)(SettingsWritePhase phase, void* context) noexcept = nullptr;
+    void* context = nullptr;
+    bool withoutPosixRename = false;
+};
+void SetSettingsWriteSeamForTesting(const SettingsWriteSeam& seam) noexcept;
+#endif
 [[nodiscard]] HRESULT SerializeFactoryConfigurationJson(const PluginSettings& plugin,
                                                         const WidgetInstanceSettings& instance,
                                                         std::array<char, kFactoryConfigurationCapacity>& json,
@@ -384,27 +415,39 @@ enum class SettingsReloadStatus : std::uint8_t
                                                   std::string_view settingsJson) noexcept;
 // Sets `dock.thickness` in the typed settings and the retained source document (creating `dock` on its own line after
 // `version`, and raising `version.minor` to 2 when lower, typed minor included); a dragged bar edge persists through
-// this. The formatting contract applies, and the patched source must parse back to the running dock with the new
-// thickness and to the same document otherwise, or nothing changes. S_FALSE when the typed thickness already is
-// `thicknessDips`: typed settings and the source are not touched.
+// this. A source edit, not the widget persist's rewrite: comments, spacing, line breaks, and every other member stay
+// (Core_Settings.md "Dock"), and the patched source must parse back to the running dock with the new thickness and to
+// the same document otherwise, or nothing changes. S_FALSE when the typed thickness already is `thicknessDips`: typed
+// settings and the source are not touched.
 [[nodiscard]] HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept;
 // Writes `dock` into a template's source for the first start without a XENEON (Core_Settings.md "Cold load and
 // recovery"): a new member on its own line after `version`, with a comment naming why and how to turn it off, or the
 // value of an existing `dock`. The commented-out `dock` example and the comment lines introducing it are removed, so
 // the result defines the dock once; other comments and every other member stay. `version.minor` rises to 2 when lower,
-// or to 3 when the dock names the `secondary` monitor.
+// or to 3 when the dock names the `secondary` monitor or sets a non-default `animationMilliseconds`.
 [[nodiscard]] HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcept;
+
+// The first-run dock for SettingsStore::Initialize, made only when the store installs the default file because it is
+// missing, so a start that finds the file measures no display for it. `make` fills `dock` and returns true, or false to
+// install the plain template; it runs at most once per Initialize, on the calling thread. A null `make` offers no dock.
+// The installed file is checked against the made dock as a whole value, so `make` MUST set every member and leave the
+// bytes of `dock.monitor` past its text zero (SettingsText), as the parser does.
+struct FirstRunDockProvider final
+{
+    bool (*make)(void* context, DockSettings& dock) noexcept = nullptr;
+    void* context = nullptr;
+};
 
 class SettingsStore final
 {
   public:
-    // firstRunDock: when the default file is installed because it is missing, the template is written with this dock
-    // (PatchFirstRunDock); the recovery of an invalid file reinstalls the plain template. The caller passes it only
-    // when XENEON discovery found no display; a `--settings` file and the self-test never install and ignore it.
+    // firstRunDock: when the default file is installed because it is missing, the template is written with the dock it
+    // makes (PatchFirstRunDock); the recovery of an invalid file reinstalls the plain template. The caller offers it
+    // only when XENEON discovery found no display; a `--settings` file and the self-test never install or call it.
     [[nodiscard]] HRESULT Initialize(bool selfTest, std::wstring_view selectedPath,
                                      std::unique_ptr<AppSettings>& settings,
                                      std::wstring_view localAppDataOverride = {},
-                                     const DockSettings* firstRunDock = nullptr) noexcept;
+                                     FirstRunDockProvider firstRunDock = {}) noexcept;
     [[nodiscard]] HRESULT TryLoadChanged(std::unique_ptr<AppSettings>& settings, SettingsFileStamp& stamp,
                                          SettingsReloadStatus& status) noexcept;
     void MarkApplied(const SettingsFileStamp& stamp) noexcept;
@@ -423,10 +466,12 @@ class SettingsStore final
     [[nodiscard]] bool InstalledFirstRunDock() const noexcept;
     [[nodiscard]] const std::wstring& InitialNotice() const noexcept;
     [[nodiscard]] const std::wstring& LastDiagnosticText() const noexcept;
-    // Writes the source document only over the file last applied: its current stamp must equal the applied stamp.
-    // S_FALSE otherwise (a rejected, replaced, deleted, or unreadable file, a `--settings` fallback, or a save the
-    // watcher has not processed yet): nothing is written, and the patched typed and source state stays in memory
-    // until the next applied load replaces it.
+    // Writes the source document only over the file last applied: its stamp must equal the applied stamp, checked on a
+    // guard that keeps every other writer out until the replacement commits, and the stamp then recorded is the
+    // renamed file's own. S_FALSE otherwise (a rejected, replaced, deleted, or unreadable file, a file another program
+    // holds open with write access or without FILE_SHARE_DELETE, a `--settings` fallback, or a save the watcher has
+    // not processed yet): nothing is written, and the patched typed and source state stays in memory until a later
+    // persist finds the file free or the next applied load replaces it.
     [[nodiscard]] HRESULT PersistPatchedDocument(const AppSettings& settings) noexcept;
     // PatchWidgetInstanceSettings plus the document write; rolls both back on failure. S_FALSE: nothing changed and
     // nothing deferred is waiting, or the write was deferred and the merge is kept, so the widget keeps its state.
@@ -447,7 +492,7 @@ class SettingsStore final
     std::optional<SettingsFileStamp> _lastAppliedStamp;
     std::optional<SettingsFileStamp> _lastRejectedStamp;
     // The on-disk state of the last deferred write (zero for a missing or unreadable file) and whether it is
-    // unreported. Set while deferred changes are held in memory; a write or an applied load clears it.
+    // unreported. Set while deferred changes are held in memory; a write or an applied load clears both.
     std::optional<SettingsFileStamp> _deferredStamp;
     bool _deferredNoticePending = false;
     bool _missingObserved = false;

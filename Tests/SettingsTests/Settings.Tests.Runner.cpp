@@ -1,6 +1,7 @@
 #include "../../RedXe/Settings.h"
 #include "../../Common/FailureReports.h"
 #include "../../Plugins/Launcher/LauncherPaging.h"
+#include "../../Plugins/StudioClock/StudioClockSettings.h"
 #include "../../RedXe/BundledPlugins.h"
 #include "../../RedXe/CommandLine.h"
 #include "../../RedXe/DockOptions.h"
@@ -8,8 +9,11 @@
 #include "Settings.Tests.ReleasedTemplates.h"
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -169,6 +173,188 @@ constexpr std::string_view kRepresentative = R"json(
         {
             yyjson_val* value = yyjson_arr_get(values, valueIndex);
             if (yyjson_is_str(value) && pluginId == std::string_view{yyjson_get_str(value), yyjson_get_len(value)})
+                return true;
+        }
+    }
+    return false;
+}
+
+// Whether `member` bounds a value to the glowPercent range of StudioClockSettings.h.
+[[nodiscard]] bool HasCatalogGlowRange(yyjson_val* member) noexcept
+{
+    yyjson_val* minimum = yyjson_obj_get(member, "minimum");
+    yyjson_val* maximum = yyjson_obj_get(member, "maximum");
+    return yyjson_is_uint(minimum) && yyjson_get_uint(minimum) == StudioClock::kMinimumGlowPercent &&
+           yyjson_is_uint(maximum) && yyjson_get_uint(maximum) == StudioClock::kMaximumGlowPercent;
+}
+
+// A Studio Clock settings schema (the Specs `studioClockSettings` definition, or the schema StudioClock.dll publishes)
+// carries exactly the members, date formats, and glowPercent range of StudioClockSettings.h; given the catalog
+// defaults, every member's `default` is the catalog value.
+[[nodiscard]] bool StudioClockSchemaMatchesCatalog(yyjson_val* schema, yyjson_val* catalogDefaults) noexcept
+{
+    yyjson_val* members = yyjson_obj_get(schema, "properties");
+    if (!yyjson_is_false(yyjson_obj_get(schema, "additionalProperties")) || !yyjson_is_obj(members) ||
+        yyjson_obj_size(members) != StudioClock::kSettingsKeys.size())
+        return false;
+    for (const char* key : StudioClock::kSettingsKeys)
+    {
+        yyjson_val* member = yyjson_obj_get(members, key);
+        if (!yyjson_is_obj(member) || (catalogDefaults && !yyjson_equals(yyjson_obj_get(member, "default"),
+                                                                         yyjson_obj_get(catalogDefaults, key))))
+            return false;
+    }
+    yyjson_val* dateFormats = yyjson_obj_get(yyjson_obj_get(members, "dateFormat"), "enum");
+    if (!HasCatalogGlowRange(yyjson_obj_get(members, "glowPercent")) ||
+        yyjson_arr_size(dateFormats) != StudioClock::kDateFormatNames.size())
+        return false;
+    for (size_t index = 0; index < StudioClock::kDateFormatNames.size(); ++index)
+    {
+        const std::string_view name = StudioClock::kDateFormatNames[index];
+        if (!yyjson_equals_strn(yyjson_arr_get(dateFormats, index), name.data(), name.size()))
+            return false;
+    }
+    return true;
+}
+
+// The text of a schema's "$ref" member, empty when it has none.
+[[nodiscard]] std::string_view ReferenceText(yyjson_val* schema) noexcept
+{
+    yyjson_val* reference = yyjson_obj_get(schema, "$ref");
+    return yyjson_is_str(reference) ? std::string_view{yyjson_get_str(reference), yyjson_get_len(reference)}
+                                    : std::string_view{};
+}
+
+// Whether `properties` offers `key` as a reference to the `studioClockSettings` property of that name.
+[[nodiscard]] bool ReferencesStudioClockMember(yyjson_val* properties, const char* key) noexcept
+{
+    constexpr std::string_view referencePrefix = "#/$defs/studioClockSettings/properties/";
+    const std::string_view text = ReferenceText(yyjson_obj_get(properties, key));
+    return text.starts_with(referencePrefix) && text.substr(referencePrefix.size()) == key;
+}
+
+// The property a "#/$defs/<definition>/properties/<member>" reference names, or null for any other reference.
+[[nodiscard]] yyjson_val* ResolvePropertyReference(yyjson_val* root, std::string_view reference) noexcept
+{
+    constexpr std::string_view prefix = "#/$defs/";
+    constexpr std::string_view infix = "/properties/";
+    if (!reference.starts_with(prefix))
+        return nullptr;
+    reference.remove_prefix(prefix.size());
+    const size_t split = reference.find(infix);
+    if (split == std::string_view::npos)
+        return nullptr;
+    const std::string_view definition = reference.substr(0, split);
+    const std::string_view member = reference.substr(split + infix.size());
+    yyjson_val* definitionValue = yyjson_obj_getn(yyjson_obj_get(root, "$defs"), definition.data(), definition.size());
+    return yyjson_obj_getn(yyjson_obj_get(definitionValue, "properties"), member.data(), member.size());
+}
+
+// The Specs widget use (`widgetUse`, an override of a declared widget) offers every catalog member as a reference to
+// its `studioClockSettings` property. The one exception is glowPercent, a name Matrix shares: it may reference either
+// definition, and what it references must carry the catalog's range.
+[[nodiscard]] bool StudioClockUseMatchesCatalog(yyjson_val* root) noexcept
+{
+    yyjson_val* properties = yyjson_obj_get(yyjson_obj_get(yyjson_obj_get(root, "$defs"), "widgetUse"), "properties");
+    for (const char* key : StudioClock::kSettingsKeys)
+    {
+        if (std::string_view{key} == "glowPercent")
+        {
+            if (!HasCatalogGlowRange(ResolvePropertyReference(root, ReferenceText(yyjson_obj_get(properties, key)))))
+                return false;
+        }
+        else if (!ReferencesStudioClockMember(properties, key))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// The Specs widget variant for Studio Clock offers the host backgroundColor and every catalog member, each a reference
+// to its `studioClockSettings` property.
+[[nodiscard]] bool StudioClockVariantMatchesCatalog(yyjson_val* root) noexcept
+{
+    yyjson_val* variants = yyjson_obj_get(yyjson_obj_get(yyjson_obj_get(root, "$defs"), "widgetDefinition"), "oneOf");
+    size_t index = 0;
+    size_t count = 0;
+    yyjson_val* variant = nullptr;
+    yyjson_arr_foreach(variants, index, count, variant)
+    {
+        yyjson_val* properties = yyjson_obj_get(variant, "properties");
+        if (!yyjson_equals_str(yyjson_obj_get(yyjson_obj_get(properties, "plugin"), "const"), StudioClock::kPluginId))
+            continue;
+        if (yyjson_obj_size(properties) != StudioClock::kSettingsKeys.size() + 2 ||
+            !yyjson_obj_get(properties, "backgroundColor"))
+            return false;
+        for (const char* key : StudioClock::kSettingsKeys)
+        {
+            if (!ReferencesStudioClockMember(properties, key))
+                return false;
+        }
+        return true;
+    }
+    return false;
+}
+
+// Whether a "$ref" at or below `node` points at definition `name` with "#/$defs/<name>" or "#/$defs/<name>/...".
+[[nodiscard]] bool ContainsReferenceTo(yyjson_val* node, std::string_view name) noexcept
+{
+    constexpr std::string_view pointerPrefix = "#/$defs/";
+    size_t index = 0;
+    size_t count = 0;
+    yyjson_val* key = nullptr;
+    yyjson_val* value = nullptr;
+    if (yyjson_is_arr(node))
+    {
+        yyjson_arr_foreach(node, index, count, value)
+        {
+            if (ContainsReferenceTo(value, name))
+                return true;
+        }
+        return false;
+    }
+    yyjson_obj_foreach(node, index, count, key, value)
+    {
+        if (yyjson_equals_str(key, "$ref") && yyjson_is_str(value))
+        {
+            const std::string_view target{yyjson_get_str(value), yyjson_get_len(value)};
+            const std::string_view rest =
+                target.starts_with(pointerPrefix) ? target.substr(pointerPrefix.size()) : std::string_view{};
+            if (rest.starts_with(name) && (rest.size() == name.size() || rest[name.size()] == '/'))
+                return true;
+        }
+        else if (ContainsReferenceTo(value, name))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Whether the schema points at definition `name` from outside that definition's own body: from the root or from
+// another definition. A reference inside the body (a recursive definition that nothing else uses) does not count.
+[[nodiscard]] bool SchemaReferencesDefinition(yyjson_val* root, std::string_view name) noexcept
+{
+    size_t index = 0;
+    size_t count = 0;
+    yyjson_val* key = nullptr;
+    yyjson_val* value = nullptr;
+    yyjson_obj_foreach(root, index, count, key, value)
+    {
+        if (!yyjson_equals_str(key, "$defs"))
+        {
+            if (ContainsReferenceTo(value, name))
+                return true;
+            continue;
+        }
+        size_t definitionIndex = 0;
+        size_t definitionCount = 0;
+        yyjson_val* definitionName = nullptr;
+        yyjson_val* definition = nullptr;
+        yyjson_obj_foreach(value, definitionIndex, definitionCount, definitionName, definition)
+        {
+            if (!yyjson_equals_strn(definitionName, name.data(), name.size()) && ContainsReferenceTo(definition, name))
                 return true;
         }
     }
@@ -409,6 +595,26 @@ constexpr std::string_view kRepresentative = R"json(
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
     }
+    // StudioClockSettings.h is the one Studio Clock catalog the host parser and StudioClock.dll compile in: its
+    // defaults name every member, and the Specs definition (members, defaults, date formats, glowPercent range), the
+    // Specs widget variant and widget use, and the schema the DLL publishes all match it.
+    {
+        unique_doc catalogDefaults{
+            yyjson_read(StudioClock::kDefaultsJson, sizeof(StudioClock::kDefaultsJson) - 1, YYJSON_READ_NOFLAG)};
+        unique_doc publishedSchema{
+            yyjson_read(StudioClock::kSchemaJson, sizeof(StudioClock::kSchemaJson) - 1, YYJSON_READ_NOFLAG)};
+        yyjson_val* catalog = catalogDefaults ? yyjson_doc_get_root(catalogDefaults.get()) : nullptr;
+        if (!yyjson_is_obj(catalog) || yyjson_obj_size(catalog) != StudioClock::kSettingsKeys.size() ||
+            !publishedSchema ||
+            !StudioClockSchemaMatchesCatalog(yyjson_obj_get(defs, "studioClockSettings"), catalog) ||
+            !StudioClockSchemaMatchesCatalog(yyjson_doc_get_root(publishedSchema.get()), nullptr) ||
+            !StudioClockVariantMatchesCatalog(root) || !StudioClockUseMatchesCatalog(root))
+        {
+            std::wprintf(L"The Studio Clock schema, widget variant, widget use, or published schema differs from "
+                         L"StudioClockSettings.h.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
     yyjson_val* launcherSettings = yyjson_is_obj(defs) ? yyjson_obj_get(defs, "launcherSettings") : nullptr;
     yyjson_val* launcherProperties =
         yyjson_is_obj(launcherSettings) ? yyjson_obj_get(launcherSettings, "properties") : nullptr;
@@ -448,6 +654,38 @@ constexpr std::string_view kRepresentative = R"json(
     {
         std::wprintf(L"The schema services Zoom variant must be deprecated and accept the retired members.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    // Every definition is referenced: an orphan validates nothing, yet reads as a settings model to edit (as the
+    // removed Zoom SDK's zoomSettings did). A reference from a definition's own body does not count, so the rule is
+    // tried first on a schema where `used` and `nested` are referenced (from the root and from another definition)
+    // and `self` and `unused` are not (`self` only by itself, `unused` by nothing; `use` is just a prefix).
+    {
+        constexpr std::string_view sample =
+            R"json({"properties":{"a":{"$ref":"#/$defs/used/properties/b"}},"$defs":{"used":{"properties":{"b":{"type":"string"}}},"self":{"properties":{"c":{"$ref":"#/$defs/self"}}},"unused":{"items":[{"$ref":"#/$defs/nested/properties/x"}]},"nested":{"properties":{"x":{"type":"string"}}}}})json";
+        unique_doc sampleDocument{yyjson_read(sample.data(), sample.size(), YYJSON_READ_NOFLAG)};
+        yyjson_val* sampleRoot = sampleDocument ? yyjson_doc_get_root(sampleDocument.get()) : nullptr;
+        if (!sampleRoot || !SchemaReferencesDefinition(sampleRoot, "used") ||
+            !SchemaReferencesDefinition(sampleRoot, "nested") || SchemaReferencesDefinition(sampleRoot, "self") ||
+            SchemaReferencesDefinition(sampleRoot, "unused") || SchemaReferencesDefinition(sampleRoot, "use"))
+        {
+            std::wprintf(L"The schema reference check does not tell an outside reference from one inside the "
+                         L"definition.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
+    size_t definitionIndex = 0;
+    size_t definitionMax = 0;
+    yyjson_val* definitionName = nullptr;
+    yyjson_val* definition = nullptr;
+    yyjson_obj_foreach(defs, definitionIndex, definitionMax, definitionName, definition)
+    {
+        const std::string_view name{yyjson_get_str(definitionName), yyjson_get_len(definitionName)};
+        if (!SchemaReferencesDefinition(root, name))
+        {
+            std::wprintf(L"The schema definition %.*S is never referenced.\n", static_cast<int>(name.size()),
+                         name.data());
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
     }
     return S_OK;
 }
@@ -546,8 +784,11 @@ constexpr std::string_view kRepresentative = R"json(
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"turns":[{"control":"dial","direction":"cw","action":"nowhere.go"}]}}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"A":{"plugin":"builtin.logicon","dialpad":{"dial":"page"}}},"pages":[{}]})json",
         // Retired Zoom entry rejections: any member other than the retired v1.0.102 ones, which load and are ignored
-        // (ValidateReleasedTemplates), including a retired name in another case, and the entry twice.
+        // (ValidateReleasedTemplates), including a retired name in another case, and the entry twice. The authored
+        // members are checked, so an unknown one set to null is refused too, alone or beside a null retired member.
         R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","meeting":"abc"}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","meeting":null}},"pages":[{}]})json",
+        R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":null,"meeting":null}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"Z":{"plugin":"builtin.zoom","clientId":"abc","ClientID":"abc"}},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"services":{"Z":{"plugin":"builtin.zoom","redirectPort":48123,"sdkPath":"x"}},"pages":[{}]})json",
         R"json({"version":{"major":5},"services":{"Y":{"plugin":"builtin.zoom"},"Z":{"plugin":"builtin.zoom"}},"pages":[{}]})json",
@@ -639,8 +880,7 @@ constexpr std::string_view kRepresentative = R"json(
         R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock"},{"plugin":"builtin.studio-clock","showDate":true,"glowPercent":0,"backgroundColor":"#010203"}]}]})json";
     AppSettings studioClock{};
     if (FAILED(ParseAppSettingsJson(studioClockSettings, studioClock)) ||
-        studioClock.dashboard.pages[0].widgets[0].privateConfiguration.View() !=
-            R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","glowPercent":35})json" ||
+        studioClock.dashboard.pages[0].widgets[0].privateConfiguration.View() != StudioClock::kDefaultsJson ||
         studioClock.dashboard.pages[0].widgets[0].overridesBackground ||
         studioClock.dashboard.pages[0].widgets[1].privateConfiguration.View().find("\"showDate\":true") ==
             std::string_view::npos ||
@@ -654,6 +894,34 @@ constexpr std::string_view kRepresentative = R"json(
             kRedXeDefaultBackgroundRgb ||
         EffectiveWidgetBackgroundRgb(studioClock, studioClock.dashboard.pages[0].widgets[1]) != 0x010203)
     {
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    // Both host validators (the document parser and ValidateAppSettings) take the date formats and the glowPercent
+    // range from StudioClockSettings.h, as the DLL does.
+    const auto studioClockDocument = [](std::string_view member)
+    {
+        return std::string(R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock",)json") +
+               std::string(member) + "}]}]}";
+    };
+    for (const std::string_view dateFormat : StudioClock::kDateFormatNames)
+    {
+        AppSettings dated{};
+        if (FAILED(ParseAppSettingsJson(studioClockDocument("\"dateFormat\":\"" + std::string(dateFormat) + "\""),
+                                        dated)) ||
+            FAILED(ValidateAppSettings(dated)))
+        {
+            std::wprintf(L"A catalogued Studio Clock date format was rejected.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+    }
+    AppSettings brightest{};
+    if (FAILED(ParseAppSettingsJson(
+            studioClockDocument("\"glowPercent\":" + std::to_string(StudioClock::kMaximumGlowPercent)), brightest)) ||
+        FAILED(ValidateAppSettings(brightest)) ||
+        FAILED(ExpectRejected(
+            studioClockDocument("\"glowPercent\":" + std::to_string(StudioClock::kMaximumGlowPercent + 1U)))))
+    {
+        std::wprintf(L"The host glowPercent range differs from StudioClockSettings.h.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
@@ -1124,6 +1392,40 @@ constexpr std::string_view kRepresentative = R"json(
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
+        // The two Studio Clock range diagnostics are built from StudioClockSettings.h, so each names exactly the date
+        // formats the parser accepts and exactly the glowPercent bounds it enforces.
+        const auto studioClockMessage = [](std::string_view member) -> std::string
+        {
+            AppSettings settings{};
+            SettingsParseDiagnostic diagnostic;
+            const std::string document =
+                std::string(
+                    R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock",)json") +
+                std::string(member) + "}]}]}";
+            return FAILED(ParseAppSettingsJsonDetailed(document, settings, diagnostic)) ? diagnostic.message
+                                                                                        : std::string{};
+        };
+        // The date-format message lists the catalog's names, each once and nothing else: what is left of the list once
+        // every name is removed is only commas, spaces, the joining "or", and the final period.
+        const std::string dateMessage = studioClockMessage("\"dateFormat\":\"locale\"");
+        constexpr std::string_view datePrefix = "dateFormat must be ";
+        std::string dateList = dateMessage.starts_with(datePrefix) ? dateMessage.substr(datePrefix.size()) : "?";
+        for (const std::string_view name : StudioClock::kDateFormatNames)
+        {
+            const size_t at = dateList.find(name);
+            if (at != std::string::npos)
+                dateList.erase(at, name.size());
+            else
+                dateList = "?";
+        }
+        if (dateList.find_first_not_of(", or.") != std::string::npos ||
+            studioClockMessage("\"glowPercent\":" + std::to_string(StudioClock::kMaximumGlowPercent + 1U)) !=
+                "glowPercent must be an integer from " + std::to_string(StudioClock::kMinimumGlowPercent) +
+                    " through " + std::to_string(StudioClock::kMaximumGlowPercent) + ".")
+        {
+            std::wprintf(L"A Studio Clock diagnostic does not name the values of StudioClockSettings.h.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
 
         constexpr std::string_view catalogIds =
             R"json({"version":{"major":5},"pages":[{"widgets":["builtin.launcher","builtin.matrix-rain"]}]})json";
@@ -1409,9 +1711,9 @@ constexpr std::string_view kRepresentative = R"json(
 // (one line in each shipped template, in its line breaks) and below a comment that ends version's line, a missing
 // `thickness` after the last dock member, on its line or on a new line at its indentation, or one level deeper than
 // the closing brace of an empty dock, and a missing `minor` the same way inside `version`. The typed minor follows a
-// raised source minor, a line comment ends at a lone CR exactly where the parser ends it, and a CR-only document
-// keeps CR. A release at the current thickness changes nothing, and a patch that would not parse back to the running
-// dock is refused.
+// raised source minor, a line comment ends at a lone CR exactly where the parser ends it (for the diagnostic locator,
+// which shares the scanner, too), and a CR-only document keeps CR. A release at the current thickness changes nothing,
+// and a patch that would not parse back to the running dock is refused.
 [[nodiscard]] HRESULT ValidateDockThicknessLayout() noexcept
 {
     try
@@ -1506,6 +1808,20 @@ constexpr std::string_view kRepresentative = R"json(
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
         }
+        // The diagnostic for a member after a line comment ended by a lone CR is located where the parser reads it.
+        constexpr std::string_view loneCr =
+            "{\"version\":{\"major\":5,\"minor\":2},// note\r\"dock\":{\"peek\":65},\"pages\":[{}]}";
+        const size_t peekAt = loneCr.find("65");
+        AppSettings diagnosed{};
+        SettingsParseDiagnostic diagnostic{};
+        if (SUCCEEDED(ParseAppSettingsJsonDetailed(loneCr, diagnosed, diagnostic)) ||
+            diagnostic.path != "$.dock.peek" || !diagnostic.hasLocation || diagnostic.byteOffset != peekAt ||
+            diagnostic.line != 1 || diagnostic.column != peekAt + 1)
+        {
+            std::wprintf(L"A member after a line comment ended by a lone CR was located at offset %llu, not %zu.\n",
+                         static_cast<unsigned long long>(diagnostic.byteOffset), peekAt);
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
 
         // A release at the thickness the document already has (a click on the edge) adds no `dock` and no minor.
         constexpr std::string_view noDock = R"json({"version":{"major":5,"minor":1},"pages":[{}]})json";
@@ -1541,8 +1857,9 @@ constexpr std::string_view kRepresentative = R"json(
 
 // The `trayIcon` root member (minor 3): omitted, it follows the build (Release shows the notification-area icon,
 // Debug hides it), also in an older-minor document; an authored boolean wins in both builds; anything else rejects
-// the document with the diagnostic on $.trayIcon. It is typed runtime state, so a toggle is a runtime change the host
-// applies live.
+// the document with the diagnostic on $.trayIcon. A toggle changes no other typed member, is a runtime change by the
+// check a live reload makes before it applies anything (RuntimeSettingsEqual), and keeps the active page
+// (ActiveDashboardRuntimeEquals), so the host applies it without rebuilding the page.
 [[nodiscard]] HRESULT ValidateTrayIconSettings() noexcept
 {
 #if defined(_DEBUG)
@@ -1570,11 +1887,18 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     // Only the member differs between the two documents, and the typed settings see it.
-    hidden.sourceDocument = shown.sourceDocument;
-    hidden.trayIcon = true;
-    if (hidden != shown)
+    AppSettings toggled = hidden;
+    toggled.sourceDocument = shown.sourceDocument;
+    toggled.trayIcon = true;
+    if (toggled != shown)
     {
         std::wprintf(L"trayIcon changed typed settings other than trayIcon.\n");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    if (RuntimeSettingsEqual(hidden, shown) || RuntimeSettingsEqual(shown, hidden) ||
+        !ActiveDashboardRuntimeEquals(hidden, shown))
+    {
+        std::wprintf(L"A trayIcon toggle is not a runtime change that keeps the active page.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     const std::string_view rejected[]{
@@ -1604,10 +1928,72 @@ constexpr std::string_view kRepresentative = R"json(
     return S_OK;
 }
 
+// RuntimeSettingsEqual, the check a live reload makes before it applies anything (Application::ApplySettings): a
+// candidate that differs from the running settings in any one root member is a runtime change, and one that differs
+// only in the retained source text or the retired services entries, which nothing runs, only becomes the source.
+[[nodiscard]] HRESULT ValidateRuntimeSettingsEqual() noexcept
+{
+    try
+    {
+        constexpr std::string_view document = R"json({
+          "version":{"major":5,"minor":3},
+          "services":{"Keypad":{"plugin":"builtin.logicon"},"Meet":{"plugin":"builtin.zoom"}},
+          "pages":[{"widgets":[{"plugin":"builtin.gdi-orbit"}]}]
+        })json";
+        AppSettings running{};
+        if (FAILED(ParseAppSettingsJson(document, running)) || running.pluginCount != 1 || running.serviceCount != 1 ||
+            running.retiredServices.size() != 1 || !RuntimeSettingsEqual(running, running))
+        {
+            std::wprintf(L"The runtime comparison document did not parse as expected.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        struct MemberChange final
+        {
+            const wchar_t* member;
+            void (*change)(AppSettings& settings) noexcept;
+            bool runtime;
+        };
+        const MemberChange changes[]{
+            {L"versionMajor", [](AppSettings& settings) noexcept { ++settings.versionMajor; }, true},
+            {L"versionMinor", [](AppSettings& settings) noexcept { ++settings.versionMinor; }, true},
+            {L"logRetentionDays", [](AppSettings& settings) noexcept { ++settings.logRetentionDays; }, true},
+            {L"backgroundRgb", [](AppSettings& settings) noexcept { settings.backgroundRgb ^= 0x010203U; }, true},
+            {L"dock", [](AppSettings& settings) noexcept { ++settings.dock.animationMilliseconds; }, true},
+            {L"trayIcon", [](AppSettings& settings) noexcept { settings.trayIcon = !settings.trayIcon; }, true},
+            {L"plugins",
+             [](AppSettings& settings) noexcept { settings.plugins[0].enabled = !settings.plugins[0].enabled; }, true},
+            {L"pluginCount", [](AppSettings& settings) noexcept { ++settings.pluginCount; }, true},
+            {L"services", [](AppSettings& settings) noexcept { settings.services[0].name = SettingsText{}; }, true},
+            {L"serviceCount", [](AppSettings& settings) noexcept { ++settings.serviceCount; }, true},
+            {L"dashboard", [](AppSettings& settings) noexcept
+             { settings.dashboard.wrapPages = !settings.dashboard.wrapPages; }, true},
+            {L"sourceDocument", [](AppSettings& settings) noexcept { settings.sourceDocument.clear(); }, false},
+            {L"retiredServices", [](AppSettings& settings) noexcept { settings.retiredServices.clear(); }, false},
+        };
+        for (const MemberChange& change : changes)
+        {
+            AppSettings candidate = running;
+            change.change(candidate);
+            if (candidate == running || RuntimeSettingsEqual(candidate, running) == change.runtime ||
+                RuntimeSettingsEqual(running, candidate) == change.runtime)
+            {
+                std::wprintf(L"A change of %s alone is %s.\n", change.member,
+                             change.runtime ? L"not a runtime change" : L"a runtime change");
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
 // The command-line catalog (RedXe/CommandLine.h): every switch is unique, well formed, and printed by --help; the
-// help aliases are recognized; the unattended runs, a capture run's exit code, the exit-code box, and the names the
-// failure-exit record gives the codes follow the policy Main.cpp applies; the argument scanner accepts a full valid
-// line and names the first stray token.
+// help aliases are recognized; the help says a run without switches can be a bar; the unattended runs, a capture run's
+// exit code, the exit-code box, and the names the failure-exit record gives the codes follow the policy Main.cpp
+// applies; the argument scanner accepts a full valid line and names the first stray token.
 [[nodiscard]] HRESULT ValidateCommandLineCatalog() noexcept
 {
     try
@@ -1652,15 +2038,29 @@ constexpr std::string_view kRepresentative = R"json(
             std::wprintf(L"--help lacks the usage line, the exit codes, or the help aliases.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        if (!RedXeSwitchInfo(RedXeSwitch::Help).launcherWaitForExit ||
-            !RedXeSwitchInfo(RedXeSwitch::Screenshot).launcherWaitForExit ||
-            !RedXeSwitchInfo(RedXeSwitch::SelfTest).launcherWaitForExit ||
-            !RedXeSwitchInfo(RedXeSwitch::CrashTest).launcherWaitForExit ||
-            !RedXeSwitchInfo(RedXeSwitch::CrashTestStackOverflow).launcherWaitForExit ||
-            RedXeSwitchInfo(RedXeSwitch::CrashTestDirectory).launcherWaitForExit)
+        // Without switches RedXe follows the settings file, so a `dock` there, including the one a first start without
+        // a XENEON writes, makes it a bar (the mode table's Dock row): --help names both, not only the two windows.
+        if (help.find(L"bar on a screen edge") == std::wstring::npos ||
+            help.find(L"first start without a XENEON") == std::wstring::npos)
         {
-            std::wprintf(L"The launcher wait policy does not match the self-terminating modes.\n");
+            std::wprintf(L"--help does not say that a run without switches can be a bar, or which file writes one.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // The alias launcher waits exactly for the modes that end on their own and forwards their exit code. Every
+        // other switch (--settings, --warp, --dock*, --page, --widget, --after, --crash-test-directory) only modifies
+        // a run: without one of those modes the line starts the dashboard, and waiting for it would hold the terminal
+        // for the whole session.
+        for (const RedXeCommandLineSwitch& entry : kRedXeCommandLineSwitches)
+        {
+            const bool endsOnItsOwn = entry.id == RedXeSwitch::Help || entry.id == RedXeSwitch::Screenshot ||
+                                      entry.id == RedXeSwitch::SelfTest || entry.id == RedXeSwitch::CrashTest ||
+                                      entry.id == RedXeSwitch::CrashTestStackOverflow;
+            if (entry.launcherWaitForExit != endsOnItsOwn)
+            {
+                std::wprintf(L"The launcher wait policy of %s does not match whether it ends on its own.\n",
+                             entry.name);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
         }
         // Main.cpp: --self-test and --screenshot are the unattended runs, which never show a modal box (command-line
         // errors, the settings fallback notice, the prompts, and the exit-code box all follow RedXeIsUnattendedRun); a
@@ -2203,22 +2603,26 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         }
     }
 
-    // The retired Zoom entry loads with any value of every retired member, also in a current-minor document, and
-    // without them (the template entry of earlier builds); either way it is recorded for the warning and never started.
+    // The retired Zoom entry loads with any value of every retired member, also in a current-minor document, with a
+    // sole retired member set to null, and without them (the template entry of earlier builds); each time it is
+    // recorded for the warning and never started.
     constexpr std::string_view anyRetiredValue =
         R"json({"version":{"major":5,"minor":3},"services":{"Z":{"plugin":"builtin.zoom","clientId":null,"redirectPort":"48123","domain":[],"displayName":7,"autoConnect":"no","mode":{"x":1},"labels":[{"mute":2}]}},"pages":[{}]})json";
+    constexpr std::string_view soleRetiredNull =
+        R"json({"version":{"major":5,"minor":3},"services":{"Z":{"plugin":"builtin.zoom","clientId":null}},"pages":[{}]})json";
     constexpr std::string_view noRetiredMember =
         R"json({"version":{"major":5,"minor":3},"services":{"Z":{"plugin":"builtin.zoom"}},"pages":[{}]})json";
-    AppSettings retired{};
-    AppSettings current{};
-    if (FAILED(ParseAppSettingsJson(anyRetiredValue, retired)) || FAILED(ValidateAppSettings(retired)) ||
-        retired.serviceCount != 0 || retired.retiredServices.size() != 1 ||
-        FAILED(ParseAppSettingsJson(noRetiredMember, current)) || FAILED(ValidateAppSettings(current)) ||
-        current.serviceCount != 0 || current.retiredServices.size() != 1 ||
-        current.retiredServices[0].View() != "builtin.zoom")
+    for (const std::string_view retiredEntry : {anyRetiredValue, soleRetiredNull, noRetiredMember})
     {
-        std::wprintf(L"The retired Zoom entry is not accepted with any retired member value and ignored.\n");
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        AppSettings retired{};
+        if (FAILED(ParseAppSettingsJson(retiredEntry, retired)) || FAILED(ValidateAppSettings(retired)) ||
+            retired.serviceCount != 0 || retired.retiredServices.size() != 1 ||
+            retired.retiredServices[0].View() != "builtin.zoom")
+        {
+            std::wprintf(L"The retired Zoom entry is not accepted and ignored: %.*S\n",
+                         static_cast<int>(retiredEntry.size()), retiredEntry.data());
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
     }
 
     // v1.0.102 also accepted keys.down and mouse.down on a Logicon key, dialpad button, or turn. They still load: the
@@ -2343,8 +2747,9 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 // First start without a XENEON (Core_Settings.md "Cold load and recovery"): PatchFirstRunDock inserts `dock` into both
 // shipped templates as one commented run after `version`, in the file's own line breaks, and removes the template's
 // commented-out `dock` example with the comment that says to uncomment it, leaving every other byte and member; the
-// store writes that document for a missing default file only, never over an existing one, never when it recovers an
-// invalid one, and never for a `--settings` file.
+// store writes that document, with every dock member as it was made, for a missing default file only, never over an
+// existing one, never when it recovers an invalid one, and never for a `--settings` file, and it asks its provider for
+// the dock only for that missing file, once, so no other start measures the displays for it.
 [[nodiscard]] HRESULT ValidateFirstRunDock() noexcept
 {
     try
@@ -2513,6 +2918,25 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             std::wprintf(L"The first-run dock did not replace an existing dock value.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
+        // Every member away from its default is written and parses back: the store installs a first-run dock only
+        // when the written file holds exactly that dock.
+        DockSettings everyMember = withMonitor(DefaultDockSettings(), namedMonitor);
+        everyMember.edge = DockEdge::Left;
+        everyMember.thicknessDips = 240;
+        everyMember.mode = DockMode::Autohide;
+        everyMember.reserveWorkArea = false;
+        everyMember.peekPixels = 6;
+        everyMember.revealDelayMilliseconds = 0;
+        everyMember.hideDelayMilliseconds = 1500;
+        everyMember.animationMilliseconds = 0;
+        std::string everySource = R"json({"version":{"major":5,"minor":1},"pages":[{}]})json";
+        if (FAILED(PatchFirstRunDock(everySource, everyMember)) || FAILED(ParseAppSettingsJson(everySource, parsed)) ||
+            parsed.dock != everyMember || parsed.versionMinor != kRedXeSettingsDockAnimationMinor)
+        {
+            std::wprintf(L"The first-run dock did not write every member that leaves its default:\n%hs\n",
+                         everySource.c_str());
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
         // Only a root `// "dock":` example goes, with the comment lines right above it and their line breaks: a comment
         // a blank line separates from it, an example inside another value, and a comment after a member stay.
         std::string examples =
@@ -2563,7 +2987,25 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         }
 
         // The store: install a missing file with the dock, keep an existing file, recover an invalid one with the plain
-        // template, install the plain template when no dock is offered, and never write a missing `--settings` file.
+        // template, install the plain template when no dock is offered or none is made, and never write a missing
+        // `--settings` file. The provider counts how often the store asks it for the dock.
+        struct OfferedDock final
+        {
+            DockSettings dock{};
+            bool made = true;
+            uint32_t requests = 0;
+        };
+        const auto offer = [](OfferedDock& offered) noexcept
+        {
+            return FirstRunDockProvider{[](void* context, DockSettings& value) noexcept
+                                        {
+                                            auto& source = *static_cast<OfferedDock*>(context);
+                                            ++source.requests;
+                                            value = source.dock;
+                                            return source.made;
+                                        },
+                                        &offered};
+        };
         const std::filesystem::path localRoot = std::filesystem::temp_directory_path() /
                                                 (L"RedXe.FirstRunDockTests." + std::to_wstring(GetCurrentProcessId()) +
                                                  L"." + std::to_wstring(GetTickCount64()));
@@ -2590,16 +3032,28 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
 
         SettingsStore installStore;
         std::unique_ptr<AppSettings> installed;
-        result = installStore.Initialize(false, {}, installed, localRoot.wstring(), &dock);
+        OfferedDock installOffer{dock};
+        result = installStore.Initialize(false, {}, installed, localRoot.wstring(), offer(installOffer));
         std::string installedBytes;
         if (SUCCEEDED(result))
             result = ReadFile(selected, installedBytes);
-        if (FAILED(result) || !installed || !installStore.InstalledFirstRunDock() ||
+        if (FAILED(result) || !installed || installOffer.requests != 1 || !installStore.InstalledFirstRunDock() ||
             installStore.UsedInitialFallback() || !isFirstRunDock(installed->dock) ||
             installedBytes.find("// No XENEON display was found") == std::string::npos ||
             !definesOneDock(installedBytes))
         {
-            std::wprintf(L"A missing default file was not installed with the first-run dock.\n");
+            std::wprintf(L"A missing default file was not installed with the first-run dock, made once.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        const std::filesystem::path everyRoot = localRoot / L"EveryMember";
+        SettingsStore everyStore;
+        std::unique_ptr<AppSettings> everyInstalled;
+        OfferedDock everyOffer{everyMember};
+        result = everyStore.Initialize(false, {}, everyInstalled, everyRoot.wstring(), offer(everyOffer));
+        if (FAILED(result) || !everyInstalled || everyOffer.requests != 1 || !everyStore.InstalledFirstRunDock() ||
+            everyInstalled->dock != everyMember)
+        {
+            std::wprintf(L"A first-run dock with every member set was not installed as it was made.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
@@ -2609,14 +3063,15 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         }
         SettingsStore keepStore;
         std::unique_ptr<AppSettings> kept;
-        result = keepStore.Initialize(false, {}, kept, localRoot.wstring(), &dock);
+        OfferedDock keepOffer{dock};
+        result = keepStore.Initialize(false, {}, kept, localRoot.wstring(), offer(keepOffer));
         std::string keptBytes;
         if (SUCCEEDED(result))
             result = ReadFile(selected, keptBytes);
-        if (FAILED(result) || !kept || keepStore.InstalledFirstRunDock() || kept->dock.edge != DockEdge::None ||
-            keptBytes != templateBytes)
+        if (FAILED(result) || !kept || keepOffer.requests != 0 || keepStore.InstalledFirstRunDock() ||
+            kept->dock.edge != DockEdge::None || keptBytes != templateBytes)
         {
-            std::wprintf(L"An existing default file was changed by the first-run dock.\n");
+            std::wprintf(L"An existing default file was changed or measured for by the first-run dock.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
@@ -2627,11 +3082,12 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         // Recovery reinstalls the plain template even with a dock offered: only a missing file gets the bar.
         SettingsStore recoverStore;
         std::unique_ptr<AppSettings> recovered;
-        result = recoverStore.Initialize(false, {}, recovered, localRoot.wstring(), &dock);
+        OfferedDock recoverOffer{dock};
+        result = recoverStore.Initialize(false, {}, recovered, localRoot.wstring(), offer(recoverOffer));
         std::string recoveredBytes;
         if (SUCCEEDED(result))
             result = ReadFile(selected, recoveredBytes);
-        if (FAILED(result) || !recovered || !recoverStore.UsedInitialFallback() ||
+        if (FAILED(result) || !recovered || recoverOffer.requests != 0 || !recoverStore.UsedInitialFallback() ||
             recoverStore.InstalledFirstRunDock() || recovered->dock.edge != DockEdge::None ||
             recoveredBytes != templateBytes ||
             recoverStore.InitialNotice().find(L"A fresh default configuration was installed.") == std::wstring::npos ||
@@ -2655,32 +3111,59 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
-        // A dock the patch refuses never blocks the install: the plain template goes in instead.
+        // A dock the patch refuses, or no dock at all (no display was chosen), never blocks the install: the plain
+        // template goes in instead.
         const std::filesystem::path refusedRoot = localRoot / L"Refused";
         DockSettings refused = dock;
         refused.thicknessDips = kDockMinimumThicknessDips - 1;
         SettingsStore refusedStore;
         std::unique_ptr<AppSettings> refusedSettings;
-        result = refusedStore.Initialize(false, {}, refusedSettings, refusedRoot.wstring(), &refused);
+        OfferedDock refusedOffer{refused};
+        result = refusedStore.Initialize(false, {}, refusedSettings, refusedRoot.wstring(), offer(refusedOffer));
         std::string refusedBytes;
         if (SUCCEEDED(result))
             result = ReadFile(refusedRoot / L"RedXe" / L"Settings" / selectedName, refusedBytes);
-        if (FAILED(result) || !refusedSettings || refusedStore.InstalledFirstRunDock() ||
+        if (FAILED(result) || !refusedSettings || refusedOffer.requests != 1 || refusedStore.InstalledFirstRunDock() ||
             refusedSettings->dock.edge != DockEdge::None || refusedBytes != templateBytes)
         {
             std::wprintf(L"A first-run dock the patch refuses blocked or changed the plain install.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        const std::filesystem::path unmadeRoot = localRoot / L"Unmade";
+        SettingsStore unmadeStore;
+        std::unique_ptr<AppSettings> unmade;
+        OfferedDock unmadeOffer{dock, false};
+        result = unmadeStore.Initialize(false, {}, unmade, unmadeRoot.wstring(), offer(unmadeOffer));
+        std::string unmadeBytes;
+        if (SUCCEEDED(result))
+            result = ReadFile(unmadeRoot / L"RedXe" / L"Settings" / selectedName, unmadeBytes);
+        if (FAILED(result) || !unmade || unmadeOffer.requests != 1 || unmadeStore.InstalledFirstRunDock() ||
+            unmade->dock.edge != DockEdge::None || unmadeBytes != templateBytes)
+        {
+            std::wprintf(L"A first-run dock that was not made blocked or changed the plain install.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
         const std::filesystem::path portable = localRoot / L"portable.settings.json";
         SettingsStore portableStore;
         std::unique_ptr<AppSettings> portableSettings;
-        result = portableStore.Initialize(false, portable.wstring(), portableSettings, {}, &dock);
-        if (FAILED(result) || !portableSettings || !portableStore.UsedInitialFallback() ||
-            portableStore.InstalledFirstRunDock() || portableSettings->dock.edge != DockEdge::None ||
-            std::filesystem::exists(portable))
+        OfferedDock portableOffer{dock};
+        result = portableStore.Initialize(false, portable.wstring(), portableSettings, {}, offer(portableOffer));
+        if (FAILED(result) || !portableSettings || portableOffer.requests != 0 ||
+            !portableStore.UsedInitialFallback() || portableStore.InstalledFirstRunDock() ||
+            portableSettings->dock.edge != DockEdge::None || std::filesystem::exists(portable))
         {
-            std::wprintf(L"A missing --settings file was written or docked.\n");
+            std::wprintf(L"A missing --settings file was written, docked, or measured for.\n");
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        // The self-test loads the deployed template and never installs.
+        SettingsStore selfTestStore;
+        std::unique_ptr<AppSettings> selfTestSettings;
+        OfferedDock selfTestOffer{dock};
+        result = selfTestStore.Initialize(true, {}, selfTestSettings, {}, offer(selfTestOffer));
+        if (FAILED(result) || !selfTestSettings || selfTestOffer.requests != 0 || selfTestStore.InstalledFirstRunDock())
+        {
+            std::wprintf(L"The self-test asked for a first-run dock.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         return S_OK;
@@ -2846,6 +3329,28 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
     }
 }
 
+// Write seam stand-in for a short write: WriteFile succeeds after writing only the first half of the bytes.
+BOOL WriteHalf(HANDLE file, const void* bytes, DWORD size, DWORD* written) noexcept
+{
+    return WriteFile(file, bytes, size / 2U, written, nullptr);
+}
+
+// Files a document write left beside the settings file (`<name>.tmp.<pid>.<tick>`); none may survive a write.
+[[nodiscard]] size_t CountTemporaries(const std::filesystem::path& directory) noexcept
+{
+    try
+    {
+        size_t count = 0;
+        for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(directory))
+            count += entry.path().filename().wstring().find(L".tmp.") != std::wstring::npos ? 1U : 0U;
+        return count;
+    }
+    catch (...)
+    {
+        return SIZE_MAX;
+    }
+}
+
 [[nodiscard]] HRESULT ValidatePersistRollback() noexcept
 {
     constexpr std::string_view documentJson =
@@ -2876,28 +3381,30 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             return FAILED(result) ? result : E_UNEXPECTED;
         const auto before = std::make_unique<AppSettings>(*loaded);
         const std::string id(loaded->dashboard.pages[0].widgets[1].id.View());
-        // A real open handle without FILE_SHARE_DELETE prevents the atomic replacement from committing.
-        wil::unique_hfile locked{CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
-        if (!locked)
-            return HRESULT_FROM_WIN32(GetLastError());
+        // A short write (WriteFile reporting fewer bytes and no error) fails the replacement with ERROR_WRITE_FAULT:
+        // the typed settings, the source, and the file roll back exactly, and no temporary stays beside the file. (An
+        // open handle no longer fails a persist: it defers it, ValidatePersistCommitGuard.)
+        SettingsWriteSeam shortWrite{};
+        shortWrite.writeFile = &WriteHalf;
+        SetSettingsWriteSeamForTesting(shortWrite);
+        auto resetSeam = wil::scope_exit([]() noexcept { SetSettingsWriteSeamForTesting({}); });
         result = store.PersistWidgetSettings(*loaded, id, R"({"seed":17})");
         std::string disk;
-        if ((result != HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION) && result != E_ACCESSDENIED) || *loaded != *before ||
-            FAILED(ReadFile(path, disk)) || disk != documentJson)
+        if (result != HRESULT_FROM_WIN32(ERROR_WRITE_FAULT) || *loaded != *before || FAILED(ReadFile(path, disk)) ||
+            disk != documentJson || CountTemporaries(directory) != 0 || store.TakeDeferredPersistNotice())
         {
-            std::wprintf(L"Failed persistence changed the authoritative settings or disk.\n");
+            std::wprintf(L"A short write changed the authoritative settings or disk, or left its temporary file.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         // A failed dock drag rolls back the same way, including the minor it raised (0 to 2 here).
         result = store.PersistDockThickness(*loaded, 200);
-        if ((result != HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION) && result != E_ACCESSDENIED) || *loaded != *before ||
-            FAILED(ReadFile(path, disk)) || disk != documentJson)
+        if (result != HRESULT_FROM_WIN32(ERROR_WRITE_FAULT) || *loaded != *before || FAILED(ReadFile(path, disk)) ||
+            disk != documentJson || CountTemporaries(directory) != 0)
         {
             std::wprintf(L"A failed dock-thickness persist changed the authoritative settings or disk.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        locked.reset();
+        resetSeam.reset();
         if (SUCCEEDED(store.PersistWidgetSettings(*loaded, id, "[]")) || *loaded != *before)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         result = store.PersistWidgetSettings(*loaded, id, R"({"densityPercent":75})");
@@ -3135,6 +3642,403 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
     }
 }
 
+// Renames `from` over `to` with POSIX semantics, as an editor saving atomically through FileRenameInfoEx does (Rust's
+// std::fs::rename, for one). ERROR_SUCCESS or the Win32 error.
+[[nodiscard]] DWORD ReplaceWithPosixRename(const std::filesystem::path& from, const std::filesystem::path& to) noexcept
+{
+    wil::unique_hfile file{
+        CreateFileW(from.c_str(), DELETE | SYNCHRONIZE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+    if (!file)
+        return GetLastError();
+    const std::wstring& name = to.native();
+    const size_t size = offsetof(FILE_RENAME_INFO, FileName) + (name.size() + 1U) * sizeof(wchar_t);
+    const std::unique_ptr<uint64_t[]> storage{new (std::nothrow) uint64_t[(size + 7U) / 8U]{}};
+    if (!storage)
+        return ERROR_OUTOFMEMORY;
+    auto* info = reinterpret_cast<FILE_RENAME_INFO*>(storage.get());
+    info->Flags = FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS;
+    info->FileNameLength = static_cast<DWORD>(name.size() * sizeof(wchar_t));
+    std::memcpy(info->FileName, name.c_str(), name.size() * sizeof(wchar_t));
+    return SetFileInformationByHandle(file.get(), FileRenameInfoEx, info, static_cast<DWORD>(size)) ? ERROR_SUCCESS
+                                                                                                    : GetLastError();
+}
+
+// Another program acting on the settings file at one phase of the next guarded replacement (the write seam's
+// checkpoint). `error` is the act's result: ERROR_SUCCESS when it went through.
+struct EditorAtCommit final
+{
+    enum class Act : uint8_t
+    {
+        SaveInPlace,
+        ReplaceAtomically,
+        Delete,
+        // Opens the file for reading without FILE_SHARE_DELETE and keeps it open in `held`.
+        Hold,
+    };
+    SettingsWritePhase phase = SettingsWritePhase::Flushed;
+    Act act = Act::SaveInPlace;
+    std::filesystem::path file;
+    std::string_view bytes;
+    DWORD error = ERROR_SUCCESS;
+    uint32_t calls = 0;
+    wil::unique_hfile held;
+};
+
+void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
+{
+    auto& editor = *static_cast<EditorAtCommit*>(context);
+    if (phase != editor.phase)
+        return;
+    ++editor.calls;
+    try
+    {
+        if (editor.act == EditorAtCommit::Act::Delete)
+        {
+            editor.error = DeleteFileW(editor.file.c_str()) ? ERROR_SUCCESS : GetLastError();
+            return;
+        }
+        if (editor.act == EditorAtCommit::Act::Hold)
+        {
+            editor.held.reset(CreateFileW(editor.file.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                          FILE_ATTRIBUTE_NORMAL, nullptr));
+            editor.error = editor.held ? ERROR_SUCCESS : GetLastError();
+            return;
+        }
+        if (editor.act == EditorAtCommit::Act::SaveInPlace)
+        {
+            wil::unique_hfile file{CreateFileW(editor.file.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+            DWORD written = 0;
+            editor.error = file && SetEndOfFile(file.get()) &&
+                                   WriteFile(file.get(), editor.bytes.data(), static_cast<DWORD>(editor.bytes.size()),
+                                             &written, nullptr)
+                               ? ERROR_SUCCESS
+                               : GetLastError();
+            return;
+        }
+        std::filesystem::path saved = editor.file;
+        saved += L".editor";
+        {
+            std::ofstream stream(saved, std::ios::binary | std::ios::trunc);
+            stream.write(editor.bytes.data(), static_cast<std::streamsize>(editor.bytes.size()));
+        }
+        editor.error = ReplaceWithPosixRename(saved, editor.file);
+        std::error_code ignored;
+        std::filesystem::remove(saved, ignored);
+    }
+    catch (...)
+    {
+        editor.error = ERROR_GEN_FAILURE;
+    }
+}
+
+// Core_Settings.md "Plugin persist": the stamp check and the replacement are one guarded step. A file another program
+// holds defers the persist; an editor cannot save in place while the temporary is written; an atomic replacement or a
+// deletion made meanwhile is never undone; nobody can change the renamed file before its stamp is recorded; and a file
+// system without POSIX rename still commits through a classic one.
+[[nodiscard]] HRESULT ValidatePersistCommitGuard() noexcept
+{
+    constexpr std::string_view document =
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":7}]}]})json";
+    // One byte longer than document: an in-place rewrite of either one changes the stamp (size) even when both writes
+    // land in one tick of a coarse file-system clock with the same file ID.
+    constexpr std::string_view editorDocument =
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":43}]}]})json";
+    try
+    {
+        const std::filesystem::path directory = std::filesystem::temp_directory_path() /
+                                                (L"RedXe.PersistGuardTests." + std::to_wstring(GetCurrentProcessId()) +
+                                                 L"." + std::to_wstring(GetTickCount64()));
+        std::filesystem::create_directory(directory);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                SetSettingsWriteSeamForTesting({});
+                std::error_code error;
+                std::filesystem::remove_all(directory, error);
+            });
+        const std::filesystem::path file = directory / L"guard.settings.json";
+        const auto write = [&file](std::string_view bytes)
+        {
+            std::ofstream stream(file, std::ios::binary | std::ios::trunc);
+            stream.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            return static_cast<bool>(stream);
+        };
+        const auto holds = [&file](std::string_view expected)
+        {
+            std::string bytes;
+            return SUCCEEDED(ReadFile(file, bytes)) && bytes == expected;
+        };
+        const auto fileSeed = [&file](uint32_t seed)
+        {
+            auto saved = std::make_unique<AppSettings>();
+            return SUCCEEDED(LoadAppSettingsFile(file.wstring(), *saved)) &&
+                   saved->dashboard.pages[0].widgets[0].privateConfiguration.View().find(
+                       "\"seed\":" + std::to_string(seed)) != std::string_view::npos;
+        };
+        const auto memorySeed = [](const AppSettings& settings, uint32_t seed)
+        {
+            return settings.dashboard.pages[0].widgets[0].privateConfiguration.View().find(
+                       "\"seed\":" + std::to_string(seed)) != std::string_view::npos;
+        };
+        const auto persistSeed = [](SettingsStore& store, AppSettings& settings, const std::string& id, uint32_t seed)
+        { return store.PersistWidgetSettings(settings, id, "{\"seed\":" + std::to_string(seed) + "}"); };
+        if (!write(document))
+            return E_FAIL;
+
+        SettingsStore store;
+        std::unique_ptr<AppSettings> loaded;
+        HRESULT result = store.Initialize(false, file.wstring(), loaded);
+        if (FAILED(result) || !loaded || loaded->dashboard.pages[0].widgets.empty())
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        const std::string id(loaded->dashboard.pages[0].widgets[0].id.View());
+        std::unique_ptr<AppSettings> candidate;
+        SettingsFileStamp stamp{};
+        SettingsReloadStatus status = SettingsReloadStatus::Unchanged;
+        // The stamp the store recorded for its own write is the one the watcher reads next: no reload of RedXe's write.
+        const auto ownWriteSeen = [&]()
+        {
+            candidate.reset();
+            return SUCCEEDED(store.TryLoadChanged(candidate, stamp, status)) &&
+                   status == SettingsReloadStatus::Unchanged && !candidate;
+        };
+        const auto applyChangedFile = [&]()
+        {
+            candidate.reset();
+            if (FAILED(store.TryLoadChanged(candidate, stamp, status)) || status != SettingsReloadStatus::Loaded ||
+                !candidate)
+                return false;
+            loaded = std::move(candidate);
+            store.MarkApplied(stamp);
+            return true;
+        };
+
+        // Held by another program: an editor keeping the file open for writing, one holding it without any sharing,
+        // one holding it without FILE_SHARE_DELETE, and a writer that shares everything (as VS Code's file I/O does),
+        // which only the guard's refusal to share write access keeps out. Each persist defers (one notice for the one
+        // on-disk state), keeps the change, and leaves the bytes; once the file is free, the next persist writes the
+        // held change.
+        struct Holder final
+        {
+            DWORD access;
+            DWORD share;
+        };
+        constexpr std::array<Holder, 4> holders{{
+            {GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE},
+            {GENERIC_READ, 0},
+            {GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE},
+            {GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE},
+        }};
+        for (size_t index = 0; index < holders.size(); ++index)
+        {
+            wil::unique_hfile held{CreateFileW(file.c_str(), holders[index].access, holders[index].share, nullptr,
+                                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+            if (!held)
+                return HRESULT_FROM_WIN32(GetLastError());
+            const uint32_t seed = 21U + static_cast<uint32_t>(index);
+            const HRESULT persisted = persistSeed(store, *loaded, id, seed);
+            held.reset();
+            if (persisted != S_FALSE || store.TakeDeferredPersistNotice() != (index == 0) ||
+                !memorySeed(*loaded, seed) || !holds(document) || CountTemporaries(directory) != 0)
+            {
+                std::wprintf(L"A persist over a file another program holds (case %zu) did not defer.\n", index);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+        if (persistSeed(store, *loaded, id, 25) != S_OK || !fileSeed(25) || store.TakeDeferredPersistNotice() ||
+            !ownWriteSeen())
+        {
+            std::wprintf(L"The change held while another program had the file was not written once it was free.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // An editor saving in place while the temporary is written is shut out by the guard; the persist commits.
+        EditorAtCommit editor;
+        editor.file = file;
+        editor.bytes = editorDocument;
+        SettingsWriteSeam seam{};
+        seam.checkpoint = &ActAtCommit;
+        seam.context = &editor;
+        SetSettingsWriteSeamForTesting(seam);
+        if (persistSeed(store, *loaded, id, 31) != S_OK || editor.calls != 1 ||
+            editor.error != ERROR_SHARING_VIOLATION || !fileSeed(31) || !ownWriteSeen())
+        {
+            std::wprintf(L"An in-place save during the replacement was not shut out (error %lu).\n", editor.error);
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // Nobody can change the renamed file before its stamp is read: an in-place save and an atomic replacement both
+        // fail right after the rename, and the stamp recorded is the one the watcher sees.
+        editor.phase = SettingsWritePhase::Renamed;
+        for (const EditorAtCommit::Act act : {EditorAtCommit::Act::SaveInPlace, EditorAtCommit::Act::ReplaceAtomically})
+        {
+            editor.act = act;
+            editor.calls = 0;
+            editor.error = ERROR_SUCCESS;
+            const uint32_t seed = act == EditorAtCommit::Act::SaveInPlace ? 32U : 33U;
+            if (persistSeed(store, *loaded, id, seed) != S_OK || editor.calls != 1 ||
+                editor.error != ERROR_SHARING_VIOLATION || !fileSeed(seed) || !ownWriteSeen() ||
+                CountTemporaries(directory) != 0)
+            {
+                std::wprintf(L"Another program changed the renamed file before its stamp was read (error %lu).\n",
+                             editor.error);
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+
+        // An atomic replacement while the temporary is written goes through (the guard shares delete, as the
+        // replacement needs) and is not overwritten: the persist defers and keeps its change for later.
+        editor.phase = SettingsWritePhase::Flushed;
+        editor.act = EditorAtCommit::Act::ReplaceAtomically;
+        editor.calls = 0;
+        if (persistSeed(store, *loaded, id, 34) != S_FALSE || editor.calls != 1 || editor.error != ERROR_SUCCESS ||
+            !holds(editorDocument) || !store.TakeDeferredPersistNotice() || !memorySeed(*loaded, 34) ||
+            CountTemporaries(directory) != 0)
+        {
+            std::wprintf(L"A persist overwrote a document another program saved during the replacement.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        SetSettingsWriteSeamForTesting({});
+        if (!applyChangedFile() || !memorySeed(*loaded, 43) || persistSeed(store, *loaded, id, 35) != S_OK ||
+            !fileSeed(35) || !ownWriteSeen())
+        {
+            std::wprintf(L"The applied editor document was not written by the next persist.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // A file deleted while the temporary is written is not recreated.
+        editor.act = EditorAtCommit::Act::Delete;
+        editor.calls = 0;
+        SetSettingsWriteSeamForTesting(seam);
+        if (persistSeed(store, *loaded, id, 36) != S_FALSE || editor.calls != 1 || editor.error != ERROR_SUCCESS ||
+            std::filesystem::exists(file) || !store.TakeDeferredPersistNotice() || CountTemporaries(directory) != 0)
+        {
+            std::wprintf(L"A persist recreated a settings file deleted during the replacement.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        SetSettingsWriteSeamForTesting({});
+        if (!write(document) || !applyChangedFile())
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        // Without POSIX rename the guard is released for a classic replacement. A program that opens the file in that
+        // moment holds it as one the guard could not open past: the persist defers and keeps its change instead of
+        // failing and rolling it back, and leaves the file and no temporary behind.
+        editor.phase = SettingsWritePhase::GuardReleased;
+        editor.act = EditorAtCommit::Act::Hold;
+        editor.calls = 0;
+        SettingsWriteSeam classicHeld{};
+        classicHeld.withoutPosixRename = true;
+        classicHeld.checkpoint = &ActAtCommit;
+        classicHeld.context = &editor;
+        SetSettingsWriteSeamForTesting(classicHeld);
+        const HRESULT heldPersist = persistSeed(store, *loaded, id, 38);
+        editor.held.reset();
+        if (heldPersist != S_FALSE || editor.calls != 1 || editor.error != ERROR_SUCCESS || !memorySeed(*loaded, 38) ||
+            !holds(document) || !store.TakeDeferredPersistNotice() || CountTemporaries(directory) != 0)
+        {
+            std::wprintf(L"A file opened while the guard was released for a classic replacement did not defer the "
+                         L"persist (0x%08X, error %lu).\n",
+                         static_cast<unsigned int>(heldPersist), editor.error);
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // Once the file is free, the classic replacement commits.
+        SettingsWriteSeam classic{};
+        classic.withoutPosixRename = true;
+        SetSettingsWriteSeamForTesting(classic);
+        if (persistSeed(store, *loaded, id, 37) != S_OK || !fileSeed(37) || !ownWriteSeen() ||
+            store.TakeDeferredPersistNotice() || CountTemporaries(directory) != 0)
+        {
+            std::wprintf(L"A persist without POSIX rename did not commit through the classic replacement.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
+// TakeDeferredPersistNotice reports a deferral only while its change is still held: an applied load that replaced the
+// change, or a write that carried it, settles the notice even when nobody took it.
+[[nodiscard]] HRESULT ValidateDeferredNoticeSettles() noexcept
+{
+    constexpr std::string_view document =
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":7}]}]})json";
+    constexpr std::string_view rejected = "{ \"version\": { \"major\": 5 }, \"pages\": [";
+    // One byte longer than document, so the in-place save changes the stamp (size) even within one coarse clock tick.
+    constexpr std::string_view external =
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":13}]}]})json";
+    try
+    {
+        const std::filesystem::path directory =
+            std::filesystem::temp_directory_path() /
+            (L"RedXe.DeferredNoticeTests." + std::to_wstring(GetCurrentProcessId()) + L"." +
+             std::to_wstring(GetTickCount64()));
+        std::filesystem::create_directory(directory);
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                std::error_code error;
+                std::filesystem::remove_all(directory, error);
+            });
+        const std::filesystem::path file = directory / L"notice.settings.json";
+        const auto write = [&file](std::string_view bytes)
+        {
+            std::ofstream stream(file, std::ios::binary | std::ios::trunc);
+            stream.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            return static_cast<bool>(stream);
+        };
+        if (!write(document))
+            return E_FAIL;
+        SettingsStore store;
+        std::unique_ptr<AppSettings> loaded;
+        HRESULT result = store.Initialize(false, file.wstring(), loaded);
+        if (FAILED(result) || !loaded || loaded->dashboard.pages[0].widgets.empty())
+            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        const std::string id(loaded->dashboard.pages[0].widgets[0].id.View());
+
+        // A persist deferred by a rejected save, its notice not taken, then a valid save applied over it.
+        std::unique_ptr<AppSettings> candidate;
+        SettingsFileStamp stamp{};
+        SettingsReloadStatus status = SettingsReloadStatus::Unchanged;
+        if (!write(rejected) || FAILED(store.TryLoadChanged(candidate, stamp, status)) ||
+            status != SettingsReloadStatus::Invalid ||
+            store.PersistWidgetSettings(*loaded, id, R"({"seed":5})") != S_FALSE)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        candidate.reset();
+        if (!write(external) || FAILED(store.TryLoadChanged(candidate, stamp, status)) ||
+            status != SettingsReloadStatus::Loaded || !candidate)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        loaded = std::move(candidate);
+        store.MarkApplied(stamp);
+        // The next persist changes nothing (the applied document already has seed 13), so it neither writes nor defers.
+        if (store.PersistWidgetSettings(*loaded, id, R"({"seed":13})") != S_FALSE || store.TakeDeferredPersistNotice())
+        {
+            std::wprintf(L"A persist after an applied load reported the deferral that load had replaced.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+
+        // A persist deferred while the file was away, its notice not taken, then written once the same file is back.
+        const std::filesystem::path away = directory / L"notice.away.json";
+        if (!MoveFileExW(file.c_str(), away.c_str(), 0) ||
+            store.PersistWidgetSettings(*loaded, id, R"({"seed":8})") != S_FALSE ||
+            !MoveFileExW(away.c_str(), file.c_str(), 0))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        if (store.PersistWidgetSettings(*loaded, id, R"({"seed":8})") != S_OK || store.TakeDeferredPersistNotice())
+        {
+            std::wprintf(L"A persist that wrote the held change still reported its deferral.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+}
+
 [[nodiscard]] HRESULT ValidateLogsDirectory() noexcept
 {
     try
@@ -3311,6 +4215,7 @@ int wmain()
                        {L"dock", ValidateDockSettings},
                        {L"dock thickness layout", ValidateDockThicknessLayout},
                        {L"tray icon", ValidateTrayIconSettings},
+                       {L"runtime settings", ValidateRuntimeSettingsEqual},
                        {L"command line", ValidateCommandLineCatalog},
                        {L"AV profile configuration", ValidateAvControlSettings},
                        {L"low stack", ValidateLowStack},
@@ -3325,6 +4230,8 @@ int wmain()
                        {L"persist formatting", ValidatePersistFormatting},
                        {L"persist rollback", ValidatePersistRollback},
                        {L"persist write gate", ValidatePersistWriteGate},
+                       {L"persist commit guard", ValidatePersistCommitGuard},
+                       {L"persist deferral notice", ValidateDeferredNoticeSettles},
                        {L"live reload no write", ValidateLiveReloadNoWrite}};
     for (const auto& test : tests)
     {

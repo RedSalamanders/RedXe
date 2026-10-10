@@ -6,7 +6,9 @@ The default compares committed work since the local merge base plus staged, unst
 deleted, renamed and untracked files. Unknown inputs select full coverage. Full selects
 every noninteractive scope. PrePush delegates matching scopes only to an enabled and
 reviewed candidate PR workflow whose checks the default branch requires; remaining
-obligations execute locally. CI always uses Force.
+obligations execute locally. CI never runs this script as a gate: it runs test.ps1 -Full
+-SkipTooling and the tooling tests, whose public-runner case executes a copy of this script
+against a fixture repository.
 .PARAMETER Mode
 Affected (default), Full, or PrePush. Partial/delegated coverage is labeled explicitly.
 .PARAMETER BaseRef
@@ -39,7 +41,7 @@ Does not activate the person's desktop. Uses the canonical build/test entrypoint
 .EXAMPLE
 ./Test-Changes.ps1 -Explain
 .EXAMPLE
-./Test-Changes.ps1 -Scopes Tree -Configuration Debug
+./Test-Changes.ps1 -Scopes Settings -Configuration Debug
 .EXAMPLE
 ./Test-Changes.ps1 -Mode PrePush -Configuration Release
 #>

@@ -320,10 +320,6 @@
         "buttons": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/logiconDialButton" } }
       }
     },
-    "zoomSettings": {
-      "type": "object",
-      "additionalProperties": false
-    },
     "retiredZoomMember": {
       "deprecated": true,
       "description": "Retired v1.0.102 Zoom SDK setting: accepted with any value and ignored (one warning in the log). Delete it."
@@ -614,13 +610,13 @@
         "renderScalePercent": { "$ref": "#/$defs/shadersSettings/properties/renderScalePercent" },
         "topN": { "type": "integer", "minimum": 1, "maximum": 32 },
         "hideIdle": { "type": "boolean" },
-        "showSecondProgress": { "type": "boolean" },
-        "externalDotsAlwaysOn": { "type": "boolean" },
-        "showSeconds": { "type": "boolean" },
-        "secondsColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
-        "showDate": { "type": "boolean" },
-        "dateFormat": { "enum": ["dd-mm-yyyy", "mm-dd-yyyy", "yyyy-mm-dd"] },
-        "timeColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "showSecondProgress": { "$ref": "#/$defs/studioClockSettings/properties/showSecondProgress" },
+        "externalDotsAlwaysOn": { "$ref": "#/$defs/studioClockSettings/properties/externalDotsAlwaysOn" },
+        "showSeconds": { "$ref": "#/$defs/studioClockSettings/properties/showSeconds" },
+        "secondsColor": { "$ref": "#/$defs/studioClockSettings/properties/secondsColor" },
+        "showDate": { "$ref": "#/$defs/studioClockSettings/properties/showDate" },
+        "dateFormat": { "$ref": "#/$defs/studioClockSettings/properties/dateFormat" },
+        "timeColor": { "$ref": "#/$defs/studioClockSettings/properties/timeColor" },
         "flipDurationMilliseconds": { "type": "integer", "minimum": 250, "maximum": 800 },
         "cardColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
         "digitColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },

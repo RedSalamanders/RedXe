@@ -291,8 +291,8 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         };
         constexpr DockSwitch dockSwitches[]{
             {RedXeSwitchName(RedXeSwitch::Dock), ParseDockEdgeArgument,
-             L"--dock takes none, top, bottom, left, or right, optionally followed by @primary, @xeneon, @<n>, or "
-             L"@name:<substring>."},
+             L"--dock takes none, top, bottom, left, or right, optionally followed by @primary, @secondary, @xeneon, "
+             L"@<n>, or @name:<substring>."},
             {RedXeSwitchName(RedXeSwitch::DockMode), ParseDockModeArgument, L"--dock-mode takes fixed or autohide."},
             {RedXeSwitchName(RedXeSwitch::DockThickness), ParseDockThicknessArgument,
              L"--dock-thickness takes 32 through 1080 DIPs."},

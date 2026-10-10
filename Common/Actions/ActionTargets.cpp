@@ -37,6 +37,36 @@ namespace
     return true;
 }
 
+// A DNS host name in text form (RFC 1035 section 2.3.1, as relaxed by RFC 1123): dot-separated labels of 1 to 63 ASCII
+// letters, digits, and hyphens, none starting or ending with a hyphen, at most 253 characters in all (255 octets on the
+// wire). An internationalized name passes in its ASCII ("xn--") form only.
+[[nodiscard]] bool IsDnsHostName(std::string_view name) noexcept
+{
+    if (name.empty() || name.size() > 253)
+    {
+        return false;
+    }
+    size_t labelStart = 0;
+    for (size_t index = 0; index <= name.size(); ++index)
+    {
+        if (index < name.size() && name[index] != '.')
+        {
+            if (!IsAlpha(name[index]) && !IsDigit(name[index]) && name[index] != '-')
+            {
+                return false;
+            }
+            continue;
+        }
+        const size_t labelLength = index - labelStart;
+        if (labelLength == 0 || labelLength > 63 || name[labelStart] == '-' || name[index - 1] == '-')
+        {
+            return false;
+        }
+        labelStart = index + 1;
+    }
+    return true;
+}
+
 [[nodiscard]] bool ParseUnsigned(std::string_view value, uint64_t maximum, uint64_t& parsed) noexcept
 {
     if (value.empty() || value.size() > 19)
@@ -625,12 +655,18 @@ bool ParseMeeting(std::string_view value) noexcept
     {
         return false;
     }
-    // Browsers end the authority at '/', '?', '#', or '\'; the host must therefore be all of it, with no credentials
-    // or port, so "https://evil.example#.zoom.us/j/..." cannot pass as a zoom.us subdomain.
+    // Browsers end the authority at '/', '?', '#', or '\'; the host must therefore be all of it, and a DNS host name
+    // before the suffix decides. That leaves no room for credentials ('@'), a port (':'), a delimiter that would make
+    // "https://evil.example#.zoom.us/j/..." pass as a zoom.us subdomain, or percent-encoding a browser decodes first
+    // ("a%2e.zoom.us" is "a..zoom.us"); and "a..zoom.us" ends in ".zoom.us" but, with an empty label, is no subdomain.
     const std::string_view host = rest.substr(0, slash);
+    if (!IsDnsHostName(host))
+    {
+        return false;
+    }
     const bool zoomHost = EqualsIgnoreCase(host, "zoom.us") ||
                           (host.size() > 8 && EqualsIgnoreCase(host.substr(host.size() - 8), ".zoom.us"));
-    if (!zoomHost || host.find_first_of("@:#?") != std::string_view::npos)
+    if (!zoomHost)
     {
         return false;
     }

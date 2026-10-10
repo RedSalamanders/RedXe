@@ -86,6 +86,7 @@
     <ClCompile Include="..\..\RedXe\ControlWorkQueue.cpp" />
     <ClCompile Include="..\..\RedXe\LaunchWorker.cpp" />
     <ClCompile Include="..\..\RedXe\DashboardHost.cpp" />
+    <ClCompile Include="..\..\RedXe\DisplayEnumeration.cpp" />
     <ClCompile Include="..\..\RedXe\PluginManager.cpp" />
     <ClCompile Include="..\..\RedXe\Renderer.cpp" />
     <ClCompile Include="..\..\RedXe\HostChrome.cpp" />
@@ -111,6 +112,7 @@
     <ClInclude Include="..\..\Plugins\ProcessViewer\ProcessViewer.Tests.Contract.h" />
     <ClInclude Include="..\..\Plugins\StudioClock\StudioClock.Tests.Contract.h" />
     <ClInclude Include="..\..\RedXe\DashboardHost.h" />
+    <ClInclude Include="..\..\RedXe\DisplayEnumeration.h" />
     <ClInclude Include="..\..\RedXe\DockPlacement.h" />
     <ClInclude Include="..\..\RedXe\NoticeWindow.h" />
     <ClInclude Include="..\..\RedXe\FrameScheduler.h" />

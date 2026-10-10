@@ -1,7 +1,7 @@
 # RedXe packaging, release, and winget contract
 
 Status: current normative repository contract
-Last reviewed: 2026-09-20
+Last reviewed: 2026-10-07
 Owner: `package.ps1`, `winget-manifest.ps1`, `Build/Versioning.psm1`, `Build/Package.psm1`, `Build/Winget.psm1`,
 `Installer/`, `RedXeLauncher/`, `.github/workflows/release.yml`, `.github/workflows/winget-release.yml`
 
@@ -177,6 +177,13 @@ concurrency group. On `windows-latest`:
    launcher resolves the package root and RedXe loads its plugins from there; the registry check replaces
    `winget list --id`, which correlates installed entries with a source and cannot see a package that is not
    published yet. The package is always uninstalled afterwards by the same manifest, including after a failure.
+   Both alias runs MUST be bounded and logged: they go through the release's own `Invoke-RedXeStreamingProcess`
+   (`Build/StreamingProcess.psm1`, [`Build_Process.md`](Build_Process.md)) with budgets of two and five minutes, well
+   inside the step's fifteen, so a hung run is terminated with everything it started and named in the step's failure
+   instead of cancelled by the step timeout, and both streams reach the job log decoded as UTF-8. The module is the one
+   in the release tag the workflow checks out, so a release can be install-tested only when that tag's own
+   `Build/StreamingProcess.psm1` accepts the parameters the step passes (`-StandardOutputEncoding` and
+   `-StandardErrorEncoding` among them); `v1.0.102` has no such module.
 5. When submitting: installs the reviewed winget-create `1.12.8.0`, verifies its banner version, requires the
    `WINGET_TOKEN` secret (a classic personal access token with `public_repo`; exposed only as
    `WINGET_CREATE_GITHUB_TOKEN`, never on a command line), treats an already published version directory or an

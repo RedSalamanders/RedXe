@@ -1,6 +1,7 @@
 #include "PluginHost.h"
 
 #include "Actions/ActionTargets.h"
+#include "FailureReports.h"
 #include "HostActionCatalog.h"
 #include "HostActions.h"
 #include "PlugInterfaces/FactoryImpl.h"
@@ -522,7 +523,7 @@ void PluginHost::Shutdown() noexcept
         {
             // The lane still borrows this host and its module. The process singleton is intentionally retained,
             // and a private host's destructor joins before it releases this storage.
-            HostActions::ReleaseHeld(DeviceAccessEnabled());
+            HostActions::ReleaseHeld();
             const bool first = !_shutdown;
             _shutdown = true;
             // The writer and its events stay alive because the lane may still log, but process exit would discard
@@ -547,7 +548,7 @@ void PluginHost::Shutdown() noexcept
     _controlWork.Stop();
     // Executors go after the control lane has drained so no deferred action can still reference a pack object.
     ReleaseActionExecutors();
-    HostActions::ReleaseHeld(DeviceAccessEnabled());
+    HostActions::ReleaseHeld();
     StopNetworkService();
     AcquireSRWLockExclusive(&_widgetStatusLock);
     for (WidgetStatusSlot& slot : _widgetStatus)
@@ -723,7 +724,18 @@ HRESULT PluginHost::Log(const RedXeLogRecord* record) noexcept
     {
         return E_FAIL;
     }
+    if ((record->level == RedXeLogLevelError || record->level == RedXeLogLevelWarning) &&
+        _standardErrorLog.load(std::memory_order_acquire))
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_standardErrorLock);
+        RedXeFailureReports::WriteUtf8ToStandardError(line.data(), bytes);
+    }
     return EnqueueLogLine(line.data(), bytes);
+}
+
+void PluginHost::SetStandardErrorLog(bool enabled) noexcept
+{
+    _standardErrorLog.store(enabled, std::memory_order_release);
 }
 
 HRESULT PluginHost::SetLogDirectory(const wchar_t* directory) noexcept
@@ -2109,7 +2121,9 @@ bool PluginHost::IsExpiredInput(const HostActionSlot& slot, ULONGLONG now) noexc
         return false;
     }
     const std::string_view action{slot.action.data()};
-    if (action == "keys.up" || action == "mouse.up")
+    // An aged up that ends a hold RedXe tracks lifts only what RedXe pressed (or nothing, after the deadline). Any
+    // other aged up, including one whose down was dropped for age, would release whatever the user holds now.
+    if (HostActions::ReleasesTrackedHold(action, slot.target.data()))
     {
         return false;
     }
@@ -2441,6 +2455,29 @@ void PluginHost::LogDeferredStart(ServiceSlot& slot, const AppSettings& settings
                        "service starts when its previous device lane returns.", HRESULT_FROM_WIN32(ERROR_BUSY));
 }
 
+bool PluginHost::PrepareServiceSlot(size_t index, const AppSettings& settings, HRESULT& first) noexcept
+{
+    ServiceSlot& slot = _services[index];
+    if (!slot.spec)
+    {
+        slot.spec = &kRedXeBundledServices[index];
+    }
+    if (slot.stopPending)
+    {
+        StopService(slot);
+        if (slot.stopPending)
+        {
+            LogDeferredStart(slot, settings);
+            if (SUCCEEDED(first))
+            {
+                first = HRESULT_FROM_WIN32(ERROR_BUSY);
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
 HRESULT PluginHost::StartServices(const AppSettings& settings) noexcept
 {
     if (_shutdown)
@@ -2450,24 +2487,11 @@ HRESULT PluginHost::StartServices(const AppSettings& settings) noexcept
     HRESULT first = S_OK;
     for (size_t index = 0; index < _services.size(); ++index)
     {
+        if (!PrepareServiceSlot(index, settings, first))
+        {
+            continue;
+        }
         ServiceSlot& slot = _services[index];
-        if (!slot.spec)
-        {
-            slot.spec = &kRedXeBundledServices[index];
-        }
-        if (slot.stopPending)
-        {
-            StopService(slot);
-            if (slot.stopPending)
-            {
-                LogDeferredStart(slot, settings);
-                if (SUCCEEDED(first))
-                {
-                    first = HRESULT_FROM_WIN32(ERROR_BUSY);
-                }
-                continue;
-            }
-        }
         const ServiceSettings* configured = FindServiceSettings(settings, slot.spec->pluginId);
         if (!configured)
         {
@@ -2495,24 +2519,11 @@ HRESULT PluginHost::ApplyServiceSettings(const AppSettings& settings) noexcept
     HRESULT first = S_OK;
     for (size_t index = 0; index < _services.size(); ++index)
     {
+        if (!PrepareServiceSlot(index, settings, first))
+        {
+            continue;
+        }
         ServiceSlot& slot = _services[index];
-        if (!slot.spec)
-        {
-            slot.spec = &kRedXeBundledServices[index];
-        }
-        if (slot.stopPending)
-        {
-            StopService(slot);
-            if (slot.stopPending)
-            {
-                LogDeferredStart(slot, settings);
-                if (SUCCEEDED(first))
-                {
-                    first = HRESULT_FROM_WIN32(ERROR_BUSY);
-                }
-                continue;
-            }
-        }
         const ServiceSettings* configured = FindServiceSettings(settings, slot.spec->pluginId);
         if (!configured)
         {

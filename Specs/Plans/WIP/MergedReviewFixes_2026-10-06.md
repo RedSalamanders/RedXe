@@ -1,6 +1,10 @@
 # Review fixes for PRs #21 to #32
 
-Status: `ACTIVE`. Decisions D1 to D9 are resolved (see [Decisions](#decisions)); D6 is the owner's repository setting.
+Status: `ACTIVE`. Decisions D1 to D9 are resolved (see [Decisions](#decisions)); D6 keeps the repository ruleset
+unchanged, so local validation is the accepted merge gate for now. Every batch is implemented and validated (B1 to P5
+in #34 to #40, P6 and P7 in the phase 3 change). What keeps the plan open is the owner's live checks under
+[Manual checks for the owner](#manual-checks-for-the-owner) and `dxui-restore#2`, which waits on a DxUi change; the
+plan moves to Done when those close ([Closeout](#closeout)).
 Date: 2026-10-06
 Owner: the domain specs listed under [Contracts expected to change](#contracts-expected-to-change).
 
@@ -27,10 +31,11 @@ Method:
   reviewer re-checked every high finding and the medium findings that shape this plan against the code, the
   `v1.0.102` tag, and the GitHub release, CI and ruleset state.
 
-Result: 227 open review records (13 high, 66 medium, 121 low, 27 nit; 2 still disputed) and 9 refuted. None is
-critical. Records are per review unit, so a defect that two or three units reported appears as two or three rows
-(for example `settings#0`, `logicon-zoom#0` and `alignment#0` are the same Zoom reset); such rows sit in the same
-batch and close together, so the counts measure review coverage, not distinct defects.
+Result: 227 open review records (13 high, 66 medium, 121 low, 27 nit; 2 still disputed) and 9 refuted, and the lead
+reviewer's own checks added 9 findings (`lead#1` to `lead#9`: 1 medium, 8 low), so the register holds 236 rows (13 high,
+67 medium, 129 low, 27 nit). None is critical. Records are per review unit, so a defect that two or three units reported
+appears as two or three rows (for example `settings#0`, `logicon-zoom#0` and `alignment#0` are the same Zoom reset);
+such rows sit in the same batch and close together, so the counts measure review coverage, not distinct defects.
 Several predate the range but are listed because #23 and #27 make them much easier to hit; the register marks the
 PR where known. Line numbers are at `25433ae` and will drift: re-read each anchor before fixing it.
 
@@ -161,7 +166,8 @@ register rows.
 
 - Replace `Application::ApplySettings`'s hand-written `sameRuntime` list with `RuntimeSettingsEqual()` in
   `Settings.*`, beside `ActiveDashboardRuntimeEquals`, and test it member by member.
-- Merge `RebuildPresentation` into `InitializeDashboardRuntime`.
+- Share the renderer start of `RebuildPresentation` and `InitializeDashboardRuntime` through `StartPresentation`;
+  both stay, because a kind switch keeps its window.
 - One monitor-enumeration helper for `MakeFirstRunDock`, `ResolveDockMonitor` and `PlaceStandardWindow`; run
   `MakeFirstRunDock` only when a template is actually installed.
 - In `Settings.cpp`, share the install-target probe and atomic commit, and drop the duplicate JSON text scanner and
@@ -179,14 +185,16 @@ register rows.
   the `AGENTS.md` layout, and the scoped-testing WIP plan in line with the code.
 - Add the missing tests: kind switch with rollback, `TrayIcon`, held-key release identity, action monitor
   resolution including `secondary`, and Logicon raw-input ownership.
-- Run the live checks `UI_XeneonDisplayWindowing.md` requires and #27 left unchecked: a real Explorer restart with
-  the tray icon and an autohide bar up, and a real first-run install on two displays without a XENEON. Correct the
-  spec sentence that dates the slide checks to the 2026-09-19 closeout.
+- Hand the live checks `UI_XeneonDisplayWindowing.md` requires and #27 left unchecked (a real Explorer restart with
+  the tray icon and an autohide bar up, and a real first-run install on two displays without a XENEON) to the owner, as
+  [Manual checks for the owner](#manual-checks-for-the-owner): no batch runs them. Correct the spec sentence that dates
+  the slide checks to the 2026-09-19 closeout.
 
 ## Decisions
 
 Recommended defaults are in bold. On 2026-10-07 the owner asked for the whole plan to be implemented, so the
-recommended defaults apply; D6 stays the owner's repository setting and is not changed by any batch.
+recommended defaults apply, except D6: the owner kept the repository ruleset as it is, and no batch changes any GitHub
+setting.
 
 - D1, upgrade policy (B1): **accept and ignore retired members with a warning**, or migrate the file on first load.
   Rollback from a newer build to an older one: **not supported**; `Core_Settings.md` says an older build may reject a
@@ -206,7 +214,11 @@ recommended defaults apply; D6 stays the owner's repository setting and is not c
 - D5, settings comments (P1): **no write when nothing changed plus the stamp check now**; patch source text so
   comments survive a real widget change later.
 - D6, CI gate: **require `native (x64, Release)` and `tooling` in ruleset 23723903** (a repository setting the owner
-  changes), so a red PR cannot merge and PrePush delegation rests on a required check.
+  changes), so a red PR cannot merge and PrePush delegation rests on a required check. Owner decision 2026-10-07:
+  local validation is the accepted merge gate for now. The ruleset stays unchanged (it holds no
+  `required_status_checks` rule on 2026-10-07) and no batch changes a GitHub setting. PrePush keeps every obligation
+  local, with `PR delegation not used: <reason>` for each refused check, unless checks become required;
+  `Build_Process.md` already says so.
 - D7, Zoom (P4): Zoom no longer has state. **Move it to the dedicated action-DLL path**, or keep the service wiring.
   Either way the settings parser keeps accepting a legacy `services` entry for `builtin.zoom` (with or without the
   retired members) and ignores it with a warning, so the move cannot undo B1.
@@ -220,11 +232,11 @@ recommended defaults apply; D6 stays the owner's repository setting and is not c
 
 `Specs/Core/Core_Settings.md`, `Specs/Settings.schema.json`, `Specs/Plugins/Plugins_Zoom.md`,
 `Specs/Plugins/Plugins_Logicon.md`, `Specs/Plugins/Plugins_Actions.md`, `Specs/Plugins/Plugins_API.md`,
-`Specs/Plugins/Plugins_AVControl.md`, `Specs/UI/UI_XeneonDisplayWindowing.md`,
-`Specs/Core/Core_PerformanceAndResources.md`, `Specs/Core/Core_CrashHandling.md`,
-`Specs/Core/Core_DxUiIntegration.md`, `Specs/Build/Build_Process.md`, and
-`Specs/Build/Build_Packaging.md`; user guide pages `docs/usage.md`, `docs/actions.md`, `docs/plugins/logicon.md` and
-`docs/plugins/zoom.md` where an end-user scenario changes.
+`Specs/Plugins/Plugins_AVControl.md`, `Specs/Plugins/Plugins_Weather.md`, `Specs/UI/UI_XeneonDisplayWindowing.md`,
+`Specs/UI/UI_Dashboard.md`, `Specs/Core/Core_PerformanceAndResources.md`, `Specs/Core/Core_CrashHandling.md`,
+`Specs/Core/Core_DxUiIntegration.md`, `Specs/Build/Build_Process.md`, and `Specs/Build/Build_Packaging.md`; user guide
+pages `docs/usage.md`, `docs/actions.md`, `docs/plugins/logicon.md` and `docs/plugins/zoom.md` where an end-user
+scenario changes.
 
 ## Validation
 
@@ -237,8 +249,80 @@ recommended defaults apply; D6 stays the owner's repository setting and is not c
   Never dispatch `release.yml` as a test: every dispatch creates a GitHub release and, with the default inputs,
   submits it to winget. The next intentional release is the end-to-end check, unless a non-publishing dry-run input
   is added first.
-- P3: the live Explorer-restart and first-run checks above, recorded with date and topology.
+- Merge gate: under D6 the local runs above are what a merge rests on. The PR checks (`native (x64, Release)` and
+  `tooling`) still run, but `main` does not require them, and PrePush keeps every obligation local.
+- Live checks: a check that needs the real cursor, changes the work area of the desktop in use, restarts Explorer, takes
+  the focus, signs out, uses hardware or publishes a release is not run by a batch or an agent. Those are the manual
+  checks for the owner below, recorded with date and topology. A short, non-activating live run that closes its own
+  process (a `--screenshot` run, a posted message) is validation a batch does run and record, as the P2 and P3 batches
+  did (the 2026-10-07 checks in `UI_XeneonDisplayWindowing.md`).
 - Spec-only changes: `validate-skills.ps1`.
+
+### Manual checks for the owner
+
+Each of these needs the real cursor, changes the work area of the desktop in use, restarts Explorer, takes the focus,
+signs out, uses hardware or publishes a release, so no batch and no agent runs it. Run it on your own machine, record
+its date and topology in the owning spec (in the paragraph that names the check, which says "not recorded yet" or calls
+it manual or live; the Logicon hardware record is a receipt under `.build/receipts/`, never `docs/`), and check the box
+here. The expected observations are in `UI_XeneonDisplayWindowing.md` ("Validation contract") unless another spec is
+named. The last box asks for your confirmation instead of a run.
+
+- [ ] **Autohide strip beside maximized windows, on every edge.** Run an autohide bar, which always reserves its strip
+  (the first-run bar, or `--dock <edge>@<display> --dock-mode autohide`), on the top, bottom, left and right edge in
+  turn. A window maximized on that display stops at the strip: its caption buttons, tabs, status bar and scrollbar stay
+  uncovered, and the display's `rcWork` is trimmed by exactly the peek (4 px by default). The pointer resting on the
+  strip reveals the full bar over the window, which keeps its size, and the bar hides after the pointer leaves;
+  exiting RedXe returns the work area. The spec's slide and input checks use the same bar: a frame-by-frame reveal of a
+  top bar shows no background band and native tiles moving with the GPU tiles, `page.goto` and `widget.toggle` pressed
+  on the collapsed bar reveal it with the page changed or the widget raised, a click during the slide-in reaches the
+  tile it was on, and a wheel over the strip changes no page. Rows: `dock-switch#7`, `dock-switch#21`, `slide-tray#2`,
+  `slide-tray#3`, `slide-tray#4`, `slide-tray#7`, `slide-tray#19`.
+- [ ] **Explorer restart with a bar and the tray icon.** In a Release run with the shipped template, which shows the
+  tray icon (a Debug run shows none unless `trayIcon` is `true`), and a reserving bar up, restart Explorer: the bar's
+  reservation returns (the log holds `dock-appbar-renewed` and no `dock-appbar-refused`), a full-screen window on the
+  bar's monitor puts it beneath again, and the tray icon returns. Repeat with an autohide bar up (its strip is reserved
+  again), and once with Explorer restarting while RedXe starts, so the broadcast arrives during the first placement.
+  Rows: `dock-switch#2`, `slide-tray#0`, `slide-tray#1`.
+- [ ] **The notification-area icon, live.** In a Release run with the shipped template (the paragraph on
+  notification-area icon changes in `UI_XeneonDisplayWindowing.md`, "Validation contract"): the icon shows with the
+  `RedXe` tooltip; a double-click, and Enter on the keyboard-focused icon, open the settings file once in the default
+  `.json` editor; a right-click and Shift+F10 show Edit settings (bold) and Exit, a click elsewhere closes the menu, and
+  Esc after Shift+F10 leaves the keyboard focus on the notification area; Exit quits and removes the icon; saving
+  `"trayIcon": false` removes the icon and `true` brings it back without a restart; and a Debug run with the shipped
+  template shows none. The Explorer restart is the box above. Rows: `slide-tray#0`, `slide-tray#6`, `slide-tray#11`.
+- [ ] **A first install without a XENEON, on two displays and on one.** With no settings file and no XENEON active
+  ("First start without a XENEON"): on two displays side by side with the taskbar on the primary only, the installed
+  `dock` names `bottom` and `secondary`, the `dock-first-run` record names two active displays and the second screen's
+  rectangle, and the bar collapses to its strip at the bottom of the display that is not the primary; with a taskbar on
+  every display it names `top`. On one display the monitor is `primary` and the edge follows the same ranking (`top`
+  beside a bottom taskbar). A recovered invalid file installs no `dock`, and neither does a first start in a Remote
+  Desktop session. Rows: `dock-switch#6`, `dock-switch#8`, `dock-switch#10`, `settings#5`.
+- [ ] **A real sign-out with a Logicon keypad bound** (the spec names a restart and a shutdown as well). The keypad
+  shows the Logi splash on the sign-in screen, and the dialpad buttons that RedXe bound work normally again
+  (`Plugins_Logicon.md` "Host integration"). Rows: `session-end#0`.
+- [ ] **Logicon hardware validation, after the device-lane changes of P4.** With the keypad and the dialpad connected,
+  in a Debug run with the shipped template (it binds Logicon's keys, dial buttons and turns), run the hardware bullet of
+  `Plugins_Logicon.md` "Required validation" and leave its receipt under `.build/receipts/`, never `docs/`. Unplug and
+  replug the dialpad, and the keypad, while RedXe runs: the log holds `dialpad-disconnected` or `device-disconnected`
+  and then the reconnect, and after a disconnect the lane sits idle: no core spins. Judge that on a page with no
+  continuous widget, such as the template's `logicon` page (its first page animates the Rotating Triangle and Matrix
+  Rain, so the dashboard's own frames use CPU there): with the mouse still, RedXe stays under 5 % of one core, where a
+  spinning lane would pin a core near 100 %. Then a sleep and resume; Options+ running, then quit; and an exit with
+  `restoreLogoOnExit` true (the keypad shows the Logi splash) and false. The rest of that bullet (every action, key
+  pages, brightness and the measured per-report write time) belongs to the same receipt. Rows: `logicon-zoom#4`,
+  `logicon-zoom#13`, `logicon-zoom#14`, `logicon-zoom#15`, `logicon-zoom#16`.
+- [ ] **The release workflow end to end, at the next intentional release.** Never dispatch `release.yml` to test it:
+  every dispatch creates a GitHub release. At that release `version` finds the successful push run of the commit, each
+  `build` leg runs `test.ps1 -Full -SkipTooling` without Python and uploads its ZIP, and `release` publishes `v<version>`
+  with `checksums.sha256` (`Build_Packaging.md` "Release workflow"); `winget` follows when `publish_winget` and
+  `build_arm64` are on. Rows: `alignment#1`, `scoped-testing#0`, `tests#16`.
+- [ ] **Owner confirmation: the hosted Release legs replace the local x64 Release rebuild.** This is a statement from
+  you, not a run. `Specs/Plans/Done/ScopedTesting_2026-10-05.md` left a local x64 Release rebuild pending (the build
+  guard refused it while an independently launched `RedXe.exe` used that output) and was closed on the reading that the
+  Release check of #31's pull request and the Release legs of the `RedXe validation` main runs replace it. Nothing
+  records that you agree. Confirm it, or ask for the local rebuild, which needs the Release `RedXe.exe` closed; then
+  record the date and your answer in that plan's Closeout and in the sentence under "Implementation and reviewed
+  qualification" that calls the confirmation pending, and check the box. Rows: `alignment#9`.
 
 ## Refuted during review
 
@@ -318,7 +402,7 @@ Check a row when its fix lands, or note why it was dropped.
 - [x] `dock-switch#2` (medium) `RedXe/Application.cpp:1538`: After an Explorer restart (or a start before the taskbar exists) the dock's app bar is never registered again; only the tray icon handles TaskbarCreated
 - [x] `dock-switch#21` (medium) `RedXe/Application.cpp:5030`: Page and widget host actions on a collapsed autohide bar lay out against the peek strip; #27's SettleDockSlide guard covers only a sliding bar
 - [x] `dock-switch#6` (medium) `RedXe/DockPlacement.h:190`: First-run edge ignores displays stacked above or below: the autohide strip can land on an inter-monitor boundary
-- [x] `dock-switch#7` (medium) `RedXe/DockPlacement.h:197`: First-run autohide strip on the top edge sits over maximized windows' caption buttons and tab strips; a click there steals focus and reveals a half-screen bar Fixed by owner decision 2026-10-07: an autohide bar reserves its peek strip.
+- [x] `dock-switch#7` (medium) `RedXe/DockPlacement.h:197`: First-run autohide strip on the top edge sits over maximized windows' caption buttons and tab strips; a click there steals focus and reveals a half-screen bar. Fixed by owner decision 2026-10-07: an autohide bar reserves its peek strip.
 - [x] `dock-switch#8` (medium) `RedXe/DockPlacement.h:177`: `secondary`, written into the first-run file, can later move the bar onto a XENEON connected later or a display nobody is looking at
 - [x] `dock-switch#9` (medium) `RedXe/Application.cpp:5361`: Settings-error dialog is centered on a collapsed autohide strip and opens partly off-screen; with the first-run top bar its caption and the error location are hidden
 - [x] `host-hardening#3` (medium) `RedXe/Application.cpp:3448`: Action-notice (and settings-error) window can open off-screen or unreachable on a dock, especially a collapsed autohide strip; creation code is duplicated between ShowActionNotices and ShowSettingsError
@@ -333,7 +417,7 @@ Check a row when its fix lands, or note why it was dropped.
 - [x] `slide-tray#2` (medium) `RedXe/Application.cpp:4604`: During a reveal slide, pointer hover/up, accessibility and IME bounds are computed against the partly open window instead of the full dashboard canvas
 - [x] `slide-tray#3` (medium) `RedXe/Application.cpp:932`: Top/left bar slides: SetWindowPos and native-container moves land one composition before the matching Present (a background band at the leading edge, native tiles drift)
 - [x] `slide-tray#6` (medium) `RedXe/TrayIcon.cpp:243`: A WM_CLOSE to the hidden tray owner (Alt+F4 after dismissing the menu, or a graceful taskkill) destroys it without NIM_DELETE: ghost icon, and the running app loses its tray icon
-- [x] `slide-tray#7` (medium) `RedXe/DockPlacement.h:187`: First-run top-edge strip covers the top 4 px of maximized windows on the second screen (caption buttons, tabs) Fixed by owner decision 2026-10-07: an autohide bar reserves its peek strip.
+- [x] `slide-tray#7` (medium) `RedXe/DockPlacement.h:187`: First-run top-edge strip covers the top 4 px of maximized windows on the second screen (caption buttons, tabs). Fixed by owner decision 2026-10-07: an autohide bar reserves its peek strip.
 - [x] `dock-switch#10` (low) `RedXe/Application.cpp:752`: First-run bar is decided from a transient topology: a first start or invalid-file recovery over RDP (or with the XENEON off) permanently writes a bar for a XENEON user
 - [x] `dock-switch#12` (low) `RedXe/Application.cpp:1607`: DockYieldsToFullscreen counts a maximized window's frame overhang as covering the monitor; the pure rule sits untested in Application
 - [x] `session-end#2` (low) `RedXe/Application.cpp:407`: AutohideBarOnEdge counts a dead app bar as a taken edge, so a first-run install after a RedXe crash or kill can pick the wrong edge
@@ -368,12 +452,12 @@ Check a row when its fix lands, or note why it was dropped.
 - [x] `studioclock#4` (low) `Specs/Core/Core_PerformanceAndResources.md:291`: Glow cost was accepted as a once-per-second cost, but a raised clock next to a continuous widget redraws (and re-uploads constants) twice per frame
 - [x] `studioclock#5` (low) `Specs/Plugins/Plugins_API.md:1126`: Spec says dimmed ring LEDs keep their brightness under glow, but the five-second companion's halo brightens them; the test only probes the dot center
 
-### P5. Build and test tooling (62)
+### P5. Build and test tooling (65)
 
 - [x] `dxui-restore#0` (high) `Build/DxUiRestore.psm1:72`: A failed, interrupted or leftover DxUi source folder counts as restored: it is never repaired, and vcpkg-install.ps1 runs code from it before anything checks it
 - [x] `alignment#17` (medium) `Test-Changes.ps1:81`: A commit invalidates every native receipt, and -SkipBuild then fails test.ps1's version check, because the commit-count version stamp is part of the artifact identity
 - [x] `dxui-restore#1` (medium) `test.ps1:349`: RedXe.self-test.log is empty for every self-test failure except a CRT report, and exit code 3 now means two different things
-- [ ] `dxui-restore#2` (medium) `restore-dxui.ps1:28`: restore-dxui.ps1 runs the pinned DxUi vcpkg-install.ps1, which picks Visual Studio through vswhere -latest instead of the build's MSBuild, contrary to the spec Deferred: the pinned DxUi (271bd54) vcpkg-install.ps1 takes no MSBuild and its Get-DxUiVisualStudioInstallation ignores MSBUILD_EXE_PATH; needs DxUi to accept `-MSBuildPath` (resolving the installation as Get-RedXeVisualStudioInstallation does, or honoring MSBUILD_EXE_PATH), then restore-dxui.ps1 passes it with a pin update. RedXe's side now selects one MSBuild everywhere and Core_DxUiIntegration.md records the limitation.
+- [ ] `dxui-restore#2` (medium) `restore-dxui.ps1:28`: restore-dxui.ps1 runs the pinned DxUi vcpkg-install.ps1, which picks Visual Studio through vswhere -latest instead of the build's MSBuild, contrary to the spec. Deferred: re-checked 2026-10-07 at the pin 271bd54, DxUi's `vcpkg-install.ps1` still takes only `-Platform` and `-OutputRoot`, and its `Get-DxUiVisualStudioInstallation` (`Tools/VisualStudio.psm1`) still runs `vswhere -latest` and ignores MSBUILD_EXE_PATH, so RedXe cannot steer it. Upstream change needed in DxUi: `vcpkg-install.ps1 -MSBuildPath`, resolving the installation as `Get-RedXeVisualStudioInstallation` does, or `Get-DxUiVisualStudioInstallation` honoring MSBUILD_EXE_PATH. RedXe follow-up after a pin update to that DxUi commit: `restore-dxui.ps1` passes the build's MSBuild to it (`-MSBuildPath $MSBuildPath`, or MSBUILD_EXE_PATH for that one call), and Core_DxUiIntegration.md drops the limitation it records today. RedXe's own scripts already select one MSBuild everywhere.
 - [x] `dxui-restore#4` (medium) `test.ps1:405`: Several RedXe.exe and launcher runs, including the packaged --self-test and the crash tests, stay unbounded under Start-Process -Wait, and the crash tests do not suppress Windows Error Reporting
 - [x] `dxui-restore#7` (medium) `Common/FailureReports.h:24`: ReportAndEnd writes through fputws on a narrow "C"-locale stderr, so a report whose path contains a character above U+00FF is cut off and the routing check fails
 - [x] `dxui-restore#8` (medium, disputed) `Tests/PluginContractTests/PluginContract.Tests.Runner.cpp:2566`: PluginContractTests passes on any failing HRESULT whose low byte is 0x00
@@ -404,6 +488,9 @@ Check a row when its fix lands, or note why it was dropped.
 - [x] `dxui-restore#5` (low) `Common/FailureReports.h:32`: RouteAwayFromDialogs leaves the standard C assert() message box in place for the GUI-subsystem RedXe.exe
 - [x] `dxui-restore#9` (low) `Plugins/AVControl/BrokerMain.cpp:353`: AVControlBroker.exe, which AVControlTests starts, does not route failed checks, so a Debug check in it still opens a dialog
 - [x] `dxui-rev3#1` (low) `Build/DxUiUpdate.psm1:26`: Update-DxUi.ps1 picks a DxUi main commit without checking its API revision, so a revision bump produces a lock every build rejects
+- [x] `lead#2` (low) `.github/workflows/winget-release.yml:128`: The winget workflow runs the installed alias's `--help` and `--self-test --warp` under an unbounded `Start-Process -Wait` with no containment, so a hung run holds the install test until the step's timeout cancels it without a diagnosis. Anchor at `010a21c`. Both runs go through the release's own `Invoke-RedXeStreamingProcess` (budgets of two and five minutes inside the step's fifteen, the kill-on-close job, both streams decoded as UTF-8 into the job log) and keep their exit-code and help-text checks; Build_Packaging.md states it, and that a release can be install-tested only when its tag's own module accepts the parameters the step passes (`v1.0.102` has no such module). Validated locally by running the step's alias lines verbatim, parsed from the YAML, against a winget-shaped symbolic-link alias to the Debug `RedXeLauncher.exe`; the workflow itself is validated only by the next real release.
+- [x] `lead#4` (low) `Build/StreamingProcess.psm1:230`: RedXe.exe and RedXeLauncher.exe write `--help` and command-line errors to a redirected stdout as UTF-8 (EmitCommandLineText), but Invoke-RedXeStreamingProcess decodes stdout with the console code page: under code page 850 `RedXe.help.log` read `RedXe ÔÇö CORSAIR XENEON EDGE dashboard`. Anchor at `010a21c`. A `-StandardOutputEncoding` parameter beside `-StandardErrorEncoding`, on both start paths; test.ps1 (every run, the unattended command-line check included) and the package smoke pass UTF-8 for both streams. test.ps1's `--help` check runs from a private console under code page 437, through the helper the routing check now shares, and requires the title's U+2014; BuildProcessTests.ps1 proves each encoding decodes its own stream alone on both paths, and fails on the pre-fix module. Build_Process.md and UI_XeneonDisplayWindowing.md state it.
+- [x] `lead#8` (low) `Build/DxUiRestore.psm1:121`: Enter-RedXeDxUiLock waits for a held DxUi folder without a bound (announced, Ctrl+C works), and Visual Studio IDE builds renew no DxUi lease. Anchor at `4ace690`. The wait gives up after 30 minutes naming what it waited for and the holder, which records its process, start and command line in the temporary folder while it holds the mutex; Core_DxUiIntegration.md states the bound and that an IDE build renews no lease, so only one that keeps building with superseded properties past the lease window can lose them.
 - [x] `process-containment#1` (low) `Build/BuildPresentation.psm1:773`: The budget uses the wall clock (DateTime.UtcNow), so a clock step can cut it short or stretch it
 - [x] `process-containment#13` (low) `Build/BuildPresentation.psm1:749`: On timeout the helper stops reading before it terminates the job, so output already in the pipes and a trailing partial line are dropped
 - [x] `process-containment#14` (low) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:3498`: The FlushLog early return cannot bound a hung writer: ~PluginHost then joins the log worker with no limit
@@ -435,79 +522,84 @@ Check a row when its fix lands, or note why it was dropped.
 
 ### P6. Behavior-preserving simplifications (41)
 
-- [ ] `tests#0` (medium) `Tests/SettingsTests/Settings.Tests.Runner.cpp:1408`: Tray-icon test claims 'a toggle is a runtime change the host applies live' but only checks AppSettings::operator==, which the live-reload path never uses
-- [ ] `alignment#10` (low) `Specs/Build/Build_Process.md:117`: Build_Process.md states normative requirements for RedSalamander and DxUi, which RedXe neither owns nor implements
-- [ ] `alignment#13` (low) `Tests/test-scopes.json:182`: The scoped-testing manifest, module and help carry rules and examples copied from other repositories
-- [ ] `alignment#8` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock measures displays on every launch without a XENEON, though the spec says only at install
-- [ ] `dock-switch#15` (low) `RedXe/Application.cpp:433`: Monitor enumeration and effective-DPI lookup duplicated across MakeFirstRunDock, ResolveDockMonitor and PlaceStandardWindow; the `secondary` order invariant depends on the copies matching
-- [ ] `dock-switch#16` (low) `RedXe/Settings.cpp:2477`: Duplicated install-target probe and atomic-commit code in Settings.cpp introduced by the first-run path
-- [ ] `dock-switch#5` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock measures displays and queries Explorer on every start without a XENEON, though its result is used only when a template is installed
-- [ ] `dxui-restore#12` (low) `Build/DxUiProvenance.psm1:12`: Lock reading, source-path building and MSBuild discovery are still duplicated after the PR's 'each fact lives once' consolidation, including a pass-through Read-RedXeDxUiUpdateLock
-- [ ] `host-hardening#9` (low) `RedXe/Application.cpp:2558`: The sameRuntime field list duplicates AppSettings::operator== by hand and silently treats any new member as source-only
-- [ ] `logicon-zoom#10` (low) `Common/Actions/WindowSelector.cpp:153`: RedXeActions::BringToForeground is dead after zoom.focus was removed; it is the only synthetic-Alt focus stealer and its docs still name Zoom
-- [ ] `logicon-zoom#6` (low) `Plugins/Logicon/LogiconHid.h:90`: Dead HID cancel and redundant stop paths after the IoState rewrite: HidPort::Cancel has no caller and races Close, Write's ERROR_BUSY branch is unreachable, and lane exit stops the wheels twice
-- [ ] `process-containment#11` (low) `Build/BuildPresentation.psm1:720`: The process-containment launcher lives in the presentation module; test.ps1 loads BuildPresentation.psm1 only for it
-- [ ] `process-containment#8` (low) `Build/BuildPresentation.psm1:475`: Two argument-quoting implementations for the two launch paths; ConvertTo-RedXeProcessCommandLine matches .NET ArgumentList exactly, so Set-RedXeProcessArguments can be deleted
-- [ ] `scoped-testing#18` (low) `Build/ScopedTesting.psm1:224`: Code, help text and normative spec text copied from other repositories (DxUi, RedSalamander) is dead or wrong in RedXe
-- [ ] `settings#11` (low) `RedXe/Settings.cpp:2137`: PrepareDockSourcePatch parses the whole document a second time for a check ParseAppSettingsJsonV5 already guarantees
-- [ ] `settings#12` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock queries Explorer on every launch without a XENEON although it is used only when the default file is installed, and it duplicates ResolveDockMonitor's monitor enumeration
-- [ ] `settings#13` (low) `RedXe/Settings.cpp:1872`: The new source-text JSON scanner duplicates JsonTextCursor already in SettingsV4.cpp
-- [ ] `settings#14` (low) `RedXe/Settings.cpp:2506`: InstallTemplateWithDock checks only 4 dock fields where DockSettings::operator== is available, and repeats the install and commit plumbing
-- [ ] `settings#16` (low) `RedXe/Application.cpp:2261`: Application::_persistSettingsToDisk duplicates the store's self-test write gate
-- [ ] `slide-tray#10` (low) `RedXe/Application.cpp:427`: MakeFirstRunDock duplicates ResolveDockMonitor's display enumeration and round-trips its own constant selector through text
-- [ ] `slide-tray#13` (low) `RedXe/Application.cpp:2462`: Two slide fields can be derived from existing state, and the end of TickDockSlide repeats SettleDockSlide
-- [ ] `slide-tray#9` (low) `RedXe/Application.cpp:752`: MakeFirstRunDock runs on every launch without a XENEON, including three synchronous Explorer round trips, although only a template install uses its result
-- [ ] `studioclock#6` (low) `RedXe/SettingsV4.cpp:54`: Studio Clock settings are spelled out in four places; follow the shared ShadersSettings.h pattern
-- [ ] `studioclock#7` (low) `Plugins/StudioClock/StudioClock.cpp:219`: #22 added a fourth identical copy of JsonCursor::ReadUnsigned; the settings cursor is copied across four plugin DLLs
-- [ ] `tests#12` (low) `RedXe/SettingsV4.cpp:55`: Studio Clock defaults and glowPercent range exist in four copies, each tested only against its own literal
-- [ ] `alignment#14` (nit) `Specs/Settings.schema.json:323`: Dead leftovers of the removed Zoom SDK path: unreferenced schema def and stale guidance that ActionTargets is compiled into every publisher
-- [ ] `alignment#15` (nit) `.gitignore:26`: Leftover Zoom SDK ignore entries point at a deleted import script
-- [ ] `dock-switch#17` (nit) `RedXe/Application.cpp:2079`: RebuildPresentation duplicates the renderer start sequence of InitializeDashboardRuntime
-- [ ] `dock-switch#19` (nit) `RedXe/Application.h:373`: Two long-lived members carry the kind-switch placement from RestyleWindowKind to FinishWindowKindSwitch
-- [ ] `dock-switch#20` (nit) `RedXe/Application.h:378`: _dockWorkRect is write-only state, and RestyleWindowKind keeps a WS_VISIBLE bit that is always clear
-- [ ] `dxui-restore#15` (nit) `Tests/PluginContractTests/PluginContract.Tests.Runner.cpp:2552`: The --asan-probe SetErrorMode call is now redundant
-- [ ] `host-hardening#15` (nit) `RedXe/HostActions.cpp:1066`: HostActions::ReleaseHeld ignores its deviceAccess parameter (and the Execute comment describes removed behavior)
-- [ ] `host-hardening#16` (nit) `RedXe/PluginHost.cpp:2328`: Simplification: the stopPending retry block is copied in StartServices and ApplyServiceSettings
-- [ ] `host-hardening#17` (nit) `RedXe/Application.h:407`: _dockDashboardResizeTimerArmed duplicates _dockDashboardResizePending
-- [ ] `logicon-zoom#11` (nit) `Specs/Settings.schema.json:323`: Leftovers from the removed Zoom SDK/client path: unreferenced $defs/zoomSettings, a stale .gitignore script reference, and ZoomSettings compiled into the host
-- [ ] `process-containment#10` (nit) `Build/BuildPresentation.psm1:686`: ContainedProcess carries dead members after #26 removed the Kill fallback, and the read/wait logic is duplicated per path; one wait with Timeout.Infinite removes both
-- [ ] `process-containment#16` (nit) `test.ps1:142`: Two assignments of the test budget; the effective value for later suites depends on whether PluginContract was selected
-- [ ] `scoped-testing#19` (nit) `Tests/test-scopes.json:182`: Four scope rules match test folders that do not exist (dead rules)
-- [ ] `scoped-testing#20` (nit) `Build/ScopedTesting.psm1:101`: Top-level Mockups/ is treated as code: it triggers a full run and invalidates native results
-- [ ] `scoped-testing#21` (nit) `test.ps1:142`: Duplicate $testTimeoutSeconds assignment left inside the PluginContract block
-- [ ] `settings#18` (nit) `Specs/Settings.schema.json:323`: Dead `zoomSettings` definition left in the schema
+- [x] `tests#0` (medium) `Tests/SettingsTests/Settings.Tests.Runner.cpp:1408`: Tray-icon test claims 'a toggle is a runtime change the host applies live' but only checks AppSettings::operator==, which the live-reload path never uses
+- [x] `alignment#10` (low) `Specs/Build/Build_Process.md:117`: Build_Process.md states normative requirements for RedSalamander and DxUi, which RedXe neither owns nor implements
+- [x] `alignment#13` (low) `Tests/test-scopes.json:182`: The scoped-testing manifest, module and help carry rules and examples copied from other repositories. P5 (#37, 9dae761) removed the four dead rules; the TerminalEngine exemption and the `legacy`, `External`, `Changes` and `Specs/(Done|TestRuns|Reviews|Mockups)` alternatives are gone, and a ScopedTesting case checks that the help examples name manifest scopes.
+- [x] `alignment#8` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock measures displays on every launch without a XENEON, though the spec says only at install
+- [x] `dock-switch#15` (low) `RedXe/Application.cpp:433`: Monitor enumeration and effective-DPI lookup duplicated across MakeFirstRunDock, ResolveDockMonitor and PlaceStandardWindow; the `secondary` order invariant depends on the copies matching. Resolved by P6 (5ee855f): `EnumerateDisplays` and `EffectiveMonitorDpi` in `RedXe/DisplayEnumeration.*` are the one walk that `MakeFirstRunDock`, `ResolveDockMonitor` and `PlaceStandardWindow` read. The walk is deliberately not shared with `HostActions::ResolveMonitor`, which keeps its own `EnumDisplayMonitors` walk (per-display step `HostActions::VisitMonitor`): its `<n>` (1 through 64) counts a display whose information cannot be read and the walk has no slot cap, where the dock's walk skips such a display and stops at 16; its `xeneon` is the monitor of RedXe's window; and it never falls back to the primary. Sharing would change behavior that a behavior-preserving P6 row must not change. The two agree where they must, on the `secondary` rank (`SecondaryMonitorRank`).
+- [x] `dock-switch#16` (low) `RedXe/Settings.cpp:2477`: Duplicated install-target probe and atomic-commit code in Settings.cpp introduced by the first-run path
+- [x] `dock-switch#5` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock measures displays and queries Explorer on every start without a XENEON, though its result is used only when a template is installed
+- [x] `dxui-restore#12` (low) `Build/DxUiProvenance.psm1:12`: Lock reading, source-path building and MSBuild discovery are still duplicated after the PR's 'each fact lives once' consolidation, including a pass-through Read-RedXeDxUiUpdateLock. P5 (#37) moved restore-dxui.ps1's MSBuild and dependency root and the provenance writer onto DxUiRestore.psm1; the pass-through is gone, and Assert-RedXeDxUiProvenance and ci.yml read the lock and the source path through that module too.
+- [x] `host-hardening#9` (low) `RedXe/Application.cpp:2558`: The sameRuntime field list duplicates AppSettings::operator== by hand and silently treats any new member as source-only
+- [x] `logicon-zoom#10` (low) `Common/Actions/WindowSelector.cpp:153`: RedXeActions::BringToForeground is dead after zoom.focus was removed; it is the only synthetic-Alt focus stealer and its docs still name Zoom
+- [x] `logicon-zoom#6` (low) `Plugins/Logicon/LogiconHid.h:90`: Dead HID cancel and redundant stop paths after the IoState rewrite: HidPort::Cancel has no caller and races Close, Write's ERROR_BUSY branch is unreachable, and lane exit stops the wheels twice. HidPort::Cancel and its two overrides are removed here. Resolved by P4 (#38, c64e75e) for the rest: a canceled request that misses its drain now keeps the slot, so ERROR_BUSY is the specified reply (`Plugins_Logicon.md`), and CloseDialpad no longer stops the wheels, so the lane exit stops them once.
+- [x] `process-containment#11` (low) `Build/BuildPresentation.psm1:720`: The process-containment launcher lives in the presentation module; test.ps1 loads BuildPresentation.psm1 only for it
+- [x] `process-containment#8` (low) `Build/BuildPresentation.psm1:475`: Two argument-quoting implementations for the two launch paths; ConvertTo-RedXeProcessCommandLine matches .NET ArgumentList exactly, so Set-RedXeProcessArguments can be deleted
+- [x] `scoped-testing#18` (low) `Build/ScopedTesting.psm1:224`: Code, help text and normative spec text copied from other repositories (DxUi, RedSalamander) is dead or wrong in RedXe
+- [x] `settings#11` (low) `RedXe/Settings.cpp:2137`: PrepareDockSourcePatch parses the whole document a second time for a check ParseAppSettingsJsonV5 already guarantees
+- [x] `settings#12` (low) `RedXe/Application.cpp:751`: MakeFirstRunDock queries Explorer on every launch without a XENEON although it is used only when the default file is installed, and it duplicates ResolveDockMonitor's monitor enumeration
+- [x] `settings#13` (low) `RedXe/Settings.cpp:1872`: The new source-text JSON scanner duplicates JsonTextCursor already in SettingsV4.cpp. The shared cursor ends a line comment at CR or LF as the parser and the dock patches (`settings#8`) already did; the diagnostic locator, which ended it at LF only, now also locates a member after a comment ended by a lone CR.
+- [x] `settings#14` (low) `RedXe/Settings.cpp:2506`: InstallTemplateWithDock checks only 4 dock fields where DockSettings::operator== is available, and repeats the install and commit plumbing
+- [x] `settings#16` (low) `RedXe/Application.cpp:2261`: Application::_persistSettingsToDisk duplicates the store's self-test write gate
+- [x] `slide-tray#10` (low) `RedXe/Application.cpp:427`: MakeFirstRunDock duplicates ResolveDockMonitor's display enumeration and round-trips its own constant selector through text. The text round trip stays on purpose: it parses the selector written into the file, so the display measured is the one that text resolves to over the shared walk.
+- [x] `slide-tray#13` (low) `RedXe/Application.cpp:2462`: Two slide fields can be derived from existing state, and the end of TickDockSlide repeats SettleDockSlide. `ResetDockPlacementState` keeps its `_dockSlideActive = false`: between `StopDockInteraction` and that reset, `RestyleWindowKind` runs widget callbacks (raise, focus, pointer teardown) that can execute a `redxe.dock.*` action and start a slide while the renderer is still up.
+- [x] `slide-tray#9` (low) `RedXe/Application.cpp:752`: MakeFirstRunDock runs on every launch without a XENEON, including three synchronous Explorer round trips, although only a template install uses its result
+- [x] `studioclock#6` (low) `RedXe/SettingsV4.cpp:54`: Studio Clock settings are spelled out in four places; follow the shared ShadersSettings.h pattern
+- [x] `studioclock#7` (low) `Plugins/StudioClock/StudioClock.cpp:219`: #22 added a fourth identical copy of JsonCursor::ReadUnsigned; the settings cursor is copied across four plugin DLLs
+- [x] `tests#12` (low) `RedXe/SettingsV4.cpp:55`: Studio Clock defaults and glowPercent range exist in four copies, each tested only against its own literal
+- [x] `alignment#14` (nit) `Specs/Settings.schema.json:323`: Dead leftovers of the removed Zoom SDK path: unreferenced schema def and stale guidance that ActionTargets is compiled into every publisher. The def and the `WindowSelector.h` Zoom mention are removed here. The `AGENTS.md` ActionTargets line is accurate again since P4 (#38, ec0dd7d) compiles `ActionTargets.cpp` into `zoom.action.dll` for the Meeting target kind.
+- [x] `alignment#15` (nit) `.gitignore:26`: Leftover Zoom SDK ignore entries point at a deleted import script
+- [x] `dock-switch#17` (nit) `RedXe/Application.cpp:2079`: RebuildPresentation duplicates the renderer start sequence of InitializeDashboardRuntime. Both call `Application::StartPresentation`. The UI-invalidate and held-input window registrations stay in `InitializeDashboardRuntime` (a kind switch keeps its window) and now follow the visibility update, which at startup reaches no widget or service and on a reload re-registers the same window.
+- [x] `dock-switch#19` (nit) `RedXe/Application.h:373`: Two long-lived members carry the kind-switch placement from RestyleWindowKind to FinishWindowKindSwitch. The caller keeps one `StandardPlacement` on its stack for a switch and its rollback, which must reuse the forward switch's monitor (a separate rollback copy, as the finding suggested, would lose it). `fullscreen` stays recorded rather than derived at Finish: `WM_DISPLAYCHANGE` now refreshes `_xeneonFound` in both kinds.
+- [x] `dock-switch#20` (nit) `RedXe/Application.h:378`: _dockWorkRect is write-only state, and RestyleWindowKind keeps a WS_VISIBLE bit that is always clear
+- [x] `dxui-restore#15` (nit) `Tests/PluginContractTests/PluginContract.Tests.Runner.cpp:2552`: The --asan-probe SetErrorMode call is now redundant
+- [x] `host-hardening#15` (nit) `RedXe/HostActions.cpp:1066`: HostActions::ReleaseHeld ignores its deviceAccess parameter (and the Execute comment describes removed behavior). P2 (5d8b58d) had already corrected the Execute comment; the parameter is gone.
+- [x] `host-hardening#16` (nit) `RedXe/PluginHost.cpp:2328`: Simplification: the stopPending retry block is copied in StartServices and ApplyServiceSettings. Shared as `PluginHost::PrepareServiceSlot`.
+- [x] `host-hardening#17` (nit) `RedXe/Application.h:407`: _dockDashboardResizeTimerArmed duplicates _dockDashboardResizePending
+- [x] `logicon-zoom#11` (nit) `Specs/Settings.schema.json:323`: Leftovers from the removed Zoom SDK/client path: unreferenced $defs/zoomSettings, a stale .gitignore script reference, and ZoomSettings compiled into the host. The def and the `.gitignore` reference are removed here. `ZoomSettings.cpp` stays in the host by decision D7: it validates the retired `services` Zoom entry (`Core_Settings.md`, `Plugins_Zoom.md`).
+- [x] `process-containment#10` (nit) `Build/BuildPresentation.psm1:686`: ContainedProcess carries dead members after #26 removed the Kill fallback, and the read/wait logic is duplicated per path; one wait with Timeout.Infinite removes both. Partly resolved by P5 (#37): `-ProcessId` reads `Id` again, the exit grace reads `HasExited`, and one sliced wait replaced both per-path branches; the parameterless `WaitForExit()` was still dead and is removed.
+- [x] `process-containment#16` (nit) `test.ps1:142`: Two assignments of the test budget; the effective value for later suites depends on whether PluginContract was selected
+- [x] `scoped-testing#19` (nit) `Tests/test-scopes.json:182`: Four scope rules match test folders that do not exist (dead rules). Resolved by P5 (#37, 9dae761): the four rules are gone, and ScopedTesting.Tests.ps1 fails on a rule that matches no tracked path.
+- [x] `scoped-testing#20` (nit) `Build/ScopedTesting.psm1:101`: Top-level Mockups/ is treated as code: it triggers a full run and invalidates native results
+- [x] `scoped-testing#21` (nit) `test.ps1:142`: Duplicate $testTimeoutSeconds assignment left inside the PluginContract block
+- [x] `settings#18` (nit) `Specs/Settings.schema.json:323`: Dead `zoomSettings` definition left in the schema
 
-### P7. Spec, user-guide, and test-coverage drift (32)
+### P7. Spec, user-guide, and test-coverage drift (37)
 
-- [ ] `alignment#4` (medium) `test.ps1:47`: test.ps1 now runs only affected scopes, or nothing, but the specs, README and skills still treat it as the full gate
-- [ ] `tests#1` (medium) `RedXe/Application.cpp:2625`: Live window-kind switch and its rollback have no automated coverage (self-test pins edge none; manual checklist has success paths only)
-- [ ] `tests#2` (medium) `RedXe/TrayIcon.cpp:214`: TrayIcon class (Show/Hide, TaskbarCreated re-add, class unregistration) is untested; only the pure callback table is covered
-- [ ] `tests#3` (medium) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:4206`: Held-input test checks only release counts: it cannot tell which chord or button is released, nor catch an early or busy timer
-- [ ] `alignment#11` (low) `Specs/Plugins/Plugins_API.md:184`: Plugins_API.md still says test exports go in `*TestContract.h`; the new naming check rejects that name
-- [ ] `alignment#12` (low) `AGENTS.md:115`: AGENTS.md and README layout entries are stale after the Zoom removal and the scoped-testing tooling
-- [ ] `alignment#21` (low) `RedXe/CommandLine.h:189`: The --help text and README still describe startup without a XENEON as the prompt or plain titled window, which #27's first-run bar replaced
-- [ ] `alignment#5` (low) `Specs/Core/Core_Settings.md:335`: Minor-raise rules and dock patch comments disagree with the code and with each other
-- [ ] `alignment#7` (low) `Specs/UI/UI_XeneonDisplayWindowing.md:53`: Mode table's Debug-without-XENEON row omits the first-run dock that replaces it
-- [ ] `alignment#9` (low) `Specs/Plans/WIP/ScopedTesting_2026-10-05.md:3`: The ScopedTesting WIP plan is still ACTIVE with unchecked items, although its work and qualification are recorded as done
-- [ ] `dock-switch#13` (low) `Build/Package.psm1:107`: User-facing startup docs (README, packaged README, usage.md) still describe the prompt or titled window for a machine without a XENEON
-- [ ] `dock-switch#4` (low) `RedXe/Application.cpp:2625`: Window-kind switch orchestration and the combined-reload rollback have no automated or manual coverage
-- [ ] `dxui-restore#13` (low) `README.md:88`: The README says vcpkg-install.ps1 is enough before a direct Visual Studio build, but the build also needs restore-dxui.ps1
-- [ ] `dxui-restore#6` (low) `Tests/PluginContractTests/PluginContract.Tests.Runner.cpp:2546`: No test covers RedXe.exe's own failure-report routing, any other runner's call, or the Release abort path
-- [ ] `host-hardening#14` (low) `test.ps1:366`: No automated end-to-end coverage for the new asynchronous --screenshot pipeline
-- [ ] `logicon-zoom#18` (low) `Tests/LogiconTests/Logicon.Tests.Runner.cpp:718`: The new raw-input ownership rules (do not replace a prior owner, do not remove a later one) have no test
-- [ ] `logicon-zoom#8` (low) `Specs/Plugins/Plugins_Zoom.md:34`: Plugins_Zoom.md says removed zoom.* bindings fail settings validation, but documents accept them and they show a red '!'
-- [ ] `process-containment#9` (low) `Tests/BuildProcessTests/BuildProcessTests.ps1:240`: The committed test only checks quoting for one argument with spaces, though every bounded test.ps1 call uses the custom quoter
-- [ ] `scoped-testing#22` (low) `Common/AddressSanitizerProbe.h:5`: A test-only ASan fixture header in Common/ escaped the #31 naming migration and native test inventory
-- [ ] `tests#11` (low) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:963`: Slide-offset test covers one GPU tile only; native widget containers moving with a top or left dock slide are untested
-- [ ] `tests#13` (low) `RedXe/HostActions.cpp:698`: Monitor resolution for actions (including the new `secondary` kind) never runs under test: deviceAccess=false swaps in a fixed rectangle
-- [ ] `tests#21` (low) `Tests/LogiconTests/Logicon.Tests.Runner.cpp:718`: Logicon raw-input ownership rules added in #21 have no test; only plain Start/Stop/restart is exercised
-- [ ] `tests#7` (low) `test.ps1:116`: Launcher wait-policy tests pin only the self-terminating switches; an unknown argument through the RedXe alias exits 0, and test.ps1 hides this by adding --self-test
-- [ ] `alignment#16` (nit) `Specs/Plans/Done/DxUiFollowUps_2026-10-01.md:52`: Plan hygiene: an unindexed WIP checkpoint edited in the range, and a Done plan naming a header that does not exist
-- [ ] `dock-switch#14` (nit) `RedXe/Settings.cpp:2637`: Stale comment: the first-run bar is no longer always on the primary display
-- [ ] `dxui-restore#16` (nit) `Specs/Plans/Done/DxUiFollowUps_2026-10-01.md:52`: The Done plan names Tests/Support/FailureReports.h, which no longer exists
-- [ ] `host-hardening#18` (nit) `Plugins/5H4D3R5/Shaders.cpp:850`: Stale comment: lookup tables are no longer drawn by the first widget frame
-- [ ] `settings#17` (nit) `RedXe/Settings.h:381`: Stale or contradictory persistence contract text for the dock source edit and the first-run minor raise
-- [ ] `shaders-lut#2` (nit) `Plugins/5H4D3R5/Shaders.cpp:850`: Stale comment says lookup tables are drawn by the first widget frame
-- [ ] `slide-tray#16` (nit) `Common/PlugInterfaces/Action.h:57`: Plugin ABI comment for RedXeActionTargetMonitor omits the new `secondary` selector
-- [ ] `slide-tray#17` (nit) `RedXe/Main.cpp:268`: `--dock` error text omits the new `@secondary` selector
-- [ ] `slide-tray#18` (nit) `RedXe/DockPlacement.h:529`: Comments and docs still describe autohide as it worked before the slide
+- [x] `alignment#4` (medium) `test.ps1:47`: test.ps1 now runs only affected scopes, or nothing, but the specs, README and skills still treat it as the full gate. Largely resolved by P5 (9dae761: README Start, AGENTS.md, the build-redxe skill and the Build, Core and `Plugins_API.md` specs say `test.ps1 -Full`; an empty plan ends with `NOTHING_SELECTED; repository NOT_EVALUATED`). Left: the validation commands that relied on `-Rebuild` to run everything now say `-Full` (`UI_XeneonDisplayWindowing.md`, `Plugins_Weather.md`, the plugin-development skill) and the README's test paragraph names `test.ps1 -Full`; the other skills' "run `.\test.ps1` after X changes" lines are iteration guidance and stay.
+- [x] `tests#1` (medium) `RedXe/Application.cpp:2625`: Live window-kind switch and its rollback have no automated coverage (self-test pins edge none; manual checklist has success paths only). `--self-test` switches its hidden window into a non-reserving bar and back (dock-only path) and rolls back a combined reload whose page cannot be built (`E_INVALIDARG`), checking the kind's styles, app-bar registration, scaling, canvas, document, and frame; a switch now shows the window again only when it was visible before, so the self-test's stays hidden. `test.ps1` requires the rollback's one `window-kind-switch-failed` on the self-test's stderr (lead#3). The bar's topmost bit stays a live check: Windows did not reliably report `HWND_TOPMOST` on the never-shown window.
+- [x] `tests#2` (medium) `RedXe/TrayIcon.cpp:214`: TrayIcon class (Show/Hide, TaskbarCreated re-add, class unregistration) is untested; only the pure callback table is covered. The lifecycle came with P3 (ae84791, `TestTrayIconOwner`); the shell callbacks on the owner are added: single clicks post nothing, a double-click posts Edit settings to the command target, and a repeat within the double-click time posts nothing. The menu takes the foreground and stays a live check.
+- [x] `tests#3` (medium) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:4206`: Held-input test checks only release counts: it cannot tell which chord or button is released, nor catch an early or busy timer. A test seam keeps the first 16 injected records: the test checks which keys and buttons a replacement, another up, its own up, and the timer lift, that the timer releases no earlier than 2 s after the press, and that it is delivered at most 4 times.
+- [x] `alignment#11` (low) `Specs/Plugins/Plugins_API.md:184`: Plugins_API.md still says test exports go in `*TestContract.h`; the new naming check rejects that name
+- [x] `alignment#12` (low) `AGENTS.md:115`: AGENTS.md and README layout entries are stale after the Zoom removal and the scoped-testing tooling. The `ActionTargets` line needs no change: P4 (#38) made `zoom.action.dll` compile `ActionTargets.cpp` again for `ParseMeeting`, so "every publisher" (Logicon, Launcher, Zoom) holds. AGENTS.md now lists `DxUiRestore.psm1` and `ScopedTesting.psm1`, a broader BuildProcessTests line and `Test-Changes.ps1 -Explain`; the README lists `Test-Changes.ps1` and `restore-dxui.ps1` and carries the testing-guide pointer in Start.
+- [x] `alignment#21` (low) `RedXe/CommandLine.h:189`: The --help text and README still describe startup without a XENEON as the prompt or plain titled window, which #27's first-run bar replaced. `--help` says a run without switches follows the settings file: the XENEON window, a titled window without a XENEON (Release asks first), or a bar on a screen edge when the file sets a dock, which a first start without a XENEON writes. The README window paragraph says the same and links `docs/usage.md`. `SettingsTests` requires the help to name the bar and the first-run bar. The packaged README (`dock-switch#13`) and the mode table's Debug row (`alignment#7`) stay with their rows.
+- [x] `alignment#5` (low) `Specs/Core/Core_Settings.md:335`: Minor-raise rules and dock patch comments disagree with the code and with each other. The cold-load rule in `Core_Settings.md` and the minor list in `docs/usage.md` now name `animationMilliseconds` beside `secondary`; the `Settings.h` comment half (lines 381 to 395) is `settings#17`'s.
+- [x] `alignment#7` (low) `Specs/UI/UI_XeneonDisplayWindowing.md:53`: Mode table's Debug-without-XENEON row omits the first-run dock that replaces it
+- [x] `alignment#9` (low) `Specs/Plans/WIP/ScopedTesting_2026-10-05.md:3`: The ScopedTesting WIP plan is still ACTIVE with unchecked items, although its work and qualification are recorded as done. Fixed: its two open items are checked with evidence (the `RedXe validation` main runs 37491745609 for #31 and 37501400691 for #32 passed `tooling` and all six native profiles; the local x64 Release rebuild it left pending is replaced by the hosted Release legs, as #31's description says), a Closeout section maps every durable requirement to `Build_Process.md`, `Tests/README.md` and `AGENTS.md` (one was missing and is added to `Build_Process.md`: the independent tooling runner restores the pinned DxUi source first, so the CI `tooling` job works on a clean checkout), and the plan moved to `Specs/Plans/Done/` with both indexes updated. The plan is closed for its qualification gates only: its Closeout names the review defects in its deliverables that were still open, all owned by rows in this register (`scoped-testing#18`, `scoped-testing#20`, `scoped-testing#21`, `scoped-testing#22`, `alignment#10` and `alignment#13`; `scoped-testing#19` is not listed because `9dae761` already removed the four dead scope rules it names). No owner statement yet confirms that the hosted Release legs replace the local Release rebuild.
+- [x] `dock-switch#13` (low) `Build/Package.psm1:107`: User-facing startup docs (README, packaged README, usage.md) still describe the prompt or titled window for a machine without a XENEON. The README and the packaged README now describe the first-run bar; the `docs/usage.md` part was already corrected by P3 and matches D2 (only a missing file installs the bar, a recovered file is plain).
+- [x] `dock-switch#4` (low) `RedXe/Application.cpp:2625`: Window-kind switch orchestration and the combined-reload rollback have no automated or manual coverage. Covered by the `--self-test` stage of tests#1. A failed step of a dock-only switch still needs a Direct3D, shell, or `SetWindowPos` fault, so its rollback keeps no check (UI_XeneonDisplayWindowing.md says so).
+- [x] `dxui-restore#13` (low) `README.md:88`: The README says vcpkg-install.ps1 is enough before a direct Visual Studio build, but the build also needs restore-dxui.ps1
+- [x] `dxui-restore#6` (low) `Tests/PluginContractTests/PluginContract.Tests.Runner.cpp:2546`: No test covers RedXe.exe's own failure-report routing, any other runner's call, or the Release abort path. The Release abort path runs in every configuration since P5 (d17551a, `--abort-self-test`, exit 4). `BuildProcessTests.ps1` now checks that every `wmain` under `Tests/` starts with `RouteAwayFromDialogs()` and that `RedXe/Main.cpp` routes an unattended run before its first argument check and before its `Application` exists, trying the rule on a sample that breaks it.
+- [x] `host-hardening#14` (low) `test.ps1:366`: No automated end-to-end coverage for the new asynchronous --screenshot pipeline. `test.ps1` runs `--screenshot` end to end, bounded, on a thin non-reserving bar with a portable file (exit 0 with a PNG, or 8 with a `screenshot-failed` record where the host cannot capture, as `TestWindowCapture` accepts; a lost completion fails at the bound) and with `--widget 511` (exit 8, `ERROR_NOT_FOUND`). The action path's worker and completion message run in `--self-test` since P2 (43f7aa1).
+- [x] `lead#3` (low) `RedXe/Application.cpp:1191`: Under `--self-test`, PluginHost Warning and Error records (and the Renderer's) are not visible because the self-test opens no log, so a CI failure such as "Bundled plugin initialization failed. HRESULT 0x8007007E" cannot name the failing DLL. `PluginHost::SetStandardErrorLog` copies each Warning and Error JSONL line to stderr in self-test mode (under a lock, from the caller's stack: one write per line to a pipe or a file, 256-byte chunks to a console); `TestStandardErrorLog` proves the levels, and `test.ps1` runs a copy without its `Plugins` folder whose log names the failed check beside a `module-map-failed` record. RunSelfTest's two checks from #39 that wrote only to the debugger now report through `FailSelfTest` (the `TaskbarCreated` check exits 6, not 2), which also clears the base's red `test.ps1` source scan. Plugins_API.md and the self-test row say so.
+- [x] `lead#5` (low) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:4328`: The GPU staging case starts the staged page hidden, so `!staged.WidgetsVisible()` proves nothing. The staged page starts visible, as a page handed to the renderer already shown is (the application hands over a hidden page and shows it afterwards, and device recovery hides both pages itself, so only a direct call passes a visible one): the failed staging leaves it hidden, and a staging that succeeds gives its visibility back (Plugins_API.md 12z).
+- [x] `lead#6` (low) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:6365`: TestRetiredServiceWarnings repeats Application's call order instead of exercising the real path or the shared function both use. The test proves the store's record per load and the shared report, `LogRetiredServiceSettings`, directly (service start and apply never log it), with no claim about Application's order. `test.ps1`'s `--screenshot` run carries the `v1.0.102` Zoom entry, so Application's startup path loads it and logs one warning for real; the live-reload call site has no real run (it needs a timed edit during one).
+- [x] `lead#7` (low) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:5882`: The idle-worker test waits for the launch thread to exit before Shutdown, so the `_waitedOut` exemption is untested. The test checks that a zero-wait stop of an idle worker leaves the next stop its wait, then shuts down without waiting first; with the exemption broken it fails. The same function's deadline case put both stalled lanes in the one service slot #38 left (red since 3dd8253): its responsive lane now runs only when a second service is catalogued.
+- [x] `lead#9` (low) `Common/Actions/ActionTargets.h:119` (current tree): A TV in standby that keeps its connection, a dummy plug, or a virtual display can still be `secondary`, so the first-run bar or an `@secondary` action can land on a display nobody is looking at. Documented: Windows offers no reliable signal to rank them lower. Such a TV stays `DISPLAY_DEVICE_ACTIVE`/`ATTACHED` and `targetAvailable` like a display that is on (this machine's two powered displays report exactly that), its power state is reachable only over slow, optional DDC/CI, and a virtual display's `outputTechnology` is driver-chosen (Microsoft's IddCx sample reports HDMI). `UI_XeneonDisplayWindowing.md` "Monitor and placement", `docs/usage.md` and `docs/actions.md` state the limitation and the `<n>` / `name:` choice.
+- [x] `logicon-zoom#18` (low) `Tests/LogiconTests/Logicon.Tests.Runner.cpp:718`: The new raw-input ownership rules (do not replace a prior owner, do not remove a later one) have no test
+- [x] `logicon-zoom#8` (low) `Specs/Plugins/Plugins_Zoom.md:34`: Plugins_Zoom.md says removed zoom.* bindings fail settings validation, but documents accept them and they show a red '!'. Resolved by B1 (b90ee79, #34): `Plugins_Zoom.md` now says a removed-verb binding still loads (document validation does not check a published namespace's verbs) and binding validation reports `ERROR_NOT_FOUND`; `HostPluginTests` pins `zoom.mute` as `ERROR_NOT_FOUND` (`HostPlugin.Tests.Runner.cpp:5902`) and `SettingsTests` load the `v1.0.102` Debug template's `zoom.*` bindings.
+- [x] `process-containment#9` (low) `Tests/BuildProcessTests/BuildProcessTests.ps1:240`: The committed test only checks quoting for one argument with spaces, though every bounded test.ps1 call uses the custom quoter
+- [x] `scoped-testing#22` (low) `Common/AddressSanitizerProbe.h:5`: A test-only ASan fixture header in Common/ escaped the #31 naming migration and native test inventory
+- [x] `tests#11` (low) `Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp:963`: Slide-offset test covers one GPU tile only; native widget containers moving with a top or left dock slide are untested. `TestDashboardSlideOffsetRetry` moves a native container with a top and a left slide by the hidden part, at its size, and back at the zero offset; `TestDockPresentation` checks every tile. The retry of a failed final move came with P3 (d75aa50).
+- [x] `tests#13` (low) `RedXe/HostActions.cpp:698`: Monitor resolution for actions (including the new `secondary` kind) never runs under test: deviceAccess=false swaps in a fixed rectangle. The per-display step is now `HostActions::VisitMonitor` (behavior unchanged); `TestActionMonitorSelection` covers every selector over scripted orders and resolves `center@primary` and `center@secondary` on the real displays through `mouse.move` with device access, whose injection the test seam fails before `SendInput`. Plugins_Actions.md states that an action never falls back to the primary.
+- [x] `tests#21` (low) `Tests/LogiconTests/Logicon.Tests.Runner.cpp:718`: Logicon raw-input ownership rules added in #21 have no test; only plain Start/Stop/restart is exercised
+- [x] `tests#7` (low) `test.ps1:116`: Launcher wait-policy tests pin only the self-terminating switches; an unknown argument through the RedXe alias exits 0, and test.ps1 hides this by adding --self-test. P2 (5d8b58d) made the launcher await an unknown argument and `test.ps1` checks the bare switch through `RedXeLauncher.exe`; SettingsTests now pins the wait flag of every catalog entry, so no interactive switch can become awaited.
+- [x] `alignment#16` (nit) `Specs/Plans/Done/DxUiFollowUps_2026-10-01.md:52`: Plan hygiene: an unindexed WIP checkpoint edited in the range, and a Done plan naming a header that does not exist. Fixed: the Done plan names `Common/FailureReports.h`, and the checkpoint is indexed as `HOLD` beside its RFC with a note that its pins and working state are a 2026-09-05 snapshot. Its old name, `AVControl-Continuation.md`, fit neither plan naming rule of `Specs/README.md`, so it is now `AVControlContinuation_2026-09-05.md`, with the RFC's and `RFC_Core_DxUiSharedProject.md`'s links following it, and the RFC says in the past tense that the checkpoint superseded older notes. It was kept rather than folded into `RFC_Plugins_AVControl.md` and deleted, because the proposed long-profile performance acceptance run is recorded nowhere else; folding it is the owner's call when AV resumes.
+- [x] `dock-switch#14` (nit) `RedXe/Settings.cpp:2637`: Stale comment: the first-run bar is no longer always on the primary display. Resolved by P6 (5ee855f): the comment above the install in `SettingsStore::Initialize` now puts the bar on the second screen when there is more than one display, which is `DockFirstRunMonitor`'s rule.
+- [x] `dxui-restore#16` (nit) `Specs/Plans/Done/DxUiFollowUps_2026-10-01.md:52`: The Done plan names Tests/Support/FailureReports.h, which no longer exists. Fixed with `alignment#16`: the plan names `Common/FailureReports.h` and says `RedXe.exe --self-test` calls it too, which is why the header lives beside the shared sources.
+- [x] `host-hardening#18` (nit) `Plugins/5H4D3R5/Shaders.cpp:850`: Stale comment: lookup tables are no longer drawn by the first widget frame. Resolved by P4 (#38, 3e91941): the bake moved to `OnDeviceCreated`, and the comment in `SharedDeviceResources::Initialize` now says the first widget that can show the entry draws the tables there.
+- [x] `settings#17` (nit) `RedXe/Settings.h:381`: Stale or contradictory persistence contract text for the dock source edit and the first-run minor raise. `Settings.h` calls `PatchDockThickness` a source edit and names `PatchFirstRunDock`'s raise to 3 for a non-default `animationMilliseconds`. `Core_Settings.md` scopes the compact layout to a widget persist that changes the document (whose rewrite keeps no comments) and says the dock drag, the first-run dock, and an install keep the document's text; its first-run bullet names the `animationMilliseconds` raise. That covers the `Settings.h` and `Core_Settings.md` parts of `alignment#5`; its `docs/usage.md` minor-3 list stays with that row.
+- [x] `shaders-lut#2` (nit) `Plugins/5H4D3R5/Shaders.cpp:850`: Stale comment says lookup tables are drawn by the first widget frame. Resolved by P4 (#38, 3e91941): the bake moved to `OnDeviceCreated`, and the comment in `SharedDeviceResources::Initialize` now says the first widget that can show the entry draws the tables there.
+- [x] `slide-tray#16` (nit) `Common/PlugInterfaces/Action.h:57`: Plugin ABI comment for RedXeActionTargetMonitor omits the new `secondary` selector. The comment also stops listing `all`, which `ValidateTarget` rejects for a Monitor target, and the `MonitorSuffix` flag's comment says its suffix accepts it; `Plugins_Actions.md`'s Monitor row agrees. `TestActionValidation` checks `all` against a point, a Monitor target, and a monitor suffix.
+- [x] `slide-tray#17` (nit) `RedXe/Main.cpp:268`: `--dock` error text omits the new `@secondary` selector. `test.ps1`'s unattended command-line check runs `--self-test --warp --dock top@second` and requires exit 2 with that usage, `@secondary` included.
+- [x] `slide-tray#18` (nit) `RedXe/DockPlacement.h:529`: Comments and docs still describe autohide as it worked before the slide. The state-machine comment cites UI_XeneonDisplayWindowing.md "Autohide" and says what holds once a slide has ended; `_dockResizing`'s comment names what it suppresses now (`ABM_WINDOWPOSCHANGED` for the host's own moves, not an `OnSize` resize); `docs/usage.md` lists `animationMilliseconds` among the members a save re-applies; and the `peek` rationale in `DockPlacement.h`, which predated the reserved strip, says the strip's size also sets what it reserves.

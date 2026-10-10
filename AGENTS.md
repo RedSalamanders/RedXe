@@ -115,7 +115,7 @@ Common/PlugInterfaces/
   Action.h         Action publication ABI: descriptors, namespaces, RedXeGetActionContract, IRedXeActionPack, name grammar
 Common/Actions/
   ActionTargets.*  Shared target grammars (paths, chords, points, monitors, windows, meetings) compiled into the host and every publisher
-  WindowSelector.* Top-level window selection and foregrounding
+  WindowSelector.* Top-level window selection
   FluentGlyphNames.h, GlyphIcon.*  Segoe Fluent Icons name table and DirectWrite glyph rasterization shared by Logicon faces and Launcher tiles
 Plugins/
   RotatingTriangle/ First bundled widget-provider DLL
@@ -137,6 +137,9 @@ RedXe/
   Main.cpp          Process setup and command-line modes
   CommandLine.h     Command-line switch catalog: --help text, names Main.cpp parses through, unknown-token scanner
   Application.*     Win32 window and message-loop lifetime
+  DisplayEnumeration.* The one bounded walk of the active displays: rectangles, work areas, effective DPI
+  DockPlacement.h   Screen-edge dock as pure functions: app-bar plan, monitor selection, first-run edge, autohide
+  NoticeWindow.h    Settings-error and action-notice window placement inside the monitor's work area
   CrashHandler.*    Fatal-process front door, local minidumps/call stacks, and prior-crash notice
   PluginHost.*      Process plugin runtime: module store, data providers, workers, JSONL log, and settings persist
   PluginManager.*   Widget providers and instance lifetime
@@ -160,11 +163,14 @@ Tests/
   AVControlTests/      Synthetic AV/IPC/MF faults, native controls, camera packaging and bounded control work
   LogiconTests/        HID++ framing, image stream, settings model, faces, synthetic keypad and dialpad sessions, raw-input helpers, and the shipped service DLL
   ZoomTests/           Meeting-link grammar, the retired services entry model, and the shipped Zoom action DLL
-  BuildProcessTests/   Build preflight, DxUi provenance/update, and packaging (version, ZIP rules, winget manifest, in-package installer round-trip)
+  BuildProcessTests/   Build preflight and the bounded process helper, DxUi provenance/restore/update, the scoped-test planner and receipts, and packaging (version, ZIP rules, winget manifest, in-package installer round-trip)
 Build/
   Versioning.psm1   major.minor from Common/Version.h plus the caller's build number
   Package.psm1      Portable ZIP staging rules, CRT bundling, and the clean-extraction smoke
   Winget.psm1       Manifest generation from Installer/winget/templates and `winget validate`
+  DxUiRestore.psm1  The DxUi pin: lock, verified sparse restore, leases and superseded-restore cleanup, and the MSBuild the build runs
+  ScopedTesting.psm1 Scope planner behind Test-Changes.ps1: Git change discovery, scope rules, evidence identity and receipts, PR delegation
+  StreamingProcess.psm1 Child-process runner of build.ps1, test.ps1 and the package smoke: one argument quoter, streamed log, budget in a kill-on-close job
 Settings/
   RedXe-debug.settings.json  Shipped Debug default
   RedXe.settings.json        Shipped Release default
@@ -231,6 +237,7 @@ Keep the boundary explicit:
 .\build.ps1 -Platform ARM64
 .\build.ps1 -Rebuild
 .\build.ps1 -Run
+.\Test-Changes.ps1 -Explain                     # which suites your changes select, and why; builds and runs nothing
 .\test.ps1                                      # affected suites (Test-Changes.ps1); nothing when nothing changed
 .\test.ps1 -Full                                # every suite: the full gate
 .\validate-skills.ps1

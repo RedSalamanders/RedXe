@@ -64,8 +64,10 @@ $solutionPath = Join-Path $repoRoot 'RedXe.sln'
 $executable = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.exe"
 $buildOutputProcessModule = Join-Path $repoRoot 'Build\BuildOutputProcess.psm1'
 $buildPresentationModule = Join-Path $repoRoot 'Build\BuildPresentation.psm1'
+$streamingProcessModule = Join-Path $repoRoot 'Build\StreamingProcess.psm1'
 Import-Module $buildOutputProcessModule -Force -ErrorAction Stop
 Import-Module $buildPresentationModule -Force -ErrorAction Stop
+Import-Module $streamingProcessModule -Force -ErrorAction Stop
 
 $useInteractiveTerminal = Test-RedXeInteractiveTerminal
 Write-RedXeBuildBanner -UseColor $useInteractiveTerminal

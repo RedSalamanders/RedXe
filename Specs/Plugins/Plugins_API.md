@@ -181,8 +181,10 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   is optional because most modules need no global shutdown.
 - A plugin MAY additionally export a bounded test-support surface. It is present in Release because the required
   Release validation drives it, so it is part of the shipped export set rather than a debug-only convenience. Each
-  such export MUST be declared in that plugin's `*TestContract.h` behind a single `REDXE_*_TEST_API` macro, never as a
-  raw `__declspec(dllexport)` in the implementation, so the shipped export set is readable from the contract header.
+  such export MUST be declared in that plugin's `<Plugin>.Tests.Contract.h` (an active native test source, so it is
+  listed in `Tests/native-test-files.json`; [`Build_Process.md`](../Build/Build_Process.md) "Scoped iteration and PR
+  coverage") behind a single `REDXE_*_TEST_API` macro, never as a raw `__declspec(dllexport)` in the implementation, so
+  the shipped export set is readable from the contract header.
   The host never calls these exports. The current surface is: `RedXeMatrixRainGetTestDiagnostics`, `RedXeShadersGetTestDiagnostics`,
   `RedXeProcessViewerGetTestDiagnostics`, `RedXeStudioClockGetTestDiagnostics`, `RedXeStudioClockSetTestTime`,
   `RedXeDeskClockGetTestDiagnostics`, `RedXeDeskClockSetTestTime`, `RedXeWeatherGetTestDiagnostics`, and
@@ -280,8 +282,9 @@ object it was supplied to.
   stays tracked for retry; `ValidateAction` resolves a name and checks its target without executing anything and may
   map a registered publisher's module on first use. A `page.*` or `widget.*` action that arrives during a page swipe,
   a raise settle, or while the settings error dialog is up is refused (`ERROR_BUSY`) rather than queued, and a queued
-  input action that waited more than 1 s for the UI thread is dropped; every other action still executes. Every
-  drained action is followed by one host-state publication to started services.
+  input action that waited more than 1 s for the UI thread is dropped, except a `keys.up` or `mouse.up` that ends a
+  hold RedXe tracks; every other action still executes. Every drained action is followed by one host-state publication
+  to started services.
 - `ReportWidgetStatus` records the condition of one widget instance, named by the instance ID the host passed to
   `CreateWidget`. Status is one of `RedXeWidgetStatusOk`, `Initializing`, `Degraded`, or `Unavailable`, with an
   optional borrowed UTF-16 reason the host copies into bounded storage and truncates. Repeat reports are idempotent;
@@ -315,11 +318,16 @@ object it was supplied to.
   writes UTC-dated files (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`), opening a new file when the UTC
   day changes and deleting dated files at least `logRetentionDays` old (default 15, range 1–365). Interactive RedXe
   stores those files under the settings sibling `Logs` directory (`%LocalAppData%\RedXe\Logs` by default). `--self-test`
-  MUST NOT open that directory. Release drops `RedXeLogLevelDebug`. A null record, a mismatched `sizeBytes`, a missing
-  event id or message, or an unknown level returns `E_POINTER` / `E_INVALIDARG`. Plugins MUST NOT call `Log` from
-  `Render` or GDI paint and MUST NOT emit per-frame success. Factory create, module map, placeholder construction,
-  native attach, GPU device-create, GPU render failure (once per instance and HRESULT), and weather forecast outcomes
-  are the required coverage.
+  MUST NOT open that directory; it MUST instead copy each Warning and Error record, as its JSONL line, to stderr
+  (`PluginHost::SetStandardErrorLog`), so the log of a failed check also names what explains it, such as the plugin
+  whose module could not be mapped or the widget whose GPU setup failed (the Renderer's records included). The copy
+  is synchronous and under a lock, from the line formatted on the caller's stack: one write per line to a pipe or a
+  file, and 256-byte chunks, converted to UTF-16, to a console (`WriteUtf8ToStandardError`). It allocates nothing, and
+  only this test mode, whose reader drains the pipe, makes it. Release drops `RedXeLogLevelDebug`. A null record, a
+  mismatched `sizeBytes`, a missing event id or message, or an unknown level returns `E_POINTER` / `E_INVALIDARG`.
+  Plugins MUST NOT call `Log` from `Render` or GDI paint and MUST NOT emit per-frame success. Factory create, module
+  map, placeholder construction, native attach, GPU device-create, GPU render failure (once per instance and HRESULT),
+  and weather forecast outcomes are the required coverage.
   Escaping and truncation MUST preserve complete JSON syntax, the optional HRESULT, one trailing newline, and valid
   UTF-8. Each identity has a bounded escaped-output budget, and message truncation reserves room for the record
   suffix. A partial final UTF-8 sequence is omitted; malformed input bytes are replaced with ASCII `?`.
@@ -841,7 +849,10 @@ equivalent complete bundled-plugin gallery.
 The host passes every bundled provider its compact effective settings in the normalized ABI envelope. Matrix Rain strictly rejects malformed,
 duplicate, unknown, and out-of-range members, copies normalized numeric settings during creation, and retains no
 borrowed JSON. A live page or settings change creates required providers and widgets transactionally; successfully
-mapped modules remain loaded.
+mapped modules remain loaded. Matrix Rain, 5H4D3R5, Studio Clock, and Desk Clock read the envelope with one shared
+strict reader, `Common/SettingsCursor.h`: strings without escapes or control characters, `true` and `false`, and
+unsigned 32-bit integers without a sign, fraction, exponent, or leading zero; any other value fails the read, the
+same way in all four.
 
 The plugin owns an original generated 192×288 `R8_UNORM` signed-distance-field atlas (64 vector-polyline glyphs in
 24×36 texel cells, the film's bold 2 : 3 glyph shape: 46 mirrored katakana-inspired shapes, the ten digits, eight
@@ -1139,7 +1150,9 @@ orders are `dd-mm-yyyy`, `mm-dd-yyyy`, and `yyyy-mm-dd`; `glowPercent` is an int
 merges defaults before factory creation. The plugin strictly rejects missing effective members, duplicate or unknown
 members (including `backgroundColor`), malformed booleans, colors, and date formats, a non-integer or out-of-range
 `glowPercent`, converts values once during provider creation, and retains no borrowed JSON. Its opaque background is
-`RedXeFactoryOptions::backgroundColor`.
+`RedXeFactoryOptions::backgroundColor`. The member list, defaults, date formats, `glowPercent` range, and published
+schema exist once in `Plugins/StudioClock/StudioClockSettings.h`, which the host parser compiles in too; a factory call
+without configuration MUST select exactly those defaults.
 
 The clock displays zero-padded local 24-hour `HH:MM` with an always-lit colon. Optional zero-padded seconds and the
 clockwise progress ring use `secondsColor`. The ring contains 60 ordinary second positions and one companion at every
@@ -1419,11 +1432,12 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     moves Desk Clock's glyph atlas to its higher tier and back down when the viewport shrinks, and that the widget
     still renders after a tier change. Also verify one notification for a DPI-only change, none for unchanged DPI,
     correct initial notification for a same-sized replacement page, and cache preservation on promotion.
-    With fault-injecting wrappers around placed GPU widgets on WARP, they MUST prove that a failed `OnDeviceCreated`,
-    at startup and while staging a page, releases the widgets already set up, sets up no later one, keeps the page
-    hidden, and logs one Error `gpu-device-create-failed` with that instance and `HRESULT`; and that a failed
-    `OnTargetSizeChanged` releases nothing, is not retried per frame, leaves that widget and its siblings rendering,
-    and logs one Warning `gpu-target-size-failed` with that instance and `HRESULT`.
+    With fault-injecting wrappers around placed GPU widgets on WARP, they MUST prove that a failed `OnDeviceCreated`, at
+    startup and while staging a page, releases the widgets already set up, sets up no later one, keeps the page hidden
+    (a staged page handed over visible is hidden for its setup and gets its visibility back only from a staging that
+    succeeds), and logs one Error `gpu-device-create-failed` with that instance and `HRESULT`; and that a failed
+    `OnTargetSizeChanged` releases nothing, is not retried per frame, leaves that widget and its siblings rendering, and
+    logs one Warning `gpu-target-size-failed` with that instance and `HRESULT`.
     Lifecycle tests MUST prove data/network widgets are hidden during all device callbacks and render after WARP
     recreation. Event-barrier tests MUST prove subscription release and deactivation wait for running and reserved
     callbacks, allow reactivation, and safely reuse released subscription slots.
@@ -1456,11 +1470,18 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     an unknown level; that `Log` before `SetLogDirectory` succeeds and writes nothing; that `SetLogDirectory` plus
     `FlushLog` produces a UTC-dated JSONL file containing `ts`, `level`, `event`, and `message`; that retention deletes
     expired dated files and legacy undated names; and that `--self-test` never
-    calls `SetLogDirectory`. Compile-time contract checks MUST pin `sizeof(RedXeLogRecord)` and its pointer offsets.
+    calls `SetLogDirectory`. With the stderr copy on, exactly the Warning and Error records MUST reach stderr, each as
+    one complete JSONL line with its HRESULT, and none while it is off (`TestStandardErrorLog`, on a pipe in place of
+    the process's stderr); `test.ps1` proves it end to end on a copy of `RedXe.exe` without its `Plugins` folder,
+    whose self-test log names the failed check and a `module-map-failed` record with `0x8007007E`. Compile-time
+    contract checks MUST pin `sizeof(RedXeLogRecord)` and its pointer offsets.
     Settings tests MUST prove the default logs directory is the `Logs` sibling of `Settings` and that `logRetentionDays`
     defaults to 15 and rejects 0 and 366.
     Long escaped identities/messages, split multibyte boundaries, and malformed UTF-8 MUST remain independently
     parseable JSONL with their HRESULT suffixes and the following record intact.
+12f. Host tests MUST prove, for every catalogued widget plugin, that a widget authoring no settings receives exactly
+    the defaults its DLL publishes through `RedXeGetPluginSettingsContract`, compared as JSON values, so the defaults
+    the host merges and the ones the DLL publishes cannot drift apart.
 13. Compile-time checks MUST validate unique bundled plugin IDs and module names, keep every widget projection entry
     backed by one module entry, and keep that projection within the 64-plugin settings limit.
 14. Keep `/W4`, `/permissive-`, SDL checks, and warnings-as-errors green.
@@ -1512,7 +1533,12 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     falloff, `secondsColor`, and 0.55 date weight, and no light on any border pixel of height-limited dated tiles),
     device recreation, zero steady render allocations with glow, one-upload/two-draw and 402-dot/804-instance bounds,
     resource sharing, five-minute scheduled host soak, and complete teardown through `StudioClockTests` and
-    `HostPluginTests`.
+    `HostPluginTests`. `StudioClockTests` MUST prove the DLL publishes exactly the defaults and schema of
+    `StudioClockSettings.h`; `SettingsTests` MUST prove that the Specs `studioClockSettings` definition (members,
+    defaults, date formats, `glowPercent` range), its widget variant, and the published schema match that catalog,
+    that the host merges its defaults, and that both host validators accept its date formats and `glowPercent`
+    maximum while the parser rejects one above; and a compile-time check MUST prove that the DLL's member table and
+    typed defaults are the catalog's.
 18. Verify Desk Clock defaults and normalized effective settings, strict duration/color validation,
     controlling-IUnknown identity, second-boundary and active-flip scheduling, transactional reconfiguration,
     inactive-gallery absence, deterministic rollover and date-change phases, landscape/portrait/minimum WARP readback,

@@ -149,49 +149,4 @@ bool SelectWindows(const WindowSelector& selector, bool all, SelectedWindows& se
     (void)EnumWindows(EnumerateWindows, reinterpret_cast<LPARAM>(&state));
     return selected.count != 0;
 }
-
-HRESULT BringToForeground(HWND window, bool deviceAccess) noexcept
-{
-    if (!window || !IsWindow(window))
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
-    }
-    if (!deviceAccess)
-    {
-        return S_OK;
-    }
-    if (GetForegroundWindow() == window)
-    {
-        return S_OK;
-    }
-    // A process that did not receive the last input event cannot take the foreground; a synthetic Alt tap makes
-    // this process the last input source without changing any key state the user sees.
-    std::array<INPUT, 2> alt{};
-    alt[0].type = INPUT_KEYBOARD;
-    alt[0].ki.wVk = VK_MENU;
-    alt[1].type = INPUT_KEYBOARD;
-    alt[1].ki.wVk = VK_MENU;
-    alt[1].ki.dwFlags = KEYEVENTF_KEYUP;
-    (void)SendInput(static_cast<UINT>(alt.size()), alt.data(), sizeof(INPUT));
-    if (IsIconic(window))
-    {
-        (void)ShowWindowAsync(window, SW_RESTORE);
-    }
-    (void)SetForegroundWindow(window);
-    // An application may answer by activating another of its windows (Zoom fronts its toolbar window with the
-    // meeting); the request is honored when the foreground now belongs to the same process.
-    const HWND foreground = GetForegroundWindow();
-    if (foreground == window)
-    {
-        return S_OK;
-    }
-    DWORD targetProcess = 0;
-    DWORD foregroundProcess = 0;
-    (void)GetWindowThreadProcessId(window, &targetProcess);
-    if (foreground)
-    {
-        (void)GetWindowThreadProcessId(foreground, &foregroundProcess);
-    }
-    return targetProcess != 0 && targetProcess == foregroundProcess ? S_OK : E_ACCESSDENIED;
-}
 } // namespace RedXeActions

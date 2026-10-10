@@ -244,7 +244,9 @@ cleared by a new settings object. Release builds keep the tile catalogued but re
   leaves nothing queued, and without the sink it blocks on its handles alone and leaves the queue untouched; and the
   session over the synthetic dialpad:
   `0x1B04` at `0x0A`, four diversions, button edges apart from page buttons, restore, no command without a bound
-  button); and the shipped DLL's
+  button); the raw-input registration ownership (while another window of the process owns mouse raw input the
+  listener's start fails with `ERROR_ALREADY_EXISTS`, creates no window, and leaves that registration; a stop leaves
+  a later owner's registration in place and removes only the listener's own); and the shipped DLL's
   metadata, contract, monitor provider (constructs in Debug, refuses in Release), service creation and rejection,
   identity, lane start and drain, host state, synthetic connect, faces, actions from injected and raw presses reaching the fake host's `RequestAction`,
   bindings validated through the fake host's `ValidateAction`, `keys.down` / `mouse.down` bindings on a key, a

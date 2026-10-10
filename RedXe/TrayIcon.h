@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <windows.h>
 
 // After windows.h, which it needs; a block of its own so include sorting keeps that order.
@@ -60,11 +61,34 @@ enum class TrayIconAction : uint8_t
     return retry < kRetries ? 1000u << retry : 0u;
 }
 
+// Whether an add outcome is a failure the log has not recorded yet (tray-icon-failed): one record per change of
+// outcome, so the same failure met again by a settings apply or a retry logs nothing, and a success never logs.
+[[nodiscard]] constexpr bool TrayIconFailureIsNew(HRESULT result, HRESULT recorded) noexcept
+{
+    return result != S_OK && result != recorded;
+}
+
+// The outcome the main window records when the owner's add result (TrayIcon::kAddResultMessage) arrives: nothing for
+// an icon hidden since the post, otherwise the icon's state at arrival, whatever was posted, since a Show in between
+// may have added it.
+[[nodiscard]] constexpr std::optional<HRESULT> TrayIconOutcomeOnArrival(bool shown, bool added) noexcept
+{
+    if (!shown)
+    {
+        return std::nullopt;
+    }
+    return added ? S_OK : S_FALSE;
+}
+
 class TrayIcon final
 {
   public:
     // Posted to the command target with a TrayCommand in wParam.
     static constexpr UINT kCommandMessage = WM_APP + 8;
+    // Posted to the command target when an add made outside Show (the re-add after the taskbar is created, or a retry)
+    // ends: S_OK in wParam once the icon is added, S_FALSE while the shell refuses it. A Show or Hide made after the
+    // post can change that, so the receiver reads Added() when the message arrives.
+    static constexpr UINT kAddResultMessage = WM_APP + 10;
 
     TrayIcon() noexcept = default;
     ~TrayIcon();
@@ -83,6 +107,11 @@ class TrayIcon final
     [[nodiscard]] bool Shown() const noexcept
     {
         return static_cast<bool>(_window);
+    }
+    // The icon is in the notification area at version 4.
+    [[nodiscard]] bool Added() const noexcept
+    {
+        return _iconAdded;
     }
 
   private:
@@ -108,6 +137,7 @@ class TrayIcon final
     [[nodiscard]] wil::unique_hicon LoadIconForDpi() const noexcept;
     void ShowMenu(POINT anchor) noexcept;
     void PostCommand(TrayCommand command) noexcept;
+    void PostAddResult(bool added) noexcept;
 
     HINSTANCE _instance = nullptr;
     HWND _commandTarget = nullptr;

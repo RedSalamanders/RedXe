@@ -72,7 +72,7 @@ try {
             Write-Fixture (Join-Path $naming 'Tests/native-test-files.json') (ConvertTo-Json -InputObject @($invalid) -Compress)
             $message=''
             try {Assert-ScopedTestNames $naming | Out-Null} catch [System.Management.Automation.RuntimeException] {$message=$_.Exception.Message}
-            Assert-Scope ($message -match 'Invalid/missing native test source:|Historical/external source cannot enter') "Invalid inventory accepted: $invalid ($message)"
+            Assert-Scope ($message -match 'Invalid/missing native test source:|Historical source cannot enter') "Invalid inventory accepted: $invalid ($message)"
         }
     }
     Run-Case 'test sources are found by name component, not by the letters test, mock or fake inside a word' {
@@ -111,26 +111,31 @@ try {
             Assert-Scope (@($manifest.scopes | Where-Object {$_.native -and $_.name -in $plan.scopes}).Count -eq 0) 'Prose unnecessarily selected native tests'
         }
         Assert-Scope ((Get-ScopedTestPlan $manifest @()).scopes.Count -eq 0) 'Empty changes selected tests'
+        # Nothing builds, tests or validates the HTML mockups.
+        Assert-Scope ((Get-ScopedTestPlan $manifest @('Mockups/av-control.html')).scopes.Count -eq 0) 'A mockup selected tests'
     }
     Run-Case 'invalid explicit scope and nonrelative paths fail before execution' {
         foreach($action in @({Get-ScopedTestPlan -Manifest $manifest -ChangedPaths @() -Scopes @('Typo')},{Get-ScopedTestPlan -Manifest $manifest -ChangedPaths @('../code.cpp')})) {
             $threw=$false;try{&$action|Out-Null}catch [System.Management.Automation.RuntimeException]{$threw=$true};Assert-Scope $threw 'Invalid selector accepted'
         }
     }
+    Run-Case 'Test-Changes.ps1 help examples name only manifest scopes' {
+        $errors=$null;$tokens=$null;$ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $repository 'Test-Changes.ps1'),[ref]$tokens,[ref]$errors)
+        $examples=@($ast.GetHelpContent().Examples)
+        Assert-Scope ($examples.Count -gt 0) 'Test-Changes.ps1 has no help examples'
+        foreach($match in @($examples | ForEach-Object {[regex]::Matches($_,'-Scopes\s+(\S+)')})) {
+            foreach($scope in $match.Groups[1].Value -split ',') {Assert-Scope ($scope -cin $manifest.scopes.name) "A Test-Changes.ps1 help example names the unknown scope '$scope'"}
+        }
+    }
     Run-Case 'selection explains every changed path and accumulates integration consumers' {
-        $path=if($manifest.repository -like '*/DxUi'){'src/Controls/DxUi.Tree.cpp'}else{'Plugins/Weather/Weather.cpp'}
+        $path='Plugins/Weather/Weather.cpp'
         $plan=Get-ScopedTestPlan $manifest @($path)
         Assert-Scope ($plan.scopes.Count -gt 1 -and -not $plan.full) 'No focused integration fan-out'
         Assert-Scope ($plan.reasons[0].path -eq $path) 'Missing selection explanation'
-        if($manifest.repository -like '*/DxUi') {
-            $grid=Get-ScopedTestPlan $manifest @('src/Controls/DxUi.Grid.cpp')
-            foreach($consumer in @('Grid','Tree','Theme','Animation','EditorControls','Tooltip','Embedded','WindowHost')) {Assert-Scope ($consumer -in $grid.scopes) "Grid caller omitted: $consumer"}
-        } else {
-            $systemData=Get-ScopedTestPlan $manifest @('Plugins/SystemData/SystemData.cpp')
-            Assert-Scope ('SystemDataPhase0' -in $systemData.scopes) 'Referenced SystemData module did not select its phase-zero consumer'
-            foreach($inputPath in @('Plugins/AVControl/AVControlModel.cpp','Plugins/Launcher/LauncherPaging.h','Plugins/Logicon/LogiconSettings.cpp','Plugins/Actions/Zoom/ZoomSettings.cpp')) {
-                Assert-Scope ('Settings' -in (Get-ScopedTestPlan $manifest @($inputPath)).scopes) "Shared settings consumer omitted: $inputPath"
-            }
+        $systemData=Get-ScopedTestPlan $manifest @('Plugins/SystemData/SystemData.cpp')
+        Assert-Scope ('SystemDataPhase0' -in $systemData.scopes) 'Referenced SystemData module did not select its phase-zero consumer'
+        foreach($inputPath in @('Plugins/AVControl/AVControlModel.cpp','Plugins/Launcher/LauncherPaging.h','Plugins/Logicon/LogiconSettings.cpp','Plugins/Actions/Zoom/ZoomSettings.cpp','Plugins/StudioClock/StudioClockSettings.h')) {
+            Assert-Scope ('Settings' -in (Get-ScopedTestPlan $manifest @($inputPath)).scopes) "Shared settings consumer omitted: $inputPath"
         }
     }
     Run-Case 'test project files reach the shared-output consumers, and skill tooling selects only the tooling scope' {
@@ -161,10 +166,10 @@ try {
         Write-Fixture (Join-Path $fixture ".build/x64/$profile/Plugins/runtime.dll") 'dependency'
         foreach($relative in $runtimeInputs) {Write-Fixture (Join-Path $fixture ".build/x64/$profile/$relative") 'original deployed input'}
     }
-    Run-Case 'tooling identities include documentation, skills and source-origin mappings' {
+    Run-Case 'tooling identities include documentation, skills, plan records and mockups, which build attestation leaves out' {
         $compiled=Get-ScopedSourceIdentity $fixture -CompiledOnly
         $native=Get-ScopedRunIdentity $fixture x64 Debug Example
-        foreach($path in @('README.md','.agents/skills/example/SKILL.md','Specs/Done/SourceImport/test-port.json')) {
+        foreach($path in @('README.md','.agents/skills/example/SKILL.md','Specs/Plans/Done/Example/receipt.json','Mockups/example.html')) {
             $before=Get-ScopedSourceIdentity $fixture
             Write-Fixture (Join-Path $fixture $path) 'changed validator input'
             Assert-Scope ((Get-ScopedSourceIdentity $fixture) -cne $before) "Validator input omitted: $path"
@@ -386,18 +391,12 @@ try {
         }
     }
 
-    Run-Case 'PR coverage accounts for conditional native jobs without an API dependency' {
+    Run-Case 'PR coverage of a profile is every scope its unconditional checks run, without an API dependency' {
         $profile=@($manifest.prCoverage | Where-Object {$_.PSObject.Properties['platform']})[0]
-        $documentation=@(Get-ScopedPrCandidateScopes $repository $manifest $profile.platform $profile.configuration @('README.md'))
-        $code=@(Get-ScopedPrCandidateScopes $repository $manifest $profile.platform $profile.configuration @('src/Controls/DxUi.Grid.cpp'))
-        if($manifest.repository -like '*/DxUi') {
-            Assert-Scope ($documentation.Count -eq 1 -and $documentation[0] -eq 'Tooling') 'Skipped native PR jobs were counted as coverage'
-            Assert-Scope ($code.Count -eq $manifest.scopes.Count) 'Native PR coverage was narrowed for code edits'
-        } else {
-            Assert-Scope ($documentation.Count -eq $manifest.scopes.Count -and $code.Count -eq $manifest.scopes.Count) 'Unconditional RedXe PR gate was incorrectly narrowed'
-            $debug=@(Get-ScopedPrCandidateScopes $repository $manifest x64 Debug @('README.md'))
-            Assert-Scope ($debug.Count -eq 1 -and $debug[0] -eq 'BuildProcess') 'The tooling job was tied to the native PR profile'
-        }
+        $native=@(Get-ScopedPrCandidateScopes $manifest $profile.platform $profile.configuration)
+        Assert-Scope ($native.Count -eq $manifest.scopes.Count) 'Unconditional RedXe PR gate was incorrectly narrowed'
+        $debug=@(Get-ScopedPrCandidateScopes $manifest x64 Debug)
+        Assert-Scope ($debug.Count -eq 1 -and $debug[0] -eq 'BuildProcess') 'The tooling job was tied to the native PR profile'
     }
     Run-Case 'reviewed CI preserves full native coverage and separates independent tooling' {
         $workflow=[IO.File]::ReadAllText((Join-Path $repository '.github/workflows/ci.yml')) -replace "`r`n","`n"
@@ -411,23 +410,19 @@ try {
         $errors=$null;$tokens=$null;$ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $repository 'test.ps1'),[ref]$tokens,[ref]$errors)
         Assert-Scope ($null -eq ($ast.ParamBlock.Parameters | Where-Object {$_.Name.VariablePath.UserPath -eq 'Suites'}).DefaultValue) 'test.ps1 keeps its own copy of the suite list'
         foreach($profile in $manifest.prCoverage){foreach($scope in $profile.scopes){Assert-Scope ($scope -in $manifest.scopes.name) "PR profile declares nonexistent scope $scope"}}
-        if($manifest.repository -like '*/DxUi') {
-            Assert-Scope ($manifest.prCoverage.Count -eq 6 -and $workflow.Contains('MenuResourceScaling,MenuTextLayoutResources')) 'DxUi profile/resource coverage was narrowed'
-            Assert-Scope ($workflow.Contains('run: ./validate.ps1')) 'Portable tooling gate missing'
-        } else {
-            $native=@($manifest.prCoverage | Where-Object {$_.PSObject.Properties['platform']})
-            Assert-Scope ($native.Count -eq 1 -and $native[0].configuration -eq 'Release' -and $native[0].platform -eq 'x64' -and $native[0].check -ceq 'native (x64, Release)') 'RedXe PR coverage overclaimed'
-            Assert-Scope (-not (Compare-Object @($native[0].scopes) @($manifest.scopes | Where-Object {$_.native} | ForEach-Object name))) 'The x64 Release PR check does not cover exactly the native scopes'
-            $tooling=@($manifest.prCoverage | Where-Object {-not $_.PSObject.Properties['platform']})
-            Assert-Scope ($tooling.Count -eq 1 -and $tooling[0].check -ceq 'tooling' -and -not (Compare-Object @($tooling[0].scopes) @('BuildProcess'))) 'The tooling PR check does not cover exactly the tooling scope'
-            # A check's name is its job's: `native (x64, Release)` is the native job's matrix leg.
-            foreach($job in $manifest.prCoverage){Assert-Scope ($workflow -match ('(?m)^  '+[regex]::Escape(($job.check -split ' ')[0])+':')) "PR check $($job.check) is not a job of ci.yml"}
-            Assert-Scope ($workflow.Contains('./Tests/BuildProcessTests/Invoke-ToolingTests.ps1')) 'Independent tooling job missing'
-            # The release workflow runs test.ps1 too: no workflow may run the tooling suite without its Python packages.
-            $calls=@(Get-WorkflowTestCalls (Join-Path $repository '.github/workflows'))
-            foreach($name in @('ci.yml','release.yml')) {Assert-Scope (@($calls | Where-Object Workflow -eq $name).Count -gt 0) "No test.ps1 call found in $name"}
-            foreach($call in $calls) {Assert-Scope $call.Provisioned "$($call.Workflow) job $($call.Job) runs the tooling suite without Build/requirements-validation.txt: $($call.Call)"}
-            Write-Fixture (Join-Path $fixture 'workflows/fixture.yml') @'
+        $native=@($manifest.prCoverage | Where-Object {$_.PSObject.Properties['platform']})
+        Assert-Scope ($native.Count -eq 1 -and $native[0].configuration -eq 'Release' -and $native[0].platform -eq 'x64' -and $native[0].check -ceq 'native (x64, Release)') 'RedXe PR coverage overclaimed'
+        Assert-Scope (-not (Compare-Object @($native[0].scopes) @($manifest.scopes | Where-Object {$_.native} | ForEach-Object name))) 'The x64 Release PR check does not cover exactly the native scopes'
+        $tooling=@($manifest.prCoverage | Where-Object {-not $_.PSObject.Properties['platform']})
+        Assert-Scope ($tooling.Count -eq 1 -and $tooling[0].check -ceq 'tooling' -and -not (Compare-Object @($tooling[0].scopes) @('BuildProcess'))) 'The tooling PR check does not cover exactly the tooling scope'
+        # A check's name is its job's: `native (x64, Release)` is the native job's matrix leg.
+        foreach($job in $manifest.prCoverage){Assert-Scope ($workflow -match ('(?m)^  '+[regex]::Escape(($job.check -split ' ')[0])+':')) "PR check $($job.check) is not a job of ci.yml"}
+        Assert-Scope ($workflow.Contains('./Tests/BuildProcessTests/Invoke-ToolingTests.ps1')) 'Independent tooling job missing'
+        # The release workflow runs test.ps1 too: no workflow may run the tooling suite without its Python packages.
+        $calls=@(Get-WorkflowTestCalls (Join-Path $repository '.github/workflows'))
+        foreach($name in @('ci.yml','release.yml')) {Assert-Scope (@($calls | Where-Object Workflow -eq $name).Count -gt 0) "No test.ps1 call found in $name"}
+        foreach($call in $calls) {Assert-Scope $call.Provisioned "$($call.Workflow) job $($call.Job) runs the tooling suite without Build/requirements-validation.txt: $($call.Call)"}
+        Write-Fixture (Join-Path $fixture 'workflows/fixture.yml') @'
 jobs:
   bare:
     steps:
@@ -442,9 +437,8 @@ jobs:
     steps:
       - run: ./test.ps1 -Full -SkipTooling -Configuration Release
 '@
-            $calls=@(Get-WorkflowTestCalls (Join-Path $fixture 'workflows'))
-            Assert-Scope ($calls.Count -eq 3 -and (@($calls | Where-Object {-not $_.Provisioned} | ForEach-Object Job) -join ',') -eq 'bare') 'Workflow tooling provisioning was misread'
-        }
+        $calls=@(Get-WorkflowTestCalls (Join-Path $fixture 'workflows'))
+        Assert-Scope ($calls.Count -eq 3 -and (@($calls | Where-Object {-not $_.Provisioned} | ForEach-Object Job) -join ',') -eq 'bare') 'Workflow tooling provisioning was misread'
     }
     Run-Case 'every input of a project a suite runs selects that suite, and every rule matches a tracked path' {
         # A matched rule replaces the full fallback, so it must name every suite that builds its paths. Each suite's
@@ -503,8 +497,7 @@ jobs:
         $sandbox=Join-Path $fixture 'runner'
         Write-Fixture (Join-Path $sandbox '.gitignore') '.build/'
         Copy-Item -LiteralPath (Join-Path $repository 'Test-Changes.ps1') -Destination (Join-Path $sandbox 'Test-Changes.ps1')
-        $moduleRelative=if ($manifest.repository -like '*/DxUi') {'Tools/ScopedTesting.psm1'} else {'Build/ScopedTesting.psm1'}
-        Write-Fixture (Join-Path $sandbox $moduleRelative) ([IO.File]::ReadAllText((Join-Path $repository $moduleRelative)))
+        Write-Fixture (Join-Path $sandbox 'Build/ScopedTesting.psm1') ([IO.File]::ReadAllText((Join-Path $repository 'Build/ScopedTesting.psm1')))
         Write-Fixture (Join-Path $sandbox 'Tests/Example.Tests.Case.cpp') 'int example;'
         Write-Fixture (Join-Path $sandbox 'Specs/TestRuns/history/SelfTest/Old.SelfTest.cpp') 'immutable historical source;'
         Write-Fixture (Join-Path $sandbox 'README.md') 'fixture guide'

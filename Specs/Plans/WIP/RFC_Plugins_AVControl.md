@@ -8,8 +8,9 @@ Proposed identity: `builtin.av-control` / widget type `av-control` / `AVControl.
 ## Purpose and authority
 
 Latest pause checkpoint (2026-09-05 21:15 UTC):
-[AVControl-Continuation.md](AVControl-Continuation.md). It supersedes older progress notes for pins,
-test results, failed CI/performance evidence, restored negative controls and ordered resume steps.
+[AVControlContinuation_2026-09-05.md](AVControlContinuation_2026-09-05.md). On that date it superseded older progress
+notes for pins, test results, failed CI/performance evidence, restored negative controls and ordered resume steps. It is
+now a dated snapshot: this RFC's checklist owns the open gates, and `Dependencies/DxUi.lock.json` the current DxUi pin.
 
 AV Control gives the XENEON EDGE a touch-friendly control surface for selecting an audio output, microphone, and
 webcam together, muting each independently, and adjusting system output volume and microphone input level.

@@ -2,6 +2,7 @@
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PlugInterfaces/Widget.h"
 
+#include "SettingsCursor.h"
 #include "Shaders.Tests.Contract.h"
 #include "ShadersSettings.h"
 
@@ -226,119 +227,6 @@ std::atomic<uint32_t> gLookupTableBakeCount{0};
     };
 }
 
-class JsonCursor final
-{
-  public:
-    explicit JsonCursor(std::string_view text) noexcept : _text(text) {}
-
-    void SkipWhitespace() noexcept
-    {
-        while (_offset < _text.size())
-        {
-            const char value = _text[_offset];
-            if (value != ' ' && value != '\t' && value != '\r' && value != '\n')
-            {
-                break;
-            }
-            ++_offset;
-        }
-    }
-
-    [[nodiscard]] bool Consume(char expected) noexcept
-    {
-        SkipWhitespace();
-        if (_offset >= _text.size() || _text[_offset] != expected)
-        {
-            return false;
-        }
-        ++_offset;
-        return true;
-    }
-
-    [[nodiscard]] bool ReadString(std::string_view& value) noexcept
-    {
-        SkipWhitespace();
-        if (_offset >= _text.size() || _text[_offset] != '"')
-        {
-            return false;
-        }
-        const size_t start = ++_offset;
-        while (_offset < _text.size() && _text[_offset] != '"')
-        {
-            const unsigned char character = static_cast<unsigned char>(_text[_offset]);
-            if (character < 0x20U || character == '\\')
-            {
-                return false;
-            }
-            ++_offset;
-        }
-        if (_offset >= _text.size())
-        {
-            return false;
-        }
-        value = _text.substr(start, _offset - start);
-        ++_offset;
-        return true;
-    }
-
-    [[nodiscard]] bool ReadUnsigned(uint32_t& value) noexcept
-    {
-        SkipWhitespace();
-        if (_offset >= _text.size() || _text[_offset] < '0' || _text[_offset] > '9')
-        {
-            return false;
-        }
-
-        const bool leadingZero = _text[_offset] == '0';
-        uint64_t parsed = 0;
-        size_t digits = 0;
-        while (_offset < _text.size() && _text[_offset] >= '0' && _text[_offset] <= '9')
-        {
-            parsed = parsed * 10U + static_cast<uint64_t>(_text[_offset] - '0');
-            if (parsed > std::numeric_limits<uint32_t>::max())
-            {
-                return false;
-            }
-            ++_offset;
-            ++digits;
-        }
-        if (leadingZero && digits != 1)
-        {
-            return false;
-        }
-        value = static_cast<uint32_t>(parsed);
-        return true;
-    }
-
-    [[nodiscard]] bool ReadBool(bool& value) noexcept
-    {
-        SkipWhitespace();
-        if (_text.substr(_offset, 4) == "true")
-        {
-            _offset += 4;
-            value = true;
-            return true;
-        }
-        if (_text.substr(_offset, 5) == "false")
-        {
-            _offset += 5;
-            value = false;
-            return true;
-        }
-        return false;
-    }
-
-    [[nodiscard]] bool AtEnd() noexcept
-    {
-        SkipWhitespace();
-        return _offset == _text.size();
-    }
-
-  private:
-    std::string_view _text;
-    size_t _offset = 0;
-};
-
 enum ConfigurationMember : uint32_t
 {
     ConfigurationMode = 1U << 0U,
@@ -371,7 +259,7 @@ inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
 
 // The instance object of the normalized envelope: every member present exactly once, values inside the published
 // schema. The host merges the defaults before it hands the object over, so a missing member is a host defect.
-[[nodiscard]] bool ParseInstanceObject(JsonCursor& cursor, Configuration& configuration) noexcept
+[[nodiscard]] bool ParseInstanceObject(RedXeSettingsCursor& cursor, Configuration& configuration) noexcept
 {
     if (!cursor.Consume('{'))
     {
@@ -418,7 +306,7 @@ inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
             parsed.intervalSeconds = value;
             break;
         case ConfigurationShuffle:
-            if (!cursor.ReadBool(parsed.shuffle))
+            if (!cursor.ReadBoolean(parsed.shuffle))
             {
                 return false;
             }
@@ -455,7 +343,7 @@ inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
 
 [[nodiscard]] bool ParseNormalizedConfiguration(std::string_view json, Configuration& configuration) noexcept
 {
-    JsonCursor cursor(json);
+    RedXeSettingsCursor cursor(json);
     if (!cursor.Consume('{'))
     {
         return false;

@@ -12,9 +12,9 @@ Real IME/touch/screen-reader, matched text/UIA performance, and AV hardware back
 This file is historical sequencing. Do not treat remaining AV release gates as unfinished library extraction.
 
 Latest pause checkpoint (2026-09-05 21:15 UTC):
-[AVControl-Continuation.md](../WIP/AVControl-Continuation.md). It records the separate canonical/validation
-pins, coordinated task, completed UIA integration, failed CI/performance evidence and remaining adoption gates.
-The canonical DxUi task may continue independently; this pause applies to this RedXe integration task.
+[AVControlContinuation_2026-09-05.md](../WIP/AVControlContinuation_2026-09-05.md). It records the separate
+canonical/validation pins, coordinated task, completed UIA integration, failed CI/performance evidence and remaining
+adoption gates. The canonical DxUi task may continue independently; this pause applies to this RedXe integration task.
 
 Working checkout: `Z:\src\DxUi`, beside `Z:\src\RedXe` and `Z:\src\RedSalamander`
 Repository: [RedSalamanders/DxUi](https://github.com/RedSalamanders/DxUi), private, default branch `main`

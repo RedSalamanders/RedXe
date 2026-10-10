@@ -7,8 +7,10 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $modulePath = Join-Path $repoRoot 'Build\BuildOutputProcess.psm1'
 $presentationModulePath = Join-Path $repoRoot 'Build\BuildPresentation.psm1'
+$streamingModulePath = Join-Path $repoRoot 'Build\StreamingProcess.psm1'
 Import-Module $modulePath -Force -ErrorAction Stop
 Import-Module $presentationModulePath -Force -ErrorAction Stop
+$streamingModule = Import-Module $streamingModulePath -Force -ErrorAction Stop -PassThru
 
 $buildRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot '.build'))
 $testParent = [IO.Path]::GetFullPath((Join-Path $buildRoot 'BuildProcessTests'))
@@ -257,19 +259,43 @@ link : fatal error LNK1120: 1 unresolved externals
             $diagnosticSummary.WarningCount, $diagnosticSummary.ErrorCount)
     }
 
+    # The emitter reports the arguments after its own path as the C runtime parsed the command line, which is how a
+    # native test executable receives them; PowerShell's binding of -File arguments reads a leading dash or a colon its
+    # own way. Each goes back as Base64 of its UTF-16 text, which no code page can change.
     $emitterPath = Join-Path $presentationTestRoot 'Emit Build Output.ps1'
     @'
-param([string] $Message)
-Write-Output "stdout:$Message"
+$commandLine = [Environment]::GetCommandLineArgs()
+$received = @($commandLine | Select-Object -Skip ([Array]::IndexOf($commandLine, '-File') + 2))
+Write-Output "stdout:$($received[0])"
 Write-Output ('stdout:caf' + [char] 0xE9)
-[Console]::Error.WriteLine("stderr:$Message")
+[Console]::Error.WriteLine("stderr:$($received[0])")
+foreach ($argument in $received) {
+    Write-Output ('argv:' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($argument)))
+}
 Write-Output "pid:$PID"
 exit 17
 '@ | Set-Content -LiteralPath $emitterPath -Encoding UTF8
     $powershellPath = (Get-Process -Id $PID -ErrorAction Stop).Path
-    # An unbounded run uses Process.Start and a bounded one the job's own start, so both must quote arguments, keep
-    # stream identity, propagate the exit code, report the child's process identifier, and decode the same bytes into
-    # the same text.
+    # Every run of test.ps1 and of the package smoke, and build.ps1's replayed MSBuild run, starts through one of the
+    # two paths, and both build the command line with one quoter. The child must receive each argument unchanged: every
+    # shape those runs pass (switches, a switch and its value, a path with spaces, a name=path pair, an MSBuild property
+    # with a space) and every shape a quoting mistake breaks (an empty argument, a tab, quotes, backslashes before a
+    # quote and at the end of a quoted argument, text beyond ASCII).
+    $quotingCases = @(
+        'argument with spaces', '--self-test', '--warp', '--watchdog-fixture', '500',
+        '--screenshot', (Join-Path $presentationTestRoot 'unattended error.png'), '--after', '0',
+        "--crash-test-directory=$(Join-Path $presentationTestRoot 'Crash Tests')", '/p:Configuration=ASan Debug',
+        '', 'quote"inside', 'trailing\', 'x\\"y', 'both "a b"', "tab`tx", 'C:\folder with spaces\', "path-$([char] 0x141)")
+    # A run without arguments, as every suite run of a test executable is, gives the child none, not one empty argument.
+    foreach ($noArguments in @(@{}, @{ Arguments = @() }, @{ Arguments = $null })) {
+        $commandLineTail = & $streamingModule { param([hashtable] $Splat) ConvertTo-RedXeProcessCommandLine @Splat } $noArguments
+        if ($commandLineTail -cne '') {
+            throw "A run without arguments would pass the command-line tail '$commandLineTail'."
+        }
+    }
+    # An unbounded run uses Process.Start and a bounded one the job's own start, so both must hand the child its
+    # arguments unchanged, keep stream identity, propagate the exit code, report the child's process identifier, and
+    # decode the same bytes into the same text.
     $decodedOutput = @{}
     foreach ($streamBudget in @(0, 120)) {
         $streamLogPath = Join-Path $presentationTestRoot "streamed-$streamBudget.log"
@@ -277,7 +303,7 @@ exit 17
         $streamProcessId = 0
         $streamExitCode = Invoke-RedXeStreamingProcess `
             -FilePath $powershellPath `
-            -Arguments @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $emitterPath, 'argument with spaces') `
+            -Arguments (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $emitterPath) + $quotingCases) `
             -WorkingDirectory $presentationTestRoot `
             -LogPath $streamLogPath `
             -TimeoutSeconds $streamBudget `
@@ -293,10 +319,19 @@ exit 17
         if ($streamProcessId -le 0 -or -not ($receivedLines | Where-Object { $_.Line -eq "pid:$streamProcessId" })) {
             throw "Streaming with a $streamBudget s budget did not report the child's process identifier (got $streamProcessId): $($receivedLines | Out-String)"
         }
+        $receivedArguments = @($receivedLines | Where-Object { $_.Line.StartsWith('argv:') -and -not $_.IsError } |
+            ForEach-Object { [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($_.Line.Substring(5))) })
+        $argumentsDiffer = $receivedArguments.Count -ne $quotingCases.Count
+        for ($index = 0; -not $argumentsDiffer -and $index -lt $quotingCases.Count; ++$index) {
+            $argumentsDiffer = $receivedArguments[$index] -cne $quotingCases[$index]
+        }
+        if ($argumentsDiffer) {
+            throw "Streaming with a $streamBudget s budget did not hand the child its arguments unchanged: [$($receivedArguments -join '] [')] instead of [$($quotingCases -join '] [')]."
+        }
         $stdoutRecord = $receivedLines | Where-Object { $_.Line -eq 'stdout:argument with spaces' -and -not $_.IsError }
         $stderrRecord = $receivedLines | Where-Object { $_.Line -eq 'stderr:argument with spaces' -and $_.IsError }
         if (-not $stdoutRecord -or -not $stderrRecord) {
-            throw "Streaming with a $streamBudget s budget did not preserve argument quoting and stream identity: $($receivedLines | Out-String)"
+            throw "Streaming with a $streamBudget s budget did not preserve stream identity: $($receivedLines | Out-String)"
         }
         $streamLogText = Get-Content -LiteralPath $streamLogPath -Raw
         if ($streamLogText -notmatch 'stdout:argument with spaces' -or
@@ -312,10 +347,11 @@ exit 17
         throw "A bounded run decoded the child's output differently from Process.Start: '$($decodedOutput[120])' instead of '$($decodedOutput[0])'."
     }
 
-    # -StandardErrorEncoding decodes stderr alone with the encoding a caller names, on both paths: RedXe's processes
-    # write theirs as UTF-8 (Common/FailureReports.h). Without it both streams keep the console output code page. The
-    # runs take place in a background job, whose hidden console is its own, under code page 437, which has no U+0141
-    # and reads its UTF-8 bytes (C5 81) as U+253C U+00FC. A console another process shares is never changed.
+    # -StandardOutputEncoding and -StandardErrorEncoding each decode their own stream alone with the encoding a caller
+    # names, on both paths: RedXe's processes write both as UTF-8 (Common/FailureReports.h on stderr, RedXe.exe's
+    # command-line text on stdout). A stream without one keeps the console output code page. The runs take place in a
+    # background job, whose hidden console is its own, under code page 437, which has no U+0141 and reads its UTF-8
+    # bytes (C5 81) as U+253C U+00FC. A console another process shares is never changed.
     [IO.File]::WriteAllBytes((Join-Path $presentationTestRoot 'report.txt'),
         [Text.Encoding]::UTF8.GetBytes("report:$([char] 0x141)`r`n"))
     @'
@@ -332,13 +368,13 @@ type "%~dp0report.txt" 1>&2
 '@
         if ([RedXeEncodingCheck.LegacyConsole]::GetConsoleProcessList([uint32[]]::new(2), 2) -ne 1 -or
             -not [RedXeEncodingCheck.LegacyConsole]::SetConsoleOutputCP(437)) {
-            throw 'The stderr encoding check has no console of its own to set to code page 437.'
+            throw 'The stream encoding check has no console of its own to set to code page 437.'
         }
         Import-Module $ModulePath -Force
         foreach ($budget in @(0, 120)) {
-            foreach ($named in @($false, $true)) {
+            foreach ($named in @('None', 'StandardOutputEncoding', 'StandardErrorEncoding')) {
                 $lines = [Collections.Generic.List[string]]::new()
-                $encoding = if ($named) { @{ StandardErrorEncoding = [Text.UTF8Encoding]::new($false) } } else { @{} }
+                $encoding = if ($named -ne 'None') { @{ $named = [Text.UTF8Encoding]::new($false) } } else { @{} }
                 [void](Invoke-RedXeStreamingProcess -FilePath $env:ComSpec -Arguments @('/d', '/c', (Join-Path $Root 'report.cmd')) `
                     -WorkingDirectory $Root -LogPath (Join-Path $Root "report-$budget-$named.log") -TimeoutSeconds $budget `
                     @encoding -OutputLineCallback {
@@ -352,16 +388,18 @@ type "%~dp0report.txt" 1>&2
                 "$budget|$named|$($escaped -join ' ; ')"
             }
         }
-    } -ArgumentList $presentationModulePath, $presentationTestRoot
+    } -ArgumentList $streamingModulePath, $presentationTestRoot
     try { $legacyRuns = @($legacyJob | Receive-Job -Wait) }
     finally { $legacyJob | Remove-Job -Force }
     $legacy = 'report:<U+253C><U+00FC>'
+    $intact = 'report:<U+0141>'
     $expectedLegacyRuns = @(foreach ($budget in @(0, 120)) {
-        "$budget|False|0|$legacy ; 1|$legacy"
-        "$budget|True|0|$legacy ; 1|report:<U+0141>"
+        "$budget|None|0|$legacy ; 1|$legacy"
+        "$budget|StandardOutputEncoding|0|$intact ; 1|$legacy"
+        "$budget|StandardErrorEncoding|0|$legacy ; 1|$intact"
     })
     if (($legacyRuns -join "`n") -cne ($expectedLegacyRuns -join "`n")) {
-        throw "Under console code page 437, stderr was not decoded with the encoding named for it, or the default changed: '$($legacyRuns -join ' | ')' instead of '$($expectedLegacyRuns -join ' | ')'."
+        throw "Under console code page 437, a stream was not decoded with the encoding named for it alone, or the default changed: '$($legacyRuns -join ' | ')' instead of '$($expectedLegacyRuns -join ' | ')'."
     }
 
     # A bounded child's job ends a process on an unhandled exception instead of leaving it in a Windows Error Reporting
@@ -387,10 +425,10 @@ $queried = [RedXeJobProbe.Native]::QueryInformationJobObject([IntPtr]::Zero, 2, 
     # A session cannot unload a compiled type, so the launcher's type follows its source: an edited copy of the module,
     # imported after the bounded run above compiled the original, runs its own code. A runspace of its own keeps the
     # edited functions out of this one; compiled types are shared by the whole process.
-    $editedModulePath = Join-Path $presentationTestRoot 'BuildPresentation.psm1'
-    $presentationSource = Get-Content -LiteralPath $presentationModulePath -Raw
-    $editedSource = $presentationSource.Replace('"Unable to start ''" + fileName', '"Edited launcher could not start ''" + fileName')
-    if ($editedSource -ceq $presentationSource) {
+    $editedModulePath = Join-Path $presentationTestRoot 'StreamingProcess.psm1'
+    $streamingSource = Get-Content -LiteralPath $streamingModulePath -Raw
+    $editedSource = $streamingSource.Replace('"Unable to start ''" + fileName', '"Edited launcher could not start ''" + fileName')
+    if ($editedSource -ceq $streamingSource) {
         throw 'The launcher type check found no start failure message to edit.'
     }
     Set-Content -LiteralPath $editedModulePath -Value $editedSource -Encoding UTF8 -NoNewline
@@ -415,6 +453,68 @@ $queried = [RedXeJobProbe.Native]::QueryInformationJobObject([IntPtr]::Zero, 2, 
     }
     if ($editedMessage -notmatch 'Edited launcher could not start') {
         throw "A session that had compiled the launcher ran its earlier type for an edited definition: $editedMessage"
+    }
+
+    # The budget counts every moment the child can run, so a caller whose thread runs again only after the child has
+    # outrun its budget ends the child at its first check instead of granting it the budget again. An edited copy of the
+    # module holds Start() right after the resume, as a caller descheduled there would be, until the child has run for
+    # longer than its 4 s budget and marked that it has (held.ready). The child then finishes on its own two seconds
+    # later, well within a budget counted from Start()'s return, which would let it exit normally with code 0.
+    $heldPath = Join-Path $presentationTestRoot 'held.cmd'
+    $heldReadyPath = Join-Path $presentationTestRoot 'held.ready'
+    @'
+@echo off
+echo held:started
+ping.exe -n 6 127.0.0.1 > nul
+type nul > "%~dp0held.ready"
+ping.exe -n 3 127.0.0.1 > nul
+echo held:finished
+exit /b 0
+'@ | Set-Content -LiteralPath $heldPath -Encoding ASCII
+    $resumeStatement = 'if (ResumeThread(info.hThread) == uint.MaxValue) throw new Win32Exception();'
+    $heldSource = $streamingSource.Replace($resumeStatement, $resumeStatement +
+        ' for (var held = Stopwatch.StartNew(); !File.Exists(@"' + $heldReadyPath +
+        '") && held.ElapsedMilliseconds < 60000;) Thread.Sleep(10);')
+    if ($heldSource -ceq $streamingSource) {
+        throw 'The held caller check found no resume of the child to hold.'
+    }
+    $heldModulePath = Join-Path $presentationTestRoot 'HeldStreamingProcess.psm1'
+    Set-Content -LiteralPath $heldModulePath -Value $heldSource -Encoding UTF8 -NoNewline
+    $heldLogPath = Join-Path $presentationTestRoot 'held.log'
+    $heldShell = [powershell]::Create()
+    try {
+        [void] $heldShell.AddScript({
+            param([string] $ModulePath, [string] $HeldPath, [string] $WorkingDirectory, [string] $LogPath)
+            Import-Module $ModulePath -Force
+            try {
+                $exitCode = Invoke-RedXeStreamingProcess -FilePath $env:ComSpec -Arguments @('/d', '/c', $HeldPath) `
+                    -WorkingDirectory $WorkingDirectory -LogPath $LogPath -TimeoutSeconds 4 `
+                    -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+                "exited with code $exitCode"
+            }
+            catch {
+                $_.Exception.Message
+            }
+        }.ToString()).AddArgument($heldModulePath).AddArgument($heldPath).AddArgument($presentationTestRoot).AddArgument(
+            $heldLogPath)
+        $heldMessage = -join @($heldShell.Invoke())
+    }
+    finally {
+        $heldShell.Dispose()
+    }
+    $survivors = @(Get-FixtureSurvivors -Markers @($heldPath))
+    if ($survivors.Count -ne 0) {
+        foreach ($survivor in $survivors) { Stop-Process -Id $survivor.ProcessId -Force -ErrorAction SilentlyContinue }
+        throw "A process of the held run survived its termination: $(($survivors | ForEach-Object { "$($_.Name) $($_.ProcessId)" }) -join ', ')"
+    }
+    if (-not (Test-Path -LiteralPath $heldReadyPath)) {
+        throw "The held fixture did not run past its budget: $heldMessage"
+    }
+    $heldLogText = if (Test-Path -LiteralPath $heldLogPath) { Get-Content -LiteralPath $heldLogPath -Raw } else { '' }
+    if ($heldMessage -notmatch 'did not finish within 4 s and was terminated' -or
+        $heldMessage -notmatch [regex]::Escape($heldLogPath) -or
+        $heldLogText -notmatch 'held:started' -or $heldLogText -match 'held:finished' -or $heldLogText -notmatch 'TIMEOUT:') {
+        throw "A child that had outrun its budget before the caller's thread ran again was granted the budget anew: '$heldMessage' (log: $heldLogText)"
     }
 
     # A bounded child that never stops writing is still ended at its budget: the deadline is checked on every line,
@@ -475,7 +575,7 @@ ping.exe -n 120 127.0.0.1 > nul
                 Import-Module $ModulePath -Force
                 Invoke-RedXeStreamingProcess -FilePath $env:ComSpec -Arguments @('/d', '/c', $HolderPath) `
                     -LogPath $LogPath -TimeoutSeconds $TimeoutSeconds -OutputLineCallback { param([string] $Line, [bool] $IsError) }
-            }.ToString()).AddArgument($presentationModulePath).AddArgument($holderPath).AddArgument(
+            }.ToString()).AddArgument($streamingModulePath).AddArgument($holderPath).AddArgument(
                 (Join-Path $presentationTestRoot "holder-$holderBudget.log")).AddArgument($holderBudget)
             $holderRun = $holderShell.BeginInvoke()
             $readyClock = [Diagnostics.Stopwatch]::StartNew()
@@ -640,6 +740,38 @@ finally {
 }
 
 Write-Host 'Build presentation and streaming tests passed.' -ForegroundColor Green
+
+# Test-process failure routing (Build_Process.md: a test process never waits on a dialog): the wmain of every test
+# executable starts with RedXeFailureReports::RouteAwayFromDialogs(), and RedXe.exe routes an unattended run
+# (--self-test, --screenshot) before its first argument check and before its Application exists, so a failed check in
+# any of them ends with its report rather than a dialog. The rule is proven on a sample that breaks it before the
+# sources are read.
+function Test-RoutedEntryPoint([string] $Text) {
+    $Text -match '\bint\s+wmain\s*\([^)]*\)\s*(?:noexcept\s*)?\{(?:\s*//[^\r\n]*)*\s*RedXeFailureReports::RouteAwayFromDialogs\(\);'
+}
+if (-not (Test-RoutedEntryPoint "int wmain() noexcept`r`n{`r`n    // A comment.`r`n    RedXeFailureReports::RouteAwayFromDialogs();") -or
+    (Test-RoutedEntryPoint "int wmain()`r`n{`r`n    SetErrorMode(0);`r`n    RedXeFailureReports::RouteAwayFromDialogs();")) {
+    throw 'The test-process routing rule misjudges its samples.'
+}
+$entryPoints = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'Tests') -Recurse -Filter '*.cpp' -File |
+    Where-Object { [IO.File]::ReadAllText($_.FullName) -match '\bint\s+wmain\s*\(' })
+if ($entryPoints.Count -eq 0) {
+    throw 'No test executable entry point (wmain) was found under Tests.'
+}
+foreach ($entryPoint in $entryPoints) {
+    if (-not (Test-RoutedEntryPoint ([IO.File]::ReadAllText($entryPoint.FullName)))) {
+        throw "The wmain of $($entryPoint.FullName) must call RedXeFailureReports::RouteAwayFromDialogs() first."
+    }
+}
+$mainSource = [IO.File]::ReadAllText((Join-Path $repoRoot 'RedXe\Main.cpp'))
+$routedRun = [regex]::Match($mainSource,
+    'const bool unattended = RedXeIsUnattendedRun\(selfTest, screenshotSwitch\);\s*if \(unattended\)\s*\{\s*RedXeFailureReports::RouteAwayFromDialogs\(\);\s*\}')
+$firstArgumentCheck = $mainSource.IndexOf('RedXeIsHelpArgument(arguments')
+$applicationCreated = $mainSource.IndexOf('Application(instance, forceWarp)')
+if (-not $routedRun.Success -or $firstArgumentCheck -lt $routedRun.Index -or $applicationCreated -lt $routedRun.Index) {
+    throw 'RedXe/Main.cpp must route an unattended run through RedXeFailureReports::RouteAwayFromDialogs() before its first argument check and before the Application exists.'
+}
+Write-Host "Test-process failure routing: $($entryPoints.Count) test entry points and RedXe.exe route first." -ForegroundColor Green
 
 # The last native command above is a fixture that exits nonzero by design; report the script result explicitly.
 exit 0
