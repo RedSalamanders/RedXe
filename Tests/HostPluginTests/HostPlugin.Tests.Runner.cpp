@@ -278,6 +278,14 @@ struct PluginHostTestAccess final
         host._logFilePath.clear();
     }
 
+    // No writer is started: date rollover can be tested without changing the machine clock or a live worker.
+    [[nodiscard]] static HRESULT EnsureLogDate(PluginHost& host, const std::filesystem::path& root,
+                                               const SYSTEMTIME& utc) noexcept
+    {
+        host._logDirectory = root.native();
+        return host.EnsureLogFileForDate(utc);
+    }
+
     // Replaces the tray icon's Shell_NotifyIconW and taskbar probe, so a test never reaches the shell.
     static void SetTrayShell(TrayIcon& tray, TrayIcon::ShellNotify notify, TrayIcon::TaskbarProbe taskbar) noexcept
     {
@@ -4938,7 +4946,6 @@ void TestHostJsonlLog(bool& success) noexcept
         return;
     }
 
-    Check(SUCCEEDED(host.SetLogDirectory(root.c_str())), L"SetLogDirectory starts the JSONL writer", success);
     Check(host.SetLogRetentionDays(0) == E_INVALIDARG, L"retention below 1 day is rejected", success);
     Check(host.SetLogRetentionDays(366) == E_INVALIDARG, L"retention above 365 days is rejected", success);
     Check(SUCCEEDED(host.SetLogRetentionDays(15)), L"a 15-day retention is accepted", success);
@@ -4957,6 +4964,8 @@ void TestHostJsonlLog(bool& success) noexcept
         std::ofstream rotatedStream(legacyRotated, std::ios::binary);
         rotatedStream << "{\"event\":\"rotated\"}\n";
     }
+
+    Check(SUCCEEDED(host.SetLogDirectory(root.c_str())), L"SetLogDirectory starts the JSONL writer", success);
 
     const HRESULT notFound = HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     const RedXeLogRecord line{sizeof(RedXeLogRecord),
@@ -5099,6 +5108,81 @@ void TestHostJsonlLog(bool& success) noexcept
     Check(!std::filesystem::exists(stale, existsError) && !std::filesystem::exists(staleRelease, existsError) &&
               !std::filesystem::exists(legacy, existsError) && !std::filesystem::exists(legacyRotated, existsError),
           L"dated logs older than retention and legacy undated log files are deleted", success);
+
+    {
+        std::ofstream reapplied(staleRelease, std::ios::binary);
+        reapplied << "policy change without a queued log line\n";
+    }
+    Check(host.SetLogRetentionDays(30) == S_OK && flushLog() == S_OK &&
+              !std::filesystem::exists(staleRelease, existsError),
+          L"changing retention wakes the idle writer and FlushLog waits for cleanup", success);
+}
+
+void TestLogRetentionTransitions(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] log retention: open, policy change and UTC date rollover\n";
+    std::error_code error;
+    const auto root =
+        std::filesystem::temp_directory_path() /
+        (L"RedXe.RetentionTests." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()));
+    std::filesystem::create_directories(root, error);
+    const auto cleanup = wil::scope_exit([&]() noexcept { std::filesystem::remove_all(root, error); });
+    if (error)
+    {
+        Check(false, L"a retention fixture directory can be created", success);
+        return;
+    }
+    // Host closes its WIL-owned file before cleanup removes the fixture.
+    PluginHost host;
+    SYSTEMTIME today{};
+    today.wYear = 2026;
+    today.wMonth = 10;
+    today.wDay = 10;
+    const auto put = [&](const wchar_t* name) { std::ofstream(root / name) << "fixture\n"; };
+    const auto exists = [&](const wchar_t* name) { return std::filesystem::exists(root / name, error); };
+    put(L"RedXe-2026-09-25.jsonl");       // Exactly 15 days old.
+    put(L"RedXe-debug-2026-09-26.jsonl"); // 14 days old.
+    put(L"RedXe-2026-10-11.jsonl");       // Future dates are kept.
+    put(L"other-2000-01-01.jsonl");
+    put(L"RedXe.jsonl");
+    std::filesystem::create_directory(root / L"RedXe-2000-01-01.jsonl", error);
+    Check(PluginHostTestAccess::EnsureLogDate(host, root, today) == S_OK && !exists(L"RedXe-2026-09-25.jsonl") &&
+              !exists(L"RedXe.jsonl") && exists(L"RedXe-debug-2026-09-26.jsonl") && exists(L"RedXe-2026-10-11.jsonl") &&
+              exists(L"other-2000-01-01.jsonl") && exists(L"RedXe-2000-01-01.jsonl"),
+          L"opening purges both builds at the UTC boundary and preserves future, unrelated and directory entries",
+          success);
+
+    // An expired file created after the first sweep proves ordinary writes do not enumerate again.
+    put(L"RedXe-debug.jsonl.1");
+    const auto before = std::chrono::steady_clock::now();
+    bool ordinary = true;
+    for (uint32_t index = 0; index < 1000; ++index)
+    {
+        today.wSecond = static_cast<WORD>(index % 60);
+        ordinary = PluginHostTestAccess::EnsureLogDate(host, root, today) == S_OK && ordinary;
+    }
+    const auto ordinaryNs =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - before).count();
+    Check(ordinary && exists(L"RedXe-debug.jsonl.1") && host.SetLogRetentionDays(15) == S_OK &&
+              PluginHostTestAccess::EnsureLogDate(host, root, today) == S_OK && exists(L"RedXe-debug.jsonl.1"),
+          L"1000 same-day writes and an unchanged retention value perform no new sweep", success);
+    Check(host.SetLogRetentionDays(7) == S_OK && PluginHostTestAccess::EnsureLogDate(host, root, today) == S_OK &&
+              !exists(L"RedXe-debug-2026-09-26.jsonl") && !exists(L"RedXe-debug.jsonl.1"),
+          L"a shorter retention policy sweeps once without reopening today's file", success);
+
+    put(L"RedXe-2026-10-04.jsonl"); // Six days old now, seven after rollover.
+    put(L"RedXe.jsonl");
+    Check(host.SetLogRetentionDays(7) == S_OK && PluginHostTestAccess::EnsureLogDate(host, root, today) == S_OK &&
+              exists(L"RedXe.jsonl"),
+          L"reapplying an unchanged policy does not enumerate", success);
+    today.wDay = 11;
+    Check(PluginHostTestAccess::EnsureLogDate(host, root, today) == S_OK && !exists(L"RedXe-2026-10-04.jsonl") &&
+              !exists(L"RedXe.jsonl") && exists(L"RedXe-2026-10-11.jsonl"),
+          L"UTC rollover opens the next file and expires the new boundary", success);
+    today.wDay = 10;
+    Check(PluginHostTestAccess::EnsureLogDate(host, root, today) == S_OK,
+          L"a backwards UTC correction reopens the appropriate file", success);
+    std::wcout << L"log_retention same_day_calls=1000 sweeps=0 total_ns=" << ordinaryNs << L'\n';
 }
 
 // PluginHost::SetStandardErrorLog, which --self-test turns on because it opens no log directory: each Warning and
@@ -8526,6 +8610,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestHostRequestFrameAndWidgetStatus(success);
     TestWidgetSettingsPersist(success);
     TestHostJsonlLog(success);
+    TestLogRetentionTransitions(success);
     TestStandardErrorLog(success);
     TestHostOwnedPlaceholderTiles(success);
     TestDashboardBackground(success);

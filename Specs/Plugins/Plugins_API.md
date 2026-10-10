@@ -319,6 +319,9 @@ object it was supplied to.
   copies bounded fields into a 32-slot 1024-byte ring, and never blocks on disk. The host writer is event-blocked and
   writes UTC-dated files (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`), opening a new file when the UTC
   day changes and deleting dated files at least `logRetentionDays` old (default 15, range 1–365). Interactive RedXe
+  sweeps retention on file open, UTC date change, or retention-value change; ordinary lines and an unchanged
+  retention value cause no directory enumeration. A policy change wakes the idle writer, and `FlushLog` waits for
+  that cleanup as well as the queued records. Interactive RedXe
   stores those files under the settings sibling `Logs` directory (`%LocalAppData%\RedXe\Logs` by default). `--self-test`
   MUST NOT open that directory; it MUST instead copy each Warning and Error record, as its JSONL line, to stderr
   (`PluginHost::SetStandardErrorLog`), so the log of a failed check also names what explains it, such as the plugin

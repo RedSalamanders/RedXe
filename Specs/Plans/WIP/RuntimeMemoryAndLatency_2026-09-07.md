@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-10 against `7b38d4b` plus the P0.1/P2.7 working changes on `codex/runtime-probe`
+Refreshed: 2026-10-10 against `a466363` on `codex/runtime-probe`; P0.1 `0971350`, P2.7 `a466363`
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -52,6 +52,19 @@ Coordinate, do not fork:
 
 ## Current-code checkpoint (2026-10-10)
 
+### Execution ledger
+
+The owner requested all remaining work with a commit per step on 2026-10-10. Conditional proposals still require
+current evidence and preserve visual quality and the later normative contracts. Each implemented step records
+its validation and measurement; failed or unavailable qualification remains explicit.
+
+| Step | State | Evidence / commit |
+| --- | --- | --- |
+| P0.1 | Complete | Production probe and accepted Release baseline; `0971350`. |
+| P2.7 | Complete | Sample-driven scheduling, full gates and matched 13.7–13.9% submission reduction; `a466363`. CPU saving remains unestablished. |
+| P0.2 | In progress | PresentMon 2.5.1 works without elevation on this user's process. Fresh System trace and 65 s probe at `runtime-2026-10-10-p02-system`: 12.287 submissions/s, 2.706% of one core. WPR CPU start fails with profiling-policy error `0xc5585011`; sampled CPU stacks remain unavailable. Idle captures supply no input-to-photon observations. |
+| P2.5 | Complete | Writer-owned date/policy cache removes both directory scans and path construction from ordinary lines. 1,000 same-day checks leave a late expired file untouched; policy and UTC changes reap it. Actual idle-policy flush passes. Release 16 scopes, Debug 15 native scopes and ARM64 Release compilation pass; `.build/receipts/runtime-2026-10-10-p25/`. No whole-process CPU reduction claimed for this infrequent log workload. |
+
 | Area | Verified current code | Consequence for this plan |
 | --- | --- | --- |
 | Device/presentation | `Renderer::FindAdapterForMonitor`, `EnsureDeviceForWindowMonitor`, unconditional `RecordDeviceIdentity`, waitable flip swap chain; `Application::CheckDeviceAdapter` and `WaitForFrameLatency` | P1.1–P1.3 implementation exists. Fresh adapter/PresentMode/input-latency attribution is P0.2, not a probe counter. |
@@ -59,7 +72,7 @@ Coordinate, do not fork:
 | DxUi/AV | `Dependencies/DxUi.lock.json` pins `271bd54be24eadf3f03ba5221d1be7be069860f2`, API 3. Views release hidden surfaces; caches/peaks are bounded. The I19 adoption envelope was accepted on 2026-09-13. | Old sibling-worktree and library receipts are dated history. AV real IME/AT/audio/camera gates remain with the HOLD RFC. P0.1 exports only 64-byte read-only POD statistics. |
 | SystemData | `CollectProcessesFromWalk` still opens each process; source members still use fixed zero-initialized arrays. `PluginHost::_providers` owns sources until shutdown. | P2.1, P4.1 and source reclamation in P3.6 remain candidates. The later normative contract accepts the current bounded per-process baseline; changing columns needs a new measured contract change. |
 | ProcessViewer | P2.7 parks settled viewers (`S_FALSE`), snaps unchanged/sub-pixel targets, and schedules only visible easing/pulses at 33 ms. Eases use a fixed start pose and one host timestamp for both views; auxiliary observations do not restart them. `PluginHost::Deliver` still coalesces the initial invalidation. | Matched control: 14.126 submissions/s, 2.986% of one core. Two after-runs: 12.163/12.184 submissions/s, 3.515/3.069% CPU. Submission reduction is 13.7–13.9%; CPU improvement is not established. Proposed System budgets remain open. |
-| Logging/settings | `EnsureCurrentLogFile` still calls `PurgeExpiredLogs` for an unchanged file; it enumerates two wildcards. Settings persistence flushes its temp file and checks the loaded document before replacement, but still runs synchronously. | P2.5 remains open. P2.6 must preserve the current flush, merge and stamp guarantees; the old proposed write-through replacement is obsolete. |
+| Logging/settings | P2.5 caches the writer's UTC date and swept policy; ordinary lines perform no directory enumeration or path allocation. Settings persistence flushes its temp file and checks the loaded document before replacement, but still runs synchronously. | P2.5 is complete. P2.6 must preserve the current flush, merge and stamp guarantees; the old proposed write-through replacement is obsolete. |
 | Retained plugin work | Launcher still reserves 32 GPU icon slices even for an empty authored list. Viewer/Weather atlas upload paths and DeskClock's 1 ms animation deadline still exist. | P2.8/P4.3/P4.6 need current measurements; the September cost/line-number table below must not be used as current proof. |
 | Probe | Opt-in `RuntimeProbe` shares existing message/frame-latency waits and the 32×1024 JSONL ring; disabled path has no diagnostic deadline/query. AV queries never load a module or prepare a view. | P0.1 changes diagnostics, not page rendering or service behavior. Invalid/unavailable counters stay explicitly marked. |
 
@@ -432,7 +445,7 @@ contract and validation updates.
 | P2.2 | Cache non-dock `ReachableClientRect` and check geometry generations before display enumeration in `RefreshPageEdgeAffordances`; invalidate on display/work-area/DPI/window changes. Dock already bypasses enumeration. | Non-dock idle trace has no repeated enumeration; work-area/monitor changes remain correct. |
 | P2.3 | `RequiresPlaceholderAt`: per-slot atomic status written by `ReportWidgetStatus`; no locked string scan per frame (`DashboardHost.cpp:794`, `PluginHost.cpp:1415-1433`). | No `_widgetStatusLock` acquisition in `Render`/`PrepareWidgets`. |
 | P2.4 | Verify and dedupe widget-failure `OutputDebugStringW` transitions against the current error path before changing it. | One debug string per failure transition, with existing log visibility preserved. |
-| P2.5 | `PurgeExpiredLogs` only on log open, date change or retention-policy change. Current `EnsureCurrentLogFile` still enumerates twice for an unchanged file. | Zero directory enumerations per ordinary log line; retention tests include policy changes. |
+| P2.5 | **Complete 2026-10-10.** Writer-owned UTC date/policy cache: sweep on open, date change or changed retention value. Policy updates wake the idle writer and synchronize with flush; ordinary lines construct no path. | Same-day, unchanged/shortened policy, forward/backward UTC correction and actual idle-worker flush tests pass in Debug/Release; ARM64 Release compiles. Removes two enumerations per ordinary line; adds 20 bytes of cached date/policy, no thread or wake. |
 | P2.6 | **Candidate: settings persistence latency.** Coalesce and move durable writes off the UI thread only if measured promote stalls justify a bounded owner/worker design. Temp-file flushing and loaded-document/stamp/merge protections already exist; preserve them. Reusing the log worker is undecided. | No UI-thread disk-write stall at promote; concurrent edits, shutdown, failure recovery and stamps retain current guarantees. |
 | P2.7 | **Implemented and measured 2026-10-10: ProcessViewer wake discipline.** Settled viewers park; unchanged/sub-pixel values snap; real 320 ms easing and 420 ms pulses use a 33 ms deadline without immediate requests. Fixed-pose interpolation preserves tile/raised timestamps, ranks and endpoints. Tests cover all ten types, auxiliary deliveries, bursts, recovery, allocation and a scheduled production-host soak. | Fresh matched 14.126/s becomes 12.163/12.184/s (13.7–13.9% lower). CPU 2.986% becomes 3.515/3.069%; no CPU saving established. Proposed ≤2/s and ≤1.5% process CPU remain unmet; UI-thread ≤0.3% is unmeasured. Keep budget acceptance open and use P0.2 attribution to choose further work. |
 | P2.8 | **Atlas and DirectWrite discipline (ProcessViewer, Weather).** Upload only dirty 48×48 cells with a destination box, from the snapshot/`Prepare` path, never from `Render`; one cached DirectWrite factory + font face per module for the module's lifetime (released by `RedXePluginTrim`, P3.6); rasterize outside the draw lock; Weather does not re-raster on raise/dismiss when DPI and cell size are unchanged. | No `UpdateSubresource` in `Render` (debug layer capture); no `dwrite.dll` load after the first glyph fill. |

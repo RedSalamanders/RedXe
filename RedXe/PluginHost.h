@@ -396,7 +396,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     void LogWorker() noexcept;
     void StopLogService() noexcept;
     [[nodiscard]] HRESULT EnsureCurrentLogFile() noexcept;
-    void PurgeExpiredLogs() noexcept;
+    [[nodiscard]] HRESULT EnsureLogFileForDate(const SYSTEMTIME& utc) noexcept;
+    void PurgeExpiredLogs(const SYSTEMTIME& today, uint32_t retention) noexcept;
     [[nodiscard]] HRESULT EnqueueLogLine(const char* line, uint32_t bytes) noexcept;
     void RequestHostActionDrain() noexcept;
     // The launch worker's completion callback (any thread): posts the coalesced host-action message.
@@ -471,6 +472,9 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     SRWLOCK _logLock = SRWLOCK_INIT;
     std::atomic<uint32_t> _logQueued{0};
     std::atomic<uint32_t> _logRetentionDays{kRedXeDefaultLogRetentionDays};
+    // Writer-owned cache: ordinary lines neither allocate a path nor enumerate the directory.
+    SYSTEMTIME _logFileUtcDate{};
+    uint32_t _logPurgedRetentionDays = 0;
     // kShutdownLogFlushMilliseconds; tests raise it so a loaded runner cannot miss the bound.
     uint32_t _shutdownLogFlushMilliseconds = kShutdownLogFlushMilliseconds;
     // SetStandardErrorLog; the lock keeps the lines of concurrent callers whole.

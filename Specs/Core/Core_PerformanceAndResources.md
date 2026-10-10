@@ -256,7 +256,11 @@ or state change is pending. Normal operating-system scheduling noise is outside 
 - Logging and diagnostics must not format or emit per-frame success messages. `IRedXeHost::Log` copies a bounded
   record into a 32-slot 1024-byte ring and wakes one event-blocked writer. The writer appends JSONL under the settings
   sibling `Logs` directory using a UTC-dated file (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`) and
-  deletes files older than `logRetentionDays` (default 15) on open, day change, and retention apply. Release omits
+  deletes files older than `logRetentionDays` (default 15) on open, UTC date change, and retention-value change.
+  Ordinary lines and reapplying the same retention value MUST NOT enumerate the directory or allocate a file path.
+  The writer caches the open UTC date and last swept policy (20 bytes); it adds no thread or periodic wake.
+  A policy change wakes the existing writer even with no queued records, and `FlushLog` waits for that cleanup.
+  Release omits
   `RedXeLogLevelDebug`. The call is allocation-free on the
   caller, never blocks on disk, and is forbidden from GPU `Render` and GDI paint. Only `--self-test`, which opens no
   log directory, also writes each Warning and Error line to stderr on the calling thread, from the line it formatted

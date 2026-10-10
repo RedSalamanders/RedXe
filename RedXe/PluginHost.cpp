@@ -775,6 +775,8 @@ HRESULT PluginHost::SetLogDirectory(const wchar_t* directory) noexcept
     _logDirectory = directory;
     _logFile.reset();
     _logFilePath.clear();
+    _logFileUtcDate = {};
+    _logPurgedRetentionDays = 0;
 
     HRESULT result = EnsureLogDirectory(_logDirectory.c_str());
     if (FAILED(result))
@@ -801,7 +803,18 @@ HRESULT PluginHost::SetLogRetentionDays(uint32_t days) noexcept
     {
         return E_UNEXPECTED;
     }
-    _logRetentionDays.store(days, std::memory_order_release);
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_logLock);
+        if (_logRetentionDays.exchange(days, std::memory_order_acq_rel) == days)
+        {
+            return S_OK;
+        }
+        // FlushLog must also wait for a policy change when there are no queued records.
+        if (_logIdleEvent)
+        {
+            ResetEvent(_logIdleEvent.get());
+        }
+    }
     if (_logWakeEvent)
     {
         SetEvent(_logWakeEvent.get());
@@ -879,12 +892,27 @@ HRESULT PluginHost::EnqueueLogLine(const char* line, uint32_t bytes) noexcept
 
 HRESULT PluginHost::EnsureCurrentLogFile() noexcept
 {
+    SYSTEMTIME utc{};
+    GetSystemTime(&utc);
+    return EnsureLogFileForDate(utc);
+}
+
+HRESULT PluginHost::EnsureLogFileForDate(const SYSTEMTIME& utc) noexcept
+{
     if (_logDirectory.empty())
     {
         return E_UNEXPECTED;
     }
-    SYSTEMTIME utc{};
-    GetSystemTime(&utc);
+    const uint32_t retention = _logRetentionDays.load(std::memory_order_acquire);
+    if (_logFile && _logFileUtcDate.wYear == utc.wYear && _logFileUtcDate.wMonth == utc.wMonth &&
+        _logFileUtcDate.wDay == utc.wDay)
+    {
+        if (_logPurgedRetentionDays != retention)
+        {
+            PurgeExpiredLogs(utc, retention);
+        }
+        return S_OK;
+    }
     wchar_t name[kRedXeLogFileNameCapacity]{};
     if (!RedXeFormatLogFileName(name, kRedXeLogFileNameCapacity, utc))
     {
@@ -896,11 +924,6 @@ HRESULT PluginHost::EnsureCurrentLogFile() noexcept
         path.push_back(L'\\');
     }
     path.append(name);
-    if (_logFile && _logFilePath == path)
-    {
-        PurgeExpiredLogs();
-        return S_OK;
-    }
     _logFile.reset();
     _logFilePath = std::move(path);
     _logFile.reset(CreateFileW(_logFilePath.c_str(), FILE_APPEND_DATA | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
@@ -910,19 +933,17 @@ HRESULT PluginHost::EnsureCurrentLogFile() noexcept
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    PurgeExpiredLogs();
+    _logFileUtcDate = utc;
+    PurgeExpiredLogs(utc, retention);
     return S_OK;
 }
 
-void PluginHost::PurgeExpiredLogs() noexcept
+void PluginHost::PurgeExpiredLogs(const SYSTEMTIME& today, uint32_t retention) noexcept
 {
     if (_logDirectory.empty())
     {
         return;
     }
-    const uint32_t retention = _logRetentionDays.load(std::memory_order_acquire);
-    SYSTEMTIME today{};
-    GetSystemTime(&today);
 
     auto purgeWildcard = [&](const wchar_t* wildcard) noexcept
     {
@@ -933,8 +954,8 @@ void PluginHost::PurgeExpiredLogs() noexcept
         }
         pattern.append(wildcard);
         WIN32_FIND_DATAW found{};
-        const HANDLE handle = FindFirstFileW(pattern.c_str(), &found);
-        if (handle == INVALID_HANDLE_VALUE)
+        wil::unique_hfind handle{FindFirstFileW(pattern.c_str(), &found)};
+        if (!handle)
         {
             return;
         }
@@ -963,12 +984,12 @@ void PluginHost::PurgeExpiredLogs() noexcept
             }
             path.append(found.cFileName);
             DeleteFileW(path.c_str());
-        } while (FindNextFileW(handle, &found) != FALSE);
-        FindClose(handle);
+        } while (FindNextFileW(handle.get(), &found) != FALSE);
     };
 
     purgeWildcard(L"*.jsonl");
     purgeWildcard(L"*.jsonl.1");
+    _logPurgedRetentionDays = retention;
 }
 
 HRESULT PluginHost::EnsureLogWorker() noexcept
@@ -1062,7 +1083,8 @@ void PluginHost::LogWorker() noexcept
         // Pair the idle transition with EnqueueLogLine's reset under the same lock. Otherwise a producer can
         // enqueue/reset between the empty check and SetEvent, making FlushLog observe a stale idle signal.
         AcquireSRWLockExclusive(&_logLock);
-        if (_logIdleEvent && _logCount == 0)
+        if (_logIdleEvent && _logCount == 0 &&
+            (_logPurgedRetentionDays == _logRetentionDays.load(std::memory_order_acquire) || !_logFile))
         {
             SetEvent(_logIdleEvent.get());
         }
