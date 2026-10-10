@@ -2,10 +2,10 @@
 param()
 
 # Restoring the DxUi pin: the lock the product accepts, the sparse long-path checkout restored from a deep root, the repair of an
-# unfinished or changed restore, a restore that loses to a concurrent one, two concurrent repairs of one destination, the filtered
-# clone, the leases and the removal of superseded restores, the Visual Studio installation vcpkg builds with, and the wiring that
-# keeps build.ps1's order. Everything runs on fixtures or on the files the build already restored; nothing needs the network or a
-# window.
+# unfinished or changed restore, a restore that loses to a concurrent one, two concurrent repairs of one destination, the bounded
+# wait for a folder another process holds, the filtered clone, the leases and the removal of superseded restores, the Visual Studio
+# installation vcpkg builds with, and the wiring that keeps build.ps1's order. Everything runs on fixtures or on the files the build
+# already restored; nothing needs the network or a window.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -29,6 +29,12 @@ function Assert-Throws([scriptblock] $Action, [string] $Pattern, [string] $Messa
     try { & $Action } catch { $text = $_.Exception.Message }
     if ($null -eq $text -or $text -notmatch $Pattern) { throw "FAIL: $Message (got: $text)" }
     Write-Host "PASS $Message"
+}
+
+# Whether a bounded wait ended at its limit: not before it (a wait that gave up after its first 500 ms slice passes the
+# upper bound alone) and not long after it (a wait that never gave up passes the lower bound alone).
+function Test-WaitEndedAtLimit([TimeSpan] $Elapsed, [TimeSpan] $Limit) {
+    return $Elapsed -ge $Limit - [TimeSpan]::FromMilliseconds(100) -and $Elapsed -lt [TimeSpan]::FromSeconds(30)
 }
 
 function Invoke-Git {
@@ -308,6 +314,86 @@ try {
     Assert-That ([IO.File]::Exists($firstMarker)) 'the repair that waited never removes the checkout the other published, which its caller may be importing from'
     Assert-CleanRestore $contested $commit 'the destination both repaired is the clean checkout of the commit'
 
+    # --- A wait for a folder another process holds is bounded and names the holder ---
+    # A runspace of its own, on its own thread, holds the mutex of a folder. A wait for it here gives up at its limit, naming the
+    # process and command line the holder recorded; once released, the folder is entered at once and each holder's record goes with
+    # its release.
+    $held = Join-Path $testRoot 'held'
+    $holderEntered = [Threading.ManualResetEventSlim]::new($false)
+    $holderRelease = [Threading.ManualResetEventSlim]::new($false)
+    $holderShell = [powershell]::Create()
+    $restoreModule = Get-Module DxUiRestore
+    try {
+        [void]$holderShell.AddScript({
+            param([string] $ModulePath, [string] $Path, $Entered, $Release)
+            $ErrorActionPreference = 'Stop'
+            $holderModule = Import-Module $ModulePath -Force -PassThru
+            & $holderModule {
+                param($Path, $Entered, $Release)
+                $lock = Enter-RedXeDxUiLock -Path $Path -Purpose 'a fixture hold'
+                try {
+                    $Entered.Set()
+                    [void]$Release.Wait(60000)
+                }
+                finally { Exit-RedXeDxUiLock -Lock $lock }
+            } $Path $Entered $Release
+        }.ToString()).AddArgument((Join-Path $repoRoot 'Build/DxUiRestore.psm1')).AddArgument($held).AddArgument($holderEntered).AddArgument(
+            $holderRelease)
+        $holderRun = $holderShell.BeginInvoke()
+        if (-not $holderEntered.Wait(60000)) { throw "FAIL: the fixture holder did not enter the lock within 60 s: $($holderShell.Streams.Error)" }
+        # The fixture holder is a runspace of this process, so the record names this process and its executable.
+        $executable = [IO.Path]::GetFileName((Get-Process -Id $PID).Path)
+        $holderRecord = "\(process $PID since \d{4}-\d\d-\d\d \d\d:\d\d:\d\d: $([regex]::Escape($executable))( .*)?\)"
+        $wait = { param($Path, $Limit) Enter-RedXeDxUiLock -Path $Path -Purpose 'a fixture wait' -Timeout $Limit }
+        $limit = [TimeSpan]::FromSeconds(2)
+        $waited = [Diagnostics.Stopwatch]::StartNew()
+        Assert-Throws { & $restoreModule $wait $held $limit } `
+            ('(?s)^Gave up after 2 seconds waiting for a fixture wait in another process ' + $holderRecord +
+                '\. Let that process finish, or end it, then run again\.$') `
+            'a wait for a held folder gives up at its limit, naming the holder''s process, executable and command line'
+        Assert-That (Test-WaitEndedAtLimit $waited.Elapsed $limit) "the wait ended at its limit ($($waited.Elapsed))"
+        $limit = [TimeSpan]::FromSeconds(1)
+        $waited.Restart()
+        Assert-Throws { & $restoreModule $wait $held $limit } `
+            '^Gave up after 1 second waiting for a fixture wait in another process ' 'a one-second wait says "1 second"'
+        Assert-That (Test-WaitEndedAtLimit $waited.Elapsed $limit) `
+            "the one-second wait ended at its limit ($($waited.Elapsed))"
+        $holderRelease.Set()
+        [void]$holderShell.EndInvoke($holderRun)
+        $lock = & $restoreModule { param($Path) Enter-RedXeDxUiLock -Path $Path -Purpose 'a fixture wait' -Timeout ([TimeSpan]::FromSeconds(2)) } $held
+        try { Assert-That ([IO.File]::Exists($lock.Record)) 'a released folder is entered at once, and its new holder records itself' }
+        finally { & $restoreModule { param($Lock) Exit-RedXeDxUiLock -Lock $Lock } $lock }
+        Assert-That (-not [IO.File]::Exists($lock.Record)) 'a holder removes its record when it releases the folder'
+
+        # The record is built from its parts, so the culture, the executable and the length are tried on known ones.
+        # fi-FI writes the time of a custom format with '.' separators unless the invariant culture is asked for.
+        $record = {
+            param([string] $Culture, [string] $CommandLine)
+            $before = [Threading.Thread]::CurrentThread.CurrentCulture
+            try {
+                [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo($Culture)
+                return Format-RedXeDxUiLockHolder -ProcessId 4242 -Since ([DateTime]::new(2026, 10, 8, 21, 18, 9)) `
+                    -Executable 'C:\Program Files\PowerShell\7\pwsh.exe' -CommandLine $CommandLine
+            }
+            finally { [Threading.Thread]::CurrentThread.CurrentCulture = $before }
+        }
+        $arguments = '-NoProfile -File "Z:\a b\build.ps1" -Configuration Release'
+        $hostLine = '"C:\Program Files\PowerShell\7\pwsh.dll" ' + $arguments
+        $expected = "process 4242 since 2026-10-08 21:18:09: pwsh.exe $arguments"
+        Assert-That ((& $restoreModule $record 'fi-FI' $hostLine) -ceq $expected) `
+            'a holder record writes the invariant time in any culture and names its executable, not the host dll'
+        $long = & $restoreModule $record 'en-US' ('"C:\Program Files\PowerShell\7\pwsh.dll" -File ' + ('x' * 500))
+        $prefix = 'process 4242 since 2026-10-08 21:18:09: '
+        Assert-That ($long.Length -eq $prefix.Length + 200 -and $long -cmatch ': pwsh\.exe -File x+\.\.\.$') `
+            'a holder record cuts a long command line to 200 characters'
+    }
+    finally {
+        $holderRelease.Set()
+        $holderShell.Dispose()
+        $holderEntered.Dispose()
+        $holderRelease.Dispose()
+    }
+
     # --- A clone of the repository itself fetches only the kept files' contents ---
     # A bare copy of the fixture stands in for the canonical repository. file:// is Git's network path (a local path is cloned
     # locally, where filters are ignored), and the copy accepts filtered fetches as GitHub does.
@@ -468,6 +554,9 @@ try {
         'build.ps1 gives vcpkg-install.ps1 the MSBuild it runs, so vcpkg builds with that installation'
     Assert-That ($buildScript.Contains('$msbuild = Find-RedXeMSBuild') -and $buildScript -notmatch 'function Find-MSBuild') `
         'build.ps1 resolves MSBuild through the shared module'
+    $workflow = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci.yml') -Raw
+    Assert-That ($workflow.Contains('Read-RedXeDxUiLock') -and $workflow.Contains('Get-RedXeDxUiSourcePath') -and $workflow -notmatch 'dependencies/DxUi/source') `
+        'CI runs the pinned matrix validator from the lock and the source path the shared module gives, not from its own copy of them'
 }
 finally {
     $env:GIT_CONFIG_GLOBAL = $savedGitConfigGlobal

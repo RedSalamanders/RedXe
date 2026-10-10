@@ -50,24 +50,34 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 | Mode | Required behavior |
 | --- | --- |
 | Debug with active XENEON | Create a visible `WS_OVERLAPPEDWINDOW` with the RedXe title bar and DPI-adjusted 2560×720 logical client canvas. Place its outer top-left corner at the detected XENEON `rcMonitor` origin; do not force fullscreen. |
-| Debug without active XENEON | Create the same titled window using normal shell-selected placement. Do not prompt and do not force fullscreen. |
+| Debug without active XENEON | Create the same titled window using normal shell-selected placement. Do not prompt and do not force fullscreen. A default settings file installed at this start because it was missing carries the first-run dock ("First start without a XENEON"), so the Dock row applies instead. |
 | Release with active XENEON | Create a `WS_POPUP` borderless window using the detected XENEON monitor's exact `rcMonitor` bounds. |
 | Release without active XENEON | Show the missing-display Yes/No warning. Yes creates the standard titled fallback window; No exits successfully without creating the main window. A default settings file installed at this start because it was missing carries the first-run dock ("First start without a XENEON"), so the Dock row applies instead. |
-| Self-test | Skip display discovery and prompts, create the titled window hidden, validate its DPI-adjusted client dimensions, render one frame, and exit: 0 when every check passed, 6 when one failed, after naming it, with its HRESULT when there is one, on the debugger output and on stderr. A failed Debug runtime check ends the run with its report on stderr and exit code 3, and any other `abort()` with exit code 4 ([`Build_Process.md`](../Build/Build_Process.md)); neither opens a dialog. |
+| Self-test | Skip the startup display discovery and prompts, create the titled window hidden, validate its DPI-adjusted client dimensions, render one frame, switch the window's kind live into a non-reserving bar and back and roll back a failing combined reload while it stays hidden (each switch runs discovery, as a live one does), and exit: 0 when every check passed, 6 when one failed, after naming it, with its HRESULT when there is one, on the debugger output and on stderr. It opens no log directory; the host's Warning and Error records go to stderr as JSONL lines instead (`Plugins_API.md`), so the log of a failed check also names what explains it. A failed Debug runtime check ends the run with its report on stderr and exit code 3, and any other `abort()` with exit code 4 ([`Build_Process.md`](../Build/Build_Process.md)); neither opens a dialog. |
 | Screenshot (`--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]`) | Run exactly as the configuration above prescribes (same discovery, placement, services, and frame loop), jump to the named page through the host `PageGoTo` action once the renderer is live and no settle runs, wait the delay (default 3000 ms, 1–120000) with the frame loop idle-waiting as usual, capture the main window through `Common/WindowCapture.cpp` on a capture worker (Windows.Graphics.Capture of an owned, visible window; a widget ordinal crops to that tile's `PixelBoundsAt` in client space, mapped through the DWM extended frame bounds), then close. The UI thread continues handling input and timers while capture waits for its first frame. Exit 0 only with the PNG written; 8 when the capture failed, when its worker could not start, and when the run ended before the PNG was written (the window closed during the delay or the capture, or a startup, graphics, or rendering failure ended the run first), with one `screenshot-failed` Warning record once the log is open (a failure before the settings load reaches only the debugger output). The run is unattended (`RedXeIsUnattendedRun`, as `--self-test` is) and MUST NOT wait on a modal box: the Release missing-display prompt is not shown and the titled fallback window is created as for its Yes; the settings fallback notice is one Warning record (`settings-fallback-notice`) instead of its box; the previous-crash notice is left for the next interactive start; a command-line error goes to the console or redirected output (exit 2); and a failure exit, whatever its code, is one Error record (`failure-exit`, naming the code) and a debugger line instead of the exit-code message box (`RedXeShowsExitCodeBox`). A failed Debug runtime check ends the run with exit code 3, and any other `abort()` with exit code 4 (`Common/FailureReports.h`). A worker still capturing when the window closes is joined and its result decides the exit code. Only this command-line mode closes after the capture; the `redxe.screenshot` action shares the pipeline and keeps RedXe running (`Plugins_Actions.md`). It MUST NOT activate, move, or resize the window, move the cursor, or send input. |
-| Dock (`dock.edge` other than `none`, or `--dock <edge>[@<monitor>]`) | Debug and Release alike: create the dock window kind below on the selected monitor instead of the row that would otherwise apply, and skip the missing-display prompt. A live reload that turns the dock on or off switches the running window between this row and the one that would otherwise apply ("Switching the window kind"). `--self-test` ignores the dock. |
+| Dock (`dock.edge` other than `none`, or `--dock <edge>[@<monitor>]`) | Debug and Release alike: create the dock window kind below on the selected monitor instead of the row that would otherwise apply, and skip the missing-display prompt. A live reload that turns the dock on or off switches the running window between this row and the one that would otherwise apply ("Switching the window kind"). `--self-test` ignores the document's and the command line's dock; only its window-kind check switches its hidden window. |
 | Help (`--help`, `-h`, `/?`, `-?`) | Print the command-line catalog and exit 0 before any other switch is read: to the console the process was started from (a GUI process attaches to its parent's), to a redirected stdout as UTF-8, or, without either, to a message box, except when `--self-test` or `--screenshot` is on the line: help still wins over them, but their caller never waits on a box, so the catalog then reaches only the debugger output. Every other token on the line MUST be a catalogued switch or the value of one; the first unknown token is a command-line error (exit 2, `Unknown argument "<token>". Run RedXe.exe --help for the command line.`) shown the same way, so never as a message box when `--self-test` or `--screenshot` is on the line. |
 
 The command line is declared once in `RedXe/CommandLine.h`: the catalog `--help` prints and the names `Main.cpp`
 parses through, so a switch cannot exist without an entry. Adding, renaming, or removing a switch changes that
 catalog, the "Command line" section of `docs/usage.md`, and the owning row of this table in the same change;
 `SettingsTests` pins the catalog (unique well-formed names, every entry printed, the help aliases, the unknown-token
-scanner) and the unattended-run policy `Main.cpp` applies through it (`RedXeIsUnattendedRun`: `--self-test` or
+scanner, and the description of a run without switches, which names the bar a `dock` makes and the first-run bar)
+and the unattended-run policy `Main.cpp` applies through it (`RedXeIsUnattendedRun`: `--self-test` or
 `--screenshot` on the line; `RedXeShowsExitCodeBox`: no exit-code box for an unattended run; `RedXeScreenshotExitCode`:
 8 for a capture run without its PNG, whatever ended it; `RedXeExitCodeName`: the `failure-exit` record names each
-code as `--help` lists it), and `test.ps1` runs `--help` through a redirected stdout, an unknown switch under
-`--self-test`, and a missing switch value under `--self-test` and an invalid one under `--screenshot`, each bounded so
-that a message box fails the step instead of holding it.
+code as `--help` lists it), and `test.ps1` runs `--help` through a redirected stdout (its UTF-8 title intact under
+console code page 437, [`Build_Process.md`](../Build/Build_Process.md)), an unknown switch under `--self-test`, a
+missing switch value under `--self-test`, an invalid one under `--screenshot`, and an unknown `--dock` monitor under
+`--self-test`, whose usage MUST name every selector the dock accepts, each bounded so that a message box fails the step
+instead of holding it. It also runs `--screenshot` end to end, bounded, with a portable settings file on a thin fixed
+bar on the primary display that reserves nothing (`--dock bottom@primary --dock-mode fixed --dock-reserve off
+--dock-thickness 32`, `--after 200`): the run MUST exit 0 with a non-empty PNG, or 8 with a `screenshot-failed` record
+for a host that cannot capture (`E_NOTIMPL`, `DXGI_ERROR_UNSUPPORTED`, `E_INVALIDARG`, as `TestWindowCapture` accepts),
+so a lost completion message fails at the bound; and with `--widget 511` it MUST exit 8 without a PNG and log
+`screenshot-failed` with `ERROR_NOT_FOUND`. The settings file carries the retired Zoom `services` entry as `v1.0.102`
+wrote it, so the same run proves the startup path for it: the file loads as written, without a
+`settings-fallback-notice`, and the log holds one `service-retired-settings-ignored` Warning.
 
 Debug and Release display discovery MUST inspect active display paths through
 `QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS)`. A target friendly name containing `XENEON` or `CORSAIR`, compared
@@ -155,6 +165,21 @@ without an effective edge is accepted and inert. `--self-test` validates and ign
   (`secondary` on a single display included) falls back to the primary display with one Warning log record
   (`dock-monitor-fallback`) and no prompt; `WM_DISPLAYCHANGE` re-runs discovery and the selector, so the bar returns
   when its monitor does.
+- The dock's monitor selection and the first-run measurement ("First start without a XENEON") MUST read one display
+  walk (`EnumerateDisplays` in `RedXe/DisplayEnumeration.h`): the displays in `EnumDisplayMonitors` order, at most 16,
+  a display whose `GetMonitorInfoW` fails (it left during the walk) skipped, each with its rectangle, work area,
+  `MONITORINFOF_PRIMARY` flag, GDI device name, and effective DPI (`EffectiveMonitorDpi`, which the standard window's
+  placement reads too: 96 when `GetDpiForMonitor` fails or reports 0). The walk allocates nothing, and a first-run
+  `secondary` is measured on the display the same selector resolves to at runtime.
+- `secondary` cannot tell a display nobody is looking at from the second screen: a TV in standby that keeps its
+  connection, a dummy plug, and a virtual display (an indirect display driver's monitor) are active displays like any
+  other and rank like one, so the first-run bar or an `@secondary` action can land on one. Windows offers no reliable
+  signal to rank them lower. Such a TV stays an active, available path, reported exactly as a display that is on
+  (`EnumDisplayDevices`: `DISPLAY_DEVICE_ACTIVE` and `DISPLAY_DEVICE_ATTACHED`; `QueryDisplayConfig`:
+  `targetAvailable`), and its power state is reachable only over DDC/CI, which is slow, optional on TVs, and often
+  unanswered in standby. A virtual display's `outputTechnology` is whatever its driver reports; Microsoft's indirect
+  display sample, which many virtual display drivers start from, reports HDMI. A bar or an action meant for another
+  display names it instead (`<n>` or `name:<substring>`).
 - Thickness is `MulDiv(thickness, monitorDpi, 96)` (`GetDpiForMonitor`, effective DPI) and is clamped so at least
   half of the monitor's cross dimension stays free (one Warning record, `dock-thickness-clamped`).
 - What the bar reserves in the monitor's work area is its **registration row** (`DockReservationFor`): `fixed` with
@@ -320,8 +345,9 @@ native containers, the settings watcher, the drop target, and accessibility.
   adapter change; no widget instance is recreated. A reload that also rebuilds the active page restyles and places
   the hidden window before the page runtime starts, so its renderer is created once, for the new kind; a failed
   apply restyles the window back before the previous page is restored.
-- The window is shown with `SW_SHOWNOACTIVATE`: the window in which the file was saved keeps the focus. An autohide
-  dock collapses after the hide delay as at launch.
+- The window is shown again with `SW_SHOWNOACTIVATE` when it was visible before the switch: the window in which the
+  file was saved keeps the focus. A window that was hidden (the self-test's) MUST stay hidden, and a rollback keeps
+  what the forward switch recorded. An autohide dock collapses after the hide delay as at launch.
 - A switch logs one Info record (`window-kind-changed`).
 - A failed step MUST NOT end the process or mark the file applied, whether the reload changes only `dock` or also
   rebuilds the active page. The window is switched back to the kind it had and placed as a switch to that kind
@@ -331,7 +357,8 @@ native containers, the settings watcher, the drop target, and accessibility.
   settings-error dialog opens. The failure logs one Warning record (`window-kind-switch-failed`, with the failing
   `HRESULT`) and the rollback logs no `window-kind-changed`. Only a rollback that leaves no renderer is a runtime
   failure: the Error record `settings-apply-failed` and exit code 5.
-- `--self-test` pins the edge to `none`, so a document `dock` never switches its hidden titled window.
+- `--self-test` pins the edge to `none`, so a document `dock` never switches its hidden titled window; only its own
+  window-kind check lifts the pin and switches the hidden window ("Validation").
 
 ### First start without a XENEON
 
@@ -343,13 +370,16 @@ row of the mode table instead of the Release missing-display prompt or the Debug
 invalid default file MUST install the plain template, even without a XENEON, so a file that failed validation never
 turns a XENEON or window configuration into a bar. A remote session sees only the remote client's displays, so it MUST
 install the plain template too: a bar decided there would stay in the file when the user is back at the XENEON.
-`MakeFirstRunDock` measures the displays once, at that install:
+`MakeFirstRunDock` MUST measure the displays only at that install, once: the settings store asks for the dock
+(`FirstRunDockProvider`) after it finds the default file missing, so a start that finds the file, a recovery, a
+`--settings` file, and the self-test walk no display and send Explorer no query for it. It decides:
 
 - `M` is the second screen when more than one display is active (`DockFirstRunMonitor`): `secondary`, which
   resolves like every selector at runtime, so the bar follows the first display that is neither the primary nor a
   XENEON ("Monitor and placement"). With one display it is `primary`. The primary monitor is identified by
   `MONITORINFOF_PRIMARY` during enumeration, even when another monitor contains screen coordinate `(0,0)`, and the
-  second screen is chosen in the enumeration order the `secondary` selector uses.
+  second screen is chosen over the display walk the `secondary` selector resolves over at runtime (`EnumerateDisplays`).
+  A TV in standby or a virtual display can be that second screen ("Monitor and placement").
 - `E` is the better-ranked horizontal edge of that display (`DockFirstRunEdge`), and `bottom` when both rank the same,
   so the strip stays away from the caption buttons and tabs at the top of maximized windows wherever the bottom is
   free. Maximized windows stop beside the reserved strip on either edge ("Autohide"), so a top strip never covers
@@ -567,8 +597,8 @@ Changes to display selection, window styles, initial sizing, DPI handling, resiz
 startup policy MUST run:
 
 ```powershell
-.\test.ps1 -Configuration Debug -Platform x64 -Rebuild
-.\test.ps1 -Configuration Release -Platform x64 -Rebuild
+.\test.ps1 -Full -Configuration Debug -Platform x64 -Rebuild
+.\test.ps1 -Full -Configuration Release -Platform x64 -Rebuild
 .\build.ps1 -Configuration Release -Platform ARM64 -Rebuild
 ```
 
@@ -634,7 +664,11 @@ coordinates, and none for displays side by side, at a corner, or on a side edge)
 (`DockFirstRunEdge`: a display without a taskbar on either horizontal edge and a side taskbar taking `bottom`, a visible
 taskbar at the bottom and at the top, an auto-hiding taskbar at either edge, both edges taken, a display under another
 display with and without its own taskbar, one over another display, one between two displays, negative coordinates, and
-`DockAutohideBarHoldsEdge` counting a registration only while its window exists), and the autohide slide
+`DockAutohideBarHoldsEdge` counting a registration only while its window exists), the display walk
+(`TestDisplayEnumeration`: on the machine's own displays it records what an `EnumDisplayMonitors` walk reports, in that
+order, with each rectangle, work area, primary flag, GDI name, and effective DPI, and the first-run monitor resolves
+over it to the primary alone or to a display that is not the primary; it skips a display it cannot read, stops at 16,
+and counts a DPI it cannot read as 96), and the autohide slide
 (`DockSlideDurationMilliseconds`: whole, partial, reversed, zero, and tiny travels; `DockSlideVisiblePixels`: exact
 ends, clamped progress, the eased halfway points of a reveal and a hide, one-way motion within the travel;
 `DockSlideContentOffset` for every edge), with a dock-kind swap chain presenting a slide frame at half the bar with
@@ -646,12 +680,14 @@ or left translation; every `DockRouteInput` row; `DockForegroundCoversMonitor` f
 captioned window's overhang, a captionless one, another monitor, a spanning window, and a partial cover), proved on a
 real dashboard too (`TestDockCanvasHitTesting`: mid-slide hits on the canvas reach the tile on screen on a bottom and a
 translated top bar where the client size missed, a settled press keeps that tile only with the shift, and a raise on a
-collapsed bar fills the full bar; `TestDashboardSlideOffsetRetry`: a native container that failed to move is moved again
-by an unchanged offset, the zero one included);
+collapsed bar fills the full bar; `TestDashboardSlideOffsetRetry`: a native container moves with a top and a left bar's
+slide by the hidden part at its size and returns at the zero offset, and one that failed to move is moved again by an
+unchanged offset, the zero one included);
 `SettingsTests` proves the `dock` member with `animationMilliseconds` (0 through 1000, default 200), its rejections,
 minor 2, the `secondary` selector in the document and on `--dock`, the `--dock*` grammar with its errors, the merge
-precedence, `PatchDockThickness` (replace, create with the minor bump, range, re-parse), and the first-run install
-(`Specs/Core/Core_Settings.md`). Live, on the machine's topology: a reserving bar shrinks `rcWork` by exactly its
+precedence, `PatchDockThickness` (replace, create with the minor bump, range, re-parse), and the first-run install,
+which asks for the dock once for a missing file and never otherwise (`Specs/Core/Core_Settings.md`). Live, on the
+machine's topology: a reserving bar shrinks `rcWork` by exactly its
 thickness while it runs and restores it on exit; an overlay bar leaves `rcWork` alone and sits against the work-area
 edge; a side bar on a monitor with a bottom taskbar ends above the taskbar; an autohide bar collapses to its strip after
 the hide delay, reveals after the dwell when the real cursor rests on the strip, hides after the pointer leaves, and
@@ -678,6 +714,16 @@ native tiles moving with the GPU tiles; a `page.goto` and a `widget.toggle` key 
 with the page changed or the widget raised over the full bar; a click on a tile while the bar is still sliding in
 reaches that tile; and a wheel over the strip changes no page. These are manual checks and are not recorded yet.
 
+Window-kind switch changes MUST keep the `--self-test` step green: it switches its hidden window into a fixed overlay
+bar on the primary display (reserving nothing) and back through the dock-only path, each time requiring the window
+still hidden with the target kind's styles (the bar without `WS_EX_APPWINDOW`, with `WS_EX_TOOLWINDOW`; the standard
+kind not topmost, without an app-bar registration, at the mode-table row with its exact client), `DXGI_SCALING_NONE` or
+`DXGI_SCALING_STRETCH` over the canvas; then it applies a reload that switches the kind and also rebuilds a page that
+cannot be built (a zero-column grid, which the store never produces) and requires the rollback: `E_INVALIDARG`, the
+previous document, the standard kind, a rendered frame, and one `window-kind-switch-failed` Warning, which `test.ps1`
+finds in the self-test log. The bar's topmost bit is left to the live run below: Windows did not reliably report
+`HWND_TOPMOST` on the self-test's window, which is never shown.
+
 Window-kind switches additionally require a live run with a portable `--settings` file edited while RedXe runs:
 `none` → an edge and back yields the dock styles (`WS_EX_TOOLWINDOW`, topmost, no `WS_EX_APPWINDOW`) and then the
 standard ones (`WS_OVERLAPPEDWINDOW`, `WS_EX_APPWINDOW`, not topmost) at the mode-table placement with its exact
@@ -692,8 +738,9 @@ Changes to the deferred reload additionally require a live run of the same kind:
 activation while a save changes `backgroundColor` stays minimized and running with no `settings-apply-failed`
 record, and once restored without activation its `--screenshot` shows the saved color; a save of only `dock.edge`
 made while it is minimized still turns it into a bar at once. The 2026-10-07 check recorded these on the topology
-above. A failed switch step needs a Direct3D, shell, or `SetWindowPos` fault and a move/size loop needs the real
-cursor, so the rollback and the move/size deferral have no automated or live check.
+above. The rollback of a reload that also rebuilds the page runs in `--self-test` (above); a failed step of a
+dock-only switch needs a Direct3D, shell, or `SetWindowPos` fault and a move/size loop needs the real cursor, so that
+rollback and the move/size deferral have no automated or live check.
 
 First-run changes additionally require a live install without a XENEON, a manual check on a machine without one: on
 two displays side by side with the taskbar on the primary only, the installed `dock` names `bottom` and `secondary`,
@@ -703,16 +750,16 @@ names `top`. Recovery of an invalid default file installs no `dock`, and neither
 Desktop session. These are not recorded yet.
 
 Changes to the dock's `TaskbarCreated` handling MUST keep the `--self-test` step green: its window's `WM_CREATE`
-already finds the message registered and admits it through the message filter (exit 2 otherwise), the order a dock
-created the same way relies on to hear a taskbar created during its first placement. They additionally require a
-live run, because `HostPluginTests` does not build `Application` and `--self-test` never runs a dock: a Debug overlay
-bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`) under `--screenshot`, with the registered
-`TaskbarCreated` message posted twice to its own window (the running-Explorer case), logs two `dock-appbar-renewed`
-records and no `dock-appbar-refused`, leaves the foreground where it was, and exits 0. The 2026-10-07 check recorded
-this on the topology above, and again once the message was registered before the window. A real Explorer restart
-with a reserving bar and with an autohide bar up (the bar or the strip is reserved in the work area again, a
-full-screen window on the bar's monitor puts it beneath again), and one that broadcasts while the dock's first
-placement runs, are manual checks.
+already finds the message registered and admits it through the message filter (otherwise that check fails, exit 6),
+the order a dock created the same way relies on to hear a taskbar created during its first placement. They
+additionally require a live run, because `HostPluginTests` does not build `Application` and the self-test's hidden
+bar is never sent the message: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`)
+under `--screenshot`, with the registered `TaskbarCreated` message posted twice to its own window (the
+running-Explorer case), logs two `dock-appbar-renewed` records and no `dock-appbar-refused`, leaves the foreground
+where it was, and exits 0. The 2026-10-07 check recorded this on the topology above, and again once the message was
+registered before the window. A real Explorer restart with a reserving bar and with an autohide bar up (the bar or the
+strip is reserved in the work area again, a full-screen window on the bar's monitor puts it beneath again), and one
+that broadcasts while the dock's first placement runs, are manual checks.
 
 Placement-request and notice-window changes MUST keep `HostPluginTests` proving `BeginDockPlacement` and
 `NextDockPlacementPass` (a request during a pass is recorded, not run, and replayed as one more pass with the recorded
@@ -724,12 +771,12 @@ client keeps the text block and OK where the fixed layout had them, a notice cut
 and the text above it, and a client below the minimum is laid out at the minimum with no negative coordinate). A
 display change during a placement needs a hot-plug or a real shell delay, so the replay itself has no live check.
 
-Unattended-run changes MUST keep the bounded `test.ps1` command-line error step green, and additionally require a
-live run: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`) under `--screenshot`
-closed by a posted `WM_CLOSE` during its delay exits 8 with a `screenshot-failed` and a `failure-exit` record, shows no
-message box, and leaves the foreground where it was. The 2026-10-07 check recorded this on the topology above. A
-startup failure exit (1, 2, 3, 5, or 7), the settings fallback notice, a present crash marker, and the Release
-missing-display path under `--screenshot` have no automated or live check.
+Unattended-run changes MUST keep the bounded `test.ps1` command-line error and end-to-end capture steps green, and
+additionally require a live run: a Debug overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`)
+under `--screenshot` closed by a posted `WM_CLOSE` during its delay exits 8 with a `screenshot-failed` and a
+`failure-exit` record, shows no message box, and leaves the foreground where it was. The 2026-10-07 check recorded
+this on the topology above. A startup failure exit (1, 2, 3, 5, or 7), the settings fallback notice, a present crash
+marker, and the Release missing-display path under `--screenshot` have no automated or live check.
 
 Session-end changes MUST keep the `--self-test` step green: `WM_QUERYENDSESSION` and a cancelled `WM_ENDSESSION` sent to
 its hidden window keep the window, renderer, page, and services, and `WM_ENDSESSION` with `wParam` `TRUE` returns with
@@ -745,9 +792,10 @@ drains alongside and runs `Stop`, the launch stop waits at most what is left, th
 deadline and leave it its reserve, and the log then holds one `device-lane-drain-timeout` (the stuck lane's) and one
 `launch-stop-timeout`. The waits are checked against the budgets the sequence hands out, with scheduling margins of
 hundreds of milliseconds; the flush is not timed, since `FlushLog`'s timeout bounds a hung writer, not disk latency, and
-the log is read after a 10 s hang guard. A zero-wait stop of an idle launch worker logs no `launch-stop-timeout`, and
-the shutdown after it joins the thread. Because the self-test has no log writer, they additionally require a live run: a
-Debug overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`) running the Logicon service under
+the log is read after a 10 s hang guard. A zero-wait stop of an idle launch worker logs no `launch-stop-timeout` and
+leaves the next stop its wait, so the shutdown after it, made without first waiting for the thread, joins the exiting
+thread. Because the self-test has no log writer for these Info records, they additionally require a live run: a Debug
+overlay bar (`--dock bottom@primary --dock-mode fixed --dock-reserve off`) running the Logicon service under
 `--screenshot` (the runs recorded below ran the Zoom service, bundled then), sent both messages with `ENDSESSION_LOGOFF`
 the way Windows sends them, answers `TRUE`, returns from `WM_ENDSESSION` with its window destroyed and its JSONL log
 already holding `session-ending` followed by `service-stopped`, leaves the foreground where it was, and exits by itself
@@ -764,18 +812,19 @@ the retry schedule (`TrayIconAddRetryDelayMilliseconds`), and the owner against 
 taskbar (`TestTrayIconOwner`: `Show` and `Hide` idempotent and the class unregistered, `WM_CLOSE` ignored, `NIM_DELETE`
 on every destruction while the owner exists, `TaskbarCreated` adding again, retries only while a taskbar exists and no
 timer after the last, no update after a timed-out add, `NIM_SETVERSION` after every add and every update an add falls
-back to before the icon counts as added, a `WM_DPICHANGED` that updates an added icon by one `NIM_MODIFY` of
-`NIF_ICON` alone, with no `NIM_SETVERSION`, and makes no shell call for an icon not added, an add outside `Show` posting
-its outcome, refused then added, to the command target, and what the main window records when that post arrives
+back to before the icon counts as added, a `WM_DPICHANGED` that updates an added icon by one `NIM_MODIFY` of `NIF_ICON`
+alone, with no `NIM_SETVERSION`, and makes no shell call for an icon not added, an add outside `Show` posting its
+outcome, refused then added, to the command target, what the main window records when that post arrives
 (`TrayIconOutcomeOnArrival`, `TrayIconFailureIsNew`: a refusal a `Show` overtook records success, a hidden icon records
-nothing, and a failure logs once per change of outcome)), and `SettingsTests` proving `trayIcon`
-(`Specs/Core/Core_Settings.md`). Because the shell is not automated, they additionally require a live check: a Release
-run with the shipped template shows the icon with the `RedXe` tooltip (`Shell_NotifyIconGetRect` finds it); a
-double-click, and Enter on the keyboard-focused icon, open the settings file once in the default `.json` editor; a
-right-click and Shift+F10 show Edit settings (bold) and Exit, a click elsewhere closes the menu, and Esc after Shift+F10
-leaves the keyboard focus on the notification area; Exit quits and removes the icon; saving `"trayIcon": false` removes
-the icon and `true` brings it back without a restart; restarting Explorer brings it back; and a Debug run with the
-shipped template shows none.
+nothing, and a failure logs once per change of outcome), and the shell's callbacks on the owner: single clicks post
+nothing, a double-click posts Edit settings to the command target, and Enter or another double-click within the
+double-click time posts nothing), and `SettingsTests` proving `trayIcon` (`Specs/Core/Core_Settings.md`). Because the
+shell is not automated, they additionally require a live check: a Release run with the shipped template shows the icon
+with the `RedXe` tooltip (`Shell_NotifyIconGetRect` finds it); a double-click, and Enter on the keyboard-focused icon,
+open the settings file once in the default `.json` editor; a right-click and Shift+F10 show Edit settings (bold) and
+Exit, a click elsewhere closes the menu, and Esc after Shift+F10 leaves the keyboard focus on the notification area;
+Exit quits and removes the icon; saving `"trayIcon": false` removes the icon and `true` brings it back without a
+restart; restarting Explorer brings it back; and a Debug run with the shipped template shows none.
 
 ## Implementation and validation anchors
 
@@ -783,12 +832,15 @@ shipped template shows none.
   `--help`: `RedXe/CommandLine.h`
 - Display discovery, window creation, and DPI transitions: `RedXe/Application.cpp`, `RedXe/Application.h`; live
   window-kind switches: `Application::SwitchWindowKind` (`RestyleWindowKind`, `RebuildPresentation`,
-  `FinishWindowKindSwitch`), `PlaceStandardWindow`, the dock-only reload and its rollback in `ApplyDockSettings`, and
-  the combined page-and-kind reload in `ApplySettings`; the deferred reload: `OnSettingsChanged` and
-  `ReplayDeferredSettingsReload`; the failure message box and the unattended runs that never show it:
-  `RunApplication` in `RedXe/Main.cpp` and `Application::SetUnattended`; the first-run dock:
-  `MakeFirstRunDock` in `RedXe/Application.cpp`; session end: `Application::OnEndSession`, its deadline through
-  `CloseMainWindow` and `PluginHost::TeardownStageMilliseconds`
+  `FinishWindowKindSwitch`, and the `StandardPlacement` a switch and its rollback share), the renderer start
+  `StartPresentation` that `RebuildPresentation` shares with `InitializeDashboardRuntime`, `PlaceStandardWindow`, the
+  dock-only reload and its rollback in `ApplyDockSettings`, and the combined page-and-kind reload in `ApplySettings`;
+  the deferred reload: `OnSettingsChanged` and `ReplayDeferredSettingsReload`; the failure message box and the
+  unattended runs that never show it: `RunApplication` in `RedXe/Main.cpp` and `Application::SetUnattended`; the
+  first-run dock: `MakeFirstRunDock` in `RedXe/Application.cpp`, made through `FirstRunDockProvider`
+  (`RedXe/Settings.h`) only when the store installs a missing file; the display walk the dock, the first-run dock, and
+  the standard window read: `EnumerateDisplays` and `EffectiveMonitorDpi` in `RedXe/DisplayEnumeration.*`; session end:
+  `Application::OnEndSession`, its deadline through `CloseMainWindow` and `PluginHost::TeardownStageMilliseconds`
 - Dock placement, monitor selection, MINMAXINFO, the autohide state machine, the slide, and the first-run monitor,
   edge, and thickness: `RedXe/DockPlacement.h`; what each mode reserves and the registration messages of a placement
   pass: `DockReservationFor` and `PlanDockAppBar` in `RedXe/DockPlacement.h`, sent by `Application::PlaceDockPass`

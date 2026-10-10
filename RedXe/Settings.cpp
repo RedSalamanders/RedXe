@@ -4,9 +4,11 @@
 #include "../Plugins/AVControl/AVControlModel.h"
 #include "../Plugins/Launcher/LauncherBindings.h"
 #include "../Plugins/Launcher/LauncherPaging.h"
+#include "../Plugins/StudioClock/StudioClockSettings.h"
 #include "BundledPlugins.h"
 #include "HostActionCatalog.h"
 #include "PlugInterfaces/Factory.h"
+#include "SettingsJsonText.h"
 
 #include <algorithm>
 #include <array>
@@ -19,6 +21,7 @@
 #include <new>
 #include <shlobj.h>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -382,21 +385,19 @@ template <size_t Count>
 
 [[nodiscard]] bool IsValidStudioClockPrivate(yyjson_val* object) noexcept
 {
-    constexpr std::array keys{
-        "showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor",
-        "showDate",           "dateFormat",           "timeColor",   "glowPercent",
-    };
     yyjson_val* dateFormatValue = yyjson_obj_get(object, "dateFormat");
     const char* dateFormat = yyjson_is_str(dateFormatValue) ? yyjson_get_str(dateFormatValue) : nullptr;
-    const bool validDateFormat =
-        dateFormat && (std::strcmp(dateFormat, "dd-mm-yyyy") == 0 || std::strcmp(dateFormat, "mm-dd-yyyy") == 0 ||
-                       std::strcmp(dateFormat, "yyyy-mm-dd") == 0);
+    StudioClock::DateFormat parsedDateFormat = StudioClock::DateFormat::DayMonthYear;
+    const bool validDateFormat = dateFormat && StudioClock::TryParseDateFormat(dateFormat, parsedDateFormat);
     uint32_t value = 0;
-    return HasExactKeys(object, keys) && yyjson_is_bool(yyjson_obj_get(object, "showSecondProgress")) &&
+    return HasExactKeys(object, StudioClock::kSettingsKeys) &&
+           yyjson_is_bool(yyjson_obj_get(object, "showSecondProgress")) &&
            yyjson_is_bool(yyjson_obj_get(object, "externalDotsAlwaysOn")) &&
            yyjson_is_bool(yyjson_obj_get(object, "showSeconds")) &&
            yyjson_is_bool(yyjson_obj_get(object, "showDate")) && validDateFormat && IsColor(object, "secondsColor") &&
-           IsColor(object, "timeColor") && ReadUnsigned(object, "glowPercent", 0, 100, value);
+           IsColor(object, "timeColor") &&
+           ReadUnsigned(object, "glowPercent", StudioClock::kMinimumGlowPercent, StudioClock::kMaximumGlowPercent,
+                        value);
 }
 
 [[nodiscard]] bool IsValidDeskClockPrivate(yyjson_val* object) noexcept
@@ -809,6 +810,49 @@ template <size_t Count>
     }
 }
 
+// The target of an install that writes only a missing file: S_OK when it is missing, S_FALSE when it exists as a file
+// (that file wins), and the error for a directory or a failed query.
+[[nodiscard]] HRESULT ProbeInstallTarget(const std::filesystem::path& target) noexcept
+{
+    const DWORD attributes = GetFileAttributesW(target.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES)
+    {
+        return (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ? S_FALSE : HRESULT_FROM_WIN32(ERROR_DIRECTORY);
+    }
+    const DWORD error = GetLastError();
+    return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND ? S_OK : HRESULT_FROM_WIN32(error);
+}
+
+// The same-directory temporary file an atomic write of `target` fills before its rename, named for this process and
+// moment. Throws only std::bad_alloc.
+[[nodiscard]] std::wstring TemporarySiblingPath(const std::filesystem::path& target)
+{
+    std::wstring temporary = target.wstring();
+    temporary.append(L".tmp.");
+    temporary.append(std::to_wstring(GetCurrentProcessId()));
+    temporary.push_back(L'.');
+    temporary.append(std::to_wstring(GetTickCount64()));
+    return temporary;
+}
+
+// The write-through rename that commits a complete temporary file over `target`. S_FALSE without replaceExisting when
+// the target already exists (an install that lost the race keeps that file).
+[[nodiscard]] HRESULT CommitTemporaryFile(const std::wstring& temporary, const std::filesystem::path& target,
+                                          bool replaceExisting) noexcept
+{
+    const DWORD flags = MOVEFILE_WRITE_THROUGH | (replaceExisting ? MOVEFILE_REPLACE_EXISTING : 0U);
+    if (MoveFileExW(temporary.c_str(), target.c_str(), flags))
+    {
+        return S_OK;
+    }
+    const DWORD error = GetLastError();
+    if (!replaceExisting && (error == ERROR_ALREADY_EXISTS || error == ERROR_FILE_EXISTS))
+    {
+        return S_FALSE;
+    }
+    return HRESULT_FROM_WIN32(error);
+}
+
 // The schema copy, refreshed from the deployed file on every start. It skips the data flush a settings document gets
 // (InstallTemplateFile): a schema that a power loss empties is copied again at the next start.
 [[nodiscard]] HRESULT CopyFileAtomically(const std::filesystem::path& source, const std::filesystem::path& target,
@@ -816,28 +860,13 @@ template <size_t Count>
 {
     try
     {
-        std::wstring temporary = target.wstring();
-        temporary.append(L".tmp.");
-        temporary.append(std::to_wstring(GetCurrentProcessId()));
-        temporary.push_back(L'.');
-        temporary.append(std::to_wstring(GetTickCount64()));
-
+        const std::wstring temporary = TemporarySiblingPath(target);
         if (!CopyFileW(source.c_str(), temporary.c_str(), TRUE))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
         const auto cleanup = wil::scope_exit([&temporary]() noexcept { DeleteFileW(temporary.c_str()); });
-        const DWORD flags = MOVEFILE_WRITE_THROUGH | (replaceExisting ? MOVEFILE_REPLACE_EXISTING : 0U);
-        if (!MoveFileExW(temporary.c_str(), target.c_str(), flags))
-        {
-            const DWORD error = GetLastError();
-            if (!replaceExisting && (error == ERROR_ALREADY_EXISTS || error == ERROR_FILE_EXISTS))
-            {
-                return S_FALSE;
-            }
-            return HRESULT_FROM_WIN32(error);
-        }
-        return S_OK;
+        return CommitTemporaryFile(temporary, target, replaceExisting);
     }
     catch (const std::bad_alloc&)
     {
@@ -853,15 +882,9 @@ template <size_t Count>
 [[nodiscard]] HRESULT MigrateLegacyReleaseSettingsName(const std::filesystem::path& directory,
                                                        const std::filesystem::path& target) noexcept
 {
-    const DWORD targetAttributes = GetFileAttributesW(target.c_str());
-    if (targetAttributes != INVALID_FILE_ATTRIBUTES)
+    if (const HRESULT probe = ProbeInstallTarget(target); probe != S_OK)
     {
-        return (targetAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ? S_FALSE : HRESULT_FROM_WIN32(ERROR_DIRECTORY);
-    }
-    const DWORD targetError = GetLastError();
-    if (targetError != ERROR_FILE_NOT_FOUND && targetError != ERROR_PATH_NOT_FOUND)
-    {
-        return HRESULT_FROM_WIN32(targetError);
+        return probe;
     }
 
     const std::filesystem::path legacy = directory / kLegacyReleaseSettingsFileName;
@@ -1227,11 +1250,7 @@ class DocumentTemporary final
     {
         try
         {
-            std::wstring path = target;
-            path.append(L".tmp.");
-            path.append(std::to_wstring(GetCurrentProcessId()));
-            path.push_back(L'.');
-            path.append(std::to_wstring(GetTickCount64()));
+            std::wstring path = TemporarySiblingPath(target);
             _file.reset(CreateFileW(path.c_str(), GENERIC_WRITE | DELETE | FILE_READ_ATTRIBUTES, 0, nullptr, CREATE_NEW,
                                     FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN | FILE_FLAG_WRITE_THROUGH,
                                     nullptr));
@@ -1496,17 +1515,8 @@ class DocumentTemporary final
 [[nodiscard]] HRESULT InstallIfMissing(const std::filesystem::path& source,
                                        const std::filesystem::path& target) noexcept
 {
-    const DWORD attributes = GetFileAttributesW(target.c_str());
-    if (attributes != INVALID_FILE_ATTRIBUTES)
-    {
-        return (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ? S_FALSE : HRESULT_FROM_WIN32(ERROR_DIRECTORY);
-    }
-    const DWORD error = GetLastError();
-    if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
-    {
-        return HRESULT_FROM_WIN32(error);
-    }
-    return InstallTemplateFile(source, target, false);
+    const HRESULT probe = ProbeInstallTarget(target);
+    return probe == S_OK ? InstallTemplateFile(source, target, false) : probe;
 }
 } // namespace
 
@@ -1667,6 +1677,24 @@ bool ActiveDashboardRuntimeEquals(const AppSettings& left, const AppSettings& ri
         }
     }
     return true;
+}
+
+bool RuntimeSettingsEqual(const AppSettings& left, const AppSettings& right) noexcept
+{
+    // Every member but the retained source text and the retired services entries, which nothing runs. A structured
+    // binding binds by declaration order, not by name, and stops compiling (C3448) only when AppSettings gains or loses
+    // a member: a new member is then classified here instead of silently counting as a source-only edit, but a
+    // reordered one is not caught, so the names below follow the declaration order in Settings.h.
+    const auto runtimeMembers = [](const AppSettings& settings) noexcept
+    {
+        const auto& [versionMajor, versionMinor, logRetentionDays, backgroundRgb, dock, trayIcon, sourceDocument,
+                     plugins, pluginCount, services, serviceCount, retiredServices, dashboard] = settings;
+        (void)sourceDocument;
+        (void)retiredServices;
+        return std::tie(versionMajor, versionMinor, logRetentionDays, backgroundRgb, dock, trayIcon, plugins,
+                        pluginCount, services, serviceCount, dashboard);
+    };
+    return runtimeMembers(left) == runtimeMembers(right);
 }
 
 HRESULT SetJsonObjectSettings(std::string_view json, JsonObjectSettings& settings) noexcept
@@ -2175,65 +2203,6 @@ struct SourceMember final
     bool hasMembers = false;
 };
 
-[[nodiscard]] bool SkipSourceTrivia(std::string_view source, size_t& position) noexcept
-{
-    for (;;)
-    {
-        while (position < source.size() && std::isspace(static_cast<unsigned char>(source[position])))
-        {
-            ++position;
-        }
-        if (position + 1 >= source.size() || source[position] != '/')
-        {
-            return true;
-        }
-        if (source[position + 1] == '/')
-        {
-            // A line comment ends at CR or LF, exactly where the parser ends it.
-            position += 2;
-            while (position < source.size() && source[position] != '\n' && source[position] != '\r')
-            {
-                ++position;
-            }
-        }
-        else if (source[position + 1] == '*')
-        {
-            position += 2;
-            const size_t end = source.find("*/", position);
-            if (end == std::string_view::npos)
-            {
-                return false;
-            }
-            position = end + 2;
-        }
-        else
-        {
-            return true;
-        }
-    }
-}
-
-[[nodiscard]] bool SkipSourceString(std::string_view source, size_t& position) noexcept
-{
-    if (position >= source.size() || source[position++] != '"')
-    {
-        return false;
-    }
-    while (position < source.size())
-    {
-        const char character = source[position++];
-        if (character == '"')
-        {
-            return true;
-        }
-        if (character == '\\' && position < source.size())
-        {
-            ++position;
-        }
-    }
-    return false;
-}
-
 [[nodiscard]] bool SourceKeyEquals(std::string_view source, size_t begin, size_t end,
                                    std::string_view expected) noexcept
 {
@@ -2293,54 +2262,6 @@ struct SourceMember final
     return wanted + 1 == expected.size();
 }
 
-[[nodiscard]] bool SkipSourceValue(std::string_view source, size_t& position) noexcept
-{
-    if (position >= source.size())
-    {
-        return false;
-    }
-    if (source[position] == '"')
-    {
-        return SkipSourceString(source, position);
-    }
-    if (source[position] == '{' || source[position] == '[')
-    {
-        uint32_t depth = 0;
-        do
-        {
-            if (!SkipSourceTrivia(source, position) || position >= source.size())
-            {
-                return false;
-            }
-            if (source[position] == '"')
-            {
-                if (!SkipSourceString(source, position))
-                {
-                    return false;
-                }
-                continue;
-            }
-            const char character = source[position++];
-            if (character == '{' || character == '[')
-            {
-                ++depth;
-            }
-            else if (character == '}' || character == ']')
-            {
-                --depth;
-            }
-        } while (depth != 0);
-        return true;
-    }
-    const size_t begin = position;
-    while (position < source.size() && std::strchr(",}]", source[position]) == nullptr &&
-           !std::isspace(static_cast<unsigned char>(source[position])) && source[position] != '/')
-    {
-        ++position;
-    }
-    return position > begin;
-}
-
 [[nodiscard]] bool FindSourceMember(std::string_view source, size_t objectBegin, std::string_view key,
                                     SourceMember& found) noexcept
 {
@@ -2349,53 +2270,55 @@ struct SourceMember final
     {
         return false;
     }
-    size_t position = objectBegin + 1;
+    JsonTextCursor cursor{source, objectBegin + 1};
     for (;;)
     {
-        if (!SkipSourceTrivia(source, position) || position >= source.size())
+        cursor.SkipSpaceAndComments();
+        if (cursor.index >= source.size())
         {
             return false;
         }
-        if (source[position] == '}')
+        if (source[cursor.index] == '}')
         {
-            found.closingBrace = position;
+            found.closingBrace = cursor.index;
             return true;
         }
-        const size_t keyBegin = position;
-        if (!SkipSourceString(source, position))
+        const size_t keyBegin = cursor.index;
+        if (!cursor.SkipString())
         {
             return false;
         }
-        const bool matching = SourceKeyEquals(source, keyBegin, position, key);
-        if (!SkipSourceTrivia(source, position) || position >= source.size() || source[position++] != ':' ||
-            !SkipSourceTrivia(source, position))
+        const bool matching = SourceKeyEquals(source, keyBegin, cursor.index, key);
+        if (!cursor.Consume(':'))
         {
             return false;
         }
-        const size_t valueBegin = position;
-        if (!SkipSourceValue(source, position))
+        cursor.SkipSpaceAndComments();
+        const size_t valueBegin = cursor.index;
+        if (!cursor.SkipValue())
         {
             return false;
         }
         found.hasMembers = true;
         found.lastKeyBegin = keyBegin;
-        found.lastValueEnd = position;
+        found.lastValueEnd = cursor.index;
         if (matching)
         {
             found.found = true;
             found.keyBegin = keyBegin;
             found.valueBegin = valueBegin;
-            found.valueEnd = position;
+            found.valueEnd = cursor.index;
         }
-        if (!SkipSourceTrivia(source, position) || position >= source.size())
+        cursor.SkipSpaceAndComments();
+        if (cursor.index >= source.size())
         {
             return false;
         }
-        if (source[position] == ',')
+        if (source[cursor.index] == ',')
         {
-            ++position;
+            cursor.Advance();
         }
-        else if (source[position] != '}')
+        else if (source[cursor.index] != '}')
         {
             return false;
         }
@@ -2474,10 +2397,10 @@ struct SourceMember final
     return true;
 }
 
-// Preconditions shared by the dock source patches: the whole source is a valid v5 document, parsed into `validated`.
-// `raiseMinor` reports a minor below `requiredMinor` (2 added `dock`, 3 the `secondary` monitor selector);
-// `rootBegin` is the root's '{', after a leading UTF-8 BOM, which the patch leaves in place.
-[[nodiscard]] HRESULT PrepareDockSourcePatch(std::string& source, uint32_t requiredMinor, bool& raiseMinor,
+// Preconditions shared by the dock source patches: the whole source is a valid v5 document, parsed into `validated`,
+// so its root is an object. `raiseMinor` reports a minor below `requiredMinor` (2 added `dock`, 3 the `secondary`
+// monitor selector); `rootBegin` is the root's '{', after a leading UTF-8 BOM, which the patch leaves in place.
+[[nodiscard]] HRESULT PrepareDockSourcePatch(std::string_view source, uint32_t requiredMinor, bool& raiseMinor,
                                              size_t& rootBegin, std::unique_ptr<AppSettings>& validated) noexcept
 {
     raiseMinor = false;
@@ -2486,18 +2409,11 @@ struct SourceMember final
     {
         return result;
     }
-    yyjson_read_err error{};
-    unique_yyjson_doc document{yyjson_read_opts(
-        source.data(), source.size(),
-        YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS | YYJSON_READ_ALLOW_BOM, nullptr, &error)};
-    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
-    if (!yyjson_is_obj(root))
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
     raiseMinor = validated->versionMinor < requiredMinor;
-    rootBegin = source.starts_with(kUtf8ByteOrderMark) ? kUtf8ByteOrderMark.size() : 0;
-    return SkipSourceTrivia(source, rootBegin) ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    JsonTextCursor root{source, source.starts_with(kUtf8ByteOrderMark) ? kUtf8ByteOrderMark.size() : 0};
+    root.SkipSpaceAndComments();
+    rootBegin = root.index;
+    return S_OK;
 }
 
 // Throws only std::bad_alloc.
@@ -2563,8 +2479,10 @@ struct SourceMember final
         lines.append(lineBreak).append(indentation).append(comment);
     }
     lines.append(lineBreak).append(indentation).append(member);
-    size_t after = version.valueEnd;
-    if (!SkipSourceTrivia(source, after) || after >= source.size())
+    JsonTextCursor next{source, version.valueEnd};
+    next.SkipSpaceAndComments();
+    const size_t after = next.index;
+    if (after >= source.size())
     {
         return false;
     }
@@ -2596,10 +2514,12 @@ struct SourceMember final
         const char character = source[position];
         if (character == '"')
         {
-            if (!SkipSourceString(source, position))
+            JsonTextCursor text{source, position};
+            if (!text.SkipString())
             {
                 return false;
             }
+            position = text.index;
             runBegin = std::string::npos;
             continue;
         }
@@ -2994,19 +2914,19 @@ namespace
 {
 // The selected template with the first-run dock patched in (Core_Settings.md "Cold load and recovery"), validated and
 // then written with the same atomic same-directory write as a plain install. Only a missing target is installed: an
-// existing one wins (S_FALSE), exactly as InstallIfMissing.
+// existing one wins (S_FALSE), exactly as InstallIfMissing, and the dock is made only once the target is known to be
+// missing. A dock that is not made fails this install as an unpatchable template does; the caller installs plainly.
 [[nodiscard]] HRESULT InstallTemplateWithDock(const std::filesystem::path& source, const std::filesystem::path& target,
-                                              const DockSettings& dock) noexcept
+                                              const FirstRunDockProvider& firstRunDock) noexcept
 {
-    const DWORD attributes = GetFileAttributesW(target.c_str());
-    if (attributes != INVALID_FILE_ATTRIBUTES)
+    if (const HRESULT probe = ProbeInstallTarget(target); probe != S_OK)
     {
-        return (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ? S_FALSE : HRESULT_FROM_WIN32(ERROR_DIRECTORY);
+        return probe;
     }
-    const DWORD error = GetLastError();
-    if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
+    DockSettings dock{};
+    if (!firstRunDock.make(firstRunDock.context, dock))
     {
-        return HRESULT_FROM_WIN32(error);
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
     try
     {
@@ -3023,10 +2943,9 @@ namespace
         {
             result = ParseAppSettingsJsonCandidate(text, validated);
         }
-        if (SUCCEEDED(result) &&
-            (!validated || validated->dock.edge != dock.edge || validated->dock.mode != dock.mode ||
-             validated->dock.thicknessDips != dock.thicknessDips ||
-             validated->dock.monitor.View() != dock.monitor.View()))
+        // The written file must hold exactly the dock that was made, every member included. The monitor compares as a
+        // whole SettingsText, bytes past its text too, which the provider and the parser both leave zero.
+        if (SUCCEEDED(result) && (!validated || validated->dock != dock))
         {
             result = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -3048,7 +2967,7 @@ namespace
 } // namespace
 
 HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath, std::unique_ptr<AppSettings>& settings,
-                                  std::wstring_view localAppDataOverride, const DockSettings* firstRunDock) noexcept
+                                  std::wstring_view localAppDataOverride, FirstRunDockProvider firstRunDock) noexcept
 {
     settings.reset();
     _usedInitialFallback = false;
@@ -3161,12 +3080,13 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
         }
 #endif
         // Without a XENEON the installed default is the template plus the first-run dock, so RedXe starts as a bar
-        // on the primary display instead of asking about the missing display. The dock is a convenience: a template
-        // it cannot patch still installs plainly.
-        result = firstRunDock ? InstallTemplateWithDock(initialSource, settingsPath, *firstRunDock)
-                              : InstallIfMissing(initialSource, settingsPath);
-        _installedFirstRunDock = firstRunDock && result == S_OK;
-        if (FAILED(result) && firstRunDock)
+        // (on the second screen when there is more than one display) instead of asking about the missing display. The
+        // dock is a convenience: no dock, or a template it cannot patch, still installs plainly.
+        const bool offersDock = firstRunDock.make != nullptr;
+        result = offersDock ? InstallTemplateWithDock(initialSource, settingsPath, firstRunDock)
+                            : InstallIfMissing(initialSource, settingsPath);
+        _installedFirstRunDock = offersDock && result == S_OK;
+        if (FAILED(result) && offersDock)
         {
             result = InstallIfMissing(initialSource, settingsPath);
         }

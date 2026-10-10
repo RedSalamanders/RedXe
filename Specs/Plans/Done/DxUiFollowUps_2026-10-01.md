@@ -49,8 +49,9 @@ Source: the DxUi plan `MergeAndHostHygiene_2026-10-01` (RedSalamanders/DxUi). Cu
 
 - Test processes never open a dialog. A Debug or ASan Debug test could open the CRT's modal Abort/Retry/Ignore box for a
   failed runtime check, and none of the test executables routed those reports. Every native test executable now calls
-  `Tests/Support/FailureReports.h` first, and `test.ps1` runs a hidden self-test (`Build_Process.md`). This is why the
-  Debug and ASan Debug suites could run on a developer's desktop for this update.
+  `Common/FailureReports.h` first (the header lives beside the shared sources because `RedXe.exe --self-test` calls it
+  too), and `test.ps1` runs a hidden self-test (`Build_Process.md`). This is why the Debug and ASan Debug suites could
+  run on a developer's desktop for this update.
 
 ## Closeout evidence
 

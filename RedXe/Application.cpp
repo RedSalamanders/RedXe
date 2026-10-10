@@ -6,6 +6,7 @@
 #include <UIAutomation.h>
 
 #include "CrashHandler.h"
+#include "DisplayEnumeration.h"
 #include "FailureReports.h"
 #include "FluentIcons.h"
 #include "FrameScheduler.h"
@@ -28,7 +29,6 @@
 #include <new>
 #include <ole2.h>
 #include <shellapi.h>
-#include <shellscalingapi.h>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -385,16 +385,15 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
 }
 
 // Friendly display names for the dock's `name:<substring>` selector: one (GDI source name, target friendly name)
-// pair per active display path, bounded so the lookup allocates nothing on the UI thread after the query buffers.
-constexpr size_t kDockMaximumDisplays = 16;
-
+// pair per active display path, bounded like the display walk (kMaximumDisplays) so the lookup allocates nothing on the
+// UI thread after the query buffers.
 struct DisplayFriendlyName final
 {
     std::array<wchar_t, CCHDEVICENAME> device{};
     std::array<wchar_t, 64> friendly{};
 };
 
-[[nodiscard]] size_t QueryDisplayFriendlyNames(std::array<DisplayFriendlyName, kDockMaximumDisplays>& names) noexcept
+[[nodiscard]] size_t QueryDisplayFriendlyNames(std::array<DisplayFriendlyName, kMaximumDisplays>& names) noexcept
 {
     size_t count = 0;
     try
@@ -475,78 +474,46 @@ struct FirstRunTopology final
 {
     dock = DefaultDockSettings();
     topology = FirstRunTopology{};
-    // Enumeration order is the order the `secondary` selector resolves in at runtime; the primary is the display
-    // flagged MONITORINFOF_PRIMARY, since (0,0) can belong to another display.
-    struct Enumeration final
-    {
-        std::array<HMONITOR, kDockMaximumDisplays> handles{};
-        std::array<DockMonitorCandidate, kDockMaximumDisplays> candidates{};
-        size_t count = 0;
-    } enumeration;
-    const auto collect = [](HMONITOR monitor, HDC, LPRECT, LPARAM context) noexcept -> BOOL
-    {
-        auto* target = reinterpret_cast<Enumeration*>(context);
-        if (target->count >= target->handles.size())
-        {
-            return FALSE;
-        }
-        MONITORINFO info{};
-        info.cbSize = sizeof(info);
-        if (!GetMonitorInfoW(monitor, &info))
-        {
-            return TRUE;
-        }
-        DockMonitorCandidate& candidate = target->candidates[target->count];
-        candidate.monitor = info.rcMonitor;
-        candidate.work = info.rcWork;
-        candidate.primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
-        target->handles[target->count] = monitor;
-        ++target->count;
-        return TRUE;
-    };
-    (void)EnumDisplayMonitors(nullptr, nullptr, collect, reinterpret_cast<LPARAM>(&enumeration));
-    const std::string_view monitorSelector = DockFirstRunMonitor(enumeration.count);
+    // ResolveDockMonitor resolves the written selector over the same walk at runtime, so the display measured here is
+    // the display the bar goes to.
+    DisplayEnumeration displays;
+    EnumerateDisplays(displays);
+    const std::string_view monitorSelector = DockFirstRunMonitor(displays.count);
     RedXeActions::MonitorSelector selector{};
     bool fellBack = false;
-    const size_t chosen =
-        RedXeActions::ParseMonitorSelector(monitorSelector, false, selector)
-            ? SelectDockMonitor(selector, {}, enumeration.candidates.data(), enumeration.count, fellBack)
-            : SIZE_MAX;
+    const size_t chosen = RedXeActions::ParseMonitorSelector(monitorSelector, false, selector)
+                              ? SelectDockMonitor(selector, {}, displays.candidates.data(), displays.count, fellBack)
+                              : SIZE_MAX;
     if (chosen == SIZE_MAX)
     {
         return false;
     }
-    const DockMonitorCandidate& display = enumeration.candidates[chosen];
-    UINT dpiX = USER_DEFAULT_SCREEN_DPI;
-    UINT dpiY = USER_DEFAULT_SCREEN_DPI;
-    if (FAILED(GetDpiForMonitor(enumeration.handles[chosen], MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) || dpiX == 0)
-    {
-        dpiX = USER_DEFAULT_SCREEN_DPI;
-    }
+    const DockMonitorCandidate& display = displays.candidates[chosen];
     bool sharedTop = false;
     bool sharedBottom = false;
-    for (size_t index = 0; index < enumeration.count; ++index)
+    for (size_t index = 0; index < displays.count; ++index)
     {
         if (index != chosen)
         {
-            sharedTop = sharedTop ||
-                        DockDisplayTouchesEdge(display.monitor, enumeration.candidates[index].monitor, DockEdge::Top);
-            sharedBottom =
-                sharedBottom ||
-                DockDisplayTouchesEdge(display.monitor, enumeration.candidates[index].monitor, DockEdge::Bottom);
+            sharedTop =
+                sharedTop || DockDisplayTouchesEdge(display.monitor, displays.candidates[index].monitor, DockEdge::Top);
+            sharedBottom = sharedBottom || DockDisplayTouchesEdge(display.monitor, displays.candidates[index].monitor,
+                                                                  DockEdge::Bottom);
         }
     }
     dock.edge = DockFirstRunEdge(display.monitor, display.work, AutohideBarOnEdge(ABE_TOP, display.monitor),
                                  AutohideBarOnEdge(ABE_BOTTOM, display.monitor), sharedTop, sharedBottom);
     dock.mode = DockMode::Autohide;
+    // Cleared first: SettingsText compares its whole buffer, and the default's text must leave no byte behind the new
+    // one.
     dock.monitor = SettingsText{};
     monitorSelector.copy(dock.monitor.utf8.data(), monitorSelector.size());
     dock.monitor.bytes = static_cast<uint32_t>(monitorSelector.size());
-    dock.thicknessDips = DockFirstRunThicknessDips(display.monitor, display.work, dock.edge, dpiX);
-    topology.displays = enumeration.count;
+    dock.thicknessDips = DockFirstRunThicknessDips(display.monitor, display.work, dock.edge, display.dpi);
+    topology.displays = displays.count;
     topology.monitor = display.monitor;
     topology.work = display.work;
-    topology.dpi = dpiX;
+    topology.dpi = display.dpi;
     return true;
 }
 
@@ -846,13 +813,18 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     _xeneonBounds = xeneonBounds;
     _xeneonFound = xeneonFound;
     HostActions::SetXeneonDisplay(_xeneonBounds, _xeneonFound);
-    DockSettings firstRunDock{};
+    // The store makes the first-run dock only when it installs the default file because it is missing, so a start
+    // that finds the file walks no display and asks Explorer nothing for it.
     FirstRunTopology firstRunTopology{};
-    const bool offerFirstRunDock = DockFirstRunOffered(SUCCEEDED(result), xeneonFound, !settingsPath.empty(),
-                                                       GetSystemMetrics(SM_REMOTESESSION) != 0) &&
-                                   MakeFirstRunDock(firstRunDock, firstRunTopology);
+    const FirstRunDockProvider firstRunDock =
+        DockFirstRunOffered(SUCCEEDED(result), xeneonFound, !settingsPath.empty(),
+                            GetSystemMetrics(SM_REMOTESESSION) != 0)
+            ? FirstRunDockProvider{[](void* topology, DockSettings& dock) noexcept
+                                   { return MakeFirstRunDock(dock, *static_cast<FirstRunTopology*>(topology)); },
+                                   &firstRunTopology}
+            : FirstRunDockProvider{};
 
-    result = _settingsStore.Initialize(false, settingsPath, _settings, {}, offerFirstRunDock ? &firstRunDock : nullptr);
+    result = _settingsStore.Initialize(false, settingsPath, _settings, {}, firstRunDock);
     if (FAILED(result) || !_settings)
     {
         OutputDebugStringW(L"Settings initialization or validation failed.\n");
@@ -1225,17 +1197,53 @@ int FailSelfTest(const wchar_t* check, HRESULT result = S_OK) noexcept
 }
 } // namespace
 
+bool Application::SelfTestWindowKindIs(bool dock) const noexcept
+{
+#if defined(_DEBUG)
+    constexpr bool releaseBuild = false;
+#else
+    constexpr bool releaseBuild = true;
+#endif
+    const HWND window = _window.get();
+    DXGI_SWAP_CHAIN_DESC1 chain{};
+    const SIZE canvas = DashboardCanvasSize();
+    if (!window || IsWindowVisible(window) || _windowVisible || _dockActive != dock || !_rendererReady ||
+        FAILED(_renderer.GetSwapChainDescription(chain)) ||
+        chain.Scaling != (dock ? DXGI_SCALING_NONE : DXGI_SCALING_STRETCH) ||
+        static_cast<LONG>(chain.Width) != canvas.cx || static_cast<LONG>(chain.Height) != canvas.cy)
+    {
+        return false;
+    }
+    const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
+    const DWORD extendedStyle = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_EXSTYLE));
+    const bool popup = (style & WS_POPUP) != 0 && (style & WS_CAPTION) == 0;
+    if (dock)
+    {
+        return popup && (extendedStyle & (WS_EX_APPWINDOW | WS_EX_TOOLWINDOW)) == WS_EX_TOOLWINDOW;
+    }
+    RECT client{};
+    const SIZE exact = ScaleXeneonClientSize(GetDpiForWindow(window));
+    const bool titled = (style & kTitledWindowStyle) == kTitledWindowStyle && (style & WS_POPUP) == 0 &&
+                        GetClientRect(window, &client) && client.right - client.left == exact.cx &&
+                        client.bottom - client.top == exact.cy;
+    return !_dockAppBar.registered &&
+           (extendedStyle & (WS_EX_APPWINDOW | WS_EX_TOOLWINDOW | WS_EX_TOPMOST)) == WS_EX_APPWINDOW &&
+           (releaseBuild && _xeneonFound ? popup : titled);
+}
+
 // Hidden startup validation for `--self-test`. It shares Application's startup steps but never shows a window and
 // never enters the frame loop, so the production Run above carries no test branches and no `selfTest` parameter.
 // It MUST NOT call SetLogDirectory: diagnostics stay off `%LocalAppData%` and the deployed tree; a failed check goes
-// to stderr instead (FailSelfTest).
+// to stderr instead (FailSelfTest), and so do the host's Warning and Error records (PluginHost::SetStandardErrorLog).
 //
-// UI_XeneonDisplayWindowing.md owns this mode: skip display discovery and prompts, create the titled window hidden,
-// validate its DPI-adjusted client dimensions, render one frame, and exit.
+// UI_XeneonDisplayWindowing.md owns this mode: skip the startup display discovery and prompts, create the titled
+// window hidden, validate its DPI-adjusted client dimensions, render one frame, switch the hidden window's kind live
+// and back, and exit.
 int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
 {
     // The self-test keeps its hidden titled window: pinning the edge to none, as `--dock none` does, keeps a document
-    // `dock` from switching the window kind when the smoke test re-applies settings.
+    // `dock` from switching the window kind when the smoke test re-applies settings. Only the window-kind check below
+    // lifts the pin, for the switches it makes itself.
     _dockOverrides = DockOverrides{};
     _dockOverrides.hasEdge = true;
     _dockOverrides.edge = DockEdge::None;
@@ -1244,6 +1252,9 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     // Services start in self-test too, but with device access disabled: no HID handle, hotplug registration, or
     // injected input, so the validation stays hardware-independent.
     PluginHost::Instance().SetDeviceAccessEnabled(false);
+    // No log is opened, so a failed check's log on stderr also holds the host records that explain it, such as the
+    // plugin whose module could not be mapped.
+    PluginHost::Instance().SetStandardErrorLog(true);
     if (!_pluginManager || !_dashboardHost)
     {
         return FailSelfTest(L"Dashboard host allocation failed.", E_OUTOFMEMORY);
@@ -1304,7 +1315,6 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         }
     }
 
-    _persistSettingsToDisk = false;
     (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
     result = OleInitialize(nullptr);
     if (FAILED(result))
@@ -1436,6 +1446,60 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     if (!rejected || SUCCEEDED(ParseAppSettingsJson("{}", *rejected)) || *rejected != *_settings)
     {
         return FailSelfTest(L"Invalid settings changed the active typed configuration.");
+    }
+
+    // Live window-kind switches on this window, which a switch leaves hidden because it was hidden before
+    // (UI_XeneonDisplayWindowing.md "Switching the window kind"): into a bar and back through the dock-only path
+    // (ApplyDockSettings), then a reload that also rebuilds the page, whose page cannot be built (a zero-column grid,
+    // which the settings store never produces), so the combined path switches the window back. The bar is a fixed
+    // overlay on the primary display: it reserves nothing in the work area. Each switch runs XENEON discovery again.
+    {
+        const DockOverrides pinned = _dockOverrides;
+        _dockOverrides = DockOverrides{};
+        std::unique_ptr<AppSettings> toBar{new (std::nothrow) AppSettings{*_settings}};
+        if (toBar)
+        {
+            toBar->dock = DefaultDockSettings();
+            toBar->dock.edge = DockEdge::Bottom;
+            toBar->dock.reserveWorkArea = false;
+        }
+        result = toBar ? ApplySettings(std::move(toBar)) : E_OUTOFMEMORY;
+        if (FAILED(result) || !SelfTestWindowKindIs(true))
+        {
+            return FailSelfTest(L"A live reload did not switch the hidden window into a bar.", result);
+        }
+        std::unique_ptr<AppSettings> toStandard{new (std::nothrow) AppSettings{*_settings}};
+        if (toStandard)
+        {
+            toStandard->dock.edge = DockEdge::None;
+        }
+        result = toStandard ? ApplySettings(std::move(toStandard)) : E_OUTOFMEMORY;
+        if (FAILED(result) || !SelfTestWindowKindIs(false))
+        {
+            return FailSelfTest(L"A live reload did not switch the hidden bar back to the standard window.", result);
+        }
+        const AppSettings* const applied = _settings.get();
+        std::unique_ptr<AppSettings> unbuildable{new (std::nothrow) AppSettings{*_settings}};
+        if (unbuildable)
+        {
+            unbuildable->dock.edge = DockEdge::Bottom;
+            unbuildable->dashboard.gridColumns = 0;
+        }
+        const HRESULT rolledBack = unbuildable ? ApplySettings(std::move(unbuildable)) : E_OUTOFMEMORY;
+        result = _rendererReady ? _renderer.PrepareWidgets() : E_UNEXPECTED;
+        if (SUCCEEDED(result))
+            result = _renderer.Render(0.0f, 0.0f);
+        const size_t gpuWidgetCount = CountGpuWidgets(*_pluginManager);
+        if (rolledBack != E_INVALIDARG || FAILED(result) || _settings.get() != applied ||
+            _settings->dock.edge != DockEdge::None || !SelfTestWindowKindIs(false) ||
+            _renderer.LastFrameWidgetCount() != gpuWidgetCount ||
+            _renderer.LastFrameSuccessfulWidgetCount() != gpuWidgetCount)
+        {
+            return FailSelfTest(L"A reload that switched the window kind and failed to build its page was not rolled "
+                                L"back to the standard window.",
+                                rolledBack != E_INVALIDARG ? rolledBack : result);
+        }
+        _dockOverrides = pinned;
     }
 
     // The `redxe.screenshot` action keeps RedXe running: an ordinal past the page's widgets fails it, a second request
@@ -1709,48 +1773,22 @@ HRESULT Application::CreateDockWindow(bool visible) noexcept
 bool Application::ResolveDockMonitor(DockMonitorPlacement& placement) noexcept
 {
     placement = DockMonitorPlacement{};
-    struct Enumeration final
-    {
-        std::array<HMONITOR, kDockMaximumDisplays> handles{};
-        std::array<MONITORINFOEXW, kDockMaximumDisplays> info{};
-        size_t count = 0;
-    } enumeration;
-    const auto collect = [](HMONITOR monitor, HDC, LPRECT, LPARAM data) noexcept -> BOOL
-    {
-        auto* target = reinterpret_cast<Enumeration*>(data);
-        if (target->count >= target->handles.size())
-        {
-            return FALSE;
-        }
-        MONITORINFOEXW& info = target->info[target->count];
-        info = MONITORINFOEXW{};
-        info.cbSize = sizeof(info);
-        if (!GetMonitorInfoW(monitor, &info))
-        {
-            return TRUE;
-        }
-        target->handles[target->count] = monitor;
-        ++target->count;
-        return TRUE;
-    };
-    (void)EnumDisplayMonitors(nullptr, nullptr, collect, reinterpret_cast<LPARAM>(&enumeration));
-    if (enumeration.count == 0)
+    DisplayEnumeration displays;
+    EnumerateDisplays(displays);
+    if (displays.count == 0)
     {
         return false;
     }
 
-    std::array<DisplayFriendlyName, kDockMaximumDisplays> names{};
+    // The walk gives each display its rectangles, primary flag, DPI, and GDI name; the dock adds the XENEON and the
+    // friendly name the `xeneon` and `name:` selectors match.
+    std::array<DisplayFriendlyName, kMaximumDisplays> names{};
     const size_t nameCount = QueryDisplayFriendlyNames(names);
-    std::array<DockMonitorCandidate, kDockMaximumDisplays> candidates{};
-    for (size_t index = 0; index < enumeration.count; ++index)
+    for (size_t index = 0; index < displays.count; ++index)
     {
-        const MONITORINFOEXW& info = enumeration.info[index];
-        DockMonitorCandidate& candidate = candidates[index];
-        candidate.monitor = info.rcMonitor;
-        candidate.work = info.rcWork;
-        candidate.primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
+        const MONITORINFOEXW& info = displays.info[index];
+        DockMonitorCandidate& candidate = displays.candidates[index];
         candidate.xeneon = _xeneonFound && EqualRect(&info.rcMonitor, &_xeneonBounds);
-        candidate.deviceName = std::wstring_view{info.szDevice};
         for (size_t nameIndex = 0; nameIndex < nameCount; ++nameIndex)
         {
             if (CompareStringOrdinal(names[nameIndex].device.data(), -1, info.szDevice, -1, TRUE) == CSTR_EQUAL)
@@ -1759,12 +1797,6 @@ bool Application::ResolveDockMonitor(DockMonitorPlacement& placement) noexcept
                 break;
             }
         }
-        UINT dpiX = USER_DEFAULT_SCREEN_DPI;
-        UINT dpiY = USER_DEFAULT_SCREEN_DPI;
-        candidate.dpi =
-            SUCCEEDED(GetDpiForMonitor(enumeration.handles[index], MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) && dpiX != 0
-                ? dpiX
-                : USER_DEFAULT_SCREEN_DPI;
     }
 
     RedXeActions::MonitorSelector selector{};
@@ -1784,15 +1816,15 @@ bool Application::ResolveDockMonitor(DockMonitorPlacement& placement) noexcept
         }
     }
     bool fellBack = false;
-    const size_t chosen =
-        SelectDockMonitor(selector, std::wstring_view{needle.data()}, candidates.data(), enumeration.count, fellBack);
+    const size_t chosen = SelectDockMonitor(selector, std::wstring_view{needle.data()}, displays.candidates.data(),
+                                            displays.count, fellBack);
     if (chosen == SIZE_MAX)
     {
         return false;
     }
-    placement.monitor = candidates[chosen].monitor;
-    placement.work = candidates[chosen].work;
-    placement.dpi = candidates[chosen].dpi;
+    placement.monitor = displays.candidates[chosen].monitor;
+    placement.work = displays.candidates[chosen].work;
+    placement.dpi = displays.candidates[chosen].dpi;
     placement.fellBack = fellBack;
     return true;
 }
@@ -2001,7 +2033,6 @@ HRESULT Application::PlaceDockPass(bool resizeDashboard) noexcept
     const bool fullChanged = !EqualRect(&full, &_dockFullRect) || placement.dpi != _dockDpi;
     _dockFullRect = full;
     _dockMonitorRect = placement.monitor;
-    _dockWorkRect = placement.work;
     _dockDpi = placement.dpi;
     // The strip is clamped to the bar just placed (_dockFullRect), as every reveal and hide clamps it.
     const RECT target = DockHidden() ? DockHiddenRect(full, _dock.edge, DockPeekPixels()) : full;
@@ -2076,13 +2107,14 @@ HRESULT Application::ApplyDockSettings(const DockSettings& documentDock) noexcep
         // `none` <-> an edge changes the window kind; the window follows the file at once. A failed step switches
         // back to the kind the window had, like a failed combined reload, and the caller rejects the reload.
         const DockSettings previous = _dock;
-        const HRESULT result = SwitchWindowKind(next, false);
+        StandardPlacement placement{};
+        const HRESULT result = SwitchWindowKind(next, false, placement);
         if (SUCCEEDED(result))
         {
             return S_OK;
         }
         LogWindowKindSwitchFailed(result);
-        const HRESULT restored = SwitchWindowKind(previous, true);
+        const HRESULT restored = SwitchWindowKind(previous, true, placement);
         return FAILED(restored) ? restored : result;
     }
     const DockMode previousMode = _dock.mode;
@@ -2116,11 +2148,10 @@ void Application::StopDockInteraction() noexcept
             (void)ReleaseCapture();
         }
     }
-    if (_dockDashboardResizeTimerArmed && _window)
+    if (_dockDashboardResizePending && _window)
     {
         (void)KillTimer(_window.get(), kDockDashboardResizeTimerId);
     }
-    _dockDashboardResizeTimerArmed = false;
     _dockDashboardResizePending = false;
     KillDockTimer();
     // A slide stops where it is; whoever places the window next sizes it, and the dashboard loses the translation.
@@ -2138,7 +2169,6 @@ void Application::ResetDockPlacementState() noexcept
     _dockVisiblePx = 0;
     _dockFullRect = RECT{};
     _dockMonitorRect = RECT{};
-    _dockWorkRect = RECT{};
     _dockDpi = USER_DEFAULT_SCREEN_DPI;
     _dockMonitorFellBack = false;
     _dockThicknessClamped = false;
@@ -2147,21 +2177,21 @@ void Application::ResetDockPlacementState() noexcept
     _dockPinnedByAction = false;
 }
 
-HRESULT Application::SwitchWindowKind(const DockSettings& next, bool rollback) noexcept
+HRESULT Application::SwitchWindowKind(const DockSettings& next, bool rollback, StandardPlacement& placement) noexcept
 {
-    HRESULT result = RestyleWindowKind(next, rollback);
+    HRESULT result = RestyleWindowKind(next, rollback, placement);
     if (SUCCEEDED(result))
     {
         result = RebuildPresentation();
     }
     if (SUCCEEDED(result))
     {
-        result = FinishWindowKindSwitch(rollback);
+        result = FinishWindowKindSwitch(rollback, placement);
     }
     return result;
 }
 
-HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback) noexcept
+HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback, StandardPlacement& placement) noexcept
 {
     if (!_window || !_dashboardHost)
     {
@@ -2170,10 +2200,12 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback) 
     const HWND window = _window.get();
     const bool toDock = next.edge != DockEdge::None;
     // Without a XENEON the standard window lands on the monitor the dock was on, where the person is looking. A
-    // rollback keeps the monitor the forward switch recorded: the window has been moved to the other kind's place.
+    // rollback keeps the monitor the forward switch recorded: the window has been moved to the other kind's place, and
+    // the forward switch has hidden it.
     if (!rollback)
     {
-        _kindSwitchFallbackMonitor = MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
+        placement.fallbackMonitor = MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
+        placement.visible = IsWindowVisible(window) != FALSE;
     }
 
     // Every interaction bound to the old geometry ends, then the presentation goes: its swap-chain scaling belongs
@@ -2209,7 +2241,7 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback) 
     constexpr bool releaseBuild = true;
 #endif
     const bool fullscreen = !toDock && releaseBuild && _xeneonFound;
-    _kindSwitchFullscreen = fullscreen;
+    placement.fullscreen = fullscreen;
 
     // The taskbar adds or drops the button (WS_EX_APPWINDOW, WS_EX_TOOLWINDOW) only for a window shown after the
     // change, so the window leaves minimized or maximized, hides, takes the other kind's styles, and shows again at
@@ -2219,7 +2251,7 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback) 
         (void)ShowWindow(window, SW_SHOWNOACTIVATE);
     }
     (void)ShowWindow(window, SW_HIDE);
-    const LONG_PTR keptStyle = GetWindowLongPtrW(window, GWL_STYLE) & (WS_VISIBLE | WS_DISABLED);
+    const LONG_PTR keptStyle = GetWindowLongPtrW(window, GWL_STYLE) & WS_DISABLED;
     const LONG_PTR keptExtendedStyle = GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST;
     (void)SetWindowLongPtrW(window, GWL_STYLE,
                             keptStyle |
@@ -2235,23 +2267,27 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback) 
     }
 
     _dockActive = toDock;
-    return toDock ? PlaceDock(false) : PlaceStandardWindow(fullscreen, _kindSwitchFallbackMonitor);
+    return toDock ? PlaceDock(false) : PlaceStandardWindow(fullscreen, placement.fallbackMonitor);
 }
 
-HRESULT Application::FinishWindowKindSwitch(bool rollback) noexcept
+HRESULT Application::FinishWindowKindSwitch(bool rollback, const StandardPlacement& placement) noexcept
 {
     if (!_window || !_rendererReady)
     {
         return E_UNEXPECTED;
     }
     const HWND window = _window.get();
-    (void)ShowWindow(window, SW_SHOWNOACTIVATE);
+    // Shown again only when it was visible before the switch: the self-test's hidden window stays hidden.
+    if (placement.visible)
+    {
+        (void)ShowWindow(window, SW_SHOWNOACTIVATE);
+    }
     _windowVisible = IsWindowVisible(window) != FALSE;
     if (!_dockActive)
     {
         // A DPI change that arrives with the show answers at the suggested position; the standard kind keeps its
         // exact origin and canvas. The dock re-places itself from WM_DPICHANGED.
-        const HRESULT result = PlaceStandardWindow(_kindSwitchFullscreen, _kindSwitchFallbackMonitor);
+        const HRESULT result = PlaceStandardWindow(placement.fullscreen, placement.fallbackMonitor);
         if (FAILED(result))
         {
             return result;
@@ -2293,11 +2329,7 @@ HRESULT Application::PlaceStandardWindow(bool fullscreen, HMONITOR fallbackMonit
                 return HRESULT_FROM_WIN32(GetLastError());
             }
         }
-        UINT dpiY = USER_DEFAULT_SCREEN_DPI;
-        if (FAILED(GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &targetDpi, &dpiY)) || targetDpi == 0)
-        {
-            targetDpi = USER_DEFAULT_SCREEN_DPI;
-        }
+        targetDpi = EffectiveMonitorDpi(monitor);
         SIZE size{};
         const HRESULT sized = CalculateWindowSizeForDpi(kTitledWindowStyle, kStandardExtendedStyle, targetDpi, size);
         if (FAILED(sized))
@@ -2389,12 +2421,16 @@ HRESULT Application::RebuildPresentation() noexcept
     {
         result = _dashboardHost->Resize(width, height, dpi);
     }
-    if (FAILED(result))
-    {
-        return result;
-    }
+    return SUCCEEDED(result) ? StartPresentation(width, height) : result;
+}
+
+HRESULT Application::StartPresentation(UINT width, UINT height) noexcept
+{
+    // The dock window shrinks to its peek strip without resizing the swap chain: DXGI_SCALING_NONE clips the
+    // full-size back buffer to the smaller client instead of stretching it, so the buffer is the full bar even when
+    // a live reload rebuilds it while the window is the strip.
     _renderer.SetDockPresentation(_dockActive, width, height);
-    result = _renderer.Initialize(_window.get(), _forceWarp, *_dashboardHost);
+    HRESULT result = _renderer.Initialize(_window.get(), _forceWarp, *_dashboardHost);
     if (FAILED(result))
     {
         _renderer.Shutdown();
@@ -2402,7 +2438,7 @@ HRESULT Application::RebuildPresentation() noexcept
     }
     _rendererReady = true;
     RefreshAppearance();
-    RefreshPageEdgeAffordances();
+    // UpdateDashboardVisibility builds the page-edge bands for the new canvas first.
     result = UpdateDashboardVisibility();
     if (SUCCEEDED(result))
     {
@@ -2524,11 +2560,10 @@ void Application::UpdateDockResize() noexcept
                        _dockFullRect.right - _dockFullRect.left, _dockFullRect.bottom - _dockFullRect.top,
                        SWP_NOACTIVATE | SWP_NOZORDER);
     _dockResizing = false;
-    _dockDashboardResizePending = true;
-    if (!_dockDashboardResizeTimerArmed)
+    if (!_dockDashboardResizePending)
     {
-        _dockDashboardResizeTimerArmed = SetTimer(_window.get(), kDockDashboardResizeTimerId, 16, nullptr) != 0;
-        if (!_dockDashboardResizeTimerArmed)
+        _dockDashboardResizePending = true;
+        if (!SetTimer(_window.get(), kDockDashboardResizeTimerId, 16, nullptr))
         {
             FlushDockDashboardResize();
         }
@@ -2559,10 +2594,9 @@ void Application::EndDockResize() noexcept
         return;
     }
     _dockResizeDrag = false;
-    if (_dockDashboardResizeTimerArmed)
+    if (_dockDashboardResizePending)
     {
         (void)KillTimer(_window.get(), kDockDashboardResizeTimerId);
-        _dockDashboardResizeTimerArmed = false;
     }
     FlushDockDashboardResize();
     if (GetCapture() == _window.get())
@@ -2575,9 +2609,7 @@ void Application::EndDockResize() noexcept
     (void)PlaceDock(true);
     if (_settings)
     {
-        const HRESULT persisted = _persistSettingsToDisk
-                                      ? _settingsStore.PersistDockThickness(*_settings, _dock.thicknessDips)
-                                      : PatchDockThickness(*_settings, _dock.thicknessDips);
+        const HRESULT persisted = _settingsStore.PersistDockThickness(*_settings, _dock.thicknessDips);
         if (FAILED(persisted))
         {
             (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
@@ -2601,7 +2633,7 @@ DockHolds Application::CurrentDockHolds() const noexcept
     holds.dialogShown = _settingsErrorDialog != nullptr;
     holds.pinned = _screenshot.pending;
     holds.pinnedByAction = _dockPinnedByAction;
-    holds.revealSliding = _dockSlideActive && _dockSlideRevealing;
+    holds.revealSliding = _dockSlideActive && !DockHiddenOrHiding();
     return holds;
 }
 
@@ -2686,9 +2718,7 @@ void Application::ApplyDockRevealState(DockRevealState state) noexcept
         return;
     }
     _dockSlideActive = true;
-    _dockSlideRevealing = !toStrip;
     _dockSlideFromPx = fromPx;
-    _dockSlideToPx = targetPx;
     _dockSlideStartQpc = static_cast<UINT64>(now.QuadPart);
     _dockSlideDurationQpc = std::max<UINT64>(1, _qpcFrequency * durationMilliseconds / 1000);
     // The first frame already shows the bar at its starting size: a reveal makes the dashboard visible now, a hide
@@ -2771,15 +2801,17 @@ void Application::TickDockSlide() noexcept
     }
     if (t < 1.0f)
     {
-        SetDockVisiblePixels(DockSlideVisiblePixels(_dockSlideFromPx, _dockSlideToPx, t, _dockSlideRevealing));
+        // The reveal state gives the direction and the end size, as for SettleDockSlide; a flip of it restarted the
+        // slide from where the bar was (ApplyDockRevealState).
+        const bool revealing = !DockHiddenOrHiding();
+        SetDockVisiblePixels(
+            DockSlideVisiblePixels(_dockSlideFromPx, revealing ? DockFullPixels() : DockPeekPixels(), t, revealing));
         _frameInvalidated = true;
         return;
     }
     // The last step ends the slide before the frame that shows it: a finished hide renders the grip frame at the strip
     // size, and the next turn's holds and frame scheduler see the settled state.
-    _dockSlideActive = false;
-    SetDockVisiblePixels(_dockSlideToPx);
-    FinishDockRevealChange();
+    SettleDockSlide();
 }
 
 void Application::SettleDockSlide() noexcept
@@ -2870,27 +2902,16 @@ HRESULT Application::InitializeDashboardRuntime() noexcept
         return result;
     }
 
-    // The dock window shrinks to its peek strip without resizing the swap chain: DXGI_SCALING_NONE clips the
-    // full-size back buffer to the smaller client instead of stretching it, so the buffer is the full bar even when
-    // a live reload rebuilds it while the window is the strip.
-    _renderer.SetDockPresentation(_dockActive, width, height);
-    result = _renderer.Initialize(_window.get(), _forceWarp, *_dashboardHost);
-    if (FAILED(result))
+    result = StartPresentation(width, height);
+    if (!_rendererReady)
     {
-        _renderer.Shutdown();
         _dashboardHost->Shutdown();
         return result;
     }
-    _rendererReady = true;
-    RefreshAppearance();
+    // Once the window has a renderer, the plugin runtime's wake-ups and the held-input timer target it. A page reload
+    // names the same window again; a kind switch (RebuildPresentation) keeps it.
     PluginHost::Instance().SetUiInvalidateTarget(_window.get());
     HostActions::SetHostWindow(_window.get(), PluginHost::Instance().Interface());
-    RefreshPageEdgeAffordances();
-    result = UpdateDashboardVisibility();
-    if (SUCCEEDED(result))
-    {
-        _frameInvalidated = true;
-    }
     return result;
 }
 
@@ -2902,14 +2923,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     }
     // Source-only edits (comments and spacing) still become the persisted document without interrupting a swipe,
     // raise, or wheel sequence. Compare the typed runtime state before tearing down any interaction.
-    const bool sameRuntime =
-        settings->versionMajor == _settings->versionMajor && settings->versionMinor == _settings->versionMinor &&
-        settings->logRetentionDays == _settings->logRetentionDays &&
-        settings->backgroundRgb == _settings->backgroundRgb && settings->dock == _settings->dock &&
-        settings->trayIcon == _settings->trayIcon && settings->plugins == _settings->plugins &&
-        settings->pluginCount == _settings->pluginCount && settings->services == _settings->services &&
-        settings->serviceCount == _settings->serviceCount && settings->dashboard == _settings->dashboard;
-    if (sameRuntime)
+    if (RuntimeSettingsEqual(*settings, *_settings))
     {
         _settings = std::move(settings);
         return S_FALSE;
@@ -2946,7 +2960,8 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     const DockSettings previousDock = _dock;
     const DockSettings nextDock = EffectiveDockSettings(settings->dock, _dockOverrides);
     const bool switchKind = (nextDock.edge != DockEdge::None) != _dockActive;
-    HRESULT applyResult = switchKind ? RestyleWindowKind(nextDock, false) : S_OK;
+    StandardPlacement placement{};
+    HRESULT applyResult = switchKind ? RestyleWindowKind(nextDock, false, placement) : S_OK;
     if (SUCCEEDED(applyResult))
     {
         applyResult = _pluginManager->Reconfigure(*settings);
@@ -2957,7 +2972,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     }
     if (SUCCEEDED(applyResult) && switchKind)
     {
-        applyResult = FinishWindowKindSwitch(false);
+        applyResult = FinishWindowKindSwitch(false, placement);
     }
     if (SUCCEEDED(applyResult))
     {
@@ -2979,7 +2994,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     {
         LogWindowKindSwitchFailed(applyResult);
     }
-    HRESULT rollbackResult = switchKind ? RestyleWindowKind(previousDock, true) : S_OK;
+    HRESULT rollbackResult = switchKind ? RestyleWindowKind(previousDock, true, placement) : S_OK;
     if (SUCCEEDED(rollbackResult))
     {
         rollbackResult = _pluginManager->Reconfigure(*_settings);
@@ -2990,7 +3005,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     }
     if (SUCCEEDED(rollbackResult) && switchKind)
     {
-        rollbackResult = FinishWindowKindSwitch(true);
+        rollbackResult = FinishWindowKindSwitch(true, placement);
     }
     if (FAILED(rollbackResult))
     {
@@ -6315,7 +6330,6 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
         if (wParam == kDockDashboardResizeTimerId)
         {
             (void)KillTimer(window, kDockDashboardResizeTimerId);
-            _dockDashboardResizeTimerArmed = false;
             FlushDockDashboardResize();
             return 0;
         }
@@ -6923,10 +6937,7 @@ HRESULT Application::ApplyWidgetSettingsPersist(const char* instanceId, const ch
     {
         return E_INVALIDARG;
     }
-    if (!_persistSettingsToDisk)
-    {
-        return PatchWidgetInstanceSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
-    }
+    // The self-test store keeps the merge in memory and writes nothing.
     const HRESULT result =
         _settingsStore.PersistWidgetSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
     LogDeferredSettingsPersist();

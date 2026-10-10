@@ -1,9 +1,9 @@
 #include "../../Common/FailureReports.h"
-#include "AddressSanitizerProbe.h"
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
+#include "PluginContract.Tests.AddressSanitizerProbe.h"
 #include "Shaders.Tests.Contract.h"
 #include "ShadersSettings.h"
 
@@ -2831,7 +2831,6 @@ int wmain(int argumentCount, wchar_t** arguments)
     }
     if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--asan-probe")
     {
-        SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
         return RunAddressSanitizerProbe();
     }
     if (argumentCount >= 2 && std::wstring_view(arguments[1]) == L"--matrix-benchmark")

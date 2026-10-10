@@ -123,15 +123,14 @@ function Assert-ScopedTestNames {
     $declared = @(Get-Content -LiteralPath (Join-Path $Root 'Tests/native-test-files.json') -Raw | ConvertFrom-Json)
     if (@($declared | Sort-Object -Unique).Count -ne $declared.Count) { throw 'Duplicate native test inventory paths.' }
     foreach ($path in $declared) {
-        if ($path -match '^(Specs|Measurements|legacy|External)/') { throw "Historical/external source cannot enter the active test inventory: $path" }
+        if ($path -match '^(Specs|Measurements)/') { throw "Historical source cannot enter the active test inventory: $path" }
         if ($path -cnotmatch '(^|/)[^/]+\.Tests\.[^/]+\.(cpp|h)$' -or -not (Test-Path -LiteralPath (Join-Path $Root $path) -PathType Leaf)) { throw "Invalid/missing native test source: $path" }
     }
     # Outside the test folders a name marks a test source by a `.Tests.` segment in any spelling, or by a Test, Mock or
     # Fake name component in the case the naming rule uses (FakeClock.h, MockHost.cpp), never by those letters inside
     # a word (Attestation.h, LatestRelease.cpp, Mockingbird.h).
     $live = @(Get-ScopedTrackedPaths $Root | Where-Object {
-        $_ -notmatch '^(Specs|Measurements|legacy|External)/' -and
-        $_ -cne 'Tools/TerminalEngine/TerminalEngineGate0ContractTestAdapter.cpp' -and
+        $_ -notmatch '^(Specs|Measurements)/' -and
         $_ -match '\.(cpp|h)$' -and
         ($_ -match '^Tests/|/SelfTest/|(^|/)[^/]*\.Tests\.[^/]*$' -or $_ -cmatch '(^|/)[^/]*(Tests?|Mocks?|Fakes?)(?=[A-Z0-9_.-])[^/]*$') -and
         (Test-Path -LiteralPath (Join-Path $Root $_) -PathType Leaf)
@@ -167,7 +166,7 @@ function Get-ScopedTestPlan {
                     foreach ($name in $targets) { [void]$selected.Add($name) }
                     $reasons.Add([pscustomobject]@{path=$path; scopes=$targets; reason=$rule.reason})
                 }
-            } elseif ($path -match '^(docs|Measurements|Changes)/') {
+            } elseif ($path -match '^(docs|Measurements|Mockups)/') {
                 $reasons.Add([pscustomobject]@{path=$path; scopes=@(); reason='documentation; no native test input'})
             } else {
                 foreach ($name in $names) { [void]$selected.Add($name) }
@@ -190,10 +189,11 @@ function Get-ScopedSourceIdentity {
     $rows = [Collections.Generic.List[string]]::new()
     $deleted = $null
     foreach ($path in @(Get-ScopedTrackedPaths $Root)) {
-        # Validators read prose, skills and archived mappings too. Their full identity includes every versioned input.
+        # Validators read prose and skills too. Their full identity includes every versioned input.
         if ($path -match '^\.build/') { continue }
-        # Build attestation excludes immutable evidence/prose, but has no extension whitelist: .inl and new generators count.
-        if ($CompiledOnly -and ($path -match '^(Measurements|docs|Changes|legacy|Specs/(Plans|Done|TestRuns|Reviews|Mockups))/' -or $path -match '\.md$')) { continue }
+        # Build attestation excludes the evidence, prose, plans and mockups no build reads, but has no extension whitelist: .inl
+        # and new generators count.
+        if ($CompiledOnly -and ($path -match '^(Measurements|docs|Mockups|Specs/Plans)/' -or $path -match '\.md$')) { continue }
         $full = Join-Path $Root $path
         if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
             # A nested repository is listed as its directory; its files are not inputs of this tree.
@@ -329,16 +329,10 @@ function Get-ScopedPrJobs {
 }
 
 function Get-ScopedPrCandidateScopes {
-    param([string] $Root, [object] $Manifest, [string] $Platform, [string] $Configuration,
-        [AllowEmptyCollection()][string[]] $ChangedPaths)
-    $covered = @(Get-ScopedPrJobs $Manifest $Platform $Configuration | ForEach-Object { $_.scopes } | Sort-Object -Unique)
-    if ($Manifest.PSObject.Properties['prNativeScopeModule']) {
-        Import-Module (Join-Path $Root $Manifest.prNativeScopeModule) -Force
-        if (-not (Get-NativeScope -ChangedPaths $ChangedPaths).Native) {
-            $covered = @($Manifest.scopes | Where-Object { -not $_.native -and $_.name -in $covered } | ForEach-Object name)
-        }
-    }
-    return $covered
+    # The scopes the PR checks run for a local profile. Every RedXe check runs on every pull request (ci.yml has no path
+    # filter or job condition), so they do not depend on what changed.
+    param([object] $Manifest, [string] $Platform, [string] $Configuration)
+    return @(Get-ScopedPrJobs $Manifest $Platform $Configuration | ForEach-Object { $_.scopes } | Sort-Object -Unique)
 }
 
 function Invoke-ScopedGhApi {
@@ -388,8 +382,7 @@ function Get-ScopedPrDelegation {
         $refusal = if ($unrequired.Count) { "$($Manifest.defaultBranch) does not require the PR check $($unrequired -join ', '), so a failing run could still merge" } else { '' }
         $gated = @($jobs | Where-Object { $_.check -cin $required } | ForEach-Object { $_.scopes })
         if (-not $gated.Count) { return & $keepLocal $refusal }
-        $paths = @(Get-ScopedChangedPaths $Root $baseRef)
-        $covered = @(Get-ScopedPrCandidateScopes $Root $Manifest $Platform $Configuration $paths | Where-Object { $_ -in $gated })
+        $covered = @(Get-ScopedPrCandidateScopes $Manifest $Platform $Configuration | Where-Object { $_ -in $gated })
         if ((Invoke-ScopedGit $Root @('rev-parse','HEAD')).Trim() -cne $candidate -or
             (Invoke-ScopedGit $Root @('status','--porcelain','--untracked-files=normal'))) {
             return & $keepLocal 'HEAD or the working tree changed while delegation was checked'

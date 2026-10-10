@@ -6,12 +6,6 @@ $ErrorActionPreference = 'Stop'
 # The lock is read, and its API revision checked, in one place: the pin restore.
 Import-Module (Join-Path $PSScriptRoot 'DxUiRestore.psm1') -Force -ErrorAction Stop
 
-function Read-RedXeDxUiUpdateLock {
-    param([Parameter(Mandatory)][string] $LockFile)
-
-    return Read-RedXeDxUiLock -LockFile $LockFile
-}
-
 function New-RedXeDxUiUpdateRequest {
     $headers = @{ Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
     $token = if ($env:GH_TOKEN) { $env:GH_TOKEN } else { $env:GITHUB_TOKEN }
@@ -31,7 +25,7 @@ function Get-RedXeDxUiValidatedMainCandidate {
         [switch] $AllowApiRevisionChange
     )
 
-    $pin = Read-RedXeDxUiUpdateLock -LockFile $LockFile
+    $pin = Read-RedXeDxUiLock -LockFile $LockFile
     if (-not $Request) { $Request = New-RedXeDxUiUpdateRequest }
     try {
         $head = & $Request 'commits/main'
@@ -77,7 +71,7 @@ function Set-RedXeDxUiLockCommit {
         [Parameter(Mandatory)][ValidateRange(1, [int]::MaxValue)][int] $ApiRevision
     )
 
-    $pin = Read-RedXeDxUiUpdateLock -LockFile $LockFile
+    $pin = Read-RedXeDxUiLock -LockFile $LockFile
     $pin.commit = $Commit
     $pin.apiRevision = $ApiRevision
     $json = ($pin | ConvertTo-Json -Depth 5) + [Environment]::NewLine

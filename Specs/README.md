@@ -71,7 +71,7 @@ durable.
 
 | Domain | Start with |
 | --- | --- |
-| Build output and running-target preflight | [`Build/Build_Process.md`](Build/Build_Process.md) |
+| Build and test entrypoints: running-target preflight, MSBuild selection, test-process failure reporting, the streaming runner, scoped test selection, reuse and PR coverage | [`Build/Build_Process.md`](Build/Build_Process.md) |
 | Version stamp, portable ZIP, in-package installer, command-alias launcher, release and winget publication | [`Build/Build_Packaging.md`](Build/Build_Packaging.md) |
 | Performance and resource consumption | [`Core/Core_PerformanceAndResources.md`](Core/Core_PerformanceAndResources.md) |
 | Fatal-process capture and previous-crash diagnostics | [`Core/Core_CrashHandling.md`](Core/Core_CrashHandling.md) |

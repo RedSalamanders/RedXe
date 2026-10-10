@@ -7,9 +7,11 @@
 #include "../Plugins/Launcher/LauncherBindings.h"
 #include "../Plugins/Launcher/LauncherPaging.h"
 #include "../Plugins/Logicon/LogiconSettings.h"
+#include "../Plugins/StudioClock/StudioClockSettings.h"
 #include "BundledPlugins.h"
 #include "HostActionCatalog.h"
 #include "PlugInterfaces/Factory.h"
+#include "SettingsJsonText.h"
 
 #include <array>
 #include <cctype>
@@ -17,6 +19,7 @@
 #include <cstring>
 #include <memory>
 #include <new>
+#include <span>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -51,8 +54,6 @@ constexpr char kMatrixDefaults[] =
     R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#F6FFF6","trailColor":"#33FF33","glowPercent":35})json";
 constexpr char kProcessViewerDefaults[] = R"json({"topN":10,"hideIdle":true})json";
 constexpr char kRankedViewerDefaults[] = R"json({"topN":8})json";
-constexpr char kStudioClockDefaults[] =
-    R"json({"showSecondProgress":true,"externalDotsAlwaysOn":true,"showSeconds":true,"secondsColor":"#FF1616","showDate":false,"dateFormat":"dd-mm-yyyy","timeColor":"#FF1616","glowPercent":35})json";
 constexpr char kDeskClockDefaults[] =
     R"json({"flipDurationMilliseconds":420,"cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json";
 constexpr char kWeatherDefaults[] =
@@ -184,285 +185,6 @@ struct JsonPathBuffer final
         const uint32_t restore = length;
         (void)AppendIndex(index);
         return Scope{*this, restore};
-    }
-};
-
-struct JsonTextCursor final
-{
-    std::string_view json;
-    size_t index = 0;
-    uint32_t line = 1;
-    uint32_t column = 1;
-
-    void SkipSpaceAndComments() noexcept
-    {
-        for (;;)
-        {
-            while (index < json.size())
-            {
-                const char ch = json[index];
-                if (ch == ' ' || ch == '\t' || ch == '\r')
-                {
-                    ++index;
-                    ++column;
-                    continue;
-                }
-                if (ch == '\n')
-                {
-                    ++index;
-                    ++line;
-                    column = 1;
-                    continue;
-                }
-                break;
-            }
-            if (index + 1 < json.size() && json[index] == '/' && json[index + 1] == '/')
-            {
-                index += 2;
-                column += 2;
-                while (index < json.size() && json[index] != '\n')
-                {
-                    ++index;
-                    ++column;
-                }
-                continue;
-            }
-            if (index + 1 < json.size() && json[index] == '/' && json[index + 1] == '*')
-            {
-                index += 2;
-                column += 2;
-                while (index + 1 < json.size() && !(json[index] == '*' && json[index + 1] == '/'))
-                {
-                    if (json[index] == '\n')
-                    {
-                        ++line;
-                        column = 1;
-                    }
-                    else
-                    {
-                        ++column;
-                    }
-                    ++index;
-                }
-                if (index + 1 < json.size())
-                {
-                    index += 2;
-                    column += 2;
-                }
-                continue;
-            }
-            break;
-        }
-    }
-
-    void Advance() noexcept
-    {
-        if (index >= json.size())
-        {
-            return;
-        }
-        if (json[index] == '\n')
-        {
-            ++line;
-            column = 1;
-        }
-        else
-        {
-            ++column;
-        }
-        ++index;
-    }
-
-    [[nodiscard]] bool Consume(char expected) noexcept
-    {
-        SkipSpaceAndComments();
-        if (index >= json.size() || json[index] != expected)
-        {
-            return false;
-        }
-        Advance();
-        return true;
-    }
-
-    [[nodiscard]] bool SkipString() noexcept
-    {
-        SkipSpaceAndComments();
-        if (index >= json.size() || json[index] != '"')
-        {
-            return false;
-        }
-        Advance();
-        while (index < json.size())
-        {
-            const char ch = json[index];
-            if (ch == '"')
-            {
-                Advance();
-                return true;
-            }
-            if (ch == '\\')
-            {
-                Advance();
-                if (index < json.size())
-                {
-                    Advance();
-                }
-                continue;
-            }
-            Advance();
-        }
-        return false;
-    }
-
-    [[nodiscard]] bool ReadString(std::string& value) noexcept
-    {
-        SkipSpaceAndComments();
-        if (index >= json.size() || json[index] != '"')
-        {
-            return false;
-        }
-        Advance();
-        value.clear();
-        while (index < json.size())
-        {
-            const char ch = json[index];
-            if (ch == '"')
-            {
-                Advance();
-                return true;
-            }
-            if (ch == '\\')
-            {
-                Advance();
-                if (index < json.size())
-                {
-                    value.push_back(json[index]);
-                    Advance();
-                }
-                continue;
-            }
-            value.push_back(ch);
-            Advance();
-        }
-        return false;
-    }
-
-    [[nodiscard]] bool SkipValue() noexcept
-    {
-        SkipSpaceAndComments();
-        if (index >= json.size())
-        {
-            return false;
-        }
-        const char ch = json[index];
-        if (ch == '"')
-        {
-            return SkipString();
-        }
-        if (ch == '{')
-        {
-            Advance();
-            SkipSpaceAndComments();
-            if (index < json.size() && json[index] == '}')
-            {
-                Advance();
-                return true;
-            }
-            for (;;)
-            {
-                if (!SkipString() || !Consume(':') || !SkipValue())
-                {
-                    return false;
-                }
-                SkipSpaceAndComments();
-                if (index < json.size() && json[index] == ',')
-                {
-                    Advance();
-                    SkipSpaceAndComments();
-                    if (index < json.size() && json[index] == '}')
-                    {
-                        Advance();
-                        return true;
-                    }
-                    continue;
-                }
-                return Consume('}');
-            }
-        }
-        if (ch == '[')
-        {
-            Advance();
-            SkipSpaceAndComments();
-            if (index < json.size() && json[index] == ']')
-            {
-                Advance();
-                return true;
-            }
-            for (;;)
-            {
-                if (!SkipValue())
-                {
-                    return false;
-                }
-                SkipSpaceAndComments();
-                if (index < json.size() && json[index] == ',')
-                {
-                    Advance();
-                    SkipSpaceAndComments();
-                    if (index < json.size() && json[index] == ']')
-                    {
-                        Advance();
-                        return true;
-                    }
-                    continue;
-                }
-                return Consume(']');
-            }
-        }
-        if (ch == '-' || (ch >= '0' && ch <= '9'))
-        {
-            while (index < json.size())
-            {
-                const char digit = json[index];
-                if ((digit >= '0' && digit <= '9') || digit == '-' || digit == '+' || digit == '.' || digit == 'e' ||
-                    digit == 'E')
-                {
-                    Advance();
-                    continue;
-                }
-                break;
-            }
-            return true;
-        }
-        static constexpr std::string_view kTrue = "true";
-        static constexpr std::string_view kFalse = "false";
-        static constexpr std::string_view kNull = "null";
-        const std::string_view word = json.substr(index);
-        if (word.starts_with(kTrue))
-        {
-            for (size_t n = 0; n < kTrue.size(); ++n)
-            {
-                Advance();
-            }
-            return true;
-        }
-        if (word.starts_with(kFalse))
-        {
-            for (size_t n = 0; n < kFalse.size(); ++n)
-            {
-                Advance();
-            }
-            return true;
-        }
-        if (word.starts_with(kNull))
-        {
-            for (size_t n = 0; n < kNull.size(); ++n)
-            {
-                Advance();
-            }
-            return true;
-        }
-        return false;
     }
 };
 
@@ -677,7 +399,7 @@ struct DiagnosticSink final
     }
 };
 
-[[nodiscard]] const char* UnknownObjectMember(yyjson_val* object, std::initializer_list<const char*> keys) noexcept
+[[nodiscard]] const char* UnknownObjectMember(yyjson_val* object, std::span<const char* const> keys) noexcept
 {
     if (!yyjson_is_obj(object))
     {
@@ -701,7 +423,7 @@ struct DiagnosticSink final
 }
 
 [[nodiscard]] bool AcceptObjectMembers(DiagnosticSink& sink, JsonPathBuffer& path, yyjson_val* object,
-                                       std::initializer_list<const char*> keys, bool allowUnknown) noexcept
+                                       std::span<const char* const> keys, bool allowUnknown) noexcept
 {
     if (!yyjson_is_obj(object))
     {
@@ -721,6 +443,18 @@ struct DiagnosticSink final
     message += unknown;
     message += "\".";
     return sink.Fail(path.View(), message);
+}
+
+// Key lists written in place at the call sites; a plugin's shared settings catalog passes its std::array instead.
+[[nodiscard]] const char* UnknownObjectMember(yyjson_val* object, std::initializer_list<const char*> keys) noexcept
+{
+    return UnknownObjectMember(object, std::span(keys.begin(), keys.size()));
+}
+
+[[nodiscard]] bool AcceptObjectMembers(DiagnosticSink& sink, JsonPathBuffer& path, yyjson_val* object,
+                                       std::initializer_list<const char*> keys, bool allowUnknown) noexcept
+{
+    return AcceptObjectMembers(sink, path, object, std::span(keys.begin(), keys.size()), allowUnknown);
 }
 
 [[nodiscard]] bool RejectDuplicateMembers(DiagnosticSink& sink, JsonPathBuffer& path, yyjson_val* value) noexcept
@@ -986,35 +720,52 @@ struct DiagnosticSink final
 [[nodiscard]] bool ValidateStudioClockSettings(yyjson_val* settings, DiagnosticSink& sink,
                                                JsonPathBuffer& path) noexcept
 {
-    if (!AcceptObjectMembers(sink, path, settings,
-                             {"showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor", "showDate",
-                              "dateFormat", "timeColor", "glowPercent"},
-                             false) ||
-        yyjson_obj_size(settings) != 8)
+    if (!AcceptObjectMembers(sink, path, settings, StudioClock::kSettingsKeys, false) ||
+        yyjson_obj_size(settings) != StudioClock::kSettingsKeys.size())
     {
-        return yyjson_is_obj(settings) && yyjson_obj_size(settings) != 8 &&
-                       UnknownObjectMember(settings,
-                                           {"showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor",
-                                            "showDate", "dateFormat", "timeColor", "glowPercent"}) == nullptr
+        return yyjson_is_obj(settings) && yyjson_obj_size(settings) != StudioClock::kSettingsKeys.size() &&
+                       UnknownObjectMember(settings, StudioClock::kSettingsKeys) == nullptr
                    ? sink.Fail(path.View(), "Studio Clock settings must include every required member.")
                    : false;
     }
     yyjson_val* dateFormatValue = yyjson_obj_get(settings, "dateFormat");
     const char* dateFormat = yyjson_is_str(dateFormatValue) ? yyjson_get_str(dateFormatValue) : nullptr;
-    const bool validDateFormat =
-        dateFormat && (std::strcmp(dateFormat, "dd-mm-yyyy") == 0 || std::strcmp(dateFormat, "mm-dd-yyyy") == 0 ||
-                       std::strcmp(dateFormat, "yyyy-mm-dd") == 0);
-    if (!validDateFormat)
+    StudioClock::DateFormat parsedDateFormat = StudioClock::DateFormat::DayMonthYear;
+    if (!dateFormat || !StudioClock::TryParseDateFormat(dateFormat, parsedDateFormat))
     {
+        // The accepted values are the catalog's, so the message names exactly those. Built in a fixed buffer: the
+        // validator is noexcept and allocates nothing.
+        std::array<char, 96> message{};
+        size_t used = 0;
+        const auto append = [&message, &used](std::string_view text) noexcept
+        {
+            const size_t take = text.size() < message.size() - used ? text.size() : message.size() - used;
+            std::memcpy(message.data() + used, text.data(), take);
+            used += take;
+        };
+        const size_t names = StudioClock::kDateFormatNames.size();
+        append("dateFormat must be ");
+        for (size_t index = 0; index < names; ++index)
+        {
+            if (index != 0)
+            {
+                append(index + 1 < names ? ", " : names > 2 ? ", or " : " or ");
+            }
+            append(StudioClock::kDateFormatNames[index]);
+        }
+        append(".");
         const auto scope = path.PushName("dateFormat");
-        return sink.Fail(path.View(), "dateFormat must be dd-mm-yyyy, mm-dd-yyyy, or yyyy-mm-dd.");
+        return sink.Fail(path.View(), std::string_view(message.data(), used));
     }
+    char glowMessage[64]{};
+    sprintf_s(glowMessage, "glowPercent must be an integer from %u through %u.", StudioClock::kMinimumGlowPercent,
+              StudioClock::kMaximumGlowPercent);
     return RejectBool(sink, path, settings, "showSecondProgress") &&
            RejectBool(sink, path, settings, "externalDotsAlwaysOn") &&
            RejectBool(sink, path, settings, "showSeconds") && RejectBool(sink, path, settings, "showDate") &&
            RejectColor(sink, path, settings, "secondsColor") && RejectColor(sink, path, settings, "timeColor") &&
-           RejectRange(sink, path, settings, "glowPercent", 0, 100,
-                       "glowPercent must be an integer from 0 through 100.");
+           RejectRange(sink, path, settings, "glowPercent", StudioClock::kMinimumGlowPercent,
+                       StudioClock::kMaximumGlowPercent, glowMessage);
 }
 
 [[nodiscard]] bool ValidateShadersSettings(yyjson_val* settings, DiagnosticSink& sink, JsonPathBuffer& path) noexcept
@@ -1341,13 +1092,13 @@ struct DiagnosticSink final
     const char* defaultsText = plugin == kMatrixPlugin                                          ? kMatrixDefaults
                                : plugin == kProcessViewerPlugin                                 ? kProcessViewerDefaults
                                : plugin == kNetworkMeterPlugin || plugin == kGpuProcessesPlugin ? kRankedViewerDefaults
-                               : plugin == kStudioClockPlugin                                   ? kStudioClockDefaults
-                               : plugin == kDeskClockPlugin                                     ? kDeskClockDefaults
-                               : plugin == kShadersPlugin                                       ? Shaders::kDefaultsJson
-                               : plugin == kWeatherPlugin                                       ? kWeatherDefaults
-                               : plugin == kLauncherPlugin                                      ? kLauncherDefaults
-                               : plugin == kAvControlPlugin ? AVControl::DefaultsJson
-                                                            : "{}";
+                               : plugin == kStudioClockPlugin ? StudioClock::kDefaultsJson
+                               : plugin == kDeskClockPlugin   ? kDeskClockDefaults
+                               : plugin == kShadersPlugin     ? Shaders::kDefaultsJson
+                               : plugin == kWeatherPlugin     ? kWeatherDefaults
+                               : plugin == kLauncherPlugin    ? kLauncherDefaults
+                               : plugin == kAvControlPlugin   ? AVControl::DefaultsJson
+                                                              : "{}";
     defaults.reset(yyjson_read(defaultsText, std::strlen(defaultsText), YYJSON_READ_NOFLAG));
     yyjson_val* settingsValue = authoredSettings;
     if (!settingsValue)

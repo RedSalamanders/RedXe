@@ -9,6 +9,7 @@
   <ItemGroup><ClCompile Include="DeskClock.cpp"><Filter>Source Files</Filter></ClCompile></ItemGroup>
   <ItemGroup>
     <ClInclude Include="DeskClock.Tests.Contract.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\Common\SettingsCursor.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\FactoryImpl.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\Common\PlugInterfaces\Widget.h"><Filter>Header Files</Filter></ClInclude>

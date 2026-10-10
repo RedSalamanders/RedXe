@@ -19,12 +19,15 @@ if (-not $SkipBuild) {
     & (Join-Path $RepoRoot 'build.ps1') -Platform $platform -Configuration $Configuration
     if ($LASTEXITCODE -ne 0) { throw "Measurement build failed: $LASTEXITCODE" }
 }
+# The pin and where its restore lives are the build scripts' (Build/DxUiRestore.psm1), so this reads them as they do.
+Import-Module (Join-Path $RepoRoot 'Build/DxUiRestore.psm1') -Force -ErrorAction Stop
 $lockPath = Join-Path $RepoRoot 'Dependencies/DxUi.lock.json'
-$pin = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
-$resolved = Join-Path $RepoRoot ".build/dependencies/DxUi/DxUi.resolved.$platform.props"
+$pin = Read-RedXeDxUiLock -LockFile $lockPath
+$dependencyRoot = Get-RedXeDxUiDependencyRoot -RepoRoot $RepoRoot
+$resolved = Join-Path $dependencyRoot "DxUi.resolved.$platform.props"
 if (-not (Test-Path -LiteralPath $resolved)) {
     # The original adoption baseline predates per-platform resolved properties.
-    $resolved = Join-Path $RepoRoot '.build/dependencies/DxUi/DxUi.resolved.props'
+    $resolved = Join-Path $dependencyRoot 'DxUi.resolved.props'
 }
 [xml] $props = Get-Content -LiteralPath $resolved -Raw
 $dxUiRoot = [string] $props.Project.PropertyGroup.DxUiRoot

@@ -6,7 +6,8 @@ $fixture=Join-Path $repo ('.build/BuildProcessTests/DxUi-'+[guid]::NewGuid().ToS
 [void](New-Item -ItemType Directory -Path (Join-Path $fixture 'Plugins') -Force)
 try {
     $lock=Join-Path $fixture 'lock.json'
-    @{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=3} | ConvertTo-Json | Set-Content -LiteralPath $lock
+    function Write-Lock([int]$ApiRevision) { @{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=$ApiRevision;targets=@('DxUi')} | ConvertTo-Json | Set-Content -LiteralPath $lock }
+    Write-Lock 3
     $modules=foreach ($name in @('RedXe.exe','Plugins/AVControl.dll','AVControlTests.exe')) {
         $path=Join-Path $fixture $name
         Set-Content -LiteralPath $path -Value "fixture $name"
@@ -32,6 +33,9 @@ try {
     $record.apiRevision=3; $record.modules=@($modules[0]); Write-Record; Reject 'incomplete module closure'
     $record.modules=@($modules[0],$modules[0],$modules[2]); Write-Record; Reject 'duplicate module'
     $record.modules=@($modules); Write-Record
+    # The check reads the lock as the restore does, so a lock the build refuses fails it too, even with a record that matches it.
+    Write-Lock 2; $record.apiRevision=2; Write-Record; Reject 'a lock the restore refuses, even with a matching record'
+    Write-Lock 3; $record.apiRevision=3; Write-Record
     Add-Content -LiteralPath (Join-Path $fixture 'Plugins/AVControl.dll') -Value 'replacement'
     Reject 'changed binary'
 

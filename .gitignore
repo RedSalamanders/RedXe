@@ -23,5 +23,6 @@ __pycache__/
 work/
 outputs/
 
-# Zoom Plugin SDK packages (licensed by Zoom; import with ThirdParty/ZoomPluginSdk/Import-ZoomSdk.ps1)
+# Legacy developer-local Zoom Plugin SDK packages and imports (licensed by Zoom; RedXe no longer builds or ships them)
 zoom-plugin-sdk-windows-*.zip
+ThirdParty/ZoomPluginSdk/

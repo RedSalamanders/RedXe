@@ -500,6 +500,4 @@ bool SyntheticHidPort::Disconnected() const noexcept
 {
     return false;
 }
-
-void SyntheticHidPort::Cancel() noexcept {}
 } // namespace Logicon

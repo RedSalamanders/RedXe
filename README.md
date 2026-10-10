@@ -49,6 +49,11 @@ py -3 -m pip install -r Build/requirements-validation.txt
 .\validate-skills.ps1
 ```
 
+A plain `.\test.ps1` hands off to `Test-Changes.ps1`, which runs only the suites your changes affect
+(`.\Test-Changes.ps1 -Explain` shows which and why) and ends with `NOTHING_SELECTED; repository NOT_EVALUATED` when
+nothing needs running; `-Full` runs every suite. Affected iteration, full local coverage, exact reuse and pending PR
+obligations are described in [the testing guide](Tests/README.md).
+
 ## Package and release
 
 ```powershell
@@ -87,28 +92,36 @@ manifest from `vcpkg.json`. That manifest's `builtin-baseline` MUST be the same 
 resolve every port. All tool, package, download, and installed state stays under `.build`. x64 and ARM64 use
 separate install roots so their manifest metadata cannot purge one another. vcpkg builds the packages with the Visual
 Studio installation and default MSVC toolset that MSBuild compiles with, through an overlay triplet it writes under
-`.build\vcpkg-triplets`; the script restores the pinned DxUi source first, for the helpers that pin the toolset. Run
-`vcpkg-install.ps1` once before the first direct Visual Studio build.
+`.build\vcpkg-triplets`; the script first fetches the pinned DxUi source, only for the helpers that pin the toolset.
+`restore-dxui.ps1 -Platform <p>` then builds DxUi's dependencies and writes the resolved properties, under
+`.build\dependencies\DxUi`, that the projects using DxUi import; without them a direct Visual Studio build stops with
+"Run restore-dxui.ps1 for the selected platform". `build.ps1` runs both. Before the first direct Visual Studio build,
+run `build.ps1 -Platform <p>` once per platform, or `vcpkg-install.ps1 -Platform <p>` and then
+`restore-dxui.ps1 -Platform <p>`.
 
 Before mutating an output profile, `build.ps1` identifies running `RedXe.exe` processes by full executable path. An
 instance executing that exact `.build\<Platform>\<Configuration>\RedXe.exe` blocks the build with identifying
 diagnostics and is never terminated. Same-name processes from other checkouts or output profiles do not block it.
 
-Press **Escape** to close the running sample. Pass `--warp` to force the Windows software renderer. The test entrypoint
-runs ABI, settings, and production host/plugin harnesses, then uses `--self-test --warp` to create a hidden window,
-load the build-time-compiled embedded shaders, draw and present one frame, then exit. The host/plugin harness uses a
-hidden off-screen HWND and WARP; it does not automate the desktop. The same entrypoint launches an intentionally
-crashing child into an isolated `.build` directory and verifies its production minidump and marker without touching
-the user's normal crash directory.
+Press **Escape** to close the running sample. Pass `--warp` to force the Windows software renderer. The full test run
+(`test.ps1 -Full`) runs ABI, settings, and production host/plugin harnesses, then uses `--self-test --warp` to create a
+hidden window, load the build-time-compiled embedded shaders, draw and present one frame, then exit. The host/plugin
+harness uses a hidden off-screen HWND and WARP. The smoke test also runs `--screenshot` end to end, which briefly shows
+a non-activating, non-reserving 32-DIP bar at the bottom of the primary display while RedXe captures its own window;
+nothing else on the desktop is automated. The same run launches an intentionally crashing child into an isolated
+`.build` directory and verifies its production minidump and marker without touching the user's normal crash directory.
 
 Debug builds open as a standard titled window on the XENEON monitor when one is active, otherwise they use normal
 shell-selected placement. Release builds search the active display topology for a CORSAIR XENEON monitor and open
 borderless fullscreen on that monitor. If no XENEON monitor is present, RedXe asks whether it should continue in a
-standard titled window. Every standard-window path uses a 2560×720 logical client canvas at 96 DPI, matching the
-XENEON EDGE native 32:9 canvas. Per-monitor-v2 scaling derives the initial physical size from the window's actual
-monitor and recalculates the non-client frame during `WM_DPICHANGED`, preserving the exact logical canvas when moving
-between monitors with different zoom levels. The title bar and borders sit outside the render area. The self-test
-remains hidden and noninteractive in every configuration and verifies the DPI-adjusted default client dimensions.
+standard titled window. A `dock` in the settings file (or `--dock`) runs either build as a bar on a screen edge instead,
+without that question, and the settings file a first start without a XENEON creates already holds an auto-hiding bar:
+see [Window](docs/usage.md#window) and [Dock](docs/usage.md#dock). Every standard-window path uses a 2560×720 logical
+client canvas at 96 DPI, matching the XENEON EDGE native 32:9 canvas. Per-monitor-v2 scaling derives the initial
+physical size from the window's actual monitor and recalculates the non-client frame during `WM_DPICHANGED`, preserving
+the exact logical canvas when moving between monitors with different zoom levels. The title bar and borders sit outside
+the render area. The self-test remains hidden and noninteractive in every configuration and verifies the DPI-adjusted
+default client dimensions.
 
 ## Settings and live reload
 
@@ -154,11 +167,13 @@ RedXeLauncher/         Dependency-free launcher behind the winget `RedXe` comman
 Installer/             In-package installer (Install-RedXe.ps1, install.cmd, uninstall.cmd) and winget manifest templates
 Settings/              Debug and Release settings templates
 Tests/                 ABI, settings, and production host/plugin tests
-Build/                 Build-process safety, versioning, packaging, and winget helper modules
+Build/                 Build-process safety, versioning, packaging, winget, DxUi restore, scoped-test helper modules
 build.ps1             Build, clean, rebuild, and optionally run (-BuildNumber stamps the version)
 test.ps1              GPU-independent contract, host/plugin, and runtime tests (affected suites; -Full runs every suite)
+Test-Changes.ps1      Affected-suite runner with receipts (-Explain, -Mode Full or PrePush); test.ps1 hands off to it
 package.ps1           Portable ZIP with clean-extraction smoke
 winget-manifest.ps1   Winget manifest generation and validation
+restore-dxui.ps1      Restore the pinned DxUi source and build its dependencies (build.ps1 runs it)
 Update-DxUi.ps1       Update the validated DxUi pin, optionally without local validation
 format.ps1            clang-format entrypoint
 validate-skills.ps1   Validate every repository-local skill
@@ -176,5 +191,3 @@ RedXe is released under the [MIT License](LICENSE) (Copyright (c) 2026 RedSalama
 and adds the third-party notices and the files under other terms: the twelve Shadertoy ports in
 `Plugins/5H4D3R5/Shaders/` are CC BY-NC-SA 3.0 (see `Plugins/5H4D3R5/LICENSES.md`), the Weather Icons font is
 SIL OFL 1.1. The browser-only Zoom action plugin uses no Zoom SDK.
-
-Affected iteration, full local coverage, exact reuse and pending PR obligations are described in [the testing guide](Tests/README.md).

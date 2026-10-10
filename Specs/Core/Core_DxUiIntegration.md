@@ -41,6 +41,13 @@ a sibling `DxUi` checkout that holds it and otherwise from the canonical reposit
   destination unfinished; the one that waited then finds the checkout the other published and keeps it, instead of
   removing it while the other's caller imports from it. The first check takes no mutex, so a finished restore costs no
   wait, and a holder that ended without releasing the mutex hands it over.
+- A wait for this mutex, or for the dependency root's (below), MUST give up after 30 minutes, far longer than a restore
+  or a removal takes, so a stuck holder cannot hold a build indefinitely. The wait says once what it waits for and who
+  holds it, Ctrl+C ends it, and at the limit it fails naming both. Windows does not report a mutex's owner, so each
+  holder records its process identifier, the time it took the mutex (in the invariant culture) and its command line,
+  which names the executable (`pwsh.exe`, not the `pwsh.dll` that .NET reports) and is cut to 200 characters, in the
+  temporary folder of its account, and removes the record before it releases the mutex; a holder under another account
+  is reported unknown. The record is best effort and never fails the lock.
 - The clone and its checkout use Git long paths. `git clone -c core.longpaths=true` keeps the setting in that clone's own
   configuration; no user or global Git setting changes.
 - The working tree is sparse. `Measurements/`, `docs/gallery/` and `Specs/` are left out, because the product neither
@@ -63,8 +70,11 @@ each replaced by the clean checkout, and a pin restore that lost a file is resto
 failed restore leaves neither the destination nor a temporary folder; that a restore whose rename loses to a concurrent
 one (staged deterministically) reports no restore and uses the winner; that of two concurrent repairs of one unfinished
 destination, run on two threads with the second held right after its first check until the first has published, the
-second reports no restore and leaves the first's checkout in place; and that a `file://` clone of a bare copy, Git's
-network path, fetches no content of a left-out file.
+second reports no restore and leaves the first's checkout in place; that a wait for a folder another thread holds gives
+up at its limit, neither before it nor long after, naming the holder's process, executable and command line (the record
+writes its time in the invariant culture, names the executable instead of the host dll, and cuts the command line to 200
+characters), and that once released the folder is entered at once and each holder's record goes with its release; and
+that a `file://` clone of a bare copy, Git's network path, fetches no content of a left-out file.
 
 Restore isolates vcpkg/library outputs under a
 fingerprint that includes commit, API revision, target architecture, evaluated compiler host, compiler/linker/MSBuild
@@ -81,14 +91,21 @@ Every pin bump, toolset or SDK update leaves the previous output root behind (fr
   `<commit>-api<n>-...` roots, `source/<commit>` and `source/~<hex>`. Nothing else under the folder is touched.
 - A candidate used within the last seven days (the lease window) MUST be kept. Its last use is its lease,
   `.build/dependencies/DxUi/leases/<fingerprint>` for an output root and `leases/source.<commit>` for a source clone,
-  which every `restore-dxui.ps1` run, and so the start of every build, rewrites before it uses that folder: the pin
-  restore renews the source's lease before it checks the source, and the script renews the output root's before
+  which every `restore-dxui.ps1` run, and so the start of every `build.ps1` build, rewrites before it uses that folder:
+  the pin restore renews the source's lease before it checks the source, and the script renews the output root's before
   DxUi's `vcpkg-install.ps1` builds into it. A folder without a lease (one an older restore left, a temporary clone)
   counts as used when it or anything in it was written within the window. The folder's own time never counts: a build
   that reuses a root reads it without writing its top level. The window is far longer than any build, so a root that
   another session still builds with stays after a restore for another fingerprint has replaced the properties that
   named it, and a restore that another session is still running (a root before its properties exist, a temporary
   clone) is never removed under it.
+- A Visual Studio IDE build runs no restore, so it renews no lease: it builds with the output root and the source that
+  the platform's `DxUi.resolved.<Platform>.props` names, as the last `restore-dxui.ps1` run wrote it. While those
+  properties name that root and the lock pins that source, neither is a candidate, so IDE-only work keeps them however
+  long it lasts. Once a command-line restore for another fingerprint or pin has replaced the properties, the previous
+  root and source are candidates whose last use is the last command-line build that used them: the lease window keeps
+  them for seven days after it, and an IDE build that still uses them later, without the new properties, can find them
+  removed. A `build.ps1` run restores what the current lock and toolset need.
 - Leases and removals are serialized by a named mutex of the dependency root: a removal holds it from its first decision
   to its last deletion, and a lease is written under it, so a removal already under way finishes before the lease (the
   restore then finds the folder gone and restores it), and none after the lease removes the folder within the window.

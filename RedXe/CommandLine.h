@@ -240,9 +240,13 @@ inline constexpr int kRedXeScreenshotFailedExitCode = 8;
     text += L"Usage: RedXe.exe [--settings <path>] [--dock <edge>[@<monitor>] [dock options]]\n";
     text += L"                 [--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]] [--warp]\n";
     text += L"       RedXe.exe --help\n";
-    text += L"\nWithout switches RedXe fills the XENEON (Release) or opens a titled window (Debug) and watches the "
-            L"settings file\n";
-    text += L"under %LocalAppData%\\RedXe\\Settings. Every switch overrides the file for this run only.\n";
+    text +=
+        L"\nWithout switches RedXe follows the settings file under %LocalAppData%\\RedXe\\Settings and watches it for "
+        L"edits:\n";
+    text +=
+        L"the XENEON window (fullscreen in Release, titled in Debug), a titled window without a XENEON (Release asks\n";
+    text += L"first), or a bar on a screen edge when the file sets a dock. A first start without a XENEON writes an\n";
+    text += L"auto-hiding bar into the new file. Every switch overrides the file for this run only.\n";
     for (const wchar_t* group : kRedXeCommandLineGroups)
     {
         text += L"\n";

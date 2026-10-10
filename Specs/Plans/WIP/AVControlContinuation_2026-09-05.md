@@ -1,8 +1,16 @@
 # AV Control continuation checkpoint
 
 Saved 2026-09-05 at approximately 21:15 UTC after the user requested saving everything to continue later.
-Implementation is paused, not complete. This checkpoint supersedes older progress notes for current pins, results
+Implementation is paused, not complete. On that date this checkpoint superseded older progress notes for pins, results
 and next actions. The normative contracts and WIP plans remain authoritative for scope.
+
+This is a dated snapshot, not the current state (reviewed 2026-10-07). The pins, working directories, coordinating
+task, CI runs and `.build` receipts below are as of 2026-09-05 and stay as the resume record of the paused AV work.
+`Dependencies/DxUi.lock.json` owns the current DxUi pin, which has moved since
+([`DxUiFollowUps_2026-10-01.md`](../Done/DxUiFollowUps_2026-10-01.md)); check `git status` in every directory before
+relying on a row of the working-state table. The open gates are the checklist of
+[`RFC_Plugins_AVControl.md`](RFC_Plugins_AVControl.md) (G1, G2, G3a, G3b). The proposed long-profile performance
+acceptance run under "Performance: OPEN" is recorded only here.
 
 ## Resume first
 
