@@ -164,6 +164,9 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   other wake-up; each reveal, hide, close-hover change, and dim step invalidates exactly one coalesced frame.
   Re-evaluating the chrome with unchanged host state MUST perform no work, so it is safe to call from the frame loop.
   Each band is full client height; only its horizontal placement follows the reachable display edge.
+  Non-dock reachable geometry is UI-thread cached; unchanged frame, hover and hit-test queries MUST NOT enumerate
+  displays. Window geometry/style/lifetime, DPI, display topology and system-settings messages invalidate before
+  dispatch. The cache uses 24 bytes including its test walk counter, with no allocation, timer or worker.
 - The top-level window is created with `WS_EX_NOREDIRECTIONBITMAP` and nothing paints it with GDI, so DWM keeps no
   client-sized redirection surface for it. Host-owned native-widget containers are `WS_EX_LAYERED` children with their
   own DWM surface; while another widget is raised they carry the dim as window alpha (`255 − dim`) and return to

@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-10 against `a466363` on `codex/runtime-probe`; P0.1 `0971350`, P2.7 `a466363`
+Refreshed: 2026-10-10 against `373372f` on `codex/runtime-probe`; P0.1 `0971350`, P2.7 `a466363`
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -65,6 +65,33 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P0.2 | In progress | PresentMon 2.5.1 works without elevation on this user's process. Fresh System trace and 65 s probe at `runtime-2026-10-10-p02-system`: 12.287 submissions/s, 2.706% of one core. WPR CPU start fails with profiling-policy error `0xc5585011`; sampled CPU stacks remain unavailable. Idle captures supply no input-to-photon observations. |
 | P2.5 | Complete | `9b9cf15`: writer-owned date/policy cache removes both directory scans and path construction from ordinary lines. 1,000 same-day checks leave a late expired file untouched; policy and UTC changes reap it. Actual idle-policy flush passes. Release 16 scopes, Debug 15 native scopes and ARM64 Release compilation pass; `.build/receipts/runtime-2026-10-10-p25/`. No whole-process CPU reduction claimed for this infrequent log workload. |
 | P2.4 | Complete | Render failure debug output shares the JSONL transition guard. 400 failing primary frames emit three reports; a new primary instance emits its own report. Whole-frame recovery resets identity; partial tile/raised recovery does not. Adds a 4-byte mask and no steady slot scan/allocation. Release 16 scopes, Debug 15 native scopes and ARM64 Release compilation pass; `.build/receipts/runtime-2026-10-10-p24/`. This removes repeated failure-path debug calls, not measured ordinary CPU. |
+| P2.2 | Complete | 24-byte UI-thread reachable-rectangle cache. Production self-test proves 1,000 unchanged queries add zero display walks; a work-area notification adds exactly one. Window lifetime/geometry/style, DPI, topology and settings notifications invalidate before dispatch. All 16 Release scopes, 15 Debug native scopes, ARM64 Release compilation and 10 skills pass. Matched 65 s captures are in `runtime-2026-10-10-p22-before` / `-after`; no CPU saving established. |
+
+### P2.2 matched comparison (2026-10-10)
+
+Both captures use Release 1.0.278, the same portable scenes, XENEON rectangle/DPI, owning AMD adapter, AC,
+services `{}`, tray off and five-second probe. Each capture has unchanged source/artifact identities internally;
+the after candidate contains P2.2. No builds or tests ran during either capture. Thread CPU is cumulative Windows
+thread time sampled every two seconds and attributed to the HWND-owning UI thread, not WPR stack attribution.
+The analyzer uses samples within phase seconds 5–65; intervals differ slightly from the probe's complete intervals.
+
+| Scenario | Process CPU before / after, % of one core | UI CPU before / after | Submissions/s before / after |
+| --- | --- | --- | --- |
+| Focus | 2.082 / 2.213 | 1.486 / 1.491 | 60.069 / 60.167 |
+| Gallery | 3.522 / 2.473 | 2.843 / 1.811 | 57.356 / 60.151 |
+| System | 3.013 / 3.252 | 0.522 / 1.017 | 10.090 / 11.488 |
+
+The Gallery control has a 1.46-second probe-query outlier and fewer complete intervals; its apparent improvement is
+not causal evidence for P2.2. Focus is unchanged at this precision; System changes with real observations and warning
+pulses. All retained steady PresentMon rows are `Hardware Composed: Independent Flip`. Focus frame-time p95 is
+16.786/16.790 ms, p99 19.352/17.242 ms; this is a diagnostic, not acceptance of the proposed strict frame budget.
+System's long frame gaps are event-driven idle periods. No input-to-photon observations were generated. WPR CPU
+stacks remain unavailable (`0xc5585011`). Raw CSV, cumulative thread records, analyses, settings and probe identities
+are retained in the two capture directories; `.build/receipts/runtime-2026-10-10-p22/` holds validation identities.
+
+P2.2 removes a known repeated API walk without altering reachable-band geometry or introducing a worker/wake.
+Next independent storage cut is P3.2; most observed System CPU remains on a non-UI thread whose role needs stack
+attribution before treating it as proof of a particular collection cost.
 
 | Area | Verified current code | Consequence for this plan |
 | --- | --- | --- |
@@ -443,7 +470,7 @@ contract and validation updates.
 | ID | Item | Pass condition |
 | --- | --- | --- |
 | P2.1 | **Candidate: process-query cost.** `CollectProcessesFromWalk` still opens each process. Before changing it, identify which published columns require handles and how consumers preserve quality/compatibility. A separate bounded optional detail dataset is a proposal, not an existing contract. Current per-process-query cost was accepted by the later Core contract. | New matched Release collection/CPU receipts justify the change; updated dataset contract/tests preserve consumers and allocation-free collection. |
-| P2.2 | Cache non-dock `ReachableClientRect` and check geometry generations before display enumeration in `RefreshPageEdgeAffordances`; invalidate on display/work-area/DPI/window changes. Dock already bypasses enumeration. | Non-dock idle trace has no repeated enumeration; work-area/monitor changes remain correct. |
+| P2.2 | **Complete 2026-10-10.** Cache non-dock reachable geometry; notification invalidation precedes all message handlers. Dock retains its direct client rule. | Production self-test: 1,000 unchanged queries, zero extra display walks; work-area notification adds exactly one. Geometry/policy tests and full Debug/Release gates pass. Matched comparison above establishes no CPU saving. |
 | P2.3 | `RequiresPlaceholderAt`: per-slot atomic status written by `ReportWidgetStatus`; no locked string scan per frame (`DashboardHost.cpp:794`, `PluginHost.cpp:1415-1433`). | No `_widgetStatusLock` acquisition in `Render`/`PrepareWidgets`. |
 | P2.4 | **Complete 2026-10-10.** Debug output shares the render-failure transition guard. A recovered drawn frame permits a fresh failure report; partial raised/tile success does not. Successful primary adoption resets slot identity. | 400 failing primary frames emit three diagnostics and preserve healthy siblings; the incoming instance reports once. Debug/Release full gates pass; ARM64 Release compiles. |
 | P2.5 | **Complete 2026-10-10.** Writer-owned UTC date/policy cache: sweep on open, date change or changed retention value. Policy updates wake the idle writer and synchronize with flush; ordinary lines construct no path. | Same-day, unchanged/shortened policy, forward/backward UTC correction and actual idle-worker flush tests pass in Debug/Release; ARM64 Release compiles. Removes two enumerations per ordinary line; adds 20 bytes of cached date/policy, no thread or wake. |

@@ -135,6 +135,10 @@ navigation. This section owns that affordance; it changes nothing about the pan 
   or occluded, a widget is raised, a pointer pan is in progress, or a settle or staged transition is in progress.
 - In the dock window kind (`UI_XeneonDisplayWindowing.md`) the reachable client is the whole client, and a collapsed
   autohide dock (its peek strip) counts as a hidden window: no band exists until the bar reveals.
+- Non-dock reachable geometry is cached on the UI thread and invalidated before dispatch of
+  window creation/destruction, move/size/position/style, DPI, display-topology and system-settings notifications.
+  Repeated frame, hover and hit-test queries with unchanged geometry MUST NOT enumerate displays. Work-area
+  notifications refresh the same bounded union and preserve the full-height band rule.
 - A blocked end has no band. `wrapPages` and the first/last page rule are the same ones the pan path uses, so both
   input paths stop and wrap identically.
 - A band reveals within one coalesced frame as a translucent wash and a chevron pointing in the travel direction,

@@ -1300,6 +1300,26 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     }
 
     {
+        const RECT reachable = ReachableClientRect();
+        const uint32_t walks = _reachableClientDisplayWalks;
+        for (uint32_t index = 0; index < 1000; ++index)
+        {
+            const RECT cached = ReachableClientRect();
+            if (!EqualRect(&reachable, &cached) || _reachableClientDisplayWalks != walks)
+            {
+                return FailSelfTest(L"Unchanged page-edge geometry repeated a display enumeration.");
+            }
+        }
+        // A notification to this hidden test window exercises production invalidation without changing the desktop.
+        (void)SendMessageW(_window.get(), WM_SETTINGCHANGE, SPI_SETWORKAREA, 0);
+        const RECT refreshed = ReachableClientRect();
+        if (!EqualRect(&reachable, &refreshed) || _reachableClientDisplayWalks != walks + 1)
+        {
+            return FailSelfTest(L"A work-area notification did not refresh page-edge geometry exactly once.");
+        }
+    }
+
+    {
         // Native-widget containers are layered children. Windows honors WS_EX_LAYERED on a child only for processes
         // whose manifest declares Windows 8 or later, so prove it here rather than at the first native attach.
         const wil::unique_hwnd layeredProbe(CreateWindowExW(WS_EX_NOPARENTNOTIFY | WS_EX_LAYERED, L"STATIC", L"",
@@ -3629,6 +3649,10 @@ void Application::RefreshPageEdgeAffordances() noexcept
 
 RECT Application::ReachableClientRect() const noexcept
 {
+    if (_window && !_dockActive && _reachableClientCacheValid)
+    {
+        return _reachableClientCache;
+    }
     RECT client{};
     if (!_window || !GetClientRect(_window.get(), &client))
     {
@@ -3643,6 +3667,8 @@ RECT Application::ReachableClientRect() const noexcept
     RECT windowBounds{};
     if (!GetWindowRect(_window.get(), &windowBounds))
     {
+        _reachableClientCache = client;
+        _reachableClientCacheValid = true;
         return client;
     }
 
@@ -3679,8 +3705,11 @@ RECT Application::ReachableClientRect() const noexcept
         ++target->count;
         return TRUE;
     };
+    ++_reachableClientDisplayWalks;
     (void)EnumDisplayMonitors(nullptr, &windowBounds, collect, reinterpret_cast<LPARAM>(&collector));
-    return PageEdgeReachableClient(client, collector.areas.data(), collector.count);
+    _reachableClientCache = PageEdgeReachableClient(client, collector.areas.data(), collector.count);
+    _reachableClientCacheValid = true;
+    return _reachableClientCache;
 }
 
 void Application::UpdatePageEdgeHover() noexcept
@@ -6219,6 +6248,10 @@ LRESULT CALLBACK Application::SettingsDialogProcedure(HWND window, UINT message,
 
 LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
 {
+    if (PageEdgeGeometryMayChange(message))
+    {
+        _reachableClientCacheValid = false;
+    }
     if (PointerMessageCancelsGesture(message, wParam))
     {
         const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
@@ -6778,6 +6811,7 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
 
 LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
 {
+    _reachableClientCacheValid = false;
     if (_dockActive)
     {
         // PlaceDock owns the dock's dashboard size: a reveal or hide changes only the window, and every other
@@ -6825,6 +6859,7 @@ LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
 
 LRESULT Application::OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBounds) noexcept
 {
+    _reachableClientCacheValid = false;
     ClearKeyboardFocus();
     CancelInteractivePointer();
     const auto refreshEdges = wil::scope_exit([this]() noexcept { RefreshPageEdgeAffordances(); });

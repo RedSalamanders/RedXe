@@ -47,6 +47,29 @@ inline constexpr int kPageEdgeDirectionNext = 1;
 // Largest number of displays whose work areas are unioned for one window. A window cannot usefully straddle more.
 inline constexpr size_t kPageEdgeMaximumWorkAreas = 8;
 
+// The reachable rectangle is UI-thread cached. Invalidate before dispatch so even an early message handler cannot
+// retain geometry across a window, DPI, display, or work-area change. Some shells broadcast WM_SETTINGCHANGE with
+// a zero action, so every settings broadcast invalidates; ordinary input, paint and frame messages do not.
+[[nodiscard]] constexpr bool PageEdgeGeometryMayChange(UINT message) noexcept
+{
+    switch (message)
+    {
+    case WM_NCCREATE:
+    case WM_CREATE:
+    case WM_NCDESTROY:
+    case WM_MOVE:
+    case WM_SIZE:
+    case WM_WINDOWPOSCHANGED:
+    case WM_DPICHANGED:
+    case WM_DISPLAYCHANGE:
+    case WM_SETTINGCHANGE:
+    case WM_STYLECHANGED:
+        return true;
+    default:
+        return false;
+    }
+}
+
 // Reachable part of the client, in client coordinates: the client rectangle intersected with the union of the
 // supplied work areas on the horizontal axis only. Vertical extent is always the full client.
 //

@@ -7282,6 +7282,19 @@ void TestHostDefaultsMatchPublishedDefaults(bool& success) noexcept
 
 void TestPageEdgeAffordancePolicy(bool& success) noexcept
 {
+    constexpr std::array geometryMessages{WM_NCCREATE,      WM_CREATE,           WM_NCDESTROY,  WM_MOVE,
+                                          WM_SIZE,          WM_WINDOWPOSCHANGED, WM_DPICHANGED, WM_DISPLAYCHANGE,
+                                          WM_SETTINGCHANGE, WM_STYLECHANGED};
+    for (const UINT message : geometryMessages)
+    {
+        Check(PageEdgeGeometryMayChange(message), L"Window/display geometry notifications invalidate edge cache.",
+              success);
+    }
+    constexpr std::array stableMessages{WM_PAINT, WM_TIMER, WM_MOUSEMOVE, WM_KEYDOWN, WM_LBUTTONUP, WM_GETOBJECT};
+    for (const UINT message : stableMessages)
+    {
+        Check(!PageEdgeGeometryMayChange(message), L"Ordinary frame/input messages preserve the edge cache.", success);
+    }
     // A live multi-page dashboard in the middle of the document offers both directions.
     PageEdgeState middle{};
     middle.rendererReady = true;

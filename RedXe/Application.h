@@ -438,6 +438,10 @@ class Application final
     RECT _pageEdgeAppliedReachable{};
     UINT _pageEdgeAppliedDpi = 0;
     bool _pageEdgeApplyValid = false;
+    // ReachableClientRect is also queried by hit testing. All accesses and invalidations remain on the UI thread.
+    mutable RECT _reachableClientCache{};
+    mutable bool _reachableClientCacheValid = false;
+    mutable uint32_t _reachableClientDisplayWalks = 0;
     HWND _settingsErrorDialog = nullptr;
     HWND _actionNoticeDialog = nullptr;
     wil::unique_hpowernotify _displayPowerNotification;
