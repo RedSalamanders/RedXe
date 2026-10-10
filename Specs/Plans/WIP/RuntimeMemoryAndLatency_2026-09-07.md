@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-11 against `b3761c4` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-11 against `822a520` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -75,6 +75,30 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P2.1 | Single-capacity query cut complete; activity/storage proposal remains | Native walk queries its existing four-MiB buffer once; columns, caps, history and fallback remain. Capacity red/green, failure/invalid-length and real DLL field/catalog/row-cap/history/allocation checks pass. All 16 Release scopes, 15 Debug and 15 ASan Debug native scopes, ARM64 Release compilation and 10 skills pass. Source storage remains 16,437,760 bytes. Standalone 64 pairs: two calls → one, median 20.121 → 11.678 ms. Matched 65 s System control / after-1 / after-2: CPU 2.186 / 2.653 / 2.238%, submissions 12.324 / 13.166 / 11.991/s; no whole-process saving established. `runtime-2026-10-10-p21-*`. |
 
 | P2.8 / P3.6 CPU atlas lifetime | Complete; preparation/font/upload cuts remain | Cold construction, shared users, idempotent device loss, last release and failure/retry pass against real DLLs. Both one-MiB CPU owners reach zero. Unicode recovery pixels and eight Weather images remain identical. Matched D private: cold 38.23 → 35.51 MiB, returned 106.39 → 105.06; returned working set 98.16 → 96.16. Submissions about 60/s and inactive zero, local usage unchanged. Return-over-cold 68.16 → 69.55 MiB still misses the budget; no causal CPU saving claimed. Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release compilation and 10 skills pass. `runtime-2026-10-10-p28-before`, `runtime-2026-10-11-atlas-after` and `-p28-atlas`. |
+
+### P0.4 composition accounting (2026-10-11)
+
+The current 2560×720 / 96-DPI scene and production Matrix grid calculation give 182 columns, 128 active columns
+and 5,248 instances per glyph draw on Focus; Gallery's 640×720 placement gives 45 columns, 26 active columns and
+1,066 instances. The block and tail density calculations each round upward. These are calculated counts, not GPU
+query measurements. With the default bloom, each Matrix widget issues two glyph draws and six draws in total.
+The accepted D receipt reports successful host submissions of 60.150/s on Focus and 60.100/s during Gallery's
+ten-second visit; the latter is not a separate settled 65-second baseline or a presented-FPS result.
+
+Gallery's actual AV tile reports 1,474,560 surface bytes, matching 512×720×4. Raising it to 1280×720 would add
+3,686,400 bytes, for an expected total of 5,160,960; production raised-gallery hardware accounting remains open.
+The canonical AV WARP fixture instead uses a 640×360 tile and 1280×720 overlay and measures 4,608,000 bytes.
+All six clean/dirty DPI scenarios retain those bytes; clean preparation is zero, and hiding releases both surfaces
+with no further preparation/composition. `measure-av-views.ps1 -Configuration Release -SkipBuild` verifies the actual
+linked archive against the current pin `271bd54be24eadf3f03ba5221d1be7be069860f2`, fingerprint
+`3f78ff279d03b1172eca35216e33deca9bcfca3dd81b6c4ec85bad58efa754c0` and archive hash
+`5A623134D8862241B74A32C6FE79754F020C39CB4B56D415092F1F0D2C075BC8`.
+
+The canonical run's dirty frame-completion p95 ranges are 1.713–1.905 ms at 96 DPI, 1.795–1.920 at 144 and
+1.799–1.873 at 192. An earlier direct run had 27.850–163.190 ms at 192 DPI; its repeat on the same executable had
+1.853–1.953. All runs are retained; the outlier's cause is unresolved. These absolute offscreen measurements neither
+change the accepted I19 adoption envelope nor establish hardware application latency or FPS. Receipts:
+`runtime-2026-10-11-p04-accounting`, `-p04-accounting-repeat`, `-p04-accounting-canonical` and `-p04`.
 
 ### P2.8 / P3.6 CPU atlas lifetime cut (2026-10-11)
 
@@ -574,7 +598,7 @@ contract and validation updates.
 | P0.1 | **Complete 2026-10-10: production probe, tests and Release A/B/C/D plus inactive receipts.** See the evidence checklist and versioned Core record. Unconditional device logging was already present and is preserved. | Selected P2.7; its matched comparison is recorded above. D retains 85.80 MiB private, supporting P3.6 attribution/source reclamation; P4.1 remains a storage candidate. F/raised-G/presented-H and external attribution stay with P0.2/P0.4. |
 | P0.2 | **External captures per selected optimization:** PresentMon for PresentMode, pacing and input-to-present; WPR/WPA for CPU/thread/image attribution and whole-process GPU LUIDs. Use a quiet desktop, fresh matching sources/artifacts and the scenario's real settings/services. Do not reuse September thread totals. | Current thread/module attribution and hardware frame/input table in `.build/receipts/`. |
 | P0.3 | **Complete 2026-10-10: automated warmed soaks.** The three isolated 60 s variants run in the HostPlugin scope. Twenty scheduled seconds warm the clocks; Matrix keeps its 1,024-frame warm-up. Five-second/end samples guard uninstrumented peak growth at 4 MiB private / 8 MiB working set. ASan retains default quarantine and functional bounds, with diagnostic byte reporting. | Long Desk Clock sampling places most observed growth in the warm-up interval, without heap/driver stack attribution. Current Release/Debug/ASan full gates pass; longer plugin qualification remains separate. |
-| P0.4 | Record Matrix instance count and present rate on current Focus/Gallery placements; compare current pinned DxUi library receipt identity with AV tile+overlay bytes. | Grid math and pin identity match the measured scene; library composition throughput is not hardware application FPS. |
+| P0.4 | **Current grid, tile and pinned-library accounting complete; production raised Gallery remains open.** See the 2026-10-11 accounting checkpoint. | Source-calculated Matrix counts, short Gallery host submission rate, actual tile bytes and exact linked-archive identity agree. Raised hardware bytes and presented FPS are still unqualified. |
 
 ### Phase 1 — render on the GPU that owns the panel; never block on Present
 

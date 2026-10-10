@@ -582,6 +582,15 @@ remain with the AV owner.
   retain all runs, including baseline-versus-baseline noise checks. These measurements do not establish
   presented FPS, peak memory, allocation counts, hardware AV or real-client accessibility acceptance.
 - Debug and Release x64 WARP smoke tests must pass.
+- Current composition accounting (2026-10-11) is retained in `.build/receipts/runtime-2026-10-11-p04-accounting`
+  and `-p04-accounting-canonical`. The 2560×720 / 96-DPI Focus Matrix grid calculates 5,248 glyph instances;
+  Gallery's 640×720 Matrix calculates 1,066. These are source/scene calculations. Successful host submissions in
+  the accepted D capture are 60.150/s on Focus and 60.100/s over a ten-second Gallery visit. Gallery's 512×720 AV
+  tile reports 1,474,560 bytes; the expected 1280×720 overlay adds 3,686,400 bytes, still requiring a production
+  raised hardware capture. The canonical WARP fixture reports its different 4,608,000-byte tile/overlay total,
+  zero clean preparations and zero hidden storage/work against the actual current linked archive. Retain the
+  earlier 192-DPI completion outlier and its repeat; these offscreen runs establish neither hardware FPS nor a
+  matched I19 adoption regression.
 - Release ARM64 must compile.
 - The plugin contract test must validate factory behavior, borrowed metadata, rendering-IID negotiation, COM
   identity, and `IRedXeRaisedWidget` extent queries.
