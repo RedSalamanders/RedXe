@@ -242,6 +242,8 @@ class Application final
     // Shows or removes the notification-area icon for the current `trayIcon`; an interactive run only
     // (UI_XeneonDisplayWindowing.md "Notification-area icon").
     void ApplyTrayIconSettings() noexcept;
+    // Logs tray-icon-failed when an add outcome (from Show or posted by the owner) differs from the last one.
+    void RecordTrayIconResult(HRESULT result) noexcept;
     void OnTrayCommand(TrayCommand command) noexcept;
     // Opens the settings file this process watches with its default app, the shell's UI allowed.
     void EditSettingsFile() noexcept;
@@ -417,7 +419,8 @@ class Application final
     TrayIcon _trayIcon;
     // Set by Run once the main window is up; RunSelfTest never shows the icon, whatever the document says.
     bool _trayIconAllowed = false;
-    // The last TrayIcon::Show result, so a reload that gets the same failure logs no second tray-icon-failed.
+    // The last add outcome (TrayIcon::Show, or one the owner posted), so a reload or a retry that gets the same
+    // failure logs no second tray-icon-failed.
     HRESULT _trayIconResult = S_OK;
     // The registered TaskbarCreated message (OnTaskbarCreated); 0 until RegisterWindowClass, before any window exists.
     UINT _taskbarCreatedMessage = 0;

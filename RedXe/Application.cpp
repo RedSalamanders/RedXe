@@ -69,6 +69,15 @@ static_assert(TrayIcon::kCommandMessage != Renderer::kOcclusionStatusMessage &&
               TrayIcon::kCommandMessage != PluginHost::kServiceLaneMessage &&
               TrayIcon::kCommandMessage != Application::kDockAppBarMessage &&
               TrayIcon::kCommandMessage != Application::kScreenshotCompleteMessage);
+static_assert(TrayIcon::kAddResultMessage != TrayIcon::kCommandMessage &&
+              TrayIcon::kAddResultMessage != Renderer::kOcclusionStatusMessage &&
+              TrayIcon::kAddResultMessage != SettingsWatcher::kSettingsChangedMessage &&
+              TrayIcon::kAddResultMessage != PluginHost::kDataSnapshotInvalidateMessage &&
+              TrayIcon::kAddResultMessage != Application::kPageEdgeHoverMessage &&
+              TrayIcon::kAddResultMessage != PluginHost::kHostActionMessage &&
+              TrayIcon::kAddResultMessage != PluginHost::kServiceLaneMessage &&
+              TrayIcon::kAddResultMessage != Application::kDockAppBarMessage &&
+              TrayIcon::kAddResultMessage != Application::kScreenshotCompleteMessage);
 
 // PlanDockAppBar's messages are the shell's ABM_* values; PlaceDockPass sends them as listed.
 static_assert(kDockAppBarNew == ABM_NEW && kDockAppBarRemove == ABM_REMOVE && kDockAppBarQueryPos == ABM_QUERYPOS &&
@@ -3001,8 +3010,14 @@ void Application::ApplyTrayIconSettings() noexcept
     // Show is idempotent and makes no shell call for an icon already added, so every apply also retries an icon the
     // shell refused. S_FALSE: the shell refused it (no taskbar yet, or a busy Explorer at sign-in); the owner tries
     // again while a taskbar exists and adds it when a taskbar announces itself.
-    const HRESULT result = _trayIcon.Show(_instance, _window.get());
-    if (result != S_OK && result != _trayIconResult)
+    RecordTrayIconResult(_trayIcon.Show(_instance, _window.get()));
+}
+
+void Application::RecordTrayIconResult(HRESULT result) noexcept
+{
+    // One record per change of outcome, whether Show met it or a later add by the owner did (kAddResultMessage), so
+    // an apply or a retry that meets the same failure again logs nothing.
+    if (TrayIconFailureIsNew(result, _trayIconResult))
     {
         (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
                            "tray-icon-failed",
@@ -6244,6 +6259,15 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     case TrayIcon::kCommandMessage:
         OnTrayCommand(static_cast<TrayCommand>(wParam));
         return 0;
+    case TrayIcon::kAddResultMessage:
+        // Posted by the owner when an add outside Show ended. The icon's state now counts, not the posted outcome: a
+        // settings apply that ran in between may have added the icon, and an icon hidden since then (trayIcon turned
+        // off, or the window closing) has nothing left to record.
+        if (const std::optional<HRESULT> outcome = TrayIconOutcomeOnArrival(_trayIcon.Shown(), _trayIcon.Added()))
+        {
+            RecordTrayIconResult(*outcome);
+        }
+        return 0;
     case kDockAppBarMessage:
         if (_dockActive)
         {
@@ -6915,8 +6939,10 @@ void Application::LogDeferredSettingsPersist() noexcept
     {
         (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
                            "settings-persist-deferred",
-                           "A settings change was kept in memory and not written, because the settings file on disk "
-                           "is not the document RedXe last loaded; the next successful load of that file replaces it.",
+                           "A settings change was kept in memory and not written, because another program holds the "
+                           "settings file open or the file on disk is not the document RedXe last loaded; a later "
+                           "change writes it once the file is free and unchanged, and the next successful load of the "
+                           "file replaces it.",
                            S_FALSE);
     }
 }

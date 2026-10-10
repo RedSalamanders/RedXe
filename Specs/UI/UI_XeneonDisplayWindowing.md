@@ -463,10 +463,13 @@ in the Windows notification area for an interactive run. `RedXe/TrayIcon.*` owns
   and destroys the owner first. `--self-test` never shows it, whatever the document says; a `--screenshot` run shows
   it like any interactive run. The fatal-process path does not call the shell, so after a crash the icon remains until
   the pointer passes over it.
-- A failure to create the owner or to add the icon is one Warning record (`tray-icon-failed`) when the outcome
-  changes, so an apply that meets the same failure again logs nothing; a failed launch of the editor (refused by the
-  launch worker, or failed in the shell there) is one Warning record (`tray-edit-settings-failed`); neither affects
-  the dashboard.
+- A failure to create the owner or to add the icon is one Warning record (`tray-icon-failed`) when the outcome changes,
+  whether `Show` met it or the owner's later add did (the re-add after `TaskbarCreated`, or a retry, which the owner
+  announces to the main window as `TrayIcon::kAddResultMessage`; the main window then records the icon's state as it
+  is, since a settings apply in between may have added it), so an apply or a retry that meets the same failure again
+  logs nothing, and an Explorer restart whose re-add and retries all fail is logged once; a failed launch of the
+  editor (refused by the launch worker, or failed in the shell there) is one Warning record
+  (`tray-edit-settings-failed`); neither affects the dashboard.
 
 ## Windows shell identity
 
@@ -761,15 +764,18 @@ the retry schedule (`TrayIconAddRetryDelayMilliseconds`), and the owner against 
 taskbar (`TestTrayIconOwner`: `Show` and `Hide` idempotent and the class unregistered, `WM_CLOSE` ignored, `NIM_DELETE`
 on every destruction while the owner exists, `TaskbarCreated` adding again, retries only while a taskbar exists and no
 timer after the last, no update after a timed-out add, `NIM_SETVERSION` after every add and every update an add falls
-back to before the icon counts as added, and a `WM_DPICHANGED` that updates an added icon by one `NIM_MODIFY` of
-`NIF_ICON` alone, with no `NIM_SETVERSION`, and makes no shell call for an icon not added), and `SettingsTests` proving
-`trayIcon` (`Specs/Core/Core_Settings.md`). Because the shell is not automated, they additionally require a live check:
-a Release run with the shipped template shows the icon with the `RedXe` tooltip (`Shell_NotifyIconGetRect` finds it);
-a double-click, and Enter on the keyboard-focused icon, open the settings file once in the default `.json` editor; a
-right-click and Shift+F10 show Edit settings (bold) and Exit, a click elsewhere closes the menu, and Esc after
-Shift+F10 leaves the keyboard focus on the notification area; Exit quits and removes the icon; saving
-`"trayIcon": false` removes the icon and `true` brings it back without a restart; restarting Explorer brings it back;
-and a Debug run with the shipped template shows none.
+back to before the icon counts as added, a `WM_DPICHANGED` that updates an added icon by one `NIM_MODIFY` of
+`NIF_ICON` alone, with no `NIM_SETVERSION`, and makes no shell call for an icon not added, an add outside `Show` posting
+its outcome, refused then added, to the command target, and what the main window records when that post arrives
+(`TrayIconOutcomeOnArrival`, `TrayIconFailureIsNew`: a refusal a `Show` overtook records success, a hidden icon records
+nothing, and a failure logs once per change of outcome)), and `SettingsTests` proving `trayIcon`
+(`Specs/Core/Core_Settings.md`). Because the shell is not automated, they additionally require a live check: a Release
+run with the shipped template shows the icon with the `RedXe` tooltip (`Shell_NotifyIconGetRect` finds it); a
+double-click, and Enter on the keyboard-focused icon, open the settings file once in the default `.json` editor; a
+right-click and Shift+F10 show Edit settings (bold) and Exit, a click elsewhere closes the menu, and Esc after Shift+F10
+leaves the keyboard focus on the notification area; Exit quits and removes the icon; saving `"trayIcon": false` removes
+the icon and `true` brings it back without a restart; restarting Explorer brings it back; and a Debug run with the
+shipped template shows none.
 
 ## Implementation and validation anchors
 

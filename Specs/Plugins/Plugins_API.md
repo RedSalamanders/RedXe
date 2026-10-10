@@ -280,8 +280,9 @@ object it was supplied to.
   stays tracked for retry; `ValidateAction` resolves a name and checks its target without executing anything and may
   map a registered publisher's module on first use. A `page.*` or `widget.*` action that arrives during a page swipe,
   a raise settle, or while the settings error dialog is up is refused (`ERROR_BUSY`) rather than queued, and a queued
-  input action that waited more than 1 s for the UI thread is dropped; every other action still executes. Every
-  drained action is followed by one host-state publication to started services.
+  input action that waited more than 1 s for the UI thread is dropped, except a `keys.up` or `mouse.up` that ends a
+  hold RedXe tracks; every other action still executes. Every drained action is followed by one host-state publication
+  to started services.
 - `ReportWidgetStatus` records the condition of one widget instance, named by the instance ID the host passed to
   `CreateWidget`. Status is one of `RedXeWidgetStatusOk`, `Initializing`, `Degraded`, or `Unavailable`, with an
   optional borrowed UTF-16 reason the host copies into bounded storage and truncates. Repeat reports are idempotent;

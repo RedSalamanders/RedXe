@@ -226,9 +226,10 @@ default and registered namespaces, and the default verbs
 stored per service and reaches the plugin as the `instance` member of the ordinary factory envelope.
 
 A member naming a **retired** service plugin (`kRedXeRetiredServices`, today `builtin.zoom`, which became a dedicated
-action DLL that needs no entry) MUST still load so an older file keeps working. Its authored keys are validated with
-the retired plugin's legacy model (`Plugins/Actions/Zoom/ZoomSettings.cpp`, compiled into the host: only the seven
-retired Zoom SDK members, each with any value); any other key, or the same retired plugin configured twice, rejects
+action DLL that needs no entry) MUST still load so an older file keeps working. Its authored keys are validated as
+written, never merged with defaults first (a merge drops `null` members), with the retired plugin's legacy model
+(`Plugins/Actions/Zoom/ZoomSettings.cpp`, compiled into the host: only the seven retired Zoom SDK members, each with
+any value, `null` included); any other key, whatever its value, or the same retired plugin configured twice, rejects
 the complete candidate. A valid entry is recorded in the typed `AppSettings::retiredServices` and otherwise ignored:
 it is never created or started, stores no configuration, and MUST NOT cause the file to be rewritten. Each load or
 live apply logs one Warning record `service-retired-settings-ignored` from that plugin per such entry. Retired entries
@@ -324,19 +325,26 @@ memory and MUST NOT write or watch `%LocalAppData%`.
 Interactive persistence MUST roll back both typed private settings and the retained source document if validation
 or atomic file replacement fails. A later partial save MUST NOT resurrect a rejected change. The transaction saves
 only the affected private object and source text, rather than copying the entire typed dashboard. Once replacement
-commits, failure to query the file stamp MUST NOT report a failed save; clear deduplication state and allow reload.
+commits, failure to read the renamed file's stamp MUST NOT report a failed save; clear deduplication state and allow
+reload.
 
 A document write (a widget persist, a `dock.thickness` drag, or a template install or recovery, with or without the
 first-run dock) writes a same-directory temporary file, MUST flush it to disk (`FlushFileBuffers`) before the
-write-through rename, and MUST treat a short write as a failure, so a power loss right after a save cannot leave the
-settings name on unwritten or truncated bytes. A failed write MUST NOT leave its temporary file behind. The flush runs
-synchronously on the UI thread, once for each actual document write: the release of a dock drag that changed the
+rename, and MUST treat a short write (`WriteFile` reporting fewer bytes and no error) as the failure
+`ERROR_WRITE_FAULT`, so a power loss right after a save cannot leave the settings name on unwritten or truncated
+bytes. A failed write MUST NOT leave its temporary file behind. The temporary's handle is write-through, shares
+nothing, and renames the file through itself, so no other program can open the temporary before it is renamed. A
+rename through a handle is not documented as durable when it returns, so the write MUST flush the renamed file again
+after the rename, which writes the file system's log through the new name (NTFS and ReFS journal the rename); the
+rename has committed by then, so a failed second flush MUST NOT report a failed save. The flushes run synchronously on
+the UI thread, before and after the rename of each actual document write: the release of a dock drag that changed the
 thickness, a widget persist or queued import that changed the document, collect-on-exit only when the collect changed
-something (including when a page swipe commits, inside that frame's tick), and an install at startup. It never runs
-per frame, while idle, or on a live reload. Measured 2026-10-07 for a 24 KB document on an NVMe system SSD: median
-about 2 ms and p95 under 2.5 ms, but the worst of 3,300 flushes took about 235 ms while parallel builds ran on the
-machine, which a swipe commit shows as a visible hitch. The schema copy, refreshed from the deployed file on every
-start, is not flushed: a schema lost to a power loss is copied again at the next start.
+something (including when a page swipe commits, inside that frame's tick), and an install at startup. They never run
+per frame, while idle, or on a live reload. Measured 2026-10-07 for the data flush of a 24 KB document on an NVMe
+system SSD: median about 2 ms and p95 under 2.5 ms, but the worst of 3,300 flushes took
+about 235 ms while parallel builds ran on the machine, which a swipe commit shows as a visible hitch. The schema copy,
+refreshed from the deployed file on every start, is not flushed: a schema lost to a power loss is copied again at the
+next start.
 
 A persist whose merge leaves the stored instance object unchanged (an unchanged collect, a repeated import) MUST NOT
 validate, re-serialize, or write the document: typed settings and the retained source, comments included, stay byte
@@ -347,10 +355,31 @@ The host MUST write the user document, for a widget persist, collect-on-exit, a 
 drag, only while the file on disk is the document last applied: its current stamp MUST equal the stamp recorded when
 that document was applied or written by the host. With no applied stamp, a different stamp, or a stamp that cannot be
 read, the host MUST NOT write. This covers a rejected save, a save the watcher has not processed yet, a deleted or
-unreadable file, and a `--settings` file that fell back to the deployed default. The patched typed settings and source
-stay in memory, the host returns `S_FALSE` so the widget keeps its state, and one Warning `settings-persist-deferred`
-is logged per distinct on-disk state (a missing and an unreadable file count as one state). The next applied load
-replaces that in-memory document; writes resume once the file on disk is again the document last applied.
+unreadable file, a file another program holds open with write access or without `FILE_SHARE_DELETE`, and a
+`--settings` file that fell back to the deployed default. The patched typed settings and source stay in memory, the
+host returns `S_FALSE` so the widget keeps its state, and one Warning `settings-persist-deferred` is logged per
+distinct on-disk state (a missing and an unreadable file count as one state). A later persist, even one that changes
+nothing more, writes the held change once the file is free and still the document last applied; the next applied load
+replaces that in-memory document instead. An applied load and a write each settle a deferral whose notice was not
+taken yet, so no later persist reports it.
+
+The stamp check and the replacement form one guarded step, so that a save another program makes meanwhile is not
+overwritten. The host opens the target with `DELETE` access sharing only read and delete, which keeps every other writer
+out and fails (a deferral) while another program holds the file as above; for the few milliseconds the guard is open, a
+reader that does not share delete (most do not) is refused too and can read again. It checks the stamp through that
+guard, writes and flushes the temporary, checks that the path still names the guarded file, and renames the temporary
+over it with POSIX semantics (`FileRenameInfoEx`) while the guard stays open. An editor's in-place save or classic
+rename during that time is refused; an atomic replacement, rename, or deletion of the name, which the guard's delete
+sharing lets through, makes the persist defer instead of undoing it. Only the instant between that last check and the
+rename stays open. The stamp then recorded is the renamed file's own, read through the temporary's handle before any
+other program can open the file, never a later path query that an editor's save could answer. Where the file system or
+Windows build has no POSIX rename (FAT, exFAT, some network shares), the guard is released right before a classic
+replacement, which defers, as a held file does, when another program opened the file in that moment, and the stamp is
+read by path once the temporary's handle has closed, since such a file system may set the last write time only then. The
+guard opens without data access: measured 2026-10-07 on the same SSD with a probe of both write sequences, 300
+interleaved writes of a 24 KB document each, the guarded replacement took a median 3.5 ms (p95 6.7 ms) against 3.3 ms
+(p95 6.3 ms) for the previous unguarded write, while a guard opened for reading data took a median 4.3 ms to open the
+just-written file on that machine.
 
 Persisted documents MUST use a compact, readable layout with two-space indentation and a final LF newline. Keep
 empty objects and arrays inline. Keep small objects inline when they fit a soft 120-byte line width; a single scalar
@@ -501,14 +530,15 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   load and validate, with the Debug template's removed `zoom.*` bindings kept and the Zoom entry recorded as retired
   rather than configured, and that the default store keeps such a file byte for byte without a fallback or
   `.invalid-` backup. They prove the retired Zoom entry loads with any value of the seven retired members in a minor 3
-  document and without them, is recorded in `retiredServices` and not in `services`, that any other Zoom member
-  (including a retired name in another case) and a second Zoom entry are rejected, and that the schema's services Zoom
-  variant is deprecated and lists the members as deprecated. A minor 2 document whose Logicon key, dialpad button, and
-  turn bind `keys.down` or `mouse.down` loads, validates, and keeps those bindings for the service.
-- Host tests load an empty services Zoom entry and one carrying retired members through the settings store, each at
-  startup and on a live reload in the order `Application` runs them, and prove the JSONL log gains exactly one
-  `service-retired-settings-ignored` Warning from `builtin.zoom` per load or applied reload, and none for an unchanged
-  notification, a repeated service apply, or a reload without the entry.
+  document, with a sole retired member set to `null`, and without them, is recorded in `retiredServices` and not in
+  `services`, that any other Zoom member (including a retired name in another case, and one set to `null`, alone or
+  beside a `null` retired member) and a second Zoom entry are rejected, and that the schema's services Zoom variant is
+  deprecated and lists the members as deprecated. A minor 2 document whose Logicon key, dialpad button, and turn bind
+  `keys.down` or `mouse.down` loads, validates, and keeps those bindings for the service.
+- Host tests load an empty services Zoom entry, one carrying retired members, and one whose only retired member is
+  `null` through the settings store, each at startup and on a live reload in the order `Application` runs them, and
+  prove the JSONL log gains exactly one `service-retired-settings-ignored` Warning from `builtin.zoom` per load or
+  applied reload, and none for an unchanged notification, a repeated service apply, or a reload without the entry.
 - Tests prove `trayIcon`: omitted it is `true` in Release and `false` in Debug, also in a minor 2 document; an authored
   `true` or `false` wins; a string, a number, `null`, an object, and a duplicate member are rejected, with the
   diagnostic on `$.trayIcon`; the member changes no other typed setting; both templates author it (`false` in Debug,
@@ -557,12 +587,26 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   after the reload is applied writes again, and a repeated persist writes the changes an earlier deferral held once the
   same file is back. An unchanged widget persist and a dock drag released at the current thickness return `S_FALSE`
   and leave typed settings, source, and file bytes, comments included, unchanged; such a drag still writes a change an
-  earlier deferral held once the same file is back, and then nothing.
+  earlier deferral held once the same file is back, and then nothing. A deferral whose notice was not taken is not
+  reported after an applied load replaced its change (the next unchanged persist reports nothing) or after a write
+  carried it.
+- Through the SettingsTests write seam (`SetSettingsWriteSeamForTesting`, compiled only with `REDXE_SETTINGS_TESTS`),
+  tests prove the guarded replacement: a file another program holds for writing (also while sharing everything, as VS
+  Code does), without sharing, or without `FILE_SHARE_DELETE` defers each persist with one notice for the one on-disk
+  state, keeps the change and the bytes, and the next persist writes the change once the file is free; an in-place save
+  attempted while the temporary is flushed fails with `ERROR_SHARING_VIOLATION` and the persist commits; an in-place
+  save and a POSIX replacement attempted right after the rename both fail with `ERROR_SHARING_VIOLATION`, and the stamp
+  recorded is the one the next `TryLoadChanged` sees (`Unchanged`); a POSIX replacement or a deletion while the
+  temporary is flushed goes through and the persist defers without overwriting or recreating the file, and an applied
+  load of the replacing document is then written by the next persist; and with the POSIX rename refused, a file another
+  program opened once the guard was released defers the persist, and the classic replacement then commits. No temporary
+  file stays behind in any case.
 - Tests prove compact/idempotent formatting, inline small objects and long single-path records, multiline sections
   and arrays, fewer lines than fully expanded output, escaped/Unicode paths, named/inline/use-object widget round
   trips, compatible unknown-field retention, and transactional rejection of oversized formatted output.
-- An isolated file test MUST block replacement with an open handle, verify exact typed/source/disk rollback, then
-  release the handle and verify a different partial save commits without including the rejected patch.
+- An isolated file test MUST fail the replacement with a short write through the write seam (`ERROR_WRITE_FAULT`),
+  verify exact typed/source/disk rollback for a widget persist and a dock drag with no temporary file left beside the
+  settings file, then verify a different partial save commits without including the rejected patch.
 - Plugin contract tests prove `CollectPersistentSettings` returns `S_FALSE` when nothing to save and `E_POINTER` for a
   null `writtenBytes`. Host tests prove persist without a handler is `E_UNEXPECTED` and that a handler receives a
   partial object.

@@ -2109,7 +2109,9 @@ bool PluginHost::IsExpiredInput(const HostActionSlot& slot, ULONGLONG now) noexc
         return false;
     }
     const std::string_view action{slot.action.data()};
-    if (action == "keys.up" || action == "mouse.up")
+    // An aged up that ends a hold RedXe tracks lifts only what RedXe pressed (or nothing, after the deadline). Any
+    // other aged up, including one whose down was dropped for age, would release whatever the user holds now.
+    if (HostActions::ReleasesTrackedHold(action, slot.target.data()))
     {
         return false;
     }

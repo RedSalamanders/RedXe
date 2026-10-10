@@ -221,7 +221,7 @@ caller-owned bounded storage.
 | **Point** | `<x>,<y>` (physical virtual-screen pixels), `+<dx>,+<dy>`, or `center`, each optionally `@<monitor>` (`ParsePoint`). |
 | **Monitor** | `primary`, `secondary` (the first display in `EnumDisplayMonitors` order that is neither the primary nor the display XENEON discovery found, and that XENEON only when it is the only display that is not the primary: `SecondaryMonitorRank`, the dock's rule too; the host repeats discovery on every `WM_DISPLAYCHANGE`), `xeneon` (the monitor hosting RedXe's window), `all`, `<n>` (1-based `EnumDisplayMonitors` order), `name:<substring>` (`ParseMonitorSelector`). |
 | **Window** | `foreground`, `exe:<image.exe>`, `class:<class>`, `title:<substring>` (`ParseWindowSelector`; `WindowSelector.cpp` selects the first visible non-tool top-level window in Z order without allocating, and `BringToForeground` taps `Alt` synthetically before `SetForegroundWindow`). |
-| **Meeting** | A complete Zoom browser link (`ParseMeeting`, `Plugins_Zoom.md`): `https://`, then `zoom.us` or a subdomain with no `@`, `:`, `#`, or `?` in the authority, then `/j/<id>`, `/wc/join/<id>`, or `/wc/<id>/join` with a 9–11 digit id, ending the path or followed by `?` or `#`; printable ASCII without `"`, `<`, `>`, or `\`. |
+| **Meeting** | A complete Zoom browser link (`ParseMeeting`, `Plugins_Zoom.md`): `https://`, then `zoom.us` or a subdomain (a DNS host name: labels of 1–63 ASCII letters, digits, and hyphens, none empty or starting or ending with a hyphen, at most 253 characters), so no `@`, `:`, `#`, `?`, or `%` in the authority, then `/j/<id>`, `/wc/join/<id>`, or `/wc/<id>/join` with a 9–11 digit id, ending the path or followed by `?` or `#`; printable ASCII without `"`, `<`, `>`, or `\`. |
 | **NowOrSeconds** | `now`, or a decimal delay in seconds within the bounds (`ParseNowOrSeconds`). |
 
 `FluentGlyphNames.h` (the Segoe Fluent Icons name table shared by Logicon faces and Launcher tiles) and
@@ -289,8 +289,12 @@ caller-owned bounded storage.
 dispatch. It first logs every launch the launch worker finished. Then, for each slot, an action that injects input
 (`InjectsInput` on its default or already-read published descriptor) whose request is older than
 `PluginHost::kMaximumQueuedInputAgeMilliseconds` (1000 ms) MUST be dropped rather than executed: after a UI-thread
-stall it would land in whatever window is foreground by then. `keys.up` and `mouse.up` are exempt because they only
-end a hold. One drain that drops any logs one `action-expired` Warning with the count and the first dropped name.
+stall it would land in whatever window is foreground by then. The only exempt input is a `keys.up` or `mouse.up` that
+ends a hold RedXe tracks (`HostActions::ReleasesTrackedHold`, UI thread): its target names the held chord or button,
+or the one whose hold the deadline already released, so it lifts only what RedXe pressed or injects nothing. Any other
+aged `up`, including one whose `down` was itself dropped for age, would be a stand-alone release of whatever the user
+holds in the new foreground window, and MUST be dropped. One drain that drops any logs one `action-expired` Warning
+with the count and the first dropped name.
 Every other slot goes to `PluginHost::ExecuteNow`, which resolves the namespace: `page` / `widget` / `redxe` go to
 the registered application handler (`Application::HandleHostAction`); the other default namespaces validate the
 target, apply `ValidateExtra`, and run `HostActions::Execute(descriptor, target, deviceAccess, launches)`; a
@@ -406,10 +410,13 @@ distinct failure.
   `ERROR_NOT_FOUND`, the `zoom.open` and `zoom.join` browser contract with Meeting links accepted and malformed or
   spoofed ones `E_INVALIDARG`), the shipped catalog producing no notice, the **D** flag on launches,
   `redxe.settings.reload`, and `redxe.quit`, device-access-disabled execution of `keys`, `system`, and `mouse` actions
-  that counts inputs, launches, and power requests without performing them, and `zoom.*` executed through the
-  dedicated executor without any service, deferred (`S_FALSE`) and drained as `system.launch`. `TestQueuedInputAge`:
-  an aged key press is dropped while an aged release, an aged non-input action, and fresh input run, a coalesced repeat takes the newer time, and one `action-expired` Warning is
-  logged. `TestHeldInputTimer`: a replacement down releases the previous chord or button; an `up` naming another
+  that counts inputs, launches, and power requests without performing them, and `zoom.*` executed through the dedicated
+  executor without any service, deferred (`S_FALSE`) and drained as `system.launch`. `TestQueuedInputAge`: an aged key
+  press, aged downs, and the aged ups of those dropped downs are dropped while an aged non-input action and fresh input
+  run; an aged up of the tracked chord and of the tracked button releases its hold while an aged up of another chord or
+  button is dropped; a coalesced repeat takes the newer time; and each drain that dropped input logs one
+  `action-expired` Warning with its count and first name. `TestHeldInputTimer`: a replacement down releases the previous
+  chord or button; an `up` naming another
   chord or button leaves the hold tracked until its own `up` releases it; a held chord and button release on the
   timer after the deadline, their own `up` then injects nothing (`S_FALSE`) while any other `up` injects; with
   injection refused through a test seam, the `up` and a replacement down return the failure and press nothing, the

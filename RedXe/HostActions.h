@@ -46,6 +46,10 @@ void SetXeneonDisplay(const RECT& bounds, bool found) noexcept;
 // returns S_FALSE.
 void ReleaseHeld(bool deviceAccess) noexcept;
 void OnHeldTimer() noexcept;
+// UI thread: true when `action` is keys.up or mouse.up and `target` names the chord or button of the hold keys.down or
+// mouse.down made, still held or already released by its deadline (that up then injects nothing). Executing it lifts
+// only what RedXe pressed. Any other up is a stand-alone release of whatever is down, and false.
+[[nodiscard]] bool ReleasesTrackedHold(std::string_view action, std::string_view target) noexcept;
 
 inline constexpr uint32_t kHeldReleaseMilliseconds = 2000;
 // A refused release (a UAC prompt or the lock screen owns the input desktop) keeps its hold and retries at this
