@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <thread>
@@ -21,6 +22,8 @@
 
 namespace
 {
+// Only the explicit pixel-reference test mode permits the preceding implementation without Prepare.
+std::ofstream g_pixelReference;
 void Require(bool condition, const char* message)
 {
     if (!condition)
@@ -226,6 +229,7 @@ struct Viewer final
     wil::com_ptr_nothrow<IRedXeWidget> widget;
     wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
     wil::com_ptr_nothrow<IRedXeScheduledWidget> scheduled;
+    wil::com_ptr_nothrow<IRedXePreparedGpuWidget> prepared;
     Surface& surface;
     Viewer(RedXeCreateFn create, Surface& surfaceValue, const char* id, const char* type, const char* config = nullptr,
            bool initializeGpu = true)
@@ -241,6 +245,9 @@ struct Viewer final
         Require(SUCCEEDED(provider->CreateWidget(type, "schedule.fixture", widget.put())) &&
                     SUCCEEDED(widget.query_to(gpu.put())) && SUCCEEDED(widget.query_to(scheduled.put())),
                 "viewer interfaces failed");
+        const HRESULT preparation = widget.query_to(prepared.put());
+        Require(SUCCEEDED(preparation) || g_pixelReference.is_open(), "viewer preparation interface missing");
+        _type = type;
         if (initializeGpu)
         {
             const RedXeGpuDeviceContext device{sizeof(device), surface.device.get(), DXGI_FORMAT_B8G8R8A8_UNORM,
@@ -268,8 +275,21 @@ struct Viewer final
         ++observation.snapshot.timestampFileTime100ns;
         Require(host.data->Deliver(observation.snapshot) == S_OK, "viewer snapshot failed");
     }
-    HRESULT Draw(float now, uint32_t view = 0, float delta = 1.0f / 60.0f) noexcept
+    HRESULT Prepare() noexcept
     {
+        if (!prepared && g_pixelReference.is_open())
+            return S_FALSE;
+        const RedXeGpuPreparationContext context{sizeof(context), 96, Surface::width, Surface::height, 0, 0, {}};
+        return prepared->Prepare(&context);
+    }
+    HRESULT Draw(float now, uint32_t view = 0, float delta = 1.0f / 60.0f, bool prepare = true) noexcept
+    {
+        if (prepare)
+        {
+            const HRESULT result = Prepare();
+            if (FAILED(result))
+                return result;
+        }
         auto* target = surface.target.get();
         surface.context->OMSetRenderTargets(1, &target, nullptr);
         const float black[4] = {0, 0, 0, 1};
@@ -282,7 +302,10 @@ struct Viewer final
             {0, 0, static_cast<float>(Surface::width), static_cast<float>(Surface::height), 0, 1},
             view};
         surface.context->RSSetViewports(1, &context.viewport);
-        return gpu->Render(&context);
+        const HRESULT result = gpu->Render(&context);
+        if (SUCCEEDED(result) && g_pixelReference.is_open())
+            g_pixelReference << _type << ' ' << now << ' ' << view << ' ' << surface.Pixels() << '\n';
+        return result;
     }
     bool Moving()
     {
@@ -291,6 +314,7 @@ struct Viewer final
         Require((result == S_FALSE && delay == 0) || (result == S_OK && delay == 33), "viewer deadline is invalid");
         return result == S_OK;
     }
+    const char* _type = nullptr;
 };
 
 void FillSummary(Observation& observation, double cpu)
@@ -509,6 +533,95 @@ void CheckAllocationAndDeviceRecovery(RedXeCreateFn create, Surface& surface)
     Require(viewer.gpu->OnDeviceCreated(&device) == S_OK && viewer.widget->SetVisible(TRUE) == S_OK &&
                 viewer.Draw(50) == S_OK && !viewer.Moving(),
             "device recovery replayed stale motion");
+}
+
+void CheckPreparedGlyphs(RedXeCreateFn create, ProcessViewerGetTestDiagnosticsFn diagnostics,
+                         decltype(&RedXeProcessViewerFailNextGlyphPreparation) failNext, Surface& surface)
+{
+    Viewer viewer(create, surface, "builtin.process-viewer", "process-viewer");
+    Require(viewer.prepared->Prepare(nullptr) == E_INVALIDARG, "viewer accepted missing preparation context");
+    Observation sample("process.list", 7);
+    sample.Integer(0, 17);
+    sample.Text(1, L"Client");
+    sample.Number(2, 10);
+    sample.Integer(3, 1'000'000);
+    viewer.Send(sample);
+    Require(viewer.Draw(1) == S_OK, "prepared glyph control failed");
+    const uint64_t control = surface.Pixels();
+    const auto read = [&]()
+    {
+        ProcessViewerTestDiagnostics value{sizeof(value)};
+        Require(diagnostics(&value) == S_OK, "prepared glyph diagnostics failed");
+        return value;
+    };
+    const auto before = read();
+    sample.Text(1, L"Caf\u00e9");
+    for (uint32_t index = 0; index < 3; ++index)
+        viewer.Send(sample);
+    const auto delivered = read();
+    Require(delivered.glyphUploadBytes == before.glyphUploadBytes && delivered.fontSessions == before.fontSessions,
+            "worker delivery accessed the font or GPU atlas");
+    Require(viewer.Draw(1, 0, 0, false) == S_OK && surface.Pixels() == control,
+            "delivery changed the previously prepared frame");
+    Require(viewer.Prepare() == S_OK, "new Unicode glyph preparation failed");
+    const auto prepared = read();
+    Require(prepared.glyphUploadCells == before.glyphUploadCells + 1 &&
+                prepared.glyphUploadBytes == before.glyphUploadBytes + 48 * 48 &&
+                prepared.fontSessions == before.fontSessions + 1,
+            "one new glyph did not upload exactly one cell");
+    Require(viewer.Draw(2, 0, 0, false) == S_OK && surface.Pixels() != control, "prepared Unicode label was not drawn");
+    const uint64_t painted = surface.Pixels();
+    sample.Text(1, L"M\u00fcnchen");
+    viewer.Send(sample); // Arrival after preparation must wait for the next frame, including the raised view.
+    Require(viewer.Draw(2, 1, 0, false) == S_OK && surface.Pixels() == painted,
+            "tile and raised frame disagree after late delivery");
+    Require(viewer.Prepare() == S_OK && viewer.Draw(3, 0, 0, false) == S_OK && surface.Pixels() != painted,
+            "late Unicode label was lost on the next preparation");
+    const auto next = read();
+    Require(next.glyphUploadCells == prepared.glyphUploadCells + 1 &&
+                next.glyphUploadBytes == prepared.glyphUploadBytes + 48 * 48,
+            "late glyph preparation uploaded more than one cell");
+    Require(viewer.Prepare() == S_FALSE && viewer.Draw(3, 1, 0, false) == S_OK,
+            "clean preparation changed or prevented drawing");
+    const auto clean = read();
+    Require(clean.glyphUploadBytes == next.glyphUploadBytes && clean.fontSessions == next.fontSessions &&
+                clean.preparations == next.preparations && clean.livePreparationFonts == 0,
+            "clean preparation or Render did font/upload work");
+    // Distinct strings share one temporary font session, which is released before either draw.
+    sample.snapshot.rowCount = 2;
+    sample.Text(1, L"B\u00f8");
+    sample.Integer(0, 18, 1);
+    sample.Text(1, L"\u00c5", 1);
+    sample.Number(2, 5, 1);
+    sample.Integer(3, 2'000'000, 1);
+    viewer.Send(sample);
+    Require(viewer.Prepare() == S_OK && viewer.Draw(4, 0, 0, false) == S_OK, "Unicode string batch failed");
+    const auto batch = read();
+    Require(batch.fontSessions == clean.fontSessions + 1 && batch.glyphUploadCells == clean.glyphUploadCells + 2 &&
+                batch.glyphUploadBytes == clean.glyphUploadBytes + 2 * 48 * 48 && batch.livePreparationFonts == 0,
+            "Unicode strings did not share and release one preparation font session");
+    sample.Text(1, L"G\u03a9");
+    viewer.Send(sample);
+    failNext();
+    Require(viewer.Prepare() == E_OUTOFMEMORY && viewer.Draw(5, 0, 0, false) == S_FALSE,
+            "failed preparation still drew an unprepared sample");
+    const auto failed = read();
+    Require(failed.preparationFailures == batch.preparationFailures + 1 && failed.livePreparationFonts == 0 &&
+                failed.glyphUploadBytes == batch.glyphUploadBytes,
+            "failed preparation retained fonts or uploaded cells");
+    Require(viewer.Prepare() == S_FALSE && read().preparationFailures == failed.preparationFailures,
+            "unchanged failed preparation retried automatically");
+    wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
+    Require(viewer.widget.query_to(interactive.put()) == S_OK, "viewer input interface missing");
+    const RedXePointerEvent pointer{sizeof(pointer), 1, RedXePointerKindMouse, RedXePointerPhaseDown, 20, 20};
+    Require(interactive->OnPointer(&pointer) == S_FALSE, "failed preparation accepted input");
+    const RedXeGpuPreparationContext retry{sizeof(retry), 96, Surface::width - 1, Surface::height, 0, 0, {}};
+    Require(viewer.prepared->Prepare(&retry) == S_OK && viewer.Draw(6, 0, 0, false) == S_OK &&
+                read().livePreparationFonts == 0,
+            "extent change did not recover failed preparation");
+    std::cout << "[       -- ] prepared_sample_bytes=" << clean.pendingSampleBytes
+              << " glyph_upload_bytes_per_cell=" << 48 * 48 << '\n';
+    Require(viewer.widget->SetVisible(FALSE) == S_OK && viewer.Prepare() == S_FALSE, "hidden preparation did work");
 }
 
 void CheckAtlasLifetime(RedXeCreateFn create, ProcessViewerGetTestDiagnosticsFn diagnostics,
@@ -769,7 +882,25 @@ void TestProcessViewerScheduling(bool& success) noexcept
             GetProcAddress(module.get(), "RedXeProcessViewerFailNextAtlasInitialization"));
         Require(failNext != nullptr, "viewer atlas fault export missing");
         Surface surface;
-        CheckAtlasLifetime(create, diagnostics, failNext, surface);
+        if (!g_pixelReference.is_open())
+        {
+            const auto failGlyphs = reinterpret_cast<decltype(&RedXeProcessViewerFailNextGlyphPreparation)>(
+                GetProcAddress(module.get(), "RedXeProcessViewerFailNextGlyphPreparation"));
+            Require(failGlyphs != nullptr, "viewer glyph preparation fault export missing");
+            CheckPreparedGlyphs(create, diagnostics, failGlyphs, surface);
+            CheckAtlasLifetime(create, diagnostics, failNext, surface);
+        }
+        else
+        {
+            Viewer viewer(create, surface, "builtin.process-viewer", "process-viewer");
+            Observation sample("process.list", 7);
+            sample.Integer(0, 17);
+            sample.Text(1, L"Caf\u00e9 - M\u00fcnchen");
+            sample.Number(2, 10);
+            sample.Integer(3, 1'000'000);
+            viewer.Send(sample);
+            Require(viewer.Draw(1) == S_OK && viewer.Draw(1, 1) == S_OK, "Unicode reference draw failed");
+        }
         CheckCadence(create, surface);
         CheckRanksAndAuxiliaryData(create, surface);
         CheckIdleProcessPulse(create, surface);
@@ -785,5 +916,22 @@ void TestProcessViewerScheduling(bool& success) noexcept
     {
         success = false;
         std::wcerr << L"FAIL Process Viewer scheduling: unexpected exception\n";
+    }
+}
+
+void TestProcessViewerPixelReference(const wchar_t* path, bool& success) noexcept
+{
+    try
+    {
+        g_pixelReference.open(std::filesystem::path(path), std::ios::trunc);
+        Require(g_pixelReference.is_open(), "pixel reference file failed to open");
+        const auto close = wil::scope_exit([]() noexcept { g_pixelReference.close(); });
+        TestProcessViewerScheduling(success);
+        Require(g_pixelReference.good(), "pixel reference file failed to write");
+    }
+    catch (...)
+    {
+        success = false;
+        std::cerr << "FAIL Process Viewer pixel reference\n";
     }
 }

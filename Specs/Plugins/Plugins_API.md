@@ -191,6 +191,7 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   the cold initialization faults `RedXeProcessViewerFailNextAtlasInitialization` and
   `RedXeWeatherFailNextAtlasInitialization` (one failure after CPU atlas construction, consumed by the next actual
   resource initialization rather than a shared-resource acquisition),
+  `RedXeProcessViewerFailNextGlyphPreparation` (one failure on the next missing-glyph preparation),
   `RedXeWeatherProbeHttpGetOnSmallStack`, `RedXeWeatherBuildTestLocationSearchUrl`,
   `RedXeAVControlUseSyntheticBackend` and `RedXeAVControlTestSnapshot`, and the Logicon surface
   `RedXeLogiconGetTestDiagnostics`, `RedXeLogiconUseSyntheticDevice`, `RedXeLogiconUseSyntheticDialpad`,
@@ -1158,8 +1159,10 @@ below one 8-bit luminance step also snap, except intent-band crossings. Labels, 
 current displayed pose and completes in 320 ms independent of frame rate; an unchanged target does not restart it.
 Tile and raised draws at the same host timestamp advance motion once. A high-band observation still triggers its
 bounded pulse while unchanged; leaving the high band ends it. PID 0 CPU alone never triggers a warning pulse.
-Hide/device loss snaps interrupted motion; the first recovery frame does not replay it. DirectWrite fills new
-atlas glyphs when a snapshot arrives or at device creation, never inside `Render`. A settled System page MUST NOT
+Hide/device loss snaps interrupted motion; the first recovery frame does not replay it. The acquisition worker
+updates a bounded pending sample without font or GPU work. `IRedXePreparedGpuWidget::Prepare` freezes the paint
+sample and fills/uploads new atlas glyphs before either tile or raised drawing; a delivery during or after that
+preparation remains pending for the next frame. `Render` MUST NOT rasterize or upload the atlas. A settled System page MUST NOT
 request continuous frames.
 
 Shared GPU resources live once per Process Viewer device, not once per widget instance: build-time Shader Model 5.0
@@ -1167,7 +1170,16 @@ blobs, one instanced panel/bar/heatmap/glyph pipeline, one 1024×1024 `R8` atlas
 The reusable CPU atlas is one lazy one-MiB allocation shared by all GPU users of the DLL; cold widgets own none,
 and the last user's device release and failed initial construction free it. Recreating it MUST preserve glyph
 pixels and a surviving user's atlas. DirectWrite and system fonts load only while filling new atlas glyphs, then
-release. Visible process, adapter and interface names rasterize only when the displayed string set changes. Each
+release. Each changed preparation reuses one temporary factory/font session across its strings and releases it
+before drawing, including failure. No font session persists between preparations. Visible process, adapter and
+interface names rasterize only when the displayed string set changes. Changed
+48×48 single-channel cells upload individually (2,304 bytes each) during preparation; clean preparation returns
+`S_FALSE` without font work, upload or allocation. Failed preparation suppresses drawing and input until a new
+sample or changed extent can be prepared; unchanged failed preparation MUST NOT retry automatically. Each
+widget retains one additional bounded pending sample (11,160 bytes) to freeze paint while delivery continues;
+the default ten-viewer System page adds 111,600 bytes plus interface/phase bookkeeping. This bounded cost is
+accepted for complete labels/history and coherent tile/raised frames, with no additional timer, thread or render
+allocation. Each
 visible widget frame maps its instance
 buffer and issues one `DrawInstanced`. The generic widget root MUST NOT grow plugin drawing records. Snapshot delivery
 updates fixed storage on the acquisition worker and MUST NOT render; the host coalesced UI invalidation starts the

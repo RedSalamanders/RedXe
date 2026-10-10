@@ -304,10 +304,12 @@ class MonitorGpu final
         return _texture != nullptr;
     }
 
-    void UploadFaces(ID3D11DeviceContext* context, const uint32_t* bgra) noexcept
+    void UploadFaces(const uint32_t* bgra) noexcept
     {
-        if (context && _texture && bgra)
+        if (_deviceIdentity && _texture && bgra)
         {
+            wil::com_ptr_nothrow<ID3D11DeviceContext> context;
+            _deviceIdentity->GetImmediateContext(context.put());
             context->UpdateSubresource(_texture.get(), 0, nullptr, bgra, kGridSize * sizeof(uint32_t), 0);
         }
     }
@@ -388,7 +390,6 @@ void AppendLine(ViewerGpuResources& gpu, ViewerDrawList& list, const Metrics& me
     }
     if (characters != 0)
     {
-        (void)gpu.EnsureGlyphs(text, characters);
         (void)gpu.AppendText(list, x, y, metrics.text, red, green, blue, 1.0f, text, characters);
     }
     y += metrics.line;
@@ -402,7 +403,6 @@ void AppendChip(ViewerGpuResources& gpu, ViewerDrawList& list, const Metrics& me
     (void)list.AddStroke(rect.x, rect.y, rect.width, rect.height, 0.70f, 0.75f, 0.85f, active ? 1.0f : 0.7f, 6.0f,
                          1.5f);
     uint32_t characters = static_cast<uint32_t>(wcsnlen_s(text, 32));
-    (void)gpu.EnsureGlyphs(text, characters);
     float textWidth = gpu.MeasureText(text, characters, metrics.text);
     while (characters > 1 && textWidth > rect.width - 6.0f)
     {
@@ -500,6 +500,9 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         {
             return E_INVALIDARG;
         }
+        if (!_visible || !_gpu.Ready())
+            return S_FALSE;
+        _snapshotValid = false;
         LogiconService* service = LogiconService::Current();
         if (!service)
         {
@@ -516,11 +519,25 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             std::fill_n(_faces.get(), kGridPixels, 0xFF000000U);
         }
         service->CopyMonitorSnapshot(_snapshot);
-        _snapshotValid = true;
         if (service->CopyFaceSurface(_faces.get(), kGridPixels, _faceGeneration))
         {
-            _facesDirty = true;
+            _gpu.UploadFaces(_faces.get());
         }
+        // Every other generated monitor label is ASCII (including validated action names and hex traces).
+        // The copied dashboard name and the separator are the bounded UTF-16 inputs.
+        auto* gpu = ViewerGpuGet();
+        if (!gpu)
+            return E_UNEXPECTED;
+        const auto releaseFonts = wil::scope_exit([gpu]() noexcept { gpu->ReleasePreparationFonts(); });
+        HRESULT result = gpu->EnsureGlyphs(L"\u00b7", 1);
+        if (SUCCEEDED(result))
+            result = gpu->EnsureGlyphs(
+                _snapshot.host.pageName.data(),
+                static_cast<uint32_t>(wcsnlen_s(_snapshot.host.pageName.data(), _snapshot.host.pageName.size())));
+        if (FAILED(result))
+            return result;
+        gpu->UploadDirtyGlyphs();
+        _snapshotValid = true;
         return S_OK;
     }
 
@@ -540,20 +557,14 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         {
             return E_UNEXPECTED;
         }
+        if (!_snapshotValid)
+            return S_FALSE;
         const float width = static_cast<float>(widget.widthPixels);
         const float height = static_cast<float>(widget.heightPixels);
         const Layout layout = ComputeLayout(width, height);
-        if (_facesDirty && _faces)
-        {
-            _gpu.UploadFaces(context->deviceContext, _faces.get());
-            _facesDirty = false;
-        }
-
-        ViewerGpuLock();
         ViewerGpuResources* gpu = ViewerGpuGet();
         if (!gpu)
         {
-            ViewerGpuUnlock();
             return E_UNEXPECTED;
         }
         _list.Reset();
@@ -570,7 +581,6 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         {
             result = gpu->Render(context->deviceContext, width, height, _list);
         }
-        ViewerGpuUnlock();
         return result;
     }
 
@@ -759,7 +769,6 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             }
             (void)swprintf_s(text.data(), text.size(), L"%u %S", slot + 1U, ActionLabel(snapshot.actions[slot]));
             const uint32_t characters = static_cast<uint32_t>(wcsnlen_s(text.data(), text.size()));
-            (void)gpu.EnsureGlyphs(text.data(), characters);
             const float labelWidth = gpu.MeasureText(text.data(), characters, metrics.keyLabel);
             (void)_list.AddFill(key.x + 2.0f, key.y + 2.0f, labelWidth + 8.0f, metrics.keyLabel + 4.0f, 0.0f, 0.0f,
                                 0.0f, 0.55f, 4.0f);
@@ -943,7 +952,6 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
     bool _snapshotValid = false;
     std::unique_ptr<uint32_t[]> _faces;
     uint32_t _faceGeneration = 0;
-    bool _facesDirty = false;
     bool _visible = false;
     bool _attached = false;
     TapMode _mode = TapMode::Press;

@@ -460,7 +460,14 @@ state changes, and wake-ups.
 The Process Viewer family is a sample-driven `IRedXeGpuWidget` plus `IRedXeScheduledWidget` set in one DLL. Ten
 settings-visible widgets share one device resource hub: build-time Shader Model 5.0 blobs, one instanced pipeline, one
 1024×1024 `R8` atlas, and one dynamic instance buffer. Each visible widget frame maps that buffer and issues one
-`DrawInstanced`. DirectWrite loads only while filling new atlas glyphs, then releases. Ranked lists copy at most
+`DrawInstanced`. The acquisition worker updates bounded pending storage with no font/GPU access. UI-thread
+preparation freezes the paint sample and uploads only changed 48×48 atlas cells (2,304 bytes each), outside frame
+construction and its draw lock. Tile and raised draws consume that same prepared sample; later deliveries stay
+pending. Clean preparation has no allocation, rasterization or upload, and Render does no atlas upload. DirectWrite
+loads only while filling new atlas glyphs: one temporary session is reused across that preparation's strings and
+released before drawing, including failure. One additional 11,160-byte pending sample per widget (111,600 bytes
+for the default System page, plus bounded interface/phase bookkeeping) is accepted to freeze complete paint while
+delivery continues, without adding a timer, thread or render allocation. Ranked lists copy at most
 `topN` rows; the CPU heatmap stores at most 64 display cells. Sparkline history is 60 samples of widget-local fixed
 storage. Eases last 320 ms from a fixed displayed start pose; tile and raised draws share the host timestamp. Delivery
 already coalesces a host invalidation. Settled viewers return `S_FALSE` with zero delay; only real easing or the

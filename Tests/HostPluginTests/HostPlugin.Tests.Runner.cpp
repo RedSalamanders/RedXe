@@ -69,6 +69,7 @@ namespace
 
 void TestRuntimeProbe(bool& success) noexcept;
 void TestProcessViewerScheduling(bool& success) noexcept;
+void TestProcessViewerPixelReference(const wchar_t* path, bool& success) noexcept;
 void TestDataSourceLifetime(bool& success) noexcept;
 void TestGpuResourceRetirement(bool& success) noexcept;
 
@@ -427,6 +428,31 @@ constexpr UINT kHostHeight = 720;
 
 // Thread count for this process. The shared plugin runtime owns exactly one acquisition worker no matter how many
 // PluginManager instances are live, so staging an adjacent page must not raise this.
+
+// These hidden WARP fixtures grant frames explicitly, including after DXGI reports occlusion. Prepare the real
+// cached interfaces before drawing; production occlusion/scheduling suppression has its own decision tests.
+[[nodiscard]] HRESULT RenderViewerTestFrame(Renderer& renderer, DashboardHost& dashboard, float now,
+                                            float delta) noexcept
+{
+    for (size_t index = 0; index < dashboard.WidgetCount(); ++index)
+    {
+        auto* prepared = dashboard.PreparedGpuWidgetAt(index);
+        if (!prepared || dashboard.RequiresPlaceholderAt(index))
+            continue;
+        const RECT bounds = dashboard.PixelBoundsAt(index, kHostWidth, kHostHeight);
+        const RedXeGpuPreparationContext context{sizeof(context),
+                                                 96,
+                                                 static_cast<uint32_t>(bounds.right - bounds.left),
+                                                 static_cast<uint32_t>(bounds.bottom - bounds.top),
+                                                 0,
+                                                 0,
+                                                 {}};
+        const HRESULT result = prepared->Prepare(&context);
+        if (FAILED(result))
+            return result;
+    }
+    return renderer.Render(now, delta);
+}
 
 void Check(bool condition, std::wstring_view message, bool& success) noexcept
 {
@@ -2603,7 +2629,7 @@ void TestWidgetRaiseHost(bool& success) noexcept
               SUCCEEDED(renderer.SetRaisedOverlay(3, layout.content)),
           L"host raises Process Viewer to the plugin-requested half overlay", success);
 
-    result = renderer.Render(0.5f, 1.0f / 60.0f);
+    result = RenderViewerTestFrame(renderer, dashboard, 0.5f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.HasRaisedOverlay() && renderer.RaisedOverlayIndex() == 3 &&
               renderer.LastFrameWidgetCount() == 11 && renderer.LastFrameSuccessfulWidgetCount() == 11 &&
               renderer.RaisedContentRect().left == layout.content.left &&
@@ -2618,7 +2644,7 @@ void TestWidgetRaiseHost(bool& success) noexcept
     Check(SUCCEEDED(processRaised->SetRaised(FALSE)), L"Process Viewer accepts SetRaised(FALSE)", success);
     renderer.ClearRaisedOverlay();
     Check(SUCCEEDED(dashboard.ClearRaisedNativeLayout(window.Dpi())), L"native raise layout restores", success);
-    result = renderer.Render(0.6f, 1.0f / 60.0f);
+    result = RenderViewerTestFrame(renderer, dashboard, 0.6f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && !renderer.HasRaisedOverlay() && renderer.LastFrameWidgetCount() == 10 &&
               renderer.LastFrameSuccessfulWidgetCount() == 10,
           L"dismissing the overlay restores every System Data GPU tile", success);
@@ -2669,6 +2695,8 @@ void TestHostChromeComposition(bool& success) noexcept
     Check(glyphs || chrome.Font() == FluentIcons::IconFont::TextFallback,
           L"glyph rasterization succeeds or reports the text fallback", success);
 
+    (void)renderer.PrepareWidgets();
+
     result = renderer.Render(0.0f, 0.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameChromeQuadCount() == 0,
           L"a settled page with no raise and no revealed band draws no chrome quad", success);
@@ -2688,6 +2716,7 @@ void TestHostChromeComposition(bool& success) noexcept
     raisedState.dimAlpha = kRaiseOverlayDimAlpha;
     raisedState.closeHovered = true;
     Check(renderer.SetHostChrome(raisedState), L"a raised chrome state is reported as a change", success);
+    (void)renderer.PrepareWidgets();
     result = renderer.Render(0.1f, 1.0f / 60.0f);
     const size_t expectedRaised = HostChromeQuadCount(raisedState, kHostWidth, kHostHeight, glyphs);
     Check(SUCCEEDED(result) && renderer.LastFrameChromeQuadCount() == expectedRaised && expectedRaised >= 4,
@@ -2696,11 +2725,13 @@ void TestHostChromeComposition(bool& success) noexcept
           L"host chrome never displaces the tile and raised widget draws", success);
     raisedState.closeHovered = false;
     Check(renderer.SetHostChrome(raisedState), L"clearing close hover is one chrome change", success);
+    (void)renderer.PrepareWidgets();
     result = renderer.Render(0.2f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameChromeQuadCount() + 1 == expectedRaised,
           L"an idle close control drops exactly the hover wash", success);
     raisedState.dimAlpha = 0;
     (void)renderer.SetHostChrome(raisedState);
+    (void)renderer.PrepareWidgets();
     result = renderer.Render(0.3f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) &&
               renderer.LastFrameChromeQuadCount() == HostChromeQuadCount(raisedState, kHostWidth, kHostHeight, glyphs),
@@ -2713,11 +2744,13 @@ void TestHostChromeComposition(bool& success) noexcept
     bandState.bands[1].direction = kPageEdgeDirectionNext;
     bandState.bands[1].revealed = true;
     Check(renderer.SetHostChrome(bandState), L"revealing an edge band is one chrome change", success);
+    (void)renderer.PrepareWidgets();
     result = renderer.Render(0.4f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameChromeQuadCount() == (glyphs ? 2U : 1U) &&
               renderer.LastFrameWidgetCount() == 10,
           L"a revealed edge band draws its wash and chevron over every tile", success);
     Check(renderer.SetHostChrome(HostChromeState{}), L"hiding the band is one chrome change", success);
+    (void)renderer.PrepareWidgets();
     result = renderer.Render(0.5f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameChromeQuadCount() == 0, L"hidden chrome draws nothing", success);
 
@@ -3199,6 +3232,8 @@ void TestReleaseHostIntegration(bool& success) noexcept
         Check(SUCCEEDED(result) && diagnostics.liveDeviceResourceSetCount == 1,
               L"renderer creates exactly one Matrix device-resource set", success);
 
+        (void)renderer.PrepareWidgets();
+
         result = renderer.Render(0.0f, 0.0f);
         Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 1 &&
                   renderer.LastFrameSuccessfulWidgetCount() == 1,
@@ -3211,6 +3246,7 @@ void TestReleaseHostIntegration(bool& success) noexcept
         }
         if (SUCCEEDED(result))
         {
+            (void)renderer.PrepareWidgets();
             result = renderer.Render(1.0f, 1.0f / 60.0f);
         }
         Check(SUCCEEDED(result) && renderer.IsSuspended() && renderer.LastFrameWidgetCount() == 0,
@@ -3223,6 +3259,7 @@ void TestReleaseHostIntegration(bool& success) noexcept
         }
         if (SUCCEEDED(result))
         {
+            (void)renderer.PrepareWidgets();
             result = renderer.Render(2.0f, 1.0f / 60.0f);
         }
         Check(SUCCEEDED(result) && !renderer.IsSuspended() && renderer.LastFrameSuccessfulWidgetCount() == 1,
@@ -3267,6 +3304,7 @@ void TestReleaseHostIntegration(bool& success) noexcept
         }
         if (SUCCEEDED(result))
         {
+            (void)renderer.PrepareWidgets();
             result = renderer.Render(3.0f, 1.0f / 60.0f);
         }
         Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 1,
@@ -3847,7 +3885,7 @@ void TestSystemDataViewers(bool& success) noexcept
     QueryPerformanceFrequency(&frequency);
     for (uint32_t frame = 0; frame < 8; ++frame)
     {
-        result = renderer.Render(static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+        result = RenderViewerTestFrame(renderer, dashboard, static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
         if (FAILED(result))
         {
             break;
@@ -3885,7 +3923,7 @@ void TestSystemDataViewers(bool& success) noexcept
     }
     for (uint32_t frame = 0; frame < 2 && SUCCEEDED(result); ++frame)
     {
-        result = renderer.Render(0.8f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+        result = RenderViewerTestFrame(renderer, dashboard, 0.8f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
     }
     if (SUCCEEDED(result))
     {
@@ -3918,7 +3956,8 @@ void TestSystemDataViewers(bool& success) noexcept
         HRESULT rendered = S_OK;
         for (uint32_t frame = 0; frame < 2 && SUCCEEDED(rendered); ++frame)
         {
-            rendered = renderer.Render(1.0f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+            rendered =
+                RenderViewerTestFrame(renderer, dashboard, 1.0f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
         }
         result = ReadProcessViewerDiagnostics(diagnostics);
         Check(down == S_FALSE && up == S_OK && SUCCEEDED(rendered) && SUCCEEDED(result) && diagnostics.pageIndex == 1,
@@ -3928,7 +3967,7 @@ void TestSystemDataViewers(bool& success) noexcept
         (void)processViewer->OnPointer(&tap);
         tap.phase = RedXePointerPhaseUp;
         const HRESULT back = processViewer->OnPointer(&tap);
-        rendered = renderer.Render(1.1f, 1.0f / 60.0f);
+        rendered = RenderViewerTestFrame(renderer, dashboard, 1.1f, 1.0f / 60.0f);
         result = ReadProcessViewerDiagnostics(diagnostics);
         Check(back == S_OK && SUCCEEDED(rendered) && SUCCEEDED(result) && diagnostics.pageIndex == 0,
               L"a tap on the first page dot returns to page one", success);
@@ -3941,14 +3980,14 @@ void TestSystemDataViewers(bool& success) noexcept
         const HRESULT upAtFirst = processViewer->OnPointer(&wheel);
         wheel.wheelDelta = -120.0f;
         const HRESULT wheelDown = processViewer->OnPointer(&wheel);
-        rendered = renderer.Render(1.2f, 1.0f / 60.0f);
+        rendered = RenderViewerTestFrame(renderer, dashboard, 1.2f, 1.0f / 60.0f);
         result = ReadProcessViewerDiagnostics(diagnostics);
         Check(upAtFirst == S_OK && wheelDown == S_OK && SUCCEEDED(rendered) && SUCCEEDED(result) &&
                   diagnostics.pageIndex == 1,
               L"a paged viewer keeps wheel-up at its first page and pages forward on wheel-down", success);
         wheel.wheelDelta = 120.0f;
         (void)processViewer->OnPointer(&wheel);
-        rendered = renderer.Render(1.3f, 1.0f / 60.0f);
+        rendered = RenderViewerTestFrame(renderer, dashboard, 1.3f, 1.0f / 60.0f);
         result = ReadProcessViewerDiagnostics(diagnostics);
         Check(SUCCEEDED(rendered) && SUCCEEDED(result) && diagnostics.pageIndex == 0,
               L"wheel-up returns the viewer to its first page", success);
@@ -3961,7 +4000,7 @@ void TestSystemDataViewers(bool& success) noexcept
     }
     if (SUCCEEDED(result))
     {
-        result = renderer.Render(0.25f, 1.0f / 60.0f);
+        result = RenderViewerTestFrame(renderer, dashboard, 0.25f, 1.0f / 60.0f);
     }
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 10,
           L"System Data widgets rebuild after device loss", success);
@@ -3970,7 +4009,7 @@ void TestSystemDataViewers(bool& success) noexcept
     constexpr uint32_t kMeasuredFrames = 32;
     for (uint32_t frame = 0; frame < kMeasuredFrames; ++frame)
     {
-        result = renderer.Render(0.5f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+        result = RenderViewerTestFrame(renderer, dashboard, 0.5f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
         if (FAILED(result))
         {
             break;
@@ -4022,8 +4061,8 @@ void TestSystemDataViewers(bool& success) noexcept
         const ULONGLONG now = GetTickCount64();
         if (invalidated || (nextFrame != 0 && now >= nextFrame))
         {
-            result = renderer.Render(2.0f + static_cast<float>(now - soakStart) / 1000.0f,
-                                     static_cast<float>(now - previousFrame) / 1000.0f);
+            result = RenderViewerTestFrame(renderer, dashboard, 2.0f + static_cast<float>(now - soakStart) / 1000.0f,
+                                           static_cast<float>(now - previousFrame) / 1000.0f);
             previousFrame = now;
             ++soakFrames;
             invalidated = false;
@@ -4466,6 +4505,7 @@ void TestGpuPageLifetime(bool& success)
     result = renderer.AdoptPrimaryDashboard(dashboards[1]);
     Check(SUCCEEDED(result) && dashboards[1].WidgetsVisible() && !dashboards[2].WidgetsVisible(),
           L"adopting an unprepared page quiesces it for device creation and restores visibility", success);
+    (void)renderer.PrepareWidgets();
     result = renderer.Render(0.0f, 0.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 3, L"the adopted page draws every widget",
           success);
@@ -4482,7 +4522,8 @@ void TestGpuPageLifetime(bool& success)
     if (SUCCEEDED(result))
         result = dashboards[0].SetWidgetsVisible(true);
     if (SUCCEEDED(result))
-        result = renderer.Render(0.1f, 0.1f);
+        (void)renderer.PrepareWidgets();
+    result = renderer.Render(0.1f, 0.1f);
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 6,
           L"a fresh WARP device rebuilds and draws both surviving pages", success);
     renderer.Shutdown();
@@ -5770,7 +5811,7 @@ void TestShortTilePageControl(bool& success) noexcept
     {
         window.PumpMessages();
         (void)MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
-        result = renderer.Render(static_cast<float>(frame++) / 60.0f, 1.0f / 60.0f);
+        result = RenderViewerTestFrame(renderer, dashboard, static_cast<float>(frame++) / 60.0f, 1.0f / 60.0f);
         if (SUCCEEDED(result))
         {
             result = ReadProcessViewerDiagnostics(diagnostics);
@@ -8934,6 +8975,12 @@ int wmain(int argumentCount, wchar_t** arguments)
     RedXeFailureReports::RouteAwayFromDialogs();
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    if (argumentCount == 3 && arguments[1] && std::wstring_view(arguments[1]) == L"--viewer-pixels")
+    {
+        bool success = true;
+        TestProcessViewerPixelReference(arguments[2], success);
+        return success ? 0 : 1;
+    }
     if (argumentCount == 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--viewer-scheduling")
     {
         bool success = true;

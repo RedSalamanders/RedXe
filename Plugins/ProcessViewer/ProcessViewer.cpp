@@ -225,6 +225,8 @@ std::atomic<uint32_t> g_liveProviderCount{0};
 std::atomic<uint32_t> g_liveWidgetCount{0};
 std::atomic<uint32_t> g_liveSubscriptionCount{0};
 std::atomic<uint32_t> g_sampleCount{0};
+std::atomic<uint32_t> g_preparationCount{0};
+std::atomic<uint32_t> g_preparationFailureCount{0};
 std::atomic<uint32_t> g_paintCount{0};
 std::atomic<uint32_t> g_deviceCallbacksWhileVisible{0};
 std::atomic<uint32_t> g_lastPublishedRowCount{0};
@@ -1122,7 +1124,7 @@ class ViewerSink final : public RedXeComObject<ViewerSink, IRedXeDataSink>
 };
 
 class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget,
-                                                 IRedXeRaisedWidget, IRedXeInteractiveWidget>
+                                                 IRedXeRaisedWidget, IRedXeInteractiveWidget, IRedXePreparedGpuWidget>
 {
   public:
     ViewerWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, ViewerKind kind, uint32_t topN,
@@ -1200,20 +1202,17 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     HRESULT Publish(uint32_t dataSetIndex, const RedXeDataSnapshot* snapshot) noexcept
     {
         AcquireSRWLockExclusive(&_lock);
+        if (!_samplePending)
+            _pendingSample = _sample;
         const HRESULT result = Ingest(dataSetIndex, snapshot);
-        ViewerSample sample{};
         if (SUCCEEDED(result))
         {
             _samplePending = true;
-            _pulsePending = HighBandActive(_sample);
+            _pendingPulse = HighBandActive(_pendingSample);
+            ++_sampleRevision;
             g_sampleCount.fetch_add(1, std::memory_order_relaxed);
-            sample = _sample;
         }
         ReleaseSRWLockExclusive(&_lock);
-        if (SUCCEEDED(result))
-        {
-            RasterizeSampleGlyphs(sample);
-        }
         return result;
     }
 
@@ -1245,6 +1244,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             _easing = false;
             _pulse = 0.0f;
             _pulsePending = false;
+            _pendingPulse = false;
             SnapDisplayed();
             ReleaseSRWLockExclusive(&_lock);
         }
@@ -1290,6 +1290,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             _pagePan = false;
             return S_FALSE;
         }
+        if (!_paintReady)
+            return S_FALSE;
         if (event->phase == RedXePointerPhaseWheel)
         {
             // Wheel down pages the overflow forward, one page per whole detent. A widget that shows a page control
@@ -1421,10 +1423,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         if (SUCCEEDED(result))
         {
             _gpuHeld.store(true, std::memory_order_release);
-            AcquireSRWLockShared(&_lock);
-            const ViewerSample sample = _sample;
-            ReleaseSRWLockShared(&_lock);
-            RasterizeSampleGlyphs(sample);
+            _paintReady = false;
+            _preparationFailed = false;
         }
         return result;
     }
@@ -1441,10 +1441,13 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         _easing = false;
         _pulse = 0.0f;
         _pulsePending = false;
+        _pendingPulse = false;
         SnapDisplayed();
         ReleaseSRWLockExclusive(&_lock);
         _animationScheduled = false;
         _snapNextFrame = true;
+        _paintReady = false;
+        _preparationFailed = false;
     }
 
     HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
@@ -1466,6 +1469,67 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         return S_OK;
     }
 
+    HRESULT STDMETHODCALLTYPE Prepare(const RedXeGpuPreparationContext* context) noexcept override
+    {
+        if (!context || context->sizeBytes != sizeof(RedXeGpuPreparationContext))
+            return E_INVALIDARG;
+        if (!_visible.load(std::memory_order_acquire))
+            return S_FALSE;
+        if (!_gpuHeld.load(std::memory_order_acquire))
+            return E_UNEXPECTED;
+        ViewerGpuResources* resources = ViewerGpuGet();
+        if (!resources)
+            return E_UNEXPECTED;
+
+        const std::array<uint32_t, 5> extents{context->dpi, context->tileWidthPixels, context->tileHeightPixels,
+                                              context->raisedWidthPixels, context->raisedHeightPixels};
+        AcquireSRWLockShared(&_lock);
+        const uint64_t revision = _sampleRevision;
+        if ((_paintReady && !_samplePending) ||
+            (_preparationFailed && _failedRevision == revision && _failedPreparationExtents == extents))
+        {
+            ReleaseSRWLockShared(&_lock);
+            return S_FALSE;
+        }
+        ViewerSample sample = _samplePending ? _pendingSample : _sample;
+        const bool pulsePending = _pendingPulse;
+        ReleaseSRWLockShared(&_lock);
+
+        // Only the UI thread uses the shared atlas. Worker delivery and frame construction do no font/GPU work.
+        _paintReady = false;
+        const auto releaseFonts = wil::scope_exit([resources]() noexcept { resources->ReleasePreparationFonts(); });
+        const HRESULT result = EnsureSceneGlyphs(*resources, sample, Catalog(_kind));
+        if (FAILED(result))
+        {
+            _preparationFailed = true;
+            _failedRevision = revision;
+            _failedPreparationExtents = extents;
+            _animationScheduled = false;
+            g_preparationFailureCount.fetch_add(1, std::memory_order_relaxed);
+            return result;
+        }
+        resources->UploadDirtyGlyphs();
+        AcquireSRWLockExclusive(&_lock);
+        // Motion may have advanced since a coalesced delivery; preserve the current displayed pose by identity.
+        sample.display = _sample.display;
+        sample.heatDisplay = _sample.heatDisplay;
+        PreserveRowMotion(_sample, sample);
+        _sample = sample;
+        _paintPending = true;
+        _pulsePending = pulsePending;
+        // A concurrent delivery is still pending for the next frame, including any history it appended.
+        if (_sampleRevision == revision)
+        {
+            _samplePending = false;
+            _pendingPulse = false;
+        }
+        ReleaseSRWLockExclusive(&_lock);
+        _paintReady = true;
+        _preparationFailed = false;
+        g_preparationCount.fetch_add(1, std::memory_order_relaxed);
+        return S_OK;
+    }
+
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
     {
         if (!context || context->sizeBytes != sizeof(RedXeGpuFrameContext) || !context->widget ||
@@ -1482,6 +1546,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             return S_OK;
         }
+        if (!_paintReady)
+            return S_FALSE;
         ViewerGpuResources* resources = ViewerGpuGet();
         if (!resources)
         {
@@ -1489,7 +1555,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         }
 
         AcquireSRWLockExclusive(&_lock);
-        if (_samplePending || _snapNextFrame)
+        if (_paintPending || _snapNextFrame)
         {
             const ViewerMotionTarget target = MotionTarget();
             if (_snapNextFrame)
@@ -1514,7 +1580,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                 }
             }
             _easeTarget = target;
-            _samplePending = false;
+            _paintPending = false;
         }
         if (!HighBandActive(_sample))
         {
@@ -1548,7 +1614,6 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         ReleaseSRWLockExclusive(&_lock);
 
         ViewerDrawList list;
-        ViewerGpuLock();
         HRESULT result = BuildScene(*resources, list, sample, static_cast<float>(frame.widthPixels),
                                     static_cast<float>(frame.heightPixels), frame.dpi, pulse);
         if (SUCCEEDED(result))
@@ -1556,7 +1621,6 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             result = resources->Render(context->deviceContext, static_cast<float>(frame.widthPixels),
                                        static_cast<float>(frame.heightPixels), list);
         }
-        ViewerGpuUnlock();
         if (SUCCEEDED(result))
         {
             g_paintCount.fetch_add(1, std::memory_order_relaxed);
@@ -1820,16 +1884,16 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     void PushSpark(float value) noexcept
     {
-        if (_sample.sparkCount < kSparkCapacity)
+        if (_pendingSample.sparkCount < kSparkCapacity)
         {
-            _sample.spark[_sample.sparkCount++] = value;
+            _pendingSample.spark[_pendingSample.sparkCount++] = value;
             return;
         }
         for (uint32_t index = 1; index < kSparkCapacity; ++index)
         {
-            _sample.spark[index - 1] = _sample.spark[index];
+            _pendingSample.spark[index - 1] = _pendingSample.spark[index];
         }
-        _sample.spark[kSparkCapacity - 1] = value;
+        _pendingSample.spark[kSparkCapacity - 1] = value;
     }
 
     static bool RankByPrimary(const RankedRow& left, const RankedRow& right) noexcept
@@ -1855,7 +1919,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        ViewerSample next = _sample;
+        ViewerSample next = _pendingSample;
         next.rowCount = 0;
         for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
         {
@@ -1884,9 +1948,9 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             }
             InsertInto(next, row);
         }
-        PreserveRowMotion(_sample, next);
-        _sample.rowCount = next.rowCount;
-        _sample.rows = next.rows;
+        PreserveRowMotion(_pendingSample, next);
+        _pendingSample.rowCount = next.rowCount;
+        _pendingSample.rows = next.rows;
         g_lastPublishedRowCount.store(next.rowCount, std::memory_order_relaxed);
         return S_OK;
     }
@@ -2007,26 +2071,26 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         double cpu = 0.0;
-        _sample.available[0] = TakeF64(values[0], cpu);
-        _sample.values[0] = static_cast<float>(std::clamp(cpu, 0.0, 100.0));
-        _sample.available[1] = TakeU64(values[2], _sample.counts[1]);
-        _sample.available[2] = TakeU64(values[3], _sample.counts[2]);
-        _sample.available[3] = TakeU64(values[4], _sample.counts[3]);
-        _sample.available[4] = TakeU64(values[7], _sample.counts[4]);
-        _sample.available[5] = TakeU64(values[9], _sample.counts[5]);
-        _sample.available[6] = TakeU64(values[1], _sample.counts[6]);
-        _sample.available[7] = TakeU64(values[8], _sample.counts[7]);
+        _pendingSample.available[0] = TakeF64(values[0], cpu);
+        _pendingSample.values[0] = static_cast<float>(std::clamp(cpu, 0.0, 100.0));
+        _pendingSample.available[1] = TakeU64(values[2], _pendingSample.counts[1]);
+        _pendingSample.available[2] = TakeU64(values[3], _pendingSample.counts[2]);
+        _pendingSample.available[3] = TakeU64(values[4], _pendingSample.counts[3]);
+        _pendingSample.available[4] = TakeU64(values[7], _pendingSample.counts[4]);
+        _pendingSample.available[5] = TakeU64(values[9], _pendingSample.counts[5]);
+        _pendingSample.available[6] = TakeU64(values[1], _pendingSample.counts[6]);
+        _pendingSample.available[7] = TakeU64(values[8], _pendingSample.counts[7]);
         uint64_t total = 0;
         if (TakeU64(values[5], total) && total > 0)
         {
-            _sample.counts[0] = total;
-            if (_sample.available[4])
+            _pendingSample.counts[0] = total;
+            if (_pendingSample.available[4])
             {
-                _sample.values[4] = static_cast<float>(std::clamp(
-                    100.0 * static_cast<double>(_sample.counts[4]) / static_cast<double>(total), 0.0, 100.0));
+                _pendingSample.values[4] = static_cast<float>(std::clamp(
+                    100.0 * static_cast<double>(_pendingSample.counts[4]) / static_cast<double>(total), 0.0, 100.0));
             }
         }
-        PushSpark(_sample.values[0]);
+        PushSpark(_pendingSample.values[0]);
         return S_OK;
     }
 
@@ -2045,15 +2109,15 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         double user = 0.0;
         double kernel = 0.0;
         double idle = 0.0;
-        _sample.available[0] = TakeF64(values[0], total);
-        _sample.available[1] = TakeF64(values[1], user);
-        _sample.available[2] = TakeF64(values[2], kernel);
-        _sample.available[3] = TakeF64(values[3], idle);
-        _sample.values[0] = static_cast<float>(std::clamp(total, 0.0, 100.0));
-        _sample.values[1] = static_cast<float>(std::clamp(user, 0.0, 100.0));
-        _sample.values[2] = static_cast<float>(std::clamp(kernel, 0.0, 100.0));
-        _sample.values[3] = static_cast<float>(std::clamp(idle, 0.0, 100.0));
-        PushSpark(_sample.values[0]);
+        _pendingSample.available[0] = TakeF64(values[0], total);
+        _pendingSample.available[1] = TakeF64(values[1], user);
+        _pendingSample.available[2] = TakeF64(values[2], kernel);
+        _pendingSample.available[3] = TakeF64(values[3], idle);
+        _pendingSample.values[0] = static_cast<float>(std::clamp(total, 0.0, 100.0));
+        _pendingSample.values[1] = static_cast<float>(std::clamp(user, 0.0, 100.0));
+        _pendingSample.values[2] = static_cast<float>(std::clamp(kernel, 0.0, 100.0));
+        _pendingSample.values[3] = static_cast<float>(std::clamp(idle, 0.0, 100.0));
+        PushSpark(_pendingSample.values[0]);
         return S_OK;
     }
 
@@ -2063,17 +2127,17 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        _sample.heatCount = 0;
-        _sample.heatOverflow = snapshot->rowCount > kHeatCapacity ? snapshot->rowCount - kHeatCapacity : 0;
+        _pendingSample.heatCount = 0;
+        _pendingSample.heatOverflow = snapshot->rowCount > kHeatCapacity ? snapshot->rowCount - kHeatCapacity : 0;
         const uint32_t limit = std::min(snapshot->rowCount, kHeatCapacity);
         for (uint32_t index = 0; index < limit; ++index)
         {
             const RedXeDataValue* values = RowValues(snapshot->rows[index], 10);
             double total = 0.0;
-            _sample.heat[index] =
+            _pendingSample.heat[index] =
                 values && TakeF64(values[9], total) ? static_cast<float>(std::clamp(total, 0.0, 100.0)) : 0.0f;
         }
-        _sample.heatCount = limit;
+        _pendingSample.heatCount = limit;
         return S_OK;
     }
 
@@ -2093,19 +2157,20 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         uint64_t commit = 0;
         uint64_t commitLimit = 0;
         uint64_t cache = 0;
-        _sample.available[0] = TakeU64(values[0], total) && TakeU64(values[2], used) && total > 0;
-        _sample.available[1] = TakeU64(values[3], commit) && TakeU64(values[4], commitLimit) && commitLimit > 0;
-        _sample.available[2] = TakeU64(values[6], cache);
-        _sample.counts[0] = used;
-        _sample.counts[1] = total;
-        _sample.counts[2] = commit;
-        _sample.counts[3] = commitLimit;
-        _sample.counts[4] = cache;
-        _sample.values[0] = _sample.available[0]
-                                ? static_cast<float>(100.0 * static_cast<double>(used) / static_cast<double>(total))
-                                : 0.0f;
-        _sample.values[1] =
-            _sample.available[1]
+        _pendingSample.available[0] = TakeU64(values[0], total) && TakeU64(values[2], used) && total > 0;
+        _pendingSample.available[1] = TakeU64(values[3], commit) && TakeU64(values[4], commitLimit) && commitLimit > 0;
+        _pendingSample.available[2] = TakeU64(values[6], cache);
+        _pendingSample.counts[0] = used;
+        _pendingSample.counts[1] = total;
+        _pendingSample.counts[2] = commit;
+        _pendingSample.counts[3] = commitLimit;
+        _pendingSample.counts[4] = cache;
+        _pendingSample.values[0] =
+            _pendingSample.available[0]
+                ? static_cast<float>(100.0 * static_cast<double>(used) / static_cast<double>(total))
+                : 0.0f;
+        _pendingSample.values[1] =
+            _pendingSample.available[1]
                 ? static_cast<float>(100.0 * static_cast<double>(commit) / static_cast<double>(commitLimit))
                 : 0.0f;
         double pageIn = 0.0;
@@ -2122,7 +2187,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        ViewerSample next = _sample;
+        ViewerSample next = _pendingSample;
         next.rowCount = 0;
         next.hiddenCount = 0;
         double spark = 0.0;
@@ -2238,14 +2303,14 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                 }
             }
         }
-        PreserveRowMotion(_sample, next);
-        _sample.rowCount = next.rowCount;
-        _sample.rows = next.rows;
-        _sample.hiddenCount = next.hiddenCount;
+        PreserveRowMotion(_pendingSample, next);
+        _pendingSample.rowCount = next.rowCount;
+        _pendingSample.rows = next.rows;
+        _pendingSample.hiddenCount = next.hiddenCount;
         _netIdle = nextIdle;
         _netIdleCount = nextIdleCount;
-        _sample.available[7] = utilAvailable;
-        _sample.values[7] = static_cast<float>(std::clamp(maxUtil, 0.0, 100.0));
+        _pendingSample.available[7] = utilAvailable;
+        _pendingSample.values[7] = static_cast<float>(std::clamp(maxUtil, 0.0, 100.0));
         PushSpark(static_cast<float>(spark));
         return S_OK;
     }
@@ -2260,8 +2325,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             const RedXeDataValue* values = RowValues(snapshot->rows[index], 6);
             double inRate = 0.0;
-            _sample.available[index] = values && TakeF64(values[4], inRate);
-            _sample.values[index] = static_cast<float>(std::max(inRate, 0.0));
+            _pendingSample.available[index] = values && TakeF64(values[4], inRate);
+            _pendingSample.values[index] = static_cast<float>(std::max(inRate, 0.0));
         }
         return S_OK;
     }
@@ -2272,7 +2337,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        ViewerSample next = _sample;
+        ViewerSample next = _pendingSample;
         next.rowCount = 0;
         const uint32_t limit = _topN == 0 ? 8u : std::min(_topN, 8u);
         for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
@@ -2311,9 +2376,9 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             row.pid = total - std::min(freeBytes, total);
             InsertBoundedBy(next, row, limit, RankByMount);
         }
-        PreserveRowMotion(_sample, next);
-        _sample.rowCount = next.rowCount;
-        _sample.rows = next.rows;
+        PreserveRowMotion(_pendingSample, next);
+        _pendingSample.rowCount = next.rowCount;
+        _pendingSample.rows = next.rows;
         return S_OK;
     }
 
@@ -2346,11 +2411,11 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                 rateAvailable = true;
             }
         }
-        _sample.available[7] = available;
-        _sample.values[7] = static_cast<float>(std::clamp(activity, 0.0, 100.0));
-        _sample.available[6] = rateAvailable;
-        _sample.counts[6] = static_cast<uint64_t>(std::max(throughput, 0.0));
-        _sample.values[6] = static_cast<float>(throughput);
+        _pendingSample.available[7] = available;
+        _pendingSample.values[7] = static_cast<float>(std::clamp(activity, 0.0, 100.0));
+        _pendingSample.available[6] = rateAvailable;
+        _pendingSample.counts[6] = static_cast<uint64_t>(std::max(throughput, 0.0));
+        _pendingSample.values[6] = static_cast<float>(throughput);
         return S_OK;
     }
 
@@ -2360,7 +2425,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        ViewerSample next = _sample;
+        ViewerSample next = _pendingSample;
         next.rowCount = 0;
         next.hiddenCount = 0;
         for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
@@ -2421,14 +2486,14 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                 --insertAt;
             }
         }
-        PreserveRowMotion(_sample, next);
-        _sample.rowCount = next.rowCount;
-        _sample.rows = next.rows;
-        _sample.hiddenCount = next.hiddenCount;
+        PreserveRowMotion(_pendingSample, next);
+        _pendingSample.rowCount = next.rowCount;
+        _pendingSample.rows = next.rows;
+        _pendingSample.hiddenCount = next.hiddenCount;
         if (next.rowCount > 0)
         {
-            _sample.available[0] = next.rows[0].primaryAvailable;
-            _sample.values[0] = next.rows[0].primary;
+            _pendingSample.available[0] = next.rows[0].primaryAvailable;
+            _pendingSample.values[0] = next.rows[0].primary;
         }
         return S_OK;
     }
@@ -2439,7 +2504,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        ViewerSample next = _sample;
+        ViewerSample next = _pendingSample;
         next.rowCount = 0;
         for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
         {
@@ -2460,9 +2525,9 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             row.primary = row.primaryAvailable ? static_cast<float>(std::clamp(util, 0.0, 100.0)) : 0.0f;
             InsertInto(next, row);
         }
-        PreserveRowMotion(_sample, next);
-        _sample.rowCount = next.rowCount;
-        _sample.rows = next.rows;
+        PreserveRowMotion(_pendingSample, next);
+        _pendingSample.rowCount = next.rowCount;
+        _pendingSample.rows = next.rows;
         return S_OK;
     }
 
@@ -2481,9 +2546,9 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             }
             const uint64_t pid = values[0].uint64Value;
             bool needed = false;
-            for (uint32_t gpuIndex = 0; gpuIndex < _sample.rowCount; ++gpuIndex)
+            for (uint32_t gpuIndex = 0; gpuIndex < _pendingSample.rowCount; ++gpuIndex)
             {
-                if (_sample.rows[gpuIndex].pid == pid)
+                if (_pendingSample.rows[gpuIndex].pid == pid)
                 {
                     needed = true;
                     break;
@@ -2495,9 +2560,9 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             }
             RememberPidName(pid, values[1]);
         }
-        for (uint32_t index = 0; index < _sample.rowCount; ++index)
+        for (uint32_t index = 0; index < _pendingSample.rowCount; ++index)
         {
-            ApplyPidName(_sample.rows[index]);
+            ApplyPidName(_pendingSample.rows[index]);
         }
         return S_OK;
     }
@@ -2563,12 +2628,12 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         uint64_t ac = 0;
         uint64_t present = 0;
         uint64_t charging = 0;
-        _sample.acOnline = TakeU64(values[0], ac) && ac != 0;
-        _sample.batteryPresent = TakeU64(values[1], present) && present != 0;
-        _sample.charging = TakeU64(values[2], charging) && charging != 0;
+        _pendingSample.acOnline = TakeU64(values[0], ac) && ac != 0;
+        _pendingSample.batteryPresent = TakeU64(values[1], present) && present != 0;
+        _pendingSample.charging = TakeU64(values[2], charging) && charging != 0;
         double charge = 0.0;
-        _sample.available[0] = TakeF64(values[4], charge);
-        _sample.values[0] = static_cast<float>(std::clamp(charge, 0.0, 100.0));
+        _pendingSample.available[0] = TakeF64(values[4], charge);
+        _pendingSample.values[0] = static_cast<float>(std::clamp(charge, 0.0, 100.0));
         return S_OK;
     }
 
@@ -2578,14 +2643,14 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        _sample.batteryCount = snapshot->rowCount;
+        _pendingSample.batteryCount = snapshot->rowCount;
         if (snapshot->rowCount > 0)
         {
             const RedXeDataValue* values = RowValues(snapshot->rows[0], 2);
             if (values)
             {
-                CopyName(_sample.rows[0].name, _sample.rows[0].nameCharacters, values[1], L"Battery");
-                _sample.rowCount = 1;
+                CopyName(_pendingSample.rows[0].name, _pendingSample.rows[0].nameCharacters, values[1], L"Battery");
+                _pendingSample.rowCount = 1;
             }
         }
         return S_OK;
@@ -2597,7 +2662,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        ViewerSample next = _sample;
+        ViewerSample next = _pendingSample;
         next.rowCount = 0;
         for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
         {
@@ -2624,9 +2689,9 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             }
             InsertBounded(next, row, 8);
         }
-        PreserveRowMotion(_sample, next);
-        _sample.rowCount = next.rowCount;
-        _sample.rows = next.rows;
+        PreserveRowMotion(_pendingSample, next);
+        _pendingSample.rowCount = next.rowCount;
+        _pendingSample.rows = next.rows;
         return S_OK;
     }
 
@@ -2654,12 +2719,13 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                 maxRpm = std::max(maxRpm, maximum);
             }
         }
-        _sample.available[7] = available;
-        _sample.counts[6] = rpm;
-        _sample.counts[7] = maxRpm;
-        _sample.values[7] = (available && maxRpm > 0)
-                                ? static_cast<float>(100.0 * static_cast<double>(rpm) / static_cast<double>(maxRpm))
-                                : 0.0f;
+        _pendingSample.available[7] = available;
+        _pendingSample.counts[6] = rpm;
+        _pendingSample.counts[7] = maxRpm;
+        _pendingSample.values[7] =
+            (available && maxRpm > 0)
+                ? static_cast<float>(100.0 * static_cast<double>(rpm) / static_cast<double>(maxRpm))
+                : 0.0f;
         return S_OK;
     }
 
@@ -2852,22 +2918,6 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             return result;
         }
         return S_OK;
-    }
-
-    void RasterizeSampleGlyphs(const ViewerSample& sample) noexcept
-    {
-        ViewerGpuLock();
-        const auto unlock = wil::scope_exit([]() noexcept { ViewerGpuUnlock(); });
-        if (!_gpuHeld.load(std::memory_order_acquire))
-        {
-            return;
-        }
-        ViewerGpuResources* resources = ViewerGpuGet();
-        if (!resources)
-        {
-            return;
-        }
-        (void)EnsureSceneGlyphs(*resources, sample, Catalog(_kind));
     }
 
     void DrawTrack(ViewerDrawList& list, float x, float y, float width, float height, float fill01, bool available,
@@ -3823,12 +3873,20 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     bool _pagePan = false;
     mutable SRWLOCK _lock = SRWLOCK_INIT;
     ViewerSample _sample{};
+    ViewerSample _pendingSample{};
     std::array<NetIdleWatch, kMaximumRows> _netIdle{};
     uint32_t _netIdleCount = 0;
     std::array<PidNameEntry, kMaximumRows> _pidNames{};
     uint32_t _pidNameCount = 0;
     bool _easing = false;
     bool _samplePending = false;
+    bool _pendingPulse = false;
+    uint64_t _sampleRevision = 0;
+    bool _paintPending = false;
+    bool _paintReady = false;
+    bool _preparationFailed = false;
+    uint64_t _failedRevision = 0;
+    std::array<uint32_t, 5> _failedPreparationExtents{};
     bool _pulsePending = false;
     // UI-thread state read by GetNextFrameDelayMilliseconds without a worker lock or host call.
     bool _animationScheduled = false;
@@ -4076,6 +4134,11 @@ extern "C" void __stdcall RedXeProcessViewerFailNextAtlasInitialization() noexce
     ViewerGpuFailNextInitializationForTest();
 }
 
+extern "C" void __stdcall RedXeProcessViewerFailNextGlyphPreparation() noexcept
+{
+    ViewerGpuFailNextGlyphPreparationForTest();
+}
+
 extern "C" HRESULT __stdcall RedXeProcessViewerGetTestDiagnostics(ProcessViewerTestDiagnostics* diagnostics) noexcept
 {
     if (!diagnostics)
@@ -4101,5 +4164,12 @@ extern "C" HRESULT __stdcall RedXeProcessViewerGetTestDiagnostics(ProcessViewerT
     diagnostics->pageDotGap = g_lastPageDotGap.load(std::memory_order_relaxed);
     diagnostics->cpuAtlasBytes = ViewerGpuCpuAtlasBytes();
     diagnostics->liveGpuResourceSets = ViewerGpuResourceSetCount();
+    diagnostics->glyphUploadCells = ViewerGpuUploadCellCount();
+    diagnostics->glyphUploadBytes = ViewerGpuUploadBytes();
+    diagnostics->fontSessions = ViewerGpuFontSessionCount();
+    diagnostics->pendingSampleBytes = sizeof(ViewerSample);
+    diagnostics->preparations = g_preparationCount.load(std::memory_order_relaxed);
+    diagnostics->livePreparationFonts = ViewerGpuLivePreparationFonts();
+    diagnostics->preparationFailures = g_preparationFailureCount.load(std::memory_order_relaxed);
     return S_OK;
 }

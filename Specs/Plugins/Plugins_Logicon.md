@@ -1,7 +1,7 @@
 # Logicon service and monitor
 
 Status: current normative product contract
-Last reviewed: 2026-10-07
+Last reviewed: 2026-10-11
 Owner: `Plugins/Logicon`, `Tests/LogiconTests`, the `services` root of `../Core/Core_Settings.md`
 
 The service ABI, device lane, and developer-only widget class are owned by [`Plugins_API.md`](Plugins_API.md); the
@@ -211,7 +211,10 @@ tile: 18 px text on a 22 px line and 30 px chips at the descriptor's 420 px, sca
 down to 0.9× when the status column is narrower than 400 px; key labels sit on a dark pill so faces never hide
 them. It redraws only when the service publishes a changed snapshot (`RequestFrame`); the raw-input packet counters
 (matched reports, motion, other mice) are not part of that comparison, so packets from other mice never request a
-frame. It uploads the face texture in `Prepare` when the face generation changed and allocates nothing in `Render`.
+frame. It uploads the face texture in `Prepare` when the face generation changed and prepares the copied dashboard
+name's Unicode glyphs and its middle-dot separator there. Changed 48×48 glyph cells upload before drawing.
+Render allocates no fonts and uploads neither atlas nor face texture; late service state waits for the next
+preparation. Device recreation MUST preserve the prepared pixels.
 
 Taps: a key cell in `Press` mode injects a press on pointer down and the release on pointer up, running that key's
 binding exactly as the hardware would; `Color` mode pushes the next palette color to the key; `Picture` mode pushes a
@@ -247,7 +250,8 @@ cleared by a new settings object. Release builds keep the tile catalogued but re
   button); the raw-input registration ownership (while another window of the process owns mouse raw input the
   listener's start fails with `ERROR_ALREADY_EXISTS`, creates no window, and leaves that registration; a stop leaves
   a later owner's registration in place and removes only the listener's own); and the shipped DLL's
-  metadata, contract, monitor provider (constructs in Debug, refuses in Release), service creation and rejection,
+  metadata, contract, monitor provider (constructs in Debug, refuses in Release), Debug WARP preparation/drawing
+  with Unicode host names, late-state stability and identical pixels after device recreation, service creation and rejection,
   identity, lane start and drain, host state, synthetic connect, faces, actions from injected and raw presses reaching the fake host's `RequestAction`,
   bindings validated through the fake host's `ValidateAction`, `keys.down` / `mouse.down` bindings on a key, a
   dialpad button, and a turn that apply, log `binding-invalid` naming their control, skip `ValidateAction`, and request

@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
+#include <d3d11.h>
 #include <memory>
 #include <new>
 #include <string>
@@ -1524,6 +1525,113 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     return predicate();
 }
 
+#if defined(_DEBUG)
+[[nodiscard]] HRESULT TestMonitorPreparedDrawing(RedXeCreateFn create, TestHost& host, IRedXeService& service,
+                                                 RedXeLogiconGetTestDiagnosticsFn diagnostics,
+                                                 const RedXeHostState& original) noexcept
+{
+    // Exercise the shipped Debug monitor against the synthetic lane; no HWND, physical input or device access.
+    wil::unique_hmodule d3d(LoadLibraryExW(L"d3d11.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32));
+    LOGICON_CHECK(d3d != nullptr, "monitor WARP module loads");
+    const auto createDevice = Resolve<decltype(&D3D11CreateDevice)>(d3d.get(), "D3D11CreateDevice");
+    LOGICON_CHECK(createDevice != nullptr, "monitor WARP entrypoint resolves");
+    wil::com_ptr_nothrow<ID3D11Device> device;
+    wil::com_ptr_nothrow<ID3D11DeviceContext> context;
+    LOGICON_CHECK(SUCCEEDED(createDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                         device.put(), nullptr, context.put())),
+                  "monitor WARP device creates");
+    constexpr uint32_t width = 1280, height = 720;
+    D3D11_TEXTURE2D_DESC description{};
+    description.Width = width;
+    description.Height = height;
+    description.MipLevels = description.ArraySize = description.SampleDesc.Count = 1;
+    description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    description.BindFlags = D3D11_BIND_RENDER_TARGET;
+    wil::com_ptr_nothrow<ID3D11Texture2D> texture, readback;
+    wil::com_ptr_nothrow<ID3D11RenderTargetView> target;
+    LOGICON_CHECK(SUCCEEDED(device->CreateTexture2D(&description, nullptr, texture.put())) &&
+                      SUCCEEDED(device->CreateRenderTargetView(texture.get(), nullptr, target.put())),
+                  "monitor WARP target creates");
+    description.BindFlags = 0;
+    description.Usage = D3D11_USAGE_STAGING;
+    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    LOGICON_CHECK(SUCCEEDED(device->CreateTexture2D(&description, nullptr, readback.put())),
+                  "monitor readback creates");
+    RedXeFactoryOptions options{sizeof(options)};
+    void* object = nullptr;
+    LOGICON_CHECK(
+        SUCCEEDED(create(__uuidof(IRedXeWidgetProvider), &options, &host, Logicon::kMonitorPluginId, &object)),
+        "monitor drawing provider creates");
+    wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+    provider.attach(static_cast<IRedXeWidgetProvider*>(object));
+    wil::com_ptr_nothrow<IRedXeWidget> widget;
+    wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
+    wil::com_ptr_nothrow<IRedXePreparedGpuWidget> prepared;
+    LOGICON_CHECK(SUCCEEDED(provider->CreateWidget(Logicon::kMonitorWidgetTypeId, "monitor.draw", widget.put())) &&
+                      SUCCEEDED(widget.query_to(gpu.put())) && SUCCEEDED(widget.query_to(prepared.put())),
+                  "monitor drawing interfaces create");
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            (void)widget->SetVisible(FALSE);
+            gpu->OnDeviceLost();
+            (void)service.OnHostState(&original);
+        });
+    const RedXeGpuDeviceContext setup{sizeof(setup), device.get(), description.Format, D3D_FEATURE_LEVEL_11_0};
+    LOGICON_CHECK(gpu->OnDeviceCreated(&setup) == S_OK && widget->SetVisible(TRUE) == S_OK,
+                  "monitor GPU and visibility initialize");
+    const RedXeGpuPreparationContext preparation{sizeof(preparation), 96, width, height, 0, 0, {}};
+    LOGICON_CHECK(prepared->Prepare(&preparation) == S_OK, "monitor snapshot and faces prepare");
+    const auto draw = [&](uint64_t& hash) noexcept -> HRESULT
+    {
+        ID3D11RenderTargetView* view = target.get();
+        context->OMSetRenderTargets(1, &view, nullptr);
+        const float black[4] = {0, 0, 0, 1};
+        context->ClearRenderTargetView(view, black);
+        const RedXeWidgetFrameContext frame{sizeof(frame), width, height, 96, 1, 0};
+        const RedXeGpuFrameContext drawContext{
+            sizeof(drawContext), &frame, context.get(), {0, 0, float(width), float(height), 0, 1}, 0};
+        context->RSSetViewports(1, &drawContext.viewport);
+        HRESULT result = gpu->Render(&drawContext);
+        if (FAILED(result))
+            return result;
+        context->CopyResource(readback.get(), texture.get());
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        result = context->Map(readback.get(), 0, D3D11_MAP_READ, 0, &mapped);
+        if (FAILED(result))
+            return result;
+        hash = 14695981039346656037ULL;
+        for (uint32_t y = 0; y < height; ++y)
+            for (uint32_t x = 0; x < width * 4; ++x)
+                hash = (hash ^ static_cast<const uint8_t*>(mapped.pData)[y * mapped.RowPitch + x]) * 1099511628211ULL;
+        context->Unmap(readback.get(), 0);
+        return S_OK;
+    };
+    uint64_t before = 0, late = 0, after = 0;
+    LOGICON_CHECK(draw(before) == S_OK, "monitor prepared draw completes");
+    RedXeHostState updated = original;
+    updated.pageIndex = 2;
+    updated.pageName = L"Caf\u00e9 - M\u00fcnchen";
+    LOGICON_CHECK(service.OnHostState(&updated) == S_OK, "monitor Unicode update accepted");
+    RedXeLogiconTestDiagnostics report{sizeof(report)};
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return diagnostics(&report) == S_OK && report.hostPageIndex == 2; }, 2000),
+                  "monitor lane consumed late host state");
+    LOGICON_CHECK(draw(late) == S_OK && late == before, "late monitor state changed a prepared frame");
+    LOGICON_CHECK(prepared->Prepare(&preparation) == S_OK && draw(after) == S_OK && after != before,
+                  "next monitor preparation draws the changed state and Unicode name");
+    gpu->OnDeviceLost();
+    LOGICON_CHECK(gpu->OnDeviceCreated(&setup) == S_OK && prepared->Prepare(&preparation) == S_OK &&
+                      draw(late) == S_OK && late == after,
+                  "monitor device recovery changed prepared pixels");
+    LOGICON_CHECK(service.OnHostState(&original) == S_OK &&
+                      WaitUntil([&]() noexcept
+                                { return diagnostics(&report) == S_OK && report.hostPageIndex == original.pageIndex; },
+                                2000),
+                  "monitor drawing restores the synthetic host state");
+    return S_OK;
+}
+#endif
+
 [[nodiscard]] HRESULT TestShippedModule() noexcept
 {
     std::array<wchar_t, 1024> path{};
@@ -1822,6 +1930,10 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
                   2000),
         "the held dialpad button press was seen");
     LOGICON_CHECK(host.frames.load(std::memory_order_relaxed) == 0, "no frame requests without a monitor tile");
+#if defined(_DEBUG)
+    LOGICON_CHECK(TestMonitorPreparedDrawing(create, host, *service, diagnostics, state) == S_OK,
+                  "Debug monitor prepares glyphs/faces, freezes late state and recovers identical pixels");
+#endif
 
     // System Data faces: the feed subscribes only once a system face is bound, values reach the faces, and an
     // object without such faces pauses the subscriptions.

@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-11 against `822a520` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-11 against `d3f055a` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -34,6 +34,7 @@ Owning contracts:
 - [`../../UI/UI_XeneonDisplayWindowing.md`](../../UI/UI_XeneonDisplayWindowing.md) (adapter-of-output rule)
 - [`../../Plugins/Plugins_API.md`](../../Plugins/Plugins_API.md)
 - [`../../Plugins/Plugins_Weather.md`](../../Plugins/Plugins_Weather.md)
+- [`../../Plugins/Plugins_Logicon.md`](../../Plugins/Plugins_Logicon.md) (Debug monitor preparation)
 - [`../../UI/UI_Dashboard.md`](../../UI/UI_Dashboard.md)
 - [`../../Core/Core_Settings.md`](../../Core/Core_Settings.md)
 - [`../../Core/Core_DxUiIntegration.md`](../../Core/Core_DxUiIntegration.md)
@@ -74,7 +75,52 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P3.6 | In progress; source and GPU binding cuts complete | `7c1f72b`: quiescent last-consumer source reclamation preserves facade identity, inactive/staged subscriptions and external leases. Matched retained private 87.61 → 71.75 MiB. The separate GPU binding cut proves last-owner release, identical pixels and no device/swap-chain rebuild. All 16 Release scopes, 15 Debug and ASan Debug native scopes, ARM64 Release compilation and 10 skills pass. Its matched retained private is 69.54 → 69.08 MiB and local usage 47.26 → 46.26 MiB, versus cold 25.01. Submissions remain about 60/s, hidden/minimized zero; no CPU saving established. Remaining return budget and cache attribution stay open. `runtime-2026-10-10-p36-source`, `-p36-before`, `-p36-after`, `-p36-gpu`. |
 | P2.1 | Single-capacity query cut complete; activity/storage proposal remains | Native walk queries its existing four-MiB buffer once; columns, caps, history and fallback remain. Capacity red/green, failure/invalid-length and real DLL field/catalog/row-cap/history/allocation checks pass. All 16 Release scopes, 15 Debug and 15 ASan Debug native scopes, ARM64 Release compilation and 10 skills pass. Source storage remains 16,437,760 bytes. Standalone 64 pairs: two calls → one, median 20.121 → 11.678 ms. Matched 65 s System control / after-1 / after-2: CPU 2.186 / 2.653 / 2.238%, submissions 12.324 / 13.166 / 11.991/s; no whole-process saving established. `runtime-2026-10-10-p21-*`. |
 
-| P2.8 / P3.6 CPU atlas lifetime | Complete; preparation/font/upload cuts remain | Cold construction, shared users, idempotent device loss, last release and failure/retry pass against real DLLs. Both one-MiB CPU owners reach zero. Unicode recovery pixels and eight Weather images remain identical. Matched D private: cold 38.23 → 35.51 MiB, returned 106.39 → 105.06; returned working set 98.16 → 96.16. Submissions about 60/s and inactive zero, local usage unchanged. Return-over-cold 68.16 → 69.55 MiB still misses the budget; no causal CPU saving claimed. Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release compilation and 10 skills pass. `runtime-2026-10-10-p28-before`, `runtime-2026-10-11-atlas-after` and `-p28-atlas`. |
+| P2.8 / P3.6 CPU atlas lifetime | Complete; Weather preparation remains | Cold construction, shared users, idempotent device loss, last release and failure/retry pass against real DLLs. Both one-MiB CPU owners reach zero. Unicode recovery pixels and eight Weather images remain identical. Matched D private: cold 38.23 → 35.51 MiB, returned 106.39 → 105.06; returned working set 98.16 → 96.16. Submissions about 60/s and inactive zero, local usage unchanged. Return-over-cold 68.16 → 69.55 MiB still misses the budget; no causal CPU saving claimed. Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release compilation and 10 skills pass. `runtime-2026-10-10-p28-before`, `runtime-2026-10-11-atlas-after` and `-p28-atlas`. |
+| P2.8 Viewer preparation | Complete; capacity-wrap and monitor failure follow-ups remain | Worker delivery freezes at UI preparation; a dirty glyph uploads 2,304 bytes, Render uploads none, and one temporary font session serves a preparation batch with zero retained owners. Added pending storage is 11,160 bytes per widget. All 145 preceding frame checksums match. Fresh matched control/candidate: CPU 2.134 / 2.055%, submissions 12.244 / 11.954/s, private 57.62 / 57.92 MiB, local 26.26 in both. Rate improvement remains unestablished. Release 16 scopes, Debug 15 native scopes accounted across the initial run and final HostPlugin/HostSmoke run, ASan 15 native scopes, ARM64 Release compilation and 10 skills pass. `runtime-2026-10-11-p28-prepare-paired` and `-p28-prepare`. |
+
+### P2.8 Viewer preparation cut (2026-10-11)
+
+Viewer delivery now updates bounded pending storage with no font/GPU work. UI-thread preparation freezes the paint
+sample and uploads changed 48×48 cells; Render uploads none. The additional pending sample is 11,160 bytes per
+widget, or 111,600 bytes for the default System page plus bounded interface/phase bookkeeping, accepted for complete
+labels/history and coherent tile/raised drawing. One temporary font session is reused across preparation strings
+and released before drawing, including failure. This replaces the proposed persistent per-GPU-user font cache:
+batching avoids per-string sessions while retaining zero steady font ownership. Weather remains a separate cut.
+
+Real worker delivery, late tile/raised labels, one/two dirty-cell byte counts, temporary font sharing/release,
+invalid preparation, injected failure with no automatic retry/input/drawing, and extent recovery pass in the focused
+viewer test. The same helper is compiled into the Debug Logicon monitor: its face/glyph uploads move to Prepare,
+and the new synthetic-lane WARP test passes late-state and identical-pixel device-recovery checks. Monitor failure
+retry behavior and Viewer dynamic-cell reuse after atlas capacity wraps need separate follow-up tests.
+
+All 145 deterministic tile/raised frame checksums across the ten viewer families match the preceding drawing
+implementation, including Unicode, rank/ease endpoints and recovery. The reference-only harness permits the
+preceding implementation without Prepare; production retains one current optional-interface contract. The control
+uses the preceding three production sources plus an unused private fault-export shim for the current test header.
+`runtime-2026-10-11-p28-prepare-pixels` retains its source hashes,
+control DLL/PDB, identical harness hash and frame checksums.
+
+The first post-comparison runtime run `-p28-prepare-after` is rejected for candidate qualification: preserved source
+timestamps left the archived control DLL in the incremental Release output. Its raw collector result is retained
+alongside `candidate-qualification.json`; the full gate caught the missing Prepare interface. A forced rebuild and
+focused confirmation precede `-p28-prepare-after-candidate` and `-p28-prepare-after-repeat`. CPU is 2.186 / 1.770%
+of one core and successful submissions 13.876 / 12.080 per second; local usage stays 26.26 MiB. The original clean
+`-p28-prepare-before` is 2.135% / 12.430, but the forced rebuild also changes unrelated artifact bytes. A fresh
+control with matched remaining artifacts supplies the final paired comparison below.
+
+`runtime-2026-10-11-p28-prepare-paired` swaps only the identified Viewer DLL between control and candidate,
+restores the candidate DLL/PDB with hash checks, confirms Prepare through the ordinary focused test and repeats
+the 145 identical reference checksums. All other runtime artifacts, the scene, 2560×720 rectangle, 96 DPI,
+hardware adapter/LUID, OS, CPU, AC power and build 282 match. The 65-second runs each contain 13 complete samples:
+CPU 2.134 / 2.055% of one core, successful submissions 12.244 / 11.954/s, private 57.62 / 57.92 MiB,
+working set 74.12 / 74.04, local usage 26.26 in both, 43 threads, 1,177 handles and 78 modules. AV surfaces are zero.
+These rate changes are within the observed run variation; no causal whole-process CPU or submission saving is claimed.
+
+All 16 Release scopes and 15 ASan native scopes pass. Debug's initial functional run plus the final HostPlugin/
+HostSmoke run account for all 15 native scopes. The initial isolated Debug Matrix guard failed at 9,318,400 bytes
+peak private growth (5,910,528 at the end); both quiet repeats peak at zero under the unchanged four-MiB guard.
+The cause of that outlier remains unresolved and its failed log is retained. ARM64 Release compilation and all
+10 skills pass. `runtime-2026-10-11-p28-prepare` saves source/artifact identities and all successful/failed gate logs.
 
 ### P0.4 composition accounting (2026-10-11)
 
@@ -622,7 +668,7 @@ contract and validation updates.
 | P2.5 | **Complete 2026-10-10.** Writer-owned UTC date/policy cache: sweep on open, date change or changed retention value. Policy updates wake the idle writer and synchronize with flush; ordinary lines construct no path. | Same-day, unchanged/shortened policy, forward/backward UTC correction and actual idle-worker flush tests pass in Debug/Release; ARM64 Release compiles. Removes two enumerations per ordinary line; adds 20 bytes of cached date/policy, no thread or wake. |
 | P2.6 | **Candidate: settings persistence latency.** Coalesce and move durable writes off the UI thread only if measured promote stalls justify a bounded owner/worker design. Temp-file flushing and loaded-document/stamp/merge protections already exist; preserve them. Reusing the log worker is undecided. | No UI-thread disk-write stall at promote; concurrent edits, shutdown, failure recovery and stamps retain current guarantees. |
 | P2.7 | **Implemented and measured 2026-10-10: ProcessViewer wake discipline.** Settled viewers park; unchanged/sub-pixel values snap; real 320 ms easing and 420 ms pulses use a 33 ms deadline without immediate requests. Fixed-pose interpolation preserves tile/raised timestamps, ranks and endpoints. Tests cover all ten types, auxiliary deliveries, bursts, recovery, allocation and a scheduled production-host soak. | Fresh matched 14.126/s becomes 12.163/12.184/s (13.7–13.9% lower). CPU 2.986% becomes 3.515/3.069%; no CPU saving established. Proposed ≤2/s and ≤1.5% process CPU remain unmet; UI-thread ≤0.3% is unmeasured. Keep budget acceptance open and use P0.2 attribution to choose further work. |
-| P2.8 | **Atlas and DirectWrite discipline (ProcessViewer, Weather).** Upload dirty 48×48 cells from `Prepare`, never `Render`; cache DirectWrite factory/font ownership while GPU users exist and release CPU/font caches at the last user. Rasterize outside the draw lock. Freeze the prepared paint sample so a delivery between `Prepare` and `Render` cannot introduce unprepared labels. A trim export is optional only if actual ownership requires it. | Pixel/label quality, tile/raised coherence, zero render allocations/uploads, dirty-cell byte counts, shared-cache lifetime and complete device-loss/last-user teardown. |
+| P2.8 | **CPU lifetime and Viewer preparation/batching complete; Weather remains.** Dirty 48×48 cells upload from Prepare, paint stays frozen across delivery and Render, and one temporary font session serves each changed batch with zero steady ownership. Follow up Viewer reused-cell ink and Debug monitor failure retry with tests. A trim export is optional only if actual ownership requires it. | Viewer: 145 preceding frame checksums identical, worker/late/failure/recovery and dirty-byte/font-owner tests pass; Release/Debug/ASan native gates, ARM64 compile and skills accounted above. Matched rates remain within variation. Weather retains its separate quality and qualification requirements. |
 | P2.9 | Measure callback drain stalls before redesigning waits. Network and subscription drains include `INFINITE` waits; a timeout cannot free state while a callback can still use it. Reuse current bounded/tombstoned control/device-lane patterns only where ownership permits. | Slow-fixture recovery bounds UI delay while preserving callback quiescence, cancellation and teardown lifetimes. |
 
 ### Phase 3 — fluid swipe, nothing left behind

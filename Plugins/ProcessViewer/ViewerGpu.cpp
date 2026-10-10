@@ -35,6 +35,11 @@ std::atomic<uint32_t> g_mapCount{0};
 std::atomic<uint32_t> g_drawCount{0};
 std::atomic<uint32_t> g_typographyCount{0};
 std::atomic<bool> g_failNextInitializationForTest{false};
+std::atomic<uint32_t> g_uploadCellCount{0};
+std::atomic<uint64_t> g_uploadBytes{0};
+std::atomic<uint32_t> g_fontSessionCount{0};
+std::atomic<uint32_t> g_livePreparationFonts{0};
+std::atomic<bool> g_failNextGlyphPreparationForTest{false};
 
 [[nodiscard]] HRESULT CreateViewerFontFace(IDWriteFactory& factory,
                                            wil::com_ptr_nothrow<IDWriteFontFace>& face) noexcept
@@ -105,7 +110,10 @@ struct DirectWriteSession final
     {
         return result;
     }
-    return CreateViewerFontFace(*session.factory, session.face);
+    result = CreateViewerFontFace(*session.factory, session.face);
+    if (SUCCEEDED(result))
+        g_fontSessionCount.fetch_add(1, std::memory_order_relaxed);
+    return result;
 }
 
 [[nodiscard]] HRESULT RasterizeIntoAtlas(IDWriteFactory& factory, IDWriteFontFace& face, wchar_t character,
@@ -365,17 +373,18 @@ HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
     _rasterizer = std::move(rasterizer);
     _depthState = std::move(depthState);
     _blendState = std::move(blendState);
-    _atlasDirty = false;
+    _dirtyGlyphs.reset();
     g_liveResourceSets.fetch_add(1, std::memory_order_relaxed);
     return S_OK;
 }
 
 void ViewerGpuResources::Reset() noexcept
 {
+    ReleasePreparationFonts();
     ResetGpuResources();
     _atlasPixels.reset();
     _glyphCount = 0;
-    _atlasDirty = false;
+    _dirtyGlyphs.reset();
 }
 
 void ViewerGpuResources::ResetGpuResources() noexcept
@@ -453,7 +462,7 @@ HRESULT ViewerGpuResources::BuildStaticAtlas() noexcept
         ++_glyphCount;
     }
     _dynamicCursor = _glyphCount;
-    _atlasDirty = true;
+    _dirtyGlyphs.reset(); // Initial texture creation already uploads the complete static atlas.
     g_typographyCount.fetch_add(1, std::memory_order_relaxed);
     return S_OK;
 }
@@ -503,11 +512,19 @@ HRESULT ViewerGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t character
         return S_OK;
     }
 
-    DirectWriteSession session;
-    HRESULT result = OpenDirectWrite(session);
-    if (FAILED(result))
+    if (g_failNextGlyphPreparationForTest.exchange(false, std::memory_order_relaxed))
+        return E_OUTOFMEMORY;
+    HRESULT result = S_OK;
+    if (!_preparationFontFace)
     {
-        return result;
+        DirectWriteSession session;
+        result = OpenDirectWrite(session);
+        if (FAILED(result))
+            return result;
+        _preparationFontModule = std::move(session.module);
+        _preparationFontFactory = std::move(session.factory);
+        _preparationFontFace = std::move(session.face);
+        g_livePreparationFonts.fetch_add(1, std::memory_order_relaxed);
     }
     for (uint32_t index = 0; index < characters; ++index)
     {
@@ -528,8 +545,8 @@ HRESULT ViewerGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t character
         const uint32_t atlasX = (slot % kViewerGlyphColumns) * kViewerGlyphCell;
         const uint32_t atlasY = (slot / kViewerGlyphColumns) * kViewerGlyphCell;
         float advance = 0.5f;
-        result =
-            RasterizeIntoAtlas(*session.factory, *session.face, character, atlasX, atlasY, _atlasPixels.get(), advance);
+        result = RasterizeIntoAtlas(*_preparationFontFactory, *_preparationFontFace, character, atlasX, atlasY,
+                                    _atlasPixels.get(), advance);
         if (FAILED(result))
         {
             return result;
@@ -540,7 +557,7 @@ HRESULT ViewerGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t character
         {
             _glyphCount = slot + 1;
         }
-        _atlasDirty = true;
+        _dirtyGlyphs.set(slot);
     }
     g_typographyCount.fetch_add(1, std::memory_order_relaxed);
     return S_OK;
@@ -601,9 +618,19 @@ HRESULT ViewerGpuResources::AppendText(ViewerDrawList& list, float x, float y, f
     return S_OK;
 }
 
-void ViewerGpuResources::UploadAtlas() noexcept
+void ViewerGpuResources::ReleasePreparationFonts() noexcept
 {
-    if (!_atlasDirty || !_atlas || !_deviceIdentity)
+    const bool hadFonts = _preparationFontFace != nullptr;
+    _preparationFontFace.reset();
+    _preparationFontFactory.reset();
+    _preparationFontModule.reset();
+    if (hadFonts)
+        g_livePreparationFonts.fetch_sub(1, std::memory_order_relaxed);
+}
+
+void ViewerGpuResources::UploadDirtyGlyphs() noexcept
+{
+    if (_dirtyGlyphs.none() || !_atlas || !_deviceIdentity)
     {
         return;
     }
@@ -613,8 +640,19 @@ void ViewerGpuResources::UploadAtlas() noexcept
     {
         return;
     }
-    context->UpdateSubresource(_atlas.get(), 0, nullptr, _atlasPixels.get(), kViewerAtlasSize, 0);
-    _atlasDirty = false;
+    for (uint32_t slot = 0; slot < kViewerGlyphCapacity; ++slot)
+    {
+        if (!_dirtyGlyphs.test(slot))
+            continue;
+        const uint32_t x = (slot % kViewerGlyphColumns) * kViewerGlyphCell;
+        const uint32_t y = (slot / kViewerGlyphColumns) * kViewerGlyphCell;
+        const D3D11_BOX box{x, y, 0, x + kViewerGlyphCell, y + kViewerGlyphCell, 1};
+        context->UpdateSubresource(_atlas.get(), 0, &box, _atlasPixels.get() + y * kViewerAtlasSize + x,
+                                   kViewerAtlasSize, 0);
+        g_uploadCellCount.fetch_add(1, std::memory_order_relaxed);
+        g_uploadBytes.fetch_add(kViewerGlyphCell * kViewerGlyphCell, std::memory_order_relaxed);
+    }
+    _dirtyGlyphs.reset();
 }
 
 HRESULT ViewerGpuResources::Render(ID3D11DeviceContext* context, float width, float height,
@@ -628,7 +666,6 @@ HRESULT ViewerGpuResources::Render(ID3D11DeviceContext* context, float width, fl
     {
         return S_OK;
     }
-    UploadAtlas();
 
     D3D11_MAPPED_SUBRESOURCE mapped{};
     HRESULT result = context->Map(_constantBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
@@ -717,6 +754,31 @@ uint32_t ViewerGpuCpuAtlasBytes() noexcept
 uint32_t ViewerGpuResourceSetCount() noexcept
 {
     return g_liveResourceSets.load(std::memory_order_relaxed);
+}
+
+uint32_t ViewerGpuUploadCellCount() noexcept
+{
+    return g_uploadCellCount.load(std::memory_order_relaxed);
+}
+
+uint64_t ViewerGpuUploadBytes() noexcept
+{
+    return g_uploadBytes.load(std::memory_order_relaxed);
+}
+
+uint32_t ViewerGpuFontSessionCount() noexcept
+{
+    return g_fontSessionCount.load(std::memory_order_relaxed);
+}
+
+uint32_t ViewerGpuLivePreparationFonts() noexcept
+{
+    return g_livePreparationFonts.load(std::memory_order_relaxed);
+}
+
+void ViewerGpuFailNextGlyphPreparationForTest() noexcept
+{
+    g_failNextGlyphPreparationForTest.store(true, std::memory_order_relaxed);
 }
 
 void ViewerGpuFailNextInitializationForTest() noexcept

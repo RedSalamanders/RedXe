@@ -107,7 +107,8 @@ Preserve these boundaries:
   window widgets destroy their children before `Detach` returns.
 - Keep GPU `Render`, GDI paint, and visibility callbacks allocation-free and non-blocking. Native-window resize may
   rebuild bounded size-dependent buffers and handles, then must reuse them until size or DPI changes again.
-  Process Viewer rasterizes new atlas glyphs from snapshot delivery or device creation, never from `Render`. Sample-
+  Process Viewer keeps snapshot delivery free of font/GPU work; UI-thread preparation freezes the paint sample,
+  rasterizes new glyphs and uploads only changed 48 px cells before tile/raised drawing, never from `Render`. Sample-
   driven Process Viewer delivery already coalesces one host invalidation. Settled viewers return `S_FALSE`; only a
   real ease or bounded pulse returns a 33 ms visual deadline, without Render-side immediate requests or idle polling.
 - Use `IRedXeHost::Log` for lifetime and failure diagnostics, never for per-frame success. The call is any-thread,

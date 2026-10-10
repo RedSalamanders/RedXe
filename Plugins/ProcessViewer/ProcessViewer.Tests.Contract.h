@@ -23,8 +23,15 @@ struct ProcessViewerTestDiagnostics final
     float pageDotGap;
     uint32_t cpuAtlasBytes;
     uint32_t liveGpuResourceSets;
+    uint32_t glyphUploadCells;
+    uint32_t fontSessions;
+    uint64_t glyphUploadBytes;
+    uint32_t pendingSampleBytes;
+    uint32_t preparations;
+    uint32_t livePreparationFonts;
+    uint32_t preparationFailures;
 };
-static_assert(sizeof(ProcessViewerTestDiagnostics) == 64);
+static_assert(sizeof(ProcessViewerTestDiagnostics) == 96);
 
 #if defined(REDXE_PLUGIN_EXPORTS)
 #define REDXE_PROCESS_VIEWER_TEST_API __declspec(dllexport)
@@ -35,6 +42,7 @@ static_assert(sizeof(ProcessViewerTestDiagnostics) == 64);
 extern "C" REDXE_PROCESS_VIEWER_TEST_API HRESULT __stdcall RedXeProcessViewerGetTestDiagnostics(
     ProcessViewerTestDiagnostics* diagnostics) noexcept;
 extern "C" REDXE_PROCESS_VIEWER_TEST_API void __stdcall RedXeProcessViewerFailNextAtlasInitialization() noexcept;
+extern "C" REDXE_PROCESS_VIEWER_TEST_API void __stdcall RedXeProcessViewerFailNextGlyphPreparation() noexcept;
 
 using ProcessViewerGetTestDiagnosticsFn = decltype(&RedXeProcessViewerGetTestDiagnostics);
 inline constexpr char kProcessViewerGetTestDiagnosticsExport[] = "RedXeProcessViewerGetTestDiagnostics";
