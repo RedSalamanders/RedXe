@@ -510,6 +510,14 @@ returns a host provider facade. Insert of a new provider re-checks identity unde
 two overlapping creates cannot both insert. `SetActive` MUST NOT wake the worker when the requested state already
 matches; deactivation still honors the drain guarantee. All local sources share one acquisition worker and at most
 32 subscriptions in total.
+External provider references and allocated subscriptions retain the source, including inactive subscriptions and
+removing slots whose reserved callbacks have not drained. After the last lease leaves, the existing worker releases
+the source only after its collection/delivery pass and borrowed storage use finish, outside the subscription lock.
+Before the worker exists, last-provider release may reclaim synchronously. No periodic or per-frame sweep is added.
+The facade and canonical provider ID remain until shutdown; a revisit recreates and validates source descriptors and
+plans atomically behind that same controlling identity. Rate history starts fresh on that cold revisit. Shutdown
+prevents rehydration, joins the worker before source destruction, clears outputs on later metadata/subscription calls,
+and permits late releases while the host remains alive.
 Active subscriptions for the same provider and dataset share one collection at the shortest requested interval,
 clamped to the source recommendation. When multiple datasets on one source are due in the same worker pass, the host
 gathers those unique IDs, orders them deterministically with `source.status` last, and issues one `CollectSnapshots`
@@ -771,8 +779,9 @@ already fills the client MUST NOT raise.
   later catalog rows with the same name share exports after metadata validation for their own plugin ID. Mapped
   modules remain loaded until process teardown.
 - Because the runtime is process scoped, staging an adjacent dashboard page reuses the already-mapped modules, the
-  already-created data sources, and the already-running acquisition worker. Staging MUST NOT map a module a second
+  data sources still leased by the current page, and the already-running acquisition worker. Staging MUST NOT map a module a second
   time, create a second `IRedXeDataSource` for a provider ID, or start a second acquisition thread.
+  Unleased sources are reclaimed as described above; mapped images and facade identities remain process scoped.
 - Optional `RedXePluginShutdown` runs exactly once per module, at process teardown, after every widget, provider,
   source, and subscription has been released. It never runs after a fatal exception
   (`Specs/Core/Core_CrashHandling.md`), and a session end can end the process before it, once `WM_ENDSESSION`
@@ -1533,7 +1542,10 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     measurement MUST time each dataset and one full-catalog batch and fail only on collect failure or a hang exceeding
     five seconds per collection.
 16. Verify `IRedXeHost::GetDataProvider` output validation, unknown and non-data plugin rejection, stable provider
-    identity, dataset discovery, and shared module loading. Verify two Process Viewer instances share one widget
+    identity, dataset discovery, and shared module loading. Verify last-consumer source reclamation, inactive/staged
+    leases, blocked collection, running/reserved callbacks, cold revisit with unchanged facade identity, and shutdown
+    with external facade/subscription references. Source cleanup must follow borrowed storage use and happen once;
+    late releases must not resurrect work. Verify two Process Viewer instances share one widget
       provider and host data provider while retaining distinct inactive-until-visible subscriptions, then receive
     bounded live process delivery as GPU scheduled widgets, request zero continuous frames, drain on hide, and fully
     tear down through settings and host integration tests. The hidden interval MUST exceed the two-second dataset

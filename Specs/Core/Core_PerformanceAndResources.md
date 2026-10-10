@@ -161,6 +161,12 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   one JSONL log writer serve the whole application, including the dashboard page staged for a swipe. Staging an
   adjacent page MUST NOT map a module a second time, create a second data source for a provider ID, or start a second
   acquisition thread, so a page change costs no duplicate acquisition and no thread churn.
+- A local source retains storage only while an external provider reference or an allocated subscription needs it.
+  Inactive and removing subscriptions retain the source. The existing acquisition worker reclaims unleased sources
+  after collection and reserved callbacks finish, outside the subscription lock; before that worker exists, a last
+  provider release may reclaim synchronously. This adds two lock-protected flags and bounded per-batch storage, no
+  thread, timer, allocation or per-frame sweep. A revisit recreates source state behind the same retained facade and
+  provider ID. Mapped modules and their immutable metadata remain valid until process teardown.
 - A plugin that needs a frame for an unpredictable state change calls `IRedXeHost::RequestFrame`, which coalesces one
   invalidation on the UI thread and adds no timer or wake-up of its own. It MUST NOT be used to emulate continuous
   animation, and it never overrides a blocked, hidden, suspended, display-off, or occluded state.
@@ -303,6 +309,15 @@ on the XENEON creates its device on the AMD iGPU (`device-created`: LUID 0001C3C
 maps only `amdxx64.dll`, appears on one adapter LUID in the GPU counters, and after 10 s on Matrix Focus holds 40 MiB
 of private bytes, 62 MiB of working set, and 42 threads. Moving the Debug titled window onto the RTX 5080 display and
 back rebuilt the device on each adapter in turn without failure (receipt: `.build/receipts/2026-09-07-adapter-of-output.md`).
+
+On 2026-10-10, matched x64 Release build 282 page cycles with identical portable scenes measured last-consumer
+source reclamation. Returned Matrix private bytes fall from 124.72 to 110.34 MiB; relative to each run's cold Matrix
+(37.11 / 38.59 MiB), retention falls from 87.61 to 71.75 MiB, a 15.86 MiB reduction. Returned working set falls from
+114.88 to 98.75 MiB and handles from 1395 to 1385. Submissions remain 60.152 / 60.135 per second; process CPU is
+1.848 / 2.005 percent of one core, so no CPU saving is established. Threads remain 43 and modules 102; local adapter
+usage remains 47.26 MiB versus cold 25.01. Hidden/minimized intervals submit no frames. These measurements support
+the source lifetime change, not the proposed cold-Matrix +4 MiB return budget or attribution of remaining caches.
+Receipts: `.build/receipts/runtime-2026-10-10-p36-before`, `-p36-after`, and `-p36-source`.
 
 The measured baseline System Data source is an accepted bounded local pull source. Its fixed x64 source object is
 786,936 bytes and owns no worker or timer. Three Release row-cap runs of the production per-process row path, using

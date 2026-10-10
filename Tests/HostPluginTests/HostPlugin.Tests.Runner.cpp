@@ -69,6 +69,7 @@ namespace
 
 void TestRuntimeProbe(bool& success) noexcept;
 void TestProcessViewerScheduling(bool& success) noexcept;
+void TestDataSourceLifetime(bool& success) noexcept;
 
 struct PluginHostTestAccess final
 {
@@ -8932,6 +8933,12 @@ int wmain(int argumentCount, wchar_t** arguments)
     RedXeFailureReports::RouteAwayFromDialogs();
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    if (argumentCount == 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--data-source-lifetime")
+    {
+        bool success = true;
+        TestDataSourceLifetime(success);
+        return success ? 0 : 1;
+    }
     if (argumentCount >= 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--matrix-soak")
     {
         std::chrono::seconds duration{};
@@ -9007,6 +9014,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestDeskClockScheduling(success);
     TestDebugHostComposition(success);
     TestDataProviderLookup(success);
+    TestDataSourceLifetime(success);
     TestProcessViewerSubscription(success);
     TestProcessViewerSubscription(success); // Repeat with nonzero process-lifetime diagnostics.
     TestSystemDataViewers(success);

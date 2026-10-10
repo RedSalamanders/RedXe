@@ -245,6 +245,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
   private:
 #if defined(REDXE_HOST_PLUGIN_TESTS)
     friend struct PluginHostTestAccess;
+    friend struct PluginHostDataSourceTestAccess;
 #endif
     ControlWorkQueue _controlWork;
     bool _controlAccessEnabled = true;
@@ -401,7 +402,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] HRESULT BindModule(const RedXeBundledPluginSpec& spec, ModuleSlot& slot) noexcept;
     [[nodiscard]] HRESULT AttachSharedModule(const ModuleSlot& owner, const char* pluginId, ModuleSlot& slot) noexcept;
     void RequestUiInvalidate() noexcept;
-    [[nodiscard]] HRESULT EnsureProvider(const char* providerId, size_t& providerIndex) noexcept;
+    [[nodiscard]] HRESULT EnsureProvider(const char* providerId, IRedXeDataProvider** provider) noexcept;
     [[nodiscard]] HRESULT ValidateDataSets(ProviderRuntime& runtime) noexcept;
     [[nodiscard]] HRESULT EnsureWorker() noexcept;
     [[nodiscard]] HRESULT GetDataSets(size_t providerIndex, const RedXeDataSetDescriptor** descriptors,
@@ -410,6 +411,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
                                     IRedXeDataSink* sink, IRedXeDataSubscription** subscription) noexcept;
     [[nodiscard]] HRESULT SetSubscriptionActive(size_t index, uint64_t token, bool active) noexcept;
     void RemoveSubscription(size_t index, uint64_t token) noexcept;
+    void RequestDataSourceTrim() noexcept;
+    void TrimIdleDataSources(bool onAcquisitionWorker = false) noexcept;
     void Deliver(size_t providerIndex, size_t dataSetIndex, const RedXeDataSnapshot* snapshot) noexcept;
     void Worker() noexcept;
     void StopDataService() noexcept;
@@ -463,6 +466,9 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     std::array<ModuleSlot, kRedXeBundledPlugins.size()> _modules;
     std::array<ProviderRuntime, kRedXeBundledPlugins.size()> _providers;
     size_t _providerCount = 0;
+    // Subscription lock protected. Facade indices/identities survive source reclamation until shutdown.
+    bool _dataSourcesNeedTrim = false;
+    bool _dataServiceStopping = false;
     std::array<SubscriptionSlot, kMaximumSubscriptions> _subscriptions;
     SRWLOCK _subscriptionLock = SRWLOCK_INIT;
     CONDITION_VARIABLE _subscriptionDrained = CONDITION_VARIABLE_INIT;

@@ -423,6 +423,21 @@ class PluginHost::DataProvider final : public RedXeComObject<PluginHost::DataPro
   public:
     DataProvider(PluginHost& host, size_t providerIndex) noexcept : _host(&host), _providerIndex(providerIndex) {}
 
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        PluginHost* host = _host;
+        const ULONG remaining = RedXeComObject<DataProvider, IRedXeDataProvider>::Release();
+        // Release may have deleted this; use only the saved host pointer and returned count afterwards.
+        if (remaining == 1 && host)
+            host->RequestDataSourceTrim();
+        return remaining;
+    }
+
+    [[nodiscard]] bool HasOnlyHostReference() const noexcept
+    {
+        return HasSingleReference();
+    }
+
     HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors, uint32_t* count) noexcept override
     {
         return _host ? _host->GetDataSets(_providerIndex, descriptors, count) : E_UNEXPECTED;
@@ -1394,32 +1409,32 @@ HRESULT PluginHost::ValidateDataSets(ProviderRuntime& runtime) noexcept
     return S_OK;
 }
 
-HRESULT PluginHost::EnsureProvider(const char* providerId, size_t& providerIndex) noexcept
+HRESULT PluginHost::EnsureProvider(const char* providerId, IRedXeDataProvider** providerOutput) noexcept
 {
-    providerIndex = _providers.size();
     if (!RedXeIsValidMachineId(providerId))
     {
         return E_INVALIDARG;
     }
 
-    AcquireSRWLockShared(&_subscriptionLock);
-    for (size_t index = 0; index < _providerCount; ++index)
+    size_t providerIndex = _providers.size();
     {
-        if (RedXeAsciiEqualsIgnoreCase(_providers[index].providerId, providerId))
+        const auto guard = wil::AcquireSRWLockShared(&_subscriptionLock);
+        if (_dataServiceStopping)
+            return E_UNEXPECTED;
+        for (size_t index = 0; index < _providerCount; ++index)
         {
-            providerIndex = index;
-            break;
+            auto& runtime = _providers[index];
+            if (RedXeAsciiEqualsIgnoreCase(runtime.providerId, providerId))
+            {
+                if (runtime.source)
+                    return runtime.provider->QueryInterface(__uuidof(IRedXeDataProvider),
+                                                            reinterpret_cast<void**>(providerOutput));
+                providerIndex = index;
+                break;
+            }
         }
-    }
-    ReleaseSRWLockShared(&_subscriptionLock);
-    if (providerIndex != _providers.size())
-    {
-        return S_OK;
-    }
-
-    if (_providerCount >= _providers.size())
-    {
-        return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
+        if (providerIndex == _providers.size() && _providerCount >= _providers.size())
+            return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
     }
 
     ModuleView module{};
@@ -1449,33 +1464,39 @@ HRESULT PluginHost::EnsureProvider(const char* providerId, size_t& providerIndex
         return result;
     }
 
-    AcquireSRWLockExclusive(&_subscriptionLock);
+    const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
+    if (_dataServiceStopping)
+        return E_UNEXPECTED;
+    providerIndex = _providerCount;
     for (size_t index = 0; index < _providerCount; ++index)
     {
         if (RedXeAsciiEqualsIgnoreCase(_providers[index].providerId, providerId))
         {
             providerIndex = index;
-            ReleaseSRWLockExclusive(&_subscriptionLock);
-            return S_OK;
+            if (_providers[index].source)
+                return _providers[index].provider->QueryInterface(__uuidof(IRedXeDataProvider),
+                                                                  reinterpret_cast<void**>(providerOutput));
+            break;
         }
     }
-    if (_providerCount >= _providers.size())
+    if (providerIndex >= _providers.size())
     {
-        ReleaseSRWLockExclusive(&_subscriptionLock);
         return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
     }
-    auto* provider = new (std::nothrow) DataProvider(*this, _providerCount);
-    if (!provider)
+    if (providerIndex < _providerCount)
+        runtime.provider = std::move(_providers[providerIndex].provider);
+    else
     {
-        ReleaseSRWLockExclusive(&_subscriptionLock);
-        return E_OUTOFMEMORY;
+        auto* provider = new (std::nothrow) DataProvider(*this, providerIndex);
+        if (!provider)
+            return E_OUTOFMEMORY;
+        runtime.provider.attach(provider);
+        ++_providerCount;
     }
-    runtime.provider.attach(provider);
-    _providers[_providerCount] = std::move(runtime);
-    providerIndex = _providerCount;
-    ++_providerCount;
-    ReleaseSRWLockExclusive(&_subscriptionLock);
-    return S_OK;
+    _providers[providerIndex] = std::move(runtime);
+    // Publish the external lease while still locked, before a pending trim can inspect the facade's refcount.
+    return _providers[providerIndex].provider->QueryInterface(__uuidof(IRedXeDataProvider),
+                                                              reinterpret_cast<void**>(providerOutput));
 }
 
 HRESULT PluginHost::GetDataProvider(const char* providerId, IRedXeDataProvider** provider) noexcept
@@ -1489,14 +1510,7 @@ HRESULT PluginHost::GetDataProvider(const char* providerId, IRedXeDataProvider**
         return E_POINTER;
     }
 
-    size_t providerIndex = 0;
-    const HRESULT result = EnsureProvider(providerId, providerIndex);
-    if (FAILED(result))
-    {
-        return result;
-    }
-    return _providers[providerIndex].provider->QueryInterface(__uuidof(IRedXeDataProvider),
-                                                              reinterpret_cast<void**>(provider));
+    return EnsureProvider(providerId, provider);
 }
 
 HRESULT PluginHost::RequestFrame() noexcept
@@ -2926,7 +2940,8 @@ HRESULT PluginHost::GetDataSets(size_t providerIndex, const RedXeDataSetDescript
     {
         return E_POINTER;
     }
-    if (providerIndex >= _providerCount || !_providers[providerIndex].source)
+    const auto guard = wil::AcquireSRWLockShared(&_subscriptionLock);
+    if (_dataServiceStopping || providerIndex >= _providerCount || !_providers[providerIndex].source)
     {
         return E_UNEXPECTED;
     }
@@ -2937,6 +2952,9 @@ HRESULT PluginHost::GetDataSets(size_t providerIndex, const RedXeDataSetDescript
 
 HRESULT PluginHost::EnsureWorker() noexcept
 {
+    const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
+    if (_dataServiceStopping)
+        return E_UNEXPECTED;
     if (_worker.joinable())
     {
         return S_OK;
@@ -2983,25 +3001,33 @@ HRESULT PluginHost::Subscribe(size_t providerIndex, const RedXeDataSubscriptionO
     }
     if (!options || options->sizeBytes != sizeof(RedXeDataSubscriptionOptions) ||
         !RedXeIsValidMachineId(options->dataSetId) || options->requestedIntervalMilliseconds == 0 ||
-        options->requestedIntervalMilliseconds > kMaximumSubscriptionIntervalMilliseconds ||
-        providerIndex >= _providerCount)
+        options->requestedIntervalMilliseconds > kMaximumSubscriptionIntervalMilliseconds)
     {
         return E_INVALIDARG;
     }
 
-    ProviderRuntime& runtime = _providers[providerIndex];
-    size_t dataSetIndex = runtime.descriptorCount;
-    for (size_t index = 0; index < runtime.descriptorCount; ++index)
+    size_t dataSetIndex = 0;
+    uint32_t intervalMilliseconds = 0;
     {
-        if (RedXeAsciiEqualsIgnoreCase(runtime.descriptors[index].dataSetId, options->dataSetId))
+        const auto guard = wil::AcquireSRWLockShared(&_subscriptionLock);
+        if (_dataServiceStopping)
+            return E_UNEXPECTED;
+        if (providerIndex >= _providerCount || !_providers[providerIndex].source)
+            return E_INVALIDARG;
+        const ProviderRuntime& runtime = _providers[providerIndex];
+        dataSetIndex = runtime.descriptorCount;
+        for (size_t index = 0; index < runtime.descriptorCount; ++index)
         {
-            dataSetIndex = index;
-            break;
+            if (RedXeAsciiEqualsIgnoreCase(runtime.descriptors[index].dataSetId, options->dataSetId))
+            {
+                dataSetIndex = index;
+                intervalMilliseconds = std::max(options->requestedIntervalMilliseconds,
+                                                runtime.descriptors[index].recommendedIntervalMilliseconds);
+                break;
+            }
         }
-    }
-    if (dataSetIndex == runtime.descriptorCount)
-    {
-        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+        if (dataSetIndex == runtime.descriptorCount)
+            return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
 
     HRESULT result = EnsureWorker();
@@ -3018,6 +3044,12 @@ HRESULT PluginHost::Subscribe(size_t providerIndex, const RedXeDataSubscriptionO
     }
 
     AcquireSRWLockExclusive(&_subscriptionLock);
+    if (_dataServiceStopping || providerIndex >= _providerCount || !_providers[providerIndex].source ||
+        dataSetIndex >= _providers[providerIndex].descriptorCount)
+    {
+        ReleaseSRWLockExclusive(&_subscriptionLock);
+        return E_UNEXPECTED;
+    }
     size_t index = _subscriptions.size();
     for (size_t candidate = 0; candidate < _subscriptions.size(); ++candidate)
     {
@@ -3050,21 +3082,20 @@ HRESULT PluginHost::Subscribe(size_t providerIndex, const RedXeDataSubscriptionO
     slot.token = token;
     slot.providerIndex = providerIndex;
     slot.dataSetIndex = dataSetIndex;
-    slot.intervalMilliseconds = std::max(options->requestedIntervalMilliseconds,
-                                         runtime.descriptors[dataSetIndex].recommendedIntervalMilliseconds);
+    slot.intervalMilliseconds = intervalMilliseconds;
     slot.active = false;
+    SetEvent(_changeEvent.get());
     ReleaseSRWLockExclusive(&_subscriptionLock);
 
     *subscription = static_cast<IRedXeDataSubscription*>(created);
-    SetEvent(_changeEvent.get());
     return S_OK;
 }
 
 HRESULT PluginHost::SetSubscriptionActive(size_t index, uint64_t token, bool active) noexcept
 {
     AcquireSRWLockExclusive(&_subscriptionLock);
-    if (index >= _subscriptions.size() || !_subscriptions[index].sink || _subscriptions[index].token != token ||
-        _subscriptions[index].removing)
+    if (_dataServiceStopping || index >= _subscriptions.size() || !_subscriptions[index].sink ||
+        _subscriptions[index].token != token || _subscriptions[index].removing)
     {
         ReleaseSRWLockExclusive(&_subscriptionLock);
         return E_UNEXPECTED;
@@ -3075,11 +3106,11 @@ HRESULT PluginHost::SetSubscriptionActive(size_t index, uint64_t token, bool act
     {
         SleepConditionVariableSRW(&_subscriptionDrained, &_subscriptionLock, INFINITE, 0);
     }
-    ReleaseSRWLockExclusive(&_subscriptionLock);
-    if (changed)
+    if (changed && _changeEvent)
     {
         SetEvent(_changeEvent.get());
     }
+    ReleaseSRWLockExclusive(&_subscriptionLock);
     return S_OK;
 }
 
@@ -3100,10 +3131,7 @@ void PluginHost::RemoveSubscription(size_t index, uint64_t token) noexcept
     }
     ReleaseSRWLockExclusive(&_subscriptionLock);
     sink.reset();
-    if (_changeEvent)
-    {
-        SetEvent(_changeEvent.get());
-    }
+    RequestDataSourceTrim();
 }
 
 void PluginHost::Deliver(size_t providerIndex, size_t dataSetIndex, const RedXeDataSnapshot* snapshot) noexcept
@@ -3152,6 +3180,67 @@ void PluginHost::Deliver(size_t providerIndex, size_t dataSetIndex, const RedXeD
     }
 }
 
+void PluginHost::RequestDataSourceTrim() noexcept
+{
+    bool trimHere = false;
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
+        if (_dataServiceStopping)
+            return;
+        _dataSourcesNeedTrim = true;
+        if (_changeEvent)
+            SetEvent(_changeEvent.get());
+        else
+            trimHere = true;
+    }
+    // Before the first subscription/worker there can be no collection or borrowed callback storage.
+    if (trimHere)
+        TrimIdleDataSources();
+}
+
+void PluginHost::TrimIdleDataSources(bool onAcquisitionWorker) noexcept
+{
+    {
+        const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
+        if (_dataServiceStopping || !_dataSourcesNeedTrim)
+            return;
+        // EnsureWorker may have started between the request and this lock. Only that worker may then reclaim.
+        if (!onAcquisitionWorker && _changeEvent)
+        {
+            SetEvent(_changeEvent.get());
+            return;
+        }
+        _dataSourcesNeedTrim = false;
+    }
+    for (size_t index = 0; index < _providers.size(); ++index)
+    {
+        wil::com_ptr_nothrow<IRedXeDataSource> retired;
+        {
+            const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
+            if (index >= _providerCount)
+                break;
+            auto& runtime = _providers[index];
+            if (!runtime.source || !runtime.provider ||
+                !static_cast<DataProvider*>(runtime.provider.get())->HasOnlyHostReference())
+                continue;
+            const bool subscribed =
+                std::any_of(_subscriptions.begin(), _subscriptions.end(), [index](const SubscriptionSlot& slot) noexcept
+                            { return slot.sink && slot.providerIndex == index; });
+            // Inactive and removing subscriptions are leases too. A removing slot keeps its sink until every
+            // reserved callback has drained. Worker reclamation runs only after its collection/delivery pass.
+            if (subscribed)
+                continue;
+            retired = std::move(runtime.source);
+            runtime.descriptors = nullptr;
+            runtime.descriptorCount = 0;
+            runtime.dataSets.fill(DataSetRuntime{});
+        }
+        // Source cleanup (PDH, IP Helper, device handles) may drain its own native callbacks. Never hold the registry
+        // lock during that cleanup. The fixed facade and module image remain, so a revisit preserves COM identity.
+        retired.reset();
+    }
+}
+
 void PluginHost::Worker() noexcept
 {
     HANDLE handles[] = {_stopEvent.get(), _changeEvent.get()};
@@ -3188,35 +3277,47 @@ void PluginHost::Worker() noexcept
             ProviderRuntime& provider = _providers[providerIndex];
             std::array<const char*, RedXeDataCollectMaximumDataSets> dueIds{};
             std::array<uint32_t, RedXeDataCollectMaximumDataSets> dueIndices{};
+            std::array<uint32_t, RedXeDataCollectMaximumDataSets> dueIntervals{};
+            wil::com_ptr_nothrow<IRedXeDataSource> source;
             uint32_t dueCount = 0;
-            for (size_t dataSetIndex = 0; dataSetIndex < provider.descriptorCount; ++dataSetIndex)
             {
-                DataSetRuntime& dataSet = provider.dataSets[dataSetIndex];
-                if (!dataSet.active)
+                const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
+                for (size_t dataSetIndex = 0; dataSetIndex < provider.descriptorCount; ++dataSetIndex)
                 {
-                    dataSet.due = 0;
-                    continue;
+                    DataSetRuntime& dataSet = provider.dataSets[dataSetIndex];
+                    if (!dataSet.active)
+                    {
+                        dataSet.due = 0;
+                        continue;
+                    }
+                    if ((dataSet.due == 0 || now >= dataSet.due) && dueCount < RedXeDataCollectMaximumDataSets &&
+                        dataSet.descriptor && dataSet.descriptor->dataSetId)
+                    {
+                        dueIds[dueCount] = dataSet.descriptor->dataSetId;
+                        dueIndices[dueCount] = static_cast<uint32_t>(dataSetIndex);
+                        ++dueCount;
+                    }
                 }
-                if ((dataSet.due == 0 || now >= dataSet.due) && dueCount < RedXeDataCollectMaximumDataSets &&
-                    dataSet.descriptor && dataSet.descriptor->dataSetId)
-                {
-                    dueIds[dueCount] = dataSet.descriptor->dataSetId;
-                    dueIndices[dueCount] = static_cast<uint32_t>(dataSetIndex);
-                    ++dueCount;
-                }
+                if (dueCount != 0)
+                    source = provider.source;
             }
             if (dueCount == 0)
             {
                 continue;
             }
             SortDueDataSets(dueIds, dueIndices, dueCount);
+            {
+                const auto guard = wil::AcquireSRWLockShared(&_subscriptionLock);
+                for (uint32_t index = 0; index < dueCount; ++index)
+                    dueIntervals[index] = provider.dataSets[dueIndices[index]].activeIntervalMilliseconds;
+            }
             const RedXeDataCollectRequest request{
                 sizeof(RedXeDataCollectRequest),
                 dueIds.data(),
                 dueCount,
             };
             const RedXeDataCollectResult* collectResult = nullptr;
-            if (SUCCEEDED(provider.source->CollectSnapshots(&request, &collectResult)) &&
+            if (source && SUCCEEDED(source->CollectSnapshots(&request, &collectResult)) &&
                 CollectResultMatchesRequest(request, collectResult))
             {
                 for (uint32_t index = 0; index < dueCount; ++index)
@@ -3225,27 +3326,30 @@ void PluginHost::Worker() noexcept
                 }
             }
             const uint64_t afterCollection = GetTickCount64();
-            for (uint32_t index = 0; index < dueCount; ++index)
             {
-                DataSetRuntime& dataSet = provider.dataSets[dueIndices[index]];
-                dataSet.due = afterCollection + dataSet.activeIntervalMilliseconds;
+                const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
+                for (uint32_t index = 0; index < dueCount; ++index)
+                    provider.dataSets[dueIndices[index]].due = afterCollection + dueIntervals[index];
             }
         }
 
         DWORD timeout = INFINITE;
         const uint64_t afterCollection = GetTickCount64();
-        for (size_t providerIndex = 0; providerIndex < providerCount; ++providerIndex)
         {
-            ProviderRuntime& provider = _providers[providerIndex];
-            for (size_t dataSetIndex = 0; dataSetIndex < provider.descriptorCount; ++dataSetIndex)
+            const auto guard = wil::AcquireSRWLockShared(&_subscriptionLock);
+            for (size_t providerIndex = 0; providerIndex < providerCount; ++providerIndex)
             {
-                const DataSetRuntime& dataSet = provider.dataSets[dataSetIndex];
-                if (dataSet.active)
+                ProviderRuntime& provider = _providers[providerIndex];
+                for (size_t dataSetIndex = 0; dataSetIndex < provider.descriptorCount; ++dataSetIndex)
                 {
-                    timeout = std::min(timeout, WaitMilliseconds(afterCollection, dataSet.due));
+                    const DataSetRuntime& dataSet = provider.dataSets[dataSetIndex];
+                    if (dataSet.active)
+                        timeout = std::min(timeout, WaitMilliseconds(afterCollection, dataSet.due));
                 }
             }
         }
+
+        TrimIdleDataSources(true);
 
         const DWORD waitResult = WaitForMultipleObjects(2, handles, FALSE, timeout);
         if (waitResult == WAIT_OBJECT_0)
@@ -3275,9 +3379,11 @@ void PluginHost::Worker() noexcept
 
 void PluginHost::StopDataService() noexcept
 {
-    if (_stopEvent)
     {
-        SetEvent(_stopEvent.get());
+        const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
+        _dataServiceStopping = true;
+        if (_stopEvent)
+            SetEvent(_stopEvent.get());
     }
     if (_worker.joinable())
     {
@@ -3285,18 +3391,30 @@ void PluginHost::StopDataService() noexcept
     }
     _worker = std::jthread{};
 
-    for (SubscriptionSlot& slot : _subscriptions)
+    for (size_t index = 0; index < _subscriptions.size(); ++index)
     {
-        slot = SubscriptionSlot{};
+        wil::com_ptr_nothrow<IRedXeDataSink> sink;
+        {
+            const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
+            sink = std::move(_subscriptions[index].sink);
+            _subscriptions[index] = SubscriptionSlot{};
+        }
+        sink.reset();
     }
     for (size_t index = _providerCount; index > 0; --index)
     {
-        ProviderRuntime& provider = _providers[index - 1];
-        provider.provider.reset();
-        provider.source.reset();
-        provider = ProviderRuntime{};
+        ProviderRuntime retired{};
+        {
+            const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
+            retired = std::move(_providers[index - 1]);
+            _providers[index - 1] = ProviderRuntime{};
+        }
+        retired.provider.reset();
+        retired.source.reset();
     }
+    const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
     _providerCount = 0;
+    _dataSourcesNeedTrim = false;
     _changeEvent.reset();
     _stopEvent.reset();
 }

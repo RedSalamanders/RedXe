@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-10 against `146a04f` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-10 against `734ef82` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -70,6 +70,35 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P3.2 | Complete | 1,024-byte key array, collision-safe comparison against original instance bytes, no new allocation/re-serialization. Compile-time transaction arrays <28 KiB. Actual PDB frames: Release Initialize/Reconfigure 26,208 bytes, StageActivePage 8,992; Debug 27,912/12,784 (prior Debug Initialize/Reconfigure 289,544). Forced collision, same-length distinct/equal configuration, background and invalid-index tests plus actual provider reuse/reconfiguration pass. Release 16 scopes, Debug 15 native scopes, ARM64 Release compilation and skills pass; `runtime-2026-10-10-p32`. P2.2 commit `abee7cc`. |
 | P0.3 | Complete | Three isolated 60 s soaks now run in the HostPlugin scope. Clocks warm at scheduled cadence for 20 s; Matrix warms for 1,024 frames. Five-second/end samples enforce uninstrumented peak growth of 4 MiB private / 8 MiB working set, plus resource/cadence/teardown bounds in every profile. Release and Debug each pass 16 scopes; ASan Debug passes 15 native scopes with default quarantine and diagnostic byte reporting; ARM64 Release compiles and 10 skills pass. Final Release private peaks: Matrix 0, Studio 1,306,624, Desk 942,080 bytes. `runtime-2026-10-10-p03`. |
 | P2.3 | Complete | Move-only 16-byte status pins; one atomic read per placeholder decision, no locked ID scan in Render/Prepare. Adds at most 1.5 KiB across two full pages, no allocation/thread/wake. 10,000 reads complete under the exclusively held status lock; concurrent reports, move/reuse/shutdown, same-ID replacement and 64-slot capacity pass. Slot destruction/move drains network registration and interface/callback lifetime before final release, including rollback. 100,000 Release reads: cached 72.8 us / last-slot cold lookup 80.6 ms, diagnostic only. Release 16 scopes; Debug and ASan Debug 15 native scopes; ARM64 Release compile; 10 skills. `runtime-2026-10-10-p23`; P3.2 commit `55da17f`. |
+| P3.6 | In progress; source cut complete | Last-consumer reclamation uses the existing acquisition worker after collection and reserved callbacks finish. Inactive/staged subscriptions and external facade references retain sources; cold revisit preserves controlling identity. Release 16 scopes, Debug and ASan Debug 15 native scopes and ARM64 Release compile pass. Matched D retention 87.61 → 71.75 MiB (−15.86); working set 114.88 → 98.75 MiB, handles 1395 → 1385. No CPU saving; submissions unchanged. Residual 71.75 MiB and +22.25 MiB local adapter usage keep the whole return budget open. `runtime-2026-10-10-p36-source`, `-p36-before`, `-p36-after`. |
+
+### P3.6 source cut and remaining retention (2026-10-10)
+
+Provider lookup publishes its external COM lease under the subscription lock. A last external release or subscription
+removal requests one cold trim through the existing event. Only the acquisition worker can trim after it starts;
+before then no collection exists and reclamation is synchronous. Retirement clears descriptor plans under lock and
+destroys the source outside it. Revisit and shutdown checks cover source publication, event handle lifetime and cleared
+outputs. The fixed facade remains until shutdown; this cut adds no thread, timer or per-frame sweep.
+
+Tests use production source creation/revisit and controlled source/sink gates to prove external identity leases,
+inactive/staged subscriptions, collection in progress, running/reserved callbacks and late releases after shutdown.
+Ten Release repetitions produce one or two active-sibling callbacks, exactly one reserved callback, and one source
+destruction: the active sibling may sample again before its release starts. Initial Release/ASan failures were an
+overly strict exactly-one assertion for that still-active sibling; final gates use the corrected drain assertion.
+An initial overlapping Debug Desk Clock soak peaks at 4,333,568 private bytes and fails the unchanged four-MiB guard;
+the separate final run peaks at 4,071,424 and passes. All failed logs remain beside the final receipts. No guard was
+relaxed. ASan keeps default quarantine and diagnostic process-byte reporting.
+
+Matched build 282 scenes have equal initial-settings SHA-256. Before/after returned Matrix: private 124.72 / 110.34
+MiB, working set 114.88 / 98.75, CPU 1.848 / 2.005 percent of one core, submissions 60.152 / 60.135 per second.
+Cold private 37.11 / 38.59 makes retained private 87.61 / 71.75 MiB. Threads remain 43, modules 102, and local
+adapter usage 47.26 versus cold 25.01; AV surfaces are zero. Hidden/minimized phases submit zero frames and retain
+the memory reduction. These are source/artifact-bound production observations, not heap/driver attribution.
+
+Next retention investigation must inspect context-held GPU bindings as well as module caches: current `ClearState`
+occurs only in device-resource release. That is a code observation, not proof that the 22.25 MiB local delta comes
+from bindings. Arena work must refresh the old 64 KiB cheap estimate: current compiler layouts show native state
+without its four-MiB process buffer plus the cheap sample already occupy 363,840 bytes before output tables.
 
 ### P0.3 growth investigation (2026-10-10)
 
@@ -130,7 +159,7 @@ attribution before treating it as proof of a particular collection cost.
 | Device/presentation | `Renderer::FindAdapterForMonitor`, `EnsureDeviceForWindowMonitor`, unconditional `RecordDeviceIdentity`, waitable flip swap chain; `Application::CheckDeviceAdapter` and `WaitForFrameLatency` | P1.1–P1.3 implementation exists. Fresh adapter/PresentMode/input-latency attribution is P0.2, not a probe counter. |
 | Chrome/native widgets | Both top-level styles use `WS_EX_NOREDIRECTIONBITMAP`; `DashboardHost` creates layered native containers. Release Gallery has Triangle and Matrix, no GdiOrbit. | The September P1.4 rejection is superseded. Two continuous widgets share one host presentation cadence; no template change belongs to P0.1. |
 | DxUi/AV | `Dependencies/DxUi.lock.json` pins `271bd54be24eadf3f03ba5221d1be7be069860f2`, API 3. Views release hidden surfaces; caches/peaks are bounded. The I19 adoption envelope was accepted on 2026-09-13. | Old sibling-worktree and library receipts are dated history. AV real IME/AT/audio/camera gates remain with the HOLD RFC. P0.1 exports only 64-byte read-only POD statistics. |
-| SystemData | `CollectProcessesFromWalk` still opens each process; source members still use fixed zero-initialized arrays. `PluginHost::_providers` owns sources until shutdown. | P2.1, P4.1 and source reclamation in P3.6 remain candidates. The later normative contract accepts the current bounded per-process baseline; changing columns needs a new measured contract change. |
+| SystemData | `CollectProcessesFromWalk` still opens each process; source members still use fixed zero-initialized arrays. P3.6 now reclaims unleased sources after collection/callback quiescence, retaining facade identity. | P2.1, P4.1 and remaining cache/return attribution in P3.6 stay active. The later normative contract accepts the current bounded per-process baseline; changing datasets needs a new measured contract change. |
 | ProcessViewer | P2.7 parks settled viewers (`S_FALSE`), snaps unchanged/sub-pixel targets, and schedules only visible easing/pulses at 33 ms. Eases use a fixed start pose and one host timestamp for both views; auxiliary observations do not restart them. `PluginHost::Deliver` still coalesces the initial invalidation. | Matched control: 14.126 submissions/s, 2.986% of one core. Two after-runs: 12.163/12.184 submissions/s, 3.515/3.069% CPU. Submission reduction is 13.7–13.9%; CPU improvement is not established. Proposed System budgets remain open. |
 | Logging/settings | P2.5 caches the writer's UTC date and swept policy; ordinary lines perform no directory enumeration or path allocation. Settings persistence flushes its temp file and checks the loaded document before replacement, but still runs synchronously. | P2.5 is complete. P2.6 must preserve the current flush, merge and stamp guarantees; the old proposed write-through replacement is obsolete. |
 | Retained plugin work | Launcher still reserves 32 GPU icon slices even for an empty authored list. Viewer/Weather atlas upload paths and DeskClock's 1 ms animation deadline still exist. | P2.8/P4.3/P4.6 need current measurements; the September cost/line-number table below must not be used as current proof. |
@@ -523,7 +552,7 @@ cold visit to that page, and nothing from the page that was left.
 | P3.3 | **Lazy neighbor.** No `OnDeviceCreated`, `SetVisible(TRUE)`, or `SetNetworkWidgetActive(true)` for the neighbor until its first visible pixel; no teardown on direction flip (`Application.cpp:2215-2222`), stage the other side lazily; a staged-but-still neighbor MUST NOT force `Render` (`Application.cpp:3649`). Stage on gesture recognition (two-finger horizontal lock), not after the first pan frame. | Scenario F; no `gpu-ready`, `forecast-*`, or icon extraction for a cancelled swipe. |
 | P3.4 | **Time-sliced construction with a frame budget.** If P3.1–P3.3 still exceed 8 ms for a shipped page, construct neighbor widgets across frames under a 4 ms per-frame budget, drawing not-yet-ready tiles as a flat page background (not the failure placeholder) until they exist. | No frame > 16.7 ms during any shipped swipe (PresentMon). |
 | P3.5 | **Product option: snapshot slide.** Keep the last presented frame of a visited page as one 2560×720 or 1280×360 texture for its two neighbors (7 MiB or 1.8 MiB each on UMA), slide textures, construct after promote, release the retired page's snapshot at the settle sweep. Only if P3.4 cannot hold the frame budget. | Decision recorded with the memory cost. |
-| P3.6 | **Candidate: settle sweep / trim contract.** Release sources with no subscriptions after all callbacks are quiescent; trim module-owned caches/coordinator only when no live/staged widget needs them. `TrimIdle` / `RedXePluginTrim` do not exist yet. AV provider destruction already resets its coordinator when the last provider leaves, so confirm retention before adding another mechanism. Keep images mapped. | D approaches cold A without unsafe destruction; hidden WARP tests prove callback/lifetime safety and no per-frame sweep. |
+| P3.6 | **Source cut complete; full retention work remains in progress.** Sources retire after their last external facade/allocated subscription lease and quiescent collection/callback use; revisit preserves identity. Mapped plugin images remain. Module trim (`TrimIdle` / `RedXePluginTrim`) is still unimplemented; inspect GPU context bindings and actual cache ownership before introducing it. AV last-provider destruction already resets its coordinator. | Production revisit, controlled collection/reservation/shutdown tests and full gates pass. Matched retained private 87.61 → 71.75 MiB; working set/handles also fall, CPU saving unestablished, submissions unchanged. Whole D cold-A +4 MiB and residual +22.25 MiB local adapter usage remain open. |
 
 ### Phase 4 — retained memory and arenas
 
