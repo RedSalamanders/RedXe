@@ -227,6 +227,13 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
     }
 
     const bool forceWarp = HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Warp));
+    uint32_t probeSeconds = 0;
+    if (!RedXeParseProbeArguments(arguments.get(), argumentCount, probeSeconds))
+    {
+        ReportCommandLineError(L"Use --probe or --probe=<seconds>, once, with 1 through 3600 whole seconds.",
+                               unattended);
+        return 2;
+    }
     const bool crashTest = HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::CrashTest));
     const bool stackOverflowCrashTest =
         HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::CrashTestStackOverflow));
@@ -347,6 +354,8 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             {
                 application->SetUnattended();
             }
+            if (!selfTest)
+                application->SetProbeInterval(probeSeconds);
             if (screenshotRun)
             {
                 // The first request of the process, so never busy; the window closes once the capture has run.

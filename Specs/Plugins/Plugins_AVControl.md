@@ -150,6 +150,14 @@ the Windows device enumerator or default-policy client.
 
 ## Embedded rendering and isolated device work
 
+The UI-thread-only `RedXeAVControlQueryProbeStatistics` export copies the exact 64-byte POD in
+`AVControlDiagnostics.h`, summing the two views of every live widget (at most 64 across current/staged pages).
+It validates the pointer and exact size, refuses a wrong-thread query, performs no preparation, composition,
+allocation or device work, and retains no external pointers. Widget construction/destruction maintains an intrusive
+list with one pointer per widget; no frame work is added. An empty list reports zero widgets and zero surface bytes.
+The production resource probe queries only an already-mapped module; it never loads AV for diagnostics. Hidden
+surfaces report zero as they do in DxUi. This accounting does not qualify real AV hardware, IME or screen readers.
+
 `AVControlView` builds retained controls through public DxUi headers. Pin, restore, CRT matching and the COM/POD
 boundary are owned by [`Core_DxUiIntegration.md`](../Core/Core_DxUiIntegration.md). RedXe restores an exact library
 commit into `.build/dependencies/DxUi/source/<commit>` and isolates outputs by commit, API revision, toolset, SDK

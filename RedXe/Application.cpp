@@ -984,6 +984,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     }
 
     const auto startTime = std::chrono::steady_clock::now();
+    _probe.Start(_probeSeconds, GetTickCount64());
     float previousElapsedSeconds = 0.0f;
     MSG message{};
     while (_window)
@@ -1019,6 +1020,8 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         {
             break;
         }
+
+        TickRuntimeProbe();
 
         if (_pageSettleActive)
         {
@@ -5891,6 +5894,8 @@ bool Application::WaitUntilMessage() noexcept
         timeoutMilliseconds = static_cast<DWORD>(remaining);
     }
 
+    if (_probe.Enabled())
+        timeoutMilliseconds = RuntimeProbeWaitTimeout(GetTickCount64(), _scheduledFrameDeadlineTick, _probe.Deadline());
     const DWORD waitResult =
         MsgWaitForMultipleObjectsEx(0, nullptr, timeoutMilliseconds, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
     if (waitResult == WAIT_OBJECT_0)
@@ -5899,8 +5904,12 @@ bool Application::WaitUntilMessage() noexcept
     }
     if (waitResult == WAIT_TIMEOUT)
     {
-        _scheduledFrameDeadlineTick = 0;
-        _frameInvalidated = true;
+        // A diagnostic wake never requests a frame, including while hidden/minimized/display-off/occluded.
+        if (_scheduledFrameDeadlineTick != 0 && GetTickCount64() >= _scheduledFrameDeadlineTick)
+        {
+            _scheduledFrameDeadlineTick = 0;
+            _frameInvalidated = true;
+        }
         return true;
     }
 
@@ -5919,12 +5928,13 @@ bool Application::WaitForFrameLatency() noexcept
     }
     // Handles are checked before the message queue, so a free buffer always wins over pending input; pending input
     // only defers the frame while the previous one is still being consumed.
-    const DWORD waitResult = MsgWaitForMultipleObjectsEx(1, &waitable, INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    const DWORD timeout = _probe.Enabled() ? RuntimeProbeWaitTimeout(GetTickCount64(), 0, _probe.Deadline()) : INFINITE;
+    const DWORD waitResult = MsgWaitForMultipleObjectsEx(1, &waitable, timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
     if (waitResult == WAIT_OBJECT_0)
     {
         return true;
     }
-    if (waitResult == WAIT_OBJECT_0 + 1)
+    if (waitResult == WAIT_OBJECT_0 + 1 || waitResult == WAIT_TIMEOUT)
     {
         return false;
     }
@@ -5932,6 +5942,31 @@ bool Application::WaitForFrameLatency() noexcept
     _runtimeFailure = error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
     CloseMainWindow();
     return false;
+}
+
+void Application::TickRuntimeProbe() noexcept
+{
+    if (!_probe.Enabled() || !_probe.Due(GetTickCount64()))
+        return;
+    const auto started = std::chrono::steady_clock::now();
+    RuntimeProbeSample sample;
+    sample.page = _settings->dashboard.activePageIndex;
+    sample.state =
+        (DashboardRequiresContinuousFrames() ? 1u : 0u) | (_windowVisible ? 2u : 0u) | (_displayPoweredOn ? 4u : 0u) |
+        (_renderer.IsSuspended() ? 8u : 0u) | (_renderer.IsOccluded() ? 16u : 0u) | (DockHidden() ? 32u : 0u) |
+        (PageNavigationInProgress() ? 64u : 0u) | (OverlayMotionInProgress() || _dockSlideActive ? 128u : 0u);
+    sample.scheduledDeadline = _scheduledFrameDeadlineTick;
+    sample.process = QueryProcessResources();
+    sample.graphics = _renderer.QueryProbeGraphics();
+    auto& host = PluginHost::Instance();
+    sample.avResult = host.QueryAvProbeStatistics(sample.av);
+    _probe.Complete(sample, GetTickCount64());
+    sample.sampleMicroseconds = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - started).count());
+    const HRESULT result = host.LogRuntimeProbe(sample);
+    if (FAILED(result))
+        (void)RedXeHostLog(host.Interface(), RedXeLogLevelWarning, nullptr, nullptr, "probe-failed",
+                           "The diagnostic record could not be queued.", result);
 }
 
 void Application::CheckDeviceAdapter() noexcept

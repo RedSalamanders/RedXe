@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-10-07
+Last reviewed: 2026-10-10
 
 ## Mandate
 
@@ -370,6 +370,57 @@ This family remains on the immediate-context GPU path. Release x64 `HostPluginTe
 mean production `Renderer::Render` over 32 frames after warmup and device-loss rebuild (Debug was 8.25 ms). The
 near-identical Debug and Release times show WARP Present of the full swap chain dominates; each visible widget issues
 one instance-buffer map and one `DrawInstanced`. That measurement does not justify a host primitive-batching IID.
+
+## Production resource probe
+
+`--probe[=seconds]` enables a UI-thread diagnostic timeout, 1–3600 seconds (default 5). Normal launches have no
+diagnostic timeout, thread, handle, allocation or query per frame. Enabled sampling uses process-local thread-ID
+snapshots (PSS without context/handle/VA capture), PSAPI module counts and process-resource
+snapshots and read-only DXGI/AV queries outside Prepare/Render; those OS queries may allocate temporary storage and
+delay the UI thread. `sample_us` reports their elapsed cost. The existing event-blocked JSONL writer receives one
+complete record per actual interval in its unchanged 32×1024 ring. No diagnostic flush waits on the UI thread.
+Hidden/minimized/occluded/display-off states remain inactive: the diagnostic timeout never invalidates or presents a
+frame. Delayed samples restart the interval from their completion, without a catch-up loop. The waits preserve the
+earlier scheduled-frame deadline. A valid probe is ignored by `--self-test`.
+
+Record `event: "probe", v: 1` includes UTC `ts`, `pid`, monotonic completion `tick`, actual interval `ms`,
+query cost `sample_us`, current page index `page`, host `state`, and cached absolute scheduled `deadline` (0 = none).
+The numeric arrays keep even maximum-width values within one logger slot:
+
+| Field | Array order |
+| --- | --- |
+| `process` | validity bits; private bytes; working-set bytes; peak commit (`PeakPagefileUsage`); peak working set; cumulative kernel+user CPU in 100 ns; handles; threads; GDI objects; USER objects; mapped modules |
+| `present` | swap-chain generation; GetLastPresentCount HRESULT; cumulative count; delta-validity bits; interval count; GetFrameStatistics HRESULT; PresentCount delta; PresentRefreshCount delta; SyncRefreshCount delta; SyncQPCTime delta; SyncGPUTime delta |
+| `local`, `nonlocal` | QueryVideoMemoryInfo HRESULT; budget; current usage; available reservation; current reservation (bytes, adapter node 0) |
+| `av` | query HRESULT; live widgets; preparations; composites; surface bytes; summed per-view replacement peaks; surface allocations; cached brushes; cached text formats |
+
+HRESULTs are unsigned 32-bit values. Only S_OK (0) supplies a successful value; AV S_FALSE (1) means the module is
+absent. Process validity bits 0–6 correspond to memory, CPU, handles, threads, modules, GDI and USER queries. Host
+state bits 0–7 mean continuous, visible, display on, renderer suspended, DXGI occluded, dock hidden, navigation and
+overlay/dock motion. Visible is the host's show state and can remain set while minimized; renderer suspended
+identifies that inactive case. Present delta bits 0/1 mean count/statistics deltas. A first sample, resize/recreation,
+disjoint/failing statistics, or regressing QPC/GPU clock makes the affected delta unavailable until two matching
+successful samples exist. UINT counters wrap modulo 2^32. Zero without its validity bit MUST NOT be treated as a
+measured zero. Frame-statistics refresh/QPC/GPU deltas are DXGI counters, not input latency or hardware FPS.
+Adapter memory queries are driver-reported usage for this process on the device adapter; they are not whole-process
+GPU attribution across every adapter or AV helper-process memory. Replacement peaks are summed per-view historical
+high-water marks, not a simultaneous process peak. Lifetime AV counters disappear with the owning views.
+
+Required automated coverage: disabled/no-deadline behavior, competing frame/probe deadlines, late sampling, UINT
+wrap, missing/disjoint statistics, generation and clock resets, extreme-width complete JSON, logger drain, real
+process-resource sampling, read-only hidden WARP queries, and two-instance AV aggregation/hide/destruction. The
+end-to-end screenshot fixture also runs `--probe=1` to exercise the real application loop without focus or input.
+
+`measure-runtime.ps1` is the reusable Release x64 receipt collector. It uses portable template copies, fresh
+processes per starting page and an all-page return/inactive run. It records scene, phase/window/machine context,
+source/binary hashes before and after, raw logs and validity-aware summaries under `.build/receipts/`. Its
+non-activating 2560×720, 96-DPI XENEON popup disables Logicon/tray and is explicitly a measurement variant;
+it does not qualify the exact shipped-services budget or helper-process/PresentMode/input-latency acceptance.
+`-InactiveOnly` keeps fresh starting-page windows hidden and collects retained-memory/zero-present evidence only.
+Its accepted receipt covers those requested inactive phases, never the visible-page budgets. The visible collector
+rejects display-off/occluded/unsettled baselines and missing records; a diagnostic wake cannot manufacture that evidence.
+Hidden phases require the visible flag to clear; minimized phases require renderer suspension. Both require zero
+present deltas in complete intervals, excluding intervals that straddle the state change.
 
 ## ABI and data-layout rules
 

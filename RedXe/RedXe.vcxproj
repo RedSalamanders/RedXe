@@ -132,6 +132,9 @@
     <ClInclude Include="AdapterSelection.h" />
     <ClInclude Include="HostChrome.h" />
     <ClInclude Include="Renderer.h" />
+    <ClInclude Include="RuntimeProbe.h" />
+    <ClInclude Include="..\Common\ProcessResources.h" />
+    <ClInclude Include="..\Plugins\AVControl\AVControlDiagnostics.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="Settings.h" />
     <ClInclude Include="SettingsJsonText.h" />
@@ -153,6 +156,7 @@
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="PluginManager.cpp" />
     <ClCompile Include="Renderer.cpp" />
+    <ClCompile Include="RuntimeProbe.cpp" />
     <ClCompile Include="HostChrome.cpp" />
     <ClCompile Include="Settings.cpp" />
     <ClCompile Include="..\Plugins\AVControl\AVControlModel.cpp" />

@@ -82,6 +82,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="HostPlugin.Tests.Runner.cpp" />
+    <ClCompile Include="HostPlugin.Tests.RuntimeProbe.cpp" />
+    <ClCompile Include="..\..\RedXe\RuntimeProbe.cpp" />
     <ClCompile Include="..\..\RedXe\PluginHost.cpp" />
     <ClCompile Include="..\..\RedXe\ControlWorkQueue.cpp" />
     <ClCompile Include="..\..\RedXe\LaunchWorker.cpp" />

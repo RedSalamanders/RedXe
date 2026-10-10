@@ -78,6 +78,10 @@ class Application final
     {
         _unattended = true;
     }
+    void SetProbeInterval(uint32_t seconds) noexcept
+    {
+        _probeSeconds = seconds;
+    }
     // --dock* command-line overrides, pinned over the document's `dock` object for this process (DockOptions.h).
     // RunSelfTest replaces them with an edge pinned to none: the self-test keeps its hidden titled window, except for
     // the switches its window-kind check makes.
@@ -442,6 +446,9 @@ class Application final
     Renderer _renderer;
     SettingsStore _settingsStore;
     SettingsWatcher _settingsWatcher;
+    RuntimeProbe _probe;
+    uint32_t _probeSeconds = 0;
+    void TickRuntimeProbe() noexcept;
     TrayIcon _trayIcon;
     // Set by Run once the main window is up; RunSelfTest never shows the icon, whatever the document says.
     bool _trayIconAllowed = false;

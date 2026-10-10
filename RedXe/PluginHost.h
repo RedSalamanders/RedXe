@@ -7,6 +7,7 @@
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Service.h"
 #include "PlugInterfaces/Widget.h"
+#include "RuntimeProbe.h"
 #include "Settings.h"
 
 #include <array>
@@ -70,6 +71,9 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     static constexpr UINT kServiceLaneMessage = WM_APP + 9;
 
     [[nodiscard]] IRedXeHost* Interface() noexcept;
+    // UI-thread diagnostics use the existing 32x1024 logger ring. AV queries never map an absent module.
+    [[nodiscard]] HRESULT LogRuntimeProbe(const RuntimeProbeSample& sample) noexcept;
+    [[nodiscard]] HRESULT QueryAvProbeStatistics(AVControl::ProbeStatistics& statistics) noexcept;
     [[nodiscard]] HRESULT GetPluginModule(const char* pluginId, uint32_t requiredCapabilities,
                                           ModuleView* module) noexcept;
     void SetUiInvalidateTarget(HWND window) noexcept;

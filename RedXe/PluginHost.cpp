@@ -733,6 +733,29 @@ HRESULT PluginHost::Log(const RedXeLogRecord* record) noexcept
     return EnqueueLogLine(line.data(), bytes);
 }
 
+HRESULT PluginHost::LogRuntimeProbe(const RuntimeProbeSample& sample) noexcept
+{
+    if (_shutdown)
+        return E_UNEXPECTED;
+    static_assert(kRuntimeProbeLineCapacity == kLogLineCapacity);
+    std::array<char, kRuntimeProbeLineCapacity> line{};
+    const uint32_t bytes = FormatRuntimeProbeLine(sample, line.data(), line.size());
+    return bytes != 0 ? EnqueueLogLine(line.data(), bytes) : HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+}
+
+HRESULT PluginHost::QueryAvProbeStatistics(AVControl::ProbeStatistics& statistics) noexcept
+{
+    statistics = {};
+    if (_shutdown)
+        return E_UNEXPECTED;
+    const size_t index = FindBundledPluginIndex("builtin.av-control");
+    if (index >= _modules.size() || !_modules[index].module)
+        return S_FALSE;
+    const auto query = reinterpret_cast<AVControl::QueryProbeStatisticsFn>(
+        GetProcAddress(_modules[index].module.get(), "RedXeAVControlQueryProbeStatistics"));
+    return query ? query(&statistics) : E_NOINTERFACE;
+}
+
 void PluginHost::SetStandardErrorLog(bool enabled) noexcept
 {
     _standardErrorLog.store(enabled, std::memory_order_release);

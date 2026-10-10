@@ -3,6 +3,7 @@
 #include "../../RedXe/AccessibilityHost.h"
 #include "AVControl.Tests.AccessibilityTestHelpers.h"
 #include "AVControl.Tests.Contract.h"
+#include "AVControlDiagnostics.h"
 #include "AVControlLayout.h"
 #include <filesystem>
 #include <stdexcept>
@@ -149,6 +150,15 @@ uint32_t RunModuleTests()
     Check(create && enumerate && contract && shutdown && synthetic && snapshot,
           "AV module exposes required factory and explicit synthetic fixture exports");
     Check(synthetic(TRUE) == S_OK, "DLL fixture explicitly selects synthetic devices before provider construction");
+    const auto probe = reinterpret_cast<AVControl::QueryProbeStatisticsFn>(
+        GetProcAddress(module.get(), "RedXeAVControlQueryProbeStatistics"));
+    AVControl::ProbeStatistics statistics;
+    Check(probe && probe(nullptr) == E_POINTER, "AV diagnostic export validates its pointer");
+    statistics.sizeBytes = 0;
+    Check(probe(&statistics) == E_INVALIDARG, "AV diagnostic export rejects stale records");
+    statistics = {};
+    Check(probe(&statistics) == S_OK && statistics.widgets == 0 && statistics.surfaceBytes == 0,
+          "AV diagnostics are lazy before any widget exists");
     Host host;
     wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
     wil::com_ptr_nothrow<IRedXeWidget> widget, second;
@@ -214,6 +224,15 @@ uint32_t RunModuleTests()
     Check(provider->CreateWidget(type->typeId, "av.fixture.1", widget.put()) == S_OK &&
               provider->CreateWidget(type->typeId, "av.fixture.2", second.put()) == S_OK,
           "AV provider creates independent instances");
+    HRESULT wrongThread = S_OK;
+    std::thread diagnosticWorker(
+        [&]()
+        {
+            AVControl::ProbeStatistics wrongThreadStatistics;
+            wrongThread = probe(&wrongThreadStatistics);
+        });
+    diagnosticWorker.join();
+    Check(wrongThread == RPC_E_WRONG_THREAD, "AV diagnostics reject off-UI-thread view access");
     Check(widget.query_to(gpu.put()) == S_OK && widget.query_to(prepare.put()) == S_OK &&
               widget.query_to(input.put()) == S_OK && widget.query_to(raised.put()) == S_OK &&
               widget.query_to(keyboard.put()) == S_OK && widget.query_to(textInput.put()) == S_OK &&
@@ -252,6 +271,14 @@ uint32_t RunModuleTests()
     RedXeGpuPreparationContext preparation{sizeof(RedXeGpuPreparationContext), 96, 640, 360, 0, 0};
     Check(SUCCEEDED(prepare->Prepare(&preparation)) && SUCCEEDED(secondPrepare->Prepare(&preparation)),
           "AV module prepares both tile layouts before drawing");
+    Check(probe(&statistics) == S_OK && statistics.widgets == 2 && statistics.surfaceBytes == 2 * 640 * 360 * 4 &&
+              statistics.surfaceAllocations == 2 && statistics.preparations >= 2,
+          "AV diagnostic sums both live tiles without retaining an unraised overlay surface");
+    AVControl::ProbeStatistics repeated;
+    Check(probe(&repeated) == S_OK && repeated.preparations == statistics.preparations &&
+              repeated.composites == statistics.composites &&
+              repeated.surfaceAllocations == statistics.surfaceAllocations,
+          "AV diagnostic queries do not prepare, composite or allocate a surface");
     host.Drain();
     Check(host.runs == 1, "two live AV instances share one backend observation");
     Check(SUCCEEDED(prepare->Prepare(&preparation)), "AV applies acknowledged model during preparation");
@@ -453,6 +480,8 @@ uint32_t RunModuleTests()
     }
     Check(widget->SetVisible(FALSE) == S_OK, "first instance hides");
     Check(second->SetVisible(FALSE) == S_OK, "last instance hides");
+    Check(probe(&statistics) == S_OK && statistics.widgets == 2 && statistics.surfaceBytes == 0,
+          "AV diagnostics reflect hidden-view surface release");
     host.Drain();
     gpu->OnDeviceLost();
     secondGpu->OnDeviceLost();
@@ -464,6 +493,8 @@ uint32_t RunModuleTests()
     draw(0);
     Check(host.saves == 0, "visibility, mute, rendering and device recovery never persist profile definitions");
     releaseModuleObjects();
+    Check(probe(&statistics) == S_OK && statistics.widgets == 0 && statistics.surfaceBytes == 0,
+          "AV diagnostic list releases every destroyed widget");
     cleanup.release();
     module.reset();
     VARIANT retired{};

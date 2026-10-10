@@ -170,9 +170,16 @@ The bar collapses to a thin line until you rest the pointer on it. Its `thicknes
 | `--dock <edge>[@<monitor>]` | Run as a bar on that screen edge; see [Dock](#dock) for `--dock-mode`, `--dock-thickness`, `--dock-reserve`, and `--dock-peek`. |
 | `--screenshot <png>` | Start normally, wait, save the window as PNG, and exit; see [Screenshots](#screenshots) for `--page`, `--widget`, and `--after`. |
 | `--self-test` | Hidden startup validation with the deployed template; exits 0 when the host works and 6 when a check fails, which it names on stderr. |
+| `--probe[=seconds]` | Write a resource sample to the normal JSONL log every 1–3600 seconds (default 5). The dashboard keeps running; close it normally when finished. Ignored by `--self-test`. |
 | `--crash-test`, `--crash-test-stack-overflow`, `--crash-test-directory=<dir>` | Raise a test crash and choose where its dump goes (used by `test.ps1`). |
 
 Exit codes: 0 ok, 1 settings, 2 command line or window, 3 plugins, 5 graphics, 7 settings watcher, 8 screenshot capture. With `--self-test`: 6 a failed check, 3 a failed runtime check of a Debug build, 4 any other `abort()`, each reported on stderr. The self-test keeps no log file, so it writes the warnings and errors RedXe would log to stderr too, one JSON line each: a failed check then comes with what explains it, such as a plugin DLL that could not be loaded.
+
+For a resource investigation, run `RedXe.exe --probe=5` and read the `probe` records beside `device-created` in
+the JSONL log (beside the selected settings directory). Samples include process memory, CPU time, resource counts,
+presentation counters, driver memory and live AV surfaces. Sampling adds diagnostic work on the UI thread; its query
+cost is recorded as `sample_us`. It continues while hidden or minimized without drawing frames. Close the dashboard
+normally to finish.
 
 ## Screenshots
 

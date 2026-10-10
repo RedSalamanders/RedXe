@@ -19,6 +19,7 @@
 #include "PointerCancellation.h"
 #include "ProcessViewer.Tests.Contract.h"
 #include "Renderer.h"
+#include "RuntimeProbe.h"
 #include "Settings.h"
 #include "StudioClock.Tests.Contract.h"
 #include "TrayIcon.h"
@@ -65,6 +66,8 @@ namespace
 [[nodiscard]] std::string ReadTodayLog(const std::filesystem::path& root) noexcept;
 [[nodiscard]] size_t CountText(std::string_view text, std::string_view needle) noexcept;
 } // namespace
+
+void TestRuntimeProbe(bool& success) noexcept;
 
 struct PluginHostTestAccess final
 {
@@ -324,29 +327,6 @@ constexpr UINT kHostHeight = 720;
 
 // Thread count for this process. The shared plugin runtime owns exactly one acquisition worker no matter how many
 // PluginManager instances are live, so staging an adjacent page must not raise this.
-[[nodiscard]] DWORD CountProcessThreads() noexcept
-{
-    const wil::unique_handle snapshot{CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)};
-    if (!snapshot)
-    {
-        return 0;
-    }
-    THREADENTRY32 entry{};
-    entry.dwSize = sizeof(entry);
-    const DWORD processId = GetCurrentProcessId();
-    DWORD count = 0;
-    if (Thread32First(snapshot.get(), &entry))
-    {
-        do
-        {
-            if (entry.th32OwnerProcessID == processId)
-            {
-                ++count;
-            }
-        } while (Thread32Next(snapshot.get(), &entry));
-    }
-    return count;
-}
 
 void Check(bool condition, std::wstring_view message, bool& success) noexcept
 {
@@ -442,26 +422,6 @@ class AttachedHostWindow final
 
     wil::unique_hwnd _window;
 };
-
-struct ProcessMemorySnapshot final
-{
-    uint64_t privateBytes = 0;
-    uint64_t workingSetBytes = 0;
-};
-
-[[nodiscard]] HRESULT QueryProcessMemorySnapshot(ProcessMemorySnapshot& snapshot) noexcept
-{
-    PROCESS_MEMORY_COUNTERS_EX counters{};
-    counters.cb = sizeof(counters);
-    if (!GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters),
-                              sizeof(counters)))
-    {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    snapshot.privateBytes = counters.PrivateUsage;
-    snapshot.workingSetBytes = counters.WorkingSetSize;
-    return S_OK;
-}
 
 [[nodiscard]] HRESULT LoadDeployedSettings(const wchar_t* fileName, AppSettings& settings) noexcept
 {
@@ -3013,6 +2973,11 @@ void TestRendererDeviceIdentity(bool& success) noexcept
           success);
     result = renderer.Render(0.0f, 0.0f);
     Check(SUCCEEDED(result), L"hidden host presents one frame through the waitable swap chain", success);
+    const auto probeBefore = renderer.QueryProbeGraphics();
+    const auto probeAfter = renderer.QueryProbeGraphics();
+    Check(probeBefore.generation != 0 && probeBefore.presentResult == S_OK && probeAfter.presentResult == S_OK &&
+              probeBefore.presentCount == probeAfter.presentCount,
+          L"diagnostic queries preserve the present count on a hidden WARP host", success);
     Check(waitable && WaitForSingleObject(waitable, 2000) == WAIT_OBJECT_0,
           L"the waitable object signals again once the presented frame is consumed", success);
     Check(renderer.FrameLatencyWaitableObject() == waitable, L"the waitable object is stable across frames", success);
@@ -3027,7 +2992,11 @@ void TestRendererDeviceIdentity(bool& success) noexcept
     }
     Check(SUCCEEDED(result) && renderer.FrameLatencyWaitableObject() != nullptr,
           L"resizing keeps the waitable swap chain flag", success);
+    Check(renderer.QueryProbeGraphics().generation > probeAfter.generation,
+          L"a real resize invalidates diagnostic presentation deltas", success);
     renderer.Shutdown();
+    Check(renderer.QueryProbeGraphics().generation == 0 && renderer.QueryProbeGraphics().presentResult == E_UNEXPECTED,
+          L"a released swap chain reports unavailable diagnostic values", success);
     Check(renderer.FrameLatencyWaitableObject() == nullptr && !renderer.DeviceInfo().warp,
           L"shutdown releases the waitable object and clears the device identity", success);
     dashboard.Shutdown();
@@ -6859,14 +6828,14 @@ void TestServiceLifetime(bool& success) noexcept
     Check(host.StartedServiceCount() == 0, L"StopServices is idempotent", success);
 }
 
-// A retired services entry (the Zoom one, empty as earlier templates wrote it, with its v1.0.102 members, or with a retired member set to null) is
-// recorded by the settings store at the startup load and at a live load, and an unchanged notification loads nothing.
-// Its one Warning per load (Core_Settings.md "Services") comes from the report both of Application's load paths make,
-// PluginHost::LogRetiredServiceSettings: one service-retired-settings-ignored from builtin.zoom, without an HRESULT,
-// per entry of the document it is given, and none for a document without one. Starting the services and applying them
-// again, as Application does with every load and on a returning device lane, never logs it. Application's own startup
-// order (the load, the log, the report) runs for real in test.ps1's --screenshot step, whose file carries such an
-// entry.
+// A retired services entry (the Zoom one, empty as earlier templates wrote it, with its v1.0.102 members, or with a
+// retired member set to null) is recorded by the settings store at the startup load and at a live load, and an
+// unchanged notification loads nothing. Its one Warning per load (Core_Settings.md "Services") comes from the report
+// both of Application's load paths make, PluginHost::LogRetiredServiceSettings: one service-retired-settings-ignored
+// from builtin.zoom, without an HRESULT, per entry of the document it is given, and none for a document without one.
+// Starting the services and applying them again, as Application does with every load and on a returning device lane,
+// never logs it. Application's own startup order (the load, the log, the report) runs for real in test.ps1's
+// --screenshot step, whose file carries such an entry.
 void TestRetiredServiceWarnings(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] retired services entry: recorded per load, one warning per report\n";
@@ -8456,6 +8425,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     PluginHost::Instance().SetNetworkAccessEnabled(false);
     PluginHost::Instance().SetControlAccessEnabled(false);
     TestFrameScheduler(success);
+    TestRuntimeProbe(success);
     TestAdapterSelectionPolicy(success);
     TestRendererDeviceIdentity(success);
     TestWindowCapture(success);

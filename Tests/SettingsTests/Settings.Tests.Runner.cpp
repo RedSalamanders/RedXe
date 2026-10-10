@@ -1999,6 +1999,30 @@ constexpr std::string_view kRepresentative = R"json(
     try
     {
         const std::wstring help = RedXeFormatCommandLineHelp();
+        auto probeArguments = [](std::initializer_list<const wchar_t*> tokens, bool expected, uint32_t seconds)
+        {
+            std::vector<wchar_t*> arguments;
+            for (const auto* token : tokens)
+                arguments.push_back(const_cast<wchar_t*>(token));
+            uint32_t parsed = 0;
+            return RedXeParseProbeArguments(arguments.data(), static_cast<int>(arguments.size()), parsed) == expected &&
+                   (!expected || parsed == seconds);
+        };
+        if (!probeArguments({L"RedXe.exe"}, true, 0) || !probeArguments({L"RedXe.exe", L"--probe"}, true, 5) ||
+            !probeArguments({L"RedXe.exe", L"--probe=1"}, true, 1) ||
+            !probeArguments({L"RedXe.exe", L"--probe=3600"}, true, 3600) ||
+            !probeArguments({L"RedXe.exe", L"--probe="}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe=0"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe=3601"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe=-1"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe=+1"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe= 1"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe=1.5"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe=9999999999999"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe", L"--probe=1"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--settings", L"--probe"}, true, 0) || !RedXeFindSwitch(L"--probe") ||
+            !RedXeFindSwitch(L"--probe=5") || !RedXeFindSwitch(L"--probe="))
+            return E_FAIL;
         for (size_t index = 0; index < kRedXeCommandLineSwitches.size(); ++index)
         {
             const RedXeCommandLineSwitch& entry = kRedXeCommandLineSwitches[index];

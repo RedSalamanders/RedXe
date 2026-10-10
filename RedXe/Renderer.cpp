@@ -592,6 +592,32 @@ Renderer::DeviceIdentity Renderer::DeviceInfo() const noexcept
     return _deviceInfo;
 }
 
+RuntimeProbeGraphics Renderer::QueryProbeGraphics() const noexcept
+{
+    RuntimeProbeGraphics sample;
+    if (!_swapChain || !_device)
+        return sample;
+    sample.generation = _swapChainGeneration;
+    sample.presentResult = _swapChain->GetLastPresentCount(&sample.presentCount);
+    sample.statisticsResult = _swapChain->GetFrameStatistics(&sample.statistics);
+    wil::com_ptr_nothrow<IDXGIDevice> device;
+    wil::com_ptr_nothrow<IDXGIAdapter> adapter;
+    wil::com_ptr_nothrow<IDXGIAdapter3> adapter3;
+    HRESULT result = _device.query_to(device.put());
+    if (SUCCEEDED(result))
+        result = device->GetAdapter(adapter.put());
+    if (SUCCEEDED(result))
+        result = adapter.query_to(adapter3.put());
+    sample.localResult = sample.nonLocalResult = result;
+    if (SUCCEEDED(result))
+    {
+        sample.localResult = adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &sample.local);
+        sample.nonLocalResult =
+            adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &sample.nonLocal);
+    }
+    return sample;
+}
+
 HRESULT Renderer::GetSwapChainDescription(DXGI_SWAP_CHAIN_DESC1& description) const noexcept
 {
     description = {};
@@ -649,6 +675,7 @@ HRESULT Renderer::CreateSwapChain() noexcept
     {
         return result;
     }
+    ++_swapChainGeneration;
 
     // Maximum frame latency one, enforced by the swap chain's waitable object rather than a blocking Present: the UI
     // thread waits on this handle before building a frame, so input queued meanwhile is dispatched first.
@@ -1010,6 +1037,8 @@ HRESULT Renderer::Resize(UINT width, UINT height) noexcept
     {
         return result;
     }
+
+    ++_swapChainGeneration;
 
     return CreateRenderTarget(width, height);
 }

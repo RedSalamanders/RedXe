@@ -3,6 +3,7 @@
 #include "AdapterSelection.h"
 #include "HostChrome.h"
 #include "PlugInterfaces/Widget.h"
+#include "RuntimeProbe.h"
 
 #include <array>
 #include <cstddef>
@@ -78,6 +79,8 @@ class Renderer final
     // device already sits on that adapter (or the window is off every monitor, or WARP is forced), failure otherwise.
     HRESULT EnsureDeviceForWindowMonitor() noexcept;
     [[nodiscard]] DeviceIdentity DeviceInfo() const noexcept;
+    // Diagnostic-only read: no Present, flush, device/resource creation or frame invalidation.
+    [[nodiscard]] RuntimeProbeGraphics QueryProbeGraphics() const noexcept;
     // Size and scaling of the live swap chain, which tests read to prove the dock presentation.
     [[nodiscard]] HRESULT GetSwapChainDescription(DXGI_SWAP_CHAIN_DESC1& description) const noexcept;
     // Frame-latency waitable object of the swap chain (maximum latency one). The UI thread waits on it before
@@ -175,6 +178,7 @@ class Renderer final
     wil::com_ptr_nothrow<ID3D11RenderTargetView> _renderTarget;
     wil::unique_handle _frameLatencyWaitable;
     DeviceIdentity _deviceInfo{};
+    uint64_t _swapChainGeneration = 0;
     // Monitor the device was matched against; null on the default-adapter fallback.
     HMONITOR _deviceMonitor = nullptr;
     DWORD _occlusionStatusCookie = 0;

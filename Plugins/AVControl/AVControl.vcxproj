@@ -43,6 +43,7 @@
     <ClCompile Include="Coordinator.cpp" />
     <ClInclude Include="AVControlProtocol.h" /><ClInclude Include="WindowsAudioBackend.h" />
     <ClInclude Include="AccessibilitySite.h" />
+    <ClInclude Include="AVControlDiagnostics.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="AVControlBroker.vcxproj">

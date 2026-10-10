@@ -1,5 +1,6 @@
 #define REDXE_PLUGIN_EXPORTS
 #include "AVControl.Tests.Contract.h"
+#include "AVControlDiagnostics.h"
 #include "AVControlSettings.h"
 #include "AccessibilityValidation.h"
 #include "Coordinator.h"
@@ -34,6 +35,8 @@ wil::com_ptr_nothrow<Coordinator> coordinator;
 std::weak_ptr<DxUi::GraphicsDevice> graphics;
 bool syntheticBackend = false;
 uint32_t providerCount = 0;
+class Widget;
+Widget* probeWidgets = nullptr;
 
 HRESULT KeepAccessibilityCodeMapped() noexcept
 {
@@ -124,9 +127,16 @@ class Widget final
     {
         _tile.SetBackground(backgroundRgb);
         _overlay.SetBackground(backgroundRgb);
+        _probeNext = probeWidgets;
+        probeWidgets = this;
     }
     ~Widget()
     {
+        auto** previous = &probeWidgets;
+        while (*previous && *previous != this)
+            previous = &(*previous)->_probeNext;
+        if (*previous)
+            *previous = _probeNext;
         (void)SetVisible(FALSE);
         _runtime->UnregisterConfiguration(&_configuration);
         OnDeviceLost();
@@ -134,6 +144,29 @@ class Widget final
     HRESULT Initialize() noexcept
     {
         return _runtime->RegisterConfiguration(&_configuration);
+    }
+    static HRESULT QueryProbeStatistics(ProbeStatistics& statistics) noexcept
+    {
+        ProbeStatistics sum;
+        for (auto* widget = probeWidgets; widget; widget = widget->_probeNext)
+        {
+            if (GetCurrentThreadId() != widget->_thread)
+                return RPC_E_WRONG_THREAD;
+            if (++sum.widgets > 64)
+                return HRESULT_FROM_WIN32(ERROR_BUFFER_OVERFLOW);
+            for (const auto& view : {widget->_tile.Statistics(), widget->_overlay.Statistics()})
+            {
+                sum.preparations += view.preparations;
+                sum.composites += view.composites;
+                sum.surfaceBytes += view.surfaceBytes;
+                sum.replacementPeakBytes += view.replacementPeakBytes;
+                sum.surfaceAllocations += view.surfaceAllocations;
+                sum.cachedBrushes += view.cachedBrushes;
+                sum.cachedTextFormats += view.cachedTextFormats;
+            }
+        }
+        statistics = sum;
+        return S_OK;
     }
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL visible) noexcept override
     {
@@ -474,6 +507,7 @@ class Widget final
 
   private:
     DWORD _thread = GetCurrentThreadId();
+    Widget* _probeNext = nullptr;
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _provider;
     wil::com_ptr_nothrow<Coordinator> _runtime;
     Configuration _configuration;
@@ -654,6 +688,14 @@ extern "C" void __stdcall RedXePluginShutdown() noexcept
 {
     AVControl::coordinator.reset();
     AVControl::graphics.reset();
+}
+extern "C" HRESULT __stdcall RedXeAVControlQueryProbeStatistics(AVControl::ProbeStatistics* statistics) noexcept
+{
+    if (!statistics)
+        return E_POINTER;
+    if (statistics->sizeBytes != sizeof(*statistics))
+        return E_INVALIDARG;
+    return AVControl::Widget::QueryProbeStatistics(*statistics);
 }
 extern "C" HRESULT __stdcall RedXeAVControlUseSyntheticBackend(BOOL enabled) noexcept
 {
