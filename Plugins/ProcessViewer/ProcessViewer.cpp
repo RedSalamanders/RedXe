@@ -4071,6 +4071,11 @@ extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId
         kSettingsEntries.data(), static_cast<uint32_t>(kSettingsEntries.size()), pluginId, contract);
 }
 
+extern "C" void __stdcall RedXeProcessViewerFailNextAtlasInitialization() noexcept
+{
+    ViewerGpuFailNextInitializationForTest();
+}
+
 extern "C" HRESULT __stdcall RedXeProcessViewerGetTestDiagnostics(ProcessViewerTestDiagnostics* diagnostics) noexcept
 {
     if (!diagnostics)
@@ -4094,5 +4099,7 @@ extern "C" HRESULT __stdcall RedXeProcessViewerGetTestDiagnostics(ProcessViewerT
     diagnostics->pageDotFirstX = g_lastPageDotFirstX.load(std::memory_order_relaxed);
     diagnostics->pageDotY = g_lastPageDotY.load(std::memory_order_relaxed);
     diagnostics->pageDotGap = g_lastPageDotGap.load(std::memory_order_relaxed);
+    diagnostics->cpuAtlasBytes = ViewerGpuCpuAtlasBytes();
+    diagnostics->liveGpuResourceSets = ViewerGpuResourceSetCount();
     return S_OK;
 }

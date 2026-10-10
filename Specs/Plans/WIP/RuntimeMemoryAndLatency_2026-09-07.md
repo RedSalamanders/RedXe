@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-10 against `68cd226` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-11 against `b3761c4` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -33,6 +33,7 @@ Owning contracts:
 - [`../../Core/Core_PerformanceAndResources.md`](../../Core/Core_PerformanceAndResources.md)
 - [`../../UI/UI_XeneonDisplayWindowing.md`](../../UI/UI_XeneonDisplayWindowing.md) (adapter-of-output rule)
 - [`../../Plugins/Plugins_API.md`](../../Plugins/Plugins_API.md)
+- [`../../Plugins/Plugins_Weather.md`](../../Plugins/Plugins_Weather.md)
 - [`../../UI/UI_Dashboard.md`](../../UI/UI_Dashboard.md)
 - [`../../Core/Core_Settings.md`](../../Core/Core_Settings.md)
 - [`../../Core/Core_DxUiIntegration.md`](../../Core/Core_DxUiIntegration.md)
@@ -51,7 +52,7 @@ Coordinate, do not fork:
   process-scoped. Remaining G2/H3 work stays there.
 
 
-## Current-code checkpoint (2026-10-10)
+## Current-code checkpoint (2026-10-11)
 
 ### Execution ledger
 
@@ -72,6 +73,32 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P2.3 | Complete | Move-only 16-byte status pins; one atomic read per placeholder decision, no locked ID scan in Render/Prepare. Adds at most 1.5 KiB across two full pages, no allocation/thread/wake. 10,000 reads complete under the exclusively held status lock; concurrent reports, move/reuse/shutdown, same-ID replacement and 64-slot capacity pass. Slot destruction/move drains network registration and interface/callback lifetime before final release, including rollback. 100,000 Release reads: cached 72.8 us / last-slot cold lookup 80.6 ms, diagnostic only. Release 16 scopes; Debug and ASan Debug 15 native scopes; ARM64 Release compile; 10 skills. `runtime-2026-10-10-p23`; P3.2 commit `55da17f`. |
 | P3.6 | In progress; source and GPU binding cuts complete | `7c1f72b`: quiescent last-consumer source reclamation preserves facade identity, inactive/staged subscriptions and external leases. Matched retained private 87.61 → 71.75 MiB. The separate GPU binding cut proves last-owner release, identical pixels and no device/swap-chain rebuild. All 16 Release scopes, 15 Debug and ASan Debug native scopes, ARM64 Release compilation and 10 skills pass. Its matched retained private is 69.54 → 69.08 MiB and local usage 47.26 → 46.26 MiB, versus cold 25.01. Submissions remain about 60/s, hidden/minimized zero; no CPU saving established. Remaining return budget and cache attribution stay open. `runtime-2026-10-10-p36-source`, `-p36-before`, `-p36-after`, `-p36-gpu`. |
 | P2.1 | Single-capacity query cut complete; activity/storage proposal remains | Native walk queries its existing four-MiB buffer once; columns, caps, history and fallback remain. Capacity red/green, failure/invalid-length and real DLL field/catalog/row-cap/history/allocation checks pass. All 16 Release scopes, 15 Debug and 15 ASan Debug native scopes, ARM64 Release compilation and 10 skills pass. Source storage remains 16,437,760 bytes. Standalone 64 pairs: two calls → one, median 20.121 → 11.678 ms. Matched 65 s System control / after-1 / after-2: CPU 2.186 / 2.653 / 2.238%, submissions 12.324 / 13.166 / 11.991/s; no whole-process saving established. `runtime-2026-10-10-p21-*`. |
+
+| P2.8 / P3.6 CPU atlas lifetime | Complete; preparation/font/upload cuts remain | Cold construction, shared users, idempotent device loss, last release and failure/retry pass against real DLLs. Both one-MiB CPU owners reach zero. Unicode recovery pixels and eight Weather images remain identical. Matched D private: cold 38.23 → 35.51 MiB, returned 106.39 → 105.06; returned working set 98.16 → 96.16. Submissions about 60/s and inactive zero, local usage unchanged. Return-over-cold 68.16 → 69.55 MiB still misses the budget; no causal CPU saving claimed. Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release compilation and 10 skills pass. `runtime-2026-10-10-p28-before`, `runtime-2026-10-11-atlas-after` and `-p28-atlas`. |
+
+### P2.8 / P3.6 CPU atlas lifetime cut (2026-10-11)
+
+Before this cut, ProcessViewer and Weather retained an inline one-MiB CPU atlas after their last GPU user released it.
+This independent cut replaces each with one lazy virtual-memory owner shared by its DLL's GPU users. Cold widgets
+and last-user teardown retain zero atlas bytes; initialization failure after atlas construction also releases it.
+Surviving users keep the same allocation, and revisit/device-loss re-acquisition uses the same rasterization.
+
+The pre-fix viewer lifetime test failed as expected and its exact source is retained under
+`runtime-2026-10-11-atlas-red`. Final Release viewer and Weather lifetime tests pass, including injected failure
+after CPU atlas construction and a successful retry. All eight Weather WARP images match the previous Release
+outputs byte for byte; Process Viewer Unicode pixels match across shared recovery and complete re-acquisition.
+
+The matched D-cycle pair, `runtime-2026-10-10-p28-before` / `runtime-2026-10-11-atlas-after`, has identical scene,
+window rectangle/DPI, platform and DxUi provenance. Only the two plugin DLLs change among runtime artifacts.
+Cold Matrix private is 38.23 / 35.51 MiB; returned private 106.39 / 105.06 and working set 98.16 / 96.16 MiB.
+Return-over-cold remains 68.16 / 69.55 MiB and does not meet the budget. Local usage remains 25.01 MiB cold and
+46.26 returned. Returned submissions 60.150 / 60.102 per second, hidden/minimized zero; CPU 2.057 / 1.692% is one
+pair and establishes no causal saving. Exact ownership tests establish release of both one-MiB CPU allocations;
+whole-process bytes retain unrelated heap/image/driver costs. All 16 Release scopes, 15 Debug and 15 ASan Debug
+native scopes, ARM64 Release compilation and 10 skills pass. Ordinary soaks retain the four-MiB private/eight-MiB
+working-set guards; ASan retains its default quarantine with diagnostic byte reporting. Exact source, artifact and
+gate receipts are saved in `runtime-2026-10-11-p28-atlas`. Preparation, dirty-cell uploads and font ownership remain
+separate cuts, and no trim export is needed for these two CPU allocations.
 
 ### P3.6 source cut and remaining retention (2026-10-10)
 

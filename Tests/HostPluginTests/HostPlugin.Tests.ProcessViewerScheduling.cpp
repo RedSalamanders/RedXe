@@ -1,5 +1,6 @@
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PlugInterfaces/Widget.h"
+#include "ProcessViewer.Tests.Contract.h"
 
 #include <array>
 #include <atomic>
@@ -226,7 +227,8 @@ struct Viewer final
     wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
     wil::com_ptr_nothrow<IRedXeScheduledWidget> scheduled;
     Surface& surface;
-    Viewer(RedXeCreateFn create, Surface& surfaceValue, const char* id, const char* type, const char* config = nullptr)
+    Viewer(RedXeCreateFn create, Surface& surfaceValue, const char* id, const char* type, const char* config = nullptr,
+           bool initializeGpu = true)
         : surface(surfaceValue)
     {
         RedXeFactoryOptions options{sizeof(options)};
@@ -239,11 +241,14 @@ struct Viewer final
         Require(SUCCEEDED(provider->CreateWidget(type, "schedule.fixture", widget.put())) &&
                     SUCCEEDED(widget.query_to(gpu.put())) && SUCCEEDED(widget.query_to(scheduled.put())),
                 "viewer interfaces failed");
-        const RedXeGpuDeviceContext device{sizeof(device), surface.device.get(), DXGI_FORMAT_B8G8R8A8_UNORM,
-                                           D3D_FEATURE_LEVEL_11_0};
-        Require(SUCCEEDED(gpu->OnDeviceCreated(&device)), "viewer device setup failed");
-        Resize(Surface::width, Surface::height);
-        Require(SUCCEEDED(widget->SetVisible(TRUE)), "viewer show failed");
+        if (initializeGpu)
+        {
+            const RedXeGpuDeviceContext device{sizeof(device), surface.device.get(), DXGI_FORMAT_B8G8R8A8_UNORM,
+                                               D3D_FEATURE_LEVEL_11_0};
+            Require(SUCCEEDED(gpu->OnDeviceCreated(&device)), "viewer device setup failed");
+            Resize(Surface::width, Surface::height);
+            Require(SUCCEEDED(widget->SetVisible(TRUE)), "viewer show failed");
+        }
     }
     ~Viewer()
     {
@@ -506,6 +511,73 @@ void CheckAllocationAndDeviceRecovery(RedXeCreateFn create, Surface& surface)
             "device recovery replayed stale motion");
 }
 
+void CheckAtlasLifetime(RedXeCreateFn create, ProcessViewerGetTestDiagnosticsFn diagnostics,
+                        decltype(&RedXeProcessViewerFailNextAtlasInitialization) failNext, Surface& surface)
+{
+    const auto check = [diagnostics](uint32_t bytes, uint32_t sets)
+    {
+        ProcessViewerTestDiagnostics info{sizeof(info)};
+        Require(diagnostics(&info) == S_OK && info.cpuAtlasBytes == bytes && info.liveGpuResourceSets == sets,
+                "viewer CPU atlas did not follow shared GPU-user lifetime");
+    };
+    check(0, 0);
+    uint64_t pixels = 0;
+    Observation sample("process.list", 7);
+    sample.Integer(0, 17);
+    sample.Text(1, L"Caf\u00e9 - M\u00fcnchen");
+    sample.Number(2, 10);
+    sample.Integer(3, 1'000'000);
+    {
+        Viewer first(create, surface, "builtin.process-viewer", "process-viewer");
+        check(1'048'576, 1);
+        {
+            Viewer second(create, surface, "builtin.memory-meter", "memory-meter");
+            check(1'048'576, 1);
+            first.Send(sample);
+            Require(first.Draw(1) == S_OK && !first.Moving(), "viewer atlas pixel control failed");
+            pixels = surface.Pixels();
+            Require(first.widget->SetVisible(FALSE) == S_OK, "viewer atlas pre-loss hide failed");
+            first.gpu->OnDeviceLost();
+            first.gpu->OnDeviceLost(); // Idempotent release must not retire the second user's atlas.
+            check(1'048'576, 1);
+            Require(second.Draw(1) == S_OK, "surviving viewer lost its shared atlas");
+            const RedXeGpuDeviceContext device{sizeof(device), surface.device.get(), DXGI_FORMAT_B8G8R8A8_UNORM,
+                                               D3D_FEATURE_LEVEL_11_0};
+            Require(first.gpu->OnDeviceCreated(&device) == S_OK && first.widget->SetVisible(TRUE) == S_OK &&
+                        first.Draw(2) == S_OK && surface.Pixels() == pixels,
+                    "shared viewer atlas recovery changed Unicode pixels");
+            check(1'048'576, 1);
+        }
+        check(1'048'576, 1);
+    }
+    check(0, 0);
+    {
+        Viewer revisited(create, surface, "builtin.process-viewer", "process-viewer");
+        revisited.Send(sample);
+        Require(revisited.Draw(3) == S_OK && surface.Pixels() == pixels,
+                "recreated viewer atlas changed Unicode pixels");
+        check(1'048'576, 1);
+    }
+    check(0, 0);
+    {
+        Viewer cold(create, surface, "builtin.process-viewer", "process-viewer", nullptr, false);
+        check(0, 0);
+        Require(cold.gpu->OnDeviceCreated(nullptr) == E_INVALIDARG, "viewer accepted a missing device");
+        const RedXeGpuDeviceContext device{sizeof(device), surface.device.get(), DXGI_FORMAT_B8G8R8A8_UNORM,
+                                           D3D_FEATURE_LEVEL_11_0};
+        failNext();
+        Require(cold.gpu->OnDeviceCreated(&device) == E_OUTOFMEMORY, "viewer partial-init fault was not exercised");
+        check(0, 0);
+        Require(cold.gpu->OnDeviceCreated(&device) == S_OK && cold.widget->SetVisible(TRUE) == S_OK,
+                "viewer could not retry after partial initialization failure");
+        cold.Resize(Surface::width, Surface::height);
+        cold.Send(sample);
+        Require(cold.Draw(4) == S_OK && surface.Pixels() == pixels, "viewer partial-init retry changed Unicode pixels");
+        check(1'048'576, 1);
+    }
+    check(0, 0);
+}
+
 void CheckRemainingViewers(RedXeCreateFn create, Surface& surface)
 {
     struct Case final
@@ -690,7 +762,14 @@ void TestProcessViewerScheduling(bool& success) noexcept
         static_assert(sizeof(address) == sizeof(create));
         std::memcpy(&create, &address, sizeof(create));
         Require(create != nullptr, "viewer factory export missing");
+        const auto diagnostics = reinterpret_cast<ProcessViewerGetTestDiagnosticsFn>(
+            GetProcAddress(module.get(), kProcessViewerGetTestDiagnosticsExport));
+        Require(diagnostics != nullptr, "viewer atlas diagnostics missing");
+        const auto failNext = reinterpret_cast<decltype(&RedXeProcessViewerFailNextAtlasInitialization)>(
+            GetProcAddress(module.get(), "RedXeProcessViewerFailNextAtlasInitialization"));
+        Require(failNext != nullptr, "viewer atlas fault export missing");
         Surface surface;
+        CheckAtlasLifetime(create, diagnostics, failNext, surface);
         CheckCadence(create, surface);
         CheckRanksAndAuxiliaryData(create, surface);
         CheckIdleProcessPulse(create, surface);

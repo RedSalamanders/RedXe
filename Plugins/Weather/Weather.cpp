@@ -1552,6 +1552,11 @@ extern "C" void __stdcall RedXePluginShutdown() noexcept
     WeatherHttpShutdown();
 }
 
+extern "C" void __stdcall RedXeWeatherFailNextAtlasInitialization() noexcept
+{
+    WeatherGpuFailNextInitializationForTest();
+}
+
 extern "C" HRESULT __stdcall RedXeWeatherGetTestDiagnostics(WeatherTestDiagnostics* diagnostics) noexcept
 {
     if (!diagnostics)
@@ -1590,6 +1595,8 @@ extern "C" HRESULT __stdcall RedXeWeatherGetTestDiagnostics(WeatherTestDiagnosti
     diagnostics->pageDotFirstX = gLastPageDotFirstX.load(std::memory_order_relaxed);
     diagnostics->pageDotY = gLastPageDotY.load(std::memory_order_relaxed);
     diagnostics->pageDotGap = gLastPageDotGap.load(std::memory_order_relaxed);
+    diagnostics->cpuAtlasBytes = WeatherGpuCpuAtlasBytes();
+    diagnostics->liveGpuResourceSets = WeatherGpuResourceSetCount();
     return S_OK;
 }
 

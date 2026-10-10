@@ -1,7 +1,7 @@
 # Weather widget
 
 Status: current normative product contract
-Last reviewed: 2026-09-18
+Last reviewed: 2026-10-11
 Owner: `Plugins/Weather`, `Plugins/WeatherLocation`, and `Tests/WeatherTests`
 
 The native ABI and host services are owned by `Plugins_API.md`. Resource requirements remain owned by
@@ -117,6 +117,9 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
 - Retain Weather Icons and light Segoe UI. Fit complete measured glyph ink inside atlas cells with filtering padding,
   including oversized icons and accents; reject clipped glyphs. Measurement includes overhang and rendering uses
   cached cropped rectangles. Clear reused atlas cells. Render creates no fonts, textures, heap allocations or I/O.
+  The shared one-MiB CPU atlas is acquired with the first GPU user and freed at the last GPU release, including
+  device loss; cold widget construction and failed initial construction retain no CPU atlas allocation. A remaining
+  user keeps it, and re-acquisition preserves the same icon, hero-twin and Unicode rasterization.
 - Text rasterizes once into 48 px cells. Condition icons and the header temperature glyphs (digits, sign, degree,
   `C`, `F`) also own a 96 px twin cell in the atlas's reserved bottom rows; drawing switches to the twin above ~1.1x
   the small cell so the hero temperature is as sharp as the icon beside it. A text twin is an exact 2x raster that

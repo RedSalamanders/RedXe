@@ -8934,6 +8934,12 @@ int wmain(int argumentCount, wchar_t** arguments)
     RedXeFailureReports::RouteAwayFromDialogs();
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    if (argumentCount == 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--viewer-scheduling")
+    {
+        bool success = true;
+        TestProcessViewerScheduling(success);
+        return success ? 0 : 1;
+    }
     if (argumentCount == 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--gpu-resource-retirement")
     {
         bool success = true;

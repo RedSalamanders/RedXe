@@ -468,6 +468,53 @@ HRESULT AlertProviderTests()
     return S_OK;
 }
 
+HRESULT AtlasLifetimeTests(HMODULE module, RedXeCreateFn create)
+{
+    const auto diagnostics = Resolve<WeatherGetTestDiagnosticsFn>(module, kWeatherGetTestDiagnosticsExport);
+    const auto failNext =
+        Resolve<decltype(&RedXeWeatherFailNextAtlasInitialization)>(module, "RedXeWeatherFailNextAtlasInitialization");
+    CHECK(diagnostics && failNext);
+    const auto check = [diagnostics](uint32_t bytes, uint32_t sets) noexcept
+    {
+        WeatherTestDiagnostics info{sizeof(info)};
+        return diagnostics(&info) == S_OK && info.cpuAtlasBytes == bytes && info.liveGpuResourceSets == sets;
+    };
+    CHECK(check(0, 0));
+    TestHost host;
+    wil::com_ptr_nothrow<IRedXeWidget> first, second;
+    CHECK(Create(create, host, R"({"location":"Paris"})", first) == S_OK &&
+          Create(create, host, R"({"location":"Paris"})", second) == S_OK);
+    CHECK(check(0, 0)); // Cold widgets acquire neither CPU atlas nor device resources.
+    wil::com_ptr_nothrow<IRedXeGpuWidget> firstGpu, secondGpu;
+    CHECK(SUCCEEDED(first.query_to(firstGpu.put())) && SUCCEEDED(second.query_to(secondGpu.put())));
+    CHECK(firstGpu->OnDeviceCreated(nullptr) == E_INVALIDARG && check(0, 0));
+    wil::com_ptr_nothrow<ID3D11Device> device;
+    wil::com_ptr_nothrow<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL level{};
+    CHECK(SUCCEEDED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr,
+                                      0, D3D11_SDK_VERSION, device.put(), &level, context.put())));
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            firstGpu->OnDeviceLost();
+            secondGpu->OnDeviceLost();
+        });
+    const RedXeGpuDeviceContext created{sizeof(created), device.get(), DXGI_FORMAT_B8G8R8A8_UNORM, level};
+    failNext();
+    CHECK(firstGpu->OnDeviceCreated(&created) == E_OUTOFMEMORY && check(0, 0));
+    CHECK(firstGpu->OnDeviceCreated(&created) == S_OK && check(1'048'576, 1));
+    CHECK(secondGpu->OnDeviceCreated(&created) == S_OK && check(1'048'576, 1));
+    secondGpu->OnDeviceLost();
+    secondGpu->OnDeviceLost();
+    CHECK(check(1'048'576, 1));
+    firstGpu->OnDeviceLost();
+    CHECK(check(0, 0));
+    CHECK(firstGpu->OnDeviceCreated(&created) == S_OK && check(1'048'576, 1));
+    firstGpu->OnDeviceLost();
+    CHECK(check(0, 0));
+    return S_OK;
+}
+
 HRESULT RenderTests(HMODULE module, RedXeCreateFn create, uint64_t now, bool stress = false)
 {
     const auto fixture = Resolve<WeatherApplyTestSnapshotFn>(module, kWeatherApplyTestSnapshotExport);
@@ -516,6 +563,7 @@ HRESULT RenderTests(HMODULE module, RedXeCreateFn create, uint64_t now, bool str
         CHECK(atlas.heroTwinCells == static_cast<uint32_t>(std::size(kWeatherHeroGlyphs)));
         // Every catalogued Weather Icons glyph owns its 48 px cell and 96 px twin, so no icon falls back to text.
         CHECK(atlas.iconCells == static_cast<uint32_t>(std::size(kWeatherIconGlyphs)));
+        CHECK(atlas.cpuAtlasBytes == 1'048'576 && atlas.liveGpuResourceSets == 1);
     }
     const auto detach = wil::scope_exit(
         [&]() noexcept
@@ -640,6 +688,9 @@ HRESULT RenderTests(HMODULE module, RedXeCreateFn create, uint64_t now, bool str
             CHECK(info.hourlyDrawn == 0 && info.dailyDrawn == 0);
     }
     (void)now;
+    gpu->OnDeviceLost();
+    WeatherTestDiagnostics released{sizeof(released)};
+    CHECK(diagnostics(&released) == S_OK && released.cpuAtlasBytes == 0 && released.liveGpuResourceSets == 0);
     return S_OK;
 }
 
@@ -787,6 +838,7 @@ HRESULT RunWeatherRegressionTests(HMODULE module)
     CHECK(ModelTests(now) == S_OK);
     CHECK(AlertProviderTests() == S_OK);
     CHECK(RunWeatherLocationPolicyTests() == S_OK);
+    CHECK(AtlasLifetimeTests(module, create) == S_OK);
     CHECK(RenderTests(module, create, now) == S_OK);
     CHECK(RenderTests(module, create, now, true) == S_OK);
     CHECK(LocationTests(module, create) == S_OK);

@@ -48,6 +48,7 @@ std::atomic<uint32_t> g_liveResourceSets{0};
 std::atomic<uint32_t> g_mapCount{0};
 std::atomic<uint32_t> g_drawCount{0};
 std::atomic<uint32_t> g_typographyCount{0};
+std::atomic<bool> g_failNextInitializationForTest{false};
 std::atomic<uint32_t> g_heroTwinCount{0};
 std::atomic<uint32_t> g_iconCellCount{0};
 
@@ -354,11 +355,21 @@ HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
         return S_OK;
     }
 
+    const auto cleanup = wil::scope_exit(
+        [this]() noexcept
+        {
+            if (!_instanceBuffer)
+                Reset();
+        });
     HRESULT result = BuildStaticAtlas();
     if (FAILED(result))
     {
         return result;
     }
+
+    // Cold-only private test fault, after the CPU allocation and raster work, before committing GPU resources.
+    if (g_failNextInitializationForTest.exchange(false, std::memory_order_relaxed))
+        return E_OUTOFMEMORY;
 
     wil::com_ptr_nothrow<ID3D11VertexShader> vertexShader;
     result =
@@ -422,7 +433,7 @@ HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
     atlasDescription.Usage = D3D11_USAGE_DEFAULT;
     atlasDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
     D3D11_SUBRESOURCE_DATA atlasData{};
-    atlasData.pSysMem = _atlasPixels.data();
+    atlasData.pSysMem = _atlasPixels.get();
     atlasData.SysMemPitch = kWeatherAtlasSize;
     wil::com_ptr_nothrow<ID3D11Texture2D> atlas;
     result = device->CreateTexture2D(&atlasDescription, &atlasData, atlas.put());
@@ -489,7 +500,7 @@ HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
         return result;
     }
 
-    Reset();
+    ResetGpuResources();
     _deviceIdentity = device;
     _vertexShader = std::move(vertexShader);
     _pixelShader = std::move(pixelShader);
@@ -508,6 +519,14 @@ HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
 }
 
 void WeatherGpuResources::Reset() noexcept
+{
+    ResetGpuResources();
+    _atlasPixels.reset();
+    _glyphCount = 0;
+    _atlasDirty = false;
+}
+
+void WeatherGpuResources::ResetGpuResources() noexcept
 {
     const bool hadResources = _instanceBuffer != nullptr;
     _vertexShader.reset();
@@ -530,7 +549,15 @@ void WeatherGpuResources::Reset() noexcept
 
 HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
 {
-    _atlasPixels.fill(0);
+    if (!_atlasPixels)
+    {
+        _atlasPixels.reset(static_cast<uint8_t*>(
+            VirtualAlloc(nullptr, kWeatherAtlasSize * kWeatherAtlasSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
+        if (!_atlasPixels)
+            return HRESULT_FROM_WIN32(GetLastError());
+    }
+    else
+        std::memset(_atlasPixels.get(), 0, kWeatherAtlasSize * kWeatherAtlasSize);
     _glyphCharacters.fill(0);
     _glyphAdvances.fill(0.0f);
     _glyphInk.fill({});
@@ -563,7 +590,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
         }
         float advance = 0.5f;
         result = RasterizeIntoAtlas(*session.factory, *session.face, static_cast<wchar_t>(character), atlasX, atlasY,
-                                    kWeatherGlyphCell, _atlasPixels.data(), advance, false, _glyphInk[slot]);
+                                    kWeatherGlyphCell, _atlasPixels.get(), advance, false, _glyphInk[slot]);
         if (FAILED(result))
         {
             return result;
@@ -584,7 +611,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
         }
         float advance = 0.5f;
         result = RasterizeIntoAtlas(*session.factory, *session.face, kStaticExtraGlyphs[extra], atlasX, atlasY,
-                                    kWeatherGlyphCell, _atlasPixels.data(), advance, false, _glyphInk[slot]);
+                                    kWeatherGlyphCell, _atlasPixels.get(), advance, false, _glyphInk[slot]);
         if (FAILED(result))
         {
             return result;
@@ -614,7 +641,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
             }
             float advance = 1.0f;
             result = RasterizeIntoAtlas(*session.factory, *session.iconFace, glyph, atlasX, atlasY, kWeatherGlyphCell,
-                                        _atlasPixels.data(), advance, true, _glyphInk[slot]);
+                                        _atlasPixels.get(), advance, true, _glyphInk[slot]);
             if (result == S_FALSE)
             {
                 continue;
@@ -636,7 +663,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
                 float largeAdvance = 1.0f;
                 result =
                     RasterizeIntoAtlas(*session.factory, *session.iconFace, glyph, largeX, largeY, kWeatherIconCell,
-                                       _atlasPixels.data(), largeAdvance, true, _glyphInk[largeSlot]);
+                                       _atlasPixels.get(), largeAdvance, true, _glyphInk[largeSlot]);
                 if (FAILED(result))
                 {
                     return result;
@@ -669,7 +696,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
         float largeAdvance = 0.5f;
         WeatherGlyphInk largeInk{};
         result = RasterizeIntoAtlas(*session.factory, *session.face, glyph, largeX, largeY, kWeatherIconCell,
-                                    _atlasPixels.data(), largeAdvance, false, largeInk);
+                                    _atlasPixels.get(), largeAdvance, false, largeInk);
         if (FAILED(result))
         {
             return result;
@@ -788,7 +815,7 @@ HRESULT WeatherGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t characte
         }
         float advance = 0.5f;
         result = RasterizeIntoAtlas(*session.factory, *session.face, character, atlasX, atlasY, kWeatherGlyphCell,
-                                    _atlasPixels.data(), advance, false, _glyphInk[slot]);
+                                    _atlasPixels.get(), advance, false, _glyphInk[slot]);
         if (FAILED(result))
         {
             return result;
@@ -920,7 +947,7 @@ void WeatherGpuResources::UploadAtlas() noexcept
     {
         return;
     }
-    context->UpdateSubresource(_atlas.get(), 0, nullptr, _atlasPixels.data(), kWeatherAtlasSize, 0);
+    context->UpdateSubresource(_atlas.get(), 0, nullptr, _atlasPixels.get(), kWeatherAtlasSize, 0);
     _atlasDirty = false;
 }
 
@@ -1021,6 +1048,24 @@ uint32_t WeatherGpuIconCellCount() noexcept
 WeatherGpuResources* WeatherGpuGet() noexcept
 {
     return g_users > 0 ? &g_resources : nullptr;
+}
+
+uint32_t WeatherGpuCpuAtlasBytes() noexcept
+{
+    AcquireSRWLockShared(&g_gpuLock);
+    const uint32_t bytes = g_resources.CpuAtlasBytes();
+    ReleaseSRWLockShared(&g_gpuLock);
+    return bytes;
+}
+
+uint32_t WeatherGpuResourceSetCount() noexcept
+{
+    return g_liveResourceSets.load(std::memory_order_relaxed);
+}
+
+void WeatherGpuFailNextInitializationForTest() noexcept
+{
+    g_failNextInitializationForTest.store(true, std::memory_order_relaxed);
 }
 
 void WeatherGpuLock() noexcept

@@ -34,6 +34,7 @@ std::atomic<uint32_t> g_liveResourceSets{0};
 std::atomic<uint32_t> g_mapCount{0};
 std::atomic<uint32_t> g_drawCount{0};
 std::atomic<uint32_t> g_typographyCount{0};
+std::atomic<bool> g_failNextInitializationForTest{false};
 
 [[nodiscard]] HRESULT CreateViewerFontFace(IDWriteFactory& factory,
                                            wil::com_ptr_nothrow<IDWriteFontFace>& face) noexcept
@@ -206,11 +207,21 @@ HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
         return S_OK;
     }
 
+    const auto cleanup = wil::scope_exit(
+        [this]() noexcept
+        {
+            if (!_instanceBuffer)
+                Reset();
+        });
     HRESULT result = BuildStaticAtlas();
     if (FAILED(result))
     {
         return result;
     }
+
+    // Cold-only private test fault, after the CPU allocation and raster work, before committing GPU resources.
+    if (g_failNextInitializationForTest.exchange(false, std::memory_order_relaxed))
+        return E_OUTOFMEMORY;
 
     wil::com_ptr_nothrow<ID3D11VertexShader> vertexShader;
     result =
@@ -274,7 +285,7 @@ HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
     atlasDescription.Usage = D3D11_USAGE_DEFAULT;
     atlasDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
     D3D11_SUBRESOURCE_DATA atlasData{};
-    atlasData.pSysMem = _atlasPixels.data();
+    atlasData.pSysMem = _atlasPixels.get();
     atlasData.SysMemPitch = kViewerAtlasSize;
     wil::com_ptr_nothrow<ID3D11Texture2D> atlas;
     result = device->CreateTexture2D(&atlasDescription, &atlasData, atlas.put());
@@ -341,7 +352,7 @@ HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
         return result;
     }
 
-    Reset();
+    ResetGpuResources();
     _deviceIdentity = device;
     _vertexShader = std::move(vertexShader);
     _pixelShader = std::move(pixelShader);
@@ -360,6 +371,14 @@ HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
 }
 
 void ViewerGpuResources::Reset() noexcept
+{
+    ResetGpuResources();
+    _atlasPixels.reset();
+    _glyphCount = 0;
+    _atlasDirty = false;
+}
+
+void ViewerGpuResources::ResetGpuResources() noexcept
 {
     const bool hadResources = _instanceBuffer != nullptr;
     _vertexShader.reset();
@@ -382,7 +401,15 @@ void ViewerGpuResources::Reset() noexcept
 
 HRESULT ViewerGpuResources::BuildStaticAtlas() noexcept
 {
-    _atlasPixels.fill(0);
+    if (!_atlasPixels)
+    {
+        _atlasPixels.reset(static_cast<uint8_t*>(
+            VirtualAlloc(nullptr, kViewerAtlasSize * kViewerAtlasSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
+        if (!_atlasPixels)
+            return HRESULT_FROM_WIN32(GetLastError());
+    }
+    else
+        std::memset(_atlasPixels.get(), 0, kViewerAtlasSize * kViewerAtlasSize);
     _glyphCharacters.fill(0);
     _glyphAdvances.fill(0.0f);
     _glyphCount = 0;
@@ -400,7 +427,7 @@ HRESULT ViewerGpuResources::BuildStaticAtlas() noexcept
         const uint32_t atlasY = (slot / kViewerGlyphColumns) * kViewerGlyphCell;
         float advance = 0.5f;
         result = RasterizeIntoAtlas(*session.factory, *session.face, static_cast<wchar_t>(character), atlasX, atlasY,
-                                    _atlasPixels.data(), advance);
+                                    _atlasPixels.get(), advance);
         if (FAILED(result))
         {
             return result;
@@ -416,7 +443,7 @@ HRESULT ViewerGpuResources::BuildStaticAtlas() noexcept
         const uint32_t atlasY = (slot / kViewerGlyphColumns) * kViewerGlyphCell;
         float advance = 0.5f;
         result = RasterizeIntoAtlas(*session.factory, *session.face, kStaticExtraGlyphs[extra], atlasX, atlasY,
-                                    _atlasPixels.data(), advance);
+                                    _atlasPixels.get(), advance);
         if (FAILED(result))
         {
             return result;
@@ -501,8 +528,8 @@ HRESULT ViewerGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t character
         const uint32_t atlasX = (slot % kViewerGlyphColumns) * kViewerGlyphCell;
         const uint32_t atlasY = (slot / kViewerGlyphColumns) * kViewerGlyphCell;
         float advance = 0.5f;
-        result = RasterizeIntoAtlas(*session.factory, *session.face, character, atlasX, atlasY, _atlasPixels.data(),
-                                    advance);
+        result =
+            RasterizeIntoAtlas(*session.factory, *session.face, character, atlasX, atlasY, _atlasPixels.get(), advance);
         if (FAILED(result))
         {
             return result;
@@ -586,7 +613,7 @@ void ViewerGpuResources::UploadAtlas() noexcept
     {
         return;
     }
-    context->UpdateSubresource(_atlas.get(), 0, nullptr, _atlasPixels.data(), kViewerAtlasSize, 0);
+    context->UpdateSubresource(_atlas.get(), 0, nullptr, _atlasPixels.get(), kViewerAtlasSize, 0);
     _atlasDirty = false;
 }
 
@@ -677,6 +704,24 @@ void ViewerGpuRelease() noexcept
 ViewerGpuResources* ViewerGpuGet() noexcept
 {
     return g_users > 0 ? &g_resources : nullptr;
+}
+
+uint32_t ViewerGpuCpuAtlasBytes() noexcept
+{
+    AcquireSRWLockShared(&g_gpuLock);
+    const uint32_t bytes = g_resources.CpuAtlasBytes();
+    ReleaseSRWLockShared(&g_gpuLock);
+    return bytes;
+}
+
+uint32_t ViewerGpuResourceSetCount() noexcept
+{
+    return g_liveResourceSets.load(std::memory_order_relaxed);
+}
+
+void ViewerGpuFailNextInitializationForTest() noexcept
+{
+    g_failNextInitializationForTest.store(true, std::memory_order_relaxed);
 }
 
 void ViewerGpuLock() noexcept

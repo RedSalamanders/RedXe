@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-10-10
+Last reviewed: 2026-10-11
 
 ## Mandate
 
@@ -67,6 +67,11 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   quiescent, cancellation/replacement of a prepared neighbor and successful primary adoption clear the context before
   `OnDeviceLost`. This cold operation does not flush or recreate the device/swap chain, allocate storage or run per
   frame. Failed adoption retains the existing pages. The next draw rebinds required state under the GPU contract.
+- ProcessViewer and Weather share one reusable CPU glyph atlas of one MiB per DLL while GPU users exist. Cold widget
+  construction owns no atlas allocation. The last GPU user, device loss and failed initial resource construction
+  MUST release that CPU allocation. A surviving user retains the shared atlas; a revisit reconstructs identical
+  glyph pixels. Each atlas uses one virtual-memory owner, keeping cold release independent of CRT heap retention
+  and sanitizer quarantine. No per-instance atlas, worker, timer or steady-frame allocation is added.
 - Derived display state such as DPI, design-canvas transforms, and widget viewports must be cached and recomputed only
   when its inputs change.
   Provider staging retains at most 1 KiB of compact keys instead of 32 copied 8 KiB envelopes. Key comparisons
@@ -363,6 +368,24 @@ allocation checks pass in all 16 Release scopes and 15 Debug/15 ASan Debug nativ
 16,437,760 bytes. ARM64 Release compiles and all 10 skills pass. Receipts:
 `.build/receipts/runtime-2026-10-10-p21-nt-query-before`, `-p21-before`,
 `-p21-after-1`, `-p21-after-2` and `-p21`.
+
+The independent CPU-atlas lifetime cut replaces ProcessViewer and Weather's inline one-MiB arrays with lazy,
+shared virtual-memory owners. Real DLL tests reject the old lifetime and verify cold construction, two users,
+surviving-user draws, repeated device loss, last release, failure after CPU construction and retry. Process Viewer
+Unicode readback remains identical across shared recovery and complete re-acquisition; all eight Weather WARP
+images remain byte-identical to their prior Release outputs, including hero twins, accents, alerts and raised view.
+One matched build-282 Release D-cycle pair across 2026-10-10/11 has identical scene, rectangle, DPI, platform and
+DxUi identity. Only ProcessViewer.dll and Weather.dll change among its runtime binaries. Cold Matrix private is
+38.23 / 35.51 MiB; returned private 106.39 / 105.06 and working set 98.16 / 96.16. Return-over-cold remains
+68.16 / 69.55 MiB, so this pair does not accept the proposed cold-plus-four-MiB budget. Local adapter usage remains
+25.01 MiB cold and 46.26 returned. Returned submissions are 60.150 / 60.102 per second, hidden/minimized zero;
+CPU 2.057 / 1.692 percent of one core establishes no causal saving from one pair. The storage tests establish
+exact release of the two CPU owners; the process measurements do not attribute every retained heap or driver byte.
+All 16 Release scopes, 15 Debug and 15 ASan Debug native scopes, ARM64 Release compilation and 10 skill checks pass.
+ASan keeps its default quarantine and reports process-byte growth diagnostically; ordinary soaks retain the
+four-MiB private/eight-MiB working-set guards.
+Receipts: `.build/receipts/runtime-2026-10-10-p28-before`,
+`.build/receipts/runtime-2026-10-11-atlas-after`, `-atlas-red`, `-atlas-weather-pixels-before` and `-p28-atlas`.
 
 The measured baseline System Data source is an accepted bounded local pull source. Its fixed x64 source object is
 786,936 bytes and owns no worker or timer. Three Release row-cap runs of the production per-process row path, using

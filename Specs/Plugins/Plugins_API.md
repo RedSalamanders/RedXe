@@ -1,7 +1,7 @@
 # RedXe plugin API contract
 
 Status: current normative contract
-Last reviewed: 2026-10-10
+Last reviewed: 2026-10-11
 
 ## Purpose and scope
 
@@ -188,6 +188,9 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   The host never calls these exports. The current surface is: `RedXeMatrixRainGetTestDiagnostics`, `RedXeShadersGetTestDiagnostics`,
   `RedXeProcessViewerGetTestDiagnostics`, `RedXeStudioClockGetTestDiagnostics`, `RedXeStudioClockSetTestTime`,
   `RedXeDeskClockGetTestDiagnostics`, `RedXeDeskClockSetTestTime`, `RedXeWeatherGetTestDiagnostics`, and
+  the cold initialization faults `RedXeProcessViewerFailNextAtlasInitialization` and
+  `RedXeWeatherFailNextAtlasInitialization` (one failure after CPU atlas construction, consumed by the next actual
+  resource initialization rather than a shared-resource acquisition),
   `RedXeWeatherProbeHttpGetOnSmallStack`, `RedXeWeatherBuildTestLocationSearchUrl`,
   `RedXeAVControlUseSyntheticBackend` and `RedXeAVControlTestSnapshot`, and the Logicon surface
   `RedXeLogiconGetTestDiagnostics`, `RedXeLogiconUseSyntheticDevice`, `RedXeLogiconUseSyntheticDialpad`,
@@ -1161,8 +1164,11 @@ request continuous frames.
 
 Shared GPU resources live once per Process Viewer device, not once per widget instance: build-time Shader Model 5.0
 blobs, one instanced panel/bar/heatmap/glyph pipeline, one 1024×1024 `R8` atlas, and one dynamic instance buffer.
-DirectWrite and system fonts load only while filling new atlas glyphs, then release. Visible process, adapter, and
-interface names rasterize only when the displayed string set changes. Each visible widget frame maps its instance
+The reusable CPU atlas is one lazy one-MiB allocation shared by all GPU users of the DLL; cold widgets own none,
+and the last user's device release and failed initial construction free it. Recreating it MUST preserve glyph
+pixels and a surviving user's atlas. DirectWrite and system fonts load only while filling new atlas glyphs, then
+release. Visible process, adapter and interface names rasterize only when the displayed string set changes. Each
+visible widget frame maps its instance
 buffer and issues one `DrawInstanced`. The generic widget root MUST NOT grow plugin drawing records. Snapshot delivery
 updates fixed storage on the acquisition worker and MUST NOT render; the host coalesced UI invalidation starts the
 ease. Hidden, minimized, display-off, occluded, and detached widgets stop eases, drain subscriptions, and do not
