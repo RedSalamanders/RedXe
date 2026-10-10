@@ -8403,6 +8403,101 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
     currentDashboard.Shutdown();
 }
 
+constexpr uint64_t kSoakPrivateGrowthBudget = 4ULL * 1024 * 1024;
+constexpr uint64_t kSoakWorkingSetGrowthBudget = 8ULL * 1024 * 1024;
+constexpr auto kClockSoakWarmup = std::chrono::seconds(20);
+
+[[nodiscard]] constexpr bool SoakGrowthWithinBudget(uint64_t before, uint64_t peak, uint64_t budget) noexcept
+{
+    return peak <= before || peak - before <= budget;
+}
+
+struct SoakMemoryWindow final
+{
+    ProcessMemorySnapshot peak{};
+    std::chrono::steady_clock::time_point nextSample{};
+
+    void Begin(const ProcessMemorySnapshot& before) noexcept
+    {
+        peak = before;
+        nextSample = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    }
+
+    void Observe(const ProcessMemorySnapshot& sample) noexcept
+    {
+        peak.privateBytes = (std::max)(peak.privateBytes, sample.privateBytes);
+        peak.workingSetBytes = (std::max)(peak.workingSetBytes, sample.workingSetBytes);
+    }
+
+    [[nodiscard]] HRESULT Sample(std::chrono::steady_clock::time_point now) noexcept
+    {
+        if (now < nextSample)
+            return S_OK;
+        ProcessMemorySnapshot sample{};
+        const HRESULT result = QueryProcessMemorySnapshot(sample);
+        if (SUCCEEDED(result))
+            Observe(sample);
+        nextSample = now + std::chrono::seconds(5);
+        return result;
+    }
+
+    void CheckGrowth(const ProcessMemorySnapshot& before, const ProcessMemorySnapshot& after, bool& success) noexcept
+    {
+        Observe(after);
+#if !defined(__SANITIZE_ADDRESS__)
+        Check(SoakGrowthWithinBudget(before.privateBytes, peak.privateBytes, kSoakPrivateGrowthBudget),
+              L"Warmed soak peak private growth stays within four MiB.", success);
+        Check(SoakGrowthWithinBudget(before.workingSetBytes, peak.workingSetBytes, kSoakWorkingSetGrowthBudget),
+              L"Warmed soak peak working-set growth stays within eight MiB.", success);
+#else
+        // ASan quarantine/shadow retain freed allocations. Keep the normal sanitizer settings and the functional
+        // resource/lifetime assertions, but do not compare instrumented process bytes with the ordinary WARP bar.
+        (void)success;
+        std::wcout << L"soak_memory_guard=diagnostic-only-sanitized\n";
+#endif
+        std::wcout << L"soak_memory_peak private_bytes_delta=" << (peak.privateBytes - before.privateBytes)
+                   << L" working_set_delta=" << (peak.workingSetBytes - before.workingSetBytes) << L'\n';
+    }
+};
+
+struct ClockSoakTimeline final
+{
+    std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point previous = started;
+};
+
+[[nodiscard]] HRESULT WarmScheduledClockHost(DashboardHost& dashboard, Renderer& renderer,
+                                             ClockSoakTimeline& timeline) noexcept
+{
+    const auto deadline = timeline.started + kClockSoakWarmup;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        uint32_t delay = 0;
+        const HRESULT scheduled = dashboard.GetNextFrameDelayMilliseconds(&delay);
+        if (scheduled != S_OK || delay == 0 || delay > 1001)
+            return FAILED(scheduled) ? scheduled : E_UNEXPECTED;
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+        const auto now = std::chrono::steady_clock::now();
+        const float elapsed = std::chrono::duration<float>(now - timeline.started).count();
+        const float delta = std::chrono::duration<float>(now - timeline.previous).count();
+        timeline.previous = now;
+        const HRESULT result = renderer.Render(elapsed, delta);
+        if (FAILED(result))
+            return result;
+    }
+    return S_OK;
+}
+
+void TestSoakGrowthBudgets(bool& success) noexcept
+{
+    Check(SoakGrowthWithinBudget(100, 100 + kSoakPrivateGrowthBudget, kSoakPrivateGrowthBudget) &&
+              !SoakGrowthWithinBudget(100, 101 + kSoakPrivateGrowthBudget, kSoakPrivateGrowthBudget) &&
+              SoakGrowthWithinBudget(100, 0, kSoakPrivateGrowthBudget) &&
+              !SoakGrowthWithinBudget(0, UINT64_MAX, kSoakPrivateGrowthBudget),
+          L"Soak guards accept the exact cap and reductions, reject excess growth, and avoid unsigned wraparound.",
+          success);
+}
+
 [[nodiscard]] bool RunStudioClockHostSoak(std::chrono::seconds duration) noexcept
 {
     bool success = true;
@@ -8448,6 +8543,9 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
     StudioClockTestDiagnostics diagnosticsAfter{};
     ProcessMemorySnapshot memoryBefore{};
     ProcessMemorySnapshot memoryAfter{};
+    ClockSoakTimeline timeline;
+    if (SUCCEEDED(result))
+        result = WarmScheduledClockHost(dashboard, renderer, timeline);
     if (SUCCEEDED(result))
     {
         result = ReadStudioClockDiagnostics(diagnosticsBefore);
@@ -8457,11 +8555,14 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
         result = QueryProcessMemorySnapshot(memoryBefore);
     }
 
+    SoakMemoryWindow memoryWindow;
+    memoryWindow.Begin(memoryBefore);
+
     uint64_t frames = 1;
     uint64_t correctiveFrames = 0;
     const auto started = std::chrono::steady_clock::now();
     const auto deadline = started + duration;
-    auto previous = started;
+    auto previous = timeline.previous;
     while (SUCCEEDED(result) && std::chrono::steady_clock::now() < deadline)
     {
         uint32_t delay = 0;
@@ -8482,11 +8583,13 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
         {
             break;
         }
-        const float elapsed = std::chrono::duration<float>(now - started).count();
+        const float elapsed = std::chrono::duration<float>(now - timeline.started).count();
         const float delta = std::chrono::duration<float>(now - previous).count();
         previous = now;
         result = renderer.Render(elapsed, delta);
         ++frames;
+        if (SUCCEEDED(result))
+            result = memoryWindow.Sample(now);
     }
     if (SUCCEEDED(result))
     {
@@ -8497,6 +8600,7 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
         result = QueryProcessMemorySnapshot(memoryAfter);
     }
     Check(SUCCEEDED(result), L"Studio Clock scheduled soak frames render without failure", success);
+    memoryWindow.CheckGrowth(memoryBefore, memoryAfter, success);
     const uint64_t expectedSeconds = static_cast<uint64_t>(duration.count());
     Check(correctiveFrames <= 1 && frames >= expectedSeconds && frames <= expectedSeconds + 1 + correctiveFrames,
           L"Studio Clock soak renders no more than one scheduled frame per displayed second plus one correction",
@@ -8512,8 +8616,9 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
     result = ReadStudioClockDiagnostics(diagnosticsAfter);
     Check(SUCCEEDED(result) && diagnosticsAfter.timeSampleCount == hiddenSampleCount,
           L"a hidden Studio Clock interval performs no plugin-owned clock work", success);
-    std::wcout << L"studio_clock_host_soak seconds=" << duration.count() << L" frames=" << frames
-               << L" corrective_frames=" << correctiveFrames << L" private_bytes_delta="
+    std::wcout << L"studio_clock_host_soak warmup_seconds=" << kClockSoakWarmup.count() << L" seconds="
+               << duration.count() << L" frames=" << frames << L" corrective_frames=" << correctiveFrames
+               << L" private_bytes_delta="
                << (static_cast<std::int64_t>(memoryAfter.privateBytes) -
                    static_cast<std::int64_t>(memoryBefore.privateBytes))
                << L" working_set_delta="
@@ -8578,6 +8683,9 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
     DeskClockTestDiagnostics diagnosticsAfter{};
     ProcessMemorySnapshot memoryBefore{};
     ProcessMemorySnapshot memoryAfter{};
+    ClockSoakTimeline timeline;
+    if (SUCCEEDED(result))
+        result = WarmScheduledClockHost(dashboard, renderer, timeline);
     if (SUCCEEDED(result))
     {
         result = ReadDeskClockDiagnostics(diagnosticsBefore);
@@ -8587,12 +8695,15 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
         result = QueryProcessMemorySnapshot(memoryBefore);
     }
 
+    SoakMemoryWindow memoryWindow;
+    memoryWindow.Begin(memoryBefore);
+
     uint64_t frames = 0;
     uint64_t activeDelayCount = 0;
     uint64_t idleDelayCount = 0;
     const auto started = std::chrono::steady_clock::now();
     const auto deadline = started + duration;
-    auto previous = started;
+    auto previous = timeline.previous;
     while (SUCCEEDED(result) && std::chrono::steady_clock::now() < deadline)
     {
         uint32_t delay = 0;
@@ -8617,11 +8728,13 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
         {
             break;
         }
-        const float elapsed = std::chrono::duration<float>(now - started).count();
+        const float elapsed = std::chrono::duration<float>(now - timeline.started).count();
         const float delta = std::chrono::duration<float>(now - previous).count();
         previous = now;
         result = renderer.Render(elapsed, delta);
         ++frames;
+        if (SUCCEEDED(result))
+            result = memoryWindow.Sample(now);
     }
     if (SUCCEEDED(result))
     {
@@ -8632,6 +8745,7 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
         result = QueryProcessMemorySnapshot(memoryAfter);
     }
     Check(SUCCEEDED(result), L"Desk Clock scheduled soak frames render without failure", success);
+    memoryWindow.CheckGrowth(memoryBefore, memoryAfter, success);
     const uint64_t expectedSeconds = static_cast<uint64_t>(duration.count());
     Check(frames >= expectedSeconds && frames <= expectedSeconds * 1002 + 1,
           L"Desk Clock soak stays bounded to its second boundary and flip bursts", success);
@@ -8650,8 +8764,9 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
     result = ReadDeskClockDiagnostics(diagnosticsAfter);
     Check(SUCCEEDED(result) && diagnosticsAfter.timeSamples == hiddenSampleCount,
           L"a hidden Desk Clock interval performs no plugin-owned clock work", success);
-    std::wcout << L"desk_clock_host_soak seconds=" << duration.count() << L" frames=" << frames << L" active_delays="
-               << activeDelayCount << L" idle_delays=" << idleDelayCount << L" private_bytes_delta="
+    std::wcout << L"desk_clock_host_soak warmup_seconds=" << kClockSoakWarmup.count() << L" seconds="
+               << duration.count() << L" frames=" << frames << L" active_delays=" << activeDelayCount
+               << L" idle_delays=" << idleDelayCount << L" private_bytes_delta="
                << (static_cast<std::int64_t>(memoryAfter.privateBytes) -
                    static_cast<std::int64_t>(memoryBefore.privateBytes))
                << L" working_set_delta="
@@ -8720,6 +8835,9 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
         result = QueryProcessMemorySnapshot(memoryBefore);
     }
 
+    SoakMemoryWindow memoryWindow;
+    memoryWindow.Begin(memoryBefore);
+
     uint64_t frames = 0;
     const auto started = std::chrono::steady_clock::now();
     const auto deadline = started + duration;
@@ -8732,6 +8850,8 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
         previous = now;
         result = renderer.Render(elapsed, delta);
         ++frames;
+        if (SUCCEEDED(result))
+            result = memoryWindow.Sample(now);
         std::this_thread::sleep_for(std::chrono::milliseconds(16));
     }
     if (SUCCEEDED(result))
@@ -8744,6 +8864,7 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
     }
 
     Check(SUCCEEDED(result), L"soak frames render without failure", success);
+    memoryWindow.CheckGrowth(memoryBefore, memoryAfter, success);
     Check(diagnosticsAfter.liveProviderCount == diagnosticsBefore.liveProviderCount &&
               diagnosticsAfter.liveWidgetCount == diagnosticsBefore.liveWidgetCount &&
               diagnosticsAfter.liveDeviceResourceSetCount == diagnosticsBefore.liveDeviceResourceSetCount,
@@ -8857,6 +8978,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     PluginHost::Instance().SetNetworkAccessEnabled(false);
     PluginHost::Instance().SetControlAccessEnabled(false);
     TestFrameScheduler(success);
+    TestSoakGrowthBudgets(success);
     TestRuntimeProbe(success);
     TestAdapterSelectionPolicy(success);
     TestRendererDeviceIdentity(success);

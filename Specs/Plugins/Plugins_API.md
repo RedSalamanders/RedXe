@@ -1447,7 +1447,10 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
    CPU submission time, D3D timestamp time, private bytes, working set, and steady heap block/byte deltas.
 10. Run Release `HostPluginTests.exe --matrix-soak` for five minutes. The production host stack MUST render throughout,
     retain exactly one provider, widget, and device-resource set, report its memory deltas, and release the device set
-    on shutdown.
+    on shutdown. The automated `HostPlugin` scope additionally runs the 60-second variant after a 1,024-frame
+    warm-up, with five-second/end samples enforcing peak private/working-set growth of at most 4/8 MiB in
+    uninstrumented builds. ASan keeps its normal quarantine, reports process bytes diagnostically, and asserts
+    the same resource, scheduling and teardown requirements.
 11. Verify through `HostPluginTests` that Release statically discovers every gallery plugin but creates only the
     first-page Matrix runtime, gives it the full design canvas, survives suspend/restore and transactional
     reconfiguration, preserves the active widget after a rejected dashboard, and leaves no Matrix objects after host
@@ -1566,7 +1569,10 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     falloff, `secondsColor`, and 0.55 date weight, and no light on any border pixel of height-limited dated tiles),
     device recreation, zero steady render allocations with glow, one-upload/two-draw and 402-dot/804-instance bounds,
     resource sharing, five-minute scheduled host soak, and complete teardown through `StudioClockTests` and
-    `HostPluginTests`. `StudioClockTests` MUST prove the DLL publishes exactly the defaults and schema of
+    `HostPluginTests`. Its automated 60-second soak warms for 20 scheduled seconds, samples every five seconds
+    and at the end, and enforces peak private/working-set growth of at most 4/8 MiB above that warmed baseline
+    in uninstrumented builds; ASan reports process bytes diagnostically while enforcing functional resource bounds.
+    `StudioClockTests` MUST prove the DLL publishes exactly the defaults and schema of
     `StudioClockSettings.h`; `SettingsTests` MUST prove that the Specs `studioClockSettings` definition (members,
     defaults, date formats, `glowPercent` range), its widget variant, and the published schema match that catalog,
     that the host merges its defaults, and that both host validators accept its date formats and `glowPercent`
@@ -1581,7 +1587,9 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     allocations, the one-upload/four-draw and 46-instance bounds, absence of persistent DirectWrite, the runtime shader
     compiler, WIC, and loose font/image assets, five-minute scheduled production-host soak, and complete teardown
     through `DeskClockTests`,
-    `SettingsTests`, and `HostPluginTests`.
+    `SettingsTests`, and `HostPluginTests`. Its automated 60-second soak uses the same 20-second scheduled warm-up
+    and uninstrumented 4/8 MiB peak private/working-set guards as Studio Clock. These whole-process WARP guards include runtime
+    caches and do not replace the longer resource/visual qualification.
 19. Verify Launcher factory/settings rejection (unknown members, 33 items, empty launch target, `iconPng`, a
     non-launch item without `icon`, overlong string), the warning tile for a relative or schemeless launch target,
     a glyph-icon non-launch item dispatched through `ExecuteAction`, injected pin-directory fallback, automated empty list without live taskbar reads,

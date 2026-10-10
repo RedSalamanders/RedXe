@@ -1,7 +1,7 @@
 # RedXe build-process contract
 
 Status: current normative repository contract
-Last reviewed: 2026-10-07
+Last reviewed: 2026-10-10
 Owner: root build and test entrypoints
 
 ## Scope
@@ -58,6 +58,18 @@ limiting produces an advisory notice and leaves the exact pin unchanged.
 Build outputs remain under `.build/<Platform>/<Configuration>/`, with intermediates under `.build/Intermediate/`.
 The root `test.ps1` exits zero only after every required assertion has passed. Expected nonzero exits from isolated
 negative-test children must not become the test entrypoint's success exit code.
+
+The `HostPlugin` scope also runs isolated 60-second Matrix, Studio Clock and Desk Clock production-host WARP
+soaks. Matrix warms for 1,024 frames; each clock warms for 20 seconds using its real scheduled deadlines. During
+the measured interval, five-second samples and the final sample of uninstrumented builds MUST stay within 4 MiB
+private-byte and 8 MiB working-set growth above the warmed baseline. ASan reports memory diagnostically with
+its normal quarantine/shadow settings; the uninstrumented process-byte bar does not apply to that allocator.
+Every profile MUST retain its fixed object/resource counts,
+preserve its scheduling/draw bounds and release device resources on shutdown. Clock no-render intervals MUST
+produce no plugin-owned clock work. Each child has the normal bounded test-process budget and a separate
+`HostPluginTests.<name>-soak.log`; any failed assertion or child failure fails the scope. These coarse,
+whole-process WARP regression guards include runtime/driver caches; they do not establish hardware latency,
+zero allocations or the separate five-minute qualification required by the plugin contracts.
 
 A test process never waits on a dialog. Every native test executable calls `Common/FailureReports.h` first thing in
 `wmain`, `RedXe.exe` calls it as soon as its command line has `--self-test` or `--screenshot`, before either

@@ -11,6 +11,15 @@ The default uses local merge-base changes plus staged, unstaged and untracked wo
 
 Native test files use `Scope.Tests.Something.h/.cpp`; register new active files in `native-test-files.json`. Outside `Tests/`, a `Test`, `Mock` or `Fake` name component (`FakeClock.h`) or a `.Tests.` segment marks a test source; `Attestation.h` or `LatestRelease.cpp` does not. `test-scopes.json` owns standalone scope/PR metadata and the suite names `test.ps1` runs; `ScopedTesting.Tests.ps1` fails when a rule misses a suite that builds its paths or matches nothing. Shared-library or runtime byte changes conservatively invalidate local standalone reuse. No consumer dependency pin changes are part of this workflow.
 
+The `HostPlugin` scope includes isolated 60-second Matrix, Studio Clock and Desk Clock WARP resource guards.
+Matrix warms for 1,024 frames; clocks warm for 20 seconds at their scheduled cadence. Five-second and final
+samples in uninstrumented builds enforce peak growth of at most 4 MiB private bytes and 8 MiB working set above the warmed baseline,
+alongside fixed object/resource counts, scheduling/draw bounds and device teardown. Per-soak logs are saved in
+`.build/<Platform>/<Configuration>/HostPluginTests.<name>-soak.log`. The separate five-minute plugin qualification
+still uses `HostPluginTests.exe --matrix-soak`, `--studio-clock-soak` or `--desk-clock-soak` with `--seconds=300`.
+ASan retains its default quarantine and lifetime checks; it reports process bytes diagnostically and checks the
+same object/resource counts, scheduling and teardown, without applying the uninstrumented byte-growth bar.
+
 For independent resource investigations, force fresh execution and retain paired fixture/build provenance. Timing, native ARM64, real devices, IME/assistive technology and foreground input remain separate qualification requirements. These commands do not manufacture those claims.
 ```powershell
 ./Test-Changes.ps1 -Scopes <name> -SkipBuild

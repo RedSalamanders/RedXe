@@ -428,6 +428,24 @@ if ($hostPluginFailure -or $hostPluginExit -ne 0) {
 }
 Write-Host "Host integration log: $hostPluginLog" -ForegroundColor DarkGray
 
+foreach ($soak in @('matrix','studio-clock','desk-clock')) {
+    $soakLog = Join-Path $repoRoot ".build\$Platform\$Configuration\HostPluginTests.$soak-soak.log"
+    Write-Host "Running the 60-second $soak production-host resource guard..." -ForegroundColor Cyan
+    try {
+        $soakExit = Invoke-RedXeStreamingProcess -FilePath $hostPluginTests -Arguments @("--$soak-soak", '--seconds=60') `
+            -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath $soakLog `
+            -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
+    } catch {
+        Get-Content -LiteralPath $soakLog -Tail 40
+        throw
+    }
+    if ($soakExit -ne 0) {
+        Get-Content -LiteralPath $soakLog -Tail 40
+        throw "$soak host soak failed with exit code $soakExit. Log: $soakLog"
+    }
+    Write-Host "Resource guard log: $soakLog" -ForegroundColor DarkGray
+}
+
 
 }
 

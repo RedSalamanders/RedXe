@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-10 against `373372f` on `codex/runtime-probe`; P0.1 `0971350`, P2.7 `a466363`
+Refreshed: 2026-10-10 against `146a04f` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -37,6 +37,7 @@ Owning contracts:
 - [`../../Core/Core_Settings.md`](../../Core/Core_Settings.md)
 - [`../../Core/Core_DxUiIntegration.md`](../../Core/Core_DxUiIntegration.md)
 - [`../../Plugins/Plugins_AVControl.md`](../../Plugins/Plugins_AVControl.md) (AV surface and helper process only)
+- [`../../Build/Build_Process.md`](../../Build/Build_Process.md) (automated production-host resource guards)
 
 Coordinate, do not fork:
 
@@ -67,8 +68,36 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P2.4 | Complete | Render failure debug output shares the JSONL transition guard. 400 failing primary frames emit three reports; a new primary instance emits its own report. Whole-frame recovery resets identity; partial tile/raised recovery does not. Adds a 4-byte mask and no steady slot scan/allocation. Release 16 scopes, Debug 15 native scopes and ARM64 Release compilation pass; `.build/receipts/runtime-2026-10-10-p24/`. This removes repeated failure-path debug calls, not measured ordinary CPU. |
 | P2.2 | Complete | 24-byte UI-thread reachable-rectangle cache. Production self-test proves 1,000 unchanged queries add zero display walks; a work-area notification adds exactly one. Window lifetime/geometry/style, DPI, topology and settings notifications invalidate before dispatch. All 16 Release scopes, 15 Debug native scopes, ARM64 Release compilation and 10 skills pass. Matched 65 s captures are in `runtime-2026-10-10-p22-before` / `-after`; no CPU saving established. |
 | P3.2 | Complete | 1,024-byte key array, collision-safe comparison against original instance bytes, no new allocation/re-serialization. Compile-time transaction arrays <28 KiB. Actual PDB frames: Release Initialize/Reconfigure 26,208 bytes, StageActivePage 8,992; Debug 27,912/12,784 (prior Debug Initialize/Reconfigure 289,544). Forced collision, same-length distinct/equal configuration, background and invalid-index tests plus actual provider reuse/reconfiguration pass. Release 16 scopes, Debug 15 native scopes, ARM64 Release compilation and skills pass; `runtime-2026-10-10-p32`. P2.2 commit `abee7cc`. |
-| P0.3 | In progress | Preserved P2.2 candidate, five-minute current Desk Clock soak: 8,444 frames, 9,633,792 private-byte growth, 21,151,744 working-set growth. Provider/widget/device counts stay exactly one and shutdown releases resources. This reproduces the historical 9.2 MiB observation; it does not yet attribute it or set an accepted growth bar. Raw calibration and exact candidate identity are retained in `runtime-2026-10-10-p03-calibration`. |
+| P0.3 | Complete | Three isolated 60 s soaks now run in the HostPlugin scope. Clocks warm at scheduled cadence for 20 s; Matrix warms for 1,024 frames. Five-second/end samples enforce uninstrumented peak growth of 4 MiB private / 8 MiB working set, plus resource/cadence/teardown bounds in every profile. Release and Debug each pass 16 scopes; ASan Debug passes 15 native scopes with default quarantine and diagnostic byte reporting; ARM64 Release compiles and 10 skills pass. Final Release private peaks: Matrix 0, Studio 1,306,624, Desk 942,080 bytes. `runtime-2026-10-10-p03`. |
 | P2.3 | Complete | Move-only 16-byte status pins; one atomic read per placeholder decision, no locked ID scan in Render/Prepare. Adds at most 1.5 KiB across two full pages, no allocation/thread/wake. 10,000 reads complete under the exclusively held status lock; concurrent reports, move/reuse/shutdown, same-ID replacement and 64-slot capacity pass. Slot destruction/move drains network registration and interface/callback lifetime before final release, including rollback. 100,000 Release reads: cached 72.8 us / last-slot cold lookup 80.6 ms, diagnostic only. Release 16 scopes; Debug and ASan Debug 15 native scopes; ARM64 Release compile; 10 skills. `runtime-2026-10-10-p23`; P3.2 commit `55da17f`. |
+
+### P0.3 growth investigation (2026-10-10)
+
+The preserved P2.2 five-minute Desk Clock diagnostic reproduces the cold +9.2 MiB private observation. A second
+600-second run samples that exact candidate every five seconds. Relative to its 20.117-second sample, private
+growth ends at 970,752 bytes and peaks at 3,674,112; working set ends at +2,437,120 and peaks at +4,222,976.
+Most growth is in the first 15 seconds. Stable provider/widget/device counts and complete teardown support a
+coarse warmed WARP guard of 4 MiB private / 8 MiB working set. This local trace does not supply heap/driver stack
+attribution or establish hardware budgets. Receipts: `runtime-2026-10-10-p03-calibration` and `-p03-desk-trend`.
+
+The initial ASan Studio Clock guard fails at +9,637,888 private bytes; a quiet default-quarantine repeat fails
+at +10,055,680, with stable object/resource counts and 60/61 scheduled frames. The same binary with only
+`quarantine_size_mb=0:thread_local_quarantine_size_kb=0` peaks at +86,016 bytes. This diagnostic supports separating
+instrumented allocator retention from the ordinary process-byte guard, without attributing allocation stacks.
+The full ASan gate keeps default quarantine, raw memory samples and all functional/lifetime assertions; only its
+process-byte budget is diagnostic. These failed runs remain in `runtime-2026-10-10-p03-asan-calibration` and the
+initial full log. Release/Debug apply the ordinary 4/8 MiB peak guard. No `ASAN_OPTIONS` was configured for the
+default runs; only the two quarantine options differ in the diagnostic.
+
+Final current-source gates: 16 Release scopes, 16 Debug scopes, 15 ASan Debug native scopes, ARM64 Release compilation
+and 10 skills pass. Final Release private/working-set peaks are Matrix 0/0, Studio 1,306,624/1,916,928 and Desk
+942,080/290,816 bytes. Debug peaks are 0/0, 2,166,784/1,613,824 and 344,064/360,448. All retain their fixed resource
+counts and release device resources. ASan functional checks pass with diagnostic private peaks of 8,060,928,
+10,141,696 and 175,292,416 bytes respectively; this is not a zero-allocation or leak-attribution claim. The
+default-quarantine full gate remains intact. Exact candidate/artifact identities, final/failed logs and all
+per-profile soak logs are retained at `runtime-2026-10-10-p03`; the final logs are named `p03-*-final.log`.
+The Studio Clock `frames` counter includes the already-displayed warmed boundary frame; measured Render calls
+are that count minus one. Desk Clock and Matrix count measured Render calls directly. None is a hardware presented-frame counter.
 
 ### P2.2 matched comparison (2026-10-10)
 
@@ -454,7 +483,7 @@ contract and validation updates.
 | --- | --- | --- |
 | P0.1 | **Complete 2026-10-10: production probe, tests and Release A/B/C/D plus inactive receipts.** See the evidence checklist and versioned Core record. Unconditional device logging was already present and is preserved. | Selected P2.7; its matched comparison is recorded above. D retains 85.80 MiB private, supporting P3.6 attribution/source reclamation; P4.1 remains a storage candidate. F/raised-G/presented-H and external attribution stay with P0.2/P0.4. |
 | P0.2 | **External captures per selected optimization:** PresentMon for PresentMode, pacing and input-to-present; WPR/WPA for CPU/thread/image attribution and whole-process GPU LUIDs. Use a quiet desktop, fresh matching sources/artifacts and the scenario's real settings/services. Do not reuse September thread totals. | Current thread/module attribution and hardware frame/input table in `.build/receipts/`. |
-| P0.3 | **Soaks become tests.** Wire `--matrix-soak`, `--studio-clock-soak`, `--desk-clock-soak` (60 s variants) into `test.ps1` with asserted `private_bytes_delta` and `working_set_delta`. Investigate the Desk Clock +9.2 MiB before setting the bar. | Soaks fail on growth above the recorded bar. |
+| P0.3 | **Complete 2026-10-10: automated warmed soaks.** The three isolated 60 s variants run in the HostPlugin scope. Twenty scheduled seconds warm the clocks; Matrix keeps its 1,024-frame warm-up. Five-second/end samples guard uninstrumented peak growth at 4 MiB private / 8 MiB working set. ASan retains default quarantine and functional bounds, with diagnostic byte reporting. | Long Desk Clock sampling places most observed growth in the warm-up interval, without heap/driver stack attribution. Current Release/Debug/ASan full gates pass; longer plugin qualification remains separate. |
 | P0.4 | Record Matrix instance count and present rate on current Focus/Gallery placements; compare current pinned DxUi library receipt identity with AV tile+overlay bytes. | Grid math and pin identity match the measured scene; library composition throughput is not hardware application FPS. |
 
 ### Phase 1 — render on the GPU that owns the panel; never block on Present

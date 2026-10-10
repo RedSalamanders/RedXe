@@ -549,3 +549,10 @@ remain with the AV owner.
   upload only on visual change, zero steady render allocations, one shared 1 MiB DirectWrite-rasterized atlas, no
   persistent DirectWrite or runtime shader/image dependencies, a five-minute scheduled flip soak with stable resources
   and hidden zero work, and complete device-loss teardown.
+- The automated `HostPlugin` scope runs separate 60-second Matrix, Studio Clock and Desk Clock WARP soaks.
+  After 1,024 Matrix frames or 20 seconds of scheduled clock warm-up, peak sampled private/working-set growth
+  in uninstrumented builds MUST remain within 4/8 MiB; sample every five seconds and at the end. ASan keeps its
+  normal quarantine/shadow settings, reports process bytes diagnostically and enforces the same functional
+  object/resource, scheduling and teardown bounds. These coarse whole-process regression
+  guards include WARP/runtime caches. They supplement fixed resource counts, scheduling bounds and teardown;
+  they do not replace hardware budgets, allocation checks or the five-minute plugin qualification.
